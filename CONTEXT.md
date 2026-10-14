@@ -33,6 +33,10 @@ _Avoid_: Keyframe, frame
 A named sequence of Pose Keys that animates one Action, e.g. the Overhead Attack.
 _Avoid_: Animation, clip
 
+**Gait**:
+The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back into the current Motion's stance when the body stops. It is not a Motion: it runs alongside whatever Action is current.
+_Avoid_: Walk animation, walk cycle, locomotion
+
 **Tuning Data**:
 All editor-authored data — Weapons and Motions — stored as files in the repo. Both peers must hold identical Tuning Data to play.
 _Avoid_: Config, settings
