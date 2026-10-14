@@ -89,7 +89,7 @@ A directional defensive Action that stops an Attack when its Direction matches t
 _Avoid_: Parry, guard
 
 **Feint**:
-Cancelling an Attack's wind-up into a different Action. (Planned extension.)
+Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
 
 **Chamber**:
 Countering an incoming Attack by attacking in the matching Direction at the right moment. (Planned extension.)
