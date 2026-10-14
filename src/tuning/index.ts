@@ -10,10 +10,12 @@ import weaponJson from '../../data/weapon.json';
 import skeletonJson from '../../data/skeleton.json';
 import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
+import chamberJson from '../../data/chamber.json';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
+export { tuningDataHash } from './hash';
 export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
 
@@ -46,6 +48,16 @@ export interface WeaponTuning {
    * so a blade moving at `speed` into the torso deals exactly `damage`.
    */
   readonly speed: number;
+}
+
+/**
+ * Chamber timing: countering an incoming Attack by attacking in its Direction.
+ * A press counts when it falls within the first `windowSeconds` seconds of the incoming
+ * Attack's Release (see `src/sim/chamber.ts` for the full rule).
+ */
+export interface ChamberTuning {
+  /** Length of the Chamber window, seconds from the first Tick of the incoming Release. */
+  readonly windowSeconds: number;
 }
 
 /** The coarse regions of the Skeleton a Blade Sweep can hit. */
@@ -104,6 +116,7 @@ export interface TuningData {
   readonly arena: ArenaTuning;
   readonly weapon: WeaponTuning;
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
+  readonly chamber: ChamberTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** Every Motion, keyed by name. Always contains `Idle`. */
@@ -163,6 +176,7 @@ export function parseTuningData(raw: unknown): TuningData {
   const w = record(root.weapon, 'weapon');
   const s = record(root.skeleton, 'skeleton');
   const hz = record(root.hitZones, 'hitZones');
+  const ch = record(root.chamber, 'chamber');
   const hitZones = Object.fromEntries(
     HIT_ZONES.map((zone) => {
       const where = `hitZones.${zone}`;
@@ -195,6 +209,7 @@ export function parseTuningData(raw: unknown): TuningData {
       speed: positiveNumber(w, 'speed', 'weapon'),
     },
     hitZones,
+    chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     skeleton,
     ai: parseAi(root.ai),
     motions,
@@ -214,5 +229,5 @@ export function loadTuningData(): TuningData {
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, skeleton: skeletonJson, ai: aiJson, motions });
+  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, skeleton: skeletonJson, ai: aiJson, motions });
 }

@@ -35,6 +35,7 @@ import type { HitZone, TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
+import { createBrowserAudio } from '../audio';
 import { createAiController, runMatch } from '../controllers';
 
 /** What the sandbox plays: Duel states to scrub through, plus the Match around them for an AI vs AI run. */
@@ -232,6 +233,14 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   pane.element.parentElement!.style.width = '360px';
   pane.addButton({ title: '← Motion Editor' }).on('click', () => (location.hash = '#/editor'));
   pane.addBinding(ui, 'playing');
+  // Sounds play for Ticks reached by playing or stepping; scrubbing and restarting are silent.
+  const audio = createBrowserAudio();
+  let heard = ui.tick;
+  const hear = (t: number) => {
+    audio.onTick(t, run.states[t]!.events);
+    heard = t;
+  };
+  pane.addBinding(audio, 'muted', { label: 'mute sound' });
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05, label: 'speed (slow-mo)' });
   /** The scrub slider's range is fixed at creation, so it is rebuilt in place when the script length changes. */
   const addScrub = (index?: number) => {
@@ -243,6 +252,7 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   pane.addButton({ title: 'Step one Tick' }).on('click', () => {
     ui.playing = false;
     ui.tick = Math.min(lastTick(), ui.tick + 1);
+    hear(ui.tick);
     accumulator = 0;
     pane.refresh();
   });
@@ -296,8 +306,12 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
     last = now;
     while (accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
-      if (ui.tick < lastTick()) ui.tick++;
+      if (ui.tick < lastTick()) hear(++ui.tick);
       else ui.playing = false;
+    }
+    if (ui.tick !== heard) {
+      audio.seek(ui.tick);
+      heard = ui.tick;
     }
     const t = ui.tick;
     const curr = run.states[t]!;
@@ -328,6 +342,8 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
         if (e.type === 'AttackPhase') return `${e.tick} F${e.fighter} ${e.phase}`;
         if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
         if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;
+        if (e.type === 'Chamber') return `${e.tick} Chamber: F${e.chamberer} cancels F${e.attacker} (${e.direction})`;
+        if (e.type === 'Feint') return `${e.tick} F${e.fighter} Feint ${e.from} → ${e.into.kind} ${e.into.direction}`;
         return `${e.tick} Duel over: ${e.winner === null ? 'draw' : `F${e.winner} wins`}`;
       })
       .join('\n');

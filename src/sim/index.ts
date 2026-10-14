@@ -27,7 +27,7 @@ export type {
   Vec2,
 } from './state';
 export { ATTACK_PHASES } from './state';
-export type { AttackPhaseEvent, BlockEvent, DuelEndEvent, HitEvent, SimEvent, StaggerEvent } from './events';
+export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent } from './events';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
 export { CENTRE_PLACEMENT, createInitialState, duelPlacements, fighterPose, step } from './step';
@@ -41,6 +41,7 @@ export {
   STAGGER_MOTION,
 } from './actions';
 export { hitDamage } from './combat';
+export { chamberWindowTicks } from './chamber';
 export { HIT_ZONE_BONES, hitZoneCapsules, type HitCapsule } from './hitZones';
 export {
   attack,

@@ -89,10 +89,10 @@ A directional defensive Action that stops an Attack when its Direction matches t
 _Avoid_: Parry, guard
 
 **Feint**:
-Cancelling an Attack's wind-up into a different Action. (Planned extension.)
+Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
 
 **Chamber**:
-Countering an incoming Attack by attacking in the matching Direction at the right moment. (Planned extension.)
+Countering an incoming Attack by starting an Attack in the same Direction early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. The incoming Attack is cancelled (its attacker Staggers) and the chamberer's own Attack continues.
 
 **Blade Sweep**:
 The volume the Weapon's blade traces between ticks; whatever it intersects is hit. Hits are physical, never abstract.

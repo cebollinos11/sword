@@ -12,6 +12,7 @@ function goodRaw() {
       torso: { multiplier: 1, radius: 0.15 },
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
+    chamber: { windowSeconds: 0.15 },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,
@@ -49,6 +50,7 @@ describe('Tuning Data', () => {
     expect(t.arena.radius).toBe(8);
     expect(t.weapon.length).toBeGreaterThan(0);
     expect(t.hitZones.head.multiplier).toBeGreaterThan(t.hitZones.limbs.multiplier);
+    expect(t.chamber.windowSeconds).toBe(0.15);
     expect(Object.keys(t.motions)).toEqual(expect.arrayContaining(['Idle', 'Overhead']));
   });
 
@@ -70,6 +72,8 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, hitZones: { head: good.hitZones.head, torso: good.hitZones.torso } })).toThrow(
       /hitZones\.limbs/,
     );
+    expect(() => parseTuningData({ ...good, chamber: { windowSeconds: 0 } })).toThrow(/chamber\.windowSeconds/);
+    expect(() => parseTuningData({ ...good, chamber: undefined })).toThrow(/chamber/);
     expect(() => parseTuningData({ ...good, skeleton: { ...good.skeleton, forearm: -1 } })).toThrow(/skeleton\.forearm/);
   });
 
