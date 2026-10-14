@@ -70,6 +70,17 @@ describe('Stagger', () => {
     expect(run.final.fighters[1]!.action).toEqual({ kind: 'Idle' });
   });
 
+  it("a Blocked attacker's recoil is a shorter Stagger than a hit Stagger", () => {
+    const staggerTicks = (run: ScriptRun, fighter: number) => run.states.filter((s) => s.fighters[fighter]!.action.kind === 'Stagger').length;
+    const blocked = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 200) });
+    const hit = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: wait(1) });
+    expect(eventsOf(blocked, 'Stagger')).toEqual([expect.objectContaining({ fighter: 0, cause: 'Blocked' })]);
+    expect(eventsOf(hit, 'Stagger')).toEqual([expect.objectContaining({ fighter: 1, cause: 'Hit' })]);
+    const recoil = staggerTicks(blocked, 0);
+    expect(recoil).toBeGreaterThan(0);
+    expect(recoil).toBeLessThan(staggerTicks(hit, 1));
+  });
+
   it('a Staggered Fighter ignores its Intents until the Stagger ends', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Thrust', 200) });
     const t = hitsOf(run)[0]!.tick;

@@ -15,6 +15,7 @@ describe('EditorSession', () => {
       'BlockThrust',
       'Idle',
       'Left',
+      'Recoil',
       'Right',
       'Stagger',
       'Thrust',

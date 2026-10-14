@@ -38,7 +38,9 @@ export {
   BLOCK_FACING_HALF_ANGLE,
   blockMotionName,
   blocksAttack,
+  RECOIL_MOTION,
   STAGGER_MOTION,
+  staggerMotionName,
 } from './actions';
 export { hitDamage } from './combat';
 export { chamberWindowTicks } from './chamber';
