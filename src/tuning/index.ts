@@ -93,7 +93,7 @@ export interface AiTuning {
   readonly attackRange: number;
   /** Closer than this (m) the AI backs off. */
   readonly retreatRange: number;
-  /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack. */
+  /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack (it always punishes an opening). 0 = it never attacks. */
   readonly aggression: number;
   /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
   readonly difficulties: Readonly<Record<string, AiDifficulty>>;
