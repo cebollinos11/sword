@@ -1,0 +1,86 @@
+/**
+ * Pose Key editing operations on a Motion draft (see `EditorSession`). Pure
+ * data in, data out: no three.js or DOM, so the timeline, the gizmos and the
+ * fields all share these and they are unit-tested. Every operation keeps the
+ * draft's Pose Keys in time order; the draft still has to pass `commit()`
+ * (parseMotion) before it becomes live.
+ */
+import { sampleMotion, type PoseTargets } from '../sim';
+import { POSE_KEY_CHANNELS, type PoseKeyChannel, type SkeletonTuning } from '../tuning';
+import type { MotionDraft } from './session';
+
+type PoseKeyDraft = MotionDraft['poseKeys'][number];
+
+/** Pose Key times are authored in hundredths of a second. */
+export const TIME_STEP = 0.01;
+
+/** Round to the authoring step and clamp into the Motion. */
+export function snapTime(time: number, duration: number): number {
+  const t = Math.round(time / TIME_STEP) * TIME_STEP;
+  return Math.min(Math.max(+t.toFixed(4), 0), duration);
+}
+
+/** The value a Motion's channel has at `time` (what a new Pose Key there would hold). */
+export function channelValueAt<C extends PoseKeyChannel>(d: MotionDraft, channel: C, time: number, skeleton: SkeletonTuning): PoseTargets[C] {
+  return structuredClone(sampleMotion(d, time, skeleton)[channel]);
+}
+
+function insertIndex(d: MotionDraft, time: number): number {
+  let i = 0;
+  while (i < d.poseKeys.length && d.poseKeys[i]!.time <= time) i++;
+  return i;
+}
+
+/**
+ * Move Pose Key `index` to `time` (snapped and clamped). If it passes a
+ * neighbour it moves in the list; ties keep it on the side it came from.
+ * Returns its new index.
+ */
+export function retimePoseKey(d: MotionDraft, index: number, time: number): number {
+  const key = d.poseKeys[index];
+  if (!key) throw new RangeError(`No Pose Key ${index}`);
+  const t = snapTime(time, d.duration);
+  const later = t >= key.time;
+  d.poseKeys.splice(index, 1);
+  key.time = t;
+  let i = 0;
+  if (later) i = insertIndex(d, t);
+  else while (i < d.poseKeys.length && d.poseKeys[i]!.time < t) i++;
+  d.poseKeys.splice(i, 0, key);
+  return i;
+}
+
+/** Delete Pose Key `index`. A Motion must keep at least one Pose Key. */
+export function removePoseKey(d: MotionDraft, index: number): void {
+  if (!d.poseKeys[index]) throw new RangeError(`No Pose Key ${index}`);
+  if (d.poseKeys.length <= 1) throw new RangeError('A Motion needs at least one Pose Key');
+  d.poseKeys.splice(index, 1);
+}
+
+/**
+ * Make Pose Key `index` set `channel` (to the pose the Motion has at that
+ * key's time, unless it already sets it) or stop setting it.
+ */
+export function setChannel(d: MotionDraft, index: number, channel: PoseKeyChannel, on: boolean, skeleton: SkeletonTuning): void {
+  const key = d.poseKeys[index] as Record<PoseKeyChannel, unknown> | undefined;
+  if (!key) throw new RangeError(`No Pose Key ${index}`);
+  if (!on) delete key[channel];
+  else if (key[channel] === undefined) key[channel] = channelValueAt(d, channel, d.poseKeys[index]!.time, skeleton);
+}
+
+/**
+ * Add a Pose Key at `time` holding the pose the Motion has there, for every
+ * channel some Pose Key already sets. It takes the easing curve of the
+ * segment it splits. Returns the new key's index.
+ */
+export function addPoseKey(d: MotionDraft, time: number, skeleton: SkeletonTuning): number {
+  const t = snapTime(time, d.duration);
+  const sampled = sampleMotion(d, t, skeleton);
+  const i = insertIndex(d, t);
+  const key: PoseKeyDraft = { time: t, ease: d.poseKeys[i]?.ease ?? 'linear' };
+  for (const c of POSE_KEY_CHANNELS) {
+    if (d.poseKeys.some((k) => k[c] !== undefined)) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(sampled[c]);
+  }
+  d.poseKeys.splice(i, 0, key);
+  return i;
+}
