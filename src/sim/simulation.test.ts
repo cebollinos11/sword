@@ -32,13 +32,13 @@ describe('A lone Fighter on the Arena', () => {
   it('starts Idle at the Arena centre with full HP (fighter.json maxHp = 100)', () => {
     const s = createInitialState(tuning, 1);
     expect(s.fighters).toHaveLength(1);
-    expect(s.fighters[0]).toMatchObject({ action: 'Idle', hp: 100, position: { x: 0, z: 0 } });
+    expect(s.fighters[0]).toMatchObject({ action: { kind: 'Idle' }, hp: 100, position: { x: 0, z: 0 } });
   });
 
   it('stays put and Idle while given no Intents, with the Tick advancing', () => {
     const s = run(createInitialState(tuning, 1), Array.from({ length: 60 }, () => []));
     expect(s.tick).toBe(60);
-    expect(s.fighters[0]).toMatchObject({ action: 'Idle', hp: 100, position: { x: 0, z: 0 } });
+    expect(s.fighters[0]).toMatchObject({ action: { kind: 'Idle' }, hp: 100, position: { x: 0, z: 0 } });
   });
 
   it('walks at walkSpeed: one second forward at 2.5 m/s covers 2.5 m', () => {

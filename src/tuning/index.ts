@@ -2,13 +2,14 @@
  * Tuning Data: all Editor-authored data, stored as JSON files in `data/`.
  *
  * This module owns the typed shape and validation on load (and, later, the
- * content hash used for the peer compatibility check). Hit Zone and AI
- * difficulty sections arrive in later tickets.
+ * content hash used for the peer compatibility check). The AI difficulty
+ * section arrives in a later ticket.
  */
 import fighterJson from '../../data/fighter.json';
 import arenaJson from '../../data/arena.json';
 import weaponJson from '../../data/weapon.json';
 import skeletonJson from '../../data/skeleton.json';
+import hitZonesJson from '../../data/hitZones.json';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { array, positiveNumber, record, TuningDataError } from './validate';
 
@@ -36,8 +37,24 @@ export interface ArenaTuning {
 export interface WeaponTuning {
   /** Blade length from hilt (the hand) to tip, metres. */
   readonly length: number;
-  /** Base damage before Blade Speed and Hit Zone scaling. */
+  /** Damage of a hit at the reference Blade Speed (`speed`) on a Hit Zone with multiplier 1. */
   readonly damage: number;
+  /**
+   * Reference Blade Speed, m/s. Damage = damage × (Blade Speed at contact / speed) × Hit Zone multiplier,
+   * so a blade moving at `speed` into the torso deals exactly `damage`.
+   */
+  readonly speed: number;
+}
+
+/** The coarse regions of the Skeleton a Blade Sweep can hit. */
+export const HIT_ZONES = ['head', 'torso', 'limbs'] as const;
+export type HitZone = (typeof HIT_ZONES)[number];
+
+export interface HitZoneTuning {
+  /** Damage multiplier for a hit on this Hit Zone. */
+  readonly multiplier: number;
+  /** Radius (metres) of the capsules built on this Hit Zone's bones. */
+  readonly radius: number;
 }
 
 /** Bone lengths of the primitive-built Skeleton, metres. */
@@ -64,6 +81,7 @@ export interface TuningData {
   readonly fighter: FighterTuning;
   readonly arena: ArenaTuning;
   readonly weapon: WeaponTuning;
+  readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly skeleton: SkeletonTuning;
   /** Every Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
@@ -93,6 +111,14 @@ export function parseTuningData(raw: unknown): TuningData {
   const a = record(root.arena, 'arena');
   const w = record(root.weapon, 'weapon');
   const s = record(root.skeleton, 'skeleton');
+  const hz = record(root.hitZones, 'hitZones');
+  const hitZones = Object.fromEntries(
+    HIT_ZONES.map((zone) => {
+      const where = `hitZones.${zone}`;
+      const z = record(hz[zone], where);
+      return [zone, { multiplier: positiveNumber(z, 'multiplier', where), radius: positiveNumber(z, 'radius', where) }];
+    }),
+  ) as Record<HitZone, HitZoneTuning>;
   const skeleton = Object.fromEntries(SKELETON_KEYS.map((k) => [k, positiveNumber(s, k, 'skeleton')])) as unknown as SkeletonTuning;
 
   const motions: Record<string, Motion> = {};
@@ -111,7 +137,12 @@ export function parseTuningData(raw: unknown): TuningData {
       height: positiveNumber(f, 'height', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
-    weapon: { length: positiveNumber(w, 'length', 'weapon'), damage: positiveNumber(w, 'damage', 'weapon') },
+    weapon: {
+      length: positiveNumber(w, 'length', 'weapon'),
+      damage: positiveNumber(w, 'damage', 'weapon'),
+      speed: positiveNumber(w, 'speed', 'weapon'),
+    },
+    hitZones,
     skeleton,
     motions,
   };
@@ -130,5 +161,5 @@ export function loadTuningData(): TuningData {
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, skeleton: skeletonJson, motions });
+  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, skeleton: skeletonJson, motions });
 }

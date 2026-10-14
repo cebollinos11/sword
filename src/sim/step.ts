@@ -1,9 +1,13 @@
 import type { TuningData } from '../tuning';
+import { IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { findContacts, resolveContacts } from './combat';
 import { TICK_SECONDS } from './constants';
+import { DUEL_FIGHTING, updateDuel } from './duel';
+import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { motionPose } from './pose';
 import { createRng } from './rng';
-import type { SkeletonPose } from './skeleton';
+import type { Placement, SkeletonPose } from './skeleton';
 import type { FighterState, SimState } from './state';
 
 /** The full solved Skeleton of a Fighter at its current Tick (what the Renderer draws). */
@@ -11,22 +15,39 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
   return motionPose(tuning, f.motion.name, f.motion.tick, f);
 }
 
-/** Build the state at Tick 0: one Idle Fighter at the Arena centre. */
-export function createInitialState(tuning: TuningData, seed: number): SimState {
-  const placement = { position: { x: 0, z: 0 }, facing: 0 };
-  const motion = { name: 'Idle', tick: 0 };
+/** A lone Fighter at the Arena centre, facing +z. */
+export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
+
+/**
+ * Two Fighters facing each other across the Arena centre, `distance` metres
+ * apart along z: Fighter 0 at -z facing +z, Fighter 1 at +z facing -z.
+ */
+export function duelPlacements(distance: number): Placement[] {
+  return [
+    { position: { x: 0, z: -distance / 2 }, facing: 0 },
+    { position: { x: 0, z: distance / 2 }, facing: Math.PI },
+  ];
+}
+
+/** Build the state at Tick 0: an Idle Fighter with full HP at each placement (default: one at the centre). */
+export function createInitialState(
+  tuning: TuningData,
+  seed: number,
+  placements: readonly Placement[] = [CENTRE_PLACEMENT],
+): SimState {
   return {
     tick: 0,
     rng: createRng(seed),
-    fighters: [
-      {
-        ...placement,
-        hp: tuning.fighter.maxHp,
-        action: 'Idle',
-        motion,
-        blade: motionPose(tuning, motion.name, motion.tick, placement).blade,
-      },
-    ],
+    fighters: placements.map(({ position, facing }) => ({
+      position: { x: position.x, z: position.z },
+      facing,
+      hp: tuning.fighter.maxHp,
+      action: IDLE_ACTION,
+      motion: IDLE_MOTION,
+      blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing }).blade,
+    })),
+    duel: DUEL_FIGHTING,
+    events: [],
   };
 }
 
@@ -51,22 +72,31 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
   return { x, z };
 }
 
-function stepFighter(f: FighterState, intent: Intent, tuning: TuningData): FighterState {
+function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
+  const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
   const position = walk(f, intent, tuning);
-  const motion = { name: f.motion.name, tick: f.motion.tick + 1 };
   // Motion is simulation: the Skeleton is solved by IK inside the Tick (ADR 0001).
   const blade = motionPose(tuning, motion.name, motion.tick, { position, facing: f.facing }).blade;
-  return { ...f, position, motion, blade };
+  return { ...f, position, action, motion, blade };
 }
 
 /**
  * Advance the Simulation by exactly one Tick. Pure: never mutates `state`.
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
+ *
+ * Order within a Tick: Actions and movement → Blade Sweeps against Hit Zones
+ * → damage → Duel end. Once the Duel is over, Intents are ignored and no
+ * more hits land (a Match, #14, starts the next Duel).
  */
 export function step(state: SimState, intents: readonly Intent[], tuning: TuningData): SimState {
-  return {
-    tick: state.tick + 1,
-    rng: state.rng,
-    fighters: state.fighters.map((f, i) => stepFighter(f, intents[i] ?? IDLE_INTENT, tuning)),
-  };
+  const events: SimEvent[] = [];
+  const emit = (e: SimEvent) => void events.push(e);
+  const fighting = state.duel.status === 'Fighting';
+  const tick = state.tick + 1;
+
+  let fighters = state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit));
+  if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
+  const duel = updateDuel(state.duel, fighters, tick, emit);
+
+  return { tick, rng: state.rng, fighters, duel, events };
 }

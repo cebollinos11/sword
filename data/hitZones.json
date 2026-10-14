@@ -1,0 +1,5 @@
+{
+  "head": { "multiplier": 1.5, "radius": 0.12 },
+  "torso": { "multiplier": 1, "radius": 0.16 },
+  "limbs": { "multiplier": 0.6, "radius": 0.06 }
+}
