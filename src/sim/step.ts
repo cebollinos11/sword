@@ -1,5 +1,6 @@
 import type { TuningData } from '../tuning';
 import { IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { resolveBodies } from './collision';
 import { findContacts, resolveContacts } from './combat';
 import { TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
@@ -51,6 +52,7 @@ export function createInitialState(
   };
 }
 
+/** Where the Fighter's movement Intent takes it this Tick, before collision. */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
   let { x: mx, z: mz } = intent.move;
   const len = Math.hypot(mx, mz);
@@ -60,24 +62,29 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mz /= len;
   }
   const d = tuning.fighter.walkSpeed * TICK_SECONDS;
-  let x = f.position.x + mx * d;
-  let z = f.position.z + mz * d;
-  // Stay on the flat circular Arena.
-  const maxR = tuning.arena.radius - tuning.fighter.radius;
-  const r = Math.hypot(x, z);
-  if (r > maxR) {
-    x = (x / r) * maxR;
-    z = (z / r) * maxR;
-  }
-  return { x, z };
+  return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
 
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
-  const position = walk(f, intent, tuning);
-  // Motion is simulation: the Skeleton is solved by IK inside the Tick (ADR 0001).
-  const blade = motionPose(tuning, motion.name, motion.tick, { position, facing: f.facing }).blade;
-  return { ...f, position, action, motion, blade };
+  return { ...f, position: walk(f, intent, tuning), action, motion };
+}
+
+/**
+ * Fighter capsules push each other apart and stay inside the Arena, then each
+ * Skeleton is solved at its final position. Motion is simulation: the Skeleton
+ * is solved by IK inside the Tick (ADR 0001).
+ */
+function settleBodies(fighters: readonly FighterState[], tuning: TuningData): FighterState[] {
+  const positions = resolveBodies(
+    fighters.map((f) => f.position),
+    tuning,
+  );
+  return fighters.map((f, i) => {
+    const position = positions[i]!;
+    const blade = motionPose(tuning, f.motion.name, f.motion.tick, { position, facing: f.facing }).blade;
+    return { ...f, position, blade };
+  });
 }
 
 /**
@@ -94,7 +101,10 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const fighting = state.duel.status === 'Fighting';
   const tick = state.tick + 1;
 
-  let fighters = state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit));
+  let fighters = settleBodies(
+    state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit)),
+    tuning,
+  );
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
