@@ -37,6 +37,8 @@ import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
 import { createAiController, runMatch } from '../controllers';
+import { EditorSession } from './session';
+import { addTuningPanels } from './tuningPanel';
 
 /** What the sandbox plays: Duel states to scrub through, plus the Match around them for an AI vs AI run. */
 type SandboxRun = ScriptRun & { readonly matches?: readonly MatchState[] };
@@ -201,7 +203,10 @@ class HitZoneOverlay {
   }
 }
 
-export function startSandbox(container: HTMLElement, tuning: TuningData): void {
+export function startSandbox(container: HTMLElement, loaded: TuningData): void {
+  /** Live Tuning Data: the tuning panels edit it through the session, and every edit re-runs the script. */
+  const session = new EditorSession(loaded);
+  let tuning = session.tuning;
   const stage = new Stage(container, tuning);
   stage.camera.position.set(3.6, 2.2, 0);
   const controls = new OrbitControls(stage.camera, stage.canvas);
@@ -290,6 +295,12 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   ai.addBinding(aiMatch, 'blue', { label: 'blue AI', options: difficulties }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunAi);
+  addTuningPanels(pane, session, () => {
+    tuning = session.tuning;
+    const tick = ui.tick;
+    rerun();
+    ui.tick = Math.min(tick, lastTick());
+  });
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
   overlays.addBinding(ui, 'bladeSweep', { label: 'Blade Sweep' });
