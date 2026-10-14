@@ -24,6 +24,7 @@ import {
 import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { saveJsonFile } from './save';
+import { startSandbox } from './sandbox';
 import { BladeSweepTrail } from './trail';
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] extends object ? Mutable<T[K]> : T[K] };
@@ -66,6 +67,10 @@ export class EditorSession {
 }
 
 export function startEditor(container: HTMLElement, loaded: TuningData): void {
+  if (location.hash.startsWith('#/editor/sandbox')) {
+    startSandbox(container, loaded);
+    return;
+  }
   const session = new EditorSession(loaded);
   const stage = new Stage(container, loaded);
   stage.camera.position.set(3.2, 1.7, 1.6);
@@ -79,6 +84,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   const ui = { motion: session.motionNames()[0]!, playing: true, speed: 1, tick: 0, status: 'Ready' };
   const pane = new Pane({ title: 'Motion Editor' });
+  pane.addButton({ title: 'Duel sandbox →' }).on('click', () => (location.hash = '#/editor/sandbox'));
   pane.element.parentElement!.style.width = '340px';
   pane.element.parentElement!.style.maxHeight = 'calc(100vh - 16px)';
   pane.element.parentElement!.style.overflowY = 'auto';

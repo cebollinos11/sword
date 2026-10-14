@@ -6,7 +6,12 @@ function goodRaw() {
   return {
     fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8 },
     arena: { radius: 8 },
-    weapon: { length: 0.9, damage: 30 },
+    weapon: { length: 0.9, damage: 30, speed: 10 },
+    hitZones: {
+      head: { multiplier: 1.5, radius: 0.11 },
+      torso: { multiplier: 1, radius: 0.15 },
+      limbs: { multiplier: 0.6, radius: 0.06 },
+    },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,
@@ -37,6 +42,7 @@ describe('Tuning Data', () => {
     expect(t.fighter.walkSpeed).toBe(2.5);
     expect(t.arena.radius).toBe(8);
     expect(t.weapon.length).toBeGreaterThan(0);
+    expect(t.hitZones.head.multiplier).toBeGreaterThan(t.hitZones.limbs.multiplier);
     expect(Object.keys(t.motions)).toEqual(expect.arrayContaining(['Idle', 'Overhead']));
   });
 
@@ -50,7 +56,14 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, arena: { radius: -1 } })).toThrow(TuningDataError);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, walkSpeed: '2' } })).toThrow(/walkSpeed/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
-    expect(() => parseTuningData({ ...good, weapon: { length: 0, damage: 30 } })).toThrow(/weapon\.length/);
+    expect(() => parseTuningData({ ...good, weapon: { length: 0, damage: 30, speed: 10 } })).toThrow(/weapon\.length/);
+    expect(() => parseTuningData({ ...good, weapon: { length: 0.9, damage: 30 } })).toThrow(/weapon\.speed/);
+    expect(() => parseTuningData({ ...good, hitZones: { ...good.hitZones, head: { multiplier: 0, radius: 0.1 } } })).toThrow(
+      /hitZones\.head\.multiplier/,
+    );
+    expect(() => parseTuningData({ ...good, hitZones: { head: good.hitZones.head, torso: good.hitZones.torso } })).toThrow(
+      /hitZones\.limbs/,
+    );
     expect(() => parseTuningData({ ...good, skeleton: { ...good.skeleton, forearm: -1 } })).toThrow(/skeleton\.forearm/);
   });
 

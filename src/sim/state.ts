@@ -1,3 +1,5 @@
+import type { SimEvent } from './events';
+import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
 
@@ -7,8 +9,29 @@ export interface Vec2 {
   readonly z: number;
 }
 
-/** What a Fighter is doing right now. Attack, Block and Stagger arrive in later tickets. */
-export type Action = 'Idle';
+/** The three phases of an Attack, in order. */
+export const ATTACK_PHASES = ['Wind-up', 'Release', 'Recovery'] as const;
+export type AttackPhase = (typeof ATTACK_PHASES)[number];
+
+export interface IdleAction {
+  readonly kind: 'Idle';
+}
+
+export interface AttackAction {
+  readonly kind: 'Attack';
+  readonly direction: Direction;
+  readonly phase: AttackPhase;
+  /** True once this Attack's Blade Sweep has connected; an Attack lands at most once. */
+  readonly landed: boolean;
+}
+
+/**
+ * What a Fighter is doing right now; exactly one at a time. A tagged union of
+ * plain data: add a member here (Block, Stagger, ...) and a handler in
+ * `actions/index.ts`.
+ */
+export type Action = IdleAction | AttackAction;
+export type ActionKind = Action['kind'];
 
 export interface FighterState {
   /** Position on the Arena floor, centre of the Arena is the origin. */
@@ -17,7 +40,7 @@ export interface FighterState {
   readonly facing: number;
   readonly hp: number;
   readonly action: Action;
-  /** The Motion animating the current Action and how many Ticks it has played. */
+  /** The Motion animating the current Action and its playhead. */
   readonly motion: MotionPlayback;
   /** The blade this Tick, solved from the Motion by IK. Last Tick's blade bounds the Blade Sweep. */
   readonly blade: BladeTransform;
@@ -26,9 +49,17 @@ export interface FighterState {
 export interface MotionPlayback {
   /** A Motion name from Tuning Data. */
   readonly name: string;
-  /** Ticks since the Motion started. */
+  /**
+   * Playhead in Ticks from the start of the Motion. It advances one per Tick
+   * except while an Action holds it (e.g. a held Wind-up stays on its last pose).
+   */
   readonly tick: number;
 }
+
+/** Whether the Duel is still being fought. `winner` is a Fighter index, or null for a draw (both at 0 HP). */
+export type DuelState =
+  | { readonly status: 'Fighting' }
+  | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };
 
 /**
  * The complete Simulation state. Plain, JSON-like data only: everything that
@@ -38,4 +69,7 @@ export interface SimState {
   readonly tick: number;
   readonly rng: RngState;
   readonly fighters: readonly FighterState[];
+  readonly duel: DuelState;
+  /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
+  readonly events: readonly SimEvent[];
 }
