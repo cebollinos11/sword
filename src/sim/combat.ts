@@ -5,15 +5,15 @@
  *      is tested against every other Fighter's Hit Zones.
  *   2. resolveContacts: every contact is resolved against the same
  *      pre-resolution state, so two Attacks landing on one Tick both count.
- * Later tickets hook in at resolveContact (Blocks by rule, Stagger on hit).
+ *   3. resolveContact: a Block by rule, or a hit that Staggers the victim.
  */
 import type { HitZone, TuningData } from '../tuning';
-import { attackSweepLive } from './actions';
+import { attackSweepLive, blocksAttack, stagger } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules } from './hitZones';
 import type { Direction } from './intent';
 import { motionPose } from './pose';
-import type { AttackAction, FighterState } from './state';
+import type { AttackAction, FighterState, StaggerCause } from './state';
 import { sweepContact } from './sweep';
 import type { Vec3 } from './vec';
 
@@ -48,7 +48,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   return contacts;
 }
 
-/** Apply this Tick's contacts. Each Attack lands at most once. */
+/**
+ * Apply this Tick's contacts. Each Attack lands at most once. Every contact is
+ * judged against the pre-resolution `fighters` (who was Blocking, which Attacks
+ * were live), so two Attacks landing on the same Tick are a Trade: both hit,
+ * both victims take damage and Stagger.
+ */
 export function resolveContacts(
   fighters: readonly FighterState[],
   contacts: readonly Contact[],
@@ -56,18 +61,36 @@ export function resolveContacts(
   emit: Emit,
 ): FighterState[] {
   const out = fighters.slice();
-  for (const c of contacts) resolveContact(out, c, tuning, emit);
+  for (const c of contacts) resolveContact(fighters, out, c, tuning, emit);
   return out;
 }
 
-/** One contact: a hit that damages the defender and marks the Attack as landed. */
-function resolveContact(fighters: FighterState[], c: Contact, tuning: TuningData, emit: Emit): void {
-  const attacker = fighters[c.attacker]!;
-  const defender = fighters[c.defender]!;
+/** Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). */
+function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
+  const { action, motion } = stagger(cause);
+  emit({ type: 'Stagger', fighter: index, cause });
+  return { ...f, action, motion, blade: motionPose(tuning, motion.name, motion.tick, f).blade };
+}
+
+/**
+ * One contact. Blocked by rule (ADR 0002): no damage, the attacker recoils
+ * into Stagger. Otherwise a hit: the defender takes damage and Staggers.
+ */
+function resolveContact(before: readonly FighterState[], out: FighterState[], c: Contact, tuning: TuningData, emit: Emit): void {
+  const attacker = before[c.attacker]!;
+  const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
   if (action.landed) return;
+  if (blocksAttack(defender, attacker, c.direction)) {
+    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction });
+    out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
+    return;
+  }
   const damage = hitDamage(tuning, c.zone, c.bladeSpeed);
-  fighters[c.attacker] = { ...attacker, action: { ...action, landed: true } };
-  fighters[c.defender] = { ...defender, hp: Math.max(0, defender.hp - damage) };
+  const current = out[c.attacker]!;
+  // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
+  if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true } };
+  const hurt = out[c.defender]!;
   emit({ type: 'Hit', ...c, damage });
+  out[c.defender] = staggerFighter({ ...hurt, hp: Math.max(0, hurt.hp - damage) }, c.defender, 'Hit', tuning, emit);
 }

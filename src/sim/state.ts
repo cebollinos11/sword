@@ -25,12 +25,26 @@ export interface AttackAction {
   readonly landed: boolean;
 }
 
+/** Holding a guard in one Direction for as long as block is held. Stops matching Attacks by rule (ADR 0002). */
+export interface BlockAction {
+  readonly kind: 'Block';
+  readonly direction: Direction;
+}
+
+/** Why a Fighter Staggers: it was hit, or its Attack was Blocked (the attacker recoils). */
+export type StaggerCause = 'Hit' | 'Blocked';
+
+/** A short forced Action in which the Fighter cannot act; it lasts as long as the Stagger Motion. */
+export interface StaggerAction {
+  readonly kind: 'Stagger';
+  readonly cause: StaggerCause;
+}
+
 /**
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
- * plain data: add a member here (Block, Stagger, ...) and a handler in
- * `actions/index.ts`.
+ * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction;
+export type Action = IdleAction | AttackAction | BlockAction | StaggerAction;
 export type ActionKind = Action['kind'];
 
 export interface FighterState {

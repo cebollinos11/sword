@@ -1,6 +1,6 @@
 import type { HitZone } from '../tuning';
 import type { Direction } from './intent';
-import type { AttackPhase } from './state';
+import type { AttackPhase, StaggerCause } from './state';
 import type { Vec3 } from './vec';
 
 /** A Fighter's Attack entered a phase (Wind-up on press, Release = the swing sound, Recovery). */
@@ -25,6 +25,21 @@ export interface HitEvent {
   readonly damage: number;
 }
 
+/** An Attack's Blade Sweep reached a defender who Blocked it by rule: no damage, the attacker Staggers. */
+export interface BlockEvent {
+  readonly type: 'Block';
+  readonly attacker: number;
+  readonly defender: number;
+  readonly direction: Direction;
+}
+
+/** A Fighter's Action was interrupted by a Stagger (hit, or its Attack was Blocked). */
+export interface StaggerEvent {
+  readonly type: 'Stagger';
+  readonly fighter: number;
+  readonly cause: StaggerCause;
+}
+
 /** The Duel ended this Tick. `winner` is a Fighter index, or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
@@ -33,9 +48,9 @@ export interface DuelEndEvent {
 
 /**
  * Everything observable that happened during one Tick, in order. Add new
- * members (Block, Stagger, ...) to this union; consumers switch on `type`.
+ * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | StaggerEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;
