@@ -17,7 +17,8 @@ const FORBIDDEN: [RegExp, string][] = [
   [/\bset(?:Timeout|Interval)\b/, 'timers'],
   [/\b(?:window|document|navigator)\b/, 'DOM globals'],
   [/from\s+['"]three(?:\/[^'"]*)?['"]/, 'three.js import'],
-  [/from\s+['"][./]*(?:render|editor)\//, 'render/editor import'],
+  [/from\s+['"][./]*(?:render|editor|audio)(?:\/|['"])/, 'render/editor/audio import'],
+  [/\b(?:AudioContext|OfflineAudioContext|Audio)\b/, 'audio'],
 ];
 
 function sourceFiles(dir: string): string[] {

@@ -1,0 +1,45 @@
+{
+  "name": "Thrust",
+  "duration": 1,
+  "loop": false,
+  "markers": {
+    "windUpEnd": 0.35,
+    "releaseEnd": 0.45
+  },
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": { "position": { "x": 0.2, "y": 1.05, "z": 0.3 }, "rotation": { "x": -60, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.25, "y": 0.9, "z": 0.05 } },
+      "torso": { "twist": 0, "lean": 0 },
+      "hip": { "x": 0, "y": 0.92, "z": 0 },
+      "leftFoot": { "x": -0.12, "z": 0.12 },
+      "rightFoot": { "x": 0.14, "z": -0.12 }
+    },
+    {
+      "time": 0.35,
+      "ease": "easeOut",
+      "rightHand": { "position": { "x": 0.4, "y": 1.35, "z": -0.2 }, "rotation": { "x": 5, "y": -12, "z": -90 } },
+      "leftHand": { "position": { "x": -0.15, "y": 1.25, "z": 0.35 } },
+      "torso": { "twist": 30, "lean": -8 },
+      "hip": { "x": 0, "y": 0.86, "z": -0.06 }
+    },
+    {
+      "time": 0.45,
+      "ease": "easeIn",
+      "rightHand": { "position": { "x": 0.05, "y": 1.3, "z": 0.65 }, "rotation": { "x": 3, "y": -3, "z": -90 } },
+      "leftHand": { "position": { "x": -0.3, "y": 0.95, "z": -0.1 } },
+      "torso": { "twist": -15, "lean": 15 },
+      "hip": { "x": 0, "y": 0.86, "z": 0.18 }
+    },
+    {
+      "time": 1,
+      "ease": "easeInOut",
+      "rightHand": { "position": { "x": 0.2, "y": 1.05, "z": 0.3 }, "rotation": { "x": -60, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.25, "y": 0.9, "z": 0.05 } },
+      "torso": { "twist": 0, "lean": 0 },
+      "hip": { "x": 0, "y": 0.92, "z": 0 }
+    }
+  ]
+}

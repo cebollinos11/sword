@@ -11,11 +11,11 @@ export type Direction = (typeof DIRECTIONS)[number];
 export interface Intent {
   /** Desired walk direction on the ground plane; length is clamped to 1. */
   readonly move: Vec2;
-  /** The Direction an Attack (or Block) started on this Tick uses. */
+  /** The Direction an Attack (or Block) started on this Tick uses. Changing it while a Wind-up is held is a Feint. */
   readonly direction: Direction;
   /** Attack button held. Pressing starts an Attack; holding holds the Wind-up; letting go Releases. */
   readonly attack: boolean;
-  /** Block button held. Pressing (from Idle) raises a Block in `direction`; letting go drops it. */
+  /** Block button held. Pressing (from Idle, or during a Wind-up as a Feint) raises a Block in `direction`; letting go drops it. */
   readonly block: boolean;
 }
 
