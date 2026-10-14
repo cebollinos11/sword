@@ -17,6 +17,14 @@ export interface Intent {
   readonly attack: boolean;
   /** Block button held. Pressing (from Idle, or during a Wind-up as a Feint) raises a Block in `direction`; letting go drops it. */
   readonly block: boolean;
+  /**
+   * The yaw (radians, 0 faces +z, same convention as FighterState.facing) the
+   * Fighter should turn toward, or null to keep its facing. The Fighter turns
+   * the shorter way round at `fighter.turnSpeed`, so turning takes time. The
+   * Local Controller fills this from the mouse/camera; the AI aims it at its
+   * opponent. Movement never turns a Fighter: only this does.
+   */
+  readonly face: number | null;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({
@@ -24,4 +32,5 @@ export const IDLE_INTENT: Intent = Object.freeze({
   direction: 'Overhead',
   attack: false,
   block: false,
+  face: null,
 });

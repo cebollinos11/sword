@@ -76,6 +76,7 @@ function randomIntents(seed: number): (tick: number) => Intent {
       direction: PLAYABLE[Math.floor(next() * PLAYABLE.length)]!,
       attack: r < 0.35 && tick % 2 === 0,
       block: r > 0.8,
+      face: next() < 0.2 ? next() * 2 * Math.PI - Math.PI : null,
     };
   };
 }

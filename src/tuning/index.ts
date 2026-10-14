@@ -2,17 +2,17 @@
  * Tuning Data: all Editor-authored data, stored as JSON files in `data/`.
  *
  * This module owns the typed shape and validation on load (and, later, the
- * content hash used for the peer compatibility check). The AI difficulty
- * section arrives in a later ticket.
+ * content hash used for the peer compatibility check).
  */
 import fighterJson from '../../data/fighter.json';
 import arenaJson from '../../data/arena.json';
 import weaponJson from '../../data/weapon.json';
 import skeletonJson from '../../data/skeleton.json';
 import hitZonesJson from '../../data/hitZones.json';
+import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
 import { parseMotion, motionFileName, type Motion } from './motion';
-import { array, positiveNumber, record, TuningDataError } from './validate';
+import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
 export { tuningDataHash } from './hash';
@@ -28,6 +28,8 @@ export interface FighterTuning {
   readonly radius: number;
   /** Standing height in metres. */
   readonly height: number;
+  /** How fast a Fighter turns toward its Intent's `face`, in degrees per second. */
+  readonly turnSpeed: number;
 }
 
 export interface ArenaTuning {
@@ -89,6 +91,26 @@ export interface SkeletonTuning {
   readonly forearm: number;
 }
 
+/** One AI difficulty preset: together, Reaction Time and mistake rate define AI difficulty. */
+export interface AiDifficulty {
+  /** Reaction Time in seconds: the AI only acts on what it saw of its opponent this long ago. */
+  readonly reactionTime: number;
+  /** Chance (0..1) of a mistake per decision: a wrong-Direction Block, or a mistimed Attack. */
+  readonly mistakeRate: number;
+}
+
+/** The rule-based AI Controller's behaviour and its difficulty presets. */
+export interface AiTuning {
+  /** Distance (m) to the opponent within which the AI attacks; further away it walks in. */
+  readonly attackRange: number;
+  /** Closer than this (m) the AI backs off. */
+  readonly retreatRange: number;
+  /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack (it always punishes an opening). 0 = it never attacks. */
+  readonly aggression: number;
+  /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
+  readonly difficulties: Readonly<Record<string, AiDifficulty>>;
+}
+
 export interface TuningData {
   readonly fighter: FighterTuning;
   readonly arena: ArenaTuning;
@@ -96,6 +118,7 @@ export interface TuningData {
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
   readonly skeleton: SkeletonTuning;
+  readonly ai: AiTuning;
   /** Every Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
 }
@@ -113,6 +136,34 @@ const SKELETON_KEYS = [
   'upperArm',
   'forearm',
 ] as const satisfies readonly (keyof SkeletonTuning)[];
+
+function fraction(obj: Record<string, unknown>, key: string, where: string): number {
+  const v = finiteNumber(obj, key, where);
+  if (v < 0 || v > 1) throw new TuningDataError(`${where}.${key} must be between 0 and 1, got ${v}`);
+  return v;
+}
+
+function parseAi(raw: unknown): AiTuning {
+  const ai = record(raw, 'ai');
+  const d = record(ai.difficulties, 'ai.difficulties');
+  const names = Object.keys(d);
+  if (names.length === 0) throw new TuningDataError('ai.difficulties must define at least one difficulty');
+  const difficulties = Object.fromEntries(
+    names.map((name) => {
+      const where = `ai.difficulties.${name}`;
+      const p = record(d[name], where);
+      const reactionTime = finiteNumber(p, 'reactionTime', where);
+      if (reactionTime < 0) throw new TuningDataError(`${where}.reactionTime must be >= 0, got ${reactionTime}`);
+      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where) }];
+    }),
+  );
+  return {
+    attackRange: positiveNumber(ai, 'attackRange', 'ai'),
+    retreatRange: positiveNumber(ai, 'retreatRange', 'ai'),
+    aggression: fraction(ai, 'aggression', 'ai'),
+    difficulties,
+  };
+}
 
 /**
  * Validate raw (parsed JSON) Tuning Data. Throws TuningDataError when invalid.
@@ -149,6 +200,7 @@ export function parseTuningData(raw: unknown): TuningData {
       walkSpeed: positiveNumber(f, 'walkSpeed', 'fighter'),
       radius: positiveNumber(f, 'radius', 'fighter'),
       height: positiveNumber(f, 'height', 'fighter'),
+      turnSpeed: positiveNumber(f, 'turnSpeed', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
     weapon: {
@@ -159,6 +211,7 @@ export function parseTuningData(raw: unknown): TuningData {
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     skeleton,
+    ai: parseAi(root.ai),
     motions,
   };
 }
@@ -176,5 +229,5 @@ export function loadTuningData(): TuningData {
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, skeleton: skeletonJson, motions });
+  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, skeleton: skeletonJson, ai: aiJson, motions });
 }

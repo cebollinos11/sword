@@ -4,7 +4,7 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
   return {
-    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8 },
+    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360 },
     arena: { radius: 8 },
     weapon: { length: 0.9, damage: 30, speed: 10 },
     hitZones: {
@@ -25,6 +25,12 @@ function goodRaw() {
       headRadius: 0.11,
       upperArm: 0.3,
       forearm: 0.28,
+    },
+    ai: {
+      attackRange: 1.4,
+      retreatRange: 0.9,
+      aggression: 0.05,
+      difficulties: { Normal: { reactionTime: 0.25, mistakeRate: 0.2 } },
     },
     motions: [
       {
@@ -69,6 +75,24 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, chamber: { windowSeconds: 0 } })).toThrow(/chamber\.windowSeconds/);
     expect(() => parseTuningData({ ...good, chamber: undefined })).toThrow(/chamber/);
     expect(() => parseTuningData({ ...good, skeleton: { ...good.skeleton, forearm: -1 } })).toThrow(/skeleton\.forearm/);
+  });
+
+  it('loads AI difficulty presets (Reaction Time, mistake rate) from data/ai.json', () => {
+    const t = loadTuningData();
+    expect(Object.keys(t.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard']);
+    const { Easy, Hard } = t.ai.difficulties;
+    expect(Hard!.reactionTime).toBeLessThan(Easy!.reactionTime);
+    expect(Hard!.mistakeRate).toBeLessThan(Easy!.mistakeRate);
+  });
+
+  it('rejects invalid AI Tuning Data', () => {
+    const good = goodRaw();
+    const withDifficulty = (d: object) => ({ ...good, ai: { ...good.ai, difficulties: { Normal: d } } });
+    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 1.5 }))).toThrow(/ai\.difficulties\.Normal\.mistakeRate/);
+    expect(() => parseTuningData(withDifficulty({ reactionTime: -0.1, mistakeRate: 0 }))).toThrow(/ai\.difficulties\.Normal\.reactionTime/);
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, difficulties: {} } })).toThrow(/ai\.difficulties/);
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, aggression: 2 } })).toThrow(/ai\.aggression/);
+    expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0 });
   });
 
   it('requires an Idle Motion and unique Motion names', () => {

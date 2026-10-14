@@ -1,0 +1,10 @@
+{
+  "attackRange": 1.4,
+  "retreatRange": 0.9,
+  "aggression": 0.02,
+  "difficulties": {
+    "Easy": { "reactionTime": 0.35, "mistakeRate": 0.45 },
+    "Normal": { "reactionTime": 0.25, "mistakeRate": 0.2 },
+    "Hard": { "reactionTime": 0.18, "mistakeRate": 0.05 }
+  }
+}
