@@ -2,17 +2,19 @@
  * The Editor's Duel sandbox (/sword/#/editor/sandbox): a scripted two-Fighter
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
- * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade) or Movement.
+ * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
+ * Movement, or an AI vs AI Match (two AI Controllers, difficulty per Fighter
+ * and seed in the "AI vs AI" folder).
  *
- * The whole Duel is simulated up front (it is deterministic), so scrubbing is
- * just picking a stored state. Later tickets can swap the script for AI
- * Controllers.
+ * The whole run is simulated up front (it is deterministic), so scrubbing is
+ * just picking a stored state.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane } from 'tweakpane';
 import {
   attack,
+  createMatch,
   fighterPose,
   hitZoneCapsules,
   hold,
@@ -24,6 +26,7 @@ import {
   type Direction,
   type BladeTransform,
   type HitCapsule,
+  type MatchState,
   type ScriptRun,
   type SimState,
   type Track,
@@ -32,6 +35,15 @@ import type { HitZone, TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
+import { createAiController, runMatch } from '../controllers';
+
+/** What the sandbox plays: Duel states to scrub through, plus the Match around them for an AI vs AI run. */
+type SandboxRun = ScriptRun & { readonly matches?: readonly MatchState[] };
+
+/** Settings of the AI vs AI Match (the Tweakpane folder edits these). */
+const aiMatch = { red: 'Hard', blue: 'Normal', seed: 1, bestOf: 3 };
+/** Stop an AI vs AI Match that never ends (e.g. two perfect AIs) after this many Ticks. */
+const AI_MATCH_MAX_TICKS = 60 * 60 * 5;
 
 const block = (direction: Direction, ticks: number): Track => hold(ticks, { block: true, direction });
 
@@ -88,8 +100,31 @@ function movementDuel(tuning: TuningData): ScriptRun {
   return runDuel(tuning, { distance: 3, a, b, ticks: 600 });
 }
 
-const SCRIPTS = { Exchange: scriptedDuel, Movement: movementDuel } as const;
+/**
+ * AI vs AI: a best-of-N Match between two AI Controllers. The Duel states of
+ * every Match Tick are laid end to end (each new Duel restarts its own Tick), and
+ * events are tagged with the Match Tick, which is also the scrub index.
+ */
+function aiVsAiMatch(tuning: TuningData): SandboxRun {
+  const controllers = [createAiController(tuning, aiMatch.red), createAiController(tuning, aiMatch.blue)];
+  const { matches } = runMatch(tuning, createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed }), controllers, AI_MATCH_MAX_TICKS);
+  const states = matches.map((m) => m.duel);
+  const events = matches.flatMap((m) => m.duel.events.map((e) => ({ ...e, tick: m.tick })));
+  return { states, final: states[states.length - 1]!, events, matches };
+}
+
+const SCRIPTS: Record<string, (tuning: TuningData) => SandboxRun> = {
+  Exchange: scriptedDuel,
+  Movement: movementDuel,
+  'AI vs AI Match': aiVsAiMatch,
+};
 type ScriptName = keyof typeof SCRIPTS;
+
+function describeMatch(m: MatchState): string {
+  const score = `score ${m.score.join('–')}`;
+  if (m.status.status === 'Over') return `Match over: ${m.status.winner === 0 ? 'red' : 'blue'} wins · ${score}`;
+  return `Duel ${m.duelNumber} of best of ${m.config.bestOf} · ${score}`;
+}
 
 const TRAIL_TICKS = 45;
 const ZONE_COLOURS: Record<HitZone, number> = { head: 0xffd60a, torso: 0x30d158, limbs: 0x64d2ff };
@@ -173,7 +208,7 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   controls.update();
 
   const script: { name: ScriptName } = { name: 'Exchange' };
-  let run = SCRIPTS[script.name](tuning);
+  let run: SandboxRun = SCRIPTS[script.name]!(tuning);
   const lastTick = () => run.states.length - 1;
 
   const views = [0, 1].map((i) => new FighterView(FIGHTER_COLOURS[i]!, tuning));
@@ -190,9 +225,10 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
     bladeSweep: true,
     fighter0: '',
     fighter1: '',
+    match: '',
     events: '',
   };
-  const pane = new Pane({ title: 'Duel sandbox (scripted)' });
+  const pane = new Pane({ title: 'Duel sandbox' });
   pane.element.parentElement!.style.width = '360px';
   pane.addButton({ title: '← Motion Editor' }).on('click', () => (location.hash = '#/editor'));
   pane.addBinding(ui, 'playing');
@@ -215,8 +251,9 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
     accumulator = 0;
     pane.refresh();
   });
+  let switchingScript = false;
   const rerun = () => {
-    run = SCRIPTS[script.name](tuning);
+    run = SCRIPTS[script.name]!(tuning);
     ui.tick = 0;
     accumulator = 0;
     const index = pane.children.indexOf(scrub);
@@ -225,14 +262,31 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   };
   pane
     .addBinding(script, 'name', { label: 'script', options: Object.fromEntries(Object.keys(SCRIPTS).map((k) => [k, k])) })
-    .on('change', rerun);
+    .on('change', () => {
+      if (!switchingScript) rerun();
+    });
   pane.addButton({ title: 'Re-run script (live Tuning Data)' }).on('click', rerun);
+  const ai = pane.addFolder({ title: 'AI vs AI', expanded: true });
+  const difficulties = Object.fromEntries(Object.keys(tuning.ai.difficulties).map((k) => [k, k]));
+  /** Changing an AI setting switches to (and re-runs) the AI vs AI Match. */
+  const rerunAi = () => {
+    script.name = 'AI vs AI Match';
+    switchingScript = true; // refresh() may fire the script binding's 'change'; re-run once, below
+    pane.refresh();
+    switchingScript = false;
+    rerun();
+  };
+  ai.addBinding(aiMatch, 'red', { label: 'red AI', options: difficulties }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'blue', { label: 'blue AI', options: difficulties }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunAi);
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
   overlays.addBinding(ui, 'bladeSweep', { label: 'Blade Sweep' });
   const status = pane.addFolder({ title: 'State' });
   status.addBinding(ui, 'fighter0', { readonly: true, label: 'red', multiline: true, rows: 2 });
   status.addBinding(ui, 'fighter1', { readonly: true, label: 'blue', multiline: true, rows: 2 });
+  status.addBinding(ui, 'match', { readonly: true, label: 'match' });
   status.addBinding(ui, 'events', { readonly: true, label: 'events', multiline: true, rows: 6 });
 
   let accumulator = 0;
@@ -263,6 +317,8 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
     });
 
     const hp = (i: number) => curr.fighters[i]!.hp.toFixed(1);
+    const m = run.matches?.[t];
+    ui.match = m ? describeMatch(m) : '(scripted Duel)';
     ui.fighter0 = `HP ${hp(0)}\n${describeAction(curr.fighters[0]!.action)}`;
     ui.fighter1 = `HP ${hp(1)}\n${describeAction(curr.fighters[1]!.action)}`;
     const recent = run.events.filter((e) => e.tick <= t).slice(-6);
