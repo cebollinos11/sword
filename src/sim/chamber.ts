@@ -60,7 +60,7 @@ export function resolveChambers(
     const direction = chamberer.action.direction;
     next.forEach((attacker, a) => {
       if (a === c || attacker.action.kind !== 'Attack' || attacker.action.direction !== direction) return;
-      if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker)) return;
+      if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker, tuning)) return;
       emit({ type: 'Chamber', chamberer: c, attacker: a, direction });
       if (out[a]!.action.kind !== 'Stagger') out[a] = staggerFighter(out[a]!, a, 'Chambered', tuning, emit);
     });

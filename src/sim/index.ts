@@ -35,7 +35,6 @@ export {
   attackMotionName,
   attackTimings,
   type AttackTimings,
-  BLOCK_FACING_HALF_ANGLE,
   blockMotionName,
   blocksAttack,
   RECOIL_MOTION,
@@ -73,8 +72,6 @@ export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';
 export {
   createMatch,
-  DEFAULT_DUEL_DISTANCE,
-  DEFAULT_INTER_DUEL_TICKS,
   duelsToWin,
   stepMatch,
   type DuelStartEvent,

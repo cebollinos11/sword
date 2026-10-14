@@ -81,7 +81,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
   if (action.landed) return;
-  if (blocksAttack(defender, attacker, c.direction)) {
+  if (blocksAttack(defender, attacker, c.direction, tuning)) {
     emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
     return;

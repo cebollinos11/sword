@@ -11,6 +11,8 @@ import skeletonJson from '../../data/skeleton.json';
 import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
+import blockJson from '../../data/block.json';
+import matchJson from '../../data/match.json';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
@@ -61,6 +63,20 @@ export interface ChamberTuning {
 }
 
 /** The coarse regions of the Skeleton a Blade Sweep can hit. */
+/** The Block rule's facing check (also used by Chambers). */
+export interface BlockTuning {
+  /** How far (degrees either side of straight ahead, 0 < a <= 180) the attacker may be from the defender's facing: "roughly faces the attacker". */
+  readonly facingHalfAngle: number;
+}
+
+/** How a Match is paced. */
+export interface MatchTuning {
+  /** Distance (m) between the Fighters at the start of every Duel. */
+  readonly duelDistance: number;
+  /** Pause (s) between a Duel ending and the next one starting. */
+  readonly interDuelSeconds: number;
+}
+
 export const HIT_ZONES = ['head', 'torso', 'limbs'] as const;
 export type HitZone = (typeof HIT_ZONES)[number];
 
@@ -117,6 +133,8 @@ export interface TuningData {
   readonly weapon: WeaponTuning;
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
+  readonly block: BlockTuning;
+  readonly match: MatchTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** Every Motion, keyed by name. Always contains `Idle`. */
@@ -177,6 +195,10 @@ export function parseTuningData(raw: unknown): TuningData {
   const s = record(root.skeleton, 'skeleton');
   const hz = record(root.hitZones, 'hitZones');
   const ch = record(root.chamber, 'chamber');
+  const bl = record(root.block, 'block');
+  const ma = record(root.match, 'match');
+  const facingHalfAngle = positiveNumber(bl, 'facingHalfAngle', 'block');
+  if (facingHalfAngle > 180) throw new TuningDataError(`block.facingHalfAngle must be at most 180, got ${facingHalfAngle}`);
   const hitZones = Object.fromEntries(
     HIT_ZONES.map((zone) => {
       const where = `hitZones.${zone}`;
@@ -210,6 +232,8 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
+    block: { facingHalfAngle },
+    match: { duelDistance: positiveNumber(ma, 'duelDistance', 'match'), interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match') },
     skeleton,
     ai: parseAi(root.ai),
     motions,
@@ -229,5 +253,5 @@ export function loadTuningData(): TuningData {
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, skeleton: skeletonJson, ai: aiJson, motions });
+  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, block: blockJson, match: matchJson, skeleton: skeletonJson, ai: aiJson, motions });
 }

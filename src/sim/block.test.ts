@@ -37,6 +37,16 @@ describe('Block', () => {
     }
   });
 
+  it('how roughly the defender must face the attacker is Tuning Data (block.facingHalfAngle)', () => {
+    // Fighter 1 is turned 75 degrees away from facing Fighter 0.
+    const turned = placements(1.3, Math.PI - (75 * Math.PI) / 180);
+    const narrow = runDuel(tuning, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
+    expect(eventsOf(narrow, 'Block')).toEqual([]);
+    const wide: typeof tuning = { ...tuning, block: { facingHalfAngle: 90 } };
+    const widened = runDuel(wide, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
+    expect(eventsOf(widened, 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1 })]);
+  });
+
   it('a Block in the matching Direction while facing away from the attacker does not stop the Attack', () => {
     const run = runDuel(tuning, { placements: placements(1.3, 0), a: attack('Overhead'), b: block('Overhead', 120) });
     expect(eventsOf(run, 'Block')).toEqual([]);
