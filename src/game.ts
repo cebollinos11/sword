@@ -29,11 +29,9 @@ const MAX_TICKS_PER_FRAME = 8;
 /** How long the final result stays on screen before the menu returns (seconds, cosmetic). */
 const RESULT_SECONDS = 2.5;
 
-/** What the loop needs to know to present a Match: who the local player is and what to call each Fighter. */
+/** What the loop needs to know to present a Match: the driver (which also says who the local player is). */
 export interface MatchPresentation {
   readonly driver: MatchDriver;
-  /** Display name per Fighter index (HUD). */
-  readonly names: readonly string[];
 }
 
 export interface Game {
@@ -83,7 +81,6 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     onStart({ difficulty, bestOf }) {
       game.play({
         driver: playerVsAi(tuning, { difficulty, bestOf, seed: randomSeed() }),
-        names: ['You', `AI (${difficulty})`],
       });
     },
     onCreateRoom({ bestOf, broker }) {
@@ -165,21 +162,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       tuning,
       ...(role === 'host' ? { match: { bestOf, seed: randomSeed() } } : {}),
     });
-    const driver = playerVsPlayer(session);
-    const names = ['Opponent', 'Opponent'];
-    names[driver.localFighter] = 'You';
-    game.play({ driver, names });
+    game.play({ driver: playerVsPlayer(session) });
   }
 
   const game: Game = {
-    play({ driver: d, names }) {
+    play({ driver: d }) {
       if (driver !== d) driver?.close?.();
       driver = d;
       local.releaseAll();
       announcer = new MatchAnnouncer();
       resultAt = null;
       menu.hide();
-      hud.show({ fighters: names, localFighter: d.localFighter });
+      hud.show(d.localFighter);
       const start = d.state;
       // An online Match has no state until the peers connect; its first Tick then sounds.
       audio.seek(start?.tick ?? 0);

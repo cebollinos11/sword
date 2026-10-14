@@ -5,7 +5,6 @@ const CSS = `
 .hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; }
 .hud-fighter { flex: 1; max-width: 22rem; }
 .hud-side-1 { text-align: right; }
-.hud-name { font-size: 0.85rem; font-weight: 600; text-shadow: 0 1px 2px #0008; margin-bottom: 0.25rem; }
 .hud-bar { position: relative; height: 1.1rem; background: #0006; border: 2px solid #fffc; border-radius: 4px; overflow: hidden; }
 .hud-side-1 .hud-bar { transform: scaleX(-1); }
 .hud-fill { height: 100%; width: 100%; transition: width 120ms linear; }
@@ -15,7 +14,6 @@ const CSS = `
 .hud-side-1 .hud-hp { transform: scaleX(-1); }
 .hud-centre { text-align: center; text-shadow: 0 1px 3px #000a; min-width: 7rem; }
 .hud-score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.hud-duel { font-size: 0.8rem; opacity: 0.9; }
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }
