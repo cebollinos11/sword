@@ -8,6 +8,21 @@ import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
 import { Hud } from './play/hud';
 import { Menu } from './play/menu';
+import { MatchAnnouncer } from './play/announcer';
+import { playerVsPlayer } from './play/online';
+import {
+  BrokerUrlError,
+  createRollbackSession,
+  hostRoom,
+  joinRoom,
+  parseBrokerUrl,
+  parseRoomInput,
+  RoomError,
+  roomLink,
+  type BrokerOptions,
+  type SessionRole,
+  type Transport,
+} from './net';
 
 /** Never simulate more than this many Ticks in one rendered frame (e.g. after a background tab). */
 const MAX_TICKS_PER_FRAME = 8;
@@ -25,6 +40,18 @@ export interface Game {
   /** Play a Match through any driver: Player vs AI here, a Rollback session for Player vs Player (#23). */
   play(presentation: MatchPresentation): void;
 }
+
+/** Seeds a fresh Match (outside the Simulation, so Math.random is fine). */
+function randomSeed(): number {
+  return (Math.random() * 0x7fffffff) | 0;
+}
+
+/** A Room being created or joined (Player vs Player, not connected yet). */
+interface RoomAttempt {
+  cancel(): void;
+}
+
+const ROOM_ROUTE = '#/room/';
 
 /**
  * The game route: owns the wall clock and the fixed-Tick loop. Each Tick the
@@ -49,28 +76,117 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let last = performance.now();
   let resultAt: number | null = null;
   let resultText = '';
+  let announcer = new MatchAnnouncer();
+  let room: RoomAttempt | null = null;
 
-  const menu = new Menu(container, tuning, ({ difficulty, bestOf }) => {
-    game.play({
-      driver: playerVsAi(tuning, { difficulty, bestOf, seed: (Math.random() * 0x7fffffff) | 0 }),
-      names: ['You', `AI (${difficulty})`],
-    });
+  const menu = new Menu(container, tuning, {
+    onStart({ difficulty, bestOf }) {
+      game.play({
+        driver: playerVsAi(tuning, { difficulty, bestOf, seed: randomSeed() }),
+        names: ['You', `AI (${difficulty})`],
+      });
+    },
+    onCreateRoom({ bestOf, broker }) {
+      void createRoom(bestOf, broker);
+    },
+    onJoinRoom({ room: text, broker }) {
+      const address = parseRoomInput(text);
+      if (!address) return menu.show(`"${text.trim()}" is not a Room code or link.`);
+      joinByCode(address.code, address.broker ?? broker);
+    },
+    onLeaveRoom() {
+      leaveRoom();
+      menu.show();
+    },
   });
+
+  /** The broker options, or undefined (after showing why) if the URL is unusable. */
+  function brokerFrom(text: string): BrokerOptions | null | undefined {
+    try {
+      return parseBrokerUrl(text);
+    } catch (e) {
+      if (!(e instanceof BrokerUrlError)) throw e;
+      menu.show(e.message);
+      return undefined;
+    }
+  }
+
+  function leaveRoom(): void {
+    room?.cancel();
+    room = null;
+  }
+
+  function roomFailed(attempt: RoomAttempt, e: unknown): void {
+    if (room !== attempt) return; // left meanwhile
+    room = null;
+    menu.show(e instanceof RoomError ? e.message : `Room error: ${String(e)}`);
+  }
+
+  async function createRoom(bestOf: number, brokerText: string): Promise<void> {
+    const broker = brokerFrom(brokerText);
+    if (broker === undefined) return;
+    leaveRoom();
+    menu.showRoom({ kind: 'Creating' });
+    const attempt: RoomAttempt = { cancel() {} };
+    room = attempt;
+    try {
+      const hosted = await hostRoom(broker);
+      attempt.cancel = () => hosted.cancel();
+      if (room !== attempt) return hosted.cancel();
+      menu.showRoom({ kind: 'Hosting', code: hosted.code, link: roomLink(location.href, hosted.code, brokerText.trim() || undefined) });
+      const transport = await hosted.connected;
+      if (room === attempt) startOnline('host', transport, bestOf);
+      else transport.close();
+    } catch (e) {
+      roomFailed(attempt, e);
+    }
+  }
+
+  function joinByCode(code: string, brokerText: string): void {
+    const broker = brokerFrom(brokerText);
+    if (broker === undefined) return;
+    leaveRoom();
+    menu.showRoom({ kind: 'Joining', code });
+    const pending = joinRoom(code, broker);
+    const attempt: RoomAttempt = pending;
+    room = attempt;
+    pending.connected.then(
+      (transport) => (room === attempt ? startOnline('guest', transport) : transport.close()),
+      (e) => roomFailed(attempt, e),
+    );
+  }
+
+  /** Connected: run the Match through a Rollback session (host = Fighter 0 picks the Match options, guest = Fighter 1). */
+  function startOnline(role: SessionRole, transport: Transport, bestOf = 3): void {
+    room = null;
+    const session = createRollbackSession({
+      role,
+      transport,
+      tuning,
+      ...(role === 'host' ? { match: { bestOf, seed: randomSeed() } } : {}),
+    });
+    const driver = playerVsPlayer(session);
+    const names = ['Opponent', 'Opponent'];
+    names[driver.localFighter] = 'You';
+    game.play({ driver, names });
+  }
 
   const game: Game = {
     play({ driver: d, names }) {
+      if (driver !== d) driver?.close?.();
       driver = d;
       local.releaseAll();
-      const start = d.state;
-      if (start) {
-        prev = curr = start;
-        audio.seek(start.tick);
-        aimAtDuelStart(start);
-      }
+      announcer = new MatchAnnouncer();
       resultAt = null;
       menu.hide();
       hud.show({ fighters: names, localFighter: d.localFighter });
-      hud.announce(`Duel ${start?.duelNumber ?? 1}`, 1.5);
+      const start = d.state;
+      // An online Match has no state until the peers connect; its first Tick then sounds.
+      audio.seek(start?.tick ?? 0);
+      if (start) {
+        prev = curr = start;
+        present(start, d.localFighter);
+      }
       input.enabled = true;
       accumulator = 0;
     },
@@ -83,6 +199,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   function finish(text: string): void {
+    driver?.close?.();
     driver = null;
     input.enabled = false;
     local.releaseAll();
@@ -91,13 +208,16 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.show(text);
   }
 
-  /** Announce what this Match Tick changed (Duel won/lost, a new Duel, the Match result). */
+  /**
+   * Announce what this Match state shows that is new (a Duel started or ended, the Match result).
+   * Read from the state, not the Tick's events: with Rollback the Tick carrying an event may only
+   * ever have been re-simulated, and a Tick may be presented twice.
+   */
   function present(match: MatchState, me: number): void {
-    for (const e of match.duel.events) {
-      if (e.type === 'DuelEnd') hud.announce(e.winner === null ? 'Draw' : e.winner === me ? 'Duel won' : 'Duel lost');
-    }
-    for (const e of match.events) {
-      if (e.type === 'DuelStart') {
+    for (const e of announcer.update(match)) {
+      if (e.type === 'DuelEnd') {
+        hud.announce(e.winner === null ? 'Draw' : e.winner === me ? 'Duel won' : 'Duel lost');
+      } else if (e.type === 'DuelStart') {
         hud.announce(`Duel ${e.duelNumber}`, 1.5);
         aimAtDuelStart(match);
       } else if (e.type === 'MatchEnd') {
@@ -113,12 +233,20 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     last = now;
     while (driver && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
-      if (!driver.tick(local.sample()).advanced || !driver.state) continue;
+      const d = driver;
+      const { advanced } = d.tick(local.sample());
+      if (d.failure) {
+        finish(d.failure);
+        break;
+      }
+      if (!advanced || !d.state) continue;
+      // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
-      curr = driver.state;
+      curr = d.state;
       audio.onMatchTick(curr);
-      present(curr, driver.localFighter);
+      present(curr, d.localFighter);
     }
+    if (driver?.waiting) hud.announce(driver.waiting, 0.5);
     if (!driver) accumulator = 0;
     if (resultAt !== null && now >= resultAt) {
       resultAt = null;
@@ -135,7 +263,19 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     requestAnimationFrame(frame);
   }
 
+  addEventListener('pagehide', () => {
+    leaveRoom();
+    driver?.close?.();
+  });
+
   menu.show();
+  // Opened from a Room link: join it right away, and drop the hash so a reload or "Play again" doesn't rejoin.
+  if (location.hash.startsWith(ROOM_ROUTE)) {
+    const linked = parseRoomInput(location.hash);
+    history.replaceState(null, '', location.pathname + location.search);
+    if (linked) joinByCode(linked.code, linked.broker ?? '');
+    else menu.show('That Room link is not valid.');
+  }
   requestAnimationFrame(frame);
   return game;
 }
