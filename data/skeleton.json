@@ -1,0 +1,13 @@
+{
+  "pelvisHeight": 0.95,
+  "hipWidth": 0.2,
+  "thigh": 0.46,
+  "shin": 0.46,
+  "ankleHeight": 0.06,
+  "spine": 0.5,
+  "shoulderWidth": 0.4,
+  "neck": 0.1,
+  "headRadius": 0.11,
+  "upperArm": 0.3,
+  "forearm": 0.28
+}

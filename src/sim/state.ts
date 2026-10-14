@@ -1,4 +1,5 @@
 import type { RngState } from './rng';
+import type { BladeTransform } from './skeleton';
 
 /** Ground-plane vector (metres). y is up and the Arena is flat, so only x/z. */
 export interface Vec2 {
@@ -16,6 +17,17 @@ export interface FighterState {
   readonly facing: number;
   readonly hp: number;
   readonly action: Action;
+  /** The Motion animating the current Action and how many Ticks it has played. */
+  readonly motion: MotionPlayback;
+  /** The blade this Tick, solved from the Motion by IK. Last Tick's blade bounds the Blade Sweep. */
+  readonly blade: BladeTransform;
+}
+
+export interface MotionPlayback {
+  /** A Motion name from Tuning Data. */
+  readonly name: string;
+  /** Ticks since the Motion started. */
+  readonly tick: number;
 }
 
 /**

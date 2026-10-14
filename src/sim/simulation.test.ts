@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   createInitialState,
+  fighterPose,
   hashState,
   IDLE_INTENT,
   restore,
@@ -45,6 +46,30 @@ describe('A lone Fighter on the Arena', () => {
     const s = run(createInitialState(tuning, 1), forward);
     expect(s.fighters[0]!.position.z).toBeCloseTo(2.5, 6);
     expect(s.fighters[0]!.position.x).toBeCloseTo(0, 6);
+  });
+
+  it('holds its sword in the Idle Motion from Tick 0 (idle.json: hand at local (0.2, 1.05, 0.3))', () => {
+    const f = createInitialState(tuning, 1).fighters[0]!;
+    expect(f.motion).toEqual({ name: 'Idle', tick: 0 });
+    expect(f.blade.hilt.x).toBeCloseTo(-0.2, 6); // the Fighter's right is world -x when facing +z
+    expect(f.blade.hilt.y).toBeCloseTo(1.05, 6);
+    expect(f.blade.hilt.z).toBeCloseTo(0.3, 6);
+  });
+
+  it('solves its Skeleton inside the Tick: the blade walks with the Fighter and follows the Idle Motion', () => {
+    const forward = Array.from({ length: 60 }, () => [{ ...IDLE_INTENT, move: { x: 0, z: 1 } }]);
+    const f = run(createInitialState(tuning, 1), forward).fighters[0]!;
+    expect(f.motion).toEqual({ name: 'Idle', tick: 60 });
+    // 2.5 m walked + 0.3 m hand reach; idle.json's 1 s Pose Key lowers the hand to 1.03.
+    expect(f.blade.hilt.z).toBeCloseTo(2.8, 6);
+    expect(f.blade.hilt.y).toBeCloseTo(1.03, 6);
+  });
+
+  it('exposes the full solved Skeleton for the Renderer, matching the blade in state', () => {
+    const f = run(createInitialState(tuning, 1), scriptedIntents(30)).fighters[0]!;
+    const pose = fighterPose(f, tuning);
+    expect(pose.blade).toEqual(f.blade);
+    expect(pose.joints.head.y).toBeGreaterThan(1.5);
   });
 
   it('never leaves the Arena (radius 8, Fighter radius 0.35)', () => {
