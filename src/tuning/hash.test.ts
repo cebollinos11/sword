@@ -10,7 +10,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapon: tuning.weapon, arena: tuning.arena, fighter: tuning.fighter };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapon: tuning.weapon, arena: tuning.arena, fighter: tuning.fighter, chamber: tuning.chamber };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
