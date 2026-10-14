@@ -102,6 +102,11 @@ function sameIntent(a: Intent, b: Intent): boolean {
   return a === b || hashValue(a) === hashValue(b);
 }
 
+/** Drop every entry of a per-Tick map whose Tick matches. */
+function pruneTicks(map: Map<number, unknown>, drop: (tick: number) => boolean): void {
+  for (const t of map.keys()) if (drop(t)) map.delete(t);
+}
+
 export function createRollbackSession(options: RollbackSessionOptions): RollbackSession {
   return new Session(options);
 }
@@ -248,14 +253,13 @@ class Session implements RollbackSession {
       if (k % CHECKSUM_INTERVAL !== 0) continue;
       const hash = hashValue(restore(this.states.get(k)!));
       this.hashes.set(k, hash);
-      if (this.role === 'host') this.transport.send({ type: 'checksum', tick: k, hash } satisfies NetMessage);
+      if (this.role === 'host') this.send({ type: 'checksum', tick: k, hash });
       else this.compareChecksum(k);
     }
     this.lastHashed = Math.max(this.lastHashed, confirmed);
-    for (const t of this.states.keys()) if (t < confirmed) this.states.delete(t);
+    pruneTicks(this.states, (t) => t < confirmed);
     const old = confirmed - HISTORY_TICKS;
-    for (const map of [this.localIntents, this.remoteIntents, this.usedRemote, this.hashes, this.hostChecksums])
-      for (const t of map.keys()) if (t < old) map.delete(t);
+    for (const map of [this.localIntents, this.remoteIntents, this.usedRemote, this.hashes, this.hostChecksums]) pruneTicks(map, (t) => t < old);
   }
 
   // --- Messages ---
@@ -380,8 +384,8 @@ class Session implements RollbackSession {
     this.states.set(tick, snapshot(state));
     this.resimulate(tick, target);
     this.rollbackFrom = null;
-    for (const t of this.hashes.keys()) if (t >= tick) this.hashes.delete(t);
-    for (const t of this.hostChecksums.keys()) if (t <= tick) this.hostChecksums.delete(t);
+    pruneTicks(this.hashes, (t) => t >= tick);
+    pruneTicks(this.hostChecksums, (t) => t <= tick);
     this.lastHashed = tick - 1;
     this.resyncedAt = tick;
     this.awaitingResync = false;
