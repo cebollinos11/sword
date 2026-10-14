@@ -40,6 +40,14 @@ interface Observation {
   readonly attackStart: number | null;
 }
 
+/** The AI Controller's memory (its generator and what it has seen), saved and loaded by the Editor sandbox. */
+interface AiMemory {
+  readonly rng: RngState | null;
+  readonly seen: readonly Observation[];
+  readonly lastTick: number;
+  readonly blockPlan: { readonly attackStart: number; readonly direction: Direction } | null;
+}
+
 /** Look up a difficulty preset by name in Tuning Data. */
 export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
   const d = tuning.ai.difficulties[name];
@@ -71,6 +79,19 @@ class AiController implements Controller {
     private readonly difficulty: AiDifficulty,
   ) {
     this.reactionTicks = Math.round(difficulty.reactionTime * TICK_RATE);
+  }
+
+  /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */
+  save(): AiMemory {
+    return { rng: this.rng, seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan };
+  }
+
+  load(saved: unknown): void {
+    const m = saved as AiMemory;
+    this.rng = m.rng;
+    this.seen = [...m.seen];
+    this.lastTick = m.lastTick;
+    this.blockPlan = m.blockPlan;
   }
 
   private random(): number {

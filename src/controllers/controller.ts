@@ -25,6 +25,14 @@ import type { TuningData } from '../tuning';
  */
 export interface Controller {
   intent(state: SimState, fighter: number): Intent;
+  /**
+   * Optional, for Controllers with memory (the AI): a plain-data copy of that
+   * memory, and a way to put it back. The Editor sandbox saves it every Tick so
+   * scrubbing back and resuming gives the same Intents again. A Controller
+   * without memory (scripted) or one fed live input (Local) leaves these out.
+   */
+  save?(): unknown;
+  load?(saved: unknown): void;
 }
 
 /** A Controller that plays back a scripted Track (Tick t of the Duel gets the Track's Intent t). */
