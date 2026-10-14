@@ -1,3 +1,4 @@
+import type * as THREE from 'three';
 import { fighterPose, type SimState } from '../sim';
 import type { TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from './fighterView';
@@ -16,6 +17,15 @@ export class Renderer {
     private readonly tuning: TuningData,
   ) {
     this.stage = new Stage(container, tuning);
+  }
+
+  /** The game camera (the game loop places it, e.g. behind the local Fighter). */
+  get camera(): THREE.PerspectiveCamera {
+    return this.stage.camera;
+  }
+
+  get canvas(): HTMLCanvasElement {
+    return this.stage.canvas;
   }
 
   /** Draw a frame between Tick `prev` and Tick `curr`; `alpha` in [0, 1]. */
