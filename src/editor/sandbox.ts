@@ -2,11 +2,11 @@
  * The Editor's Duel sandbox (/sword/#/editor/sandbox): a scripted two-Fighter
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
- * A dropdown picks the script (`SCRIPTS`): the attack Exchange or Movement.
+ * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade) or Movement.
  *
  * The whole Duel is simulated up front (it is deterministic), so scrubbing is
  * just picking a stored state. Later tickets can swap the script for AI
- * Controllers and add Blocks to the overlays.
+ * Controllers.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -15,11 +15,13 @@ import {
   attack,
   fighterPose,
   hitZoneCapsules,
+  hold,
   runDuel,
   TICK_SECONDS,
   wait,
   walk,
   type Action,
+  type Direction,
   type BladeTransform,
   type HitCapsule,
   type ScriptRun,
@@ -31,21 +33,35 @@ import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 
+const block = (direction: Direction, ticks: number): Track => hold(ticks, { block: true, direction });
+
 /**
- * The scripted Duel: Fighter 0 swings Overheads (the second one held), Fighter 1 steps in and
- * swings back for a same-Tick Trade at Tick 164; Fighter 0 wins at Tick 266 with today's Tuning Data.
+ * The scripted Duel (Ticks with today's Tuning Data). Fighter 0 swings Overheads, Fighter 1:
+ *  - Blocks Overhead: Fighter 0's Attack is Blocked and Fighter 0 Staggers (55);
+ *  - Blocks Left: the wrong Direction, so the Attack lands and Fighter 1 Staggers (157);
+ *  - swings back at the same moment: a Trade, both hit and Stagger (275);
+ *  - shows the Right, Thrust and Overhead Block Motions; the Overhead one Blocks again (455);
+ *  - is hit during its own Wind-up, which is interrupted; Fighter 0 wins (537).
  */
 function scriptedDuel(tuning: TuningData): ScriptRun {
-  const a: Track = [
+  const swing = attack('Overhead');
+  const a: Track = [...wait(20), ...swing, ...wait(101), ...swing, ...wait(117), ...swing, ...wait(179), ...swing, ...wait(81), ...swing];
+  const b: Track = [
+    ...block('Overhead', 105),
+    ...wait(5),
+    ...block('Left', 100),
+    ...wait(30),
+    ...swing,
+    ...wait(89),
+    ...block('Right', 35),
+    ...wait(5),
+    ...block('Thrust', 35),
+    ...wait(5),
+    ...block('Overhead', 80),
     ...wait(20),
-    ...attack('Overhead'),
-    ...wait(80),
-    ...attack('Overhead', 50),
-    ...wait(80),
-    ...Array.from({ length: 6 }, () => [...attack('Overhead'), ...wait(75)]).flat(),
+    ...attack('Overhead', 40),
   ];
-  const b: Track = [...wait(60), ...walk(10, { x: 0, z: -1 }), ...wait(60), ...attack('Overhead'), ...wait(200)];
-  return runDuel(tuning, { distance: 1.5, a, b, ticks: 480 });
+  return runDuel(tuning, { distance: 1.3, a, b, ticks: 660 });
 }
 
 /**
@@ -78,7 +94,18 @@ type ScriptName = keyof typeof SCRIPTS;
 const TRAIL_TICKS = 45;
 const ZONE_COLOURS: Record<HitZone, number> = { head: 0xffd60a, torso: 0x30d158, limbs: 0x64d2ff };
 
-const describeAction = (a: Action): string => (a.kind === 'Attack' ? `Attack ${a.direction} · ${a.phase}` : a.kind);
+function describeAction(a: Action): string {
+  switch (a.kind) {
+    case 'Attack':
+      return `Attack ${a.direction} · ${a.phase}`;
+    case 'Block':
+      return `Block ${a.direction}`;
+    case 'Stagger':
+      return `Stagger (${a.cause})`;
+    case 'Idle':
+      return a.kind;
+  }
+}
 
 /** Is the Blade Sweep from Tick t-1 to Tick t live? (Release, entering or leaving it.) */
 function sweepLive(states: readonly SimState[], fighter: number, t: number): boolean {
@@ -243,6 +270,8 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
       .map((e) => {
         if (e.type === 'Hit') return `${e.tick} Hit ${e.attacker}→${e.defender} ${e.zone} ${e.bladeSpeed.toFixed(1)} m/s −${e.damage.toFixed(1)}`;
         if (e.type === 'AttackPhase') return `${e.tick} F${e.fighter} ${e.phase}`;
+        if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
+        if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;
         return `${e.tick} Duel over: ${e.winner === null ? 'draw' : `F${e.winner} wins`}`;
       })
       .join('\n');

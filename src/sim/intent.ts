@@ -15,7 +15,7 @@ export interface Intent {
   readonly direction: Direction;
   /** Attack button held. Pressing starts an Attack; holding holds the Wind-up; letting go Releases. */
   readonly attack: boolean;
-  /** Block button held. Carried in the Intent now; Blocks are resolved in a later ticket (#12). */
+  /** Block button held. Pressing (from Idle) raises a Block in `direction`; letting go drops it. */
   readonly block: boolean;
 }
 

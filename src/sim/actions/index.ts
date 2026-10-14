@@ -8,11 +8,13 @@
 import type { Intent } from '../intent';
 import type { Action, ActionKind, FighterState } from '../state';
 import { startAttack, updateAttack } from './attack';
+import { startBlock, updateBlock } from './block';
 import { IDLE_ACTION } from './idleAction';
+import { updateStagger } from './stagger';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
 /** What Idle can turn into, tried in order; the first that accepts the Intent wins. */
-const STARTERS: readonly ActionStarter[] = [startAttack];
+const STARTERS: readonly ActionStarter[] = [startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
   for (const start of STARTERS) {
@@ -28,6 +30,8 @@ const updateIdle: ActionHandler<Extract<Action, { kind: 'Idle' }>> = (f, intent,
 const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { kind: K }>> } = {
   Idle: updateIdle,
   Attack: updateAttack,
+  Block: updateBlock,
+  Stagger: updateStagger,
 };
 
 /** Advance a Fighter's Action and Motion playhead by one Tick. */
@@ -37,5 +41,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 }
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
+export { BLOCK_FACING_HALF_ANGLE, blockMotionName, blocksAttack } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
+export { STAGGER_MOTION, stagger } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';
