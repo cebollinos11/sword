@@ -1,10 +1,13 @@
 import type { SimState } from './state';
 
-/** An opaque, independent copy of a Simulation state at one Tick. */
-export interface Snapshot {
+/**
+ * An opaque, independent copy of a Simulation state at one Tick. Works for any
+ * plain-data state with a `tick`: a Duel's SimState (default) or a whole MatchState.
+ */
+export interface Snapshot<T extends { readonly tick: number } = SimState> {
   readonly tick: number;
   /** @internal */
-  readonly data: SimState;
+  readonly data: T;
 }
 
 /** Deep copy of plain Simulation data (state holds only numbers, strings, arrays, objects). */
@@ -17,11 +20,11 @@ function deepCopy<T>(v: T): T {
 }
 
 /** Capture the state so it can be restored later (for Rollback, scrubbing, replays). */
-export function snapshot(state: SimState): Snapshot {
+export function snapshot<T extends { readonly tick: number } = SimState>(state: T): Snapshot<T> {
   return { tick: state.tick, data: deepCopy(state) };
 }
 
 /** Recreate a state from a snapshot. The snapshot stays reusable. */
-export function restore(snap: Snapshot): SimState {
+export function restore<T extends { readonly tick: number } = SimState>(snap: Snapshot<T>): T {
   return deepCopy(snap.data);
 }
