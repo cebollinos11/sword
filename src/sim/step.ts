@@ -53,8 +53,9 @@ export function createInitialState(
   };
 }
 
-/** Where the Fighter's movement Intent takes it this Tick, before collision. */
+/** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk. */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
+  if (f.action.kind === 'Stagger') return f.position;
   let { x: mx, z: mz } = intent.move;
   const len = Math.hypot(mx, mz);
   if (len === 0) return f.position;

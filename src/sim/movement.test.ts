@@ -36,6 +36,20 @@ describe('Fighter collision', () => {
   });
 });
 
+describe('Staggered Fighters', () => {
+  it('cannot walk while Staggered, and walk again once the Stagger ends', () => {
+    const hitTick = hitsOf(runDuel(tuning, { distance: 1.3, a: attack('Overhead'), b: wait(1) }))[0]!.tick;
+    // Fighter 1 tries to walk away from the moment it is hit.
+    const run = runDuel(tuning, { distance: 1.3, a: attack('Overhead'), b: [...wait(hitTick), ...walk(120, { x: 0, z: 1 })] });
+    expect(hitsOf(run)[0]!.tick).toBe(hitTick);
+    const at = (t: number) => run.states[t]!.fighters[1]!;
+    const staggered = run.states.slice(hitTick).filter((s) => s.fighters[1]!.action.kind === 'Stagger');
+    expect(staggered.length).toBeGreaterThan(1);
+    for (const s of staggered) expect(s.fighters[1]!.position).toEqual(at(hitTick).position);
+    expect(run.final.fighters[1]!.position.z).toBeGreaterThan(at(hitTick).position.z + 0.5);
+  });
+});
+
 describe('Moving into a swing', () => {
   it('stepping into an Overhead deals more damage than the same swing standing still', () => {
     // Standing: Fighter 1 is 1.3 m away. Stepping: it is 1.6 m away and Fighter 0
