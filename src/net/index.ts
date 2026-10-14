@@ -18,3 +18,17 @@ export {
   type TickResult,
 } from './session';
 export { PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
+export { createPeerTransport, type DataConnectionLike } from './peerTransport';
+export { hostRoom, joinRoom, RoomError, type HostedRoom, type PendingRoom } from './peerRoom';
+export {
+  BrokerUrlError,
+  parseBrokerUrl,
+  parseRoomInput,
+  randomRoomCode,
+  ROOM_CODE_ALPHABET,
+  ROOM_CODE_LENGTH,
+  roomLink,
+  roomPeerId,
+  type BrokerOptions,
+  type RoomAddress,
+} from './room';

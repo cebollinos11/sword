@@ -34,6 +34,17 @@ const CSS = `
 .menu .menu-start:hover { background: #d84a3b; }
 .menu-help { font-size: 0.8rem; line-height: 1.45; opacity: 0.8; margin: 1rem 0 0.6rem; }
 .menu-link { color: #9fc9e8; font-size: 0.85rem; }
+.menu-panel { max-height: calc(100vh - 2rem); overflow-y: auto; }
+.menu [hidden] { display: none !important; }
+.menu input[type="text"] { font: inherit; flex: 1; min-width: 0; padding: 0.35rem 0.5rem; border-radius: 6px; border: 1px solid #ffffff40;
+  background: #0006; color: #fff; }
+.menu .menu-create-room { display: block; width: 100%; margin: 0.5rem 0; padding: 0.5rem; font-weight: 600; background: #2e86c1; border-color: #2e86c1; }
+.menu-join { flex-wrap: nowrap; }
+.menu-broker { font-size: 0.85rem; margin: 0.4rem 0; }
+.menu-broker summary { cursor: pointer; opacity: 0.8; }
+.menu-broker input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 0.4rem; font-size: 0.8rem; }
+.menu-room-code { font-size: 2.6rem; font-weight: 700; letter-spacing: 0.25em; font-family: ui-monospace, monospace; margin: 0.4rem 0; }
+.menu-room-status { opacity: 0.85; font-size: 0.9rem; }
 `;
 
 let injected = false;
