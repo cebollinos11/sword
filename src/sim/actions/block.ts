@@ -39,11 +39,16 @@ export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
  */
 export function blocksAttack(defender: FighterState, attacker: FighterState, direction: Direction): boolean {
   if (defender.action.kind !== 'Block' || defender.action.direction !== direction) return false;
-  const dx = attacker.position.x - defender.position.x;
-  const dz = attacker.position.z - defender.position.z;
+  return roughlyFaces(defender, attacker);
+}
+
+/** Whether `other` lies within BLOCK_FACING_HALF_ANGLE of `f`'s facing (used by Blocks and Chambers). */
+export function roughlyFaces(f: FighterState, other: FighterState): boolean {
+  const dx = other.position.x - f.position.x;
+  const dz = other.position.z - f.position.z;
   const dist = Math.hypot(dx, dz);
   if (dist === 0) return true;
   // Facing f looks along (sin f, cos f) on the ground plane.
-  const cos = (Math.sin(defender.facing) * dx + Math.cos(defender.facing) * dz) / dist;
+  const cos = (Math.sin(f.facing) * dx + Math.cos(f.facing) * dz) / dist;
   return cos >= Math.cos((BLOCK_FACING_HALF_ANGLE * Math.PI) / 180);
 }

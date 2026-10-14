@@ -9,6 +9,7 @@ import type { Intent } from '../intent';
 import type { Action, ActionKind, FighterState } from '../state';
 import { startAttack, updateAttack } from './attack';
 import { startBlock, updateBlock } from './block';
+import { feint } from './feint';
 import { IDLE_ACTION } from './idleAction';
 import { updateStagger } from './stagger';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
@@ -29,7 +30,8 @@ const updateIdle: ActionHandler<Extract<Action, { kind: 'Idle' }>> = (f, intent,
 
 const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { kind: K }>> } = {
   Idle: updateIdle,
-  Attack: updateAttack,
+  // A Wind-up can be cancelled by a Feint before the Attack advances.
+  Attack: (f, intent, ctx) => feint(f, intent, ctx) ?? updateAttack(f, intent, ctx),
   Block: updateBlock,
   Stagger: updateStagger,
 };
@@ -41,7 +43,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 }
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
-export { BLOCK_FACING_HALF_ANGLE, blockMotionName, blocksAttack } from './block';
+export { BLOCK_FACING_HALF_ANGLE, blockMotionName, blocksAttack, roughlyFaces } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 export { STAGGER_MOTION, stagger } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

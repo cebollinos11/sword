@@ -66,7 +66,7 @@ export function resolveContacts(
 }
 
 /** Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). */
-function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
+export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
   const { action, motion } = stagger(cause);
   emit({ type: 'Stagger', fighter: index, cause });
   return { ...f, action, motion, blade: motionPose(tuning, motion.name, motion.tick, f).blade };
