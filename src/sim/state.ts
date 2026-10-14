@@ -25,7 +25,7 @@ export interface AttackAction {
   readonly landed: boolean;
 }
 
-/** Holding a guard in one Direction for as long as block is held. Stops matching Attacks by rule (ADR 0002). */
+/** Holding a Block in one Direction for as long as block is held. Stops matching Attacks by rule (ADR 0002). */
 export interface BlockAction {
   readonly kind: 'Block';
   readonly direction: Direction;

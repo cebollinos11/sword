@@ -1,5 +1,5 @@
 /**
- * The Block Action: hold block to guard in the Intent's Direction (chosen on
+ * The Block Action: hold the block button to Block in the Intent's Direction (chosen on
  * press); let go to return to Idle. Whether a Block stops an Attack is decided
  * by rule, never by blade geometry (ADR 0002): see `blocksAttack`.
  */
@@ -18,14 +18,14 @@ export const blockMotionName = (direction: Direction): string => `Block${directi
  */
 export const BLOCK_FACING_HALF_ANGLE = 60;
 
-/** Pressing block (from Idle) raises a guard in the Intent's Direction. */
+/** Pressing block (from Idle) raises a Block in the Intent's Direction. */
 export const startBlock: ActionStarter = (_f, intent) => {
   if (!intent.block) return null;
   const action: BlockAction = { kind: 'Block', direction: intent.direction };
   return { action, motion: { name: blockMotionName(action.direction), tick: 0 } };
 };
 
-/** The guard is held while block is held; the playhead stops at the end of the (non-looping) Block Motion. */
+/** The Block lasts while the block button is held; the playhead stops at the end of the (non-looping) Block Motion. */
 export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
   if (!intent.block) return { action: IDLE_ACTION, motion: IDLE_MOTION };
   const motion = ctx.tuning.motions[f.motion.name];

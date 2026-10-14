@@ -74,7 +74,7 @@ describe('Stagger', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Thrust', 200) });
     const t = hitsOf(run)[0]!.tick;
     expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
-    // Still holding block once the Stagger ends: the guard goes back up.
+    // Still holding block once the Stagger ends: the Block goes back up.
     expect(run.states[t + 60]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Thrust' });
   });
 });

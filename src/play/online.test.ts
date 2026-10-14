@@ -42,11 +42,11 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
 
   it("the opponent's Fighter is driven by a Remote Controller that supplies the peer's Intents", () => {
     const r = room({ latencyMs: 20 });
-    const guard: Intent = { ...IDLE_INTENT, block: true, direction: 'Left' };
+    const blocking: Intent = { ...IDLE_INTENT, block: true, direction: 'Left' };
     runUntilConnected(r);
     expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(IDLE_INTENT);
-    for (let i = 0; i < 30; i++) r.tick(forward, guard);
-    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(guard);
+    for (let i = 0; i < 30; i++) r.tick(forward, blocking);
+    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(blocking);
     expect(r.guest.opponent.intent(r.guest.state!.duel, 0)).toEqual(forward);
     expect(r.host.state!.duel.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Left' });
   });
