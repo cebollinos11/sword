@@ -33,6 +33,18 @@ export interface BlockEvent {
   readonly direction: Direction;
 }
 
+/**
+ * `chamberer` countered `attacker`'s Attack by attacking in its Direction inside the
+ * Chamber window: the incoming Attack is cancelled (`attacker` Staggers, cause Chambered)
+ * and the chamberer's own Attack continues.
+ */
+export interface ChamberEvent {
+  readonly type: 'Chamber';
+  readonly chamberer: number;
+  readonly attacker: number;
+  readonly direction: Direction;
+}
+
 /** A Fighter's Action was interrupted by a Stagger (hit, or its Attack was Blocked). */
 export interface StaggerEvent {
   readonly type: 'Stagger';
@@ -50,7 +62,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | StaggerEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

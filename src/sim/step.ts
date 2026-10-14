@@ -1,5 +1,6 @@
 import type { TuningData } from '../tuning';
 import { IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { resolveChambers } from './chamber';
 import { resolveBodies } from './collision';
 import { findContacts, resolveContacts } from './combat';
 import { TICK_SECONDS } from './constants';
@@ -91,7 +92,7 @@ function settleBodies(fighters: readonly FighterState[], tuning: TuningData): Fi
  * Advance the Simulation by exactly one Tick. Pure: never mutates `state`.
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
- * Order within a Tick: Actions and movement → Blade Sweeps against Hit Zones
+ * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
  * → damage → Duel end. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
  */
@@ -105,6 +106,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit)),
     tuning,
   );
+  if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
   const duel = updateDuel(state.duel, fighters, tick, emit);
 

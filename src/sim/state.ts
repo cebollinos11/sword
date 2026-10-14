@@ -31,8 +31,8 @@ export interface BlockAction {
   readonly direction: Direction;
 }
 
-/** Why a Fighter Staggers: it was hit, or its Attack was Blocked (the attacker recoils). */
-export type StaggerCause = 'Hit' | 'Blocked';
+/** Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), or its Attack was Chambered. */
+export type StaggerCause = 'Hit' | 'Blocked' | 'Chambered';
 
 /** A short forced Action in which the Fighter cannot act; it lasts as long as the Stagger Motion. */
 export interface StaggerAction {
