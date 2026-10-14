@@ -7,15 +7,10 @@ import { TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
-import { motionPose } from './pose';
-import { createRng } from './rng';
-import type { Placement, SkeletonPose } from './skeleton';
+import { fighterPose, motionPose } from './pose';
+import { createRng, nextFloat } from './rng';
+import type { Placement } from './skeleton';
 import type { FighterState, SimState } from './state';
-
-/** The full solved Skeleton of a Fighter at its current Tick (what the Renderer draws). */
-export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
-  return motionPose(tuning, f.motion.name, f.motion.tick, f);
-}
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -53,8 +48,9 @@ export function createInitialState(
   };
 }
 
-/** Where the Fighter's movement Intent takes it this Tick, before collision. */
+/** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk. */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
+  if (f.action.kind === 'Stagger') return f.position;
   let { x: mx, z: mz } = intent.move;
   const len = Math.hypot(mx, mz);
   if (len === 0) return f.position;
@@ -103,8 +99,8 @@ function settleBodies(fighters: readonly FighterState[], tuning: TuningData): Fi
   );
   return fighters.map((f, i) => {
     const position = positions[i]!;
-    const blade = motionPose(tuning, f.motion.name, f.motion.tick, { position, facing: f.facing }).blade;
-    return { ...f, position, blade };
+    const settled = { ...f, position };
+    return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
 }
 
@@ -130,5 +126,6 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
-  return { tick, rng: state.rng, fighters, duel, events };
+  // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
+  return { tick, rng: nextFloat(state.rng)[1], fighters, duel, events };
 }

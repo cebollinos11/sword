@@ -62,6 +62,6 @@ describe('Facing (Intent.face)', () => {
       b: hold(100, { block: true, face: Math.PI }),
     });
     expect(turned.events.some((e) => e.type === 'Block' && e.defender === 1)).toBe(true);
-    expect(blocksAttack(turned.states[60]!.fighters[1]!, turned.states[60]!.fighters[0]!, 'Overhead')).toBe(true);
+    expect(blocksAttack(turned.states[60]!.fighters[1]!, turned.states[60]!.fighters[0]!, 'Overhead', tuning)).toBe(true);
   });
 });

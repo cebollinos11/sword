@@ -45,10 +45,11 @@ describe('EditorSession Tuning Data sections (Weapon, Hit Zones, AI)', () => {
     const hard = session.draftSection('ai').difficulties.Hard!;
     hard.reactionTime = 0.1;
     hard.mistakeRate = 0;
+    hard.feintRate = 0.5;
     session.commitSection('hitZones');
     session.commitSection('ai');
     expect(session.tuning.hitZones.head.multiplier).toBe(2);
-    expect(session.tuning.ai.difficulties.Hard).toEqual({ reactionTime: 0.1, mistakeRate: 0 });
+    expect(session.tuning.ai.difficulties.Hard).toEqual({ reactionTime: 0.1, mistakeRate: 0, feintRate: 0.5 });
 
     const zones = session.sectionFile('hitZones');
     const ai = session.sectionFile('ai');

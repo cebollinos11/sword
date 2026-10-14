@@ -13,6 +13,7 @@
  * for Rollback.
  */
 import type { TuningData } from '../tuning';
+import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
 import { createInitialState, duelPlacements, step } from './step';
@@ -31,9 +32,6 @@ export interface MatchOptions extends Partial<MatchConfig> {
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
 }
-
-export const DEFAULT_DUEL_DISTANCE = 2;
-export const DEFAULT_INTER_DUEL_TICKS = 120;
 
 export type MatchStatus = { readonly status: 'InProgress' } | { readonly status: 'Over'; readonly winner: number; readonly tick: number };
 
@@ -83,8 +81,8 @@ function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
   const config: MatchConfig = {
     bestOf: options.bestOf,
-    distance: options.distance ?? DEFAULT_DUEL_DISTANCE,
-    interDuelTicks: options.interDuelTicks ?? DEFAULT_INTER_DUEL_TICKS,
+    distance: options.distance ?? tuning.match.duelDistance,
+    interDuelTicks: options.interDuelTicks ?? secondsToTicks(tuning.match.interDuelSeconds),
   };
   if (!Number.isInteger(config.bestOf) || config.bestOf < 1) throw new RangeError(`bestOf must be a positive integer, got ${config.bestOf}`);
   if (!Number.isInteger(config.interDuelTicks) || config.interDuelTicks < 1)

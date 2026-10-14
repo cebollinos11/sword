@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, type Intent } from '../sim';
+import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, type SessionEvent } from './session';
 
 const repoTuning = loadTuningData();
 /** One clean hit decides a Duel, so Matches move through several Duels quickly. */
 const tuning: TuningData = { ...repoTuning, weapon: { ...repoTuning.weapon, damage: 10_000 } };
-const TICK_MS = 1000 / 60;
+const TICK_MS = 1000 / TICK_RATE;
 /** Directions with an Attack Motion in the repo data (all four once every Direction is authored). */
 const PLAYABLE = DIRECTIONS.filter((d) => tuning.motions[d]);
 const MATCH = { bestOf: 3, distance: 1.3, interDuelTicks: 30, seed: 5 };
@@ -178,6 +178,50 @@ describe('Rollback session: checksum resync', () => {
       if (tick < 200) continue; // after the resync
       expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
       expect(s.host.checksumAt(tick), `host @${tick}`).toBe(hash);
+    }
+  });
+});
+
+describe('Rollback session: malformed peer messages', () => {
+  /** Messages a broken or hostile peer might send around Tick `t`; none of them is a valid message. */
+  const junk = (t: number): unknown[] => [
+    null,
+    42,
+    'intents',
+    [],
+    { type: 'intents' },
+    { type: 'intents', from: t, intents: [{}], ack: 0 },
+    { type: 'intents', from: t, intents: [{ ...IDLE_INTENT, direction: 'Sideways' }], ack: 0 },
+    { type: 'intents', from: t, intents: [{ ...IDLE_INTENT, move: null }], ack: 0 },
+    { type: 'intents', from: t, intents: [{ ...IDLE_INTENT, move: { x: 'fast', z: 0 } }], ack: 0 },
+    { type: 'intents', from: t, intents: [{ ...IDLE_INTENT, attack: 'yes' }], ack: 0 },
+    { type: 'intents', from: t, intents: [{ ...IDLE_INTENT, face: 'north' }], ack: 0 },
+    { type: 'intents', from: t, intents: [IDLE_INTENT, null], ack: 0 },
+    { type: 'intents', from: 'x', intents: 'abc', ack: null },
+    { type: 'hello', protocol: 1, tuningHash: 7 },
+    { type: 'refuse', reason: 'Bored', tuningHash: 'x' },
+    { type: 'checksum', tick: 'x', hash: 5 },
+    { type: 'resyncRequest', tick: null },
+    { type: 'resync', tick: t, state: {}, intentsFrom: 1, intents: [{}] },
+  ];
+
+  it('ignores them without throwing, and both peers still converge to the offline Match', () => {
+    const s = connect({ latencyMs: 30 });
+    const TICKS = 300;
+    const expected = offlineHashes(TICKS);
+    for (let i = 0; i < 20_000 && Math.min(s.host.confirmedTick, s.guest.confirmedTick) < TICKS; i++) {
+      if (i % 7 === 0) {
+        for (const [from, to] of [[s.pair.a, s.guest], [s.pair.b, s.host]] as const) {
+          for (let t = to.confirmedTick - 2; t <= to.confirmedTick + 3; t++) for (const m of junk(t)) from.send(m);
+        }
+      }
+      expect(() => frame(s, HOST_INTENTS, GUEST_INTENTS)).not.toThrow();
+    }
+    expect(s.host.status).toBe('Running');
+    expect(s.guest.status).toBe('Running');
+    for (const [tick, hash] of expected) {
+      expect(s.host.checksumAt(tick), `host @${tick}`).toBe(hash);
+      expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
     }
   });
 });

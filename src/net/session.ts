@@ -20,7 +20,8 @@
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
 import type { Intent, MatchOptions, MatchState, Snapshot } from '../sim';
 import { tuningDataHash, type TuningData } from '../tuning';
-import { isNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
+import { createRemoteController, type Controller, type PeerIntentSource } from '../controllers';
+import { parseNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -78,6 +79,8 @@ export interface RollbackSession {
   readonly role: SessionRole;
   /** The Fighter this peer controls: host 0, guest 1. */
   readonly localFighter: number;
+  /** The Remote Controller driving the peer's Fighter: its Intents for the Tick being simulated, real or predicted. */
+  readonly remote: Controller;
   readonly status: SessionStatus;
   /** The current (possibly predicted) Match state; null until Running. Render this. */
   readonly state: MatchState | null;
@@ -102,13 +105,19 @@ function sameIntent(a: Intent, b: Intent): boolean {
   return a === b || hashValue(a) === hashValue(b);
 }
 
+/** Drop every entry of a per-Tick map whose Tick matches. */
+function pruneTicks(map: Map<number, unknown>, drop: (tick: number) => boolean): void {
+  for (const t of map.keys()) if (drop(t)) map.delete(t);
+}
+
 export function createRollbackSession(options: RollbackSessionOptions): RollbackSession {
   return new Session(options);
 }
 
-class Session implements RollbackSession {
+class Session implements RollbackSession, PeerIntentSource {
   readonly role: SessionRole;
   readonly localFighter: number;
+  readonly remote: Controller = createRemoteController(this);
   status: SessionStatus = 'Connecting';
   state: MatchState | null = null;
   stats = { rollbacks: 0, maxRollback: 0, stalls: 0, resyncs: 0 };
@@ -124,8 +133,8 @@ class Session implements RollbackSession {
 
   /** Snapshots from the confirmed Tick up to the current Tick. */
   private readonly states = new Map<number, Snapshot<MatchState>>();
-  private readonly localInputs = new Map<number, Intent>();
-  private readonly remoteInputs = new Map<number, Intent>();
+  private readonly localIntents = new Map<number, Intent>();
+  private readonly remoteIntents = new Map<number, Intent>();
   /** The remote Intent each simulated Tick actually used (real or predicted). */
   private readonly usedRemote = new Map<number, Intent>();
   /** Last Tick up to which all real remote Intents are held. */
@@ -134,13 +143,15 @@ class Session implements RollbackSession {
   private peerAck = 0;
   /** Earliest Tick simulated with a wrong prediction, pending Rollback. */
   private rollbackFrom: number | null = null;
+  /** The Tick being simulated right now, if any (what the Remote Controller is asked about). */
+  private simulating: number | null = null;
   private readonly hashes = new Map<number, string>();
   private readonly hostChecksums = new Map<number, string>();
   private lastHashed = 0;
   /** Guest: checksums at or before this Tick predate the last resync. */
   private resyncedAt = -1;
   private awaitingResync = false;
-  private heardInputs = false;
+  private heardIntents = false;
   private helloCountdown = 0;
   private silentTicks = 0;
 
@@ -155,7 +166,8 @@ class Session implements RollbackSession {
     if (o.role === 'host' && !o.match) throw new Error('The host must choose the Match options');
     this.matchOptions = o.match;
     o.transport.onMessage((m) => {
-      if (isNetMessage(m)) this.inbox.push(m);
+      const message = parseNetMessage(m);
+      if (message) this.inbox.push(message);
     });
     o.transport.onClose(() => this.disconnect('Closed'));
     this.sendHello();
@@ -193,7 +205,7 @@ class Session implements RollbackSession {
       this.disconnect('Timeout');
       return NOTHING;
     }
-    if (!this.heardInputs && --this.helloCountdown <= 0) this.sendHello();
+    if (!this.heardIntents && --this.helloCountdown <= 0) this.sendHello();
 
     const rolledBack = this.rollback();
     const next = this.currentTick + 1;
@@ -201,11 +213,11 @@ class Session implements RollbackSession {
     if (stalled) {
       this.stats.stalls++;
     } else {
-      this.localInputs.set(next, localIntent);
+      this.localIntents.set(next, localIntent);
       this.simulateNext();
     }
     this.recordConfirmed();
-    this.sendInputs();
+    this.sendIntents();
     return { advanced: !stalled, stalled, rolledBack };
   }
 
@@ -214,12 +226,20 @@ class Session implements RollbackSession {
   private simulateNext(): void {
     const prev = this.state!;
     const t = prev.tick + 1;
-    const local = this.localInputs.get(t) ?? IDLE_INTENT;
-    const remote = this.remoteInputs.get(Math.min(t, this.remoteConfirmed)) ?? IDLE_INTENT;
+    const local = this.localIntents.get(t) ?? IDLE_INTENT;
+    this.simulating = t;
+    const remote = this.remote.intent(prev.duel, 1 - this.localFighter);
+    this.simulating = null;
     this.usedRemote.set(t, remote);
     const intents = this.localFighter === 0 ? [local, remote] : [remote, local];
     this.state = this.stepFn(prev, intents, this.tuning);
     this.states.set(t, snapshot(this.state));
+  }
+
+  /** The peer's Intent for the Tick being simulated (or the next one): real once it has arrived, else the last real one repeated. */
+  peerIntent(): Intent {
+    const t = this.simulating ?? this.currentTick + 1;
+    return this.remoteIntents.get(Math.min(t, this.remoteConfirmed)) ?? IDLE_INTENT;
   }
 
   /** Re-simulate from the earliest mispredicted Tick. Returns the number of Ticks re-simulated. */
@@ -247,14 +267,13 @@ class Session implements RollbackSession {
       if (k % CHECKSUM_INTERVAL !== 0) continue;
       const hash = hashValue(restore(this.states.get(k)!));
       this.hashes.set(k, hash);
-      if (this.role === 'host') this.transport.send({ type: 'checksum', tick: k, hash } satisfies NetMessage);
+      if (this.role === 'host') this.send({ type: 'checksum', tick: k, hash });
       else this.compareChecksum(k);
     }
     this.lastHashed = Math.max(this.lastHashed, confirmed);
-    for (const t of this.states.keys()) if (t < confirmed) this.states.delete(t);
+    pruneTicks(this.states, (t) => t < confirmed);
     const old = confirmed - HISTORY_TICKS;
-    for (const map of [this.localInputs, this.remoteInputs, this.usedRemote, this.hashes, this.hostChecksums])
-      for (const t of map.keys()) if (t < old) map.delete(t);
+    for (const map of [this.localIntents, this.remoteIntents, this.usedRemote, this.hashes, this.hostChecksums]) pruneTicks(map, (t) => t < old);
   }
 
   // --- Messages ---
@@ -268,11 +287,11 @@ class Session implements RollbackSession {
     this.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, ...(this.role === 'host' ? { match: this.matchOptions } : {}) });
   }
 
-  private sendInputs(): void {
+  private sendIntents(): void {
     const from = this.peerAck + 1;
     const intents: Intent[] = [];
-    for (let t = from; this.localInputs.has(t); t++) intents.push(this.localInputs.get(t)!);
-    this.send({ type: 'input', from, intents, ack: this.remoteConfirmed });
+    for (let t = from; this.localIntents.has(t); t++) intents.push(this.localIntents.get(t)!);
+    this.send({ type: 'intents', from, intents, ack: this.remoteConfirmed });
   }
 
   private handle(m: NetMessage): void {
@@ -282,11 +301,11 @@ class Session implements RollbackSession {
         return this.onHello(m.protocol, m.tuningHash, m.match);
       case 'refuse':
         return this.refuse(m.reason, m.tuningHash, false);
-      case 'input':
+      case 'intents':
         if (this.status !== 'Running') return;
-        this.heardInputs = true;
-        this.peerAck = Math.max(this.peerAck, m.ack);
-        return this.receiveInputs(m.from, m.intents, true);
+        this.heardIntents = true;
+        this.peerAck = Math.max(this.peerAck, Math.min(m.ack, this.currentTick)); // it cannot hold Intents we have not made yet
+        return this.receiveIntents(m.from, m.intents, true);
       case 'checksum':
         if (this.role === 'guest' && this.status === 'Running' && m.tick > this.resyncedAt) {
           this.hostChecksums.set(m.tick, m.hash);
@@ -297,7 +316,7 @@ class Session implements RollbackSession {
         if (this.role === 'host' && this.status === 'Running') this.sendResync();
         return;
       case 'resync':
-        if (this.role === 'guest' && this.status === 'Running') this.applyResync(m.tick, m.state, m.inputsFrom, m.inputs);
+        if (this.role === 'guest' && this.status === 'Running') this.applyResync(m.tick, m.state, m.intentsFrom, m.intents);
         return;
     }
   }
@@ -330,13 +349,13 @@ class Session implements RollbackSession {
   }
 
   /** Take real remote Intents for Ticks from `from` on; mark a Rollback where a used prediction was wrong. */
-  private receiveInputs(from: number, intents: readonly Intent[], checkPredictions: boolean): void {
+  private receiveIntents(from: number, intents: readonly Intent[], checkPredictions: boolean): void {
     for (let i = 0; i < intents.length; i++) {
       const t = from + i;
       if (t <= this.remoteConfirmed) continue;
       if (t !== this.remoteConfirmed + 1) break;
       const intent = intents[i]!;
-      this.remoteInputs.set(t, intent);
+      this.remoteIntents.set(t, intent);
       this.remoteConfirmed = t;
       const used = this.usedRemote.get(t);
       if (checkPredictions && t <= this.currentTick && used && !sameIntent(used, intent)) {
@@ -359,26 +378,28 @@ class Session implements RollbackSession {
   /** Host: send the confirmed state, plus our Intents the guest may still lack up to it. */
   private sendResync(): void {
     const tick = this.confirmedTick;
-    const inputsFrom = this.peerAck + 1;
-    const inputs: Intent[] = [];
-    for (let t = inputsFrom; t <= tick; t++) inputs.push(this.localInputs.get(t)!);
-    this.send({ type: 'resync', tick, state: restore(this.states.get(tick)!), inputsFrom, inputs });
+    const intentsFrom = this.peerAck + 1;
+    const intents: Intent[] = [];
+    for (let t = intentsFrom; t <= tick; t++) intents.push(this.localIntents.get(t)!);
+    this.send({ type: 'resync', tick, state: restore(this.states.get(tick)!), intentsFrom, intents });
     this.stats.resyncs++;
   }
 
   /** Guest: adopt the host's state at `tick` and re-simulate up to the current Tick. */
-  private applyResync(tick: number, state: MatchState, inputsFrom: number, inputs: readonly Intent[]): void {
+  private applyResync(tick: number, state: MatchState, intentsFrom: number, intents: readonly Intent[]): void {
     if (!this.awaitingResync || tick <= this.resyncedAt || tick > this.currentTick) return;
-    this.receiveInputs(inputsFrom, inputs, false);
+    // parseNetMessage checked the shape; only Tuning Data can tell whether its Motions exist.
+    if (!state.duel.fighters.every((f) => this.tuning.motions[f.motion.name])) return;
+    this.receiveIntents(intentsFrom, intents, false);
     if (this.remoteConfirmed < tick) return;
-    for (let t = tick + 1; t <= this.currentTick; t++) if (!this.localInputs.has(t)) return;
+    for (let t = tick + 1; t <= this.currentTick; t++) if (!this.localIntents.has(t)) return;
     const target = this.currentTick;
     this.states.clear();
     this.states.set(tick, snapshot(state));
     this.resimulate(tick, target);
     this.rollbackFrom = null;
-    for (const t of this.hashes.keys()) if (t >= tick) this.hashes.delete(t);
-    for (const t of this.hostChecksums.keys()) if (t <= tick) this.hostChecksums.delete(t);
+    pruneTicks(this.hashes, (t) => t >= tick);
+    pruneTicks(this.hostChecksums, (t) => t <= tick);
     this.lastHashed = tick - 1;
     this.resyncedAt = tick;
     this.awaitingResync = false;

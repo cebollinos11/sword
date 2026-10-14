@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { hashValue, IDLE_INTENT, stepMatch, type Intent, type MatchState } from '../sim';
+import { hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
 import { loadTuningData, type TuningData } from '../tuning';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions } from '../net';
 import { playerVsPlayer } from './online';
 import type { MatchDriver } from './driver';
 
 const tuning = loadTuningData();
-const TICK_MS = 1000 / 60;
+const TICK_MS = 1000 / TICK_RATE;
 
 function room(
   net: MemoryTransportOptions = {},
@@ -38,6 +38,17 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     const r = room();
     expect(r.host.localFighter).toBe(0);
     expect(r.guest.localFighter).toBe(1);
+  });
+
+  it("the opponent's Fighter is driven by a Remote Controller that supplies the peer's Intents", () => {
+    const r = room({ latencyMs: 20 });
+    const blocking: Intent = { ...IDLE_INTENT, block: true, direction: 'Left' };
+    runUntilConnected(r);
+    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(IDLE_INTENT);
+    for (let i = 0; i < 30; i++) r.tick(forward, blocking);
+    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(blocking);
+    expect(r.guest.opponent.intent(r.guest.state!.duel, 0)).toEqual(forward);
+    expect(r.host.state!.duel.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Left' });
   });
 
   it('shows a waiting message and no Match until the peers have connected', () => {

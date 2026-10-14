@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, attackTimings, hold, runDuel, wait, type Direction, type HitEvent, type ScriptRun } from './index';
+import { attack, attackTimings, hold, runDuel, TICK_RATE, wait, type Direction, type HitEvent, type ScriptRun } from './index';
 
 const tuning = loadTuningData();
 
@@ -19,7 +19,7 @@ const placements = (d: number, facing = Math.PI) => [
  * is in Release). Fighter 1 presses attack on Tick `pressTick` (1-based state index).
  */
 const releaseStart = (t: TuningData, direction: Direction = 'Overhead') => attackTimings(t, direction).windUpEnd + 2;
-const windowTicks = (t: TuningData) => Math.round(t.chamber.windowSeconds * 60);
+const windowTicks = (t: TuningData) => Math.round(t.chamber.windowSeconds * TICK_RATE);
 
 const counter = (pressTick: number, direction: Direction = 'Overhead') => [...wait(pressTick - 1), ...attack(direction)];
 

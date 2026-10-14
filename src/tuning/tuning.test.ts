@@ -13,6 +13,8 @@ function goodRaw() {
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
     chamber: { windowSeconds: 0.15 },
+    block: { facingHalfAngle: 60 },
+    match: { duelDistance: 2, interDuelSeconds: 2 },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,
@@ -30,7 +32,7 @@ function goodRaw() {
       attackRange: 1.4,
       retreatRange: 0.9,
       aggression: 0.05,
-      difficulties: { Normal: { reactionTime: 0.25, mistakeRate: 0.2 } },
+      difficulties: { Normal: { reactionTime: 0.25, mistakeRate: 0.2, feintRate: 0.1 } },
     },
     motions: [
       {
@@ -75,6 +77,18 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, chamber: { windowSeconds: 0 } })).toThrow(/chamber\.windowSeconds/);
     expect(() => parseTuningData({ ...good, chamber: undefined })).toThrow(/chamber/);
     expect(() => parseTuningData({ ...good, skeleton: { ...good.skeleton, forearm: -1 } })).toThrow(/skeleton\.forearm/);
+    expect(() => parseTuningData({ ...good, block: undefined })).toThrow(/block/);
+    expect(() => parseTuningData({ ...good, block: { facingHalfAngle: 0 } })).toThrow(/block\.facingHalfAngle/);
+    expect(() => parseTuningData({ ...good, block: { facingHalfAngle: 181 } })).toThrow(/block\.facingHalfAngle/);
+    expect(() => parseTuningData({ ...good, match: undefined })).toThrow(/match/);
+    expect(() => parseTuningData({ ...good, match: { duelDistance: 0, interDuelSeconds: 2 } })).toThrow(/match\.duelDistance/);
+    expect(() => parseTuningData({ ...good, match: { duelDistance: 2, interDuelSeconds: 0 } })).toThrow(/match\.interDuelSeconds/);
+  });
+
+  it('loads the Block facing rule and the Match pacing from data/block.json and data/match.json', () => {
+    const t = loadTuningData();
+    expect(t.block.facingHalfAngle).toBe(60);
+    expect(t.match).toEqual({ duelDistance: 2, interDuelSeconds: 2 });
   });
 
   it('loads AI difficulty presets (Reaction Time, mistake rate) from data/ai.json', () => {
@@ -88,11 +102,13 @@ describe('Tuning Data', () => {
   it('rejects invalid AI Tuning Data', () => {
     const good = goodRaw();
     const withDifficulty = (d: object) => ({ ...good, ai: { ...good.ai, difficulties: { Normal: d } } });
-    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 1.5 }))).toThrow(/ai\.difficulties\.Normal\.mistakeRate/);
-    expect(() => parseTuningData(withDifficulty({ reactionTime: -0.1, mistakeRate: 0 }))).toThrow(/ai\.difficulties\.Normal\.reactionTime/);
+    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 1.5, feintRate: 0 }))).toThrow(/ai\.difficulties\.Normal\.mistakeRate/);
+    expect(() => parseTuningData(withDifficulty({ reactionTime: -0.1, mistakeRate: 0, feintRate: 0 }))).toThrow(/ai\.difficulties\.Normal\.reactionTime/);
+    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 0 }))).toThrow(/ai\.difficulties\.Normal\.feintRate/);
+    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 0, feintRate: -0.1 }))).toThrow(/ai\.difficulties\.Normal\.feintRate/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, difficulties: {} } })).toThrow(/ai\.difficulties/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, aggression: 2 } })).toThrow(/ai\.aggression/);
-    expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0 });
+    expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0, feintRate: 1 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0, feintRate: 1 });
   });
 
   it('requires an Idle Motion and unique Motion names', () => {

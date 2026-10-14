@@ -24,7 +24,7 @@ export class FighterView {
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
   private readonly blade: THREE.Mesh;
-  private readonly guard: THREE.Mesh;
+  private readonly crossguard: THREE.Mesh;
 
   constructor(colour: number, tuning: TuningData) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
@@ -51,8 +51,8 @@ export class FighterView {
     this.root.add(this.head);
 
     this.blade = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), steel);
-    this.guard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.025, 0.03), dark);
-    this.root.add(this.blade, this.guard);
+    this.crossguard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.025, 0.03), dark);
+    this.root.add(this.blade, this.crossguard);
   }
 
   update(pose: SkeletonPose): void {
@@ -60,7 +60,7 @@ export class FighterView {
     for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
     for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
     this.head.position.set(p.head.x, p.head.y, p.head.z);
-    placeBlade(this.blade, this.guard, pose.blade);
+    placeBlade(this.blade, this.crossguard, pose.blade);
   }
 }
 
@@ -81,7 +81,7 @@ const xAxis = new THREE.Vector3();
 const yAxis = new THREE.Vector3();
 const zAxis = new THREE.Vector3();
 
-function placeBlade(blade: THREE.Mesh, guard: THREE.Mesh, b: BladeTransform): void {
+function placeBlade(blade: THREE.Mesh, crossguard: THREE.Mesh, b: BladeTransform): void {
   yAxis.set(b.tip.x - b.hilt.x, b.tip.y - b.hilt.y, b.tip.z - b.hilt.z);
   const len = yAxis.length();
   yAxis.divideScalar(len || 1);
@@ -89,12 +89,12 @@ function placeBlade(blade: THREE.Mesh, guard: THREE.Mesh, b: BladeTransform): vo
   xAxis.crossVectors(yAxis, zAxis).normalize();
   zAxis.crossVectors(xAxis, yAxis).normalize();
   basis.makeBasis(xAxis, yAxis, zAxis);
-  for (const m of [blade, guard]) m.quaternion.setFromRotationMatrix(basis);
+  for (const m of [blade, crossguard]) m.quaternion.setFromRotationMatrix(basis);
   blade.scale.set(0.012, len, 0.045);
   blade.position.set((b.hilt.x + b.tip.x) / 2, (b.hilt.y + b.tip.y) / 2, (b.hilt.z + b.tip.z) / 2);
-  guard.position.set(b.hilt.x, b.hilt.y, b.hilt.z).addScaledVector(yAxis, 0.08);
-  guard.scale.set(1, 1, 1);
-  guard.rotateY(Math.PI / 2);
+  crossguard.position.set(b.hilt.x, b.hilt.y, b.hilt.z).addScaledVector(yAxis, 0.08);
+  crossguard.scale.set(1, 1, 1);
+  crossguard.rotateY(Math.PI / 2);
 }
 
 /** Interpolate two solved poses (render-only smoothing between Ticks). */

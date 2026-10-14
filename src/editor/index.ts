@@ -3,19 +3,22 @@
  * (each Attack, each Block, Idle, Stagger) against the real Simulation code:
  * a timeline of its Pose Keys (select, retime, add, scrub, easing curves),
  * 3D gizmos on the selected Pose Key's hand/torso/hip/foot targets, fields
- * for every value, the Blade Sweep trail, and Save back to
+ * for every value, the Blade Sweep trail, a gameplay camera view (the Fighter
+ * as its opponent sees it, to judge Wind-up readability), and Save back to
  * `data/motions/<name>.json` (File System Access API, download fallback).
  *
  * `EditorSession` is the one source of truth for the working Tuning Data;
  * the timeline, gizmos, fields and the Duel sandbox all edit through it, and
  * the Pose Key operations live in `motionEdit.ts` (unit-tested).
  */
+import type * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
-import { motionPose, TICK_RATE, type BladeTransform, type Placement } from '../sim';
+import { motionPose, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
 import { EASES, POSE_KEY_CHANNELS, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
+import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizmo';
 import { addPoseKey, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
 import { saveJsonFile } from './save';
@@ -27,6 +30,10 @@ import { BladeSweepTrail } from './trail';
 export { EditorSession, type MotionDraft } from './session';
 
 const ORIGIN: Placement = { position: { x: 0, z: 0 }, facing: 0 };
+
+/** How the Motion Editor looks at the previewed Fighter: the free orbit camera, or the gameplay camera of its opponent. */
+type EditorView = 'orbit' | 'gameplay';
+const VIEW_LABELS: Record<string, EditorView> = { 'orbit (edit)': 'orbit', "gameplay camera (opponent's view)": 'gameplay' };
 /** Pause at the end of each loop so the final pose and the whole trail are readable. */
 const LOOP_HOLD_SECONDS = 0.4;
 
@@ -55,6 +62,28 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   const trail = new BladeSweepTrail();
   stage.scene.add(fighter.root, trail.root);
 
+  // The gameplay camera view (story 40: is the Wind-up readable?): the previewed Fighter as its
+  // opponent sees it in a Duel, from the third-person camera over the opponent's shoulder.
+  const opponentPlacement: Placement = { position: { x: 0, z: loaded.match.duelDistance }, facing: Math.PI };
+  const opponent = new FighterView(FIGHTER_COLOURS[1]!, loaded);
+  opponent.root.visible = false;
+  stage.scene.add(opponent.root);
+  /** The orbit camera, kept while the gameplay camera view is on. */
+  let orbitView: { position: THREE.Vector3; target: THREE.Vector3 } | null = null;
+  const setView = (view: EditorView) => {
+    const gameplay = view === 'gameplay';
+    opponent.root.visible = gameplay;
+    orbit.enabled = !gameplay;
+    if (gameplay && !orbitView) {
+      orbitView = { position: stage.camera.position.clone(), target: orbit.target.clone() };
+    } else if (!gameplay && orbitView) {
+      stage.camera.position.copy(orbitView.position);
+      orbit.target.copy(orbitView.target);
+      orbitView = null;
+      orbit.update();
+    }
+  };
+
   const ui = {
     motion: session.motionNames()[0]!,
     playing: true,
@@ -62,6 +91,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     time: 0,
     tick: 0,
     gizmo: 'swordHand' as GizmoTarget,
+    view: 'orbit' as EditorView,
     status: 'Timeline: click a Pose Key to edit it, drag it to retime, double-click to add one, drag elsewhere to scrub. Space plays.',
   };
   /** Index of the selected Pose Key in the current Motion's draft. */
@@ -84,7 +114,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   const rebuildTrail = () => {
     const motion = session.tuning.motions[ui.motion]!;
-    const ticks = Math.round(motion.duration * TICK_RATE);
+    const ticks = secondsToTicks(motion.duration);
     const blades: BladeTransform[] = [];
     for (let t = 0; t <= ticks; t++) blades.push(motionPose(session.tuning, ui.motion, t, ORIGIN).blade);
     const { windUpEnd, releaseEnd } = motion.markers;
@@ -145,7 +175,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       pane.refresh();
     },
   );
-  gizmo.controls.addEventListener('dragging-changed', (e) => (orbit.enabled = !(e.value as boolean)));
+  gizmo.controls.addEventListener('dragging-changed', (e) => (orbit.enabled = ui.view === 'orbit' && !(e.value as boolean)));
   stage.scene.add(gizmo.root);
 
   const select = (index: number | null) => {
@@ -251,6 +281,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   pane.addBinding(ui, 'playing');
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05 });
   pane.addBinding(ui, 'tick', { readonly: true, format: (v: number) => v.toFixed(0) });
+  pane.addBinding(ui, 'view', { options: VIEW_LABELS }).on('change', (e) => setView(e.value));
   pane.addBinding(ui, 'gizmo', { options: Object.fromEntries(GIZMO_TARGETS.map((t) => [GIZMO_LABELS[t], t])) }).on('change', (e) =>
     gizmo.setTarget(e.value),
   );
@@ -280,7 +311,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       ui.time = (ui.time + Math.min((now - last) / 1000, 0.25) * ui.speed) % loopSeconds;
     }
     last = now;
-    const tick = Math.floor(Math.min(ui.time, motion.duration) * TICK_RATE);
+    const tick = secondsToTicks(Math.min(ui.time, motion.duration));
     if (tick !== ui.tick) {
       ui.tick = tick;
       pane.refresh();
@@ -289,7 +320,12 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     fighter.update(pose);
     gizmo.setPose(pose);
     timeline.update(draft(), selected, ui.time);
-    orbit.update();
+    if (ui.view === 'gameplay') {
+      opponent.update(motionPose(session.tuning, 'Idle', secondsToTicks(ui.time), opponentPlacement));
+      placeThirdPersonCamera(stage.camera, opponentPlacement.position, opponentPlacement.facing);
+    } else {
+      orbit.update();
+    }
     stage.draw();
     requestAnimationFrame(frame);
   }

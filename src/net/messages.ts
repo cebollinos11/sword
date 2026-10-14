@@ -1,7 +1,7 @@
-import type { Intent, MatchOptions, MatchState } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, type Intent, type MatchOptions, type MatchState, type StaggerCause } from '../sim';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Sent repeatedly while connecting. The host's hello carries the Match options. */
 export interface HelloMessage {
@@ -23,8 +23,8 @@ export interface RefuseMessage {
  * has not acknowledged yet, so a lost packet is covered by the next one), plus
  * `ack`: the last Tick up to which the sender holds all of the peer's Intents.
  */
-export interface InputMessage {
-  readonly type: 'input';
+export interface IntentsMessage {
+  readonly type: 'intents';
   readonly from: number;
   readonly intents: readonly Intent[];
   readonly ack: number;
@@ -45,23 +45,154 @@ export interface ResyncRequestMessage {
 
 /**
  * Host → guest: the host's confirmed Match state at `tick`, plus the host's own
- * Intents from `inputsFrom` to `tick` that the guest may not have yet.
+ * Intents from `intentsFrom` to `tick` that the guest may not have yet.
  */
 export interface ResyncMessage {
   readonly type: 'resync';
   readonly tick: number;
   readonly state: MatchState;
-  readonly inputsFrom: number;
-  readonly inputs: readonly Intent[];
+  readonly intentsFrom: number;
+  readonly intents: readonly Intent[];
 }
 
 export type RefuseReason = 'TuningDataMismatch' | 'ProtocolMismatch';
 
-export type NetMessage = HelloMessage | RefuseMessage | InputMessage | ChecksumMessage | ResyncRequestMessage | ResyncMessage;
+export type NetMessage = HelloMessage | RefuseMessage | IntentsMessage | ChecksumMessage | ResyncRequestMessage | ResyncMessage;
 
-const TYPES: ReadonlySet<string> = new Set(['hello', 'refuse', 'input', 'checksum', 'resyncRequest', 'resync']);
+/**
+ * Validate an incoming Transport message. Returns it typed when every field has
+ * the right shape (Intents, Match options, resync state included), or null:
+ * a malformed message from a broken or hostile peer is ignored, never trusted
+ * deep enough to throw inside the Simulation.
+ */
+export function parseNetMessage(m: unknown): NetMessage | null {
+  if (!isObject(m)) return null;
+  switch (m.type) {
+    case 'hello':
+      return isInt(m.protocol) && isString(m.tuningHash) && (m.match === undefined || isMatchOptions(m.match)) ? (m as unknown as HelloMessage) : null;
+    case 'refuse':
+      return REFUSE_REASONS.has(m.reason as string) && isString(m.tuningHash) ? (m as unknown as RefuseMessage) : null;
+    case 'intents':
+      return isTick(m.from) && isIntents(m.intents) && isTick(m.ack) ? (m as unknown as IntentsMessage) : null;
+    case 'checksum':
+      return isTick(m.tick) && isString(m.hash) ? (m as unknown as ChecksumMessage) : null;
+    case 'resyncRequest':
+      return isTick(m.tick) ? (m as unknown as ResyncRequestMessage) : null;
+    case 'resync':
+      return isTick(m.tick) && isTick(m.intentsFrom) && isIntents(m.intents) && isMatchState(m.state) ? (m as unknown as ResyncMessage) : null;
+    default:
+      return null;
+  }
+}
 
-/** Narrow an incoming Transport message; anything unrecognised is ignored by the session. */
-export function isNetMessage(m: unknown): m is NetMessage {
-  return typeof m === 'object' && m !== null && TYPES.has((m as { type?: unknown }).type as string);
+// --- Shape checks (JSON-level: what came over the wire) ---
+
+type Obj = Record<string, unknown>;
+const REFUSE_REASONS: ReadonlySet<string> = new Set<RefuseReason>(['TuningDataMismatch', 'ProtocolMismatch']);
+const DIRECTION_SET: ReadonlySet<string> = new Set<string>(DIRECTIONS);
+const PHASE_SET: ReadonlySet<string> = new Set<string>(ATTACK_PHASES);
+const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered']);
+
+const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isBool = (v: unknown): v is boolean => typeof v === 'boolean';
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isInt = (v: unknown): v is number => Number.isSafeInteger(v);
+const isTick = (v: unknown): v is number => isInt(v) && v >= 0;
+const isVec2 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.z);
+const isVec3 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.y) && isNum(v.z);
+const isDirection = (v: unknown): boolean => DIRECTION_SET.has(v as string);
+const isArrayOf = (v: unknown, item: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(item);
+
+function isIntent(v: unknown): v is Intent {
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face));
+}
+const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
+
+function isMatchOptions(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    isInt(v.bestOf) &&
+    v.bestOf > 0 &&
+    (v.distance === undefined || (isNum(v.distance) && v.distance > 0)) &&
+    (v.interDuelTicks === undefined || (isInt(v.interDuelTicks) && v.interDuelTicks >= 1)) &&
+    (v.seed === undefined || isNum(v.seed))
+  );
+}
+
+function isAction(v: unknown): boolean {
+  if (!isObject(v)) return false;
+  switch (v.kind) {
+    case 'Idle':
+      return true;
+    case 'Attack':
+      return isDirection(v.direction) && PHASE_SET.has(v.phase as string) && isBool(v.landed);
+    case 'Block':
+      return isDirection(v.direction);
+    case 'Stagger':
+      return STAGGER_CAUSES.has(v.cause as string);
+    default:
+      return false;
+  }
+}
+
+function isFighter(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    isVec2(v.position) &&
+    isNum(v.facing) &&
+    isNum(v.hp) &&
+    isAction(v.action) &&
+    isObject(v.motion) &&
+    isString(v.motion.name) &&
+    isTick(v.motion.tick) &&
+    isObject(v.blade) &&
+    isVec3(v.blade.hilt) &&
+    isVec3(v.blade.tip) &&
+    isVec3(v.blade.edge)
+  );
+}
+
+const isEvent = (v: unknown): boolean => isObject(v) && isString(v.type);
+const isWinner = (v: unknown): boolean => v === 0 || v === 1;
+
+function isDuelState(v: unknown): boolean {
+  if (!isObject(v)) return false;
+  if (v.status === 'Fighting') return true;
+  return v.status === 'Over' && (v.winner === null || isWinner(v.winner)) && isTick(v.tick);
+}
+
+function isSimState(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    isTick(v.tick) &&
+    isObject(v.rng) &&
+    isInt(v.rng.seed) &&
+    Array.isArray(v.fighters) &&
+    v.fighters.length === 2 &&
+    v.fighters.every(isFighter) &&
+    isDuelState(v.duel) &&
+    isArrayOf(v.events, isEvent)
+  );
+}
+
+function isMatchState(v: unknown): v is MatchState {
+  if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
+  const { config, status } = v;
+  return (
+    isInt(config.bestOf) &&
+    config.bestOf > 0 &&
+    isNum(config.distance) &&
+    isInt(config.interDuelTicks) &&
+    config.interDuelTicks >= 1 &&
+    isTick(v.tick) &&
+    isInt(v.duelNumber) &&
+    v.duelNumber >= 1 &&
+    isArrayOf(v.score, isTick) &&
+    (v.score as unknown[]).length === 2 &&
+    isSimState(v.duel) &&
+    (v.nextDuelTick === null || isTick(v.nextDuelTick)) &&
+    (status.status === 'InProgress' || (status.status === 'Over' && isWinner(status.winner) && isTick(status.tick))) &&
+    isArrayOf(v.events, isEvent)
+  );
 }

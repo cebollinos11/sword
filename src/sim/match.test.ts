@@ -45,6 +45,21 @@ const winDuel = (m: MatchState, winner: number) => {
   return runUntil(ended, null, nextDuelOrEnd(ended));
 };
 
+describe('Match pacing from Tuning Data', () => {
+  it('starts every Duel at the Tuning Data distance and pauses the Tuning Data time between Duels', () => {
+    const paced: TuningData = { ...tuning, match: { duelDistance: 1.3, interDuelSeconds: 0.5 } };
+    const gap = (m: MatchState) => Math.abs(m.duel.fighters[1]!.position.z - m.duel.fighters[0]!.position.z);
+    const start = createMatch(paced, { bestOf: 3 });
+    expect(gap(start)).toBeCloseTo(1.3, 9);
+    let m = start;
+    for (let i = 0; i < 2000 && m.duel.duel.status === 'Fighting'; i++) m = stepMatch(m, [m.tick % 2 === 0 ? attackIntent : IDLE_INTENT, IDLE_INTENT], paced);
+    const ended = m.tick;
+    for (let i = 0; i < 2000 && m.duelNumber === 1; i++) m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], paced);
+    expect(m.tick - ended).toBe(30); // 0.5 s
+    expect(gap(m)).toBeCloseTo(1.3, 9);
+  });
+});
+
 describe('Match', () => {
   it('starts the first Duel with both Fighters at their starting positions and full HP, score 0–0', () => {
     const m = createMatch(tuning, { bestOf: 3, distance: DISTANCE, seed: 7 });

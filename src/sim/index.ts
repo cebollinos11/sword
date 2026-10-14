@@ -8,7 +8,7 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
-export { TICK_RATE, TICK_SECONDS } from './constants';
+export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent } from './intent';
 export { DIRECTIONS, IDLE_INTENT } from './intent';
 export type {
@@ -30,15 +30,16 @@ export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent } from './events';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
-export { CENTRE_PLACEMENT, createInitialState, duelPlacements, fighterPose, step } from './step';
+export { CENTRE_PLACEMENT, createInitialState, duelPlacements, step } from './step';
 export {
   attackMotionName,
   attackTimings,
   type AttackTimings,
-  BLOCK_FACING_HALF_ANGLE,
   blockMotionName,
   blocksAttack,
+  RECOIL_MOTION,
   STAGGER_MOTION,
+  staggerMotionName,
 } from './actions';
 export { hitDamage } from './combat';
 export { chamberWindowTicks } from './chamber';
@@ -64,15 +65,13 @@ export { hashState, hashValue } from './hash';
 export type { Vec3 } from './vec';
 export type { BladeTransform, JointName, Placement, SkeletonPose } from './skeleton';
 export { BONES, JOINT_NAMES } from './skeleton';
-export { motionPose } from './pose';
+export { fighterPose, motionPose } from './pose';
 export { ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';
 export {
   createMatch,
-  DEFAULT_DUEL_DISTANCE,
-  DEFAULT_INTER_DUEL_TICKS,
   duelsToWin,
   stepMatch,
   type DuelStartEvent,

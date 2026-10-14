@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, wait } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, TICK_RATE, wait } from '../sim';
 import { createAiController, scriptedController, type Controller } from '../controllers';
 import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox } from './sandboxSession';
 import { compareReplay, parseReplay, recordingSandbox, recordReplay, ReplayError, runReplay, serializeReplay } from './replay';
@@ -15,7 +15,7 @@ function playAndRecord<S extends object>(sandbox: Sandbox<S>, initial: S, contro
   return { session, replay: recordReplay(tuning, session.history as never, recorder.intentsOf(session.history)) };
 }
 
-/** The Exchange-style scripted Duel at 1.3 m: an Overhead Blocked, then an Overhead landing through a wrong guard. */
+/** The Exchange-style scripted Duel at 1.3 m: an Overhead Blocked, then an Overhead landing through a Block in the wrong Direction. */
 function scriptedDuel(t: TuningData = tuning) {
   const a = [...wait(20), ...attack('Overhead'), ...wait(101), ...attack('Overhead')];
   const b = [...hold(105, { block: true, direction: 'Overhead' as const }), ...wait(5), ...hold(100, { block: true, direction: 'Left' as const })];
@@ -23,7 +23,7 @@ function scriptedDuel(t: TuningData = tuning) {
 }
 
 const aiMatch = () =>
-  playAndRecord(matchSandbox(tuning), createMatch(tuning, { bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], 60 * 60 * 5);
+  playAndRecord(matchSandbox(tuning), createMatch(tuning, { bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], TICK_RATE * 60 * 5);
 
 describe('Recording a sandbox Duel', () => {
   it('captures the seed, the starting placements and one Intent per Fighter per Tick', () => {

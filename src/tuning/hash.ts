@@ -1,4 +1,4 @@
-import { hashValue } from '../sim/hash';
+import { hashValue } from '../hash';
 import type { TuningData } from './index';
 
 /**

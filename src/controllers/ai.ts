@@ -9,18 +9,22 @@
  *    Time). Its own Fighter it knows up to date.
  *  - It makes mistakes at `mistakeRate`: a wrong-Direction Block (rolled once
  *    per opponent Attack), or a mistimed Attack from out of range.
+ *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
+ *    then switch to another Direction (an Attack Feint) before Releasing.
  *
- * Deterministic: its only randomness is the Simulation's seeded generator
- * (`createRng`/`nextFloat`), seeded from the Duel state's `rng` and the
- * Fighter index on first use, then advanced by the Controller. So a given
- * seed and the same opponent always give the same Intents.
+ * Deterministic given the seeded generator in state: it holds no generator of
+ * its own. Each Tick it draws from a generator derived from the Simulation's
+ * `state.rng` (which the Simulation advances every Tick) and its Fighter index,
+ * so scrubbing back or re-simulating the same state gives the same Intents
+ * without saving any generator. A given seed and the same opponent always give
+ * the same Intents.
  */
 import {
   createRng,
   DIRECTIONS,
   IDLE_INTENT,
   nextFloat,
-  TICK_RATE,
+  secondsToTicks,
   type Action,
   type Direction,
   type Intent,
@@ -40,13 +44,24 @@ interface Observation {
   readonly attackStart: number | null;
 }
 
-/** The AI Controller's memory (its generator and what it has seen), saved and loaded by the Editor sandbox. */
+/** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox. */
 interface AiMemory {
-  readonly rng: RngState | null;
   readonly seen: readonly Observation[];
   readonly lastTick: number;
   readonly blockPlan: { readonly attackStart: number; readonly direction: Direction } | null;
+  readonly feintPlan: FeintPlan | null;
 }
+
+/** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
+interface FeintPlan {
+  readonly from: Direction;
+  readonly into: Direction;
+  readonly at: number;
+}
+
+/** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
+const FEINT_DELAY_MIN = 4;
+const FEINT_DELAY_SPREAD = 10;
 
 /** Look up a difficulty preset by name in Tuning Data. */
 export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
@@ -65,37 +80,52 @@ const isThreat = (a: Action): a is Extract<Action, { kind: 'Attack' }> => a.kind
  */
 const isOpening = (a: Action): boolean => (a.kind === 'Stagger' && a.cause === 'Blocked') || (a.kind === 'Attack' && a.phase === 'Recovery');
 
+/** murmur3's 32-bit finaliser: spreads nearby seeds (consecutive Ticks, Fighter indices) over the whole range. */
+function mix32(h: number): number {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** This Tick's generator for one Fighter's AI, derived from the Simulation's seeded generator in state. */
+function tickRng(state: SimState, fighter: number): RngState {
+  return createRng(mix32(state.rng.seed ^ Math.imul(fighter + 1, 0x9e3779b9)));
+}
+
 class AiController implements Controller {
   private readonly reactionTicks: number;
-  private rng: RngState | null = null;
+  /** This Tick's generator (derived from state each call, never carried between Ticks). */
+  private rng: RngState = createRng(0);
   /** Observations of the opponent, oldest first; only the last reactionTicks + 1 are kept. */
   private seen: Observation[] = [];
   private lastTick = -1;
   /** The Block Direction chosen for one opponent Attack (rolled once, so a mistake sticks). */
   private blockPlan: { readonly attackStart: number; readonly direction: Direction } | null = null;
+  /** Its own Attack it is about to Feint, if any. */
+  private feintPlan: FeintPlan | null = null;
 
   constructor(
     private readonly tuning: TuningData,
     private readonly difficulty: AiDifficulty,
   ) {
-    this.reactionTicks = Math.round(difficulty.reactionTime * TICK_RATE);
+    this.reactionTicks = secondsToTicks(difficulty.reactionTime);
   }
 
   /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    return { rng: this.rng, seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan };
+    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan, feintPlan: this.feintPlan };
   }
 
   load(saved: unknown): void {
     const m = saved as AiMemory;
-    this.rng = m.rng;
     this.seen = [...m.seen];
     this.lastTick = m.lastTick;
     this.blockPlan = m.blockPlan;
+    this.feintPlan = m.feintPlan;
   }
 
   private random(): number {
-    const [v, next] = nextFloat(this.rng!);
+    const [v, next] = nextFloat(this.rng);
     this.rng = next;
     return v;
   }
@@ -107,20 +137,23 @@ class AiController implements Controller {
 
   private observe(state: SimState, opponent: number): void {
     if (state.tick <= this.lastTick) {
-      // A new Duel: forget what was seen (the generator carries on).
+      // A new Duel: forget what was seen.
       this.seen = [];
       this.blockPlan = null;
+      this.feintPlan = null;
     }
     this.lastTick = state.tick;
     const o = state.fighters[opponent]!;
     const prev = this.seen[this.seen.length - 1];
-    const attackStart = o.action.kind !== 'Attack' ? null : prev?.action.kind === 'Attack' ? prev.attackStart : state.tick;
+    // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
+    const sameAttack = o.action.kind === 'Attack' && prev?.action.kind === 'Attack' && prev.action.direction === o.action.direction;
+    const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && prev ? prev.attackStart : state.tick;
     this.seen.push({ tick: state.tick, position: o.position, action: o.action, attackStart });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
   }
 
   intent(state: SimState, fighter: number): Intent {
-    this.rng ??= createRng(state.rng.seed ^ Math.imul(fighter + 1, 0x9e3779b9));
+    this.rng = tickRng(state, fighter);
     const opponent = fighter === 0 ? 1 : 0;
     this.observe(state, opponent);
     // What it may act on: the opponent as it was Reaction Time ago.
@@ -134,33 +167,61 @@ class AiController implements Controller {
     const base: Intent = { ...IDLE_INTENT, face: Math.atan2(dx, dz) };
     const toward: Vec2 = dist > 0 ? { x: dx / dist, z: dz / dist } : { x: 0, z: 0 };
 
-    if (isThreat(seen.action) && seen.attackStart !== null) return this.defend(self.action, seen.action.direction, seen.attackStart, base);
+    if (isThreat(seen.action) && seen.attackStart !== null) {
+      this.feintPlan = null;
+      return this.defend(self.action, seen.action.direction, seen.attackStart, base);
+    }
     this.blockPlan = null;
 
+    const feint = this.feint(state.tick, self.action, base);
+    if (feint) return feint;
     if (self.action.kind !== 'Idle') return base; // let go of block/attack; finish what it is doing
     const { attackRange, retreatRange, aggression } = this.tuning.ai;
     if (dist > attackRange) {
       // Mistimed Attack: swinging from out of range.
-      if (this.random() < aggression * this.difficulty.mistakeRate) return { ...base, attack: true, direction: this.randomDirection() };
+      if (this.random() < aggression * this.difficulty.mistakeRate) return this.startAttack(state.tick, base);
       return { ...base, move: toward };
     }
     if (dist < retreatRange) return { ...base, move: { x: -toward.x, z: -toward.z } };
     // An opening (opponent in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
-    if (aggression > 0 && (isOpening(seen.action) || this.random() < aggression)) return { ...base, attack: true, direction: this.randomDirection() };
+    if (aggression > 0 && (isOpening(seen.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
     return base;
   }
 
+  /** Press attack in a random Direction; at `feintRate` it plans to Feint this Attack into another Direction. */
+  private startAttack(tick: number, base: Intent): Intent {
+    const direction = this.randomDirection();
+    if (this.random() < this.difficulty.feintRate) {
+      const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
+      this.feintPlan = { from: direction, into: this.randomDirection(direction), at };
+    }
+    return { ...base, attack: true, direction };
+  }
+
+  /** While a planned Feint's Wind-up runs: hold attack, then switch Direction (the Feint) and let the new Attack Release. */
+  private feint(tick: number, self: Action, base: Intent): Intent | null {
+    const plan = this.feintPlan;
+    if (!plan) return null;
+    if (self.kind !== 'Attack' || self.phase !== 'Wind-up' || self.direction !== plan.from) {
+      this.feintPlan = null;
+      return null;
+    }
+    if (tick < plan.at) return { ...base, attack: true, direction: plan.from };
+    this.feintPlan = null;
+    return { ...base, attack: true, direction: plan.into };
+  }
+
   /** Block the seen Attack, in its Direction unless this Attack's roll made it a mistake. */
-  private defend(self: Action, direction: Direction, attackStart: number, base: Intent): Intent {
+  private defend(self: Action, attackDirection: Direction, attackStart: number, base: Intent): Intent {
     if (this.blockPlan?.attackStart !== attackStart) {
       const mistake = this.random() < this.difficulty.mistakeRate;
-      this.blockPlan = { attackStart, direction: mistake ? this.randomDirection(direction) : direction };
+      this.blockPlan = { attackStart, direction: mistake ? this.randomDirection(attackDirection) : attackDirection };
     }
-    const guard = this.blockPlan.direction;
-    // A Block's Direction is fixed on press: drop a wrong guard for a Tick, then raise the right one.
-    if (self.kind === 'Block' && self.direction !== guard) return base;
-    // Mid-Attack it cannot Block; letting go of attack at least Releases the Wind-up.
-    return { ...base, block: true, direction: guard };
+    const direction = this.blockPlan.direction;
+    // A Block's Direction is fixed on press: drop a Block in another Direction for a Tick, then raise this one.
+    if (self.kind === 'Block' && self.direction !== direction) return base;
+    // Mid-Wind-up, pressing block Feints into the Block.
+    return { ...base, block: true, direction };
   }
 }
 

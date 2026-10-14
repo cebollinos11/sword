@@ -37,6 +37,16 @@ describe('Block', () => {
     }
   });
 
+  it('how roughly the defender must face the attacker is Tuning Data (block.facingHalfAngle)', () => {
+    // Fighter 1 is turned 75 degrees away from facing Fighter 0.
+    const turned = placements(1.3, Math.PI - (75 * Math.PI) / 180);
+    const narrow = runDuel(tuning, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
+    expect(eventsOf(narrow, 'Block')).toEqual([]);
+    const wide: typeof tuning = { ...tuning, block: { facingHalfAngle: 90 } };
+    const widened = runDuel(wide, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
+    expect(eventsOf(widened, 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1 })]);
+  });
+
   it('a Block in the matching Direction while facing away from the attacker does not stop the Attack', () => {
     const run = runDuel(tuning, { placements: placements(1.3, 0), a: attack('Overhead'), b: block('Overhead', 120) });
     expect(eventsOf(run, 'Block')).toEqual([]);
@@ -70,11 +80,22 @@ describe('Stagger', () => {
     expect(run.final.fighters[1]!.action).toEqual({ kind: 'Idle' });
   });
 
+  it("a Blocked attacker's recoil is a shorter Stagger than a hit Stagger", () => {
+    const staggerTicks = (run: ScriptRun, fighter: number) => run.states.filter((s) => s.fighters[fighter]!.action.kind === 'Stagger').length;
+    const blocked = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 200) });
+    const hit = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: wait(1) });
+    expect(eventsOf(blocked, 'Stagger')).toEqual([expect.objectContaining({ fighter: 0, cause: 'Blocked' })]);
+    expect(eventsOf(hit, 'Stagger')).toEqual([expect.objectContaining({ fighter: 1, cause: 'Hit' })]);
+    const recoil = staggerTicks(blocked, 0);
+    expect(recoil).toBeGreaterThan(0);
+    expect(recoil).toBeLessThan(staggerTicks(hit, 1));
+  });
+
   it('a Staggered Fighter ignores its Intents until the Stagger ends', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Thrust', 200) });
     const t = hitsOf(run)[0]!.tick;
     expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
-    // Still holding block once the Stagger ends: the guard goes back up.
+    // Still holding block once the Stagger ends: the Block goes back up.
     expect(run.states[t + 60]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Thrust' });
   });
 });

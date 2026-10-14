@@ -49,6 +49,10 @@ _Avoid_: Frame (frame means a rendered frame)
 **Rollback**:
 Rewinding the simulation to an earlier Tick when a remote peer's real Intent differs from the predicted one, then re-simulating forward.
 
+**Rollback session**:
+One peer's side of a Player vs Player Match: it runs the Match, exchanges Intents with the other peer, predicts and corrects the remote Fighter's Intents by Rollback, and compares state checksums. Not the Room (which only gets the peers connected).
+_Avoid_: Session (on its own), netcode, connection
+
 ## Combat
 
 **Action**:
