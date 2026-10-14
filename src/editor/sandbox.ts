@@ -2,7 +2,7 @@
  * The Editor's Duel sandbox (/sword/#/editor/sandbox): a scripted two-Fighter
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
- * A dropdown picks the script (`SCRIPTS`): the attack Exchange or Movement.
+ * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade) or Movement.
  *
  * The whole Duel is simulated up front (it is deterministic), so scrubbing is
  * just picking a stored state. Later tickets can swap the script for AI
@@ -19,6 +19,7 @@ import {
   runDuel,
   TICK_SECONDS,
   wait,
+  walk,
   type Action,
   type Direction,
   type BladeTransform,
