@@ -70,9 +70,15 @@ export interface PlayerVsAiSandboxOptions extends MatchOptions {
  * AI's memory is restored, and the first Tick the player does something
  * different starts a branch (the old future is dropped).
  */
-export function playerVsAiSession(tuning: TuningData, player: Controller, options: PlayerVsAiSandboxOptions): SandboxSession<MatchState> {
+export function playerVsAiSession(
+  tuning: TuningData,
+  player: Controller,
+  options: PlayerVsAiSandboxOptions,
+  /** The Match sandbox to step through, e.g. wrapped by `recordingSandbox` to record a golden replay. */
+  sandbox: Sandbox<MatchState> = matchSandbox(tuning),
+): SandboxSession<MatchState> {
   const { difficulty, ...match } = options;
-  return createSandboxSession(matchSandbox(tuning), createMatch(tuning, match), [player, createAiController(tuning, difficulty)]);
+  return createSandboxSession(sandbox, createMatch(tuning, match), [player, createAiController(tuning, difficulty)]);
 }
 
 /** A live run's scrub slider grows in steps of this many Ticks (its range can only be set by rebuilding it). */

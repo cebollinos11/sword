@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { hashValue } from '../sim';
 import { LocalController } from '../controllers';
-import { LIVE_SCRUB_CHUNK, liveScrubMax, playerVsAiSession } from './sandboxSession';
+import { LIVE_SCRUB_CHUNK, liveScrubMax, matchSandbox, playerVsAiSession } from './sandboxSession';
+import { compareReplay, recordingSandbox, recordReplay } from './replay';
 
 const tuning = loadTuningData();
 const options = { difficulty: 'Normal', bestOf: 3, seed: 4 };
@@ -76,6 +77,20 @@ describe('Sandbox session: Player vs AI (live)', () => {
     play(session, local, {}, 150);
     expect(session.frontier).toBe(300);
     expect(session.divergence).toBeNull();
+  });
+});
+
+describe('Player vs AI golden replay', () => {
+  it('a recorded live run, branch included, replays identically without the player or the AI', () => {
+    const local = new LocalController();
+    const recorder = recordingSandbox(matchSandbox(tuning));
+    const session = playerVsAiSession(tuning, local, options, recorder);
+    play(session, local, {}, 400);
+    session.seek(200);
+    play(session, local, swing, 600);
+    const replay = recordReplay(tuning, session.history, recorder.intentsOf(session.history));
+    expect(replay.ticks).toBe(600);
+    expect(compareReplay(replay, tuning).identical).toBe(true);
   });
 });
 

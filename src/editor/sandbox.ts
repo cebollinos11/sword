@@ -34,6 +34,7 @@ import {
   type BladeTransform,
   type HitCapsule,
   type HitEvent,
+  type Intent,
   type MatchState,
   type SimState,
   type Track,
@@ -58,6 +59,8 @@ import {
 import { ActionLabels, describeAction } from './actionLabels';
 import { EditorSession } from './session';
 import { addTuningPanels } from './tuningPanel';
+import { recordingSandbox, recordReplay } from './replay';
+import { addReplayPanel } from './replayPanel';
 
 /** What the sandbox plays: a session to scrub through, the Duel at each Tick, plus the Match around it for an AI vs AI run. */
 interface SandboxRun {
@@ -68,17 +71,20 @@ interface SandboxRun {
   readonly match?: (tick: number) => MatchState;
   /** A live run (Player vs AI): driven by this Local Controller as Fighter 0, not precomputed. */
   readonly local?: LocalController;
+  /** The Intents fed to the Simulation for every computed Tick (for golden replays). */
+  readonly intents: () => Intent[][];
 }
 
 /**
  * Step a run up front (until `ticks` or its end) and rewind it to Tick 0.
  * (Player vs AI is live instead: see playerVsAiMatch.)
  */
-function precompute<S>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
-  const session = createSandboxSession(sandbox, initial, controllers);
+function precompute<S extends object>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
+  const recorder = recordingSandbox(sandbox);
+  const session = createSandboxSession(recorder, initial, controllers);
   while (!session.over && session.frontier < ticks) session.advance();
   session.seek(0);
-  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!) };
+  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!), intents: () => recorder.intentsOf(session.history) };
 }
 
 /** Two scripted Tracks facing each other `distance` apart (like `runDuel`, but through a session). */
@@ -174,10 +180,13 @@ const PLAYER_VS_AI = 'Player vs AI';
 function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun {
   local.releaseAll();
   local.setYaw(0); // Fighter 0 starts facing +z
-  const session = playerVsAiSession(tuning, local, { difficulty: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed });
+  const recorder = recordingSandbox(matchSandbox(tuning));
+  const options = { difficulty: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed };
+  const session = playerVsAiSession(tuning, local, options, recorder);
   return {
     session,
     ticks: PLAYER_MATCH_MAX_TICKS,
+    intents: () => recorder.intentsOf(session.history),
     duel: (t) => session.history[t]!.duel,
     match: (t) => session.history[t]!,
     local,
@@ -436,6 +445,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     rerun();
     ui.tick = Math.min(tick, lastTick());
     syncCursor();
+  });
+  addReplayPanel(pane, {
+    record: () => recordReplay(tuning, run.session.history as readonly (SimState | MatchState)[], run.intents()),
+    tuning: () => tuning,
   });
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
