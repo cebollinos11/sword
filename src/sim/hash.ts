@@ -20,7 +20,12 @@ function canonical(value: unknown): string {
  * as 8 hex chars. Used for determinism checks and peer checksums.
  */
 export function hashState(state: SimState): string {
-  const s = canonical(state);
+  return hashValue(state);
+}
+
+/** The same hash over any plain data (e.g. a Skeleton pose or a track of blade transforms). */
+export function hashValue(value: unknown): string {
+  const s = canonical(value);
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
