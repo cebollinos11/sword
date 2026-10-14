@@ -14,6 +14,7 @@ import { parseMotion, motionFileName, type Motion } from './motion';
 import { array, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
+export { tuningDataHash } from './hash';
 export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
 
