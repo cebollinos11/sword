@@ -286,6 +286,7 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
         if (e.type === 'AttackPhase') return `${e.tick} F${e.fighter} ${e.phase}`;
         if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
         if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;
+        if (e.type === 'Feint') return `${e.tick} F${e.fighter} Feint ${e.from} → ${e.into.kind} ${e.into.direction}`;
         return `${e.tick} Duel over: ${e.winner === null ? 'draw' : `F${e.winner} wins`}`;
       })
       .join('\n');
