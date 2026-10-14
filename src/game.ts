@@ -1,6 +1,7 @@
 import { createInitialState, step, TICK_SECONDS, type Intent, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
+import { createBrowserAudio } from './audio';
 
 /** Never simulate more than this many Ticks in one rendered frame (e.g. after a background tab). */
 const MAX_TICKS_PER_FRAME = 8;
@@ -11,6 +12,8 @@ const MAX_TICKS_PER_FRAME = 8;
  */
 export function startGame(container: HTMLElement, tuning: TuningData): void {
   const renderer = new Renderer(container, tuning);
+  // When this loop drives a Match, call audio.onMatchTick(match) instead.
+  const audio = createBrowserAudio();
 
   let prev: SimState = createInitialState(tuning, 1);
   let curr: SimState = prev;
@@ -26,6 +29,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): void {
     while (accumulator >= TICK_SECONDS) {
       prev = curr;
       curr = step(curr, intents, tuning);
+      audio.onTick(curr.tick, curr.events);
       accumulator -= TICK_SECONDS;
     }
     renderer.render(prev, curr, accumulator / TICK_SECONDS);
