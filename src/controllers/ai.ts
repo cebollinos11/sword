@@ -22,7 +22,7 @@ import {
   DIRECTIONS,
   IDLE_INTENT,
   nextFloat,
-  TICK_RATE,
+  secondsToTicks,
   type Action,
   type Direction,
   type Intent,
@@ -92,7 +92,7 @@ class AiController implements Controller {
     private readonly tuning: TuningData,
     private readonly difficulty: AiDifficulty,
   ) {
-    this.reactionTicks = Math.round(difficulty.reactionTime * TICK_RATE);
+    this.reactionTicks = secondsToTicks(difficulty.reactionTime);
   }
 
   /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */

@@ -8,7 +8,7 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
-export { TICK_RATE, TICK_SECONDS } from './constants';
+export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent } from './intent';
 export { DIRECTIONS, IDLE_INTENT } from './intent';
 export type {

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, type Intent } from '../sim';
+import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, type SessionEvent } from './session';
 
 const repoTuning = loadTuningData();
 /** One clean hit decides a Duel, so Matches move through several Duels quickly. */
 const tuning: TuningData = { ...repoTuning, weapon: { ...repoTuning.weapon, damage: 10_000 } };
-const TICK_MS = 1000 / 60;
+const TICK_MS = 1000 / TICK_RATE;
 /** Directions with an Attack Motion in the repo data (all four once every Direction is authored). */
 const PLAYABLE = DIRECTIONS.filter((d) => tuning.motions[d]);
 const MATCH = { bestOf: 3, distance: 1.3, interDuelTicks: 30, seed: 5 };

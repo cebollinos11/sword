@@ -4,7 +4,7 @@
  * `releaseEnd` markers; Recovery ends with the Motion.
  */
 import type { TuningData } from '../../tuning';
-import { TICK_RATE } from '../constants';
+import { secondsToTicks } from '../constants';
 import type { Direction } from '../intent';
 import type { Action, AttackAction, AttackPhase } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
@@ -31,8 +31,7 @@ export function attackTimings(tuning: TuningData, direction: Direction): AttackT
   if (windUpEnd === undefined || releaseEnd === undefined) {
     throw new Error(`Attack Motion "${name}" needs windUpEnd and releaseEnd markers`);
   }
-  const toTick = (seconds: number) => Math.round(seconds * TICK_RATE);
-  return { windUpEnd: toTick(windUpEnd), releaseEnd: toTick(releaseEnd), end: toTick(motion.duration) };
+  return { windUpEnd: secondsToTicks(windUpEnd), releaseEnd: secondsToTicks(releaseEnd), end: secondsToTicks(motion.duration) };
 }
 
 function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: ActionContext): ActionUpdate {

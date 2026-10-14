@@ -12,7 +12,7 @@
  */
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
-import { motionPose, TICK_RATE, type BladeTransform, type Placement } from '../sim';
+import { motionPose, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
 import { EASES, POSE_KEY_CHANNELS, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
@@ -84,7 +84,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   const rebuildTrail = () => {
     const motion = session.tuning.motions[ui.motion]!;
-    const ticks = Math.round(motion.duration * TICK_RATE);
+    const ticks = secondsToTicks(motion.duration);
     const blades: BladeTransform[] = [];
     for (let t = 0; t <= ticks; t++) blades.push(motionPose(session.tuning, ui.motion, t, ORIGIN).blade);
     const { windUpEnd, releaseEnd } = motion.markers;
@@ -280,7 +280,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       ui.time = (ui.time + Math.min((now - last) / 1000, 0.25) * ui.speed) % loopSeconds;
     }
     last = now;
-    const tick = Math.floor(Math.min(ui.time, motion.duration) * TICK_RATE);
+    const tick = secondsToTicks(Math.min(ui.time, motion.duration));
     if (tick !== ui.tick) {
       ui.tick = tick;
       pane.refresh();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, wait } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, TICK_RATE, wait } from '../sim';
 import { createAiController, scriptedController, type Controller } from '../controllers';
 import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox } from './sandboxSession';
 import { compareReplay, parseReplay, recordingSandbox, recordReplay, ReplayError, runReplay, serializeReplay } from './replay';
@@ -23,7 +23,7 @@ function scriptedDuel(t: TuningData = tuning) {
 }
 
 const aiMatch = () =>
-  playAndRecord(matchSandbox(tuning), createMatch(tuning, { bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], 60 * 60 * 5);
+  playAndRecord(matchSandbox(tuning), createMatch(tuning, { bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], TICK_RATE * 60 * 5);
 
 describe('Recording a sandbox Duel', () => {
   it('captures the seed, the starting placements and one Intent per Fighter per Tick', () => {

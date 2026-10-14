@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { hashValue, IDLE_INTENT, stepMatch, type Intent, type MatchState } from '../sim';
+import { hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
 import { loadTuningData, type TuningData } from '../tuning';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions } from '../net';
 import { playerVsPlayer } from './online';
 import type { MatchDriver } from './driver';
 
 const tuning = loadTuningData();
-const TICK_MS = 1000 / 60;
+const TICK_MS = 1000 / TICK_RATE;
 
 function room(
   net: MemoryTransportOptions = {},

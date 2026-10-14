@@ -3,7 +3,7 @@
  * press); let go to return to Idle. Whether a Block stops an Attack is decided
  * by rule, never by blade geometry (ADR 0002): see `blocksAttack`.
  */
-import { TICK_RATE } from '../constants';
+import { secondsToTicks } from '../constants';
 import type { Direction } from '../intent';
 import type { BlockAction, FighterState } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
@@ -29,7 +29,7 @@ export const startBlock: ActionStarter = (_f, intent) => {
 export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
   if (!intent.block) return { action: IDLE_ACTION, motion: IDLE_MOTION };
   const motion = ctx.tuning.motions[f.motion.name];
-  const end = motion ? Math.round(motion.duration * TICK_RATE) : 0;
+  const end = motion ? secondsToTicks(motion.duration) : 0;
   return { action: f.action, motion: { name: f.motion.name, tick: Math.min(f.motion.tick + 1, end) } };
 };
 

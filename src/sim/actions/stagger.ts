@@ -3,7 +3,7 @@
  * Fighter was doing. Intents are ignored until the Stagger Motion ends; then
  * the Fighter is Idle again.
  */
-import { TICK_RATE } from '../constants';
+import { secondsToTicks } from '../constants';
 import type { StaggerAction, StaggerCause } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionHandler, ActionUpdate } from './types';
@@ -20,7 +20,7 @@ export function stagger(cause: StaggerCause): ActionUpdate {
 export const updateStagger: ActionHandler<StaggerAction> = (f, _intent, ctx) => {
   const motion = ctx.tuning.motions[STAGGER_MOTION];
   if (!motion) throw new Error(`No Motion "${STAGGER_MOTION}" for the Stagger Action`);
-  const end = Math.round(motion.duration * TICK_RATE);
+  const end = secondsToTicks(motion.duration);
   if (f.motion.tick + 1 >= end) return { action: IDLE_ACTION, motion: IDLE_MOTION };
   return { action: f.action, motion: { name: STAGGER_MOTION, tick: f.motion.tick + 1 } };
 };

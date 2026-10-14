@@ -25,12 +25,12 @@
 import type { TuningData } from '../tuning';
 import { attackTimings, roughlyFaces } from './actions';
 import { staggerFighter } from './combat';
-import { TICK_RATE } from './constants';
+import { secondsToTicks } from './constants';
 import type { Emit } from './events';
 import type { Action, FighterState } from './state';
 
 /** The Chamber window (Tuning Data `chamber.windowSeconds`, seconds) in Ticks. */
-export const chamberWindowTicks = (tuning: TuningData): number => Math.round(tuning.chamber.windowSeconds * TICK_RATE);
+export const chamberWindowTicks = (tuning: TuningData): number => secondsToTicks(tuning.chamber.windowSeconds);
 
 /** Rule 1: `next` is an Attack whose Wind-up began this Tick. */
 function startedAttack(prev: Action, next: Action): boolean {
