@@ -26,6 +26,8 @@ export interface FighterTuning {
   readonly radius: number;
   /** Standing height in metres. */
   readonly height: number;
+  /** How fast a Fighter turns toward its Intent's `face`, in degrees per second. */
+  readonly turnSpeed: number;
 }
 
 export interface ArenaTuning {
@@ -135,6 +137,7 @@ export function parseTuningData(raw: unknown): TuningData {
       walkSpeed: positiveNumber(f, 'walkSpeed', 'fighter'),
       radius: positiveNumber(f, 'radius', 'fighter'),
       height: positiveNumber(f, 'height', 'fighter'),
+      turnSpeed: positiveNumber(f, 'turnSpeed', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
     weapon: {

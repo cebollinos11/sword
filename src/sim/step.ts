@@ -65,9 +65,29 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
 
+/** Wrap a yaw into (-π, π]. */
+function wrapYaw(a: number): number {
+  const w = a - 2 * Math.PI * Math.floor((a + Math.PI) / (2 * Math.PI));
+  return w === -Math.PI ? Math.PI : w;
+}
+
+/**
+ * The Fighter's facing after this Tick: it turns toward `intent.face` the
+ * shorter way round, at most `fighter.turnSpeed` degrees per second, and lands
+ * exactly on it. A Staggered Fighter cannot act, so it cannot turn either.
+ */
+function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
+  const face = intent.face ?? null; // tolerate Intents built before `face` existed
+  if (face === null || f.action.kind === 'Stagger') return f.facing;
+  const maxStep = (tuning.fighter.turnSpeed * Math.PI * TICK_SECONDS) / 180;
+  const delta = wrapYaw(face - f.facing);
+  if (Math.abs(delta) <= maxStep) return wrapYaw(face);
+  return wrapYaw(f.facing + Math.sign(delta) * maxStep);
+}
+
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
-  return { ...f, position: walk(f, intent, tuning), action, motion };
+  return { ...f, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion };
 }
 
 /**
