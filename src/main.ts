@@ -1,35 +1,42 @@
-import { createInitialState, step, TICK_SECONDS, type Intent, type SimState } from './sim';
-import { loadTuningData } from './tuning';
-import { Renderer } from './render/renderer';
+import { loadTuningData, TuningDataError, type TuningData } from './tuning';
 
 /**
- * App entry: owns the wall clock and the fixed-Tick loop. The Simulation is
- * stepped at exactly TICK_RATE; the Renderer interpolates between Ticks.
+ * App entry and router. Routes are hash-based so they work on GitHub Pages:
+ *   /sword/            the game
+ *   /sword/#/editor    the Editor (loaded on demand, so the game never ships Tweakpane up front)
  */
-const MAX_TICKS_PER_FRAME = 8;
-
-const tuning = loadTuningData();
 const container = document.getElementById('app')!;
-const renderer = new Renderer(container, tuning);
 
-let prev: SimState = createInitialState(tuning, 1);
-let curr: SimState = prev;
-let accumulator = 0;
-let last = performance.now();
-
-// Controllers arrive in later tickets; for now the lone Fighter stands Idle.
-const intents: Intent[] = [];
-
-function frame(now: number): void {
-  accumulator += Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
-  last = now;
-  while (accumulator >= TICK_SECONDS) {
-    prev = curr;
-    curr = step(curr, intents, tuning);
-    accumulator -= TICK_SECONDS;
-  }
-  renderer.render(prev, curr, accumulator / TICK_SECONDS);
-  requestAnimationFrame(frame);
+function showError(title: string, message: string): void {
+  const box = document.createElement('div');
+  box.className = 'fatal-error';
+  const h = document.createElement('h1');
+  h.textContent = title;
+  const pre = document.createElement('pre');
+  pre.textContent = message;
+  box.append(h, pre);
+  container.replaceChildren(box);
 }
 
-requestAnimationFrame(frame);
+function load(): TuningData | undefined {
+  try {
+    return loadTuningData();
+  } catch (e) {
+    if (e instanceof TuningDataError) {
+      showError('Invalid Tuning Data', `${e.message}\n\nFix the JSON under data/ and reload.`);
+      return undefined;
+    }
+    throw e;
+  }
+}
+
+window.addEventListener('hashchange', () => location.reload());
+
+const tuning = load();
+if (tuning) {
+  if (location.hash.startsWith('#/editor')) {
+    void import('./editor').then((m) => m.startEditor(container, tuning));
+  } else {
+    void import('./game').then((m) => m.startGame(container, tuning));
+  }
+}
