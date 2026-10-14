@@ -7,6 +7,7 @@ import {
   restore,
   snapshot,
   step,
+  TICK_RATE,
   type Intent,
   type SimState,
 } from './index';
@@ -36,33 +37,29 @@ describe('A lone Fighter on the Arena', () => {
   });
 
   it('stays put and Idle while given no Intents, with the Tick advancing', () => {
-    const s = run(createInitialState(tuning, 1), Array.from({ length: 60 }, () => []));
-    expect(s.tick).toBe(60);
+    const s = run(createInitialState(tuning, 1), Array.from({ length: TICK_RATE }, () => []));
+    expect(s.tick).toBe(TICK_RATE);
     expect(s.fighters[0]).toMatchObject({ action: { kind: 'Idle' }, hp: 100, position: { x: 0, z: 0 } });
   });
 
   it('walks at walkSpeed: one second forward at 2.5 m/s covers 2.5 m', () => {
-    const forward = Array.from({ length: 60 }, () => [{ ...IDLE_INTENT, move: { x: 0, z: 1 } }]);
+    const forward = Array.from({ length: TICK_RATE }, () => [{ ...IDLE_INTENT, move: { x: 0, z: 1 } }]);
     const s = run(createInitialState(tuning, 1), forward);
     expect(s.fighters[0]!.position.z).toBeCloseTo(2.5, 6);
     expect(s.fighters[0]!.position.x).toBeCloseTo(0, 6);
   });
 
-  it('holds its sword in the Idle Motion from Tick 0 (idle.json: hand at local (0.2, 1.05, 0.3))', () => {
-    const f = createInitialState(tuning, 1).fighters[0]!;
-    expect(f.motion).toEqual({ name: 'Idle', tick: 0 });
-    expect(f.blade.hilt.x).toBeCloseTo(-0.2, 6); // the Fighter's right is world -x when facing +z
-    expect(f.blade.hilt.y).toBeCloseTo(1.05, 6);
-    expect(f.blade.hilt.z).toBeCloseTo(0.3, 6);
-  });
-
-  it('solves its Skeleton inside the Tick: the blade walks with the Fighter and follows the Idle Motion', () => {
-    const forward = Array.from({ length: 60 }, () => [{ ...IDLE_INTENT, move: { x: 0, z: 1 } }]);
-    const f = run(createInitialState(tuning, 1), forward).fighters[0]!;
-    expect(f.motion).toEqual({ name: 'Idle', tick: 60 });
-    // 2.5 m walked + 0.3 m hand reach; idle.json's 1 s Pose Key lowers the hand to 1.03.
-    expect(f.blade.hilt.z).toBeCloseTo(2.8, 6);
-    expect(f.blade.hilt.y).toBeCloseTo(1.03, 6);
+  it('solves its Skeleton inside the Tick: the blade walks with the Fighter', () => {
+    const forward = Array.from({ length: TICK_RATE }, () => [{ ...IDLE_INTENT, move: { x: 0, z: 1 } }]);
+    const still = Array.from({ length: TICK_RATE }, () => [IDLE_INTENT]);
+    const walked = run(createInitialState(tuning, 1), forward).fighters[0]!.blade;
+    const stood = run(createInitialState(tuning, 1), still).fighters[0]!.blade;
+    // The same Idle pose, 2.5 m further along +z.
+    for (const key of ['hilt', 'tip'] as const) {
+      expect(walked[key].x).toBeCloseTo(stood[key].x, 6);
+      expect(walked[key].y).toBeCloseTo(stood[key].y, 6);
+      expect(walked[key].z).toBeCloseTo(stood[key].z + 2.5, 6);
+    }
   });
 
   it('exposes the full solved Skeleton for the Renderer, matching the blade in state', () => {

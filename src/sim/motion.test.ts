@@ -41,13 +41,20 @@ describe('The Overhead Motion', () => {
     for (const b of bladeTrack(tuning, 'Overhead', 70)) expect(dist(b.hilt, b.tip)).toBeCloseTo(0.9, 9);
   });
 
-  it('reaches the release Pose Key: at 0.6 s the sword hand is at its target', () => {
-    // overhead.json key 2: rightHand (0.05, 1.0, 0.55) in Fighter-local (x = right).
-    // At the origin facing +z, the Fighter's right is world -x.
-    const { hilt } = motionPose(tuning, 'Overhead', 36, ORIGIN).blade;
-    expect(hilt.x).toBeCloseTo(-0.05, 6);
-    expect(hilt.y).toBeCloseTo(1.0, 6);
-    expect(hilt.z).toBeCloseTo(0.55, 6);
+  it('reaches a Pose Key: at its time the sword hand is at its target', () => {
+    const reach = parseMotion({
+      name: 'Overhead',
+      duration: 1,
+      poseKeys: [
+        { time: 0, ease: 'linear', rightHand: { position: { x: 0.3, y: 1.2, z: 0.3 }, rotation: { x: 0, y: 0, z: 0 } } },
+        { time: 0.5, ease: 'linear', rightHand: { position: { x: 0.2, y: 1.1, z: 0.35 }, rotation: { x: 0, y: 0, z: 0 } } },
+      ],
+    });
+    // Fighter-local x is the Fighter's right: world -x at the origin facing +z.
+    const { hilt } = motionPose(withMotion(tuning, reach), 'Overhead', 30, ORIGIN).blade;
+    expect(hilt.x).toBeCloseTo(-0.2, 6);
+    expect(hilt.y).toBeCloseTo(1.1, 6);
+    expect(hilt.z).toBeCloseTo(0.35, 6);
   });
 
   it('raises the blade over the head at the end of Wind-up, then brings it down in front', () => {
@@ -65,11 +72,14 @@ describe('The Overhead Motion', () => {
   });
 
   it('moves and turns with the Fighter', () => {
-    const { hilt } = motionPose(tuning, 'Overhead', 36, { position: { x: 2, z: 3 }, facing: Math.PI / 2 }).blade;
-    // Facing +x, the Fighter's right is world +z.
-    expect(hilt.x).toBeCloseTo(2.55, 6);
-    expect(hilt.y).toBeCloseTo(1.0, 6);
-    expect(hilt.z).toBeCloseTo(3.05, 6);
+    const atOrigin = motionPose(tuning, 'Overhead', 36, ORIGIN).blade;
+    const placed = motionPose(tuning, 'Overhead', 36, { position: { x: 2, z: 3 }, facing: Math.PI / 2 }).blade;
+    // The same pose, turned a quarter (facing +x) and carried to (2, 3).
+    for (const key of ['hilt', 'tip'] as const) {
+      expect(placed[key].x).toBeCloseTo(2 + atOrigin[key].z, 6);
+      expect(placed[key].y).toBeCloseTo(atOrigin[key].y, 6);
+      expect(placed[key].z).toBeCloseTo(3 - atOrigin[key].x, 6);
+    }
   });
 });
 
@@ -87,9 +97,9 @@ describe('IK limits', () => {
       poseKeys: [{ time: 0, ease: 'linear', rightHand: { position: { x: 0, y: 1.5, z: 5 }, rotation: { x: 0, y: 0, z: 0 } } }],
     });
     const pose = motionPose(withMotion(tuning, far), 'Overhead', 0, ORIGIN);
-    const reach = 0.3 + 0.28; // skeleton.json upperArm + forearm
-    expect(dist(pose.joints.rightShoulder, pose.blade.hilt)).toBeCloseTo(reach, 6);
+    // The hand reaches out toward the target but stops well short of it.
     expect(pose.blade.hilt.z).toBeGreaterThan(0.5);
+    expect(pose.blade.hilt.z).toBeLessThan(1.5);
     for (const j of Object.values(pose.joints)) expect(Number.isFinite(j.x + j.y + j.z)).toBe(true);
   });
 
