@@ -3,14 +3,18 @@
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
- * Movement, or an AI vs AI Match (two AI Controllers, difficulty per Fighter
- * and seed in the "AI vs AI" folder).
+ * Movement, an AI vs AI Match (two AI Controllers, difficulty per Fighter
+ * and seed in the "AI vs AI" folder), or Player vs AI (you play red with the
+ * Local Controller and the game's third-person camera; "Player vs AI" folder).
  *
  * The run is stepped through a `SandboxSession` (sandboxSession.ts), which
  * keeps every Tick as a snapshot plus the Controllers' memory. Scripts are
  * computed up front so the scrub slider has a fixed range; scrubbing picks a
  * stored Tick, and resuming from there re-simulates (Controllers restored) and
  * checks each Tick against the stored one, shown as "determinism" in State.
+ * Player vs AI is live instead: playback extends the frontier, the scrub
+ * slider grows with it, and playing on after a scrub back retakes from that
+ * Tick (the AI restored; the first different Intent of yours starts a branch).
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -30,6 +34,7 @@ import {
   type BladeTransform,
   type HitCapsule,
   type HitEvent,
+  type Intent,
   type MatchState,
   type SimState,
   type Track,
@@ -39,30 +44,47 @@ import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
-import { createAiController, scriptedController, type Controller } from '../controllers';
-import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox, type SandboxSession } from './sandboxSession';
+import { createAiController, LocalController, scriptedController, type Controller } from '../controllers';
+import { bindLocalInput } from '../play/input';
+import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import {
+  createSandboxSession,
+  duelSandbox,
+  liveScrubMax,
+  matchSandbox,
+  playerVsAiSession,
+  type Sandbox,
+  type SandboxSession,
+} from './sandboxSession';
 import { ActionLabels, describeAction } from './actionLabels';
 import { EditorSession } from './session';
 import { addTuningPanels } from './tuningPanel';
+import { recordingSandbox, recordReplay } from './replay';
+import { addReplayPanel } from './replayPanel';
 
 /** What the sandbox plays: a session to scrub through, the Duel at each Tick, plus the Match around it for an AI vs AI run. */
 interface SandboxRun {
   readonly session: SandboxSession<unknown>;
-  /** Playback stops at this Tick (the precomputed length). */
+  /** Playback stops at this Tick (the precomputed length, or a live run's cap). */
   readonly ticks: number;
   readonly duel: (tick: number) => SimState;
   readonly match?: (tick: number) => MatchState;
+  /** A live run (Player vs AI): driven by this Local Controller as Fighter 0, not precomputed. */
+  readonly local?: LocalController;
+  /** The Intents fed to the Simulation for every computed Tick (for golden replays). */
+  readonly intents: () => Intent[][];
 }
 
 /**
  * Step a run up front (until `ticks` or its end) and rewind it to Tick 0.
- * A Player vs AI run (#16) would skip the precompute and let playback extend the frontier.
+ * (Player vs AI is live instead: see playerVsAiMatch.)
  */
-function precompute<S>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
-  const session = createSandboxSession(sandbox, initial, controllers);
+function precompute<S extends object>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
+  const recorder = recordingSandbox(sandbox);
+  const session = createSandboxSession(recorder, initial, controllers);
   while (!session.over && session.frontier < ticks) session.advance();
   session.seek(0);
-  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!) };
+  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!), intents: () => recorder.intentsOf(session.history) };
 }
 
 /** Two scripted Tracks facing each other `distance` apart (like `runDuel`, but through a session). */
@@ -145,16 +167,44 @@ function aiVsAiMatch(tuning: TuningData): SandboxRun {
   return { ...run, match: (t) => run.session.history[t] as MatchState };
 }
 
-const SCRIPTS: Record<string, (tuning: TuningData) => SandboxRun> = {
+/** Settings of the Player vs AI Match (the Tweakpane folder edits these). */
+const playerMatch = { ai: 'Normal', seed: 1, bestOf: 3 };
+/** A live run keeps every Tick; stop playback after this many (30 minutes). */
+const PLAYER_MATCH_MAX_TICKS = 60 * 60 * 30;
+const PLAYER_VS_AI = 'Player vs AI';
+
+/**
+ * Player vs AI: you are red (Fighter 0, the Local Controller fed by mouse and
+ * keys), the AI is blue. Live: nothing is precomputed, playing extends the run.
+ */
+function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun {
+  local.releaseAll();
+  local.setYaw(0); // Fighter 0 starts facing +z
+  const recorder = recordingSandbox(matchSandbox(tuning));
+  const options = { difficulty: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed };
+  const session = playerVsAiSession(tuning, local, options, recorder);
+  return {
+    session,
+    ticks: PLAYER_MATCH_MAX_TICKS,
+    intents: () => recorder.intentsOf(session.history),
+    duel: (t) => session.history[t]!.duel,
+    match: (t) => session.history[t]!,
+    local,
+  };
+}
+
+const SCRIPTS: Record<string, (tuning: TuningData, local: LocalController) => SandboxRun> = {
   Exchange: scriptedDuel,
   Movement: movementDuel,
   'AI vs AI Match': aiVsAiMatch,
+  [PLAYER_VS_AI]: playerVsAiMatch,
 };
 type ScriptName = keyof typeof SCRIPTS;
 
-function describeMatch(m: MatchState): string {
+function describeMatch(m: MatchState, live: boolean): string {
   const score = `score ${m.score.join('–')}`;
-  if (m.status.status === 'Over') return `Match over: ${m.status.winner === 0 ? 'red' : 'blue'} wins · ${score}`;
+  const red = live ? 'you (red)' : 'red';
+  if (m.status.status === 'Over') return `Match over: ${m.status.winner === 0 ? red : 'blue'} wins · ${score}`;
   return `Duel ${m.duelNumber} of best of ${m.config.bestOf} · ${score}`;
 }
 
@@ -229,9 +279,20 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   controls.target.set(0, 1.1, 0);
   controls.update();
 
+  /** Player vs AI: the human's Controller, fed by mouse/keys on the canvas only while a live run is shown. */
+  const local = new LocalController();
+  const input = bindLocalInput(local, stage.canvas);
+
   const script: { name: ScriptName } = { name: 'Exchange' };
-  let run: SandboxRun = SCRIPTS[script.name]!(tuning);
+  let run: SandboxRun = SCRIPTS[script.name]!(tuning, local);
   const lastTick = () => run.ticks;
+  /** The scrub slider's upper end: the whole run, or for a live run the frontier rounded up (the slider grows as you play). */
+  const scrubMax = () => (run.local ? liveScrubMax(run.session.frontier) : run.ticks);
+  /** Live run: point the aim (camera) along the local Fighter's facing at Tick t, e.g. after a scrub or at a Duel start. */
+  const aimAt = (t: number) => {
+    const f = run.duel(t).fighters[0];
+    if (run.local && f) run.local.setYaw(f.facing);
+  };
 
   const views = [0, 1].map((i) => new FighterView(FIGHTER_COLOURS[i]!, tuning));
   const trails = [0, 1].map(() => new BladeSweepTrail());
@@ -259,15 +320,22 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   /** Move the session's cursor to the Tick shown in the UI (after a scrub). */
   const syncCursor = () => {
     const t = Math.max(0, Math.min(ui.tick, run.session.frontier));
-    if (t !== run.session.cursor) run.session.seek(t);
+    if (t !== run.session.cursor) {
+      run.session.seek(t);
+      aimAt(t);
+    }
     ui.tick = t;
   };
-  /** Play one Tick from the cursor: re-simulated through the session (Controllers restored after a scrub). */
+  /**
+   * Play one Tick from the cursor: re-simulated through the session (Controllers restored after a scrub).
+   * In a live run the Local Controller is sampled here, so playing on from a scrubbed-back Tick retakes it.
+   */
   const advance = (): boolean => {
     syncCursor();
     if (run.session.over || run.session.cursor >= lastTick()) return false;
     run.session.advance();
     ui.tick = run.session.cursor;
+    if (run.match?.(ui.tick).events.some((e) => e.type === 'DuelStart')) aimAt(ui.tick);
     hear(ui.tick);
     return true;
   };
@@ -282,8 +350,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   pane.addBinding(audio, 'muted', { label: 'mute sound' });
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05, label: 'speed (slow-mo)' });
   /** The scrub slider's range is fixed at creation, so it is rebuilt in place when the script length changes. */
+  let scrubBuiltMax = scrubMax();
   const addScrub = (index?: number) => {
-    const b = pane.addBinding(ui, 'tick', { min: 0, max: lastTick(), step: 1, label: 'Tick (scrub)', index });
+    scrubBuiltMax = scrubMax();
+    const b = pane.addBinding(ui, 'tick', { min: 0, max: scrubBuiltMax, step: 1, label: 'Tick (scrub)', index });
     b.on('change', () => {
       accumulator = 0;
       syncCursor();
@@ -302,6 +372,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     syncCursor();
     run.session.stepBack();
     ui.tick = run.session.cursor;
+    aimAt(ui.tick);
     accumulator = 0;
     pane.refresh();
   });
@@ -312,13 +383,26 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     pane.refresh();
   });
   let switchingScript = false;
-  const rerun = () => {
-    run = SCRIPTS[script.name]!(tuning);
-    ui.tick = 0;
-    accumulator = 0;
+  const rebuildScrub = () => {
     const index = pane.children.indexOf(scrub);
     scrub.dispose();
     scrub = addScrub(index);
+  };
+  const rerun = () => {
+    const wasLive = !!run.local;
+    run = SCRIPTS[script.name]!(tuning, local);
+    ui.tick = 0;
+    accumulator = 0;
+    rebuildScrub();
+    if (!!run.local !== wasLive) {
+      // Playing yourself defaults to real time; watching defaults to slow motion and the orbit camera.
+      ui.speed = run.local ? 1 : 0.5;
+      if (!run.local) {
+        if (document.pointerLockElement) document.exitPointerLock();
+        stage.camera.position.set(3.6, 2.2, 0);
+        controls.target.set(0, 1.1, 0);
+      }
+    }
   };
   pane
     .addBinding(script, 'name', { label: 'script', options: Object.fromEntries(Object.keys(SCRIPTS).map((k) => [k, k])) })
@@ -329,23 +413,42 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const ai = pane.addFolder({ title: 'AI vs AI', expanded: true });
   const difficulties = Object.fromEntries(Object.keys(tuning.ai.difficulties).map((k) => [k, k]));
   /** Changing an AI setting switches to (and re-runs) the AI vs AI Match. */
-  const rerunAi = () => {
-    script.name = 'AI vs AI Match';
+  const switchTo = (name: ScriptName) => {
+    script.name = name;
     switchingScript = true; // refresh() may fire the script binding's 'change'; re-run once, below
     pane.refresh();
     switchingScript = false;
     rerun();
   };
+  const rerunAi = () => switchTo('AI vs AI Match');
   ai.addBinding(aiMatch, 'red', { label: 'red AI', options: difficulties }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'blue', { label: 'blue AI', options: difficulties }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunAi);
+  /** Changing a Player vs AI setting starts a new Player vs AI Match. */
+  const vs = pane.addFolder({ title: 'Player vs AI', expanded: false });
+  const rerunPlayer = () => switchTo(PLAYER_VS_AI);
+  vs.addBinding(playerMatch, 'ai', { label: 'AI', options: difficulties }).on('change', rerunPlayer);
+  vs.addBinding(playerMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunPlayer);
+  vs.addBinding(playerMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunPlayer);
+  vs.addButton({ title: 'Play (new Match)' }).on('click', () => {
+    rerunPlayer();
+    ui.playing = true;
+  });
+  const help = {
+    text: 'You are red. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Q Feint · Space pause/play.',
+  };
+  vs.addBinding(help, 'text', { readonly: true, label: 'controls', multiline: true, rows: 3 });
   addTuningPanels(pane, session, () => {
     tuning = session.tuning;
     const tick = ui.tick;
     rerun();
     ui.tick = Math.min(tick, lastTick());
     syncCursor();
+  });
+  addReplayPanel(pane, {
+    record: () => recordReplay(tuning, run.session.history as readonly (SimState | MatchState)[], run.intents()),
+    tuning: () => tuning,
   });
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
@@ -357,6 +460,14 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   status.addBinding(ui, 'match', { readonly: true, label: 'match' });
   status.addBinding(ui, 'determinism', { readonly: true, label: 'determinism' });
   status.addBinding(ui, 'events', { readonly: true, label: 'events', multiline: true, rows: 6 });
+
+  // Space pauses/resumes (with the mouse locked to the view, the pane can't be clicked).
+  window.addEventListener('keydown', (e) => {
+    if (e.code !== 'Space' || e.repeat || (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, button'))) return;
+    e.preventDefault();
+    ui.playing = !ui.playing;
+    accumulator = 0;
+  });
 
   let accumulator = 0;
   let last = performance.now();
@@ -378,20 +489,36 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     const curr = run.duel(t);
     // Interpolate toward the next Tick only when it is already computed and in the same Duel.
     const ahead = t < run.session.frontier ? run.duel(t + 1) : curr;
-    const next = ahead.tick === curr.tick + 1 ? ahead : curr;
+    let from = curr;
+    let to = ahead.tick === curr.tick + 1 ? ahead : curr;
     const alpha = ui.playing ? accumulator / TICK_SECONDS : 0;
+    if (run.local && to === curr && ui.playing && t > 0) {
+      // Playing live at the frontier: the next Tick does not exist yet, so draw one Tick behind (like the game loop).
+      const prev = run.duel(t - 1);
+      if (curr.tick === prev.tick + 1) from = prev;
+      to = curr;
+    }
+
+    // A live run is seen through the game's third-person camera on your Fighter; scripted runs use the orbit camera.
+    input.enabled = !!run.local;
+    controls.enabled = !run.local;
+    if (run.local) {
+      const p = to.fighters[0]!.position;
+      const q = from.fighters[0]!.position;
+      placeThirdPersonCamera(stage.camera, { x: q.x + (p.x - q.x) * alpha, z: q.z + (p.z - q.z) * alpha }, run.local.yaw);
+    } else controls.update();
 
     curr.fighters.forEach((f, i) => {
-      views[i]!.update(lerpPose(fighterPose(f, tuning), fighterPose(next.fighters[i]!, tuning), alpha));
+      views[i]!.update(lerpPose(fighterPose(from.fighters[i]!, tuning), fighterPose(to.fighters[i]!, tuning), alpha));
       zones[i]!.root.visible = ui.hitZones;
       if (ui.hitZones) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning));
       trails[i]!.root.visible = ui.bladeSweep;
       if (ui.bladeSweep) {
         // The trail stays within the current Duel (a new Duel restarts its Tick at 0).
-        const from = Math.max(0, t - TRAIL_TICKS, t - curr.tick);
+        const first = Math.max(0, t - TRAIL_TICKS, t - curr.tick);
         const blades: BladeTransform[] = [];
-        for (let k = from; k <= t; k++) blades.push(run.duel(k).fighters[i]!.blade);
-        trails[i]!.set(blades, (k) => from + k > t - curr.tick && sweepLive(run, i, from + k));
+        for (let k = first; k <= t; k++) blades.push(run.duel(k).fighters[i]!.blade);
+        trails[i]!.set(blades, (k) => first + k > t - curr.tick && sweepLive(run, i, first + k));
       }
     });
 
@@ -400,7 +527,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     const d = run.session.divergence;
     ui.determinism = d === null ? 'ok (resume re-simulates and matches)' : `DIVERGED at Tick ${d}`;
     const m = run.match?.(t);
-    ui.match = m ? describeMatch(m) : '(scripted Duel)';
+    ui.match = m ? describeMatch(m, !!run.local) : '(scripted Duel)';
+    if (run.local) ui.match += ` · recorded to Tick ${run.session.frontier}`;
     ui.fighter0 = `HP ${hp(0)}\n${describeAction(curr.fighters[0]!.action)}`;
     ui.fighter1 = `HP ${hp(1)}\n${describeAction(curr.fighters[1]!.action)}`;
     const recent = run.session.recentEvents(t, 6);
@@ -420,8 +548,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     hitMarker.visible = !!lastHit;
     if (lastHit) hitMarker.position.set(lastHit.point.x, lastHit.point.y, lastHit.point.z);
 
+    if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
-    controls.update();
     stage.draw();
     requestAnimationFrame(frame);
   }

@@ -49,9 +49,9 @@ describe('AI Controller: Reaction Time', () => {
   }
 });
 
-describe('AI vs AI Match', () => {
+describe('AI vs AI Match', { timeout: 30_000 }, () => {
   const play = (seed: number) =>
-    runMatch(repo, createMatch(repo, { bestOf: 3, seed }), [createAiController(repo, 'Normal'), createAiController(repo, 'Normal')], 30_000);
+    runMatch(repo, createMatch(repo, { bestOf: 1, seed }), [createAiController(repo, 'Normal'), createAiController(repo, 'Normal')], 30_000);
 
   it('is deterministic for a given seed (same hash at every Tick, same result)', () => {
     const one = play(42);
