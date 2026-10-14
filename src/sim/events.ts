@@ -52,6 +52,19 @@ export interface StaggerEvent {
   readonly cause: StaggerCause;
 }
 
+/**
+ * A Fighter cancelled its Attack's Wind-up (a Feint) into another Action:
+ * a fresh Attack in a different Direction, or a Block. The new Action's own
+ * events (e.g. the new Wind-up's AttackPhase) follow in the same Tick.
+ */
+export interface FeintEvent {
+  readonly type: 'Feint';
+  readonly fighter: number;
+  /** Direction of the cancelled Attack. */
+  readonly from: Direction;
+  readonly into: { readonly kind: 'Attack' | 'Block'; readonly direction: Direction };
+}
+
 /** The Duel ended this Tick. `winner` is a Fighter index, or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
@@ -62,7 +75,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

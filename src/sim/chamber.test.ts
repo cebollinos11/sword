@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, attackTimings, runDuel, wait, type Direction, type HitEvent, type ScriptRun } from './index';
+import { attack, attackTimings, hold, runDuel, wait, type Direction, type HitEvent, type ScriptRun } from './index';
 
 const tuning = loadTuningData();
 
@@ -73,6 +73,16 @@ describe('Chamber', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: [...wait(r - 6), ...attack('Overhead', 30)] });
     expect(eventsOf(run, 'Chamber')).toEqual([]);
     expect(run.final.fighters[1]!.hp).toBeLessThan(100);
+  });
+
+  it('a Feint into the matching Direction inside the window chambers: a fresh Wind-up counts as starting an Attack', () => {
+    const r = releaseStart(tuning);
+    // Fighter 1 winds up Left before the window, then (still holding attack) switches to Overhead on Tick r.
+    const b = [...wait(r - 6), ...hold(5, { attack: true, direction: 'Left' }), ...hold(1, { attack: true, direction: 'Overhead' })];
+    const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b });
+    expect(eventsOf(run, 'Feint')).toHaveLength(1);
+    expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', tick: r }]);
+    expect(run.final.fighters[1]!.hp).toBe(100);
   });
 
   it('a mismatched Direction inside the window does not chamber: the incoming Attack lands', () => {
