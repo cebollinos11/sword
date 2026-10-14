@@ -31,17 +31,19 @@ import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 
 /**
- * The scripted Duel: Fighter 0 swings Overheads (the second one held), Fighter 1 steps in and
- * swings back for a same-Tick Trade at Tick 164; Fighter 0 wins at Tick 266 with today's Tuning Data.
+ * The scripted Duel: Fighter 0 attacks in every Direction (Right, a held Overhead, Thrust, Left),
+ * Fighter 1 steps in and swings back for a same-Tick Trade at Tick 164; Fighter 0 wins at
+ * Tick 337 with today's Tuning Data. Held Wind-up poses: Right ~41, Overhead 122-150,
+ * Thrust ~252, Left ~328.
  */
 function scriptedDuel(tuning: TuningData): ScriptRun {
   const a: Track = [
     ...wait(20),
-    ...attack('Overhead'),
+    ...attack('Right'),
     ...wait(80),
     ...attack('Overhead', 50),
     ...wait(80),
-    ...Array.from({ length: 6 }, () => [...attack('Overhead'), ...wait(75)]).flat(),
+    ...(['Thrust', 'Left', 'Right', 'Overhead', 'Thrust', 'Left'] as const).flatMap((d) => [...attack(d), ...wait(75)]),
   ];
   const b: Track = [...wait(60), ...walk(10, { x: 0, z: -1 }), ...wait(60), ...attack('Overhead'), ...wait(200)];
   return runDuel(tuning, { distance: 1.5, a, b, ticks: 480 });
