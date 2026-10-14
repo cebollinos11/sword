@@ -97,8 +97,9 @@ export interface RollbackSession {
 
 const NOTHING: TickResult = { advanced: false, stalled: false, rolledBack: 0 };
 
+/** Field-agnostic, so new Intent fields are compared too. */
 function sameIntent(a: Intent, b: Intent): boolean {
-  return a.move.x === b.move.x && a.move.z === b.move.z && a.direction === b.direction && a.attack === b.attack && a.block === b.block;
+  return a === b || hashValue(a) === hashValue(b);
 }
 
 export function createRollbackSession(options: RollbackSessionOptions): RollbackSession {
