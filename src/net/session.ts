@@ -20,6 +20,7 @@
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
 import type { Intent, MatchOptions, MatchState, Snapshot } from '../sim';
 import { tuningDataHash, type TuningData } from '../tuning';
+import { createRemoteController, type Controller, type PeerIntentSource } from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
@@ -78,6 +79,8 @@ export interface RollbackSession {
   readonly role: SessionRole;
   /** The Fighter this peer controls: host 0, guest 1. */
   readonly localFighter: number;
+  /** The Remote Controller driving the peer's Fighter: its Intents for the Tick being simulated, real or predicted. */
+  readonly remote: Controller;
   readonly status: SessionStatus;
   /** The current (possibly predicted) Match state; null until Running. Render this. */
   readonly state: MatchState | null;
@@ -111,9 +114,10 @@ export function createRollbackSession(options: RollbackSessionOptions): Rollback
   return new Session(options);
 }
 
-class Session implements RollbackSession {
+class Session implements RollbackSession, PeerIntentSource {
   readonly role: SessionRole;
   readonly localFighter: number;
+  readonly remote: Controller = createRemoteController(this);
   status: SessionStatus = 'Connecting';
   state: MatchState | null = null;
   stats = { rollbacks: 0, maxRollback: 0, stalls: 0, resyncs: 0 };
@@ -139,6 +143,8 @@ class Session implements RollbackSession {
   private peerAck = 0;
   /** Earliest Tick simulated with a wrong prediction, pending Rollback. */
   private rollbackFrom: number | null = null;
+  /** The Tick being simulated right now, if any (what the Remote Controller is asked about). */
+  private simulating: number | null = null;
   private readonly hashes = new Map<number, string>();
   private readonly hostChecksums = new Map<number, string>();
   private lastHashed = 0;
@@ -221,11 +227,19 @@ class Session implements RollbackSession {
     const prev = this.state!;
     const t = prev.tick + 1;
     const local = this.localIntents.get(t) ?? IDLE_INTENT;
-    const remote = this.remoteIntents.get(Math.min(t, this.remoteConfirmed)) ?? IDLE_INTENT;
+    this.simulating = t;
+    const remote = this.remote.intent(prev.duel, 1 - this.localFighter);
+    this.simulating = null;
     this.usedRemote.set(t, remote);
     const intents = this.localFighter === 0 ? [local, remote] : [remote, local];
     this.state = this.stepFn(prev, intents, this.tuning);
     this.states.set(t, snapshot(this.state));
+  }
+
+  /** The peer's Intent for the Tick being simulated (or the next one): real once it has arrived, else the last real one repeated. */
+  peerIntent(): Intent {
+    const t = this.simulating ?? this.currentTick + 1;
+    return this.remoteIntents.get(Math.min(t, this.remoteConfirmed)) ?? IDLE_INTENT;
   }
 
   /** Re-simulate from the earliest mispredicted Tick. Returns the number of Ticks re-simulated. */

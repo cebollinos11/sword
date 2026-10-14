@@ -1,7 +1,8 @@
 /**
  * Player vs Player: a MatchDriver over the Rollback session. The session
  * already steps the Match (with Rollback) and knows the local Fighter (host 0,
- * guest 1); this adds what the game loop needs on top:
+ * guest 1), and drives the peer's Fighter with its Remote Controller
+ * (`session.remote`); this adds what the game loop needs on top:
  *
  * - Clicks made while the session is stalled (Intent dropped) are carried to
  *   the next Tick that does advance, so a quick tap isn't lost.
@@ -48,6 +49,7 @@ export function playerVsPlayer(session: RollbackSession): PlayerVsPlayerDriver {
 
   return {
     localFighter: session.localFighter,
+    opponent: session.remote,
     get state() {
       return session.state;
     },

@@ -5,13 +5,15 @@
  * the Match locally) and Player vs Player (#23: wrap the Rollback session,
  * which already has this shape) plug into the same loop.
  */
-import { createMatch, stepMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
+import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
-import { createAiController, type Controller } from '../controllers';
+import { createAiController, stepMatchWith, type Controller } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives. */
   readonly localFighter: number;
+  /** The Controller driving the other Fighter: the AI Controller (Player vs AI) or the Remote Controller (Player vs Player). */
+  readonly opponent: Controller;
   /** The Match to render (null until it exists, e.g. while a peer connects). May be predicted. */
   readonly state: MatchState | null;
   /** Feed the local Intent for the next Match Tick. `advanced` is false when no Tick was simulated (stalled, connecting). */
@@ -34,13 +36,18 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   const { difficulty, ...matchOptions } = options;
   const ai: Controller = createAiController(tuning, difficulty);
   let match = createMatch(tuning, matchOptions);
+  let pending: Intent | null = null;
+  /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
+  const local: Controller = { intent: () => pending! };
   return {
     localFighter: 0,
+    opponent: ai,
     get state() {
       return match;
     },
     tick(localIntent) {
-      match = stepMatch(match, [localIntent, ai.intent(match.duel, 1)], tuning);
+      pending = localIntent;
+      match = stepMatchWith(match, [local, ai], tuning);
       return { advanced: true };
     },
   };
