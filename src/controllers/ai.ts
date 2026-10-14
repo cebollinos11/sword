@@ -9,6 +9,8 @@
  *    Time). Its own Fighter it knows up to date.
  *  - It makes mistakes at `mistakeRate`: a wrong-Direction Block (rolled once
  *    per opponent Attack), or a mistimed Attack from out of range.
+ *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
+ *    then switch to another Direction (an Attack Feint) before Releasing.
  *
  * Deterministic given the seeded generator in state: it holds no generator of
  * its own. Each Tick it draws from a generator derived from the Simulation's
@@ -47,7 +49,19 @@ interface AiMemory {
   readonly seen: readonly Observation[];
   readonly lastTick: number;
   readonly blockPlan: { readonly attackStart: number; readonly direction: Direction } | null;
+  readonly feintPlan: FeintPlan | null;
 }
+
+/** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
+interface FeintPlan {
+  readonly from: Direction;
+  readonly into: Direction;
+  readonly at: number;
+}
+
+/** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
+const FEINT_DELAY_MIN = 4;
+const FEINT_DELAY_SPREAD = 10;
 
 /** Look up a difficulty preset by name in Tuning Data. */
 export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
@@ -87,6 +101,8 @@ class AiController implements Controller {
   private lastTick = -1;
   /** The Block Direction chosen for one opponent Attack (rolled once, so a mistake sticks). */
   private blockPlan: { readonly attackStart: number; readonly direction: Direction } | null = null;
+  /** Its own Attack it is about to Feint, if any. */
+  private feintPlan: FeintPlan | null = null;
 
   constructor(
     private readonly tuning: TuningData,
@@ -97,7 +113,7 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan };
+    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan, feintPlan: this.feintPlan };
   }
 
   load(saved: unknown): void {
@@ -105,6 +121,7 @@ class AiController implements Controller {
     this.seen = [...m.seen];
     this.lastTick = m.lastTick;
     this.blockPlan = m.blockPlan;
+    this.feintPlan = m.feintPlan;
   }
 
   private random(): number {
@@ -123,6 +140,7 @@ class AiController implements Controller {
       // A new Duel: forget what was seen.
       this.seen = [];
       this.blockPlan = null;
+      this.feintPlan = null;
     }
     this.lastTick = state.tick;
     const o = state.fighters[opponent]!;
@@ -149,20 +167,48 @@ class AiController implements Controller {
     const base: Intent = { ...IDLE_INTENT, face: Math.atan2(dx, dz) };
     const toward: Vec2 = dist > 0 ? { x: dx / dist, z: dz / dist } : { x: 0, z: 0 };
 
-    if (isThreat(seen.action) && seen.attackStart !== null) return this.defend(self.action, seen.action.direction, seen.attackStart, base);
+    if (isThreat(seen.action) && seen.attackStart !== null) {
+      this.feintPlan = null;
+      return this.defend(self.action, seen.action.direction, seen.attackStart, base);
+    }
     this.blockPlan = null;
 
+    const feint = this.feint(state.tick, self.action, base);
+    if (feint) return feint;
     if (self.action.kind !== 'Idle') return base; // let go of block/attack; finish what it is doing
     const { attackRange, retreatRange, aggression } = this.tuning.ai;
     if (dist > attackRange) {
       // Mistimed Attack: swinging from out of range.
-      if (this.random() < aggression * this.difficulty.mistakeRate) return { ...base, attack: true, direction: this.randomDirection() };
+      if (this.random() < aggression * this.difficulty.mistakeRate) return this.startAttack(state.tick, base);
       return { ...base, move: toward };
     }
     if (dist < retreatRange) return { ...base, move: { x: -toward.x, z: -toward.z } };
     // An opening (opponent in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
-    if (aggression > 0 && (isOpening(seen.action) || this.random() < aggression)) return { ...base, attack: true, direction: this.randomDirection() };
+    if (aggression > 0 && (isOpening(seen.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
     return base;
+  }
+
+  /** Press attack in a random Direction; at `feintRate` it plans to Feint this Attack into another Direction. */
+  private startAttack(tick: number, base: Intent): Intent {
+    const direction = this.randomDirection();
+    if (this.random() < this.difficulty.feintRate) {
+      const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
+      this.feintPlan = { from: direction, into: this.randomDirection(direction), at };
+    }
+    return { ...base, attack: true, direction };
+  }
+
+  /** While a planned Feint's Wind-up runs: hold attack, then switch Direction (the Feint) and let the new Attack Release. */
+  private feint(tick: number, self: Action, base: Intent): Intent | null {
+    const plan = this.feintPlan;
+    if (!plan) return null;
+    if (self.kind !== 'Attack' || self.phase !== 'Wind-up' || self.direction !== plan.from) {
+      this.feintPlan = null;
+      return null;
+    }
+    if (tick < plan.at) return { ...base, attack: true, direction: plan.from };
+    this.feintPlan = null;
+    return { ...base, attack: true, direction: plan.into };
   }
 
   /** Block the seen Attack, in its Direction unless this Attack's roll made it a mistake. */

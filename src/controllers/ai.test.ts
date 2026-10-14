@@ -30,7 +30,7 @@ function vsAi(tuning: TuningData, difficulty: AiDifficulty, a: Track, ticks: num
 describe('AI Controller: Reaction Time', () => {
   for (const reactionTime of [0.1, 0.25, 0.5]) {
     it(`never reacts to a Wind-up before its Reaction Time (${reactionTime} s) elapses`, () => {
-      const difficulty = { reactionTime, mistakeRate: 0 };
+      const difficulty = { reactionTime, mistakeRate: 0, feintRate: 0 };
       const reactionTicks = Math.round(reactionTime * TICK_RATE);
       const ticks = 30 + reactionTicks + 30;
       const calm = vsAi(passive, difficulty, wait(ticks), ticks);
@@ -83,7 +83,7 @@ describe('AI Controller: mistake rate', () => {
     const a: Track = dirs.flatMap((d) => [...wait(70), ...attack(d)]);
     let hits = 0;
     for (let seed = 1; seed <= 20; seed++) {
-      const { run } = vsAi(passive, { reactionTime: 0.25, mistakeRate }, a, 700, seed);
+      const { run } = vsAi(passive, { reactionTime: 0.25, mistakeRate, feintRate: 0 }, a, 700, seed);
       hits += run.events.filter((e) => e.type === 'Hit' && e.defender === 1).length;
     }
     return hits;
@@ -100,7 +100,7 @@ describe('AI Controller: mistake rate', () => {
 });
 
 describe('AI Controller: Blocking', () => {
-  const perfect = { reactionTime: 0.25, mistakeRate: 0 };
+  const perfect = { reactionTime: 0.25, mistakeRate: 0, feintRate: 0 };
 
   for (const direction of ['Overhead', 'Left', 'Right', 'Thrust'] as const satisfies readonly Direction[]) {
     it(`with zero mistake rate it Blocks a visible ${direction} Attack in the matching Direction`, () => {
@@ -143,11 +143,39 @@ describe('AI Controller: Blocking', () => {
   });
 });
 
+describe('AI Controller: Feints', () => {
+  /** The AI's own Attack Feints (Attack into another Direction) against an opponent who never attacks. */
+  function aiFeints(feintRate: number) {
+    // Endless HP, so the Duel never ends and the AI keeps attacking.
+    const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, aggression: 0.2 } };
+    const ai = createAiController(eager, { reactionTime: 0.1, mistakeRate: 0, feintRate });
+    const run = runControllers(eager, createInitialState(eager, 5, duelPlacements(1.2)), [scriptedController(wait(1)), ai], 1500);
+    const attacks = run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Wind-up').length;
+    const feints = run.events.filter((e) => e.type === 'Feint' && e.fighter === 1);
+    return { attacks, feints };
+  }
+
+  it('with a feint rate it sometimes cancels its own Wind-up into another Direction', () => {
+    const { feints } = aiFeints(0.5);
+    expect(feints.length).toBeGreaterThan(0);
+    for (const f of feints) {
+      expect(f.type === 'Feint' && f.into.kind).toBe('Attack');
+      expect(f.type === 'Feint' && f.into.direction !== f.from).toBe(true);
+    }
+  });
+
+  it('with a feint rate of 0 it never Feints deliberately', () => {
+    const { attacks, feints } = aiFeints(0);
+    expect(attacks).toBeGreaterThan(3);
+    expect(feints).toEqual([]);
+  });
+});
+
 describe('AI Controller determinism', () => {
   it("draws its randomness from the Simulation's seeded generator in state, not a generator of its own", () => {
     // Reaction Time 0 and an opponent who never attacks: everything the AI needs is in the state it is shown.
     const eager: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0.3 } };
-    const difficulty = { reactionTime: 0, mistakeRate: 0.5 };
+    const difficulty = { reactionTime: 0, mistakeRate: 0.5, feintRate: 0 };
     const ai = createAiController(eager, difficulty);
     const intents: Intent[] = [];
     const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents[s.tick] = ai.intent(s, i)) };

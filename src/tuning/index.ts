@@ -113,6 +113,8 @@ export interface AiDifficulty {
   readonly reactionTime: number;
   /** Chance (0..1) of a mistake per decision: a wrong-Direction Block, or a mistimed Attack. */
   readonly mistakeRate: number;
+  /** Chance (0..1) that one of its Attacks is a deliberate Feint: it holds the Wind-up, then switches Direction. */
+  readonly feintRate: number;
 }
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
@@ -172,7 +174,7 @@ function parseAi(raw: unknown): AiTuning {
       const p = record(d[name], where);
       const reactionTime = finiteNumber(p, 'reactionTime', where);
       if (reactionTime < 0) throw new TuningDataError(`${where}.reactionTime must be >= 0, got ${reactionTime}`);
-      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where) }];
+      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where) }];
     }),
   );
   return {
