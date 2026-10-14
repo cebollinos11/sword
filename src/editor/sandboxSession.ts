@@ -12,9 +12,9 @@
  * records the Tick), while different Intents (a player doing something else
  * after a scrub) start a branch and drop the old future.
  */
-import { hashValue, step, stepMatch, type Intent, type MatchState, type SimState, type TimedEvent } from '../sim';
+import { createMatch, hashValue, step, stepMatch, type Intent, type MatchOptions, type MatchState, type SimState, type TimedEvent } from '../sim';
 import type { TuningData } from '../tuning';
-import type { Controller } from '../controllers';
+import { createAiController, type Controller } from '../controllers';
 
 /** How the sandbox steps one kind of run (a bare Duel, or a Match of Duels). */
 export interface Sandbox<S> {
@@ -56,6 +56,31 @@ export interface SandboxSession<S> {
   advance(): S;
   /** Up to `count` of the latest Duel events at or before Tick `tick`, oldest first, tagged with their Tick. */
   recentEvents(tick: number, count: number): TimedEvent[];
+}
+
+export interface PlayerVsAiSandboxOptions extends MatchOptions {
+  /** An AI difficulty preset name from Tuning Data (`ai.difficulties`). */
+  readonly difficulty: string;
+}
+
+/**
+ * A live Player vs AI Match: `player` (the Local Controller) drives Fighter 0,
+ * an AI Controller Fighter 1. Nothing is precomputed; the frontier grows as
+ * the run is played. Scrubbing back and playing on retakes from that Tick: the
+ * AI's memory is restored, and the first Tick the player does something
+ * different starts a branch (the old future is dropped).
+ */
+export function playerVsAiSession(tuning: TuningData, player: Controller, options: PlayerVsAiSandboxOptions): SandboxSession<MatchState> {
+  const { difficulty, ...match } = options;
+  return createSandboxSession(matchSandbox(tuning), createMatch(tuning, match), [player, createAiController(tuning, difficulty)]);
+}
+
+/** A live run's scrub slider grows in steps of this many Ticks (its range can only be set by rebuilding it). */
+export const LIVE_SCRUB_CHUNK = 600;
+
+/** The scrub slider's upper end for a live run whose frontier is `frontier`: rounded up to whole chunks. */
+export function liveScrubMax(frontier: number): number {
+  return Math.max(1, Math.ceil(frontier / LIVE_SCRUB_CHUNK)) * LIVE_SCRUB_CHUNK;
 }
 
 interface Saved {
