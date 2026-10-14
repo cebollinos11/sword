@@ -1,70 +1,43 @@
 /**
- * The Editor route (/sword/#/editor): author Tuning Data against the real
- * Simulation code. This first version loops one Motion on a lone Fighter,
- * draws its Blade Sweep as a trail, exposes every Pose Key as Tweakpane
- * fields (live), and saves the Motion back to `data/motions/<name>.json`.
+ * The Editor route (/sword/#/editor): the Motion Editor. Author any Motion
+ * (each Attack, each Block, Idle, Stagger) against the real Simulation code:
+ * a timeline of its Pose Keys (select, retime, add, scrub, easing curves),
+ * 3D gizmos on the selected Pose Key's hand/torso/hip/foot targets, fields
+ * for every value, the Blade Sweep trail, and Save back to
+ * `data/motions/<name>.json` (File System Access API, download fallback).
  *
- * Extension points for later tickets: the Motion list is whatever Tuning Data
- * holds (new Motion files appear automatically); `EditorSession` is the one
- * source of truth for the working Tuning Data, so gizmos, timelines and a Duel
- * sandbox should read/write it rather than keep their own copies.
+ * `EditorSession` is the one source of truth for the working Tuning Data;
+ * the timeline, gizmos, fields and the Duel sandbox all edit through it, and
+ * the Pose Key operations live in `motionEdit.ts` (unit-tested).
  */
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
-import { motionPose, TICK_RATE, TICK_SECONDS, type BladeTransform, type Placement } from '../sim';
-import {
-  EASES,
-  motionFileName,
-  parseMotion,
-  serializeMotion,
-  TuningDataError,
-  type Motion,
-  type TuningData,
-} from '../tuning';
-import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
+import { motionPose, TICK_RATE, type BladeTransform, type Placement } from '../sim';
+import { EASES, POSE_KEY_CHANNELS, type PoseKeyChannel, type TuningData } from '../tuning';
+import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
+import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizmo';
+import { addPoseKey, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
 import { saveJsonFile } from './save';
 import { startSandbox } from './sandbox';
+import { EditorSession, type MotionDraft } from './session';
+import { Timeline } from './timeline';
 import { BladeSweepTrail } from './trail';
 
-type Mutable<T> = { -readonly [K in keyof T]: T[K] extends object ? Mutable<T[K]> : T[K] };
-/** An editable copy of a Motion; validated with parseMotion before it is used. */
-export type MotionDraft = Mutable<Motion>;
+export { EditorSession, type MotionDraft } from './session';
 
 const ORIGIN: Placement = { position: { x: 0, z: 0 }, facing: 0 };
 /** Pause at the end of each loop so the final pose and the whole trail are readable. */
 const LOOP_HOLD_SECONDS = 0.4;
 
-/** The Editor's working Tuning Data: validated drafts replace the loaded Motions live. */
-export class EditorSession {
-  private readonly drafts = new Map<string, MotionDraft>();
-  tuning: TuningData;
-
-  constructor(loaded: TuningData) {
-    this.tuning = loaded;
-  }
-
-  motionNames(): string[] {
-    return Object.keys(this.tuning.motions).sort((a, b) => (a === 'Overhead' ? -1 : b === 'Overhead' ? 1 : a.localeCompare(b)));
-  }
-
-  draft(name: string): MotionDraft {
-    let d = this.drafts.get(name);
-    if (!d) {
-      d = structuredClone(this.tuning.motions[name]!) as MotionDraft;
-      this.drafts.set(name, d);
-    }
-    return d;
-  }
-
-  /** Validate a draft and, if valid, make it live. Throws TuningDataError otherwise. */
-  commit(name: string): Motion {
-    const motion = parseMotion(this.draft(name));
-    if (motion.name !== name) throw new TuningDataError(`Renaming Motions is not supported here (was "${name}")`);
-    this.tuning = { ...this.tuning, motions: { ...this.tuning.motions, [name]: motion } };
-    return motion;
-  }
-}
+const CHANNEL_LABELS: Record<PoseKeyChannel, string> = {
+  rightHand: 'sword hand',
+  leftHand: 'left hand',
+  torso: 'torso',
+  hip: 'hip',
+  leftFoot: 'left foot',
+  rightFoot: 'right foot',
+};
 
 export function startEditor(container: HTMLElement, loaded: TuningData): void {
   if (location.hash.startsWith('#/editor/sandbox')) {
@@ -74,26 +47,40 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   const session = new EditorSession(loaded);
   const stage = new Stage(container, loaded);
   stage.camera.position.set(3.2, 1.7, 1.6);
-  const controls = new OrbitControls(stage.camera, stage.canvas);
-  controls.target.set(0, 1.2, 0.3);
-  controls.update();
+  const orbit = new OrbitControls(stage.camera, stage.canvas);
+  orbit.target.set(0, 1.1, 0.3);
+  orbit.update();
 
   const fighter = new FighterView(FIGHTER_COLOURS[0]!, loaded);
   const trail = new BladeSweepTrail();
   stage.scene.add(fighter.root, trail.root);
 
-  const ui = { motion: session.motionNames()[0]!, playing: true, speed: 1, tick: 0, status: 'Ready' };
+  const ui = {
+    motion: session.motionNames()[0]!,
+    playing: true,
+    speed: 1,
+    time: 0,
+    tick: 0,
+    gizmo: 'swordHand' as GizmoTarget,
+    status: 'Timeline: click a Pose Key to edit it, drag it to retime, double-click to add one, drag elsewhere to scrub. Space plays.',
+  };
+  /** Index of the selected Pose Key in the current Motion's draft. */
+  let selected: number | null = null;
+  const draft = (): MotionDraft => session.draft(ui.motion);
+
   const pane = new Pane({ title: 'Motion Editor' });
   pane.addButton({ title: 'Duel sandbox →' }).on('click', () => (location.hash = '#/editor/sandbox'));
-  pane.element.parentElement!.style.width = '340px';
-  pane.element.parentElement!.style.maxHeight = 'calc(100vh - 16px)';
-  pane.element.parentElement!.style.overflowY = 'auto';
+  const paneBox = pane.element.parentElement!;
+  paneBox.style.width = '340px';
+  paneBox.style.maxHeight = 'calc(100vh - 16px)';
+  paneBox.style.overflowY = 'auto';
   // Let validation messages in the status monitor wrap instead of scrolling sideways.
   const style = document.createElement('style');
   style.textContent = '.tp-mllv_i { white-space: pre-wrap !important; }';
   document.head.appendChild(style);
 
   let motionFolder: FolderApi | undefined;
+  let keyFolder: FolderApi | undefined;
 
   const rebuildTrail = () => {
     const motion = session.tuning.motions[ui.motion]!;
@@ -106,6 +93,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     );
   };
 
+  /** Validate the draft and make it live (preview, trail); show the error otherwise. */
   const applyEdit = () => {
     try {
       session.commit(ui.motion);
@@ -118,22 +106,21 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   };
 
   const save = async () => {
-    let motion: Motion;
+    let file: ReturnType<EditorSession['motionFile']>;
     try {
-      motion = session.commit(ui.motion);
+      file = session.motionFile(ui.motion);
     } catch (e) {
       ui.status = `Not saved: ${e instanceof Error ? e.message : String(e)}`;
       pane.refresh();
       return;
     }
-    const file = motionFileName(motion.name);
     try {
-      const result = await saveJsonFile(file, serializeMotion(motion));
+      const result = await saveJsonFile(file.fileName, file.text);
       ui.status =
         result === 'written'
-          ? `Saved ${file}`
+          ? `Saved ${file.fileName}`
           : result === 'downloaded'
-            ? `Downloaded ${file}: move it into data/motions/`
+            ? `Downloaded ${file.fileName}: move it into data/motions/`
             : 'Save cancelled';
     } catch (e) {
       ui.status = `Save failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -141,12 +128,121 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     pane.refresh();
   };
 
+  // --- Gizmo and timeline -------------------------------------------------
+  const previewPose = () => motionPose(session.tuning, ui.motion, Math.min(ui.time, session.tuning.motions[ui.motion]!.duration) * TICK_RATE, ORIGIN);
+
+  const gizmo = new PoseGizmo(
+    stage.camera,
+    stage.canvas,
+    loaded.skeleton,
+    ORIGIN,
+    (channelAdded) => {
+      applyEdit();
+      if (channelAdded) buildKeyFolder();
+    },
+    (t) => {
+      ui.gizmo = t;
+      pane.refresh();
+    },
+  );
+  gizmo.controls.addEventListener('dragging-changed', (e) => (orbit.enabled = !(e.value as boolean)));
+  stage.scene.add(gizmo.root);
+
+  const select = (index: number | null) => {
+    selected = index;
+    const key = index === null ? undefined : draft().poseKeys[index];
+    if (key) {
+      ui.playing = false;
+      ui.time = key.time;
+      gizmo.setContext({ draft: draft(), key: index!, pose: previewPose() });
+    } else {
+      selected = null;
+      gizmo.setContext(undefined);
+    }
+    buildKeyFolder();
+    pane.refresh();
+  };
+
+  const retime = (index: number, time: number): number => {
+    const i = retimePoseKey(draft(), index, time);
+    selected = i;
+    ui.time = draft().poseKeys[i]!.time;
+    gizmo.setContext({ draft: draft(), key: i, pose: previewPose() });
+    if (keyFolder) keyFolder.title = `Pose Key ${i}`;
+    keyUi.time = ui.time;
+    applyEdit();
+    return i;
+  };
+
+  const addKey = (time: number) => {
+    const i = addPoseKey(draft(), time, loaded.skeleton);
+    applyEdit();
+    select(i);
+  };
+
+  const deleteKey = () => {
+    if (selected === null) return;
+    try {
+      removePoseKey(draft(), selected);
+    } catch (e) {
+      ui.status = e instanceof Error ? e.message : String(e);
+      pane.refresh();
+      return;
+    }
+    applyEdit();
+    select(null);
+  };
+
+  const timeline = new Timeline({
+    select,
+    retime,
+    scrub: (t) => {
+      if (selected !== null) select(null);
+      ui.playing = false;
+      ui.time = t;
+      pane.refresh();
+    },
+    add: addKey,
+  });
+  document.body.appendChild(timeline.element);
+
+  // --- Fields -------------------------------------------------------------
+  const keyUi = { time: 0, channels: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean> };
+
+  const buildKeyFolder = () => {
+    if (keyFolder) pane.remove(keyFolder);
+    keyFolder = undefined;
+    if (selected === null) return;
+    const key = draft().poseKeys[selected];
+    if (!key) return;
+    const f = pane.addFolder({ title: `Pose Key ${selected}` });
+    keyFolder = f;
+    keyUi.time = key.time;
+    f.addBinding(keyUi, 'time', { min: 0, max: draft().duration, step: 0.01, label: 'time (s)' }).on('change', (e) => {
+      if (selected !== null && e.last !== false) retime(selected, e.value);
+    });
+    f.addBinding(key, 'ease', { options: Object.fromEntries(EASES.map((e) => [e, e])), label: 'ease (into key)' }).on('change', applyEdit);
+    const channels = f.addFolder({ title: 'Channels set by this key' });
+    for (const c of POSE_KEY_CHANNELS) {
+      keyUi.channels[c] = key[c] !== undefined;
+      channels.addBinding(keyUi.channels, c, { label: CHANNEL_LABELS[c] }).on('change', (e) => {
+        if (selected === null) return;
+        setChannel(draft(), selected, c, e.value, loaded.skeleton);
+        applyEdit();
+        buildKeyFolder();
+      });
+    }
+    buildChannelFields(f, key, applyEdit);
+    f.addButton({ title: 'Delete Pose Key' }).on('click', deleteKey);
+  };
+
   const buildMotionFolder = () => {
     if (motionFolder) pane.remove(motionFolder);
     motionFolder = pane.addFolder({ title: `Motion: ${ui.motion}` });
-    buildMotionFields(motionFolder, session.draft(ui.motion));
+    buildMotionFields(motionFolder, draft());
     motionFolder.on('change', applyEdit);
-    ui.tick = 0;
+    ui.time = 0;
+    select(null);
     rebuildTrail();
   };
 
@@ -155,27 +251,45 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   pane.addBinding(ui, 'playing');
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05 });
   pane.addBinding(ui, 'tick', { readonly: true, format: (v: number) => v.toFixed(0) });
+  pane.addBinding(ui, 'gizmo', { options: Object.fromEntries(GIZMO_TARGETS.map((t) => [GIZMO_LABELS[t], t])) }).on('change', (e) =>
+    gizmo.setTarget(e.value),
+  );
+  pane.addButton({ title: 'Add Pose Key at playhead' }).on('click', () => addKey(ui.time));
   pane.addButton({ title: 'Save Motion to data/motions/' }).on('click', () => void save());
   pane.addBinding(ui, 'status', { readonly: true, multiline: true, rows: 3 });
   buildMotionFolder();
 
-  // Preview loop: Editor-only wall clock driving whole Ticks of the Motion.
-  let accumulator = 0;
+  window.addEventListener('keydown', (e) => {
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+    if (e.key === 'Delete') deleteKey();
+    if (e.key === ' ') {
+      ui.playing = !ui.playing;
+      if (ui.playing) select(null);
+      pane.refresh();
+      e.preventDefault();
+    }
+  });
+
+  // Preview loop: an Editor-only wall clock driving the Motion's time.
   let last = performance.now();
   function frame(now: number): void {
     const motion = session.tuning.motions[ui.motion]!;
-    const loopTicks = Math.round((motion.duration + LOOP_HOLD_SECONDS) * TICK_RATE);
-    if (ui.playing) accumulator += Math.min((now - last) / 1000, 0.25) * ui.speed;
-    last = now;
-    while (accumulator >= TICK_SECONDS) {
-      ui.tick = (ui.tick + 1) % loopTicks;
-      accumulator -= TICK_SECONDS;
+    const loopSeconds = motion.duration + LOOP_HOLD_SECONDS;
+    if (ui.playing) {
+      if (selected !== null) select(null);
+      ui.time = (ui.time + Math.min((now - last) / 1000, 0.25) * ui.speed) % loopSeconds;
     }
-    const alpha = accumulator / TICK_SECONDS;
-    const a = motionPose(session.tuning, ui.motion, ui.tick, ORIGIN);
-    const b = motionPose(session.tuning, ui.motion, ui.tick + 1 < loopTicks ? ui.tick + 1 : ui.tick, ORIGIN);
-    fighter.update(lerpPose(a, b, alpha));
-    controls.update();
+    last = now;
+    const tick = Math.floor(Math.min(ui.time, motion.duration) * TICK_RATE);
+    if (tick !== ui.tick) {
+      ui.tick = tick;
+      pane.refresh();
+    }
+    const pose = previewPose();
+    fighter.update(pose);
+    gizmo.setPose(pose);
+    timeline.update(draft(), selected, ui.time);
+    orbit.update();
     stage.draw();
     requestAnimationFrame(frame);
   }
@@ -184,9 +298,8 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
 const POS = { x: { step: 0.01 }, y: { step: 0.01 }, z: { step: 0.01 } };
 const ROT = { x: { step: 1 }, y: { step: 1 }, z: { step: 1 } };
-const easeOptions = Object.fromEntries(EASES.map((e) => [e, e]));
 
-/** Tweakpane fields for every value of a Motion draft. Edits mutate the draft in place. */
+/** Motion-level fields: duration, loop and markers. */
 function buildMotionFields(folder: FolderApi, d: MotionDraft): void {
   folder.addBinding(d, 'duration', { min: 0.05, step: 0.01 });
   folder.addBinding(d, 'loop');
@@ -195,27 +308,27 @@ function buildMotionFields(folder: FolderApi, d: MotionDraft): void {
     const markers = folder.addFolder({ title: 'Markers (s)' });
     for (const m of markerNames) markers.addBinding(d.markers, m, { min: 0, step: 0.01 });
   }
-  d.poseKeys.forEach((k, i) => {
-    const f = folder.addFolder({ title: `Pose Key ${i}`, expanded: i === 0 });
-    f.addBinding(k, 'time', { min: 0, step: 0.01 });
-    f.addBinding(k, 'ease', { options: easeOptions });
-    if (k.rightHand) {
-      f.addBinding(k.rightHand, 'position', { label: 'sword hand', ...POS });
-      f.addBinding(k.rightHand, 'rotation', { label: 'sword rot°', ...ROT });
-    }
-    if (k.leftHand) f.addBinding(k.leftHand, 'position', { label: 'left hand', ...POS });
-    if (k.torso) {
-      f.addBinding(k.torso, 'twist', { label: 'torso twist°', step: 1 });
-      f.addBinding(k.torso, 'lean', { label: 'torso lean°', step: 1 });
-    }
-    if (k.hip) f.addBinding(k, 'hip', POS);
-    if (k.leftFoot) {
-      f.addBinding(k.leftFoot, 'x', { label: 'left foot x', step: 0.01 });
-      f.addBinding(k.leftFoot, 'z', { label: 'left foot z', step: 0.01 });
-    }
-    if (k.rightFoot) {
-      f.addBinding(k.rightFoot, 'x', { label: 'right foot x', step: 0.01 });
-      f.addBinding(k.rightFoot, 'z', { label: 'right foot z', step: 0.01 });
-    }
-  });
+}
+
+/** Fields for each channel a Pose Key sets. Edits mutate the draft in place. */
+function buildChannelFields(f: FolderApi, k: MotionDraft['poseKeys'][number], onChange: () => void): void {
+  const bind = (b: { on(ev: 'change', h: () => void): unknown }) => b.on('change', onChange);
+  if (k.rightHand) {
+    bind(f.addBinding(k.rightHand, 'position', { label: 'sword hand', ...POS }));
+    bind(f.addBinding(k.rightHand, 'rotation', { label: 'sword rot°', ...ROT }));
+  }
+  if (k.leftHand) bind(f.addBinding(k.leftHand, 'position', { label: 'left hand', ...POS }));
+  if (k.torso) {
+    bind(f.addBinding(k.torso, 'twist', { label: 'torso twist°', step: 1 }));
+    bind(f.addBinding(k.torso, 'lean', { label: 'torso lean°', step: 1 }));
+  }
+  if (k.hip) bind(f.addBinding(k, 'hip', POS));
+  if (k.leftFoot) {
+    bind(f.addBinding(k.leftFoot, 'x', { label: 'left foot x', step: 0.01 }));
+    bind(f.addBinding(k.leftFoot, 'z', { label: 'left foot z', step: 0.01 }));
+  }
+  if (k.rightFoot) {
+    bind(f.addBinding(k.rightFoot, 'x', { label: 'right foot x', step: 0.01 }));
+    bind(f.addBinding(k.rightFoot, 'z', { label: 'right foot z', step: 0.01 }));
+  }
 }
