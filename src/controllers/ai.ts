@@ -114,7 +114,9 @@ class AiController implements Controller {
     this.lastTick = state.tick;
     const o = state.fighters[opponent]!;
     const prev = this.seen[this.seen.length - 1];
-    const attackStart = o.action.kind !== 'Attack' ? null : prev?.action.kind === 'Attack' ? prev.attackStart : state.tick;
+    // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
+    const sameAttack = o.action.kind === 'Attack' && prev?.action.kind === 'Attack' && prev.action.direction === o.action.direction;
+    const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && prev ? prev.attackStart : state.tick;
     this.seen.push({ tick: state.tick, position: o.position, action: o.action, attackStart });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
   }

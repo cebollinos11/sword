@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hashValue, TICK_RATE, wait, type Direction, type Intent, type Track } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hashValue, hold, TICK_RATE, wait, type Direction, type Intent, type Track } from '../sim';
 import { createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
@@ -117,6 +117,15 @@ describe('AI Controller: Blocking', () => {
     const a: Track = dirs.flatMap((d, i) => [...wait(60), ...attack(d, 1 + ((i * 17) % 40))]);
     const { run } = vsAi(passive, perfect, a, 1400);
     expect(run.events.filter((e) => e.type === 'Block').map((e) => (e.type === 'Block' ? e.direction : null))).toEqual(dirs);
+    expect(run.events.some((e) => e.type === 'Hit' && e.defender === 1)).toBe(false);
+  });
+
+  it('with zero mistake rate it is not fooled by an Attack Feint: it Blocks the Direction the Attack was Feinted into', () => {
+    // Overhead Wind-up held long enough for the AI to raise an Overhead Block, then a Feint into Left, released at once.
+    const a: Track = [...wait(30), ...hold(40, { attack: true, direction: 'Overhead' }), ...hold(1, { attack: true, direction: 'Left' })];
+    const { run } = vsAi(passive, perfect, a, 200);
+    expect(run.events.some((e) => e.type === 'Feint' && e.fighter === 0)).toBe(true);
+    expect(run.events.filter((e) => e.type === 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1, direction: 'Left' })]);
     expect(run.events.some((e) => e.type === 'Hit' && e.defender === 1)).toBe(false);
   });
 
