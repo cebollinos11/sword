@@ -30,7 +30,7 @@ export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent } from './events';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
-export { CENTRE_PLACEMENT, createInitialState, duelPlacements, fighterPose, step } from './step';
+export { CENTRE_PLACEMENT, createInitialState, duelPlacements, step } from './step';
 export {
   attackMotionName,
   attackTimings,
@@ -65,7 +65,7 @@ export { hashState, hashValue } from './hash';
 export type { Vec3 } from './vec';
 export type { BladeTransform, JointName, Placement, SkeletonPose } from './skeleton';
 export { BONES, JOINT_NAMES } from './skeleton';
-export { motionPose } from './pose';
+export { fighterPose, motionPose } from './pose';
 export { ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';

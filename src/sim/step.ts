@@ -7,15 +7,10 @@ import { TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
-import { motionPose } from './pose';
+import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
-import type { Placement, SkeletonPose } from './skeleton';
+import type { Placement } from './skeleton';
 import type { FighterState, SimState } from './state';
-
-/** The full solved Skeleton of a Fighter at its current Tick (what the Renderer draws). */
-export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
-  return motionPose(tuning, f.motion.name, f.motion.tick, f);
-}
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -104,8 +99,8 @@ function settleBodies(fighters: readonly FighterState[], tuning: TuningData): Fi
   );
   return fighters.map((f, i) => {
     const position = positions[i]!;
-    const blade = motionPose(tuning, f.motion.name, f.motion.tick, { position, facing: f.facing }).blade;
-    return { ...f, position, blade };
+    const settled = { ...f, position };
+    return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
 }
 

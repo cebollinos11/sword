@@ -12,7 +12,7 @@ import { attackSweepLive, blocksAttack, stagger } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules } from './hitZones';
 import type { Direction } from './intent';
-import { motionPose } from './pose';
+import { fighterPose } from './pose';
 import type { AttackAction, FighterState, StaggerCause } from './state';
 import { sweepContact } from './sweep';
 import type { Vec3 } from './vec';
@@ -40,7 +40,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const direction = attacker.action.direction;
     next.forEach((defender, j) => {
       if (j === i) return;
-      const pose = motionPose(tuning, defender.motion.name, defender.motion.tick, defender);
+      const pose = fighterPose(defender, tuning);
       const c = sweepContact(before.blade, attacker.blade, hitZoneCapsules(pose, tuning));
       if (c) contacts.push({ attacker: i, defender: j, direction, zone: c.capsule.zone, point: c.point, bladeSpeed: c.bladeSpeed });
     });
@@ -69,7 +69,8 @@ export function resolveContacts(
 export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
   const { action, motion } = stagger(cause);
   emit({ type: 'Stagger', fighter: index, cause });
-  return { ...f, action, motion, blade: motionPose(tuning, motion.name, motion.tick, f).blade };
+  const staggered = { ...f, action, motion };
+  return { ...staggered, blade: fighterPose(staggered, tuning).blade };
 }
 
 /**
