@@ -2,6 +2,7 @@
  * The Editor's Duel sandbox (/sword/#/editor/sandbox): a scripted two-Fighter
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
+ * A dropdown picks the script (`SCRIPTS`): the attack Exchange or Movement.
  *
  * The whole Duel is simulated up front (it is deterministic), so scrubbing is
  * just picking a stored state. Later tickets can swap the script for AI
@@ -61,6 +62,33 @@ function scriptedDuel(tuning: TuningData): ScriptRun {
   ];
   return runDuel(tuning, { distance: 1.3, a, b, ticks: 660 });
 }
+
+/**
+ * Movement and collision: both Fighters walk in and collide, Fighter 0 shoves Fighter 1 back,
+ * backs off, both strafe, Fighter 0 steps into an Overhead (more Blade Speed than standing),
+ * then Fighter 1 retreats to the Arena edge and Fighter 0 pins it there.
+ */
+function movementDuel(tuning: TuningData): ScriptRun {
+  const forward = { x: 0, z: 1 };
+  const back = { x: 0, z: -1 };
+  const right = { x: 1, z: 0 };
+  const a: Track = [
+    ...walk(90, forward),
+    ...walk(40, back),
+    ...walk(40, right),
+    ...walk(18, forward),
+    ...attack('Overhead'),
+    ...wait(29),
+    ...walk(30, forward),
+    ...wait(80),
+    ...walk(260, forward),
+  ];
+  const b: Track = [...walk(50, back), ...wait(80), ...walk(40, right), ...wait(138), ...walk(260, forward)];
+  return runDuel(tuning, { distance: 3, a, b, ticks: 600 });
+}
+
+const SCRIPTS = { Exchange: scriptedDuel, Movement: movementDuel } as const;
+type ScriptName = keyof typeof SCRIPTS;
 
 const TRAIL_TICKS = 45;
 const ZONE_COLOURS: Record<HitZone, number> = { head: 0xffd60a, torso: 0x30d158, limbs: 0x64d2ff };
@@ -143,7 +171,8 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   controls.target.set(0, 1.1, 0);
   controls.update();
 
-  let run = scriptedDuel(tuning);
+  const script: { name: ScriptName } = { name: 'Exchange' };
+  let run = SCRIPTS[script.name](tuning);
   const lastTick = () => run.states.length - 1;
 
   const views = [0, 1].map((i) => new FighterView(FIGHTER_COLOURS[i]!, tuning));
@@ -167,7 +196,13 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   pane.addButton({ title: '← Motion Editor' }).on('click', () => (location.hash = '#/editor'));
   pane.addBinding(ui, 'playing');
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05, label: 'speed (slow-mo)' });
-  const scrub = pane.addBinding(ui, 'tick', { min: 0, max: lastTick(), step: 1, label: 'Tick (scrub)' });
+  /** The scrub slider's range is fixed at creation, so it is rebuilt in place when the script length changes. */
+  const addScrub = (index?: number) => {
+    const b = pane.addBinding(ui, 'tick', { min: 0, max: lastTick(), step: 1, label: 'Tick (scrub)', index });
+    b.on('change', () => (accumulator = 0));
+    return b;
+  };
+  let scrub = addScrub();
   pane.addButton({ title: 'Step one Tick' }).on('click', () => {
     ui.playing = false;
     ui.tick = Math.min(lastTick(), ui.tick + 1);
@@ -179,10 +214,18 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
     accumulator = 0;
     pane.refresh();
   });
-  pane.addButton({ title: 'Re-run script (live Tuning Data)' }).on('click', () => {
-    run = scriptedDuel(tuning);
+  const rerun = () => {
+    run = SCRIPTS[script.name](tuning);
     ui.tick = 0;
-  });
+    accumulator = 0;
+    const index = pane.children.indexOf(scrub);
+    scrub.dispose();
+    scrub = addScrub(index);
+  };
+  pane
+    .addBinding(script, 'name', { label: 'script', options: Object.fromEntries(Object.keys(SCRIPTS).map((k) => [k, k])) })
+    .on('change', rerun);
+  pane.addButton({ title: 'Re-run script (live Tuning Data)' }).on('click', rerun);
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
   overlays.addBinding(ui, 'bladeSweep', { label: 'Blade Sweep' });
@@ -190,7 +233,6 @@ export function startSandbox(container: HTMLElement, tuning: TuningData): void {
   status.addBinding(ui, 'fighter0', { readonly: true, label: 'red', multiline: true, rows: 2 });
   status.addBinding(ui, 'fighter1', { readonly: true, label: 'blue', multiline: true, rows: 2 });
   status.addBinding(ui, 'events', { readonly: true, label: 'events', multiline: true, rows: 6 });
-  scrub.on('change', () => (accumulator = 0));
 
   let accumulator = 0;
   let last = performance.now();

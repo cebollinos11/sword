@@ -65,3 +65,17 @@ export { BONES, JOINT_NAMES } from './skeleton';
 export { motionPose } from './pose';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';
+export {
+  createMatch,
+  DEFAULT_DUEL_DISTANCE,
+  DEFAULT_INTER_DUEL_TICKS,
+  duelsToWin,
+  stepMatch,
+  type DuelStartEvent,
+  type MatchConfig,
+  type MatchEndEvent,
+  type MatchEvent,
+  type MatchOptions,
+  type MatchState,
+  type MatchStatus,
+} from './match';
