@@ -30,6 +30,7 @@ import {
   type BladeTransform,
   type HitCapsule,
   type HitEvent,
+  type Intent,
   type MatchState,
   type SimState,
   type Track,
@@ -44,6 +45,8 @@ import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox, type San
 import { ActionLabels, describeAction } from './actionLabels';
 import { EditorSession } from './session';
 import { addTuningPanels } from './tuningPanel';
+import { recordingSandbox, recordReplay } from './replay';
+import { addReplayPanel } from './replayPanel';
 
 /** What the sandbox plays: a session to scrub through, the Duel at each Tick, plus the Match around it for an AI vs AI run. */
 interface SandboxRun {
@@ -52,17 +55,20 @@ interface SandboxRun {
   readonly ticks: number;
   readonly duel: (tick: number) => SimState;
   readonly match?: (tick: number) => MatchState;
+  /** The Intents fed to the Simulation for every computed Tick (for golden replays). */
+  readonly intents: () => Intent[][];
 }
 
 /**
  * Step a run up front (until `ticks` or its end) and rewind it to Tick 0.
  * A Player vs AI run (#16) would skip the precompute and let playback extend the frontier.
  */
-function precompute<S>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
-  const session = createSandboxSession(sandbox, initial, controllers);
+function precompute<S extends object>(sandbox: Sandbox<S>, initial: S, controllers: readonly Controller[], ticks: number): SandboxRun {
+  const recorder = recordingSandbox(sandbox);
+  const session = createSandboxSession(recorder, initial, controllers);
   while (!session.over && session.frontier < ticks) session.advance();
   session.seek(0);
-  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!) };
+  return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!), intents: () => recorder.intentsOf(session.history) };
 }
 
 /** Two scripted Tracks facing each other `distance` apart (like `runDuel`, but through a session). */
@@ -346,6 +352,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     rerun();
     ui.tick = Math.min(tick, lastTick());
     syncCursor();
+  });
+  addReplayPanel(pane, {
+    record: () => recordReplay(tuning, run.session.history as readonly (SimState | MatchState)[], run.intents()),
+    tuning: () => tuning,
   });
   const overlays = pane.addFolder({ title: 'Overlays' });
   overlays.addBinding(ui, 'hitZones', { label: 'Hit Zones' });
