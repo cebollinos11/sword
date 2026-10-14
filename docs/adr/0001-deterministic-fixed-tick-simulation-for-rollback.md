@@ -24,3 +24,13 @@ The combat simulation runs at a fixed Tick rate, separate from rendering. It is 
 - AI vs AI and the Editor get frame-stepping, scrubbing and replays (just Intents) for free.
 - JavaScript floating point is not guaranteed identical across browsers. We use ordinary float math rather than fixed-point (which would make IK and trig painful), and peers exchange a periodic state checksum; on divergence the host's state wins and the guest resyncs. Revisit only if divergence shows up in practice.
 - Both peers must hold identical Tuning Data, checked by hash when they connect.
+
+## Addendum: what crosses between peers
+
+Intents are the only gameplay data the peers send each other. Besides them, only three things cross the wire, all owned by the Rollback session:
+
+- the connect handshake: the protocol version, the Tuning Data hash and (from the host) the Match options;
+- the host's periodic state checksums;
+- after a checksum mismatch, the host's confirmed Match state (with the host's Intents up to it), which the guest adopts to resync.
+
+Every incoming message is validated in full before use; a malformed one is ignored.
