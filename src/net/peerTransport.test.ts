@@ -33,9 +33,9 @@ describe('PeerJS Transport', () => {
     const got: unknown[] = [];
     transport.onMessage((m) => got.push(m));
     transport.send({ type: 'hello', n: 1 });
-    fire('data', { type: 'input', from: 1 });
+    fire('data', { type: 'intents', from: 1 });
     expect(conn.sent).toEqual([{ type: 'hello', n: 1 }]);
-    expect(got).toEqual([{ type: 'input', from: 1 }]);
+    expect(got).toEqual([{ type: 'intents', from: 1 }]);
   });
 
   it('a later handler replaces the earlier one', () => {
