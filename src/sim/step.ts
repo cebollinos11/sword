@@ -8,7 +8,7 @@ import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { motionPose } from './pose';
-import { createRng } from './rng';
+import { createRng, nextFloat } from './rng';
 import type { Placement, SkeletonPose } from './skeleton';
 import type { FighterState, SimState } from './state';
 
@@ -131,5 +131,6 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
-  return { tick, rng: state.rng, fighters, duel, events };
+  // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
+  return { tick, rng: nextFloat(state.rng)[1], fighters, duel, events };
 }

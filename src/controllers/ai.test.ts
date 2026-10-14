@@ -144,6 +144,25 @@ describe('AI Controller: Blocking', () => {
 });
 
 describe('AI Controller determinism', () => {
+  it("draws its randomness from the Simulation's seeded generator in state, not a generator of its own", () => {
+    // Reaction Time 0 and an opponent who never attacks: everything the AI needs is in the state it is shown.
+    const eager: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0.3 } };
+    const difficulty = { reactionTime: 0, mistakeRate: 0.5 };
+    const ai = createAiController(eager, difficulty);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents[s.tick] = ai.intent(s, i)) };
+    const run = runControllers(eager, createInitialState(eager, 7, duelPlacements(1.2)), [scriptedController(wait(1)), recording], 300);
+    expect(intents.filter((i) => i.attack).length).toBeGreaterThan(3);
+    // A fresh AI shown any one of those states decides exactly as the long-running one did.
+    for (let t = 0; t < 300; t += 7) expect(createAiController(eager, difficulty).intent(run.states[t]!, 1), `Tick ${t}`).toEqual(intents[t]);
+  });
+
+  it('the Simulation advances its seeded generator every Tick', () => {
+    const run = runControllers(repo, createInitialState(repo, 3, duelPlacements(2)), [scriptedController(wait(1)), scriptedController(wait(1))], 20);
+    const seeds = run.states.map((s) => s.rng.seed);
+    expect(new Set(seeds).size).toBe(seeds.length);
+  });
+
   it('ai.ts and controller.ts use no Math.random or wall-clock time (only the seeded generator)', () => {
     for (const file of ['ai.ts', 'controller.ts']) {
       const src = readFileSync(fileURLToPath(new URL(file, import.meta.url)), 'utf8')
