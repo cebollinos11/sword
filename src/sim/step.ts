@@ -8,6 +8,7 @@ import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { initialGait, updateGait } from './gait';
+import { followMotion } from './motion';
 import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
@@ -86,7 +87,7 @@ function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
 
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
-  return { ...f, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion };
+  return { ...f, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.motion, motion) };
 }
 
 /**

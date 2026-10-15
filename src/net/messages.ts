@@ -141,6 +141,25 @@ function isFoot(v: unknown): boolean {
   return isObject(v) && isVec2(v.planted) && (v.step === null || (isObject(v.step) && isTick(v.step.tick) && isVec2(v.step.target)));
 }
 
+/** A Motion Blend: the pose it fades from (every Pose target channel) and how far in it is. */
+function isMotionBlend(v: unknown): boolean {
+  if (!isObject(v) || !isTick(v.tick) || !isObject(v.from)) return false;
+  const f = v.from;
+  return (
+    isObject(f.rightHand) &&
+    isVec3(f.rightHand.position) &&
+    isVec3(f.rightHand.rotation) &&
+    isObject(f.leftHand) &&
+    isVec3(f.leftHand.position) &&
+    isObject(f.torso) &&
+    isNum(f.torso.twist) &&
+    isNum(f.torso.lean) &&
+    isVec3(f.hip) &&
+    isVec2(f.leftFoot) &&
+    isVec2(f.rightFoot)
+  );
+}
+
 function isFighter(v: unknown): boolean {
   return (
     isObject(v) &&
@@ -151,6 +170,7 @@ function isFighter(v: unknown): boolean {
     isObject(v.motion) &&
     isString(v.motion.name) &&
     isTick(v.motion.tick) &&
+    (v.motion.blend === undefined || isMotionBlend(v.motion.blend)) &&
     isObject(v.blade) &&
     isVec3(v.blade.hilt) &&
     isVec3(v.blade.tip) &&

@@ -66,7 +66,7 @@ export { hashState, hashValue } from './hash';
 export type { Vec3 } from './vec';
 export type { BladeTransform, JointName, Placement, SkeletonPose } from './skeleton';
 export { BONES, JOINT_NAMES } from './skeleton';
-export { fighterPose, motionPose } from './pose';
+export { fighterPose, motionPose, playbackPose } from './pose';
 export { ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';

@@ -33,6 +33,10 @@ _Avoid_: Keyframe, frame
 A named sequence of Pose Keys that animates one Action, e.g. the Overhead Attack.
 _Avoid_: Animation, clip
 
+**Motion Blend**:
+The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter was in to a Motion that takes over, so the Skeleton never snaps between Motions (e.g. letting go of a Block). Part of the simulation, so the blade it moves is the blade that hits.
+_Avoid_: Transition, tween
+
 **Gait**:
 The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. It is not a Motion: it runs alongside whatever Action is current.
 _Avoid_: Walk animation, walk cycle, locomotion

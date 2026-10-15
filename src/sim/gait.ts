@@ -30,7 +30,7 @@
 import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Emit } from './events';
-import { motionTargets } from './motion';
+import { playbackTargets } from './motion';
 import type { HipShift, Placement } from './skeleton';
 import type { FighterState, MotionPlayback, Vec2 } from './state';
 import type { Vec3 } from './vec';
@@ -90,13 +90,13 @@ export function toLocal(world: Vec2, at: Placement): Vec2 {
 
 /** Each foot's home: the Motion's foot target placed at `at`, in world space. */
 export function footHome(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const targets = motionTargets(tuning, motion.name, motion.tick);
+  const targets = playbackTargets(tuning, motion);
   return { left: toWorld(targets.leftFoot, at), right: toWorld(targets.rightFoot, at) };
 }
 
 /** Each leg's hip joint projected onto the floor, in world space. */
 function hips(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const { hip } = motionTargets(tuning, motion.name, motion.tick);
+  const { hip } = playbackTargets(tuning, motion);
   const half = tuning.skeleton.hipWidth / 2;
   return { left: toWorld({ x: hip.x - half, z: hip.z }, at), right: toWorld({ x: hip.x + half, z: hip.z }, at) };
 }

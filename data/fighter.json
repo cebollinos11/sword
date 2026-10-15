@@ -3,5 +3,6 @@
   "walkSpeed": 2.5,
   "radius": 0.35,
   "height": 1.8,
-  "turnSpeed": 360
+  "turnSpeed": 360,
+  "motionBlend": 0.15
 }

@@ -12,7 +12,7 @@ import {
   hitZoneCapsules,
   hold,
   intentAt,
-  motionPose,
+  playbackPose,
   restore,
   runDuel,
   runScript,
@@ -41,7 +41,7 @@ const ankle = (run: ScriptRun, tick: number, foot: Foot, fighter = 0): Vec3 =>
 /** The ankles where the Fighter's current Motion puts them at its position and facing (the feet's home). */
 const homeAnkle = (run: ScriptRun, tick: number, foot: Foot, fighter = 0): Vec3 => {
   const f = run.states[tick]!.fighters[fighter]!;
-  return motionPose(tuning, f.motion.name, f.motion.tick, f).joints[foot === 'left' ? 'leftAnkle' : 'rightAnkle'];
+  return playbackPose(tuning, f.motion, f).joints[foot === 'left' ? 'leftAnkle' : 'rightAnkle'];
 };
 const expectSame = (a: Vec3, b: Vec3, what: string) => {
   expect(a.x, what).toBeCloseTo(b.x, 9);
@@ -196,7 +196,7 @@ describe('Gait never touches the blade', () => {
       expect(steps(run).length).toBeGreaterThan(4);
       for (const s of run.states) {
         const f = s.fighters[0]!;
-        const standing = motionPose(tuning, f.motion.name, f.motion.tick, f).blade;
+        const standing = playbackPose(tuning, f.motion, f).blade;
         expect(f.blade, `Tick ${s.tick}`).toEqual(standing);
         expect(fighterPose(f, tuning).blade, `Tick ${s.tick}`).toEqual(standing);
       }
@@ -210,7 +210,7 @@ describe('Gait: the hips carry the walk', () => {
   /** The pelvis where the Motion's hip target puts it at the Fighter's position and facing. */
   const motionPelvis = (t: typeof tuning, run: ScriptRun, tick: number) => {
     const f = run.states[tick]!.fighters[0]!;
-    return motionPose(t, f.motion.name, f.motion.tick, f).joints.pelvis;
+    return playbackPose(t, f.motion, f).joints.pelvis;
   };
   /** For each Step, the Tick its foot was highest (the middle of the step). */
   const midSteps = (t: typeof tuning, run: ScriptRun) =>
@@ -280,7 +280,7 @@ describe('Gait: the hips carry the walk', () => {
     expect(steps(run).length).toBeGreaterThan(4);
     for (const s of run.states) {
       const f = s.fighters[0]!;
-      const standing = motionPose(t, f.motion.name, f.motion.tick, f);
+      const standing = playbackPose(t, f.motion, f);
       expect(fighterPose(f, t).blade, `Tick ${s.tick}`).toEqual(standing.blade);
       expect(f.blade, `Tick ${s.tick}`).toEqual(standing.blade);
     }
@@ -325,7 +325,7 @@ describe('Gait and Hit Zones', () => {
 
     const defender = run.states[hit.tick]!.fighters[1]!;
     const drawn = fighterPose(defender, lowThrust);
-    const motionOnly = motionPose(lowThrust, defender.motion.name, defender.motion.tick, defender);
+    const motionOnly = playbackPose(lowThrust, defender.motion, defender);
     const leg = (pose: typeof drawn) => Math.min(segmentDistance(hit.point, pose.joints.leftHip, pose.joints.leftKnee), segmentDistance(hit.point, pose.joints.leftKnee, pose.joints.leftAnkle));
     const radius = lowThrust.hitZones.limbs.radius;
     expect(lifted(drawn.joints.leftAnkle)).toBe(true); // mid-step

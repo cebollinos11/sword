@@ -1,5 +1,6 @@
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
+import type { PoseTargets } from './motion';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
@@ -70,6 +71,18 @@ export interface MotionPlayback {
    * Playhead in Ticks from the start of the Motion. It advances one per Tick
    * except while an Action holds it (e.g. a held Wind-up stays on its last pose).
    */
+  readonly tick: number;
+  /**
+   * Present while this Motion is crossfading in from the pose the previous one
+   * left (Motion Blend, `fighter.motionBlend`): `from` is that pose, `tick`
+   * how far into the blend. Absent once the blend is over.
+   */
+  readonly blend?: MotionBlend;
+}
+
+/** A crossfade from a frozen pose into the current Motion. */
+export interface MotionBlend {
+  readonly from: PoseTargets;
   readonly tick: number;
 }
 

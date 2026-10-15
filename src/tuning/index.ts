@@ -35,6 +35,8 @@ export interface FighterTuning {
   readonly height: number;
   /** How fast a Fighter turns toward its Intent's `face`, in degrees per second. */
   readonly turnSpeed: number;
+  /** Seconds over which the pose crossfades whenever the Motion changes (e.g. Block → Idle), so poses never snap. */
+  readonly motionBlend: number;
 }
 
 export interface ArenaTuning {
@@ -230,6 +232,7 @@ export function parseTuningData(raw: unknown): TuningData {
       radius: positiveNumber(f, 'radius', 'fighter'),
       height: positiveNumber(f, 'height', 'fighter'),
       turnSpeed: positiveNumber(f, 'turnSpeed', 'fighter'),
+      motionBlend: positiveNumber(f, 'motionBlend', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
     weapon: {

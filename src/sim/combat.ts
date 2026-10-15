@@ -12,6 +12,7 @@ import { attackSweepLive, blocksAttack, stagger } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules } from './hitZones';
 import type { Direction } from './intent';
+import { followMotion } from './motion';
 import { fighterPose } from './pose';
 import type { AttackAction, FighterState, StaggerCause } from './state';
 import { sweepContact } from './sweep';
@@ -69,7 +70,7 @@ export function resolveContacts(
 export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
   const { action, motion } = stagger(cause);
   emit({ type: 'Stagger', fighter: index, cause });
-  const staggered = { ...f, action, motion };
+  const staggered = { ...f, action, motion: followMotion(tuning, f.motion, motion) };
   return { ...staggered, blade: fighterPose(staggered, tuning).blade };
 }
 

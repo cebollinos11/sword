@@ -36,7 +36,7 @@ describe('Feint', () => {
     });
     expect(run.states[30]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead', phase: 'Wind-up' });
     expect(run.states[31]!.fighters[0]!.action).toEqual({ kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false });
-    expect(run.states[31]!.fighters[0]!.motion).toEqual({ name: 'Left', tick: 0 });
+    expect(run.states[31]!.fighters[0]!.motion).toMatchObject({ name: 'Left', tick: 0 });
     expect(run.states[31]!.events).toEqual([
       { type: 'Feint', fighter: 0, from: 'Overhead', into: { kind: 'Attack', direction: 'Left' } },
       { type: 'AttackPhase', fighter: 0, direction: 'Left', phase: 'Wind-up' },
@@ -51,7 +51,7 @@ describe('Feint', () => {
     });
     expect(run.states[10]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead', phase: 'Wind-up' });
     expect(run.states[11]!.fighters[0]!.action).toEqual({ kind: 'Block', direction: 'Right' });
-    expect(run.states[11]!.fighters[0]!.motion).toEqual({ name: 'BlockRight', tick: 0 });
+    expect(run.states[11]!.fighters[0]!.motion).toMatchObject({ name: 'BlockRight', tick: 0 });
     expect(run.states[11]!.events).toEqual([{ type: 'Feint', fighter: 0, from: 'Overhead', into: { kind: 'Block', direction: 'Right' } }]);
     // The cancelled Attack never swings.
     expect(run.events.filter((e) => e.type === 'AttackPhase' && e.phase === 'Release')).toEqual([]);
