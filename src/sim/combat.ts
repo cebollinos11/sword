@@ -62,12 +62,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   const contacts: Contact[] = [];
   next.forEach((attacker, i) => {
     const before = prev[i];
-    if (!before || !attackSweepLive(before.action, attacker.action)) return;
+    if (!before || attacker.death || !attackSweepLive(before.action, attacker.action)) return;
     const direction = attacker.action.direction;
     const weapon = weaponByName(tuning, attacker.weapon);
     const samples = bladeSamples(weapon.length);
     next.forEach((defender, j) => {
-      if (j === i) return;
+      if (j === i || defender.death) return;
       const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       // Whichever the sweep reaches first lands: a Blocking blade stops the Attack where the blades meet.
@@ -108,6 +108,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
 /**
  * One contact. Blocked (by rule, ADR 0002): no damage, the attacker recoils
  * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers.
+ * A hit on a teammate Staggers it all the same but deals no damage.
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: Contact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
@@ -122,7 +123,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
     out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, blocking, c.bladeSpeed, tuning) };
     return;
   }
-  const damage = hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
+  const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
   const current = out[c.attacker]!;
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
   if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true } };

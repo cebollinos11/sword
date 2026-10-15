@@ -13,19 +13,37 @@
  * - Peers compare Tuning Data hashes at connect and refuse a mismatch.
  * - Disconnects (Transport closed, or nothing heard for `timeoutTicks`) are surfaced.
  *
- * The host is Fighter 0 and chooses the Match options; the guest is Fighter 1.
- * Each peer picks its own Weapon and its hello carries the pick (the host's
- * also carries the Match options); each peer builds the Match from the Match
- * options and both picks (host's first) as soon as the other's hello arrives,
- * so both build the same Match, and neither waits an extra trip. A Weapon
- * missing from a peer's roster is refused like a Tuning Data mismatch.
+ * The host chooses the Match options and the Lineup: who fights, on which
+ * team, with the host as Player 0 and the guest as Player 1 (by default one
+ * Fighter each, host first), and any AI Fighters with their difficulty and
+ * Weapon. Each peer picks its own Weapon and its hello carries the pick (the
+ * host's also carries the Match options and the Lineup); each peer builds the
+ * Match from them and both picks as soon as the other's hello arrives, so both
+ * build the same Match, and neither waits an extra trip. A Weapon, difficulty
+ * or Lineup a peer cannot field is refused like a Tuning Data mismatch.
+ *
+ * AI Fighters run on both peers: their Controllers are deterministic, so each
+ * peer computes the same AI Intents and none cross the wire. Their memory is
+ * snapshotted with every simulated Tick so a Rollback restores it, and it
+ * travels with the host's state on a resync.
+ *
  * It talks only through a Transport, and only Intents (plus checksums and the
  * rare resync) cross it. Drive it with `tick(localIntent)` once per Tick.
  */
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
 import type { Intent, MatchOptions, MatchState, Snapshot } from '../sim';
 import { defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
-import { createRemoteController, type Controller, type PeerIntentSource } from '../controllers';
+import {
+  checkLineup,
+  createRemoteController,
+  lineupAis,
+  lineupMatch,
+  ONE_VS_ONE,
+  playerFighter,
+  type Controller,
+  type Lineup,
+  type PeerIntentSource,
+} from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
@@ -72,8 +90,10 @@ export interface RollbackSessionOptions {
   readonly role: SessionRole;
   readonly transport: Transport;
   readonly tuning: TuningData;
-  /** Host only: the Match to play (its `weapons` are replaced by the two peers' picks). The guest receives it at connect. */
+  /** Host only: the Match to play (its `weapons` and `teams` come from the Lineup and the two peers' picks). The guest receives it at connect. */
   readonly match?: MatchOptions;
+  /** Host only: who fights (default ONE_VS_ONE). The guest receives it at connect. */
+  readonly lineup?: Lineup;
   /** This peer's Weapon (a Tuning Data Weapon name). Default: the default Weapon. */
   readonly weapon?: string;
   /** Default DEFAULT_TIMEOUT_TICKS. */
@@ -84,8 +104,10 @@ export interface RollbackSessionOptions {
 
 export interface RollbackSession {
   readonly role: SessionRole;
-  /** The Fighter this peer controls: host 0, guest 1. */
+  /** The Fighter this peer controls (its Player's slot in the Lineup); -1 until the Match is built. */
   readonly localFighter: number;
+  /** Who fights; null until the guest has it from the host. */
+  readonly lineup: Lineup | null;
   /** The Remote Controller driving the peer's Fighter: its Intents for the Tick being simulated, real or predicted. */
   readonly remote: Controller;
   readonly status: SessionStatus;
@@ -123,7 +145,9 @@ export function createRollbackSession(options: RollbackSessionOptions): Rollback
 
 class Session implements RollbackSession, PeerIntentSource {
   readonly role: SessionRole;
-  readonly localFighter: number;
+  localFighter = -1;
+  /** The Fighter the peer controls; -1 until the Match is built. */
+  private remoteFighter = -1;
   readonly remote: Controller = createRemoteController(this);
   status: SessionStatus = 'Connecting';
   state: MatchState | null = null;
@@ -133,6 +157,12 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly tuning: TuningData;
   private readonly tuningHash: string;
   private readonly matchOptions: MatchOptions | undefined;
+  /** Host: from the options; guest: from the host's hello. */
+  lineup: Lineup | null;
+  /** An AI Controller per AI Fighter (null for the Players' Fighters). */
+  private ais: (Controller | null)[] = [];
+  /** Each AI Controller's memory after each simulated Tick, from the confirmed Tick on (null for the Players' Fighters). */
+  private readonly aiMemory = new Map<number, unknown[]>();
   /** This peer's Weapon pick. */
   private readonly weapon: string;
   private readonly timeoutTicks: number;
@@ -166,7 +196,6 @@ class Session implements RollbackSession, PeerIntentSource {
 
   constructor(o: RollbackSessionOptions) {
     this.role = o.role;
-    this.localFighter = o.role === 'host' ? 0 : 1;
     this.transport = o.transport;
     this.tuning = o.tuning;
     this.tuningHash = tuningDataHash(o.tuning);
@@ -174,6 +203,8 @@ class Session implements RollbackSession, PeerIntentSource {
     this.stepFn = o.step ?? stepMatch;
     if (o.role === 'host' && !o.match) throw new Error('The host must choose the Match options');
     this.matchOptions = o.match;
+    this.lineup = o.role === 'host' ? (o.lineup ?? ONE_VS_ONE) : null;
+    if (this.lineup) checkLineup(o.tuning, this.lineup, 2);
     this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     o.transport.onMessage((m) => {
@@ -239,12 +270,21 @@ class Session implements RollbackSession, PeerIntentSource {
     const t = prev.tick + 1;
     const local = this.localIntents.get(t) ?? IDLE_INTENT;
     this.simulating = t;
-    const remote = this.remote.intent(prev.duel, 1 - this.localFighter);
+    const remote = this.remote.intent(prev.duel, this.remoteFighter);
     this.simulating = null;
     this.usedRemote.set(t, remote);
-    const intents = this.localFighter === 0 ? [local, remote] : [remote, local];
+    const intents = this.ais.map((ai, i) => (i === this.localFighter ? local : i === this.remoteFighter ? remote : ai!.intent(prev.duel, i)));
     this.state = this.stepFn(prev, intents, this.tuning);
     this.states.set(t, snapshot(this.state));
+    this.aiMemory.set(t, this.saveAis());
+  }
+
+  private saveAis(): unknown[] {
+    return this.ais.map((ai) => ai?.save?.() ?? null);
+  }
+
+  private loadAis(memory: readonly unknown[]): void {
+    this.ais.forEach((ai, i) => ai?.load?.(memory[i]));
   }
 
   /** The peer's Intent for the Tick being simulated (or the next one): real once it has arrived, else the last real one repeated. */
@@ -268,6 +308,7 @@ class Session implements RollbackSession, PeerIntentSource {
 
   private resimulate(base: number, target: number): void {
     this.state = restore(this.states.get(base)!);
+    this.loadAis(this.aiMemory.get(base)!);
     while (this.currentTick < target) this.simulateNext();
   }
 
@@ -283,6 +324,7 @@ class Session implements RollbackSession, PeerIntentSource {
     }
     this.lastHashed = Math.max(this.lastHashed, confirmed);
     pruneTicks(this.states, (t) => t < confirmed);
+    pruneTicks(this.aiMemory, (t) => t < confirmed);
     const old = confirmed - HISTORY_TICKS;
     for (const map of [this.localIntents, this.remoteIntents, this.usedRemote, this.hashes, this.hostChecksums]) pruneTicks(map, (t) => t < old);
   }
@@ -297,9 +339,9 @@ class Session implements RollbackSession, PeerIntentSource {
     this.helloCountdown = HELLO_INTERVAL;
     const hello = { type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, weapon: this.weapon } as const;
     if (this.role === 'guest') return this.send(hello);
-    // The Match options without Weapons: each peer adds both picks.
-    const { weapons: _picks, ...match } = this.matchOptions!;
-    this.send({ ...hello, match });
+    // The Match options without Weapons or teams: each peer adds them from the Lineup and both picks.
+    const { weapons: _picks, teams: _teams, ...match } = this.matchOptions!;
+    this.send({ ...hello, match, lineup: this.lineup! });
   }
 
   private sendIntents(): void {
@@ -313,7 +355,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (this.status === 'Refused' || this.status === 'Disconnected') return;
     switch (m.type) {
       case 'hello':
-        return this.onHello(m.protocol, m.tuningHash, m.weapon, m.match);
+        return this.onHello(m.protocol, m.tuningHash, m.weapon, m.match, m.lineup);
       case 'refuse':
         return this.refuse(m.reason, m.tuningHash, false);
       case 'intents':
@@ -331,22 +373,33 @@ class Session implements RollbackSession, PeerIntentSource {
         if (this.role === 'host' && this.status === 'Running') this.sendResync();
         return;
       case 'resync':
-        if (this.role === 'guest' && this.status === 'Running') this.applyResync(m.tick, m.state, m.intentsFrom, m.intents);
+        if (this.role === 'guest' && this.status === 'Running') this.applyResync(m.tick, m.state, m.ai, m.intentsFrom, m.intents);
         return;
     }
   }
 
-  private onHello(protocol: number, remoteHash: string, weapon: string | undefined, match: MatchOptions | undefined): void {
+  private onHello(protocol: number, remoteHash: string, weapon: string | undefined, match: MatchOptions | undefined, lineup: Lineup | undefined): void {
     if (protocol !== PROTOCOL_VERSION) return this.refuse('ProtocolMismatch', remoteHash, true);
     if (remoteHash !== this.tuningHash) return this.refuse('TuningDataMismatch', remoteHash, true);
     if (weapon !== undefined && !this.tuning.weapons[weapon]) return this.refuse('TuningDataMismatch', remoteHash, true);
     if (this.status !== 'Connecting' || weapon === undefined) return;
     const options = this.role === 'host' ? this.matchOptions : match;
-    if (!options) return;
-    // The host is Fighter 0: its pick comes first on both peers.
-    const weapons = this.role === 'host' ? [this.weapon, weapon] : [weapon, this.weapon];
-    this.state = createMatch(this.tuning, { ...options, weapons });
+    const fighting = this.role === 'host' ? this.lineup : (lineup ?? null);
+    if (!options || !fighting) return;
+    try {
+      checkLineup(this.tuning, fighting, 2);
+    } catch {
+      return this.refuse('TuningDataMismatch', remoteHash, true);
+    }
+    this.lineup = fighting;
+    this.localFighter = playerFighter(fighting, this.role === 'host' ? 0 : 1);
+    this.remoteFighter = playerFighter(fighting, this.role === 'host' ? 1 : 0);
+    this.ais = lineupAis(this.tuning, fighting);
+    // The host is Player 0: its pick comes first on both peers.
+    const picks = this.role === 'host' ? [this.weapon, weapon] : [weapon, this.weapon];
+    this.state = createMatch(this.tuning, lineupMatch(this.tuning, fighting, picks, options));
     this.states.set(0, snapshot(this.state));
+    this.aiMemory.set(0, this.saveAis());
     this.status = 'Running';
     this.silentTicks = 0;
     this.emit({ type: 'Connected' });
@@ -399,22 +452,27 @@ class Session implements RollbackSession, PeerIntentSource {
     const intentsFrom = this.peerAck + 1;
     const intents: Intent[] = [];
     for (let t = intentsFrom; t <= tick; t++) intents.push(this.localIntents.get(t)!);
-    this.send({ type: 'resync', tick, state: restore(this.states.get(tick)!), intentsFrom, intents });
+    this.send({ type: 'resync', tick, state: restore(this.states.get(tick)!), ai: this.aiMemory.get(tick)!, intentsFrom, intents });
     this.stats.resyncs++;
   }
 
-  /** Guest: adopt the host's state at `tick` and re-simulate up to the current Tick. */
-  private applyResync(tick: number, state: MatchState, intentsFrom: number, intents: readonly Intent[]): void {
+  /** Guest: adopt the host's state (and its AI Controllers' memory) at `tick` and re-simulate up to the current Tick. */
+  private applyResync(tick: number, state: MatchState, ai: readonly unknown[], intentsFrom: number, intents: readonly Intent[]): void {
     if (!this.awaitingResync || tick <= this.resyncedAt || tick > this.currentTick) return;
-    // parseNetMessage checked the shape; only Tuning Data can tell whether its Weapons and Motions exist.
+    // parseNetMessage checked the shape; only Tuning Data can tell whether its Weapons and Motions exist, and only the Lineup who fights.
     if (!state.duel.fighters.every((f) => this.tuning.weapons[f.weapon] && weaponMotion(this.tuning, f.weapon, f.motion.name))) return;
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
+    const teams = this.lineup!.map((s) => s.team);
+    if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
+    if (state.duel.fighters.length !== teams.length || ai.length !== teams.length || !ai.every((m, i) => (m === null) === (this.ais[i] === null))) return;
     this.receiveIntents(intentsFrom, intents, false);
     if (this.remoteConfirmed < tick) return;
     for (let t = tick + 1; t <= this.currentTick; t++) if (!this.localIntents.has(t)) return;
     const target = this.currentTick;
     this.states.clear();
     this.states.set(tick, snapshot(state));
+    this.aiMemory.clear();
+    this.aiMemory.set(tick, [...ai]);
     this.resimulate(tick, target);
     this.rollbackFrom = null;
     pruneTicks(this.hashes, (t) => t >= tick);

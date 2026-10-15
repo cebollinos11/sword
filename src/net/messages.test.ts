@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, stepMatch, type MatchState } from '../sim';
+import { createAiController } from '../controllers';
 import { parseNetMessage } from './messages';
 
 const tuning = loadTuningData();
@@ -12,7 +13,7 @@ function matchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
-const resync = (state: unknown) => ({ type: 'resync', tick: 40, state, intentsFrom: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] });
+const resync = (state: unknown, ai: unknown[] = [null, null]) => ({ type: 'resync', tick: 40, state, ai, intentsFrom: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] });
 
 describe('Peer message validation', () => {
   it('accepts well-formed messages of every type', () => {
@@ -68,5 +69,28 @@ describe('Peer message validation', () => {
     ];
     for (const state of broken) expect(parseNetMessage(resync(state)), JSON.stringify(state)?.slice(0, 120)).toBeNull();
     expect(parseNetMessage({ ...resync(good), intents: [{}] })).toBeNull();
+  });
+});
+
+describe('Peer message validation: AI memory in a resync', () => {
+  /** A real AI Controller's memory after watching 40 Ticks of a 1 v 2, as the host would send it. */
+  function aiMemory(): unknown {
+    const ai = createAiController(tuning, 'Normal');
+    let m = createMatch(tuning, { bestOf: 1, teams: [0, 1, 1], seed: 3 });
+    for (let t = 0; t < 40; t++) m = stepMatch(m, [{ ...IDLE_INTENT, attack: t === 0 }, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it('accepts a real AI memory, or null for a Player', () => {
+    const m = resync(matchState(), [null, aiMemory()]);
+    expect(parseNetMessage(m)).toEqual(m);
+  });
+
+  it('refuses malformed AI memory', () => {
+    const good = aiMemory() as Record<string, unknown>;
+    for (const bad of [42, {}, { ...good, lastTick: 'x' }, { ...good, seen: [{ tick: 1, fighters: [{}] }] }, { ...good, blockPlan: { attacker: 1 } }, { ...good, feintPlan: { from: 'Up' } }]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
+    }
+    expect(parseNetMessage({ ...resync(matchState()), ai: undefined })).toBeNull();
   });
 });

@@ -47,7 +47,7 @@ const winDuel = (m: MatchState, winner: number) => {
 
 describe('Match pacing from Tuning Data', () => {
   it('starts every Duel at the Tuning Data distance and pauses the Tuning Data time between Duels', () => {
-    const paced: TuningData = { ...tuning, match: { duelDistance: 1.3, interDuelSeconds: 0.5 } };
+    const paced: TuningData = { ...tuning, match: { ...tuning.match, duelDistance: 1.3, interDuelSeconds: 0.5 } };
     const gap = (m: MatchState) => Math.abs(m.duel.fighters[1]!.position.z - m.duel.fighters[0]!.position.z);
     const start = createMatch(paced, { bestOf: 3 });
     expect(gap(start)).toBeCloseTo(1.3, 9);

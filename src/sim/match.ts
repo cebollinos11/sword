@@ -1,11 +1,13 @@
 /**
- * Match progression: a best-of-N sequence of Duels.
+ * Match progression: a best-of-N sequence of Duels between two teams.
  *
- * A Match wraps the current Duel's SimState. `stepMatch` steps that Duel;
- * when it ends, the score updates on the same Tick, the finished Duel stays
+ * Each Fighter is on team 0 or 1 (`teams`, default one Fighter a side), at
+ * most MAX_TEAM_SIZE a side. A Match wraps the current Duel's SimState.
+ * `stepMatch` steps that Duel; when the last Fighter of a team falls, the
+ * Duel ends and the other team scores on the same Tick, the finished Duel stays
  * frozen for `interDuelTicks` (so its end can be seen), and then the next
- * Duel starts with both Fighters back at their starting positions and full
- * HP. The Match ends once a Fighter has won a majority of N Duels. A drawn
+ * Duel starts with every Fighter back at its starting position and full
+ * HP. The Match ends once a team has won a majority of N Duels. A drawn
  * Duel scores for nobody and is simply replayed.
  *
  * Like SimState, MatchState is plain JSON-like data and `stepMatch` is pure,
@@ -16,17 +18,24 @@ import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
-import { createInitialState, duelPlacements, step } from './step';
+import { createInitialState, step, teamPlacements } from './step';
+
+/** The most Fighters a team may field. */
+export const MAX_TEAM_SIZE = 3;
 
 export interface MatchConfig {
   /** N: the Match is best of this many Duels. A positive integer. */
   readonly bestOf: number;
-  /** Starting distance between the Fighters at the start of every Duel (metres). */
+  /** Starting distance between the two teams' lines at the start of every Duel (metres). */
   readonly distance: number;
+  /** Starting distance between teammates side by side in a line (metres). */
+  readonly spacing: number;
   /** Ticks between a Duel ending and the next one starting (at least 1). */
   readonly interDuelTicks: number;
   /** Each Fighter's Weapon (a Tuning Data Weapon name), kept across Duels. */
   readonly weapons: readonly string[];
+  /** Each Fighter's team (0 or 1); its length is the number of Fighters. */
+  readonly teams: readonly number[];
 }
 
 export interface MatchOptions extends Partial<MatchConfig> {
@@ -35,6 +44,7 @@ export interface MatchOptions extends Partial<MatchConfig> {
   readonly seed?: number;
 }
 
+/** `winner` is a team (0 or 1). */
 export type MatchStatus = { readonly status: 'InProgress' } | { readonly status: 'Over'; readonly winner: number; readonly tick: number };
 
 /** A new Duel of the Match began (Fighters reset). */
@@ -44,7 +54,7 @@ export interface DuelStartEvent {
   readonly duelNumber: number;
 }
 
-/** A Fighter reached the winning number of Duels. */
+/** A team reached the winning number of Duels. */
 export interface MatchEndEvent {
   readonly type: 'MatchEnd';
   readonly winner: number;
@@ -60,7 +70,7 @@ export interface MatchState {
   readonly tick: number;
   /** 1-based number of the current Duel, draws included. */
   readonly duelNumber: number;
-  /** Duels won by each Fighter. */
+  /** Duels won by each team (team 0, team 1). */
   readonly score: readonly number[];
   /** The current Duel. */
   readonly duel: SimState;
@@ -75,32 +85,54 @@ export function duelsToWin(bestOf: number): number {
   return Math.floor(bestOf / 2) + 1;
 }
 
-function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']): SimState {
-  return { ...createInitialState(tuning, 0, duelPlacements(config.distance), config.weapons), rng };
+/** Throws unless `teams` puts 1 to MAX_TEAM_SIZE Fighters on each of team 0 and team 1. */
+export function checkTeams(teams: readonly number[]): void {
+  if (!teams.every((t) => t === 0 || t === 1)) throw new RangeError(`Every Fighter's team must be 0 or 1, got [${teams.join(', ')}]`);
+  for (const t of [0, 1]) {
+    const size = teams.filter((team) => team === t).length;
+    if (size < 1 || size > MAX_TEAM_SIZE) throw new RangeError(`Team ${t} must field 1 to ${MAX_TEAM_SIZE} Fighters, got ${size}`);
+  }
 }
 
-/** A Match at Tick 0: Duel 1 about to be fought, score 0–0. Throws on an unknown Weapon name. */
+function initialDuel(tuning: TuningData, config: MatchConfig, seed: number): SimState {
+  return createInitialState(tuning, seed, teamPlacements(config.teams, config.distance, config.spacing), config.weapons, config.teams);
+}
+
+function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']): SimState {
+  return { ...initialDuel(tuning, config, 0), rng };
+}
+
+/** A Match at Tick 0: Duel 1 about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
+  const teams = options.teams ?? [0, 1];
+  checkTeams(teams);
   const config: MatchConfig = {
     bestOf: options.bestOf,
     distance: options.distance ?? tuning.match.duelDistance,
+    spacing: options.spacing ?? tuning.match.lineSpacing,
     interDuelTicks: options.interDuelTicks ?? secondsToTicks(tuning.match.interDuelSeconds),
-    weapons: [0, 1].map((i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
+    weapons: teams.map((_, i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
+    teams: [...teams],
   };
   if (!Number.isInteger(config.bestOf) || config.bestOf < 1) throw new RangeError(`bestOf must be a positive integer, got ${config.bestOf}`);
   if (!Number.isInteger(config.interDuelTicks) || config.interDuelTicks < 1)
     throw new RangeError(`interDuelTicks must be an integer >= 1, got ${config.interDuelTicks}`);
-  const duel = createInitialState(tuning, options.seed ?? 1, duelPlacements(config.distance), config.weapons);
+  const duel = initialDuel(tuning, config, options.seed ?? 1);
   return {
     config,
     tick: 0,
     duelNumber: 1,
-    score: duel.fighters.map(() => 0),
+    score: [0, 0],
     duel,
     nextDuelTick: null,
     status: { status: 'InProgress' },
     events: [],
   };
+}
+
+/** The Fighters on `team`, by index. */
+export function teamMembers(match: MatchState, team: number): number[] {
+  return match.config.teams.flatMap((t, i) => (t === team ? [i] : []));
 }
 
 /**

@@ -1,9 +1,9 @@
 import { createMatch, TICK_SECONDS, type MatchState, type SimState, type Vec2 } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
-import { placeThirdPersonCamera } from './render/thirdPersonCamera';
+import { placeOrbitCamera, placeThirdPersonCamera } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
-import { LocalController } from './controllers';
+import { LocalController, type Lineup } from './controllers';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
@@ -57,7 +57,9 @@ const ROOM_ROUTE = '#/room/';
  * Local Controller's Intent goes to the MatchDriver, which steps the Match
  * (locally against the AI, or through Rollback for online play); the Renderer
  * interpolates between the last two Match Ticks, the camera follows the local
- * Fighter, the HUD shows HP and round score, and audio and impact effects play each new Tick.
+ * Fighter (or, once it has fallen with its team still fighting, orbits the
+ * fight), the HUD shows every Fighter's HP and the team score, and audio and
+ * impact effects play each new Tick.
  */
 export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const renderer = new Renderer(container, tuning);
@@ -87,13 +89,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let room: RoomAttempt | null = null;
 
   const menu = new Menu(container, tuning, {
-    onStart({ difficulty, bestOf, weapon, aiWeapon }) {
-      game.play({
-        driver: playerVsAi(tuning, { difficulty, bestOf, seed: randomSeed(), weapons: [weapon, aiWeapon] }),
-      });
+    onStart({ bestOf, weapon, lineup }) {
+      game.play({ driver: playerVsAi(tuning, { lineup, weapon, bestOf, seed: randomSeed() }) });
     },
-    onCreateRoom({ bestOf, weapon, broker }) {
-      void createRoom(bestOf, weapon, broker);
+    onCreateRoom({ bestOf, weapon, lineup, broker }) {
+      void createRoom(bestOf, weapon, lineup, broker);
     },
     onJoinRoom({ room: text, weapon, broker }) {
       const address = parseRoomInput(text);
@@ -128,7 +128,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.show(e instanceof RoomError ? e.message : `Room error: ${String(e)}`);
   }
 
-  async function createRoom(bestOf: number, weapon: string, brokerText: string): Promise<void> {
+  async function createRoom(bestOf: number, weapon: string, lineup: Lineup, brokerText: string): Promise<void> {
     const broker = brokerFrom(brokerText);
     if (broker === undefined) return;
     leaveRoom();
@@ -141,7 +141,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (room !== attempt) return hosted.cancel();
       menu.showRoom({ kind: 'Hosting', code: hosted.code, link: roomLink(location.href, hosted.code, brokerText.trim() || undefined) });
       const transport = await hosted.connected;
-      if (room === attempt) startOnline('host', transport, weapon, bestOf);
+      if (room === attempt) startOnline('host', transport, weapon, bestOf, lineup);
       else transport.close();
     } catch (e) {
       roomFailed(attempt, e);
@@ -162,15 +162,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     );
   }
 
-  /** Connected: run the Match through a Rollback session (host = Fighter 0 picks the Match options, guest = Fighter 1; each picks its Weapon). */
-  function startOnline(role: SessionRole, transport: Transport, weapon: string, bestOf = 3): void {
+  /** Connected: run the Match through a Rollback session (the host picks the Match options and the Lineup; each player picks their Weapon). */
+  function startOnline(role: SessionRole, transport: Transport, weapon: string, bestOf = 3, lineup?: Lineup): void {
     room = null;
     const session = createRollbackSession({
       role,
       transport,
       tuning,
       weapon,
-      ...(role === 'host' ? { match: { bestOf, seed: randomSeed() } } : {}),
+      ...(role === 'host' ? { match: { bestOf, seed: randomSeed() }, lineup } : {}),
     });
     game.play({ driver: playerVsPlayer(session) });
   }
@@ -183,7 +183,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       announcer = new MatchAnnouncer();
       resultAt = null;
       menu.hide();
-      hud.show(d.localFighter);
+      hud.show();
       const start = d.state;
       // An online Match has no state until the peers connect; its first Tick then sounds.
       audio.seek(start?.tick ?? 0);
@@ -214,20 +214,24 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Announce what this Match state shows that is new (a Duel started or ended, the Match result).
+   * Announce what this Match state shows that is new (a Duel started or ended, the local Fighter
+   * fell, the Match result), from the local player's team's side.
    * Read from the state, not the Tick's events: with Rollback the Tick carrying an event may only
    * ever have been re-simulated, and a Tick may be presented twice.
    */
   function present(match: MatchState, me: number): void {
-    for (const e of announcer.update(match)) {
+    const myTeam = match.config.teams[me] ?? 0;
+    for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
-        hud.announce(e.winner === null ? 'Draw' : e.winner === me ? 'Duel won' : 'Duel lost');
+        hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
       } else if (e.type === 'DuelStart') {
         hud.announce(`Duel ${e.duelNumber}`, 1.5);
         aimAtDuelStart(match);
+      } else if (e.type === 'Fell') {
+        hud.announce('You fell', 1.5);
       } else if (e.type === 'MatchEnd') {
-        resultText = `${e.winner === me ? 'You win' : 'You lose'}  ${match.score[me]} – ${match.score[1 - me]}`;
-        hud.announce(e.winner === me ? 'Victory' : 'Defeat', RESULT_SECONDS);
+        resultText = `${e.winner === myTeam ? 'You win' : 'You lose'}  ${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
+        hud.announce(e.winner === myTeam ? 'Victory' : 'Defeat', RESULT_SECONDS);
         resultAt = performance.now() + RESULT_SECONDS * 1000;
       }
     }
@@ -263,9 +267,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     // A fresh Duel resets the Fighters: don't interpolate across the swap.
     const before: SimState = prev.duelNumber === curr.duelNumber ? prev.duel : curr.duel;
     const me = driver?.localFighter ?? 0;
-    placeThirdPersonCamera(renderer.camera, lerpPosition(before, curr.duel, me, alpha), driver ? local.yaw : curr.duel.fighters[me]?.facing ?? 0);
+    const yaw = driver ? local.yaw : curr.duel.fighters[me]?.facing ?? 0;
+    // Fallen while the team fights on: orbit the fight instead of staring at the floor.
+    if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting') placeOrbitCamera(renderer.camera, fightCentre(before, curr.duel, alpha), yaw);
+    else placeThirdPersonCamera(renderer.camera, lerpPosition(before, curr.duel, me, alpha), yaw);
     renderer.render(before, curr.duel, alpha);
-    hud.update(curr);
+    hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null });
     requestAnimationFrame(frame);
   }
 
@@ -284,6 +291,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
   requestAnimationFrame(frame);
   return game;
+}
+
+/** Where the living Fighters are, on average (the Arena centre if none). */
+function fightCentre(a: SimState, b: SimState, alpha: number): Vec2 {
+  const living = b.fighters.flatMap((f, i) => (f.death ? [] : [lerpPosition(a, b, i, alpha)]));
+  if (living.length === 0) return { x: 0, z: 0 };
+  return { x: living.reduce((s, p) => s + p.x, 0) / living.length, z: living.reduce((s, p) => s + p.z, 0) / living.length };
 }
 
 function lerpPosition(a: SimState, b: SimState, fighter: number, alpha: number): Vec2 {

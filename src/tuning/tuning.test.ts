@@ -14,7 +14,7 @@ function goodRaw() {
     },
     chamber: { windowSeconds: 0.15 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2 },
-    match: { duelDistance: 2, interDuelSeconds: 2 },
+    match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
     skeleton: {
       pelvisHeight: 0.95,
@@ -83,14 +83,14 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, block: { ...good.block, facingHalfAngle: 0 } })).toThrow(/block\.facingHalfAngle/);
     expect(() => parseTuningData({ ...good, block: { ...good.block, facingHalfAngle: 181 } })).toThrow(/block\.facingHalfAngle/);
     expect(() => parseTuningData({ ...good, match: undefined })).toThrow(/match/);
-    expect(() => parseTuningData({ ...good, match: { duelDistance: 0, interDuelSeconds: 2 } })).toThrow(/match\.duelDistance/);
-    expect(() => parseTuningData({ ...good, match: { duelDistance: 2, interDuelSeconds: 0 } })).toThrow(/match\.interDuelSeconds/);
+    expect(() => parseTuningData({ ...good, match: { duelDistance: 0, interDuelSeconds: 2, lineSpacing: 1.5 } })).toThrow(/match\.duelDistance/);
+    expect(() => parseTuningData({ ...good, match: { duelDistance: 2, interDuelSeconds: 0, lineSpacing: 1.5 } })).toThrow(/match\.interDuelSeconds/);
   });
 
   it('loads the Block facing rule and the Match pacing from data/block.json and data/match.json', () => {
     const t = loadTuningData();
     expect(t.block.facingHalfAngle).toBe(60);
-    expect(t.match).toEqual({ duelDistance: 2, interDuelSeconds: 2 });
+    expect(t.match).toEqual({ duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 });
   });
 
   it('loads AI difficulty presets (Reaction Time, mistake rate) from data/ai.json', () => {

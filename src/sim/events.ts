@@ -11,7 +11,7 @@ export interface AttackPhaseEvent {
   readonly phase: AttackPhase;
 }
 
-/** A Blade Sweep connected with a Hit Zone and dealt damage. */
+/** A Blade Sweep connected with a Hit Zone and dealt damage (none to a teammate). */
 export interface HitEvent {
   readonly type: 'Hit';
   readonly attacker: number;
@@ -80,7 +80,7 @@ export interface StepEvent {
   readonly position: { readonly x: number; readonly z: number };
 }
 
-/** The Duel ended this Tick. `winner` is a Fighter index, or null for a draw. */
+/** The Duel ended this Tick. `winner` is a team (0 or 1), or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
   readonly winner: number | null;

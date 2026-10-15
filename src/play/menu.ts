@@ -1,19 +1,23 @@
 import type { TuningData } from '../tuning';
+import type { Lineup } from '../controllers';
 import { ensurePlayStyles } from './styles';
+import { TeamSetup } from './teamSetup';
 import { isTouchDevice } from './touch';
 
 export interface PlayerVsAiChoice {
-  readonly difficulty: string;
   readonly bestOf: number;
-  /** Your Weapon and the AI's (Tuning Data Weapon names). */
+  /** Your Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
-  readonly aiWeapon: string;
+  /** Who fights: you (Player 0), and the AIs on both teams with their difficulty and Weapon. */
+  readonly lineup: Lineup;
 }
 
 export interface CreateRoomChoice {
   readonly bestOf: number;
-  /** Your Weapon; your opponent picks theirs. */
+  /** Your Weapon; the other player picks theirs. */
   readonly weapon: string;
+  /** Who fights: you (Player 0), the other player (Player 1, ally or enemy), and any AIs. */
+  readonly lineup: Lineup;
   /** The broker URL as typed (blank = the public PeerJS broker). */
   readonly broker: string;
 }
@@ -21,7 +25,7 @@ export interface CreateRoomChoice {
 export interface JoinRoomChoice {
   /** What the player typed or pasted: a Room code or a Room link. */
   readonly room: string;
-  /** Your Weapon; your opponent picks theirs. */
+  /** Your Weapon; the other player picks theirs. */
   readonly weapon: string;
   readonly broker: string;
 }
@@ -92,9 +96,10 @@ function storeBroker(value: string): void {
 }
 
 /**
- * The start menu: Player vs AI (difficulty, your Weapon and the AI's, Match length) and Player vs
- * Player online (your Weapon, create a Room or join one by code/link, optional broker URL).
- * A separate Room screen shows the code and link while waiting.
+ * The start menu: Player vs AI (your Weapon, your AI allies and AI enemies with each one's
+ * difficulty and Weapon, Match length) and Player vs Player online (your Weapon; to create a Room
+ * also the Match length, whether the other player is your ally or enemy, and any AIs; or join one
+ * by code/link; optional broker URL). A separate Room screen shows the code and link while waiting.
  */
 export class Menu {
   readonly root = document.createElement('div');
@@ -109,20 +114,17 @@ export class Menu {
   private readonly roomStatus = document.createElement('p');
   private readonly joinInput = document.createElement('input');
   private readonly brokerInput = document.createElement('input');
-  private difficulty: string;
   private bestOf = 3;
   private onlineBestOf = 3;
   private weapon: string;
-  private aiWeapon: string;
   /** Your Weapon for a Player vs Player Match (also used when joining from a Room link). */
   onlineWeapon: string;
 
   constructor(container: HTMLElement, tuning: TuningData, handlers: MenuHandlers) {
     ensurePlayStyles();
-    const names = Object.keys(tuning.ai.difficulties);
-    this.difficulty = names.includes('Normal') ? 'Normal' : names[0]!;
     const weapons = Object.keys(tuning.weapons);
-    this.weapon = this.aiWeapon = this.onlineWeapon = weapons[0]!;
+    this.weapon = this.onlineWeapon = weapons[0]!;
+    const row = this.choiceRow.bind(this);
 
     this.root.className = 'menu';
     const panel = document.createElement('div');
@@ -150,28 +152,31 @@ export class Menu {
     // --- Player vs AI ---
     const mode = document.createElement('h2');
     mode.textContent = 'Player vs AI';
-    const difficulty = this.choiceRow('Difficulty', names, this.difficulty, (v) => (this.difficulty = v));
     const weapon = this.choiceRow('Your Weapon', weapons, this.weapon, (v) => (this.weapon = v));
-    const aiWeapon = this.choiceRow('AI Weapon', weapons, this.aiWeapon, (v) => (this.aiWeapon = v));
+    const teams = new TeamSetup(tuning, false, row);
     const bestOf = this.bestOfRow(this.bestOf, (n) => (this.bestOf = n));
     this.startButton.className = 'menu-start';
     this.startButton.textContent = 'Start Match';
-    this.startButton.addEventListener('click', () =>
-      handlers.onStart({ difficulty: this.difficulty, bestOf: this.bestOf, weapon: this.weapon, aiWeapon: this.aiWeapon }),
-    );
+    this.startButton.addEventListener('click', () => handlers.onStart({ bestOf: this.bestOf, weapon: this.weapon, lineup: teams.lineup() }));
 
     // --- Player vs Player ---
     const online = document.createElement('h2');
     online.textContent = 'Player vs Player (online)';
     const onlineWeapon = this.choiceRow('Your Weapon', weapons, this.onlineWeapon, (v) => (this.onlineWeapon = v));
+    const hostBox = document.createElement('details');
+    hostBox.className = 'menu-host';
+    const hostSummary = document.createElement('summary');
+    hostSummary.textContent = 'Room setup (when you create one)';
     const onlineBestOf = this.bestOfRow(this.onlineBestOf, (n) => (this.onlineBestOf = n));
+    const onlineTeams = new TeamSetup(tuning, true, row);
+    hostBox.append(hostSummary, onlineBestOf, onlineTeams.root);
     const create = document.createElement('button');
     create.type = 'button';
     create.className = 'menu-create-room';
     create.textContent = 'Create Room';
     create.addEventListener('click', () => {
       storeBroker(this.brokerInput.value);
-      handlers.onCreateRoom({ bestOf: this.onlineBestOf, weapon: this.onlineWeapon, broker: this.brokerInput.value });
+      handlers.onCreateRoom({ bestOf: this.onlineBestOf, weapon: this.onlineWeapon, lineup: onlineTeams.lineup(), broker: this.brokerInput.value });
     });
 
     const joinRow = document.createElement('form');
@@ -223,7 +228,7 @@ export class Menu {
     editor.href = '#/editor';
     editor.textContent = 'Open the Editor';
 
-    this.main.append(mode, difficulty, weapon, aiWeapon, bestOf, this.startButton, online, onlineWeapon, onlineBestOf, create, joinRow, brokerBox, help, editor);
+    this.main.append(mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
 
     // --- Room screen ---
     this.room.className = 'menu-room';
@@ -288,7 +293,7 @@ export class Menu {
         this.roomLink.value = view.link;
         this.roomCopy.textContent = 'Copy link';
         linkRow.hidden = false;
-        this.roomStatus.textContent = 'Send the code or the link to your opponent. Waiting for them to join…';
+        this.roomStatus.textContent = 'Send the code or the link to the other player. Waiting for them to join…';
         break;
       case 'Joining':
         this.roomTitle.textContent = 'Joining Room';

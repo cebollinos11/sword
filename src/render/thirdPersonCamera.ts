@@ -24,3 +24,19 @@ export function placeThirdPersonCamera(camera: THREE.PerspectiveCamera, position
   camera.position.set(position.x - fx * BACK + rx * SHOULDER, EYE_HEIGHT, position.z - fz * BACK + rz * SHOULDER);
   camera.lookAt(position.x + fx * AHEAD + rx * SHOULDER * 0.5, LOOK_HEIGHT, position.z + fz * AHEAD + rz * SHOULDER * 0.5);
 }
+
+/** The orbit camera's distance from what it looks at, and its height. */
+const ORBIT_DISTANCE = 7;
+const ORBIT_HEIGHT = 5;
+
+/**
+ * Orbit camera, for a player whose Fighter has fallen while the Duel goes on:
+ * high and back from `target` (e.g. the living Fighters' centre), looking
+ * along `yaw`, so the mouse swings it around the fight.
+ */
+export function placeOrbitCamera(camera: THREE.PerspectiveCamera, target: Vec2, yaw: number): void {
+  const fx = Math.sin(yaw);
+  const fz = Math.cos(yaw);
+  camera.position.set(target.x - fx * ORBIT_DISTANCE, ORBIT_HEIGHT, target.z - fz * ORBIT_DISTANCE);
+  camera.lookAt(target.x, LOOK_HEIGHT * 0.5, target.z);
+}

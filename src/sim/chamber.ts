@@ -57,10 +57,10 @@ export function resolveChambers(
   const out = next.slice();
   next.forEach((chamberer, c) => {
     const before = prev[c];
-    if (!before || !startedAttack(before.action, chamberer.action) || chamberer.action.kind !== 'Attack') return;
+    if (!before || chamberer.death || !startedAttack(before.action, chamberer.action) || chamberer.action.kind !== 'Attack') return;
     const direction = chamberer.action.direction;
     next.forEach((attacker, a) => {
-      if (a === c || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
+      if (a === c || attacker.death || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
       if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker, tuning)) return;
       emit({ type: 'Chamber', chamberer: c, attacker: a, direction: attacker.action.direction });
       if (out[a]!.action.kind !== 'Stagger') out[a] = staggerFighter(out[a]!, a, 'Chambered', tuning, emit);

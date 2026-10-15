@@ -29,8 +29,8 @@ The combat simulation runs at a fixed Tick rate, separate from rendering. It is 
 
 Intents are the only gameplay data the peers send each other. Besides them, only three things cross the wire, all owned by the Rollback session:
 
-- the connect handshake: the protocol version, the Tuning Data hash and (from the host) the Match options;
+- the connect handshake: the protocol version, the Tuning Data hash and (from the host) the Match options and the Lineup (ADR 0005);
 - the host's periodic state checksums;
-- after a checksum mismatch, the host's confirmed Match state (with the host's Intents up to it), which the guest adopts to resync.
+- after a checksum mismatch, the host's confirmed Match state and its AI Controllers' memory then (ADR 0005), with the host's Intents up to it, which the guest adopts to resync.
 
 Every incoming message is validated in full before use; a malformed one is ignored.

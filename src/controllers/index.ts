@@ -15,3 +15,14 @@ export { aiDifficulty, createAiController } from './ai';
 export { createTestOpponent, dummyController, isTestOpponent, TEST_OPPONENTS, wallController, type TestOpponent } from './testOpponents';
 export { FACE_STEPS, FEINT_KEY, GESTURE_PX, gestureDirection, LocalController, LOOK_RADIANS_PER_PX, type LocalButton } from './local';
 export { createRemoteController, type PeerIntentSource } from './remote';
+export {
+  checkLineup,
+  lineupAis,
+  lineupMatch,
+  ONE_VS_ONE,
+  playerFighter,
+  type Lineup,
+  type LineupSlot,
+  type Pilot,
+  type PlayerNumber,
+} from './lineup';

@@ -1,8 +1,9 @@
 /**
  * Player vs Player: a MatchDriver over the Rollback session. The session
- * already steps the Match (with Rollback) and knows the local Fighter (host 0,
- * guest 1), and drives the peer's Fighter with its Remote Controller
- * (`session.remote`); this adds what the game loop needs on top:
+ * already steps the Match (with Rollback, AI Fighters included) and knows the
+ * local Fighter (from the Lineup, once connected), and drives the other
+ * player's Fighter with its Remote Controller (`session.remote`); this adds
+ * what the game loop needs on top:
  *
  * - Clicks made while the session is stalled (Intent dropped) are carried to
  *   the next Tick that does advance, so a quick tap isn't lost.
@@ -10,22 +11,25 @@
  *   Match is over, the peer leaving is expected and not a failure.
  */
 import type { Intent } from '../sim';
+import type { Controller } from '../controllers';
 import type { RefuseReason, RollbackSession, SessionEvent } from '../net';
 import type { MatchDriver } from './driver';
 
 export interface PlayerVsPlayerDriver extends MatchDriver {
+  /** The Remote Controller driving the other player's Fighter (ally or enemy). */
+  readonly opponent: Controller;
   readonly failure: string | null;
   readonly waiting: string | null;
   close(): void;
 }
 
-const WAITING = 'Waiting for your opponent…';
+const WAITING = 'Waiting for the other player…';
 
 function refusalMessage(reason: RefuseReason, localHash: string, remoteHash: string): string {
   if (reason === 'TuningDataMismatch') {
-    return `Your Tuning Data differs from your opponent's (yours ${localHash}, theirs ${remoteHash}). Both players need the same game version.`;
+    return `Your Tuning Data differs from the other player's (yours ${localHash}, theirs ${remoteHash}). Both players need the same game version.`;
   }
-  return "Your game version differs from your opponent's. Both players need to reload the latest version.";
+  return "Your game version differs from the other player's. Both players need to reload the latest version.";
 }
 
 /** Carry presses from a dropped Intent into the next one: attack/block stay pressed, everything else is the latest. */
@@ -43,12 +47,17 @@ export function playerVsPlayer(session: RollbackSession): PlayerVsPlayerDriver {
     if (failure) return;
     if (e.type === 'Refused') failure = refusalMessage(e.reason, e.localHash, e.remoteHash);
     else if (e.type === 'Disconnected' && !matchOver()) {
-      failure = e.reason === 'Timeout' ? 'Lost the connection to your opponent.' : 'Your opponent left the Match (disconnected).';
+      failure = e.reason === 'Timeout' ? 'Lost the connection to the other player.' : 'The other player left the Match (disconnected).';
     }
   });
 
   return {
-    localFighter: session.localFighter,
+    get localFighter() {
+      return session.localFighter;
+    },
+    get lineup() {
+      return session.lineup;
+    },
     opponent: session.remote,
     get state() {
       return session.state;

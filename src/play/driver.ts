@@ -7,13 +7,13 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
-import { createAiController, stepMatchWith, type Controller } from '../controllers';
+import { checkLineup, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
-  /** The Fighter the local player drives. */
+  /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
   readonly localFighter: number;
-  /** The Controller driving the other Fighter: the AI Controller (Player vs AI) or the Remote Controller (Player vs Player). */
-  readonly opponent: Controller;
+  /** Who fights (null until known, e.g. while a guest connects). */
+  readonly lineup: Lineup | null;
   /** The Match to render (null until it exists, e.g. while a peer connects). May be predicted. */
   readonly state: MatchState | null;
   /** Feed the local Intent for the next Match Tick. `advanced` is false when no Tick was simulated (stalled, connecting). */
@@ -26,29 +26,32 @@ export interface MatchDriver {
   close?(): void;
 }
 
-/** The Match options (`weapons`: yours, then the AI's) and the AI's difficulty. */
+/** A Player vs AI Match: who fights (Player 0 and AI Fighters on two teams), the player's Weapon, and the Match options. */
 export interface PlayerVsAiOptions extends MatchOptions {
-  /** An AI difficulty preset name from Tuning Data (`ai.difficulties`). */
-  readonly difficulty: string;
+  readonly lineup: Lineup;
+  /** The player's Weapon (a Tuning Data Weapon name). */
+  readonly weapon: string;
 }
 
-/** A Player vs AI Match stepped locally: the player is Fighter 0, the AI Controller Fighter 1. */
+/** A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other. Throws on an invalid Lineup. */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { difficulty, ...matchOptions } = options;
-  const ai: Controller = createAiController(tuning, difficulty);
-  let match = createMatch(tuning, matchOptions);
+  const { lineup, weapon, ...matchOptions } = options;
+  checkLineup(tuning, lineup, 1);
+  const me = playerFighter(lineup, 0);
+  let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
   const local: Controller = { intent: () => pending! };
+  const controllers = lineupAis(tuning, lineup).map((ai) => ai ?? local);
   return {
-    localFighter: 0,
-    opponent: ai,
+    localFighter: me,
+    lineup,
     get state() {
       return match;
     },
     tick(localIntent) {
       pending = localIntent;
-      match = stepMatchWith(match, [local, ai], tuning);
+      match = stepMatchWith(match, controllers, tuning);
       return { advanced: true };
     },
   };

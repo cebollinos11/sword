@@ -50,3 +50,23 @@ describe('Match announcements', () => {
     expect(announcer.update(end)).toEqual([]);
   });
 });
+
+describe('Match announcements: a team battle', () => {
+  it('announces the watched Fighter falling while its team fights on, once', () => {
+    // 1 v 2: Fighter 0 fells one of the two; the other still stands.
+    let match = createMatch(tuning, { bestOf: 1, teams: [0, 1, 1], distance: 1.3, spacing: 0.8 });
+    const states = [match];
+    const fallen = () => match.duel.fighters.findIndex((f) => f.death);
+    for (let t = 0; t < 2000 && fallen() < 0; t++) {
+      match = stepMatch(match, [{ ...IDLE_INTENT, attack: t % 2 === 0 }], tuning);
+      states.push(match);
+    }
+    expect(match.duel.duel.status).toBe('Fighting');
+    for (let t = 0; t < 30; t++) states.push((match = stepMatch(match, [], tuning)));
+    const announcer = new MatchAnnouncer();
+    const fell = states.flatMap((s) => announcer.update(s, fallen())).filter((m) => m.type === 'Fell');
+    expect(fell).toEqual([{ type: 'Fell', duelNumber: 1 }]);
+    const other = new MatchAnnouncer();
+    expect(states.flatMap((s) => other.update(s, 0)).some((m) => m.type === 'Fell')).toBe(false);
+  });
+});

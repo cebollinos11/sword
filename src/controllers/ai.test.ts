@@ -200,3 +200,52 @@ describe('AI Controller determinism', () => {
     }
   });
 });
+
+describe('AI Controller: teams', () => {
+  const perfect = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
+  const reactionTicks = Math.round(0.1 * TICK_RATE);
+
+  /** Fighters at the given ground positions (all facing +z) on the given teams; the AI drives Fighter 0, everyone else follows `others`. */
+  function lineup(tuning: TuningData, positions: { x: number; z: number }[], teams: number[], others: Track, ticks: number) {
+    const ai = createAiController(tuning, perfect);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const initial = createInitialState(tuning, 1, positions.map((position) => ({ position, facing: 0 })), [], teams);
+    const run = runControllers(tuning, initial, [recording, ...positions.slice(1).map(() => scriptedController(others))], ticks);
+    return { run, intents };
+  }
+
+  it('closes on its nearest enemy and ignores its teammates, however close', () => {
+    // A teammate right beside it, an enemy 3 m to its right (+x), a farther enemy ahead (+z).
+    const { intents } = lineup(repo, [{ x: 0, z: 0 }, { x: -0.8, z: 0 }, { x: 3, z: 0 }, { x: 0, z: 5 }], [0, 0, 1, 1], wait(60), 60);
+    const acting = intents[reactionTicks + 1]!;
+    expect(acting.face).toBeCloseTo(Math.PI / 2); // toward +x
+    expect(acting.move.x).toBeCloseTo(1);
+    expect(acting.attack).toBe(false);
+  });
+
+  it('stands idle once every enemy has fallen', () => {
+    const { intents } = lineup(repo, [{ x: 0, z: 0 }, { x: 3, z: 0 }], [0, 0], wait(60), 60);
+    expect(intents.every((i) => hashValue(i) === hashValue(intents[0]!))).toBe(true);
+    expect(intents[reactionTicks + 1]!.move).toEqual({ x: 0, z: 0 });
+  });
+
+  it('turns to Block an enemy attacking from its side, not the enemy it was facing', () => {
+    // Its nearest enemy (ahead) idles; a second enemy close on its right winds up an Overhead.
+    const ai = createAiController(passive, perfect);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const placements = [
+      { position: { x: 0, z: 0 }, facing: 0 },
+      { position: { x: 0, z: 1.2 }, facing: Math.PI },
+      { position: { x: 1.3, z: 0 }, facing: -Math.PI / 2 },
+    ];
+    const initial = createInitialState(passive, 1, placements, [], [0, 1, 1]);
+    const ticks = 30 + reactionTicks + 10;
+    runControllers(passive, initial, [recording, scriptedController(wait(ticks)), scriptedController([...wait(30), ...attack('Overhead', 40)])], ticks);
+    const blocking = intents.find((i) => i.block)!;
+    expect(blocking).toBeDefined();
+    expect(blocking.direction).toBe('Overhead');
+    expect(blocking.face).toBeCloseTo(Math.PI / 2); // toward the attacker at +x
+  });
+});

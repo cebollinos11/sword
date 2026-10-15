@@ -1,11 +1,15 @@
-import { ATTACK_PHASES, DIRECTIONS, type Intent, type MatchOptions, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOptions, type MatchState, type StaggerCause } from '../sim';
+import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
+
+/** The most Fighters a Match fields: two full teams. */
+const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
 
 /**
  * Sent repeatedly while connecting. Each peer's hello carries its Weapon pick; the host's
- * also carries the Match options (each peer adds both picks to them to build the Match).
+ * also carries the Match options and the Lineup (each peer adds both picks to them to build the Match).
  */
 export interface HelloMessage {
   readonly type: 'hello';
@@ -13,6 +17,7 @@ export interface HelloMessage {
   readonly tuningHash: string;
   readonly weapon?: string;
   readonly match?: MatchOptions;
+  readonly lineup?: Lineup;
 }
 
 /** "I refused you": lets the peer surface the refusal even if our hello was lost. */
@@ -48,13 +53,15 @@ export interface ResyncRequestMessage {
 }
 
 /**
- * Host → guest: the host's confirmed Match state at `tick`, plus the host's own
- * Intents from `intentsFrom` to `tick` that the guest may not have yet.
+ * Host → guest: the host's confirmed Match state at `tick` and its AI Controllers' memory then (one
+ * entry per Fighter, null for a Player's), plus the host's own Intents from `intentsFrom` to `tick`
+ * that the guest may not have yet.
  */
 export interface ResyncMessage {
   readonly type: 'resync';
   readonly tick: number;
   readonly state: MatchState;
+  readonly ai: readonly unknown[];
   readonly intentsFrom: number;
   readonly intents: readonly Intent[];
 }
@@ -73,7 +80,11 @@ export function parseNetMessage(m: unknown): NetMessage | null {
   if (!isObject(m)) return null;
   switch (m.type) {
     case 'hello':
-      return isInt(m.protocol) && isString(m.tuningHash) && (m.weapon === undefined || isString(m.weapon)) && (m.match === undefined || isMatchOptions(m.match))
+      return isInt(m.protocol) &&
+        isString(m.tuningHash) &&
+        (m.weapon === undefined || isString(m.weapon)) &&
+        (m.match === undefined || isMatchOptions(m.match)) &&
+        (m.lineup === undefined || isLineup(m.lineup))
         ? (m as unknown as HelloMessage)
         : null;
     case 'refuse':
@@ -85,7 +96,9 @@ export function parseNetMessage(m: unknown): NetMessage | null {
     case 'resyncRequest':
       return isTick(m.tick) ? (m as unknown as ResyncRequestMessage) : null;
     case 'resync':
-      return isTick(m.tick) && isTick(m.intentsFrom) && isIntents(m.intents) && isMatchState(m.state) ? (m as unknown as ResyncMessage) : null;
+      return isTick(m.tick) && isTick(m.intentsFrom) && isIntents(m.intents) && isMatchState(m.state) && isArrayOf(m.ai, isAiMemoryOrNull)
+        ? (m as unknown as ResyncMessage)
+        : null;
     default:
       return null;
   }
@@ -109,8 +122,23 @@ const isVec2 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.z);
 const isVec3 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.y) && isNum(v.z);
 const isDirection = (v: unknown): boolean => DIRECTION_SET.has(v as string);
 const isArrayOf = (v: unknown, item: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(item);
+const isTeam = (v: unknown): boolean => v === 0 || v === 1;
+/** One entry per Fighter: 2 to MAX_FIGHTERS of them. */
+const isPerFighter = (v: unknown, item: (x: unknown) => boolean): boolean =>
+  isArrayOf(v, item) && (v as unknown[]).length >= 2 && (v as unknown[]).length <= MAX_FIGHTERS;
 /** One Weapon name per Fighter. Whether the names exist is for Tuning Data to say. */
-const isWeapons = (v: unknown): boolean => isArrayOf(v, isString) && (v as unknown[]).length === 2;
+const isWeapons = (v: unknown): boolean => isPerFighter(v, isString);
+/** Whether each team's size is allowed is for `checkTeams` to say. */
+const isTeams = (v: unknown): boolean => isPerFighter(v, isTeam);
+const isNullable = (item: (x: unknown) => boolean) => (v: unknown): boolean => v === null || item(v);
+
+/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
+function isLineupSlot(v: unknown): boolean {
+  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon))) return false;
+  const p = v.pilot;
+  return (p.kind === 'Player' && (p.player === 0 || p.player === 1)) || (p.kind === 'AI' && isString(p.difficulty));
+}
+const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
 function isIntent(v: unknown): v is Intent {
   return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face));
@@ -125,7 +153,9 @@ function isMatchOptions(v: unknown): boolean {
     (v.distance === undefined || (isNum(v.distance) && v.distance > 0)) &&
     (v.interDuelTicks === undefined || (isInt(v.interDuelTicks) && v.interDuelTicks >= 1)) &&
     (v.seed === undefined || isNum(v.seed)) &&
-    (v.weapons === undefined || isWeapons(v.weapons))
+    (v.spacing === undefined || (isNum(v.spacing) && v.spacing > 0)) &&
+    (v.weapons === undefined || isWeapons(v.weapons)) &&
+    (v.teams === undefined || isTeams(v.teams))
   );
 }
 
@@ -174,6 +204,7 @@ function isFighter(v: unknown): boolean {
     isObject(v) &&
     isVec2(v.position) &&
     isNum(v.facing) &&
+    isTeam(v.team) &&
     isNum(v.hp) &&
     isString(v.weapon) &&
     isAction(v.action) &&
@@ -187,12 +218,14 @@ function isFighter(v: unknown): boolean {
     isVec3(v.blade.edge) &&
     isObject(v.gait) &&
     isFoot(v.gait.left) &&
-    isFoot(v.gait.right)
+    isFoot(v.gait.right) &&
+    (v.death === undefined || isDeath(v.death))
   );
 }
 
 const isEvent = (v: unknown): boolean => isObject(v) && isString(v.type);
-const isWinner = (v: unknown): boolean => v === 0 || v === 1;
+/** A winner is a team. */
+const isWinner = isTeam;
 
 function isDuelState(v: unknown): boolean {
   if (!isObject(v)) return false;
@@ -206,9 +239,7 @@ function isSimState(v: unknown): boolean {
     isTick(v.tick) &&
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
-    Array.isArray(v.fighters) &&
-    v.fighters.length === 2 &&
-    v.fighters.every(isFighter) &&
+    isPerFighter(v.fighters, isFighter) &&
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent)
   );
@@ -221,17 +252,43 @@ function isMatchState(v: unknown): v is MatchState {
     isInt(config.bestOf) &&
     config.bestOf > 0 &&
     isNum(config.distance) &&
+    isNum(config.spacing) &&
+    isTeams(config.teams) &&
     isInt(config.interDuelTicks) &&
     config.interDuelTicks >= 1 &&
     isWeapons(config.weapons) &&
+    (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isTick(v.tick) &&
     isInt(v.duelNumber) &&
     v.duelNumber >= 1 &&
     isArrayOf(v.score, isTick) &&
     (v.score as unknown[]).length === 2 &&
     isSimState(v.duel) &&
+    (v.duel as Obj & { fighters: unknown[] }).fighters.length === (config.teams as unknown[]).length &&
     (v.nextDuelTick === null || isTick(v.nextDuelTick)) &&
     (status.status === 'InProgress' || (status.status === 'Over' && isWinner(status.winner) && isTick(status.tick))) &&
     isArrayOf(v.events, isEvent)
   );
 }
+
+/** How a Fighter fell: the Tick, and the felling blow if known. */
+function isDeath(v: unknown): boolean {
+  if (!isObject(v) || !isTick(v.tick)) return false;
+  const b = v.blow;
+  return b === null || (isObject(b) && isVec3(b.point) && isNum(b.bladeSpeed) && isDirection(b.direction) && isVec2(b.from));
+}
+
+/** What an AI saw of one Fighter on one Tick. */
+function isSighting(v: unknown): boolean {
+  return isObject(v) && isVec2(v.position) && isAction(v.action) && isTeam(v.team) && isBool(v.fallen) && (v.attackStart === null || isTick(v.attackStart));
+}
+
+/** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its Block and Feint plans. */
+function isAiMemory(v: unknown): boolean {
+  if (!isObject(v) || !isInt(v.lastTick)) return false;
+  const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerFighter(o.fighters, isSighting));
+  const block = v.blockPlan === null || (isObject(v.blockPlan) && isTick(v.blockPlan.attacker) && isTick(v.blockPlan.attackStart) && isDirection(v.blockPlan.direction));
+  const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
+  return seen && block && feint;
+}
+const isAiMemoryOrNull = isNullable(isAiMemory);

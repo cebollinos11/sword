@@ -34,7 +34,7 @@ export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEve
 export type { Foot, FootState, GaitState } from './gait';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
-export { CENTRE_PLACEMENT, createInitialState, duelPlacements, step } from './step';
+export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, step, teamPlacements } from './step';
 export {
   attackMotionName,
   attackTimings,
@@ -75,8 +75,11 @@ export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';
 export {
+  checkTeams,
   createMatch,
   duelsToWin,
+  MAX_TEAM_SIZE,
+  teamMembers,
   stepMatch,
   type DuelStartEvent,
   type MatchConfig,

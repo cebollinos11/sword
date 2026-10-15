@@ -55,6 +55,8 @@ export interface FighterState {
   readonly position: Vec2;
   /** Yaw in radians; 0 faces +z. */
   readonly facing: number;
+  /** Its team (0 or 1), fixed for the Match. Teammates' blades Stagger but never wound each other. */
+  readonly team: number;
   readonly hp: number;
   /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
   readonly weapon: string;
@@ -67,7 +69,7 @@ export interface FighterState {
   readonly gait: GaitState;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
   readonly blockImpact?: BlockImpact;
-  /** Present once the Fighter has fallen (HP reached zero and the Duel ended). It is no longer simulated: its state stays as it was on that Tick. */
+  /** Present once the Fighter has fallen (its HP reached zero). It is no longer simulated, hits and is hit by nothing, and no longer blocks bodies: its state stays as it was on that Tick. */
   readonly death?: Death;
 }
 
@@ -132,7 +134,7 @@ export interface MotionBlend {
   readonly tick: number;
 }
 
-/** Whether the Duel is still being fought. `winner` is a Fighter index, or null for a draw (both at 0 HP). */
+/** Whether the Duel is still being fought. `winner` is a team (0 or 1), or null for a draw (the last of both teams fell on the same Tick). */
 export type DuelState =
   | { readonly status: 'Fighting' }
   | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };

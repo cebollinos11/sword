@@ -31,7 +31,7 @@ describe('Recording a sandbox Duel', () => {
     expect(replay.setup).toEqual({ kind: 'Duel', seed: 1, placements: [
       { position: { x: 0, z: -0.65 }, facing: 0 },
       { position: { x: 0, z: 0.65 }, facing: Math.PI },
-    ], weapons: ['Arming Sword', 'Arming Sword'] });
+    ], weapons: ['Arming Sword', 'Arming Sword'], teams: [0, 1] });
     expect(replay.ticks).toBe(session.frontier);
     expect(replay.ticks).toBe(300);
   });
@@ -59,7 +59,7 @@ describe('Replaying with unchanged Tuning Data', () => {
   it('reproduces an AI vs AI Match from the recorded Intents alone, without the AI', () => {
     const { session, replay } = aiMatch();
     expect(session.over).toBe(true);
-    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, interDuelTicks: 120, weapons: ['Arming Sword', 'Arming Sword'] } });
+    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, spacing: 1.5, interDuelTicks: 120, weapons: ['Arming Sword', 'Arming Sword'], teams: [0, 1] } });
     expect(replay.outcome.winner).not.toBe('Undecided');
     expect(replay.outcome.hits.length).toBeGreaterThan(0);
     const run = runReplay(parseReplay(serializeReplay(replay)), tuning);

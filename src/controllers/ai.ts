@@ -2,11 +2,13 @@
  * The rule-based AI Controller.
  *
  * Fairness rules (spec #7, story 25/26):
- *  - It only observes what a human could see of its opponent: position and
- *    the visible Action (the Wind-up pose reveals the Direction). Never the
- *    opponent's Intents or HP-to-come.
- *  - It acts on its opponent only as seen `reactionTime` ago (its Reaction
+ *  - It only observes what a human could see of the other Fighters: position,
+ *    team, whether they have fallen, and the visible Action (the Wind-up pose
+ *    reveals the Direction). Never anyone's Intents or HP-to-come.
+ *  - It acts on the others only as seen `reactionTime` ago (its Reaction
  *    Time). Its own Fighter it knows up to date.
+ *  - With several enemies it fights the nearest one, and blocks whichever
+ *    enemy Attack nearest to it can reach it (see `intent`).
  *  - It makes mistakes at `mistakeRate`: a wrong-Direction Block (rolled once
  *    per opponent Attack), or a mistimed Attack from out of range.
  *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
@@ -36,20 +38,34 @@ import {
 import type { AiDifficulty, TuningData } from '../tuning';
 import type { Controller } from './controller';
 
-/** What the AI saw of its opponent on one Tick. */
-interface Observation {
-  readonly tick: number;
+/** What the AI saw of one Fighter on one Tick. */
+interface Sighting {
   readonly position: Vec2;
   readonly action: Action;
-  /** The Tick the opponent's current Attack became visible (identifies one Attack), or null when not attacking. */
+  readonly team: number;
+  readonly fallen: boolean;
+  /** The Tick its current Attack became visible (identifies one Attack), or null when not attacking. */
   readonly attackStart: number | null;
 }
 
-/** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox. */
+/** What the AI saw of every Fighter on one Tick (its own Fighter included, unused). */
+interface Observation {
+  readonly tick: number;
+  readonly fighters: readonly Sighting[];
+}
+
+/** The Block Direction chosen for one enemy Attack (rolled once, so a mistake sticks). */
+interface BlockPlan {
+  readonly attacker: number;
+  readonly attackStart: number;
+  readonly direction: Direction;
+}
+
+/** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox and the Rollback session. */
 interface AiMemory {
   readonly seen: readonly Observation[];
   readonly lastTick: number;
-  readonly blockPlan: { readonly attackStart: number; readonly direction: Direction } | null;
+  readonly blockPlan: BlockPlan | null;
   readonly feintPlan: FeintPlan | null;
 }
 
@@ -88,6 +104,9 @@ function mix32(h: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
+/** Besides its nearest enemy's, the AI defends against any enemy Attack from within this many times `ai.attackRange`. */
+const THREAT_REACH = 2;
+
 /** This Tick's generator for one Fighter's AI, derived from the Simulation's seeded generator in state. */
 function tickRng(state: SimState, fighter: number): RngState {
   return createRng(mix32(state.rng.seed ^ Math.imul(fighter + 1, 0x9e3779b9)));
@@ -97,11 +116,11 @@ class AiController implements Controller {
   private readonly reactionTicks: number;
   /** This Tick's generator (derived from state each call, never carried between Ticks). */
   private rng: RngState = createRng(0);
-  /** Observations of the opponent, oldest first; only the last reactionTicks + 1 are kept. */
+  /** Observations of every Fighter, oldest first; only the last reactionTicks + 1 are kept. */
   private seen: Observation[] = [];
   private lastTick = -1;
-  /** The Block Direction chosen for one opponent Attack (rolled once, so a mistake sticks). */
-  private blockPlan: { readonly attackStart: number; readonly direction: Direction } | null = null;
+  /** The Block Direction chosen for one enemy Attack (rolled once, so a mistake sticks). */
+  private blockPlan: BlockPlan | null = null;
   /** Its own Attack it is about to Feint, if any. */
   private feintPlan: FeintPlan | null = null;
 
@@ -136,7 +155,7 @@ class AiController implements Controller {
     return options[Math.min(options.length - 1, Math.floor(this.random() * options.length))]!;
   }
 
-  private observe(state: SimState, opponent: number): void {
+  private observe(state: SimState): void {
     if (state.tick <= this.lastTick) {
       // A new Duel: forget what was seen.
       this.seen = [];
@@ -144,36 +163,54 @@ class AiController implements Controller {
       this.feintPlan = null;
     }
     this.lastTick = state.tick;
-    const o = state.fighters[opponent]!;
     const prev = this.seen[this.seen.length - 1];
-    // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
-    const sameAttack = o.action.kind === 'Attack' && prev?.action.kind === 'Attack' && prev.action.direction === o.action.direction;
-    const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && prev ? prev.attackStart : state.tick;
-    this.seen.push({ tick: state.tick, position: o.position, action: o.action, attackStart });
+    const fighters = state.fighters.map((o, i): Sighting => {
+      const before = prev?.fighters[i];
+      // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
+      const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
+      const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
+      return { position: o.position, action: o.action, team: o.team, fallen: o.death !== undefined, attackStart };
+    });
+    this.seen.push({ tick: state.tick, fighters });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
   }
 
+  /**
+   * Acts on everyone as seen Reaction Time ago: it Blocks the nearest enemy
+   * Attack that can reach it (its nearest enemy's, or any from within
+   * THREAT_REACH × `ai.attackRange`), else closes on and fights its nearest
+   * living enemy. Teammates it ignores.
+   */
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
-    const opponent = fighter === 0 ? 1 : 0;
-    this.observe(state, opponent);
-    // What it may act on: the opponent as it was Reaction Time ago.
+    this.observe(state);
     const seen = this.seen[0];
     if (!seen || seen.tick !== state.tick - this.reactionTicks) return IDLE_INTENT;
 
     const self = state.fighters[fighter]!;
-    const dx = seen.position.x - self.position.x;
-    const dz = seen.position.z - self.position.z;
-    const dist = Math.hypot(dx, dz);
-    const base: Intent = { ...IDLE_INTENT, face: Math.atan2(dx, dz) };
-    const toward: Vec2 = dist > 0 ? { x: dx / dist, z: dz / dist } : { x: 0, z: 0 };
-
-    if (isThreat(seen.action) && seen.attackStart !== null) {
+    const enemies = seen.fighters
+      .map((o, i) => ({ o, i, dist: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) }))
+      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team)
+      .sort((a, b) => a.dist - b.dist || a.i - b.i);
+    const nearest = enemies[0];
+    if (!nearest) {
+      this.blockPlan = null;
       this.feintPlan = null;
-      return this.defend(self.action, seen.action.direction, seen.attackStart, base);
+      return IDLE_INTENT;
+    }
+    const facing = (o: Sighting): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z) });
+
+    const reach = THREAT_REACH * this.tuning.ai.attackRange;
+    const threat = enemies.find(({ o, dist }, k) => isThreat(o.action) && o.attackStart !== null && (k === 0 || dist <= reach));
+    if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
+      this.feintPlan = null;
+      return this.defend(self.action, threat.i, threat.o.action.direction, threat.o.attackStart, facing(threat.o));
     }
     this.blockPlan = null;
 
+    const { o: target, dist } = nearest;
+    const base = facing(target);
+    const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : { x: 0, z: 0 };
     const feint = this.feint(state.tick, self.action, base);
     if (feint) return feint;
     if (self.action.kind !== 'Idle') return base; // let go of block/attack; finish what it is doing
@@ -184,8 +221,8 @@ class AiController implements Controller {
       return { ...base, move: toward };
     }
     if (dist < retreatRange) return { ...base, move: { x: -toward.x, z: -toward.z } };
-    // An opening (opponent in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
-    if (aggression > 0 && (isOpening(seen.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
+    // An opening (its target in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
+    if (aggression > 0 && (isOpening(target.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
     return base;
   }
 
@@ -213,11 +250,11 @@ class AiController implements Controller {
   }
 
   /** Block the seen Attack, in the Direction that meets it unless this Attack's roll made it a mistake. */
-  private defend(self: Action, attackDirection: Direction, attackStart: number, base: Intent): Intent {
-    if (this.blockPlan?.attackStart !== attackStart) {
+  private defend(self: Action, attacker: number, attackDirection: Direction, attackStart: number, base: Intent): Intent {
+    if (this.blockPlan?.attacker !== attacker || this.blockPlan.attackStart !== attackStart) {
       const mistake = this.random() < this.difficulty.mistakeRate;
       const meets = mirrorDirection(attackDirection);
-      this.blockPlan = { attackStart, direction: mistake ? this.randomDirection(meets) : meets };
+      this.blockPlan = { attacker, attackStart, direction: mistake ? this.randomDirection(meets) : meets };
     }
     const direction = this.blockPlan.direction;
     // A Block's Direction is fixed on press: drop a Block in another Direction for a Tick, then raise this one.

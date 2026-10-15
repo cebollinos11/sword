@@ -1,4 +1,5 @@
 {
   "duelDistance": 2,
-  "interDuelSeconds": 2
+  "interDuelSeconds": 2,
+  "lineSpacing": 1.5
 }

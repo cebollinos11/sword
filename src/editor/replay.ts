@@ -37,8 +37,17 @@ export const REPLAY_VERSION = 1;
  * each Fighter's Weapon (a replay recorded before Weapons were chosen has none: the default Weapon).
  */
 export type ReplaySetup =
-  | { readonly kind: 'Duel'; readonly seed: number; readonly placements: readonly Placement[]; readonly weapons?: readonly string[] }
-  | { readonly kind: 'Match'; readonly seed: number; readonly config: Omit<MatchConfig, 'weapons'> & { readonly weapons?: readonly string[] } };
+  | { readonly kind: 'Duel'; readonly seed: number; readonly placements: readonly Placement[]; readonly weapons?: readonly string[]; readonly teams?: readonly number[] }
+  | {
+      readonly kind: 'Match';
+      readonly seed: number;
+      /** Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing). */
+      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams'> & {
+        readonly weapons?: readonly string[];
+        readonly spacing?: number;
+        readonly teams?: readonly number[];
+      };
+    };
 
 /** One landed Hit, at the Tick it landed (the Match Tick for a Match). */
 export interface ReplayHit {
@@ -122,12 +131,13 @@ export function recordingSandbox<S extends object>(sandbox: Sandbox<S>): Recordi
 /** The seed and setup a run started from (its state at Tick 0). */
 export function replaySetup(initial: RunState): ReplaySetup {
   if (initial.tick !== 0) throw new RangeError(`A replay starts at Tick 0, not ${initial.tick}`);
-  if (isMatch(initial)) return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...initial.config, weapons: [...initial.config.weapons] } };
+  if (isMatch(initial)) return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...initial.config, weapons: [...initial.config.weapons], teams: [...initial.config.teams] } };
   return {
     kind: 'Duel',
     seed: initial.rng.seed,
     placements: initial.fighters.map((f) => ({ position: { x: f.position.x, z: f.position.z }, facing: f.facing })),
     weapons: initial.fighters.map((f) => f.weapon),
+    teams: initial.fighters.map((f) => f.team),
   };
 }
 
@@ -184,7 +194,7 @@ function* replayStates(replay: Replay, tuning: TuningData): Generator<RunState> 
   let s: RunState =
     setup.kind === 'Match'
       ? createMatch(tuning, { ...setup.config, seed: setup.seed })
-      : createInitialState(tuning, setup.seed, setup.placements, setup.weapons);
+      : createInitialState(tuning, setup.seed, setup.placements, setup.weapons, setup.teams);
   yield s;
   for (const intents of replay.intents) {
     s = isMatch(s) ? stepMatch(s, intents, tuning) : step(s, intents, tuning);
@@ -358,6 +368,12 @@ function weaponNames(v: unknown, path: string): { weapons?: string[] } {
   return { weapons: arr(v, path).map((w, i) => (typeof w === 'string' ? w : fail(`${path}[${i}]`, 'must be a Weapon name'))) };
 }
 
+/** Optional teams (0 or 1), one per Fighter. */
+function teamList(v: unknown, path: string): { teams?: number[] } {
+  if (v === undefined) return {};
+  return { teams: arr(v, path).map((t, i) => (t === 0 || t === 1 ? t : fail(`${path}[${i}]`, 'must be team 0 or 1'))) };
+}
+
 function parseSetup(raw: unknown): ReplaySetup {
   const o = obj(raw, 'setup');
   const seed = int(o.seed, 'setup.seed', 0);
@@ -368,7 +384,7 @@ function parseSetup(raw: unknown): ReplaySetup {
       const pos = obj(po.position, `${path}.position`);
       return { position: { x: num(pos.x, `${path}.position.x`), z: num(pos.z, `${path}.position.z`) }, facing: num(po.facing, `${path}.facing`) };
     });
-    return { kind: 'Duel', seed, placements, ...weaponNames(o.weapons, 'setup.weapons') };
+    return { kind: 'Duel', seed, placements, ...weaponNames(o.weapons, 'setup.weapons'), ...teamList(o.teams, 'setup.teams') };
   }
   if (o.kind === 'Match') {
     const c = obj(o.config, 'setup.config');
@@ -380,6 +396,8 @@ function parseSetup(raw: unknown): ReplaySetup {
         distance: num(c.distance, 'setup.config.distance'),
         interDuelTicks: int(c.interDuelTicks, 'setup.config.interDuelTicks', 1),
         ...weaponNames(c.weapons, 'setup.config.weapons'),
+        ...(c.spacing === undefined ? {} : { spacing: num(c.spacing, 'setup.config.spacing') }),
+        ...teamList(c.teams, 'setup.config.teams'),
       },
     };
   }

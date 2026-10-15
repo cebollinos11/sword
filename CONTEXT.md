@@ -12,6 +12,18 @@ _Avoid_: Player, character, unit
 The source of a Fighter's intents each tick — a human (Local Controller), the AI (AI Controller), or a remote peer (Remote Controller). The Fighter never knows which kind drives it.
 _Avoid_: Input, brain, agent
 
+**Player**:
+A human taking part in a Match: Player 1 (in Player vs AI, or the host online) or Player 2 (the guest online). A Match has at most two. Each drives one Fighter and picks its own Weapon.
+_Avoid_: User; and Player for the Fighter itself
+
+**Team**:
+One of the two sides of a Match (team 0, team 1), each fielding 1 to 3 Fighters. Teammates' blades Stagger each other but deal no damage.
+_Avoid_: Side (in code), faction, squad
+
+**Lineup**:
+Who fights a Match: per Fighter, its Team and what drives it (a Player, or the AI at a difficulty with a Weapon). Online, the host chooses it.
+_Avoid_: Roster (that is the Weapon roster), loadout
+
 **Skeleton**:
 The Fighter's hierarchy of bones, built from primitives and fully owned by the game so procedural motion can drive it directly.
 _Avoid_: Rig, armature, model
@@ -21,7 +33,7 @@ What a Controller asks its Fighter to do on a given Tick (move, aim Direction, a
 _Avoid_: Command, input (when meaning the abstract request)
 
 **Reaction Time**:
-The delay before an AI Controller may act on what it sees of the opponent; together with mistake rate it defines AI difficulty.
+The delay before an AI Controller may act on what it sees of the other Fighters; together with mistake rate it defines AI difficulty. With several enemies, the AI fights the nearest and Blocks the nearest enemy Attack that can reach it.
 
 ## Motion
 
@@ -62,7 +74,7 @@ _Avoid_: Frame (frame means a rendered frame)
 Rewinding the simulation to an earlier Tick when a remote peer's real Intent differs from the predicted one, then re-simulating forward.
 
 **Rollback session**:
-One peer's side of a Player vs Player Match: it runs the Match, exchanges Intents with the other peer, predicts and corrects the remote Fighter's Intents by Rollback, and compares state checksums. Not the Room (which only gets the peers connected).
+One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on both peers: ADR 0005), exchanges Intents with the other peer, predicts and corrects the other Player's Fighter's Intents by Rollback, and compares state checksums. Not the Room (which only gets the peers connected).
 _Avoid_: Session (on its own), netcode, connection
 
 ## Combat
@@ -140,11 +152,11 @@ The striking part of a Weapon, measured back from the tip (the Halberd's axe and
 ## Match
 
 **Duel**:
-One round between two Fighters, ending when one Fighter's HP reaches zero.
+One round between two Teams, ending when the last Fighter of a Team falls; the other Team wins it.
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero and the Hit that did it. From then on the Fighter is no longer simulated; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero and the Hit that did it, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -152,14 +164,14 @@ A fallen Fighter's body going limp and dropping to the floor, knocked away by th
 _Avoid_: Death animation, death Motion
 
 **Match**:
-A best-of-N sequence of Duels.
+A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
 
 **Match Mode**:
-Which Controllers face each other: Player vs AI, Player vs Player (online), or AI vs AI. Each Fighter's Weapon is picked with it (online, each player picks their own).
+Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
-The space a Duel takes place in. v1 has one: a flat circle with no obstacles.
+The space a Duel takes place in. v1 has one: a flat circle with no obstacles. Each Duel starts with the two Teams in facing lines across its centre.
 
 **Room**:
-A shareable code/link through which two peers connect for a Player vs Player Match.
+A shareable code/link through which two peers (the two Players) connect for a Player vs Player Match.
 _Avoid_: Lobby, session, server

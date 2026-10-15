@@ -34,8 +34,9 @@ function runUntilConnected(r: ReturnType<typeof room>) {
 const forward: Intent = { ...IDLE_INTENT, move: { x: 0, z: 1 } };
 
 describe('Player vs Player Match driver (Rollback session over a Transport)', () => {
-  it('the host drives Fighter 0 and the guest Fighter 1', () => {
+  it('the host drives Fighter 0 and the guest Fighter 1 (by default, once connected)', () => {
     const r = room();
+    runUntilConnected(r);
     expect(r.host.localFighter).toBe(0);
     expect(r.guest.localFighter).toBe(1);
   });
@@ -54,7 +55,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
   it('shows a waiting message and no Match until the peers have connected', () => {
     const r = room();
     expect(r.host.state).toBeNull();
-    expect(r.host.waiting).toMatch(/opponent/i);
+    expect(r.host.waiting).toMatch(/other player/i);
     expect(r.host.failure).toBeNull();
     runUntilConnected(r);
     expect(r.host.state).not.toBeNull();
@@ -112,7 +113,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     runUntilConnected(r);
     r.guest.close();
     r.tick();
-    expect(r.host.failure).toMatch(/opponent.*(left|disconnected)/i);
+    expect(r.host.failure).toMatch(/other player.*(left|disconnected)/i);
   });
 
   it('tells the player when the opponent stops answering', () => {

@@ -28,15 +28,38 @@ export function duelPlacements(distance: number): Placement[] {
   ];
 }
 
+/** Fighter i's team when none is given: alternating, so two Fighters are always opponents. */
+export const defaultTeam = (i: number): number => i % 2;
+
+/**
+ * The two teams in facing lines across the Arena centre, `distance` metres
+ * apart along z: team 0 at -z facing +z, team 1 at +z facing -z. Teammates
+ * stand side by side `spacing` metres apart, centred on the z axis, in
+ * Fighter order. `teams[i]` is Fighter i's team. One Fighter a side stands
+ * exactly where `duelPlacements` puts it.
+ */
+export function teamPlacements(teams: readonly number[], distance: number, spacing: number): Placement[] {
+  const size = [0, 1].map((t) => teams.filter((team) => team === t).length);
+  const seen = [0, 0];
+  return teams.map((team) => {
+    const k = seen[team]!++;
+    const x = (k - (size[team]! - 1) / 2) * spacing;
+    // Team 1 faces the other way, so mirror x to keep line order left-to-right from each team's view.
+    return team === 0 ? { position: { x, z: -distance / 2 }, facing: 0 } : { position: { x: 0 - x, z: distance / 2 }, facing: Math.PI };
+  });
+}
+
 /**
  * Build the state at Tick 0: an Idle Fighter with full HP at each placement (default: one at the centre),
- * Fighter i wielding `weapons[i]` (a Weapon name; default: the default Weapon). Throws on an unknown Weapon.
+ * Fighter i wielding `weapons[i]` (a Weapon name; default: the default Weapon) on team `teams[i]`
+ * (default: `defaultTeam(i)`). Throws on an unknown Weapon.
  */
 export function createInitialState(
   tuning: TuningData,
   seed: number,
   placements: readonly Placement[] = [CENTRE_PLACEMENT],
   weapons: readonly string[] = [],
+  teams: readonly number[] = [],
 ): SimState {
   return {
     tick: 0,
@@ -46,6 +69,7 @@ export function createInitialState(
       return {
         position: { x: position.x, z: position.z },
         facing,
+        team: teams[i] ?? defaultTeam(i),
         hp: tuning.fighter.maxHp,
         weapon,
         action: IDLE_ACTION,
@@ -103,19 +127,21 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
 }
 
 /**
- * Fighter capsules push each other apart and stay inside the Arena, the Gait
+ * Living Fighter capsules push each other apart and stay inside the Arena (the fallen lie where they fell), the Gait
  * steps the feet after the bodies' final moves (ADR 0003), then each Skeleton
  * is solved at its final position. Motion is simulation: the Skeleton is
  * solved by IK inside the Tick (ADR 0001). `before` is last Tick's Fighters.
  */
 function settleBodies(before: readonly FighterState[], fighters: readonly FighterState[], tuning: TuningData, emit: (e: SimEvent) => void): FighterState[] {
-  const positions = resolveBodies(
-    fighters.map((f) => f.position),
+  const living = fighters.flatMap((f, i) => (f.death ? [] : [i]));
+  const resolved = resolveBodies(
+    living.map((i) => fighters[i]!.position),
     tuning,
   );
+  const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (f.death) return f;
-    const position = positions[i]!;
+    const position = positions.get(i)!;
     const moved = { ...f, position };
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, emit) };
     return { ...settled, blade: fighterPose(settled, tuning).blade };
@@ -138,7 +164,8 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
  * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
- * → damage → Duel end. Once the Duel is over, Intents are ignored and no
+ * → damage → Deaths → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
+ * its team still fighting. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
  */
 export function step(state: SimState, intents: readonly Intent[], tuning: TuningData): SimState {
@@ -155,8 +182,8 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
+  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: { tick, blow: fellingBlow(events, i, fighters) } }));
   const duel = updateDuel(state.duel, fighters, tick, emit);
-  if (fighting && duel.status === 'Over') fighters = fighters.map((f, i) => (f.hp > 0 ? f : { ...f, death: { tick, blow: fellingBlow(events, i, fighters) } }));
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
   return { tick, rng: nextFloat(state.rng)[1], fighters, duel, events };

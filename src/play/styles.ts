@@ -3,14 +3,18 @@ const CSS = `
 .hud { pointer-events: none; }
 .hud[hidden], .menu[hidden], .menu-result[hidden] { display: none; }
 .hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; }
-.hud-fighter { flex: 1; max-width: 22rem; }
+.hud-team { flex: 1; max-width: 22rem; display: flex; flex-direction: column; gap: 0.3rem; }
+.hud-fighter { transition: opacity 300ms; }
+.hud-fighter.fallen { opacity: 0.35; }
+.hud-fighter:not(.hud-you) .hud-bar { height: 0.7rem; }
+.hud-label { font-size: 0.7rem; opacity: 0.85; text-shadow: 0 1px 2px #000a; margin-bottom: 0.1rem; }
+.hud-you .hud-label { font-weight: 700; opacity: 1; }
 .hud-side-1 { text-align: right; }
 .hud-bar { position: relative; height: 1.1rem; background: #0006; border: 2px solid #fffc; border-radius: 4px; overflow: hidden; }
 .hud-side-1 .hud-bar { transform: scaleX(-1); }
 .hud-fill { height: 100%; width: 100%; transition: width 120ms linear; }
-.hud-fill[data-fighter="0"] { background: #c0392b; }
-.hud-fill[data-fighter="1"] { background: #2e86c1; }
 .hud-hp { position: absolute; inset: 0; font-size: 0.75rem; line-height: 1.1rem; text-align: center; text-shadow: 0 1px 2px #000a; }
+.hud-fighter:not(.hud-you) .hud-hp { display: none; }
 .hud-side-1 .hud-hp { transform: scaleX(-1); }
 .hud-centre { text-align: center; text-shadow: 0 1px 3px #000a; min-width: 7rem; }
 .hud-score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -38,6 +42,13 @@ const CSS = `
   background: #0006; color: #fff; }
 .menu .menu-create-room { display: block; width: 100%; margin: 0.5rem 0; padding: 0.5rem; font-weight: 600; background: #2e86c1; border-color: #2e86c1; }
 .menu-join { flex-wrap: nowrap; }
+.menu select { font: inherit; font-size: 0.85rem; padding: 0.25rem 0.4rem; border-radius: 6px; border: 1px solid #ffffff40; background: #0006; color: #fff; }
+.menu select option { background: #18232f; }
+.team-format { margin: 0.2rem 0; font-weight: 700; opacity: 0.85; }
+.team-ai { margin: 0.3rem 0; }
+.team-ai .menu-label { min-width: 4.5rem; }
+.menu-host { font-size: 0.95rem; margin: 0.4rem 0; }
+.menu-host summary { cursor: pointer; opacity: 0.8; }
 .menu-broker { font-size: 0.85rem; margin: 0.4rem 0; }
 .menu-broker summary { cursor: pointer; opacity: 0.8; }
 .menu-broker input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 0.4rem; font-size: 0.8rem; }

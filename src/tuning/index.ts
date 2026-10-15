@@ -81,6 +81,8 @@ export interface MatchTuning {
   readonly duelDistance: number;
   /** Pause (s) between a Duel ending and the next one starting. */
   readonly interDuelSeconds: number;
+  /** Distance (m) between teammates standing side by side in their team's line at the start of every Duel. */
+  readonly lineSpacing: number;
 }
 
 export const HIT_ZONES = ['head', 'torso', 'limbs'] as const;
@@ -314,7 +316,11 @@ export function parseTuningData(raw: unknown): TuningData {
       impactFrequency: positiveNumber(bl, 'impactFrequency', 'block'),
       impactDuration: positiveNumber(bl, 'impactDuration', 'block'),
     },
-    match: { duelDistance: positiveNumber(ma, 'duelDistance', 'match'), interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match') },
+    match: {
+      duelDistance: positiveNumber(ma, 'duelDistance', 'match'),
+      interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
+      lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
+    },
     skeleton,
     ai: parseAi(root.ai),
     gait: parseGait(root.gait),

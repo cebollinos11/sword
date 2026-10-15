@@ -3,8 +3,10 @@ import type { MatchState } from '../sim';
 /** Something worth announcing about a Match (HUD banner, camera reset, result screen). */
 export type Milestone =
   | { readonly type: 'DuelStart'; readonly duelNumber: number }
-  /** `winner` null = a draw. */
+  /** `winner` is a team; null = a draw. */
   | { readonly type: 'DuelEnd'; readonly duelNumber: number; readonly winner: number | null }
+  /** The watched Fighter fell while its team fought on. */
+  | { readonly type: 'Fell'; readonly duelNumber: number }
   | { readonly type: 'MatchEnd'; readonly winner: number; readonly score: readonly number[] };
 
 /**
@@ -17,16 +19,23 @@ export type Milestone =
 export class MatchAnnouncer {
   private duelNumber = 0;
   private duelEnded = false;
+  private fell = false;
   private matchEnded = false;
 
-  update(match: MatchState): Milestone[] {
+  /** `me`: the Fighter whose fall is announced (default none). */
+  update(match: MatchState, me = -1): Milestone[] {
     const out: Milestone[] = [];
     if (match.duelNumber !== this.duelNumber) {
       this.duelNumber = match.duelNumber;
       this.duelEnded = false;
+      this.fell = false;
       out.push({ type: 'DuelStart', duelNumber: match.duelNumber });
     }
     const duel = match.duel.duel;
+    if (!this.fell && duel.status === 'Fighting' && match.duel.fighters[me]?.death) {
+      this.fell = true;
+      out.push({ type: 'Fell', duelNumber: match.duelNumber });
+    }
     if (!this.duelEnded && duel.status === 'Over') {
       this.duelEnded = true;
       out.push({ type: 'DuelEnd', duelNumber: match.duelNumber, winner: duel.winner });

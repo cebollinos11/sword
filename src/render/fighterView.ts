@@ -5,6 +5,23 @@ import { ragdollPose } from './ragdoll';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
+/** Each team's colours: red for team 0, blue for team 1, a different shade for each teammate (the first is FIGHTER_COLOURS'). */
+export const TEAM_COLOURS: readonly (readonly number[])[] = [
+  [0xc0392b, 0xe67e5c, 0x7b241c],
+  [0x2e86c1, 0x76c3ee, 0x1b4f72],
+];
+
+/** The colour of a team's `k`-th Fighter (in Fighter order). */
+export function teamColour(team: number, k: number): number {
+  const shades = TEAM_COLOURS[team] ?? FIGHTER_COLOURS;
+  return shades[k % shades.length]!;
+}
+
+/** Every Fighter's colour: its team's, shaded by its place among its teammates. */
+export function fighterColours(teams: readonly number[]): number[] {
+  return teams.map((team, i) => teamColour(team, teams.slice(0, i).filter((t) => t === team).length));
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 
 /** Bone thickness (radius, metres) by bone; anything unlisted is a limb. */
