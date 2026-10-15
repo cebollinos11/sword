@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
 import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, type SessionEvent } from './session';
+import { PROTOCOL_VERSION } from './messages';
 
 const repoTuning = loadTuningData();
 /** One clean hit decides a Duel, so Matches move through several Duels quickly. */
-const tuning: TuningData = { ...repoTuning, weapon: { ...repoTuning.weapon, damage: 10_000 } };
+const tuning: TuningData = withWeapon(repoTuning, { damage: 10_000 });
 const TICK_MS = 1000 / TICK_RATE;
 /** Directions with an Attack Motion in the repo data (all four once every Direction is authored). */
 const PLAYABLE = DIRECTIONS.filter((d) => tuning.motions[d]);
@@ -48,7 +49,7 @@ describe('Rollback session: connect', () => {
   });
 
   it('refuses the connection on a Tuning Data hash mismatch, on both sides', () => {
-    const other: TuningData = { ...tuning, weapon: { ...tuning.weapon, length: tuning.weapon.length + 0.1 } };
+    const other: TuningData = withWeapon(tuning, { length: tuning.weapons['Arming Sword']!.length + 0.1 });
     const s = connect({ latencyMs: 40 }, other);
     for (let i = 0; i < 30; i++) frame(s);
     expect(s.host.status).toBe('Refused');
@@ -257,5 +258,46 @@ describe('Rollback session: disconnect', () => {
     }
     expect(host.status).toBe('Disconnected');
     expect(events).toContainEqual({ type: 'Disconnected', reason: 'Timeout' });
+  });
+});
+describe('Rollback session: Weapons', () => {
+  function connectArmed(hostWeapon: string, guestWeapon: string) {
+    const pair = createMemoryTransportPair({ latencyMs: 30 });
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, weapon: hostWeapon });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, weapon: guestWeapon });
+    return { pair, host, guest, hostEvents: [] as SessionEvent[], guestEvents: [] as SessionEvent[] };
+  }
+
+  it('each peer picks its own Weapon, and both build the same Match from the exchanged picks', () => {
+    const s = connectArmed('Halberd', 'Longsword');
+    for (let i = 0; i < 20; i++) frame(s);
+    expect(s.host.state!.config.weapons).toEqual(['Halberd', 'Longsword']);
+    expect(s.guest.state!.config.weapons).toEqual(['Halberd', 'Longsword']);
+    expect(s.guest.state!.duel.fighters.map((f) => f.weapon)).toEqual(['Halberd', 'Longsword']);
+    const swing = (t: number): Intent => (t % 90 < 30 ? { ...IDLE_INTENT, attack: true } : IDLE_INTENT);
+    for (let i = 0; i < 200; i++) frame(s, swing, swing);
+    for (let i = 0; i < 30; i++) frame(s);
+    expect(s.host.currentTick).toBe(s.guest.currentTick);
+    expect(hashValue(s.guest.state)).toBe(hashValue(s.host.state));
+  });
+
+  it('refuses a hello carrying a Weapon missing from its roster, like a Tuning Data mismatch', () => {
+    const pair = createMemoryTransportPair({ latencyMs: 30 });
+    const events: SessionEvent[] = [];
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH });
+    host.onEvent((e) => events.push(e));
+    pair.b.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: 'Pike' });
+    for (let i = 0; i < 10; i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+    }
+    expect(host.status).toBe('Refused');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'Refused', reason: 'TuningDataMismatch' }));
+    expect(host.state).toBeNull();
+  });
+
+  it('refuses to start with a Weapon of its own that is not in the roster', () => {
+    const pair = createMemoryTransportPair();
+    expect(() => createRollbackSession({ role: 'guest', transport: pair.b, tuning, weapon: 'Pike' })).toThrow(/Pike/);
   });
 });

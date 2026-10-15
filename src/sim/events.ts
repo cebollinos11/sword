@@ -22,6 +22,8 @@ export interface HitEvent {
   readonly point: Vec3;
   /** Blade Speed at the contact point, m/s (world space, so footwork counts). */
   readonly bladeSpeed: number;
+  /** Whether the Weapon's Head landed (full damage); false for a Hit from the shaft behind it (× `shaftDamage`). */
+  readonly head: boolean;
   readonly damage: number;
 }
 

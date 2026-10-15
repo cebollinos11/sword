@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { BONES, JOINT_NAMES, type BladeTransform, type JointName, type SkeletonPose, type Vec3 } from '../sim';
-import type { TuningData } from '../tuning';
+import type { TuningData, WeaponTuning } from '../tuning';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
@@ -16,22 +16,26 @@ function boneRadius(a: JointName, b: JointName): number {
 
 /**
  * A Fighter drawn from primitives: one flat-shaded colour, a cylinder per
- * Skeleton bone, a sphere per joint and a box blade. It only reads poses.
+ * Skeleton bone, a sphere per joint, and its Weapon drawn to the Weapon's
+ * dimensions (a sword: blade, crossguard, grip and pommel; a polearm: shaft,
+ * axe blade, spike and back hook over the Head). It only reads poses.
  */
 export class FighterView {
   readonly root = new THREE.Group();
   private readonly bones: { mesh: THREE.Mesh; a: JointName; b: JointName }[] = [];
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
-  private readonly blade: THREE.Mesh;
-  private readonly crossguard: THREE.Mesh;
+  private readonly sword: SwordMeshes;
+  private readonly polearm: PolearmMeshes;
 
   constructor(colour: number, tuning: TuningData) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
     const steel = new THREE.MeshLambertMaterial({ color: 0xd0d4d8, flatShading: true });
     const dark = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true });
+    const wood = new THREE.MeshLambertMaterial({ color: 0x7a5230, flatShading: true });
     const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8);
     const sphere = new THREE.SphereGeometry(1, 10, 8);
+    const box = new THREE.BoxGeometry(1, 1, 1);
 
     for (const [a, b] of BONES) {
       const mesh = new THREE.Mesh(cylinder, body);
@@ -50,18 +54,53 @@ export class FighterView {
     this.head.scale.setScalar(tuning.skeleton.headRadius);
     this.root.add(this.head);
 
-    this.blade = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), steel);
-    this.crossguard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.025, 0.03), dark);
-    this.root.add(this.blade, this.crossguard);
+    this.sword = {
+      group: new THREE.Group(),
+      blade: new THREE.Mesh(box, steel),
+      crossguard: new THREE.Mesh(box, dark),
+      grip: new THREE.Mesh(cylinder, dark),
+      pommel: new THREE.Mesh(sphere, steel),
+    };
+    this.sword.group.add(this.sword.blade, this.sword.crossguard, this.sword.grip, this.sword.pommel);
+    this.polearm = {
+      group: new THREE.Group(),
+      shaft: new THREE.Mesh(cylinder, wood),
+      axe: new THREE.Mesh(box, steel),
+      hook: new THREE.Mesh(box, steel),
+      spike: new THREE.Mesh(new THREE.ConeGeometry(1, 1, 8), steel),
+    };
+    this.polearm.group.add(this.polearm.shaft, this.polearm.axe, this.polearm.hook, this.polearm.spike);
+    this.root.add(this.sword.group, this.polearm.group);
   }
 
-  update(pose: SkeletonPose): void {
+  /** Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data). */
+  update(pose: SkeletonPose, weapon: WeaponTuning): void {
     const p = pose.joints;
     for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
     for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
     this.head.position.set(p.head.x, p.head.y, p.head.z);
-    placeBlade(this.blade, this.crossguard, pose.blade);
+    const polearm = weapon.look === 'polearm';
+    this.sword.group.visible = !polearm;
+    this.polearm.group.visible = polearm;
+    if (polearm) placePolearm(this.polearm, pose.blade, weapon);
+    else placeSword(this.sword, pose.blade, weapon);
   }
+}
+
+interface SwordMeshes {
+  readonly group: THREE.Group;
+  readonly blade: THREE.Mesh;
+  readonly crossguard: THREE.Mesh;
+  readonly grip: THREE.Mesh;
+  readonly pommel: THREE.Mesh;
+}
+
+interface PolearmMeshes {
+  readonly group: THREE.Group;
+  readonly shaft: THREE.Mesh;
+  readonly axe: THREE.Mesh;
+  readonly hook: THREE.Mesh;
+  readonly spike: THREE.Mesh;
 }
 
 const tmpA = new THREE.Vector3();
@@ -77,24 +116,57 @@ function placeCylinder(mesh: THREE.Mesh, a: Vec3, b: Vec3, radius: number): void
 }
 
 const basis = new THREE.Matrix4();
+const orientation = new THREE.Quaternion();
+const hilt = new THREE.Vector3();
 const xAxis = new THREE.Vector3();
 const yAxis = new THREE.Vector3();
 const zAxis = new THREE.Vector3();
 
-function placeBlade(blade: THREE.Mesh, crossguard: THREE.Mesh, b: BladeTransform): void {
+/** The Weapon's frame (y: hand → tip, z: the edge, which leads), into `hilt`, the axes and `orientation`; returns its length. */
+function weaponFrame(b: BladeTransform): number {
+  hilt.set(b.hilt.x, b.hilt.y, b.hilt.z);
   yAxis.set(b.tip.x - b.hilt.x, b.tip.y - b.hilt.y, b.tip.z - b.hilt.z);
   const len = yAxis.length();
   yAxis.divideScalar(len || 1);
-  zAxis.set(b.edge.x, b.edge.y, b.edge.z); // the edge leads: blade width runs along it
+  zAxis.set(b.edge.x, b.edge.y, b.edge.z);
   xAxis.crossVectors(yAxis, zAxis).normalize();
   zAxis.crossVectors(xAxis, yAxis).normalize();
   basis.makeBasis(xAxis, yAxis, zAxis);
-  for (const m of [blade, crossguard]) m.quaternion.setFromRotationMatrix(basis);
-  blade.scale.set(0.012, len, 0.045);
-  blade.position.set((b.hilt.x + b.tip.x) / 2, (b.hilt.y + b.tip.y) / 2, (b.hilt.z + b.tip.z) / 2);
-  crossguard.position.set(b.hilt.x, b.hilt.y, b.hilt.z).addScaledVector(yAxis, 0.08);
-  crossguard.scale.set(1, 1, 1);
-  crossguard.rotateY(Math.PI / 2);
+  orientation.setFromRotationMatrix(basis);
+  return len;
+}
+
+/** Place a mesh in the Weapon's frame: centred `along` the axis from the hand and `out` along the edge, scaled `size` (frame x, y, z). */
+function placeInFrame(mesh: THREE.Mesh, along: number, out: number, size: readonly [number, number, number]): void {
+  mesh.quaternion.copy(orientation);
+  mesh.position.copy(hilt).addScaledVector(yAxis, along).addScaledVector(zAxis, out);
+  mesh.scale.set(size[0], size[1], size[2]);
+}
+
+/** Where the crossguard sits, in front of the sword hand (m). */
+const GUARD = 0.07;
+
+function placeSword(m: SwordMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  const blade = Math.max(len - GUARD, 0.01);
+  placeInFrame(m.blade, GUARD + blade / 2, 0, [0.012, blade, 0.045]);
+  placeInFrame(m.crossguard, GUARD, 0, [0.03, 0.025, 0.18]);
+  const grip = w.gripLength + GUARD;
+  placeInFrame(m.grip, GUARD - grip / 2, 0, [0.016, grip, 0.016]);
+  placeInFrame(m.pommel, -w.gripLength, 0, [0.028, 0.028, 0.028]);
+}
+
+function placePolearm(m: PolearmMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  const spike = Math.min(0.18, w.head * 0.5);
+  const shaft = w.gripLength + len - spike;
+  placeInFrame(m.shaft, -w.gripLength + shaft / 2, 0, [0.018, shaft, 0.018]);
+  placeInFrame(m.spike, len - spike / 2, 0, [0.02, spike, 0.02]);
+  // The axe blade leads on the edge side, below the spike; the hook juts out behind it.
+  const axe = Math.max(w.head - spike, 0.05) * 0.8;
+  const at = len - spike - axe / 2;
+  placeInFrame(m.axe, at, 0.09, [0.01, axe, 0.16]);
+  placeInFrame(m.hook, at, -0.06, [0.01, 0.04, 0.12]);
 }
 
 /** Interpolate two solved poses (render-only smoothing between Ticks). */

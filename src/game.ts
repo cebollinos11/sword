@@ -87,18 +87,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let room: RoomAttempt | null = null;
 
   const menu = new Menu(container, tuning, {
-    onStart({ difficulty, bestOf }) {
+    onStart({ difficulty, bestOf, weapon, aiWeapon }) {
       game.play({
-        driver: playerVsAi(tuning, { difficulty, bestOf, seed: randomSeed() }),
+        driver: playerVsAi(tuning, { difficulty, bestOf, seed: randomSeed(), weapons: [weapon, aiWeapon] }),
       });
     },
-    onCreateRoom({ bestOf, broker }) {
-      void createRoom(bestOf, broker);
+    onCreateRoom({ bestOf, weapon, broker }) {
+      void createRoom(bestOf, weapon, broker);
     },
-    onJoinRoom({ room: text, broker }) {
+    onJoinRoom({ room: text, weapon, broker }) {
       const address = parseRoomInput(text);
       if (!address) return menu.show(`"${text.trim()}" is not a Room code or link.`);
-      joinByCode(address.code, address.broker ?? broker);
+      joinByCode(address.code, weapon, address.broker ?? broker);
     },
     onLeaveRoom() {
       leaveRoom();
@@ -128,7 +128,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.show(e instanceof RoomError ? e.message : `Room error: ${String(e)}`);
   }
 
-  async function createRoom(bestOf: number, brokerText: string): Promise<void> {
+  async function createRoom(bestOf: number, weapon: string, brokerText: string): Promise<void> {
     const broker = brokerFrom(brokerText);
     if (broker === undefined) return;
     leaveRoom();
@@ -141,14 +141,14 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (room !== attempt) return hosted.cancel();
       menu.showRoom({ kind: 'Hosting', code: hosted.code, link: roomLink(location.href, hosted.code, brokerText.trim() || undefined) });
       const transport = await hosted.connected;
-      if (room === attempt) startOnline('host', transport, bestOf);
+      if (room === attempt) startOnline('host', transport, weapon, bestOf);
       else transport.close();
     } catch (e) {
       roomFailed(attempt, e);
     }
   }
 
-  function joinByCode(code: string, brokerText: string): void {
+  function joinByCode(code: string, weapon: string, brokerText: string): void {
     const broker = brokerFrom(brokerText);
     if (broker === undefined) return;
     leaveRoom();
@@ -157,18 +157,19 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const attempt: RoomAttempt = pending;
     room = attempt;
     pending.connected.then(
-      (transport) => (room === attempt ? startOnline('guest', transport) : transport.close()),
+      (transport) => (room === attempt ? startOnline('guest', transport, weapon) : transport.close()),
       (e) => roomFailed(attempt, e),
     );
   }
 
-  /** Connected: run the Match through a Rollback session (host = Fighter 0 picks the Match options, guest = Fighter 1). */
-  function startOnline(role: SessionRole, transport: Transport, bestOf = 3): void {
+  /** Connected: run the Match through a Rollback session (host = Fighter 0 picks the Match options, guest = Fighter 1; each picks its Weapon). */
+  function startOnline(role: SessionRole, transport: Transport, weapon: string, bestOf = 3): void {
     room = null;
     const session = createRollbackSession({
       role,
       transport,
       tuning,
+      weapon,
       ...(role === 'host' ? { match: { bestOf, seed: randomSeed() } } : {}),
     });
     game.play({ driver: playerVsPlayer(session) });
@@ -248,7 +249,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       prev = curr;
       curr = d.state;
       audio.onMatchTick(curr);
-      renderer.impacts.onTick(curr.tick, curr.duel.events);
+      renderer.impacts.onTick(curr.tick, curr.duel);
       present(curr, d.localFighter);
     }
     if (driver?.waiting) hud.announce(driver.waiting, 0.5);
@@ -278,7 +279,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   if (location.hash.startsWith(ROOM_ROUTE)) {
     const linked = parseRoomInput(location.hash);
     history.replaceState(null, '', location.pathname + location.search);
-    if (linked) joinByCode(linked.code, linked.broker ?? '');
+    if (linked) joinByCode(linked.code, menu.onlineWeapon, linked.broker ?? '');
     else menu.show('That Room link is not valid.');
   }
   requestAnimationFrame(frame);

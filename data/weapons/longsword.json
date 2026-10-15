@@ -1,0 +1,20 @@
+{
+  "name": "Longsword",
+  "grip": "twoHanded",
+  "length": 1,
+  "damage": 40,
+  "speed": 22,
+  "gripLength": 0.28,
+  "offHandGrip": {
+    "along": 0.14,
+    "around": 0,
+    "radial": 0
+  },
+  "head": 1,
+  "shaftDamage": 1,
+  "blockImpact": {
+    "dealt": 1.2,
+    "taken": 0.8
+  },
+  "look": "sword"
+}

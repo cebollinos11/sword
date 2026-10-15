@@ -12,7 +12,7 @@
  * so a whole Match hashes (`hashValue`) and snapshots (`snapshot`) exactly
  * for Rollback.
  */
-import type { TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
@@ -25,6 +25,8 @@ export interface MatchConfig {
   readonly distance: number;
   /** Ticks between a Duel ending and the next one starting (at least 1). */
   readonly interDuelTicks: number;
+  /** Each Fighter's Weapon (a Tuning Data Weapon name), kept across Duels. */
+  readonly weapons: readonly string[];
 }
 
 export interface MatchOptions extends Partial<MatchConfig> {
@@ -74,20 +76,21 @@ export function duelsToWin(bestOf: number): number {
 }
 
 function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']): SimState {
-  return { ...createInitialState(tuning, 0, duelPlacements(config.distance)), rng };
+  return { ...createInitialState(tuning, 0, duelPlacements(config.distance), config.weapons), rng };
 }
 
-/** A Match at Tick 0: Duel 1 about to be fought, score 0–0. */
+/** A Match at Tick 0: Duel 1 about to be fought, score 0–0. Throws on an unknown Weapon name. */
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
   const config: MatchConfig = {
     bestOf: options.bestOf,
     distance: options.distance ?? tuning.match.duelDistance,
     interDuelTicks: options.interDuelTicks ?? secondsToTicks(tuning.match.interDuelSeconds),
+    weapons: [0, 1].map((i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
   };
   if (!Number.isInteger(config.bestOf) || config.bestOf < 1) throw new RangeError(`bestOf must be a positive integer, got ${config.bestOf}`);
   if (!Number.isInteger(config.interDuelTicks) || config.interDuelTicks < 1)
     throw new RangeError(`interDuelTicks must be an integer >= 1, got ${config.interDuelTicks}`);
-  const duel = createInitialState(tuning, options.seed ?? 1, duelPlacements(config.distance));
+  const duel = createInitialState(tuning, options.seed ?? 1, duelPlacements(config.distance), config.weapons);
   return {
     config,
     tick: 0,

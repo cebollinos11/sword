@@ -7,15 +7,22 @@
  * as its opponent sees it, to judge Wind-up readability), and Save back to
  * `data/motions/<name>.json` (File System Access API, download fallback).
  *
+ * The previewed Fighter wields a Weapon picked from the roster, and plays that
+ * Weapon's Motions: its Motion override where it has one (edited and saved to
+ * `data/motions/<Weapon file stem>/<name>.json`), the shared default otherwise.
+ * "Override for <Weapon>" copies the default into a new override; "Remove
+ * override" drops it, so the Weapon plays the default again.
+ *
  * `EditorSession` is the one source of truth for the working Tuning Data;
  * the timeline, gizmos, fields and the Duel sandbox all edit through it, and
  * the Pose Key operations live in `motionEdit.ts` (unit-tested).
  */
 import type * as THREE from 'three';
+import type { ButtonApi } from 'tweakpane';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
 import { motionPose, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
-import { EASES, POSE_KEY_CHANNELS, type PoseKeyChannel, type TuningData } from '../tuning';
+import { EASES, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
@@ -23,7 +30,7 @@ import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizm
 import { addPoseKey, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
 import { saveJsonFile } from './save';
 import { startSandbox } from './sandbox';
-import { EditorSession, type MotionDraft } from './session';
+import { EditorSession, motionPath, type MotionDraft } from './session';
 import { Timeline } from './timeline';
 import { BladeSweepTrail } from './trail';
 
@@ -86,6 +93,8 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   const ui = {
     motion: session.motionNames()[0]!,
+    weapon: session.weaponNames()[0]!,
+    editing: '',
     playing: true,
     speed: 1,
     time: 0,
@@ -96,7 +105,11 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   };
   /** Index of the selected Pose Key in the current Motion's draft. */
   let selected: number | null = null;
-  const draft = (): MotionDraft => session.draft(ui.motion);
+  /** The Weapon whose override is being edited, or undefined while editing the shared default. */
+  const override = (): string | undefined => (session.hasOverride(ui.weapon, ui.motion) ? ui.weapon : undefined);
+  const draft = (): MotionDraft => session.draft(ui.motion, override());
+  /** The Motion the previewed Weapon plays (its override, or the default). */
+  const liveMotion = (): Motion => weaponMotion(session.tuning, ui.weapon, ui.motion)!;
 
   const pane = new Pane({ title: 'Motion Editor' });
   pane.addButton({ title: 'Duel sandbox →' }).on('click', () => (location.hash = '#/editor/sandbox'));
@@ -113,10 +126,10 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   let keyFolder: FolderApi | undefined;
 
   const rebuildTrail = () => {
-    const motion = session.tuning.motions[ui.motion]!;
+    const motion = liveMotion();
     const ticks = secondsToTicks(motion.duration);
     const blades: BladeTransform[] = [];
-    for (let t = 0; t <= ticks; t++) blades.push(motionPose(session.tuning, ui.motion, t, ORIGIN).blade);
+    for (let t = 0; t <= ticks; t++) blades.push(motionPose(session.tuning, ui.motion, t, ORIGIN, ui.weapon).blade);
     const { windUpEnd, releaseEnd } = motion.markers;
     trail.set(blades, (t) =>
       windUpEnd !== undefined && releaseEnd !== undefined ? t / TICK_RATE >= windUpEnd && t / TICK_RATE <= releaseEnd : false,
@@ -126,7 +139,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   /** Validate the draft and make it live (preview, trail); show the error otherwise. */
   const applyEdit = () => {
     try {
-      session.commit(ui.motion);
+      session.commit(ui.motion, override());
       ui.status = 'OK (unsaved changes)';
       rebuildTrail();
     } catch (e) {
@@ -138,7 +151,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   const save = async () => {
     let file: ReturnType<EditorSession['motionFile']>;
     try {
-      file = session.motionFile(ui.motion);
+      file = session.motionFile(ui.motion, override());
     } catch (e) {
       ui.status = `Not saved: ${e instanceof Error ? e.message : String(e)}`;
       pane.refresh();
@@ -148,9 +161,9 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       const result = await saveJsonFile(file.fileName, file.text);
       ui.status =
         result === 'written'
-          ? `Saved ${file.fileName}`
+          ? `Saved ${file.fileName} (${file.path})`
           : result === 'downloaded'
-            ? `Downloaded ${file.fileName}: move it into data/motions/`
+            ? `Downloaded ${file.fileName}: move it to ${file.path}`
             : 'Save cancelled';
     } catch (e) {
       ui.status = `Save failed: ${e instanceof Error ? e.message : String(e)}`;
@@ -159,7 +172,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   };
 
   // --- Gizmo and timeline -------------------------------------------------
-  const previewPose = () => motionPose(session.tuning, ui.motion, Math.min(ui.time, session.tuning.motions[ui.motion]!.duration) * TICK_RATE, ORIGIN);
+  const previewPose = () => motionPose(session.tuning, ui.motion, Math.min(ui.time, liveMotion().duration) * TICK_RATE, ORIGIN, ui.weapon);
 
   const gizmo = new PoseGizmo(
     stage.camera,
@@ -266,9 +279,18 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     f.addButton({ title: 'Delete Pose Key' }).on('click', deleteKey);
   };
 
+  let overrideButton: ButtonApi | undefined;
+  let removeButton: ButtonApi | undefined;
   const buildMotionFolder = () => {
     if (motionFolder) pane.remove(motionFolder);
-    motionFolder = pane.addFolder({ title: `Motion: ${ui.motion}` });
+    const own = override();
+    ui.editing = own ? `${own}'s override (${motionPath(ui.motion, own)})` : 'the default Motion (shared by every Weapon without an override)';
+    if (overrideButton) {
+      overrideButton.title = `Override for ${ui.weapon}`;
+      overrideButton.disabled = own !== undefined;
+    }
+    if (removeButton) removeButton.disabled = own === undefined;
+    motionFolder = pane.addFolder({ title: own ? `Motion: ${ui.motion} (${own})` : `Motion: ${ui.motion}` });
     buildMotionFields(motionFolder, draft());
     motionFolder.on('change', applyEdit);
     ui.time = 0;
@@ -278,6 +300,30 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   const motionOptions = Object.fromEntries(session.motionNames().map((n) => [n, n]));
   pane.addBinding(ui, 'motion', { options: motionOptions }).on('change', buildMotionFolder);
+  pane.addBinding(ui, 'weapon', { label: 'Weapon', options: Object.fromEntries(session.weaponNames().map((n) => [n, n])) }).on('change', buildMotionFolder);
+  pane.addBinding(ui, 'editing', { readonly: true, multiline: true, rows: 2 });
+  overrideButton = pane.addButton({ title: `Override for ${ui.weapon}` });
+  overrideButton.on('click', () => {
+    try {
+      session.createOverride(ui.weapon, ui.motion);
+      ui.status = `${ui.weapon} now has its own ${ui.motion} (a copy of the default; unsaved)`;
+    } catch (e) {
+      ui.status = e instanceof Error ? e.message : String(e);
+    }
+    buildMotionFolder();
+    pane.refresh();
+  });
+  removeButton = pane.addButton({ title: 'Remove override' });
+  removeButton.on('click', () => {
+    try {
+      const path = session.removeOverride(ui.weapon, ui.motion);
+      ui.status = `${ui.weapon} plays the default ${ui.motion} again. Delete ${path} from the repo if it was saved.`;
+    } catch (e) {
+      ui.status = e instanceof Error ? e.message : String(e);
+    }
+    buildMotionFolder();
+    pane.refresh();
+  });
   pane.addBinding(ui, 'playing');
   pane.addBinding(ui, 'speed', { min: 0.05, max: 2, step: 0.05 });
   pane.addBinding(ui, 'tick', { readonly: true, format: (v: number) => v.toFixed(0) });
@@ -286,7 +332,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     gizmo.setTarget(e.value),
   );
   pane.addButton({ title: 'Add Pose Key at playhead' }).on('click', () => addKey(ui.time));
-  pane.addButton({ title: 'Save Motion to data/motions/' }).on('click', () => void save());
+  pane.addButton({ title: 'Save Motion (default or override)' }).on('click', () => void save());
   pane.addBinding(ui, 'status', { readonly: true, multiline: true, rows: 3 });
   buildMotionFolder();
 
@@ -304,7 +350,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   // Preview loop: an Editor-only wall clock driving the Motion's time.
   let last = performance.now();
   function frame(now: number): void {
-    const motion = session.tuning.motions[ui.motion]!;
+    const motion = liveMotion();
     const loopSeconds = motion.duration + LOOP_HOLD_SECONDS;
     if (ui.playing) {
       if (selected !== null) select(null);
@@ -317,11 +363,11 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       pane.refresh();
     }
     const pose = previewPose();
-    fighter.update(pose);
+    fighter.update(pose, weaponByName(session.tuning, ui.weapon));
     gizmo.setPose(pose);
     timeline.update(draft(), selected, ui.time);
     if (ui.view === 'gameplay') {
-      opponent.update(motionPose(session.tuning, 'Idle', secondsToTicks(ui.time), opponentPlacement));
+      opponent.update(motionPose(session.tuning, 'Idle', secondsToTicks(ui.time), opponentPlacement), weaponByName(session.tuning, session.weaponNames()[0]!));
       placeThirdPersonCamera(stage.camera, opponentPlacement.position, opponentPlacement.facing);
     } else {
       orbit.update();

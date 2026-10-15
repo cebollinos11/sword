@@ -5,6 +5,7 @@
  * `Stagger` for being hit or Chambered, and the shorter `Recoil` for an
  * attacker whose Attack was Blocked (story 14: a short Stagger).
  */
+import { weaponMotion } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { StaggerAction, StaggerCause } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
@@ -26,7 +27,7 @@ export function stagger(cause: StaggerCause): ActionUpdate {
 
 export const updateStagger: ActionHandler<StaggerAction> = (f, _intent, ctx) => {
   const name = staggerMotionName(f.action.cause);
-  const motion = ctx.tuning.motions[name];
+  const motion = weaponMotion(ctx.tuning, f.weapon, name);
   if (!motion) throw new Error(`No Motion "${name}" for the Stagger Action (cause ${f.action.cause})`);
   const end = secondsToTicks(motion.duration);
   if (f.motion.tick + 1 >= end) return { action: IDLE_ACTION, motion: IDLE_MOTION };

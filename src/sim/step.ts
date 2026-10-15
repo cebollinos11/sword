@@ -1,4 +1,4 @@
-import type { TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { advanceBlockImpact, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { resolveChambers } from './chamber';
 import { resolveBodies } from './collision';
@@ -28,24 +28,32 @@ export function duelPlacements(distance: number): Placement[] {
   ];
 }
 
-/** Build the state at Tick 0: an Idle Fighter with full HP at each placement (default: one at the centre). */
+/**
+ * Build the state at Tick 0: an Idle Fighter with full HP at each placement (default: one at the centre),
+ * Fighter i wielding `weapons[i]` (a Weapon name; default: the default Weapon). Throws on an unknown Weapon.
+ */
 export function createInitialState(
   tuning: TuningData,
   seed: number,
   placements: readonly Placement[] = [CENTRE_PLACEMENT],
+  weapons: readonly string[] = [],
 ): SimState {
   return {
     tick: 0,
     rng: createRng(seed),
-    fighters: placements.map(({ position, facing }) => ({
-      position: { x: position.x, z: position.z },
-      facing,
-      hp: tuning.fighter.maxHp,
-      action: IDLE_ACTION,
-      motion: IDLE_MOTION,
-      blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing }).blade,
-      gait: initialGait(tuning, IDLE_MOTION, { position, facing }),
-    })),
+    fighters: placements.map(({ position, facing }, i) => {
+      const weapon = weaponByName(tuning, weapons[i] ?? defaultWeaponName(tuning)).name;
+      return {
+        position: { x: position.x, z: position.z },
+        facing,
+        hp: tuning.fighter.maxHp,
+        weapon,
+        action: IDLE_ACTION,
+        motion: IDLE_MOTION,
+        blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing }, weapon).blade,
+        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing }),
+      };
+    }),
     duel: DUEL_FIGHTING,
     events: [],
   };
@@ -90,7 +98,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
   const { blockImpact, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
-  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.motion, motion) };
+  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
   return impact ? { ...next, blockImpact: impact } : next;
 }
 

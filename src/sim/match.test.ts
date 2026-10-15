@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import {
   createMatch,
   duelPlacements,
@@ -14,7 +14,7 @@ import {
 
 const repoTuning = loadTuningData();
 /** One clean Overhead hit decides a Duel. */
-const tuning: TuningData = { ...repoTuning, weapon: { ...repoTuning.weapon, damage: 10_000 } };
+const tuning: TuningData = withWeapon(repoTuning, { damage: 10_000 });
 
 const DISTANCE = 1.3; // an Overhead from here hits (see combat.test.ts)
 

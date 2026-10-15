@@ -43,7 +43,7 @@ function startedAttack(prev: Action, next: Action): boolean {
 function chamberable(f: FighterState, tuning: TuningData): boolean {
   const a = f.action;
   if (a.kind !== 'Attack' || a.phase !== 'Release' || a.landed) return false;
-  const sinceRelease = f.motion.tick - attackTimings(tuning, a.direction).windUpEnd;
+  const sinceRelease = f.motion.tick - attackTimings(tuning, f.weapon, a.direction).windUpEnd;
   return sinceRelease >= 1 && sinceRelease <= chamberWindowTicks(tuning);
 }
 

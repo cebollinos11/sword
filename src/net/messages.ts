@@ -1,13 +1,17 @@
 import { ATTACK_PHASES, DIRECTIONS, type Intent, type MatchOptions, type MatchState, type StaggerCause } from '../sim';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
-/** Sent repeatedly while connecting. The host's hello carries the Match options. */
+/**
+ * Sent repeatedly while connecting. Each peer's hello carries its Weapon pick; the host's
+ * also carries the Match options (each peer adds both picks to them to build the Match).
+ */
 export interface HelloMessage {
   readonly type: 'hello';
   readonly protocol: number;
   readonly tuningHash: string;
+  readonly weapon?: string;
   readonly match?: MatchOptions;
 }
 
@@ -69,7 +73,9 @@ export function parseNetMessage(m: unknown): NetMessage | null {
   if (!isObject(m)) return null;
   switch (m.type) {
     case 'hello':
-      return isInt(m.protocol) && isString(m.tuningHash) && (m.match === undefined || isMatchOptions(m.match)) ? (m as unknown as HelloMessage) : null;
+      return isInt(m.protocol) && isString(m.tuningHash) && (m.weapon === undefined || isString(m.weapon)) && (m.match === undefined || isMatchOptions(m.match))
+        ? (m as unknown as HelloMessage)
+        : null;
     case 'refuse':
       return REFUSE_REASONS.has(m.reason as string) && isString(m.tuningHash) ? (m as unknown as RefuseMessage) : null;
     case 'intents':
@@ -103,6 +109,8 @@ const isVec2 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.z);
 const isVec3 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.y) && isNum(v.z);
 const isDirection = (v: unknown): boolean => DIRECTION_SET.has(v as string);
 const isArrayOf = (v: unknown, item: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(item);
+/** One Weapon name per Fighter. Whether the names exist is for Tuning Data to say. */
+const isWeapons = (v: unknown): boolean => isArrayOf(v, isString) && (v as unknown[]).length === 2;
 
 function isIntent(v: unknown): v is Intent {
   return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face));
@@ -116,7 +124,8 @@ function isMatchOptions(v: unknown): boolean {
     v.bestOf > 0 &&
     (v.distance === undefined || (isNum(v.distance) && v.distance > 0)) &&
     (v.interDuelTicks === undefined || (isInt(v.interDuelTicks) && v.interDuelTicks >= 1)) &&
-    (v.seed === undefined || isNum(v.seed))
+    (v.seed === undefined || isNum(v.seed)) &&
+    (v.weapons === undefined || isWeapons(v.weapons))
   );
 }
 
@@ -166,6 +175,7 @@ function isFighter(v: unknown): boolean {
     isVec2(v.position) &&
     isNum(v.facing) &&
     isNum(v.hp) &&
+    isString(v.weapon) &&
     isAction(v.action) &&
     isObject(v.motion) &&
     isString(v.motion.name) &&
@@ -213,6 +223,7 @@ function isMatchState(v: unknown): v is MatchState {
     isNum(config.distance) &&
     isInt(config.interDuelTicks) &&
     config.interDuelTicks >= 1 &&
+    isWeapons(config.weapons) &&
     isTick(v.tick) &&
     isInt(v.duelNumber) &&
     v.duelNumber >= 1 &&

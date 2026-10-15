@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { attack, createMatch, hold, IDLE_INTENT, runDuel, stepMatch, type MatchState, type SimEvent } from '../sim';
 import type { SoundCue } from './cues';
 import { SimAudio } from './listener';
@@ -44,7 +44,7 @@ describe('SimAudio', () => {
   });
 
   it('in a Match, plays the swings and Hits of every Duel, though each Duel counts its Ticks from 0', () => {
-    const decisive: TuningData = { ...tuning, weapon: { ...tuning.weapon, damage: 10_000 } };
+    const decisive: TuningData = withWeapon(tuning, { damage: 10_000 });
     const player = recorder();
     const audio = new SimAudio(player);
     let m: MatchState = createMatch(decisive, { bestOf: 3, distance: 1.3, interDuelTicks: 30 });

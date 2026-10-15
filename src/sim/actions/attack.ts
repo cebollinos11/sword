@@ -3,7 +3,7 @@
  * Motion. Phase boundaries come from the Motion's `windUpEnd` and
  * `releaseEnd` markers; Recovery ends with the Motion.
  */
-import type { TuningData } from '../../tuning';
+import { weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { Direction } from '../intent';
 import type { Action, AttackAction, AttackPhase } from '../state';
@@ -23,9 +23,10 @@ export interface AttackTimings {
   readonly end: number;
 }
 
-export function attackTimings(tuning: TuningData, direction: Direction): AttackTimings {
+/** Phase boundaries of an Attack in `direction` by a Fighter wielding `weapon` (its Motion override, if any, sets them). */
+export function attackTimings(tuning: TuningData, weapon: string, direction: Direction): AttackTimings {
   const name = attackMotionName(direction);
-  const motion = tuning.motions[name];
+  const motion = weaponMotion(tuning, weapon, name);
   if (!motion) throw new Error(`No Motion "${name}" for the ${direction} Attack`);
   const { windUpEnd, releaseEnd } = motion.markers;
   if (windUpEnd === undefined || releaseEnd === undefined) {
@@ -49,7 +50,7 @@ export const startAttack: ActionStarter = (_f, intent, ctx) => {
 
 export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
   const a = f.action;
-  const t = attackTimings(ctx.tuning, a.direction);
+  const t = attackTimings(ctx.tuning, f.weapon, a.direction);
   const tick = f.motion.tick;
   switch (a.phase) {
     case 'Wind-up':

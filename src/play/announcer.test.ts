@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch, IDLE_INTENT, stepMatch, type Intent, type MatchState } from '../sim';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { MatchAnnouncer, type Milestone } from './announcer';
 
 const base = loadTuningData();
 // One Overhead decides a Duel (see the Match tests).
-const tuning: TuningData = { ...base, weapon: { ...base.weapon, damage: 10000 } };
+const tuning: TuningData = withWeapon(base, { damage: 10000 });
 
 /** Fighter 0 taps Overheads from 1.3 m until the Match ends; returns every Match Tick. */
 function playMatch(bestOf: number): MatchState[] {

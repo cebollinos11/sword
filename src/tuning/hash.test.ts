@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash, type TuningData } from './index';
+import { loadTuningData, tuningDataHash, withWeapon, type TuningData } from './index';
 
 const tuning = loadTuningData();
 
@@ -10,12 +10,12 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapon: tuning.weapon, arena: tuning.arena, fighter: tuning.fighter, chamber: tuning.chamber, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, fighter: tuning.fighter, chamber: tuning.chamber, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
   it('changes when any value changes, including inside a Motion', () => {
-    const weapon: TuningData = { ...tuning, weapon: { ...tuning.weapon, damage: tuning.weapon.damage + 1 } };
+    const weapon: TuningData = withWeapon(tuning, { damage: tuning.weapons['Arming Sword']!.damage + 1 });
     const idle = tuning.motions.Idle!;
     const motion: TuningData = { ...tuning, motions: { ...tuning.motions, Idle: { ...idle, duration: idle.duration + 0.01 } } };
     const gait: TuningData = { ...tuning, gait: { ...tuning.gait, stepHeight: tuning.gait.stepHeight + 0.01 } };

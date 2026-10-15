@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions } from '../net';
 import { playerVsPlayer } from './online';
 import type { MatchDriver } from './driver';
@@ -99,7 +99,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
   });
 
   it('refuses a peer with different Tuning Data, with a message that says so', () => {
-    const other: TuningData = { ...tuning, weapon: { ...tuning.weapon, damage: tuning.weapon.damage + 1 } };
+    const other: TuningData = withWeapon(tuning, { damage: tuning.weapons['Arming Sword']!.damage + 1 });
     const r = room({}, { guestTuning: other });
     for (let i = 0; i < 30; i++) r.tick();
     expect(r.host.failure).toMatch(/Tuning Data/);

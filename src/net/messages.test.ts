@@ -19,6 +19,7 @@ describe('Peer message validation', () => {
     const valid = [
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234' },
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234', match: { bestOf: 3, distance: 2, interDuelTicks: 60, seed: 9 } },
+      { type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 'Halberd', match: { bestOf: 3, weapons: ['Halberd', 'Longsword'] } },
       { type: 'refuse', reason: 'TuningDataMismatch', tuningHash: 'abcd1234' },
       { type: 'intents', from: 1, intents: [IDLE_INTENT, { ...IDLE_INTENT, move: { x: 1, z: 0 }, direction: 'Left', attack: true, face: 1.5 }], ack: 0 },
       { type: 'checksum', tick: 30, hash: 'abcd1234' },
@@ -29,9 +30,10 @@ describe('Peer message validation', () => {
   });
 
   it('refuses a hello whose Match options are malformed', () => {
-    for (const match of [{}, { bestOf: 0 }, { bestOf: 2.5 }, { bestOf: 3, distance: 'far' }, { bestOf: 3, interDuelTicks: 0 }, { bestOf: 3, seed: 'x' }]) {
+    for (const match of [{}, { bestOf: 0 }, { bestOf: 2.5 }, { bestOf: 3, distance: 'far' }, { bestOf: 3, interDuelTicks: 0 }, { bestOf: 3, seed: 'x' }, { bestOf: 3, weapons: ['Halberd'] }, { bestOf: 3, weapons: [1, 2] }]) {
       expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match })).toBeNull();
     }
+    expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 7 })).toBeNull();
   });
 
   it('refuses a resync whose Match state is malformed', () => {
@@ -44,11 +46,14 @@ describe('Peer message validation', () => {
       { ...good, tick: 'late' },
       { ...good, score: [1] },
       { ...good, config: { ...good.config, bestOf: -1 } },
+      { ...good, config: { ...good.config, weapons: undefined } },
+      { ...good, config: { ...good.config, weapons: ['Halberd'] } },
       { ...good, status: { status: 'Paused' } },
       { ...good, duel: { ...good.duel, fighters: [fighter] } },
       { ...good, duel: { ...good.duel, rng: {} } },
       { ...good, duel: { ...good.duel, duel: { status: 'Over' } } },
       withFighter({ ...fighter, hp: '100' }),
+      withFighter({ ...fighter, weapon: undefined }),
       withFighter({ ...fighter, position: { x: 0 } }),
       withFighter({ ...fighter, action: { kind: 'Dance' } }),
       withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Overhead', phase: 'Twirl', landed: false } }),

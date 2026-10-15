@@ -3,10 +3,10 @@
  * from Pose Key targets by analytic two-bone IK (arms and legs) plus a
  * twisting/leaning spine. Pure math, run inside the Tick (ADR 0001).
  */
-import type { SkeletonTuning, WeaponTuning } from '../tuning';
+import type { OffHandGrip, SkeletonTuning, WeaponTuning } from '../tuning';
 import type { PoseTargets } from './motion';
 import type { Vec2 } from './state';
-import { add, dot, length, normalize, rotateEuler, rotateX, rotateY, scale, sub, vec3, type Vec3 } from './vec';
+import { add, cross, dot, length, normalize, rotateEuler, rotateX, rotateY, scale, sub, vec3, type Vec3 } from './vec';
 
 export const JOINT_NAMES = [
   'pelvis',
@@ -47,9 +47,9 @@ export const BONES: readonly (readonly [JointName, JointName])[] = [
   ['rightAnkle', 'rightToe'],
 ];
 
-/** The blade at one Tick, in world space. Consecutive transforms bound the Blade Sweep. */
+/** The Weapon at one Tick, in world space. Consecutive transforms bound the Blade Sweep. */
 export interface BladeTransform {
-  /** Where the hand grips the sword. */
+  /** Where the main (sword) hand grips the Weapon. The grip or shaft runs on behind it, `gripLength` to the pommel or butt. */
   readonly hilt: Vec3;
   readonly tip: Vec3;
   /** Unit vector of the leading (cutting) edge, perpendicular to the blade. */
@@ -116,7 +116,39 @@ export interface GaitOffsets {
 
 const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
 
-/** Solve the Skeleton for some Pose targets and place it in the world. */
+/**
+ * The Off-hand Grip's spot for a Weapon held at `hand`, with its axis (hand →
+ * tip) and edge: `along` back from the hand toward the pommel or butt, then
+ * `radial` off the axis at `around` degrees from the edge.
+ */
+export function offHandSpot(hand: Vec3, axis: Vec3, edge: Vec3, grip: OffHandGrip): Vec3 {
+  const a = (grip.around * Math.PI) / 180;
+  const side = add(scale(edge, Math.cos(a)), scale(cross(axis, edge), Math.sin(a)));
+  return add(sub(hand, scale(axis, grip.along)), scale(side, grip.radial));
+}
+
+/**
+ * The smallest move of a two-handed Weapon that puts its Off-hand Grip `spot`
+ * within `reach` of the off shoulder: straight toward the shoulder, by however
+ * far the spot is out of reach (zero when it is in reach). Analytic, so the
+ * same inputs always give the same pull (ADR 0004).
+ */
+export function offHandPull(shoulder: Vec3, spot: Vec3, reach: number): Vec3 {
+  const toShoulder = sub(shoulder, spot);
+  const d = length(toShoulder);
+  if (d <= reach) return vec3(0, 0, 0);
+  return scale(toShoulder, (d - reach) / d);
+}
+
+/**
+ * Solve the Skeleton for some Pose targets and place it in the world.
+ *
+ * With a two-handed Weapon the off hand ignores its Pose Key target and holds
+ * the Off-hand Grip: when that spot is out of the off arm's reach, the whole
+ * Weapon (both hands, same orientation) moves toward the off shoulder until it
+ * is in reach (ADR 0004). If the sword hand then falls short of its own target,
+ * the Weapon is built on where it got to, and the off hand falls short as a last resort.
+ */
 export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, gait: GaitOffsets = NO_GAIT): SkeletonPose {
   // Everything is solved in the Fighter-local frame (x right, y up, z forward), then placed.
   const spine = (v: Vec3) => rotateY(rotateX(v, targets.torso.lean), targets.torso.twist);
@@ -132,10 +164,20 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   };
   const rightPole = spine(vec3(0.6, -1, -0.4));
   const leftPole = spine(vec3(-0.6, -1, -0.4));
+  const bladeDir = rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation);
+  const edge = rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation);
   // The hands are where the Motion puts them, reached from the Motion's own hip target...
   const motionBody = upperBody(targets.hip);
-  const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, targets.rightHand.position, s.upperArm, s.forearm, rightPole);
-  const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, targets.leftHand.position, s.upperArm, s.forearm, leftPole);
+  const grip = weapon.grip === 'twoHanded' ? weapon.offHandGrip : undefined;
+  let rightTarget = targets.rightHand.position;
+  if (grip) {
+    // ...except that a two-handed Weapon yields to the off hand's reach.
+    const spot = offHandSpot(rightTarget, bladeDir, edge, grip);
+    rightTarget = add(rightTarget, offHandPull(motionBody.leftShoulder, spot, s.upperArm + s.forearm));
+  }
+  const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, rightTarget, s.upperArm, s.forearm, rightPole);
+  const leftTarget = grip ? offHandSpot(rightHand, bladeDir, edge, grip) : targets.leftHand.position;
+  const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, leftTarget, s.upperArm, s.forearm, leftPole);
   // ...and when the Gait shifts the pelvis, the arms re-bend from the shifted shoulders to those same hands.
   const { sideways, drop } = gait.hipShift;
   const shifted = sideways !== 0 || drop !== 0;
@@ -155,9 +197,6 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const [leftKnee, leftAnkle] = twoBoneIk(leftHip, lAnkleTarget, s.thigh, s.shin, knee);
   // The toe rises with the foot's lift: on the floor when planted (even if the leg falls short of it), raised mid-step.
   const toe = (ankle: Vec3, footLift: number) => vec3(ankle.x, footLift, ankle.z + TOE_LENGTH);
-
-  const bladeDir = rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation);
-  const edge = rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation);
 
   const local: Record<JointName, Vec3> = {
     pelvis,

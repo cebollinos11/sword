@@ -4,8 +4,8 @@
  * events (ADR 0001); which burst each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
-import type { SimEvent, Vec3 } from '../sim';
-import type { TuningData } from '../tuning';
+import type { SimState, Vec3 } from '../sim';
+import { weaponByName, type TuningData } from '../tuning';
 
 /** A burst at a contact point. `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
@@ -14,12 +14,13 @@ export interface ImpactBurst {
   readonly strength: number;
 }
 
-/** The bursts triggered by one Tick's events, in event order. */
-export function impactBursts(events: readonly SimEvent[], tuning: TuningData): ImpactBurst[] {
-  const strength = (bladeSpeed: number) => Math.min(1, Math.max(0.3, bladeSpeed / tuning.weapon.speed));
+/** The bursts triggered by one Tick's events, in event order (strength: Blade Speed over the attacker's Weapon's reference speed). */
+export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning: TuningData): ImpactBurst[] {
   const bursts: ImpactBurst[] = [];
-  for (const e of events) {
-    if (e.type === 'Hit' || e.type === 'Block') bursts.push({ kind: e.type, point: e.point, strength: strength(e.bladeSpeed) });
+  for (const e of duel.events) {
+    if (e.type !== 'Hit' && e.type !== 'Block') continue;
+    const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
+    bursts.push({ kind: e.type, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }
@@ -81,7 +82,7 @@ const FORWARD = new THREE.Vector3(0, 0, 1);
 
 /**
  * Draws impact bursts in a scene. Any loop that drives a Simulation calls
- * `onTick(tick, state.events)` after each step and `update(seconds)` before each
+ * `onTick(tick, duel)` (the Duel state that Tick produced) after each step and `update(seconds)` before each
  * draw, with the time that passed (scaled by slow-motion, 0 while paused). As with SimAudio, each Tick bursts at most once (so rollback
  * re-simulation does not repeat a burst); call `seek(tick)` when the loop jumps.
  */
@@ -101,10 +102,10 @@ export class ImpactEffects {
     scene.add(this.root);
   }
 
-  onTick(tick: number, events: readonly SimEvent[]): void {
+  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters'>): void {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
-    for (const b of impactBursts(events, this.tuning)) this.burst(b);
+    for (const b of impactBursts(duel, this.tuning)) this.burst(b);
   }
 
   /** The loop jumped to `tick`: clear what is flying; Ticks after it will burst. */

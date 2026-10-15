@@ -88,22 +88,22 @@ export function toLocal(world: Vec2, at: Placement): Vec2 {
   return { x: -dx * c + dz * s, z: dx * s + dz * c };
 }
 
-/** Each foot's home: the Motion's foot target placed at `at`, in world space. */
-export function footHome(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const targets = playbackTargets(tuning, motion);
+/** Each foot's home: the Motion's foot target (as `weapon` plays it) placed at `at`, in world space. */
+export function footHome(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
+  const targets = playbackTargets(tuning, weapon, motion);
   return { left: toWorld(targets.leftFoot, at), right: toWorld(targets.rightFoot, at) };
 }
 
 /** Each leg's hip joint projected onto the floor, in world space. */
-function hips(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const { hip } = playbackTargets(tuning, motion);
+function hips(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
+  const { hip } = playbackTargets(tuning, weapon, motion);
   const half = tuning.skeleton.hipWidth / 2;
   return { left: toWorld({ x: hip.x - half, z: hip.z }, at), right: toWorld({ x: hip.x + half, z: hip.z }, at) };
 }
 
-/** Both feet planted at the home of `motion` at `at` (the start of a Duel). */
-export function initialGait(tuning: TuningData, motion: MotionPlayback, at: Placement): GaitState {
-  const home = footHome(tuning, motion, at);
+/** Both feet planted at the home of `motion` (as `weapon` plays it) at `at` (the start of a Duel). */
+export function initialGait(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Placement): GaitState {
+  const home = footHome(tuning, weapon, motion, at);
   return { left: { planted: home.left, step: null }, right: { planted: home.right, step: null } };
 }
 
@@ -146,7 +146,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   const ticks = stepTicks(tuning);
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;
-  const here = footHome(tuning, after.motion, after);
+  const here = footHome(tuning, after.weapon, after.motion, after);
   const ahead = still ? here : ledFootHome(here, after, body, ticks, tuning);
 
   const next: Record<Foot, FootState> = { ...before.gait };
@@ -177,7 +177,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     const off = (foot: Foot) => dist(next[foot].planted, ahead[foot]);
     const qualifies = FEET.filter((foot) => off(foot) > tuning.gait.strideThreshold);
     if (qualifies.length > 0) {
-      const hip = hips(tuning, after.motion, after);
+      const hip = hips(tuning, after.weapon, after.motion, after);
       const reach = (foot: Foot) => dist(next[foot].planted, hip[foot]);
       const first = (a: Foot, b: Foot): Foot => {
         const d = off(b) - off(a);
@@ -197,7 +197,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
  * the current home (so a foot that just landed never qualifies straight away).
  */
 function ledFootHome(here: Record<Foot, Vec2>, after: FighterState, body: BodyMotion, ticks: number, tuning: TuningData): Record<Foot, Vec2> {
-  const future = footHome(tuning, after.motion, {
+  const future = footHome(tuning, after.weapon, after.motion, {
     position: { x: after.position.x + body.x * ticks, z: after.position.z + body.z * ticks },
     facing: after.facing + body.yaw * ticks,
   });

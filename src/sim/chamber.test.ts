@@ -18,7 +18,7 @@ const placements = (d: number, facing = Math.PI) => [
  * and its Release starts on Tick windUpEnd + 2 (the first state whose Attack
  * is in Release). Fighter 1 presses attack on Tick `pressTick` (1-based state index).
  */
-const releaseStart = (t: TuningData, direction: Direction = 'Overhead') => attackTimings(t, direction).windUpEnd + 2;
+const releaseStart = (t: TuningData, direction: Direction = 'Overhead') => attackTimings(t, 'Arming Sword', direction).windUpEnd + 2;
 const windowTicks = (t: TuningData) => Math.round(t.chamber.windowSeconds * TICK_RATE);
 
 const counter = (pressTick: number, direction: Direction = 'Overhead') => [...wait(pressTick - 1), ...attack(direction)];

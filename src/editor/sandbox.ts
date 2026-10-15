@@ -6,6 +6,7 @@
  * Movement, an AI vs AI Match (two AI Controllers, difficulty per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play red with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
+ * The "Weapons" folder picks each Fighter's Weapon for every script.
  *
  * The run is stepped through a `SandboxSession` (sandboxSession.ts), which
  * keeps every Tick as a snapshot plus the Controllers' memory. Scripts are
@@ -39,7 +40,7 @@ import {
   type SimState,
   type Track,
 } from '../sim';
-import type { HitZone, TuningData } from '../tuning';
+import { weaponByName, type HitZone, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { Stage } from '../render/stage';
@@ -88,9 +89,13 @@ function precompute<S extends object>(sandbox: Sandbox<S>, initial: S, controlle
   return { session, ticks: session.frontier, duel: (t) => sandbox.duel(session.history[t]!), intents: () => recorder.intentsOf(session.history) };
 }
 
+/** Each Fighter's Weapon in every script (the Tweakpane "Weapons" folder edits these; blank = the default Weapon). */
+const weaponPicks = { red: '', blue: '' };
+const pickedWeapons = (): string[] => [weaponPicks.red, weaponPicks.blue];
+
 /** Two scripted Tracks facing each other `distance` apart (like `runDuel`, but through a session). */
 function scripted(tuning: TuningData, distance: number, a: Track, b: Track, ticks: number): SandboxRun {
-  const initial = createInitialState(tuning, 1, duelPlacements(distance));
+  const initial = createInitialState(tuning, 1, duelPlacements(distance), pickedWeapons());
   return precompute(duelSandbox(tuning), initial, [scriptedController(a), scriptedController(b)], ticks);
 }
 
@@ -163,7 +168,7 @@ function movementDuel(tuning: TuningData): SandboxRun {
  */
 function aiVsAiMatch(tuning: TuningData): SandboxRun {
   const controllers = [createAiController(tuning, aiMatch.red), createAiController(tuning, aiMatch.blue)];
-  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed });
+  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons() });
   const run = precompute(matchSandbox(tuning), start, controllers, AI_MATCH_MAX_TICKS);
   return { ...run, match: (t) => run.session.history[t] as MatchState };
 }
@@ -182,7 +187,7 @@ function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun
   local.releaseAll();
   local.setYaw(0); // Fighter 0 starts facing +z
   const recorder = recordingSandbox(matchSandbox(tuning));
-  const options = { opponent: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed };
+  const options = { opponent: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed, weapons: pickedWeapons() };
   const session = playerVsAiSession(tuning, local, options, recorder);
   return {
     session,
@@ -274,6 +279,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   /** Live Tuning Data: the tuning panels edit it through the session, and every edit re-runs the script. */
   const session = new EditorSession(loaded);
   let tuning = session.tuning;
+  weaponPicks.red ||= session.weaponNames()[0]!;
+  weaponPicks.blue ||= session.weaponNames()[0]!;
   const stage = new Stage(container, tuning);
   stage.camera.position.set(3.6, 2.2, 0);
   const controls = new OrbitControls(stage.camera, stage.canvas);
@@ -350,7 +357,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   let heard = ui.tick;
   const hear = (t: number) => {
     audio.onTick(t, run.duel(t).events);
-    impacts.onTick(t, run.duel(t).events);
+    impacts.onTick(t, run.duel(t));
     heard = t;
   };
   pane.addBinding(audio, 'muted', { label: 'mute sound' });
@@ -416,6 +423,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
       if (!switchingScript) rerun();
     });
   pane.addButton({ title: 'Re-run script (live Tuning Data)' }).on('click', rerun);
+  const weapons = pane.addFolder({ title: 'Weapons', expanded: true });
+  const weaponOptions = Object.fromEntries(session.weaponNames().map((n) => [n, n]));
+  weapons.addBinding(weaponPicks, 'red', { label: 'red', options: weaponOptions }).on('change', rerun);
+  weapons.addBinding(weaponPicks, 'blue', { label: 'blue', options: weaponOptions }).on('change', rerun);
   const ai = pane.addFolder({ title: 'AI vs AI', expanded: true });
   const difficulties = Object.fromEntries(Object.keys(tuning.ai.difficulties).map((k) => [k, k]));
   /** Changing an AI setting switches to (and re-runs) the AI vs AI Match. */
@@ -518,7 +529,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {
-      views[i]!.update(lerpPose(fighterPose(from.fighters[i]!, tuning), fighterPose(to.fighters[i]!, tuning), alpha));
+      views[i]!.update(lerpPose(fighterPose(from.fighters[i]!, tuning), fighterPose(to.fighters[i]!, tuning), alpha), weaponByName(tuning, f.weapon));
       zones[i]!.root.visible = ui.hitZones;
       if (ui.hitZones) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning));
       trails[i]!.root.visible = ui.bladeSweep;

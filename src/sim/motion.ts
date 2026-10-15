@@ -5,7 +5,7 @@
  * first key a channel holds that key; after its last key it holds the last;
  * a channel no key sets stays at the rest pose.
  */
-import type { Ease, FootPlant, HandTarget, Motion, PoseKey, SkeletonTuning, TorsoTarget, TuningData } from '../tuning';
+import { weaponMotion, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData } from '../tuning';
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
 import { lerp, type Vec3 } from './vec';
@@ -95,9 +95,9 @@ export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTun
   };
 }
 
-/** The Pose targets of the named Motion `tick` Ticks in (looping or holding its end as the Motion says). */
-export function motionTargets(tuning: TuningData, name: string, tick: number): PoseTargets {
-  const motion = tuning.motions[name];
+/** The Pose targets of the named Motion, as `weapon` plays it, `tick` Ticks in (looping or holding its end as the Motion says). */
+export function motionTargets(tuning: TuningData, weapon: string, name: string, tick: number): PoseTargets {
+  const motion = weaponMotion(tuning, weapon, name);
   if (!motion) throw new Error(`Unknown Motion "${name}"`);
   return sampleMotion(motion, motionTime(motion, tick), tuning.skeleton);
 }
@@ -118,11 +118,11 @@ export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number): PoseTarg
 const blendTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.fighter.motionBlend));
 
 /**
- * The Pose targets of a playback, crossfading out of the pose it blends from:
+ * The Pose targets of a playback (of `weapon`'s Motions), crossfading out of the pose it blends from:
  * a Motion that just took over eases in from where the last one left off.
  */
-export function playbackTargets(tuning: TuningData, playback: MotionPlayback): PoseTargets {
-  const targets = motionTargets(tuning, playback.name, playback.tick);
+export function playbackTargets(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
+  const targets = motionTargets(tuning, weapon, playback.name, playback.tick);
   const blend = playback.blend;
   if (!blend) return targets;
   return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / blendTicks(tuning)));
@@ -134,12 +134,12 @@ export function playbackTargets(tuning: TuningData, playback: MotionPlayback): P
  * the Motion Blend ends; one that takes over starts a fresh blend from the pose
  * `prev` was showing, so the Skeleton never jumps between Motions.
  */
-export function followMotion(tuning: TuningData, prev: MotionPlayback, next: Omit<MotionPlayback, 'blend'>): MotionPlayback {
+export function followMotion(tuning: TuningData, weapon: string, prev: MotionPlayback, next: Omit<MotionPlayback, 'blend'>): MotionPlayback {
   const playback = { name: next.name, tick: next.tick };
   const carriesOn = next.name === prev.name && next.tick >= prev.tick;
   if (carriesOn && !prev.blend) return playback;
   const tick = carriesOn ? prev.blend!.tick + 1 : 1;
   if (tick >= blendTicks(tuning)) return playback;
-  const from = carriesOn ? prev.blend!.from : playbackTargets(tuning, prev);
+  const from = carriesOn ? prev.blend!.from : playbackTargets(tuning, weapon, prev);
   return { ...playback, blend: { from, tick } };
 }

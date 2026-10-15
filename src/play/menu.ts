@@ -5,10 +5,15 @@ import { isTouchDevice } from './touch';
 export interface PlayerVsAiChoice {
   readonly difficulty: string;
   readonly bestOf: number;
+  /** Your Weapon and the AI's (Tuning Data Weapon names). */
+  readonly weapon: string;
+  readonly aiWeapon: string;
 }
 
 export interface CreateRoomChoice {
   readonly bestOf: number;
+  /** Your Weapon; your opponent picks theirs. */
+  readonly weapon: string;
   /** The broker URL as typed (blank = the public PeerJS broker). */
   readonly broker: string;
 }
@@ -16,6 +21,8 @@ export interface CreateRoomChoice {
 export interface JoinRoomChoice {
   /** What the player typed or pasted: a Room code or a Room link. */
   readonly room: string;
+  /** Your Weapon; your opponent picks theirs. */
+  readonly weapon: string;
   readonly broker: string;
 }
 
@@ -85,8 +92,8 @@ function storeBroker(value: string): void {
 }
 
 /**
- * The start menu: Player vs AI (difficulty, Match length) and Player vs
- * Player online (create a Room or join one by code/link, optional broker URL).
+ * The start menu: Player vs AI (difficulty, your Weapon and the AI's, Match length) and Player vs
+ * Player online (your Weapon, create a Room or join one by code/link, optional broker URL).
  * A separate Room screen shows the code and link while waiting.
  */
 export class Menu {
@@ -105,11 +112,17 @@ export class Menu {
   private difficulty: string;
   private bestOf = 3;
   private onlineBestOf = 3;
+  private weapon: string;
+  private aiWeapon: string;
+  /** Your Weapon for a Player vs Player Match (also used when joining from a Room link). */
+  onlineWeapon: string;
 
   constructor(container: HTMLElement, tuning: TuningData, handlers: MenuHandlers) {
     ensurePlayStyles();
     const names = Object.keys(tuning.ai.difficulties);
     this.difficulty = names.includes('Normal') ? 'Normal' : names[0]!;
+    const weapons = Object.keys(tuning.weapons);
+    this.weapon = this.aiWeapon = this.onlineWeapon = weapons[0]!;
 
     this.root.className = 'menu';
     const panel = document.createElement('div');
@@ -138,14 +151,19 @@ export class Menu {
     const mode = document.createElement('h2');
     mode.textContent = 'Player vs AI';
     const difficulty = this.choiceRow('Difficulty', names, this.difficulty, (v) => (this.difficulty = v));
+    const weapon = this.choiceRow('Your Weapon', weapons, this.weapon, (v) => (this.weapon = v));
+    const aiWeapon = this.choiceRow('AI Weapon', weapons, this.aiWeapon, (v) => (this.aiWeapon = v));
     const bestOf = this.bestOfRow(this.bestOf, (n) => (this.bestOf = n));
     this.startButton.className = 'menu-start';
     this.startButton.textContent = 'Start Match';
-    this.startButton.addEventListener('click', () => handlers.onStart({ difficulty: this.difficulty, bestOf: this.bestOf }));
+    this.startButton.addEventListener('click', () =>
+      handlers.onStart({ difficulty: this.difficulty, bestOf: this.bestOf, weapon: this.weapon, aiWeapon: this.aiWeapon }),
+    );
 
     // --- Player vs Player ---
     const online = document.createElement('h2');
     online.textContent = 'Player vs Player (online)';
+    const onlineWeapon = this.choiceRow('Your Weapon', weapons, this.onlineWeapon, (v) => (this.onlineWeapon = v));
     const onlineBestOf = this.bestOfRow(this.onlineBestOf, (n) => (this.onlineBestOf = n));
     const create = document.createElement('button');
     create.type = 'button';
@@ -153,7 +171,7 @@ export class Menu {
     create.textContent = 'Create Room';
     create.addEventListener('click', () => {
       storeBroker(this.brokerInput.value);
-      handlers.onCreateRoom({ bestOf: this.onlineBestOf, broker: this.brokerInput.value });
+      handlers.onCreateRoom({ bestOf: this.onlineBestOf, weapon: this.onlineWeapon, broker: this.brokerInput.value });
     });
 
     const joinRow = document.createElement('form');
@@ -170,7 +188,7 @@ export class Menu {
     joinRow.addEventListener('submit', (e) => {
       e.preventDefault();
       storeBroker(this.brokerInput.value);
-      handlers.onJoinRoom({ room: this.joinInput.value, broker: this.brokerInput.value });
+      handlers.onJoinRoom({ room: this.joinInput.value, weapon: this.onlineWeapon, broker: this.brokerInput.value });
     });
     joinRow.append(this.joinInput, join);
 
@@ -205,7 +223,7 @@ export class Menu {
     editor.href = '#/editor';
     editor.textContent = 'Open the Editor';
 
-    this.main.append(mode, difficulty, bestOf, this.startButton, online, onlineBestOf, create, joinRow, brokerBox, help, editor);
+    this.main.append(mode, difficulty, weapon, aiWeapon, bestOf, this.startButton, online, onlineWeapon, onlineBestOf, create, joinRow, brokerBox, help, editor);
 
     // --- Room screen ---
     this.room.className = 'menu-room';

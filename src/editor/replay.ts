@@ -32,10 +32,13 @@ import type { Sandbox } from './sandboxSession';
 export const REPLAY_FORMAT = 'sword-replay';
 export const REPLAY_VERSION = 1;
 
-/** How the run started: a bare Duel from given placements, or a Match. Both are seeded. */
+/**
+ * How the run started: a bare Duel from given placements, or a Match. Both are seeded, and name
+ * each Fighter's Weapon (a replay recorded before Weapons were chosen has none: the default Weapon).
+ */
 export type ReplaySetup =
-  | { readonly kind: 'Duel'; readonly seed: number; readonly placements: readonly Placement[] }
-  | { readonly kind: 'Match'; readonly seed: number; readonly config: MatchConfig };
+  | { readonly kind: 'Duel'; readonly seed: number; readonly placements: readonly Placement[]; readonly weapons?: readonly string[] }
+  | { readonly kind: 'Match'; readonly seed: number; readonly config: Omit<MatchConfig, 'weapons'> & { readonly weapons?: readonly string[] } };
 
 /** One landed Hit, at the Tick it landed (the Match Tick for a Match). */
 export interface ReplayHit {
@@ -119,11 +122,12 @@ export function recordingSandbox<S extends object>(sandbox: Sandbox<S>): Recordi
 /** The seed and setup a run started from (its state at Tick 0). */
 export function replaySetup(initial: RunState): ReplaySetup {
   if (initial.tick !== 0) throw new RangeError(`A replay starts at Tick 0, not ${initial.tick}`);
-  if (isMatch(initial)) return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...initial.config } };
+  if (isMatch(initial)) return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...initial.config, weapons: [...initial.config.weapons] } };
   return {
     kind: 'Duel',
     seed: initial.rng.seed,
     placements: initial.fighters.map((f) => ({ position: { x: f.position.x, z: f.position.z }, facing: f.facing })),
+    weapons: initial.fighters.map((f) => f.weapon),
   };
 }
 
@@ -178,7 +182,9 @@ export interface ReplayRun {
 function* replayStates(replay: Replay, tuning: TuningData): Generator<RunState> {
   const { setup } = replay;
   let s: RunState =
-    setup.kind === 'Match' ? createMatch(tuning, { ...setup.config, seed: setup.seed }) : createInitialState(tuning, setup.seed, setup.placements);
+    setup.kind === 'Match'
+      ? createMatch(tuning, { ...setup.config, seed: setup.seed })
+      : createInitialState(tuning, setup.seed, setup.placements, setup.weapons);
   yield s;
   for (const intents of replay.intents) {
     s = isMatch(s) ? stepMatch(s, intents, tuning) : step(s, intents, tuning);
@@ -346,6 +352,12 @@ function parseIntent(raw: unknown, path: string): Intent {
   };
 }
 
+/** Optional Weapon names, one per Fighter. */
+function weaponNames(v: unknown, path: string): { weapons?: string[] } {
+  if (v === undefined) return {};
+  return { weapons: arr(v, path).map((w, i) => (typeof w === 'string' ? w : fail(`${path}[${i}]`, 'must be a Weapon name'))) };
+}
+
 function parseSetup(raw: unknown): ReplaySetup {
   const o = obj(raw, 'setup');
   const seed = int(o.seed, 'setup.seed', 0);
@@ -356,14 +368,19 @@ function parseSetup(raw: unknown): ReplaySetup {
       const pos = obj(po.position, `${path}.position`);
       return { position: { x: num(pos.x, `${path}.position.x`), z: num(pos.z, `${path}.position.z`) }, facing: num(po.facing, `${path}.facing`) };
     });
-    return { kind: 'Duel', seed, placements };
+    return { kind: 'Duel', seed, placements, ...weaponNames(o.weapons, 'setup.weapons') };
   }
   if (o.kind === 'Match') {
     const c = obj(o.config, 'setup.config');
     return {
       kind: 'Match',
       seed,
-      config: { bestOf: int(c.bestOf, 'setup.config.bestOf', 1), distance: num(c.distance, 'setup.config.distance'), interDuelTicks: int(c.interDuelTicks, 'setup.config.interDuelTicks', 1) },
+      config: {
+        bestOf: int(c.bestOf, 'setup.config.bestOf', 1),
+        distance: num(c.distance, 'setup.config.distance'),
+        interDuelTicks: int(c.interDuelTicks, 'setup.config.interDuelTicks', 1),
+        ...weaponNames(c.weapons, 'setup.config.weapons'),
+      },
     };
   }
   return fail('setup.kind', 'must be "Duel" or "Match"');

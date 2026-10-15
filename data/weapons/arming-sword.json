@@ -1,0 +1,15 @@
+{
+  "name": "Arming Sword",
+  "grip": "oneHanded",
+  "length": 0.9,
+  "damage": 30,
+  "speed": 25,
+  "gripLength": 0.12,
+  "head": 0.9,
+  "shaftDamage": 1,
+  "blockImpact": {
+    "dealt": 1,
+    "taken": 1
+  },
+  "look": "sword"
+}

@@ -14,12 +14,17 @@
  * - Disconnects (Transport closed, or nothing heard for `timeoutTicks`) are surfaced.
  *
  * The host is Fighter 0 and chooses the Match options; the guest is Fighter 1.
+ * Each peer picks its own Weapon and its hello carries the pick (the host's
+ * also carries the Match options); each peer builds the Match from the Match
+ * options and both picks (host's first) as soon as the other's hello arrives,
+ * so both build the same Match, and neither waits an extra trip. A Weapon
+ * missing from a peer's roster is refused like a Tuning Data mismatch.
  * It talks only through a Transport, and only Intents (plus checksums and the
  * rare resync) cross it. Drive it with `tick(localIntent)` once per Tick.
  */
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
 import type { Intent, MatchOptions, MatchState, Snapshot } from '../sim';
-import { tuningDataHash, type TuningData } from '../tuning';
+import { defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
 import { createRemoteController, type Controller, type PeerIntentSource } from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
@@ -67,8 +72,10 @@ export interface RollbackSessionOptions {
   readonly role: SessionRole;
   readonly transport: Transport;
   readonly tuning: TuningData;
-  /** Host only: the Match to play. The guest receives it at connect. */
+  /** Host only: the Match to play (its `weapons` are replaced by the two peers' picks). The guest receives it at connect. */
   readonly match?: MatchOptions;
+  /** This peer's Weapon (a Tuning Data Weapon name). Default: the default Weapon. */
+  readonly weapon?: string;
   /** Default DEFAULT_TIMEOUT_TICKS. */
   readonly timeoutTicks?: number;
   /** The Tick function. Defaults to `stepMatch`; tests swap it to inject divergence. */
@@ -126,6 +133,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly tuning: TuningData;
   private readonly tuningHash: string;
   private readonly matchOptions: MatchOptions | undefined;
+  /** This peer's Weapon pick. */
+  private readonly weapon: string;
   private readonly timeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
   private readonly listeners: ((e: SessionEvent) => void)[] = [];
@@ -165,6 +174,8 @@ class Session implements RollbackSession, PeerIntentSource {
     this.stepFn = o.step ?? stepMatch;
     if (o.role === 'host' && !o.match) throw new Error('The host must choose the Match options');
     this.matchOptions = o.match;
+    this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
+    if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     o.transport.onMessage((m) => {
       const message = parseNetMessage(m);
       if (message) this.inbox.push(message);
@@ -284,7 +295,11 @@ class Session implements RollbackSession, PeerIntentSource {
 
   private sendHello(): void {
     this.helloCountdown = HELLO_INTERVAL;
-    this.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, ...(this.role === 'host' ? { match: this.matchOptions } : {}) });
+    const hello = { type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, weapon: this.weapon } as const;
+    if (this.role === 'guest') return this.send(hello);
+    // The Match options without Weapons: each peer adds both picks.
+    const { weapons: _picks, ...match } = this.matchOptions!;
+    this.send({ ...hello, match });
   }
 
   private sendIntents(): void {
@@ -298,7 +313,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (this.status === 'Refused' || this.status === 'Disconnected') return;
     switch (m.type) {
       case 'hello':
-        return this.onHello(m.protocol, m.tuningHash, m.match);
+        return this.onHello(m.protocol, m.tuningHash, m.weapon, m.match);
       case 'refuse':
         return this.refuse(m.reason, m.tuningHash, false);
       case 'intents':
@@ -321,13 +336,16 @@ class Session implements RollbackSession, PeerIntentSource {
     }
   }
 
-  private onHello(protocol: number, remoteHash: string, match: MatchOptions | undefined): void {
+  private onHello(protocol: number, remoteHash: string, weapon: string | undefined, match: MatchOptions | undefined): void {
     if (protocol !== PROTOCOL_VERSION) return this.refuse('ProtocolMismatch', remoteHash, true);
     if (remoteHash !== this.tuningHash) return this.refuse('TuningDataMismatch', remoteHash, true);
-    if (this.status !== 'Connecting') return;
+    if (weapon !== undefined && !this.tuning.weapons[weapon]) return this.refuse('TuningDataMismatch', remoteHash, true);
+    if (this.status !== 'Connecting' || weapon === undefined) return;
     const options = this.role === 'host' ? this.matchOptions : match;
     if (!options) return;
-    this.state = createMatch(this.tuning, options);
+    // The host is Fighter 0: its pick comes first on both peers.
+    const weapons = this.role === 'host' ? [this.weapon, weapon] : [weapon, this.weapon];
+    this.state = createMatch(this.tuning, { ...options, weapons });
     this.states.set(0, snapshot(this.state));
     this.status = 'Running';
     this.silentTicks = 0;
@@ -388,8 +406,9 @@ class Session implements RollbackSession, PeerIntentSource {
   /** Guest: adopt the host's state at `tick` and re-simulate up to the current Tick. */
   private applyResync(tick: number, state: MatchState, intentsFrom: number, intents: readonly Intent[]): void {
     if (!this.awaitingResync || tick <= this.resyncedAt || tick > this.currentTick) return;
-    // parseNetMessage checked the shape; only Tuning Data can tell whether its Motions exist.
-    if (!state.duel.fighters.every((f) => this.tuning.motions[f.motion.name])) return;
+    // parseNetMessage checked the shape; only Tuning Data can tell whether its Weapons and Motions exist.
+    if (!state.duel.fighters.every((f) => this.tuning.weapons[f.weapon] && weaponMotion(this.tuning, f.weapon, f.motion.name))) return;
+    if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
     this.receiveIntents(intentsFrom, intents, false);
     if (this.remoteConfirmed < tick) return;
     for (let t = tick + 1; t <= this.currentTick; t++) if (!this.localIntents.has(t)) return;

@@ -26,6 +26,7 @@ export interface MatchDriver {
   close?(): void;
 }
 
+/** The Match options (`weapons`: yours, then the AI's) and the AI's difficulty. */
 export interface PlayerVsAiOptions extends MatchOptions {
   /** An AI difficulty preset name from Tuning Data (`ai.difficulties`). */
   readonly difficulty: string;

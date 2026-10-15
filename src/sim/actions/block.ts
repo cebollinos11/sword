@@ -4,7 +4,7 @@
  * by rule, never by blade geometry (ADR 0002): see `blocksAttack`. The geometry only
  * decides when it lands: at the blade or the body, whichever the Blade Sweep reaches first.
  */
-import type { TuningData } from '../../tuning';
+import { weaponByName, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks, TICK_SECONDS } from '../constants';
 import { mirrorDirection, type Direction } from '../intent';
 import type { PoseTargets } from '../motion';
@@ -26,7 +26,7 @@ export const startBlock: ActionStarter = (_f, intent) => {
 /** The Block lasts while the block button is held; the playhead stops at the end of the (non-looping) Block Motion. */
 export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
   if (!intent.block) return { action: IDLE_ACTION, motion: IDLE_MOTION };
-  const motion = ctx.tuning.motions[f.motion.name];
+  const motion = weaponMotion(ctx.tuning, f.weapon, f.motion.name);
   const end = motion ? secondsToTicks(motion.duration) : 0;
   return { action: f.action, motion: { name: f.motion.name, tick: Math.min(f.motion.tick + 1, end) } };
 };
@@ -68,10 +68,16 @@ const IMPACT_PUSH: Record<Direction, Vec3> = {
   Thrust: { x: 0, y: 0, z: -1 },
 };
 
-/** The Block Impact of a blow at `bladeSpeed` stopped by `block`. */
-export function startBlockImpact(block: BlockAction, bladeSpeed: number, tuning: TuningData): BlockImpact {
-  const strength = Math.min(IMPACT_STRENGTH_MAX, Math.max(IMPACT_STRENGTH_MIN, bladeSpeed / tuning.weapon.speed));
-  return { direction: block.direction, strength, tick: 0 };
+/**
+ * The Block Impact of a blow at `bladeSpeed` from `attacker` stopped by `defender`'s Block: the
+ * Blade Speed over the attacker's Weapon's reference speed (clamped), scaled by the attacker's
+ * Weapon's `blockImpact.dealt` and the defender's Weapon's `blockImpact.taken`.
+ */
+export function startBlockImpact(attacker: FighterState, defender: FighterState & { readonly action: BlockAction }, bladeSpeed: number, tuning: TuningData): BlockImpact {
+  const dealt = weaponByName(tuning, attacker.weapon);
+  const taken = weaponByName(tuning, defender.weapon);
+  const clamped = Math.min(IMPACT_STRENGTH_MAX, Math.max(IMPACT_STRENGTH_MIN, bladeSpeed / dealt.speed));
+  return { direction: defender.action.direction, strength: clamped * dealt.blockImpact.dealt * taken.blockImpact.taken, tick: 0 };
 }
 
 /** The Block Impact one Tick on, or undefined once it has settled (`block.impactDuration`). */

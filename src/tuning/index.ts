@@ -6,7 +6,6 @@
  */
 import fighterJson from '../../data/fighter.json';
 import arenaJson from '../../data/arena.json';
-import weaponJson from '../../data/weapon.json';
 import skeletonJson from '../../data/skeleton.json';
 import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
@@ -16,6 +15,7 @@ import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
 import { parseGait, type GaitTuning } from './gait';
 import { parseMotion, motionFileName, type Motion } from './motion';
+import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
@@ -23,6 +23,8 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
+export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponLook, WeaponTuning } from './weapon';
+export { parseWeapon, serializeWeapon, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */
@@ -42,19 +44,6 @@ export interface FighterTuning {
 export interface ArenaTuning {
   /** Radius of the flat circular Arena in metres. */
   readonly radius: number;
-}
-
-/** The v1 one-handed sword. */
-export interface WeaponTuning {
-  /** Blade length from hilt (the hand) to tip, metres. */
-  readonly length: number;
-  /** Damage of a hit at the reference Blade Speed (`speed`) on a Hit Zone with multiplier 1. */
-  readonly damage: number;
-  /**
-   * Reference Blade Speed, m/s. Damage = damage × (Blade Speed at contact / speed) × Hit Zone multiplier,
-   * so a blade moving at `speed` into the torso deals exactly `damage`.
-   */
-  readonly speed: number;
 }
 
 /**
@@ -149,7 +138,8 @@ export interface AiTuning {
 export interface TuningData {
   readonly fighter: FighterTuning;
   readonly arena: ArenaTuning;
-  readonly weapon: WeaponTuning;
+  /** The Weapon roster, keyed by name, in file order; the first is the default Weapon. */
+  readonly weapons: Readonly<Record<string, WeaponTuning>>;
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
   readonly block: BlockTuning;
@@ -158,8 +148,52 @@ export interface TuningData {
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
   readonly gait: GaitTuning;
-  /** Every Motion, keyed by name. Always contains `Idle`. */
+  /** Every default Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
+  /**
+   * Motion overrides: per Weapon name, the Motions that Weapon plays instead of
+   * the default of the same name. Look Motions up with `weaponMotion`.
+   */
+  readonly motionOverrides: Readonly<Record<string, Readonly<Record<string, Motion>>>>;
+}
+
+/** The default Weapon: the first in the roster. */
+export function defaultWeaponName(tuning: Pick<TuningData, 'weapons'>): string {
+  return Object.keys(tuning.weapons)[0]!;
+}
+
+/** A Weapon of the roster by name. Throws on an unknown name. */
+export function weaponByName(tuning: Pick<TuningData, 'weapons'>, name: string): WeaponTuning {
+  const w = tuning.weapons[name];
+  if (!w) throw new Error(`Unknown Weapon "${name}" (have: ${Object.keys(tuning.weapons).join(', ')})`);
+  return w;
+}
+
+/** `tuning` with some fields of one Weapon changed (default: the default Weapon), e.g. for tests and experiments. */
+export function withWeapon(tuning: TuningData, patch: Partial<WeaponTuning>, name = defaultWeaponName(tuning)): TuningData {
+  return { ...tuning, weapons: { ...tuning.weapons, [name]: { ...weaponByName(tuning, name), ...patch } } };
+}
+
+/**
+ * The Motion a Fighter wielding `weapon` plays for `name`: the Weapon's override
+ * if it has one, otherwise the default. Every Motion lookup goes through here.
+ */
+export function weaponMotion(tuning: Pick<TuningData, 'motions' | 'motionOverrides'>, weapon: string, name: string): Motion | undefined {
+  return tuning.motionOverrides[weapon]?.[name] ?? tuning.motions[name];
+}
+
+/**
+ * Check a Motion override against the default it replaces: it must have the
+ * same name as an existing default and keep every marker the default has (the
+ * markers its Action needs). Throws TuningDataError naming the path.
+ */
+export function checkMotionOverride(defaults: Readonly<Record<string, Motion>>, weapon: string, motion: Motion): void {
+  const at = `motionOverrides/${weapon}/${motion.name}`;
+  const base = defaults[motion.name];
+  if (!base) throw new TuningDataError(`${at}: there is no default Motion "${motion.name}" to override`);
+  for (const marker of Object.keys(base.markers)) {
+    if (motion.markers[marker] === undefined) throw new TuningDataError(`${at}.markers.${marker} is required (the default Motion has it)`);
+  }
 }
 
 const SKELETON_KEYS = [
@@ -212,7 +246,6 @@ export function parseTuningData(raw: unknown): TuningData {
   const root = record(raw, 'tuning');
   const f = record(root.fighter, 'fighter');
   const a = record(root.arena, 'arena');
-  const w = record(root.weapon, 'weapon');
   const s = record(root.skeleton, 'skeleton');
   const hz = record(root.hitZones, 'hitZones');
   const ch = record(root.chamber, 'chamber');
@@ -237,6 +270,28 @@ export function parseTuningData(raw: unknown): TuningData {
   });
   if (!motions.Idle) throw new TuningDataError('motions: an "Idle" Motion is required');
 
+  const weapons: Record<string, WeaponTuning> = {};
+  array(root.weapons, 'weapons').forEach((raw, i) => {
+    const weapon = parseWeapon(raw, `weapons[${i}]`);
+    if (weapons[weapon.name]) throw new TuningDataError(`weapons: duplicate Weapon name "${weapon.name}"`);
+    weapons[weapon.name] = weapon;
+  });
+  if (Object.keys(weapons).length === 0) throw new TuningDataError('weapons: the roster must hold at least one Weapon');
+
+  const motionOverrides: Record<string, Record<string, Motion>> = {};
+  const rawOverrides = root.motionOverrides === undefined ? {} : record(root.motionOverrides, 'motionOverrides');
+  for (const weapon of Object.keys(rawOverrides)) {
+    if (!weapons[weapon]) throw new TuningDataError(`motionOverrides: no Weapon "${weapon}" in the roster`);
+    const own: Record<string, Motion> = {};
+    array(rawOverrides[weapon], `motionOverrides.${weapon}`).forEach((m, i) => {
+      const motion = parseMotion(m, `motionOverrides.${weapon}[${i}]`);
+      if (own[motion.name]) throw new TuningDataError(`motionOverrides/${weapon}: duplicate Motion name "${motion.name}"`);
+      checkMotionOverride(motions, weapon, motion);
+      own[motion.name] = motion;
+    });
+    if (Object.keys(own).length > 0) motionOverrides[weapon] = own;
+  }
+
   return {
     fighter: {
       maxHp: positiveNumber(f, 'maxHp', 'fighter'),
@@ -247,11 +302,7 @@ export function parseTuningData(raw: unknown): TuningData {
       motionBlend: positiveNumber(f, 'motionBlend', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
-    weapon: {
-      length: positiveNumber(w, 'length', 'weapon'),
-      damage: positiveNumber(w, 'damage', 'weapon'),
-      speed: positiveNumber(w, 'speed', 'weapon'),
-    },
+    weapons,
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     block: {
@@ -268,21 +319,64 @@ export function parseTuningData(raw: unknown): TuningData {
     ai: parseAi(root.ai),
     gait: parseGait(root.gait),
     motions,
+    motionOverrides,
   };
 }
 
 /** Raw Motion files bundled from `data/motions/`, keyed by repo path. */
 const motionFiles = import.meta.glob<unknown>('../../data/motions/*.json', { eager: true, import: 'default' });
+/** Raw Motion override files, `data/motions/<Weapon file stem>/<Motion file>`, keyed by repo path. */
+const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', { eager: true, import: 'default' });
+/** Raw Weapon files bundled from `data/weapons/`, keyed by repo path. */
+const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
+
+/** Bundled files in file (path) order. */
+const inFileOrder = (files: Record<string, unknown>) => Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+/** A Motion file's raw Motion, checked to be named after its Motion. */
+function namedMotionFile(path: string, raw: unknown): unknown {
+  const repoPath = path.replace('../../', '');
+  const file = path.slice(path.lastIndexOf('/') + 1);
+  const name = record(raw, repoPath).name;
+  if (typeof name === 'string' && motionFileName(name) !== file) {
+    throw new TuningDataError(`${repoPath}: Motion "${name}" must live in ${motionFileName(name)}`);
+  }
+  return raw;
+}
 
 /** Load and validate the Tuning Data bundled from the repo's `data/` folder. */
 export function loadTuningData(): TuningData {
-  const motions = Object.entries(motionFiles).map(([path, raw]) => {
+  const motions = inFileOrder(motionFiles).map(([path, raw]) => namedMotionFile(path, raw));
+  // Weapon files are named after their Weapon; override folders after their Weapon's file.
+  const weaponByStem = new Map<string, string>();
+  const weapons = inFileOrder(weaponFiles).map(([path, raw]) => {
     const file = path.slice(path.lastIndexOf('/') + 1);
-    const name = record(raw, `data/motions/${file}`).name;
-    if (typeof name === 'string' && motionFileName(name) !== file) {
-      throw new TuningDataError(`data/motions/${file}: Motion "${name}" must live in ${motionFileName(name)}`);
+    const name = record(raw, `data/weapons/${file}`).name;
+    if (typeof name === 'string') {
+      if (weaponFileName(name) !== file) throw new TuningDataError(`data/weapons/${file}: Weapon "${name}" must live in ${weaponFileName(name)}`);
+      weaponByStem.set(file.replace(/\.json$/, ''), name);
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, block: blockJson, match: matchJson, skeleton: skeletonJson, ai: aiJson, gait: gaitJson, motions });
+  const motionOverrides: Record<string, unknown[]> = {};
+  for (const [path, raw] of inFileOrder(overrideFiles)) {
+    const stem = path.split('/').at(-2)!;
+    const weapon = weaponByStem.get(stem);
+    if (!weapon) throw new TuningDataError(`${path.replace('../../', '')}: no Weapon in data/weapons/ lives in ${stem}.json`);
+    (motionOverrides[weapon] ??= []).push(namedMotionFile(path, raw));
+  }
+  return parseTuningData({
+    fighter: fighterJson,
+    arena: arenaJson,
+    weapons,
+    hitZones: hitZonesJson,
+    chamber: chamberJson,
+    block: blockJson,
+    match: matchJson,
+    skeleton: skeletonJson,
+    ai: aiJson,
+    gait: gaitJson,
+    motions,
+    motionOverrides,
+  });
 }

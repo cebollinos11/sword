@@ -1,0 +1,20 @@
+{
+  "name": "Halberd",
+  "grip": "twoHanded",
+  "length": 1.5,
+  "damage": 50,
+  "speed": 20,
+  "gripLength": 0.8,
+  "offHandGrip": {
+    "along": 0.6,
+    "around": 0,
+    "radial": 0
+  },
+  "head": 0.35,
+  "shaftDamage": 0.3,
+  "blockImpact": {
+    "dealt": 1.5,
+    "taken": 0.7
+  },
+  "look": "polearm"
+}

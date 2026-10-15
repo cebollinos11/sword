@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type TuningData } from '../tuning';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, TICK_RATE, wait } from '../sim';
 import { createAiController, scriptedController, type Controller } from '../controllers';
 import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox } from './sandboxSession';
@@ -31,7 +31,7 @@ describe('Recording a sandbox Duel', () => {
     expect(replay.setup).toEqual({ kind: 'Duel', seed: 1, placements: [
       { position: { x: 0, z: -0.65 }, facing: 0 },
       { position: { x: 0, z: 0.65 }, facing: Math.PI },
-    ] });
+    ], weapons: ['Arming Sword', 'Arming Sword'] });
     expect(replay.ticks).toBe(session.frontier);
     expect(replay.ticks).toBe(300);
   });
@@ -59,7 +59,7 @@ describe('Replaying with unchanged Tuning Data', () => {
   it('reproduces an AI vs AI Match from the recorded Intents alone, without the AI', () => {
     const { session, replay } = aiMatch();
     expect(session.over).toBe(true);
-    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, interDuelTicks: 120 } });
+    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, interDuelTicks: 120, weapons: ['Arming Sword', 'Arming Sword'] } });
     expect(replay.outcome.winner).not.toBe('Undecided');
     expect(replay.outcome.hits.length).toBeGreaterThan(0);
     const run = runReplay(parseReplay(serializeReplay(replay)), tuning);
@@ -89,7 +89,7 @@ describe('Replaying with unchanged Tuning Data', () => {
 describe('Replaying after a Tuning Data change', () => {
   it('reports the changed damage and hits', () => {
     const { replay } = scriptedDuel();
-    const stronger: TuningData = { ...tuning, weapon: { ...tuning.weapon, damage: tuning.weapon.damage * 2 } };
+    const stronger: TuningData = withWeapon(tuning, { damage: tuning.weapons['Arming Sword']!.damage * 2 });
     const report = compareReplay(replay, stronger);
     expect(report.tuningChanged).toBe(true);
     expect(report.identical).toBe(false);
@@ -100,7 +100,7 @@ describe('Replaying after a Tuning Data change', () => {
 
   it('reports a changed winner', () => {
     const { replay } = scriptedDuel();
-    const lethal: TuningData = { ...tuning, weapon: { ...tuning.weapon, damage: 10_000 } };
+    const lethal: TuningData = withWeapon(tuning, { damage: 10_000 });
     const report = compareReplay(replay, lethal);
     expect(report.replayed.winner).toBe(0);
     expect(report.differences).toContain('Winner: Undecided → Fighter 0');

@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import { fighterPose, type SimState } from '../sim';
-import type { TuningData } from '../tuning';
+import { weaponByName, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
@@ -43,7 +43,7 @@ export class Renderer {
         this.stage.scene.add(view.root);
       }
       const before = fighterPose(prev.fighters[i] ?? f, this.tuning);
-      view.update(lerpPose(before, fighterPose(f, this.tuning), alpha));
+      view.update(lerpPose(before, fighterPose(f, this.tuning), alpha), weaponByName(this.tuning, f.weapon));
     });
     const now = performance.now();
     this.impacts.update((now - this.lastDraw) / 1000);

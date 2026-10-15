@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseMotion, TuningDataError } from '../tuning';
+import { loadTuningData, parseMotion, parseTuningData, TuningDataError, weaponMotion } from '../tuning';
 import { addPoseKey, retimePoseKey, setChannel } from './motionEdit';
 import { EditorSession } from './session';
 
@@ -54,5 +54,59 @@ describe('EditorSession', () => {
     expect(() => session.motionFile('Thrust')).toThrow(TuningDataError);
     expect(() => session.motionFile('Thrust')).toThrow(/^motions\/Thrust\..* must be within 0\.\.duration \(0\.2\)/);
     expect(session.tuning.motions.Thrust).toBe(tuning.motions.Thrust);
+  });
+});
+
+describe('EditorSession Motion overrides', () => {
+  it("creates a Weapon's override from the default in one step, edits it apart from the default, and saves it to its own folder", () => {
+    const session = new EditorSession(tuning);
+    expect(session.hasOverride('Halberd', 'Overhead')).toBe(false);
+    session.createOverride('Halberd', 'Overhead');
+    expect(session.hasOverride('Halberd', 'Overhead')).toBe(true);
+    expect(weaponMotion(session.tuning, 'Halberd', 'Overhead')).toEqual(tuning.motions.Overhead);
+
+    session.draft('Overhead', 'Halberd').duration = 1.4;
+    const file = session.motionFile('Overhead', 'Halberd');
+    expect(file.fileName).toBe('overhead.json');
+    expect(file.path).toBe('data/motions/halberd/overhead.json');
+    expect(weaponMotion(session.tuning, 'Halberd', 'Overhead')!.duration).toBe(1.4);
+    // The default and every other Weapon are untouched.
+    expect(session.tuning.motions.Overhead).toBe(tuning.motions.Overhead);
+    expect(weaponMotion(session.tuning, 'Longsword', 'Overhead')).toBe(tuning.motions.Overhead);
+    // The saved file reloads to the live override.
+    const reloaded = parseTuningData({
+      ...session.tuning,
+      weapons: Object.values(session.tuning.weapons),
+      motions: Object.values(session.tuning.motions),
+      motionOverrides: { Halberd: [JSON.parse(file.text)] },
+    });
+    expect(reloaded.motionOverrides).toEqual(session.tuning.motionOverrides);
+  });
+
+  it('saves an unchanged override as the default it was copied from', () => {
+    const session = new EditorSession(tuning);
+    session.createOverride('Longsword', 'Thrust');
+    expect(session.motionFile('Thrust', 'Longsword').text).toBe(session.motionFile('Thrust').text);
+  });
+
+  it('refuses to save an override that drops a marker its Action needs', () => {
+    const session = new EditorSession(tuning);
+    session.createOverride('Halberd', 'Left');
+    delete session.draft('Left', 'Halberd').markers.windUpEnd;
+    expect(() => session.motionFile('Left', 'Halberd')).toThrow(/^motionOverrides\/Halberd\/Left\.markers\.windUpEnd is required/);
+  });
+
+  it('removing an override falls back to the default', () => {
+    const session = new EditorSession(tuning);
+    session.createOverride('Halberd', 'Idle');
+    session.draft('Idle', 'Halberd').duration = 3;
+    session.commit('Idle', 'Halberd');
+    expect(session.removeOverride('Halberd', 'Idle')).toBe('data/motions/halberd/idle.json');
+    expect(session.hasOverride('Halberd', 'Idle')).toBe(false);
+    expect(weaponMotion(session.tuning, 'Halberd', 'Idle')).toBe(tuning.motions.Idle);
+    expect(session.tuning.motionOverrides).toEqual({});
+    // A fresh override starts from the default again, not the dropped edit.
+    session.createOverride('Halberd', 'Idle');
+    expect(session.draft('Idle', 'Halberd').duration).toBe(tuning.motions.Idle!.duration);
   });
 });

@@ -25,7 +25,7 @@ const facingOff = (d: number) => [
 
 /** The blade tip of a Direction's held Wind-up pose, in the Fighter-local frame (x right, y up, z forward). */
 function heldWindUpTip(direction: Direction): Vec3 {
-  const { windUpEnd } = attackTimings(tuning, direction);
+  const { windUpEnd } = attackTimings(tuning, 'Arming Sword', direction);
   const { tip } = motionPose(tuning, attackMotionName(direction), windUpEnd, { position: { x: 0, z: 0 }, facing: 0 }).blade;
   // At facing 0 the Fighter's right is world -x and forward is world +z.
   return { x: -tip.x, y: tip.y, z: tip.z };
@@ -33,7 +33,7 @@ function heldWindUpTip(direction: Direction): Vec3 {
 
 describe('Attack Directions', () => {
   it.each(DIRECTIONS)('every Direction has an Attack Motion with Wind-up and Release markers (%s)', (direction) => {
-    const t = attackTimings(tuning, direction);
+    const t = attackTimings(tuning, 'Arming Sword', direction);
     expect(t.windUpEnd).toBeGreaterThan(0);
     expect(t.releaseEnd).toBeGreaterThan(t.windUpEnd);
     expect(t.end).toBeGreaterThan(t.releaseEnd);
@@ -71,7 +71,7 @@ describe('Attack Directions', () => {
     });
 
     it('Thrust draws the blade back, tip pointing at the opponent', () => {
-      const { hilt, tip } = motionPose(tuning, 'Thrust', attackTimings(tuning, 'Thrust').windUpEnd, {
+      const { hilt, tip } = motionPose(tuning, 'Thrust', attackTimings(tuning, 'Arming Sword', 'Thrust').windUpEnd, {
         position: { x: 0, z: 0 },
         facing: 0,
       }).blade;

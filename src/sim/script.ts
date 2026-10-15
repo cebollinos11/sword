@@ -87,6 +87,8 @@ export interface DuelScript {
   /** Explicit starting placements instead of `distance`. */
   readonly placements?: readonly Placement[];
   readonly seed?: number;
+  /** Each Fighter's Weapon (default: the default Weapon). */
+  readonly weapons?: readonly string[];
   /** Fighter 0's Track. */
   readonly a?: Track;
   /** Fighter 1's Track. */
@@ -98,6 +100,6 @@ export interface DuelScript {
 /** Run a two-Fighter Duel from scripted Tracks. */
 export function runDuel(tuning: TuningData, script: DuelScript): ScriptRun {
   const placements = script.placements ?? duelPlacements(script.distance ?? 2);
-  const initial = createInitialState(tuning, script.seed ?? 1, placements);
+  const initial = createInitialState(tuning, script.seed ?? 1, placements, script.weapons);
   return runScript(tuning, initial, [script.a ?? [], script.b ?? []], script.ticks);
 }

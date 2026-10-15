@@ -1,15 +1,20 @@
 /**
  * The Blade Sweep: the volume the blade traces between two consecutive Ticks.
- * It is sampled as the straight paths of points spread along the blade, from
- * last Tick's blade to this Tick's. A path that passes within a capsule's
- * radius of its axis is a contact.
+ * It is sampled as the straight paths of points spread along the blade (main
+ * hand to tip), from last Tick's blade to this Tick's. A path that passes
+ * within a capsule's radius of its axis is a contact.
  */
 import { TICK_SECONDS } from './constants';
 import type { BladeTransform } from './skeleton';
 import { add, dot, length, lerp, scale, sub, type Vec3 } from './vec';
 
-/** Points sampled along the blade, hilt to tip. Spacing must stay below the thinnest Hit Zone's diameter. */
-const BLADE_SAMPLES = 13;
+/** Most spacing (m) between points sampled along the blade: it must stay below the thinnest Hit Zone's diameter. */
+const MAX_SAMPLE_SPACING = 0.075;
+
+/** How many points are sampled along a blade `length` long (hilt and tip included), so spacing never exceeds MAX_SAMPLE_SPACING. */
+export function bladeSamples(length: number): number {
+  return Math.max(2, Math.ceil(length / MAX_SAMPLE_SPACING - 1e-9) + 1);
+}
 
 /** Anything a Blade Sweep can touch: all points within `radius` of the segment a→b (a Hit Zone, or a Blocking blade). */
 export interface Capsule {
@@ -24,16 +29,19 @@ export interface SweepContact<C extends Capsule = Capsule> {
   readonly point: Vec3;
   /** Speed of the blade at the contact point, m/s. */
   readonly bladeSpeed: number;
+  /** Where along the blade the contact was: 0 at the hilt, 1 at the tip. */
+  readonly along: number;
 }
 
 /**
  * The first contact of the Blade Sweep from `from` to `to` with any capsule, or
- * null. "First" is the earliest point in the Tick; ties go to the deepest.
+ * null, sampling `samples` points along the blade (see `bladeSamples`). "First"
+ * is the earliest point in the Tick; ties go to the deepest.
  */
-export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeTransform, capsules: readonly C[]): SweepContact<C> | null {
+export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeTransform, capsules: readonly C[], samples: number): SweepContact<C> | null {
   let best: { s: number; depth: number; contact: SweepContact<C> } | null = null;
-  for (let i = 0; i < BLADE_SAMPLES; i++) {
-    const u = i / (BLADE_SAMPLES - 1);
+  for (let i = 0; i < samples; i++) {
+    const u = i / (samples - 1);
     const p0 = lerp(from.hilt, from.tip, u);
     const p1 = lerp(to.hilt, to.tip, u);
     for (const capsule of capsules) {
@@ -42,7 +50,7 @@ export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeT
       const depth = capsule.radius - distance;
       if (best && (s > best.s || (s === best.s && depth <= best.depth))) continue;
       const point = lerp(p0, p1, s);
-      best = { s, depth, contact: { capsule, point, bladeSpeed: length(sub(p1, p0)) / TICK_SECONDS } };
+      best = { s, depth, contact: { capsule, point, bladeSpeed: length(sub(p1, p0)) / TICK_SECONDS, along: u } };
     }
   }
   return best?.contact ?? null;

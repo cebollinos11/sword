@@ -5,7 +5,7 @@ A web-based 3D melee duelling game with Mount & Blade–style directional attack
 ## Participants
 
 **Fighter**:
-A combatant in a Duel: its body (Skeleton + Weapon) and its combat state (HP, current Action).
+A combatant in a Duel: its body (Skeleton + Weapon) and its combat state (HP, current Action). Its Weapon is chosen before the Match and kept across Duels.
 _Avoid_: Player, character, unit
 
 **Controller**:
@@ -33,6 +33,10 @@ _Avoid_: Keyframe, frame
 A named sequence of Pose Keys that animates one Action, e.g. the Overhead Attack.
 _Avoid_: Animation, clip
 
+**Motion override**:
+A Weapon's own version of a default Motion, with the same name (Tuning Data `data/motions/<Weapon file>/`). A Fighter plays its Weapon's override where there is one, the default otherwise. An override keeps the markers its Action needs.
+_Avoid_: Variant, weapon animation
+
 **Motion Blend**:
 The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter was in to a Motion that takes over, so the Skeleton never snaps between Motions (e.g. letting go of a Block). Part of the simulation, so the blade it moves is the blade that hits.
 _Avoid_: Transition, tween
@@ -42,7 +46,7 @@ The procedural stepping of a Fighter's legs whenever its body moves over the flo
 _Avoid_: Walk animation, walk cycle, locomotion
 
 **Tuning Data**:
-All editor-authored data — Weapons and Motions — stored as files in the repo. Both peers must hold identical Tuning Data to play.
+All editor-authored data — the Weapon roster, Motions and Motion overrides — stored as files in the repo. Both peers must hold identical Tuning Data to play.
 _Avoid_: Config, settings
 
 **Editor**:
@@ -97,11 +101,11 @@ A directional swing or thrust of the Weapon; it can only hit through the Blade S
 _Avoid_: Strike, swing (as a noun for the whole thing)
 
 **Block**:
-A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry; but a Block lands where the Blade Sweep first reaches the defender's blade or body, so the blades meet (ADR 0002).
+A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry; but a Block lands where the Blade Sweep first reaches the defender's Weapon (anywhere from pommel or butt to tip) or body, so the blades meet (ADR 0002).
 _Avoid_: Parry, guard
 
 **Block Impact**:
-The give and bounce of a Blocked blow on the defender: the sword hand is knocked back along the Attack, springs forward past the Block and rings down to it (Tuning Data `block.impact*`, scaled by Blade Speed). It changes the pose, never the outcome (the Block already decided it).
+The give and bounce of a Blocked blow on the defender: the sword hand is knocked back along the Attack, springs forward past the Block and rings down to it (Tuning Data `block.impact*`, scaled by Blade Speed, by the attacker's Weapon's Block Impact dealt and by the defender's Weapon's Block Impact taken). It changes the pose, never the outcome (the Block already decided it).
 _Avoid_: Knockback, recoil (Recoil is the attacker's Stagger)
 
 **Feint**:
@@ -118,7 +122,20 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon (length, speed, damage, swing arcs). v1 has one one-handed sword, no shield.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, and how hard its Block Impact hits and is taken. No shields.
+
+**Weapon roster**:
+Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword and the Halberd.
+_Avoid_: Loadout, inventory
+
+**Grip**:
+How a Weapon is held: one-handed (the off hand follows its own Pose Keys) or two-handed (the off hand holds the Off-hand Grip).
+
+**Off-hand Grip**:
+The spot on a two-handed Weapon's grip or shaft where the off hand holds it, in the Weapon's own frame (distance back from the sword hand, angle around the axis, distance off it). When the off hand cannot reach it, the Weapon moves toward the off shoulder until it can (ADR 0004).
+
+**Head**:
+The striking part of a Weapon, measured back from the tip (the Halberd's axe and spike; all of a sword). A Hit from the Head deals full damage; one from the shaft behind it deals less. Blocks meet anywhere along the Weapon.
 
 ## Match
 
@@ -130,7 +147,7 @@ _Avoid_: Fight, round (as a synonym), match
 A best-of-N sequence of Duels.
 
 **Match Mode**:
-Which Controllers face each other: Player vs AI, Player vs Player (online), or AI vs AI.
+Which Controllers face each other: Player vs AI, Player vs Player (online), or AI vs AI. Each Fighter's Weapon is picked with it (online, each player picks their own).
 
 **Arena**:
 The space a Duel takes place in. v1 has one: a flat circle with no obstacles.

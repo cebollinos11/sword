@@ -55,6 +55,8 @@ export interface FighterState {
   /** Yaw in radians; 0 faces +z. */
   readonly facing: number;
   readonly hp: number;
+  /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
+  readonly weapon: string;
   readonly action: Action;
   /** The Motion animating the current Action and its playhead. */
   readonly motion: MotionPlayback;
@@ -75,7 +77,10 @@ export interface FighterState {
 export interface BlockImpact {
   /** The Direction of the Block that stopped the blow (which way the hand is knocked). */
   readonly direction: Direction;
-  /** How hard the blow was: its Blade Speed over the Weapon's reference speed, clamped. */
+  /**
+   * How hard the blow was: its Blade Speed over the attacker's Weapon's reference speed, clamped,
+   * times the attacker's Weapon's `blockImpact.dealt` and the defender's `blockImpact.taken`.
+   */
   readonly strength: number;
   /** Ticks since the blow. */
   readonly tick: number;
