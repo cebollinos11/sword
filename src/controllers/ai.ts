@@ -23,6 +23,7 @@ import {
   createRng,
   DIRECTIONS,
   IDLE_INTENT,
+  mirrorDirection,
   nextFloat,
   secondsToTicks,
   type Action,
@@ -211,11 +212,12 @@ class AiController implements Controller {
     return { ...base, attack: true, direction: plan.into };
   }
 
-  /** Block the seen Attack, in its Direction unless this Attack's roll made it a mistake. */
+  /** Block the seen Attack, in the Direction that meets it unless this Attack's roll made it a mistake. */
   private defend(self: Action, attackDirection: Direction, attackStart: number, base: Intent): Intent {
     if (this.blockPlan?.attackStart !== attackStart) {
       const mistake = this.random() < this.difficulty.mistakeRate;
-      this.blockPlan = { attackStart, direction: mistake ? this.randomDirection(attackDirection) : attackDirection };
+      const meets = mirrorDirection(attackDirection);
+      this.blockPlan = { attackStart, direction: mistake ? this.randomDirection(meets) : meets };
     }
     const direction = this.blockPlan.direction;
     // A Block's Direction is fixed on press: drop a Block in another Direction for a Tick, then raise this one.

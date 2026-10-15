@@ -5,6 +5,13 @@ export const DIRECTIONS = ['Overhead', 'Left', 'Right', 'Thrust'] as const;
 export type Direction = (typeof DIRECTIONS)[number];
 
 /**
+ * The Direction that meets an Attack in `d` head-on: Left and Right swap, since a
+ * swing from the attacker's right arrives on the defender's left. Blocks and
+ * Chambers must be in the mirrored Direction of the Attack they stop.
+ */
+export const mirrorDirection = (d: Direction): Direction => (d === 'Left' ? 'Right' : d === 'Right' ? 'Left' : d);
+
+/**
  * What a Controller asks its Fighter to do on one Tick. The only thing that
  * crosses the Controller–Fighter boundary (and the only thing sent between peers).
  */

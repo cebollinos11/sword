@@ -34,8 +34,8 @@ export interface BlockEvent {
 }
 
 /**
- * `chamberer` countered `attacker`'s Attack by attacking in its Direction inside the
- * Chamber window: the incoming Attack is cancelled (`attacker` Staggers, cause Chambered)
+ * `chamberer` countered `attacker`'s Attack (in `direction`) by attacking into it, in the
+ * mirrored Direction, inside the Chamber window: the incoming Attack is cancelled (`attacker` Staggers, cause Chambered)
  * and the chamberer's own Attack continues.
  */
 export interface ChamberEvent {

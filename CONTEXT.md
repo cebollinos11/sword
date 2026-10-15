@@ -93,14 +93,14 @@ A directional swing or thrust of the Weapon; it can only hit through the Blade S
 _Avoid_: Strike, swing (as a noun for the whole thing)
 
 **Block**:
-A directional defensive Action that stops an Attack when its Direction matches the Attack's Direction and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry.
+A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry.
 _Avoid_: Parry, guard
 
 **Feint**:
 Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
 
 **Chamber**:
-Countering an incoming Attack by starting an Attack in the same Direction early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. The incoming Attack is cancelled (its attacker Staggers) and the chamberer's own Attack continues.
+Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. The incoming Attack is cancelled (its attacker Staggers) and the chamberer's own Attack continues.
 
 **Blade Sweep**:
 The volume the Weapon's blade traces between ticks; whatever it intersects is hit. Hits are physical, never abstract.

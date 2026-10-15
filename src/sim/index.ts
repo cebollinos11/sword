@@ -10,7 +10,7 @@
  */
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent } from './intent';
-export { DIRECTIONS, IDLE_INTENT } from './intent';
+export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
   ActionKind,

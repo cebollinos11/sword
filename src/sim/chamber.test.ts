@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, attackTimings, hold, runDuel, TICK_RATE, wait, type Direction, type HitEvent, type ScriptRun } from './index';
+import { attack, attackTimings, hold, mirrorDirection, runDuel, TICK_RATE, wait, type Direction, type HitEvent, type ScriptRun } from './index';
 
 const tuning = loadTuningData();
 
@@ -93,10 +93,10 @@ describe('Chamber', () => {
     }
   });
 
-  it('every Direction can be chambered by the same Direction', () => {
+  it('every Direction can be chambered by its mirrored Direction (Left meets Right, Overhead and Thrust meet themselves)', () => {
     for (const direction of ['Overhead', 'Left', 'Right', 'Thrust'] as const) {
       const r = releaseStart(tuning, direction);
-      const run = runDuel(tuning, { placements: placements(1.3), a: attack(direction), b: counter(r, direction) });
+      const run = runDuel(tuning, { placements: placements(1.3), a: attack(direction), b: counter(r, mirrorDirection(direction)) });
       expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction, tick: r }]);
     }
   });

@@ -1,5 +1,5 @@
 /**
- * Chambers: countering an incoming Attack by attacking in its Direction at the
+ * Chambers: countering an incoming Attack by attacking into it at the
  * right moment. Decided by rule, like a Block (ADR 0002), once per Tick after
  * every Fighter's Action has advanced and before Blade Sweeps are tested.
  *
@@ -8,8 +8,8 @@
  *      last Tick it was not already winding up that same Direction (a fresh
  *      press from Idle, or a cancel into a new Direction, counts; a held
  *      Wind-up does not).
- *   2. C's Attack has the same Direction as A's Attack (the Direction a Block
- *      would need to stop it).
+ *   2. C's Attack is in the mirrored Direction of A's Attack (the Direction a
+ *      Block would need to stop it, so the blades meet on the same side).
  *   3. A's Attack is in Release, has not landed, and this Tick is within the
  *      Chamber window: Ticks since A's Release began (1 = its first Release
  *      Tick) is between 1 and `chamberWindowTicks(tuning)` inclusive. Wind-up
@@ -19,7 +19,7 @@
  * Outcome: A's Attack is cancelled: A Staggers with cause `Chambered` (so its
  * Blade Sweep is no longer live and cannot land this Tick or later). C's own
  * Attack carries on unchanged through Wind-up, Release and Recovery. Events:
- * `Chamber{chamberer: C, attacker: A, direction}`, then `Stagger{fighter: A}`.
+ * `Chamber{chamberer: C, attacker: A, direction}` (A's Direction), then `Stagger{fighter: A}`.
  * All Chambers of a Tick are judged against the same pre-resolution state.
  */
 import type { TuningData } from '../tuning';
@@ -27,6 +27,7 @@ import { attackTimings, roughlyFaces } from './actions';
 import { staggerFighter } from './combat';
 import { secondsToTicks } from './constants';
 import type { Emit } from './events';
+import { mirrorDirection } from './intent';
 import type { Action, FighterState } from './state';
 
 /** The Chamber window (Tuning Data `chamber.windowSeconds`, seconds) in Ticks. */
@@ -59,9 +60,9 @@ export function resolveChambers(
     if (!before || !startedAttack(before.action, chamberer.action) || chamberer.action.kind !== 'Attack') return;
     const direction = chamberer.action.direction;
     next.forEach((attacker, a) => {
-      if (a === c || attacker.action.kind !== 'Attack' || attacker.action.direction !== direction) return;
+      if (a === c || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
       if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker, tuning)) return;
-      emit({ type: 'Chamber', chamberer: c, attacker: a, direction });
+      emit({ type: 'Chamber', chamberer: c, attacker: a, direction: attacker.action.direction });
       if (out[a]!.action.kind !== 'Stagger') out[a] = staggerFighter(out[a]!, a, 'Chambered', tuning, emit);
     });
   });

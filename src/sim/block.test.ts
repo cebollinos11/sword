@@ -37,6 +37,17 @@ describe('Block', () => {
     }
   });
 
+  it("a Right Attack arrives on the defender's left, so a Left Block stops it (and vice versa); the same-named Block does not", () => {
+    for (const [attackDir, blockDir] of [['Right', 'Left'], ['Left', 'Right']] as const) {
+      const blocked = runDuel(tuning, { placements: placements(1.3), a: attack(attackDir), b: block(blockDir, 120) });
+      expect(eventsOf(blocked, 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1, direction: attackDir })]);
+      expect(blocked.final.fighters[1]!.hp).toBe(100);
+      const sameName = runDuel(tuning, { placements: placements(1.3), a: attack(attackDir), b: block(attackDir, 120) });
+      expect(eventsOf(sameName, 'Block')).toEqual([]);
+      expect(sameName.final.fighters[1]!.hp).toBeLessThan(100);
+    }
+  });
+
   it('how roughly the defender must face the attacker is Tuning Data (block.facingHalfAngle)', () => {
     // Fighter 1 is turned 75 degrees away from facing Fighter 0.
     const turned = placements(1.3, Math.PI - (75 * Math.PI) / 180);

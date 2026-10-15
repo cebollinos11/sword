@@ -5,7 +5,7 @@
  */
 import type { TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
-import type { Direction } from '../intent';
+import { mirrorDirection, type Direction } from '../intent';
 import type { BlockAction, FighterState } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionHandler, ActionStarter } from './types';
@@ -30,10 +30,11 @@ export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
 
 /**
  * The Block rule: `defender` stops an Attack in `direction` from `attacker`
- * when it is Blocking in that same Direction and roughly faces the attacker.
+ * when it is Blocking in the mirrored Direction (a Right Attack arrives on the
+ * defender's left, so it needs a Left Block) and roughly faces the attacker.
  */
 export function blocksAttack(defender: FighterState, attacker: FighterState, direction: Direction, tuning: TuningData): boolean {
-  if (defender.action.kind !== 'Block' || defender.action.direction !== direction) return false;
+  if (defender.action.kind !== 'Block' || defender.action.direction !== mirrorDirection(direction)) return false;
   return roughlyFaces(defender, attacker, tuning);
 }
 
