@@ -41,7 +41,7 @@ import {
   type Track,
 } from '../sim';
 import { weaponByName, type HitZone, type TuningData } from '../tuning';
-import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
+import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
@@ -529,9 +529,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {
-      views[i]!.update(lerpPose(fighterPose(from.fighters[i]!, tuning), fighterPose(to.fighters[i]!, tuning), alpha), weaponByName(tuning, f.weapon));
-      zones[i]!.root.visible = ui.hitZones;
-      if (ui.hitZones) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning));
+      views[i]!.update(drawnPose(from, to, i, alpha, tuning), weaponByName(tuning, f.weapon));
+      // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
+      zones[i]!.root.visible = ui.hitZones && !f.death;
+      if (ui.hitZones && !f.death) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning));
       trails[i]!.root.visible = ui.bladeSweep;
       if (ui.bladeSweep) {
         // The trail stays within the current Duel (a new Duel restarts its Tick at 0).

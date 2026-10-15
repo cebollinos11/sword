@@ -12,7 +12,7 @@ import { followMotion } from './motion';
 import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { FighterState, SimState } from './state';
+import type { DeathBlow, FighterState, SimState } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -114,11 +114,23 @@ function settleBodies(before: readonly FighterState[], fighters: readonly Fighte
     tuning,
   );
   return fighters.map((f, i) => {
+    if (f.death) return f;
     const position = positions[i]!;
     const moved = { ...f, position };
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, emit) };
     return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
+}
+
+/** The last Hit this Tick on Fighter `defender`, as the blow that felled it. */
+function fellingBlow(events: readonly SimEvent[], defender: number, fighters: readonly FighterState[]): DeathBlow | null {
+  for (let k = events.length - 1; k >= 0; k--) {
+    const e = events[k]!;
+    if (e.type !== 'Hit' || e.defender !== defender) continue;
+    const { x, z } = fighters[e.attacker]!.position;
+    return { point: e.point, bladeSpeed: e.bladeSpeed, direction: e.direction, from: { x, z } };
+  }
+  return null;
 }
 
 /**
@@ -137,13 +149,14 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
 
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit)),
+    state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
     emit,
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
   const duel = updateDuel(state.duel, fighters, tick, emit);
+  if (fighting && duel.status === 'Over') fighters = fighters.map((f, i) => (f.hp > 0 ? f : { ...f, death: { tick, blow: fellingBlow(events, i, fighters) } }));
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
   return { tick, rng: nextFloat(state.rng)[1], fighters, duel, events };

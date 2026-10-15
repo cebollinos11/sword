@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { BONES, JOINT_NAMES, type BladeTransform, type JointName, type SkeletonPose, type Vec3 } from '../sim';
-import type { TuningData, WeaponTuning } from '../tuning';
+import { BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
+import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
+import { ragdollPose } from './ragdoll';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
@@ -175,4 +176,17 @@ export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonP
   const joints = {} as Record<JointName, Vec3>;
   for (const n of JOINT_NAMES) joints[n] = l(a.joints[n], b.joints[n]);
   return { joints, blade: { hilt: l(a.blade.hilt, b.blade.hilt), tip: l(a.blade.tip, b.blade.tip), edge: l(a.blade.edge, b.blade.edge) } };
+}
+
+/**
+ * The pose to draw for Fighter `i` a share `alpha` of the way from Tick `from` to Tick `to` (the same Duel):
+ * its solved Skeletons interpolated, or once it has fallen, its Death Ragdoll at that moment.
+ */
+export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData): SkeletonPose {
+  const f = to.fighters[i]!;
+  if (f.death) {
+    const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
+    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weaponByName(tuning, f.weapon), tuning);
+  }
+  return lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
 }

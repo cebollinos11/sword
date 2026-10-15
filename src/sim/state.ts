@@ -4,6 +4,7 @@ import type { PoseTargets } from './motion';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
+import type { Vec3 } from './vec';
 
 /** Ground-plane vector (metres). y is up and the Arena is flat, so only x/z. */
 export interface Vec2 {
@@ -66,6 +67,29 @@ export interface FighterState {
   readonly gait: GaitState;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
   readonly blockImpact?: BlockImpact;
+  /** Present once the Fighter has fallen (HP reached zero and the Duel ended). It is no longer simulated: its state stays as it was on that Tick. */
+  readonly death?: Death;
+}
+
+/**
+ * How a Fighter fell. The Simulation only records it; the Death Ragdoll is
+ * drawn from it outside the Tick, so it never changes an outcome.
+ */
+export interface Death {
+  /** The Duel Tick on which it fell. */
+  readonly tick: number;
+  /** The Hit that felled it, or null if none is known. */
+  readonly blow: DeathBlow | null;
+}
+
+export interface DeathBlow {
+  /** World-space contact point. */
+  readonly point: Vec3;
+  /** Blade Speed at contact, m/s. */
+  readonly bladeSpeed: number;
+  readonly direction: Direction;
+  /** Where the attacker stood on that Tick (the blow drives the body away from it). */
+  readonly from: Vec2;
 }
 
 /**

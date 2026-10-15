@@ -143,6 +143,14 @@ The striking part of a Weapon, measured back from the tip (the Halberd's axe and
 One round between two Fighters, ending when one Fighter's HP reaches zero.
 _Avoid_: Fight, round (as a synonym), match
 
+**Death**:
+How a Fighter fell: the Duel Tick its HP reached zero and the Hit that did it. From then on the Fighter is no longer simulated; its state stays as it fell.
+_Avoid_: KO, kill
+
+**Death Ragdoll**:
+A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon. Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
+_Avoid_: Death animation, death Motion
+
 **Match**:
 A best-of-N sequence of Duels.
 

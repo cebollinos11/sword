@@ -18,6 +18,8 @@ export type {
   AttackPhase,
   BlockAction,
   BlockImpact,
+  Death,
+  DeathBlow,
   DuelState,
   FighterState,
   IdleAction,

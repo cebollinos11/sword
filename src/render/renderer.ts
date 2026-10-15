@@ -1,13 +1,14 @@
 import type * as THREE from 'three';
-import { fighterPose, type SimState } from '../sim';
+import type { SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
-import { FIGHTER_COLOURS, FighterView, lerpPose } from './fighterView';
+import { drawnPose, FIGHTER_COLOURS, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 
 /**
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
- * solved Skeletons between the previous and current Tick, and never writes back.
+ * solved Skeletons between the previous and current Tick (or draws a fallen
+ * Fighter's Death Ragdoll), and never writes back.
  */
 export class Renderer {
   private readonly stage: Stage;
@@ -42,8 +43,7 @@ export class Renderer {
         this.views[i] = view;
         this.stage.scene.add(view.root);
       }
-      const before = fighterPose(prev.fighters[i] ?? f, this.tuning);
-      view.update(lerpPose(before, fighterPose(f, this.tuning), alpha), weaponByName(this.tuning, f.weapon));
+      view.update(drawnPose(prev, curr, i, alpha, this.tuning), weaponByName(this.tuning, f.weapon));
     });
     const now = performance.now();
     this.impacts.update((now - this.lastDraw) / 1000);
