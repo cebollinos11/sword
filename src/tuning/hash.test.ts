@@ -19,10 +19,12 @@ describe('Tuning Data content hash', () => {
     const idle = tuning.motions.Idle!;
     const motion: TuningData = { ...tuning, motions: { ...tuning.motions, Idle: { ...idle, duration: idle.duration + 0.01 } } };
     const gait: TuningData = { ...tuning, gait: { ...tuning.gait, stepHeight: tuning.gait.stepHeight + 0.01 } };
-    expect(tuningDataHash(gait)).not.toBe(tuningDataHash(tuning));
-    expect(tuningDataHash({ ...tuning, gait: { ...tuning.gait, hipBob: tuning.gait.hipBob + 0.01 } })).not.toBe(tuningDataHash(tuning));
-    expect(tuningDataHash({ ...tuning, gait: { ...tuning.gait, hipSway: tuning.gait.hipSway + 0.01 } })).not.toBe(tuningDataHash(tuning));
+    const hipBob: TuningData = { ...tuning, gait: { ...tuning.gait, hipBob: tuning.gait.hipBob + 0.01 } };
+    const hipSway: TuningData = { ...tuning, gait: { ...tuning.gait, hipSway: tuning.gait.hipSway + 0.01 } };
     expect(tuningDataHash(weapon)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(motion)).not.toBe(tuningDataHash(tuning));
+    expect(tuningDataHash(gait)).not.toBe(tuningDataHash(tuning));
+    expect(tuningDataHash(hipBob)).not.toBe(tuningDataHash(tuning));
+    expect(tuningDataHash(hipSway)).not.toBe(tuningDataHash(tuning));
   });
 });
