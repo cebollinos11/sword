@@ -98,20 +98,46 @@ export interface FootLift {
   readonly right: number;
 }
 
-const NO_LIFT: FootLift = { left: 0, right: 0 };
+/**
+ * What the Gait adds on top of the Motion's targets: each ankle's lift, and how
+ * far (m, Fighter-local) the pelvis is shifted from the Motion's hip target
+ * (the hip bob and sway). The torso and head move with the pelvis; the hands
+ * stay where the Motion puts them and the arms absorb the shift.
+ */
+export interface GaitOffsets {
+  readonly lift: FootLift;
+  readonly hipShift: Vec3;
+}
+
+const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: vec3(0, 0, 0) };
 
 /** Solve the Skeleton for some Pose targets and place it in the world. */
-export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, lift: FootLift = NO_LIFT): SkeletonPose {
+export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, gait: GaitOffsets = NO_GAIT): SkeletonPose {
   // Everything is solved in the Fighter-local frame (x right, y up, z forward), then placed.
   const spine = (v: Vec3) => rotateY(rotateX(v, targets.torso.lean), targets.torso.twist);
-  const pelvis = targets.hip;
-  const chest = add(pelvis, spine(vec3(0, s.spine, 0)));
-  const head = add(chest, spine(vec3(0, s.neck + s.headRadius, 0)));
   const halfShoulder = s.shoulderWidth / 2;
-  const rightShoulder = add(chest, spine(vec3(halfShoulder, 0, 0)));
-  const leftShoulder = add(chest, spine(vec3(-halfShoulder, 0, 0)));
-  const [rightElbow, rightHand] = twoBoneIk(rightShoulder, targets.rightHand.position, s.upperArm, s.forearm, spine(vec3(0.6, -1, -0.4)));
-  const [leftElbow, leftHand] = twoBoneIk(leftShoulder, targets.leftHand.position, s.upperArm, s.forearm, spine(vec3(-0.6, -1, -0.4)));
+  const upperBody = (pelvis: Vec3) => {
+    const chest = add(pelvis, spine(vec3(0, s.spine, 0)));
+    return {
+      chest,
+      head: add(chest, spine(vec3(0, s.neck + s.headRadius, 0))),
+      rightShoulder: add(chest, spine(vec3(halfShoulder, 0, 0))),
+      leftShoulder: add(chest, spine(vec3(-halfShoulder, 0, 0))),
+    };
+  };
+  const rightPole = spine(vec3(0.6, -1, -0.4));
+  const leftPole = spine(vec3(-0.6, -1, -0.4));
+  // The hands are where the Motion puts them, reached from the Motion's own hip target...
+  const motionBody = upperBody(targets.hip);
+  const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, targets.rightHand.position, s.upperArm, s.forearm, rightPole);
+  const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, targets.leftHand.position, s.upperArm, s.forearm, leftPole);
+  // ...and when the Gait shifts the pelvis, the arms re-bend from the shifted shoulders to those same hands.
+  const shifted = gait.hipShift.x !== 0 || gait.hipShift.y !== 0 || gait.hipShift.z !== 0;
+  const pelvis = shifted ? add(targets.hip, gait.hipShift) : targets.hip;
+  const { chest, head, rightShoulder, leftShoulder } = shifted ? upperBody(pelvis) : motionBody;
+  const rightElbow = shifted ? twoBoneIk(rightShoulder, rightHand, s.upperArm, s.forearm, rightPole)[0] : motionRightElbow;
+  const leftElbow = shifted ? twoBoneIk(leftShoulder, leftHand, s.upperArm, s.forearm, leftPole)[0] : motionLeftElbow;
+  const { lift } = gait;
 
   const halfHip = s.hipWidth / 2;
   const rightHip = add(pelvis, vec3(halfHip, 0, 0));

@@ -23,7 +23,8 @@
  *     glides along the floor toward its stance (so authored foot keys and the
  *     settle after a walk stay smooth); further off, it steps.
  *
- * The Gait owns the feet only: hands, torso and blade come from the Motion.
+ * The hips bob and sway with each step (hipShift); the hands and blade still
+ * come from the Motion, so walking never changes a Blade Sweep.
  */
 import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
@@ -31,6 +32,7 @@ import type { Emit } from './events';
 import { motionTime, sampleMotion } from './motion';
 import type { Placement } from './skeleton';
 import type { FighterState, MotionPlayback, Vec2 } from './state';
+import type { Vec3 } from './vec';
 
 export const FEET = ['left', 'right'] as const;
 export type Foot = (typeof FEET)[number];
@@ -103,6 +105,21 @@ export function footPose(foot: FootState, tuning: TuningData): FootPose {
   if (!foot.step) return { ground: foot.planted, lift: 0 };
   const u = Math.min(1, foot.step.tick / stepTicks(tuning));
   return { ground: lerp2(foot.planted, foot.step.target, smooth(u)), lift: tuning.gait.stepHeight * 4 * u * (1 - u) };
+}
+
+/**
+ * How far (m, Fighter-local: x right, y up, z forward) the hips are shifted
+ * this Tick. While a foot steps, the pelvis dips by the hip bob and shifts
+ * sideways over the planted foot by the hip sway, both peaking mid-step and
+ * zero at lift-off and landing. With both feet planted it is zero.
+ */
+export function hipShift(gait: GaitState, tuning: TuningData): Vec3 {
+  const stepping = FEET.find((foot) => gait[foot].step);
+  if (!stepping) return { x: 0, y: 0, z: 0 };
+  const u = Math.min(1, gait[stepping].step!.tick / stepTicks(tuning));
+  const arc = 4 * u * (1 - u);
+  const towardPlanted = stepping === 'left' ? 1 : -1; // the planted foot is the other one (right is +x)
+  return { x: towardPlanted * tuning.gait.hipSway * arc, y: -tuning.gait.hipBob * arc, z: 0 };
 }
 
 /** Wrap a yaw difference into (-π, π]. */

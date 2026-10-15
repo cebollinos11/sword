@@ -1,5 +1,5 @@
 import type { TuningData } from '../tuning';
-import { footPose, toLocal } from './gait';
+import { footPose, hipShift, toLocal } from './gait';
 import { motionTime, sampleMotion } from './motion';
 import { solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState } from './state';
@@ -17,7 +17,8 @@ export function motionPose(tuning: TuningData, motionName: string, tick: number,
 
 /**
  * The full solved Skeleton of a Fighter (what the Renderer draws and Hit Zones are built on):
- * its Motion playback at its position and facing, with the feet where the Gait has them.
+ * its Motion playback at its position and facing, with the feet where the Gait has them
+ * and the hips bobbing and swaying with each step.
  */
 export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
   const motion = tuning.motions[f.motion.name];
@@ -30,6 +31,6 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
     tuning.skeleton,
     tuning.weapon,
     f,
-    { left: left.lift, right: right.lift },
+    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, tuning) },
   );
 }

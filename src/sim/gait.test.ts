@@ -186,6 +186,83 @@ describe('Gait never touches the blade', () => {
   }
 });
 
+describe('Gait: the hips carry the walk', () => {
+  const withHips = (hipBob: number, hipSway: number) => ({ ...tuning, gait: { ...tuning.gait, hipBob, hipSway } });
+  const pelvis = (t: typeof tuning, run: ScriptRun, tick: number) => fighterPose(run.states[tick]!.fighters[0]!, t).joints.pelvis;
+  /** The pelvis where the Motion's hip target puts it at the Fighter's position and facing. */
+  const motionPelvis = (t: typeof tuning, run: ScriptRun, tick: number) => {
+    const f = run.states[tick]!.fighters[0]!;
+    return motionPose(t, f.motion.name, f.motion.tick, f).joints.pelvis;
+  };
+  /** For each Step, the Tick its foot was highest (the middle of the step). */
+  const midSteps = (t: typeof tuning, run: ScriptRun) =>
+    steps(run).map((e) => {
+      const ticks = Array.from({ length: STEP_TICKS - 1 }, (_, k) => e.tick - 1 - k).filter((k) => k > 0);
+      const tick = ticks.reduce((a, b) => (fighterPose(run.states[b]!.fighters[0]!, t).joints[`${e.foot}Ankle`].y > fighterPose(run.states[a]!.fighters[0]!, t).joints[`${e.foot}Ankle`].y ? b : a));
+      return { tick, foot: e.foot };
+    });
+
+  it("with hip bob, the pelvis dips below the Motion's hip target mid-step", () => {
+    const t = withHips(0.03, 0);
+    const run = runDuel(t, { ...lone, a: walk(120, { x: 0.3, z: 1 }), ticks: 120 });
+    const mids = midSteps(t, run);
+    expect(mids.length).toBeGreaterThan(6);
+    for (const { tick } of mids) expect(pelvis(t, run, tick).y, `Tick ${tick}`).toBeLessThan(motionPelvis(t, run, tick).y - 0.015);
+    for (let k = 0; k <= 120; k++) expect(pelvis(t, run, k).y, `Tick ${k}`).toBeLessThanOrEqual(motionPelvis(t, run, k).y + 1e-12);
+  });
+
+  it('with hip sway, the pelvis shifts sideways toward the planted foot mid-step', () => {
+    const t = withHips(0, 0.03);
+    const run = runDuel(t, { ...lone, a: walk(120, { x: -0.5, z: -1 }), ticks: 120 });
+    const mids = midSteps(t, run);
+    expect(mids.length).toBeGreaterThan(6);
+    for (const { tick, foot } of mids) {
+      const f = run.states[tick]!.fighters[0]!;
+      const right = { x: -Math.cos(f.facing), z: Math.sin(f.facing) }; // the Fighter's right, on the floor
+      const sideways = (p: Vec3) => p.x * right.x + p.z * right.z;
+      const [now, motion] = [pelvis(t, run, tick), motionPelvis(t, run, tick)];
+      const planted = ankle(run, tick, foot === 'left' ? 'right' : 'left');
+      expect(lifted(planted)).toBe(false);
+      const towardPlanted = Math.sign(sideways(planted) - sideways(motion));
+      expect((sideways(now) - sideways(motion)) * towardPlanted, `Tick ${tick}`).toBeGreaterThan(0.015);
+      expect(now.y, `Tick ${tick}`).toBeCloseTo(motion.y, 9); // sway alone does not dip
+    }
+  });
+
+  it("with hip bob and sway at zero, the pelvis is at the Motion's hip target on every Tick", () => {
+    const t = withHips(0, 0);
+    const run = runDuel(t, { ...lone, a: [...walk(60, { x: 0.6, z: 0.8 }), ...hold(20, { face: 1 }), ...attack('Left'), ...walk(40, { x: 0, z: -1 })] });
+    expect(steps(run).length).toBeGreaterThan(6);
+    for (const s of run.states) expect(pelvis(t, run, s.tick), `Tick ${s.tick}`).toEqual(motionPelvis(t, run, s.tick));
+  });
+
+  it("with strong hip bob and sway, planted feet still never slide and the blade is still the standing Attack's", () => {
+    const t = withHips(0.06, 0.06);
+    const run = runDuel(t, { ...lone, a: [...hold(1, { attack: true, direction: 'Right', move: { x: 0.6, z: 0.8 } }), ...walk(80, { x: -1, z: 0.3 })], ticks: 81 });
+    expect(steps(run).length).toBeGreaterThan(4);
+    for (const s of run.states) {
+      const f = s.fighters[0]!;
+      const standing = motionPose(t, f.motion.name, f.motion.tick, f);
+      expect(fighterPose(f, t).blade, `Tick ${s.tick}`).toEqual(standing.blade);
+      expect(f.blade, `Tick ${s.tick}`).toEqual(standing.blade);
+    }
+    // ankle() reads the repo Tuning Data; use the strong hips here.
+    for (const foot of FEET) {
+      let plantedAt: Vec3 | null = null;
+      for (let k = 0; k <= 81; k++) {
+        const a = fighterPose(run.states[k]!.fighters[0]!, t).joints[`${foot}Ankle`];
+        if (lifted(a)) plantedAt = null;
+        else if (!plantedAt) plantedAt = a;
+        else {
+          expect(a.x, `${foot} slid at Tick ${k}`).toBeCloseTo(plantedAt.x, 9);
+          expect(a.z, `${foot} slid at Tick ${k}`).toBeCloseTo(plantedAt.z, 9);
+          expect(a.y).toBeCloseTo(ANKLE, 9);
+        }
+      }
+    }
+  });
+});
+
 /** Distance from p to the segment a→b. */
 function segmentDistance(p: Vec3, a: Vec3, b: Vec3): number {
   const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z };
