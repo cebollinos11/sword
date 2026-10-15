@@ -81,8 +81,8 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
   });
 
   it('a click made while the session is stalled still reaches the Simulation', () => {
-    // 300 ms one way: the host runs into the Rollback window and stalls.
-    const r = room({ latencyMs: 300 });
+    // 400 ms one way: the host runs into the Rollback window and stalls.
+    const r = room({ latencyMs: 400 });
     runUntilConnected(r);
     let stalled = false;
     let attacked = false;

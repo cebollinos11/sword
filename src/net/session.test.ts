@@ -125,7 +125,7 @@ describe('Rollback session: play', () => {
     expect(s.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
   });
 
-  it('never rolls back more than 8 Ticks; it stalls instead when the peer falls too far behind', () => {
+  it('never rolls back more than the Rollback window; it stalls instead when the peer falls too far behind', () => {
     const s = connect({ latencyMs: 250, jitterMs: 100, loss: 0.1, seed: 4 });
     const results = playUntilConfirmed(s, 300);
     for (const { h, g } of results) {
@@ -139,13 +139,59 @@ describe('Rollback session: play', () => {
     expect(s.guest.checksumAt(300)).toBe(expected.get(300));
   });
 
-  it('never runs more than 8 Ticks ahead of the confirmed Tick', () => {
+  it('never runs more than the Rollback window ahead of the confirmed Tick', () => {
     const s = connect({ latencyMs: 400 });
     for (let i = 0; i < 200; i++) {
       frame(s, HOST_INTENTS, GUEST_INTENTS);
       expect(s.host.currentTick - s.host.confirmedTick).toBeLessThanOrEqual(ROLLBACK_WINDOW);
       expect(s.guest.currentTick - s.guest.confirmedTick).toBeLessThanOrEqual(ROLLBACK_WINDOW);
     }
+  });
+});
+
+describe('Rollback session: time sync', () => {
+  /**
+   * Each peer on its own wall clock, as in two browsers: a steady 60 fps desktop and a phone with uneven
+   * frames that freezes for 400 ms once (a GC pause, a notification). Returns the frames each peer stalled
+   * in after it had time to recover.
+   */
+  function freeRunning(withHiccup: boolean) {
+    const s = connect({ latencyMs: 100, jitterMs: 40, seed: 3 });
+    let r = 7;
+    const uneven = () => ((r = (r * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+    const peers = [
+      { session: s.host, intents: HOST_INTENTS, next: 0, acc: 0, frameMs: (_now: number) => 1000 / 60, stalledFrames: 0 },
+      {
+        session: s.guest,
+        intents: GUEST_INTENTS,
+        next: 37,
+        acc: 0,
+        frameMs: (now: number) => (withHiccup && now >= 5000 && now < 5100 ? 400 : 16.7 + (uneven() < 0.2 ? 17 : 0) + uneven() * 4),
+        stalledFrames: 0,
+      },
+    ];
+    for (let now = 1; now <= 20_000; now++) {
+      s.pair.advance(1);
+      for (const p of peers) {
+        if (now < p.next) continue;
+        const ms = p.frameMs(now);
+        p.next = now + ms;
+        p.acc += Math.min(ms, 8 * TICK_MS);
+        let stalled = false;
+        for (; p.acc >= TICK_MS; p.acc -= TICK_MS) stalled = p.session.tick(p.intents(p.session.currentTick + 1)).stalled || stalled;
+        if (stalled && now > 8000) p.stalledFrames++;
+      }
+    }
+    return { s, host: peers[0]!.stalledFrames, guest: peers[1]!.stalledFrames };
+  }
+
+  it('after one peer hiccups, the peer left ahead waits a few Ticks and both play on without stalling', () => {
+    const { s, host, guest } = freeRunning(true);
+    expect(s.host.stats.waits + s.guest.stats.waits).toBeGreaterThan(0);
+    expect(host).toBe(0);
+    expect(guest).toBe(0);
+    expect(Math.abs(s.host.currentTick - s.guest.currentTick)).toBeLessThanOrEqual(3);
+    expect(s.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
   });
 });
 

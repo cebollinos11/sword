@@ -11,6 +11,11 @@
  * - The host sends the hash of every CHECKSUM_INTERVAL-th confirmed Tick. On a
  *   mismatch the guest asks for the host's state, which wins, and resyncs.
  * - Peers compare Tuning Data hashes at connect and refuse a mismatch.
+ * - Time sync: each peer estimates how many Ticks it runs ahead of the other
+ *   (from the Intents messages alone: latency cancels out), and the one ahead
+ *   waits a Tick now and then until they are level. Without it, a hiccup on one
+ *   peer (a dropped frame, a GC pause) leaves the other pinned at the edge of
+ *   the Rollback window for good, stalling on every bit of network jitter.
  * - Disconnects (Transport closed, or nothing heard for `timeoutTicks`) are surfaced.
  *
  * The host chooses the Match options and the Lineup: who fights, on which
@@ -48,11 +53,17 @@ import { parseNetMessage, PROTOCOL_VERSION, type NetMessage, type RefuseReason }
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
-export const ROLLBACK_WINDOW = 8;
+export const ROLLBACK_WINDOW = 15;
 /** The host sends a state checksum for every confirmed Tick that is a multiple of this. */
 export const CHECKSUM_INTERVAL = 30;
 /** Ticks without any message from a Running peer before it counts as disconnected. */
 export const DEFAULT_TIMEOUT_TICKS = 300;
+/** Time sync: the lead (in Ticks) is averaged over this many Intents messages. */
+const LEAD_SAMPLES = 32;
+/** Time sync: wait a Tick when the averaged lead over the peer is at least this many Ticks... */
+const LEAD_TO_WAIT = 1;
+/** ...but at most once per this many Ticks, so a correction is spread out and barely visible. */
+const WAIT_SPACING = 6;
 /** While connecting, hello is (re)sent every this many Ticks until the peer's Intents arrive. */
 const HELLO_INTERVAL = 10;
 /** Intents and hashes older than this many Ticks behind the confirmed Tick are dropped. */
@@ -75,6 +86,8 @@ export interface TickResult {
   readonly advanced: boolean;
   /** Running, but waiting for the peer's Intents: the window is full. */
   readonly stalled: boolean;
+  /** Running, but holding back a Tick for time sync: this peer runs ahead of the other. */
+  readonly waited: boolean;
   /** Ticks re-simulated by a Rollback this call (0 if none). Never more than ROLLBACK_WINDOW. */
   readonly rolledBack: number;
 }
@@ -83,6 +96,8 @@ export interface SessionStats {
   readonly rollbacks: number;
   readonly maxRollback: number;
   readonly stalls: number;
+  /** Ticks held back by time sync. */
+  readonly waits: number;
   readonly resyncs: number;
 }
 
@@ -127,7 +142,7 @@ export interface RollbackSession {
   close(): void;
 }
 
-const NOTHING: TickResult = { advanced: false, stalled: false, rolledBack: 0 };
+const NOTHING: TickResult = { advanced: false, stalled: false, waited: false, rolledBack: 0 };
 
 /** Field-agnostic, so new Intent fields are compared too. */
 function sameIntent(a: Intent, b: Intent): boolean {
@@ -151,7 +166,7 @@ class Session implements RollbackSession, PeerIntentSource {
   readonly remote: Controller = createRemoteController(this);
   status: SessionStatus = 'Connecting';
   state: MatchState | null = null;
-  stats = { rollbacks: 0, maxRollback: 0, stalls: 0, resyncs: 0 };
+  stats = { rollbacks: 0, maxRollback: 0, stalls: 0, waits: 0, resyncs: 0 };
 
   private readonly transport: Transport;
   private readonly tuning: TuningData;
@@ -193,6 +208,9 @@ class Session implements RollbackSession, PeerIntentSource {
   private heardIntents = false;
   private helloCountdown = 0;
   private silentTicks = 0;
+  /** Time sync: recent estimates of how many Ticks this peer runs ahead of the other. */
+  private readonly leads: number[] = [];
+  private ticksSinceWait = 0;
 
   constructor(o: RollbackSessionOptions) {
     this.role = o.role;
@@ -252,15 +270,45 @@ class Session implements RollbackSession, PeerIntentSource {
     const rolledBack = this.rollback();
     const next = this.currentTick + 1;
     const stalled = next - this.remoteConfirmed > ROLLBACK_WINDOW;
+    const waited = !stalled && this.shouldWait();
     if (stalled) {
       this.stats.stalls++;
+    } else if (waited) {
+      this.stats.waits++;
     } else {
       this.localIntents.set(next, localIntent);
       this.simulateNext();
     }
     this.recordConfirmed();
     this.sendIntents();
-    return { advanced: !stalled, stalled, rolledBack };
+    return { advanced: !stalled && !waited, stalled, waited, rolledBack };
+  }
+
+  // --- Time sync ---
+
+  /**
+   * Record how far ahead of the peer this peer runs, from an Intents message: the peer's Tick when it sent it
+   * (its Intents run up to it), the last of our Ticks it held then (`ack`), and our Tick now. Each side's raw
+   * advantage includes the one-way latency; half their difference is the true lead, with the latency cancelled.
+   */
+  private sampleLead(from: number, count: number, ack: number): void {
+    const peerTick = from + count - 1;
+    const localAdvantage = this.currentTick - peerTick;
+    const peerAdvantage = peerTick - ack;
+    this.leads.push((localAdvantage - peerAdvantage) / 2);
+    if (this.leads.length > LEAD_SAMPLES) this.leads.shift();
+  }
+
+  /** Hold back this Tick to let the peer catch up? Only the peer that is ahead ever waits. */
+  private shouldWait(): boolean {
+    this.ticksSinceWait++;
+    if (this.leads.length < LEAD_SAMPLES / 2 || this.ticksSinceWait < WAIT_SPACING) return false;
+    const lead = this.leads.reduce((a, b) => a + b, 0) / this.leads.length;
+    if (lead < LEAD_TO_WAIT) return false;
+    this.ticksSinceWait = 0;
+    // Our own Tick count drops at once; the peer's view of it reaches us a round trip later. Don't count this wait twice.
+    for (let i = 0; i < this.leads.length; i++) this.leads[i]! -= 1;
+    return true;
   }
 
   // --- Simulation ---
@@ -362,6 +410,7 @@ class Session implements RollbackSession, PeerIntentSource {
         if (this.status !== 'Running') return;
         this.heardIntents = true;
         this.peerAck = Math.max(this.peerAck, Math.min(m.ack, this.currentTick)); // it cannot hold Intents we have not made yet
+        this.sampleLead(m.from, m.intents.length, Math.min(m.ack, this.currentTick));
         return this.receiveIntents(m.from, m.intents, true);
       case 'checksum':
         if (this.role === 'guest' && this.status === 'Running' && m.tick > this.resyncedAt) {
