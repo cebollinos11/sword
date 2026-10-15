@@ -31,6 +31,10 @@ export interface BlockEvent {
   readonly attacker: number;
   readonly defender: number;
   readonly direction: Direction;
+  /** World-space point where the Blade Sweep met the defender's blade (or body). */
+  readonly point: Vec3;
+  /** Blade Speed at the contact point, m/s. */
+  readonly bladeSpeed: number;
 }
 
 /**

@@ -2,6 +2,7 @@ import type * as THREE from 'three';
 import { fighterPose, type SimState } from '../sim';
 import type { TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from './fighterView';
+import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 
 /**
@@ -11,12 +12,16 @@ import { Stage } from './stage';
 export class Renderer {
   private readonly stage: Stage;
   private readonly views: FighterView[] = [];
+  private lastDraw = performance.now();
+  /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
+  readonly impacts: ImpactEffects;
 
   constructor(
     container: HTMLElement,
     private readonly tuning: TuningData,
   ) {
     this.stage = new Stage(container, tuning);
+    this.impacts = new ImpactEffects(this.stage.scene, tuning);
   }
 
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
@@ -40,6 +45,9 @@ export class Renderer {
       const before = fighterPose(prev.fighters[i] ?? f, this.tuning);
       view.update(lerpPose(before, fighterPose(f, this.tuning), alpha));
     });
+    const now = performance.now();
+    this.impacts.update((now - this.lastDraw) / 1000);
+    this.lastDraw = now;
     this.stage.draw();
   }
 }

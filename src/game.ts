@@ -57,7 +57,7 @@ const ROOM_ROUTE = '#/room/';
  * Local Controller's Intent goes to the MatchDriver, which steps the Match
  * (locally against the AI, or through Rollback for online play); the Renderer
  * interpolates between the last two Match Ticks, the camera follows the local
- * Fighter, the HUD shows HP and round score, and audio plays each new Tick.
+ * Fighter, the HUD shows HP and round score, and audio and impact effects play each new Tick.
  */
 export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const renderer = new Renderer(container, tuning);
@@ -186,6 +186,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const start = d.state;
       // An online Match has no state until the peers connect; its first Tick then sounds.
       audio.seek(start?.tick ?? 0);
+      renderer.impacts.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;
         present(start, d.localFighter);
@@ -247,6 +248,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       prev = curr;
       curr = d.state;
       audio.onMatchTick(curr);
+      renderer.impacts.onTick(curr.tick, curr.duel.events);
       present(curr, d.localFighter);
     }
     if (driver?.waiting) hud.announce(driver.waiting, 0.5);

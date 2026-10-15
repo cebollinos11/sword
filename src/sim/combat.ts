@@ -96,7 +96,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const action = attacker.action as AttackAction;
   if (action.landed) return;
   if (c.blocked) {
-    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction });
+    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
     // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
     out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(defender.action as BlockAction, c.bladeSpeed, tuning) };

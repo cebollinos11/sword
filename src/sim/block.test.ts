@@ -21,7 +21,7 @@ describe('Block', () => {
     expect(hitsOf(run)).toEqual([]);
     expect(run.final.fighters[1]!.hp).toBe(100);
     const blocks = eventsOf(run, 'Block');
-    expect(blocks).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', tick: expect.any(Number) }]);
+    expect(blocks).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
     const t = blocks[0]!.tick;
     expect(run.states[t]!.fighters[0]!.action).toMatchObject({ kind: 'Stagger' });
     expect(run.states[t]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Overhead' });

@@ -41,6 +41,7 @@ import {
 } from '../sim';
 import type { HitZone, TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
+import { ImpactEffects } from '../render/impacts';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
@@ -340,11 +341,13 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     return true;
   };
   pane.addBinding(ui, 'playing');
-  // Sounds play for Ticks reached by playing or stepping; scrubbing and restarting are silent.
+  // Sounds and impact effects play for Ticks reached by playing or stepping; scrubbing and restarting are silent.
   const audio = createBrowserAudio();
+  const impacts = new ImpactEffects(stage.scene, tuning);
   let heard = ui.tick;
   const hear = (t: number) => {
     audio.onTick(t, run.duel(t).events);
+    impacts.onTick(t, run.duel(t).events);
     heard = t;
   };
   pane.addBinding(audio, 'muted', { label: 'mute sound' });
@@ -472,6 +475,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
 
   let accumulator = 0;
   let last = performance.now();
+  let drawn = last;
   function frame(now: number): void {
     if (ui.playing) accumulator += Math.min((now - last) / 1000, 0.25) * ui.speed;
     last = now;
@@ -484,6 +488,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     }
     if (ui.tick !== heard) {
       audio.seek(ui.tick);
+      impacts.seek(ui.tick);
       heard = ui.tick;
     }
     const t = ui.tick;
@@ -551,6 +556,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
 
     if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
+    impacts.update(ui.playing ? ((now - drawn) / 1000) * ui.speed : 0);
+    drawn = now;
     stage.draw();
     requestAnimationFrame(frame);
   }
