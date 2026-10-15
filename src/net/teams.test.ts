@@ -4,7 +4,7 @@ import { createMatch, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent 
 import { lineupAis, lineupMatch, type Controller, type Lineup } from '../controllers';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, type SessionEvent } from './session';
-import { parseNetMessage } from './messages';
+import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
 const TICK_MS = 1000 / TICK_RATE;
@@ -132,7 +132,7 @@ describe('Rollback session: team battles', () => {
     guest.onEvent((e) => events.push(e));
     // A broken or hostile host: its hello's Lineup fields an AI difficulty nobody has.
     const lineup = [MIXED[0], MIXED[1], MIXED[2], { team: 0, pilot: { kind: 'AI', difficulty: 'Godlike' } }];
-    pair.a.send({ type: 'hello', protocol: 4, tuningHash: tuningDataHash(tuning), weapon: 'Halberd', match: MATCH, lineup });
+    pair.a.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: 'Halberd', match: MATCH, lineup });
     for (let i = 0; i < 5; i++) {
       pair.advance(TICK_MS);
       guest.tick(IDLE_INTENT);

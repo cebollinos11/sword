@@ -36,6 +36,8 @@ export interface MatchConfig {
   readonly weapons: readonly string[];
   /** Each Fighter's team (0 or 1); its length is the number of Fighters. */
   readonly teams: readonly number[];
+  /** Ticks after the Match ends before a fresh Match (same config, score 0–0) starts, or null for none (the default). */
+  readonly rematchTicks: number | null;
 }
 
 export interface MatchOptions extends Partial<MatchConfig> {
@@ -66,7 +68,9 @@ export type MatchEvent = DuelStartEvent | MatchEndEvent;
 
 export interface MatchState {
   readonly config: MatchConfig;
-  /** Match Ticks since the Match started (Duel ticks restart at 0 each Duel). */
+  /** 1-based number of this Match, counting rematches (see `rematchTicks`). */
+  readonly matchNumber: number;
+  /** Match Ticks since the first Match started, carried across rematches (Duel ticks restart at 0 each Duel). */
   readonly tick: number;
   /** 1-based number of the current Duel, draws included. */
   readonly duelNumber: number;
@@ -113,13 +117,17 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     interDuelTicks: options.interDuelTicks ?? secondsToTicks(tuning.match.interDuelSeconds),
     weapons: teams.map((_, i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
     teams: [...teams],
+    rematchTicks: options.rematchTicks ?? null,
   };
   if (!Number.isInteger(config.bestOf) || config.bestOf < 1) throw new RangeError(`bestOf must be a positive integer, got ${config.bestOf}`);
   if (!Number.isInteger(config.interDuelTicks) || config.interDuelTicks < 1)
     throw new RangeError(`interDuelTicks must be an integer >= 1, got ${config.interDuelTicks}`);
+  if (config.rematchTicks !== null && (!Number.isInteger(config.rematchTicks) || config.rematchTicks < 1))
+    throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
   const duel = initialDuel(tuning, config, options.seed ?? 1);
   return {
     config,
+    matchNumber: 1,
     tick: 0,
     duelNumber: 1,
     score: [0, 0],
@@ -142,6 +150,23 @@ export function teamMembers(match: MatchState, team: number): number[] {
 export function stepMatch(match: MatchState, intents: readonly Intent[], tuning: TuningData): MatchState {
   const tick = match.tick + 1;
   const events: MatchEvent[] = [];
+
+  const { status: over, config } = match;
+  if (over.status === 'Over' && config.rematchTicks !== null && tick >= over.tick + config.rematchTicks) {
+    // A fresh Match: Duel 1, score 0–0, the generator carried on so it isn't a replay of the last one.
+    events.push({ type: 'DuelStart', duelNumber: 1 });
+    return {
+      ...match,
+      matchNumber: match.matchNumber + 1,
+      tick,
+      duelNumber: 1,
+      score: [0, 0],
+      duel: freshDuel(tuning, match.config, match.duel.rng),
+      nextDuelTick: null,
+      status: { status: 'InProgress' },
+      events,
+    };
+  }
 
   if (match.nextDuelTick !== null && tick >= match.nextDuelTick) {
     const duelNumber = match.duelNumber + 1;

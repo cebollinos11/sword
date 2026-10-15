@@ -70,3 +70,21 @@ describe('Match announcements: a team battle', () => {
     expect(states.flatMap((s) => other.update(s, 0)).some((m) => m.type === 'Fell')).toBe(false);
   });
 });
+
+describe('Rematch announcements', () => {
+  it('announces the rematch afresh: its Duels and its result', () => {
+    let match = createMatch(tuning, { bestOf: 1, distance: 1.3, interDuelTicks: 30, rematchTicks: 30 });
+    const states = [match];
+    for (let t = 0; t < 5000 && !(match.matchNumber === 2 && match.status.status === 'Over'); t++) {
+      const tap: Intent = { ...IDLE_INTENT, attack: t % 2 === 0 };
+      match = stepMatch(match, [tap, IDLE_INTENT], tuning);
+      states.push(match);
+    }
+    const once = [
+      { type: 'DuelStart', duelNumber: 1 },
+      { type: 'DuelEnd', duelNumber: 1, winner: 0 },
+      { type: 'MatchEnd', winner: 0, score: [1, 0] },
+    ];
+    expect(announce(states)).toEqual([...once, ...once]);
+  });
+});

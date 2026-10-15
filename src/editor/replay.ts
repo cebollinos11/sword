@@ -41,8 +41,8 @@ export type ReplaySetup =
   | {
       readonly kind: 'Match';
       readonly seed: number;
-      /** Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing). */
-      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams'> & {
+      /** Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing). A replay is one Match: no rematches. */
+      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams' | 'rematchTicks'> & {
         readonly weapons?: readonly string[];
         readonly spacing?: number;
         readonly teams?: readonly number[];
@@ -131,7 +131,10 @@ export function recordingSandbox<S extends object>(sandbox: Sandbox<S>): Recordi
 /** The seed and setup a run started from (its state at Tick 0). */
 export function replaySetup(initial: RunState): ReplaySetup {
   if (initial.tick !== 0) throw new RangeError(`A replay starts at Tick 0, not ${initial.tick}`);
-  if (isMatch(initial)) return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...initial.config, weapons: [...initial.config.weapons], teams: [...initial.config.teams] } };
+  if (isMatch(initial)) {
+    const { rematchTicks: _oneMatch, ...config } = initial.config;
+    return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...config, weapons: [...config.weapons], teams: [...config.teams] } };
+  }
   return {
     kind: 'Duel',
     seed: initial.rng.seed,

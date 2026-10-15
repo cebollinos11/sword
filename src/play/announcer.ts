@@ -17,6 +17,7 @@ export type Milestone =
  * announced exactly once, as soon as any presented state shows it.
  */
 export class MatchAnnouncer {
+  private matchNumber = 0;
   private duelNumber = 0;
   private duelEnded = false;
   private fell = false;
@@ -25,6 +26,12 @@ export class MatchAnnouncer {
   /** `me`: the Fighter whose fall is announced (default none). */
   update(match: MatchState, me = -1): Milestone[] {
     const out: Milestone[] = [];
+    if (match.matchNumber !== this.matchNumber) {
+      // A rematch (or the first Match): announce it all afresh.
+      this.matchNumber = match.matchNumber;
+      this.duelNumber = 0;
+      this.matchEnded = false;
+    }
     if (match.duelNumber !== this.duelNumber) {
       this.duelNumber = match.duelNumber;
       this.duelEnded = false;

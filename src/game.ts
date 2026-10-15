@@ -1,4 +1,4 @@
-import { createMatch, TICK_SECONDS, type MatchState, type SimState, type Vec2 } from './sim';
+import { createMatch, secondsToTicks, TICK_SECONDS, type MatchState, type SimState, type Vec2 } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { placeOrbitCamera, placeThirdPersonCamera } from './render/thirdPersonCamera';
@@ -29,10 +29,14 @@ import {
 const MAX_TICKS_PER_FRAME = 8;
 /** How long the final result stays on screen before the menu returns (seconds, cosmetic). */
 const RESULT_SECONDS = 2.5;
+/** Online: how long after a Match ends a fresh one starts (part of the Match options, so both peers agree). */
+const REMATCH_SECONDS = 5;
 
 /** What the loop needs to know to present a Match: the driver (which also says who the local player is). */
 export interface MatchPresentation {
   readonly driver: MatchDriver;
+  /** Offer a Leave button (online play, where Matches restart and only leaving ends them). */
+  readonly leavable?: boolean;
 }
 
 export interface Game {
@@ -74,7 +78,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.enabled = on;
     },
   };
-  const hud = new Hud(container, tuning);
+  const hud = new Hud(container, tuning, () => finish());
 
   let driver: MatchDriver | null = null;
   // Shown behind the menu before the first Match.
@@ -170,13 +174,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       transport,
       tuning,
       weapon,
-      ...(role === 'host' ? { match: { bestOf, seed: randomSeed() }, lineup } : {}),
+      ...(role === 'host' ? { match: { bestOf, seed: randomSeed(), rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup } : {}),
     });
-    game.play({ driver: playerVsPlayer(session) });
+    game.play({ driver: playerVsPlayer(session), leavable: true });
   }
 
   const game: Game = {
-    play({ driver: d }) {
+    play({ driver: d, leavable = false }) {
       if (driver !== d) driver?.close?.();
       driver = d;
       local.releaseAll();
@@ -184,6 +188,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       resultAt = null;
       menu.hide();
       hud.show();
+      hud.leavable = leavable;
       const start = d.state;
       // An online Match has no state until the peers connect; its first Tick then sounds.
       audio.seek(start?.tick ?? 0);
@@ -203,7 +208,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (f) local.setYaw(f.facing);
   }
 
-  function finish(text: string): void {
+  function finish(text?: string): void {
     driver?.close?.();
     driver = null;
     input.enabled = false;
@@ -225,14 +230,21 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (e.type === 'DuelEnd') {
         hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
       } else if (e.type === 'DuelStart') {
-        hud.announce(`Duel ${e.duelNumber}`, 1.5);
+        hud.announce(e.duelNumber === 1 && match.matchNumber > 1 ? `Match ${match.matchNumber}` : `Duel ${e.duelNumber}`, 1.5);
         aimAtDuelStart(match);
       } else if (e.type === 'Fell') {
         hud.announce('You fell', 1.5);
       } else if (e.type === 'MatchEnd') {
-        resultText = `${e.winner === myTeam ? 'You win' : 'You lose'}  ${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
-        hud.announce(e.winner === myTeam ? 'Victory' : 'Defeat', RESULT_SECONDS);
-        resultAt = performance.now() + RESULT_SECONDS * 1000;
+        const verdict = e.winner === myTeam ? 'Victory' : 'Defeat';
+        const score = `${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
+        if (match.config.rematchTicks !== null) {
+          // Online: a fresh Match follows on its own; the result stays up until it starts.
+          hud.announce(`${verdict}  ${score}`, match.config.rematchTicks * TICK_SECONDS);
+        } else {
+          resultText = `${e.winner === myTeam ? 'You win' : 'You lose'}  ${score}`;
+          hud.announce(verdict, RESULT_SECONDS);
+          resultAt = performance.now() + RESULT_SECONDS * 1000;
+        }
       }
     }
   }

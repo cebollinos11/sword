@@ -18,6 +18,9 @@ const CSS = `
 .hud-side-1 .hud-hp { transform: scaleX(-1); }
 .hud-centre { text-align: center; text-shadow: 0 1px 3px #000a; min-width: 7rem; }
 .hud-score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hud-leave { pointer-events: auto; margin-top: 0.3rem; font: inherit; font-size: 0.75rem; color: #fff; background: #0006;
+  border: 1px solid #fff8; border-radius: 4px; padding: 0.15rem 0.7rem; cursor: pointer; }
+.hud-leave[hidden] { display: none; }
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }

@@ -10,11 +10,11 @@ const TICK_MS = 1000 / TICK_RATE;
 
 function room(
   net: MemoryTransportOptions = {},
-  opts: { guestTuning?: TuningData; step?: typeof stepMatch } = {},
+  opts: { guestTuning?: TuningData; step?: typeof stepMatch; rematchTicks?: number } = {},
 ) {
   const pair = createMemoryTransportPair(net);
   const host = playerVsPlayer(
-    createRollbackSession({ role: 'host', transport: pair.a, tuning, match: { bestOf: 3, seed: 5 }, step: opts.step }),
+    createRollbackSession({ role: 'host', transport: pair.a, tuning, match: { bestOf: 3, seed: 5, rematchTicks: opts.rematchTicks }, step: opts.step }),
   );
   const guest = playerVsPlayer(
     createRollbackSession({ role: 'guest', transport: pair.b, tuning: opts.guestTuning ?? tuning, step: opts.step }),
@@ -127,7 +127,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     expect(r.host.failure).toMatch(/lost the connection/i);
   });
 
-  it('a disconnect after the Match is over is not a failure', () => {
+  it('a disconnect after the Match is over is still a failure: a rematch would follow', () => {
     // A stand-in Tick function that ends the Match on Tick 5.
     const endsAt5: typeof stepMatch = (match, intents, t) => {
       const next = stepMatch(match, intents, t);
@@ -139,7 +139,25 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     expect(r.host.state!.status.status).toBe('Over');
     r.guest.close();
     r.tick();
+    expect(r.host.failure).toMatch(/left/);
+  });
+
+  it('both peers roll into the same rematch once the Match is over (the host chose `rematchTicks`)', () => {
+    // A stand-in Tick function that ends the first Match on Tick 5.
+    const endsAt5: typeof stepMatch = (match, intents, t) => {
+      const next = stepMatch(match, intents, t);
+      return next.matchNumber === 1 && next.tick >= 5 && next.status.status === 'InProgress'
+        ? ({ ...next, status: { status: 'Over', winner: 0, tick: next.tick } } as MatchState)
+        : next;
+    };
+    const r = room({ latencyMs: 30 }, { step: endsAt5, rematchTicks: 20 });
+    runUntilConnected(r);
+    for (let i = 0; i < 80; i++) r.tick(forward, forward);
+    for (let i = 0; i < 30; i++) r.tick();
     expect(r.host.failure).toBeNull();
+    expect(r.host.state).toMatchObject({ matchNumber: 2, duelNumber: 1, score: [0, 0], status: { status: 'InProgress' } });
+    expect(r.guest.state!.tick).toBe(r.host.state!.tick);
+    expect(hashValue(r.guest.state)).toBe(hashValue(r.host.state));
   });
 
   it('closing the driver closes the connection for both peers', () => {

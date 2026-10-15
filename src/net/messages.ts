@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOption
 import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -152,6 +152,7 @@ function isMatchOptions(v: unknown): boolean {
     v.bestOf > 0 &&
     (v.distance === undefined || (isNum(v.distance) && v.distance > 0)) &&
     (v.interDuelTicks === undefined || (isInt(v.interDuelTicks) && v.interDuelTicks >= 1)) &&
+    (v.rematchTicks === undefined || v.rematchTicks === null || (isInt(v.rematchTicks) && v.rematchTicks >= 1)) &&
     (v.seed === undefined || isNum(v.seed)) &&
     (v.spacing === undefined || (isNum(v.spacing) && v.spacing > 0)) &&
     (v.weapons === undefined || isWeapons(v.weapons)) &&
@@ -256,8 +257,11 @@ function isMatchState(v: unknown): v is MatchState {
     isTeams(config.teams) &&
     isInt(config.interDuelTicks) &&
     config.interDuelTicks >= 1 &&
+    (config.rematchTicks === null || (isInt(config.rematchTicks) && config.rematchTicks >= 1)) &&
     isWeapons(config.weapons) &&
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
+    isInt(v.matchNumber) &&
+    v.matchNumber >= 1 &&
     isTick(v.tick) &&
     isInt(v.duelNumber) &&
     v.duelNumber >= 1 &&

@@ -166,3 +166,38 @@ describe('Match', () => {
     expect(hashValue(run(restore(snap), 150, 600))).toBe(hashValue(full)); // snapshots are reusable
   });
 });
+
+describe('Rematch', () => {
+  const overAfterBestOf1 = (rematchTicks?: number) => {
+    const m = createMatch(tuning, { bestOf: 1, distance: DISTANCE, seed: 7, ...(rematchTicks === undefined ? {} : { rematchTicks }) });
+    return runUntil(m, 0, (n) => n.status.status === 'Over');
+  };
+
+  it('never restarts by default', () => {
+    let m = overAfterBestOf1();
+    for (let i = 0; i < 500; i++) m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], tuning);
+    expect(m.matchNumber).toBe(1);
+    expect(m.status.status).toBe('Over');
+  });
+
+  it('starts a fresh Match `rematchTicks` after the Match ends: Duel 1, score 0–0, same config, the Match Tick carried on', () => {
+    const over = overAfterBestOf1(40);
+    const endedAt = over.tick;
+    expect(over.score).toEqual([1, 0]);
+    let m = over;
+    while (m.tick < endedAt + 39) m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], tuning);
+    expect(m.matchNumber).toBe(1);
+    m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], tuning);
+    expect(m).toMatchObject({ matchNumber: 2, tick: endedAt + 40, duelNumber: 1, score: [0, 0], status: { status: 'InProgress' }, nextDuelTick: null, config: over.config });
+    expect(m.events).toEqual([{ type: 'DuelStart', duelNumber: 1 }]);
+    expect(m.duel.fighters.map((f) => f.hp)).toEqual([100, 100]);
+    expect(m.duel.fighters.map((f) => f.position)).toEqual(duelPlacements(DISTANCE).map((p) => p.position));
+    // ...and the rematch plays out like any Match.
+    m = runUntil(m, 1, (n) => n.status.status === 'Over');
+    expect(m).toMatchObject({ matchNumber: 2, score: [0, 1], status: { status: 'Over', winner: 1 } });
+  });
+
+  it('rejects a rematch pause below one Tick', () => {
+    expect(() => createMatch(tuning, { bestOf: 1, rematchTicks: 0 })).toThrow(/rematchTicks/);
+  });
+});

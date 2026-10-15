@@ -166,6 +166,9 @@ _Avoid_: Death animation, death Motion
 **Match**:
 A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
 
+**Rematch**:
+A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends. Online play always rematches, so the Players stay in the Room until one of them leaves; Player vs AI goes back to the menu instead.
+
 **Match Mode**:
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 

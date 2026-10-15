@@ -36,14 +36,17 @@ export class Hud {
   private readonly sides = [document.createElement('div'), document.createElement('div')];
   private readonly score = document.createElement('div');
   private readonly banner = document.createElement('div');
+  private readonly leave = document.createElement('button');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** What the bars were built for; they are rebuilt when it changes. */
   private built = '';
   private bannerUntil = 0;
 
+  /** `onLeave`: the player clicked Leave (only offered while `leavable`). */
   constructor(
     container: HTMLElement,
     private readonly tuning: TuningData,
+    onLeave: () => void,
   ) {
     ensurePlayStyles();
     this.root.className = 'hud';
@@ -51,7 +54,13 @@ export class Hud {
     const centre = document.createElement('div');
     centre.className = 'hud-centre';
     this.score.className = 'hud-score';
-    centre.append(this.score);
+    this.leave.type = 'button';
+    this.leave.className = 'hud-leave';
+    this.leave.textContent = 'Leave';
+    this.leave.title = 'Leave the Match (Esc frees the mouse first)';
+    this.leave.hidden = true;
+    this.leave.addEventListener('click', onLeave);
+    centre.append(this.score, this.leave);
     this.sides.forEach((side, i) => (side.className = `hud-team hud-side-${i}`));
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
     this.banner.className = 'hud-banner';
@@ -67,6 +76,11 @@ export class Hud {
 
   hide(): void {
     this.root.hidden = true;
+  }
+
+  /** Offer a Leave button (online, where Matches restart on their own and only leaving ends them). */
+  set leavable(on: boolean) {
+    this.leave.hidden = !on;
   }
 
   /** Show a message in the middle of the screen for `seconds` (wall clock, cosmetic only). */

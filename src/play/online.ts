@@ -7,8 +7,9 @@
  *
  * - Clicks made while the session is stalled (Intent dropped) are carried to
  *   the next Tick that does advance, so a quick tap isn't lost.
- * - Refusals and disconnects become a readable `failure` message; once the
- *   Match is over, the peer leaving is expected and not a failure.
+ * - Refusals and disconnects become a readable `failure` message. Online
+ *   Matches restart on their own (`rematchTicks`), so the peer leaving always
+ *   ends the play, Match over or not.
  */
 import type { Intent } from '../sim';
 import type { Controller } from '../controllers';
@@ -41,12 +42,10 @@ function carryPresses(dropped: Intent | null, next: Intent): Intent {
 export function playerVsPlayer(session: RollbackSession): PlayerVsPlayerDriver {
   let failure: string | null = null;
   let dropped: Intent | null = null;
-  const matchOver = () => session.state?.status.status === 'Over';
-
   session.onEvent((e: SessionEvent) => {
     if (failure) return;
     if (e.type === 'Refused') failure = refusalMessage(e.reason, e.localHash, e.remoteHash);
-    else if (e.type === 'Disconnected' && !matchOver()) {
+    else if (e.type === 'Disconnected') {
       failure = e.reason === 'Timeout' ? 'Lost the connection to the other player.' : 'The other player left the Match (disconnected).';
     }
   });
