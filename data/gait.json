@@ -1,0 +1,5 @@
+{
+  "strideThreshold": 0.2,
+  "stepDuration": 0.1,
+  "stepHeight": 0.08
+}

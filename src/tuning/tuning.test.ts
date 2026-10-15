@@ -15,6 +15,7 @@ function goodRaw() {
     chamber: { windowSeconds: 0.15 },
     block: { facingHalfAngle: 60 },
     match: { duelDistance: 2, interDuelSeconds: 2 },
+    gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08 },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,
@@ -109,6 +110,27 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, difficulties: {} } })).toThrow(/ai\.difficulties/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, aggression: 2 } })).toThrow(/ai\.aggression/);
     expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0, feintRate: 1 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0, feintRate: 1 });
+  });
+
+  it('loads the Gait (stride threshold, step duration, step height) from data/gait.json', () => {
+    const { gait } = loadTuningData();
+    expect(gait.strideThreshold).toBeGreaterThan(0);
+    expect(gait.stepDuration).toBeGreaterThan(0);
+    expect(gait.stepHeight).toBeGreaterThan(0);
+  });
+
+  it('rejects invalid Gait Tuning Data, naming the full path', () => {
+    const good = goodRaw();
+    const withGait = (g: object) => ({ ...good, gait: { ...good.gait, ...g } });
+    expect(() => parseTuningData({ ...good, gait: undefined })).toThrow(/gait/);
+    expect(() => parseTuningData(withGait({ strideThreshold: 'far' }))).toThrow(/gait\.strideThreshold/);
+    expect(() => parseTuningData(withGait({ strideThreshold: -0.1 }))).toThrow(/gait\.strideThreshold/);
+    expect(() => parseTuningData(withGait({ strideThreshold: 5 }))).toThrow(/gait\.strideThreshold/);
+    expect(() => parseTuningData(withGait({ stepDuration: 0 }))).toThrow(/gait\.stepDuration/);
+    expect(() => parseTuningData(withGait({ stepDuration: 10 }))).toThrow(/gait\.stepDuration/);
+    expect(() => parseTuningData(withGait({ stepHeight: -0.01 }))).toThrow(/gait\.stepHeight/);
+    expect(() => parseTuningData(withGait({ stepHeight: 2 }))).toThrow(/gait\.stepHeight/);
+    expect(parseTuningData(withGait({ stepHeight: 0 })).gait.stepHeight).toBe(0);
   });
 
   it('requires an Idle Motion and unique Motion names', () => {

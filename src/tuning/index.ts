@@ -13,10 +13,13 @@ import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
+import gaitJson from '../../data/gait.json';
+import { parseGait, type GaitTuning } from './gait';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
+export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
@@ -139,6 +142,8 @@ export interface TuningData {
   readonly match: MatchTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
+  /** How feet step whenever the body moves (the Gait). */
+  readonly gait: GaitTuning;
   /** Every Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
 }
@@ -238,6 +243,7 @@ export function parseTuningData(raw: unknown): TuningData {
     match: { duelDistance: positiveNumber(ma, 'duelDistance', 'match'), interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match') },
     skeleton,
     ai: parseAi(root.ai),
+    gait: parseGait(root.gait),
     motions,
   };
 }
@@ -255,5 +261,5 @@ export function loadTuningData(): TuningData {
     }
     return raw;
   });
-  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, block: blockJson, match: matchJson, skeleton: skeletonJson, ai: aiJson, motions });
+  return parseTuningData({ fighter: fighterJson, arena: arenaJson, weapon: weaponJson, hitZones: hitZonesJson, chamber: chamberJson, block: blockJson, match: matchJson, skeleton: skeletonJson, ai: aiJson, gait: gaitJson, motions });
 }
