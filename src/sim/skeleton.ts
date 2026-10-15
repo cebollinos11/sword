@@ -92,8 +92,16 @@ export function twoBoneIk(root: Vec3, target: Vec3, l1: number, l2: number, pole
   return [mid, end];
 }
 
+/** How far (m) each ankle is lifted above ankle height, e.g. mid-step. */
+export interface FootLift {
+  readonly left: number;
+  readonly right: number;
+}
+
+const NO_LIFT: FootLift = { left: 0, right: 0 };
+
 /** Solve the Skeleton for some Pose targets and place it in the world. */
-export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement): SkeletonPose {
+export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, lift: FootLift = NO_LIFT): SkeletonPose {
   // Everything is solved in the Fighter-local frame (x right, y up, z forward), then placed.
   const spine = (v: Vec3) => rotateY(rotateX(v, targets.torso.lean), targets.torso.twist);
   const pelvis = targets.hip;
@@ -109,11 +117,12 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const rightHip = add(pelvis, vec3(halfHip, 0, 0));
   const leftHip = add(pelvis, vec3(-halfHip, 0, 0));
   const knee = vec3(0, 0, 1);
-  const rAnkleTarget = vec3(targets.rightFoot.x, s.ankleHeight, targets.rightFoot.z);
-  const lAnkleTarget = vec3(targets.leftFoot.x, s.ankleHeight, targets.leftFoot.z);
+  const rAnkleTarget = vec3(targets.rightFoot.x, s.ankleHeight + lift.right, targets.rightFoot.z);
+  const lAnkleTarget = vec3(targets.leftFoot.x, s.ankleHeight + lift.left, targets.leftFoot.z);
   const [rightKnee, rightAnkle] = twoBoneIk(rightHip, rAnkleTarget, s.thigh, s.shin, knee);
   const [leftKnee, leftAnkle] = twoBoneIk(leftHip, lAnkleTarget, s.thigh, s.shin, knee);
-  const toe = (ankle: Vec3) => vec3(ankle.x, 0, ankle.z + TOE_LENGTH);
+  // The toe stays level with the ankle's lift: on the floor when planted, raised mid-step.
+  const toe = (ankle: Vec3) => vec3(ankle.x, Math.max(0, ankle.y - s.ankleHeight), ankle.z + TOE_LENGTH);
 
   const bladeDir = rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation);
   const edge = rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation);

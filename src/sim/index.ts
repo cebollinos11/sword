@@ -27,7 +27,8 @@ export type {
   Vec2,
 } from './state';
 export { ATTACK_PHASES } from './state';
-export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent } from './events';
+export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent, StepEvent } from './events';
+export type { Foot, FootState, GaitState } from './gait';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
 export { CENTRE_PLACEMENT, createInitialState, duelPlacements, step } from './step';

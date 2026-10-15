@@ -65,6 +65,15 @@ export interface FeintEvent {
   readonly into: { readonly kind: 'Attack' | 'Block'; readonly direction: Direction };
 }
 
+/** A Fighter's foot landed at the end of a step (the Gait). */
+export interface StepEvent {
+  readonly type: 'Step';
+  readonly fighter: number;
+  readonly foot: 'left' | 'right';
+  /** World ground position where the foot landed. */
+  readonly position: { readonly x: number; readonly z: number };
+}
+
 /** The Duel ended this Tick. `winner` is a Fighter index, or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
@@ -75,7 +84,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

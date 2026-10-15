@@ -1,4 +1,5 @@
 import type { SimEvent } from './events';
+import type { GaitState } from './gait';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
@@ -58,6 +59,8 @@ export interface FighterState {
   readonly motion: MotionPlayback;
   /** The blade this Tick, solved from the Motion by IK. Last Tick's blade bounds the Blade Sweep. */
   readonly blade: BladeTransform;
+  /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
+  readonly gait: GaitState;
 }
 
 export interface MotionPlayback {

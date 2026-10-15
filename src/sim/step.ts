@@ -7,6 +7,7 @@ import { TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
+import { initialGait, updateGait } from './gait';
 import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
@@ -42,6 +43,7 @@ export function createInitialState(
       action: IDLE_ACTION,
       motion: IDLE_MOTION,
       blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing }).blade,
+      gait: initialGait(tuning, IDLE_MOTION, { position, facing }),
     })),
     duel: DUEL_FIGHTING,
     events: [],
@@ -88,18 +90,20 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
 }
 
 /**
- * Fighter capsules push each other apart and stay inside the Arena, then each
- * Skeleton is solved at its final position. Motion is simulation: the Skeleton
- * is solved by IK inside the Tick (ADR 0001).
+ * Fighter capsules push each other apart and stay inside the Arena, the Gait
+ * steps the feet after the bodies' final moves (ADR 0003), then each Skeleton
+ * is solved at its final position. Motion is simulation: the Skeleton is
+ * solved by IK inside the Tick (ADR 0001). `before` is last Tick's Fighters.
  */
-function settleBodies(fighters: readonly FighterState[], tuning: TuningData): FighterState[] {
+function settleBodies(before: readonly FighterState[], fighters: readonly FighterState[], tuning: TuningData, emit: (e: SimEvent) => void): FighterState[] {
   const positions = resolveBodies(
     fighters.map((f) => f.position),
     tuning,
   );
   return fighters.map((f, i) => {
     const position = positions[i]!;
-    const settled = { ...f, position };
+    const moved = { ...f, position };
+    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, emit) };
     return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
 }
@@ -119,8 +123,10 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const tick = state.tick + 1;
 
   let fighters = settleBodies(
+    state.fighters,
     state.fighters.map((f, i) => stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit)),
     tuning,
+    emit,
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);

@@ -54,7 +54,7 @@ export interface SandboxSession<S> {
   stepBack(): void;
   /** Step one Tick forward from the cursor, asking the Controllers for Intents. */
   advance(): S;
-  /** Up to `count` of the latest Duel events at or before Tick `tick`, oldest first, tagged with their Tick. */
+  /** Up to `count` of the latest Duel events (footsteps left out) at or before Tick `tick`, oldest first, tagged with their Tick. */
   recentEvents(tick: number, count: number): TimedEvent[];
 }
 
@@ -163,7 +163,10 @@ export function createSandboxSession<S>(sandbox: Sandbox<S>, initial: S, control
       const found: TimedEvent[] = [];
       for (let t = Math.min(tick, states.length - 1); t >= 0 && found.length < count; t--) {
         const events = sandbox.duel(states[t]!).events;
-        for (let k = events.length - 1; k >= 0 && found.length < count; k--) found.push({ ...events[k]!, tick: t });
+        for (let k = events.length - 1; k >= 0 && found.length < count; k--) {
+          // Footsteps would crowd every other event out of a short log.
+          if (events[k]!.type !== 'Step') found.push({ ...events[k]!, tick: t });
+        }
       }
       return found.reverse();
     },
