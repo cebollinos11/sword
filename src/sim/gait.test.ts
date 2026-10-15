@@ -319,7 +319,7 @@ describe('Gait and Hit Zones', () => {
     };
     const lowThrust = { ...tuning, motions: { ...tuning.motions, Thrust: low } };
     // Fighter 1 walks into the Thrust and is hit on the leg it is stepping with.
-    const run = runDuel(lowThrust, { distance: 1.9, a: attack('Thrust'), b: walk(60, { x: 0, z: -0.5 }), ticks: 60 });
+    const run = runDuel(lowThrust, { distance: 2.1, a: [...wait(8), ...attack('Thrust')], b: walk(60, { x: 0, z: -0.5 }), ticks: 60 });
     const hit = run.events.find((e): e is HitEvent & { tick: number } => e.type === 'Hit')!;
     expect(hit).toMatchObject({ defender: 1, zone: 'limbs' });
 
