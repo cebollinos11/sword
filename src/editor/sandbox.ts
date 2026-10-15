@@ -316,7 +316,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     events: '',
   };
   const pane = new Pane({ title: 'Duel sandbox' });
-  pane.element.parentElement!.style.width = '360px';
+  const paneBox = pane.element.parentElement!;
+  paneBox.style.width = '360px';
+  paneBox.style.maxHeight = 'calc(100vh - 16px)';
+  paneBox.style.overflowY = 'auto';
   pane.addButton({ title: '← Motion Editor' }).on('click', () => (location.hash = '#/editor'));
   /** Move the session's cursor to the Tick shown in the UI (after a scrub). */
   const syncCursor = () => {
