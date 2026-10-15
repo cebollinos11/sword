@@ -6,7 +6,7 @@ import { LIVE_SCRUB_CHUNK, liveScrubMax, matchSandbox, playerVsAiSession } from 
 import { compareReplay, recordingSandbox, recordReplay } from './replay';
 
 const tuning = loadTuningData();
-const options = { difficulty: 'Normal', bestOf: 3, seed: 4 };
+const options = { opponent: 'Normal', bestOf: 3, seed: 4 };
 
 /** A scripted stand-in for the human: raw input fed to a real Local Controller just before given Ticks are decided. */
 type Input = (local: LocalController) => void;
@@ -101,5 +101,24 @@ describe('liveScrubMax: the scrub slider range of a live run', () => {
     expect(liveScrubMax(599)).toBe(600);
     expect(liveScrubMax(600)).toBe(600);
     expect(liveScrubMax(601)).toBe(1200);
+  });
+});
+
+describe('Sandbox session: Player vs a test opponent', () => {
+  it('a Wall opponent Blocks the player and is never hit', () => {
+    const local = new LocalController();
+    const session = playerVsAiSession(tuning, local, { ...options, opponent: 'Wall' });
+    // Walk up to the Wall, then swing Left.
+    play(session, local, { 150: (l) => l.keyDown('KeyW'), 360: (l) => l.keyUp('KeyW'), 380: swing[220]!, 382: swing[222]! }, 500);
+    const events = session.history.flatMap((m) => m.duel.events);
+    expect(events.some((e) => e.type === 'Block' && e.defender === 1)).toBe(true);
+    expect(events.some((e) => e.type === 'Hit' && e.defender === 1)).toBe(false);
+  });
+
+  it('a Dummy opponent never Blocks', () => {
+    const local = new LocalController();
+    const session = playerVsAiSession(tuning, local, { ...options, opponent: 'Dummy' });
+    play(session, local, swing, 400);
+    expect(session.history.some((m) => m.duel.events.some((e) => e.type === 'Block'))).toBe(false);
   });
 });

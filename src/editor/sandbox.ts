@@ -44,7 +44,7 @@ import { FIGHTER_COLOURS, FighterView, lerpPose } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
-import { createAiController, LocalController, scriptedController, type Controller } from '../controllers';
+import { createAiController, LocalController, scriptedController, TEST_OPPONENTS, type Controller } from '../controllers';
 import { bindLocalInput } from '../play/input';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import {
@@ -175,13 +175,13 @@ const PLAYER_VS_AI = 'Player vs AI';
 
 /**
  * Player vs AI: you are red (Fighter 0, the Local Controller fed by mouse and
- * keys), the AI is blue. Live: nothing is precomputed, playing extends the run.
+ * keys), the AI (or a test opponent: Dummy, Wall) is blue. Live: nothing is precomputed, playing extends the run.
  */
 function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun {
   local.releaseAll();
   local.setYaw(0); // Fighter 0 starts facing +z
   const recorder = recordingSandbox(matchSandbox(tuning));
-  const options = { difficulty: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed };
+  const options = { opponent: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed };
   const session = playerVsAiSession(tuning, local, options, recorder);
   return {
     session,
@@ -428,7 +428,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   /** Changing a Player vs AI setting starts a new Player vs AI Match. */
   const vs = pane.addFolder({ title: 'Player vs AI', expanded: false });
   const rerunPlayer = () => switchTo(PLAYER_VS_AI);
-  vs.addBinding(playerMatch, 'ai', { label: 'AI', options: difficulties }).on('change', rerunPlayer);
+  const opponents = { ...difficulties, ...Object.fromEntries(TEST_OPPONENTS.map((k) => [`${k} (test)`, k])) };
+  vs.addBinding(playerMatch, 'ai', { label: 'AI', options: opponents }).on('change', rerunPlayer);
   vs.addBinding(playerMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunPlayer);
   vs.addBinding(playerMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunPlayer);
   vs.addButton({ title: 'Play (new Match)' }).on('click', () => {
