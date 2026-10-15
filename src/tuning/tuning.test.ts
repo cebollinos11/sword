@@ -15,7 +15,7 @@ function goodRaw() {
     chamber: { windowSeconds: 0.15 },
     block: { facingHalfAngle: 60 },
     match: { duelDistance: 2, interDuelSeconds: 2 },
-    gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08 },
+    gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,
@@ -112,11 +112,16 @@ describe('Tuning Data', () => {
     expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0, feintRate: 1 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0, feintRate: 1 });
   });
 
-  it('loads the Gait (stride threshold, step duration, step height) from data/gait.json', () => {
+  it('loads the Gait (stride threshold, step duration, step height, hip bob, hip sway) from data/gait.json', () => {
     const { gait } = loadTuningData();
     expect(gait.strideThreshold).toBeGreaterThan(0);
     expect(gait.stepDuration).toBeGreaterThan(0);
     expect(gait.stepHeight).toBeGreaterThan(0);
+    // Small, non-zero hip movement by default.
+    expect(gait.hipBob).toBeGreaterThan(0);
+    expect(gait.hipBob).toBeLessThan(0.1);
+    expect(gait.hipSway).toBeGreaterThan(0);
+    expect(gait.hipSway).toBeLessThan(0.1);
   });
 
   it('rejects invalid Gait Tuning Data, naming the full path', () => {
@@ -131,6 +136,13 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData(withGait({ stepHeight: -0.01 }))).toThrow(/gait\.stepHeight/);
     expect(() => parseTuningData(withGait({ stepHeight: 2 }))).toThrow(/gait\.stepHeight/);
     expect(parseTuningData(withGait({ stepHeight: 0 })).gait.stepHeight).toBe(0);
+    expect(() => parseTuningData(withGait({ hipBob: undefined }))).toThrow(/gait\.hipBob/);
+    expect(() => parseTuningData(withGait({ hipBob: -0.01 }))).toThrow(/gait\.hipBob/);
+    expect(() => parseTuningData(withGait({ hipBob: 1 }))).toThrow(/gait\.hipBob/);
+    expect(() => parseTuningData(withGait({ hipSway: 'lots' }))).toThrow(/gait\.hipSway/);
+    expect(() => parseTuningData(withGait({ hipSway: -0.01 }))).toThrow(/gait\.hipSway/);
+    expect(() => parseTuningData(withGait({ hipSway: 1 }))).toThrow(/gait\.hipSway/);
+    expect(parseTuningData(withGait({ hipBob: 0, hipSway: 0 })).gait).toMatchObject({ hipBob: 0, hipSway: 0 });
   });
 
   it('requires an Idle Motion and unique Motion names', () => {

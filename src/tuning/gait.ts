@@ -11,6 +11,10 @@ export interface GaitTuning {
   readonly stepDuration: number;
   /** How high (m) the ankle rises above ankle height at the middle of a step. */
   readonly stepHeight: number;
+  /** How far (m) the pelvis dips at the middle of a step. 0 turns the bob off. */
+  readonly hipBob: number;
+  /** How far (m) the pelvis shifts sideways over the planted foot at the middle of a step. 0 turns the sway off. */
+  readonly hipSway: number;
 }
 
 /**
@@ -21,6 +25,8 @@ export const GAIT_FIELDS: Readonly<Record<keyof GaitTuning, { readonly min: numb
   strideThreshold: { min: 0, max: 1, minExclusive: true },
   stepDuration: { min: 0, max: 2, minExclusive: true },
   stepHeight: { min: 0, max: 0.5, minExclusive: false },
+  hipBob: { min: 0, max: 0.2, minExclusive: false },
+  hipSway: { min: 0, max: 0.2, minExclusive: false },
 };
 
 export function parseGait(raw: unknown): GaitTuning {

@@ -1,5 +1,7 @@
 {
   "strideThreshold": 0.2,
   "stepDuration": 0.08,
-  "stepHeight": 0.08
+  "stepHeight": 0.08,
+  "hipBob": 0.02,
+  "hipSway": 0.025
 }
