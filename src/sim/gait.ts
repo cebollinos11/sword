@@ -5,9 +5,9 @@
  * Zones) always match what is drawn, and its state is snapshotted and hashed.
  *
  * Rules, per Tick, for each foot:
- *   - Its stance is the current Motion's foot target at the Fighter's position
- *     and facing. The place it belongs is that stance led along the body's
- *     motion this Tick: where the stance will be one step from now if the body
+ *   - Its home is the current Motion's foot target at the Fighter's position
+ *     and facing. The place it belongs is that home led along the body's
+ *     motion this Tick: where the home will be one step from now if the body
  *     keeps moving, at most 80% of the stride threshold ahead. A standing body
  *     has no lead. The lead lands a walking foot ahead of the body, so a foot
  *     stays within the leg's reach until its next step.
@@ -20,17 +20,18 @@
  *     first; on a tie (a straight walk from a standstill), the one further from
  *     its hip goes first, since it runs out of reach first.
  *   - While the body stands still, a planted foot within the stride threshold
- *     glides along the floor toward its stance (so authored foot keys and the
+ *     glides along the floor toward its home (so authored foot keys and the
  *     settle after a walk stay smooth); further off, it steps.
  *
- * The hips bob and sway with each step (hipShift); the hands and blade still
+ * The hips bob and sway with each step (hipShift), swaying toward wherever the
+ * planted foot actually is (so Motions with crossed feet sway the right way); the hands and blade still
  * come from the Motion, so walking never changes a Blade Sweep.
  */
 import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Emit } from './events';
-import { motionTime, sampleMotion } from './motion';
-import type { Placement } from './skeleton';
+import { motionTargets } from './motion';
+import type { HipShift, Placement } from './skeleton';
 import type { FighterState, MotionPlayback, Vec2 } from './state';
 import type { Vec3 } from './vec';
 
@@ -53,7 +54,23 @@ export interface FootPose {
   readonly lift: number;
 }
 
+/** How far the body moved over the floor this Tick: its ground displacement (m) and turn (radians). */
+interface BodyMotion {
+  readonly x: number;
+  readonly z: number;
+  readonly yaw: number;
+}
+
+/** Distances (m) closer than this count as a tie when choosing which foot steps first. */
+const TIE = 1e-6;
+
 const stepTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.gait.stepDuration));
+
+/** How far through a step (0 at lift-off, 1 at landing). */
+const stepProgress = (step: NonNullable<FootState['step']>, tuning: TuningData): number => Math.min(1, step.tick / stepTicks(tuning));
+
+/** The step's arc at progress u: 0 at lift-off and landing, 1 mid-step. */
+const arc = (u: number): number => 4 * u * (1 - u);
 
 /** Fighter-local ground point → world, matching solveSkeleton's frame. */
 function toWorld(local: Vec2, at: Placement): Vec2 {
@@ -71,29 +88,23 @@ export function toLocal(world: Vec2, at: Placement): Vec2 {
   return { x: -dx * c + dz * s, z: dx * s + dz * c };
 }
 
-function sampleTargets(tuning: TuningData, motion: MotionPlayback) {
-  const m = tuning.motions[motion.name];
-  if (!m) throw new Error(`Unknown Motion "${motion.name}"`);
-  return sampleMotion(m, motionTime(m, motion.tick), tuning.skeleton);
-}
-
-/** Each foot's stance: the Motion's foot target placed at `at`, in world space. */
-export function stance(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const targets = sampleTargets(tuning, motion);
+/** Each foot's home: the Motion's foot target placed at `at`, in world space. */
+export function footHome(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
+  const targets = motionTargets(tuning, motion.name, motion.tick);
   return { left: toWorld(targets.leftFoot, at), right: toWorld(targets.rightFoot, at) };
 }
 
 /** Each leg's hip joint projected onto the floor, in world space. */
 function hips(tuning: TuningData, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
-  const { hip } = sampleTargets(tuning, motion);
+  const { hip } = motionTargets(tuning, motion.name, motion.tick);
   const half = tuning.skeleton.hipWidth / 2;
   return { left: toWorld({ x: hip.x - half, z: hip.z }, at), right: toWorld({ x: hip.x + half, z: hip.z }, at) };
 }
 
-/** Both feet planted in the stance of `motion` at `at` (the start of a Duel). */
+/** Both feet planted at the home of `motion` at `at` (the start of a Duel). */
 export function initialGait(tuning: TuningData, motion: MotionPlayback, at: Placement): GaitState {
-  const s = stance(tuning, motion, at);
-  return { left: { planted: s.left, step: null }, right: { planted: s.right, step: null } };
+  const home = footHome(tuning, motion, at);
+  return { left: { planted: home.left, step: null }, right: { planted: home.right, step: null } };
 }
 
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -103,23 +114,23 @@ const smooth = (u: number) => u * u * (3 - 2 * u);
 /** Where a foot is drawn and solved this Tick. */
 export function footPose(foot: FootState, tuning: TuningData): FootPose {
   if (!foot.step) return { ground: foot.planted, lift: 0 };
-  const u = Math.min(1, foot.step.tick / stepTicks(tuning));
-  return { ground: lerp2(foot.planted, foot.step.target, smooth(u)), lift: tuning.gait.stepHeight * 4 * u * (1 - u) };
+  const u = stepProgress(foot.step, tuning);
+  return { ground: lerp2(foot.planted, foot.step.target, smooth(u)), lift: tuning.gait.stepHeight * arc(u) };
 }
 
 /**
- * How far (m, Fighter-local: x right, y up, z forward) the hips are shifted
- * this Tick. While a foot steps, the pelvis dips by the hip bob and shifts
- * sideways over the planted foot by the hip sway, both peaking mid-step and
- * zero at lift-off and landing. With both feet planted it is zero.
+ * How far the hips are shifted this Tick, for a Fighter at `at` whose Motion
+ * puts its hips at `hip` (Fighter-local). While a foot steps, the pelvis dips
+ * by the hip bob and shifts sideways toward the planted foot (wherever it is
+ * relative to the hips) by the hip sway, both peaking mid-step and zero at
+ * lift-off and landing. With both feet planted it is zero.
  */
-export function hipShift(gait: GaitState, tuning: TuningData): Vec3 {
+export function hipShift(gait: GaitState, at: Placement, hip: Vec3, tuning: TuningData): HipShift {
   const stepping = FEET.find((foot) => gait[foot].step);
-  if (!stepping) return { x: 0, y: 0, z: 0 };
-  const u = Math.min(1, gait[stepping].step!.tick / stepTicks(tuning));
-  const arc = 4 * u * (1 - u);
-  const towardPlanted = stepping === 'left' ? 1 : -1; // the planted foot is the other one (right is +x)
-  return { x: towardPlanted * tuning.gait.hipSway * arc, y: -tuning.gait.hipBob * arc, z: 0 };
+  if (!stepping) return { sideways: 0, drop: 0 };
+  const h = arc(stepProgress(gait[stepping].step!, tuning));
+  const planted = toLocal(gait[stepping === 'left' ? 'right' : 'left'].planted, at);
+  return { sideways: Math.sign(planted.x - hip.x) * tuning.gait.hipSway * h, drop: tuning.gait.hipBob * h };
 }
 
 /** Wrap a yaw difference into (-π, π]. */
@@ -133,12 +144,10 @@ function wrapYaw(a: number): number {
  */
 export function updateGait(before: FighterState, after: FighterState, fighter: number, tuning: TuningData, emit: Emit): GaitState {
   const ticks = stepTicks(tuning);
-  const dx = after.position.x - before.position.x;
-  const dz = after.position.z - before.position.z;
-  const dYaw = wrapYaw(after.facing - before.facing);
-  const still = dx === 0 && dz === 0 && dYaw === 0;
-  const here = stance(tuning, after.motion, after);
-  const ahead = still ? here : ledStance(here, after, dx, dz, dYaw, ticks, tuning);
+  const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
+  const still = body.x === 0 && body.z === 0 && body.yaw === 0;
+  const here = footHome(tuning, after.motion, after);
+  const ahead = still ? here : ledFootHome(here, after, body, ticks, tuning);
 
   const next: Record<Foot, FootState> = { ...before.gait };
   // 1. Stepping feet advance; a foot that reaches the end of its step lands.
@@ -151,7 +160,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
       emit({ type: 'Step', fighter, foot, position: ahead[foot] });
     } else next[foot] = { planted: f.planted, step: { tick: t, target: ahead[foot] } };
   }
-  // 2. A standing body lets planted feet glide toward the stance (at most a stride per step duration).
+  // 2. A standing body lets planted feet glide toward their home (at most a stride per step duration).
   if (still) {
     const glide = tuning.gait.strideThreshold / ticks;
     for (const foot of FEET) {
@@ -182,18 +191,15 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   return next;
 }
 
-/** Distances (m) closer than this count as a tie when choosing which foot steps first. */
-const TIE = 1e-6;
-
 /**
- * Each foot's stance where the body will be one step from now if it keeps
+ * Each foot's home where the body will be one step from now if it keeps
  * moving as it did this Tick, led at most 80% of the stride threshold ahead of
- * the current stance (so a foot that just landed never qualifies straight away).
+ * the current home (so a foot that just landed never qualifies straight away).
  */
-function ledStance(here: Record<Foot, Vec2>, after: FighterState, dx: number, dz: number, dYaw: number, ticks: number, tuning: TuningData): Record<Foot, Vec2> {
-  const future = stance(tuning, after.motion, {
-    position: { x: after.position.x + dx * ticks, z: after.position.z + dz * ticks },
-    facing: after.facing + dYaw * ticks,
+function ledFootHome(here: Record<Foot, Vec2>, after: FighterState, body: BodyMotion, ticks: number, tuning: TuningData): Record<Foot, Vec2> {
+  const future = footHome(tuning, after.motion, {
+    position: { x: after.position.x + body.x * ticks, z: after.position.z + body.z * ticks },
+    facing: after.facing + body.yaw * ticks,
   });
   const maxLead = 0.8 * tuning.gait.strideThreshold;
   const led = (foot: Foot): Vec2 => {

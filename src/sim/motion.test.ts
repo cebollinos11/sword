@@ -103,6 +103,15 @@ describe('IK limits', () => {
     for (const j of Object.values(pose.joints)) expect(Number.isFinite(j.x + j.y + j.z)).toBe(true);
   });
 
+  it("a planted foot out of the leg's reach leaves its ankle short of the floor, but its toe stays on the floor", () => {
+    const idle = tuning.motions.Idle!;
+    const lunge = { ...idle, poseKeys: idle.poseKeys.map((k) => (k.leftFoot ? { ...k, leftFoot: { x: -0.1, z: 2 } } : k)) };
+    const pose = motionPose(withMotion(tuning, lunge), 'Idle', 0, ORIGIN);
+    expect(pose.joints.leftAnkle.y).toBeGreaterThan(tuning.skeleton.ankleHeight + 0.1);
+    expect(pose.joints.leftToe.y).toBe(0);
+    expect(pose.joints.rightToe.y).toBe(0);
+  });
+
   it('an unknown Motion name is an error', () => {
     expect(() => motionPose(tuning, 'Pirouette', 0, ORIGIN)).toThrow(/Pirouette/);
   });

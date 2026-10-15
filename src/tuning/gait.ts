@@ -5,7 +5,7 @@
 import { finiteNumber, record, TuningDataError } from './validate';
 
 export interface GaitTuning {
-  /** How far (m) a planted foot may be from its stance before it steps there; smaller differences glide. */
+  /** How far (m) a planted foot may be from where the Motion puts it before it steps there; smaller differences glide. */
   readonly strideThreshold: number;
   /** How long (s) one step takes, lift-off to landing. */
   readonly stepDuration: number;

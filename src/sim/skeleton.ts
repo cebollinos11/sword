@@ -98,18 +98,23 @@ export interface FootLift {
   readonly right: number;
 }
 
+/** How far (m) the Gait moves the pelvis from the Motion's hip target: sideways (Fighter-local +x is right) and down. */
+export interface HipShift {
+  readonly sideways: number;
+  readonly drop: number;
+}
+
 /**
- * What the Gait adds on top of the Motion's targets: each ankle's lift, and how
- * far (m, Fighter-local) the pelvis is shifted from the Motion's hip target
- * (the hip bob and sway). The torso and head move with the pelvis; the hands
- * stay where the Motion puts them and the arms absorb the shift.
+ * What the Gait adds on top of the Motion's targets: each ankle's lift, and the
+ * hip bob and sway (hipShift). The torso and head move with the pelvis; the
+ * hands stay where the Motion puts them and the arms absorb the shift.
  */
 export interface GaitOffsets {
   readonly lift: FootLift;
-  readonly hipShift: Vec3;
+  readonly hipShift: HipShift;
 }
 
-const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: vec3(0, 0, 0) };
+const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
 
 /** Solve the Skeleton for some Pose targets and place it in the world. */
 export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, gait: GaitOffsets = NO_GAIT): SkeletonPose {
@@ -132,8 +137,9 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, targets.rightHand.position, s.upperArm, s.forearm, rightPole);
   const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, targets.leftHand.position, s.upperArm, s.forearm, leftPole);
   // ...and when the Gait shifts the pelvis, the arms re-bend from the shifted shoulders to those same hands.
-  const shifted = gait.hipShift.x !== 0 || gait.hipShift.y !== 0 || gait.hipShift.z !== 0;
-  const pelvis = shifted ? add(targets.hip, gait.hipShift) : targets.hip;
+  const { sideways, drop } = gait.hipShift;
+  const shifted = sideways !== 0 || drop !== 0;
+  const pelvis = shifted ? add(targets.hip, vec3(sideways, -drop, 0)) : targets.hip;
   const { chest, head, rightShoulder, leftShoulder } = shifted ? upperBody(pelvis) : motionBody;
   const rightElbow = shifted ? twoBoneIk(rightShoulder, rightHand, s.upperArm, s.forearm, rightPole)[0] : motionRightElbow;
   const leftElbow = shifted ? twoBoneIk(leftShoulder, leftHand, s.upperArm, s.forearm, leftPole)[0] : motionLeftElbow;
@@ -147,8 +153,8 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const lAnkleTarget = vec3(targets.leftFoot.x, s.ankleHeight + lift.left, targets.leftFoot.z);
   const [rightKnee, rightAnkle] = twoBoneIk(rightHip, rAnkleTarget, s.thigh, s.shin, knee);
   const [leftKnee, leftAnkle] = twoBoneIk(leftHip, lAnkleTarget, s.thigh, s.shin, knee);
-  // The toe stays level with the ankle's lift: on the floor when planted, raised mid-step.
-  const toe = (ankle: Vec3) => vec3(ankle.x, Math.max(0, ankle.y - s.ankleHeight), ankle.z + TOE_LENGTH);
+  // The toe rises with the foot's lift: on the floor when planted (even if the leg falls short of it), raised mid-step.
+  const toe = (ankle: Vec3, footLift: number) => vec3(ankle.x, footLift, ankle.z + TOE_LENGTH);
 
   const bladeDir = rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation);
   const edge = rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation);
@@ -166,11 +172,11 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     leftHip,
     leftKnee,
     leftAnkle,
-    leftToe: toe(leftAnkle),
+    leftToe: toe(leftAnkle, lift.left),
     rightHip,
     rightKnee,
     rightAnkle,
-    rightToe: toe(rightAnkle),
+    rightToe: toe(rightAnkle, lift.right),
   };
 
   // Fighter-local → world. Facing f: forward = (sin f, 0, cos f), right = (-cos f, 0, sin f).

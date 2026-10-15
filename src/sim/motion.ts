@@ -5,7 +5,7 @@
  * first key a channel holds that key; after its last key it holds the last;
  * a channel no key sets stays at the rest pose.
  */
-import type { Ease, FootPlant, HandTarget, Motion, PoseKey, SkeletonTuning, TorsoTarget } from '../tuning';
+import type { Ease, FootPlant, HandTarget, Motion, PoseKey, SkeletonTuning, TorsoTarget, TuningData } from '../tuning';
 import { TICK_RATE } from './constants';
 import { lerp, type Vec3 } from './vec';
 
@@ -92,4 +92,11 @@ export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTun
     leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot),
     rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot),
   };
+}
+
+/** The Pose targets of the named Motion `tick` Ticks in (looping or holding its end as the Motion says). */
+export function motionTargets(tuning: TuningData, name: string, tick: number): PoseTargets {
+  const motion = tuning.motions[name];
+  if (!motion) throw new Error(`Unknown Motion "${name}"`);
+  return sampleMotion(motion, motionTime(motion, tick), tuning.skeleton);
 }

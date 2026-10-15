@@ -1,6 +1,6 @@
 import type { TuningData } from '../tuning';
 import { footPose, hipShift, toLocal } from './gait';
-import { motionTime, sampleMotion } from './motion';
+import { motionTargets } from './motion';
 import { solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState } from './state';
 
@@ -9,10 +9,7 @@ import type { FighterState } from './state';
  * Motion. Pure and deterministic: the same inputs always give the same pose.
  */
 export function motionPose(tuning: TuningData, motionName: string, tick: number, placement: Placement): SkeletonPose {
-  const motion = tuning.motions[motionName];
-  if (!motion) throw new Error(`Unknown Motion "${motionName}"`);
-  const targets = sampleMotion(motion, motionTime(motion, tick), tuning.skeleton);
-  return solveSkeleton(targets, tuning.skeleton, tuning.weapon, placement);
+  return solveSkeleton(motionTargets(tuning, motionName, tick), tuning.skeleton, tuning.weapon, placement);
 }
 
 /**
@@ -21,9 +18,7 @@ export function motionPose(tuning: TuningData, motionName: string, tick: number,
  * and the hips bobbing and swaying with each step.
  */
 export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
-  const motion = tuning.motions[f.motion.name];
-  if (!motion) throw new Error(`Unknown Motion "${f.motion.name}"`);
-  const targets = sampleMotion(motion, motionTime(motion, f.motion.tick), tuning.skeleton);
+  const targets = motionTargets(tuning, f.motion.name, f.motion.tick);
   const left = footPose(f.gait.left, tuning);
   const right = footPose(f.gait.right, tuning);
   return solveSkeleton(
@@ -31,6 +26,6 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
     tuning.skeleton,
     tuning.weapon,
     f,
-    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, tuning) },
+    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning) },
   );
 }

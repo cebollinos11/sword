@@ -38,8 +38,8 @@ const lone = { placements: [{ position: { x: 0, z: 0 }, facing: 0 }, { position:
 
 const ankle = (run: ScriptRun, tick: number, foot: Foot, fighter = 0): Vec3 =>
   fighterPose(run.states[tick]!.fighters[fighter]!, tuning).joints[foot === 'left' ? 'leftAnkle' : 'rightAnkle'];
-/** The ankles where the Fighter's current Motion puts them at its position and facing (its stance). */
-const stanceAnkle = (run: ScriptRun, tick: number, foot: Foot, fighter = 0): Vec3 => {
+/** The ankles where the Fighter's current Motion puts them at its position and facing (the feet's home). */
+const homeAnkle = (run: ScriptRun, tick: number, foot: Foot, fighter = 0): Vec3 => {
   const f = run.states[tick]!.fighters[fighter]!;
   return motionPose(tuning, f.motion.name, f.motion.tick, f).joints[foot === 'left' ? 'leftAnkle' : 'rightAnkle'];
 };
@@ -100,9 +100,9 @@ describe('Gait: walking', () => {
 });
 
 describe('Gait: standing still', () => {
-  it('with no movement the feet stay at the Motion stance and never step', () => {
+  it('with no movement the feet stay where the Motion puts them and never step', () => {
     const run = runDuel(tuning, { ...lone, a: wait(120), b: wait(120), ticks: 120 });
-    for (let t = 0; t <= 120; t++) for (const foot of FEET) expectSame(ankle(run, t, foot), stanceAnkle(run, t, foot), `${foot} at Tick ${t}`);
+    for (let t = 0; t <= 120; t++) for (const foot of FEET) expectSame(ankle(run, t, foot), homeAnkle(run, t, foot), `${foot} at Tick ${t}`);
     expect(run.events.filter((e) => e.type === 'Step')).toEqual([]);
   });
 });
@@ -147,6 +147,24 @@ describe('Gait: whatever moves the body', () => {
     expectPlantedFeetFixed(run, 0, 120, 1);
   });
 
+  it('a Fighter walking into the Arena edge and then sliding along it steps, and planted feet never slide while it moves', () => {
+    const nearEdge = { placements: [{ position: { x: 0, z: 6 }, facing: 0 }, { position: { x: 0, z: -6 }, facing: Math.PI }] };
+    const intoEdge = 60;
+    const run = runDuel(tuning, { ...nearEdge, a: [...walk(intoEdge, { x: 0, z: 1 }), ...walk(120, { x: 1, z: 0.2 })], b: wait(180), ticks: 180 });
+    const edge = tuning.arena.radius - tuning.fighter.radius;
+    const fromCentre = (t: number) => Math.hypot(run.states[t]!.fighters[0]!.position.x, run.states[t]!.fighters[0]!.position.z);
+    // Walking straight at the edge until it stops the body (pressed against it, the body stands still and the feet settle).
+    const reached = run.states.findIndex((_, t) => t > 0 && fromCentre(t) > edge - 1e-9);
+    expect(reached).toBeGreaterThan(0);
+    expect(reached).toBeLessThan(intoEdge);
+    expectPlantedFeetFixed(run, 0, reached);
+    // Sliding along the edge: the edge turns the walk, the body keeps moving and the feet keep stepping.
+    for (let t = intoEdge + 1; t <= 180; t++) expect(fromCentre(t), `Tick ${t}`).toBeCloseTo(edge, 9);
+    expect(run.final.fighters[0]!.position.x).toBeGreaterThan(1);
+    expect(steps(run).filter((e) => e.tick > intoEdge).length).toBeGreaterThan(4);
+    expectPlantedFeetFixed(run, intoEdge + 1, 180);
+  });
+
   it('a Staggered Fighter pushed by its opponent steps', () => {
     const hit = runDuel(tuning, { distance: 1.3, a: attack('Overhead'), b: wait(1) }).events.find((e) => e.type === 'Hit')!;
     // Fighter 0 hits Fighter 1, then walks straight into it while it is Staggered.
@@ -162,10 +180,10 @@ describe('Gait: whatever moves the body', () => {
 
 describe('Gait: stopping', () => {
   for (const [name, move] of Object.entries(DIRECTIONS)) {
-    it(`after walking ${name} and stopping, the feet settle into the Motion stance within a step or two and stay there`, () => {
+    it(`after walking ${name} and stopping, the feet settle where the Motion puts them within a step or two and stay there`, () => {
       const run = runDuel(tuning, { ...lone, a: [...walk(47, move), ...wait(120)], ticks: 167 });
       const settled = 47 + 4 * STEP_TICKS;
-      for (let t = settled; t <= 167; t++) for (const foot of FEET) expectSame(ankle(run, t, foot), stanceAnkle(run, t, foot), `${foot} at Tick ${t}`);
+      for (let t = settled; t <= 167; t++) for (const foot of FEET) expectSame(ankle(run, t, foot), homeAnkle(run, t, foot), `${foot} at Tick ${t}`);
       expect(steps(run).filter((e) => e.tick > settled)).toEqual([]);
     });
   }
@@ -211,23 +229,43 @@ describe('Gait: the hips carry the walk', () => {
     for (let k = 0; k <= 120; k++) expect(pelvis(t, run, k).y, `Tick ${k}`).toBeLessThanOrEqual(motionPelvis(t, run, k).y + 1e-12);
   });
 
-  it('with hip sway, the pelvis shifts sideways toward the planted foot mid-step', () => {
-    const t = withHips(0, 0.03);
-    const run = runDuel(t, { ...lone, a: walk(120, { x: -0.5, z: -1 }), ticks: 120 });
-    const mids = midSteps(t, run);
-    expect(mids.length).toBeGreaterThan(6);
-    for (const { tick, foot } of mids) {
-      const f = run.states[tick]!.fighters[0]!;
-      const right = { x: -Math.cos(f.facing), z: Math.sin(f.facing) }; // the Fighter's right, on the floor
-      const sideways = (p: Vec3) => p.x * right.x + p.z * right.z;
-      const [now, motion] = [pelvis(t, run, tick), motionPelvis(t, run, tick)];
-      const planted = ankle(run, tick, foot === 'left' ? 'right' : 'left');
-      expect(lifted(planted)).toBe(false);
-      const towardPlanted = Math.sign(sideways(planted) - sideways(motion));
-      expect((sideways(now) - sideways(motion)) * towardPlanted, `Tick ${tick}`).toBeGreaterThan(0.015);
-      expect(now.y, `Tick ${tick}`).toBeCloseTo(motion.y, 9); // sway alone does not dip
-    }
+  /** Every Motion with its feet crossed: the left foot planted on the Fighter's right and vice versa. */
+  const crossed = (t: typeof tuning): typeof tuning => ({
+    ...t,
+    motions: Object.fromEntries(
+      Object.entries(t.motions).map(([name, m]) => [
+        name,
+        {
+          ...m,
+          poseKeys: m.poseKeys.map((k) => ({
+            ...k,
+            ...(k.leftFoot && { leftFoot: { ...k.leftFoot, x: -k.leftFoot.x } }),
+            ...(k.rightFoot && { rightFoot: { ...k.rightFoot, x: -k.rightFoot.x } }),
+          })),
+        },
+      ]),
+    ),
   });
+
+  for (const [name, feet] of [['', (t: typeof tuning) => t], [' (feet crossed)', crossed]] as const) {
+    it(`with hip sway, the pelvis shifts sideways toward the planted foot mid-step${name}`, () => {
+      const t = feet(withHips(0, 0.03));
+      const run = runDuel(t, { ...lone, a: walk(120, { x: -0.5, z: -1 }), ticks: 120 });
+      const mids = midSteps(t, run);
+      expect(mids.length).toBeGreaterThan(6);
+      for (const { tick, foot } of mids) {
+        const f = run.states[tick]!.fighters[0]!;
+        const right = { x: -Math.cos(f.facing), z: Math.sin(f.facing) }; // the Fighter's right, on the floor
+        const sideways = (p: Vec3) => p.x * right.x + p.z * right.z;
+        const [now, motion] = [pelvis(t, run, tick), motionPelvis(t, run, tick)];
+        const planted = fighterPose(f, t).joints[foot === 'left' ? 'rightAnkle' : 'leftAnkle'];
+        expect(lifted(planted)).toBe(false);
+        const towardPlanted = Math.sign(sideways(planted) - sideways(motion));
+        expect((sideways(now) - sideways(motion)) * towardPlanted, `Tick ${tick}`).toBeGreaterThan(0.015);
+        expect(now.y, `Tick ${tick}`).toBeCloseTo(motion.y, 9); // sway alone does not dip
+      }
+    });
+  }
 
   it("with hip bob and sway at zero, the pelvis is at the Motion's hip target on every Tick", () => {
     const t = withHips(0, 0);
@@ -272,7 +310,7 @@ function segmentDistance(p: Vec3, a: Vec3, b: Vec3): number {
 }
 
 describe('Gait and Hit Zones', () => {
-  it('a leg hit lands where the stepping leg is drawn, not where the stance leg would be', () => {
+  it('a leg hit lands where the stepping leg is drawn, not where the Motion alone would put it', () => {
     // Repo swings never reach below the hips, so pitch the Thrust 45° down to reach the shins.
     const thrust = tuning.motions.Thrust!;
     const low = {
@@ -287,12 +325,12 @@ describe('Gait and Hit Zones', () => {
 
     const defender = run.states[hit.tick]!.fighters[1]!;
     const drawn = fighterPose(defender, lowThrust);
-    const stance = motionPose(lowThrust, defender.motion.name, defender.motion.tick, defender);
+    const motionOnly = motionPose(lowThrust, defender.motion.name, defender.motion.tick, defender);
     const leg = (pose: typeof drawn) => Math.min(segmentDistance(hit.point, pose.joints.leftHip, pose.joints.leftKnee), segmentDistance(hit.point, pose.joints.leftKnee, pose.joints.leftAnkle));
     const radius = lowThrust.hitZones.limbs.radius;
     expect(lifted(drawn.joints.leftAnkle)).toBe(true); // mid-step
     expect(leg(drawn)).toBeLessThanOrEqual(radius + 1e-9);
-    expect(leg(stance)).toBeGreaterThan(radius);
+    expect(leg(motionOnly)).toBeGreaterThan(radius);
     // And the Hit Zone capsules the Editor overlays are those same drawn legs.
     const capsules = hitZoneCapsules(drawn, lowThrust).filter((c) => c.zone === 'limbs');
     expect(capsules).toContainEqual({ zone: 'limbs', a: drawn.joints.leftKnee, b: drawn.joints.leftAnkle, radius });
@@ -329,7 +367,9 @@ describe('Gait determinism', () => {
     const turned = runDuel(tuning, { ...lone, a: [...hold(15, { face: Math.PI / 2 }), ...hold(16, { face: 0 })], ticks: 31 });
     const stood = runDuel(tuning, { ...lone, ticks: 31 });
     const [t, s] = [turned.final.fighters[0]!, stood.final.fighters[0]!];
-    expect({ ...t, gait: null, blade: null }).toEqual({ ...s, gait: null, blade: null });
+    expect([t.position, t.facing, t.hp, t.action, t.motion, t.blade]).toEqual([s.position, s.facing, s.hp, s.action, s.motion, s.blade]);
+    expect(turned.final.fighters[1]).toEqual(stood.final.fighters[1]);
+    expect(steps(turned).length).toBeGreaterThan(0);
     expect(ankle(turned, 31, 'left')).not.toEqual(ankle(stood, 31, 'left'));
     expect(hashState(turned.final)).not.toBe(hashState(stood.final));
   });
