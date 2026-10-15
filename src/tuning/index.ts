@@ -68,10 +68,20 @@ export interface ChamberTuning {
 }
 
 /** The coarse regions of the Skeleton a Blade Sweep can hit. */
-/** The Block rule's facing check (also used by Chambers). */
+/** The Block rule's facing check (also used by Chambers), and the Block Impact a stopped Attack leaves on the defender. */
 export interface BlockTuning {
   /** How far (degrees either side of straight ahead, 0 < a <= 180) the attacker may be from the defender's facing: "roughly faces the attacker". */
   readonly facingHalfAngle: number;
+  /** Block Impact: how far (m) the sword hand gives at the first peak of a blow at the Weapon's reference Blade Speed. */
+  readonly impactDistance: number;
+  /** Block Impact: how far (degrees) the blade tips back at that peak. */
+  readonly impactTilt: number;
+  /** Block Impact: how far (degrees) the torso leans back at that peak. */
+  readonly impactLean: number;
+  /** Block Impact: how fast (Hz) the hand bounces back and forth while it settles. */
+  readonly impactFrequency: number;
+  /** Block Impact: seconds until the bounce has died out (and ends). */
+  readonly impactDuration: number;
 }
 
 /** How a Match is paced. */
@@ -242,7 +252,14 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
-    block: { facingHalfAngle },
+    block: {
+      facingHalfAngle,
+      impactDistance: positiveNumber(bl, 'impactDistance', 'block'),
+      impactTilt: positiveNumber(bl, 'impactTilt', 'block'),
+      impactLean: positiveNumber(bl, 'impactLean', 'block'),
+      impactFrequency: positiveNumber(bl, 'impactFrequency', 'block'),
+      impactDuration: positiveNumber(bl, 'impactDuration', 'block'),
+    },
     match: { duelDistance: positiveNumber(ma, 'duelDistance', 'match'), interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match') },
     skeleton,
     ai: parseAi(root.ai),

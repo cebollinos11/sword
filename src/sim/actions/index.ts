@@ -43,7 +43,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 }
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
-export { blockMotionName, blocksAttack, roughlyFaces } from './block';
+export { advanceBlockImpact, applyBlockImpact, blockMotionName, blocksAttack, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 export { RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

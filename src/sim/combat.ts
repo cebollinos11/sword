@@ -8,13 +8,13 @@
  *   3. resolveContact: a Block by rule, or a hit that Staggers the victim.
  */
 import type { HitZone, TuningData } from '../tuning';
-import { attackSweepLive, blocksAttack, stagger } from './actions';
+import { attackSweepLive, blocksAttack, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules } from './hitZones';
 import type { Direction } from './intent';
 import { followMotion } from './motion';
 import { fighterPose } from './pose';
-import type { AttackAction, FighterState, StaggerCause } from './state';
+import type { AttackAction, BlockAction, FighterState, StaggerCause } from './state';
 import { sweepContact } from './sweep';
 import type { Vec3 } from './vec';
 
@@ -76,7 +76,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
 
 /**
  * One contact. Blocked by rule (ADR 0002): no damage, the attacker recoils
- * into Stagger. Otherwise a hit: the defender takes damage and Staggers.
+ * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers.
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: Contact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
@@ -86,6 +86,8 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   if (blocksAttack(defender, attacker, c.direction, tuning)) {
     emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
+    // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
+    out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(defender.action as BlockAction, c.bladeSpeed, tuning) };
     return;
   }
   const damage = hitDamage(tuning, c.zone, c.bladeSpeed);

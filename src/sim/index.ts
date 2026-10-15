@@ -17,6 +17,7 @@ export type {
   AttackAction,
   AttackPhase,
   BlockAction,
+  BlockImpact,
   DuelState,
   FighterState,
   IdleAction,

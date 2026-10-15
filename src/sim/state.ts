@@ -62,6 +62,23 @@ export interface FighterState {
   readonly blade: BladeTransform;
   /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
   readonly gait: GaitState;
+  /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
+  readonly blockImpact?: BlockImpact;
+}
+
+/**
+ * The give and bounce of a Blocked blow on the defender: the sword hand is
+ * knocked back along the Attack and springs back, settling over
+ * `block.impactDuration` (Tuning Data). Cosmetic in outcome (ADR 0002), but
+ * part of the simulation, so the pose it moves is the pose the Hit Zones use.
+ */
+export interface BlockImpact {
+  /** The Direction of the Block that stopped the blow (which way the hand is knocked). */
+  readonly direction: Direction;
+  /** How hard the blow was: its Blade Speed over the Weapon's reference speed, clamped. */
+  readonly strength: number;
+  /** Ticks since the blow. */
+  readonly tick: number;
 }
 
 export interface MotionPlayback {

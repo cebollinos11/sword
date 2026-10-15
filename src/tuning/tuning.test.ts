@@ -13,7 +13,7 @@ function goodRaw() {
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
     chamber: { windowSeconds: 0.15 },
-    block: { facingHalfAngle: 60 },
+    block: { facingHalfAngle: 60, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2 },
     match: { duelDistance: 2, interDuelSeconds: 2 },
     gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
     skeleton: {
@@ -79,8 +79,8 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, chamber: undefined })).toThrow(/chamber/);
     expect(() => parseTuningData({ ...good, skeleton: { ...good.skeleton, forearm: -1 } })).toThrow(/skeleton\.forearm/);
     expect(() => parseTuningData({ ...good, block: undefined })).toThrow(/block/);
-    expect(() => parseTuningData({ ...good, block: { facingHalfAngle: 0 } })).toThrow(/block\.facingHalfAngle/);
-    expect(() => parseTuningData({ ...good, block: { facingHalfAngle: 181 } })).toThrow(/block\.facingHalfAngle/);
+    expect(() => parseTuningData({ ...good, block: { ...good.block, facingHalfAngle: 0 } })).toThrow(/block\.facingHalfAngle/);
+    expect(() => parseTuningData({ ...good, block: { ...good.block, facingHalfAngle: 181 } })).toThrow(/block\.facingHalfAngle/);
     expect(() => parseTuningData({ ...good, match: undefined })).toThrow(/match/);
     expect(() => parseTuningData({ ...good, match: { duelDistance: 0, interDuelSeconds: 2 } })).toThrow(/match\.duelDistance/);
     expect(() => parseTuningData({ ...good, match: { duelDistance: 2, interDuelSeconds: 0 } })).toThrow(/match\.interDuelSeconds/);

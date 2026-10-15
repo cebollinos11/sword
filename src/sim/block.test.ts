@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { attack, hold, runDuel, wait, type HitEvent, type ScriptRun, type Track } from './index';
+import { attack, hold, runDuel, secondsToTicks, wait, type HitEvent, type ScriptRun, type Track } from './index';
 
 const tuning = loadTuningData();
 
@@ -53,7 +53,7 @@ describe('Block', () => {
     const turned = placements(1.3, Math.PI - (75 * Math.PI) / 180);
     const narrow = runDuel(tuning, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
     expect(eventsOf(narrow, 'Block')).toEqual([]);
-    const wide: typeof tuning = { ...tuning, block: { facingHalfAngle: 90 } };
+    const wide: typeof tuning = { ...tuning, block: { ...tuning.block, facingHalfAngle: 90 } };
     const widened = runDuel(wide, { placements: turned, a: attack('Overhead'), b: block('Overhead', 120) });
     expect(eventsOf(widened, 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1 })]);
   });
@@ -108,6 +108,23 @@ describe('Stagger', () => {
     expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
     // Still holding block once the Stagger ends: the Block goes back up.
     expect(run.states[t + 60]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Thrust' });
+  });
+
+  it("a Blocked blow knocks the defender's sword hand back, bounces it forward past the Block, and settles (Block Impact)", () => {
+    // A slow, long ring so the bounce is plain to measure, whatever the shipped defaults.
+    const ringing = { ...tuning, block: { ...tuning.block, impactFrequency: 5, impactDuration: 0.45 } };
+    const run = runDuel(ringing, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 200) });
+    const t = eventsOf(run, 'Block')[0]!.tick;
+    const settle = secondsToTicks(ringing.block.impactDuration);
+    const held = run.states[t + settle + 5]!.fighters[1]!;
+    expect(held.blockImpact).toBeUndefined();
+    // How far the blade's hilt sits from where the held Block puts it, toward (+) or away from (-) the attacker at -z.
+    const forward = (k: number) => held.blade.hilt.z - run.states[k]!.fighters[1]!.blade.hilt.z;
+    const ticks = Array.from({ length: settle }, (_, i) => t + 1 + i);
+    expect(run.states[t + 1]!.fighters[1]!.blockImpact).toMatchObject({ direction: 'Overhead', tick: 1 });
+    expect(Math.min(...ticks.map(forward))).toBeLessThan(-0.03); // knocked back...
+    expect(Math.max(...ticks.map(forward))).toBeGreaterThan(0.01); // ...and bounces past the Block
+    expect(Math.abs(forward(t + settle - 1))).toBeLessThan(0.02); // ...ringing down to it
   });
 });
 

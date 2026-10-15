@@ -1,4 +1,5 @@
 import type { TuningData } from '../tuning';
+import { applyBlockImpact } from './actions';
 import { footPose, hipShift, toLocal } from './gait';
 import { motionTargets, playbackTargets } from './motion';
 import { solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
@@ -20,10 +21,11 @@ export function playbackPose(tuning: TuningData, playback: MotionPlayback, place
 /**
  * The full solved Skeleton of a Fighter (what the Renderer draws and Hit Zones are built on):
  * its Motion playback (crossfading out of the last Motion, if one just ended) at its position and facing, with the feet where the Gait has them
- * and the hips bobbing and swaying with each step.
+ * and the hips bobbing and swaying with each step, and the sword hand shaken by any Block Impact.
  */
 export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
-  const targets = playbackTargets(tuning, f.motion);
+  const played = playbackTargets(tuning, f.motion);
+  const targets = f.blockImpact ? applyBlockImpact(played, f.blockImpact, tuning) : played;
   const left = footPose(f.gait.left, tuning);
   const right = footPose(f.gait.right, tuning);
   return solveSkeleton(

@@ -11,7 +11,7 @@ type Mutable<T> = T extends readonly (infer U)[] ? Mutable<U>[] : T extends obje
 export type MotionDraft = Mutable<Motion>;
 
 /** The Tuning Data sections the Editor's number panels edit, each saved to `data/<section>.json`. */
-export const TUNING_SECTIONS = ['weapon', 'hitZones', 'ai', 'gait'] as const;
+export const TUNING_SECTIONS = ['weapon', 'hitZones', 'ai', 'gait', 'block'] as const;
 export type TuningSection = (typeof TUNING_SECTIONS)[number];
 /** An editable copy of one Tuning Data section; validated with parseTuningData before it is used. */
 export type SectionDraft<S extends TuningSection> = Mutable<TuningData[S]>;
@@ -58,7 +58,7 @@ export class EditorSession {
     return { fileName: motionFileName(motion.name), text: serializeMotion(motion), motion };
   }
 
-  /** A mutable copy of a Tuning Data section (Weapon, Hit Zones, AI, Gait); the same object until committed or saved. */
+  /** A mutable copy of a Tuning Data section (Weapon, Hit Zones, AI, Gait, Block); the same object until committed or saved. */
   draftSection<S extends TuningSection>(section: S): SectionDraft<S> {
     let d = this.sectionDrafts.get(section) as SectionDraft<S> | undefined;
     if (!d) {

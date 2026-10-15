@@ -1,5 +1,5 @@
 import type { TuningData } from '../tuning';
-import { IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { advanceBlockImpact, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { resolveChambers } from './chamber';
 import { resolveBodies } from './collision';
 import { findContacts, resolveContacts } from './combat';
@@ -87,7 +87,11 @@ function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
 
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
-  return { ...f, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.motion, motion) };
+  // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
+  const { blockImpact, ...rest } = f;
+  const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
+  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.motion, motion) };
+  return impact ? { ...next, blockImpact: impact } : next;
 }
 
 /**

@@ -1,3 +1,8 @@
 {
-  "facingHalfAngle": 60
+  "facingHalfAngle": 60,
+  "impactDistance": 0.12,
+  "impactTilt": 15,
+  "impactLean": 5,
+  "impactFrequency": 4,
+  "impactDuration": 0.2
 }

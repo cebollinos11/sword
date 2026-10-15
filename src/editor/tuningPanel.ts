@@ -1,7 +1,8 @@
 /**
  * Tuning panels for the Duel sandbox: Weapon (length, speed, damage), Hit Zone
  * multipliers, AI difficulty (Reaction Time, mistake rate per preset) and the
- * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here).
+ * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
+ * Block (the facing rule and the Block Impact's give and bounce).
  *
  * Fields edit `EditorSession` drafts; every change is validated with
  * `commitSection` and, if valid, made live (`onApplied` re-runs the sandbox).
@@ -12,7 +13,7 @@ import { GAIT_FIELDS, HIT_ZONES } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, TuningSection } from './session';
 
-const TITLES: Record<TuningSection, string> = { weapon: 'Weapon', hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait' };
+const TITLES: Record<TuningSection, string> = { weapon: 'Weapon', hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait', block: 'Block' };
 
 export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: () => void): void {
   const ui = { status: 'Edit a value: the sandbox re-runs with it. Save writes data/<section>.json.' };
@@ -88,6 +89,16 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
       const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
       f.addBinding(gait, key, { min, max, step, label }).on('change', () => apply('gait'));
     }
+  });
+
+  folder('block', (f) => {
+    const b = session.draftSection('block');
+    f.addBinding(b, 'facingHalfAngle', { min: 1, max: 180, step: 1, label: 'facing half-angle (°)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'impactDistance', { min: 0.01, max: 0.4, step: 0.01, label: 'impact give (m)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'impactTilt', { min: 0.5, max: 60, step: 0.5, label: 'impact tilt (°)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'impactLean', { min: 0.5, max: 30, step: 0.5, label: 'impact lean (°)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'impactFrequency', { min: 1, max: 15, step: 0.5, label: 'bounce (Hz)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'impactDuration', { min: 0.05, max: 1.5, step: 0.05, label: 'settle (s)' }).on('change', () => apply('block'));
   });
 
   root.addBinding(ui, 'status', { readonly: true, label: 'status', multiline: true, rows: 2 });

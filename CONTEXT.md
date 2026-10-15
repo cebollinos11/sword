@@ -100,6 +100,10 @@ _Avoid_: Strike, swing (as a noun for the whole thing)
 A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry.
 _Avoid_: Parry, guard
 
+**Block Impact**:
+The give and bounce of a Blocked blow on the defender: the sword hand is knocked back along the Attack, springs forward past the Block and rings down to it (Tuning Data `block.impact*`, scaled by Blade Speed). It changes the pose, never the outcome (the Block already decided it).
+_Avoid_: Knockback, recoil (Recoil is the attacker's Stagger)
+
 **Feint**:
 Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
 

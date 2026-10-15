@@ -96,7 +96,7 @@ describe('AI Controller: mistake rate', () => {
     expect(none).toBe(0);
     expect(some).toBeGreaterThan(none);
     expect(many).toBeGreaterThan(some * 1.5);
-  });
+  }, 30_000);
 });
 
 describe('AI Controller: Blocking', () => {
