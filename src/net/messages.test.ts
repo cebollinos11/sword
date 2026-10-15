@@ -55,6 +55,11 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, action: { kind: 'Stagger', cause: 'Tired' } }),
       withFighter({ ...fighter, motion: { name: 'Idle', tick: -1 } }),
       withFighter({ ...fighter, blade: { hilt: { x: 0, y: 0, z: 0 } } }),
+      withFighter({ ...fighter, gait: undefined }),
+      withFighter({ ...fighter, gait: { left: fighter.gait.left } }),
+      withFighter({ ...fighter, gait: { ...fighter.gait, left: { planted: { x: 0 }, step: null } } }),
+      withFighter({ ...fighter, gait: { ...fighter.gait, right: { planted: { x: 0, z: 0 }, step: { tick: -1, target: { x: 0, z: 0 } } } } }),
+      withFighter({ ...fighter, gait: { ...fighter.gait, right: { planted: { x: 0, z: 0 }, step: { tick: 2, target: 'there' } } } }),
     ];
     for (const state of broken) expect(parseNetMessage(resync(state)), JSON.stringify(state)?.slice(0, 120)).toBeNull();
     expect(parseNetMessage({ ...resync(good), intents: [{}] })).toBeNull();

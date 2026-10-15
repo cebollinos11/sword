@@ -136,6 +136,11 @@ function isAction(v: unknown): boolean {
   }
 }
 
+/** One foot of the Gait: planted on the floor, or stepping toward a target. */
+function isFoot(v: unknown): boolean {
+  return isObject(v) && isVec2(v.planted) && (v.step === null || (isObject(v.step) && isTick(v.step.tick) && isVec2(v.step.target)));
+}
+
 function isFighter(v: unknown): boolean {
   return (
     isObject(v) &&
@@ -149,7 +154,10 @@ function isFighter(v: unknown): boolean {
     isObject(v.blade) &&
     isVec3(v.blade.hilt) &&
     isVec3(v.blade.tip) &&
-    isVec3(v.blade.edge)
+    isVec3(v.blade.edge) &&
+    isObject(v.gait) &&
+    isFoot(v.gait.left) &&
+    isFoot(v.gait.right)
   );
 }
 
