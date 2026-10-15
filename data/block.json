@@ -1,5 +1,6 @@
 {
   "facingHalfAngle": 60,
+  "bladeRadius": 0.05,
   "impactDistance": 0.12,
   "impactTilt": 15,
   "impactLean": 5,

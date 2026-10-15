@@ -97,7 +97,7 @@ A directional swing or thrust of the Weapon; it can only hit through the Blade S
 _Avoid_: Strike, swing (as a noun for the whole thing)
 
 **Block**:
-A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry.
+A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry; but a Block lands where the Blade Sweep first reaches the defender's blade or body, so the blades meet (ADR 0002).
 _Avoid_: Parry, guard
 
 **Block Impact**:

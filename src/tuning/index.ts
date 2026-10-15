@@ -72,6 +72,8 @@ export interface ChamberTuning {
 export interface BlockTuning {
   /** How far (degrees either side of straight ahead, 0 < a <= 180) the attacker may be from the defender's facing: "roughly faces the attacker". */
   readonly facingHalfAngle: number;
+  /** Radius (m) of the blade a Blocking defender presents to an Attack it Blocks: the Block lands where the blades meet. */
+  readonly bladeRadius: number;
   /** Block Impact: how far (m) the sword hand gives at the first peak of a blow at the Weapon's reference Blade Speed. */
   readonly impactDistance: number;
   /** Block Impact: how far (degrees) the blade tips back at that peak. */
@@ -254,6 +256,7 @@ export function parseTuningData(raw: unknown): TuningData {
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     block: {
       facingHalfAngle,
+      bladeRadius: positiveNumber(bl, 'bladeRadius', 'block'),
       impactDistance: positiveNumber(bl, 'impactDistance', 'block'),
       impactTilt: positiveNumber(bl, 'impactTilt', 'block'),
       impactLean: positiveNumber(bl, 'impactLean', 'block'),

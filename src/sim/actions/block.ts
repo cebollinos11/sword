@@ -1,7 +1,8 @@
 /**
  * The Block Action: hold the block button to Block in the Intent's Direction (chosen on
  * press); let go to return to Idle. Whether a Block stops an Attack is decided
- * by rule, never by blade geometry (ADR 0002): see `blocksAttack`.
+ * by rule, never by blade geometry (ADR 0002): see `blocksAttack`. The geometry only
+ * decides when it lands: at the blade or the body, whichever the Blade Sweep reaches first.
  */
 import type { TuningData } from '../../tuning';
 import { secondsToTicks, TICK_SECONDS } from '../constants';
@@ -12,7 +13,7 @@ import type { Vec3 } from '../vec';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionHandler, ActionStarter } from './types';
 
-/** The Motion that animates a Block in `direction` (cosmetic only; one Motion file per Direction). */
+/** The Motion that animates a Block in `direction` (one Motion file per Direction; where it holds the blade is where Blocks land). */
 export const blockMotionName = (direction: Direction): string => `Block${direction}`;
 
 /** Pressing block (from Idle) raises a Block in the Intent's Direction. */

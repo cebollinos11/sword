@@ -13,7 +13,7 @@ function goodRaw() {
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
     chamber: { windowSeconds: 0.15 },
-    block: { facingHalfAngle: 60, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2 },
+    block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2 },
     match: { duelDistance: 2, interDuelSeconds: 2 },
     gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
     skeleton: {

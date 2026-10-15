@@ -65,6 +65,29 @@ describe('Block', () => {
     expect(run.final.fighters[1]!.hp).toBeLessThan(100);
   });
 
+  it('a Block lands where the blades meet, before the Attack would reach the body', () => {
+    // A hair-thin blade leaves only the body to stop the Attack, as before blades had a collider.
+    const bodyOnly = { ...tuning, block: { ...tuning.block, bladeRadius: 1e-6 } };
+    for (const [attackDir, blockDir] of [['Overhead', 'Overhead'], ['Left', 'Right']] as const) {
+      const at = (t: typeof tuning) => eventsOf(runDuel(t, { placements: placements(1.3), a: attack(attackDir), b: block(blockDir, 120) }), 'Block')[0]!.tick;
+      expect(at(tuning)).toBeLessThan(at(bodyOnly));
+    }
+  });
+
+  it('an Attack that only reaches the Blocking blade, never the body, is still Blocked', () => {
+    // Out of reach of the body: unblocked, the Attack whiffs.
+    expect(eventsOf(runDuel(tuning, { placements: placements(1.7), a: attack('Left'), b: wait(120) }), 'Hit')).toEqual([]);
+    const run = runDuel(tuning, { placements: placements(1.7), a: attack('Left'), b: block('Right', 120) });
+    expect(eventsOf(run, 'Block')).toEqual([expect.objectContaining({ attacker: 0, defender: 1, direction: 'Left' })]);
+  });
+
+  it('a blade that is not Blocking that Attack does not stop it (the Block rule still decides, ADR 0002)', () => {
+    // The wrong Block's blade is no obstacle: the Attack lands on the body.
+    const run = runDuel(tuning, { placements: placements(1.3), a: attack('Left'), b: block('Left', 120) });
+    expect(eventsOf(run, 'Block')).toEqual([]);
+    expect(hitsOf(run)).toHaveLength(1);
+  });
+
   it('a Block only counts while it is held', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: [...block('Overhead', 5), ...wait(115)] });
     expect(eventsOf(run, 'Block')).toEqual([]);

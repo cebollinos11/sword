@@ -5,15 +5,21 @@
  * radius of its axis is a contact.
  */
 import { TICK_SECONDS } from './constants';
-import type { HitCapsule } from './hitZones';
 import type { BladeTransform } from './skeleton';
 import { add, dot, length, lerp, scale, sub, type Vec3 } from './vec';
 
 /** Points sampled along the blade, hilt to tip. Spacing must stay below the thinnest Hit Zone's diameter. */
 const BLADE_SAMPLES = 13;
 
-export interface SweepContact {
-  readonly capsule: HitCapsule;
+/** Anything a Blade Sweep can touch: all points within `radius` of the segment a→b (a Hit Zone, or a Blocking blade). */
+export interface Capsule {
+  readonly a: Vec3;
+  readonly b: Vec3;
+  readonly radius: number;
+}
+
+export interface SweepContact<C extends Capsule = Capsule> {
+  readonly capsule: C;
   /** World-space contact point. */
   readonly point: Vec3;
   /** Speed of the blade at the contact point, m/s. */
@@ -24,8 +30,8 @@ export interface SweepContact {
  * The first contact of the Blade Sweep from `from` to `to` with any capsule, or
  * null. "First" is the earliest point in the Tick; ties go to the deepest.
  */
-export function sweepContact(from: BladeTransform, to: BladeTransform, capsules: readonly HitCapsule[]): SweepContact | null {
-  let best: { s: number; depth: number; contact: SweepContact } | null = null;
+export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeTransform, capsules: readonly C[]): SweepContact<C> | null {
+  let best: { s: number; depth: number; contact: SweepContact<C> } | null = null;
   for (let i = 0; i < BLADE_SAMPLES; i++) {
     const u = i / (BLADE_SAMPLES - 1);
     const p0 = lerp(from.hilt, from.tip, u);

@@ -94,6 +94,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
   folder('block', (f) => {
     const b = session.draftSection('block');
     f.addBinding(b, 'facingHalfAngle', { min: 1, max: 180, step: 1, label: 'facing half-angle (°)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'bladeRadius', { min: 0.01, max: 0.2, step: 0.005, label: 'blade radius (m)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactDistance', { min: 0.01, max: 0.4, step: 0.01, label: 'impact give (m)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactTilt', { min: 0.5, max: 60, step: 0.5, label: 'impact tilt (°)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactLean', { min: 0.5, max: 30, step: 0.5, label: 'impact lean (°)' }).on('change', () => apply('block'));
