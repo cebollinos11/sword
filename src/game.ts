@@ -6,6 +6,7 @@ import { createBrowserAudio } from './audio';
 import { LocalController } from './controllers';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
+import { bindTouchInput, isTouchDevice } from './play/touch';
 import { Hud } from './play/hud';
 import { Menu } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -62,7 +63,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const renderer = new Renderer(container, tuning);
   const audio = createBrowserAudio();
   const local = new LocalController();
-  const input = bindLocalInput(local, renderer.canvas);
+  const mouseInput = bindLocalInput(local, renderer.canvas);
+  const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;
+  /** Feeds the Local Controller only while a Match is on (mouse/keyboard, plus touch on touch devices). */
+  const input = {
+    set enabled(on: boolean) {
+      mouseInput.enabled = on;
+      if (touchInput) touchInput.enabled = on;
+    },
+  };
   const hud = new Hud(container, tuning);
 
   let driver: MatchDriver | null = null;

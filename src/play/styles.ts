@@ -43,6 +43,32 @@ const CSS = `
 .menu-broker input[type="text"] { width: 100%; box-sizing: border-box; margin-top: 0.4rem; font-size: 0.8rem; }
 .menu-room-code { font-size: 2.6rem; font-weight: 700; letter-spacing: 0.25em; font-family: ui-monospace, monospace; margin: 0.4rem 0; }
 .menu-room-status { opacity: 0.85; font-size: 0.9rem; }
+.menu-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.menu .menu-fullscreen { font-size: 0.85rem; padding: 0.3rem 0.7rem; }
+.menu button, .menu input { touch-action: manipulation; }
+@media (pointer: coarse) { .menu button { padding: 0.55rem 0.95rem; } .menu-panel { padding: 1.2rem 1.2rem; } }
+.touch { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  font-family: system-ui, sans-serif; color: #fff; --pad: clamp(84px, 24vmin, 132px); --edge: max(18px, env(safe-area-inset-right));
+  --base: max(18px, env(safe-area-inset-bottom)); }
+.touch[hidden] { display: none; }
+.touch-stick { position: absolute; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%;
+  left: calc(max(18px, env(safe-area-inset-left)) + 56px); top: calc(100% - var(--base) - 56px);
+  background: #ffffff14; border: 2px solid #ffffff40; opacity: 0.6; pointer-events: none; }
+.touch-stick.active { opacity: 1; }
+.touch-stick-knob { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%;
+  background: #ffffff70; }
+.touch-pad { position: absolute; width: var(--pad); height: var(--pad); border-radius: 50%; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; border: 2px solid #ffffff60; text-shadow: 0 1px 2px #000a; }
+.touch-pad-arrow { font-size: 1.6rem; line-height: 1; min-height: 1.6rem; }
+.touch-pad-label { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
+.touch-attack { right: var(--edge); bottom: var(--base); background: #c0392b88; }
+.touch-block { right: calc(var(--edge) + var(--pad) * 0.95); bottom: calc(var(--base) + var(--pad) * 0.85);
+  width: calc(var(--pad) * 0.78); height: calc(var(--pad) * 0.78); background: #2e86c188; }
+.touch-pad.active { border-color: #fff; filter: brightness(1.35); }
+@media (orientation: portrait) {
+  .touch { --pad: clamp(84px, 27vw, 128px); }
+  .touch-block { right: var(--edge); bottom: calc(var(--base) + var(--pad) + 16px); }
+}
 `;
 
 let injected = false;

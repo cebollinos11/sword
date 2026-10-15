@@ -1,5 +1,6 @@
 import type { TuningData } from '../tuning';
 import { ensurePlayStyles } from './styles';
+import { isTouchDevice } from './touch';
 
 export interface PlayerVsAiChoice {
   readonly difficulty: string;
@@ -34,6 +35,37 @@ export type RoomView =
 
 const BEST_OF = [1, 3, 5] as const;
 const BROKER_STORAGE_KEY = 'sword.broker';
+
+/** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
+type FullscreenDocument = Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
+type FullscreenElement = HTMLElement & { webkitRequestFullscreen?: () => void };
+
+function fullscreenSupported(): boolean {
+  const doc = document as FullscreenDocument;
+  return Boolean(doc.fullscreenEnabled || doc.webkitFullscreenEnabled);
+}
+
+function isFullscreen(): boolean {
+  const doc = document as FullscreenDocument;
+  return Boolean(doc.fullscreenElement || doc.webkitFullscreenElement);
+}
+
+function toggleFullscreen(): void {
+  const doc = document as FullscreenDocument;
+  const el = document.documentElement as FullscreenElement;
+  try {
+    if (isFullscreen()) {
+      if (doc.exitFullscreen) void doc.exitFullscreen().catch(() => undefined);
+      else doc.webkitExitFullscreen?.();
+    } else if (el.requestFullscreen) {
+      void el.requestFullscreen({ navigationUI: 'hide' }).catch(() => undefined);
+    } else {
+      el.webkitRequestFullscreen?.();
+    }
+  } catch {
+    // Refused (e.g. not from a user gesture): stay as we are.
+  }
+}
 
 function storedBroker(): string {
   try {
@@ -83,8 +115,23 @@ export class Menu {
     const panel = document.createElement('div');
     panel.className = 'menu-panel';
 
+    const head = document.createElement('div');
+    head.className = 'menu-head';
     const title = document.createElement('h1');
     title.textContent = 'Sword';
+    const fullscreen = document.createElement('button');
+    fullscreen.type = 'button';
+    fullscreen.className = 'menu-fullscreen';
+    const labelFullscreen = () => {
+      fullscreen.textContent = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
+      fullscreen.setAttribute('aria-pressed', String(isFullscreen()));
+    };
+    labelFullscreen();
+    fullscreen.hidden = !fullscreenSupported(); // e.g. iPhone Safari has no Fullscreen API
+    fullscreen.addEventListener('click', toggleFullscreen);
+    document.addEventListener('fullscreenchange', labelFullscreen);
+    document.addEventListener('webkitfullscreenchange', labelFullscreen);
+    head.append(title, fullscreen);
     this.result.className = 'menu-result';
 
     // --- Player vs AI ---
@@ -145,8 +192,11 @@ export class Menu {
 
     const help = document.createElement('p');
     help.className = 'menu-help';
-    help.innerHTML =
-      'Move the mouse to aim the camera and pick a Direction (left, right, up = Overhead, down = Thrust), then ' +
+    help.innerHTML = isTouchDevice()
+      ? 'Drag the <b>left thumb</b> to walk and drag anywhere else to turn the camera. On the <b>Attack</b> pad, ' +
+        'swipe left, right, up (Overhead) or down (Thrust) to wind up in that Direction, and lift to swing. A tap ' +
+        'repeats the last Direction. Swipe a new way while holding to feint. The <b>Block</b> pad works the same way.'
+      : 'Move the mouse to aim the camera and pick a Direction (left, right, up = Overhead, down = Thrust), then ' +
       '<b>hold left mouse</b> to wind up and let go to swing. <b>Right mouse</b> blocks in the Direction you last moved. ' +
       '<b>WASD</b> walks. <b>Q</b> during a wind-up feints into the Direction you last moved. Esc frees the mouse.';
 
@@ -185,7 +235,7 @@ export class Menu {
     this.room.append(this.roomTitle, this.roomCode, linkRow, this.roomStatus, leave);
     this.room.hidden = true;
 
-    panel.append(title, this.result, this.main, this.room);
+    panel.append(head, this.result, this.main, this.room);
     this.root.append(panel);
     container.append(this.root);
   }

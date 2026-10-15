@@ -12,5 +12,5 @@ export {
   type MatchRun,
 } from './controller';
 export { aiDifficulty, createAiController } from './ai';
-export { FACE_STEPS, FEINT_KEY, GESTURE_PX, LocalController, LOOK_RADIANS_PER_PX, type LocalButton } from './local';
+export { FACE_STEPS, FEINT_KEY, GESTURE_PX, gestureDirection, LocalController, LOOK_RADIANS_PER_PX, type LocalButton } from './local';
 export { createRemoteController, type PeerIntentSource } from './remote';

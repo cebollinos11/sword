@@ -28,7 +28,7 @@ const MOVE_KEYS: Readonly<Record<string, 'forward' | 'back' | 'left' | 'right'>>
 const TURN = 2 * Math.PI;
 
 /** The Direction a mouse gesture asks for: the blade comes from the side the mouse moved to; up is Overhead, down is Thrust. */
-function gestureDirection(dx: number, dy: number): Direction {
+export function gestureDirection(dx: number, dy: number): Direction {
   if (Math.abs(dx) > Math.abs(dy)) return dx < 0 ? 'Left' : 'Right';
   return dy < 0 ? 'Overhead' : 'Thrust';
 }
@@ -86,12 +86,23 @@ export class LocalController implements Controller {
 
   /** Relative mouse movement in screen pixels (+x right, +y down). */
   mouseMove(dx: number, dy: number): void {
-    // Moving right turns right, i.e. towards -x at yaw 0: yaw decreases.
-    this.yawRadians = wrapAngle(this.yawRadians - dx * LOOK_RADIANS_PER_PX);
+    this.look(dx);
     this.travel.x += dx;
     this.travel.y += dy;
     if (Math.hypot(this.travel.x, this.travel.y) < GESTURE_PX) return;
     this.gestured = gestureDirection(this.travel.x, this.travel.y);
+    this.travel = { x: 0, y: 0 };
+  }
+
+  /** Turn the camera by `dx` screen pixels without making a Direction gesture (a touch drag on the screen). */
+  look(dx: number): void {
+    // Moving right turns right, i.e. towards -x at yaw 0: yaw decreases.
+    this.yawRadians = wrapAngle(this.yawRadians - dx * LOOK_RADIANS_PER_PX);
+  }
+
+  /** A Direction gesture made some other way than the mouse (a swipe on a touch pad): the next press uses it. */
+  aim(direction: Direction): void {
+    this.gestured = direction;
     this.travel = { x: 0, y: 0 };
   }
 

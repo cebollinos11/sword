@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import type { TuningData } from '../tuning';
 
+/** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
+const VERTICAL_FOV = 60;
+const MIN_HORIZONTAL_FOV = 62;
+
 /** The shared 3D scene: WebGL renderer, camera, lights, ground, Arena and sky. */
 export class Stage {
   readonly renderer: THREE.WebGLRenderer;
@@ -18,7 +22,7 @@ export class Stage {
     this.scene.background = new THREE.Color(0x9fc9e8); // sky
     this.scene.fog = new THREE.Fog(0x9fc9e8, 20, 60);
 
-    this.camera = new THREE.PerspectiveCamera(60, 1, 0.05, 200);
+    this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, 200);
     this.camera.position.set(0, 3, -6);
     this.camera.lookAt(0, 1, 0);
 
@@ -42,6 +46,9 @@ export class Stage {
     const h = this.container.clientHeight || window.innerHeight;
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
+    // A tall (portrait) screen keeps at least MIN_HORIZONTAL_FOV across, so the opponent stays in view.
+    const minVertical = 2 * Math.atan(Math.tan((MIN_HORIZONTAL_FOV * Math.PI) / 360) / this.camera.aspect) * (180 / Math.PI);
+    this.camera.fov = Math.max(VERTICAL_FOV, minVertical);
     this.camera.updateProjectionMatrix();
   }
 

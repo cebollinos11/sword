@@ -200,4 +200,32 @@ describe('Local Controller', () => {
       expect(next(local)).toMatchObject({ move: { x: 0, z: 0 }, attack: false, block: false });
     });
   });
+
+  describe('touch', () => {
+    it('a touch swipe aims the next press without turning the camera', () => {
+      const local = new LocalController();
+      local.aim('Right');
+      local.buttonDown('attack');
+      expect(next(local)).toMatchObject({ attack: true, direction: 'Right', face: 0 });
+    });
+
+    it('a look drag turns the camera but is not a Direction gesture', () => {
+      const local = new LocalController();
+      local.look(400);
+      local.buttonDown('attack');
+      const intent = next(local);
+      expect(intent.direction).toBe('Overhead');
+      expect(intent.face).toBeLessThan(0);
+    });
+
+    it('re-aiming a held Attack and feinting changes its Direction', () => {
+      const local = new LocalController();
+      local.aim('Left');
+      local.buttonDown('attack');
+      next(local);
+      local.aim('Thrust');
+      local.feint();
+      expect(next(local).direction).toBe('Thrust');
+    });
+  });
 });
