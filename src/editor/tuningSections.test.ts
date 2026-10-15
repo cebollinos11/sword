@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import aiJson from '../../data/ai.json';
+import gaitJson from '../../data/gait.json';
 import hitZonesJson from '../../data/hitZones.json';
 import weaponJson from '../../data/weapon.json';
-import { loadTuningData, parseTuningData, TuningDataError } from '../tuning';
+import { GAIT_FIELDS, loadTuningData, parseTuningData, TuningDataError } from '../tuning';
 import { EditorSession, TUNING_SECTIONS } from './session';
 
 const tuning = loadTuningData();
@@ -13,7 +14,7 @@ function reloadWith(fileName: string, text: string) {
   return parseTuningData({ ...tuning, [key]: JSON.parse(text), motions: Object.values(tuning.motions) });
 }
 
-describe('EditorSession Tuning Data sections (Weapon, Hit Zones, AI)', () => {
+describe('EditorSession Tuning Data sections (Weapon, Hit Zones, AI, Gait)', () => {
   it('saves an edited Weapon to weapon.json, and the saved file reloads to the live values', () => {
     const session = new EditorSession(tuning);
     const w = session.draftSection('weapon');
@@ -30,7 +31,8 @@ describe('EditorSession Tuning Data sections (Weapon, Hit Zones, AI)', () => {
 
   it('saves every section unchanged when nothing was edited', () => {
     const session = new EditorSession(tuning);
-    const repo = { weapon: weaponJson, hitZones: hitZonesJson, ai: aiJson };
+    const repo = { weapon: weaponJson, hitZones: hitZonesJson, ai: aiJson, gait: gaitJson };
+    expect(TUNING_SECTIONS).toContain('gait');
     for (const section of TUNING_SECTIONS) {
       const file = session.sectionFile(section);
       expect(file.fileName).toBe(`${section}.json`);
@@ -61,6 +63,33 @@ describe('EditorSession Tuning Data sections (Weapon, Hit Zones, AI)', () => {
       torso: { multiplier: 1, radius: 0.16 },
       limbs: { multiplier: 0.4, radius: 0.06 },
     });
+  });
+
+  it('saves an edited Gait to gait.json, and the saved file reloads to the live values', () => {
+    const session = new EditorSession(tuning);
+    const g = session.draftSection('gait');
+    g.strideThreshold = 0.35;
+    g.stepDuration = 0.12;
+    g.stepHeight = 0.05;
+    session.commitSection('gait');
+    expect(session.tuning.gait.strideThreshold).toBe(0.35);
+    expect(session.tuning.gait.stepDuration).toBe(0.12);
+    expect(session.tuning.gait.stepHeight).toBe(0.05);
+
+    const file = session.sectionFile('gait');
+    expect(file.fileName).toBe('gait.json');
+    const reloaded = reloadWith(file.fileName, file.text).gait;
+    expect(reloaded).toEqual(session.tuning.gait);
+    // every Gait value is saved, whatever fields the Gait has
+    expect(Object.keys(JSON.parse(file.text)).sort()).toEqual(Object.keys(GAIT_FIELDS).sort());
+  });
+
+  it('refuses an invalid Gait value, naming it, and keeps the live Tuning Data', () => {
+    const session = new EditorSession(tuning);
+    session.draftSection('gait').stepDuration = 0;
+    expect(() => session.commitSection('gait')).toThrow(TuningDataError);
+    expect(() => session.sectionFile('gait')).toThrow(/^gait\.stepDuration/);
+    expect(session.tuning.gait).toBe(tuning.gait);
   });
 
   it('refuses an invalid value, naming it, and keeps the live Tuning Data', () => {

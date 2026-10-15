@@ -1,17 +1,18 @@
 /**
  * Tuning panels for the Duel sandbox: Weapon (length, speed, damage), Hit Zone
- * multipliers and AI difficulty (Reaction Time, mistake rate per preset).
+ * multipliers, AI difficulty (Reaction Time, mistake rate per preset) and the
+ * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here).
  *
  * Fields edit `EditorSession` drafts; every change is validated with
  * `commitSection` and, if valid, made live (`onApplied` re-runs the sandbox).
  * Save writes the validated section to `data/<section>.json`.
  */
 import type { FolderApi, Pane } from 'tweakpane';
-import { HIT_ZONES } from '../tuning';
+import { GAIT_FIELDS, HIT_ZONES } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, TuningSection } from './session';
 
-const TITLES: Record<TuningSection, string> = { weapon: 'Weapon', hitZones: 'Hit Zones', ai: 'AI difficulty' };
+const TITLES: Record<TuningSection, string> = { weapon: 'Weapon', hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait' };
 
 export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: () => void): void {
   const ui = { status: 'Edit a value: the sandbox re-runs with it. Save writes data/<section>.json.' };
@@ -78,6 +79,14 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
       g.addBinding(d, 'reactionTime', { min: 0, max: 1, step: 0.01, label: 'Reaction Time (s)' }).on('change', () => apply('ai'));
       g.addBinding(d, 'mistakeRate', { min: 0, max: 1, step: 0.01, label: 'mistake rate' }).on('change', () => apply('ai'));
       g.addBinding(d, 'feintRate', { min: 0, max: 1, step: 0.01, label: 'feint rate' }).on('change', () => apply('ai'));
+    }
+  });
+
+  folder('gait', (f) => {
+    const gait = session.draftSection('gait');
+    for (const [key, { min, max }] of Object.entries(GAIT_FIELDS)) {
+      const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
+      f.addBinding(gait, key as keyof typeof GAIT_FIELDS, { min, max, step: 0.005, label }).on('change', () => apply('gait'));
     }
   });
 
