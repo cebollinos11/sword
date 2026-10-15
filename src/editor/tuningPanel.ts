@@ -83,10 +83,10 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
   });
 
   folder('gait', (f) => {
-    const gait = session.draftSection('gait');
-    for (const [key, { min, max }] of Object.entries(GAIT_FIELDS)) {
+    const gait: Record<string, number> = session.draftSection('gait');
+    for (const [key, { min, max, step }] of Object.entries(GAIT_FIELDS)) {
       const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
-      f.addBinding(gait, key as keyof typeof GAIT_FIELDS, { min, max, step: 0.005, label }).on('change', () => apply('gait'));
+      f.addBinding(gait, key, { min, max, step, label }).on('change', () => apply('gait'));
     }
   });
 

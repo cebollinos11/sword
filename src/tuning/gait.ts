@@ -18,25 +18,32 @@ export interface GaitTuning {
 }
 
 /**
- * Every Gait field with its allowed range. To add a field, add it to
- * GaitTuning, add a row here and add it to data/gait.json.
+ * Every Gait field with its allowed range and the Editor slider's step. To add
+ * a field, add it to GaitTuning, add a row here, read it in parseGait and add
+ * it to data/gait.json.
  */
-export const GAIT_FIELDS: Readonly<Record<keyof GaitTuning, { readonly min: number; readonly max: number; readonly minExclusive: boolean }>> = {
-  strideThreshold: { min: 0, max: 1, minExclusive: true },
-  stepDuration: { min: 0, max: 2, minExclusive: true },
-  stepHeight: { min: 0, max: 0.5, minExclusive: false },
-  hipBob: { min: 0, max: 0.2, minExclusive: false },
-  hipSway: { min: 0, max: 0.2, minExclusive: false },
+export const GAIT_FIELDS: Readonly<Record<keyof GaitTuning, { readonly min: number; readonly max: number; readonly minExclusive: boolean; readonly step: number }>> = {
+  strideThreshold: { min: 0, max: 1, minExclusive: true, step: 0.005 },
+  stepDuration: { min: 0, max: 2, minExclusive: true, step: 1 / 60 }, // one Tick: steps last whole Ticks
+  stepHeight: { min: 0, max: 0.5, minExclusive: false, step: 0.005 },
+  hipBob: { min: 0, max: 0.2, minExclusive: false, step: 0.001 },
+  hipSway: { min: 0, max: 0.2, minExclusive: false, step: 0.001 },
 };
 
 export function parseGait(raw: unknown): GaitTuning {
   const g = record(raw, 'gait');
-  const out: Record<string, number> = {};
-  for (const [key, { min, max, minExclusive }] of Object.entries(GAIT_FIELDS)) {
+  const field = (key: keyof GaitTuning): number => {
+    const { min, max, minExclusive } = GAIT_FIELDS[key];
     const v = finiteNumber(g, key, 'gait');
     if (minExclusive ? v <= min : v < min) throw new TuningDataError(`gait.${key} must be ${minExclusive ? '>' : '>='} ${min}, got ${v}`);
     if (v > max) throw new TuningDataError(`gait.${key} must be at most ${max}, got ${v}`);
-    out[key] = v;
-  }
-  return out as unknown as GaitTuning;
+    return v;
+  };
+  return {
+    strideThreshold: field('strideThreshold'),
+    stepDuration: field('stepDuration'),
+    stepHeight: field('stepHeight'),
+    hipBob: field('hipBob'),
+    hipSway: field('hipSway'),
+  };
 }
