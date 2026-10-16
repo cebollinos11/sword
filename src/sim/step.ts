@@ -84,9 +84,15 @@ export function createInitialState(
   };
 }
 
-/** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk. */
+/** Share of `fighter.walkSpeed` a blocked attacker keeps while it recoils (its Stagger is `Blocked`). */
+const RECOIL_WALK_FACTOR = 0.5;
+
+/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. */
+const locked = (f: FighterState): boolean => f.action.kind === 'Stagger' && f.action.cause !== 'Blocked';
+
+/** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly). */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
-  if (f.action.kind === 'Stagger') return f.position;
+  if (locked(f)) return f.position;
   let { x: mx, z: mz } = intent.move;
   const len = Math.hypot(mx, mz);
   if (len === 0) return f.position;
@@ -94,7 +100,8 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mx /= len;
     mz /= len;
   }
-  const d = tuning.fighter.walkSpeed * TICK_SECONDS;
+  const speed = f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1;
+  const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
 

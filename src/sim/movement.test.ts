@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { attack, createInitialState, runDuel, runScript, wait, walk, type HitEvent, type ScriptRun, type SimState } from './index';
+import { TICK_SECONDS } from './constants';
+import { attack, createInitialState, hold, runDuel, runScript, wait, walk, type HitEvent, type ScriptRun, type SimState } from './index';
 
 const tuning = loadTuningData();
 
@@ -47,6 +48,23 @@ describe('Staggered Fighters', () => {
     expect(staggered.length).toBeGreaterThan(1);
     for (const s of staggered) expect(s.fighters[1]!.position).toEqual(at(hitTick).position);
     expect(run.final.fighters[1]!.position.z).toBeGreaterThan(at(hitTick).position.z + 0.5);
+  });
+
+  it('a blocked attacker can walk through its recoil, at half speed', () => {
+    // Fighter 1 blocks the Overhead, so Fighter 0 recoils. Fighter 0 starts walking away (-z) only once the Block lands.
+    const block = hold(120, { block: true, direction: 'Overhead' });
+    const blockTick = runDuel(tuning, { distance: 1.3, a: attack('Overhead'), b: block }).events.find((e) => e.type === 'Block')!.tick;
+    const run = runDuel(tuning, { distance: 1.3, a: [...attack('Overhead'), ...wait(blockTick), ...walk(120, { x: 0, z: -1 })], b: block });
+    const at = (t: number) => run.states[t]!.fighters[0]!;
+    expect(at(blockTick).action).toMatchObject({ kind: 'Stagger', cause: 'Blocked' });
+    const halfStep = tuning.fighter.walkSpeed * TICK_SECONDS * 0.5;
+    let recoilTicks = 0;
+    // A Tick's Intent shows up one state later, so the first two recoil Ticks are skipped.
+    for (let t = blockTick + 2; at(t).action.kind === 'Stagger'; t++) {
+      expect(at(t - 1).position.z - at(t).position.z).toBeCloseTo(halfStep, 9);
+      recoilTicks++;
+    }
+    expect(recoilTicks).toBeGreaterThan(1);
   });
 });
 
