@@ -525,7 +525,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     if (run.local) {
       const p = to.fighters[0]!.position;
       const q = from.fighters[0]!.position;
-      placeThirdPersonCamera(stage.camera, { x: q.x + (p.x - q.x) * alpha, z: q.z + (p.z - q.z) * alpha }, run.local.yaw);
+      placeThirdPersonCamera(stage.camera, session.tuning.camera, { x: q.x + (p.x - q.x) * alpha, z: q.z + (p.z - q.z) * alpha }, run.local.yaw);
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {

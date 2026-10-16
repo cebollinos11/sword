@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import aiJson from '../../data/ai.json';
 import blockJson from '../../data/block.json';
+import cameraJson from '../../data/camera.json';
 import gaitJson from '../../data/gait.json';
 import hitZonesJson from '../../data/hitZones.json';
 import armingSwordJson from '../../data/weapons/arming-sword.json';
@@ -77,7 +78,7 @@ describe('EditorSession Weapons', () => {
 describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () => {
   it('saves every section unchanged when nothing was edited', () => {
     const session = new EditorSession(tuning);
-    const repo = { hitZones: hitZonesJson, ai: aiJson, gait: gaitJson, block: blockJson };
+    const repo = { hitZones: hitZonesJson, ai: aiJson, gait: gaitJson, block: blockJson, camera: cameraJson };
     expect(TUNING_SECTIONS).toContain('gait');
     for (const section of TUNING_SECTIONS) {
       const file = session.sectionFile(section);

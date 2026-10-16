@@ -10,7 +10,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, fighter: tuning.fighter, chamber: tuning.chamber, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, fighter: tuning.fighter, chamber: tuning.chamber, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait, camera: tuning.camera };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
@@ -26,5 +26,10 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(gait)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(hipBob)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(hipSway)).not.toBe(tuningDataHash(tuning));
+  });
+
+  it('ignores the camera (presentation only)', () => {
+    const camera: TuningData = { ...tuning, camera: { ...tuning.camera, back: tuning.camera.back + 1 } };
+    expect(tuningDataHash(camera)).toBe(tuningDataHash(tuning));
   });
 });

@@ -3,7 +3,8 @@
  * the Off-hand Grip included), Hit Zone
  * multipliers, AI difficulty (Reaction Time, mistake rate per preset) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
- * Block (the facing rule and the Block Impact's give and bounce).
+ * Block (the facing rule and the Block Impact's give and bounce) and Camera (where the
+ * third-person and orbit cameras sit; seen in a Player vs AI run, applied without a re-run).
  *
  * Fields edit `EditorSession` drafts; every change is validated with
  * `commitSection` (or `commitWeapon`) and, if valid, made live (`onApplied` re-runs the sandbox).
@@ -14,17 +15,17 @@ import { GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
 
-const TITLES: Record<TuningSection, string> = { hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait', block: 'Block' };
+const TITLES: Record<TuningSection, string> = { hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait', block: 'Block', camera: 'Camera' };
 
 export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: () => void): void {
   const ui = { status: 'Edit a value: the sandbox re-runs with it. Save writes data/<section>.json.', weapon: session.weaponNames()[0]! };
   const root = pane.addFolder({ title: 'Tuning Data', expanded: true });
 
-  const commit = (title: string, make: () => unknown) => {
+  const commit = (title: string, make: () => unknown, rerun = true) => {
     try {
       make();
       ui.status = `${title}: applied (unsaved)`;
-      onApplied();
+      if (rerun) onApplied();
     } catch (e) {
       ui.status = e instanceof Error ? e.message : String(e);
     }
@@ -127,6 +128,21 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     f.addBinding(b, 'impactLean', { min: 0.5, max: 30, step: 0.5, label: 'impact lean (°)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactFrequency', { min: 1, max: 15, step: 0.5, label: 'bounce (Hz)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactDuration', { min: 0.05, max: 1.5, step: 0.05, label: 'settle (s)' }).on('change', () => apply('block'));
+  });
+
+  // The camera is read live every frame, so an edit needs no re-run (which would restart a live run).
+  folder('camera', (f) => {
+    const c = session.draftSection('camera');
+    const on = (b: { on(ev: 'change', h: () => void): unknown }) => b.on('change', () => commit(TITLES.camera, () => session.commitSection('camera'), false));
+    const third = f.addFolder({ title: 'Third-person (over the shoulder)' });
+    on(third.addBinding(c, 'back', { min: -2, max: 12, step: 0.05, label: 'back (m)' }));
+    on(third.addBinding(c, 'shoulder', { min: -3, max: 3, step: 0.05, label: 'shoulder (m, + right)' }));
+    on(third.addBinding(c, 'eyeHeight', { min: 0.2, max: 10, step: 0.05, label: 'height (m)' }));
+    on(third.addBinding(c, 'ahead', { min: -2, max: 10, step: 0.05, label: 'look ahead (m)' }));
+    on(third.addBinding(c, 'lookHeight', { min: 0, max: 5, step: 0.05, label: 'look height (m)' }));
+    const orbit = f.addFolder({ title: 'Orbit (after a fall)' });
+    on(orbit.addBinding(c, 'orbitDistance', { min: 1, max: 20, step: 0.1, label: 'distance (m)' }));
+    on(orbit.addBinding(c, 'orbitHeight', { min: 0.5, max: 15, step: 0.1, label: 'height (m)' }));
   });
 
   root.addBinding(ui, 'status', { readonly: true, label: 'status', multiline: true, rows: 2 });

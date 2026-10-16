@@ -368,7 +368,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     timeline.update(draft(), selected, ui.time);
     if (ui.view === 'gameplay') {
       opponent.update(motionPose(session.tuning, 'Idle', secondsToTicks(ui.time), opponentPlacement), weaponByName(session.tuning, session.weaponNames()[0]!));
-      placeThirdPersonCamera(stage.camera, opponentPlacement.position, opponentPlacement.facing);
+      placeThirdPersonCamera(stage.camera, session.tuning.camera, opponentPlacement.position, opponentPlacement.facing);
     } else {
       orbit.update();
     }

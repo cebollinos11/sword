@@ -16,6 +16,7 @@ function goodRaw() {
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
+    camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5 },
     skeleton: {
       pelvisHeight: 0.95,
       hipWidth: 0.2,

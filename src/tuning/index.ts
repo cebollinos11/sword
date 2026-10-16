@@ -13,6 +13,7 @@ import chamberJson from '../../data/chamber.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
+import cameraJson from '../../data/camera.json';
 import { parseGait, type GaitTuning } from './gait';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
@@ -73,6 +74,27 @@ export interface BlockTuning {
   readonly impactFrequency: number;
   /** Block Impact: seconds until the bounce has died out (and ends). */
   readonly impactDuration: number;
+}
+
+/**
+ * Where the game camera sits. Presentation only: it never reaches the simulation,
+ * so it is left out of the Tuning Data hash and peers may differ.
+ */
+export interface CameraTuning {
+  /** Third-person camera: metres behind the Fighter. */
+  readonly back: number;
+  /** Third-person camera: metres to the Fighter's right (over the shoulder; negative = left). */
+  readonly shoulder: number;
+  /** Third-person camera: height (m) above the floor. */
+  readonly eyeHeight: number;
+  /** Third-person camera: the point looked at is this far (m) ahead of the Fighter... */
+  readonly ahead: number;
+  /** ...at this height (m). */
+  readonly lookHeight: number;
+  /** Orbit camera (a fallen Fighter watching the fight): distance (m) back from the fight's centre. */
+  readonly orbitDistance: number;
+  /** Orbit camera: height (m) above the floor. */
+  readonly orbitHeight: number;
 }
 
 /** How a Match is paced. */
@@ -150,6 +172,8 @@ export interface TuningData {
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
   readonly gait: GaitTuning;
+  /** Where the game camera sits (presentation only; not hashed). */
+  readonly camera: CameraTuning;
   /** Every default Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
   /**
@@ -253,6 +277,7 @@ export function parseTuningData(raw: unknown): TuningData {
   const ch = record(root.chamber, 'chamber');
   const bl = record(root.block, 'block');
   const ma = record(root.match, 'match');
+  const cam = record(root.camera, 'camera');
   const facingHalfAngle = positiveNumber(bl, 'facingHalfAngle', 'block');
   if (facingHalfAngle > 180) throw new TuningDataError(`block.facingHalfAngle must be at most 180, got ${facingHalfAngle}`);
   const hitZones = Object.fromEntries(
@@ -324,6 +349,15 @@ export function parseTuningData(raw: unknown): TuningData {
     skeleton,
     ai: parseAi(root.ai),
     gait: parseGait(root.gait),
+    camera: {
+      back: finiteNumber(cam, 'back', 'camera'),
+      shoulder: finiteNumber(cam, 'shoulder', 'camera'),
+      eyeHeight: positiveNumber(cam, 'eyeHeight', 'camera'),
+      ahead: finiteNumber(cam, 'ahead', 'camera'),
+      lookHeight: finiteNumber(cam, 'lookHeight', 'camera'),
+      orbitDistance: positiveNumber(cam, 'orbitDistance', 'camera'),
+      orbitHeight: positiveNumber(cam, 'orbitHeight', 'camera'),
+    },
     motions,
     motionOverrides,
   };
@@ -382,6 +416,7 @@ export function loadTuningData(): TuningData {
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,
+    camera: cameraJson,
     motions,
     motionOverrides,
   });
