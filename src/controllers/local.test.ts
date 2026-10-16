@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FACE_STEPS, LOOK_RADIANS_PER_PX, LocalController } from './local';
+import { FACE_STEPS, LOOK_RADIANS_PER_PX, LocalController, MAX_LOOK_PITCH } from './local';
 
 /** The Intent for the next Tick (the Local Controller ignores the state it is shown). */
 function next(local: LocalController) {
@@ -156,6 +156,18 @@ describe('Local Controller', () => {
       const local = new LocalController();
       local.mouseMove(0, -200);
       expect(next(local).face).toBe(0);
+    });
+
+    it('vertical mouse movement tilts the camera: up looks up, down looks down, within MAX_LOOK_PITCH', () => {
+      const local = new LocalController();
+      local.mouseMove(0, -100);
+      expect(next(local).pitch).toBeCloseTo(100 * LOOK_RADIANS_PER_PX, 2);
+      local.mouseMove(0, 300);
+      expect(next(local).pitch).toBeCloseTo(-200 * LOOK_RADIANS_PER_PX, 2);
+      for (let i = 0; i < 100; i++) local.mouseMove(0, 300);
+      expect(local.pitch).toBe(-MAX_LOOK_PITCH);
+      local.setYaw(0);
+      expect(next(local).pitch).toBe(0);
     });
 
     it('starts from a given yaw (the Fighter facing at the start of a Duel)', () => {

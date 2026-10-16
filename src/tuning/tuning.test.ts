@@ -4,7 +4,7 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
   return {
-    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15 },
+    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3 },
     arena: { radius: 8 },
     weapons: [{ name: 'Sword', grip: 'oneHanded', length: 0.9, damage: 30, speed: 10, gripLength: 0.12 }],
     hitZones: {

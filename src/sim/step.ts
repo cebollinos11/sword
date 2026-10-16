@@ -69,6 +69,7 @@ export function createInitialState(
       return {
         position: { x: position.x, z: position.z },
         facing,
+        pitch: 0,
         team: teams[i] ?? defaultTeam(i),
         hp: tuning.fighter.maxHp,
         weapon,
@@ -117,12 +118,26 @@ function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
   return wrapYaw(f.facing + Math.sign(delta) * maxStep);
 }
 
+/**
+ * The Fighter's pitch after this Tick: it tilts toward `intent.pitch` (held within
+ * `fighter.lookPitchMax`) at `fighter.turnSpeed`, like turning. A Staggered Fighter cannot act, so it keeps its pitch.
+ */
+function tilt(f: FighterState, intent: Intent, tuning: TuningData): number {
+  if (intent.pitch === undefined || f.action.kind === 'Stagger') return f.pitch;
+  const max = (tuning.fighter.lookPitchMax * Math.PI) / 180;
+  const target = Math.min(max, Math.max(-max, intent.pitch));
+  const maxStep = (tuning.fighter.turnSpeed * Math.PI * TICK_SECONDS) / 180;
+  const delta = target - f.pitch;
+  if (Math.abs(delta) <= maxStep) return target;
+  return f.pitch + Math.sign(delta) * maxStep;
+}
+
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
   const { blockImpact, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
-  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
+  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), pitch: tilt(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
   return impact ? { ...next, blockImpact: impact } : next;
 }
 

@@ -1,9 +1,9 @@
 {
-  "back": 3.2,
-  "shoulder": 0.75,
-  "eyeHeight": 2.1,
-  "ahead": 2.5,
-  "lookHeight": 1.2,
+  "back": 1.85,
+  "shoulder": -0.20000000000000004,
+  "eyeHeight": 2.45,
+  "ahead": 2.45,
+  "lookHeight": 1.3499999999999999,
   "orbitDistance": 7,
   "orbitHeight": 5
 }

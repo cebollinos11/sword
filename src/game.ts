@@ -282,7 +282,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const yaw = driver ? local.yaw : curr.duel.fighters[me]?.facing ?? 0;
     // Fallen while the team fights on: orbit the fight instead of staring at the floor.
     if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting') placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw);
-    else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw);
+    else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, driver ? local.pitch : 0);
     renderer.render(before, curr.duel, alpha);
     hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null });
     requestAnimationFrame(frame);

@@ -40,6 +40,12 @@ export interface FighterTuning {
   readonly turnSpeed: number;
   /** Seconds over which the pose crossfades whenever the Motion changes (e.g. Block → Idle), so poses never snap. */
   readonly motionBlend: number;
+  /** How far (degrees) a Fighter may look up or down from level (Intent `pitch`). */
+  readonly lookPitchMax: number;
+  /** The share of its look pitch a Fighter leans its torso by (0 = upright; 1 = as far as it looks). */
+  readonly lookLean: number;
+  /** How far (m) the hips move back as the torso leans fully forward (forward as it leans back), scaled by the lean's sine. */
+  readonly lookHipShift: number;
 }
 
 export interface ArenaTuning {
@@ -327,6 +333,9 @@ export function parseTuningData(raw: unknown): TuningData {
       height: positiveNumber(f, 'height', 'fighter'),
       turnSpeed: positiveNumber(f, 'turnSpeed', 'fighter'),
       motionBlend: positiveNumber(f, 'motionBlend', 'fighter'),
+      lookPitchMax: positiveNumber(f, 'lookPitchMax', 'fighter'),
+      lookLean: finiteNumber(f, 'lookLean', 'fighter'),
+      lookHipShift: finiteNumber(f, 'lookHipShift', 'fighter'),
     },
     arena: { radius: positiveNumber(a, 'radius', 'arena') },
     weapons,

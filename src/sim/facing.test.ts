@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { blocksAttack, createInitialState, hold, IDLE_INTENT, runDuel, step, TICK_RATE, wait, attack, type SimState } from './index';
+import { blocksAttack, createInitialState, fighterPose, hold, IDLE_INTENT, runDuel, step, TICK_RATE, wait, attack, type SimState } from './index';
 
 const tuning = loadTuningData();
 const lone = () => createInitialState(tuning, 1);
@@ -63,5 +63,34 @@ describe('Facing (Intent.face)', () => {
     });
     expect(turned.events.some((e) => e.type === 'Block' && e.defender === 1)).toBe(true);
     expect(blocksAttack(turned.states[60]!.fighters[1]!, turned.states[60]!.fighters[0]!, 'Overhead', tuning)).toBe(true);
+  });
+});
+
+describe('Look pitch (Intent.pitch)', () => {
+  const lookFor = (state: SimState, ticks: number, pitch: number | undefined) => {
+    let s = state;
+    for (let i = 0; i < ticks; i++) s = step(s, [{ ...IDLE_INTENT, pitch }], tuning);
+    return s;
+  };
+
+  it('tilts toward the requested pitch at turn speed, within lookPitchMax; absent keeps it', () => {
+    expect(lookFor(lone(), 1, 30 * DEG).fighters[0]!.pitch).toBeCloseTo(perTick * DEG, 10);
+    const up = lookFor(lone(), 60, 30 * DEG);
+    expect(up.fighters[0]!.pitch).toBeCloseTo(30 * DEG, 10);
+    expect(lookFor(up, 10, undefined).fighters[0]!.pitch).toBeCloseTo(30 * DEG, 10);
+    expect(lookFor(lone(), 60, -89 * DEG).fighters[0]!.pitch).toBeCloseTo(-tuning.fighter.lookPitchMax * DEG, 10);
+  });
+
+  it('looking down leans the torso forward and the hips back; looking up the other way; the blade stays put', () => {
+    const level = fighterPose(lone().fighters[0]!, tuning);
+    const down = fighterPose(lookFor(lone(), 60, -40 * DEG).fighters[0]!, tuning);
+    const up = fighterPose(lookFor(lone(), 60, 40 * DEG).fighters[0]!, tuning);
+    // Facing +z: forward is +z.
+    const lean = (p: typeof level) => p.joints.head.z - p.joints.pelvis.z;
+    expect(lean(down)).toBeGreaterThan(lean(level) + 0.1);
+    expect(lean(up)).toBeLessThan(lean(level) - 0.1);
+    expect(down.joints.pelvis.z).toBeLessThan(level.joints.pelvis.z);
+    expect(up.joints.pelvis.z).toBeGreaterThan(level.joints.pelvis.z);
+    expect(down.blade.hilt.z).toBeCloseTo(level.blade.hilt.z, 2);
   });
 });

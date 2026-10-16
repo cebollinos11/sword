@@ -32,6 +32,13 @@ export interface Intent {
    * opponent. Movement never turns a Fighter: only this does.
    */
   readonly face: number | null;
+  /**
+   * Where the Fighter looks up (+) or down (-), radians from level; absent keeps
+   * its pitch. It tilts toward this at `fighter.turnSpeed`, within
+   * `fighter.lookPitchMax`, and leans its torso and hips with it (the hands stay
+   * where the Motion puts them). The Local Controller fills it from the camera.
+   */
+  readonly pitch?: number;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({

@@ -6,8 +6,11 @@ export type LocalButton = 'attack' | 'block';
 /** Mouse travel (px) that counts as a Direction gesture; smaller movements add up until they reach it. */
 export const GESTURE_PX = 12;
 
-/** Camera turn per pixel of horizontal mouse movement (radians). */
+/** Camera turn per pixel of horizontal mouse movement, and tilt per pixel of vertical movement (radians). */
 export const LOOK_RADIANS_PER_PX = 0.0025;
+
+/** How far (radians) the camera may look up or down from level. */
+export const MAX_LOOK_PITCH = 1.1;
 
 /**
  * `face` is sent on a grid of this many steps per full turn, so the same aim
@@ -39,6 +42,11 @@ function wrapAngle(a: number): number {
   return w === -Math.PI ? Math.PI : w;
 }
 
+/** Snap a pitch to the FACE_STEPS grid (same reason as `face`). */
+function quantisePitch(pitch: number): number {
+  return (Math.round((pitch * FACE_STEPS) / TURN) * TURN) / FACE_STEPS + 0;
+}
+
 /** Snap a yaw to the FACE_STEPS grid, wrapped into (-pi, pi]. */
 function quantiseYaw(yaw: number): number {
   const steps = Math.round((wrapAngle(yaw) * FACE_STEPS) / TURN);
@@ -59,7 +67,8 @@ function quantiseYaw(yaw: number): number {
  *   in the latest gesture's Direction (Block Feint).
  * - Left mouse held = Wind-up, let go = Release; right mouse = Block; WASD
  *   walks relative to the camera; horizontal mouse turns the camera, and the
- *   camera yaw is sent as `face`.
+ *   camera yaw is sent as `face`; vertical mouse tilts it up and down, sent as
+ *   `pitch` (the Fighter leans its torso with it).
  */
 export class LocalController implements Controller {
   private readonly held = { attack: false, block: false };
@@ -73,20 +82,27 @@ export class LocalController implements Controller {
   /** The Direction sent in Intents, fixed when a button is pressed. */
   private latched: Direction = 'Overhead';
   private yawRadians = 0;
+  private pitchRadians = 0;
 
   /** The camera yaw (radians, 0 looks along +z, same convention as Fighter facing). */
   get yaw(): number {
     return this.yawRadians;
   }
 
-  /** Point the camera (and so the Fighter's aim) at `yaw`, e.g. the Fighter's facing when a Duel starts. */
+  /** The camera pitch (radians from level, + looks up), within MAX_LOOK_PITCH. */
+  get pitch(): number {
+    return this.pitchRadians;
+  }
+
+  /** Point the camera (and so the Fighter's aim) at `yaw`, looking level, e.g. the Fighter's facing when a Duel starts. */
   setYaw(yaw: number): void {
     this.yawRadians = wrapAngle(yaw);
+    this.pitchRadians = 0;
   }
 
   /** Relative mouse movement in screen pixels (+x right, +y down). */
   mouseMove(dx: number, dy: number): void {
-    this.look(dx);
+    this.look(dx, dy);
     this.travel.x += dx;
     this.travel.y += dy;
     if (Math.hypot(this.travel.x, this.travel.y) < GESTURE_PX) return;
@@ -94,10 +110,12 @@ export class LocalController implements Controller {
     this.travel = { x: 0, y: 0 };
   }
 
-  /** Turn the camera by `dx` screen pixels without making a Direction gesture (a touch drag on the screen). */
-  look(dx: number): void {
+  /** Turn the camera by `dx` and tilt it by `dy` screen pixels without making a Direction gesture (a touch drag on the screen). */
+  look(dx: number, dy = 0): void {
     // Moving right turns right, i.e. towards -x at yaw 0: yaw decreases.
     this.yawRadians = wrapAngle(this.yawRadians - dx * LOOK_RADIANS_PER_PX);
+    // Moving up (-y) looks up.
+    this.pitchRadians = Math.min(MAX_LOOK_PITCH, Math.max(-MAX_LOOK_PITCH, this.pitchRadians - dy * LOOK_RADIANS_PER_PX));
   }
 
   /** A Direction gesture made some other way than the mouse (a swipe on a touch pad): the next press uses it. */
@@ -152,7 +170,7 @@ export class LocalController implements Controller {
     this.pressed.attack = false;
     this.pressed.block = false;
     const face = quantiseYaw(this.yawRadians);
-    return { move: this.move(face), direction: this.latched, attack, block, face };
+    return { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
   }
 
   intent(): Intent {

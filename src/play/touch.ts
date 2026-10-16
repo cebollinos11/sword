@@ -144,7 +144,7 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
 
   let enabled = false;
   let stick: { pointer: number; x: number; y: number; keys: Set<string> } | null = null;
-  const looks = new Map<number, number>(); // pointer -> last x
+  const looks = new Map<number, { x: number; y: number }>(); // pointer -> last position
 
   const setStickKeys = (keys: Set<string>) => {
     if (!stick) return;
@@ -194,7 +194,7 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
       stickBase.style.top = `${e.clientY - rect.top}px`;
       stickBase.classList.add('active');
     } else {
-      looks.set(e.pointerId, e.clientX);
+      looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
     try {
       root.setPointerCapture(e.pointerId);
@@ -214,8 +214,9 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
       placeKnob(dx, dy);
       setStickKeys(stickKeys(dx, dy));
     } else if (looks.has(e.pointerId)) {
-      local.look((e.clientX - looks.get(e.pointerId)!) * LOOK_SCALE);
-      looks.set(e.pointerId, e.clientX);
+      const last = looks.get(e.pointerId)!;
+      local.look((e.clientX - last.x) * LOOK_SCALE, (e.clientY - last.y) * LOOK_SCALE);
+      looks.set(e.pointerId, { x: e.clientX, y: e.clientY });
     }
   };
   const onUp = (e: PointerEvent) => {

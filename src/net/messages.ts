@@ -141,7 +141,7 @@ function isLineupSlot(v: unknown): boolean {
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 
@@ -205,6 +205,7 @@ function isFighter(v: unknown): boolean {
     isObject(v) &&
     isVec2(v.position) &&
     isNum(v.facing) &&
+    isNum(v.pitch) &&
     isTeam(v.team) &&
     isNum(v.hp) &&
     isString(v.weapon) &&

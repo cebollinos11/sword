@@ -55,6 +55,8 @@ export interface FighterState {
   readonly position: Vec2;
   /** Yaw in radians; 0 faces +z. */
   readonly facing: number;
+  /** Where it looks: radians up (+) or down (-) from level. Leans the torso and hips (Intent `pitch`). */
+  readonly pitch: number;
   /** Its team (0 or 1), fixed for the Match. Teammates' blades Stagger but never wound each other. */
   readonly team: number;
   readonly hp: number;

@@ -4,5 +4,8 @@
   "radius": 0.35,
   "height": 1.8,
   "turnSpeed": 360,
-  "motionBlend": 0.15
+  "motionBlend": 0.15,
+  "lookPitchMax": 50,
+  "lookLean": 0.45,
+  "lookHipShift": 0.3
 }
