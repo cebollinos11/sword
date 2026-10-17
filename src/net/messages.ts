@@ -296,7 +296,7 @@ function isDeath(v: unknown): boolean {
 
 /** What an AI saw of one Fighter on one Tick. */
 function isSighting(v: unknown): boolean {
-  return isObject(v) && isVec2(v.position) && isAction(v.action) && isTeam(v.team) && isBool(v.fallen) && (v.attackStart === null || isTick(v.attackStart));
+  return isObject(v) && isVec2(v.position) && isNum(v.y) && isAction(v.action) && isTeam(v.team) && isBool(v.fallen) && (v.attackStart === null || isTick(v.attackStart));
 }
 
 /** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its Block and Feint plans. */
@@ -305,6 +305,9 @@ function isAiMemory(v: unknown): boolean {
   const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerFighter(o.fighters, isSighting));
   const block = v.blockPlan === null || (isObject(v.blockPlan) && isTick(v.blockPlan.attacker) && isTick(v.blockPlan.attackStart) && isDirection(v.blockPlan.direction));
   const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
-  return seen && block && feint;
+  const route =
+    v.route === null ||
+    (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
+  return seen && block && feint && route;
 }
 const isAiMemoryOrNull = isNullable(isAiMemory);

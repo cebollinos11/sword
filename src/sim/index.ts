@@ -36,6 +36,7 @@ export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, JumpEvent, LandEvent, SimEvent, StaggerEvent, StepEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
+export { corners, DROP_DAMAGE_LIMIT, findPath, navMesh, navPolygon, steer, type NavLink, type NavMesh, type NavPoint } from './nav';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
 export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, step, teamPlacements } from './step';

@@ -249,3 +249,44 @@ describe('AI Controller: teams', () => {
     expect(blocking.face).toBeCloseTo(Math.PI / 2); // toward the attacker at +x
   });
 });
+
+describe('AI Controller in the multilevel library', () => {
+  const repo = loadTuningData();
+  const inLibrary = (placements: { x: number; y: number; z: number; facing: number }[], teams: number[]) =>
+    createInitialState(repo, 1, placements.map(({ x, y, z, facing }) => ({ position: { x, z }, y, facing })), [], teams, 'library');
+
+  it('finds its way from the ground floor up to an enemy on the gallery, and engages it there', () => {
+    const initial = inLibrary([{ x: -4.5, y: 0, z: -4.5, facing: Math.PI / 2 }, { x: 5, y: 6, z: 10.5, facing: Math.PI }], [0, 1]);
+    const run = runControllers(repo, initial, [createAiController(repo, 'Normal'), scriptedController(wait(1))], TICK_RATE * 60);
+    const engaged = run.events.find((e) => e.type === 'AttackPhase' && e.fighter === 0 && e.phase === 'Wind-up');
+    expect(engaged, 'the AI never attacked').toBeDefined();
+    const at = run.states[engaged!.tick]!.fighters[0]!;
+    expect(at.y).toBe(6);
+    expect(Math.hypot(at.position.x - 5, at.position.z - 10.5)).toBeLessThan(repo.ai.attackRange + 0.2);
+    // It walked there: no fall on the way.
+    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0)).toBe(false);
+  });
+
+  it('backing off at an open ledge, it strafes along it rather than stepping off', () => {
+    // On the bridge with its back to a gap in the rail (x -6..-4.5 on its south side), an enemy too close in front.
+    const initial = inLibrary([{ x: -5.25, y: 3, z: -1.15, facing: 0 }, { x: -5.25, y: 3, z: -0.45, facing: Math.PI }], [0, 1]);
+    const run = runControllers(repo, initial, [createAiController(repo, 'Normal'), scriptedController(wait(1))], 180);
+    for (const s of run.states) {
+      expect(s.fighters[0]!.air, `Tick ${s.tick}`).toBeUndefined();
+      expect(s.fighters[0]!.y).toBe(3);
+    }
+  });
+
+  it('keeps its route in its memory: a restored Controller walks on the same way', () => {
+    const initial = inLibrary([{ x: -4.5, y: 0, z: -4.5, facing: Math.PI / 2 }, { x: 5, y: 6, z: 10.5, facing: Math.PI }], [0, 1]);
+    const ai = createAiController(repo, 'Normal');
+    const half = runControllers(repo, initial, [ai, scriptedController(wait(1))], 200);
+    const saved = ai.save!();
+    expect((saved as { route: unknown }).route).not.toBeNull();
+    const restored = createAiController(repo, 'Normal');
+    restored.load!(saved);
+    const a = runControllers(repo, half.final, [ai, scriptedController(wait(1))], 200);
+    const b = runControllers(repo, half.final, [restored, scriptedController(wait(1))], 200);
+    expect(hashValue(b.final)).toBe(hashValue(a.final));
+  });
+});

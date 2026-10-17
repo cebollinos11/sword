@@ -9,6 +9,11 @@
  *    Time). Its own Fighter it knows up to date.
  *  - With several enemies it fights the nearest one, and blocks whichever
  *    enemy Attack nearest to it can reach it (see `intent`).
+ *  - It fights only on the same level (feet within LEVEL of each other's).
+ *    To reach an enemy on another Walk Surface it follows the navmesh
+ *    (`findPath`, `steer`), re-planning when either moves to another surface
+ *    or every REPATH_TICKS; the route is part of its memory. Backing off, it
+ *    never steps off a ledge: it strafes, or holds its ground.
  *  - It makes mistakes at `mistakeRate`: a wrong-Direction Block (rolled once
  *    per opponent Attack), or a mistimed Attack from out of range.
  *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
@@ -22,7 +27,12 @@
  * the same Intents.
  */
 import {
+  arenaOf,
   createRng,
+  findPath,
+  groundBelow,
+  navPolygon,
+  steer,
   DIRECTIONS,
   IDLE_INTENT,
   mirrorDirection,
@@ -30,6 +40,7 @@ import {
   secondsToTicks,
   type Action,
   type Direction,
+  type FighterState,
   type Intent,
   type RngState,
   type SimState,
@@ -41,6 +52,8 @@ import type { Controller } from './controller';
 /** What the AI saw of one Fighter on one Tick. */
 interface Sighting {
   readonly position: Vec2;
+  /** Height of its feet. */
+  readonly y: number;
   readonly action: Action;
   readonly team: number;
   readonly fallen: boolean;
@@ -67,7 +80,23 @@ interface AiMemory {
   readonly lastTick: number;
   readonly blockPlan: BlockPlan | null;
   readonly feintPlan: FeintPlan | null;
+  readonly route: Route | null;
 }
+
+/** The way to its target on another Walk Surface: Links (`findPath`, null if there is none) planned on Tick `at` from surface `from` to `to`. */
+interface Route {
+  readonly from: number;
+  readonly to: number;
+  readonly at: number;
+  readonly links: readonly number[] | null;
+}
+
+/** A route is re-planned at least this often (Ticks), as its target moves about. */
+const REPATH_TICKS = 30;
+/** It fights (attacks, blocks, backs off) only an enemy whose feet are within this height of its own (m). */
+const LEVEL = 0.5;
+/** Backing off, it looks this far (m) behind it for a ledge. */
+const RETREAT_PROBE = 0.8;
 
 /** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
 interface FeintPlan {
@@ -123,6 +152,8 @@ class AiController implements Controller {
   private blockPlan: BlockPlan | null = null;
   /** Its own Attack it is about to Feint, if any. */
   private feintPlan: FeintPlan | null = null;
+  /** Its way to a target on another Walk Surface, if it is following one. */
+  private route: Route | null = null;
 
   constructor(
     private readonly tuning: TuningData,
@@ -133,7 +164,7 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan, feintPlan: this.feintPlan };
+    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan, feintPlan: this.feintPlan, route: this.route };
   }
 
   load(saved: unknown): void {
@@ -142,6 +173,7 @@ class AiController implements Controller {
     this.lastTick = m.lastTick;
     this.blockPlan = m.blockPlan;
     this.feintPlan = m.feintPlan;
+    this.route = m.route;
   }
 
   private random(): number {
@@ -161,6 +193,7 @@ class AiController implements Controller {
       this.seen = [];
       this.blockPlan = null;
       this.feintPlan = null;
+      this.route = null;
     }
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
@@ -169,7 +202,7 @@ class AiController implements Controller {
       // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
       const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
       const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
-      return { position: o.position, action: o.action, team: o.team, fallen: o.death !== undefined, attackStart };
+      return { position: o.position, y: o.y, action: o.action, team: o.team, fallen: o.death !== undefined, attackStart };
     });
     this.seen.push({ tick: state.tick, fighters });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
@@ -178,8 +211,8 @@ class AiController implements Controller {
   /**
    * Acts on everyone as seen Reaction Time ago: it Blocks the nearest enemy
    * Attack that can reach it (its nearest enemy's, or any from within
-   * THREAT_REACH × `ai.attackRange`), else closes on and fights its nearest
-   * living enemy. Teammates it ignores.
+   * THREAT_REACH × `ai.attackRange`, on its level), else closes on and fights its nearest
+   * living enemy (nearest in 3D; ranges are measured flat). Teammates it ignores.
    */
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
@@ -189,41 +222,82 @@ class AiController implements Controller {
 
     const self = state.fighters[fighter]!;
     const enemies = seen.fighters
-      .map((o, i) => ({ o, i, dist: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) }))
+      .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
+      .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y) }))
       .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team)
       .sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
       this.blockPlan = null;
       this.feintPlan = null;
+      this.route = null;
       return IDLE_INTENT;
     }
     const facing = (o: Sighting): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z) });
 
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    const threat = enemies.find(({ o, dist }, k) => isThreat(o.action) && o.attackStart !== null && (k === 0 || dist <= reach));
+    const threat = enemies.find(({ o, flat, level }, k) => level && isThreat(o.action) && o.attackStart !== null && (k === 0 || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
       this.feintPlan = null;
       return this.defend(self.action, threat.i, threat.o.action.direction, threat.o.attackStart, facing(threat.o));
     }
     this.blockPlan = null;
 
-    const { o: target, dist } = nearest;
+    const { o: target, flat: dist, level } = nearest;
     const base = facing(target);
     const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : { x: 0, z: 0 };
     const feint = this.feint(state.tick, self.action, base);
     if (feint) return feint;
     if (self.action.kind !== 'Idle') return base; // let go of block/attack; finish what it is doing
     const { attackRange, retreatRange, aggression } = this.tuning.ai;
+    if (!level) {
+      // Another level: find the way there, looking where it walks.
+      const move = this.approach(state, self, target);
+      return { ...IDLE_INTENT, move, face: move.x === 0 && move.z === 0 ? base.face : Math.atan2(move.x, move.z) };
+    }
     if (dist > attackRange) {
       // Mistimed Attack: swinging from out of range.
       if (this.random() < aggression * this.difficulty.mistakeRate) return this.startAttack(state.tick, base);
-      return { ...base, move: toward };
+      return { ...base, move: this.approach(state, self, target) };
     }
-    if (dist < retreatRange) return { ...base, move: { x: -toward.x, z: -toward.z } };
+    if (dist < retreatRange) return { ...base, move: this.retreat(state, self, { x: -toward.x, z: -toward.z }) };
     // An opening (its target in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
     if (aggression > 0 && (isOpening(target.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
     return base;
+  }
+
+  /**
+   * Which way to walk to `target`: straight at it on the same Walk Surface (or off the navmesh), else
+   * towards the next corner of its route there, re-planned when either changes surface or every REPATH_TICKS.
+   */
+  private approach(state: SimState, self: FighterState, target: Sighting): Vec2 {
+    const arena = arenaOf(this.tuning, state.arena);
+    const me = { x: self.position.x, z: self.position.z, y: self.y };
+    const it = { x: target.position.x, z: target.position.z, y: target.y };
+    const from = navPolygon(arena, this.tuning, me);
+    const to = navPolygon(arena, this.tuning, it);
+    let goal = target.position;
+    if (from >= 0 && to >= 0 && from !== to && !self.air) {
+      const r = this.route;
+      const route = !r || r.from !== from || r.to !== to || state.tick - r.at >= REPATH_TICKS ? { from, to, at: state.tick, links: findPath(arena, this.tuning, me, it) } : r;
+      this.route = route;
+      if (route.links) goal = steer(arena, this.tuning, route.links, self.position, target.position);
+    } else if (from === to) this.route = null;
+    const dx = goal.x - self.position.x;
+    const dz = goal.z - self.position.z;
+    const d = Math.hypot(dx, dz);
+    return d > 1e-9 ? { x: dx / d, z: dz / d } : { x: 0, z: 0 };
+  }
+
+  /** Back off along `away`, unless that steps off a ledge: then strafe (left, else right), or hold its ground. */
+  private retreat(state: SimState, self: FighterState, away: Vec2): Vec2 {
+    const arena = arenaOf(this.tuning, state.arena);
+    const { stepUp } = this.tuning.fall;
+    const safe = (m: Vec2) => {
+      const g = groundBelow(arena, self.position.x + m.x * RETREAT_PROBE, self.position.z + m.z * RETREAT_PROBE, self.y + stepUp);
+      return g !== null && self.y - g.y <= stepUp;
+    };
+    return [away, { x: -away.z, z: away.x }, { x: away.z, z: -away.x }].find(safe) ?? { x: 0, z: 0 };
   }
 
   /** Press attack in a random Direction; at `feintRate` it plans to Feint this Attack into another Direction. */
