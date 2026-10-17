@@ -27,6 +27,18 @@ export interface HitEvent {
   readonly damage: number;
 }
 
+/** A Kick's leg sweep connected: a Knockdown (the victim moved) or a Shove (it gave no movement input, or was already down). Teammates take no damage. */
+export interface KickLandedEvent {
+  readonly type: 'KickLanded';
+  readonly attacker: number;
+  readonly defender: number;
+  readonly outcome: 'Shove' | 'Knockdown';
+  readonly zone: HitZone;
+  /** World-space contact point. */
+  readonly point: Vec3;
+  readonly damage: number;
+}
+
 /** An Attack's Blade Sweep reached a defender who Blocked it by rule: no damage, the attacker Staggers. */
 export interface BlockEvent {
   readonly type: 'Block';
@@ -107,7 +119,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

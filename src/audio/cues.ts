@@ -56,6 +56,9 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
       case 'Hit':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });
         break;
+      case 'KickLanded':
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });
+        break;
       case 'Land':
         if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: Math.min(1, Math.max(0.15, e.height / FULL_STRENGTH_DROP)) });
         break;

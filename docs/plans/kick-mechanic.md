@@ -163,7 +163,7 @@ Goal: the AI uses and respects the Kick.
 ## Progress
 - [x] Stage 1: Vocabulary and the pose channels
 - [x] Stage 2: The Kick Action
-- [ ] Stage 3: Contact, Shove and Slide
+- [x] Stage 3: Contact, Shove and Slide
 - [ ] Stage 4: Knockdown and Get-up
 - [ ] Stage 5: AI
 
@@ -188,3 +188,12 @@ Goal: the AI uses and respects the Kick.
 - **`FighterState.kickLeg: { knee, toe }`** (world, `KickLeg` in `skeleton.ts`) is set by `bladeAndLeg(pose)` (in `pose.ts`) wherever `blade` is set: `createInitialState`, `settleBodies` and `staggerFighter`. Any new place that re-solves the pose and writes `blade` must use `bladeAndLeg`. Validated in `messages.ts` (`isFighter`). Stage 3's sweep: previous `kickLeg` -> current `kickLeg` (knee and toe segments), padding `kick.legRadius`.
 - Stage 3 still needs: `Intent.kick` has no effect on a Fighter already Kicking; a Hit/Stagger on the kicker interrupts the Kick (normal `staggerFighter`); no events are emitted by the Kick yet (`KickLanded` is Stage 3).
 - Tests: `src/sim/kick.test.ts`, plus cases in `local.test.ts`, `messages.test.ts`, `tuning.test.ts`, `hash.test.ts`, `session.test.ts`.
+
+**Stage 3**
+- `FighterState.slide?: Slide {vx, vz, ticks}` (`state.ts`; helpers `startSlide(dx, dz, distance, ticks)` / `advanceSlide` in `slide.ts`). `vx/vz` are the *current* velocity (m/s), `ticks` the Ticks left; each Tick moves by the mean of start and end speed, so a Slide covers exactly `distance`. `stepFighter` adds it on top of `walk` for a grounded Fighter and drops it once airborne. It is stripped when it ends, never stored as zero. Validated in `messages.ts` (`isSlide`). Leaving a ledge needs no special seeding: `settleGround` already derives `air.vx/vz` from the Tick's position change, which includes the Slide. A kick on an already-airborne Fighter adds the Slide's mean speed to `air.vx/vz` instead of starting a Slide.
+- `combat.ts`: `Contact = BladeContact | KickContact` (`'kick' in c` discriminates; `KickContact {kick: true, attacker, defender, zone, point}`). `findContacts` also sweeps `kickLeg` (knee->toe, prev->next, capsules padded by `kick.legRadius`, `bladeSamples` of the leg length) and yields at most one `KickContact` per kicker (the one with the shortest toe travel). `resolveContacts(fighters, contacts, intents, tuning, emit)` now takes the Tick's Intents; `resolveKick` sets `landed: true` (if the kicker is still Kicking), takes the defender's `intents[defender].move` (`!== 0` on either axis => Knockdown outcome), damages (0 for teammates), pushes along kicker->defender on the ground, and emits `KickLanded {attacker, defender, outcome, zone, point, damage}`. It never touches the defender's Action or `blockImpact`.
+- **Stage 4 replaces the stub at the end of `resolveKick`** (marked `// Stage 4: knockdown`): when `knockdown` is true and the defender is not already in Knockdown, put it into `knockdown()` and clear `blockImpact`; the `knockdown` boolean currently ignores "already down" (add `defender.action.kind !== 'Knockdown'`). The Slide is already applied for both outcomes. Note that the Action stub means a "Knockdown" outcome is only a Slide + 5 hp for now.
+- A kick Death has `death = {cause: 'Hit', blow: null}` (no Hit event, so `fellingBlow` finds none; the ragdoll copes with a null blow). Stage 4/5 can give `DeathBlow` a Kick variant if the ragdoll should be knocked away.
+- Audio: `KickLanded` plays the existing `Hit` cue (zone from the event). `sandbox.ts` logs it. No FX added.
+- The Slide runs during any Action (the kicker's `locked` only stops the walk); the AI's `isThreat` doesn't see it. Stage 5 note: a Kick contact needs the victim's *Intent on the contact Tick*, so an AI that stops moving only in Release may still dodge a knockdown but not the Kick.
+- Tests: `src/sim/kickContact.test.ts` (new) plus a `slide` case in `messages.test.ts`. The test helper `moveInRelease` gives the victim movement only once the Kick is in Release (otherwise it walks out of reach before the leg arrives).

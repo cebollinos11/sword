@@ -86,6 +86,13 @@ export interface Airborne {
   readonly jumped: boolean;
 }
 
+/** A push along the floor, decelerating to a stop: its current velocity (m/s) and the Ticks it has left (see `slide.ts`). */
+export interface Slide {
+  readonly vx: number;
+  readonly vz: number;
+  readonly ticks: number;
+}
+
 export interface FighterState {
   /** Position on the ground plane, centre of the Arena is the origin. */
   readonly position: Vec2;
@@ -113,6 +120,8 @@ export interface FighterState {
   readonly kickLeg: KickLeg;
   /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
   readonly gait: GaitState;
+  /** Present while a Kick's push is carrying the Fighter along the floor (a Slide); absent otherwise, and while airborne. */
+  readonly slide?: Slide;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
   readonly blockImpact?: BlockImpact;
   /** Present once the Fighter has fallen (its HP reached zero). It is no longer simulated, hits and is hit by nothing, and no longer blocks bodies: its state stays as it was on that Tick. */

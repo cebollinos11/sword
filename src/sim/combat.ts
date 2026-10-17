@@ -11,29 +11,45 @@
  *   3. resolveContact: a Block, or a hit that Staggers the victim.
  */
 import { weaponByName, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
-import { attackSweepLive, blocksAttack, stagger, startBlockImpact } from './actions';
+import { attackSweepLive, blocksAttack, kickSweepLive, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
-import type { Direction } from './intent';
+import { IDLE_INTENT, type Direction, type Intent } from './intent';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
+import { startSlide } from './slide';
 import type { AttackAction, BlockAction, FighterState, StaggerCause } from './state';
 import { bladeSamples, sweepContact, type Capsule } from './sweep';
-import { normalize, scale, sub, type Vec3 } from './vec';
+import { length, normalize, scale, sub, type Vec3 } from './vec';
 
 /**
  * A live Blade Sweep touching another Fighter this Tick: a Hit Zone, or (only
  * when the Attack is Blocked by rule) the defender's blade. `blocked` is the
  * Block rule's verdict (ADR 0002); the geometry only decides when it lands.
  */
-export type Contact = {
+export type BladeContact = {
   readonly attacker: number;
   readonly defender: number;
   readonly direction: Direction;
   readonly point: Vec3;
   readonly bladeSpeed: number;
 } & ({ readonly blocked: true } | { readonly blocked: false; readonly zone: HitZone; readonly onHead: boolean });
+
+/**
+ * A Kick's leg sweep touching another Fighter's Hit Zone this Tick (ADR 0007). It ignores Blocks and
+ * Weapons; what it does is decided later, by the defender's Intent.
+ */
+export interface KickContact {
+  readonly kick: true;
+  readonly attacker: number;
+  readonly defender: number;
+  readonly zone: HitZone;
+  readonly point: Vec3;
+}
+
+export type Contact = BladeContact | KickContact;
 
 /**
  * The capsule a Blocking defender's Weapon presents to the Blade Sweep: all of it, from the pommel or
@@ -63,6 +79,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   const contacts: Contact[] = [];
   next.forEach((attacker, i) => {
     const before = prev[i];
+    if (before && !attacker.death && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
     if (!before || attacker.death || !attackSweepLive(before.action, attacker.action)) return;
     const direction = attacker.action.direction;
     const weapon = weaponByName(tuning, attacker.weapon);
@@ -82,6 +99,27 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
 }
 
 /**
+ * The first Hit Zone the kicking leg's sweep (last Tick's knee-toe segment to this Tick's, padded by
+ * `kick.legRadius`) reaches on any other living Fighter. A Kick lands once, so only the earliest contact counts.
+ */
+function findKickContacts(before: FighterState, kicker: FighterState, i: number, next: readonly FighterState[], tuning: TuningData, out: Contact[]): void {
+  const leg = (l: FighterState['kickLeg']) => ({ hilt: l.knee, tip: l.toe, edge: l.toe });
+  const samples = bladeSamples(length(sub(kicker.kickLeg.toe, kicker.kickLeg.knee)));
+  let best: { contact: KickContact; travelled: number } | null = null;
+  next.forEach((defender, j) => {
+    if (j === i || defender.death) return;
+    const zones = hitZoneCapsules(fighterPose(defender, tuning), tuning).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
+    const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples);
+    if (!c) return;
+    const travelled = length(sub(c.point, before.kickLeg.toe));
+    if (best && travelled >= best.travelled) return;
+    best = { travelled, contact: { kick: true, attacker: i, defender: j, zone: (c.capsule as HitCapsule).zone, point: c.point } };
+  });
+  const found = best as { contact: KickContact } | null;
+  if (found) out.push(found.contact);
+}
+
+/**
  * Apply this Tick's contacts. Each Attack lands at most once. Every contact is
  * judged against the pre-resolution `fighters` (who was Blocking, which Attacks
  * were live), so two Attacks landing on the same Tick are a Trade: both hit,
@@ -90,11 +128,15 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
 export function resolveContacts(
   fighters: readonly FighterState[],
   contacts: readonly Contact[],
+  intents: readonly Intent[],
   tuning: TuningData,
   emit: Emit,
 ): FighterState[] {
   const out = fighters.slice();
-  for (const c of contacts) resolveContact(fighters, out, c, tuning, emit);
+  for (const c of contacts) {
+    if ('kick' in c) resolveKick(fighters, out, c, intents[c.defender] ?? IDLE_INTENT, tuning, emit);
+    else resolveContact(fighters, out, c, tuning, emit);
+  }
   return out;
 }
 
@@ -113,7 +155,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
  * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers.
  * A hit on a teammate Staggers it all the same but deals no damage.
  */
-function resolveContact(before: readonly FighterState[], out: FighterState[], c: Contact, tuning: TuningData, emit: Emit): void {
+function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
@@ -134,4 +176,48 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, damage });
   out[c.defender] = staggerFighter({ ...hurt, hp: Math.max(0, hurt.hp - damage) }, c.defender, 'Hit', tuning, emit);
+}
+
+/**
+ * A Kick connects (ADR 0007). The outcome is ruled by the defender's movement Intent on this Tick: any
+ * movement input is a Knockdown (more damage, a long Slide), none a Shove (little damage, a short Slide,
+ * and the defender's Action is untouched). A teammate is pushed all the same but takes no damage. The
+ * push goes along the ground from kicker to defender. A Kick lands once: the kicker's Action is marked `landed`.
+ */
+function resolveKick(before: readonly FighterState[], out: FighterState[], c: KickContact, defenderIntent: Intent, tuning: TuningData, emit: Emit): void {
+  const attacker = before[c.attacker]!;
+  const defender = before[c.defender]!;
+  if (attacker.action.kind !== 'Kick' || attacker.action.landed) return;
+  // A Trade with a blade may have Staggered the kicker already; the Kick still landed, but there is no Action left to mark.
+  const kicker = out[c.attacker]!;
+  if (kicker.action.kind === 'Kick') out[c.attacker] = { ...kicker, action: { ...kicker.action, landed: true } };
+
+  const { x: mx, z: mz } = defenderIntent.move;
+  // Stage 4: a defender already in Knockdown is only Shoved; until Knockdown exists nobody is.
+  const knockdown = mx !== 0 || mz !== 0;
+  const { kick } = tuning;
+  const damage = attacker.team === defender.team ? 0 : knockdown ? kick.knockdownDamage : kick.shoveDamage;
+  const distance = knockdown ? kick.knockdownSlide : kick.shoveSlide;
+  const ticks = knockdown ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
+
+  let dx = defender.position.x - attacker.position.x;
+  let dz = defender.position.z - attacker.position.z;
+  const d = Math.hypot(dx, dz);
+  if (d > 0) {
+    dx /= d;
+    dz /= d;
+  } else {
+    dx = Math.sin(attacker.facing);
+    dz = Math.cos(attacker.facing);
+  }
+
+  const hurt = out[c.defender]!;
+  const speed = distance / (ticks * TICK_SECONDS);
+  // Already in the air, the push is a change of velocity (at the Slide's mean speed); on the ground it is a Slide.
+  const pushed = hurt.air
+    ? { ...hurt, air: { ...hurt.air, vx: hurt.air.vx + dx * speed, vz: hurt.air.vz + dz * speed } }
+    : { ...hurt, slide: startSlide(dx, dz, distance, ticks) };
+  out[c.defender] = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
+  emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knockdown ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
+  // Stage 4: knockdown. A Knockdown will put the defender into the Knockdown Action here (clearing its blockImpact); a Shove never touches its Action.
 }

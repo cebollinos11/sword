@@ -55,6 +55,16 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
+  it('carries a Slide through a resync, and refuses a malformed one', () => {
+    const state = matchState();
+    const slide = (v: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, slide: v }, ...state.duel.fighters.slice(1)] } });
+    const sliding = slide({ vx: 1.5, vz: -2, ticks: 7 });
+    expect(parseNetMessage(resync(sliding))).toEqual(resync(sliding));
+    expect(parseNetMessage(resync(slide({ vx: 1.5, vz: -2 })))).toBeNull();
+    expect(parseNetMessage(resync(slide({ vx: 'fast', vz: 0, ticks: 3 })))).toBeNull();
+    expect(parseNetMessage(resync(slide({ vx: 0, vz: 0, ticks: -1 })))).toBeNull();
+  });
+
   it('refuses a resync whose Match state is malformed', () => {
     const good = matchState();
     const fighter = good.duel.fighters[0]!;

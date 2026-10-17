@@ -219,12 +219,18 @@ function isAirborne(v: unknown): boolean {
   return isObject(v) && isNum(v.vx) && isNum(v.vz) && isNum(v.vy) && isNum(v.peakY) && isTick(v.ticks) && isBool(v.jumped);
 }
 
+/** A Slide: its velocity and the Ticks it has left. */
+function isSlide(v: unknown): boolean {
+  return isObject(v) && isNum(v.vx) && isNum(v.vz) && isTick(v.ticks);
+}
+
 function isFighter(v: unknown): boolean {
   return (
     isObject(v) &&
     isVec2(v.position) &&
     isNum(v.y) &&
     (v.air === undefined || isAirborne(v.air)) &&
+    (v.slide === undefined || isSlide(v.slide)) &&
     isNum(v.facing) &&
     isNum(v.pitch) &&
     isNum(v.crouch) &&

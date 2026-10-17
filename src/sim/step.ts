@@ -1,5 +1,6 @@
 import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
 import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { arenaOf, blockedAt, groundBelow } from './arena';
 import { resolveBodies } from './collision';
@@ -209,9 +210,14 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     update = fall();
   }
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
-  const { blockImpact, air: _air, ...rest } = f;
+  const { blockImpact, air: _air, slide: _slide, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
-  const moved = air ? fly(f, air, intent, tuning) : { position: walk(f, intent, tuning), y: f.y };
+  // A Slide carries a grounded Fighter along on top of its walk; once airborne its speed lives in `air` instead.
+  const sliding = !air && f.slide ? advanceSlide(f.slide) : undefined;
+  const walked = air ? undefined : walk(f, intent, tuning);
+  const moved = air
+    ? fly(f, air, intent, tuning)
+    : { position: sliding ? { x: walked!.x + sliding.delta.x, z: walked!.z + sliding.delta.z } : walked!, y: f.y };
   const next = {
     ...rest,
     ...moved,
@@ -221,7 +227,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     action: update.action,
     motion: followMotion(tuning, f.weapon, f.motion, update.motion),
   };
-  return impact ? { ...next, blockImpact: impact } : next;
+  return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}) };
 }
 
 /**
@@ -350,7 +356,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     emit,
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
-  if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
+  if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), intents, tuning, emit);
   if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick) }));
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
