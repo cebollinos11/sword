@@ -1,0 +1,10 @@
+{
+  "gravity": 14,
+  "jumpSpeed": 4.8,
+  "airControl": 4,
+  "fallDelay": 0.2,
+  "safeHeight": 1.6,
+  "damagePerMetre": 22,
+  "stepUp": 0.35,
+  "snapDown": 0.4
+}

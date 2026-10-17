@@ -65,6 +65,8 @@ export interface SkeletonPose {
 /** Where a Fighter stands: the frame its Pose Keys are authored in. */
 export interface Placement {
   readonly position: Vec2;
+  /** Height (m) of the feet; 0 when absent. */
+  readonly y?: number;
   /** Yaw in radians; 0 faces +z. */
   readonly facing: number;
 }
@@ -112,6 +114,8 @@ export interface HipShift {
 export interface GaitOffsets {
   readonly lift: FootLift;
   readonly hipShift: HipShift;
+  /** How high (m) the ground under each foot is above the Fighter's own height (feet on a ramp or a step); 0 when absent. */
+  readonly ground?: FootLift;
 }
 
 const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
@@ -186,13 +190,14 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const rightElbow = shifted ? twoBoneIk(rightShoulder, rightHand, s.upperArm, s.forearm, rightPole)[0] : motionRightElbow;
   const leftElbow = shifted ? twoBoneIk(leftShoulder, leftHand, s.upperArm, s.forearm, leftPole)[0] : motionLeftElbow;
   const { lift } = gait;
+  const ground = gait.ground ?? { left: 0, right: 0 };
 
   const halfHip = s.hipWidth / 2;
   const rightHip = add(pelvis, vec3(halfHip, 0, 0));
   const leftHip = add(pelvis, vec3(-halfHip, 0, 0));
   const knee = vec3(0, 0, 1);
-  const rAnkleTarget = vec3(targets.rightFoot.x, s.ankleHeight + lift.right, targets.rightFoot.z);
-  const lAnkleTarget = vec3(targets.leftFoot.x, s.ankleHeight + lift.left, targets.leftFoot.z);
+  const rAnkleTarget = vec3(targets.rightFoot.x, ground.right + s.ankleHeight + lift.right, targets.rightFoot.z);
+  const lAnkleTarget = vec3(targets.leftFoot.x, ground.left + s.ankleHeight + lift.left, targets.leftFoot.z);
   const [rightKnee, rightAnkle] = twoBoneIk(rightHip, rAnkleTarget, s.thigh, s.shin, knee);
   const [leftKnee, leftAnkle] = twoBoneIk(leftHip, lAnkleTarget, s.thigh, s.shin, knee);
   // The toe rises with the foot's lift: on the floor when planted (even if the leg falls short of it), raised mid-step.
@@ -211,20 +216,21 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     leftHip,
     leftKnee,
     leftAnkle,
-    leftToe: toe(leftAnkle, lift.left),
+    leftToe: toe(leftAnkle, ground.left + lift.left),
     rightHip,
     rightKnee,
     rightAnkle,
-    rightToe: toe(rightAnkle, lift.right),
+    rightToe: toe(rightAnkle, ground.right + lift.right),
   };
 
   // Fighter-local → world. Facing f: forward = (sin f, 0, cos f), right = (-cos f, 0, sin f).
   const c = Math.cos(at.facing);
   const sn = Math.sin(at.facing);
   const dirToWorld = (v: Vec3): Vec3 => ({ x: -v.x * c + v.z * sn, y: v.y, z: v.x * sn + v.z * c });
+  const y0 = at.y ?? 0;
   const toWorld = (v: Vec3): Vec3 => {
     const d = dirToWorld(v);
-    return { x: d.x + at.position.x, y: d.y, z: d.z + at.position.z };
+    return { x: d.x + at.position.x, y: d.y + y0, z: d.z + at.position.z };
   };
 
   const joints = {} as Record<JointName, Vec3>;

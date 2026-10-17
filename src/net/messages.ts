@@ -178,7 +178,7 @@ function isAction(v: unknown): boolean {
 
 /** One foot of the Gait: planted on the floor, or stepping toward a target. */
 function isFoot(v: unknown): boolean {
-  return isObject(v) && isVec2(v.planted) && (v.step === null || (isObject(v.step) && isTick(v.step.tick) && isVec2(v.step.target)));
+  return isObject(v) && isVec2(v.planted) && isNum(v.y) && (v.step === null || (isObject(v.step) && isTick(v.step.tick) && isVec2(v.step.target) && isNum(v.step.y)));
 }
 
 /** A Motion Blend: the pose it fades from (every Pose target channel) and how far in it is. */
@@ -200,10 +200,17 @@ function isMotionBlend(v: unknown): boolean {
   );
 }
 
+/** A Fighter off the ground: its velocity, the top of its arc, and how long it has flown. */
+function isAirborne(v: unknown): boolean {
+  return isObject(v) && isNum(v.vx) && isNum(v.vz) && isNum(v.vy) && isNum(v.peakY) && isTick(v.ticks) && isBool(v.jumped);
+}
+
 function isFighter(v: unknown): boolean {
   return (
     isObject(v) &&
     isVec2(v.position) &&
+    isNum(v.y) &&
+    (v.air === undefined || isAirborne(v.air)) &&
     isNum(v.facing) &&
     isNum(v.pitch) &&
     isTeam(v.team) &&
@@ -239,6 +246,7 @@ function isSimState(v: unknown): boolean {
   return (
     isObject(v) &&
     isTick(v.tick) &&
+    isString(v.arena) &&
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
     isPerFighter(v.fighters, isFighter) &&

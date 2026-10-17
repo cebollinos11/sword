@@ -5,7 +5,9 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 function goodRaw() {
   return {
     fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3 },
-    arena: { radius: 8 },
+    arena: { match: 'flat', editor: 'flat' },
+    arenas: [{ name: 'flat', radius: 8, walk: [{ id: 'WALK_floor', points: [[-8, 0, -8], [8, 0, -8], [8, 0, 8], [-8, 0, 8]] }] }],
+    fall: { gravity: 14, jumpSpeed: 4.8, airControl: 4, fallDelay: 0.2, safeHeight: 1.6, damagePerMetre: 22, stepUp: 0.35, snapDown: 0.4 },
     weapons: [{ name: 'Sword', grip: 'oneHanded', length: 0.9, damage: 30, speed: 10, gripLength: 0.12 }],
     hitZones: {
       head: { multiplier: 1.5, radius: 0.11 },
@@ -51,7 +53,8 @@ describe('Tuning Data', () => {
   it('loads the repo data/ files', () => {
     const t = loadTuningData();
     expect(t.fighter.walkSpeed).toBe(2.5);
-    expect(t.arena.radius).toBe(8);
+    expect(t.arenas.circle!.radius).toBe(8);
+    expect(t.arenas[t.arena.match]).toBeDefined();
     expect(t.weapons['Arming Sword']!.length).toBeGreaterThan(0);
     expect(t.hitZones.head.multiplier).toBeGreaterThan(t.hitZones.limbs.multiplier);
     expect(t.chamber.windowSeconds).toBe(0.15);
@@ -65,7 +68,7 @@ describe('Tuning Data', () => {
 
   it('rejects invalid data on load', () => {
     const good = goodRaw();
-    expect(() => parseTuningData({ ...good, arena: { radius: -1 } })).toThrow(TuningDataError);
+    expect(() => parseTuningData({ ...good, arena: { match: 'nowhere', editor: 'flat' } })).toThrow(TuningDataError);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, walkSpeed: '2' } })).toThrow(/walkSpeed/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
     const sword = good.weapons[0]!;

@@ -14,6 +14,7 @@ export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
   ActionKind,
+  Airborne,
   AttackAction,
   AttackPhase,
   BlockAction,
@@ -32,6 +33,7 @@ export type {
 export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent, StepEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
+export { arenaOf, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
 export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, step, teamPlacements } from './step';

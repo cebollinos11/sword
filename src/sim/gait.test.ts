@@ -151,7 +151,7 @@ describe('Gait: whatever moves the body', () => {
     const nearEdge = { placements: [{ position: { x: 0, z: 6 }, facing: 0 }, { position: { x: 0, z: -6 }, facing: Math.PI }] };
     const intoEdge = 60;
     const run = runDuel(tuning, { ...nearEdge, a: [...walk(intoEdge, { x: 0, z: 1 }), ...walk(120, { x: 1, z: 0.2 })], b: wait(180), ticks: 180 });
-    const edge = tuning.arena.radius - tuning.fighter.radius;
+    const edge = tuning.arenas.circle!.radius! - tuning.fighter.radius;
     const fromCentre = (t: number) => Math.hypot(run.states[t]!.fighters[0]!.position.x, run.states[t]!.fighters[0]!.position.z);
     // Walking straight at the edge until it stops the body (pressed against it, the body stands still and the feet settle).
     const reached = run.states.findIndex((_, t) => t > 0 && fromCentre(t) > edge - 1e-9);

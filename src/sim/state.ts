@@ -6,7 +6,7 @@ import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
 import type { Vec3 } from './vec';
 
-/** Ground-plane vector (metres). y is up and the Arena is flat, so only x/z. */
+/** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
 export interface Vec2 {
   readonly x: number;
   readonly z: number;
@@ -50,9 +50,27 @@ export interface StaggerAction {
 export type Action = IdleAction | AttackAction | BlockAction | StaggerAction;
 export type ActionKind = Action['kind'];
 
+/** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */
+export interface Airborne {
+  readonly vx: number;
+  readonly vz: number;
+  /** Vertical speed, up positive. */
+  readonly vy: number;
+  /** The highest its feet have been since it left the ground: a Landing's drop is measured from here. */
+  readonly peakY: number;
+  /** Ticks since it left the ground. */
+  readonly ticks: number;
+  /** Whether it left the ground by jumping. */
+  readonly jumped: boolean;
+}
+
 export interface FighterState {
-  /** Position on the Arena floor, centre of the Arena is the origin. */
+  /** Position on the ground plane, centre of the Arena is the origin. */
   readonly position: Vec2;
+  /** Height (m) of its feet: the Walk Surface it stands on, or where it is in the air. */
+  readonly y: number;
+  /** Present while it is off the ground; absent while it stands on a Walk Surface. */
+  readonly air?: Airborne;
   /** Yaw in radians; 0 faces +z. */
   readonly facing: number;
   /** Where it looks: radians up (+) or down (-) from level. Leans the torso and hips (Intent `pitch`). */
@@ -152,6 +170,8 @@ export type DuelState =
  */
 export interface SimState {
   readonly tick: number;
+  /** The Arena (a Tuning Data Arena name) the Duel is fought in. */
+  readonly arena: string;
   readonly rng: RngState;
   readonly fighters: readonly FighterState[];
   readonly duel: DuelState;

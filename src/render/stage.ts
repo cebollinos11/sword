@@ -31,7 +31,7 @@ export class Stage {
     sun.position.set(5, 10, -3);
     this.scene.add(sun);
 
-    this.scene.add(buildArena(tuning.arena.radius));
+    this.scene.add(buildArena(tuning.arenas[tuning.arena.editor]?.radius ?? 8));
 
     window.addEventListener('resize', () => this.resize());
     this.resize();

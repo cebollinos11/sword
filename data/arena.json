@@ -1,3 +1,4 @@
 {
-  "radius": 8
+  "match": "circle",
+  "editor": "circle"
 }

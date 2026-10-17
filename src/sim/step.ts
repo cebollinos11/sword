@@ -1,6 +1,7 @@
-import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
 import { advanceBlockImpact, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { resolveChambers } from './chamber';
+import { arenaOf, blockedAt, groundBelow } from './arena';
 import { resolveBodies } from './collision';
 import { findContacts, resolveContacts } from './combat';
 import { TICK_SECONDS } from './constants';
@@ -12,7 +13,7 @@ import { followMotion } from './motion';
 import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { DeathBlow, FighterState, SimState } from './state';
+import type { Airborne, DeathBlow, FighterState, SimState, Vec2 } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -52,7 +53,8 @@ export function teamPlacements(teams: readonly number[], distance: number, spaci
 /**
  * Build the state at Tick 0: an Idle Fighter with full HP at each placement (default: one at the centre),
  * Fighter i wielding `weapons[i]` (a Weapon name; default: the default Weapon) on team `teams[i]`
- * (default: `defaultTeam(i)`). Throws on an unknown Weapon.
+ * (default: `defaultTeam(i)`), in the Arena named `arena` (default: the Editor's, Tuning Data `arena.editor`).
+ * Throws on an unknown Weapon or Arena.
  */
 export function createInitialState(
   tuning: TuningData,
@@ -60,14 +62,20 @@ export function createInitialState(
   placements: readonly Placement[] = [CENTRE_PLACEMENT],
   weapons: readonly string[] = [],
   teams: readonly number[] = [],
+  arena: string = tuning.arena.editor,
 ): SimState {
+  const geometry = arenaOf(tuning, arena);
   return {
     tick: 0,
+    arena,
     rng: createRng(seed),
-    fighters: placements.map(({ position, facing }, i) => {
+    fighters: placements.map(({ position, facing, y: placedY = 0 }, i) => {
+      // A placement stands on the ground under it, within a step of where it is placed.
+      const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
       const weapon = weaponByName(tuning, weapons[i] ?? defaultWeaponName(tuning)).name;
       return {
         position: { x: position.x, z: position.z },
+        y,
         facing,
         pitch: 0,
         team: teams[i] ?? defaultTeam(i),
@@ -75,8 +83,8 @@ export function createInitialState(
         weapon,
         action: IDLE_ACTION,
         motion: IDLE_MOTION,
-        blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing }, weapon).blade,
-        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing }),
+        blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon).blade,
+        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
     duel: DUEL_FIGHTING,
@@ -139,13 +147,81 @@ function tilt(f: FighterState, intent: Intent, tuning: TuningData): number {
   return f.pitch + Math.sign(delta) * maxStep;
 }
 
+/**
+ * An airborne Fighter's flight this Tick: gravity pulls it down, and it steers its
+ * horizontal velocity toward where its Intent walks at no more than `fall.airControl` (m/s²).
+ */
+function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData): Pick<FighterState, 'position' | 'y' | 'air'> {
+  let { x: mx, z: mz } = locked(f) ? { x: 0, z: 0 } : intent.move;
+  const len = Math.hypot(mx, mz);
+  if (len > 1) {
+    mx /= len;
+    mz /= len;
+  }
+  let dvx = mx * tuning.fighter.walkSpeed - air.vx;
+  let dvz = mz * tuning.fighter.walkSpeed - air.vz;
+  const dv = Math.hypot(dvx, dvz);
+  const maxDv = tuning.fall.airControl * TICK_SECONDS;
+  if (dv > maxDv) {
+    dvx *= maxDv / dv;
+    dvz *= maxDv / dv;
+  }
+  const vx = air.vx + dvx;
+  const vz = air.vz + dvz;
+  const vy = air.vy - tuning.fall.gravity * TICK_SECONDS;
+  const y = f.y + vy * TICK_SECONDS;
+  return {
+    position: { x: f.position.x + vx * TICK_SECONDS, z: f.position.z + vz * TICK_SECONDS },
+    y,
+    air: { ...air, vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1 },
+  };
+}
+
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
-  const { blockImpact, ...rest } = f;
+  const { blockImpact, air, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
-  const next = { ...rest, position: walk(f, intent, tuning), facing: turn(f, intent, tuning), pitch: tilt(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
+  const moved = air ? fly(f, air, intent, tuning) : { position: walk(f, intent, tuning), y: f.y };
+  const next = { ...rest, ...moved, facing: turn(f, intent, tuning), pitch: tilt(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
   return impact ? { ...next, blockImpact: impact } : next;
+}
+
+/**
+ * Put a Fighter whose body has settled (`f`; last Tick `prev`) on the ground, or in the air:
+ *   - Standing, it follows the Walk Surface under it up a step (`fall.stepUp`) or down one
+ *     (`fall.snapDown`), so ramps walk both ways. Where there is no ground within a step, or
+ *     ground higher than a step blocks the body (`blockedAt`), or it is off the Arena, it slides along whichever axis has ground,
+ *     or stays put. Deeper ground below is a ledge: it goes airborne at the speed it walked off at.
+ *   - Airborne, it lands once its feet reach the ground under them.
+ */
+function settleGround(prev: FighterState, f: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
+  const { stepUp, snapDown } = tuning.fall;
+  const reach = Math.max(prev.y, f.y) + stepUp;
+  const under = (p: Vec2) => (blockedAt(arena, p.x, p.z, f.y, tuning) ? null : groundBelow(arena, p.x, p.z, reach));
+  let position = f.position;
+  let g = under(position);
+  if (!g) {
+    // Nothing to stand on within a step: blocked, so slide along whichever axis still has ground.
+    const tries: Vec2[] = [{ x: position.x, z: prev.position.z }, { x: prev.position.x, z: position.z }, prev.position];
+    for (const p of tries) {
+      g = under(p);
+      if (g) {
+        position = p;
+        break;
+      }
+    }
+    if (!g) return { ...f, position: prev.position };
+  }
+  const { air, ...rest } = f;
+  if (air) {
+    if (f.y > g.y) return position === f.position ? f : { ...f, position, air: { ...air, vx: 0, vz: 0 } };
+    return { ...rest, position, y: g.y };
+  }
+  if (g.y >= f.y - snapDown) return { ...rest, position, y: g.y };
+  const vx = (position.x - prev.position.x) / TICK_SECONDS;
+  const vz = (position.z - prev.position.z) / TICK_SECONDS;
+  return { ...rest, position, air: { vx, vz, vy: 0, peakY: f.y, ticks: 0, jumped: false } };
 }
 
 /**
@@ -154,18 +230,24 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
  * is solved at its final position. Motion is simulation: the Skeleton is
  * solved by IK inside the Tick (ADR 0001). `before` is last Tick's Fighters.
  */
-function settleBodies(before: readonly FighterState[], fighters: readonly FighterState[], tuning: TuningData, emit: (e: SimEvent) => void): FighterState[] {
+function settleBodies(
+  before: readonly FighterState[],
+  fighters: readonly FighterState[],
+  tuning: TuningData,
+  arena: ArenaGeometry,
+  emit: (e: SimEvent) => void,
+): FighterState[] {
   const living = fighters.flatMap((f, i) => (f.death ? [] : [i]));
   const resolved = resolveBodies(
-    living.map((i) => fighters[i]!.position),
+    living.map((i) => fighters[i]!),
+    arena,
     tuning,
   );
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (f.death) return f;
-    const position = positions.get(i)!;
-    const moved = { ...f, position };
-    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, emit) };
+    const moved = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
+    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
     return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
 }
@@ -196,10 +278,12 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const fighting = state.duel.status === 'Fighting';
   const tick = state.tick + 1;
 
+  const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
     state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
+    arena,
     emit,
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
@@ -208,5 +292,5 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, rng: nextFloat(state.rng)[1], fighters, duel, events };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, duel, events };
 }

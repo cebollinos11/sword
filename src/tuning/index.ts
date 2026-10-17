@@ -14,6 +14,8 @@ import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
 import cameraJson from '../../data/camera.json';
+import fallJson from '../../data/fall.json';
+import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 import { parseGait, type GaitTuning } from './gait';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
@@ -22,6 +24,8 @@ import { array, finiteNumber, positiveNumber, record, TuningDataError } from './
 export { TuningDataError } from './validate';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
+export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
+export { parseArena, surfacePlane } from './arena';
 export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponLook, WeaponTuning } from './weapon';
@@ -48,9 +52,24 @@ export interface FighterTuning {
   readonly lookHipShift: number;
 }
 
-export interface ArenaTuning {
-  /** Radius of the flat circular Arena in metres. */
-  readonly radius: number;
+/** Height, falling and jumping (data/fall.json): how Fighters stand on, step between and fall onto Walk Surfaces. */
+export interface FallTuning {
+  /** Downward acceleration (m/s²) of an airborne Fighter. */
+  readonly gravity: number;
+  /** Upward speed (m/s) a Jump starts with. */
+  readonly jumpSpeed: number;
+  /** How fast (m/s²) an airborne Fighter can steer its horizontal velocity toward where its Intent walks. */
+  readonly airControl: number;
+  /** Seconds airborne (without jumping) before the Fall Action takes over, so a step off a low ledge does not. */
+  readonly fallDelay: number;
+  /** The highest drop (m, from the top of the arc to the ground) that lands softly. */
+  readonly safeHeight: number;
+  /** Damage per metre dropped beyond `safeHeight`. */
+  readonly damagePerMetre: number;
+  /** The highest rise (m) a walking Fighter steps up onto. Higher ground is a wall. */
+  readonly stepUp: number;
+  /** The deepest drop (m) a walking Fighter follows down (down a ramp, off a step). Deeper, it goes airborne. */
+  readonly snapDown: number;
 }
 
 /**
@@ -167,7 +186,12 @@ export interface AiTuning {
 
 export interface TuningData {
   readonly fighter: FighterTuning;
-  readonly arena: ArenaTuning;
+  /** Which Arena a Match, and the Editor, use. */
+  readonly arena: ArenaSelection;
+  /** Every Arena, keyed by name (data/arenas/<name>.json). */
+  readonly arenas: Readonly<Record<string, ArenaGeometry>>;
+  /** Height, falls and jumps. */
+  readonly fall: FallTuning;
   /** The Weapon roster, keyed by name, in file order; the first is the default Weapon. */
   readonly weapons: Readonly<Record<string, WeaponTuning>>;
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
@@ -277,7 +301,13 @@ function parseAi(raw: unknown): AiTuning {
 export function parseTuningData(raw: unknown): TuningData {
   const root = record(raw, 'tuning');
   const f = record(root.fighter, 'fighter');
-  const a = record(root.arena, 'arena');
+  const arenas: Record<string, ArenaGeometry> = {};
+  (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
+    const arena = parseArena(raw, `arenas[${i}]`);
+    if (arenas[arena.name]) throw new TuningDataError(`arenas: duplicate Arena name "${arena.name}"`);
+    arenas[arena.name] = arena;
+  });
+  const fa = record(root.fall, 'fall');
   const s = record(root.skeleton, 'skeleton');
   const hz = record(root.hitZones, 'hitZones');
   const ch = record(root.chamber, 'chamber');
@@ -337,7 +367,18 @@ export function parseTuningData(raw: unknown): TuningData {
       lookLean: finiteNumber(f, 'lookLean', 'fighter'),
       lookHipShift: finiteNumber(f, 'lookHipShift', 'fighter'),
     },
-    arena: { radius: positiveNumber(a, 'radius', 'arena') },
+    arena: parseArenaSelection(root.arena, arenas),
+    arenas,
+    fall: {
+      gravity: positiveNumber(fa, 'gravity', 'fall'),
+      jumpSpeed: positiveNumber(fa, 'jumpSpeed', 'fall'),
+      airControl: finiteNumber(fa, 'airControl', 'fall'),
+      fallDelay: finiteNumber(fa, 'fallDelay', 'fall'),
+      safeHeight: finiteNumber(fa, 'safeHeight', 'fall'),
+      damagePerMetre: finiteNumber(fa, 'damagePerMetre', 'fall'),
+      stepUp: finiteNumber(fa, 'stepUp', 'fall'),
+      snapDown: finiteNumber(fa, 'snapDown', 'fall'),
+    },
     weapons,
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
@@ -378,6 +419,8 @@ const motionFiles = import.meta.glob<unknown>('../../data/motions/*.json', { eag
 const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', { eager: true, import: 'default' });
 /** Raw Weapon files bundled from `data/weapons/`, keyed by repo path. */
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
+/** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
+const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
 
 /** Bundled files in file (path) order. */
 const inFileOrder = (files: Record<string, unknown>) => Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -417,6 +460,13 @@ export function loadTuningData(): TuningData {
   return parseTuningData({
     fighter: fighterJson,
     arena: arenaJson,
+    arenas: inFileOrder(arenaFiles).map(([path, raw]) => {
+      const file = path.slice(path.lastIndexOf('/') + 1);
+      const name = record(raw, `data/arenas/${file}`).name;
+      if (typeof name === 'string' && `${name}.json` !== file) throw new TuningDataError(`data/arenas/${file}: Arena "${name}" must live in ${name}.json`);
+      return raw;
+    }),
+    fall: fallJson,
     weapons,
     hitZones: hitZonesJson,
     chamber: chamberJson,

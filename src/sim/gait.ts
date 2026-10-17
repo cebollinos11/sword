@@ -23,11 +23,16 @@
  *     glides along the floor toward its home (so authored foot keys and the
  *     settle after a walk stay smooth); further off, it steps.
  *
+ * Feet stand on the Walk Surface under them (a foot on a ramp or a step sits at
+ * that height). While the body is airborne the feet take no steps: they follow
+ * their home under the body, and plant there again on landing.
+ *
  * The hips bob and sway with each step (hipShift), swaying toward wherever the
  * planted foot actually is (so Motions with crossed feet sway the right way); the hands and blade still
  * come from the Motion, so walking never changes a Blade Sweep.
  */
-import type { TuningData } from '../tuning';
+import type { ArenaGeometry, TuningData } from '../tuning';
+import { groundBelow } from './arena';
 import { secondsToTicks } from './constants';
 import type { Emit } from './events';
 import { playbackTargets } from './motion';
@@ -42,15 +47,18 @@ export type Foot = (typeof FEET)[number];
 export interface FootState {
   /** World ground position of the planted foot (while stepping: where it lifted from). */
   readonly planted: Vec2;
-  /** The step in progress, or null while planted. `tick` counts Ticks since lift-off. */
-  readonly step: { readonly tick: number; readonly target: Vec2 } | null;
+  /** Height (m) of the ground the planted foot stands on. */
+  readonly y: number;
+  /** The step in progress, or null while planted. `tick` counts Ticks since lift-off; `y` is the target's ground height. */
+  readonly step: { readonly tick: number; readonly target: Vec2; readonly y: number } | null;
 }
 
 export type GaitState = Readonly<Record<Foot, FootState>>;
 
-/** Where a foot is this Tick: its world ground position and how high its ankle is lifted above ankle height. */
+/** Where a foot is this Tick: its world ground position, that ground's height, and how high its ankle is lifted above ankle height. */
 export interface FootPose {
   readonly ground: Vec2;
+  readonly y: number;
   readonly lift: number;
 }
 
@@ -101,10 +109,17 @@ function hips(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Pl
   return { left: toWorld({ x: hip.x - half, z: hip.z }, at), right: toWorld({ x: hip.x + half, z: hip.z }, at) };
 }
 
-/** Both feet planted at the home of `motion` (as `weapon` plays it) at `at` (the start of a Duel). */
+/** Both feet planted at the home of `motion` (as `weapon` plays it) at `at` (the start of a Duel), on the body's own level. */
 export function initialGait(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Placement): GaitState {
   const home = footHome(tuning, weapon, motion, at);
-  return { left: { planted: home.left, step: null }, right: { planted: home.right, step: null } };
+  const y = at.y ?? 0;
+  return { left: { planted: home.left, y, step: null }, right: { planted: home.right, y, step: null } };
+}
+
+/** The height of the ground a foot at `p` stands on, for a body standing at `bodyY`: the Walk Surface there within a step, else the body's own level. */
+export function footGround(arena: ArenaGeometry, p: Vec2, bodyY: number, tuning: TuningData): number {
+  const g = groundBelow(arena, p.x, p.z, bodyY + tuning.fall.stepUp);
+  return g && g.y >= bodyY - tuning.fall.snapDown ? g.y : bodyY;
 }
 
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -113,9 +128,10 @@ const smooth = (u: number) => u * u * (3 - 2 * u);
 
 /** Where a foot is drawn and solved this Tick. */
 export function footPose(foot: FootState, tuning: TuningData): FootPose {
-  if (!foot.step) return { ground: foot.planted, lift: 0 };
+  if (!foot.step) return { ground: foot.planted, y: foot.y, lift: 0 };
   const u = stepProgress(foot.step, tuning);
-  return { ground: lerp2(foot.planted, foot.step.target, smooth(u)), lift: tuning.gait.stepHeight * arc(u) };
+  const k = smooth(u);
+  return { ground: lerp2(foot.planted, foot.step.target, k), y: foot.y + (foot.step.y - foot.y) * k, lift: tuning.gait.stepHeight * arc(u) };
 }
 
 /**
@@ -142,8 +158,15 @@ function wrapYaw(a: number): number {
  * Advance the Gait one Tick. `before` is the Fighter at the end of last Tick,
  * `after` the same Fighter with this Tick's settled position, facing and Motion.
  */
-export function updateGait(before: FighterState, after: FighterState, fighter: number, tuning: TuningData, emit: Emit): GaitState {
+export function updateGait(before: FighterState, after: FighterState, fighter: number, tuning: TuningData, arena: ArenaGeometry, emit: Emit): GaitState {
   const ticks = stepTicks(tuning);
+  const ground = (p: Vec2) => footGround(arena, p, after.y, tuning);
+  if (after.air || before.air) {
+    // In the air the feet hang under the body; on the Tick it lands they plant at their home.
+    const home = footHome(tuning, after.weapon, after.motion, after);
+    const plant = (p: Vec2): FootState => ({ planted: p, y: after.air ? after.y : ground(p), step: null });
+    return { left: plant(home.left), right: plant(home.right) };
+  }
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;
   const here = footHome(tuning, after.weapon, after.motion, after);
@@ -156,9 +179,9 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     if (!f.step) continue;
     const t = f.step.tick + 1;
     if (t >= ticks) {
-      next[foot] = { planted: ahead[foot], step: null };
+      next[foot] = { planted: ahead[foot], y: ground(ahead[foot]), step: null };
       emit({ type: 'Step', fighter, foot, position: ahead[foot] });
-    } else next[foot] = { planted: f.planted, step: { tick: t, target: ahead[foot] } };
+    } else next[foot] = { planted: f.planted, y: f.y, step: { tick: t, target: ahead[foot], y: ground(ahead[foot]) } };
   }
   // 2. A standing body lets planted feet glide toward their home (at most a stride per step duration).
   if (still) {
@@ -168,7 +191,8 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
       if (f.step) continue;
       const d = dist(f.planted, here[foot]);
       if (d > 0 && d <= tuning.gait.strideThreshold) {
-        next[foot] = { planted: d <= glide ? here[foot] : lerp2(f.planted, here[foot], glide / d), step: null };
+        const planted = d <= glide ? here[foot] : lerp2(f.planted, here[foot], glide / d);
+        next[foot] = { planted, y: ground(planted), step: null };
       }
     }
   }
@@ -185,7 +209,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
         return reach(b) > reach(a) ? b : a;
       };
       const foot = qualifies.reduce(first);
-      next[foot] = { planted: next[foot].planted, step: { tick: 0, target: ahead[foot] } };
+      next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, target: ahead[foot], y: ground(ahead[foot]) } };
     }
   }
   return next;

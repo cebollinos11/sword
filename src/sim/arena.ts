@@ -1,0 +1,183 @@
+/**
+ * The Arena's geometry inside the simulation (ADR 0006): which Walk Surface is
+ * under a point and how high it is, and the Walls Fighter capsules cannot pass.
+ * Pure functions of Tuning Data. The per-Arena lookup grid is a cache derived
+ * from Tuning Data only (never state), so it cannot change an outcome.
+ */
+import { surfacePlane, type ArenaGeometry, type TuningData, type WalkSurface, type WallSegment } from '../tuning';
+import type { Vec2 } from './state';
+
+/** A Walk Surface ready for queries: its plane (y = a·x + c·z + d) and bounds from above. */
+interface IndexedSurface {
+  readonly surface: WalkSurface;
+  readonly a: number;
+  readonly c: number;
+  readonly d: number;
+  /** +1 or -1: the winding from above, so "inside" is the same side of every edge. */
+  readonly winding: number;
+  readonly minX: number;
+  readonly maxX: number;
+  readonly minZ: number;
+  readonly maxZ: number;
+}
+
+interface ArenaIndex {
+  readonly surfaces: readonly IndexedSurface[];
+  readonly x0: number;
+  readonly z0: number;
+  readonly cols: number;
+  readonly rows: number;
+  /** Per grid cell, the indices of the surfaces whose bounds overlap it, ascending. */
+  readonly cells: readonly (readonly number[])[];
+}
+
+/** Grid cell size (m) of the surface lookup. */
+const CELL = 1;
+/** A point this close outside an edge still counts as on the surface (shared edges never leave a gap). */
+const EDGE_EPS = 1e-6;
+
+const indexes = new WeakMap<ArenaGeometry, ArenaIndex>();
+
+function buildIndex(arena: ArenaGeometry): ArenaIndex {
+  const surfaces = arena.walk.map((surface): IndexedSurface => {
+    const { a, c, d } = surfacePlane(surface);
+    const xs = surface.points.map((p) => p.x);
+    const zs = surface.points.map((p) => p.z);
+    let area = 0;
+    surface.points.forEach((p, i) => {
+      const q = surface.points[(i + 1) % surface.points.length]!;
+      area += p.x * q.z - q.x * p.z;
+    });
+    return { surface, a, c, d, winding: Math.sign(area), minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
+  });
+  const x0 = Math.floor(Math.min(...surfaces.map((s) => s.minX)));
+  const z0 = Math.floor(Math.min(...surfaces.map((s) => s.minZ)));
+  const cols = Math.ceil((Math.max(...surfaces.map((s) => s.maxX)) - x0) / CELL) + 1;
+  const rows = Math.ceil((Math.max(...surfaces.map((s) => s.maxZ)) - z0) / CELL) + 1;
+  const cells: number[][] = Array.from({ length: cols * rows }, () => []);
+  surfaces.forEach((s, i) => {
+    const c0 = Math.floor((s.minX - x0) / CELL);
+    const c1 = Math.floor((s.maxX - x0) / CELL);
+    const r0 = Math.floor((s.minZ - z0) / CELL);
+    const r1 = Math.floor((s.maxZ - z0) / CELL);
+    for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells[r * cols + c]!.push(i);
+  });
+  return { surfaces, x0, z0, cols, rows, cells };
+}
+
+function indexOf(arena: ArenaGeometry): ArenaIndex {
+  let index = indexes.get(arena);
+  if (!index) {
+    index = buildIndex(arena);
+    indexes.set(arena, index);
+  }
+  return index;
+}
+
+/** The Arena named `name` in Tuning Data. Throws on an unknown name. */
+export function arenaOf(tuning: Pick<TuningData, 'arenas'>, name: string): ArenaGeometry {
+  const arena = tuning.arenas[name];
+  if (!arena) throw new Error(`Unknown Arena "${name}" (have: ${Object.keys(tuning.arenas).join(', ')})`);
+  return arena;
+}
+
+function inside(s: IndexedSurface, x: number, z: number): boolean {
+  if (x < s.minX - EDGE_EPS || x > s.maxX + EDGE_EPS || z < s.minZ - EDGE_EPS || z > s.maxZ + EDGE_EPS) return false;
+  const pts = s.surface.points;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!;
+    const q = pts[(i + 1) % pts.length]!;
+    const ex = q.x - p.x;
+    const ez = q.z - p.z;
+    const cross = (ex * (z - p.z) - ez * (x - p.x)) * s.winding;
+    if (cross < -EDGE_EPS * Math.hypot(ex, ez)) return false;
+  }
+  return true;
+}
+
+/** Surfaces (by index into `arena.walk`) whose polygon, seen from above, contains (x, z), ascending. */
+export function surfacesAt(arena: ArenaGeometry, x: number, z: number): number[] {
+  const index = indexOf(arena);
+  const c = Math.floor((x - index.x0) / CELL);
+  const r = Math.floor((z - index.z0) / CELL);
+  if (c < 0 || r < 0 || c >= index.cols || r >= index.rows) return [];
+  return index.cells[r * index.cols + c]!.filter((i) => inside(index.surfaces[i]!, x, z));
+}
+
+/** The height of Walk Surface `i` above (x, z) (its plane, wherever the point is). */
+export function surfaceHeight(arena: ArenaGeometry, i: number, x: number, z: number): number {
+  const s = indexOf(arena).surfaces[i]!;
+  return s.a * x + s.c * z + s.d;
+}
+
+/** The ground a body at (x, z) can stand on: the highest Walk Surface there no higher than `maxY`. */
+export interface Ground {
+  /** Index into `arena.walk`. */
+  readonly surface: number;
+  readonly y: number;
+}
+
+/**
+ * The highest Walk Surface under (x, z) at or below `maxY`, or null when there
+ * is none (off the Arena, or only higher ground). Ties go to the lower index.
+ */
+export function groundBelow(arena: ArenaGeometry, x: number, z: number, maxY: number): Ground | null {
+  let best: Ground | null = null;
+  for (const i of surfacesAt(arena, x, z)) {
+    const y = surfaceHeight(arena, i, x, z);
+    if (y > maxY + 1e-9) continue;
+    if (!best || y > best.y) best = { surface: i, y };
+  }
+  return best;
+}
+
+/**
+ * Whether a body standing at `y` at (x, z) would be inside solid ground: some
+ * Walk Surface there lies above a step (`fall.stepUp`) over its feet but below
+ * its top (`fighter.height`). Higher ground than a step is a wall even where no
+ * Wall was drawn; ground well overhead (a gallery) is not.
+ */
+export function blockedAt(arena: ArenaGeometry, x: number, z: number, y: number, tuning: TuningData): boolean {
+  for (const i of surfacesAt(arena, x, z)) {
+    const h = surfaceHeight(arena, i, x, z);
+    if (h > y + tuning.fall.stepUp + 1e-9 && h < y + tuning.fighter.height) return true;
+  }
+  return false;
+}
+
+/** Whether a Wall's solid height range overlaps a capsule standing at `y` (from `stepUp` above its feet to its top). */
+const wallOverlaps = (w: WallSegment, y: number, stepUp: number, height: number): boolean => w.bottom < y + height && w.top > y + stepUp;
+
+/**
+ * Push a circle (a Fighter capsule from above) of `radius` at `p` out of
+ * every Wall it overlaps at its height, in file order. Deterministic.
+ */
+export function pushOutOfWalls(p: Vec2, y: number, arena: ArenaGeometry, tuning: TuningData): Vec2 {
+  const { radius, height } = tuning.fighter;
+  let { x, z } = p;
+  for (const w of arena.walls) {
+    if (!wallOverlaps(w, y, tuning.fall.stepUp, height)) continue;
+    const ex = w.b.x - w.a.x;
+    const ez = w.b.z - w.a.z;
+    const len2 = ex * ex + ez * ez;
+    const t = len2 === 0 ? 0 : Math.min(1, Math.max(0, ((x - w.a.x) * ex + (z - w.a.z) * ez) / len2));
+    const qx = w.a.x + ex * t;
+    const qz = w.a.z + ez * t;
+    let dx = x - qx;
+    let dz = z - qz;
+    const d = Math.hypot(dx, dz);
+    if (d >= radius) continue;
+    if (d < 1e-12) {
+      // Exactly on the wall: out along its left-hand normal.
+      const l = Math.sqrt(len2) || 1;
+      dx = -ez / l;
+      dz = ex / l;
+    } else {
+      dx /= d;
+      dz /= d;
+    }
+    x = qx + dx * radius;
+    z = qz + dz * radius;
+  }
+  return { x, z };
+}
