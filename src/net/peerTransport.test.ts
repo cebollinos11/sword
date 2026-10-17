@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPeerTransport, type DataConnectionLike } from './peerTransport';
+import { createPeerTransport, MAX_MESSAGE_BYTES, type DataConnectionLike } from './peerTransport';
 
 /** A stand-in for a PeerJS DataConnection: records sends, lets the test fire its events. */
 function fakeConnection() {
@@ -90,5 +90,39 @@ describe('PeerJS Transport', () => {
     conn.open = false;
     createPeerTransport(conn).send('early');
     expect(conn.sent).toEqual([]);
+  });
+
+  it('splits a message too big for the PeerJS JSON channel into Fragments and reassembles them', () => {
+    const a = fakeConnection();
+    const b = fakeConnection();
+    const sender = createPeerTransport(a.conn);
+    const receiver = createPeerTransport(b.conn);
+    const got: unknown[] = [];
+    receiver.onMessage((m) => got.push(m));
+    const big = { type: 'resync', state: Array.from({ length: 5000 }, (_, i) => ({ i, x: i / 7 })) };
+    sender.send(big);
+    expect(a.conn.sent.length).toBeGreaterThan(1);
+    for (const f of a.conn.sent) expect(new TextEncoder().encode(JSON.stringify(f)).length).toBeLessThan(16300);
+    // Out of order, with a duplicate, still yields the message exactly once.
+    const fragments = [...a.conn.sent].reverse();
+    for (const f of [fragments[0], ...fragments]) b.fire('data', JSON.parse(JSON.stringify(f)));
+    expect(got).toEqual([big]);
+  });
+
+  it('a message missing a Fragment is lost, and later messages still arrive', () => {
+    const a = fakeConnection();
+    const b = fakeConnection();
+    const sender = createPeerTransport(a.conn);
+    const receiver = createPeerTransport(b.conn);
+    const got: unknown[] = [];
+    receiver.onMessage((m) => got.push(m));
+    const big = { blob: 'x'.repeat(MAX_MESSAGE_BYTES * 2) };
+    sender.send(big);
+    for (const f of a.conn.sent.slice(1)) b.fire('data', f);
+    a.conn.sent.length = 0;
+    sender.send(big);
+    sender.send({ type: 'ping' });
+    for (const f of a.conn.sent) b.fire('data', f);
+    expect(got).toEqual([big, { type: 'ping' }]);
   });
 });
