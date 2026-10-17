@@ -1,6 +1,8 @@
 {
   "attackRange": 1.4,
   "retreatRange": 0.9,
+  "kickRange": 1.0,
+  "kickRate": 0.12,
   "aggression": 0.02,
   "difficulties": {
     "Easy": { "reactionTime": 0.35, "mistakeRate": 0.45, "feintRate": 0.05 },

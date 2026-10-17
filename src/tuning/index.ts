@@ -209,6 +209,10 @@ export interface AiTuning {
   readonly attackRange: number;
   /** Closer than this (m) the AI backs off. */
   readonly retreatRange: number;
+  /** Distance (m) to the opponent within which the AI Kicks it when it was last seen moving, and within which it stands still against a Kick. */
+  readonly kickRange: number;
+  /** Chance (0..1) per Tick that an Idle AI Kicks a moving opponent in `kickRange`. 0 = it never Kicks. */
+  readonly kickRate: number;
   /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack (it always punishes an opening). 0 = it never attacks. */
   readonly aggression: number;
   /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
@@ -342,6 +346,8 @@ function parseAi(raw: unknown): AiTuning {
   return {
     attackRange: positiveNumber(ai, 'attackRange', 'ai'),
     retreatRange: positiveNumber(ai, 'retreatRange', 'ai'),
+    kickRange: positiveNumber(ai, 'kickRange', 'ai'),
+    kickRate: fraction(ai, 'kickRate', 'ai'),
     aggression: fraction(ai, 'aggression', 'ai'),
     difficulties,
   };

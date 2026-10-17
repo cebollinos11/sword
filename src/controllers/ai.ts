@@ -18,6 +18,14 @@
  *    per opponent Attack), or a mistimed Attack from out of range.
  *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
  *    then switch to another Direction (an Attack Feint) before Releasing.
+ *  - It Kicks an opponent within `kickRange` who was last seen moving (a
+ *    Kick knocks down anyone who gives movement input, ADR 0007), at `kickRate`
+ *    per Tick; `mistakeRate` makes it lose the chance, or Kick from just out
+ *    of reach. It never Kicks an opponent lying in a Knockdown (the leg passes
+ *    over a body on the floor).
+ *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
+ *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
+ *    A Kick in Recovery is an opening, like an Attack's.
  *
  * Deterministic given the seeded generator in state: it holds no generator of
  * its own. Each Tick it draws from a generator derived from the Simulation's
@@ -57,6 +65,8 @@ interface Sighting {
   readonly action: Action;
   readonly team: number;
   readonly fallen: boolean;
+  /** Its feet moved since the Tick before (walking, or being pushed). */
+  readonly moving: boolean;
   /** The Tick its current Attack became visible (identifies one Attack), or null when not attacking. */
   readonly attackStart: number | null;
 }
@@ -118,13 +128,15 @@ export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
 
 /** Is this visible Action an Attack that can still land (Wind-up or Release)? */
 const isThreat = (a: Action): a is Extract<Action, { kind: 'Attack' }> => a.kind === 'Attack' && a.phase !== 'Recovery';
+/** Is this visible Action a Kick whose leg can still land (Wind-up or Release)? */
+const isKickThreat = (a: Action): boolean => a.kind === 'Kick' && a.phase !== 'Recovery';
 /**
- * A visible opening: the opponent is committed (Recovery) or recoiling from a
- * Block (the defender's earned timing advantage). A Stagger from being hit is
- * not one: after a Trade both Fighters Stagger together, and punishing it
- * would just make two AIs Trade again in lockstep.
+ * A visible opening: the opponent is committed (Recovery, of an Attack or a
+ * Kick) or recoiling from a Block (the defender's earned timing advantage). A
+ * Stagger from being hit is not one: after a Trade both Fighters Stagger
+ * together, and punishing it would just make two AIs Trade again in lockstep.
  */
-const isOpening = (a: Action): boolean => (a.kind === 'Stagger' && a.cause === 'Blocked') || (a.kind === 'Attack' && a.phase === 'Recovery');
+const isOpening = (a: Action): boolean => (a.kind === 'Stagger' && a.cause === 'Blocked') || ((a.kind === 'Attack' || a.kind === 'Kick') && a.phase === 'Recovery');
 
 /** murmur3's 32-bit finaliser: spreads nearby seeds (consecutive Ticks, Fighter indices) over the whole range. */
 function mix32(h: number): number {
@@ -202,7 +214,8 @@ class AiController implements Controller {
       // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
       const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
       const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
-      return { position: o.position, y: o.y, action: o.action, team: o.team, fallen: o.death !== undefined, attackStart };
+      const moving = before !== undefined && (before.position.x !== o.position.x || before.position.z !== o.position.z);
+      return { position: o.position, y: o.y, action: o.action, team: o.team, fallen: o.death !== undefined, moving, attackStart };
     });
     this.seen.push({ tick: state.tick, fighters });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
@@ -243,6 +256,13 @@ class AiController implements Controller {
     }
     this.blockPlan = null;
 
+    // A Kick coming: stand still (it only knocks down a mover), and do not start anything else.
+    const kickReach = this.tuning.ai.kickRange;
+    if (enemies.some(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach)) {
+      this.feintPlan = null;
+      return facing(nearest.o);
+    }
+
     const { o: target, flat: dist, level } = nearest;
     const base = facing(target);
     const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : { x: 0, z: 0 };
@@ -255,6 +275,8 @@ class AiController implements Controller {
       const move = this.approach(state, self, target);
       return { ...IDLE_INTENT, move, face: move.x === 0 && move.z === 0 ? base.face : Math.atan2(move.x, move.z) };
     }
+    const kick = this.kick(target, dist);
+    if (kick) return { ...base, kick: true };
     if (dist > attackRange) {
       // Mistimed Attack: swinging from out of range.
       if (this.random() < aggression * this.difficulty.mistakeRate) return this.startAttack(state.tick, base);
@@ -298,6 +320,19 @@ class AiController implements Controller {
       return g !== null && self.y - g.y <= stepUp;
     };
     return [away, { x: -away.z, z: away.x }, { x: away.z, z: -away.x }].find(safe) ?? { x: 0, z: 0 };
+  }
+
+  /**
+   * Whether to Kick `target` this Tick: at `kickRate`, when it was last seen moving and is within `kickRange`
+   * (the chance is lost at `mistakeRate`); a mistimed Kick from just beyond it, within `attackRange`, is the mistake.
+   * Never at an opponent in a Knockdown. Draws from the generator only when a Kick is possible.
+   */
+  private kick(target: Sighting, dist: number): boolean {
+    const { kickRange, kickRate, attackRange } = this.tuning.ai;
+    if (kickRate <= 0 || !target.moving || target.action.kind === 'Knockdown' || dist > attackRange) return false;
+    const { mistakeRate } = this.difficulty;
+    if (dist <= kickRange) return this.random() < kickRate * (1 - mistakeRate);
+    return this.random() < kickRate * mistakeRate;
   }
 
   /** Press attack in a random Direction; at `feintRate` it plans to Feint this Attack into another Direction. */

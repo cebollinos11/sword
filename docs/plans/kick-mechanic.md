@@ -165,7 +165,7 @@ Goal: the AI uses and respects the Kick.
 - [x] Stage 2: The Kick Action
 - [x] Stage 3: Contact, Shove and Slide
 - [x] Stage 4: Knockdown and Get-up
-- [ ] Stage 5: AI
+- [x] Stage 5: AI
 
 ### Notes for later stages
 (Each stage appends what the next stages need to know: names chosen, deviations, gotchas.)
@@ -208,3 +208,10 @@ Goal: the AI uses and respects the Kick.
 - The `Down` Hit Zones lie along +z behind the Fighter's facing (head away from the kicker); it keeps `facing` and can still turn while lying, which swings the whole body about the point under the pelvis.
 - Editor: `describeAction` shows `Knockdown · <phase> · guard <Direction>`; `Knockdown` and `GetUp` are listed (and editable) as Motions. No sandbox scenario added.
 - Tests: `src/sim/knockdown.test.ts` (new), plus a Knockdown case in `messages.test.ts` and the Motion list in `editor/session.test.ts`.
+
+**Stage 5**
+- `data/ai.json` gets `kickRange` (1.0 m) and `kickRate` (0.12 per Tick), both global in `ai` (not per difficulty), parsed in `parseAi` (`AiTuning.kickRange` positive, `kickRate` fraction). The Kick's real contact distance is about 0.95-1.1 m between pelvises, so `kickRange` is also the reach used to recognise a Kick threat.
+- `ai.ts`: `Sighting.moving` (feet moved since the previous Tick's observation, so a Slide counts). A Kick Wind-up or Release from an enemy on the AI's level within `kickRange` makes it stand still (`facing` only: move 0, no attack/block, Feint plan dropped); a blade threat is checked first, so a Block happens only then. A Kick in Recovery is an `isOpening` (punished like an Attack's). The Kick rule sits before the out-of-range/retreat branches, only when the AI is Idle and on the same level: moving target in `kickRange` -> `kickRate * (1 - mistakeRate)`; moving target between `kickRange` and `attackRange` -> `kickRate * mistakeRate` (the mistimed Kick, a whiff). The sim rng is drawn only when a Kick is possible.
+- **Downed opponent:** the AI never Kicks a target in a Knockdown (the leg passes over a lying body). Its Attack logic is unchanged, so it still swings standing blows at a lying Fighter, which miss (only a crouched swing reaches). The AI has no crouch, so it cannot punish a Knockdown; teaching it to crouch-attack a downed target is a possible later change.
+- Tests: new `AI Controller: Kick` block in `ai.test.ts`, cases in `tuning.test.ts`.
+- **For the manual pass in the app:** feel and tune `kickRate`/`kickRange`; check Easy/Hard difficulty feel (mistimed Kicks on Easy); watch AI vs AI for Kick loops (a kicked AI stands still against a Kick Wind-up, so two AIs should rarely knock each other down); a Wall/Dummy never moves so is only Shoved by the player.

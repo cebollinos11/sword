@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hashValue, hold, TICK_RATE, wait, type Direction, type Intent, type Track } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
@@ -288,5 +288,82 @@ describe('AI Controller in the multilevel library', () => {
     const a = runControllers(repo, half.final, [ai, scriptedController(wait(1))], 200);
     const b = runControllers(repo, half.final, [restored, scriptedController(wait(1))], 200);
     expect(hashValue(b.final)).toBe(hashValue(a.final));
+  });
+});
+
+describe('AI Controller: Kick', () => {
+  const perfect = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
+  const reactionTicks = Math.round(0.1 * TICK_RATE);
+  const eager: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0, kickRate: 1 } };
+  const shy: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0, kickRate: 0 } };
+
+  /** Fighter 0 (AI) at the origin facing +z, Fighter 1 `gap` m ahead; the AI's Intents and states are recorded. */
+  function duel(tuning: TuningData, other: Track, ticks: number, gap = 0.95, seed = 1) {
+    const ai = createAiController(tuning, perfect);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const initial = createInitialState(tuning, seed, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: gap }, facing: Math.PI }]);
+    const run = runControllers(tuning, initial, [recording, scriptedController(other)], ticks);
+    return { run, intents };
+  }
+
+  it('Kicks an approaching dummy: it walks in range, is knocked down', () => {
+    // Fighter 1 walks towards the AI (-z) from beyond its Kick range.
+    const r = duel(eager, walk(200, { x: 0, z: -1 }), 120, 2);
+    const pressed = r.intents.findIndex((i) => i.kick);
+    expect(pressed).toBeGreaterThan(0);
+    const landed = r.run.events.find((e) => e.type === 'KickLanded');
+    expect(landed, 'the Kick never landed').toBeDefined();
+    expect(r.run.final.fighters[1]!.action.kind).toBe('Knockdown');
+  });
+
+  it('does not Kick a dummy that stands still', () => {
+    const r = duel(eager, wait(120), 120, 0.95);
+    expect(r.intents.some((i) => i.kick)).toBe(false);
+  });
+
+  it('does not Kick when kickRate is 0, nor an opponent lying in a Knockdown', () => {
+    expect(duel(shy, walk(200, { x: 0, z: -1 }), 120, 2).intents.some((i) => i.kick)).toBe(false);
+    const down = duel(eager, walk(200, { x: 0, z: -1 }), 160, 2);
+    const knocked = down.run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Knockdown');
+    expect(knocked).toBeGreaterThan(0);
+    // Once it is down (and sliding, then lying) the AI presses no Kick again while it lies there.
+    const lying = down.run.states.findIndex((s, k) => k > knocked && s.fighters[1]!.action.kind === 'Knockdown' && s.fighters[0]!.action.kind === 'Idle');
+    for (let k = lying + reactionTicks; k < down.intents.length && down.run.states[k]!.fighters[1]!.action.kind === 'Knockdown'; k++) expect(down.intents[k]!.kick).toBe(false);
+  });
+
+  it('stands still against a Kick Wind-up (where it would otherwise back off)', () => {
+    const noKick: TuningData = { ...passive, ai: { ...passive.ai, kickRate: 0 } };
+    const ticks = 80;
+    const calm = duel(noKick, wait(ticks), ticks, 0.8);
+    const threatened = duel(noKick, hold(1, { kick: true }), ticks, 0.8);
+    const seen = threatened.run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Kick');
+    expect(seen).toBeGreaterThan(0);
+    // Too close, it backs off a calm opponent...
+    expect(calm.intents[reactionTicks + 1]!.move).not.toEqual({ x: 0, z: 0 });
+    // ...but holds still, without Attacking or Blocking, while the Kick is a Wind-up or in Release.
+    const live = threatened.run.states.findIndex((s, k) => k > seen && s.fighters[1]!.action.kind === 'Kick' && s.fighters[1]!.action.phase === 'Recovery');
+    expect(live).toBeGreaterThan(seen);
+    for (let k = seen + reactionTicks; k < live + reactionTicks - 1; k++) {
+      expect(threatened.intents[k]!.move, `Tick ${k}`).toEqual({ x: 0, z: 0 });
+      expect(threatened.intents[k]!.attack || threatened.intents[k]!.block).toBe(false);
+    }
+  });
+
+  it('Blocks only if a blade threatens too', () => {
+    const { intents } = duel({ ...passive, ai: { ...passive.ai, kickRate: 0 } }, [...wait(30), ...hold(1, { kick: true })], 80, 0.95);
+    expect(intents.some((i) => i.block)).toBe(false);
+    const both = duel(passive, [...wait(30), ...attack('Overhead', 40)], 80, 1.0);
+    expect(both.intents.some((i) => i.block)).toBe(true);
+  });
+
+  it('is deterministic: the same seed gives the same Intents, and a restored Controller agrees', () => {
+    const tuning: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0, kickRate: 0.3 } };
+    const a = duel(tuning, walk(200, { x: 0, z: -1 }), 150, 2, 7);
+    const b = duel(tuning, walk(200, { x: 0, z: -1 }), 150, 2, 7);
+    expect(a.intents.map((i) => hashValue(i))).toEqual(b.intents.map((i) => hashValue(i)));
+    expect(hashValue(a.run.final)).toBe(hashValue(b.run.final));
+    const c = duel(tuning, walk(200, { x: 0, z: -1 }), 150, 2, 8);
+    expect(hashValue(c.run.final)).not.toBe(hashValue(a.run.final));
   });
 });
