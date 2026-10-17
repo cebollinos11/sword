@@ -116,6 +116,11 @@ export interface GaitOffsets {
   readonly hipShift: HipShift;
   /** How high (m) the ground under each foot is above the Fighter's own height (feet on a ramp or a step); 0 when absent. */
   readonly ground?: FootLift;
+  /**
+   * Where the Fighter aims, radians up (+) or down (-) from level: the hands swing about the chest by it and the Weapon points along it,
+   * so a Thrust reaches an opponent above or below; 0 when absent.
+   */
+  readonly aim?: number;
 }
 
 const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
@@ -168,19 +173,24 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   };
   const rightPole = spine(vec3(0.6, -1, -0.4));
   const leftPole = spine(vec3(-0.6, -1, -0.4));
-  const bladeDir = rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation);
-  const edge = rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation);
+  // Aiming up/down swings hands and Weapon about the chest (rotateX is positive downward).
+  const aimDeg = -((gait.aim ?? 0) * 180) / Math.PI;
+  const aimPivot = add(targets.hip, vec3(0, s.spine, 0));
+  const aimed = (v: Vec3) => (aimDeg === 0 ? v : add(aimPivot, rotateX(sub(v, aimPivot), aimDeg)));
+  const aimedDir = (v: Vec3) => (aimDeg === 0 ? v : rotateX(v, aimDeg));
+  const bladeDir = aimedDir(rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation));
+  const edge = aimedDir(rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation));
   // The hands are where the Motion puts them, reached from the Motion's own hip target...
   const motionBody = upperBody(targets.hip);
   const grip = weapon.grip === 'twoHanded' ? weapon.offHandGrip : undefined;
-  let rightTarget = targets.rightHand.position;
+  let rightTarget = aimed(targets.rightHand.position);
   if (grip) {
     // ...except that a two-handed Weapon yields to the off hand's reach.
     const spot = offHandSpot(rightTarget, bladeDir, edge, grip);
     rightTarget = add(rightTarget, offHandPull(motionBody.leftShoulder, spot, s.upperArm + s.forearm));
   }
   const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, rightTarget, s.upperArm, s.forearm, rightPole);
-  const leftTarget = grip ? offHandSpot(rightHand, bladeDir, edge, grip) : targets.leftHand.position;
+  const leftTarget = grip ? offHandSpot(rightHand, bladeDir, edge, grip) : aimed(targets.leftHand.position);
   const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, leftTarget, s.upperArm, s.forearm, leftPole);
   // ...and when the Gait shifts the pelvis, the arms re-bend from the shifted shoulders to those same hands.
   const { sideways, drop } = gait.hipShift;

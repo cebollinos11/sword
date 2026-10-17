@@ -21,7 +21,7 @@ export function playbackPose(tuning: TuningData, playback: MotionPlayback, place
 /**
  * The Motion's targets with the torso leaned by where the Fighter looks: `fighter.lookLean`
  * of its pitch (back when looking up, forward when looking down), the hips moving the
- * other way (`fighter.lookHipShift`) to keep it balanced. The hands stay where the Motion puts them.
+ * other way (`fighter.lookHipShift`) to keep it balanced. The hands and Weapon swing up or down with it in the solve (`GaitOffsets.aim`).
  */
 export function applyLook(targets: PoseTargets, pitch: number, tuning: TuningData): PoseTargets {
   if (pitch === 0) return targets;
@@ -33,7 +33,7 @@ export function applyLook(targets: PoseTargets, pitch: number, tuning: TuningDat
 /**
  * The full solved Skeleton of a Fighter (what the Renderer draws and Hit Zones are built on):
  * its Motion playback (crossfading out of the last Motion, if one just ended) at its position and facing, with the feet where the Gait has them
- * and the hips bobbing and swaying with each step, the torso leaning with where it looks, the sword hand shaken by any Block Impact, and its Weapon held as its grip says.
+ * and the hips bobbing and swaying with each step, the torso leaning and the hands and Weapon aimed with where it looks, the sword hand shaken by any Block Impact, and its Weapon held as its grip says.
  */
 export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
   const played = applyLook(playbackTargets(tuning, f.weapon, f.motion), f.pitch, tuning);
@@ -45,6 +45,6 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
     tuning.skeleton,
     weaponByName(tuning, f.weapon),
     f,
-    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), ground: { left: left.y - f.y, right: right.y - f.y } },
+    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, ground: { left: left.y - f.y, right: right.y - f.y } },
   );
 }

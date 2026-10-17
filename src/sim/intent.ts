@@ -35,8 +35,8 @@ export interface Intent {
   /**
    * Where the Fighter looks up (+) or down (-), radians from level; absent keeps
    * its pitch. It tilts toward this at `fighter.turnSpeed`, within
-   * `fighter.lookPitchMax`, and leans its torso and hips with it (the hands stay
-   * where the Motion puts them). The Local Controller fills it from the camera.
+   * `fighter.lookPitchMax`, and leans its torso and hips with it; its hands and
+   * Weapon swing up or down about the chest, so blows and thrusts land higher or lower. The Local Controller fills it from the camera.
    */
   readonly pitch?: number;
   /**

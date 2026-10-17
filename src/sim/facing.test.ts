@@ -81,7 +81,7 @@ describe('Look pitch (Intent.pitch)', () => {
     expect(lookFor(lone(), 60, -89 * DEG).fighters[0]!.pitch).toBeCloseTo(-tuning.fighter.lookPitchMax * DEG, 10);
   });
 
-  it('looking down leans the torso forward and the hips back; looking up the other way; the blade stays put', () => {
+  it('looking down leans the torso forward and the hips back; looking up the other way; the Weapon aims with the look', () => {
     const level = fighterPose(lone().fighters[0]!, tuning);
     const down = fighterPose(lookFor(lone(), 60, -40 * DEG).fighters[0]!, tuning);
     const up = fighterPose(lookFor(lone(), 60, 40 * DEG).fighters[0]!, tuning);
@@ -91,6 +91,9 @@ describe('Look pitch (Intent.pitch)', () => {
     expect(lean(up)).toBeLessThan(lean(level) - 0.1);
     expect(down.joints.pelvis.z).toBeLessThan(level.joints.pelvis.z);
     expect(up.joints.pelvis.z).toBeGreaterThan(level.joints.pelvis.z);
-    expect(down.blade.hilt.z).toBeCloseTo(level.blade.hilt.z, 2);
+    // The Weapon tilts with the look: its elevation changes by the pitch.
+    const elevation = (p: typeof level) => Math.atan2(p.blade.tip.y - p.blade.hilt.y, p.blade.tip.z - p.blade.hilt.z);
+    expect(elevation(up) - elevation(level)).toBeCloseTo(40 * DEG, 1);
+    expect(elevation(down) - elevation(level)).toBeCloseTo(-40 * DEG, 1);
   });
 });
