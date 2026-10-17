@@ -1,5 +1,5 @@
 import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
-import { applyBlockImpact } from './actions';
+import { applyBlockImpact, applyGuard } from './actions';
 import { footPose, hipShift, toLocal } from './gait';
 import { motionTargets, playbackTargets, type PoseTargets } from './motion';
 import { kickLegOf, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
@@ -55,7 +55,10 @@ export function applyCrouch(targets: PoseTargets, crouch: number, tuning: Tuning
  * and the hips bobbing and swaying with each step, the torso leaning and the hands and Weapon aimed with where it looks, the sword hand shaken by any Block Impact, and its Weapon held as its grip says.
  */
 export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
-  const played = applyLook(applyCrouch(playbackTargets(tuning, f.weapon, f.motion), f.crouch, tuning), f.pitch, tuning);
+  const moving = applyLook(applyCrouch(playbackTargets(tuning, f.weapon, f.motion), f.crouch, tuning), f.pitch, tuning);
+  // A Knockdown holding a guard holds its hands as that Block does, on top of the lying body.
+  const guard = f.action.kind === 'Knockdown' ? f.action.guard : null;
+  const played = guard ? applyGuard(moving, guard, tuning, f.weapon) : moving;
   const targets = f.blockImpact ? applyBlockImpact(played, f.blockImpact, tuning) : played;
   const left = footPose(f.gait.left, tuning);
   const right = footPose(f.gait.right, tuning);

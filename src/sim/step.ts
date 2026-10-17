@@ -97,8 +97,8 @@ export function createInitialState(
 /** Share of `fighter.walkSpeed` a blocked attacker keeps while it recoils (its Stagger is `Blocked`). */
 const RECOIL_WALK_FACTOR = 0.5;
 
-/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking Fighter is committed: it cannot walk (it can still turn). */
-const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick';
+/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking or knocked-down Fighter is committed: it cannot walk (it can still turn). */
+const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick' || f.action.kind === 'Knockdown';
 
 /** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly). */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
@@ -140,7 +140,7 @@ function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
  * `fighter.lookPitchMax`) at `fighter.turnSpeed`, like turning. A Staggered Fighter cannot act, so it keeps its pitch.
  */
 function tilt(f: FighterState, intent: Intent, tuning: TuningData): number {
-  if (intent.pitch === undefined || f.action.kind === 'Stagger') return f.pitch;
+  if (intent.pitch === undefined || f.action.kind === 'Stagger' || f.action.kind === 'Knockdown') return f.pitch;
   const max = (tuning.fighter.lookPitchMax * Math.PI) / 180;
   const target = Math.min(max, Math.max(-max, intent.pitch));
   const maxStep = (tuning.fighter.turnSpeed * Math.PI * TICK_SECONDS) / 180;
@@ -151,7 +151,7 @@ function tilt(f: FighterState, intent: Intent, tuning: TuningData): number {
 
 /** The Fighter's crouch amount after this Tick: it moves toward 1 while Intent `crouch` is held, else toward 0, at `fighter.crouchSpeed`. A Staggered Fighter cannot act, so it holds its crouch. */
 function duck(f: FighterState, intent: Intent, tuning: TuningData): number {
-  if (f.action.kind === 'Stagger') return f.crouch;
+  if (f.action.kind === 'Stagger' || f.action.kind === 'Knockdown') return f.crouch;
   const target = intent.crouch === true ? 1 : 0;
   const step = tuning.fighter.crouchSpeed * TICK_SECONDS;
   return Math.abs(target - f.crouch) <= step ? target : f.crouch + Math.sign(target - f.crouch) * step;
@@ -206,7 +206,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
-  } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger') {
+  } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger' && update.action.kind !== 'Knockdown') {
     update = fall();
   }
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
@@ -241,6 +241,8 @@ function land(prev: FighterState, f: FighterState, index: number, fighting: bool
   const hard = height > tuning.fall.safeHeight;
   const damage = hard && fighting ? (height - tuning.fall.safeHeight) * tuning.fall.damagePerMetre : 0;
   emit({ type: 'Land', fighter: index, height, damage });
+  // A Fighter lying down takes the damage but stays down: it is not Staggered upright.
+  if (hard && f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
   if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
   if (f.action.kind !== 'Fall') return f;
   return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, IDLE_MOTION) };

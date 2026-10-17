@@ -13,6 +13,7 @@ import { updateFall } from './fall';
 import { feint } from './feint';
 import { startKick, updateKick } from './kick';
 import { IDLE_ACTION } from './idleAction';
+import { updateKnockdown } from './knockdown';
 import { updateStagger } from './stagger';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
@@ -39,6 +40,8 @@ const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { ki
   Block: updateBlock,
   // Committed: its Intent is ignored until the Motion ends.
   Kick: updateKick,
+  // Forced: its Intent only steers the guard (and the turn, in step.ts) until the Get-up ends.
+  Knockdown: updateKnockdown,
   Stagger: updateStagger,
   Fall: updateFall,
 };
@@ -50,9 +53,10 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 }
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
-export { advanceBlockImpact, applyBlockImpact, blockMotionName, blocksAttack, roughlyFaces, startBlockImpact } from './block';
+export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';
+export { GET_UP_MOTION, knockdown, KNOCKDOWN_MOTION } from './knockdown';
 export { LAND_MOTION, RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

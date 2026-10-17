@@ -7,7 +7,7 @@
 import { weaponByName, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks, TICK_SECONDS } from '../constants';
 import { mirrorDirection, type Direction } from '../intent';
-import type { PoseTargets } from '../motion';
+import { motionTargets, type PoseTargets } from '../motion';
 import type { BlockAction, BlockImpact, FighterState } from '../state';
 import type { Vec3 } from '../vec';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
@@ -46,8 +46,25 @@ export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
  * defender's left, so it needs a Left Block) and roughly faces the attacker.
  */
 export function blocksAttack(defender: FighterState, attacker: FighterState, direction: Direction, tuning: TuningData): boolean {
-  if (defender.action.kind !== 'Block' || defender.action.direction !== mirrorDirection(direction)) return false;
+  if (guardDirection(defender) !== mirrorDirection(direction)) return false;
   return roughlyFaces(defender, attacker, tuning);
+}
+
+/** The Direction a Fighter guards in: its Block's, or the guard a Knockdown holds; null when it guards nothing. */
+export function guardDirection(f: FighterState): Direction | null {
+  if (f.action.kind === 'Block') return f.action.direction;
+  return f.action.kind === 'Knockdown' ? f.action.guard : null;
+}
+
+/**
+ * `targets` with both hands (and so the Weapon) held as a Block in `direction` holds them, over whatever
+ * the rest of the body is doing: a Fighter lying down guards from the floor. The body channels stay as they were.
+ */
+export function applyGuard(targets: PoseTargets, direction: Direction, tuning: TuningData, weapon: string): PoseTargets {
+  const motion = weaponMotion(tuning, weapon, blockMotionName(direction));
+  if (!motion) throw new Error(`No Motion "${blockMotionName(direction)}" to guard with`);
+  const { rightHand, leftHand } = motionTargets(tuning, weapon, motion.name, secondsToTicks(motion.duration));
+  return { ...targets, rightHand, leftHand };
 }
 
 /** Whether `other` lies within `block.facingHalfAngle` (Tuning Data) of `f`'s facing (used by Blocks and Chambers). */
@@ -82,11 +99,11 @@ const IMPACT_PUSH: Record<Direction, Vec3> = {
  * Blade Speed over the attacker's Weapon's reference speed (clamped), scaled by the attacker's
  * Weapon's `blockImpact.dealt` and the defender's Weapon's `blockImpact.taken`.
  */
-export function startBlockImpact(attacker: FighterState, defender: FighterState & { readonly action: BlockAction }, bladeSpeed: number, tuning: TuningData): BlockImpact {
+export function startBlockImpact(attacker: FighterState, defender: FighterState, direction: Direction, bladeSpeed: number, tuning: TuningData): BlockImpact {
   const dealt = weaponByName(tuning, attacker.weapon);
   const taken = weaponByName(tuning, defender.weapon);
   const clamped = Math.min(IMPACT_STRENGTH_MAX, Math.max(IMPACT_STRENGTH_MIN, bladeSpeed / dealt.speed));
-  return { direction: defender.action.direction, strength: clamped * dealt.blockImpact.dealt * taken.blockImpact.taken, tick: 0 };
+  return { direction, strength: clamped * dealt.blockImpact.dealt * taken.blockImpact.taken, tick: 0 };
 }
 
 /** The Block Impact one Tick on, or undefined once it has settled (`block.impactDuration`). */

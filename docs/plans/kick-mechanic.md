@@ -164,7 +164,7 @@ Goal: the AI uses and respects the Kick.
 - [x] Stage 1: Vocabulary and the pose channels
 - [x] Stage 2: The Kick Action
 - [x] Stage 3: Contact, Shove and Slide
-- [ ] Stage 4: Knockdown and Get-up
+- [x] Stage 4: Knockdown and Get-up
 - [ ] Stage 5: AI
 
 ### Notes for later stages
@@ -197,3 +197,14 @@ Goal: the AI uses and respects the Kick.
 - Audio: `KickLanded` plays the existing `Hit` cue (zone from the event). `sandbox.ts` logs it. No FX added.
 - The Slide runs during any Action (the kicker's `locked` only stops the walk); the AI's `isThreat` doesn't see it. Stage 5 note: a Kick contact needs the victim's *Intent on the contact Tick*, so an AI that stops moving only in Release may still dodge a knockdown but not the Kick.
 - Tests: `src/sim/kickContact.test.ts` (new) plus a `slide` case in `messages.test.ts`. The test helper `moveInRelease` gives the victim movement only once the Kick is in Release (otherwise it walks out of reach before the leg arrives).
+
+**Stage 4**
+- `KnockdownAction { kind: 'Knockdown'; phase: 'Falling' | 'Down' | 'Rising'; ticks; guard: Direction | null }` (`state.ts`; `KnockdownPhase`). `ticks` counts Ticks spent Down (0 in the other phases). `actions/knockdown.ts`: `knockdown()`, `updateKnockdown`, `KNOCKDOWN_MOTION = 'Knockdown'` (0.5 s fall: `body.tilt` 0 -> 90, `drop` -0.12 so the body rests on the floor; Down holds its last pose), `GET_UP_MOTION = 'GetUp'` (0.7 s; file `getup.json`, since the editor derives the file name from the lower-cased Motion name). Falling lasts the Motion's Ticks, Down exactly `kick.knockdownTicks`, Rising the GetUp's Ticks, then Idle. `guard = intent.block ? intent.direction : null` every Tick.
+- Guard: `guardDirection(f)` (Block's Direction, or a Knockdown's `guard`) is what `blocksAttack` and the Block Impact use (`startBlockImpact` now takes the Direction as an argument). In `fighterPose`, a guarding Knockdown has both hands replaced by the end of the `Block<Direction>` Motion (`applyGuard`, `block.ts`); the lying `body` is kept. The hands snap when the guard changes (no blend).
+- `step.ts`: Knockdown is `locked` (no walk, no steering in the air), keeps `pitch` and `crouch` frozen like a Stagger, still turns, never Falls (`fall()` swap skipped), and a hard Landing damages without Staggering it upright.
+- `combat.ts`: a Knockdown outcome now enters `knockdown()` (clearing `blockImpact`, re-solving the pose via `bladeAndLeg`); a defender already in Knockdown gets the Shove outcome. A blade Hit on a Knockdown Fighter wounds it but does **not** Stagger it (it stays down); a Block by its guard recoils the attacker and gives it a Block Impact as usual.
+- **Net: `PROTOCOL_VERSION` is now 8** (a new Action on the wire); `isAction` validates the Knockdown.
+- **Reach finding for Stage 5 / tuning:** a Fighter lying flat has Hit Zones at y about 0.12-0.3. A *standing* Attack and the Kick's leg both pass over it; only a **crouched** swing (Overhead) lands on it. So a re-Kick can only land (as a Shove) while the victim is still Falling or already Rising; the test uses the Falling case. The AI does not crouch, so it cannot punish a Fighter who lies down unless Stage 5 teaches it to (or the Kick/crouch Motions are reshaped in the Editor).
+- The `Down` Hit Zones lie along +z behind the Fighter's facing (head away from the kicker); it keeps `facing` and can still turn while lying, which swings the whole body about the point under the pelvis.
+- Editor: `describeAction` shows `Knockdown · <phase> · guard <Direction>`; `Knockdown` and `GetUp` are listed (and editable) as Motions. No sandbox scenario added.
+- Tests: `src/sim/knockdown.test.ts` (new), plus a Knockdown case in `messages.test.ts` and the Motion list in `editor/session.test.ts`.

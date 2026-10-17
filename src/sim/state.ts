@@ -60,6 +60,22 @@ export interface KickAction {
   readonly whiff?: number;
 }
 
+/** The phases of a Knockdown, in order: the fall, lying, the Get-up. */
+export type KnockdownPhase = 'Falling' | 'Down' | 'Rising';
+
+/**
+ * A Knockdown: the Fighter falls flat on its back, lies for `kick.knockdownTicks` and gets up. It can turn
+ * and guard throughout but cannot move, Attack, Kick or Jump, and it can be hit normally (ADR 0007).
+ */
+export interface KnockdownAction {
+  readonly kind: 'Knockdown';
+  readonly phase: KnockdownPhase;
+  /** Ticks spent lying so far while Down (counting up to `kick.knockdownTicks`); 0 in the other phases. */
+  readonly ticks: number;
+  /** The Direction of the guard it is holding (it Blocks like a Block in that Direction), or null when it holds none. */
+  readonly guard: Direction | null;
+}
+
 /** In the air after a Jump, or after `fall.fallDelay` airborne. After a ledge or push it cannot Attack or Block until it lands; after a Jump it can. */
 export interface FallAction {
   readonly kind: 'Fall';
@@ -69,7 +85,7 @@ export interface FallAction {
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | KickAction | StaggerAction | FallAction;
+export type Action = IdleAction | AttackAction | BlockAction | KickAction | KnockdownAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */

@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOptions, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -119,6 +119,7 @@ type Obj = Record<string, unknown>;
 const REFUSE_REASONS: ReadonlySet<string> = new Set<RefuseReason>(['TuningDataMismatch', 'ProtocolMismatch']);
 const DIRECTION_SET: ReadonlySet<string> = new Set<string>(DIRECTIONS);
 const PHASE_SET: ReadonlySet<string> = new Set<string>(ATTACK_PHASES);
+const KNOCKDOWN_PHASES: ReadonlySet<string> = new Set<KnockdownPhase>(['Falling', 'Down', 'Rising']);
 const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered', 'Landed']);
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -181,6 +182,8 @@ function isAction(v: unknown): boolean {
       return isDirection(v.direction);
     case 'Kick':
       return PHASE_SET.has(v.phase as string) && isBool(v.landed) && (v.whiff === undefined || isTick(v.whiff));
+    case 'Knockdown':
+      return KNOCKDOWN_PHASES.has(v.phase as string) && isTick(v.ticks) && (v.guard === null || isDirection(v.guard));
     case 'Stagger':
       return STAGGER_CAUSES.has(v.cause as string);
     case 'Fall':

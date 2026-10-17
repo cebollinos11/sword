@@ -13,14 +13,14 @@
 import { weaponByName, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
-import { attackSweepLive, blocksAttack, kickSweepLive, stagger, startBlockImpact } from './actions';
+import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, type Direction, type Intent } from './intent';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
-import type { AttackAction, BlockAction, FighterState, StaggerCause } from './state';
+import type { AttackAction, FighterState, StaggerCause } from './state';
 import { bladeSamples, sweepContact, type Capsule } from './sweep';
 import { length, normalize, scale, sub, type Vec3 } from './vec';
 
@@ -164,8 +164,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
     emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
     // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
-    const blocking = defender as FighterState & { readonly action: BlockAction };
-    out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, blocking, c.bladeSpeed, tuning) };
+    out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) };
     return;
   }
   const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
@@ -175,7 +174,9 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const hurt = out[c.defender]!;
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, damage });
-  out[c.defender] = staggerFighter({ ...hurt, hp: Math.max(0, hurt.hp - damage) }, c.defender, 'Hit', tuning, emit);
+  const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+  // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
+  out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
 }
 
 /**
@@ -193,12 +194,12 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   if (kicker.action.kind === 'Kick') out[c.attacker] = { ...kicker, action: { ...kicker.action, landed: true } };
 
   const { x: mx, z: mz } = defenderIntent.move;
-  // Stage 4: a defender already in Knockdown is only Shoved; until Knockdown exists nobody is.
-  const knockdown = mx !== 0 || mz !== 0;
+  // A defender already in Knockdown is only Shoved: nobody is knocked down twice.
+  const knocked = (mx !== 0 || mz !== 0) && defender.action.kind !== 'Knockdown';
   const { kick } = tuning;
-  const damage = attacker.team === defender.team ? 0 : knockdown ? kick.knockdownDamage : kick.shoveDamage;
-  const distance = knockdown ? kick.knockdownSlide : kick.shoveSlide;
-  const ticks = knockdown ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
+  const damage = attacker.team === defender.team ? 0 : knocked ? kick.knockdownDamage : kick.shoveDamage;
+  const distance = knocked ? kick.knockdownSlide : kick.shoveSlide;
+  const ticks = knocked ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
 
   let dx = defender.position.x - attacker.position.x;
   let dz = defender.position.z - attacker.position.z;
@@ -217,7 +218,15 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   const pushed = hurt.air
     ? { ...hurt, air: { ...hurt.air, vx: hurt.air.vx + dx * speed, vz: hurt.air.vz + dz * speed } }
     : { ...hurt, slide: startSlide(dx, dz, distance, ticks) };
-  out[c.defender] = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
-  emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knockdown ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
-  // Stage 4: knockdown. A Knockdown will put the defender into the Knockdown Action here (clearing its blockImpact); a Shove never touches its Action.
+  const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
+  emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
+  // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
+  if (!knocked) {
+    out[c.defender] = wounded;
+    return;
+  }
+  const { blockImpact: _impact, ...rest } = wounded;
+  const { action, motion } = knockdown();
+  const down = { ...rest, action, motion: followMotion(tuning, wounded.weapon, wounded.motion, motion) };
+  out[c.defender] = { ...down, ...bladeAndLeg(fighterPose(down, tuning)) };
 }

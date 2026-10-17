@@ -55,6 +55,22 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
+  it('carries a Knockdown through a resync, and refuses a malformed one', () => {
+    const state = matchState();
+    const down = (action: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, action }, ...state.duel.fighters.slice(1)] } });
+    for (const good of [
+      { kind: 'Knockdown', phase: 'Falling', ticks: 0, guard: null },
+      { kind: 'Knockdown', phase: 'Down', ticks: 12, guard: 'Left' },
+      { kind: 'Knockdown', phase: 'Rising', ticks: 0, guard: 'Thrust' },
+    ]) expect(parseNetMessage(resync(down(good)))).toEqual(resync(down(good)));
+    for (const bad of [
+      { kind: 'Knockdown', phase: 'Lying', ticks: 0, guard: null },
+      { kind: 'Knockdown', phase: 'Down', ticks: -1, guard: null },
+      { kind: 'Knockdown', phase: 'Down', ticks: 1, guard: 'Sideways' },
+      { kind: 'Knockdown', phase: 'Down', ticks: 1 },
+    ]) expect(parseNetMessage(resync(down(bad)))).toBeNull();
+  });
+
   it('carries a Slide through a resync, and refuses a malformed one', () => {
     const state = matchState();
     const slide = (v: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, slide: v }, ...state.duel.fighters.slice(1)] } });
