@@ -74,16 +74,16 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
       { prefix: 'LIGHT_freeze', intensity: 22, distance: 14, color: 0xc4d8ff },
     ],
   },
-  // A bright day at sea: sun from astern, blue sky over blue water, a light haze on the horizon.
+  // A thick sea fog: pale, sunless light, and grey murk that swallows the ship's ends and the mastheads.
   ship: {
     lights: () => [
-      new THREE.HemisphereLight(0xcfe4ff, 0x2c5a78, 1.1),
-      new THREE.AmbientLight(0x7c8796, 0.35),
-      directional(0xfff0d6, 1.6, 7, 14, -9),
-      directional(0x9ec4ff, 0.3, -6, 5, 8),
+      new THREE.HemisphereLight(0xd8dee2, 0x3a4a52, 1.15),
+      new THREE.AmbientLight(0x8a9296, 0.45),
+      directional(0xeef0ea, 0.9, 7, 14, -9),
+      directional(0xb8c6cf, 0.25, -6, 5, 8),
     ],
-    background: 0x9ccbec,
-    fog: { color: 0xa9d2ee, near: 35, far: 105 },
+    background: 0xa7b0b4,
+    fog: { color: 0xa7b0b4, near: 2, far: 22 },
     lamps: [],
   },
 };
