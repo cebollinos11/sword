@@ -25,8 +25,8 @@ function label(lineup: Lineup | null, fighter: number, me: number): string {
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
 
 /**
- * The in-match HUD: an HP bar per Fighter and the round score, nothing else
- * (story 19): no Duel counter, and deliberately no Direction indicator
+ * The in-match HUD: an HP bar per Fighter, the round score and a centre dot
+ * crosshair (purely visual), nothing else (story 19): no Duel counter, and deliberately no Direction indicator
  * (Directions are read from poses). Your team stands on the left (you first),
  * the enemy team on the right, each bar in its Fighter's colour with a short
  * label; the score reads your team's Duels first. A short transient banner
@@ -42,6 +42,7 @@ export class Hud {
   private statsAt = 0;
   private fps = 0;
   private readonly banner = document.createElement('div');
+  private readonly crosshair = document.createElement('div');
   private readonly leave = document.createElement('button');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** What the bars were built for; they are rebuilt when it changes. */
@@ -71,7 +72,8 @@ export class Hud {
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
     this.banner.className = 'hud-banner';
     this.stats.className = 'hud-stats';
-    this.root.append(this.top, this.banner, this.stats);
+    this.crosshair.className = 'hud-crosshair';
+    this.root.append(this.top, this.banner, this.stats, this.crosshair);
     this.root.hidden = true;
     container.append(this.root);
   }

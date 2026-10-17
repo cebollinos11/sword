@@ -25,6 +25,8 @@ const CSS = `
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }
+.hud-crosshair { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%;
+  background: #fffe; box-shadow: 0 0 0 1px #0008; }
 .menu { display: flex; align-items: center; justify-content: center; background: #0a1a2a99; }
 .menu-panel { background: #18232fee; border: 1px solid #ffffff30; border-radius: 10px; padding: 1.6rem 2rem; width: min(30rem, calc(100vw - 2rem));
   box-sizing: border-box; box-shadow: 0 10px 40px #0008; }
