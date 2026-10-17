@@ -177,13 +177,15 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
   };
 }
 
-/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle or Blocking. */
-const jumps = (f: FighterState, intent: Intent): boolean => intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block');
+/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking or Attacking. */
+const jumps = (f: FighterState, intent: Intent): boolean =>
+  intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack');
 
 /**
  * One Fighter's Action and movement this Tick, before bodies collide. A Jump leaps
- * off the ground with the walk it had and Falls; a Fighter airborne for `fall.fallDelay`
- * (or more) Falls too, whatever it was doing, unless it is Staggered.
+ * off the ground with the walk it had (an Idle Fighter Falls, one Attacking or Blocking keeps
+ * at it, and a jumper can Attack or Block mid-air); a Fighter that walked off a ledge and has been
+ * airborne for `fall.fallDelay` (or more) Falls, whatever it was doing, unless it is Staggered.
  */
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   let air = f.air;
@@ -191,9 +193,10 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
   if (jumps(f, intent)) {
     const to = walk(f, intent, tuning);
     air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true };
-    update = fall();
+    // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
+    if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
-  } else if (air && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger') {
+  } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger') {
     update = fall();
   }
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.

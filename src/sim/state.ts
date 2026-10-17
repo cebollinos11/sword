@@ -43,7 +43,7 @@ export interface StaggerAction {
   readonly cause: StaggerCause;
 }
 
-/** In the air after a Jump, or after `fall.fallDelay` airborne: it cannot Attack or Block until it lands. */
+/** In the air after a Jump, or after `fall.fallDelay` airborne. After a ledge or push it cannot Attack or Block until it lands; after a Jump it can. */
 export interface FallAction {
   readonly kind: 'Fall';
 }

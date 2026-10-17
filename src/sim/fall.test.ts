@@ -111,10 +111,38 @@ describe('Falling and Landing', () => {
     expect(z).toBeCloseTo((repo.fighter.walkSpeed * airborne) / 60, 1);
   });
 
-  it('cannot Attack (or Jump again) in the air', () => {
+  it('a jumper can Attack in the air, but cannot Jump again', () => {
     const r = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true } }, { ticks: 20, intent: { attack: true, direction: 'Overhead', jump: true } }], 21);
-    for (const s of r.states.slice(1)) expect(s.fighters[0]!.action.kind).toBe('Fall');
+    expect(r.states[5]!.fighters[0]!.action.kind).toBe('Attack');
+    expect(r.states[5]!.fighters[0]!.air).toBeDefined();
     expect(r.events.filter((e) => e.type === 'Jump')).toHaveLength(1);
-    expect(r.events.some((e) => e.type === 'AttackPhase')).toBe(false);
+    expect(r.events.some((e) => e.type === 'AttackPhase')).toBe(true);
+  });
+
+  it('a jumper can Block in the air', () => {
+    const r = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true } }, { ticks: 10, intent: { block: true, direction: 'Overhead' } }], 11);
+    expect(r.states[5]!.fighters[0]!.action.kind).toBe('Block');
+    expect(r.states[5]!.fighters[0]!.air).toBeDefined();
+  });
+
+  it('a Fighter can Jump out of an Attack, which carries on in the air', () => {
+    const r = run(
+      { position: { x: 0, z: 0 }, facing: 0 },
+      [{ ticks: 3, intent: { attack: true, direction: 'Overhead' } }, { ticks: 1, intent: { attack: true, direction: 'Overhead', jump: true } }, { ticks: 5, intent: {} }],
+      9,
+    );
+    const jumped = r.events.find((e) => e.type === 'Jump')!;
+    expect(r.states[jumped.tick]!.fighters[0]!.action.kind).toBe('Attack');
+    expect(r.states[jumped.tick]!.fighters[0]!.air).toBeDefined();
+  });
+
+  it('a Fighter that walked off a ledge still cannot Attack in the air', () => {
+    const r = run({ position: { x: 3.9, z: 0 }, facing: Math.PI / 2, y: 2.5 }, [...walk(10, { x: 1, z: 0 }), { ticks: 30, intent: { attack: true, direction: 'Overhead', move: { x: 1, z: 0 } } }], 40);
+    const off = r.states.findIndex((s) => s.fighters[0]!.air);
+    expect(off).toBeGreaterThan(0);
+    for (let t = off; t < r.states.length; t++) {
+      const f = r.states[t]!.fighters[0]!;
+      if (f.air) expect(f.action.kind, `Tick ${t}`).not.toBe('Attack');
+    }
   });
 });

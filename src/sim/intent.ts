@@ -41,7 +41,7 @@ export interface Intent {
   readonly pitch?: number;
   /**
    * Jump pressed this Tick (absent = not pressed). A Fighter standing on the ground,
-   * Idle or Blocking, leaps up at `fall.jumpSpeed` and Falls until it lands.
+   * Idle, Blocking or Attacking, leaps up at `fall.jumpSpeed` until it lands (an Idle one Falls; it can Attack or Block in the air).
    */
   readonly jump?: boolean;
 }

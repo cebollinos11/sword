@@ -19,8 +19,8 @@ import { advance, type ActionContext, type ActionHandler, type ActionStarter, ty
 const STARTERS: readonly ActionStarter[] = [startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
-  // Nothing starts in the air: a Fighter off the ground waits to Fall or land.
-  if (f.air) return null;
+  // Nothing starts in the air unless the Fighter jumped there: one that walked or was pushed off the ground waits to Fall or land.
+  if (f.air && !f.air.jumped) return null;
   for (const start of STARTERS) {
     const started = start(f, intent, ctx);
     if (started) return started;
