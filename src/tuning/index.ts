@@ -10,6 +10,7 @@ import skeletonJson from '../../data/skeleton.json';
 import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
+import kickJson from '../../data/kick.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
@@ -86,6 +87,28 @@ export interface FallTuning {
 export interface ChamberTuning {
   /** Length of the Chamber window, seconds from the first Tick of the incoming Release. */
   readonly windowSeconds: number;
+}
+
+/** The Kick (data/kick.json): what it does on contact and how long a miss costs. Damage in hp, distances in metres, times in Ticks. */
+export interface KickTuning {
+  /** Damage of a Knockdown (the defender gave movement input on the contact Tick). */
+  readonly knockdownDamage: number;
+  /** Damage of a Shove (no movement input, or already in Knockdown). */
+  readonly shoveDamage: number;
+  /** How far (m) a Knockdown slides the defender away from the kicker. */
+  readonly knockdownSlide: number;
+  /** How far (m) a Shove slides the defender. */
+  readonly shoveSlide: number;
+  /** Ticks the Knockdown Slide lasts. */
+  readonly knockdownSlideTicks: number;
+  /** Ticks the Shove Slide lasts. */
+  readonly shoveSlideTicks: number;
+  /** Ticks a knocked-down Fighter lies (the Down phase) before the Get-up. */
+  readonly knockdownTicks: number;
+  /** Extra Recovery Ticks a Kick that landed nothing holds its pose for. */
+  readonly whiffRecovery: number;
+  /** Padding (m) around the kicking leg's segment when it is swept against Hit Zones. */
+  readonly legRadius: number;
 }
 
 /** The coarse regions of the Skeleton a Blade Sweep can hit. */
@@ -204,6 +227,7 @@ export interface TuningData {
   readonly weapons: Readonly<Record<string, WeaponTuning>>;
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
+  readonly kick: KickTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
   readonly skeleton: SkeletonTuning;
@@ -278,6 +302,27 @@ function fraction(obj: Record<string, unknown>, key: string, where: string): num
   const v = finiteNumber(obj, key, where);
   if (v < 0 || v > 1) throw new TuningDataError(`${where}.${key} must be between 0 and 1, got ${v}`);
   return v;
+}
+
+function wholeTicks(obj: Record<string, unknown>, key: string, where: string): number {
+  const v = positiveNumber(obj, key, where);
+  if (!Number.isInteger(v)) throw new TuningDataError(`${where}.${key} must be a whole number of Ticks, got ${v}`);
+  return v;
+}
+
+function parseKick(raw: unknown): KickTuning {
+  const k = record(raw, 'kick');
+  return {
+    knockdownDamage: finiteNumber(k, 'knockdownDamage', 'kick'),
+    shoveDamage: finiteNumber(k, 'shoveDamage', 'kick'),
+    knockdownSlide: finiteNumber(k, 'knockdownSlide', 'kick'),
+    shoveSlide: finiteNumber(k, 'shoveSlide', 'kick'),
+    knockdownSlideTicks: wholeTicks(k, 'knockdownSlideTicks', 'kick'),
+    shoveSlideTicks: wholeTicks(k, 'shoveSlideTicks', 'kick'),
+    knockdownTicks: wholeTicks(k, 'knockdownTicks', 'kick'),
+    whiffRecovery: wholeTicks(k, 'whiffRecovery', 'kick'),
+    legRadius: positiveNumber(k, 'legRadius', 'kick'),
+  };
 }
 
 function parseAi(raw: unknown): AiTuning {
@@ -393,6 +438,7 @@ export function parseTuningData(raw: unknown): TuningData {
     weapons,
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
+    kick: parseKick(root.kick),
     block: {
       facingHalfAngle,
       bladeRadius: positiveNumber(bl, 'bladeRadius', 'block'),
@@ -482,6 +528,7 @@ export function loadTuningData(): TuningData {
     weapons,
     hitZones: hitZonesJson,
     chamber: chamberJson,
+    kick: kickJson,
     block: blockJson,
     match: matchJson,
     skeleton: skeletonJson,

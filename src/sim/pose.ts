@@ -2,8 +2,11 @@ import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { applyBlockImpact } from './actions';
 import { footPose, hipShift, toLocal } from './gait';
 import { motionTargets, playbackTargets, type PoseTargets } from './motion';
-import { solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
+import { kickLegOf, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState, MotionPlayback } from './state';
+
+/** What a Fighter records of its solved Skeleton each Tick: the blade and the kicking leg, whose last-Tick values bound the next Tick's sweeps. */
+export const bladeAndLeg = (pose: SkeletonPose): Pick<FighterState, 'blade' | 'kickLeg'> => ({ blade: pose.blade, kickLeg: kickLegOf(pose) });
 
 /**
  * The solved Skeleton of a Fighter wielding `weapon` (default: the default Weapon) at `placement`,

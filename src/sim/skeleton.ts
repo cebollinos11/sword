@@ -56,11 +56,20 @@ export interface BladeTransform {
   readonly edge: Vec3;
 }
 
+/** The right leg's segment in world space (knee to toe): what a Kick sweeps against Hit Zones. */
+export interface KickLeg {
+  readonly knee: Vec3;
+  readonly toe: Vec3;
+}
+
 /** A solved Skeleton in world space. */
 export interface SkeletonPose {
   readonly joints: Readonly<Record<JointName, Vec3>>;
   readonly blade: BladeTransform;
 }
+
+/** The kicking leg of a solved Skeleton. */
+export const kickLegOf = (pose: SkeletonPose): KickLeg => ({ knee: pose.joints.rightKnee, toe: pose.joints.rightToe });
 
 /** Where a Fighter stands: the frame its Pose Keys are authored in. */
 export interface Placement {

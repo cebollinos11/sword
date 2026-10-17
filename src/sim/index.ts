@@ -47,6 +47,9 @@ export {
   blockMotionName,
   blocksAttack,
   FALL_MOTION,
+  KICK_MOTION,
+  kickTimings,
+  type KickTimings,
   LAND_MOTION,
   RECOIL_MOTION,
   STAGGER_MOTION,
@@ -74,8 +77,8 @@ export {
 } from './script';
 export { hashState, hashValue } from './hash';
 export type { Vec3 } from './vec';
-export type { BladeTransform, JointName, Placement, SkeletonPose } from './skeleton';
-export { BONES, JOINT_NAMES } from './skeleton';
+export type { BladeTransform, JointName, KickLeg, Placement, SkeletonPose } from './skeleton';
+export { BONES, JOINT_NAMES, kickLegOf } from './skeleton';
 export { fighterPose, motionPose, playbackPose } from './pose';
 export { channelValue, ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
 export { rotateEuler, rotateX, rotateY } from './vec';

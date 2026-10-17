@@ -10,7 +10,7 @@ import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { initialGait, updateGait } from './gait';
 import { followMotion } from './motion';
-import { fighterPose, motionPose } from './pose';
+import { bladeAndLeg, fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
 import type { Airborne, Death, DeathBlow, FighterState, SimState, Vec2 } from './state';
@@ -84,7 +84,7 @@ export function createInitialState(
         weapon,
         action: IDLE_ACTION,
         motion: IDLE_MOTION,
-        blade: motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon).blade,
+        ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
         gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
@@ -96,8 +96,8 @@ export function createInitialState(
 /** Share of `fighter.walkSpeed` a blocked attacker keeps while it recoils (its Stagger is `Blocked`). */
 const RECOIL_WALK_FACTOR = 0.5;
 
-/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. */
-const locked = (f: FighterState): boolean => f.action.kind === 'Stagger' && f.action.cause !== 'Blocked';
+/** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking Fighter is committed: it cannot walk (it can still turn). */
+const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick';
 
 /** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly). */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
@@ -303,7 +303,7 @@ function settleBodies(
     const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
     const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, tuning, emit) : grounded;
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
-    return { ...settled, blade: fighterPose(settled, tuning).blade };
+    return { ...settled, ...bladeAndLeg(fighterPose(settled, tuning)) };
   });
 }
 

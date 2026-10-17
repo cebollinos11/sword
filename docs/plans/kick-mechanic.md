@@ -162,7 +162,7 @@ Goal: the AI uses and respects the Kick.
 
 ## Progress
 - [x] Stage 1: Vocabulary and the pose channels
-- [ ] Stage 2: The Kick Action
+- [x] Stage 2: The Kick Action
 - [ ] Stage 3: Contact, Shove and Slide
 - [ ] Stage 4: Knockdown and Get-up
 - [ ] Stage 5: AI
@@ -178,3 +178,13 @@ Goal: the AI uses and respects the Kick.
 - `kickFoot` and `body` are not touched by `applyCrouch`/`applyLook`/`applyBlockImpact`; the Kick starts only when not crouched, and Stage 4's guard layering should keep the lying `body`.
 - Editor: `kickFoot` has a gizmo target (translate, all three axes) and a field, `body` has fields (tilt°, drop) and a channel toggle; there is no `body` gizmo.
 - Tests: `src/sim/poseChannels.test.ts`, plus two cases in `tuning.test.ts`. Remember to ask for `kickFoot` y in Stage 2's Motion: an ankle at rest height is `skeleton.ankleHeight`.
+
+**Stage 2**
+- `data/kick.json` -> `tuning.kick: KickTuning` (all nine values; ticks are whole numbers). `data/motions/kick.json` is the `Kick` Motion (1 s, `windUpEnd` 0.3, `releaseEnd` 0.5; the leg fully extends at ~0.4-0.5 s, toe about 0.85 m ahead of the pelvis). Label: `Kick · <phase>` in `actionLabels.ts`; the editor's motion list now includes `Kick`.
+- `Intent.kick?: boolean` (one press = one Tick from `LocalController`, F key; `IDLE_INTENT.kick = false`). **No touch button** was added (nothing fit); Stage 5 or later can add one. `PROTOCOL_VERSION` is 7.
+- `KickAction { kind: 'Kick'; phase; landed; whiff? }` in `state.ts`. `actions/kick.ts` exports `startKick`, `updateKick`, `kickSweepLive(prev, next)`, `kickTimings(tuning, weapon)`, `KICK_MOTION`, `KICK_MAX_CROUCH`. The Wind-up never holds; it goes straight to Release at `windUpEnd`.
+- **Whiff:** `whiff` is not set on the Tick Recovery is entered. It is set on the first Recovery update where `landed` is still false, then counts `whiffRecovery - 1 … 0` while the Motion playhead is frozen. So **Stage 3 only has to set `landed: true` on the contact Tick** (even on the Tick that enters Recovery) and the whiff hold is skipped. A Kick that landed must never get a `whiff`.
+- `step.ts`: `locked(f)` now includes a Kick, so `walk` and `fly` give no movement (a kicker in the air keeps its velocity, `airControl` steering is off); `turn` is unaffected. `jumps()` never listed Kick, so no jump while kicking. Block/Attack/Feint are ignored simply because `updateKick` ignores the Intent.
+- **`FighterState.kickLeg: { knee, toe }`** (world, `KickLeg` in `skeleton.ts`) is set by `bladeAndLeg(pose)` (in `pose.ts`) wherever `blade` is set: `createInitialState`, `settleBodies` and `staggerFighter`. Any new place that re-solves the pose and writes `blade` must use `bladeAndLeg`. Validated in `messages.ts` (`isFighter`). Stage 3's sweep: previous `kickLeg` -> current `kickLeg` (knee and toe segments), padding `kick.legRadius`.
+- Stage 3 still needs: `Intent.kick` has no effect on a Fighter already Kicking; a Hit/Stagger on the kicker interrupts the Kick (normal `staggerFighter`); no events are emitted by the Kick yet (`KickLanded` is Stage 3).
+- Tests: `src/sim/kick.test.ts`, plus cases in `local.test.ts`, `messages.test.ts`, `tuning.test.ts`, `hash.test.ts`, `session.test.ts`.

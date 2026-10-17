@@ -17,7 +17,7 @@ import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import type { Direction } from './intent';
 import { followMotion, playbackTargets, upperBody } from './motion';
-import { fighterPose } from './pose';
+import { bladeAndLeg, fighterPose } from './pose';
 import type { AttackAction, BlockAction, FighterState, StaggerCause } from './state';
 import { bladeSamples, sweepContact, type Capsule } from './sweep';
 import { normalize, scale, sub, type Vec3 } from './vec';
@@ -105,7 +105,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
   const { action, motion } = stagger(cause, hold);
   emit({ type: 'Stagger', fighter: index, cause });
   const staggered = { ...f, action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
-  return { ...staggered, blade: fighterPose(staggered, tuning).blade };
+  return { ...staggered, ...bladeAndLeg(fighterPose(staggered, tuning)) };
 }
 
 /**

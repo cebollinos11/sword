@@ -1,0 +1,11 @@
+{
+  "knockdownDamage": 5,
+  "shoveDamage": 1,
+  "knockdownSlide": 2.5,
+  "shoveSlide": 0.3,
+  "knockdownSlideTicks": 12,
+  "shoveSlideTicks": 6,
+  "knockdownTicks": 60,
+  "whiffRecovery": 24,
+  "legRadius": 0.08
+}

@@ -294,3 +294,28 @@ describe('Local Controller: Crouch', () => {
     expect(c.sample().attack).toBe(true);
   });
 });
+
+describe('Local Controller: Kick', () => {
+  it('F Kicks once per press, on one Tick, however long it is held', () => {
+    const c = new LocalController();
+    expect(c.sample().kick).toBeUndefined();
+    c.keyDown('KeyF');
+    expect(c.sample().kick).toBe(true);
+    expect(c.sample().kick).toBeUndefined();
+    c.keyUp('KeyF');
+    expect(c.sample().kick).toBeUndefined();
+    // A tap shorter than a Tick still Kicks.
+    c.keyDown('KeyF');
+    c.keyUp('KeyF');
+    expect(c.sample().kick).toBe(true);
+  });
+
+  it('a Kick does not change the Direction the next Attack takes', () => {
+    const c = new LocalController();
+    c.mouseMove(-200, 0);
+    c.keyDown('KeyF');
+    c.sample();
+    c.buttonDown('attack');
+    expect(c.sample().direction).toBe('Left');
+  });
+});

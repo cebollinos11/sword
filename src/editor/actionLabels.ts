@@ -12,6 +12,8 @@ export function describeAction(a: Action): string {
       return `Attack ${a.direction} · ${a.phase}`;
     case 'Block':
       return `Block ${a.direction}`;
+    case 'Kick':
+      return `Kick · ${a.phase}`;
     case 'Stagger':
       return `Stagger (${a.cause})`;
     case 'Idle':

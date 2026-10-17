@@ -3,7 +3,7 @@ import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
-import type { BladeTransform } from './skeleton';
+import type { BladeTransform, KickLeg } from './skeleton';
 import type { Vec3 } from './vec';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
@@ -47,6 +47,19 @@ export interface StaggerAction {
   readonly cause: StaggerCause;
 }
 
+/**
+ * A Kick: the right leg winds up, snaps forward in Release (the only phase in which it can land) and recovers, driven by the Kick Motion's
+ * `windUpEnd` / `releaseEnd` markers like an Attack. Committed: no moving, Blocking, Attacking or cancelling, but the Fighter can turn.
+ */
+export interface KickAction {
+  readonly kind: 'Kick';
+  readonly phase: AttackPhase;
+  /** True once this Kick's leg sweep has connected; a Kick lands at most once. */
+  readonly landed: boolean;
+  /** Ticks of extra Recovery (`kick.whiffRecovery`) still to hold the pose for, once Recovery was reached without landing; absent until then. */
+  readonly whiff?: number;
+}
+
 /** In the air after a Jump, or after `fall.fallDelay` airborne. After a ledge or push it cannot Attack or Block until it lands; after a Jump it can. */
 export interface FallAction {
   readonly kind: 'Fall';
@@ -56,7 +69,7 @@ export interface FallAction {
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | StaggerAction | FallAction;
+export type Action = IdleAction | AttackAction | BlockAction | KickAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */
@@ -96,6 +109,8 @@ export interface FighterState {
   readonly motion: MotionPlayback;
   /** The blade this Tick, solved from the Motion by IK. Last Tick's blade bounds the Blade Sweep. */
   readonly blade: BladeTransform;
+  /** The kicking (right) leg this Tick, solved from the Skeleton. Last Tick's leg bounds the Kick's sweep, as last Tick's blade bounds the Blade Sweep. */
+  readonly kickLeg: KickLeg;
   /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
   readonly gait: GaitState;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */

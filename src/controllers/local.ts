@@ -1,10 +1,13 @@
 import type { Direction, Intent } from '../sim';
 import type { Controller } from './controller';
 
-export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch';
+export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick';
 
 /** The key that Jumps. */
 const JUMP_KEY = 'Space';
+
+/** The key that Kicks. */
+const KICK_KEY = 'KeyF';
 
 /** The key held to crouch (not Ctrl: browsers keep Ctrl+W, which would close the tab). */
 const CROUCH_KEY = 'KeyC';
@@ -76,12 +79,12 @@ function quantiseYaw(yaw: number): number {
  *   camera yaw is sent as `face`; vertical mouse tilts it up and down, sent as
  *   `pitch` (the Fighter leans its torso with it). Space Jumps: one press is
  *   one Jump (sent on one Tick), however long it is held.
- *   C held crouches (sent on every Tick it is held).
+ *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held.
  */
 export class LocalController implements Controller {
-  private readonly held = { attack: false, block: false, jump: false, crouch: false };
+  private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false };
   /** Pressed since the last sample: a click shorter than a Tick still reaches the Simulation for one Tick. */
-  private readonly pressed = { attack: false, block: false, jump: false, crouch: false };
+  private readonly pressed = { attack: false, block: false, jump: false, crouch: false, kick: false };
   private readonly moving = { forward: false, back: false, left: false, right: false };
   /** The Direction of the most recent mouse gesture (what the next press will use). */
   private gestured: Direction = 'Overhead';
@@ -136,7 +139,7 @@ export class LocalController implements Controller {
     if (this.held[button]) return;
     this.held[button] = true;
     this.pressed[button] = true;
-    if (button === 'jump' || button === 'crouch') return;
+    if (button === 'jump' || button === 'crouch' || button === 'kick') return;
     this.latched = this.gestured;
     this.travel = { x: 0, y: 0 };
   }
@@ -152,6 +155,7 @@ export class LocalController implements Controller {
     else if (code === FEINT_KEY) this.feint();
     else if (code === JUMP_KEY) this.buttonDown('jump');
     else if (code === CROUCH_KEY) this.buttonDown('crouch');
+    else if (code === KICK_KEY) this.buttonDown('kick');
   }
 
   keyUp(code: string): void {
@@ -159,6 +163,7 @@ export class LocalController implements Controller {
     if (move) this.moving[move] = false;
     else if (code === JUMP_KEY) this.buttonUp('jump');
     else if (code === CROUCH_KEY) this.buttonUp('crouch');
+    else if (code === KICK_KEY) this.buttonUp('kick');
   }
 
   /**
@@ -172,7 +177,7 @@ export class LocalController implements Controller {
 
   /** Let go of every button and key (the window lost focus). */
   releaseAll(): void {
-    this.held.attack = this.held.block = this.held.jump = this.held.crouch = false;
+    this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
   }
 
@@ -181,16 +186,18 @@ export class LocalController implements Controller {
     const attack = this.held.attack || this.pressed.attack;
     const block = this.held.block || this.pressed.block;
     const jump = this.pressed.jump;
+    const kick = this.pressed.kick;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
     this.pressed.crouch = false;
+    this.pressed.kick = false;
     // A held Block follows the latest gesture: the Simulation only lets it re-aim shortly after it was raised (`block.correctionWindow`).
     if (block && !attack) this.latched = this.gestured;
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(crouch && { crouch }) };
+    return { ...intent, ...(jump && { jump }), ...(crouch && { crouch }), ...(kick && { kick }) };
   }
 
   intent(): Intent {

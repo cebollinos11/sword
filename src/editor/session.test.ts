@@ -15,6 +15,7 @@ describe('EditorSession', () => {
       'BlockThrust',
       'Fall',
       'Idle',
+      'Kick',
       'Land',
       'Left',
       'Recoil',

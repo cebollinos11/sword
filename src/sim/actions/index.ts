@@ -11,12 +11,13 @@ import { startAttack, updateAttack } from './attack';
 import { startBlock, updateBlock } from './block';
 import { updateFall } from './fall';
 import { feint } from './feint';
+import { startKick, updateKick } from './kick';
 import { IDLE_ACTION } from './idleAction';
 import { updateStagger } from './stagger';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
 /** What Idle can turn into, tried in order; the first that accepts the Intent wins. */
-const STARTERS: readonly ActionStarter[] = [startAttack, startBlock];
+const STARTERS: readonly ActionStarter[] = [startKick, startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
   // Nothing starts in the air unless the Fighter jumped there: one that walked or was pushed off the ground waits to Fall or land.
@@ -36,6 +37,8 @@ const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { ki
   // A Wind-up can be cancelled by a Feint before the Attack advances.
   Attack: (f, intent, ctx) => feint(f, intent, ctx) ?? updateAttack(f, intent, ctx),
   Block: updateBlock,
+  // Committed: its Intent is ignored until the Motion ends.
+  Kick: updateKick,
   Stagger: updateStagger,
   Fall: updateFall,
 };
@@ -49,6 +52,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
 export { advanceBlockImpact, applyBlockImpact, blockMotionName, blocksAttack, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
+export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';
 export { LAND_MOTION, RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

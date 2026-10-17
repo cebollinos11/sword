@@ -49,6 +49,11 @@ export interface Intent {
    * `fighter.crouchSpeed`. It is not an Action: a Fighter can crouch while Attacking, Blocking or in the air, and Attack or Block while crouched.
    */
   readonly crouch?: boolean;
+  /**
+   * Kick pressed this Tick (absent = not pressed). An Idle Fighter that is not crouched, on the ground or in a Jump, starts a Kick:
+   * a committed Action that cannot be cancelled (it can only turn). Held down, it does not repeat.
+   */
+  readonly kick?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({
@@ -57,4 +62,5 @@ export const IDLE_INTENT: Intent = Object.freeze({
   attack: false,
   block: false,
   face: null,
+  kick: false,
 });

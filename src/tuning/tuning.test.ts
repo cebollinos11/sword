@@ -15,6 +15,7 @@ function goodRaw() {
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
     chamber: { windowSeconds: 0.15 },
+    kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     gait: { strideThreshold: 0.2, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
@@ -89,6 +90,16 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, match: undefined })).toThrow(/match/);
     expect(() => parseTuningData({ ...good, match: { duelDistance: 0, interDuelSeconds: 2, lineSpacing: 1.5 } })).toThrow(/match\.duelDistance/);
     expect(() => parseTuningData({ ...good, match: { duelDistance: 2, interDuelSeconds: 0, lineSpacing: 1.5 } })).toThrow(/match\.interDuelSeconds/);
+  });
+
+  it('loads the Kick Tuning Data and its Motion, and rejects bad Kick data', () => {
+    const t = loadTuningData();
+    expect(t.kick).toEqual({ knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 });
+    expect(t.motions.Kick!.markers.windUpEnd).toBeLessThan(t.motions.Kick!.markers.releaseEnd!);
+    const good = goodRaw();
+    expect(() => parseTuningData({ ...good, kick: undefined })).toThrow(/kick/);
+    expect(() => parseTuningData({ ...good, kick: { ...good.kick, whiffRecovery: 2.5 } })).toThrow(/kick\.whiffRecovery/);
+    expect(() => parseTuningData({ ...good, kick: { ...good.kick, legRadius: 0 } })).toThrow(/kick\.legRadius/);
   });
 
   it('loads the Block facing rule and the Match pacing from data/block.json and data/match.json', () => {

@@ -13,6 +13,13 @@ function matchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
+/** A Match state caught mid-Kick (a Recovery that has whiffed for a few Ticks), as a host would send it. */
+function kickingMatchState(): MatchState {
+  let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+  for (let t = 0; t < 40; t++) m = stepMatch(m, [{ ...IDLE_INTENT, kick: t === 0 }, IDLE_INTENT], tuning);
+  return JSON.parse(JSON.stringify(m)) as MatchState;
+}
+
 const resync = (state: unknown, ai: unknown[] = [null, null]) => ({ type: 'resync', tick: 40, state, ai, intentsFrom: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] });
 
 describe('Peer message validation', () => {
@@ -22,10 +29,11 @@ describe('Peer message validation', () => {
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234', match: { bestOf: 3, distance: 2, interDuelTicks: 60, seed: 9 } },
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 'Halberd', match: { bestOf: 3, weapons: ['Halberd', 'Longsword'] } },
       { type: 'refuse', reason: 'TuningDataMismatch', tuningHash: 'abcd1234' },
-      { type: 'intents', from: 1, intents: [IDLE_INTENT, { ...IDLE_INTENT, move: { x: 1, z: 0 }, direction: 'Left', attack: true, face: 1.5 }], ack: 0 },
+      { type: 'intents', from: 1, intents: [IDLE_INTENT, { ...IDLE_INTENT, move: { x: 1, z: 0 }, direction: 'Left', attack: true, face: 1.5 }, { ...IDLE_INTENT, kick: true, crouch: false }], ack: 0 },
       { type: 'checksum', tick: 30, hash: 'abcd1234' },
       { type: 'resyncRequest', tick: 30 },
       resync(matchState()),
+      resync(kickingMatchState()),
     ];
     for (const m of valid) expect(parseNetMessage(m), JSON.stringify(m).slice(0, 80)).toEqual(m);
   });
@@ -35,6 +43,16 @@ describe('Peer message validation', () => {
       expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match })).toBeNull();
     }
     expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 7 })).toBeNull();
+  });
+
+  it('refuses an Intent whose kick is not a boolean', () => {
+    expect(parseNetMessage({ type: 'intents', from: 0, intents: [{ ...IDLE_INTENT, kick: 'yes' }], ack: 0 })).toBeNull();
+  });
+
+  it('carries the Kick Action and the kicking leg through a resync', () => {
+    const state = kickingMatchState();
+    expect(state.duel.fighters[0]!.action.kind).toBe('Kick');
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
   it('refuses a resync whose Match state is malformed', () => {
@@ -59,6 +77,11 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, action: { kind: 'Dance' } }),
       withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Overhead', phase: 'Twirl', landed: false } }),
       withFighter({ ...fighter, action: { kind: 'Stagger', cause: 'Tired' } }),
+      withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Twirl', landed: false } }),
+      withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Release' } }),
+      withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Recovery', landed: false, whiff: -1 } }),
+      withFighter({ ...fighter, kickLeg: undefined }),
+      withFighter({ ...fighter, kickLeg: { knee: { x: 0, y: 0, z: 0 } } }),
       withFighter({ ...fighter, motion: { name: 'Idle', tick: -1 } }),
       withFighter({ ...fighter, blade: { hilt: { x: 0, y: 0, z: 0 } } }),
       withFighter({ ...fighter, gait: undefined }),

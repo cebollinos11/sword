@@ -10,7 +10,7 @@ export interface LocalInputBinding {
  * Feeds browser mouse/key events to a Local Controller. Left mouse = attack,
  * right mouse = block, mouse movement = gesture + camera turn (pointer lock is
  * requested on the first click so the mouse never leaves the window), WASD
- * walk, Q = Attack Feint, Space = Jump, C = crouch (held). Losing focus lets go of everything.
+ * walk, Q = Attack Feint, Space = Jump, F = Kick, C = crouch (held). Losing focus lets go of everything.
  */
 export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement): LocalInputBinding {
   const binding: LocalInputBinding = { enabled: false, dispose };
