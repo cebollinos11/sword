@@ -3,7 +3,7 @@
  * the Off-hand Grip included), Hit Zone
  * multipliers, AI difficulty (Reaction Time, mistake rate per preset) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
- * Block (the facing rule and the Block Impact's give and bounce) and Camera (where the
+ * Block (the facing rule and the Block Impact's give and bounce) and Fall (gravity, the Jump, Landing damage, steps) and Camera (where the
  * third-person and orbit cameras sit; seen in a Player vs AI run, applied without a re-run).
  *
  * Fields edit `EditorSession` drafts; every change is validated with
@@ -15,7 +15,7 @@ import { GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
 
-const TITLES: Record<TuningSection, string> = { hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait', block: 'Block', camera: 'Camera' };
+const TITLES: Record<TuningSection, string> = { hitZones: 'Hit Zones', ai: 'AI difficulty', gait: 'Gait', block: 'Block', fall: 'Fall', camera: 'Camera' };
 
 export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: () => void): void {
   const ui = { status: 'Edit a value: the sandbox re-runs with it. Save writes data/<section>.json.', weapon: session.weaponNames()[0]! };
@@ -128,6 +128,19 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     f.addBinding(b, 'impactLean', { min: 0.5, max: 30, step: 0.5, label: 'impact lean (Â°)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactFrequency', { min: 1, max: 15, step: 0.5, label: 'bounce (Hz)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactDuration', { min: 0.05, max: 1.5, step: 0.05, label: 'settle (s)' }).on('change', () => apply('block'));
+  });
+
+  folder('fall', (f) => {
+    const fl = session.draftSection('fall');
+    const on = (b: { on(ev: 'change', h: () => void): unknown }) => b.on('change', () => apply('fall'));
+    on(f.addBinding(fl, 'gravity', { min: 1, max: 40, step: 0.5, label: 'gravity (m/s²)' }));
+    on(f.addBinding(fl, 'jumpSpeed', { min: 0, max: 12, step: 0.1, label: 'jump speed (m/s)' }));
+    on(f.addBinding(fl, 'airControl', { min: 0, max: 20, step: 0.5, label: 'air control (m/s²)' }));
+    on(f.addBinding(fl, 'fallDelay', { min: 0, max: 1, step: 0.01, label: 'fall delay (s)' }));
+    on(f.addBinding(fl, 'safeHeight', { min: 0, max: 10, step: 0.1, label: 'safe height (m)' }));
+    on(f.addBinding(fl, 'damagePerMetre', { min: 0, max: 100, step: 1, label: 'damage per metre' }));
+    on(f.addBinding(fl, 'stepUp', { min: 0, max: 1, step: 0.01, label: 'step up (m)' }));
+    on(f.addBinding(fl, 'snapDown', { min: 0, max: 1, step: 0.01, label: 'snap down (m)' }));
   });
 
   // The camera is read live every frame, so an edit needs no re-run (which would restart a live run).

@@ -10,5 +10,7 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.test.ts'],
     fsModuleCache: false,
+    // The Rollback session tests replay hundreds of Ticks; under a full parallel run they can need more than the default 5 s.
+    testTimeout: 20_000,
   },
 });

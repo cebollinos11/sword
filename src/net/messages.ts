@@ -110,7 +110,7 @@ type Obj = Record<string, unknown>;
 const REFUSE_REASONS: ReadonlySet<string> = new Set<RefuseReason>(['TuningDataMismatch', 'ProtocolMismatch']);
 const DIRECTION_SET: ReadonlySet<string> = new Set<string>(DIRECTIONS);
 const PHASE_SET: ReadonlySet<string> = new Set<string>(ATTACK_PHASES);
-const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered']);
+const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered', 'Landed']);
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === 'string';
@@ -141,7 +141,7 @@ function isLineupSlot(v: unknown): boolean {
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 
@@ -171,6 +171,8 @@ function isAction(v: unknown): boolean {
       return isDirection(v.direction);
     case 'Stagger':
       return STAGGER_CAUSES.has(v.cause as string);
+    case 'Fall':
+      return true;
     default:
       return false;
   }
@@ -286,7 +288,7 @@ function isMatchState(v: unknown): v is MatchState {
 
 /** How a Fighter fell: the Tick, and the felling blow if known. */
 function isDeath(v: unknown): boolean {
-  if (!isObject(v) || !isTick(v.tick)) return false;
+  if (!isObject(v) || !isTick(v.tick) || (v.cause !== 'Hit' && v.cause !== 'Fall')) return false;
   const b = v.blow;
   return b === null || (isObject(b) && isVec3(b.point) && isNum(b.bladeSpeed) && isDirection(b.direction) && isVec2(b.from));
 }

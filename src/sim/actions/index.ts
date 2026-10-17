@@ -9,6 +9,7 @@ import type { Intent } from '../intent';
 import type { Action, ActionKind, FighterState } from '../state';
 import { startAttack, updateAttack } from './attack';
 import { startBlock, updateBlock } from './block';
+import { updateFall } from './fall';
 import { feint } from './feint';
 import { IDLE_ACTION } from './idleAction';
 import { updateStagger } from './stagger';
@@ -18,6 +19,8 @@ import { advance, type ActionContext, type ActionHandler, type ActionStarter, ty
 const STARTERS: readonly ActionStarter[] = [startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
+  // Nothing starts in the air: a Fighter off the ground waits to Fall or land.
+  if (f.air) return null;
   for (const start of STARTERS) {
     const started = start(f, intent, ctx);
     if (started) return started;
@@ -34,6 +37,7 @@ const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { ki
   Attack: (f, intent, ctx) => feint(f, intent, ctx) ?? updateAttack(f, intent, ctx),
   Block: updateBlock,
   Stagger: updateStagger,
+  Fall: updateFall,
 };
 
 /** Advance a Fighter's Action and Motion playhead by one Tick. */
@@ -45,5 +49,6 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
 export { advanceBlockImpact, applyBlockImpact, blockMotionName, blocksAttack, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
-export { RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
+export { fall, FALL_ACTION, FALL_MOTION } from './fall';
+export { LAND_MOTION, RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

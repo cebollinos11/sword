@@ -35,7 +35,7 @@ export type MotionDraft = Mutable<Motion>;
 export type WeaponDraft = Mutable<WeaponTuning> & { offHandGrip: Mutable<OffHandGrip> };
 
 /** The Tuning Data sections the Editor's number panels edit, each saved to `data/<section>.json`. Weapons have their own files. */
-export const TUNING_SECTIONS = ['hitZones', 'ai', 'gait', 'block', 'camera'] as const;
+export const TUNING_SECTIONS = ['hitZones', 'ai', 'gait', 'block', 'fall', 'camera'] as const;
 export type TuningSection = (typeof TUNING_SECTIONS)[number];
 /** An editable copy of one Tuning Data section; validated with parseTuningData before it is used. */
 export type SectionDraft<S extends TuningSection> = Mutable<TuningData[S]>;

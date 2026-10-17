@@ -39,6 +39,11 @@ export interface Intent {
    * where the Motion puts them). The Local Controller fills it from the camera.
    */
   readonly pitch?: number;
+  /**
+   * Jump pressed this Tick (absent = not pressed). A Fighter standing on the ground,
+   * Idle or Blocking, leaps up at `fall.jumpSpeed` and Falls until it lands.
+   */
+  readonly jump?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({

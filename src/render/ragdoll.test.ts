@@ -8,7 +8,7 @@ const fighter = createInitialState(tuning, 1, duelPlacements(2)).fighters[1]!; /
 const pose = fighterPose(fighter, tuning);
 const weapon = weaponByName(tuning, fighter.weapon);
 /** An Overhead from the opponent, standing at -z. */
-const death: Death = { tick: 10, blow: { point: pose.joints.chest, bladeSpeed: 10, direction: 'Overhead', from: { x: 0, z: -1 } } };
+const death: Death = { tick: 10, cause: 'Hit', blow: { point: pose.joints.chest, bladeSpeed: 10, direction: 'Overhead', from: { x: 0, z: -1 } } };
 
 const d = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 const lowest = (p: SkeletonPose) => Math.min(...Object.values(p.joints).map((j) => j.y), p.blade.tip.y, p.blade.hilt.y);

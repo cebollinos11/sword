@@ -34,8 +34,8 @@ export interface BlockAction {
   readonly direction: Direction;
 }
 
-/** Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), or its Attack was Chambered. */
-export type StaggerCause = 'Hit' | 'Blocked' | 'Chambered';
+/** Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), its Attack was Chambered, or it Landed hard from a fall. */
+export type StaggerCause = 'Hit' | 'Blocked' | 'Chambered' | 'Landed';
 
 /** A short forced Action in which the Fighter cannot act; it lasts as long as the Stagger Motion. */
 export interface StaggerAction {
@@ -43,11 +43,16 @@ export interface StaggerAction {
   readonly cause: StaggerCause;
 }
 
+/** In the air after a Jump, or after `fall.fallDelay` airborne: it cannot Attack or Block until it lands. */
+export interface FallAction {
+  readonly kind: 'Fall';
+}
+
 /**
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | StaggerAction;
+export type Action = IdleAction | AttackAction | BlockAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */
@@ -100,9 +105,13 @@ export interface FighterState {
 export interface Death {
   /** The Duel Tick on which it fell. */
   readonly tick: number;
+  /** What felled it: a Hit, or a hard Landing from a fall. */
+  readonly cause: DeathCause;
   /** The Hit that felled it, or null if none is known. */
   readonly blow: DeathBlow | null;
 }
+
+export type DeathCause = 'Hit' | 'Fall';
 
 export interface DeathBlow {
   /** World-space contact point. */

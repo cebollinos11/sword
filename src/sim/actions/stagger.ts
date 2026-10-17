@@ -16,9 +16,11 @@ import type { ActionHandler, ActionUpdate } from './types';
 export const STAGGER_MOTION = 'Stagger';
 /** The Motion that animates (and times) the recoil of a Blocked attacker: a short Stagger. */
 export const RECOIL_MOTION = 'Recoil';
+/** The Motion that animates (and times) a hard Landing: a crouch the Fighter is open in. */
+export const LAND_MOTION = 'Land';
 
 /** The Motion that animates (and times) a Stagger with this cause. */
-export const staggerMotionName = (cause: StaggerCause): string => (cause === 'Blocked' ? RECOIL_MOTION : STAGGER_MOTION);
+export const staggerMotionName = (cause: StaggerCause): string => (cause === 'Blocked' ? RECOIL_MOTION : cause === 'Landed' ? LAND_MOTION : STAGGER_MOTION);
 
 /**
  * A Stagger from its first Tick. `hold` (a blocked attacker's upper body, as it was when blocked) is frozen

@@ -21,6 +21,8 @@ export type {
   BlockImpact,
   Death,
   DeathBlow,
+  DeathCause,
+  FallAction,
   DuelState,
   FighterState,
   IdleAction,
@@ -31,7 +33,7 @@ export type {
   Vec2,
 } from './state';
 export { ATTACK_PHASES } from './state';
-export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, SimEvent, StaggerEvent, StepEvent } from './events';
+export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, JumpEvent, LandEvent, SimEvent, StaggerEvent, StepEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
 export type { RngState } from './rng';
@@ -43,6 +45,8 @@ export {
   type AttackTimings,
   blockMotionName,
   blocksAttack,
+  FALL_MOTION,
+  LAND_MOTION,
   RECOIL_MOTION,
   STAGGER_MOTION,
   staggerMotionName,

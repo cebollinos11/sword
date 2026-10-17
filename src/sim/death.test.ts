@@ -21,6 +21,7 @@ describe('Death', () => {
     expect(s.fighters[0]!.death).toBeUndefined();
     expect(s.fighters[1]!.death).toEqual({
       tick: s.tick,
+      cause: 'Hit',
       blow: { point: hit.point, bladeSpeed: hit.bladeSpeed, direction: 'Overhead', from: { x: s.fighters[0]!.position.x, z: s.fighters[0]!.position.z } },
     });
   });

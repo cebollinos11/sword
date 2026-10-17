@@ -80,6 +80,23 @@ export interface StepEvent {
   readonly position: { readonly x: number; readonly z: number };
 }
 
+/** A Fighter jumped (it leaves the ground this Tick). */
+export interface JumpEvent {
+  readonly type: 'Jump';
+  readonly fighter: number;
+}
+
+/**
+ * A Fighter landed: `height` is how far (m) it dropped from the top of its arc. A drop
+ * beyond `fall.safeHeight` deals `damage` and Staggers it (cause `Landed`).
+ */
+export interface LandEvent {
+  readonly type: 'Land';
+  readonly fighter: number;
+  readonly height: number;
+  readonly damage: number;
+}
+
 /** The Duel ended this Tick. `winner` is a team (0 or 1), or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
@@ -90,7 +107,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

@@ -1,10 +1,10 @@
 import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
-import { advanceBlockImpact, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { resolveChambers } from './chamber';
 import { arenaOf, blockedAt, groundBelow } from './arena';
 import { resolveBodies } from './collision';
-import { findContacts, resolveContacts } from './combat';
-import { TICK_SECONDS } from './constants';
+import { findContacts, resolveContacts, staggerFighter } from './combat';
+import { secondsToTicks, TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
@@ -13,7 +13,7 @@ import { followMotion } from './motion';
 import { fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { Airborne, DeathBlow, FighterState, SimState, Vec2 } from './state';
+import type { Airborne, Death, DeathBlow, FighterState, SimState, Vec2 } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -177,14 +177,54 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
   };
 }
 
+/** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle or Blocking. */
+const jumps = (f: FighterState, intent: Intent): boolean => intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block');
+
+/**
+ * One Fighter's Action and movement this Tick, before bodies collide. A Jump leaps
+ * off the ground with the walk it had and Falls; a Fighter airborne for `fall.fallDelay`
+ * (or more) Falls too, whatever it was doing, unless it is Staggered.
+ */
 function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
-  const { action, motion } = updateAction(f, intent, { fighter: index, tuning, emit });
+  let air = f.air;
+  let update = updateAction(f, intent, { fighter: index, tuning, emit });
+  if (jumps(f, intent)) {
+    const to = walk(f, intent, tuning);
+    air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true };
+    update = fall();
+    emit({ type: 'Jump', fighter: index });
+  } else if (air && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger') {
+    update = fall();
+  }
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
-  const { blockImpact, air, ...rest } = f;
+  const { blockImpact, air: _air, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
   const moved = air ? fly(f, air, intent, tuning) : { position: walk(f, intent, tuning), y: f.y };
-  const next = { ...rest, ...moved, facing: turn(f, intent, tuning), pitch: tilt(f, intent, tuning), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
+  const next = {
+    ...rest,
+    ...moved,
+    facing: turn(f, intent, tuning),
+    pitch: tilt(f, intent, tuning),
+    action: update.action,
+    motion: followMotion(tuning, f.weapon, f.motion, update.motion),
+  };
   return impact ? { ...next, blockImpact: impact } : next;
+}
+
+/**
+ * A Fighter that just landed (last Tick `prev` was airborne): a drop (from the top of its arc)
+ * within `fall.safeHeight` lands softly and a Fall ends in Idle; a deeper one deals
+ * `fall.damagePerMetre` per metre beyond it (only while the Duel is being fought) and
+ * Staggers it (cause `Landed`). A Fighter already Staggered by something else keeps that Stagger.
+ */
+function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
+  const height = Math.max(0, prev.air!.peakY - f.y);
+  const hard = height > tuning.fall.safeHeight;
+  const damage = hard && fighting ? (height - tuning.fall.safeHeight) * tuning.fall.damagePerMetre : 0;
+  emit({ type: 'Land', fighter: index, height, damage });
+  if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
+  if (f.action.kind !== 'Fall') return f;
+  return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, IDLE_MOTION) };
 }
 
 /**
@@ -235,6 +275,7 @@ function settleBodies(
   fighters: readonly FighterState[],
   tuning: TuningData,
   arena: ArenaGeometry,
+  fighting: boolean,
   emit: (e: SimEvent) => void,
 ): FighterState[] {
   const living = fighters.flatMap((f, i) => (f.death ? [] : [i]));
@@ -246,10 +287,18 @@ function settleBodies(
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (f.death) return f;
-    const moved = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
+    const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
+    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, tuning, emit) : grounded;
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
     return { ...settled, blade: fighterPose(settled, tuning).blade };
   });
+}
+
+/** How Fighter `i` fell this Tick: to the last Hit on it, or else to a hard Landing. */
+function felled(events: readonly SimEvent[], i: number, fighters: readonly FighterState[], tick: number): Death {
+  const blow = fellingBlow(events, i, fighters);
+  const fall = !blow && events.some((e) => e.type === 'Land' && e.fighter === i && e.damage > 0);
+  return { tick, cause: fall ? 'Fall' : 'Hit', blow };
 }
 
 /** The last Hit this Tick on Fighter `defender`, as the blow that felled it. */
@@ -284,11 +333,12 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
     arena,
+    fighting,
     emit,
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), tuning, emit);
-  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: { tick, blow: fellingBlow(events, i, fighters) } }));
+  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick) }));
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
