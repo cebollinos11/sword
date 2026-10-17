@@ -168,7 +168,7 @@ function movementDuel(tuning: TuningData): SandboxRun {
  */
 function aiVsAiMatch(tuning: TuningData): SandboxRun {
   const controllers = [createAiController(tuning, aiMatch.red), createAiController(tuning, aiMatch.blue)];
-  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons() });
+  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons(), arena: tuning.arena.editor });
   const run = precompute(matchSandbox(tuning), start, controllers, AI_MATCH_MAX_TICKS);
   return { ...run, match: (t) => run.session.history[t] as MatchState };
 }

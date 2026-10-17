@@ -72,7 +72,8 @@ export interface PlayerVsAiSandboxOptions extends MatchOptions {
  * an AI Controller (or a test opponent) Fighter 1. Nothing is precomputed; the frontier grows as
  * the run is played. Scrubbing back and playing on retakes from that Tick: the
  * AI's memory is restored, and the first Tick the player does something
- * different starts a branch (the old future is dropped).
+ * different starts a branch (the old future is dropped). It is fought in the Editor's Arena
+ * (Tuning Data `arena.editor`) unless `options.arena` names another.
  */
 export function playerVsAiSession(
   tuning: TuningData,
@@ -83,7 +84,7 @@ export function playerVsAiSession(
 ): SandboxSession<MatchState> {
   const { opponent, ...match } = options;
   const other = isTestOpponent(opponent) ? createTestOpponent(opponent) : createAiController(tuning, opponent);
-  return createSandboxSession(sandbox, createMatch(tuning, match), [player, other]);
+  return createSandboxSession(sandbox, createMatch(tuning, { arena: tuning.arena.editor, ...match }), [player, other]);
 }
 
 /** A live run's scrub slider grows in steps of this many Ticks (its range can only be set by rebuilding it). */
