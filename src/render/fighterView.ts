@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
+import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
@@ -33,20 +34,24 @@ function boneRadius(a: JointName, b: JointName): number {
 }
 
 /**
- * A Fighter drawn from primitives: one flat-shaded colour, a cylinder per
- * Skeleton bone, a sphere per joint, and its Weapon drawn to the Weapon's
- * dimensions (a sword: blade, crossguard, grip and pommel; a polearm: shaft,
- * axe blade, spike and back hook over the Head). It only reads poses.
+ * A Fighter drawn as its Body: the bare Skeleton from primitives (one
+ * flat-shaded colour, a cylinder per bone, a sphere per joint), or a skinned
+ * model whose bones follow the Skeleton, shown in place of the primitives once
+ * it has loaded. Its Weapon is drawn to the Weapon's dimensions (a sword:
+ * blade, crossguard, grip and pommel; a polearm: shaft, axe blade, spike and
+ * back hook over the Head). It only reads poses.
  */
 export class FighterView {
   readonly root = new THREE.Group();
+  private readonly skeleton = new THREE.Group();
+  private model: BodyModel | undefined;
   private readonly bones: { mesh: THREE.Mesh; a: JointName; b: JointName }[] = [];
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
 
-  constructor(colour: number, tuning: TuningData) {
+  constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
     const steel = new THREE.MeshLambertMaterial({ color: 0xd0d4d8, flatShading: true });
     const dark = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true });
@@ -59,18 +64,30 @@ export class FighterView {
       const mesh = new THREE.Mesh(cylinder, body);
       mesh.userData.radius = boneRadius(a, b);
       this.bones.push({ mesh, a, b });
-      this.root.add(mesh);
+      this.skeleton.add(mesh);
     }
     for (const name of JOINT_NAMES) {
       if (name === 'head' || name === 'chest' || name === 'pelvis') continue;
       const mesh = new THREE.Mesh(sphere, body);
       mesh.scale.setScalar(0.055);
       this.joints.set(name, mesh);
-      this.root.add(mesh);
+      this.skeleton.add(mesh);
     }
     this.head = new THREE.Mesh(sphere, body);
     this.head.scale.setScalar(tuning.skeleton.headRadius);
-    this.root.add(this.head);
+    this.skeleton.add(this.head);
+    this.root.add(this.skeleton);
+    if (wears !== 'skeleton') {
+      // Until it loads (or if it cannot), the Fighter is drawn as its Skeleton.
+      loadBodyModel(wears, colour, tuning.skeleton).then(
+        (model) => {
+          this.model = model;
+          this.skeleton.visible = false;
+          this.root.add(model.root);
+        },
+        (e: unknown) => console.error(`Could not load the ${wears} Body model`, e),
+      );
+    }
 
     this.sword = {
       group: new THREE.Group(),
@@ -97,6 +114,7 @@ export class FighterView {
     for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
     for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
     this.head.position.set(p.head.x, p.head.y, p.head.z);
+    this.model?.rig.pose(p);
     const polearm = weapon.look === 'polearm';
     this.sword.group.visible = !polearm;
     this.polearm.group.visible = polearm;

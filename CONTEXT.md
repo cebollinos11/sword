@@ -28,6 +28,10 @@ _Avoid_: Roster (that is the Weapon roster), loadout
 The Fighter's hierarchy of bones, built from primitives and fully owned by the game so procedural motion can drive it directly.
 _Avoid_: Rig, armature, model
 
+**Body**:
+How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model (female; male to come) whose bones are placed on the Skeleton's joints every frame. Render-only: it never changes what the Skeleton does.
+_Avoid_: Skin, character model, avatar
+
 **Intent**:
 What a Controller asks its Fighter to do on a given Tick (move, aim Direction, attack, block). The only thing that crosses the Controller–Fighter boundary, and the only thing sent between peers.
 _Avoid_: Command, input (when meaning the abstract request)
