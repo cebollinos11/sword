@@ -80,6 +80,8 @@ export interface FighterState {
   readonly facing: number;
   /** Where it looks: radians up (+) or down (-) from level. Leans the torso and hips (Intent `pitch`). */
   readonly pitch: number;
+  /** How crouched it is, 0 (standing) to 1 (fully): lowers its hips and hands (and so its Hit Zones and blows) and slows its walk (Intent `crouch`). */
+  readonly crouch: number;
   /** Its team (0 or 1), fixed for the Match. Teammates' blades Stagger but never wound each other. */
   readonly team: number;
   readonly hp: number;

@@ -266,3 +266,31 @@ describe('Local Controller: Jump', () => {
     expect(c.sample().direction).toBe('Left');
   });
 });
+
+describe('Local Controller: Crouch', () => {
+  it('C crouches on every Tick it is held, not Ctrl (which closes the tab with W)', () => {
+    const c = new LocalController();
+    expect(c.sample().crouch).toBeUndefined();
+    c.keyDown('KeyC');
+    expect(c.sample().crouch).toBe(true);
+    expect(c.sample().crouch).toBe(true);
+    c.keyUp('KeyC');
+    expect(c.sample().crouch).toBeUndefined();
+    c.keyDown('ControlLeft');
+    expect(c.sample().crouch).toBeUndefined();
+  });
+
+  it('losing focus lets go of the crouch', () => {
+    const c = new LocalController();
+    c.keyDown('KeyC');
+    c.releaseAll();
+    expect(c.sample().crouch).toBeUndefined();
+  });
+
+  it('crouching does not disturb the Direction an Attack is aimed in', () => {
+    const c = new LocalController();
+    c.keyDown('KeyC');
+    c.buttonDown('attack');
+    expect(c.sample().attack).toBe(true);
+  });
+});

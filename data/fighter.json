@@ -7,5 +7,8 @@
   "motionBlend": 0.15,
   "lookPitchMax": 50,
   "lookLean": 0.45,
-  "lookHipShift": 0.3
+  "lookHipShift": 0.3,
+  "crouchDepth": 0.4,
+  "crouchSpeed": 6,
+  "crouchWalkFactor": 0.5
 }

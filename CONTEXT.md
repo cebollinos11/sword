@@ -189,6 +189,10 @@ A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Figh
 **Jump**:
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands.
 
+**Crouch**:
+Holding C (not Ctrl, which browsers keep for Ctrl+W) lowers the Fighter's hips and hands by `fighter.crouchDepth`, easing at `fighter.crouchSpeed`, with its feet planted. Not an Action: it combines with Attack, Block and Jump, and while crouched a Fighter walks at `fighter.crouchWalkFactor` of its speed. Lowered hips and hands mean lowered Hit Zones and blows.
+_Avoid_: Duck, stance (a Crouch is not a Direction)
+
 **Fall**:
 The Action of a Fighter in the air, after a Jump or once it has been off the ground for a moment (walked or been pushed off a ledge): arms out, it cannot Attack or Block, but can be hit. It steers a little in the air.
 _Avoid_: Airborne (for the Action)

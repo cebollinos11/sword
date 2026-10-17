@@ -44,6 +44,11 @@ export interface Intent {
    * Idle, Blocking or Attacking, leaps up at `fall.jumpSpeed` until it lands (an Idle one Falls; it can Attack or Block in the air).
    */
   readonly jump?: boolean;
+  /**
+   * Crouch held this Tick (absent = standing). The Fighter's `crouch` amount moves toward 1 while it is held and back to 0 when let go, at
+   * `fighter.crouchSpeed`. It is not an Action: a Fighter can crouch while Attacking, Blocking or in the air, and Attack or Block while crouched.
+   */
+  readonly crouch?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({

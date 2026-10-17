@@ -78,6 +78,7 @@ export function createInitialState(
         y,
         facing,
         pitch: 0,
+        crouch: 0,
         team: teams[i] ?? defaultTeam(i),
         hp: tuning.fighter.maxHp,
         weapon,
@@ -108,7 +109,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mx /= len;
     mz /= len;
   }
-  const speed = f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1;
+  const speed = (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
@@ -145,6 +146,14 @@ function tilt(f: FighterState, intent: Intent, tuning: TuningData): number {
   const delta = target - f.pitch;
   if (Math.abs(delta) <= maxStep) return target;
   return f.pitch + Math.sign(delta) * maxStep;
+}
+
+/** The Fighter's crouch amount after this Tick: it moves toward 1 while Intent `crouch` is held, else toward 0, at `fighter.crouchSpeed`. A Staggered Fighter cannot act, so it holds its crouch. */
+function duck(f: FighterState, intent: Intent, tuning: TuningData): number {
+  if (f.action.kind === 'Stagger') return f.crouch;
+  const target = intent.crouch === true ? 1 : 0;
+  const step = tuning.fighter.crouchSpeed * TICK_SECONDS;
+  return Math.abs(target - f.crouch) <= step ? target : f.crouch + Math.sign(target - f.crouch) * step;
 }
 
 /**
@@ -208,6 +217,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     ...moved,
     facing: turn(f, intent, tuning),
     pitch: tilt(f, intent, tuning),
+    crouch: duck(f, intent, tuning),
     action: update.action,
     motion: followMotion(tuning, f.weapon, f.motion, update.motion),
   };

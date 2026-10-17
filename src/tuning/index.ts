@@ -50,6 +50,12 @@ export interface FighterTuning {
   readonly lookLean: number;
   /** How far (m) the hips move back as the torso leans fully forward (forward as it leans back), scaled by the lean's sine. */
   readonly lookHipShift: number;
+  /** How far (m) a fully crouched Fighter's hips and hands drop; its feet stay planted, so the knees bend. */
+  readonly crouchDepth: number;
+  /** How fast (per second) the crouch amount moves between standing (0) and fully crouched (1). */
+  readonly crouchSpeed: number;
+  /** The share of `walkSpeed` a fully crouched Fighter walks at (blends in with the crouch amount). */
+  readonly crouchWalkFactor: number;
 }
 
 /** Height, falling and jumping (data/fall.json): how Fighters stand on, step between and fall onto Walk Surfaces. */
@@ -366,6 +372,9 @@ export function parseTuningData(raw: unknown): TuningData {
       lookPitchMax: positiveNumber(f, 'lookPitchMax', 'fighter'),
       lookLean: finiteNumber(f, 'lookLean', 'fighter'),
       lookHipShift: finiteNumber(f, 'lookHipShift', 'fighter'),
+      crouchDepth: finiteNumber(f, 'crouchDepth', 'fighter'),
+      crouchSpeed: positiveNumber(f, 'crouchSpeed', 'fighter'),
+      crouchWalkFactor: positiveNumber(f, 'crouchWalkFactor', 'fighter'),
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,
