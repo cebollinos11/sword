@@ -30,18 +30,18 @@ OUT_BLEND = os.path.join(REPO, 'art', 'female.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'female.glb')
 
 # name: (sRGB colour, metallic, roughness, double-sided)
-MATERIALS = {
+MATERIALS = {  # bronze, dark leather and platinum-blonde hair
     'Skin': (0xc48c6a, 0.0, 0.6, False),
-    'Top': (0x231e24, 0.0, 0.8, False),
+    'Top': (0x3a2922, 0.0, 0.8, False),
     'Skirt': (0xa3201f, 0.0, 0.8, True),  # the Team colour
-    'Belt': (0x5a4030, 0.0, 0.7, False),
-    'Buckle': (0x7d7770, 0.7, 0.4, False),
-    'Armour': (0xc9738f, 0.6, 0.35, False),
-    'Black': (0x1d1819, 0.0, 0.8, False),
-    'Hair': (0x9f84cc, 0.0, 0.7, True),
+    'Belt': (0x6b4a2e, 0.0, 0.7, False),
+    'Buckle': (0xe0bb5c, 0.8, 0.3, False),
+    'Armour': (0xc99a52, 0.75, 0.35, True),
+    'Black': (0x241c19, 0.0, 0.8, False),
+    'Hair': (0xe6d3a0, 0.0, 0.7, True),
     'Eyes': (0x2b1a14, 0.0, 0.3, False),
 }
-B = Body(NAME, MATERIALS, flat=('Armour', 'Buckle', 'Belt'))
+B = Body(NAME, MATERIALS, flat=('Buckle', 'Belt'))
 
 # ---------------------------------------------------------------- torso
 
@@ -78,13 +78,8 @@ def torso_mat(c):
     x, z = abs(c.x), c.z
     if z < 1.10:
         return 'Black'
-    if z < 1.42:
-        return 'Skin' if (x > 0.14 and z > 1.38) else 'Top'
-    if c.y > 0 and z < 1.49 and x < 0.14:
-        return 'Top'
-    if z < 1.53 and 0.05 < x < 0.10:
-        return 'Top'
-    return 'Skin'
+    # A strapless leather bodice, cut straight across the chest.
+    return 'Top' if z < (1.445 if c.y < 0 else 1.47) else 'Skin'
 
 
 def torso_weights(p):
@@ -98,29 +93,30 @@ def torso_weights(p):
 
 def build_torso():
     bm = bmesh.new()
-    tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 20, (0, -1, 0), push=torso_push)
+    tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 24, (0, -1, 0), push=torso_push)
     B.part('torso', bm, torso_mat, torso_weights)
 
 # ---------------------------------------------------------------- skirt, belt
 
 def build_skirt():
-    rings = [(1.13, 0.146, 0.100, 0.005), (1.04, 0.188, 0.142, 0.012), (0.92, 0.228, 0.188, 0.015), (0.79, 0.258, 0.212, 0.015)]
-    pleat = [0.0, 0.02, 0.05, 0.07]
+    rings = [(1.13, 0.146, 0.100, 0.005), (1.04, 0.192, 0.146, 0.012), (0.92, 0.238, 0.196, 0.015), (0.80, 0.272, 0.226, 0.016),
+             (0.72, 0.29, 0.24, 0.016)]
+    pleat = [0.0, 0.02, 0.05, 0.07, 0.08]
 
     def push(i, p, t):
-        k = round((t - 0) / (2 * math.pi / 24))
+        k = round((t - 0) / (2 * math.pi / 28))
         if k % 2:
             c = Vector((0, rings[i][3], p.z))
             p = c + (p - c) * (1 - pleat[i])
         return p
 
     bm = bmesh.new()
-    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 24, (0, -1, 0), push=push, cap0=False, cap1=False)
+    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 28, (0, -1, 0), push=push, cap0=False, cap1=False)
 
     def weights(p):
         w = {'hips': 1.0}
         w = blend(w, {'spine': 1}, smooth(1.00, 1.25, p.z))
-        drape = smooth(1.05, 0.80, p.z) * 0.85
+        drape = smooth(1.05, 0.78, p.z) * 0.88
         w = blend(w, {'thigh_L': 1}, drape * max(0, min(1, (p.x + 0.03) / 0.15)))
         w = blend(w, {'thigh_R': 1}, drape * max(0, min(1, (-p.x + 0.03) / 0.15)))
         return w
@@ -141,30 +137,32 @@ def build_belt():
 
 # ---------------------------------------------------------------- legs, feet
 
-LEG = [  # (z, half width, half depth, shin-plate ridge)
+LEG = [  # (z, half width, half depth, shin-plate ridge): bronze greaves with a knee cop, over boots
     (0.97, 0.095, 0.098, 0),
     (0.86, 0.088, 0.092, 0),
     (0.74, 0.074, 0.078, 0),
-    (0.66, 0.063, 0.066, 0),
-    (0.62, 0.064, 0.067, 0),
-    (0.585, 0.076, 0.082, 0.04),
-    (0.52, 0.070, 0.076, 0.03),
-    (0.46, 0.068, 0.074, 0.012),
-    (0.38, 0.076, 0.084, 0.02),
-    (0.28, 0.070, 0.078, 0.02),
-    (0.19, 0.062, 0.068, 0.015),
-    (0.13, 0.068, 0.074, 0.012),
+    (0.66, 0.064, 0.067, 0),
+    (0.625, 0.066, 0.069, 0),
+    (0.615, 0.086, 0.09, 0.02),  # the greave's flared rim
+    (0.585, 0.08, 0.086, 0.055),  # the knee cop
+    (0.53, 0.072, 0.078, 0.035),
+    (0.46, 0.068, 0.074, 0.014),
+    (0.38, 0.077, 0.085, 0.022),
+    (0.28, 0.071, 0.079, 0.022),
+    (0.19, 0.062, 0.068, 0.016),
+    (0.175, 0.075, 0.08, 0.014),  # the boot's cuff
+    (0.14, 0.072, 0.077, 0.01),
     (0.10, 0.068, 0.074, 0),
     (0.065, 0.06, 0.066, 0),
 ]
 
 
 def leg_mat(c):
-    if c.z > 0.64:
+    if c.z > 0.645:
         return 'Skin'
-    if c.z > 0.60:
+    if c.z > 0.62:
         return 'Black'
-    if c.z > 0.115:
+    if c.z > 0.18:
         return 'Armour'
     return 'Black'
 
@@ -179,7 +177,7 @@ def build_leg(mirror):
         return blend(w, {'hips': 1}, smooth(0.92, 1.0, p.z) * 0.5)
 
     bm = bmesh.new()
-    tube(bm, [(HIP_X, 0, z) for z, *_ in LEG], [(rx, ry) for _, rx, ry, _ in LEG], 10, (0, -1, 0), phase=math.pi / 10, push=push)
+    tube(bm, [(HIP_X, 0, z) for z, *_ in LEG], [(rx, ry) for _, rx, ry, _ in LEG], 12, (0, -1, 0), phase=math.pi / 12, push=push)
     B.part('leg_R' if mirror else 'leg_L', bm, leg_mat, weights, mirror)
 
 
@@ -209,18 +207,19 @@ ARM = [  # (x, z, half depth, half height)
     (0.27, 1.512, 0.047, 0.05),
     (0.36, 1.515, 0.040, 0.043),
     (0.44, 1.517, 0.037, 0.038),
-    (0.475, 1.518, 0.045, 0.046),
-    (0.52, 1.518, 0.050, 0.050),
+    (0.465, 1.518, 0.039, 0.040),
+    (0.475, 1.518, 0.056, 0.058),  # the vambrace's flared cuff
+    (0.52, 1.518, 0.052, 0.053),
     (0.60, 1.518, 0.050, 0.047),
-    (0.67, 1.518, 0.043, 0.038),
+    (0.67, 1.518, 0.044, 0.039),
     (0.715, 1.518, 0.036, 0.030),
 ]
 
 
 def arm_mat(c):
-    if c.x < 0.46:
+    if c.x < 0.455:
         return 'Skin'
-    if c.x < 0.50:
+    if c.x < 0.468:
         return 'Black'
     return 'Armour'
 
@@ -231,8 +230,26 @@ def build_arm(mirror):
         return blend(w, {'spine': 1}, smooth(0.19, 0.13, p.x) * 0.6)
 
     bm = bmesh.new()
-    tube(bm, [(x, 0, z) for x, z, _, _ in ARM], [(rz, ry) for _, _, ry, rz in ARM], 8, (0, -1, 0))
+    tube(bm, [(x, 0, z) for x, z, _, _ in ARM], [(rz, ry) for _, _, ry, rz in ARM], 10, (0, -1, 0))
     B.part('arm_R' if mirror else 'arm_L', bm, arm_mat, weights, mirror)
+
+
+def build_pauldron(mirror):
+    """A two-plate bronze pauldron capping the shoulder, hanging lower on the outside."""
+    bm = bmesh.new()
+    cx, cz = 0.22, 1.50
+    verts = sphere(bm, 14, 8, (cx, 0.0, cz), (0.125, 0.112, 0.098))
+    # Cut away the underside: high toward the neck, low over the arm.
+    bmesh.ops.delete(bm, geom=[v for v in verts if v.co.z < cz - 0.005 + 0.5 * (0.2 - v.co.x)], context='VERTS')
+    # A rolled rim along the lower edge, over the arm.
+    tube(bm, [(cx + 0.09, -0.085, cz - 0.035), (cx + 0.122, 0.0, cz - 0.058), (cx + 0.09, 0.085, cz - 0.035)],
+         [(0.014, 0.014)] * 3, 6, (0, 0, 1))
+
+    def weights(p):
+        a = 0.35 + 0.6 * smooth(0.13, 0.26, p.x)
+        return {'upperArm_L': a, 'spine': 1 - a}
+
+    B.part('pauldron_R' if mirror else 'pauldron_L', bm, const('Armour'), weights, mirror)
 
 
 def build_hand(mirror):
@@ -252,6 +269,7 @@ def build_hand(mirror):
 def build_head():
     bm = bmesh.new()
     B.part('head', bm, head_with_face(bm), rigid('head'))
+    face_features(B, brow_tilt=0.004)
 
 
 def build_hair():
@@ -286,6 +304,7 @@ for mirror in (False, True):
     build_foot(mirror)
     build_arm(mirror)
     build_hand(mirror)
+    build_pauldron(mirror)
 build_head()
 build_hair()
 result = B.finish(SAVE, OUT_BLEND, OUT_GLB)

@@ -155,8 +155,8 @@ def skull(co):
 
 
 def head_with_face(bm, eye_colour_tag=True, size=(0.076, 0.096, 0.118), nose=0.02):
-    """A 12x9 head with a pushed-out nose and two eye spheres (tagged). Returns a face-material lookup."""
-    verts = sphere(bm, 12, 9, (0, 0.005, HEAD_Z), size, skull)
+    """A 16x12 head with a pushed-out nose and two eye spheres (tagged). Returns a face-material lookup."""
+    verts = sphere(bm, 16, 12, (0, 0.005, HEAD_Z), size, skull)
     tip = min((v for v in verts if abs(v.co.x) < 1e-4 and HEAD_Z - 0.04 < v.co.z < HEAD_Z), key=lambda v: v.co.y)
     tip.co.y -= nose
     tip.co.z -= 0.004
@@ -169,6 +169,53 @@ def head_with_face(bm, eye_colour_tag=True, size=(0.076, 0.096, 0.118), nose=0.0
     for f in bm.faces:
         mats[f.calc_center_median().to_tuple(5)] = 'Eyes' if all(v.tag for v in f.verts) else 'Skin'
     return lambda c: mats[c.to_tuple(5)]
+
+
+def face_y(x, dz, size=(0.076, 0.096, 0.118)):
+    """The y of the front of a `head_with_face` head (`size`) at x, dz above HEAD_Z (the inverse of `skull`)."""
+    rx, ry, rz = size
+    cz = dz / rz
+    k = max(0.0, -cz)
+    cx = x / (rx * (1 - 0.35 * k * k))
+    cy = math.sqrt(max(0.0, 1 - cx * cx - cz * cz))
+    return 0.005 - cy * ry * (1 - 0.15 * k)
+
+
+def face_features(B, size=(0.076, 0.096, 0.118), brow='Hair', ears=True, brow_tilt=0.0, mouth_width=0.019):
+    """Brows (in `brow`), ears and a mouth line on a `head_with_face` head of the same `size`."""
+    rx = size[0]
+    bm = bmesh.new()
+    for sx in (1, -1):
+        pts = []
+        for x, dz in ((0.013, 0.036), (0.032, 0.043 + brow_tilt), (0.052, 0.036 + 2 * brow_tilt)):
+            pts.append((sx * x, face_y(x, dz, size) - 0.004, HEAD_Z + dz))
+        tube(bm, pts, [(0.0045, 0.003), (0.005, 0.0035), (0.003, 0.003)], 4, (0, -1, 0))
+    B.part('brows', bm, const(brow), rigid('head'), smooth_shade=False)
+    bm = bmesh.new()
+    y = face_y(0, -0.062, size) - 0.001
+    tube(bm, [(mouth_width, y + 0.006, HEAD_Z - 0.058), (0, y, HEAD_Z - 0.061), (-mouth_width, y + 0.006, HEAD_Z - 0.058)],
+         [(0.0025, 0.002)] * 3, 4, (0, -1, 0))
+    B.part('mouth', bm, const('Eyes'), rigid('head'), smooth_shade=False)
+    if ears:
+        bm = bmesh.new()
+        for sx in (1, -1):
+            sphere(bm, 6, 5, (sx * rx * 0.97, 0.012, HEAD_Z - 0.006), (0.013, 0.02, 0.03))
+        B.part('ears', bm, const('Skin'), rigid('head'))
+
+
+def leg_side(x):
+    """How far a point between the legs belongs to the left leg (1) rather than the right (0)."""
+    return smooth(-0.07, 0.07, x)
+
+
+def drape_weights(p, top=1.06, bottom=0.82, shins=0.55, amount=0.88):
+    """Hanging cloth: hips and spine at the waist, following the legs (thigh, then a little shin) below it."""
+    w = trunk_weights(p)
+    drape = smooth(top, bottom, p.z) * amount
+    shin = smooth(0.62, 0.30, p.z) * shins
+    left = leg_side(p.x)
+    legs = {'thigh_L': left * (1 - shin), 'shin_L': left * shin, 'thigh_R': (1 - left) * (1 - shin), 'shin_R': (1 - left) * shin}
+    return blend(w, legs, drape)
 
 
 def trunk_weights(p, waist=(1.00, 1.25), neck=(1.56, 1.64)):

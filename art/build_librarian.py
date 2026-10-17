@@ -1,8 +1,9 @@
 """
-Builds the Librarian Fighter model in Blender: a woman in a tight black suit
-with glasses and black hair in a bun, given a futuristic edge (Team-coloured
-piping down the suit's sides, a high collar with a glowing seam, glowing
-lenses and hair pins, a book clasped at the hip). Shared helpers are in
+Builds the Librarian Fighter model in Blender: a slim woman in a tight black
+suit under a long Team-coloured coat (open at the front, slit at the back, to
+the calves) with a tall flared collar, glasses, and dark plum hair in a big
+bun; the futuristic edge is a glowing violet collar rim, cuffs, lenses and
+hair pins, and a book clasped at the hip. Shared helpers are in
 art/body_common.py.
 
 Run inside Blender:
@@ -27,16 +28,17 @@ OUT_BLEND = os.path.join(REPO, 'art', 'librarian.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'librarian.glb')
 
 # name: (sRGB colour, metallic, roughness, double-sided)
-MATERIALS = {
+MATERIALS = {  # black, silver and violet light, plum hair
     'Skin': (0xe0b49a, 0.0, 0.6, False),
     'Suit': (0x16161a, 0.0, 0.55, False),
-    'Skirt': (0xa3201f, 0.0, 0.7, False),  # piping, belt and book cover: the Team colour
+    'Skirt': (0xa3201f, 0.0, 0.7, True),  # the coat: the Team colour
+    'Lining': (0x16161a, 0.0, 0.55, True),
     'Boots': (0x0c0c0e, 0.3, 0.3, False),
-    'Metal': (0xb8bec6, 0.85, 0.3, False),
-    'Glow': (0x6fe8ff, 0.0, 0.3, False),
-    'Lens': (0xbfefff, 0.0, 0.1, True),
+    'Metal': (0xc4c8d0, 0.85, 0.3, False),
+    'Glow': (0xb47dff, 0.0, 0.3, False),
+    'Lens': (0xe8dcff, 0.0, 0.1, True),
     'Paper': (0xe8dfc4, 0.0, 0.9, False),
-    'Hair': (0x0f0d0e, 0.0, 0.6, True),
+    'Hair': (0x3a1f40, 0.0, 0.6, True),
     'Eyes': (0x2b1a14, 0.0, 0.3, False),
 }
 B = Body(NAME, MATERIALS, flat=('Metal', 'Glow', 'Lens', 'Paper'))
@@ -75,11 +77,12 @@ def torso_push(i, p, t):
 def torso_mat(c):
     if c.z > 1.59:
         return 'Skin'
-    # Piping down each side, from the armpit to the hip.
-    width = next(rx for z, rx, _ in TORSO if z >= c.z - 0.035)
-    if abs(c.y) < 0.03 and abs(c.x) > width * 0.85 and 0.9 < c.z < 1.47:
-        return 'Skirt'
-    return 'Suit'
+    if c.z < 1.12:
+        return 'Suit'
+    # The coat, open in a V down to the belt over the suit.
+    if c.y < 0 and abs(c.x) < 0.02 + (c.z - 1.12) * 0.17:
+        return 'Suit'
+    return 'Skirt'
 
 
 def torso_weights(p):
@@ -110,23 +113,53 @@ def build_belt():
     rings = [(1.17, 0.134, 0.09), (1.165, 0.142, 0.098), (1.125, 0.142, 0.098), (1.12, 0.134, 0.09)]
     bm = bmesh.new()
     tube(bm, [(0, 0, z) for z, _, _ in rings], [(rx, ry) for _, rx, ry in rings], 20, (0, -1, 0), cap0=False, cap1=False)
-    B.part('belt', bm, const('Skirt'), trunk_weights, smooth_shade=False)
+    B.part('belt', bm, const('Suit'), trunk_weights, smooth_shade=False)
     bm = bmesh.new()
     box(bm, (0, -0.1, 1.145), (0.022, 0.005, 0.022))
     B.part('buckle', bm, const('Metal'), trunk_weights, smooth_shade=False)
 
-    # A book clasped at the right hip, spine up.
+    # A book clasped at the right hip, outside the coat, spine up.
+    bx = -0.218
     bm = bmesh.new()
-    box(bm, (-0.165, 0.0, 1.03), (0.022, 0.07, 0.09))
-    box(bm, (-0.165, 0.004, 1.03), (0.016, 0.068, 0.086))
+    box(bm, (bx, 0.0, 1.03), (0.022, 0.07, 0.09))
+    box(bm, (bx, 0.004, 1.03), (0.016, 0.068, 0.086))
 
     def mat(c):
-        return 'Paper' if abs(c.x + 0.165) < 0.017 and (abs(c.y - 0.004) > 0.066 or abs(c.z - 1.03) > 0.084) else 'Skirt'
+        return 'Paper' if abs(c.x - bx) < 0.017 and (abs(c.y - 0.004) > 0.066 or abs(c.z - 1.03) > 0.084) else 'Boots'
 
     B.part('book', bm, mat, lambda p: blend({'hips': 1}, {'thigh_R': 1}, 0.35), smooth_shade=False)
     bm = bmesh.new()
-    box(bm, (-0.165, 0.0, 1.03), (0.026, 0.012, 0.094))
+    box(bm, (bx, 0.0, 1.03), (0.026, 0.012, 0.094))
     B.part('book_clasp', bm, const('Metal'), lambda p: blend({'hips': 1}, {'thigh_R': 1}, 0.35), smooth_shade=False)
+
+
+
+def build_coat():
+    """The coat's skirt, from the belt to the calves: open at the front, slit at the back; and its tall flared collar."""
+    rings = [  # (z, half width, half depth, centre y)
+        (1.17, 0.146, 0.100, 0.0),
+        (1.06, 0.18, 0.125, 0.005),
+        (0.90, 0.215, 0.155, 0.01),
+        (0.70, 0.245, 0.18, 0.015),
+        (0.50, 0.268, 0.198, 0.018),
+        (0.32, 0.285, 0.21, 0.02),
+    ]
+    bm = bmesh.new()
+    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 24, (0, -1, 0), cap0=False, cap1=False)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if (lambda c: (c.y < 0 and abs(c.x) < 0.015 + (1.17 - c.z) * 0.16)
+                                                       or (c.y > 0 and abs(c.x) < 0.045 and c.z < 0.98))(f.calc_center_median())],
+                     context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    B.part('coat', bm, const('Skirt'), lambda p: drape_weights(p, 1.1, 0.84, 0.5))
+
+    rings = [(1.53, 0.12, 0.09, 0.0), (1.58, 0.096, 0.08, 0.012), (1.64, 0.102, 0.086, 0.022), (1.70, 0.128, 0.102, 0.034),
+             (1.715, 0.132, 0.105, 0.037)]
+    bm = bmesh.new()
+    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 20, (0, -1, 0), cap0=False, cap1=False)
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().y < -0.035], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+    B.part('coat_collar', bm, lambda c: 'Glow' if c.z > 1.70 else 'Lining',
+           lambda p: blend(trunk_weights(p), {'head': 1}, smooth(1.56, 1.66, p.z) * 0.35))
 
 # ---------------------------------------------------------------- legs, boots
 
@@ -147,11 +180,7 @@ LEG = [  # (z, half width, half depth): slim, in heeled boots to the knee
 
 
 def leg_mat(c):
-    if c.z < 0.59:
-        return 'Boots'
-    if c.x - HIP_X > 0.055 and abs(c.y) < 0.03:
-        return 'Skirt'
-    return 'Suit'
+    return 'Boots' if c.z < 0.59 else 'Suit'
 
 
 def build_leg(mirror):
@@ -196,13 +225,13 @@ def arm_mat(c):
         return 'Glow'
     if c.x > 0.655:
         return 'Boots'
-    # Piping along the top of the arm.
-    return 'Skirt' if c.z > 1.518 + 0.03 and c.x > 0.2 else 'Suit'
+    # The coat's sleeve.
+    return 'Skirt'
 
 
 def build_arm(mirror):
     bm = bmesh.new()
-    tube(bm, [(x, 0, z) for x, z, _, _ in ARM], [(rz, ry) for _, _, ry, rz in ARM], 8, (0, -1, 0))
+    tube(bm, [(x, 0, z) for x, z, _, _ in ARM], [(rz, ry) for _, _, ry, rz in ARM], 10, (0, -1, 0))
     B.part('arm_R' if mirror else 'arm_L', bm, arm_mat, limb_arm_weights, mirror)
 
 
@@ -220,19 +249,20 @@ def build_hand(mirror):
 def build_head():
     bm = bmesh.new()
     B.part('head', bm, head_with_face(bm, size=(0.074, 0.094, 0.116), nose=0.016), rigid('head'))
+    face_features(B, size=(0.074, 0.094, 0.116), brow='Hair', brow_tilt=0.005, mouth_width=0.016)
 
     # Hair pulled back tight: a cap with a side-swept fringe, and a bun at the back of the crown.
     bm = bmesh.new()
     verts = sphere(bm, 12, 8, (0, 0.01, HEAD_Z + 0.008), (0.082, 0.106, 0.126), skull)
     bmesh.ops.delete(bm, geom=[v for v in verts if v.co.z < HEAD_Z - 0.02 - 0.7 * max(0.0, v.co.y)], context='VERTS')
     bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.y < -0.07 and v.co.z < HEAD_Z + 0.05 + 0.25 * v.co.x], context='VERTS')
-    sphere(bm, 8, 6, (0, 0.105, HEAD_Z + 0.06), (0.05, 0.045, 0.05))
+    sphere(bm, 10, 7, (0, 0.11, HEAD_Z + 0.065), (0.066, 0.058, 0.064))
     B.part('hair', bm, const('Hair'), rigid('head'))
 
     # Two glowing pins crossed through the bun.
     bm = bmesh.new()
     for sx in (1, -1):
-        tube(bm, [(sx * 0.08, 0.10, HEAD_Z + 0.10), (-sx * 0.07, 0.11, HEAD_Z + 0.03)], [(0.005, 0.005)] * 2, 4, (0, 1, 0))
+        tube(bm, [(sx * 0.1, 0.115, HEAD_Z + 0.12), (-sx * 0.085, 0.12, HEAD_Z + 0.025)], [(0.005, 0.005)] * 2, 4, (0, 1, 0))
     B.part('pins', bm, lambda c: 'Glow', rigid('head'), smooth_shade=False)
 
     # Glasses: two framed lenses, a bridge, and arms back to the ears.
@@ -257,6 +287,7 @@ def build_head():
 build_torso()
 build_collar()
 build_belt()
+build_coat()
 for mirror in (False, True):
     build_leg(mirror)
     build_foot(mirror)

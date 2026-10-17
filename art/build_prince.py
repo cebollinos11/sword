@@ -1,9 +1,9 @@
 """
 Builds the Prince Fighter model in Blender, after the original Prince of
 Persia: loose white shirt and baggy trousers gathered at the ankles, bare
-feet, black hair, with a Team-coloured open vest, sash and headband, and a
-futuristic edge (brass bracers and anklets with glowing bands, a glowing sash
-clasp). Shared helpers are in art/body_common.py.
+feet in curled slippers, black hair under a gold circlet, with a
+Team-coloured open vest, sash and long cape, and a futuristic edge (gold
+bracers and anklets with glowing emerald bands, a glowing sash clasp). Shared helpers are in art/body_common.py.
 
 Run inside Blender:
     exec(open(r"C:/Repos/sword/art/build_prince.py").read(), {"__file__": r"C:/Repos/sword/art/build_prince.py"})
@@ -27,12 +27,13 @@ OUT_BLEND = os.path.join(REPO, 'art', 'prince.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'prince.glb')
 
 # name: (sRGB colour, metallic, roughness, double-sided)
-MATERIALS = {
+MATERIALS = {  # ivory, gold and emerald
     'Skin': (0xc08a62, 0.0, 0.6, False),
-    'Cloth': (0xe9e4d8, 0.0, 0.85, False),
-    'Skirt': (0xa3201f, 0.0, 0.8, True),  # vest, sash and headband: the Team colour
-    'Metal': (0xc9a24a, 0.8, 0.35, False),
-    'Glow': (0x6fe8ff, 0.0, 0.3, False),
+    'Cloth': (0xefe8d6, 0.0, 0.85, False),
+    'Skirt': (0xa3201f, 0.0, 0.8, True),  # vest, sash and cape: the Team colour
+    'Metal': (0xdcb04a, 0.85, 0.3, False),
+    'Glow': (0x3ee08f, 0.0, 0.3, False),
+    'Shoe': (0x5a3b22, 0.0, 0.7, False),
     'Hair': (0x17110f, 0.0, 0.7, True),
     'Eyes': (0x2b1a14, 0.0, 0.3, False),
 }
@@ -79,7 +80,7 @@ def torso_weights(p):
 
 def build_torso():
     bm = bmesh.new()
-    tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 16, (0, -1, 0))
+    tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 20, (0, -1, 0))
     B.part('torso', bm, torso_mat, torso_weights)
 
 # ---------------------------------------------------------------- vest, sash
@@ -88,7 +89,7 @@ def build_torso():
 def build_vest():
     rings = [(1.17, 0.165, 0.118), (1.28, 0.175, 0.122), (1.40, 0.186, 0.122), (1.47, 0.192, 0.114), (1.52, 0.184, 0.096)]
     bm = bmesh.new()
-    tube(bm, [(0, 0, z) for z, _, _ in rings], [(rx, ry) for _, rx, ry in rings], 16, (0, -1, 0), cap0=False, cap1=False)
+    tube(bm, [(0, 0, z) for z, _, _ in rings], [(rx, ry) for _, rx, ry in rings], 24, (0, -1, 0), cap0=False, cap1=False)
     # Open at the front, and cut away under the arms.
     bmesh.ops.delete(bm, geom=[f for f in bm.faces if (lambda c: (c.y < -0.06 and abs(c.x) < 0.075)
                                                        or (abs(c.x) > 0.16 and c.z > 1.42))(f.calc_center_median())], context='FACES')
@@ -112,6 +113,46 @@ def build_sash():
     bm = bmesh.new()
     tube(bm, [(0, -0.115, 1.105), (0, -0.13, 1.105)], [(0.026, 0.026), (0.022, 0.022)], 8, (0, 0, 1))
     B.part('clasp', bm, lambda c: 'Glow' if c.y < -0.128 else 'Metal', trunk_weights, smooth_shade=False)
+
+
+
+def build_cape():
+    """A long cape hanging from the shoulders to the calves, held by two gold clasps at the collarbones."""
+    rows = [  # (z, half width, centre y, half depth, half angle in degrees around the back)
+        (1.535, 0.165, 0.0, 0.098, 98),
+        (1.47, 0.205, 0.02, 0.118, 78),
+        (1.32, 0.225, 0.05, 0.13, 76),
+        (1.08, 0.245, 0.09, 0.14, 76),
+        (0.78, 0.275, 0.13, 0.15, 78),
+        (0.44, 0.305, 0.17, 0.16, 80),
+    ]
+    n = 16
+    bm = bmesh.new()
+    grid = []
+    for r, (z, w, yc, d, a) in enumerate(rows):
+        row = []
+        for k in range(n + 1):
+            th = math.radians(-a + 2 * a * k / n)
+            fold = 0.014 * math.cos(6 * th) * r / (len(rows) - 1)
+            row.append(bm.verts.new((w * math.sin(th), yc + (d + fold) * math.cos(th), z)))
+        grid.append(row)
+    for r in range(len(rows) - 1):
+        for k in range(n):
+            bm.faces.new((grid[r][k], grid[r + 1][k], grid[r + 1][k + 1], grid[r][k + 1]))
+
+    def weights(p):
+        w = blend({'spine': 1}, {'hips': 1}, smooth(1.3, 0.95, p.z) * 0.6)
+        left = leg_side(p.x)
+        return blend(w, {'thigh_L': left, 'thigh_R': 1 - left}, smooth(1.0, 0.5, p.z) * 0.35)
+
+    B.part('cape', bm, const('Skirt'), weights)
+
+    bm = bmesh.new()
+    for sx in (1, -1):
+        tube(bm, [(sx * 0.12, -0.088, 1.495), (sx * 0.12, -0.104, 1.495)], [(0.026, 0.026), (0.022, 0.022)], 10, (0, 0, 1))
+        tube(bm, [(sx * 0.12, -0.104, 1.495), (sx * 0.12, -0.112, 1.495)], [(0.011, 0.011), (0.006, 0.006)], 6, (0, 0, 1))
+        tube(bm, [(sx * 0.14, -0.09, 1.50), (sx * 0.165, -0.04, 1.525), (sx * 0.165, 0.0, 1.535)], [(0.006, 0.006)] * 3, 4, (0, 0, 1))
+    B.part('cape_clasps', bm, lambda c: 'Glow' if c.y < -0.106 else 'Metal', trunk_weights, smooth_shade=False)
 
 # ---------------------------------------------------------------- legs, feet
 
@@ -154,17 +195,20 @@ def build_leg(mirror):
 
 
 def build_foot(mirror):
-    rings = [  # (y, half width, half height); a bare foot, its sole on the floor
-        (0.055, 0.038, 0.048),
-        (0.025, 0.044, 0.056),
-        (-0.03, 0.048, 0.042),
-        (-0.09, 0.052, 0.03),
-        (-0.15, 0.05, 0.022),
-        (-0.19, 0.04, 0.016),
+    rings = [  # (y, centre z, half height, half width): a soft slipper, its toe curling up to a point
+        (0.06, 0.05, 0.05, 0.043),
+        (0.025, 0.058, 0.058, 0.05),
+        (-0.03, 0.046, 0.046, 0.054),
+        (-0.09, 0.036, 0.035, 0.056),
+        (-0.15, 0.028, 0.026, 0.05),
+        (-0.20, 0.026, 0.019, 0.036),
+        (-0.235, 0.04, 0.012, 0.02),
+        (-0.248, 0.068, 0.006, 0.008),
     ]
     bm = bmesh.new()
-    tube(bm, [(HIP_X, y, rz) for y, _, rz in rings], [(rx, rz) for _, rx, rz in rings], 8, (0, 0, 1))
-    B.part('foot_R' if mirror else 'foot_L', bm, const('Skin'), foot_weights, mirror)
+    tube(bm, [(HIP_X, y, z) for y, z, _, _ in rings], [(rz, rx) for _, _, rz, rx in rings], 8, (1, 0, 0))
+    B.part('foot_R' if mirror else 'foot_L', bm, const('Shoe'), foot_weights, mirror)
+
 
 # ---------------------------------------------------------------- arms, hands
 
@@ -224,20 +268,22 @@ def build_head():
              [(0.016, 0.03), (0.016, 0.03), (0.008, 0.016)], 4, (0, -1, 0))
     B.part('hair', bm, const('Hair'), lambda p: blend({'head': 1}, {'spine': 1}, smooth(HEAD_Z - 0.06, HEAD_Z - 0.13, p.z) * 0.6))
 
-    # The headband, its tails trailing behind.
-    rings = [(HEAD_Z + 0.05, 0.0), (HEAD_Z + 0.075, 0.0)]
+    # A gold circlet across the brow, an emerald at the front.
+    rings = [(HEAD_Z + 0.05, 0.0), (HEAD_Z + 0.068, 0.0)]
 
     def onto_skull(i, p, t):
-        dz = (0.032, 0.058)[i] + 0.012 * max(0.0, -math.sin(t))
-        k = math.sqrt(max(0.0, 1 - (dz / 0.12) ** 2)) * 1.2
+        dz = (0.04, 0.056)[i] + 0.02 * max(0.0, -math.sin(t))
+        k = math.sqrt(max(0.0, 1 - (dz / 0.12) ** 2)) * 1.17
         back = 1.08 if math.sin(t) < 0 else 1.0
         return Vector((-0.078 * k * math.cos(t), 0.005 - 0.098 * k * back * math.sin(t), HEAD_Z + dz))
 
     bm = bmesh.new()
-    tube(bm, [(0, 0, z) for z, _ in rings], [(1, 1)] * 2, 12, (0, -1, 0), push=onto_skull, cap0=False, cap1=False)
-    tube(bm, [(0.02, 0.11, HEAD_Z + 0.05), (0.04, 0.16, HEAD_Z - 0.02), (0.05, 0.18, HEAD_Z - 0.10)], [(0.012, 0.003)] * 3, 4, (1, 0, 0))
-    B.part('headband', bm, const('Skirt'), lambda p: blend({'head': 1}, {'spine': 1}, smooth(HEAD_Z, HEAD_Z - 0.1, p.z) * 0.5),
-           smooth_shade=False)
+    tube(bm, [(0, 0, z) for z, _ in rings], [(1, 1)] * 2, 16, (0, -1, 0), push=onto_skull, cap0=False, cap1=False)
+    B.part('circlet', bm, const('Metal'), rigid('head'), smooth_shade=False)
+    bm = bmesh.new()
+    sphere(bm, 6, 4, (0, -0.104, HEAD_Z + 0.05), (0.012, 0.007, 0.016))
+    B.part('gem', bm, const('Glow'), rigid('head'), smooth_shade=False)
+    face_features(B, size=(0.077, 0.097, 0.119), brow='Hair', brow_tilt=0.002)
 
 # ---------------------------------------------------------------- assemble
 
@@ -245,6 +291,7 @@ def build_head():
 build_torso()
 build_vest()
 build_sash()
+build_cape()
 for mirror in (False, True):
     build_leg(mirror)
     build_foot(mirror)

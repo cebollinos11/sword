@@ -1,8 +1,9 @@
 """
 Builds the Monk Fighter model in Blender: a Gregorian monk in a hooded,
-ankle-length habit with a Team-coloured scapular, rope cord, tonsure and
+ankle-length habit with a Team-coloured scapular, rope cord and
 sandals, given a futuristic edge (steel gorget and bracers with glowing bands,
-a cybernetic eyepiece). Shared helpers are in art/body_common.py.
+a cybernetic eyepiece). The hood is up, over a capelet on the shoulders, and the
+sleeves hang wide: a hooded, bell-shaped silhouette. Shared helpers are in art/body_common.py.
 
 Run inside Blender:
     exec(open(r"C:/Repos/sword/art/build_monk.py").read(), {"__file__": r"C:/Repos/sword/art/build_monk.py"})
@@ -26,13 +27,13 @@ OUT_BLEND = os.path.join(REPO, 'art', 'monk.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'monk.glb')
 
 # name: (sRGB colour, metallic, roughness, double-sided)
-MATERIALS = {
+MATERIALS = {  # undyed grey-brown wool, dark iron and amber light
     'Skin': (0xb98a6a, 0.0, 0.6, False),
-    'Robe': (0x3b2e26, 0.0, 0.9, True),
+    'Robe': (0x5e544a, 0.0, 0.9, True),
     'Skirt': (0xa3201f, 0.0, 0.8, True),  # the scapular: the Team colour
-    'Rope': (0xb59a6a, 0.0, 0.9, False),
-    'Metal': (0x8f969c, 0.8, 0.35, False),
-    'Glow': (0x6fe8ff, 0.0, 0.3, False),
+    'Rope': (0xcdb47c, 0.0, 0.9, False),
+    'Metal': (0x5c6066, 0.8, 0.35, False),
+    'Glow': (0xffa63d, 0.0, 0.3, False),
     'Hair': (0x4a3324, 0.0, 0.8, False),
     'Sole': (0x3a2a1c, 0.0, 0.8, False),
     'Eyes': (0x2b1a14, 0.0, 0.3, False),
@@ -81,42 +82,18 @@ def build_torso():
     tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 16, (0, -1, 0))
     B.part('torso', bm, lambda c: 'Skin' if c.z > 1.56 else 'Robe', torso_weights)
 
-# ---------------------------------------------------------------- habit, scapular, cord, cowl
+# ---------------------------------------------------------------- habit, scapular, cord, hood
 
 
-def leg_side(x):
-    """How far a point under the habit belongs to the left leg (1) rather than the right (0)."""
-    return smooth(-0.07, 0.07, x)
-
-
-def drape_weights(p, top=1.06, bottom=0.82, shins=0.55):
-    """Hanging cloth: hips and spine at the waist, following the legs (thigh, then a little shin) below it."""
-    w = trunk_weights(p)
-    drape = smooth(top, bottom, p.z) * 0.88
-    shin = smooth(0.62, 0.30, p.z) * shins
-    left = leg_side(p.x)
-    legs = {'thigh_L': left * (1 - shin), 'shin_L': left * shin, 'thigh_R': (1 - left) * (1 - shin), 'shin_R': (1 - left) * shin}
-    return blend(w, legs, drape)
-
-
-HABIT = [  # (z, half width, half depth, centre y)
+HABIT = [  # (z, half width, half depth, centre y): a bell to the ankles
     (1.14, 0.158, 0.110, 0.0),
-    (1.02, 0.180, 0.130, 0.004),
-    (0.86, 0.200, 0.150, 0.008),
-    (0.66, 0.212, 0.162, 0.010),
-    (0.44, 0.222, 0.172, 0.012),
-    (0.24, 0.232, 0.182, 0.012),
-    (0.09, 0.240, 0.190, 0.012),
+    (1.02, 0.184, 0.134, 0.004),
+    (0.86, 0.208, 0.156, 0.008),
+    (0.66, 0.226, 0.172, 0.010),
+    (0.44, 0.242, 0.186, 0.012),
+    (0.24, 0.258, 0.198, 0.012),
+    (0.09, 0.27, 0.208, 0.012),
 ]
-
-
-def habit_surface(z, sy):
-    """The y of the habit's front (sy = -1) or back (sy = 1) at height z."""
-    for (z0, _, d0, c0), (z1, _, d1, c1) in zip(HABIT, HABIT[1:]):
-        if z1 <= z <= z0:
-            t = (z0 - z) / (z0 - z1)
-            return c0 + (c1 - c0) * t + sy * (d0 + (d1 - d0) * t)
-    return sy * HABIT[0][2]
 
 
 def build_habit():
@@ -124,31 +101,43 @@ def build_habit():
 
     def push(i, p, t):
         # Folds: every other column sinks in a little toward the hem.
-        k = round(t / (2 * math.pi / 20))
+        k = round(t / (2 * math.pi / 24))
         if k % 2 and i > 1:
             c = Vector((0, rings[i][3], p.z))
-            p = c + (p - c) * (1 - 0.035 * i / len(rings))
+            p = c + (p - c) * (1 - 0.045 * i / len(rings))
         return p
 
     bm = bmesh.new()
-    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 20, (0, -1, 0), push=push, cap0=False, cap1=False)
+    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 24, (0, -1, 0), push=push, cap0=False, cap1=False)
     B.part('habit', bm, const('Robe'), drape_weights)
+
+
+def body_section(z):
+    """(half width, half depth, centre y) of what the scapular lies on at height z: the torso, or the habit below the cord."""
+    rows = [(zz, w, d, 0.0) for zz, w, d in TORSO] if z > 1.12 else [(zz, w, d, c) for zz, w, d, c in reversed(HABIT)]
+    for (z0, w0, d0, c0), (z1, w1, d1, c1) in zip(rows, rows[1:]):
+        if z0 <= z <= z1:
+            t = (z - z0) / (z1 - z0)
+            return w0 + (w1 - w0) * t, d0 + (d1 - d0) * t, c0 + (c1 - c0) * t
+    return rows[0][1:] if z < rows[0][0] else rows[-1][1:]
 
 
 def build_scapular():
     """The Team-coloured panel hanging front and back over the habit, with a glowing cross on the chest."""
-    for front in (True, False):
-        sy = -1 if front else 1
-        zs = [1.53, 1.46, 1.36, 1.24, 1.12, 0.98, 0.80, 0.60, 0.42]
-
-        def y_at(z):
-            if z > 1.12:
-                return sy * (torso_depth(z) + 0.012)
-            return habit_surface(z, sy) + sy * 0.014
-
+    zs = [1.53, 1.46, 1.36, 1.24, 1.12, 0.98, 0.80, 0.60, 0.42]
+    xs = [-0.105 + 0.035 * k for k in range(7)]  # enough columns to bend with the habit over the knees
+    for sy in (-1, 1):
         bm = bmesh.new()
-        tube(bm, [(0, y_at(z), z) for z in zs], [(0.105, 0.006)] * len(zs), 4, (0, sy, 0), phase=math.pi / 4)
-        B.part('scapular', bm, const('Skirt'), lambda p: drape_weights(p, 1.08, 0.86, 0.0), smooth_shade=False)
+        grid = []
+        for z in zs:
+            w, d, c = body_section(z)
+            gap = 0.012 if z > 1.12 else 0.024
+            grid.append([bm.verts.new((x, c + sy * (d * math.sqrt(max(0.0, 1 - (x / w) ** 2)) + gap), z)) for x in xs])
+        for r in range(len(zs) - 1):
+            for k in range(len(xs) - 1):
+                quad = (grid[r][k], grid[r][k + 1], grid[r + 1][k + 1], grid[r + 1][k])
+                bm.faces.new(quad if sy < 0 else tuple(reversed(quad)))
+        B.part('scapular', bm, const('Skirt'), drape_weights, smooth_shade=False)
     bm = bmesh.new()
     y = -(torso_depth(1.36) + 0.022)
     box(bm, (0, y, 1.36), (0.012, 0.004, 0.06))
@@ -166,22 +155,41 @@ def build_cord():
     B.part('cord', bm, lambda c: 'Metal' if c.z < 0.76 else 'Rope', lambda p: drape_weights(p, 1.08, 0.9), smooth_shade=False)
 
 
-def build_cowl():
-    """The hood lying back on the shoulders, a steel gorget around the neck with a glowing band."""
-    rings = [(1.43, 0.215, 0.14), (1.50, 0.205, 0.14), (1.555, 0.16, 0.125), (1.59, 0.105, 0.10), (1.60, 0.085, 0.085)]
+def build_hood():
+    """The raised hood, peaked at the back, over a capelet on the shoulders; a steel gorget with a glowing band."""
+    rings = [  # (z, half width, half depth, centre y)
+        (1.40, 0.245, 0.165, 0.0),
+        (1.47, 0.232, 0.158, 0.004),
+        (1.53, 0.19, 0.142, 0.01),
+        (1.58, 0.13, 0.13, 0.015),
+        (1.63, 0.106, 0.124, 0.014),
+        (HEAD_Z - 0.03, 0.102, 0.128, 0.012),
+        (HEAD_Z + 0.04, 0.104, 0.132, 0.016),
+        (HEAD_Z + 0.10, 0.092, 0.124, 0.03),
+        (HEAD_Z + 0.145, 0.06, 0.092, 0.06),
+        (HEAD_Z + 0.17, 0.02, 0.03, 0.12),
+    ]
 
     def push(i, p, t):
-        # The hood gathers behind the neck.
-        if math.sin(t) > 0:
-            p.y += 0.05 * math.sin(t) ** 3 * (i / len(rings))
-            p.z -= 0.03 * math.sin(t) ** 2 * (i / len(rings))
+        # The hood's edge rolls forward a little over the brow.
+        if i in (6, 7) and math.sin(t) > 0.5:
+            p.y -= 0.012
         return p
 
     bm = bmesh.new()
-    tube(bm, [(0, 0.0, z) for z, _, _ in rings], [(rx, ry) for _, rx, ry in rings], 16, (0, -1, 0), push=push, cap0=False, cap1=False)
-    # The gathered hood behind the head.
-    sphere(bm, 8, 5, (0, 0.105, 1.555), (0.12, 0.055, 0.065))
-    B.part('cowl', bm, const('Robe'), lambda p: blend(trunk_weights(p), {'head': 1}, smooth(1.58, 1.62, p.z) * 0.3))
+    tube(bm, [(0, y, z) for z, _, _, y in rings], [(rx, ry) for _, rx, ry, _ in rings], 18, (0, -1, 0), push=push,
+         cap0=False, cap1=True)
+    # Open over the face.
+    fz = HEAD_Z - 0.01
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if (lambda c: c.y < -0.03 and (c.x / 0.09) ** 2 + ((c.z - fz) / 0.115) ** 2 < 1)
+                               (f.calc_center_median())], context='FACES')
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if not v.link_faces], context='VERTS')
+
+    def weights(p):
+        w = torso_weights(p)
+        return blend(w, {'head': 1}, smooth(1.57, 1.65, p.z))
+
+    B.part('hood', bm, const('Robe'), weights)
 
     rings = [(1.565, 0.068, 0.062), (1.585, 0.07, 0.064), (1.60, 0.07, 0.064), (1.625, 0.06, 0.055)]
     bm = bmesh.new()
@@ -220,12 +228,13 @@ def build_arm(mirror):
     B.part('arm_R' if mirror else 'arm_L', bm, arm_mat, limb_arm_weights, mirror)
 
     # The wide sleeve, open at the wrist, hanging lower than the arm.
-    rings = [(0.40, 1.516, 0.058, 0.06, 0), (0.50, 1.512, 0.07, 0.078, -0.012), (0.60, 1.505, 0.08, 0.092, -0.022)]
+    rings = [(0.36, 1.516, 0.056, 0.058, 0), (0.46, 1.512, 0.07, 0.078, -0.012), (0.55, 1.505, 0.088, 0.104, -0.03),
+             (0.63, 1.50, 0.1, 0.124, -0.05)]
     bm = bmesh.new()
-    tube(bm, [(x, 0, z + dz) for x, z, _, _, dz in rings], [(rz, ry) for _, _, ry, rz, _ in rings], 10, (0, -1, 0), cap0=False, cap1=False)
+    tube(bm, [(x, 0, z + dz) for x, z, _, _, dz in rings], [(rz, ry) for _, _, ry, rz, _ in rings], 12, (0, -1, 0), cap0=False, cap1=False)
 
     def sleeve_weights(p):
-        return blend({'upperArm_L': 1}, {'forearm_L': 1}, smooth(0.44, 0.54, p.x))
+        return blend({'upperArm_L': 1}, {'forearm_L': 1}, smooth(0.42, 0.52, p.x))
 
     B.part('sleeve_R' if mirror else 'sleeve_L', bm, const('Robe'), sleeve_weights, mirror)
 
@@ -283,19 +292,7 @@ def build_head():
     bm = bmesh.new()
     B.part('head', bm, head_with_face(bm, size=(0.078, 0.098, 0.12)), rigid('head'))
 
-    # The tonsure: a ring of hair around a bald crown, high over the brow and low at the nape.
-    def onto_skull(i, p, t):
-        front, rear = max(0.0, math.sin(t)), max(0.0, -math.sin(t))
-        dz = (-0.02 + 0.065 * front - 0.06 * rear, 0.03 + 0.025 * front, 0.072)[i]
-        u = dz / 0.12
-        k = math.sqrt(max(0.0, 1 - u * u)) * 1.07
-        sx, sy = (1 - 0.35 * u * u, 1 - 0.15 * -u) if u < 0 else (1.0, 1.08)
-        back = sy if math.sin(t) < 0 else 1.0
-        return Vector((-0.078 * k * sx * math.cos(t), 0.005 - 0.098 * k * back * math.sin(t), HEAD_Z + dz))
-
-    bm = bmesh.new()
-    tube(bm, [(0, 0, HEAD_Z + z) for z in (0.0, 0.03, 0.06)], [(1, 1)] * 3, 14, (0, -1, 0), push=onto_skull, cap0=False, cap1=False)
-    B.part('tonsure', bm, const('Hair'), rigid('head'))
+    face_features(B, size=(0.078, 0.098, 0.12), brow='Hair', ears=False, brow_tilt=-0.003)
 
     # A cybernetic eyepiece over the right eye.
     bm = bmesh.new()
@@ -312,7 +309,7 @@ build_torso()
 build_habit()
 build_scapular()
 build_cord()
-build_cowl()
+build_hood()
 for mirror in (False, True):
     build_leg(mirror)
     build_foot(mirror)
