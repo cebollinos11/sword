@@ -69,6 +69,22 @@ export function setChannel(d: MotionDraft, index: number, channel: PoseKeyChanne
 }
 
 /**
+ * Scale the Motion's timeline so it lasts `seconds`: the duration, every
+ * Pose Key's time and every marker move by the same factor, snapped to the
+ * authoring step. Poses and easing curves are untouched, and snapping never
+ * reorders Pose Keys (it is monotonic).
+ */
+export function scaleMotion(d: MotionDraft, seconds: number): void {
+  if (!(seconds > 0)) throw new RangeError(`A Motion needs a positive length, got ${seconds}`);
+  const total = Math.max(TIME_STEP, +(Math.round(seconds / TIME_STEP) * TIME_STEP).toFixed(4));
+  const factor = total / d.duration;
+  const scaled = (t: number) => Math.min(+(Math.round((t * factor) / TIME_STEP) * TIME_STEP).toFixed(4), total);
+  for (const name of Object.keys(d.markers)) d.markers[name] = scaled(d.markers[name]!);
+  for (const key of d.poseKeys) key.time = scaled(key.time);
+  d.duration = total;
+}
+
+/**
  * Add a Pose Key at `time` holding the pose the Motion has there, for every
  * channel some Pose Key already sets. It takes the easing curve of the
  * segment it splits. Returns the new key's index.

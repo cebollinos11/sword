@@ -27,7 +27,7 @@ import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizmo';
-import { addPoseKey, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
+import { addPoseKey, removePoseKey, retimePoseKey, scaleMotion, setChannel } from './motionEdit';
 import { saveJsonFile } from './save';
 import { startSandbox } from './sandbox';
 import { EditorSession, motionPath, type MotionDraft } from './session';
@@ -291,7 +291,17 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     }
     if (removeButton) removeButton.disabled = own === undefined;
     motionFolder = pane.addFolder({ title: own ? `Motion: ${ui.motion} (${own})` : `Motion: ${ui.motion}` });
-    buildMotionFields(motionFolder, draft());
+    buildMotionFields(motionFolder, draft(), (seconds) => {
+      try {
+        scaleMotion(draft(), seconds);
+      } catch (e) {
+        ui.status = e instanceof Error ? e.message : String(e);
+        pane.refresh();
+        return;
+      }
+      applyEdit();
+      buildMotionFolder();
+    });
     motionFolder.on('change', applyEdit);
     ui.time = 0;
     select(null);
@@ -381,9 +391,12 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 const POS = { x: { step: 0.01 }, y: { step: 0.01 }, z: { step: 0.01 } };
 const ROT = { x: { step: 1 }, y: { step: 1 }, z: { step: 1 } };
 
-/** Motion-level fields: duration, loop and markers. */
-function buildMotionFields(folder: FolderApi, d: MotionDraft): void {
+/** Motion-level fields: duration, loop, markers, and scaling the whole timeline to a new length. */
+function buildMotionFields(folder: FolderApi, d: MotionDraft, onScale: (seconds: number) => void): void {
   folder.addBinding(d, 'duration', { min: 0.05, step: 0.01 });
+  const scale = { seconds: d.duration };
+  folder.addBinding(scale, 'seconds', { min: 0.05, step: 0.01, label: 'scale to (s)' });
+  folder.addButton({ title: 'Scale timeline to that length' }).on('click', () => onScale(scale.seconds));
   folder.addBinding(d, 'loop');
   const markerNames = Object.keys(d.markers);
   if (markerNames.length > 0) {
