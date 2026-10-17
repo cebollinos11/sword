@@ -183,6 +183,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     play({ driver: d, leavable = false }) {
       if (driver !== d) driver?.close?.();
       driver = d;
+      // Fresh random Bodies for everyone but the player.
+      renderer.recast();
       local.releaseAll();
       announcer = new MatchAnnouncer();
       resultAt = null;
@@ -283,6 +285,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     // Fallen while the team fights on: orbit the fight instead of staring at the floor.
     if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting') placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw);
     else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, driver ? local.pitch : 0);
+    renderer.setPlayer(driver ? driver.localFighter : -1, menu.body);
     renderer.render(before, curr.duel, alpha);
     hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null });
     requestAnimationFrame(frame);

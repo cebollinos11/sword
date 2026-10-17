@@ -1,5 +1,6 @@
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
+import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
 import { ensurePlayStyles } from './styles';
 import { TeamSetup } from './teamSetup';
 import { isTouchDevice } from './touch';
@@ -46,6 +47,7 @@ export type RoomView =
 
 const BEST_OF = [1, 3, 5] as const;
 const BROKER_STORAGE_KEY = 'sword.broker';
+const BODY_STORAGE_KEY = 'sword.body';
 
 /** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
 type FullscreenDocument = Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
@@ -86,6 +88,23 @@ function storedBroker(): string {
   }
 }
 
+function storedBody(): BodyModelName {
+  try {
+    const saved = localStorage.getItem(BODY_STORAGE_KEY);
+    return BODY_MODELS.find((b) => b === saved) ?? 'female';
+  } catch {
+    return 'female';
+  }
+}
+
+function storeBody(value: BodyModelName): void {
+  try {
+    localStorage.setItem(BODY_STORAGE_KEY, value);
+  } catch {
+    // Storage unavailable: the model just isn't remembered.
+  }
+}
+
 function storeBroker(value: string): void {
   try {
     if (value.trim()) localStorage.setItem(BROKER_STORAGE_KEY, value.trim());
@@ -119,6 +138,8 @@ export class Menu {
   private weapon: string;
   /** Your Weapon for a Player vs Player Match (also used when joining from a Room link). */
   onlineWeapon: string;
+  /** The Body model you are drawn as, in every Match (render-only; the other Fighters wear random ones). */
+  body: BodyModelName = storedBody();
 
   constructor(container: HTMLElement, tuning: TuningData, handlers: MenuHandlers) {
     ensurePlayStyles();
@@ -148,6 +169,12 @@ export class Menu {
     document.addEventListener('webkitfullscreenchange', labelFullscreen);
     head.append(title, fullscreen);
     this.result.className = 'menu-result';
+
+    const labels = BODY_MODELS.map((b) => BODY_LABELS[b]);
+    const model = this.choiceRow('Your Model', labels, BODY_LABELS[this.body], (v) => {
+      this.body = BODY_MODELS[labels.indexOf(v)]!;
+      storeBody(this.body);
+    });
 
     // --- Player vs AI ---
     const mode = document.createElement('h2');
@@ -228,7 +255,7 @@ export class Menu {
     editor.href = '#/editor';
     editor.textContent = 'Open the Editor';
 
-    this.main.append(mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
+    this.main.append(model, mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
 
     // --- Room screen ---
     this.room.className = 'menu-room';

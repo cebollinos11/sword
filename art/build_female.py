@@ -1,60 +1,39 @@
 """
 Builds the female Fighter model in Blender: a low-poly skinned mesh fitted to
 the game's Skeleton (data/skeleton.json), plus an armature whose bones run
-between the Skeleton's joints (src/sim/skeleton.ts).
+between the Skeleton's joints (src/sim/skeleton.ts). The shared helpers are in
+art/body_common.py.
 
 Run inside Blender:
     exec(open(r"C:/Repos/sword/art/build_female.py").read(), {"__file__": r"C:/Repos/sword/art/build_female.py"})
 
 Rest pose: legs straight down, arms straight out (T-pose), facing -Y with the
 character's left on +X (glTF export turns this into +z forward, y up, which is
-the game's facing 0). Body shapes are authored in metres for the current
-skeleton.json; the script stops if the Skeleton has changed.
+the game's facing 0).
 """
-import json
+import importlib
 import math
 import os
+import sys
 
 import bmesh
-import bpy
 from mathutils import Vector
 
-REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-S = json.load(open(os.path.join(REPO, 'data', 'skeleton.json')))
-AUTHORED_FOR = {'hipWidth': 0.2, 'thigh': 0.48, 'shin': 0.48, 'ankleHeight': 0.06, 'spine': 0.5,
-                'shoulderWidth': 0.4, 'neck': 0.1, 'headRadius': 0.11, 'upperArm': 0.3, 'forearm': 0.28}
-for k, v in AUTHORED_FOR.items():
-    assert abs(S[k] - v) < 1e-6, f'skeleton.json {k} changed ({S[k]} != {v}): re-author the body shapes'
-
-ANKLE_Z = S['ankleHeight']
-KNEE_Z = ANKLE_Z + S['shin']
-HIP_Z = KNEE_Z + S['thigh']
-CHEST_Z = HIP_Z + S['spine']
-HEAD_Z = CHEST_Z + S['neck'] + S['headRadius']
-HIP_X = S['hipWidth'] / 2
-SHOULDER_X = S['shoulderWidth'] / 2
-ELBOW_X = SHOULDER_X + S['upperArm']
-HAND_X = ELBOW_X + S['forearm']
-TOE_LENGTH = 0.14  # TOE_LENGTH in src/sim/skeleton.ts
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import body_common
+importlib.reload(body_common)
+from body_common import *  # noqa: F401,F403
 
 NAME = 'Female'
 SAVE = globals().get('SAVE', True)  # write art/female.blend and public/models/female.glb
 OUT_BLEND = os.path.join(REPO, 'art', 'female.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'female.glb')
 
-# ---------------------------------------------------------------- materials
-
-def srgb(h):
-    def lin(c):
-        c /= 255
-        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-    return (lin((h >> 16) & 255), lin((h >> 8) & 255), lin(h & 255), 1.0)
-
 # name: (sRGB colour, metallic, roughness, double-sided)
 MATERIALS = {
     'Skin': (0xc48c6a, 0.0, 0.6, False),
     'Top': (0x231e24, 0.0, 0.8, False),
-    'Skirt': (0xa3201f, 0.0, 0.8, True),  # candidate Team colour
+    'Skirt': (0xa3201f, 0.0, 0.8, True),  # the Team colour
     'Belt': (0x5a4030, 0.0, 0.7, False),
     'Buckle': (0x7d7770, 0.7, 0.4, False),
     'Armour': (0xc9738f, 0.6, 0.35, False),
@@ -62,157 +41,7 @@ MATERIALS = {
     'Hair': (0x9f84cc, 0.0, 0.7, True),
     'Eyes': (0x2b1a14, 0.0, 0.3, False),
 }
-MAT_INDEX = {n: i for i, n in enumerate(MATERIALS)}
-
-
-def make_materials():
-    mats = []
-    for name, (colour, metal, rough, double) in MATERIALS.items():
-        m = bpy.data.materials.get(f'{NAME}_{name}') or bpy.data.materials.new(f'{NAME}_{name}')
-        m.use_nodes = True
-        bsdf = m.node_tree.nodes.get('Principled BSDF')
-        bsdf.inputs['Base Color'].default_value = srgb(colour)
-        bsdf.inputs['Metallic'].default_value = metal
-        bsdf.inputs['Roughness'].default_value = rough
-        m.diffuse_color = srgb(colour)
-        m.use_backface_culling = not double
-        mats.append(m)
-    return mats
-
-# ---------------------------------------------------------------- bones
-
-def bone_table():
-    b = {
-        'hips': ((0, 0, HIP_Z), (0, 0, HIP_Z - 0.12), None),
-        'spine': ((0, 0, HIP_Z), (0, 0, CHEST_Z), 'hips'),
-        'head': ((0, 0, CHEST_Z), (0, 0, HEAD_Z), 'spine'),
-    }
-    for s, sx in (('L', 1), ('R', -1)):
-        b[f'upperArm_{s}'] = ((sx * SHOULDER_X, 0, CHEST_Z), (sx * ELBOW_X, 0, CHEST_Z), 'spine')
-        b[f'forearm_{s}'] = ((sx * ELBOW_X, 0, CHEST_Z), (sx * HAND_X, 0, CHEST_Z), f'upperArm_{s}')
-        b[f'hand_{s}'] = ((sx * HAND_X, 0, CHEST_Z), (sx * (HAND_X + 0.1), 0, CHEST_Z), f'forearm_{s}')
-        b[f'thigh_{s}'] = ((sx * HIP_X, 0, HIP_Z), (sx * HIP_X, 0, KNEE_Z), 'hips')
-        b[f'shin_{s}'] = ((sx * HIP_X, 0, KNEE_Z), (sx * HIP_X, 0, ANKLE_Z), f'thigh_{s}')
-        b[f'foot_{s}'] = ((sx * HIP_X, 0, ANKLE_Z), (sx * HIP_X, -TOE_LENGTH, 0), f'shin_{s}')
-    return b
-
-
-BONES = bone_table()
-
-# ---------------------------------------------------------------- helpers
-
-def smooth(e0, e1, x):
-    t = min(1.0, max(0.0, (x - e0) / (e1 - e0)))
-    return t * t * (3 - 2 * t)
-
-
-def seg_dist(p, a, b):
-    a, b = Vector(a), Vector(b)
-    ab = b - a
-    t = max(0.0, min(1.0, (p - a).dot(ab) / ab.length_squared))
-    return (p - (a + ab * t)).length
-
-
-def by_distance(p, names):
-    ws = {n: 1 / max(seg_dist(p, *BONES[n][:2]), 1e-4) ** 8 for n in names}
-    total = sum(ws.values())
-    return {n: w / total for n, w in ws.items()}
-
-
-def blend(base, extra, amount):
-    """`base` weights scaled by (1 - amount), plus `extra` weights scaled by amount."""
-    out = {n: w * (1 - amount) for n, w in base.items()}
-    for n, w in extra.items():
-        out[n] = out.get(n, 0) + w * amount
-    return out
-
-
-def tube(bm, centers, radii, n, ref, phase=0.0, push=None, cap0=True, cap1=True):
-    """A loft of elliptical rings (radii: (across, toward `ref`)) along `centers`; faces point outward."""
-    rings = []
-    for i, c in enumerate(centers):
-        c = Vector(c)
-        a = (Vector(centers[min(i + 1, len(centers) - 1)]) - Vector(centers[max(i - 1, 0)])).normalized()
-        v = Vector(ref) - a * a.dot(Vector(ref))
-        v.normalize()
-        u = v.cross(a)
-        ru, rv = radii[i]
-        ring = []
-        for k in range(n):
-            t = phase + 2 * math.pi * k / n
-            p = c + u * (ru * math.cos(t)) + v * (rv * math.sin(t))
-            if push:
-                p = push(i, p, t)
-            ring.append(bm.verts.new(p))
-        rings.append(ring)
-    for i in range(len(rings) - 1):
-        for k in range(n):
-            bm.faces.new((rings[i][k], rings[i][(k + 1) % n], rings[i + 1][(k + 1) % n], rings[i + 1][k]))
-    if cap0:
-        bm.faces.new(list(reversed(rings[0])))
-    if cap1:
-        bm.faces.new(rings[-1])
-    return rings
-
-
-def sphere(bm, u, v, centre, radii, shape=None):
-    geom = bmesh.ops.create_uvsphere(bm, u_segments=u, v_segments=v, radius=1.0)
-    verts = geom['verts']
-    for vert in verts:
-        co = shape(vert.co.copy()) if shape else vert.co.copy()
-        vert.co = Vector((co.x * radii[0], co.y * radii[1], co.z * radii[2])) + Vector(centre)
-    return verts
-
-
-PARTS = []
-
-
-def part(name, bm, material_of, weights_of, mirror=False, smooth_shade=True):
-    """Make an object from `bm` (authored on the left, +X); `mirror` makes the right-side copy instead."""
-    bm.verts.ensure_lookup_table()
-    bm.faces.ensure_lookup_table()
-    face_mats = [MAT_INDEX[material_of(f.calc_center_median())] for f in bm.faces]
-    weights = [weights_of(v.co.copy()) for v in bm.verts]
-    if mirror:
-        for v in bm.verts:
-            v.co.x = -v.co.x
-        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
-        swap = {'_L': '_R', '_R': '_L'}
-        weights = [{(n[:-2] + swap[n[-2:]] if n[-2:] in swap else n): w for n, w in ws.items()} for ws in weights]
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
-    bm.free()
-    for m in MATS:
-        me.materials.append(m)
-    for poly, mi in zip(me.polygons, face_mats):
-        poly.material_index = mi
-        poly.use_smooth = smooth_shade and material_of_name(mi) not in ('Armour', 'Buckle', 'Belt')
-    obj = bpy.data.objects.new(name, me)
-    COLLECTION.objects.link(obj)
-    groups = {}
-    for vi, ws in enumerate(weights):
-        top = sorted(ws.items(), key=lambda kv: -kv[1])[:3]
-        total = sum(w for _, w in top) or 1
-        for n, w in top:
-            if w / total < 0.01:
-                continue
-            g = groups.get(n) or obj.vertex_groups.new(name=n)
-            groups[n] = g
-            g.add([vi], w / total, 'REPLACE')
-    PARTS.append(obj)
-    return obj
-
-
-def material_of_name(i):
-    return list(MATERIALS)[i]
-
-
-def const(mat):
-    return lambda c: mat
-
-
-def rigid(bone):
-    return lambda p: {bone: 1.0}
+B = Body(NAME, MATERIALS, flat=('Armour', 'Buckle', 'Belt'))
 
 # ---------------------------------------------------------------- torso
 
@@ -258,13 +87,6 @@ def torso_mat(c):
     return 'Skin'
 
 
-def trunk_weights(p):
-    """The torso's own weights: hips below the waist, spine above, head at the neck."""
-    head = smooth(1.56, 1.64, p.z)
-    spine = smooth(1.00, 1.25, p.z)
-    return {'hips': 1 - spine, 'spine': spine * (1 - head), 'head': spine * head}
-
-
 def torso_weights(p):
     side = 'L' if p.x >= 0 else 'R'
     x = abs(p.x)
@@ -277,7 +99,7 @@ def torso_weights(p):
 def build_torso():
     bm = bmesh.new()
     tube(bm, [(0, 0, z) for z, _, _ in TORSO], [(rx, ry) for _, rx, ry in TORSO], 20, (0, -1, 0), push=torso_push)
-    part('torso', bm, torso_mat, torso_weights)
+    B.part('torso', bm, torso_mat, torso_weights)
 
 # ---------------------------------------------------------------- skirt, belt
 
@@ -303,19 +125,19 @@ def build_skirt():
         w = blend(w, {'thigh_R': 1}, drape * max(0, min(1, (-p.x + 0.03) / 0.15)))
         return w
 
-    part('skirt', bm, const('Skirt'), weights, smooth_shade=False)
+    B.part('skirt', bm, const('Skirt'), weights, smooth_shade=False)
 
 
 def build_belt():
     rings = [(1.25, 0.140, 0.097), (1.245, 0.150, 0.107), (1.105, 0.153, 0.109), (1.10, 0.146, 0.103)]
     bm = bmesh.new()
     tube(bm, [(0, 0, z) for z, _, _ in rings], [(rx, ry) for _, rx, ry in rings], 20, (0, -1, 0), cap0=False, cap1=False)
-    part('belt', bm, const('Belt'), trunk_weights, smooth_shade=False)
+    B.part('belt', bm, const('Belt'), trunk_weights, smooth_shade=False)
     bm = bmesh.new()
     geom = bmesh.ops.create_cube(bm, size=1.0)
     for v in geom['verts']:
         v.co = Vector((v.co.x * 0.085, v.co.y * 0.012 - 0.113, v.co.z * 0.10 + 1.175))
-    part('buckle', bm, const('Buckle'), trunk_weights, smooth_shade=False)
+    B.part('buckle', bm, const('Buckle'), trunk_weights, smooth_shade=False)
 
 # ---------------------------------------------------------------- legs, feet
 
@@ -358,7 +180,7 @@ def build_leg(mirror):
 
     bm = bmesh.new()
     tube(bm, [(HIP_X, 0, z) for z, *_ in LEG], [(rx, ry) for _, rx, ry, _ in LEG], 10, (0, -1, 0), phase=math.pi / 10, push=push)
-    part('leg_R' if mirror else 'leg_L', bm, leg_mat, weights, mirror)
+    B.part('leg_R' if mirror else 'leg_L', bm, leg_mat, weights, mirror)
 
 
 def build_foot(mirror):
@@ -376,7 +198,7 @@ def build_foot(mirror):
     def weights(p):
         return blend({'foot_L': 1}, {'shin_L': 1}, smooth(0.09, 0.13, p.z) * 0.6)
 
-    part('foot_R' if mirror else 'foot_L', bm, const('Black'), weights, mirror)
+    B.part('foot_R' if mirror else 'foot_L', bm, const('Black'), weights, mirror)
 
 # ---------------------------------------------------------------- arms, hands
 
@@ -410,7 +232,7 @@ def build_arm(mirror):
 
     bm = bmesh.new()
     tube(bm, [(x, 0, z) for x, z, _, _ in ARM], [(rz, ry) for _, _, ry, rz in ARM], 8, (0, -1, 0))
-    part('arm_R' if mirror else 'arm_L', bm, arm_mat, weights, mirror)
+    B.part('arm_R' if mirror else 'arm_L', bm, arm_mat, weights, mirror)
 
 
 def build_hand(mirror):
@@ -423,35 +245,13 @@ def build_hand(mirror):
     def weights(p):
         return blend({'forearm_L': 1}, {'hand_L': 1}, smooth(0.70, 0.76, p.x))
 
-    part('hand_R' if mirror else 'hand_L', bm, const('Black'), weights, mirror)
+    B.part('hand_R' if mirror else 'hand_L', bm, const('Black'), weights, mirror)
 
 # ---------------------------------------------------------------- head, hair
 
-def skull(co):
-    if co.z < 0:  # the jaw narrows to the chin
-        k = -co.z
-        co.x *= 1 - 0.35 * k * k
-        co.y *= (1 - 0.6 * k) if co.y > 0 else (1 - 0.15 * k)
-    elif co.y > 0:
-        co.y *= 1.08  # the back of the cranium
-    return co
-
-
 def build_head():
     bm = bmesh.new()
-    verts = sphere(bm, 12, 9, (0, 0.005, HEAD_Z), (0.076, 0.096, 0.118), skull)
-    # The nose: the front-most vertex just below eye level.
-    nose = min((v for v in verts if abs(v.co.x) < 1e-4 and HEAD_Z - 0.04 < v.co.z < HEAD_Z), key=lambda v: v.co.y)
-    nose.co.y -= 0.02
-    nose.co.z -= 0.004
-    for sx in (1, -1):
-        eye = sphere(bm, 6, 4, (sx * 0.031, -0.084, HEAD_Z + 0.017), (0.013, 0.007, 0.009))
-        for v in eye:
-            v.tag = True
-    mats = {}
-    for f in bm.faces:
-        mats[f.calc_center_median().to_tuple(5)] = 'Eyes' if all(v.tag for v in f.verts) else 'Skin'
-    part('head', bm, lambda c: mats[c.to_tuple(5)], rigid('head'))
+    B.part('head', bm, head_with_face(bm), rigid('head'))
 
 
 def build_hair():
@@ -462,7 +262,7 @@ def build_hair():
     for sx in (1, -1):
         tube(bm, [(sx * 0.074, -0.04, HEAD_Z + 0.07), (sx * 0.084, -0.05, HEAD_Z - 0.01), (sx * 0.078, -0.045, HEAD_Z - 0.10)],
              [(0.012, 0.022), (0.012, 0.02), (0.006, 0.01)], 4, (0, -1, 0))
-    part('hair', bm, const('Hair'), rigid('head'))
+    B.part('hair', bm, const('Hair'), rigid('head'))
 
     braid = [(1.83, 0.07), (1.81, 0.12), (1.76, 0.145), (1.68, 0.13), (1.60, 0.125), (1.52, 0.13), (1.44, 0.135),
              (1.36, 0.135), (1.28, 0.135), (1.20, 0.14), (1.12, 0.15), (1.05, 0.17), (0.98, 0.19), (0.93, 0.20)]
@@ -474,50 +274,9 @@ def build_hair():
     radii[-1] = (0.01, 0.01)
     bm = bmesh.new()
     tube(bm, [(0, y, z - 1.73 + HEAD_Z) for z, y in braid], radii, 6, (0, 1, 0))
-    part('braid', bm, const('Hair'), lambda p: blend({'spine': 1}, {'head': 1}, smooth(1.62, 1.72, p.z)))
+    B.part('braid', bm, const('Hair'), lambda p: blend({'spine': 1}, {'head': 1}, smooth(1.62, 1.72, p.z)))
 
 # ---------------------------------------------------------------- assemble
-
-def clear_previous():
-    for obj in list(bpy.data.objects):
-        if obj.name.startswith(NAME):
-            bpy.data.objects.remove(obj, do_unlink=True)
-    for me in list(bpy.data.meshes):
-        if me.users == 0:
-            bpy.data.meshes.remove(me)
-    for arm in list(bpy.data.armatures):
-        if arm.users == 0:
-            bpy.data.armatures.remove(arm)
-
-
-def build_armature():
-    data = bpy.data.armatures.new(f'{NAME}Rig')
-    rig = bpy.data.objects.new(f'{NAME}Rig', data)
-    COLLECTION.objects.link(rig)
-    bpy.context.view_layer.objects.active = rig
-    bpy.ops.object.mode_set(mode='EDIT')
-    for name, (head, tail, parent) in BONES.items():
-        eb = data.edit_bones.new(name)
-        eb.head, eb.tail = Vector(head), Vector(tail)
-        eb.roll = 0
-    for name, (head, tail, parent) in BONES.items():
-        if parent:
-            eb = data.edit_bones[name]
-            eb.parent = data.edit_bones[parent]
-            eb.use_connect = (Vector(head) - Vector(BONES[parent][1])).length < 1e-6
-    bpy.ops.object.mode_set(mode='OBJECT')
-    data.display_type = 'STICK'
-    rig.show_in_front = True
-    return rig
-
-
-if bpy.context.object and bpy.context.object.mode != 'OBJECT':
-    bpy.ops.object.mode_set(mode='OBJECT')
-clear_previous()
-COLLECTION = bpy.data.collections.get(NAME) or bpy.data.collections.new(NAME)
-if COLLECTION.name not in bpy.context.scene.collection.children:
-    bpy.context.scene.collection.children.link(COLLECTION)
-MATS = make_materials()
 
 build_torso()
 build_skirt()
@@ -529,28 +288,4 @@ for mirror in (False, True):
     build_hand(mirror)
 build_head()
 build_hair()
-
-bpy.ops.object.select_all(action='DESELECT')
-for obj in PARTS:
-    obj.select_set(True)
-bpy.context.view_layer.objects.active = PARTS[0]
-bpy.ops.object.join()
-body = bpy.context.view_layer.objects.active
-body.name = NAME
-body.data.name = NAME
-
-rig = build_armature()
-body.parent = rig
-mod = body.modifiers.new('Armature', 'ARMATURE')
-mod.object = rig
-
-triangles = sum(len(p.vertices) - 2 for p in body.data.polygons)
-
-if SAVE:
-    os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
-    bpy.ops.object.select_all(action='DESELECT')
-    body.select_set(True)
-    rig.select_set(True)
-    bpy.ops.export_scene.gltf(filepath=OUT_GLB, export_format='GLB', use_selection=True, export_skins=True,
-                              export_animations=False, export_apply=False, export_yup=True)
-    bpy.ops.wm.save_as_mainfile(filepath=OUT_BLEND, copy=True)
+result = B.finish(SAVE, OUT_BLEND, OUT_GLB)

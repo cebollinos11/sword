@@ -4,29 +4,47 @@ import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { SkeletonTuning } from '../tuning';
 import { BodyRig } from './bodyRig';
 
-/** How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model driven by it. */
-export type Body = 'skeleton' | 'female';
+/** The skinned Body models (art/build_<model>.py → public/models/<model>.glb). */
+export const BODY_MODELS = ['female', 'monk', 'prince', 'brawler', 'librarian'] as const;
+export type BodyModelName = (typeof BODY_MODELS)[number];
 
-const MODEL_FILES: Record<Exclude<Body, 'skeleton'>, string> = {
-  female: 'models/female.glb',
+/** How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model driven by it. */
+export type Body = 'skeleton' | BodyModelName;
+
+/** Each model's name in the menu. */
+export const BODY_LABELS: Record<BodyModelName, string> = {
+  female: 'Warrior',
+  monk: 'Monk',
+  prince: 'Prince',
+  brawler: 'Brawler',
+  librarian: 'Librarian',
 };
 
-/**
- * The Body to draw Fighters with: `?body=skeleton` (or `female`) in the page
- * URL, the female model otherwise. Outside a browser, the Skeleton.
- */
-export function defaultBody(): Body {
+const isBody = (s: string | null): s is Body => s === 'skeleton' || (BODY_MODELS as readonly string[]).includes(s ?? '');
+
+/** The Body every Fighter must wear when the page URL asks for one (`?body=skeleton`, `?body=monk`...), else null. */
+export function forcedBody(): Body | null {
   if (typeof window === 'undefined') return 'skeleton';
   const asked = new URLSearchParams(window.location.search).get('body');
-  return asked === 'skeleton' || asked === 'female' ? asked : 'female';
+  return isBody(asked) ? asked : null;
+}
+
+/** The Body to draw Fighters with when nothing else picks one: the URL's, or the female model. Outside a browser, the Skeleton. */
+export function defaultBody(): Body {
+  return forcedBody() ?? 'female';
+}
+
+/** Any one of the models, at random (render-only, so not from the Simulation's RNG). */
+export function randomBody(): BodyModelName {
+  return BODY_MODELS[Math.floor(Math.random() * BODY_MODELS.length)]!;
 }
 
 const loaded = new Map<Body, Promise<THREE.Object3D>>();
 
-function template(body: Exclude<Body, 'skeleton'>): Promise<THREE.Object3D> {
+function template(body: BodyModelName): Promise<THREE.Object3D> {
   let p = loaded.get(body);
   if (!p) {
-    p = new GLTFLoader().loadAsync(import.meta.env.BASE_URL + MODEL_FILES[body]).then((gltf) => gltf.scene);
+    p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/${body}.glb`).then((gltf) => gltf.scene);
     loaded.set(body, p);
   }
   return p;
@@ -40,9 +58,9 @@ export interface BodyModel {
 
 /**
  * Load a Body model for one Fighter: flat Lambert materials like the rest of
- * the scene, with its Team-coloured part (the skirt) in `colour`.
+ * the scene, with its Team-coloured part (the material named `*_Skirt`) in `colour`.
  */
-export async function loadBodyModel(body: Exclude<Body, 'skeleton'>, colour: number, skeleton: SkeletonTuning): Promise<BodyModel> {
+export async function loadBodyModel(body: BodyModelName, colour: number, skeleton: SkeletonTuning): Promise<BodyModel> {
   const root = clone(await template(body));
   root.traverse((o) => {
     if (!(o instanceof THREE.SkinnedMesh)) return;
