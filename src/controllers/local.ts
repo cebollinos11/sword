@@ -1,7 +1,10 @@
 import type { Direction, Intent } from '../sim';
 import type { Controller } from './controller';
 
-export type LocalButton = 'attack' | 'block';
+export type LocalButton = 'attack' | 'block' | 'jump';
+
+/** The key that Jumps. */
+const JUMP_KEY = 'Space';
 
 /** Mouse travel (px) that counts as a Direction gesture; smaller movements add up until they reach it. */
 export const GESTURE_PX = 12;
@@ -68,12 +71,13 @@ function quantiseYaw(yaw: number): number {
  * - Left mouse held = Wind-up, let go = Release; right mouse = Block; WASD
  *   walks relative to the camera; horizontal mouse turns the camera, and the
  *   camera yaw is sent as `face`; vertical mouse tilts it up and down, sent as
- *   `pitch` (the Fighter leans its torso with it).
+ *   `pitch` (the Fighter leans its torso with it). Space Jumps: one press is
+ *   one Jump (sent on one Tick), however long it is held.
  */
 export class LocalController implements Controller {
-  private readonly held = { attack: false, block: false };
+  private readonly held = { attack: false, block: false, jump: false };
   /** Pressed since the last sample: a click shorter than a Tick still reaches the Simulation for one Tick. */
-  private readonly pressed = { attack: false, block: false };
+  private readonly pressed = { attack: false, block: false, jump: false };
   private readonly moving = { forward: false, back: false, left: false, right: false };
   /** The Direction of the most recent mouse gesture (what the next press will use). */
   private gestured: Direction = 'Overhead';
@@ -128,6 +132,7 @@ export class LocalController implements Controller {
     if (this.held[button]) return;
     this.held[button] = true;
     this.pressed[button] = true;
+    if (button === 'jump') return;
     this.latched = this.gestured;
     this.travel = { x: 0, y: 0 };
   }
@@ -141,11 +146,13 @@ export class LocalController implements Controller {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = true;
     else if (code === FEINT_KEY) this.feint();
+    else if (code === JUMP_KEY) this.buttonDown('jump');
   }
 
   keyUp(code: string): void {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = false;
+    else if (code === JUMP_KEY) this.buttonUp('jump');
   }
 
   /**
@@ -159,7 +166,7 @@ export class LocalController implements Controller {
 
   /** Let go of every button and key (the window lost focus). */
   releaseAll(): void {
-    this.held.attack = this.held.block = false;
+    this.held.attack = this.held.block = this.held.jump = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
   }
 
@@ -167,10 +174,13 @@ export class LocalController implements Controller {
   sample(): Intent {
     const attack = this.held.attack || this.pressed.attack;
     const block = this.held.block || this.pressed.block;
+    const jump = this.pressed.jump;
     this.pressed.attack = false;
     this.pressed.block = false;
+    this.pressed.jump = false;
     const face = quantiseYaw(this.yawRadians);
-    return { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
+    const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
+    return jump ? { ...intent, jump } : intent;
   }
 
   intent(): Intent {

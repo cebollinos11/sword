@@ -112,7 +112,7 @@ export interface TouchInputBinding {
 /**
  * On-screen touch controls for a Local Controller: a floating joystick in the
  * lower left walks, the Attack and Block swipe pads in the lower right fight,
- * and dragging anywhere else turns the camera. Multi-touch, so you can walk,
+ * the Jump button beside them Jumps (a tap), and dragging anywhere else turns the camera. Multi-touch, so you can walk,
  * look and hold an Attack at once.
  */
 export function bindTouchInput(local: LocalController, container: HTMLElement): TouchInputBinding {
@@ -139,7 +139,14 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
     return { el, arrow, gesture: new PadGesture(local, button), pointer: -1, timer: 0 };
   };
   const pads = [pad('attack', 'Attack'), pad('block', 'Block')];
-  root.append(stickBase, ...pads.map((p) => p.el));
+  const jump = document.createElement('div');
+  jump.className = 'touch-pad touch-jump';
+  const jumpLabel = document.createElement('span');
+  jumpLabel.className = 'touch-pad-label';
+  jumpLabel.textContent = 'Jump';
+  jump.append(jumpLabel);
+  let jumpPointer = -1;
+  root.append(stickBase, ...pads.map((p) => p.el), jump);
   container.append(root);
 
   let enabled = false;
@@ -181,7 +188,12 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
     e.preventDefault();
     const target = e.target as Element;
     const p = pads.find((q) => q.el.contains(target));
-    if (p) {
+    if (jump.contains(target)) {
+      if (jumpPointer !== -1) return;
+      jumpPointer = e.pointerId;
+      jump.classList.add('active');
+      local.buttonDown('jump');
+    } else if (p) {
       if (p.pointer !== -1) return;
       p.pointer = e.pointerId;
       p.gesture.start(e.clientX, e.clientY);
@@ -223,9 +235,16 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
     const p = pads.find((q) => q.pointer === e.pointerId);
     if (p) endPad(p);
     else if (stick?.pointer === e.pointerId) endStick();
+    else if (jumpPointer === e.pointerId) endJump();
     looks.delete(e.pointerId);
   };
+  const endJump = () => {
+    jumpPointer = -1;
+    jump.classList.remove('active');
+    local.buttonUp('jump');
+  };
   const releaseAll = () => {
+    if (jumpPointer !== -1) endJump();
     for (const p of pads) if (p.pointer !== -1) endPad(p);
     if (stick) endStick();
     looks.clear();

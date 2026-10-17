@@ -84,7 +84,7 @@ _Avoid_: Session (on its own), netcode, connection
 ## Combat
 
 **Action**:
-What a Fighter is doing right now: Idle, Attack, Block, or Stagger. A Fighter has exactly one Action at a time.
+What a Fighter is doing right now: Idle, Attack, Block, Stagger, or Fall. A Fighter has exactly one Action at a time.
 _Avoid_: State, move, animation
 
 **Wind-up**:
@@ -98,7 +98,7 @@ _Avoid_: Swing phase, active frames
 The committed phase after Release, before the Fighter can act again.
 
 **Stagger**:
-A short forced Action in which the Fighter cannot act; caused by being hit (interrupting the victim's Action) or by having an Attack blocked (the attacker recoils).
+A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
 _Avoid_: Stun, flinch, hitstun
 
 **Trade**:
@@ -160,7 +160,7 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero and the Hit that did it, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it) or a Fall (a hard Landing that took its last HP), even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -177,7 +177,24 @@ A fresh Match (same options, score 0–0) that starts on its own a few seconds a
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
-The space a Duel takes place in. v1 has one: a flat circle with no obstacles. Each Duel starts with the two Teams in facing lines across its centre.
+The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). Matches are fought in the library (three levels, modelled in Blender by `art/build_library.py`), each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
+
+**Walk Surface**:
+A floor or ramp of an Arena that Fighters stand on: a flat (or evenly sloping) convex polygon. A Fighter walks onto a neighbouring one within a step up or down; higher ground is a wall, lower ground a ledge it walks off. The Walk Surfaces are also the AI's navmesh: shared edges join them, and open ledges drop from one to the one below.
+_Avoid_: Floor (for the data), navmesh polygon
+
+**Wall**:
+A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs.
+
+**Jump**:
+A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands.
+
+**Fall**:
+The Action of a Fighter in the air, after a Jump or once it has been off the ground for a moment (walked or been pushed off a ledge): arms out, it cannot Attack or Block, but can be hit. It steers a little in the air.
+_Avoid_: Airborne (for the Action)
+
+**Landing**:
+A Fighter reaching the ground again. A drop (from the top of its arc) within the safe height is soft: a Fall ends in Idle. A deeper one deals fall damage by the metre beyond it and Staggers it (Landed); it can fell the Fighter (a Death by Fall).
 
 **Room**:
 A shareable code/link through which two peers (the two Players) connect for a Player vs Player Match.

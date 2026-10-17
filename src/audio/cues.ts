@@ -27,10 +27,20 @@ export interface HitCue {
   readonly strength: number;
 }
 
-export type SoundCue = SwingCue | BlockCue | HitCue;
+/** A Fighter landed from a Jump or a fall: a thud on the boards. `strength` is 0..1, from the height it dropped. */
+export interface LandCue {
+  readonly sound: 'Land';
+  readonly fighter: number;
+  readonly strength: number;
+}
+
+export type SoundCue = SwingCue | BlockCue | HitCue | LandCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;
+/** A Landing from this high (m) thuds at full strength; one from lower than LAND_QUIET makes no sound. */
+const FULL_STRENGTH_DROP = 5;
+const LAND_QUIET = 0.2;
 
 /** The sounds triggered by one Tick's events, in event order. */
 export function soundCues(events: readonly SimEvent[]): SoundCue[] {
@@ -45,6 +55,9 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
         break;
       case 'Hit':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });
+        break;
+      case 'Land':
+        if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: Math.min(1, Math.max(0.15, e.height / FULL_STRENGTH_DROP)) });
         break;
     }
   }

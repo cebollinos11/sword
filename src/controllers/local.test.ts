@@ -241,3 +241,28 @@ describe('Local Controller', () => {
     });
   });
 });
+
+describe('Local Controller: Jump', () => {
+  it('Space Jumps once per press, on one Tick, however long it is held', () => {
+    const c = new LocalController();
+    expect(c.sample().jump).toBeUndefined();
+    c.keyDown('Space');
+    expect(c.sample().jump).toBe(true);
+    expect(c.sample().jump).toBeUndefined();
+    c.keyUp('Space');
+    expect(c.sample().jump).toBeUndefined();
+    // A tap shorter than a Tick still Jumps.
+    c.keyDown('Space');
+    c.keyUp('Space');
+    expect(c.sample().jump).toBe(true);
+  });
+
+  it('a Jump does not change the Direction the next Attack takes', () => {
+    const c = new LocalController();
+    c.mouseMove(-200, 0);
+    c.keyDown('Space');
+    c.sample();
+    c.buttonDown('attack');
+    expect(c.sample().direction).toBe('Left');
+  });
+});

@@ -2,11 +2,12 @@
  * Placeholder sounds, synthesised with WebAudio (no binary assets):
  *  - Swing: a band-passed noise whoosh sweeping upwards;
  *  - Block: a metallic clang of inharmonic partials;
- *  - Hit: a low thump with a dull noise burst, scaled by the Hit's strength.
+ *  - Hit: a low thump with a dull noise burst, scaled by the Hit's strength;
+ *  - Land: a deep thud on wooden boards, scaled by the height of the drop.
  * Browser-only; never imported by the Simulation.
  */
 import type { Direction } from '../sim';
-import type { BlockCue, HitCue, SoundCue, SwingCue } from './cues';
+import type { BlockCue, HitCue, LandCue, SoundCue, SwingCue } from './cues';
 import type { SoundPlayer } from './listener';
 
 const MASTER_GAIN = 0.5;
@@ -38,6 +39,8 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.block(ctx, cue);
       case 'Hit':
         return this.hit(ctx, cue);
+      case 'Land':
+        return this.land(ctx, cue);
     }
   }
 
@@ -116,6 +119,28 @@ export class WebAudioPlayer implements SoundPlayer {
     click.connect(high).connect(this.envelope(ctx, 0.5, 0.002, 0.05));
     click.start(t);
     click.stop(t + 0.07);
+  }
+
+  private land(ctx: AudioContext, cue: LandCue): void {
+    const t = ctx.currentTime;
+    const s = cue.strength;
+    // A deep thud: the body on the boards.
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(95, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.22);
+    osc.connect(this.envelope(ctx, 0.8 * s, 0.006, 0.3));
+    osc.start(t);
+    osc.stop(t + 0.32);
+    // The wood answering: a short, dark knock.
+    const knock = this.noiseSource(ctx);
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 3;
+    band.frequency.value = 260 + 220 * s;
+    knock.connect(band).connect(this.envelope(ctx, 0.7 * s, 0.003, 0.16));
+    knock.start(t);
+    knock.stop(t + 0.18);
   }
 
   private hit(ctx: AudioContext, cue: HitCue): void {

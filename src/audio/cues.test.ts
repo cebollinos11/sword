@@ -47,3 +47,15 @@ describe('soundCues', () => {
     ).toEqual([]);
   });
 });
+
+describe('Landing sounds', () => {
+  it('a Landing thuds, harder for a deeper drop; a tiny drop is silent', () => {
+    const land = (height: number) => soundCues([{ type: 'Land', fighter: 1, height, damage: 0 }]);
+    expect(land(0.1)).toEqual([]);
+    const soft = land(0.8)[0]!;
+    const hard = land(4)[0]!;
+    expect(soft).toMatchObject({ sound: 'Land', fighter: 1 });
+    expect(hard.sound === 'Land' && soft.sound === 'Land' && hard.strength > soft.strength).toBe(true);
+    expect(land(30)[0]).toMatchObject({ strength: 1 });
+  });
+});
