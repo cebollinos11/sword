@@ -8,10 +8,11 @@
  *
  * Verlet particles, one per joint plus three on the Weapon, held together by
  * distance constraints: the torso and head are rigid, the limbs hinge freely
- * (but cannot fold flat), and everything lands on the flat Arena floor.
+ * (but cannot fold flat), and everything lands on the Arena's Walk Surfaces: each particle on
+ * the highest one under it, so a body that falls off a ledge drops to the floor below.
  */
-import { JOINT_NAMES, type Death, type JointName, type SkeletonPose, type Vec3 } from '../sim';
-import type { TuningData, WeaponTuning } from '../tuning';
+import { groundBelow, JOINT_NAMES, type Death, type JointName, type SkeletonPose, type Vec3 } from '../sim';
+import type { ArenaGeometry, TuningData, WeaponTuning } from '../tuning';
 
 /** Simulation step and how long the fall is simulated before it is left lying still (seconds). */
 const STEP = 1 / 120;
@@ -173,7 +174,17 @@ function flat(x: number, z: number, fallback: Vec3 = { x: 0, y: 0, z: 1 }): Vec3
   return l < 1e-6 ? fallback : { x: x / l, y: 0, z: z / l };
 }
 
-function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Array): void {
+/** How far above a particle's lowest point a Walk Surface still counts as under it (m): it may have sunk in a little. */
+const FLOOR_REACH = 0.3;
+
+/** Each particle's floor: the Walk Surface under it (or y 0 with no Arena, or off its Walk Surfaces). */
+function floors(p: Float64Array, radius: Float64Array, arena: ArenaGeometry | undefined, out: Float64Array): void {
+  for (let i = 0; i < COUNT; i++) {
+    out[i] = arena ? (groundBelow(arena, p[3 * i]!, p[3 * i + 2]!, p[3 * i + 1]! - radius[i]! + FLOOR_REACH)?.y ?? 0) : 0;
+  }
+}
+
+function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Array, floor: Float64Array): void {
   for (let it = 0; it < ITERATIONS; it++) {
     for (const { a, b, length, min } of cs) {
       const dx = p[3 * b]! - p[3 * a]!;
@@ -189,25 +200,27 @@ function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Arra
       p[3 * b + 1] = p[3 * b + 1]! - dy * f;
       p[3 * b + 2] = p[3 * b + 2]! - dz * f;
     }
-    for (let i = 0; i < COUNT; i++) if (p[3 * i + 1]! < radius[i]!) p[3 * i + 1] = radius[i]!;
+    for (let i = 0; i < COUNT; i++) if (p[3 * i + 1]! < floor[i]! + radius[i]!) p[3 * i + 1] = floor[i]! + radius[i]!;
   }
 }
 
 /**
  * The Skeleton (and Weapon) of a Fighter `seconds` after it fell in `pose` (its pose on the Tick of its Death),
- * wielding `weapon`. Pure and deterministic; after a few seconds the body lies still.
+ * wielding `weapon`, in `arena` (default: on a flat floor at y 0). Pure and deterministic; after a few seconds the body lies still.
  */
-export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, weapon: WeaponTuning, tuning: TuningData): SkeletonPose {
+export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, weapon: WeaponTuning, tuning: TuningData, arena?: ArenaGeometry): SkeletonPose {
   const steps = Math.round(Math.min(Math.max(seconds, 0), SETTLE_SECONDS) / STEP);
   if (steps === 0) return pose;
   const { pos, prev } = start(pose, death, weapon);
   const cs = constraints(pos);
   const radius = radii(tuning);
   const fall = GRAVITY * STEP * STEP;
+  const floor = new Float64Array(COUNT);
   for (let s = 0; s < steps; s++) {
+    floors(pos, radius, arena, floor);
     for (let i = 0; i < COUNT; i++) {
       const o = 3 * i;
-      const onFloor = pos[o + 1]! <= radius[i]! + 1e-4;
+      const onFloor = pos[o + 1]! <= floor[i]! + radius[i]! + 1e-4;
       const keep = onFloor ? 1 - FLOOR_FRICTION : AIR_DRAG;
       for (let c = 0; c < 3; c++) {
         const v = (pos[o + c]! - prev[o + c]!) * (c === 1 ? AIR_DRAG : keep);
@@ -215,7 +228,7 @@ export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, w
         pos[o + c] = pos[o + c]! + v - (c === 1 ? fall : 0);
       }
     }
-    satisfy(pos, cs, radius);
+    satisfy(pos, cs, radius, floor);
   }
 
   const at = (i: number): Vec3 => ({ x: pos[3 * i]!, y: pos[3 * i + 1]!, z: pos[3 * i + 2]! });

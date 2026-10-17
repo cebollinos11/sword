@@ -1,4 +1,5 @@
 import type * as THREE from 'three';
+import type { CameraCollider } from './cameraCollider';
 import type { SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { forcedBody, randomBody, type Body } from './bodyModel';
@@ -40,6 +41,11 @@ export class Renderer {
     return this.stage.canvas;
   }
 
+  /** Keeps the camera inside the Arena last drawn. */
+  get collider(): CameraCollider {
+    return this.stage.collider;
+  }
+
   /**
    * The local player drives Fighter `fighter` (-1: none) and wears `body`; every other Fighter
    * wears a random model (unless the page URL forces one Body on everyone). Takes effect at once.
@@ -56,6 +62,7 @@ export class Renderer {
 
   /** Draw a frame between Tick `prev` and Tick `curr`; `alpha` in [0, 1]. Each Fighter wears its team's colour. */
   render(prev: SimState, curr: SimState, alpha: number): void {
+    this.stage.setArena(curr.arena);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];

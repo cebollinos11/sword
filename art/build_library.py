@@ -245,9 +245,10 @@ for k, (tx, tz) in enumerate(TABLES):
     for e in range(4):
         wall(f'table{k}_{e}', corners[e], corners[(e + 1) % 4], 0, 1.0)
 
-for slot, x in enumerate((0.0, -2.5, 2.5)):
-    SPAWNS.append((0, slot, (x, 0.0, -4.5 - 0.5 * (slot > 0)), 0.0))
-    SPAWNS.append((1, slot, (x, 0.0, 4.5 + 0.5 * (slot > 0)), math.pi))
+# The two teams face each other across the open floor south of the bridge, clear of anything overhead.
+for slot, z in enumerate((-4.5, -3.0, -6.0)):
+    SPAWNS.append((0, slot, (-4.5 - 0.5 * (slot > 0), 0.0, z), math.pi / 2))
+    SPAWNS.append((1, slot, (4.5 + 0.5 * (slot > 0), 0.0, -9.0 - z if slot else z), -math.pi / 2))
 
 # ---------------------------------------------------------------- the look
 
@@ -530,14 +531,9 @@ def build_look():
                       ((-INNER, -BRIDGE), (INNER, -BRIDGE), L1), ((-INNER, BRIDGE), (INNER, BRIDGE), L1),
                       ((-HALF, GAL), (HALF, GAL), L2), ((-HALF, GAL), (-INNER, GAL), L1), ((INNER, GAL), (HALF, GAL), L1)):
         G.beam(a, b, y - SLAB + 0.02, y - SLAB + 0.02, 0.3, 0.2, 'Wood')
-    # Arched braces under the bridge, springing from the mezzanine edges.
-    for zs in (-BRIDGE + 0.1, BRIDGE - 0.1):
-        n = 12
-        for k in range(n):
-            x0, x1 = -INNER + 2 * INNER * k / n, -INNER + 2 * INNER * (k + 1) / n
-            y0 = L1 - SLAB - 0.25 - 0.6 * (1 - abs(x0) / INNER)
-            y1 = L1 - SLAB - 0.25 - 0.6 * (1 - abs(x1) / INNER)
-            G.beam((x0, zs), (x1, zs), y0, y1, 0.18, 0.16, 'DarkWood')
+    # Joists under the bridge (well above head height).
+    for zs in (-BRIDGE + 0.25, 0.0, BRIDGE - 0.25):
+        G.beam((-INNER, zs), (INNER, zs), L1 - SLAB, L1 - SLAB, 0.2, 0.14, 'DarkWood', skip=('+y',))
     # Iron brackets under the mezzanine edges.
     for z in (-6.0, -3.0, 3.0, 6.0):
         for s in (-1, 1):

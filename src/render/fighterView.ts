@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
+import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
@@ -221,7 +221,7 @@ export function drawnPose(from: SimState, to: SimState, i: number, alpha: number
   const f = to.fighters[i]!;
   if (f.death) {
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
-    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weaponByName(tuning, f.weapon), tuning);
+    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weaponByName(tuning, f.weapon), tuning, arenaOf(tuning, to.arena));
   }
   return lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
 }

@@ -61,7 +61,7 @@ export class ActionLabels {
         el.style.display = 'none';
         return;
       }
-      this.point.set(f.position.x, LABEL_HEIGHT, f.position.z).project(this.camera);
+      this.point.set(f.position.x, f.y + LABEL_HEIGHT, f.position.z).project(this.camera);
       const behind = this.point.z > 1;
       el.style.display = behind ? 'none' : 'block';
       el.style.left = `${rect.left + ((this.point.x + 1) / 2) * rect.width}px`;

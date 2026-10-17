@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { duelPlacements, fighterPose, createInitialState, type Death, type SkeletonPose, type Vec3 } from '../sim';
-import { loadTuningData, weaponByName } from '../tuning';
+import { loadTuningData, parseArena, weaponByName } from '../tuning';
 import { ragdollPose } from './ragdoll';
 
 const tuning = loadTuningData();
@@ -46,5 +46,37 @@ describe('Death Ragdoll', () => {
     expect(d(lying.blade.hilt, lying.blade.tip)).toBeCloseTo(d(pose.blade.hilt, pose.blade.tip), 1);
     expect(d(lying.blade.hilt, lying.joints.rightHand)).toBeGreaterThan(0.15);
     expect(Math.max(lying.blade.hilt.y, lying.blade.tip.y)).toBeLessThan(0.2);
+  });
+});
+
+describe('Death Ragdoll in a multilevel Arena', () => {
+  /** A 2 m ledge whose edge (z = 1.3) is just behind a Fighter standing on it at z = 1, over a floor at 0. */
+  const arena = parseArena(
+    {
+      name: 'ledge',
+      walk: [
+        { id: 'floor', points: [[-5, 0, -5], [5, 0, -5], [5, 0, 5], [-5, 0, 5]] },
+        { id: 'ledge', points: [[-5, 2, -5], [5, 2, -5], [5, 2, 1.3], [-5, 2, 1.3]] },
+      ],
+    },
+    'ledge',
+  );
+  const high = { ...tuning, arenas: { ...tuning.arenas, ledge: arena } };
+  const onLedge = createInitialState(high, 1, [{ position: { x: 0, z: -1 }, facing: 0 }, { position: { x: 0, z: 1 }, facing: Math.PI, y: 2 }], [], [], 'ledge').fighters[1]!;
+  const ledgePose = fighterPose(onLedge, high);
+  const blow: Death = { ...death, blow: { ...death.blow!, point: ledgePose.joints.chest } };
+
+  it('lies on the ledge it fell on when it stays on it, and drops to the floor below when knocked off', () => {
+    expect(onLedge.y).toBe(2);
+    const lying = ragdollPose(ledgePose, blow, 4, weapon, high, arena);
+    // Knocked towards +z, over the edge: down on the floor, not floating at the ledge's height.
+    expect(lying.joints.pelvis.z).toBeGreaterThan(1.3);
+    expect(lying.joints.pelvis.y).toBeLessThan(0.5);
+    expect(lowest(lying)).toBeGreaterThan(0);
+    // Without the Arena it would stop at y 0 all the same, but standing on the ledge it never sinks below it.
+    const slump: Death = { tick: 10, cause: 'Fall', blow: null };
+    const safe = createInitialState(high, 1, [{ position: { x: 0, z: -2 }, facing: Math.PI, y: 2 }], [], [], 'ledge').fighters[0]!;
+    const still = ragdollPose(fighterPose(safe, high), slump, 4, weapon, high, arena);
+    expect(lowest(still)).toBeGreaterThan(2);
   });
 });

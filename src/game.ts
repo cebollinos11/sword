@@ -1,7 +1,7 @@
-import { createMatch, secondsToTicks, TICK_SECONDS, type MatchState, type SimState, type Vec2 } from './sim';
+import { createMatch, secondsToTicks, TICK_SECONDS, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
-import { placeOrbitCamera, placeThirdPersonCamera } from './render/thirdPersonCamera';
+import { placeOrbitCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
 import { LocalController, type Lineup } from './controllers';
 import { playerVsAi, type MatchDriver } from './play/driver';
@@ -283,8 +283,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const me = driver?.localFighter ?? 0;
     const yaw = driver ? local.yaw : curr.duel.fighters[me]?.facing ?? 0;
     // Fallen while the team fights on: orbit the fight instead of staring at the floor.
-    if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting') placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw);
-    else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, driver ? local.pitch : 0);
+    if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
+      placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
+    else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, driver ? local.pitch : 0, renderer.collider);
     renderer.setPlayer(driver ? driver.localFighter : -1, menu.body);
     renderer.render(before, curr.duel, alpha);
     hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null });
@@ -309,14 +310,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 }
 
 /** Where the living Fighters are, on average (the Arena centre if none). */
-function fightCentre(a: SimState, b: SimState, alpha: number): Vec2 {
+function fightCentre(a: SimState, b: SimState, alpha: number): CameraTarget {
   const living = b.fighters.flatMap((f, i) => (f.death ? [] : [lerpPosition(a, b, i, alpha)]));
   if (living.length === 0) return { x: 0, z: 0 };
-  return { x: living.reduce((s, p) => s + p.x, 0) / living.length, z: living.reduce((s, p) => s + p.z, 0) / living.length };
+  const mean = (k: 'x' | 'y' | 'z') => living.reduce((s, p) => s + (p[k] ?? 0), 0) / living.length;
+  return { x: mean('x'), y: mean('y'), z: mean('z') };
 }
 
-function lerpPosition(a: SimState, b: SimState, fighter: number, alpha: number): Vec2 {
-  const p = b.fighters[fighter]?.position ?? { x: 0, z: 0 };
-  const q = a.fighters[fighter]?.position ?? p;
-  return { x: q.x + (p.x - q.x) * alpha, z: q.z + (p.z - q.z) * alpha };
+/** Where Fighter `fighter` stands between two Ticks: on the ground plane, and the height of its feet. */
+function lerpPosition(a: SimState, b: SimState, fighter: number, alpha: number): CameraTarget {
+  const f = b.fighters[fighter];
+  const g = a.fighters[fighter] ?? f;
+  if (!f || !g) return { x: 0, z: 0 };
+  const l = (u: number, v: number) => u + (v - u) * alpha;
+  return { x: l(g.position.x, f.position.x), y: l(g.y, f.y), z: l(g.position.z, f.position.z) };
 }
