@@ -102,6 +102,17 @@ export function motionTargets(tuning: TuningData, weapon: string, name: string, 
   return sampleMotion(motion, motionTime(motion, tick), tuning.skeleton);
 }
 
+/** The upper body: the channels a held Motion can freeze (the torso and both hands). */
+export type UpperBody = Pick<PoseTargets, 'rightHand' | 'leftHand' | 'torso'>;
+
+/** The upper body of `targets`, as they are. */
+export const upperBody = (targets: PoseTargets): UpperBody => ({ rightHand: targets.rightHand, leftHand: targets.leftHand, torso: targets.torso });
+
+/** `targets` with its upper body replaced by `hold`, where a hold is set; the rest (hips, feet) stays as the Motion has it. */
+export function holdUpperBody(targets: PoseTargets, hold: UpperBody | undefined): PoseTargets {
+  return hold ? { ...targets, ...hold } : targets;
+}
+
 /** Every channel of `a` interpolated toward `b` by `t` (0 = a, 1 = b). */
 export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number): PoseTargets {
   return {
@@ -122,7 +133,7 @@ const blendTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tu
  * a Motion that just took over eases in from where the last one left off.
  */
 export function playbackTargets(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
-  const targets = motionTargets(tuning, weapon, playback.name, playback.tick);
+  const targets = holdUpperBody(motionTargets(tuning, weapon, playback.name, playback.tick), playback.hold);
   const blend = playback.blend;
   if (!blend) return targets;
   return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / blendTicks(tuning)));
@@ -135,7 +146,7 @@ export function playbackTargets(tuning: TuningData, weapon: string, playback: Mo
  * `prev` was showing, so the Skeleton never jumps between Motions.
  */
 export function followMotion(tuning: TuningData, weapon: string, prev: MotionPlayback, next: Omit<MotionPlayback, 'blend'>): MotionPlayback {
-  const playback = { name: next.name, tick: next.tick };
+  const playback = { name: next.name, tick: next.tick, ...(next.hold && { hold: next.hold }) };
   const carriesOn = next.name === prev.name && next.tick >= prev.tick;
   if (carriesOn && !prev.blend) return playback;
   const tick = carriesOn ? prev.blend!.tick + 1 : 1;

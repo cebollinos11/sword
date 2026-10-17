@@ -7,6 +7,7 @@
  */
 import { weaponMotion } from '../../tuning';
 import { secondsToTicks } from '../constants';
+import type { UpperBody } from '../motion';
 import type { StaggerAction, StaggerCause } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionHandler, ActionUpdate } from './types';
@@ -19,10 +20,13 @@ export const RECOIL_MOTION = 'Recoil';
 /** The Motion that animates (and times) a Stagger with this cause. */
 export const staggerMotionName = (cause: StaggerCause): string => (cause === 'Blocked' ? RECOIL_MOTION : STAGGER_MOTION);
 
-/** A Stagger from its first Tick. */
-export function stagger(cause: StaggerCause): ActionUpdate {
+/**
+ * A Stagger from its first Tick. `hold` (a blocked attacker's upper body, as it was when blocked) is frozen
+ * for the whole Stagger, while the Motion still moves the rest.
+ */
+export function stagger(cause: StaggerCause, hold?: UpperBody): ActionUpdate {
   const action: StaggerAction = { kind: 'Stagger', cause };
-  return { action, motion: { name: staggerMotionName(cause), tick: 0 } };
+  return { action, motion: { name: staggerMotionName(cause), tick: 0, ...(hold && { hold }) } };
 }
 
 export const updateStagger: ActionHandler<StaggerAction> = (f, _intent, ctx) => {
@@ -31,5 +35,5 @@ export const updateStagger: ActionHandler<StaggerAction> = (f, _intent, ctx) => 
   if (!motion) throw new Error(`No Motion "${name}" for the Stagger Action (cause ${f.action.cause})`);
   const end = secondsToTicks(motion.duration);
   if (f.motion.tick + 1 >= end) return { action: IDLE_ACTION, motion: IDLE_MOTION };
-  return { action: f.action, motion: { name, tick: f.motion.tick + 1 } };
+  return { action: f.action, motion: { name, tick: f.motion.tick + 1, ...(f.motion.hold && { hold: f.motion.hold }) } };
 };

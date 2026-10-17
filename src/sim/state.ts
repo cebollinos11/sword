@@ -1,6 +1,6 @@
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
-import type { PoseTargets } from './motion';
+import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform } from './skeleton';
@@ -128,6 +128,11 @@ export interface MotionPlayback {
    * how far into the blend. Absent once the blend is over.
    */
   readonly blend?: MotionBlend;
+  /**
+   * Present while a Motion holds the Fighter's upper body (torso and hands) where it was,
+   * whatever the Motion says: a blocked attacker's recoil freezes its pose from the moment it was blocked. Absent otherwise.
+   */
+  readonly hold?: UpperBody;
 }
 
 /** A crossfade from a frozen pose into the current Motion. */

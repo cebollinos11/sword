@@ -15,7 +15,7 @@ import { attackSweepLive, blocksAttack, stagger, startBlockImpact } from './acti
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import type { Direction } from './intent';
-import { followMotion } from './motion';
+import { followMotion, playbackTargets, upperBody } from './motion';
 import { fighterPose } from './pose';
 import type { AttackAction, BlockAction, FighterState, StaggerCause } from './state';
 import { bladeSamples, sweepContact, type Capsule } from './sweep';
@@ -99,7 +99,9 @@ export function resolveContacts(
 
 /** Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). */
 export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
-  const { action, motion } = stagger(cause);
+  // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
+  const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
+  const { action, motion } = stagger(cause, hold);
   emit({ type: 'Stagger', fighter: index, cause });
   const staggered = { ...f, action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
   return { ...staggered, blade: fighterPose(staggered, tuning).blade };

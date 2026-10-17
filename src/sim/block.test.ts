@@ -28,6 +28,20 @@ describe('Block', () => {
     expect(eventsOf(run, 'Stagger')).toEqual([{ type: 'Stagger', fighter: 0, cause: 'Blocked', tick: t }]);
   });
 
+  it('a blocked attacker holds its upper body where the Block caught it for the whole recoil', () => {
+    const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 120) });
+    const t = eventsOf(run, 'Block')[0]!.tick;
+    const hold = run.states[t]!.fighters[0]!.motion.hold;
+    expect(hold).toBeDefined();
+    let k = t;
+    while (run.states[k]!.fighters[0]!.action.kind === 'Stagger') {
+      expect(run.states[k]!.fighters[0]!.motion.hold).toEqual(hold);
+      k++;
+    }
+    expect(k).toBeGreaterThan(t);
+    expect(run.states[k]!.fighters[0]!.motion.hold).toBeUndefined();
+  });
+
   it('a Block in a different Direction does not stop the Attack: it lands', () => {
     for (const direction of ['Left', 'Right', 'Thrust'] as const) {
       const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block(direction, 120) });
