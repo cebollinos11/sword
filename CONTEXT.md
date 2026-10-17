@@ -97,6 +97,10 @@ _Avoid_: Swing phase, active frames
 **Recovery**:
 The committed phase after Release, before the Fighter can act again.
 
+**Chain**:
+Holding attack during Recovery: the pose blends straight from where it is to the next Attack's held Wind-up pose instead of back to guard, and that Attack starts when Recovery ends. Pose only: Recovery, the Idle Tick after it and the Wind-up last as long as ever. Letting go during Recovery drops the Chain.
+_Avoid_: Combo, cancel, buffer
+
 **Stagger**:
 A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
 _Avoid_: Stun, flinch, hitstun

@@ -160,7 +160,7 @@ export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number, ankleHeig
 }
 
 /** The Motion Blend in Ticks (Tuning Data `fighter.motionBlend`, seconds), at least one. */
-const blendTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.fighter.motionBlend));
+export const motionBlendTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.fighter.motionBlend));
 
 /**
  * The Pose targets of a playback (of `weapon`'s Motions), crossfading out of the pose it blends from:
@@ -170,21 +170,29 @@ export function playbackTargets(tuning: TuningData, weapon: string, playback: Mo
   const targets = holdUpperBody(motionTargets(tuning, weapon, playback.name, playback.tick), playback.hold);
   const blend = playback.blend;
   if (!blend) return targets;
-  return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / blendTicks(tuning)), tuning.skeleton.ankleHeight);
+  return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / (blend.ticks ?? motionBlendTicks(tuning))), tuning.skeleton.ankleHeight);
 }
 
 /**
  * The playback `next` as it follows `prev` one Tick later. A Motion that carries
  * on (same name, playhead not rewound) keeps blending out of its old pose until
  * the Motion Blend ends; one that takes over starts a fresh blend from the pose
- * `prev` was showing, so the Skeleton never jumps between Motions.
+ * `prev` was showing, so the Skeleton never jumps between Motions. `freshTicks`
+ * forces a fresh blend of that length even where the Motion carries on.
  */
-export function followMotion(tuning: TuningData, weapon: string, prev: MotionPlayback, next: Omit<MotionPlayback, 'blend'>): MotionPlayback {
+export function followMotion(
+  tuning: TuningData,
+  weapon: string,
+  prev: MotionPlayback,
+  next: Omit<MotionPlayback, 'blend'>,
+  freshTicks?: number,
+): MotionPlayback {
   const playback = { name: next.name, tick: next.tick, ...(next.hold && { hold: next.hold }) };
-  const carriesOn = next.name === prev.name && next.tick >= prev.tick;
+  const carriesOn = freshTicks === undefined && next.name === prev.name && next.tick >= prev.tick;
   if (carriesOn && !prev.blend) return playback;
   const tick = carriesOn ? prev.blend!.tick + 1 : 1;
-  if (tick >= blendTicks(tuning)) return playback;
+  const ticks = freshTicks ?? (carriesOn ? prev.blend!.ticks : undefined);
+  if (tick >= (ticks ?? motionBlendTicks(tuning))) return playback;
   const from = carriesOn ? prev.blend!.from : playbackTargets(tuning, weapon, prev);
-  return { ...playback, blend: { from, tick } };
+  return { ...playback, blend: { from, tick, ...(ticks !== undefined && { ticks }) } };
 }

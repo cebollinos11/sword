@@ -225,7 +225,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     pitch: tilt(f, intent, tuning),
     crouch: duck(f, intent, tuning),
     action: update.action,
-    motion: followMotion(tuning, f.weapon, f.motion, update.motion),
+    motion: followMotion(tuning, f.weapon, f.motion, update.motion, update.blendTicks),
   };
   return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}) };
 }

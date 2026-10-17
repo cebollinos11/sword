@@ -12,7 +12,7 @@ import { startBlock, updateBlock } from './block';
 import { updateFall } from './fall';
 import { feint } from './feint';
 import { startKick, updateKick } from './kick';
-import { IDLE_ACTION } from './idleAction';
+import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import { updateKnockdown } from './knockdown';
 import { updateStagger } from './stagger';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
@@ -30,8 +30,9 @@ export function startAction(f: FighterState, intent: Intent, ctx: ActionContext)
   return null;
 }
 
+// A Chain reaches Idle still showing the next Attack's Motion: if that Attack doesn't start after all, Idle takes over.
 const updateIdle: ActionHandler<Extract<Action, { kind: 'Idle' }>> = (f, intent, ctx) =>
-  startAction(f, intent, ctx) ?? { action: IDLE_ACTION, motion: advance(f.motion) };
+  startAction(f, intent, ctx) ?? { action: IDLE_ACTION, motion: f.motion.name === IDLE_MOTION.name ? advance(f.motion) : IDLE_MOTION };
 
 const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { kind: K }>> } = {
   Idle: updateIdle,

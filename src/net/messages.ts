@@ -177,7 +177,12 @@ function isAction(v: unknown): boolean {
     case 'Idle':
       return true;
     case 'Attack':
-      return isDirection(v.direction) && PHASE_SET.has(v.phase as string) && isBool(v.landed);
+      return (
+        isDirection(v.direction) &&
+        PHASE_SET.has(v.phase as string) &&
+        isBool(v.landed) &&
+        (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick)))
+      );
     case 'Block':
       return isDirection(v.direction);
     case 'Kick':
@@ -200,7 +205,7 @@ function isFoot(v: unknown): boolean {
 
 /** A Motion Blend: the pose it fades from (every Pose target channel) and how far in it is. */
 function isMotionBlend(v: unknown): boolean {
-  if (!isObject(v) || !isTick(v.tick) || !isObject(v.from)) return false;
+  if (!isObject(v) || !isTick(v.tick) || (v.ticks !== undefined && !isTick(v.ticks)) || !isObject(v.from)) return false;
   const f = v.from;
   return (
     isObject(f.rightHand) &&

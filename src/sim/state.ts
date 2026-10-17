@@ -28,6 +28,18 @@ export interface AttackAction {
   readonly landed: boolean;
   /** Ticks the Weapon stays lodged in the victim after a Hit: the Attack's Motion holds still until it runs out. */
   readonly lodge?: number;
+  /**
+   * Present while attack is held during Recovery (a Chain): the pose blends straight toward the next Attack's Wind-up
+   * instead of back to guard. `tick` is the Recovery's own playhead, which still decides when Recovery ends; the Motion
+   * playback meanwhile shows the next Attack's Motion. `direction` is the Direction it was held in.
+   */
+  readonly chain?: AttackChain;
+}
+
+/** A Chain: attack held during Recovery (see AttackAction.chain). */
+export interface AttackChain {
+  readonly direction: Direction;
+  readonly tick: number;
 }
 
 /** Holding a Block in one Direction for as long as block is held. Stops matching Attacks by rule (ADR 0002). */
@@ -212,6 +224,8 @@ export interface MotionPlayback {
 export interface MotionBlend {
   readonly from: PoseTargets;
   readonly tick: number;
+  /** The blend's length in Ticks, when it is not the usual Motion Blend (a Chain blends across the rest of Recovery and the next Wind-up). */
+  readonly ticks?: number;
 }
 
 /** Whether the Duel is still being fought. `winner` is a team (0 or 1), or null for a draw (the last of both teams fell on the same Tick). */
