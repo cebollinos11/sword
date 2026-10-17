@@ -41,6 +41,14 @@ export interface TorsoTarget {
   readonly lean: number;
 }
 
+/** The whole body laid back, for lying down: tilted about the ground point under the pelvis, then lowered. */
+export interface BodyTarget {
+  /** Degrees the whole body tilts about the ground point under the pelvis; positive tilts it back (head toward -z). */
+  readonly tilt: number;
+  /** Metres everything is lowered after tilting. */
+  readonly drop: number;
+}
+
 /**
  * A timed target for part of the Skeleton. Every channel is optional: a Pose
  * Key only constrains the channels it sets, and each channel interpolates
@@ -57,6 +65,10 @@ export interface PoseKey {
   readonly hip?: Vec3;
   readonly leftFoot?: FootPlant;
   readonly rightFoot?: FootPlant;
+  /** The right ankle (Fighter-local, y up). While set the Motion owns that foot: the Gait leaves it alone. */
+  readonly kickFoot?: Vec3;
+  /** Tilts and lowers the whole body; absent means upright. */
+  readonly body?: BodyTarget;
 }
 
 export interface Motion {
@@ -68,7 +80,7 @@ export interface Motion {
 }
 
 /** Pose Key channel names, in the order they are written to JSON. */
-export const POSE_KEY_CHANNELS = ['rightHand', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot'] as const;
+export const POSE_KEY_CHANNELS = ['rightHand', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot', 'kickFoot', 'body'] as const;
 export type PoseKeyChannel = (typeof POSE_KEY_CHANNELS)[number];
 
 function vec3(v: unknown, where: string): Vec3 {
@@ -110,6 +122,11 @@ function poseKey(raw: unknown, where: string, duration: number): PoseKey {
   if (o.hip !== undefined) key.hip = vec3(o.hip, `${where}.hip`);
   if (o.leftFoot !== undefined) key.leftFoot = foot(o.leftFoot, `${where}.leftFoot`);
   if (o.rightFoot !== undefined) key.rightFoot = foot(o.rightFoot, `${where}.rightFoot`);
+  if (o.kickFoot !== undefined) key.kickFoot = vec3(o.kickFoot, `${where}.kickFoot`);
+  if (o.body !== undefined) {
+    const b = record(o.body, `${where}.body`);
+    key.body = { tilt: finiteNumber(b, 'tilt', `${where}.body`), drop: finiteNumber(b, 'drop', `${where}.body`) };
+  }
   return key;
 }
 

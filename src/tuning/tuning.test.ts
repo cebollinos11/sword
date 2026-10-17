@@ -185,6 +185,19 @@ describe('Motion validation', () => {
     expect(m.poseKeys[0]?.rightFoot).toEqual({ x: 0.1, z: -0.1 });
   });
 
+  it('keeps the kickFoot and body channels, and serializes them back', () => {
+    const m = parseMotion(motion([key(0, { kickFoot: { x: 0.1, y: 0.6, z: 0.5 }, body: { tilt: 90, drop: 0.1 } }), key(1)]));
+    expect(m.poseKeys[0]?.kickFoot).toEqual({ x: 0.1, y: 0.6, z: 0.5 });
+    expect(m.poseKeys[0]?.body).toEqual({ tilt: 90, drop: 0.1 });
+    expect(m.poseKeys[1]).not.toHaveProperty('kickFoot');
+    expect(parseMotion(JSON.parse(serializeMotion(m)))).toEqual(m);
+  });
+
+  it('rejects a malformed kickFoot or body with the full path', () => {
+    expect(() => parseMotion(motion([key(0, { kickFoot: { x: 0, y: 'up', z: 0 } })]))).toThrow(/poseKeys\[0\]\.kickFoot\.y/);
+    expect(() => parseMotion(motion([key(0, { body: { tilt: 90 } })]))).toThrow(/poseKeys\[0\]\.body/);
+  });
+
   it('rejects an unknown easing curve, naming the Pose Key', () => {
     expect(() => parseMotion(motion([key(0, { ease: 'bouncy' })]))).toThrow(/Overhead\.poseKeys\[0\]\.ease/);
   });

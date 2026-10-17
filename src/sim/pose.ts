@@ -56,11 +56,12 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
   const targets = f.blockImpact ? applyBlockImpact(played, f.blockImpact, tuning) : played;
   const left = footPose(f.gait.left, tuning);
   const right = footPose(f.gait.right, tuning);
+  // A foot the Motion owns (a Kick's right foot) comes from the Motion, not the Gait: solveSkeleton takes `kickFoot` as the ankle.
   return solveSkeleton(
     { ...targets, leftFoot: toLocal(left.ground, f), rightFoot: toLocal(right.ground, f) },
     tuning.skeleton,
     weaponByName(tuning, f.weapon),
     f,
-    { lift: { left: left.lift, right: right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, ground: { left: left.y - f.y, right: right.y - f.y } },
+    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, ground: { left: left.y - f.y, right: right.y - f.y } },
   );
 }

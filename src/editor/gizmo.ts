@@ -13,7 +13,7 @@ import { handGizmoAxes, handRotationFromGizmo, localToWorld, torsoFromGizmo, tor
 import { channelValueAt, setChannel } from './motionEdit';
 import type { MotionDraft } from './session';
 
-export const GIZMO_TARGETS = ['swordHand', 'swordAngle', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot'] as const;
+export const GIZMO_TARGETS = ['swordHand', 'swordAngle', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot', 'kickFoot'] as const;
 export type GizmoTarget = (typeof GIZMO_TARGETS)[number];
 
 export const GIZMO_LABELS: Record<GizmoTarget, string> = {
@@ -24,6 +24,7 @@ export const GIZMO_LABELS: Record<GizmoTarget, string> = {
   hip: 'hip',
   leftFoot: 'left foot',
   rightFoot: 'right foot',
+  kickFoot: 'kick foot (right ankle)',
 };
 
 const CHANNEL: Record<GizmoTarget, PoseKeyChannel> = {
@@ -34,10 +35,11 @@ const CHANNEL: Record<GizmoTarget, PoseKeyChannel> = {
   hip: 'hip',
   leftFoot: 'leftFoot',
   rightFoot: 'rightFoot',
+  kickFoot: 'kickFoot',
 };
 
 /** Targets with a clickable handle (the sword angle shares the sword hand's). */
-const HANDLE_TARGETS: GizmoTarget[] = ['swordHand', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot'];
+const HANDLE_TARGETS: GizmoTarget[] = ['swordHand', 'leftHand', 'torso', 'hip', 'leftFoot', 'rightFoot', 'kickFoot'];
 const SET_COLOUR = new THREE.Color(0xffd60a);
 const INHERITED_COLOUR = new THREE.Color(0x8e8e93);
 const ACTIVE_COLOUR = new THREE.Color(0x30d158);
@@ -163,6 +165,9 @@ export class PoseGizmo {
         p = localToWorld({ x: f.x, y: this.skeleton.ankleHeight, z: f.z }, this.at);
         break;
       }
+      case 'kickFoot':
+        p = localToWorld(this.value(ctx, 'kickFoot'), this.at);
+        break;
     }
     return new THREE.Vector3(p.x, p.y, p.z);
   }
@@ -213,6 +218,9 @@ export class PoseGizmo {
         Object.assign(key[this.target]!, { x: r.x, z: r.z });
         break;
       }
+      case 'kickFoot':
+        Object.assign(key.kickFoot!, roundVec(pos, 0.001));
+        break;
     }
     this.onEdit(added);
   }

@@ -26,7 +26,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
-export type { Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
+export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponLook, WeaponTuning } from './weapon';
 export { parseWeapon, serializeWeapon, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';

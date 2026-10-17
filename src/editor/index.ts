@@ -51,6 +51,8 @@ const CHANNEL_LABELS: Record<PoseKeyChannel, string> = {
   hip: 'hip',
   leftFoot: 'left foot',
   rightFoot: 'right foot',
+  kickFoot: 'kick foot (right ankle)',
+  body: 'body (tilt/drop)',
 };
 
 export function startEditor(container: HTMLElement, loaded: TuningData): void {
@@ -425,5 +427,10 @@ function buildChannelFields(f: FolderApi, k: MotionDraft['poseKeys'][number], on
   if (k.rightFoot) {
     bind(f.addBinding(k.rightFoot, 'x', { label: 'right foot x', step: 0.01 }));
     bind(f.addBinding(k.rightFoot, 'z', { label: 'right foot z', step: 0.01 }));
+  }
+  if (k.kickFoot) bind(f.addBinding(k, 'kickFoot', { label: 'kick foot', ...POS }));
+  if (k.body) {
+    bind(f.addBinding(k.body, 'tilt', { label: 'body tilt°', step: 1 }));
+    bind(f.addBinding(k.body, 'drop', { label: 'body drop', step: 0.01 }));
   }
 }

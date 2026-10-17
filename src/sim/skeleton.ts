@@ -206,12 +206,15 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const rightHip = add(pelvis, vec3(halfHip, 0, 0));
   const leftHip = add(pelvis, vec3(-halfHip, 0, 0));
   const knee = vec3(0, 0, 1);
-  const rAnkleTarget = vec3(targets.rightFoot.x, ground.right + s.ankleHeight + lift.right, targets.rightFoot.z);
+  // A Motion that owns the right foot (a Kick) sets the ankle itself; otherwise it stands on the ground under the foot.
+  const rAnkleTarget = targets.kickFoot ?? vec3(targets.rightFoot.x, ground.right + s.ankleHeight + lift.right, targets.rightFoot.z);
   const lAnkleTarget = vec3(targets.leftFoot.x, ground.left + s.ankleHeight + lift.left, targets.leftFoot.z);
   const [rightKnee, rightAnkle] = twoBoneIk(rightHip, rAnkleTarget, s.thigh, s.shin, knee);
   const [leftKnee, leftAnkle] = twoBoneIk(leftHip, lAnkleTarget, s.thigh, s.shin, knee);
   // The toe rises with the foot's lift: on the floor when planted (even if the leg falls short of it), raised mid-step.
   const toe = (ankle: Vec3, footLift: number) => vec3(ankle.x, footLift, ankle.z + TOE_LENGTH);
+  // A foot the Motion owns points along the shin instead.
+  const kickToe = add(rightAnkle, scale(normalize(sub(rightAnkle, rightKnee), vec3(0, 0, 1)), TOE_LENGTH));
 
   const local: Record<JointName, Vec3> = {
     pelvis,
@@ -230,8 +233,20 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     rightHip,
     rightKnee,
     rightAnkle,
-    rightToe: toe(rightAnkle, ground.right + lift.right),
+    rightToe: targets.kickFoot ? kickToe : toe(rightAnkle, ground.right + lift.right),
   };
+
+  // The whole body laid back: every joint (and the Weapon) swings about the ground point under the pelvis, then drops.
+  const { tilt, drop: bodyDrop } = targets.body ?? { tilt: 0, drop: 0 };
+  const laid = tilt !== 0 || bodyDrop !== 0;
+  const pivot = vec3(pelvis.x, 0, pelvis.z);
+  const lay = (v: Vec3): Vec3 => {
+    const r = add(pivot, rotateX(sub(v, pivot), -tilt));
+    return { x: r.x, y: r.y - bodyDrop, z: r.z };
+  };
+  const layDir = (v: Vec3): Vec3 => (tilt === 0 ? v : rotateX(v, -tilt));
+  if (laid) for (const name of JOINT_NAMES) local[name] = lay(local[name]);
+  const bladeTip = laid ? add(local.rightHand, scale(layDir(bladeDir), weapon.length)) : add(rightHand, scale(bladeDir, weapon.length));
 
   // Fighter-local → world. Facing f: forward = (sin f, 0, cos f), right = (-cos f, 0, sin f).
   const c = Math.cos(at.facing);
@@ -249,8 +264,8 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     joints,
     blade: {
       hilt: joints.rightHand,
-      tip: toWorld(add(rightHand, scale(bladeDir, weapon.length))),
-      edge: dirToWorld(edge),
+      tip: toWorld(bladeTip),
+      edge: dirToWorld(layDir(edge)),
     },
   };
 }

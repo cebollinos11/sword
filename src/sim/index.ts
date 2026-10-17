@@ -77,7 +77,7 @@ export type { Vec3 } from './vec';
 export type { BladeTransform, JointName, Placement, SkeletonPose } from './skeleton';
 export { BONES, JOINT_NAMES } from './skeleton';
 export { fighterPose, motionPose, playbackPose } from './pose';
-export { ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
+export { channelValue, ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';

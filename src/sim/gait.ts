@@ -23,6 +23,10 @@
  *     glides along the floor toward its home (so authored foot keys and the
  *     settle after a walk stay smooth); further off, it steps.
  *
+ * A foot the Motion owns is not stepped: the right foot while the Motion sets `kickFoot`, and
+ * both feet while the Motion tilts the body (`body.tilt`, lying down). An owned foot stays planted
+ * under the Motion's target, and once released it is where it was left, so it glides or steps home from there.
+ *
  * Feet stand on the Walk Surface under them (a foot on a ramp or a step sits at
  * that height). While the body is airborne the feet take no steps: they follow
  * their home under the body, and plant there again on landing.
@@ -96,10 +100,18 @@ export function toLocal(world: Vec2, at: Placement): Vec2 {
   return { x: -dx * c + dz * s, z: dx * s + dz * c };
 }
 
-/** Each foot's home: the Motion's foot target (as `weapon` plays it) placed at `at`, in world space. */
+/** Each foot's home: the Motion's foot target (or kicking ankle's ground point) (as `weapon` plays it) placed at `at`, in world space. */
 export function footHome(tuning: TuningData, weapon: string, motion: MotionPlayback, at: Placement): Record<Foot, Vec2> {
   const targets = playbackTargets(tuning, weapon, motion);
-  return { left: toWorld(targets.leftFoot, at), right: toWorld(targets.rightFoot, at) };
+  // A foot the Motion owns (kickFoot) is where its ankle is, on the floor under it.
+  return { left: toWorld(targets.leftFoot, at), right: toWorld(targets.kickFoot ?? targets.rightFoot, at) };
+}
+
+/** The feet the Motion owns this Tick, so the Gait leaves them to it: the right one for a Kick, both for a body laid down. */
+export function ownedFeet(tuning: TuningData, weapon: string, motion: MotionPlayback): Record<Foot, boolean> {
+  const targets = playbackTargets(tuning, weapon, motion);
+  const lying = (targets.body?.tilt ?? 0) !== 0;
+  return { left: lying, right: lying || targets.kickFoot !== undefined };
 }
 
 /** Each leg's hip joint projected onto the floor, in world space. */
@@ -167,6 +179,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     const plant = (p: Vec2): FootState => ({ planted: p, y: after.air ? after.y : ground(p), step: null });
     return { left: plant(home.left), right: plant(home.right) };
   }
+  const owned = ownedFeet(tuning, after.weapon, after.motion);
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;
   const here = footHome(tuning, after.weapon, after.motion, after);
@@ -176,7 +189,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   // 1. Stepping feet advance; a foot that reaches the end of its step lands.
   for (const foot of FEET) {
     const f = next[foot];
-    if (!f.step) continue;
+    if (!f.step || owned[foot]) continue;
     const t = f.step.tick + 1;
     if (t >= ticks) {
       next[foot] = { planted: ahead[foot], y: ground(ahead[foot]), step: null };
@@ -188,7 +201,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     const glide = tuning.gait.strideThreshold / ticks;
     for (const foot of FEET) {
       const f = next[foot];
-      if (f.step) continue;
+      if (f.step || owned[foot]) continue;
       const d = dist(f.planted, here[foot]);
       if (d > 0 && d <= tuning.gait.strideThreshold) {
         const planted = d <= glide ? here[foot] : lerp2(f.planted, here[foot], glide / d);
@@ -199,7 +212,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   // 3. One planted foot too far from where it belongs starts a step, if the other foot is planted.
   if (!next.left.step && !next.right.step) {
     const off = (foot: Foot) => dist(next[foot].planted, ahead[foot]);
-    const qualifies = FEET.filter((foot) => off(foot) > tuning.gait.strideThreshold);
+    const qualifies = FEET.filter((foot) => !owned[foot] && off(foot) > tuning.gait.strideThreshold);
     if (qualifies.length > 0) {
       const hip = hips(tuning, after.weapon, after.motion, after);
       const reach = (foot: Foot) => dist(next[foot].planted, hip[foot]);
@@ -211,6 +224,10 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
       const foot = qualifies.reduce(first);
       next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, target: ahead[foot], y: ground(ahead[foot]) } };
     }
+  }
+  // 4. A foot the Motion owns is planted where the Motion puts it (a stepping one stops where it is).
+  for (const foot of FEET) {
+    if (owned[foot]) next[foot] = { planted: here[foot], y: ground(here[foot]), step: null };
   }
   return next;
 }

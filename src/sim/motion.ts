@@ -5,7 +5,7 @@
  * first key a channel holds that key; after its last key it holds the last;
  * a channel no key sets stays at the rest pose.
  */
-import { weaponMotion, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData } from '../tuning';
+import { weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData } from '../tuning';
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
 import { lerp, type Vec3 } from './vec';
@@ -18,7 +18,16 @@ export interface PoseTargets {
   readonly hip: Vec3;
   readonly leftFoot: FootPlant;
   readonly rightFoot: FootPlant;
+  /** The right ankle (Fighter-local, y up) while the Motion owns that foot (a Kick); absent when the Gait has it. */
+  readonly kickFoot?: Vec3;
+  /** The whole body tilted back and lowered (lying down); absent means upright. */
+  readonly body?: BodyTarget;
 }
+
+/** The value of a channel that is set (never undefined). */
+type Value<C extends keyof PoseTargets> = NonNullable<PoseTargets[C]>;
+
+const NO_BODY: BodyTarget = { tilt: 0, drop: 0 };
 
 export function restTargets(s: SkeletonTuning): PoseTargets {
   return {
@@ -48,7 +57,7 @@ export function ease(kind: Ease, u: number): number {
 
 const num = (a: number, b: number, t: number) => a + (b - a) * t;
 
-const LERP: { readonly [C in keyof PoseTargets]: (a: PoseTargets[C], b: PoseTargets[C], t: number) => PoseTargets[C] } = {
+const LERP: { readonly [C in keyof PoseTargets]-?: (a: Value<C>, b: Value<C>, t: number) => Value<C> } = {
   rightHand: (a: HandTarget, b: HandTarget, t: number): HandTarget => ({
     position: lerp(a.position, b.position, t),
     rotation: lerp(a.rotation, b.rotation, t),
@@ -58,6 +67,8 @@ const LERP: { readonly [C in keyof PoseTargets]: (a: PoseTargets[C], b: PoseTarg
   hip: (a: Vec3, b: Vec3, t: number): Vec3 => lerp(a, b, t),
   leftFoot: (a: FootPlant, b: FootPlant, t: number): FootPlant => ({ x: num(a.x, b.x, t), z: num(a.z, b.z, t) }),
   rightFoot: (a: FootPlant, b: FootPlant, t: number): FootPlant => ({ x: num(a.x, b.x, t), z: num(a.z, b.z, t) }),
+  kickFoot: (a: Vec3, b: Vec3, t: number): Vec3 => lerp(a, b, t),
+  body: (a: BodyTarget, b: BodyTarget, t: number): BodyTarget => ({ tilt: num(a.tilt, b.tilt, t), drop: num(a.drop, b.drop, t) }),
 };
 
 function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], channel: C, time: number, rest: PoseTargets[C]): PoseTargets[C] {
@@ -68,7 +79,7 @@ function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], ch
     if (k.time >= time) {
       if (!prev || k.time === prev.time) return v;
       const u = (time - prev.time) / (k.time - prev.time);
-      const lerpFn: (a: PoseTargets[C], b: PoseTargets[C], t: number) => PoseTargets[C] = LERP[channel];
+      const lerpFn = LERP[channel] as unknown as (a: PoseTargets[C], b: PoseTargets[C], t: number) => PoseTargets[C];
       return lerpFn(prev[channel] as PoseTargets[C], v, ease(k.ease, u));
     }
     prev = k;
@@ -92,7 +103,23 @@ export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTun
     hip: sampleChannel(k, 'hip', time, rest.hip),
     leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot),
     rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot),
+    ...optionalChannels(sampleChannel(k, 'kickFoot', time, undefined), sampleChannel(k, 'body', time, undefined)),
   };
+}
+
+/** The optional channels as an object holding only those that are set, so a Motion without them yields the same targets as before. */
+function optionalChannels(kickFoot: Vec3 | undefined, body: BodyTarget | undefined): Pick<PoseTargets, 'kickFoot' | 'body'> {
+  return { ...(kickFoot && { kickFoot }), ...(body && { body }) };
+}
+
+/** The ankle of a planted right foot at `foot`: what `kickFoot` holds when the Motion lets the foot stand. */
+const plantedAnkle = (foot: FootPlant, ankleHeight: number): Vec3 => ({ x: foot.x, y: ankleHeight, z: foot.z });
+
+/** The value of `channel` in `targets`, or what an unset one stands for (the planted right ankle for `kickFoot`, upright for `body`). */
+export function channelValue<C extends keyof PoseTargets>(targets: PoseTargets, channel: C, s: SkeletonTuning): Value<C> {
+  const v = targets[channel];
+  if (v !== undefined) return v as Value<C>;
+  return (channel === 'kickFoot' ? plantedAnkle(targets.rightFoot, s.ankleHeight) : NO_BODY) as Value<C>;
 }
 
 /** The Pose targets of the named Motion, as `weapon` plays it, `tick` Ticks in (looping or holding its end as the Motion says). */
@@ -114,7 +141,13 @@ export function holdUpperBody(targets: PoseTargets, hold: UpperBody | undefined)
 }
 
 /** Every channel of `a` interpolated toward `b` by `t` (0 = a, 1 = b). */
-export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number): PoseTargets {
+export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number, ankleHeight: number): PoseTargets {
+  // A foot the Motion owns on one side only is blended from/to the planted foot, and stays owned until the blend is done.
+  const kickFoot =
+    (t < 1 && a.kickFoot) || (t > 0 && b.kickFoot)
+      ? LERP.kickFoot(a.kickFoot ?? plantedAnkle(a.rightFoot, ankleHeight), b.kickFoot ?? plantedAnkle(b.rightFoot, ankleHeight), t)
+      : undefined;
+  const body = a.body || b.body ? LERP.body(a.body ?? NO_BODY, b.body ?? NO_BODY, t) : undefined;
   return {
     rightHand: LERP.rightHand(a.rightHand, b.rightHand, t),
     leftHand: LERP.leftHand(a.leftHand, b.leftHand, t),
@@ -122,6 +155,7 @@ export function lerpTargets(a: PoseTargets, b: PoseTargets, t: number): PoseTarg
     hip: LERP.hip(a.hip, b.hip, t),
     leftFoot: LERP.leftFoot(a.leftFoot, b.leftFoot, t),
     rightFoot: LERP.rightFoot(a.rightFoot, b.rightFoot, t),
+    ...optionalChannels(kickFoot, body),
   };
 }
 
@@ -136,7 +170,7 @@ export function playbackTargets(tuning: TuningData, weapon: string, playback: Mo
   const targets = holdUpperBody(motionTargets(tuning, weapon, playback.name, playback.tick), playback.hold);
   const blend = playback.blend;
   if (!blend) return targets;
-  return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / blendTicks(tuning)));
+  return lerpTargets(blend.from, targets, ease('easeInOut', blend.tick / blendTicks(tuning)), tuning.skeleton.ankleHeight);
 }
 
 /**

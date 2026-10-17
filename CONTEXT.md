@@ -42,7 +42,7 @@ The delay before an AI Controller may act on what it sees of the other Fighters;
 ## Motion
 
 **Pose Key**:
-A timed target for part of the Skeleton (hand position/rotation, torso twist, hip, foot plant) with an easing curve; IK solves the bones to reach it.
+A timed target for part of the Skeleton (hand position/rotation, torso twist, hip, foot plant, and for a Kick the kicking foot and a whole-body tilt) with an easing curve; IK solves the bones to reach it.
 _Avoid_: Keyframe, frame
 
 **Motion**:
@@ -84,7 +84,7 @@ _Avoid_: Session (on its own), netcode, connection
 ## Combat
 
 **Action**:
-What a Fighter is doing right now: Idle, Attack, Block, Stagger, or Fall. A Fighter has exactly one Action at a time.
+What a Fighter is doing right now: Idle, Attack, Block, Kick, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
 _Avoid_: State, move, animation
 
 **Wind-up**:
@@ -123,6 +123,24 @@ _Avoid_: Parry, guard
 **Block Impact**:
 The give and bounce of a Blocked blow on the defender: the sword hand is knocked back along the Attack, springs forward past the Block and rings down to it (Tuning Data `block.impact*`, scaled by Blade Speed, by the attacker's Weapon's Block Impact dealt and by the defender's Weapon's Block Impact taken). It changes the pose, never the outcome (the Block already decided it).
 _Avoid_: Knockback, recoil (Recoil is the attacker's Stagger)
+
+**Kick**:
+An Action in which the Fighter swings its right leg (F). It follows an Attack's phases (Wind-up, Release, Recovery) and is committed: no moving, Blocking, Attacking or Feinting while it lasts, only turning. It lands through a physical leg sweep during Release, at most once, and ignores Blocks and Weapons (ADR 0007). A Kick that misses adds a long extra Recovery. It cannot start while crouched.
+_Avoid_: Strike, boot
+
+**Shove**:
+The outcome of a Kick on a Fighter who gave no movement input on the contact Tick (Idle, Attacking and Blocking all count), or who is already in Knockdown: 1 damage and a short Slide. It does not interrupt the victim's Action.
+
+**Knockdown**:
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, and also the Action that follows: 5 damage, a long Slide, then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). Throughout it can turn and Block but cannot move, Attack, Kick or Jump, and it can be hit normally. It interrupts whatever the Fighter was doing.
+_Avoid_: Knockback (reserved: see Block Impact), stun
+
+**Get-up**:
+The last phase of a Knockdown: the Fighter rises from lying back to Idle.
+
+**Slide**:
+A push the simulation gives a Fighter over a few Ticks, decelerating, along the floor away from the Kicker. Subject to body collision and arena edges, so a Slide can carry a Fighter off a ledge (ADR 0006). Not Knockback, which names nothing in the game.
+_Avoid_: Knockback, pushback
 
 **Feint**:
 Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.

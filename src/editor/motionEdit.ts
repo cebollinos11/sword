@@ -5,7 +5,7 @@
  * draft's Pose Keys in time order; the draft still has to pass `commit()`
  * (parseMotion) before it becomes live.
  */
-import { sampleMotion, type PoseTargets } from '../sim';
+import { channelValue, sampleMotion, type PoseTargets } from '../sim';
 import { POSE_KEY_CHANNELS, type PoseKeyChannel, type SkeletonTuning } from '../tuning';
 import type { MotionDraft } from './session';
 
@@ -21,8 +21,8 @@ export function snapTime(time: number, duration: number): number {
 }
 
 /** The value a Motion's channel has at `time` (what a new Pose Key there would hold). */
-export function channelValueAt<C extends PoseKeyChannel>(d: MotionDraft, channel: C, time: number, skeleton: SkeletonTuning): PoseTargets[C] {
-  return structuredClone(sampleMotion(d, time, skeleton)[channel]);
+export function channelValueAt<C extends PoseKeyChannel>(d: MotionDraft, channel: C, time: number, skeleton: SkeletonTuning): NonNullable<PoseTargets[C]> {
+  return structuredClone(channelValue(sampleMotion(d, time, skeleton), channel, skeleton));
 }
 
 function insertIndex(d: MotionDraft, time: number): number {
@@ -95,7 +95,7 @@ export function addPoseKey(d: MotionDraft, time: number, skeleton: SkeletonTunin
   const i = insertIndex(d, t);
   const key: PoseKeyDraft = { time: t, ease: d.poseKeys[i]?.ease ?? 'linear' };
   for (const c of POSE_KEY_CHANNELS) {
-    if (d.poseKeys.some((k) => k[c] !== undefined)) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(sampled[c]);
+    if (d.poseKeys.some((k) => k[c] !== undefined)) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(channelValue(sampled, c, skeleton));
   }
   d.poseKeys.splice(i, 0, key);
   return i;
