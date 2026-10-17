@@ -131,11 +131,15 @@ export function groundBelow(arena: ArenaGeometry, x: number, z: number, maxY: nu
   return best;
 }
 
-/** Whether a body standing at `y` at (x, z) stands on lava: the ground under its feet is a `lava` Walk Surface. */
-export function onLava(arena: ArenaGeometry, x: number, z: number, y: number): boolean {
+/** What kills a body standing at `y` at (x, z): the ground under its feet is a `lava` or `water` Walk Surface; null if neither. */
+export function deadlyGround(arena: ArenaGeometry, x: number, z: number, y: number): 'Lava' | 'Water' | null {
   const g = groundBelow(arena, x, z, y + 1e-6);
-  return !!g && g.y >= y - 1e-6 && arena.walk[g.surface]!.lava === true;
+  if (!g || g.y < y - 1e-6) return null;
+  return deadly(arena.walk[g.surface]!);
 }
+
+/** What a Walk Surface kills whoever stands on with, if anything. */
+export const deadly = (s: WalkSurface): 'Lava' | 'Water' | null => (s.lava ? 'Lava' : s.water ? 'Water' : null);
 
 /**
  * Whether a body standing at `y` at (x, z) would be inside solid ground: some

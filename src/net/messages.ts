@@ -318,7 +318,7 @@ function isMatchState(v: unknown): v is MatchState {
 
 /** How a Fighter fell: the Tick, and the felling blow if known. */
 function isDeath(v: unknown): boolean {
-  if (!isObject(v) || !isTick(v.tick) || (v.cause !== 'Hit' && v.cause !== 'Fall' && v.cause !== 'Lava')) return false;
+  if (!isObject(v) || !isTick(v.tick) || (v.cause !== 'Hit' && v.cause !== 'Fall' && v.cause !== 'Lava' && v.cause !== 'Water')) return false;
   const b = v.blow;
   return b === null || (isObject(b) && isVec3(b.point) && isNum(b.bladeSpeed) && isDirection(b.direction) && isVec2(b.from));
 }

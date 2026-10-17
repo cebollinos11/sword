@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena } from '../tuning';
-import { onLava } from './arena';
+import { deadlyGround } from './arena';
 import { createMatch, IDLE_INTENT, stepMatch, type Intent, type MatchState } from './index';
 
 const tuning = loadTuningData();
@@ -25,7 +25,7 @@ describe('The carbon-freezing chamber Arena', () => {
     const m = createMatch(tuning, { bestOf: 1, arena: 'chamber', teams: [0, 1, 0, 1, 0, 1] });
     for (const f of m.duel.fighters) {
       expect(f.y).toBe(0);
-      expect(onLava(chamber, f.position.x, f.position.z, f.y)).toBe(false);
+      expect(deadlyGround(chamber, f.position.x, f.position.z, f.y)).toBeNull();
     }
   });
 

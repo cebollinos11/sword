@@ -163,13 +163,13 @@ export interface FighterState {
 export interface Death {
   /** The Duel Tick on which it fell. */
   readonly tick: number;
-  /** What felled it: a Hit, a hard Landing from a fall, or landing in lava. */
+  /** What felled it: a Hit, a hard Landing from a fall, or landing in lava or water. */
   readonly cause: DeathCause;
   /** The Hit that felled it, or null if none is known. */
   readonly blow: DeathBlow | null;
 }
 
-export type DeathCause = 'Hit' | 'Fall' | 'Lava';
+export type DeathCause = 'Hit' | 'Fall' | 'Lava' | 'Water';
 
 export interface DeathBlow {
   /** World-space contact point. */

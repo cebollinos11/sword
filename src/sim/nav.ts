@@ -4,7 +4,8 @@
  * above) at heights within a step are joined by a walk Link through the shared
  * stretch. An open ledge (no Wall at its height, lower ground beyond) gets a
  * one-way drop Link to the surface below, if the drop costs no more than
- * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage.
+ * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage. No Link leads
+ * onto lava or water: the AI never paths into what kills it.
  *
  * `findPath` runs A* over Links from the start polygon to the goal's, and
  * `steer` pulls a string through the Links' portals (a funnel) for the next
@@ -14,7 +15,7 @@
  * and cached, like the Arena's lookup grid.
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
-import { groundBelow, surfaceHeight, surfacesAt } from './arena';
+import { deadly, groundBelow, surfaceHeight, surfacesAt } from './arena';
 import type { Vec2 } from './state';
 
 /** A way from one Walk Surface into another, through `left`..`right` (as seen walking through it) on the first's edge. */
@@ -139,7 +140,7 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
     for (const e of edges[i]!) {
       // Walk Links: another surface's edge along this one, at the same height (within a step) all along the shared stretch.
       for (let j = 0; j < count; j++) {
-        if (j === i) continue;
+        if (j === i || deadly(arena.walk[j]!)) continue;
         for (const f of edges[j]!) {
           const off = (v: Vec2) => (v.x - e.p.x) * e.d.z - (v.z - e.p.z) * e.d.x;
           if (Math.abs(off(f.p)) > tol || Math.abs(off(f.q)) > tol) continue;
@@ -166,7 +167,7 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
         const probe = { x: o.x + e.n.x * (r + PROBE_OUT), z: o.z + e.n.z * (r + PROBE_OUT) };
         const level = surfacesAt(arena, probe.x, probe.z).some((k) => Math.abs(surfaceHeight(arena, k, probe.x, probe.z) - y) <= stepUp);
         const below = level ? null : groundBelow(arena, probe.x, probe.z, y - stepUp);
-        const ok = below && y - below.y <= maxDrop && !walled(arena, tuning, { x: o.x - e.n.x * 0.05, z: o.z - e.n.z * 0.05 }, probe, y);
+        const ok = below && !deadly(arena.walk[below.surface]!) && y - below.y <= maxDrop && !walled(arena, tuning, { x: o.x - e.n.x * 0.05, z: o.z - e.n.z * 0.05 }, probe, y);
         const last = runs[runs.length - 1];
         if (!ok) continue;
         const drop = y - below.y;
