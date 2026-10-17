@@ -7,6 +7,8 @@ import { isTouchDevice } from './touch';
 
 export interface PlayerVsAiChoice {
   readonly bestOf: number;
+  /** The Arena every Duel is fought in (a Tuning Data Arena name). */
+  readonly arena: string;
   /** Your Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
   /** Who fights: you (Player 0), and the AIs on both teams with their difficulty and Weapon. */
@@ -15,6 +17,8 @@ export interface PlayerVsAiChoice {
 
 export interface CreateRoomChoice {
   readonly bestOf: number;
+  /** The Arena every Duel is fought in (a Tuning Data Arena name); the host picks it. */
+  readonly arena: string;
   /** Your Weapon; the other player picks theirs. */
   readonly weapon: string;
   /** Who fights: you (Player 0), the other player (Player 1, ally or enemy), and any AIs. */
@@ -48,6 +52,14 @@ export type RoomView =
 const BEST_OF = [1, 3, 5] as const;
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
+const ARENA_STORAGE_KEY = 'sword.arena';
+
+/** How the menu names each Arena; one missing here shows its file name. */
+const ARENA_LABELS: Readonly<Record<string, string>> = {
+  library: 'Library',
+  chamber: 'Carbon-freezing chamber',
+  circle: 'Training circle',
+};
 
 /** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
 type FullscreenDocument = Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
@@ -105,6 +117,24 @@ function storeBody(value: BodyModelName): void {
   }
 }
 
+/** The Arena picked last time, if it still exists, else `fallback`. */
+function storedArena(arenas: readonly string[], fallback: string): string {
+  try {
+    const saved = localStorage.getItem(ARENA_STORAGE_KEY);
+    return arenas.find((a) => a === saved) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function storeArena(value: string): void {
+  try {
+    localStorage.setItem(ARENA_STORAGE_KEY, value);
+  } catch {
+    // Storage unavailable: the Arena just isn't remembered.
+  }
+}
+
 function storeBroker(value: string): void {
   try {
     if (value.trim()) localStorage.setItem(BROKER_STORAGE_KEY, value.trim());
@@ -136,6 +166,8 @@ export class Menu {
   private bestOf = 3;
   private onlineBestOf = 3;
   private weapon: string;
+  /** The Arena a Match you start (or a Room you create) is fought in. */
+  private arena: string;
   /** Your Weapon for a Player vs Player Match (also used when joining from a Room link). */
   onlineWeapon: string;
   /** The Body model you are drawn as, in every Match (render-only; the other Fighters wear random ones). */
@@ -145,6 +177,8 @@ export class Menu {
     ensurePlayStyles();
     const weapons = Object.keys(tuning.weapons);
     this.weapon = this.onlineWeapon = weapons[0]!;
+    const arenas = Object.keys(tuning.arenas);
+    this.arena = storedArena(arenas, tuning.arena.match);
     const row = this.choiceRow.bind(this);
 
     this.root.className = 'menu';
@@ -175,6 +209,7 @@ export class Menu {
       this.body = BODY_MODELS[labels.indexOf(v)]!;
       storeBody(this.body);
     });
+    const map = this.mapRow(arenas);
 
     // --- Player vs AI ---
     const mode = document.createElement('h2');
@@ -184,7 +219,7 @@ export class Menu {
     const bestOf = this.bestOfRow(this.bestOf, (n) => (this.bestOf = n));
     this.startButton.className = 'menu-start';
     this.startButton.textContent = 'Start Match';
-    this.startButton.addEventListener('click', () => handlers.onStart({ bestOf: this.bestOf, weapon: this.weapon, lineup: teams.lineup() }));
+    this.startButton.addEventListener('click', () => handlers.onStart({ bestOf: this.bestOf, arena: this.arena, weapon: this.weapon, lineup: teams.lineup() }));
 
     // --- Player vs Player ---
     const online = document.createElement('h2');
@@ -203,7 +238,7 @@ export class Menu {
     create.textContent = 'Create Room';
     create.addEventListener('click', () => {
       storeBroker(this.brokerInput.value);
-      handlers.onCreateRoom({ bestOf: this.onlineBestOf, weapon: this.onlineWeapon, lineup: onlineTeams.lineup(), broker: this.brokerInput.value });
+      handlers.onCreateRoom({ bestOf: this.onlineBestOf, arena: this.arena, weapon: this.onlineWeapon, lineup: onlineTeams.lineup(), broker: this.brokerInput.value });
     });
 
     const joinRow = document.createElement('form');
@@ -255,7 +290,7 @@ export class Menu {
     editor.href = '#/editor';
     editor.textContent = 'Open the Editor';
 
-    this.main.append(model, mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
+    this.main.append(model, map, mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
 
     // --- Room screen ---
     this.room.className = 'menu-room';
@@ -342,6 +377,24 @@ export class Menu {
       `Best of ${initial}`,
       (v) => onPick(Number(v.replace('Best of ', ''))),
     );
+  }
+
+  /** The Map dropdown: the Arena of a Match you start or a Room you create (whoever joins plays the host's). */
+  private mapRow(arenas: readonly string[]): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'menu-row';
+    const name = document.createElement('span');
+    name.className = 'menu-label';
+    name.textContent = 'Map';
+    const select = document.createElement('select');
+    select.className = 'menu-map';
+    for (const a of arenas) select.append(new Option(ARENA_LABELS[a] ?? a, a, false, a === this.arena));
+    select.addEventListener('change', () => {
+      this.arena = select.value;
+      storeArena(this.arena);
+    });
+    row.append(name, select);
+    return row;
   }
 
   private choiceRow(label: string, options: readonly string[], initial: string, onPick: (v: string) => void): HTMLElement {

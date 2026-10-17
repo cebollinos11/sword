@@ -1,11 +1,12 @@
 /**
  * Arenas as Tuning Data (data/arenas/<name>.json): the geometry the
  * simulation stands Fighters on (ADR 0006). Exported from Blender by
- * art/build_library.py (or written by hand for the flat `circle`), and hashed
+ * art/build_<name>.py (or written by hand for the flat `circle`), and hashed
  * with the rest of Tuning Data, since it decides where bodies walk and fall.
  *
  * - Walk Surfaces: planar convex polygons (floors and ramps) Fighters stand on.
  *   Seen from above, polygons that share an edge are neighbours (the navmesh).
+ *   One marked `lava` kills whoever lands on it.
  * - Walls: vertical segments with a bottom and a top height, that Fighter
  *   capsules cannot pass where their heights overlap.
  * - Spawns: where each team's k-th Fighter starts a Duel.
@@ -23,6 +24,8 @@ export interface ArenaPoint {
 export interface WalkSurface {
   readonly id: string;
   readonly points: readonly ArenaPoint[];
+  /** Lava: a Fighter that comes to stand on it dies (a Death by Lava). */
+  readonly lava?: boolean;
 }
 
 /** A vertical wall segment from `a` to `b` (ground plane), solid between heights `bottom` and `top`. */
@@ -150,7 +153,9 @@ export function parseArena(raw: unknown, where: string): ArenaGeometry {
     const id = nonEmptyString(o, 'id', at);
     if (ids.has(id)) throw new TuningDataError(`${at}: duplicate id "${id}"`);
     ids.add(id);
-    const surface = { id, points: array(o.points, `${at}.points`).map((p, k) => triple(p, `${at}.points[${k}]`)) };
+    if (o.lava !== undefined && typeof o.lava !== 'boolean') throw new TuningDataError(`${at}.lava must be true or false`);
+    const points = array(o.points, `${at}.points`).map((p, k) => triple(p, `${at}.points[${k}]`));
+    const surface: WalkSurface = o.lava === true ? { id, points, lava: true } : { id, points };
     checkSurface(surface, at);
     return surface;
   });

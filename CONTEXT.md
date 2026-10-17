@@ -182,7 +182,7 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it) or a Fall (a hard Landing that took its last HP), even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it), a Fall (a hard Landing that took its last HP) or Lava, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -199,11 +199,15 @@ A fresh Match (same options, score 0–0) that starts on its own a few seconds a
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
-The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). Matches are fought in the library (three levels, modelled in Blender by `art/build_library.py`), each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
+The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked from the menu's Map dropdown (the host's pick online): the library (three levels, `art/build_library.py`) by default, or the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
 
 **Walk Surface**:
 A floor or ramp of an Arena that Fighters stand on: a flat (or evenly sloping) convex polygon. A Fighter walks onto a neighbouring one within a step up or down; higher ground is a wall, lower ground a ledge it walks off. The Walk Surfaces are also the AI's navmesh: shared edges join them, and open ledges drop from one to the one below.
 _Avoid_: Floor (for the data), navmesh polygon
+
+**Lava**:
+A Walk Surface marked deadly: a Fighter that comes to stand on it dies there (a Death by Lava), whatever its HP. Falling into it is the danger of the chamber's open edges.
+_Avoid_: Kill zone, hazard
 
 **Wall**:
 A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs.

@@ -93,11 +93,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let room: RoomAttempt | null = null;
 
   const menu = new Menu(container, tuning, {
-    onStart({ bestOf, weapon, lineup }) {
-      game.play({ driver: playerVsAi(tuning, { lineup, weapon, bestOf, seed: randomSeed() }) });
+    onStart({ bestOf, arena, weapon, lineup }) {
+      game.play({ driver: playerVsAi(tuning, { lineup, weapon, bestOf, arena, seed: randomSeed() }) });
     },
-    onCreateRoom({ bestOf, weapon, lineup, broker }) {
-      void createRoom(bestOf, weapon, lineup, broker);
+    onCreateRoom({ bestOf, arena, weapon, lineup, broker }) {
+      void createRoom(bestOf, arena, weapon, lineup, broker);
     },
     onJoinRoom({ room: text, weapon, broker }) {
       const address = parseRoomInput(text);
@@ -132,7 +132,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.show(e instanceof RoomError ? e.message : `Room error: ${String(e)}`);
   }
 
-  async function createRoom(bestOf: number, weapon: string, lineup: Lineup, brokerText: string): Promise<void> {
+  async function createRoom(bestOf: number, arena: string, weapon: string, lineup: Lineup, brokerText: string): Promise<void> {
     const broker = brokerFrom(brokerText);
     if (broker === undefined) return;
     leaveRoom();
@@ -145,7 +145,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (room !== attempt) return hosted.cancel();
       menu.showRoom({ kind: 'Hosting', code: hosted.code, link: roomLink(location.href, hosted.code, brokerText.trim() || undefined) });
       const transport = await hosted.connected;
-      if (room === attempt) startOnline('host', transport, weapon, bestOf, lineup);
+      if (room === attempt) startOnline('host', transport, weapon, bestOf, arena, lineup);
       else transport.close();
     } catch (e) {
       roomFailed(attempt, e);
@@ -167,14 +167,14 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /** Connected: run the Match through a Rollback session (the host picks the Match options and the Lineup; each player picks their Weapon). */
-  function startOnline(role: SessionRole, transport: Transport, weapon: string, bestOf = 3, lineup?: Lineup): void {
+  function startOnline(role: SessionRole, transport: Transport, weapon: string, bestOf = 3, arena?: string, lineup?: Lineup): void {
     room = null;
     const session = createRollbackSession({
       role,
       transport,
       tuning,
       weapon,
-      ...(role === 'host' ? { match: { bestOf, seed: randomSeed(), rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup } : {}),
+      ...(role === 'host' ? { match: { bestOf, arena, seed: randomSeed(), rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup } : {}),
     });
     game.play({ driver: playerVsPlayer(session), leavable: true });
   }

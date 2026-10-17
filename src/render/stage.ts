@@ -16,19 +16,65 @@ const PIXEL_RATIO_STEP = 0.5;
 const ADAPT_FRAMES = 90;
 const SLOW_FRAME_MS = 22;
 
+/** One lamp of a model, by name prefix: its brightness (candela), how far it reaches (m) and its colour. */
+interface Lamp {
+  readonly prefix: string;
+  readonly intensity: number;
+  readonly distance: number;
+  readonly color: number;
+}
+
+/** How a modelled Arena is lit: the lights over the whole room, its air, and its lamps (the rest are left out). */
+interface ArenaLook {
+  readonly lights: () => THREE.Light[];
+  readonly background: number;
+  readonly fog: { readonly color: number; readonly near: number; readonly far: number };
+  /** Each point light costs every pixel of every surface, so only the lamps listed here are kept; the room lights stand in for the rest. */
+  readonly lamps: readonly Lamp[];
+}
+
+const directional = (color: number, intensity: number, x: number, y: number, z: number): THREE.DirectionalLight => {
+  const light = new THREE.DirectionalLight(color, intensity);
+  light.position.set(x, y, z);
+  return light;
+};
+
 /** Arenas drawn from a model (public/models/arenas/<name>.glb, exported by art/build_<name>.py); the rest are drawn from their Walk Surfaces. */
-const ARENA_MODELS: ReadonlySet<string> = new Set(['library']);
-
-/** Lamps left out of the scene: each point light costs every pixel of every surface, so the faint, far ones go and the ambient light stands in. */
-const DROPPED_LAMPS: readonly string[] = ['LIGHT_table', 'LIGHT_sconce2', 'LIGHT_sconce3'];
-
-/** Each lamp of a model, by name prefix: its brightness (candela) and how far it reaches (m). */
-const LAMPS: readonly { readonly prefix: string; readonly intensity: number; readonly distance: number }[] = [
-  { prefix: 'LIGHT_chandelier', intensity: 70, distance: 26 },
-  { prefix: 'LIGHT_sconce', intensity: 7, distance: 9 },
-  { prefix: 'LIGHT_table', intensity: 4, distance: 6 },
-  { prefix: 'LIGHT_gallery', intensity: 14, distance: 12 },
-];
+const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
+  // Warm, dim candlelight, cool moonlight through the windows, and brown haze.
+  library: {
+    lights: () => [
+      new THREE.HemisphereLight(0x8c97b8, 0x3a2616, 0.9),
+      new THREE.AmbientLight(0x5a4632, 0.72),
+      directional(0xa8bcff, 0.7, -8, 14, -5),
+      directional(0xffc890, 0.35, 6, 9, 8),
+    ],
+    background: 0x0e0a07,
+    fog: { color: 0x22170f, near: 16, far: 48 },
+    lamps: [
+      { prefix: 'LIGHT_chandelier', intensity: 70, distance: 26, color: 0xffb470 },
+      { prefix: 'LIGHT_sconce0', intensity: 7, distance: 9, color: 0xffb470 },
+      { prefix: 'LIGHT_sconce1', intensity: 7, distance: 9, color: 0xffb470 },
+      { prefix: 'LIGHT_gallery', intensity: 14, distance: 12, color: 0xffb470 },
+    ],
+  },
+  // Lava glow from below, cold light from the freezing head above, and smoky orange air.
+  chamber: {
+    lights: () => [
+      new THREE.HemisphereLight(0x5d6b88, 0xff5a1e, 0.85),
+      new THREE.AmbientLight(0x3a3036, 0.6),
+      directional(0xffb27a, 0.5, 6, -4, 3),
+      directional(0xb4c8ff, 0.45, -3, 12, -6),
+    ],
+    background: 0x0b0a0c,
+    fog: { color: 0x2a140c, near: 14, far: 42 },
+    lamps: [
+      { prefix: 'LIGHT_lavacore', intensity: 30, distance: 10, color: 0xff6a20 },
+      { prefix: 'LIGHT_lava', intensity: 40, distance: 18, color: 0xff5a18 },
+      { prefix: 'LIGHT_freeze', intensity: 22, distance: 14, color: 0xc4d8ff },
+    ],
+  },
+};
 
 /**
  * The shared 3D scene: WebGL renderer, camera, and the Arena with its light and air. `setArena`
@@ -117,7 +163,8 @@ export class Stage {
   }
 
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {
-    const setting = ARENA_MODELS.has(name) ? indoors(name, () => this.arena === name) : outdoors(geometry);
+    const look = ARENA_LOOKS[name];
+    const setting = look ? modelled(name, look, () => this.arena === name) : outdoors(geometry);
     this.scene.background = setting.background;
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
@@ -160,7 +207,7 @@ function walkSurfaces(arena: ArenaGeometry, material: THREE.Material): THREE.Mes
 
 const models = new Map<string, Promise<THREE.Object3D>>();
 
-function arenaModel(name: string): Promise<THREE.Object3D> {
+function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3D> {
   let p = models.get(name);
   if (!p) {
     p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arenas/${name}.glb`).then((gltf) => {
@@ -173,14 +220,16 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
           o.material = new THREE.MeshLambertMaterial({ color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
           o.matrixAutoUpdate = false;
           o.updateMatrix();
-        } else if (o instanceof THREE.PointLight && DROPPED_LAMPS.some((n) => o.name.startsWith(n))) {
-          dropped.push(o);
         } else if (o instanceof THREE.PointLight) {
-          const lamp = LAMPS.find((l) => o.name.startsWith(l.prefix));
-          o.intensity = lamp?.intensity ?? 5;
-          o.distance = lamp?.distance ?? 8;
+          const lamp = lamps.find((l) => o.name.startsWith(l.prefix));
+          if (!lamp) {
+            dropped.push(o);
+            return;
+          }
+          o.intensity = lamp.intensity;
+          o.distance = lamp.distance;
           o.decay = 1.6;
-          o.color.set(0xffb470);
+          o.color.set(lamp.color);
         }
       });
       for (const o of dropped) o.removeFromParent();
@@ -191,22 +240,15 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
   return p;
 }
 
-/** A modelled indoor Arena (the library): warm, dim candlelight, cool moonlight through the windows, and brown haze. */
-function indoors(name: string, current: () => boolean): Setting {
+/** A modelled Arena: its room lights and air (`look`), and its model once loaded. */
+function modelled(name: string, look: ArenaLook, current: () => boolean): Setting {
   const root = new THREE.Group();
-  root.add(new THREE.HemisphereLight(0x8c97b8, 0x3a2616, 0.9));
-  root.add(new THREE.AmbientLight(0x5a4632, 0.72));
-  const moon = new THREE.DirectionalLight(0xa8bcff, 0.7);
-  moon.position.set(-8, 14, -5);
-  root.add(moon);
-  const warm = new THREE.DirectionalLight(0xffc890, 0.35);
-  warm.position.set(6, 9, 8);
-  root.add(warm);
-  void arenaModel(name)
+  root.add(...look.lights());
+  void arenaModel(name, look.lamps)
     .then((model) => {
       // Shown only if this Arena is still the one drawn once it has loaded.
       if (current()) root.add(model);
     })
     .catch((e: unknown) => console.error(`Arena model "${name}" failed to load`, e));
-  return { root, background: new THREE.Color(0x0e0a07), fog: new THREE.Fog(0x22170f, 16, 48) };
+  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far) };
 }

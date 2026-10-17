@@ -2,7 +2,7 @@ import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } 
 import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
-import { arenaOf, blockedAt, groundBelow } from './arena';
+import { arenaOf, blockedAt, groundBelow, onLava } from './arena';
 import { resolveBodies } from './collision';
 import { findContacts, resolveContacts, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
@@ -338,7 +338,7 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
  * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
- * → damage → Deaths → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
+ * → damage → Deaths (a Fighter standing on lava dies of it, whatever its HP) → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
  * its team still fighting. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
  */
@@ -359,6 +359,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   );
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), intents, tuning, emit);
+  if (fighting) fighters = fighters.map((f) => (f.death || f.air || !onLava(arena, f.position.x, f.position.z, f.y) ? f : { ...f, hp: 0, death: { tick, cause: 'Lava', blow: null } }));
   if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick) }));
   const duel = updateDuel(state.duel, fighters, tick, emit);
 

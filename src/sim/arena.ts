@@ -131,6 +131,12 @@ export function groundBelow(arena: ArenaGeometry, x: number, z: number, maxY: nu
   return best;
 }
 
+/** Whether a body standing at `y` at (x, z) stands on lava: the ground under its feet is a `lava` Walk Surface. */
+export function onLava(arena: ArenaGeometry, x: number, z: number, y: number): boolean {
+  const g = groundBelow(arena, x, z, y + 1e-6);
+  return !!g && g.y >= y - 1e-6 && arena.walk[g.surface]!.lava === true;
+}
+
 /**
  * Whether a body standing at `y` at (x, z) would be inside solid ground: some
  * Walk Surface there lies above a step (`fall.stepUp`) over its feet but below
