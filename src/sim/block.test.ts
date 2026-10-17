@@ -24,7 +24,7 @@ describe('Block', () => {
     expect(blocks).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
     const t = blocks[0]!.tick;
     expect(run.states[t]!.fighters[0]!.action).toMatchObject({ kind: 'Stagger' });
-    expect(run.states[t]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Overhead' });
+    expect(run.states[t]!.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Overhead' });
     expect(eventsOf(run, 'Stagger')).toEqual([{ type: 'Stagger', fighter: 0, cause: 'Blocked', tick: t }]);
   });
 
@@ -144,7 +144,7 @@ describe('Stagger', () => {
     const t = hitsOf(run)[0]!.tick;
     expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
     // Still holding block once the Stagger ends: the Block goes back up.
-    expect(run.states[t + 60]!.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Thrust' });
+    expect(run.states[t + 60]!.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Thrust' });
   });
 
   it("a Blocked blow knocks the defender's sword hand back, bounces it forward past the Block, and settles (Block Impact)", () => {
@@ -182,5 +182,26 @@ describe('Trade', () => {
       expect(run.final.fighters[i]!.hp).toBeCloseTo(100 - damage, 9);
       expect(run.states[t]!.fighters[i]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
     }
+  });
+});
+
+describe('Block correction window', () => {
+  const window = secondsToTicks(tuning.block.correctionWindow);
+  const dirOf = (run: ScriptRun, t: number) => (run.states[t]!.fighters[1]!.action as { direction?: string }).direction;
+
+  it('a Direction change just after the Block went up re-aims it, blending from where the blade was', () => {
+    const track = [...block('Overhead', 3), ...block('Thrust', 60)];
+    const run = runDuel(tuning, { placements: placements(3), a: wait(80), b: track });
+    expect(dirOf(run, 2)).toBe('Overhead');
+    expect(dirOf(run, 5)).toBe('Thrust');
+    const m = run.states[5]!.fighters[1]!.motion;
+    expect(m.name).toBe('BlockThrust');
+    expect(m.blend).toBeDefined();
+  });
+
+  it('a Direction change after the window has run out is ignored', () => {
+    const track = [...block('Overhead', window + 3), ...block('Thrust', 40)];
+    const run = runDuel(tuning, { placements: placements(3), a: wait(80), b: track });
+    expect(dirOf(run, window + 10)).toBe('Overhead');
   });
 });

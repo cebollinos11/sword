@@ -34,6 +34,8 @@ export interface AttackAction {
 export interface BlockAction {
   readonly kind: 'Block';
   readonly direction: Direction;
+  /** Ticks since the Block was raised; until `block.correctionWindow` (Tuning Data) runs out, the Intent's Direction can still change it. */
+  readonly age: number;
 }
 
 /** Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), its Attack was Chambered, or it Landed hard from a fall. */

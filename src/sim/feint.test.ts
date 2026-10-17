@@ -50,7 +50,7 @@ describe('Feint', () => {
       b: wait(1),
     });
     expect(run.states[10]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead', phase: 'Wind-up' });
-    expect(run.states[11]!.fighters[0]!.action).toEqual({ kind: 'Block', direction: 'Right' });
+    expect(run.states[11]!.fighters[0]!.action).toMatchObject({ kind: 'Block', direction: 'Right' });
     expect(run.states[11]!.fighters[0]!.motion).toMatchObject({ name: 'BlockRight', tick: 0 });
     expect(run.states[11]!.events).toEqual([{ type: 'Feint', fighter: 0, from: 'Overhead', into: { kind: 'Block', direction: 'Right' } }]);
     // The cancelled Attack never swings.

@@ -49,7 +49,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     for (let i = 0; i < 30; i++) r.tick(forward, blocking);
     expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(blocking);
     expect(r.guest.opponent.intent(r.guest.state!.duel, 0)).toEqual(forward);
-    expect(r.host.state!.duel.fighters[1]!.action).toEqual({ kind: 'Block', direction: 'Left' });
+    expect(r.host.state!.duel.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Left' });
   });
 
   it('shows a waiting message and no Match until the peers have connected', () => {

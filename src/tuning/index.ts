@@ -105,6 +105,8 @@ export interface BlockTuning {
   readonly impactFrequency: number;
   /** Block Impact: seconds until the bounce has died out (and ends). */
   readonly impactDuration: number;
+  /** Seconds after a Block is raised during which changing the Intent's Direction re-aims it (a late flick still counts). */
+  readonly correctionWindow: number;
 }
 
 /**
@@ -399,6 +401,7 @@ export function parseTuningData(raw: unknown): TuningData {
       impactLean: positiveNumber(bl, 'impactLean', 'block'),
       impactFrequency: positiveNumber(bl, 'impactFrequency', 'block'),
       impactDuration: positiveNumber(bl, 'impactDuration', 'block'),
+      correctionWindow: positiveNumber(bl, 'correctionWindow', 'block'),
     },
     match: {
       duelDistance: positiveNumber(ma, 'duelDistance', 'match'),

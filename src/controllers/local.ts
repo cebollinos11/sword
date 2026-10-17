@@ -10,7 +10,7 @@ const JUMP_KEY = 'Space';
 const CROUCH_KEY = 'KeyC';
 
 /** Mouse travel (px) that counts as a Direction gesture; smaller movements add up until they reach it. */
-export const GESTURE_PX = 12;
+export const GESTURE_PX = 6;
 
 /** Camera turn per pixel of horizontal mouse movement, and tilt per pixel of vertical movement (radians). */
 export const LOOK_RADIANS_PER_PX = 0.0025;
@@ -185,6 +185,8 @@ export class LocalController implements Controller {
     this.pressed.block = false;
     this.pressed.jump = false;
     this.pressed.crouch = false;
+    // A held Block follows the latest gesture: the Simulation only lets it re-aim shortly after it was raised (`block.correctionWindow`).
+    if (block && !attack) this.latched = this.gestured;
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };

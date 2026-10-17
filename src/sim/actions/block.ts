@@ -19,16 +19,25 @@ export const blockMotionName = (direction: Direction): string => `Block${directi
 /** Pressing block (from Idle) raises a Block in the Intent's Direction. */
 export const startBlock: ActionStarter = (_f, intent) => {
   if (!intent.block) return null;
-  const action: BlockAction = { kind: 'Block', direction: intent.direction };
+  const action: BlockAction = { kind: 'Block', direction: intent.direction, age: 0 };
   return { action, motion: { name: blockMotionName(action.direction), tick: 0 } };
 };
 
-/** The Block lasts while the block button is held; the playhead stops at the end of the (non-looping) Block Motion. */
+/**
+ * The Block lasts while the block button is held; the playhead stops at the end of the (non-looping) Block Motion.
+ * For `block.correctionWindow` after it was raised, a changed Intent Direction re-aims it: the new Direction's
+ * Motion starts from the top and the Motion Blend carries the blade across from where it was.
+ */
 export const updateBlock: ActionHandler<BlockAction> = (f, intent, ctx) => {
   if (!intent.block) return { action: IDLE_ACTION, motion: IDLE_MOTION };
+  const a = f.action;
+  const age = a.age + 1;
+  if (intent.direction !== a.direction && age <= secondsToTicks(ctx.tuning.block.correctionWindow)) {
+    return { action: { ...a, direction: intent.direction, age }, motion: { name: blockMotionName(intent.direction), tick: 0 } };
+  }
   const motion = weaponMotion(ctx.tuning, f.weapon, f.motion.name);
   const end = motion ? secondsToTicks(motion.duration) : 0;
-  return { action: f.action, motion: { name: f.motion.name, tick: Math.min(f.motion.tick + 1, end) } };
+  return { action: { ...a, age }, motion: { name: f.motion.name, tick: Math.min(f.motion.tick + 1, end) } };
 };
 
 /**
