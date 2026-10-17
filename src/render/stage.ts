@@ -8,8 +8,19 @@ import { CameraCollider } from './cameraCollider';
 const VERTICAL_FOV = 60;
 const MIN_HORIZONTAL_FOV = 62;
 
+const MAX_PIXEL_RATIO = 1.5;
+/** The game lowers its own resolution in steps when frames run slow (a weak or wrong GPU), never below this, and never raises it again. */
+const MIN_PIXEL_RATIO = 0.75;
+const PIXEL_RATIO_STEP = 0.25;
+/** Frames averaged before judging, and the average frame time (ms) above which it steps down (about 45 fps). */
+const ADAPT_FRAMES = 90;
+const SLOW_FRAME_MS = 22;
+
 /** Arenas drawn from a model (public/models/arenas/<name>.glb, exported by art/build_<name>.py); the rest are drawn from their Walk Surfaces. */
 const ARENA_MODELS: ReadonlySet<string> = new Set(['library']);
+
+/** Lamps left out of the scene: each point light costs every pixel of every surface, so the faint, far ones go and the ambient light stands in. */
+const DROPPED_LAMPS: readonly string[] = ['LIGHT_table', 'LIGHT_sconce2', 'LIGHT_sconce3'];
 
 /** Each lamp of a model, by name prefix: its brightness (candela) and how far it reaches (m). */
 const LAMPS: readonly { readonly prefix: string; readonly intensity: number; readonly distance: number }[] = [
@@ -31,13 +42,19 @@ export class Stage {
   collider: CameraCollider;
   private arena: string;
   private setting: THREE.Object3D;
+  private pixelRatio: number;
+  private lastFrame = 0;
+  private slowTime = 0;
+  private slowFrames = 0;
 
   constructor(
     private readonly container: HTMLElement,
     private readonly tuning: TuningData,
   ) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true });
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    // Fill rate is the cost here (per-pixel lights): a 2x display would shade four times the pixels for little visible gain.
+    this.pixelRatio = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
+    this.renderer.setPixelRatio(this.pixelRatio);
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, 200);
@@ -80,6 +97,23 @@ export class Stage {
 
   draw(): void {
     this.renderer.render(this.scene, this.camera);
+    this.adapt();
+  }
+
+  /** Steps the resolution down once a run of frames averages slow. Long gaps (a hidden tab) are not counted. */
+  private adapt(): void {
+    const now = performance.now();
+    const dt = now - this.lastFrame;
+    this.lastFrame = now;
+    if (dt > 250 || this.pixelRatio <= MIN_PIXEL_RATIO) return;
+    this.slowTime += dt;
+    if (++this.slowFrames < ADAPT_FRAMES) return;
+    if (this.slowTime / this.slowFrames > SLOW_FRAME_MS) {
+      this.pixelRatio = Math.max(MIN_PIXEL_RATIO, this.pixelRatio - PIXEL_RATIO_STEP);
+      this.renderer.setPixelRatio(this.pixelRatio);
+      this.resize();
+    }
+    this.slowTime = this.slowFrames = 0;
   }
 
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {
@@ -131,6 +165,7 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
   if (!p) {
     p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arenas/${name}.glb`).then((gltf) => {
       const root = gltf.scene;
+      const dropped: THREE.Object3D[] = [];
       root.traverse((o) => {
         if (o instanceof THREE.Mesh) {
           // Flat Lambert materials like the rest of the scene; glass and flames keep their glow.
@@ -138,6 +173,8 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
           o.material = new THREE.MeshLambertMaterial({ color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
           o.matrixAutoUpdate = false;
           o.updateMatrix();
+        } else if (o instanceof THREE.PointLight && DROPPED_LAMPS.some((n) => o.name.startsWith(n))) {
+          dropped.push(o);
         } else if (o instanceof THREE.PointLight) {
           const lamp = LAMPS.find((l) => o.name.startsWith(l.prefix));
           o.intensity = lamp?.intensity ?? 5;
@@ -146,6 +183,7 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
           o.color.set(0xffb470);
         }
       });
+      for (const o of dropped) o.removeFromParent();
       return root;
     });
     models.set(name, p);
@@ -157,7 +195,7 @@ function arenaModel(name: string): Promise<THREE.Object3D> {
 function indoors(name: string, current: () => boolean): Setting {
   const root = new THREE.Group();
   root.add(new THREE.HemisphereLight(0x8c97b8, 0x3a2616, 0.9));
-  root.add(new THREE.AmbientLight(0x5a4632, 0.6));
+  root.add(new THREE.AmbientLight(0x5a4632, 0.72));
   const moon = new THREE.DirectionalLight(0xa8bcff, 0.7);
   moon.position.set(-8, 14, -5);
   root.add(moon);

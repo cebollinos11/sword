@@ -166,7 +166,8 @@ export class BodyRig {
       parentInverse.copy(bone.parent!.matrixWorld).invert();
       bone.matrix.multiplyMatrices(parentInverse, desired);
       bone.matrix.decompose(bone.position, bone.quaternion, bone.scale);
-      bone.updateMatrixWorld(true);
+      // Every bone's parent is a bone posed before it (or the static rig), so its world matrix is already `desired`: no walk down the children per bone.
+      bone.matrixWorld.copy(desired);
     }
   }
 }
