@@ -49,7 +49,7 @@ describe('Match pacing from Tuning Data', () => {
   it('starts every Duel at the Tuning Data distance and pauses the Tuning Data time between Duels', () => {
     const paced: TuningData = { ...tuning, match: { ...tuning.match, duelDistance: 1.3, interDuelSeconds: 0.5 } };
     const gap = (m: MatchState) => Math.abs(m.duel.fighters[1]!.position.z - m.duel.fighters[0]!.position.z);
-    const start = createMatch(paced, { bestOf: 3 });
+    const start = createMatch(paced, { arena: 'circle', bestOf: 3 });
     expect(gap(start)).toBeCloseTo(1.3, 9);
     let m = start;
     for (let i = 0; i < 2000 && m.duel.duel.status === 'Fighting'; i++) m = stepMatch(m, [m.tick % 2 === 0 ? attackIntent : IDLE_INTENT, IDLE_INTENT], paced);
@@ -62,7 +62,7 @@ describe('Match pacing from Tuning Data', () => {
 
 describe('Match', () => {
   it('starts the first Duel with both Fighters at their starting positions and full HP, score 0–0', () => {
-    const m = createMatch(tuning, { bestOf: 3, distance: DISTANCE, seed: 7 });
+    const m = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7 });
     expect(m.score).toEqual([0, 0]);
     expect(m.duelNumber).toBe(1);
     expect(m.status).toEqual({ status: 'InProgress' });
@@ -71,7 +71,7 @@ describe('Match', () => {
   });
 
   it('resets Fighters to their starting positions, facing and HP between Duels', () => {
-    let m = createMatch(tuning, { bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 });
+    let m = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 });
     m = runUntil(m, 0, duelOver);
     expect(m.duel.fighters[1]!.hp).toBeLessThanOrEqual(0);
     expect(m.score).toEqual([1, 0]);
@@ -94,7 +94,7 @@ describe('Match', () => {
   });
 
   it('ends with the correct winner once a Fighter has won the majority of a best-of-3', () => {
-    let m = createMatch(tuning, { bestOf: 3, distance: DISTANCE, interDuelTicks: 10 });
+    let m = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, interDuelTicks: 10 });
     m = winDuel(m, 0);
     expect(m.score).toEqual([1, 0]);
     expect(m.status.status).toBe('InProgress');
@@ -108,7 +108,7 @@ describe('Match', () => {
   });
 
   it('a 2–0 best-of-3 ends without a third Duel, and no further Duel ever starts', () => {
-    let m = createMatch(tuning, { bestOf: 3, distance: DISTANCE, interDuelTicks: 10 });
+    let m = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, interDuelTicks: 10 });
     m = winDuel(winDuel(m, 0), 0);
     expect(m.status).toMatchObject({ status: 'Over', winner: 0 });
     expect(m.duelNumber).toBe(2);
@@ -118,10 +118,10 @@ describe('Match', () => {
   });
 
   it('N is configurable: best of 1 ends after one Duel, best of 5 needs three wins', () => {
-    const one = runUntil(createMatch(tuning, { bestOf: 1, distance: DISTANCE }), 1, duelOver);
+    const one = runUntil(createMatch(tuning, { arena: 'circle', bestOf: 1, distance: DISTANCE }), 1, duelOver);
     expect(one.status).toMatchObject({ status: 'Over', winner: 1 });
 
-    let five = createMatch(tuning, { bestOf: 5, distance: DISTANCE, interDuelTicks: 10 });
+    let five = createMatch(tuning, { arena: 'circle', bestOf: 5, distance: DISTANCE, interDuelTicks: 10 });
     five = winDuel(winDuel(five, 0), 0);
     expect(five.status.status).toBe('InProgress');
     five = winDuel(winDuel(five, 1), 1);
@@ -133,12 +133,12 @@ describe('Match', () => {
   });
 
   it('rejects a bestOf that is not a positive integer', () => {
-    expect(() => createMatch(tuning, { bestOf: 0 })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { bestOf: 2.5 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 0 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 2.5 })).toThrow(RangeError);
   });
 
   it('a drawn Duel scores for nobody and is replayed', () => {
-    let m = createMatch(tuning, { bestOf: 1, distance: DISTANCE, interDuelTicks: 10 });
+    let m = createMatch(tuning, { arena: 'circle', bestOf: 1, distance: DISTANCE, interDuelTicks: 10 });
     m = runUntil(m, 'both', duelOver);
     expect(m.duel.duel).toMatchObject({ status: 'Over', winner: null });
     expect(m.score).toEqual([0, 0]);
@@ -154,7 +154,7 @@ describe('Match', () => {
       for (let t = fromTick; t < toTick; t++) m = stepMatch(m, intentsFor(t), tuning);
       return m;
     };
-    const start = createMatch(tuning, { bestOf: 3, distance: DISTANCE, interDuelTicks: 20, seed: 3 });
+    const start = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, interDuelTicks: 20, seed: 3 });
     const full = run(start, 0, 600);
     expect(full.status).toMatchObject({ status: 'Over', winner: 0 });
     expect(hashValue(run(start, 0, 600))).toBe(hashValue(full));
@@ -169,7 +169,7 @@ describe('Match', () => {
 
 describe('Rematch', () => {
   const overAfterBestOf1 = (rematchTicks?: number) => {
-    const m = createMatch(tuning, { bestOf: 1, distance: DISTANCE, seed: 7, ...(rematchTicks === undefined ? {} : { rematchTicks }) });
+    const m = createMatch(tuning, { arena: 'circle', bestOf: 1, distance: DISTANCE, seed: 7, ...(rematchTicks === undefined ? {} : { rematchTicks }) });
     return runUntil(m, 0, (n) => n.status.status === 'Over');
   };
 
@@ -198,6 +198,6 @@ describe('Rematch', () => {
   });
 
   it('rejects a rematch pause below one Tick', () => {
-    expect(() => createMatch(tuning, { bestOf: 1, rematchTicks: 0 })).toThrow(/rematchTicks/);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, rematchTicks: 0 })).toThrow(/rematchTicks/);
   });
 });

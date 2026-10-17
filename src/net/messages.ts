@@ -156,7 +156,8 @@ function isMatchOptions(v: unknown): boolean {
     (v.seed === undefined || isNum(v.seed)) &&
     (v.spacing === undefined || (isNum(v.spacing) && v.spacing > 0)) &&
     (v.weapons === undefined || isWeapons(v.weapons)) &&
-    (v.teams === undefined || isTeams(v.teams))
+    (v.teams === undefined || isTeams(v.teams)) &&
+    (v.arena === undefined || (isString(v.arena) && v.arena.length > 0))
   );
 }
 

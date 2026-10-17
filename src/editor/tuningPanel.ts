@@ -133,9 +133,9 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
   folder('fall', (f) => {
     const fl = session.draftSection('fall');
     const on = (b: { on(ev: 'change', h: () => void): unknown }) => b.on('change', () => apply('fall'));
-    on(f.addBinding(fl, 'gravity', { min: 1, max: 40, step: 0.5, label: 'gravity (m/s²)' }));
+    on(f.addBinding(fl, 'gravity', { min: 1, max: 40, step: 0.5, label: 'gravity (m/sÂ²)' }));
     on(f.addBinding(fl, 'jumpSpeed', { min: 0, max: 12, step: 0.1, label: 'jump speed (m/s)' }));
-    on(f.addBinding(fl, 'airControl', { min: 0, max: 20, step: 0.5, label: 'air control (m/s²)' }));
+    on(f.addBinding(fl, 'airControl', { min: 0, max: 20, step: 0.5, label: 'air control (m/sÂ²)' }));
     on(f.addBinding(fl, 'fallDelay', { min: 0, max: 1, step: 0.01, label: 'fall delay (s)' }));
     on(f.addBinding(fl, 'safeHeight', { min: 0, max: 10, step: 0.1, label: 'safe height (m)' }));
     on(f.addBinding(fl, 'damagePerMetre', { min: 0, max: 100, step: 1, label: 'damage per metre' }));

@@ -47,7 +47,7 @@ describe('SimAudio', () => {
     const decisive: TuningData = withWeapon(tuning, { damage: 10_000 });
     const player = recorder();
     const audio = new SimAudio(player);
-    let m: MatchState = createMatch(decisive, { bestOf: 3, distance: 1.3, interDuelTicks: 30 });
+    let m: MatchState = createMatch(decisive, { arena: 'circle', bestOf: 3, distance: 1.3, interDuelTicks: 30 });
     // Fighter 0 taps attack (holding would freeze the Wind-up) until the Match is over: two Duels.
     while (m.status.status !== 'Over' && m.tick < 3000) {
       const intents = [m.tick % 2 === 0 ? { ...IDLE_INTENT, attack: true } : IDLE_INTENT];

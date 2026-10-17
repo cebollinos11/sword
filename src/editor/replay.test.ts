@@ -23,7 +23,7 @@ function scriptedDuel(t: TuningData = tuning) {
 }
 
 const aiMatch = () =>
-  playAndRecord(matchSandbox(tuning), createMatch(tuning, { bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], TICK_RATE * 60 * 5);
+  playAndRecord(matchSandbox(tuning), createMatch(tuning, { arena: 'circle', bestOf: 1, seed: 11 }), [createAiController(tuning, 'Hard'), createAiController(tuning, 'Normal')], TICK_RATE * 60 * 5);
 
 describe('Recording a sandbox Duel', () => {
   it('captures the seed, the starting placements and one Intent per Fighter per Tick', () => {
@@ -59,7 +59,7 @@ describe('Replaying with unchanged Tuning Data', () => {
   it('reproduces an AI vs AI Match from the recorded Intents alone, without the AI', () => {
     const { session, replay } = aiMatch();
     expect(session.over).toBe(true);
-    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, spacing: 1.5, interDuelTicks: 120, weapons: ['Arming Sword', 'Arming Sword'], teams: [0, 1] } });
+    expect(replay.setup).toEqual({ kind: 'Match', seed: 11, config: { bestOf: 1, distance: 2, spacing: 1.5, interDuelTicks: 120, weapons: ['Arming Sword', 'Arming Sword'], teams: [0, 1], arena: 'circle' } });
     expect(replay.outcome.winner).not.toBe('Undecided');
     expect(replay.outcome.hits.length).toBeGreaterThan(0);
     const run = runReplay(parseReplay(serializeReplay(replay)), tuning);

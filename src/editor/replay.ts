@@ -41,8 +41,12 @@ export type ReplaySetup =
   | {
       readonly kind: 'Match';
       readonly seed: number;
-      /** Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing). A replay is one Match: no rematches. */
-      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams' | 'rematchTicks'> & {
+      /**
+       * Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing), and those
+       * saved before Arenas lack `arena` (they were fought in the flat `circle`). A replay is one Match: no rematches.
+       */
+      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams' | 'rematchTicks' | 'arena'> & {
+        readonly arena?: string;
         readonly weapons?: readonly string[];
         readonly spacing?: number;
         readonly teams?: readonly number[];
@@ -401,6 +405,7 @@ function parseSetup(raw: unknown): ReplaySetup {
         ...weaponNames(c.weapons, 'setup.config.weapons'),
         ...(c.spacing === undefined ? {} : { spacing: num(c.spacing, 'setup.config.spacing') }),
         ...teamList(c.teams, 'setup.config.teams'),
+        arena: c.arena === undefined ? 'circle' : typeof c.arena === 'string' ? c.arena : fail('setup.config.arena', 'must be an Arena name'),
       },
     };
   }

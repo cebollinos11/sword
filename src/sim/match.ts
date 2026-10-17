@@ -18,6 +18,8 @@ import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
+import { arenaOf } from './arena';
+import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
 
 /** The most Fighters a team may field. */
@@ -38,6 +40,11 @@ export interface MatchConfig {
   readonly teams: readonly number[];
   /** Ticks after the Match ends before a fresh Match (same config, score 0–0) starts, or null for none (the default). */
   readonly rematchTicks: number | null;
+  /**
+   * The Arena every Duel is fought in (a Tuning Data Arena name; default `arena.match`). Fighters start
+   * at its spawns when it has one for each, else in two facing lines (`distance`, `spacing`).
+   */
+  readonly arena: string;
 }
 
 export interface MatchOptions extends Partial<MatchConfig> {
@@ -98,8 +105,20 @@ export function checkTeams(teams: readonly number[]): void {
   }
 }
 
+/** Where each Fighter starts: team t's k-th Fighter at the Arena's spawn for (t, k), or (if any is missing) in two facing lines. */
+function startPlacements(tuning: TuningData, config: MatchConfig): Placement[] {
+  const { spawns } = arenaOf(tuning, config.arena);
+  const seen = [0, 0];
+  const placed = config.teams.map((team) => {
+    const slot = seen[team]!++;
+    const s = spawns.find((p) => p.team === team && p.slot === slot);
+    return s && { position: { x: s.position.x, z: s.position.z }, y: s.position.y, facing: s.facing };
+  });
+  return placed.every((p) => p !== undefined) ? placed : teamPlacements(config.teams, config.distance, config.spacing);
+}
+
 function initialDuel(tuning: TuningData, config: MatchConfig, seed: number): SimState {
-  return createInitialState(tuning, seed, teamPlacements(config.teams, config.distance, config.spacing), config.weapons, config.teams);
+  return createInitialState(tuning, seed, startPlacements(tuning, config), config.weapons, config.teams, config.arena);
 }
 
 function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']): SimState {
@@ -118,6 +137,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     weapons: teams.map((_, i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
     teams: [...teams],
     rematchTicks: options.rematchTicks ?? null,
+    arena: arenaOf(tuning, options.arena ?? tuning.arena.match).name,
   };
   if (!Number.isInteger(config.bestOf) || config.bestOf < 1) throw new RangeError(`bestOf must be a positive integer, got ${config.bestOf}`);
   if (!Number.isInteger(config.interDuelTicks) || config.interDuelTicks < 1)

@@ -92,7 +92,7 @@ describe('A Fighter falling while its team fights on', () => {
 
 describe('A team Match', () => {
   it('fields the lineup in facing lines, scored per team', () => {
-    const m = createMatch(tuning, { bestOf: 3, teams: [0, 1, 1, 0, 1], weapons: ['Longsword'] });
+    const m = createMatch(tuning, { arena: 'circle', bestOf: 3, teams: [0, 1, 1, 0, 1], weapons: ['Longsword'] });
     expect(m.score).toEqual([0, 0]);
     expect(m.duel.fighters.map((f) => f.team)).toEqual([0, 1, 1, 0, 1]);
     expect(m.config.weapons).toEqual(['Longsword', 'Arming Sword', 'Arming Sword', 'Arming Sword', 'Arming Sword']);
@@ -101,14 +101,14 @@ describe('A team Match', () => {
   });
 
   it('refuses a team with no Fighters or more than three', () => {
-    expect(() => createMatch(tuning, { bestOf: 1, teams: [0, 0] })).toThrow(/Team 1/);
-    expect(() => createMatch(tuning, { bestOf: 1, teams: [0, 0, 0, 0, 1] })).toThrow(/Team 0/);
-    expect(() => createMatch(tuning, { bestOf: 1, teams: [0, 2] })).toThrow(/0 or 1/);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 0] })).toThrow(/Team 1/);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 0, 0, 0, 1] })).toThrow(/Team 0/);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 2] })).toThrow(/0 or 1/);
   });
 
   it('scores a Duel for the team left standing', () => {
     // 2 v 1: Fighter 0 (team 0, left in its line) turns to fell Fighter 1, the lone Fighter of team 1.
-    let m: MatchState = createMatch(tuning, { bestOf: 3, teams: [0, 1, 0], distance: 1.2, spacing: 0.8 });
+    let m: MatchState = createMatch(tuning, { arena: 'circle', bestOf: 3, teams: [0, 1, 0], distance: 1.2, spacing: 0.8 });
     const [me, foe] = [m.duel.fighters[0]!.position, m.duel.fighters[1]!.position];
     const face = Math.atan2(foe.x - me.x, foe.z - me.z);
     for (let i = 0; i < 2000 && m.duel.duel.status === 'Fighting'; i++) m = stepMatch(m, [{ ...(i % 2 === 0 ? attackIntent : IDLE_INTENT), face }], tuning);

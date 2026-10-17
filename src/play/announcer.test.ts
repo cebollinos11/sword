@@ -9,7 +9,7 @@ const tuning: TuningData = withWeapon(base, { damage: 10000 });
 
 /** Fighter 0 taps Overheads from 1.3 m until the Match ends; returns every Match Tick. */
 function playMatch(bestOf: number): MatchState[] {
-  let match = createMatch(tuning, { bestOf, distance: 1.3, interDuelTicks: 30 });
+  let match = createMatch(tuning, { arena: 'circle', bestOf, distance: 1.3, interDuelTicks: 30 });
   const states = [match];
   for (let t = 0; t < 5000 && match.status.status !== 'Over'; t++) {
     const tap: Intent = { ...IDLE_INTENT, attack: t % 2 === 0 };
@@ -54,7 +54,7 @@ describe('Match announcements', () => {
 describe('Match announcements: a team battle', () => {
   it('announces the watched Fighter falling while its team fights on, once', () => {
     // 1 v 2: Fighter 0 fells one of the two; the other still stands.
-    let match = createMatch(tuning, { bestOf: 1, teams: [0, 1, 1], distance: 1.3, spacing: 0.8 });
+    let match = createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 1, 1], distance: 1.3, spacing: 0.8 });
     const states = [match];
     const fallen = () => match.duel.fighters.findIndex((f) => f.death);
     for (let t = 0; t < 2000 && fallen() < 0; t++) {
@@ -73,7 +73,7 @@ describe('Match announcements: a team battle', () => {
 
 describe('Rematch announcements', () => {
   it('announces the rematch afresh: its Duels and its result', () => {
-    let match = createMatch(tuning, { bestOf: 1, distance: 1.3, interDuelTicks: 30, rematchTicks: 30 });
+    let match = createMatch(tuning, { arena: 'circle', bestOf: 1, distance: 1.3, interDuelTicks: 30, rematchTicks: 30 });
     const states = [match];
     for (let t = 0; t < 5000 && !(match.matchNumber === 2 && match.status.status === 'Over'); t++) {
       const tap: Intent = { ...IDLE_INTENT, attack: t % 2 === 0 };
