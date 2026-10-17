@@ -16,7 +16,7 @@ import type { ArenaGeometry, TuningData, WeaponTuning } from '../tuning';
 
 /** Simulation step and how long the fall is simulated before it is left lying still (seconds). */
 const STEP = 1 / 120;
-const SETTLE_SECONDS = 4;
+const SETTLE_SECONDS = 3;
 const ITERATIONS = 6;
 const GRAVITY = 9.81;
 /** Velocity kept per step in the air, and the share of sliding speed lost per step on the floor. */
@@ -211,12 +211,54 @@ function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Arra
 export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, weapon: WeaponTuning, tuning: TuningData, arena?: ArenaGeometry): SkeletonPose {
   const steps = Math.round(Math.min(Math.max(seconds, 0), SETTLE_SECONDS) / STEP);
   if (steps === 0) return pose;
+  const fall = fallFor(pose, death, weapon, tuning, arena, steps);
+  if (fall.steps === steps && fall.drawn) return fall.drawn;
+  advance(fall, steps, arena);
+  fall.drawn = drawn(fall.pos, weapon);
+  return fall.drawn;
+}
+
+/**
+ * A fall in progress, so each frame only steps on from where the last one left off
+ * (and a settled body costs nothing) instead of re-running the whole fall.
+ */
+interface Fall {
+  readonly key: string;
+  readonly weapon: WeaponTuning;
+  readonly tuning: TuningData;
+  readonly arena: ArenaGeometry | undefined;
+  readonly pos: Float64Array;
+  readonly prev: Float64Array;
+  readonly cs: Constraint[];
+  readonly radius: Float64Array;
+  readonly floor: Float64Array;
+  steps: number;
+  drawn: SkeletonPose | null;
+}
+
+/** Falls in progress, by what they fell from; the oldest are dropped past MAX_FALLS. */
+const falls = new Map<string, Fall>();
+const MAX_FALLS = 64;
+
+/** The cached fall for these inputs if it can step on to `steps`, else a fresh one from the start. */
+function fallFor(pose: SkeletonPose, death: Death, weapon: WeaponTuning, tuning: TuningData, arena: ArenaGeometry | undefined, steps: number): Fall {
+  const { chest, rightHand } = pose.joints;
+  const key = JSON.stringify([death, chest, rightHand, pose.blade.tip]);
+  const cached = falls.get(key);
+  if (cached && cached.weapon === weapon && cached.tuning === tuning && cached.arena === arena && cached.steps <= steps) return cached;
   const { pos, prev } = start(pose, death, weapon);
-  const cs = constraints(pos);
-  const radius = radii(tuning);
+  const fall: Fall = { key, weapon, tuning, arena, pos, prev, cs: constraints(pos), radius: radii(tuning), floor: new Float64Array(COUNT), steps: 0, drawn: null };
+  falls.delete(key);
+  falls.set(key, fall);
+  if (falls.size > MAX_FALLS) falls.delete(falls.keys().next().value!);
+  return fall;
+}
+
+/** Step `f` on until it has run `steps` steps. */
+function advance(f: Fall, steps: number, arena: ArenaGeometry | undefined): void {
+  const { pos, prev, cs, radius, floor } = f;
   const fall = GRAVITY * STEP * STEP;
-  const floor = new Float64Array(COUNT);
-  for (let s = 0; s < steps; s++) {
+  for (; f.steps < steps; f.steps++) {
     floors(pos, radius, arena, floor);
     for (let i = 0; i < COUNT; i++) {
       const o = 3 * i;
@@ -230,7 +272,10 @@ export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, w
     }
     satisfy(pos, cs, radius, floor);
   }
+}
 
+/** The Skeleton and Weapon the particles at `pos` make up. */
+function drawn(pos: Float64Array, weapon: WeaponTuning): SkeletonPose {
   const at = (i: number): Vec3 => ({ x: pos[3 * i]!, y: pos[3 * i + 1]!, z: pos[3 * i + 2]! });
   const joints = {} as Record<JointName, Vec3>;
   JOINT_NAMES.forEach((n, i) => (joints[n] = at(i)));

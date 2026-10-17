@@ -22,6 +22,14 @@ describe('Death Ragdoll', () => {
     expect(ragdollPose(pose, death, 1.3, weapon, tuning)).toEqual(ragdollPose(pose, death, 1.3, weapon, tuning));
   });
 
+  it('draws the same fall frame by frame as in one go, and when scrubbed back', () => {
+    const fresh = ragdollPose(pose, death, 1.3, { ...weapon }, tuning);
+    for (let t = 0; t <= 1.3; t += 1 / 60) ragdollPose(pose, death, t, weapon, tuning);
+    expect(ragdollPose(pose, death, 1.3, weapon, tuning)).toEqual(fresh);
+    ragdollPose(pose, death, 2.5, weapon, tuning);
+    expect(ragdollPose(pose, death, 1.3, weapon, tuning)).toEqual(fresh);
+  });
+
   it('collapses onto the floor, knocked away from the attacker, and lies still', () => {
     const lying = ragdollPose(pose, death, 3, weapon, tuning);
     expect(lying.joints.head.y).toBeLessThan(0.3);
