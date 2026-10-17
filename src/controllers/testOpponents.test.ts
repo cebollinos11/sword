@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attack, createInitialState, DIRECTIONS, duelPlacements, hold, mirrorDirection, wait, type Track } from '../sim';
+import { LODGE_TICKS } from '../sim/actions/attack';
 import { dummyController, runControllers, scriptedController, wallController } from './index';
 
 const tuning = loadTuningData();
@@ -12,8 +13,9 @@ function vs(opponent: ReturnType<typeof dummyController>, a: Track, ticks: numbe
 
 describe('Test opponent: Dummy', () => {
   it('never moves, attacks or blocks, so every Attack lands', () => {
-    const a: Track = DIRECTIONS.flatMap((d) => [...wait(70), ...attack(d)]);
-    const run = vs(dummyController(), a, a.reduce((n, s) => n + s.ticks, 0) + 100);
+    const a: Track = DIRECTIONS.flatMap((d) => [...wait(70 + 2 * LODGE_TICKS), ...attack(d)]); // a landed swing is lodged for LODGE_TICKS, so space the swings out
+    const tough = { ...tuning, fighter: { ...tuning.fighter, maxHp: 1000 } }; // the swings are spaced so far apart that four would otherwise kill it
+    const run = runControllers(tough, createInitialState(tough, 1, duelPlacements(DISTANCE)), [scriptedController(a), dummyController()], a.reduce((n, s) => n + s.ticks, 0) + 100 + 2 * LODGE_TICKS);
     const start = run.states[0]!.fighters[1]!.position;
     expect(run.events.filter((e) => e.type === 'Hit' && e.defender === 1)).toHaveLength(DIRECTIONS.length);
     expect(run.events.some((e) => e.type === 'Block')).toBe(false);

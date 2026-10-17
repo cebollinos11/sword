@@ -10,6 +10,9 @@ import type { Action, AttackAction, AttackPhase } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';
 
+/** How long (Ticks) a Weapon stays lodged in the victim after a Hit. */
+export const LODGE_TICKS = 18;
+
 /** The Motion that animates an Attack in `direction` (one Motion file per Direction). */
 export const attackMotionName = (direction: Direction): string => direction;
 
@@ -52,6 +55,8 @@ export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
   const a = f.action;
   const t = attackTimings(ctx.tuning, f.weapon, a.direction);
   const tick = f.motion.tick;
+  // The Weapon is lodged in the victim after a Hit: hold the pose, then play out the rest of the swing.
+  if (a.lodge) return { action: { ...a, lodge: a.lodge - 1 }, motion: { name: attackMotionName(a.direction), tick } };
   switch (a.phase) {
     case 'Wind-up':
       // Wind-up always plays to its held pose; it then holds (playhead frozen) while attack is held.

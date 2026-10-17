@@ -11,7 +11,7 @@ const MIN_HORIZONTAL_FOV = 62;
 const MAX_PIXEL_RATIO = 1.5;
 /** The game lowers its own resolution in steps when frames run slow (a weak or wrong GPU), never below this, and never raises it again. */
 const MIN_PIXEL_RATIO = 0.75;
-const PIXEL_RATIO_STEP = 0.25;
+const PIXEL_RATIO_STEP = 0.5;
 /** Frames averaged before judging, and the average frame time (ms) above which it steps down (about 45 fps). */
 const ADAPT_FRAMES = 90;
 const SLOW_FRAME_MS = 22;

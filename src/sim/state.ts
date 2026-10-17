@@ -26,6 +26,8 @@ export interface AttackAction {
   readonly phase: AttackPhase;
   /** True once this Attack's Blade Sweep has connected; an Attack lands at most once. */
   readonly landed: boolean;
+  /** Ticks the Weapon stays lodged in the victim after a Hit: the Attack's Motion holds still until it runs out. */
+  readonly lodge?: number;
 }
 
 /** Holding a Block in one Direction for as long as block is held. Stops matching Attacks by rule (ADR 0002). */

@@ -11,6 +11,7 @@
  *   3. resolveContact: a Block, or a hit that Staggers the victim.
  */
 import { weaponByName, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { LODGE_TICKS } from './actions/attack';
 import { attackSweepLive, blocksAttack, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
@@ -128,7 +129,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
   const current = out[c.attacker]!;
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
-  if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true } };
+  if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
   const hurt = out[c.defender]!;
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, damage });
