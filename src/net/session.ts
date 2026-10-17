@@ -133,6 +133,8 @@ export interface RollbackSession {
   /** The last Tick for which both Fighters' real Intents are known. */
   readonly confirmedTick: number;
   readonly stats: SessionStats;
+  /** Round-trip time to the peer in milliseconds (smoothed); null until the first answer. Cosmetic: never feeds the Simulation. */
+  readonly ping: number | null;
   /** Advance one Tick with this peer's local Intent (ignored while stalled or not Running). */
   tick(localIntent: Intent): TickResult;
   /** The state hash this peer recorded for a confirmed checksum Tick (a multiple of CHECKSUM_INTERVAL), if any. */
@@ -166,6 +168,8 @@ class Session implements RollbackSession, PeerIntentSource {
   readonly remote: Controller = createRemoteController(this);
   status: SessionStatus = 'Connecting';
   state: MatchState | null = null;
+  ping: number | null = null;
+  private lastPingAt = 0;
   stats = { rollbacks: 0, maxRollback: 0, stalls: 0, waits: 0, resyncs: 0 };
 
   private readonly transport: Transport;
@@ -227,7 +231,13 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     o.transport.onMessage((m) => {
       const message = parseNetMessage(m);
-      if (message) this.inbox.push(message);
+      if (!message) return;
+      // Answered at once, not at the next Tick, so the Tick rate does not inflate the measurement.
+      if (message.type === 'ping') this.transport.send({ type: 'pong', sent: message.sent });
+      else if (message.type === 'pong') {
+        const rtt = Math.max(0, performance.now() - message.sent);
+        this.ping = this.ping === null ? rtt : this.ping * 0.7 + rtt * 0.3;
+      } else this.inbox.push(message);
     });
     o.transport.onClose(() => this.disconnect('Closed'));
     this.sendHello();
@@ -258,6 +268,11 @@ class Session implements RollbackSession, PeerIntentSource {
     this.inbox = [];
     if (inbox.length > 0) this.silentTicks = 0;
     for (const m of inbox) this.handle(m);
+    const now = performance.now();
+    if (this.status === 'Running' && now - this.lastPingAt >= 1000) {
+      this.lastPingAt = now;
+      this.transport.send({ type: 'ping', sent: now });
+    }
     if (this.status === 'Connecting' && --this.helloCountdown <= 0) this.sendHello();
     if (this.status !== 'Running') return NOTHING;
 

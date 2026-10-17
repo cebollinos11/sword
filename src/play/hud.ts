@@ -10,6 +10,8 @@ export interface HudView {
   readonly localFighter: number;
   /** Who fights, for the labels (null while unknown). */
   readonly lineup: Lineup | null;
+  /** Round-trip time to the opponent in ms; null offline or until measured. */
+  readonly ping?: number | null;
 }
 
 /** A Fighter's short HUD label: "You", the other human Player, or an AI by difficulty. */
@@ -35,6 +37,10 @@ export class Hud {
   private readonly top = document.createElement('div');
   private readonly sides = [document.createElement('div'), document.createElement('div')];
   private readonly score = document.createElement('div');
+  private readonly stats = document.createElement('div');
+  private frames = 0;
+  private statsAt = 0;
+  private fps = 0;
   private readonly banner = document.createElement('div');
   private readonly leave = document.createElement('button');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
@@ -64,7 +70,8 @@ export class Hud {
     this.sides.forEach((side, i) => (side.className = `hud-team hud-side-${i}`));
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
     this.banner.className = 'hud-banner';
-    this.root.append(this.top, this.banner);
+    this.stats.className = 'hud-stats';
+    this.root.append(this.top, this.banner, this.stats);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -106,6 +113,14 @@ export class Hud {
       bar.box.classList.toggle('fallen', Boolean(f?.death));
     }
     this.score.textContent = `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.frames++;
+    const now = performance.now();
+    if (now - this.statsAt >= 500) {
+      this.fps = Math.round((this.frames * 1000) / (now - this.statsAt));
+      this.frames = 0;
+      this.statsAt = now;
+      this.stats.textContent = view.ping == null ? `${this.fps} fps` : `${this.fps} fps · ${Math.round(view.ping)} ms`;
+    }
     if (this.bannerUntil && performance.now() > this.bannerUntil) {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;

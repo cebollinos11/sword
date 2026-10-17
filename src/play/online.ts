@@ -21,6 +21,7 @@ export interface PlayerVsPlayerDriver extends MatchDriver {
   readonly opponent: Controller;
   readonly failure: string | null;
   readonly waiting: string | null;
+  readonly ping: number | null;
   close(): void;
 }
 
@@ -63,6 +64,9 @@ export function playerVsPlayer(session: RollbackSession): PlayerVsPlayerDriver {
     },
     get failure() {
       return failure;
+    },
+    get ping() {
+      return session.ping;
     },
     get waiting() {
       return session.status === 'Connecting' ? WAITING : null;

@@ -22,6 +22,8 @@ export interface MatchDriver {
   readonly failure?: string | null;
   /** A status line while there is nothing to play yet (e.g. connecting to the opponent). */
   readonly waiting?: string | null;
+  /** Round-trip time to the opponent in milliseconds (online only; null until measured). */
+  readonly ping?: number | null;
   /** The loop is done with this driver (Match over or abandoned): release its connection. */
   close?(): void;
 }

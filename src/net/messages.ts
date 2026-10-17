@@ -66,9 +66,15 @@ export interface ResyncMessage {
   readonly intents: readonly Intent[];
 }
 
+/** Round-trip probe: the peer answers with a `pong` carrying the same `sent` stamp (the sender's own clock). */
+export interface PingMessage {
+  readonly type: 'ping' | 'pong';
+  readonly sent: number;
+}
+
 export type RefuseReason = 'TuningDataMismatch' | 'ProtocolMismatch';
 
-export type NetMessage = HelloMessage | RefuseMessage | IntentsMessage | ChecksumMessage | ResyncRequestMessage | ResyncMessage;
+export type NetMessage = HelloMessage | RefuseMessage | IntentsMessage | ChecksumMessage | ResyncRequestMessage | ResyncMessage | PingMessage;
 
 /**
  * Validate an incoming Transport message. Returns it typed when every field has
@@ -99,6 +105,9 @@ export function parseNetMessage(m: unknown): NetMessage | null {
       return isTick(m.tick) && isTick(m.intentsFrom) && isIntents(m.intents) && isMatchState(m.state) && isArrayOf(m.ai, isAiMemoryOrNull)
         ? (m as unknown as ResyncMessage)
         : null;
+    case 'ping':
+    case 'pong':
+      return isNum(m.sent) ? (m as unknown as PingMessage) : null;
     default:
       return null;
   }

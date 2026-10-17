@@ -2,6 +2,7 @@ const CSS = `
 .hud, .menu { position: fixed; inset: 0; font-family: system-ui, sans-serif; color: #fff; }
 .hud { pointer-events: none; }
 .hud[hidden], .menu[hidden], .menu-result[hidden] { display: none; }
+.hud-stats { position: absolute; top: 0.3rem; right: 0.5rem; font-size: 0.65rem; opacity: 0.7; text-shadow: 0 1px 2px #000a; font-variant-numeric: tabular-nums; }
 .hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; }
 .hud-team { flex: 1; max-width: 22rem; display: flex; flex-direction: column; gap: 0.3rem; }
 .hud-fighter { transition: opacity 300ms; }

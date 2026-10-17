@@ -288,7 +288,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, driver ? local.pitch : 0, renderer.collider);
     renderer.setPlayer(driver ? driver.localFighter : -1, menu.body);
     renderer.render(before, curr.duel, alpha);
-    hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null });
+    hud.update(curr, { localFighter: me, lineup: driver?.lineup ?? null, ping: driver?.ping ?? null });
     requestAnimationFrame(frame);
   }
 
