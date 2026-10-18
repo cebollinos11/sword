@@ -42,5 +42,8 @@ Every step is an `execute_blender_code` call followed by renders you Read (front
 - **Bone-heat auto weights** left 352 body vertices unweighted and can't cope with separate hair or skirt islands. The exporter then adds a `neutral_bone` to the skin. Use the explicit smooth blends instead.
 - **The skirt over a lifted thigh** needs about 0.9 thigh weight from 1.10 down to the hem, starting 0.04 past the centre line, or the leg pokes out under it.
 - **Tag codes:** `part_tags` stores single characters; comparing them with `'hair'` silently matches nothing.
+- **Objects in a hidden collection stay selected.** `select_all(action='DESELECT')` skips them, so `use_selection=True` exported the Snake into the Wraith's GLB. Deselect every object in `bpy.data.objects` before exporting.
+- **Hoods and bell sleeves** (the Wraith): build them as open shells, `bmesh.ops.solidify` them about 0.016 thick, and add them to the volume before the remesh, so the cavity survives. Build the face opening as a strip of rings that each start and end at the opening edge (then `remove_doubles`), not by deleting grid faces, or the rim comes out jagged.
+- **The Team-coloured part does not have to be a skirt.** Cut the surface with `bisect_plane` where the tinted part starts, put those faces on the `_Skirt` slot, and let both materials share one image whose tinted region is painted in greyscale.
 - Hair and skirt are open shells: keep `use_backface_culling = False` so they export double-sided.
 - `execute_blender_code` must set `result` to a dict. Large intermediate arrays are fine inside one call; keep renders in the scratchpad.
