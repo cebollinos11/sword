@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TICK_SECONDS, type DaggerState, type FighterState, type SimState, type SkeletonPose, type Vec3 } from '../sim';
+import { bladeSteel } from './steel';
 
 /** How long (s) a dagger that stuck in a Wall or the floor stays drawn there. Render-only: the Simulation has already dropped it. */
 export const STUCK_SECONDS = 2;
@@ -92,7 +93,7 @@ export class DaggerViews {
     // Cones point along +y; the meshes are rotated onto +z.
     blade: new THREE.ConeGeometry(0.018, BLADE, 4),
     handle: new THREE.CylinderGeometry(0.014, 0.014, HANDLE, 6),
-    steel: new THREE.MeshLambertMaterial({ color: 0xd0d4d8, flatShading: true }),
+    steel: bladeSteel(),
     wood: new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true }),
   };
   private readonly flying = new Map<string, THREE.Group>();

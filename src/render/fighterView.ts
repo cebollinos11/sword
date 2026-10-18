@@ -3,6 +3,7 @@ import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTrans
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
+import { bladeSteel } from './steel';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
@@ -53,7 +54,7 @@ export class FighterView {
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
-    const steel = new THREE.MeshLambertMaterial({ color: 0xd0d4d8, flatShading: true });
+    const steel = bladeSteel();
     const dark = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true });
     const wood = new THREE.MeshLambertMaterial({ color: 0x7a5230, flatShading: true });
     const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8);
