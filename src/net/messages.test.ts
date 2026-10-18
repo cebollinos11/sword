@@ -20,6 +20,13 @@ function kickingMatchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
+/** A Match state caught mid-Throw, with a dagger spent, as a host would send it. */
+function throwingMatchState(): MatchState {
+  let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+  for (let t = 0; t < 14; t++) m = stepMatch(m, [{ ...IDLE_INTENT, throw: t === 0 }, IDLE_INTENT], tuning);
+  return JSON.parse(JSON.stringify(m)) as MatchState;
+}
+
 const resync = (state: unknown, ai: unknown[] = [null, null]) => ({ type: 'resync', tick: 40, state, ai, intentsFrom: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] });
 
 describe('Peer message validation', () => {
@@ -34,6 +41,7 @@ describe('Peer message validation', () => {
       { type: 'resyncRequest', tick: 30 },
       resync(matchState()),
       resync(kickingMatchState()),
+      resync(throwingMatchState()),
     ];
     for (const m of valid) expect(parseNetMessage(m), JSON.stringify(m).slice(0, 80)).toEqual(m);
   });
@@ -52,6 +60,17 @@ describe('Peer message validation', () => {
   it('carries the Kick Action and the kicking leg through a resync', () => {
     const state = kickingMatchState();
     expect(state.duel.fighters[0]!.action.kind).toBe('Kick');
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+  });
+
+  it('refuses an Intent whose throw is not a boolean', () => {
+    expect(parseNetMessage({ type: 'intents', from: 0, intents: [{ ...IDLE_INTENT, throw: 1 }], ack: 0 })).toBeNull();
+  });
+
+  it('carries the Throw Action and the dagger count through a resync', () => {
+    const state = throwingMatchState();
+    expect(state.duel.fighters[0]!.action.kind).toBe('Throw');
+    expect(state.duel.fighters[0]!.daggers).toBe(tuning.dagger.count - 1);
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
@@ -106,6 +125,12 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Twirl', landed: false } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Release' } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Recovery', landed: false, whiff: -1 } }),
+      withFighter({ ...fighter, action: { kind: 'Throw', phase: 'Twirl', startTick: 3 } }),
+      withFighter({ ...fighter, action: { kind: 'Throw', phase: 'Release' } }),
+      withFighter({ ...fighter, action: { kind: 'Throw', phase: 'Release', startTick: -1 } }),
+      withFighter({ ...fighter, daggers: undefined }),
+      withFighter({ ...fighter, daggers: -1 }),
+      withFighter({ ...fighter, daggers: 1.5 }),
       withFighter({ ...fighter, kickLeg: undefined }),
       withFighter({ ...fighter, kickLeg: { knee: { x: 0, y: 0, z: 0 } } }),
       withFighter({ ...fighter, motion: { name: 'Idle', tick: -1 } }),

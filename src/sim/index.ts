@@ -34,10 +34,11 @@ export type {
   Slide,
   StaggerAction,
   StaggerCause,
+  ThrowAction,
   Vec2,
 } from './state';
 export { ATTACK_PHASES } from './state';
-export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, JumpEvent, KickLandedEvent, LandEvent, SimEvent, StaggerEvent, StepEvent } from './events';
+export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerThrownEvent, JumpEvent, KickLandedEvent, LandEvent, SimEvent, StaggerEvent, StepEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, blockedAt, deadlyGround, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
 export { corners, DROP_DAMAGE_LIMIT, findPath, navMesh, navPolygon, steer, type NavLink, type NavMesh, type NavPoint } from './nav';
@@ -56,6 +57,9 @@ export {
   KNOCKDOWN_MOTION,
   kickTimings,
   type KickTimings,
+  THROW_MOTION,
+  throwTimings,
+  type ThrowTimings,
   LAND_MOTION,
   RECOIL_MOTION,
   STAGGER_MOTION,

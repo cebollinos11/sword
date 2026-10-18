@@ -1,5 +1,5 @@
 import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
-import { applyBlockImpact, applyGuard } from './actions';
+import { applyBlockImpact, applyGuard, throwOffHandFree } from './actions';
 import { footPose, hipShift, toLocal } from './gait';
 import { motionTargets, playbackTargets, type PoseTargets } from './motion';
 import { kickLegOf, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
@@ -68,6 +68,6 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
     tuning.skeleton,
     weaponByName(tuning, f.weapon),
     f,
-    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, ground: { left: left.y - f.y, right: right.y - f.y } },
+    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, offHandFree: throwOffHandFree(f, tuning), ground: { left: left.y - f.y, right: right.y - f.y } },
   );
 }

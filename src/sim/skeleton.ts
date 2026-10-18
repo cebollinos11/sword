@@ -6,7 +6,7 @@
 import type { OffHandGrip, SkeletonTuning, WeaponTuning } from '../tuning';
 import type { PoseTargets } from './motion';
 import type { Vec2 } from './state';
-import { add, cross, dot, length, normalize, rotateEuler, rotateX, rotateY, scale, sub, vec3, type Vec3 } from './vec';
+import { add, cross, dot, length, lerp, normalize, rotateEuler, rotateX, rotateY, scale, sub, vec3, type Vec3 } from './vec';
 
 export const JOINT_NAMES = [
   'pelvis',
@@ -130,6 +130,11 @@ export interface GaitOffsets {
    * so a Thrust reaches an opponent above or below; 0 when absent.
    */
   readonly aim?: number;
+  /**
+   * 0..1: how far the off hand has let go of a two-handed Weapon's Off-hand Grip to follow its own Pose Key (a Throw, ADR 0004). 0 (or absent)
+   * holds the grip and pulls the Weapon in to reach it; 1 follows the Pose Key and leaves the Weapon where the sword hand's target puts it.
+   */
+  readonly offHandFree?: number;
 }
 
 const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
@@ -192,14 +197,15 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   // The hands are where the Motion puts them, reached from the Motion's own hip target...
   const motionBody = upperBody(targets.hip);
   const grip = weapon.grip === 'twoHanded' ? weapon.offHandGrip : undefined;
+  const free = gait.offHandFree ?? 0;
   let rightTarget = aimed(targets.rightHand.position);
   if (grip) {
     // ...except that a two-handed Weapon yields to the off hand's reach.
     const spot = offHandSpot(rightTarget, bladeDir, edge, grip);
-    rightTarget = add(rightTarget, offHandPull(motionBody.leftShoulder, spot, s.upperArm + s.forearm));
+    rightTarget = add(rightTarget, scale(offHandPull(motionBody.leftShoulder, spot, s.upperArm + s.forearm), 1 - free));
   }
   const [motionRightElbow, rightHand] = twoBoneIk(motionBody.rightShoulder, rightTarget, s.upperArm, s.forearm, rightPole);
-  const leftTarget = grip ? offHandSpot(rightHand, bladeDir, edge, grip) : aimed(targets.leftHand.position);
+  const leftTarget = grip ? (free === 0 ? offHandSpot(rightHand, bladeDir, edge, grip) : lerp(offHandSpot(rightHand, bladeDir, edge, grip), aimed(targets.leftHand.position), free)) : aimed(targets.leftHand.position);
   const [motionLeftElbow, leftHand] = twoBoneIk(motionBody.leftShoulder, leftTarget, s.upperArm, s.forearm, leftPole);
   // ...and when the Gait shifts the pelvis, the arms re-bend from the shifted shoulders to those same hands.
   const { sideways, drop } = gait.hipShift;

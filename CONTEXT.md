@@ -84,7 +84,7 @@ _Avoid_: Session (on its own), netcode, connection
 ## Combat
 
 **Action**:
-What a Fighter is doing right now: Idle, Attack, Block, Kick, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
+What a Fighter is doing right now: Idle, Attack, Block, Kick, Throw, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
 _Avoid_: State, move, animation
 
 **Wind-up**:
@@ -135,6 +135,18 @@ _Avoid_: Strike, boot
 **Shove**:
 The outcome of a Kick on a Fighter who gave no movement input on the contact Tick (Idle, Attacking and Blocking all count), or who is already in Knockdown: 1 damage and a short Slide. It does not interrupt the victim's Action.
 
+**Throwing Dagger**:
+A small blade each Fighter carries 3 of per Duel (no pickups; a thrown one is gone), thrown with the off (left) hand by a Throw. Once thrown it is a simulated projectile with its own flight, so it can be Blocked, can Stagger, wound and Slow what it hits, and can fell a Fighter (ADR 0008). It passes through its thrower and the thrower's teammates.
+_Avoid_: Knife, projectile, shuriken
+
+**Throw**:
+An Action (E key) in which the Fighter throws a Throwing Dagger with its off hand. It follows an Attack's phases (Wind-up, Release, Recovery) and lasts about 0.5 s; the dagger leaves the hand on the first Tick of Release. The Fighter can still walk, turn and crouch, but cannot Attack, Block, Kick, Feint or cancel. It starts from Idle, with a dagger left, on the ground or in a Jump. With a two-handed Weapon the off hand lets go of the Off-hand Grip during the Throw.
+_Avoid_: Shot, toss
+
+**Slow**:
+The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in the air) at 0.6× speed. A new dagger Hit restarts the timer at the same strength; it does not stack. It multiplies with crouch and recoil, and does not slow turning, Jumps, Slides or Motions.
+_Avoid_: Debuff, snare, root
+
 **Knockdown**:
 The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, and also the Action that follows: 5 damage, a long Slide, then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). Throughout it can turn and Block but cannot move, Attack, Kick or Jump, and it can be hit normally. It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
@@ -182,7 +194,7 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it), a Fall (a hard Landing that took its last HP), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a hard Landing that took its last HP), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:

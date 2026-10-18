@@ -15,10 +15,11 @@ import { startKick, updateKick } from './kick';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import { updateKnockdown } from './knockdown';
 import { updateStagger } from './stagger';
+import { startThrow, updateThrow } from './throw';
 import { advance, type ActionContext, type ActionHandler, type ActionStarter, type ActionUpdate } from './types';
 
 /** What Idle can turn into, tried in order; the first that accepts the Intent wins. */
-const STARTERS: readonly ActionStarter[] = [startKick, startAttack, startBlock];
+const STARTERS: readonly ActionStarter[] = [startKick, startThrow, startAttack, startBlock];
 
 export function startAction(f: FighterState, intent: Intent, ctx: ActionContext): ActionUpdate | null {
   // Nothing starts in the air unless the Fighter jumped there: one that walked or was pushed off the ground waits to Fall or land.
@@ -41,6 +42,8 @@ const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { ki
   Block: updateBlock,
   // Committed: its Intent is ignored until the Motion ends.
   Kick: updateKick,
+  // Committed except for walking and turning: its Intent is ignored until the Motion ends.
+  Throw: updateThrow,
   // Forced: its Intent only steers the guard (and the turn, in step.ts) until the Get-up ends.
   Knockdown: updateKnockdown,
   Stagger: updateStagger,
@@ -57,6 +60,7 @@ export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } 
 export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
 export { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
+export { THROW_MOTION, throwOffHandFree, throwTimings, type ThrowTimings } from './throw';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';
 export { GET_UP_MOTION, knockdown, KNOCKDOWN_MOTION } from './knockdown';
 export { LAND_MOTION, RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';

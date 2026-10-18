@@ -86,6 +86,7 @@ export function createInitialState(
         action: IDLE_ACTION,
         motion: IDLE_MOTION,
         ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
+        daggers: tuning.dagger.count,
         gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
@@ -110,7 +111,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mx /= len;
     mz /= len;
   }
-  const speed = (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const speed = (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
@@ -197,9 +198,9 @@ const jumps = (f: FighterState, intent: Intent): boolean =>
  * at it, and a jumper can Attack or Block mid-air); a Fighter that walked off a ledge and has been
  * airborne for `fall.fallDelay` (or more) Falls, whatever it was doing, unless it is Staggered.
  */
-function stepFighter(f: FighterState, index: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
+function stepFighter(f: FighterState, index: number, tick: number, intent: Intent, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   let air = f.air;
-  let update = updateAction(f, intent, { fighter: index, tuning, emit });
+  let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
   if (jumps(f, intent)) {
     const to = walk(f, intent, tuning);
     air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true };
@@ -209,6 +210,9 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
   } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger' && update.action.kind !== 'Knockdown') {
     update = fall();
   }
+  // The dagger leaves the hand on the first Tick of Release: one fewer to throw.
+  const released = update.action.kind === 'Throw' && update.action.phase === 'Release' && !(f.action.kind === 'Throw' && f.action.phase === 'Release');
+  if (released) emit({ type: 'DaggerThrown', thrower: index });
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
   const { blockImpact, air: _air, slide: _slide, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
@@ -225,6 +229,7 @@ function stepFighter(f: FighterState, index: number, intent: Intent, tuning: Tun
     pitch: tilt(f, intent, tuning),
     crouch: duck(f, intent, tuning),
     action: update.action,
+    daggers: released ? f.daggers - 1 : f.daggers,
     motion: followMotion(tuning, f.weapon, f.motion, update.motion, update.blendTicks),
   };
   return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}) };
@@ -351,7 +356,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
+    state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
     arena,
     fighting,

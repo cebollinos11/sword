@@ -72,6 +72,17 @@ export interface KickAction {
   readonly whiff?: number;
 }
 
+/**
+ * A Throw: the off (left) hand draws back and throws a Throwing Dagger, driven by the Throw Motion's `windUpEnd` / `releaseEnd` markers like an
+ * Attack. The dagger leaves the hand on the first Tick of Release. The Fighter can still walk, turn and crouch, but not Attack, Block, Kick, Feint or cancel.
+ */
+export interface ThrowAction {
+  readonly kind: 'Throw';
+  readonly phase: AttackPhase;
+  /** The Tick (`SimState.tick`) on which this Throw's Wind-up started: a Block only stops its dagger if it was raised on or after it. */
+  readonly startTick: number;
+}
+
 /** The phases of a Knockdown, in order: the fall, lying, the Get-up. */
 export type KnockdownPhase = 'Falling' | 'Down' | 'Rising';
 
@@ -97,7 +108,7 @@ export interface FallAction {
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | KickAction | KnockdownAction | StaggerAction | FallAction;
+export type Action = IdleAction | AttackAction | BlockAction | KickAction | ThrowAction | KnockdownAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */
@@ -146,6 +157,8 @@ export interface FighterState {
   readonly blade: BladeTransform;
   /** The kicking (right) leg this Tick, solved from the Skeleton. Last Tick's leg bounds the Kick's sweep, as last Tick's blade bounds the Blade Sweep. */
   readonly kickLeg: KickLeg;
+  /** Throwing Daggers left to throw this Duel; refilled to `dagger.count` when a Duel starts. */
+  readonly daggers: number;
   /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
   readonly gait: GaitState;
   /** Present while a Kick's push is carrying the Fighter along the floor (a Slide); absent otherwise, and while airborne. */

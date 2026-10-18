@@ -1,0 +1,13 @@
+{
+  "count": 3,
+  "speed": 18,
+  "gravity": 9.8,
+  "loft": 4,
+  "radius": 0.04,
+  "maxTicks": 90,
+  "damage": 5,
+  "slowFactor": 0.6,
+  "slowTicks": 180,
+  "throwWalkFactor": 1,
+  "blockImpact": 0.3
+}

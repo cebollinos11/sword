@@ -10,7 +10,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait, camera: tuning.camera };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, block: tuning.block, gait: tuning.gait, camera: tuning.camera };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
@@ -23,6 +23,8 @@ describe('Tuning Data content hash', () => {
     const hipSway: TuningData = { ...tuning, gait: { ...tuning.gait, hipSway: tuning.gait.hipSway + 0.01 } };
     const kick: TuningData = { ...tuning, kick: { ...tuning.kick, shoveDamage: tuning.kick.shoveDamage + 1 } };
     expect(tuningDataHash(kick)).not.toBe(tuningDataHash(tuning));
+    const dagger: TuningData = { ...tuning, dagger: { ...tuning.dagger, damage: tuning.dagger.damage + 1 } };
+    expect(tuningDataHash(dagger)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(weapon)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(motion)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(gait)).not.toBe(tuningDataHash(tuning));

@@ -7,6 +7,8 @@ import type { Action, FighterState, MotionPlayback } from '../state';
 export interface ActionContext {
   /** Index of the Fighter being updated (for events). */
   readonly fighter: number;
+  /** The Tick being produced (`SimState.tick` after this step): what an Action that must remember when it began records. */
+  readonly tick: number;
   readonly tuning: TuningData;
   readonly emit: Emit;
 }

@@ -11,6 +11,7 @@ import hitZonesJson from '../../data/hitZones.json';
 import aiJson from '../../data/ai.json';
 import chamberJson from '../../data/chamber.json';
 import kickJson from '../../data/kick.json';
+import daggerJson from '../../data/dagger.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
@@ -109,6 +110,32 @@ export interface KickTuning {
   readonly whiffRecovery: number;
   /** Padding (m) around the kicking leg's segment when it is swept against Hit Zones. */
   readonly legRadius: number;
+}
+
+/** The Throwing Dagger (data/dagger.json): ammo, flight, what a Hit does and how long the Slow lasts. Distances in metres, speeds in m/s, times in Ticks, angles in degrees. */
+export interface DaggerTuning {
+  /** Daggers each Fighter carries per Duel. */
+  readonly count: number;
+  /** Launch speed (m/s). */
+  readonly speed: number;
+  /** Gravity on a dagger in flight (m/s²). */
+  readonly gravity: number;
+  /** Upward loft (degrees) added to the thrower's aim. */
+  readonly loft: number;
+  /** Padding (m) around a dagger's path when it is swept against Hit Zones. */
+  readonly radius: number;
+  /** Ticks in flight before a dagger drops out of the Simulation. */
+  readonly maxTicks: number;
+  /** Damage of a Hit, before the Hit Zone multiplier. */
+  readonly damage: number;
+  /** Share of normal walking speed a Slowed Fighter keeps. */
+  readonly slowFactor: number;
+  /** Ticks a Slow lasts (a new dagger Hit restarts it). */
+  readonly slowTicks: number;
+  /** Share of its walking speed a Fighter keeps while it throws. */
+  readonly throwWalkFactor: number;
+  /** How hard a Blocked dagger shakes the defender's sword hand, as a share of a full Block Impact. */
+  readonly blockImpact: number;
 }
 
 /** The coarse regions of the Skeleton a Blade Sweep can hit. */
@@ -257,6 +284,7 @@ export interface TuningData {
   readonly hitZones: Readonly<Record<HitZone, HitZoneTuning>>;
   readonly chamber: ChamberTuning;
   readonly kick: KickTuning;
+  readonly dagger: DaggerTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
   readonly skeleton: SkeletonTuning;
@@ -351,6 +379,23 @@ function parseKick(raw: unknown): KickTuning {
     knockdownTicks: wholeTicks(k, 'knockdownTicks', 'kick'),
     whiffRecovery: wholeTicks(k, 'whiffRecovery', 'kick'),
     legRadius: positiveNumber(k, 'legRadius', 'kick'),
+  };
+}
+
+function parseDagger(raw: unknown): DaggerTuning {
+  const d = record(raw, 'dagger');
+  return {
+    count: wholeTicks(d, 'count', 'dagger'),
+    speed: positiveNumber(d, 'speed', 'dagger'),
+    gravity: finiteNumber(d, 'gravity', 'dagger'),
+    loft: finiteNumber(d, 'loft', 'dagger'),
+    radius: positiveNumber(d, 'radius', 'dagger'),
+    maxTicks: wholeTicks(d, 'maxTicks', 'dagger'),
+    damage: finiteNumber(d, 'damage', 'dagger'),
+    slowFactor: positiveNumber(d, 'slowFactor', 'dagger'),
+    slowTicks: wholeTicks(d, 'slowTicks', 'dagger'),
+    throwWalkFactor: positiveNumber(d, 'throwWalkFactor', 'dagger'),
+    blockImpact: finiteNumber(d, 'blockImpact', 'dagger'),
   };
 }
 
@@ -471,6 +516,7 @@ export function parseTuningData(raw: unknown): TuningData {
     hitZones,
     chamber: { windowSeconds: positiveNumber(ch, 'windowSeconds', 'chamber') },
     kick: parseKick(root.kick),
+    dagger: parseDagger(root.dagger),
     block: {
       facingHalfAngle,
       bladeRadius: positiveNumber(bl, 'bladeRadius', 'block'),
@@ -561,6 +607,7 @@ export function loadTuningData(): TuningData {
     hitZones: hitZonesJson,
     chamber: chamberJson,
     kick: kickJson,
+    dagger: daggerJson,
     block: blockJson,
     match: matchJson,
     skeleton: skeletonJson,

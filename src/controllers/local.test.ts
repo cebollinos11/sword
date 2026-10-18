@@ -319,3 +319,30 @@ describe('Local Controller: Kick', () => {
     expect(c.sample().direction).toBe('Left');
   });
 });
+
+describe('Local Controller: Throw', () => {
+  it('E throws once per press, on one Tick, however long it is held', () => {
+    const c = new LocalController();
+    expect(c.sample().throw).toBeUndefined();
+    c.keyDown('KeyE');
+    expect(c.sample().throw).toBe(true);
+    expect(c.sample().throw).toBeUndefined();
+    c.keyUp('KeyE');
+    expect(c.sample().throw).toBeUndefined();
+    // A tap shorter than a Tick still throws.
+    c.keyDown('KeyE');
+    c.keyUp('KeyE');
+    expect(c.sample().throw).toBe(true);
+  });
+
+  it('losing focus lets go of E, and a throw does not change the Direction the next Attack takes', () => {
+    const c = new LocalController();
+    c.mouseMove(-200, 0);
+    c.keyDown('KeyE');
+    c.sample();
+    c.releaseAll();
+    c.buttonDown('attack');
+    expect(c.sample().direction).toBe('Left');
+    expect(c.sample().throw).toBeUndefined();
+  });
+});

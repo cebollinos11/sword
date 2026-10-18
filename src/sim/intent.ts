@@ -54,6 +54,11 @@ export interface Intent {
    * a committed Action that cannot be cancelled (it can only turn). Held down, it does not repeat.
    */
   readonly kick?: boolean;
+  /**
+   * Throw pressed this Tick (absent = not pressed). An Idle Fighter with a dagger left, on the ground or in a Jump, starts a Throw: the dagger
+   * leaves the off hand in Release. It can still walk and turn while throwing but is committed otherwise. Held down, it does not repeat.
+   */
+  readonly throw?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({
@@ -63,4 +68,5 @@ export const IDLE_INTENT: Intent = Object.freeze({
   block: false,
   face: null,
   kick: false,
+  throw: false,
 });

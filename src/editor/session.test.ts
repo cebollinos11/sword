@@ -23,6 +23,7 @@ describe('EditorSession', () => {
       'Recoil',
       'Right',
       'Stagger',
+      'Throw',
       'Thrust',
     ]);
   });

@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOption
 import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -151,7 +151,7 @@ function isLineupSlot(v: unknown): boolean {
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 
@@ -187,6 +187,8 @@ function isAction(v: unknown): boolean {
       return isDirection(v.direction);
     case 'Kick':
       return PHASE_SET.has(v.phase as string) && isBool(v.landed) && (v.whiff === undefined || isTick(v.whiff));
+    case 'Throw':
+      return PHASE_SET.has(v.phase as string) && isTick(v.startTick);
     case 'Knockdown':
       return KNOCKDOWN_PHASES.has(v.phase as string) && isTick(v.ticks) && (v.guard === null || isDirection(v.guard));
     case 'Stagger':
@@ -244,6 +246,8 @@ function isFighter(v: unknown): boolean {
     isNum(v.crouch) &&
     isTeam(v.team) &&
     isNum(v.hp) &&
+    isInt(v.daggers) &&
+    v.daggers >= 0 &&
     isString(v.weapon) &&
     isAction(v.action) &&
     isObject(v.motion) &&

@@ -39,6 +39,12 @@ export interface KickLandedEvent {
   readonly damage: number;
 }
 
+/** A Throw entered Release: the dagger left the thrower's hand and its count dropped by one. */
+export interface DaggerThrownEvent {
+  readonly type: 'DaggerThrown';
+  readonly thrower: number;
+}
+
 /** An Attack's Blade Sweep reached a defender who Blocked it by rule: no damage, the attacker Staggers. */
 export interface BlockEvent {
   readonly type: 'Block';
@@ -119,7 +125,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;
