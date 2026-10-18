@@ -88,11 +88,14 @@ const CSS = `
   width: calc(var(--pad) * 0.78); height: calc(var(--pad) * 0.78); background: #2e86c188; }
 .touch-jump { right: calc(var(--edge) + var(--pad) * 1.15); bottom: var(--base);
   width: calc(var(--pad) * 0.62); height: calc(var(--pad) * 0.62); background: #8e8e3a88; }
+.touch-throw { right: calc(var(--edge) + var(--pad) * 1.15); bottom: calc(var(--base) + var(--pad) * 0.62 + 14px);
+  width: calc(var(--pad) * 0.62); height: calc(var(--pad) * 0.62); background: #7a5ea888; }
 .touch-pad.active { border-color: #fff; filter: brightness(1.35); }
 @media (orientation: portrait) {
   .touch { --pad: clamp(84px, 27vw, 128px); }
   .touch-block { right: var(--edge); bottom: calc(var(--base) + var(--pad) + 16px); }
   .touch-jump { right: calc(var(--edge) + var(--pad) + 16px); bottom: var(--base); }
+  .touch-throw { right: calc(var(--edge) + var(--pad) + 16px); bottom: calc(var(--base) + var(--pad) * 0.62 + 14px); }
 }
 `;
 
