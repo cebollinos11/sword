@@ -34,3 +34,7 @@ Intents are the only gameplay data the peers send each other. Besides them, only
 - after a checksum mismatch, the host's confirmed Match state and its AI Controllers' memory then (ADR 0005), with the host's Intents up to it, which the guest adopts to resync.
 
 Every incoming message is validated in full before use; a malformed one is ignored.
+
+## Addendum: three and four Players (ADR 0010)
+
+With more than one guest, a guest's Intents reach the other guests relayed by the host, and the host's Intents messages also list the Players who left (each with the Tick its AI Takeover starts). The host's hello carries every Player's Weapon pick and which Player the guest is. Only the host sends checksums and resyncs, to each guest on its own link.

@@ -60,8 +60,11 @@ export interface Lobby {
   start(requireReady: boolean): string | null;
   /** Host: end the Match for everyone. */
   backToLobby(): void;
-  /** The Transport for Match `generation` with the other player; null offline or when no guest plays it. */
-  matchTransport(generation: number): Transport | null;
+  /**
+   * The Transport for Match `generation` with Member `member`: on the host, a guest's (null if they are
+   * gone); on a guest, the host's (member 0; the guests only ever talk through the host). Null offline.
+   */
+  matchTransport(generation: number, member: number): Transport | null;
   /** Called after every change of `state`, `status` or `me`. Returns the unsubscribe. */
   onChange(listener: () => void): () => void;
   /** Heartbeats, retries and timeouts: call every so often (e.g. 100–250 ms) with the wall clock in ms. */
@@ -79,9 +82,9 @@ function refuseText(reason: RefuseLobbyReason): string {
     case 'RoomFull':
       return 'That Room is full.';
     case 'TuningDataMismatch':
-      return "Your game data differs from the host's. Both players need the same game version (reload).";
+      return "Your game data differs from the host's. Every player needs the same game version (reload).";
     case 'ProtocolMismatch':
-      return "Your game version differs from the host's. Both players need to reload the latest version.";
+      return "Your game version differs from the host's. Every player needs to reload the latest version.";
   }
 }
 
@@ -165,10 +168,9 @@ export class HostLobby extends Base implements Lobby {
     if (this.state.playing) this.set(endMatch(this.state));
   }
 
-  matchTransport(generation: number): Transport | null {
-    // Two-peer Matches for now: the one guest playing it (SUPPORTED_PLAYERS).
+  matchTransport(generation: number, member: number): Transport | null {
     for (const link of this.links) {
-      if (link.id !== null && this.state.inMatch.includes(link.id) && !link.channels.closed) return link.channels.match(generation);
+      if (link.id === member && this.state.inMatch.includes(member) && !link.channels.closed) return link.channels.match(generation);
     }
     return null;
   }
@@ -294,8 +296,8 @@ export class GuestLobby extends Base implements Lobby {
     this.overlay();
   }
 
-  matchTransport(generation: number): Transport | null {
-    return this.channels.closed ? null : this.channels.match(generation);
+  matchTransport(generation: number, member: number): Transport | null {
+    return member !== 0 || this.channels.closed ? null : this.channels.match(generation);
   }
 
   pump(now: number): void {

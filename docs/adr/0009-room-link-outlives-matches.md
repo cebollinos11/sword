@@ -18,7 +18,7 @@ The Room's data channel is unreliable and unordered (`reliable: false`), chosen 
 
 Each guest's connection is the Room link, split into channels (`splitTransport`): the Room channel carries the Lobby, and each Match has its own channel numbered by its generation. Starting or restarting a Match bumps the Lobby's generation. Every peer seated in it attaches a Rollback session to that generation's channel, and drops the old one by detaching its channel, not by closing the link. Messages for an older generation are dropped, and those for a newer one are held briefly, until this side attaches. The Rollback session itself is unchanged: its hello still carries the host's Match options and Lineup, now read off the Lobby's Seats.
 
-The host stays registered on the broker for as long as the Room lives, so guests can join or rejoin between Matches. The Lobby is laid out for `MAX_PLAYERS` (4), but only `SUPPORTED_PLAYERS` (2) Seats may be Open or held by Players. A guest beyond that is turned away (RoomFull), until the Rollback session supports more peers.
+The host stays registered on the broker for as long as the Room lives, so guests can join or rejoin between Matches. The Lobby is laid out for `MAX_PLAYERS` (4), and no more Seats than that may be Open or held by Players. A guest beyond that is turned away (RoomFull). (Until ADR 0010 only two could play.)
 
 ## Consequences
 

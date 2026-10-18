@@ -17,7 +17,6 @@ export {
   setSeat,
   startMatch,
   startProblem,
-  SUPPORTED_PLAYERS,
   TEAM_COUNT,
   teamSize,
   updateSettings,

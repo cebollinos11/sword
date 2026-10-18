@@ -1,7 +1,7 @@
 /**
  * A Lineup: who fights a Match. One slot per Fighter (slot i is Fighter i):
- * its team, and whether one of the (at most two) human Players or the AI
- * drives it. Players pick their own Weapon; each AI's Weapon is set in its slot.
+ * its team, and whether one of the (at most MAX_PLAYERS) human Players or the
+ * AI drives it. Players pick their own Weapon; each AI's Weapon is set in its slot.
  *
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
@@ -11,8 +11,11 @@ import { defaultWeaponName, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 
-/** A human Player: 0 (Player vs AI, or the host online) or 1 (the guest online). */
-export type PlayerNumber = 0 | 1;
+/** The most human Players a Match fields (online: the host and three guests). */
+export const MAX_PLAYERS = 4;
+
+/** A human Player: 0 (Player vs AI, or the host online), 1 to 3 (the guests online, in Lobby order). */
+export type PlayerNumber = 0 | 1 | 2 | 3;
 
 /** What drives a Fighter: a human Player, or the AI at a difficulty preset (Tuning Data `ai.difficulties`). */
 export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string };
@@ -43,9 +46,10 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
  * (1 to 3 Fighters a side), each Player driving exactly one Fighter, and every
  * AI difficulty and Weapon in Tuning Data.
  */
-export function checkLineup(tuning: TuningData, lineup: Lineup, players: 1 | 2): void {
+export function checkLineup(tuning: TuningData, lineup: Lineup, players: number): void {
   checkTeams(lineup.map((s) => s.team));
-  for (let p = 0; p < 2; p++) {
+  if (!Number.isInteger(players) || players < 1 || players > MAX_PLAYERS) throw new RangeError(`A Match fields 1 to ${MAX_PLAYERS} Players, not ${players}`);
+  for (let p = 0; p < MAX_PLAYERS; p++) {
     const driving = lineup.filter((s) => s.pilot.kind === 'Player' && s.pilot.player === p).length;
     const wanted = p < players ? 1 : 0;
     if (driving !== wanted) throw new RangeError(`Player ${p} must drive ${wanted} Fighter${wanted === 1 ? '' : 's'}, drives ${driving}`);
@@ -60,6 +64,11 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: 1 | 2):
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
   return { ...options, teams: lineup.map((s) => s.team), weapons };
+}
+
+/** How many human Players the Lineup fields. */
+export function lineupPlayers(lineup: Lineup): number {
+  return lineup.filter((s) => s.pilot.kind === 'Player').length;
 }
 
 /** A fresh AI Controller for each AI slot; null for each Player's slot. */

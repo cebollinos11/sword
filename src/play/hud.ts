@@ -10,7 +10,7 @@ export interface HudView {
   readonly localFighter: number;
   /** Who fights, for the labels (null while unknown). */
   readonly lineup: Lineup | null;
-  /** Round-trip time to the opponent in ms; null offline or until measured. */
+  /** Round-trip time in ms (a guest's to the host, the host's to its slowest guest); null offline or until measured. */
   readonly ping?: number | null;
   /** Each Player's name (index = Player number), from the Lobby. */
   readonly names?: readonly string[] | null;

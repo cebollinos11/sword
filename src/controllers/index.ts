@@ -19,6 +19,8 @@ export {
   checkLineup,
   lineupAis,
   lineupMatch,
+  lineupPlayers,
+  MAX_PLAYERS,
   ONE_VS_ONE,
   playerFighter,
   type Lineup,

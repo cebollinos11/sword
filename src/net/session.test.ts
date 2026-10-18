@@ -36,6 +36,21 @@ function frame(
   return { h, g };
 }
 
+/**
+ * The host starts a hop before the guest (it waits for the guest's pick), and time sync evens that out
+ * over a few seconds. To compare the two at one Tick, let the peer behind catch up alone.
+ */
+function level(s: { pair: { advance(ms: number): void }; host: { currentTick: number; tick(i: Intent): unknown }; guest: { currentTick: number; tick(i: Intent): unknown } }) {
+  for (let i = 0; i < 200 && s.host.currentTick !== s.guest.currentTick; i++) {
+    s.pair.advance(TICK_MS);
+    if (s.host.currentTick < s.guest.currentTick) s.host.tick(IDLE_INTENT);
+    else s.guest.tick(IDLE_INTENT);
+  }
+  // Deliver what is in flight; the next joint Tick takes it in (rolling back where needed).
+  s.pair.advance(200);
+  expect(s.host.currentTick).toBe(s.guest.currentTick);
+}
+
 describe('Rollback session: connect', () => {
   it('connects two peers with identical Tuning Data and starts the host-configured Match', () => {
     const s = connect({ latencyMs: 40 });
@@ -48,17 +63,16 @@ describe('Rollback session: connect', () => {
     expect(s.guest.localFighter).toBe(1);
   });
 
-  it('refuses the connection on a Tuning Data hash mismatch, on both sides', () => {
+  it('refuses a guest with other Tuning Data; the host plays on with the AI in its place', () => {
     const other: TuningData = withWeapon(tuning, { length: tuning.weapons['Arming Sword']!.length + 0.1 });
     const s = connect({ latencyMs: 40 }, other);
     for (let i = 0; i < 30; i++) frame(s);
-    expect(s.host.status).toBe('Refused');
     expect(s.guest.status).toBe('Refused');
-    expect(s.hostEvents).toContainEqual(expect.objectContaining({ type: 'Refused', reason: 'TuningDataMismatch' }));
     expect(s.guestEvents).toContainEqual(expect.objectContaining({ type: 'Refused', reason: 'TuningDataMismatch' }));
-    expect(s.hostEvents.some((e) => e.type === 'Connected')).toBe(false);
-    expect(s.host.currentTick).toBe(0);
     expect(s.guest.currentTick).toBe(0);
+    expect(s.hostEvents).toContainEqual({ type: 'PlayerLeft', player: 1, tick: 1 });
+    expect(s.host.status).toBe('Running');
+    expect(s.host.currentTick).toBeGreaterThan(0);
   });
 });
 
@@ -286,7 +300,7 @@ describe('Rollback session: disconnect', () => {
     expect(s.guest.currentTick).toBe(before);
   });
 
-  it('surfaces a peer that goes silent as a timeout', () => {
+  it('a guest that goes silent times out: the AI drives its Fighter and the host plays on', () => {
     const pair = createMemoryTransportPair({ latencyMs: 30 });
     const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, timeoutTicks: 60 });
     const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning });
@@ -302,8 +316,22 @@ describe('Rollback session: disconnect', () => {
       pair.advance(TICK_MS);
       host.tick(IDLE_INTENT); // the guest's tab froze: it stops ticking and sending
     }
-    expect(host.status).toBe('Disconnected');
-    expect(events).toContainEqual({ type: 'Disconnected', reason: 'Timeout' });
+    expect(host.status).toBe('Running');
+    expect(events).toContainEqual(expect.objectContaining({ type: 'PlayerLeft', player: 1 }));
+    const at = host.currentTick;
+    for (let i = 0; i < 10; i++) host.tick(IDLE_INTENT);
+    expect(host.currentTick).toBe(at + 10);
+  });
+
+  it('a guest the host has dropped is told so, and its Match ends', () => {
+    const s = connect({ latencyMs: 30 });
+    for (let i = 0; i < 30; i++) frame(s);
+    // Host's view: the guest sent nothing for a long while. Feed the guest the host's verdict directly.
+    s.pair.a.send({ type: 'intents', tick: 40, streams: [], acks: [40, 20], dropped: [{ player: 1, tick: 21 }] });
+    s.pair.advance(50);
+    frame(s);
+    expect(s.guest.status).toBe('Disconnected');
+    expect(s.guestEvents).toContainEqual({ type: 'Disconnected', reason: 'Dropped' });
   });
 });
 describe('Rollback session: Weapons', () => {
@@ -323,11 +351,13 @@ describe('Rollback session: Weapons', () => {
     const swing = (t: number): Intent => (t % 90 < 30 ? { ...IDLE_INTENT, attack: true } : IDLE_INTENT);
     for (let i = 0; i < 200; i++) frame(s, swing, swing);
     for (let i = 0; i < 30; i++) frame(s);
+    level(s);
+    frame(s);
     expect(s.host.currentTick).toBe(s.guest.currentTick);
     expect(hashValue(s.guest.state)).toBe(hashValue(s.host.state));
   });
 
-  it('refuses a hello carrying a Weapon missing from its roster, like a Tuning Data mismatch', () => {
+  it('refuses a guest whose hello carries a Weapon missing from its roster, like a Tuning Data mismatch', () => {
     const pair = createMemoryTransportPair({ latencyMs: 30 });
     const events: SessionEvent[] = [];
     const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH });
@@ -337,9 +367,16 @@ describe('Rollback session: Weapons', () => {
       pair.advance(TICK_MS);
       host.tick(IDLE_INTENT);
     }
-    expect(host.status).toBe('Refused');
-    expect(events).toContainEqual(expect.objectContaining({ type: 'Refused', reason: 'TuningDataMismatch' }));
-    expect(host.state).toBeNull();
+    const refusals: unknown[] = [];
+    pair.b.onMessage((m) => refusals.push(m));
+    pair.b.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: 'Pike' });
+    for (let i = 0; i < 10; i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+    }
+    expect(refusals).toContainEqual(expect.objectContaining({ type: 'refuse', reason: 'TuningDataMismatch' }));
+    expect(events).toContainEqual({ type: 'PlayerLeft', player: 1, tick: 1 });
+    expect(host.state!.config.weapons).toEqual(['Arming Sword', 'Arming Sword']);
   });
 
   it('refuses to start with a Weapon of its own that is not in the roster', () => {

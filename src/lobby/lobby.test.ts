@@ -13,7 +13,7 @@ import {
   setSeat,
   startMatch,
   startProblem,
-  SUPPORTED_PLAYERS,
+  MAX_PLAYERS,
   updateMember,
   type NewLobbyOptions,
 } from './lobby';
@@ -54,13 +54,26 @@ describe('Lobby', () => {
     expect(join(newLobby(options(false)), guest)).toBeNull();
   });
 
-  it('opens no more human Seats than a Match can field', () => {
+  it('opens no more human Seats than a Room holds', () => {
     let s = newLobby(options(true));
-    expect(SUPPORTED_PLAYERS).toBe(2);
-    expect(canSetSeat(s, { team: 0, index: 1 }, 'Open')).toBe(false);
+    expect(MAX_PLAYERS).toBe(4);
+    // The host and three Open Seats: room for four.
+    expect(s.teams.flat().filter((x) => x.kind === 'Open')).toHaveLength(3);
+    expect(canSetSeat(s, { team: 0, index: 2 }, 'Open')).toBe(false);
     s = setSeat(s, { team: 1, index: 0 }, { kind: 'Closed' });
-    expect(canSetSeat(s, { team: 0, index: 1 }, 'Open')).toBe(true);
+    expect(canSetSeat(s, { team: 0, index: 2 }, 'Open')).toBe(true);
     expect(canSetSeat(s, { team: 0, index: 0 }, 'Closed')).toBe(false);
+  });
+
+  it('guests join the team fielding fewer Fighters: four make 2 v 2, and a fifth is turned away', () => {
+    let s = newLobby(options(true));
+    for (let id = 1; id <= 3; id++) s = join(s, { ...guest, id, name: `Guest ${id}` })!;
+    expect([1, 2, 3].map((id) => seatOf(s, id)?.team)).toEqual([1, 1, 0]); // ties go opposite the host
+    expect(join(s, { ...guest, id: 4 })).toBeNull();
+    const { lineup, names } = lobbyLineup(s);
+    expect(() => checkLineup(tuning, lineup, 4)).not.toThrow();
+    expect(lineup.map((x) => x.team)).toEqual([0, 0, 1, 1]);
+    expect(names).toEqual(['Host', 'Guest 1', 'Guest 2', 'Guest 3']);
   });
 
   it('moving swaps Seats: the AI takes your old one', () => {

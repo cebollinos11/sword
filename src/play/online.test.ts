@@ -10,11 +10,12 @@ const TICK_MS = 1000 / TICK_RATE;
 
 function room(
   net: MemoryTransportOptions = {},
-  opts: { guestTuning?: TuningData; step?: typeof stepMatch; rematchTicks?: number } = {},
+  opts: { guestTuning?: TuningData; step?: typeof stepMatch; rematchTicks?: number; names?: string[] } = {},
 ) {
   const pair = createMemoryTransportPair(net);
   const host = playerVsPlayer(
     createRollbackSession({ role: 'host', transport: pair.a, tuning, match: { bestOf: 3, seed: 5, rematchTicks: opts.rematchTicks }, step: opts.step }),
+    opts.names,
   );
   const guest = playerVsPlayer(
     createRollbackSession({ role: 'guest', transport: pair.b, tuning: opts.guestTuning ?? tuning, step: opts.step }),
@@ -31,6 +32,18 @@ function runUntilConnected(r: ReturnType<typeof room>) {
   for (let i = 0; i < 60 && !(r.host.state && r.guest.state); i++) r.tick();
 }
 
+/** The host starts a hop ahead (time sync evens it out over a few seconds): let the peer behind catch up alone. */
+function level(r: ReturnType<typeof room>) {
+  for (let i = 0; i < 200 && r.host.state!.tick !== r.guest.state!.tick; i++) {
+    r.pair.advance(TICK_MS);
+    if (r.host.state!.tick < r.guest.state!.tick) r.host.tick(IDLE_INTENT);
+    else r.guest.tick(IDLE_INTENT);
+  }
+  // Deliver what is in flight; the next joint Tick takes it in (rolling back where needed).
+  r.pair.advance(200);
+  r.tick();
+}
+
 const forward: Intent = { ...IDLE_INTENT, move: { x: 0, z: 1 } };
 
 describe('Player vs Player Match driver (Rollback session over a Transport)', () => {
@@ -45,10 +58,10 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     const r = room({ latencyMs: 20 });
     const blocking: Intent = { ...IDLE_INTENT, block: true, direction: 'Left' };
     runUntilConnected(r);
-    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(IDLE_INTENT);
+    expect(r.host.remote.intent(r.host.state!.duel, 1)).toEqual(IDLE_INTENT);
     for (let i = 0; i < 30; i++) r.tick(forward, blocking);
-    expect(r.host.opponent.intent(r.host.state!.duel, 1)).toEqual(blocking);
-    expect(r.guest.opponent.intent(r.guest.state!.duel, 0)).toEqual(forward);
+    expect(r.host.remote.intent(r.host.state!.duel, 1)).toEqual(blocking);
+    expect(r.guest.remote.intent(r.guest.state!.duel, 0)).toEqual(forward);
     expect(r.host.state!.duel.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Left' });
   });
 
@@ -71,6 +84,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     // Host walks toward +z, the guest walks away (+z too, since Fighter 1 starts at +z).
     for (let i = 0; i < 20; i++) r.tick(forward, forward);
     for (let i = 0; i < 60; i++) r.tick();
+    level(r);
     const host = r.host.state!;
     const guest = r.guest.state!;
     expect(host.duel.fighters[0]!.position.z).toBeGreaterThan(z0);
@@ -99,24 +113,37 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     expect(attacked).toBe(true);
   });
 
-  it('refuses a peer with different Tuning Data, with a message that says so', () => {
+  it('refuses a guest with different Tuning Data, with a message that says so; the host plays on', () => {
     const other: TuningData = withWeapon(tuning, { damage: tuning.weapons['Arming Sword']!.damage + 1 });
     const r = room({}, { guestTuning: other });
     for (let i = 0; i < 30; i++) r.tick();
-    expect(r.host.failure).toMatch(/Tuning Data/);
     expect(r.guest.failure).toMatch(/Tuning Data/);
-    expect(r.host.state).toBeNull();
+    expect(r.guest.state).toBeNull();
+    expect(r.host.failure).toBeNull();
+    expect(r.host.takeNotice()).toMatch(/Player 2 left: the AI takes over/);
   });
 
-  it("tells the player when the opponent disconnects", () => {
-    const r = room();
+  it('tells the host when a guest leaves, by name, and plays on with the AI in their place', () => {
+    const r = room({}, { names: ['Ann', 'Bo'] });
     runUntilConnected(r);
     r.guest.close();
-    r.tick();
-    expect(r.host.failure).toMatch(/other player.*(left|disconnected)/i);
+    const at = r.host.state!.tick;
+    for (let i = 0; i < 10; i++) r.tick();
+    expect(r.host.failure).toBeNull();
+    expect(r.host.takeNotice()).toBe('Bo left: the AI takes over');
+    expect(r.host.takeNotice()).toBeNull();
+    expect(r.host.state!.tick).toBe(at + 10);
   });
 
-  it('tells the player when the opponent stops answering', () => {
+  it('tells a guest when the host disconnects', () => {
+    const r = room();
+    runUntilConnected(r);
+    r.host.close();
+    r.tick();
+    expect(r.guest.failure).toMatch(/host left/i);
+  });
+
+  it('tells a guest when the host stops answering, and the host that the guest did', () => {
     const r = room();
     runUntilConnected(r);
     // The guest's browser freezes: only the host keeps ticking.
@@ -124,7 +151,14 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
       r.pair.advance(TICK_MS);
       r.host.tick(IDLE_INTENT);
     }
-    expect(r.host.failure).toMatch(/lost the connection/i);
+    expect(r.host.failure).toBeNull();
+    expect(r.host.takeNotice()).toMatch(/left/);
+    // The guest wakes: the host has let it go, so nothing more arrives.
+    for (let i = 0; i < 400; i++) {
+      r.pair.advance(TICK_MS);
+      r.guest.tick(IDLE_INTENT);
+    }
+    expect(r.guest.failure).toMatch(/host/i);
   });
 
   it('a disconnect after the Match is over is still a failure: a rematch would follow', () => {
@@ -136,10 +170,10 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     const r = room({}, { step: endsAt5 });
     runUntilConnected(r);
     for (let i = 0; i < 30; i++) r.tick();
-    expect(r.host.state!.status.status).toBe('Over');
-    r.guest.close();
+    expect(r.guest.state!.status.status).toBe('Over');
+    r.host.close();
     r.tick();
-    expect(r.host.failure).toMatch(/left/);
+    expect(r.guest.failure).toMatch(/left/);
   });
 
   it('both peers roll into the same rematch once the Match is over (the host chose `rematchTicks`)', () => {
@@ -154,6 +188,7 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
     runUntilConnected(r);
     for (let i = 0; i < 80; i++) r.tick(forward, forward);
     for (let i = 0; i < 30; i++) r.tick();
+    level(r);
     expect(r.host.failure).toBeNull();
     expect(r.host.state).toMatchObject({ matchNumber: 2, duelNumber: 1, score: [0, 0], status: { status: 'InProgress' } });
     expect(r.guest.state!.tick).toBe(r.host.state!.tick);

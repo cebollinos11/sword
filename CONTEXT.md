@@ -13,7 +13,7 @@ The source of a Fighter's intents each tick — a human (Local Controller), the 
 _Avoid_: Input, brain, agent
 
 **Player**:
-A human taking part in a Match: Player 1 (in Player vs AI, or the host online) or Player 2 (the guest online). A Match has at most two. Each drives one Fighter and picks its own Weapon.
+A human taking part in a Match: Player 1 (in Player vs AI, or the host online) or Players 2 to 4 (the guests online, in the order they joined). A Match has at most four. Each drives one Fighter and picks its own Weapon. A guest who leaves mid-Match is replaced by an AI (an AI Takeover); the host leaving ends the Match.
 _Avoid_: User; and Player for the Fighter itself
 
 **Team**:
@@ -78,7 +78,11 @@ _Avoid_: Frame (frame means a rendered frame)
 Rewinding the simulation to an earlier Tick when a remote peer's real Intent differs from the predicted one, then re-simulating forward.
 
 **Rollback session**:
-One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on both peers: ADR 0005), exchanges Intents with the other peer, predicts and corrects the other Player's Fighter's Intents by Rollback, and compares state checksums. Not the Room (which only gets the peers connected).
+One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on every peer: ADR 0005), exchanges Intents (a guest with the host only; the host relays each guest's to the others: ADR 0010), predicts and corrects the other Players' Fighters' Intents by Rollback, and compares state checksums with the host's. Not the Room (which only gets the peers connected).
+
+**AI Takeover**:
+A guest leaving mid-Match (its link closed, it went silent, or it was refused): from the Tick after the last of its Intents the host holds, an AI Controller (Normal) drives its Fighter on every peer, and the Match goes on (ADR 0010). The host announces the Tick; the others roll back to it. The guest stays out of the Match until the next start.
+_Avoid_: Bot fill, substitute
 _Avoid_: Session (on its own), netcode, connection
 
 ## Combat
@@ -208,7 +212,7 @@ A best-of-N sequence of Duels between two Teams; the score counts Duels won per 
 A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.
 
 **Match Mode**:
-Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
+Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two to four Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
 The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked as the Lobby's Map (the host's pick online): the library (three levels, `art/build_library.py`) by default, the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), the pirate ship (a deck with a raised quarterdeck and a plank, over Water, `art/build_ship.py`) or the snowy summit (a shelf and a plateau holding a crashed starship, on a cliff edge whose drop is a Death by Fall, `art/build_summit.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
@@ -247,7 +251,7 @@ A shareable code/link through which Players connect for online play. It stays op
 _Avoid_: session, server
 
 **Lobby**:
-Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Map, Match length), before and between Matches, and in the in-game menu's Match setup. The host owns it and sends it to every guest. Laid out for up to four Players; a Match fields two for now. A start or a restart is a new generation of the Lobby's Match, played by whoever is seated.
+Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Map, Match length), before and between Matches, and in the in-game menu's Match setup. The host owns it and sends it to every guest. Holds up to four Players: a new Room opens three Seats for guests, who join the team fielding fewer Fighters (opposite the host on a tie). A start or a restart is a new generation of the Lobby's Match, played by whoever is seated.
 _Avoid_: Room (the connection), Lineup (what a start reads off it)
 
 **Seat**:

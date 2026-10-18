@@ -242,7 +242,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) store(ARENA_STORAGE_KEY, s.settings.arena);
   }
 
-  /** Start Match `s.generation`: against the AI locally, or through a Rollback session with the other player. */
+  /** Start Match `s.generation`: against the AI locally, or through a Rollback session with the other players (the host links to every guest; a guest to the host). */
   function launch(l: Lobby, s: LobbyState): void {
     playing = s.generation;
     lobbyShown = true;
@@ -253,17 +253,19 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const d = playerVsAi(tuning, { lineup, weapon: picks[0]!, ...match });
       return game.play({ driver: d, names: playerNames });
     }
-    const transport = l.matchTransport(s.generation);
-    if (!transport) return;
     const me = members.indexOf(l.me!);
-    const session = createRollbackSession({
-      role: l.isHost ? 'host' : 'guest',
-      transport,
-      tuning,
-      weapon: picks[me]!,
-      ...(l.isHost ? { match: { ...match, rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup } : {}),
-    });
-    game.play({ driver: playerVsPlayer(session), names: playerNames });
+    const weapon = picks[me]!;
+    let session;
+    if (l.isHost) {
+      // A guest who left between the start and now gets an AI in their place from the first Tick.
+      const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
+      session = createRollbackSession({ role: 'host', guests, tuning, weapon, match: { ...match, rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup });
+    } else {
+      const transport = l.matchTransport(s.generation, 0);
+      if (!transport) return;
+      session = createRollbackSession({ role: 'guest', transport, tuning, weapon });
+    }
+    game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames });
   }
 
   /** The broker options, or undefined (after showing why) if the URL is unusable. */
@@ -369,7 +371,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     hud.hide();
   }
 
-  /** The Match cannot go on (the other player left, a refusal): back to the Lobby with why. */
+  /** The Match cannot go on (the host left, a refusal): back to the Lobby with why. */
   function matchFailed(text: string): void {
     stopMatch();
     const l = lobby;
@@ -482,7 +484,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function frame(now: number): void {
     accumulator += Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
     last = now;
-    // A Skirmish pauses with its menu open; an online Match runs on (the other player is still fighting).
+    // A Skirmish pauses with its menu open; an online Match runs on (the other players are still fighting).
     const frozen = menu.paused && !lobby?.online;
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
@@ -502,6 +504,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
     if (frozen) accumulator = 0;
     if (driver?.waiting) hud.announce(driver.waiting, 0.5);
+    const notice = driver?.takeNotice?.();
+    if (notice) hud.announce(notice, 3);
     if (!driver) accumulator = 0;
     if (resultAt !== null && now >= resultAt) {
       resultAt = null;

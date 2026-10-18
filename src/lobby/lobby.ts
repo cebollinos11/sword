@@ -5,21 +5,18 @@
  *
  * Two teams of MAX_TEAM_SIZE Seats each. A Seat is Open (a human may take it),
  * Closed, an AI (difficulty and Weapon), or a Player (a Member). Members are
- * the humans: the host is always first. The Lobby is laid out for up to
- * MAX_PLAYERS humans; a Match fields SUPPORTED_PLAYERS of them for now, so no
- * more Seats than that may be Open or taken by Players.
+ * the humans: the host is always first. A Room holds up to MAX_PLAYERS of
+ * them, so no more Seats than that may be Open or taken by Players.
  *
  * Starting a Match bumps `generation` and records who plays it (`inMatch`); a
  * restart from the in-game menu is just another start. The Lineup of a Match
  * reads the Seats team by team: Player numbers follow the Members' order.
  */
 import { MAX_TEAM_SIZE } from '../sim';
-import type { Lineup, LineupSlot, PlayerNumber } from '../controllers';
+import { MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
 
-/** The most humans a Room is laid out for. */
-export const MAX_PLAYERS = 4;
-/** The most humans a Match can field today (the Rollback session is two-peer). */
-export const SUPPORTED_PLAYERS = 2;
+/** The most humans a Room holds (and a Match fields). */
+export { MAX_PLAYERS };
 export const TEAM_COUNT = 2;
 export const BEST_OF = [1, 3, 5] as const;
 
@@ -77,7 +74,7 @@ export interface LobbyLineup {
 export interface NewLobbyOptions {
   readonly host: { readonly name: string; readonly weapon: string };
   readonly settings: LobbySettings;
-  /** Online: the second team starts with an Open Seat; offline with this AI. */
+  /** Online: Open Seats for three guests (one beside the host, two opposite); offline this AI opposite. */
   readonly online: boolean;
   readonly ai: { readonly difficulty: string; readonly weapon: string };
 }
@@ -85,13 +82,14 @@ export interface NewLobbyOptions {
 const OPEN: Seat = { kind: 'Open' };
 const CLOSED: Seat = { kind: 'Closed' };
 
-/** A fresh Lobby: the host on team 0, and an Open Seat (online) or an AI (offline) on team 1. */
+/** A fresh Lobby: the host on team 0; online, Open Seats for three guests (Open Seats field nobody), offline an AI on team 1. */
 export function newLobby(o: NewLobbyOptions): LobbyState {
-  const row = (first: Seat) => [first, ...Array.from({ length: MAX_TEAM_SIZE - 1 }, () => CLOSED)];
+  const row = (...first: Seat[]) => [...first, ...Array.from({ length: MAX_TEAM_SIZE - first.length }, () => CLOSED)];
+  const host: Seat = { kind: 'Player', member: 0 };
   return {
     settings: o.settings,
     members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, ready: true }],
-    teams: [row({ kind: 'Player', member: 0 }), row(o.online ? OPEN : { kind: 'AI', ...o.ai })],
+    teams: o.online ? [row(host, OPEN), row(OPEN, OPEN)] : [row(host), row({ kind: 'AI', ...o.ai })],
     generation: 0,
     playing: false,
     inMatch: [],
@@ -125,11 +123,11 @@ export function teamSize(state: LobbyState, team: number): number {
   return (state.teams[team] ?? []).filter((s) => s.kind === 'Player' || s.kind === 'AI').length;
 }
 
-/** May this Seat be set to `kind` (by the host)? Player Seats are the Members' own; Open Seats stay within SUPPORTED_PLAYERS. */
+/** May this Seat be set to `kind` (by the host)? Player Seats are the Members' own; Open Seats stay within MAX_PLAYERS. */
 export function canSetSeat(state: LobbyState, at: SeatRef, kind: Exclude<SeatKind, 'Player'>): boolean {
   const seat = seatAt(state, at);
   if (!seat || seat.kind === 'Player') return false;
-  if (kind === 'Open' && seat.kind !== 'Open') return humanSeats(state) < SUPPORTED_PLAYERS;
+  if (kind === 'Open' && seat.kind !== 'Open') return humanSeats(state) < MAX_PLAYERS;
   return true;
 }
 
@@ -153,15 +151,15 @@ export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbySta
   return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
 }
 
-/** A guest joins into the first Open Seat; null when there is none (the Room is full). */
+/** A guest joins into an Open Seat of the team fielding fewer Fighters (the later team on a tie, so opposite the host); null when none is Open (the Room is full). */
 export function join(state: LobbyState, m: Member): LobbyState | null {
-  if (state.members.length >= SUPPORTED_PLAYERS || member(state, m.id)) return null;
+  if (state.members.length >= MAX_PLAYERS || member(state, m.id)) return null;
+  let best: SeatRef | null = null;
   for (let team = state.teams.length - 1; team >= 0; team--) {
-    // The emptier team first, so a guest lands opposite the host by default.
     const index = state.teams[team]!.findIndex((s) => s.kind === 'Open');
-    if (index >= 0) return withSeat({ ...state, members: [...state.members, m] }, { team, index }, { kind: 'Player', member: m.id });
+    if (index >= 0 && (!best || teamSize(state, team) < teamSize(state, best.team))) best = { team, index };
   }
-  return null;
+  return best && withSeat({ ...state, members: [...state.members, m] }, best, { kind: 'Player', member: m.id });
 }
 
 /** A guest leaves: their Seat opens again. */

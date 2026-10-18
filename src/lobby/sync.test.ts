@@ -51,8 +51,8 @@ describe('Lobby sync', () => {
     r.run(3000);
     expect(r.host.state.members[1]).toMatchObject({ weapon: first, ready: true });
     expect(r.host.state.teams[0]![1]).toEqual({ kind: 'Player', member: 1 });
-    // A swap: the Closed Seat the guest took went to their old one.
-    expect(r.host.state.teams[1]![0]).toEqual({ kind: 'Closed' });
+    // A swap: the Open Seat the guest took went to their old one.
+    expect(r.host.state.teams[1]![0]).toEqual({ kind: 'Open' });
     expect(JSON.stringify(g.state)).toBe(JSON.stringify(r.host.state));
   });
 
@@ -66,19 +66,21 @@ describe('Lobby sync', () => {
     expect(g.state!.settings).toEqual({ arena: 'library', bestOf: 5 });
   });
 
-  it('turns away a second guest (the Room is full) and a guest with other Tuning Data', () => {
+  it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {
     const r = room();
-    const a = r.connect('Bo');
-    const b = r.connect('Cy');
-    const c = r.connect('Di', withWeapon(tuning, { damage: 1 }));
-    r.guests.push(a, b, c);
-    r.run(3000);
-    expect(a.status).toBe('Open');
-    expect(b.status).toBe('Closed');
-    expect(b.failure).toMatch(/full/);
-    expect(c.status).toBe('Closed');
-    expect(c.failure).toMatch(/game data/);
-    expect(r.host.state.members).toHaveLength(2);
+    const bad = r.connect('Ed', withWeapon(tuning, { damage: 1 }));
+    const ok = ['Bo', 'Cy', 'Di'].map((name) => r.connect(name));
+    r.guests.push(bad, ...ok);
+    r.run(2000);
+    const late = r.connect('Fi');
+    r.guests.push(late);
+    r.run(2000);
+    for (const g of ok) expect(g.status).toBe('Open');
+    expect(late.status).toBe('Closed');
+    expect(late.failure).toMatch(/full/);
+    expect(bad.status).toBe('Closed');
+    expect(bad.failure).toMatch(/game data/);
+    expect(r.host.state.members.map((m) => m.name)).toEqual(['Ana', 'Bo', 'Cy', 'Di']);
   });
 
   it('a guest leaving opens their Seat, and the host notices', () => {
@@ -121,13 +123,13 @@ describe('Lobby sync', () => {
       sessions?.forEach((s) => s.close());
       const h = createRollbackSession({
         role: 'host',
-        transport: r.host.matchTransport(gen)!,
+        transport: r.host.matchTransport(gen, 1)!,
         tuning,
         weapon: first,
         lineup,
         match: { bestOf: settings.bestOf, arena: settings.arena, seed: gen },
       });
-      const gs = createRollbackSession({ role: 'guest', transport: g.matchTransport(g.state!.generation)!, tuning, weapon: g.state!.members[1]!.weapon });
+      const gs = createRollbackSession({ role: 'guest', transport: g.matchTransport(g.state!.generation, 0)!, tuning, weapon: g.state!.members[1]!.weapon });
       sessions = [h, gs];
       started = gen;
     };
@@ -158,5 +160,43 @@ describe('Lobby sync', () => {
     expect(r.host.state.members[1]!.ready).toBe(false);
     expect(g.state!.members[1]!.ready).toBe(false);
     expect(r.host.start(true)).toMatch(/Bo/);
+  });
+
+  it('plays a four-Player Match over the Room links; a guest leaving the Room hands its Fighter to the AI', () => {
+    const r = room({ latencyMs: 30, jitterMs: 10 });
+    const gs = ['Bo', 'Cy', 'Di'].map((name) => r.connect(name));
+    r.guests.push(...gs);
+    r.run(1000);
+    for (const g of gs) g.setMine({ ready: true });
+    r.run(1000);
+    expect(r.host.start(true)).toBeNull();
+    r.run(500);
+
+    const gen = r.host.state.generation;
+    const { lineup, members } = lobbyLineup(r.host.state);
+    expect(members).toEqual([0, 1, 2, 3]);
+    const host = createRollbackSession({
+      role: 'host',
+      guests: members.slice(1).map((id) => r.host.matchTransport(gen, id)),
+      tuning,
+      weapon: first,
+      lineup,
+      match: { bestOf: 3, arena: 'circle', seed: gen },
+    });
+    const guests = gs.map((g) => createRollbackSession({ role: 'guest', transport: g.matchTransport(gen, 0)!, tuning, weapon: second }));
+    expect(gs[0]!.matchTransport(gen, 2)).toBeNull(); // guests only talk to the host
+    const sessions = [host, ...guests];
+    const left: unknown[] = [];
+    host.onEvent((e) => e.type === 'PlayerLeft' && left.push(e));
+    r.run(1500, () => sessions.forEach((s) => s.status !== 'Disconnected' && s.tick(IDLE_INTENT)));
+    expect(sessions.map((s) => s.status)).toEqual(['Running', 'Running', 'Running', 'Running']);
+    expect(guests.map((s) => s.localPlayer)).toEqual([1, 2, 3]);
+
+    gs[1]!.close(); // Cy leaves the Room
+    r.run(1500, () => sessions.forEach((s) => s.status !== 'Disconnected' && s.tick(IDLE_INTENT)));
+    expect(r.host.state.members.map((m) => m.name)).toEqual(['Ana', 'Bo', 'Di']);
+    expect(left).toEqual([expect.objectContaining({ type: 'PlayerLeft', player: 2 })]);
+    expect([host, guests[0]!, guests[2]!].map((s) => s.status)).toEqual(['Running', 'Running', 'Running']);
+    expect(host.currentTick).toBeGreaterThan(100);
   });
 });

@@ -15,7 +15,6 @@ import {
   member,
   seatOf,
   setSeat,
-  SUPPORTED_PLAYERS,
   teamSize,
   updateSettings,
   type Lobby,
@@ -86,7 +85,7 @@ function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const grid = h('div', 'lb-teams', null, teams[0]!, vs, teams[1]!);
   const humans = state.members.length;
   const note = ctx.lobby.online
-    ? h('p', 'lb-note', `${humans} of ${SUPPORTED_PLAYERS} players · Rooms will hold up to ${MAX_PLAYERS} players in a later version.`)
+    ? h('p', 'lb-note', `${humans} of ${MAX_PLAYERS} players · Open seats wait for players to join; Empty ones field nobody.`)
     : null;
   return section('Teams', grid, note);
 }

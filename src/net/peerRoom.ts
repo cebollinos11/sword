@@ -77,7 +77,7 @@ function describe(e: unknown, broker: BrokerOptions | null, code?: string): stri
     case 'webrtc':
     case 'negotiation-failed':
     case 'connection-closed':
-      return 'Could not open a direct connection to the other player (a firewall or network may be blocking WebRTC).';
+      return 'Could not open a direct connection to the host (a firewall or network may be blocking WebRTC).';
     default:
       return `Connection error${e instanceof Error && e.message ? `: ${e.message}` : '.'}`;
   }

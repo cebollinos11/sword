@@ -29,7 +29,9 @@ function throwingMatchState(): MatchState {
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
-const resync = (state: unknown, ai: unknown[] = [null, null]) => ({ type: 'resync', tick: 40, state, ai, intentsFrom: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] });
+const resync = (state: unknown, ai: unknown[] = [null, null]) => ({ type: 'resync', tick: 40, state, ai, streams: [{ player: 0, from: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] }] });
+/** An Intents message carrying one Player's stream. */
+const intents = (list: unknown[], extra: object = {}) => ({ type: 'intents', tick: 3, streams: [{ player: 1, from: 1, intents: list }], acks: [2, 0], ...extra });
 
 describe('Peer message validation', () => {
   it('accepts well-formed messages of every type', () => {
@@ -37,8 +39,11 @@ describe('Peer message validation', () => {
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234' },
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234', match: { bestOf: 3, distance: 2, interDuelTicks: 60, seed: 9 } },
       { type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 'Halberd', match: { bestOf: 3, weapons: ['Halberd', 'Longsword'] } },
+      { type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 'Halberd', match: { bestOf: 3 }, weapons: ['Halberd', 'Longsword', 'Halberd'], player: 2 },
       { type: 'refuse', reason: 'TuningDataMismatch', tuningHash: 'abcd1234' },
-      { type: 'intents', from: 1, intents: [IDLE_INTENT, { ...IDLE_INTENT, move: { x: 1, z: 0 }, direction: 'Left', attack: true, face: 1.5 }, { ...IDLE_INTENT, kick: true, crouch: false }], ack: 0 },
+      intents([IDLE_INTENT, { ...IDLE_INTENT, move: { x: 1, z: 0 }, direction: 'Left', attack: true, face: 1.5 }, { ...IDLE_INTENT, kick: true, crouch: false }]),
+      { type: 'intents', tick: 9, streams: [{ player: 0, from: 5, intents: [IDLE_INTENT] }, { player: 2, from: 4, intents: [] }], acks: [9, 7, 6, 0], dropped: [{ player: 3, tick: 8 }] },
+      { type: 'intents', tick: 0, streams: [], acks: [] },
       { type: 'checksum', tick: 30, hash: 'abcd1234' },
       { type: 'resyncRequest', tick: 30 },
       resync(matchState()),
@@ -55,8 +60,33 @@ describe('Peer message validation', () => {
     expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 7 })).toBeNull();
   });
 
+  it('refuses a hello naming a Player or picks beyond four Players', () => {
+    const hello = { type: 'hello', protocol: 1, tuningHash: 'abcd1234' };
+    for (const extra of [{ player: 4 }, { player: -1 }, { player: 1.5 }, { weapons: [] }, { weapons: ['a', 'b', 'c', 'd', 'e'] }, { weapons: [1, 2] }]) {
+      expect(parseNetMessage({ ...hello, ...extra }), JSON.stringify(extra)).toBeNull();
+    }
+  });
+
+  it('refuses malformed Intents streams, acks and dropped Players', () => {
+    for (const extra of [
+      { streams: [{ player: 4, from: 1, intents: [] }] },
+      { streams: [{ player: 1, from: -1, intents: [] }] },
+      { streams: [{ player: 1, from: 1, intents: [] }, { player: 1, from: 2, intents: [] }] },
+      { streams: null },
+      { acks: [1, 2, 3, 4, 5] },
+      { acks: [-1] },
+      { acks: undefined },
+      { tick: 'now' },
+      { dropped: [{ player: 1, tick: 0 }] },
+      { dropped: [{ player: 9, tick: 3 }] },
+      { dropped: {} },
+    ]) {
+      expect(parseNetMessage({ ...intents([IDLE_INTENT]), ...extra }), JSON.stringify(extra)).toBeNull();
+    }
+  });
+
   it('refuses an Intent whose kick is not a boolean', () => {
-    expect(parseNetMessage({ type: 'intents', from: 0, intents: [{ ...IDLE_INTENT, kick: 'yes' }], ack: 0 })).toBeNull();
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, kick: 'yes' }]))).toBeNull();
   });
 
   it('carries the Kick Action and the kicking leg through a resync', () => {
@@ -66,7 +96,7 @@ describe('Peer message validation', () => {
   });
 
   it('refuses an Intent whose throw is not a boolean', () => {
-    expect(parseNetMessage({ type: 'intents', from: 0, intents: [{ ...IDLE_INTENT, throw: 1 }], ack: 0 })).toBeNull();
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, throw: 1 }]))).toBeNull();
   });
 
   it('carries the Throw Action and the dagger count through a resync', () => {
@@ -164,7 +194,7 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, gait: { ...fighter.gait, right: { planted: { x: 0, z: 0 }, step: { tick: 2, target: 'there' } } } }),
     ];
     for (const state of broken) expect(parseNetMessage(resync(state)), JSON.stringify(state)?.slice(0, 120)).toBeNull();
-    expect(parseNetMessage({ ...resync(good), intents: [{}] })).toBeNull();
+    expect(parseNetMessage({ ...resync(good), streams: [{ player: 0, from: 1, intents: [{}] }] })).toBeNull();
   });
 });
 

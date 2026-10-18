@@ -132,7 +132,7 @@ describe('Rollback session: team battles', () => {
     guest.onEvent((e) => events.push(e));
     // A broken or hostile host: its hello's Lineup fields an AI difficulty nobody has.
     const lineup = [MIXED[0], MIXED[1], MIXED[2], { team: 0, pilot: { kind: 'AI', difficulty: 'Godlike' } }];
-    pair.a.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: 'Halberd', match: MATCH, lineup });
+    pair.a.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: 'Halberd', match: MATCH, lineup, weapons: ['Halberd', 'Halberd'], player: 1 });
     for (let i = 0; i < 5; i++) {
       pair.advance(TICK_MS);
       guest.tick(IDLE_INTENT);
@@ -162,7 +162,7 @@ describe('Peer message validation: team battles', () => {
       [player],
       Array(7).fill(player),
       [player, { team: 2, pilot: { kind: 'Player', player: 1 } }],
-      [player, { team: 1, pilot: { kind: 'Player', player: 2 } }],
+      [player, { team: 1, pilot: { kind: 'Player', player: 4 } }],
       [player, { team: 1, pilot: { kind: 'AI' } }],
       [player, { team: 1, pilot: { kind: 'AI', difficulty: 'Normal' }, weapon: 3 }],
       [player, { team: 1, pilot: { kind: 'Ghost' } }],

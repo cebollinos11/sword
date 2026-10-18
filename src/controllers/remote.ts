@@ -1,19 +1,20 @@
 /**
- * The Remote Controller: drives the Fighter of the peer in a Player vs Player
- * Match. Its Intents come from the Rollback session (src/net): the peer's real
- * Intent for the Tick being simulated once it has arrived, a prediction (the
- * last real one repeated) until then. When a prediction proves wrong the
- * session rolls back and asks again, so the Fighter never knows the difference.
+ * The Remote Controller: drives the Fighters of the other Players in a Player
+ * vs Player Match. Their Intents come from the Rollback session (src/net): a
+ * Player's real Intent for the Tick being simulated once it has arrived, a
+ * prediction (their last real one repeated) until then. When a prediction
+ * proves wrong the session rolls back and asks again, so the Fighter never
+ * knows the difference.
  */
 import type { Intent } from '../sim';
 import type { Controller } from './controller';
 
-/** Where a Remote Controller reads the peer's Intents (the Rollback session). */
+/** Where a Remote Controller reads the other Players' Intents (the Rollback session). */
 export interface PeerIntentSource {
-  /** The peer's Intent for the Tick about to be simulated: real if it has arrived, predicted otherwise. */
-  peerIntent(): Intent;
+  /** The Intent of the Player driving `fighter` for the Tick about to be simulated: real if it has arrived, predicted otherwise. */
+  peerIntent(fighter: number): Intent;
 }
 
 export function createRemoteController(source: PeerIntentSource): Controller {
-  return { intent: () => source.peerIntent() };
+  return { intent: (_state, fighter) => source.peerIntent(fighter) };
 }

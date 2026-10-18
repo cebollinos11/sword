@@ -1,15 +1,16 @@
 import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
-import type { Lineup } from '../controllers';
+import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
 
 /**
- * Sent repeatedly while connecting. Each peer's hello carries its Weapon pick; the host's
- * also carries the Match options and the Lineup (each peer adds both picks to them to build the Match).
+ * Sent repeatedly while connecting. A guest's hello carries its Weapon pick. The host's, once it has
+ * every guest's, carries the Match options, the Lineup, every Player's pick (`weapons`, index = Player
+ * number) and which Player the guest it goes to is (`player`).
  */
 export interface HelloMessage {
   readonly type: 'hello';
@@ -18,6 +19,8 @@ export interface HelloMessage {
   readonly weapon?: string;
   readonly match?: MatchOptions;
   readonly lineup?: Lineup;
+  readonly weapons?: readonly string[];
+  readonly player?: number;
 }
 
 /** "I refused you": lets the peer surface the refusal even if our hello was lost. */
@@ -27,16 +30,31 @@ export interface RefuseMessage {
   readonly tuningHash: string;
 }
 
+/** One Player's Intents for Ticks `from`, `from + 1`, ... */
+export interface IntentStream {
+  readonly player: number;
+  readonly from: number;
+  readonly intents: readonly Intent[];
+}
+
+/** A Player who left mid-Match: the AI drives their Fighter from Tick `tick` on. */
+export interface DroppedPlayer {
+  readonly player: number;
+  readonly tick: number;
+}
+
 /**
- * The sender's Intents for Ticks `from`, `from + 1`, ... (every Intent the peer
- * has not acknowledged yet, so a lost packet is covered by the next one), plus
- * `ack`: the last Tick up to which the sender holds all of the peer's Intents.
+ * Intents, in streams: a guest sends its own; the host sends its own and relays every other
+ * guest's (each stream from where the peer's ack leaves off, so a lost packet is covered by the
+ * next one). `tick` is the sender's current Tick; `acks[p]` the last Tick up to which the sender
+ * holds all of Player p's Intents. The host also lists the Players who left (`dropped`).
  */
 export interface IntentsMessage {
   readonly type: 'intents';
-  readonly from: number;
-  readonly intents: readonly Intent[];
-  readonly ack: number;
+  readonly tick: number;
+  readonly streams: readonly IntentStream[];
+  readonly acks: readonly number[];
+  readonly dropped?: readonly DroppedPlayer[];
 }
 
 /** Host → guest: the state hash of a confirmed Tick. */
@@ -54,7 +72,7 @@ export interface ResyncRequestMessage {
 
 /**
  * Host → guest: the host's confirmed Match state at `tick` and its AI Controllers' memory then (one
- * entry per Fighter, null for a Player's), plus the host's own Intents from `intentsFrom` to `tick`
+ * entry per Fighter, null where no AI drives it yet), plus the other Players' Intents up to `tick`
  * that the guest may not have yet.
  */
 export interface ResyncMessage {
@@ -62,8 +80,7 @@ export interface ResyncMessage {
   readonly tick: number;
   readonly state: MatchState;
   readonly ai: readonly unknown[];
-  readonly intentsFrom: number;
-  readonly intents: readonly Intent[];
+  readonly streams: readonly IntentStream[];
 }
 
 /** Round-trip probe: the peer answers with a `pong` carrying the same `sent` stamp (the sender's own clock). */
@@ -90,19 +107,27 @@ export function parseNetMessage(m: unknown): NetMessage | null {
         isString(m.tuningHash) &&
         (m.weapon === undefined || isString(m.weapon)) &&
         (m.match === undefined || isMatchOptions(m.match)) &&
-        (m.lineup === undefined || isLineup(m.lineup))
+        (m.lineup === undefined || isLineup(m.lineup)) &&
+        (m.weapons === undefined || (isArrayOf(m.weapons, isString) && (m.weapons as unknown[]).length >= 1 && (m.weapons as unknown[]).length <= MAX_PLAYERS)) &&
+        (m.player === undefined || isPlayer(m.player))
         ? (m as unknown as HelloMessage)
         : null;
     case 'refuse':
       return REFUSE_REASONS.has(m.reason as string) && isString(m.tuningHash) ? (m as unknown as RefuseMessage) : null;
     case 'intents':
-      return isTick(m.from) && isIntents(m.intents) && isTick(m.ack) ? (m as unknown as IntentsMessage) : null;
+      return isTick(m.tick) &&
+        isStreams(m.streams) &&
+        isArrayOf(m.acks, isTick) &&
+        (m.acks as unknown[]).length <= MAX_PLAYERS &&
+        (m.dropped === undefined || (isArrayOf(m.dropped, isDropped) && (m.dropped as unknown[]).length <= MAX_PLAYERS))
+        ? (m as unknown as IntentsMessage)
+        : null;
     case 'checksum':
       return isTick(m.tick) && isString(m.hash) ? (m as unknown as ChecksumMessage) : null;
     case 'resyncRequest':
       return isTick(m.tick) ? (m as unknown as ResyncRequestMessage) : null;
     case 'resync':
-      return isTick(m.tick) && isTick(m.intentsFrom) && isIntents(m.intents) && isMatchState(m.state) && isArrayOf(m.ai, isAiMemoryOrNull)
+      return isTick(m.tick) && isStreams(m.streams) && isMatchState(m.state) && isArrayOf(m.ai, isAiMemoryOrNull)
         ? (m as unknown as ResyncMessage)
         : null;
     case 'ping':
@@ -141,12 +166,13 @@ const isWeapons = (v: unknown): boolean => isPerFighter(v, isString);
 /** Whether each team's size is allowed is for `checkTeams` to say. */
 const isTeams = (v: unknown): boolean => isPerFighter(v, isTeam);
 const isNullable = (item: (x: unknown) => boolean) => (v: unknown): boolean => v === null || item(v);
+const isPlayer = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_PLAYERS;
 
 /** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
   if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon))) return false;
   const p = v.pilot;
-  return (p.kind === 'Player' && (p.player === 0 || p.player === 1)) || (p.kind === 'AI' && isString(p.difficulty));
+  return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty));
 }
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
@@ -154,6 +180,11 @@ function isIntent(v: unknown): v is Intent {
   return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
+const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
+/** At most one stream per Player. */
+const isStreams = (v: unknown): boolean =>
+  isArrayOf(v, isStream) && new Set((v as { player: number }[]).map((s) => s.player)).size === (v as unknown[]).length;
+const isDropped = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.tick) && v.tick >= 1;
 
 function isMatchOptions(v: unknown): boolean {
   return (
