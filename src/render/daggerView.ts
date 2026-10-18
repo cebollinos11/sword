@@ -215,6 +215,7 @@ export class DaggerViews {
     for (const mesh of this.flying.values()) this.root.remove(mesh);
     this.flying.clear();
     for (const s of this.stuck.splice(0)) this.root.remove(s.mesh);
-    for (const mesh of this.held) mesh.visible = false;
+    // Sparse: only Fighters that have held a dagger have one.
+    for (const mesh of this.held) if (mesh) mesh.visible = false;
   }
 }

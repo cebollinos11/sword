@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createInitialState, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState } from '../sim';
+import * as THREE from 'three';
+import { createInitialState, duelPlacements, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState } from '../sim';
 import { loadTuningData } from '../tuning';
-import { embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
+import { DaggerViews, embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
 
 const tuning = loadTuningData();
 
@@ -51,5 +52,16 @@ describe('a dagger embedded in a Fighter', () => {
     const moved = embedPosition(embed, { position: { x: 3, z: 3 }, y: 0, facing: 0.7 + Math.PI / 2 });
     expect(Math.hypot(moved.x - 3, moved.z - 3)).toBeCloseTo(Math.hypot(point.x - 2, point.z - 3), 9);
     expect(moved.y).toBeCloseTo(1.2, 9);
+  });
+});
+
+describe('the dagger views', () => {
+  it('clear on a restart when only a later Fighter has held a dagger', () => {
+    const start = createInitialState(tuning, 1, duelPlacements(3));
+    const s = step(start, [IDLE_INTENT, { ...IDLE_INTENT, throw: true }], tuning);
+    const views = new DaggerViews(new THREE.Scene());
+    views.update(start, s, 1, 0, s.fighters.map((f) => fighterPose(f, tuning)));
+    // Back to Tick 0, as a Restart does.
+    expect(() => views.update(start, start, 1, 0, start.fighters.map((f) => fighterPose(f, tuning)))).not.toThrow();
   });
 });
