@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOption
 import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -234,6 +234,11 @@ function isSlide(v: unknown): boolean {
   return isObject(v) && isNum(v.vx) && isNum(v.vz) && isTick(v.ticks);
 }
 
+/** A Slow: the Ticks it has left. */
+function isSlow(v: unknown): boolean {
+  return isObject(v) && isTick(v.ticks);
+}
+
 function isFighter(v: unknown): boolean {
   return (
     isObject(v) &&
@@ -241,6 +246,7 @@ function isFighter(v: unknown): boolean {
     isNum(v.y) &&
     (v.air === undefined || isAirborne(v.air)) &&
     (v.slide === undefined || isSlide(v.slide)) &&
+    (v.slow === undefined || isSlow(v.slow)) &&
     isNum(v.facing) &&
     isNum(v.pitch) &&
     isNum(v.crouch) &&

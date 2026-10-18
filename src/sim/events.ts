@@ -53,6 +53,25 @@ export interface DaggerStuckEvent {
   readonly direction: Vec3;
 }
 
+/** A thrown dagger Hit a Fighter (not a teammate): damage, a Stagger (unless it lay in Knockdown) and a Slow. */
+export interface DaggerHitEvent {
+  readonly type: 'DaggerHit';
+  readonly thrower: number;
+  readonly defender: number;
+  readonly zone: HitZone;
+  /** World-space contact point. */
+  readonly point: Vec3;
+  readonly damage: number;
+}
+
+/** A thrown dagger reached a Fighter who Blocked it by rule (raised after the throw began, roughly facing the thrower): it stops there, nothing else happens. */
+export interface DaggerBlockedEvent {
+  readonly type: 'DaggerBlocked';
+  readonly thrower: number;
+  readonly defender: number;
+  readonly point: Vec3;
+}
+
 /** An Attack's Blade Sweep reached a defender who Blocked it by rule: no damage, the attacker Staggers. */
 export interface BlockEvent {
   readonly type: 'Block';
@@ -133,7 +152,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

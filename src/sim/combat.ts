@@ -13,7 +13,7 @@
 import { weaponByName, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
-import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, stagger, startBlockImpact } from './actions';
+import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, type Direction, type Intent } from './intent';
@@ -21,8 +21,9 @@ import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
 import type { AttackAction, FighterState, StaggerCause } from './state';
-import { bladeSamples, sweepContact, type Capsule } from './sweep';
-import { length, normalize, scale, sub, type Vec3 } from './vec';
+import { bladeSamples, closestSegmentSegment, sweepContact, type Capsule } from './sweep';
+import type { DaggerSweep } from './dagger';
+import { lerp, length, normalize, scale, sub, type Vec3 } from './vec';
 
 /**
  * A live Blade Sweep touching another Fighter this Tick: a Hit Zone, or (only
@@ -117,6 +118,80 @@ function findKickContacts(before: FighterState, kicker: FighterState, i: number,
   });
   const found = best as { contact: KickContact } | null;
   if (found) out.push(found.contact);
+}
+
+/** A thrown dagger's path this Tick reaching a living enemy's Hit Zone (ADR 0008): `sweep` indexes `advanceDaggers`' sweeps. */
+export interface DaggerContact {
+  readonly sweep: number;
+  readonly defender: number;
+  readonly zone: HitZone;
+  readonly point: Vec3;
+}
+
+/**
+ * The first living Fighter each dagger's path reaches this Tick: the earliest point along the segment, so a dagger
+ * never passes through one Fighter into another. It passes through its thrower and the thrower's teammates, and
+ * ignores Weapons. Hit Zones are padded by `dagger.radius`.
+ */
+export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: readonly FighterState[], tuning: TuningData): DaggerContact[] {
+  const zones = fighters.map((f) => (f.death || f.hp <= 0 ? null : hitZoneCapsules(fighterPose(f, tuning), tuning)));
+  const out: DaggerContact[] = [];
+  sweeps.forEach((sweep, k) => {
+    let best: { s: number; depth: number; contact: DaggerContact } | null = null;
+    fighters.forEach((f, j) => {
+      const capsules = zones[j];
+      if (!capsules || f.team === sweep.dagger.team || j === sweep.dagger.owner) return;
+      for (const z of capsules) {
+        const radius = z.radius + tuning.dagger.radius;
+        const { s, distance } = closestSegmentSegment(sweep.from, sweep.to, z.a, z.b);
+        if (distance > radius) continue;
+        const depth = radius - distance;
+        if (best && (s > best.s || (s === best.s && depth <= best.depth))) continue;
+        best = { s, depth, contact: { sweep: k, defender: j, zone: z.zone, point: lerp(sweep.from, sweep.to, s) } };
+      }
+    });
+    const found = best as { contact: DaggerContact } | null;
+    if (found) out.push(found.contact);
+  });
+  return out;
+}
+
+/**
+ * Apply this Tick's dagger contacts, all judged against the pre-resolution `fighters` (who was Blocking). Blocked by
+ * rule (ADR 0008): the defender is in a Block, roughly faces the thrower, and raised that Block on or after the Tick the
+ * throw's Wind-up started (`tick - age >= thrownAt`); nothing else happens but a light Block Impact. Otherwise a Hit:
+ * damage × Hit Zone multiplier, a Stagger (not for a Fighter lying in Knockdown) and the Slow, restarted if it was already on.
+ * Returns the Fighters and the sweeps whose dagger is spent.
+ */
+export function resolveDaggers(
+  fighters: readonly FighterState[],
+  contacts: readonly DaggerContact[],
+  sweeps: readonly DaggerSweep[],
+  tick: number,
+  tuning: TuningData,
+  emit: Emit,
+): { fighters: FighterState[]; spent: Set<number> } {
+  const out = fighters.slice();
+  const spent = new Set<number>();
+  for (const c of contacts) {
+    const { dagger: d } = sweeps[c.sweep]!;
+    const thrower = fighters[d.owner]!;
+    const defender = fighters[c.defender]!;
+    spent.add(c.sweep);
+    const guard = defender.action;
+    if (guard.kind === 'Block' && roughlyFaces(defender, thrower, tuning) && tick - guard.age >= d.thrownAt) {
+      emit({ type: 'DaggerBlocked', thrower: d.owner, defender: c.defender, point: c.point });
+      const impact = startBlockImpact(thrower, defender, guard.direction, tuning.dagger.speed, tuning);
+      out[c.defender] = { ...out[c.defender]!, blockImpact: { ...impact, strength: impact.strength * tuning.dagger.blockImpact } };
+      continue;
+    }
+    const damage = tuning.dagger.damage * tuning.hitZones[c.zone].multiplier;
+    emit({ type: 'DaggerHit', thrower: d.owner, defender: c.defender, zone: c.zone, point: c.point, damage });
+    const hurt = out[c.defender]!;
+    const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
+    out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
+  }
+  return { fighters: out, spent };
 }
 
 /**

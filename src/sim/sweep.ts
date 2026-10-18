@@ -60,7 +60,7 @@ export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeT
  * Closest points between segments p0→p1 and q0→q1 (Ericson, Real-Time
  * Collision Detection 5.1.9). `s` is the parameter along p0→p1.
  */
-function closestSegmentSegment(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3): { s: number; distance: number } {
+export function closestSegmentSegment(p0: Vec3, p1: Vec3, q0: Vec3, q1: Vec3): { s: number; distance: number } {
   const d1 = sub(p1, p0);
   const d2 = sub(q1, q0);
   const r = sub(p0, q0);

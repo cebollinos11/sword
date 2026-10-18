@@ -5,7 +5,7 @@ import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
 import { arenaOf, blockedAt, deadlyGround, groundBelow } from './arena';
 import { resolveBodies } from './collision';
-import { findContacts, resolveContacts, staggerFighter } from './combat';
+import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, updateDuel } from './duel';
 import type { SimEvent } from './events';
@@ -103,6 +103,9 @@ const RECOIL_WALK_FACTOR = 0.5;
 /** A Staggered Fighter cannot act, except that a blocked attacker can still shuffle through its recoil. A kicking or knocked-down Fighter is committed: it cannot walk (it can still turn). */
 const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.action.cause !== 'Blocked') || f.action.kind === 'Kick' || f.action.kind === 'Knockdown';
 
+/** The share of its speed a Fighter keeps while a dagger Hit's Slow lasts (1 when it is not slowed). It multiplies with crouch and recoil. */
+const slowFactor = (f: FighterState, tuning: TuningData): number => (f.slow ? tuning.dagger.slowFactor : 1);
+
 /** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly). */
 function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
   if (locked(f)) return f.position;
@@ -113,7 +116,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mx /= len;
     mz /= len;
   }
-  const speed = (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const speed = slowFactor(f, tuning) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
@@ -171,8 +174,9 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
     mx /= len;
     mz /= len;
   }
-  let dvx = mx * tuning.fighter.walkSpeed - air.vx;
-  let dvz = mz * tuning.fighter.walkSpeed - air.vz;
+  const topSpeed = tuning.fighter.walkSpeed * slowFactor(f, tuning);
+  let dvx = mx * topSpeed - air.vx;
+  let dvz = mz * topSpeed - air.vz;
   const dv = Math.hypot(dvx, dvz);
   const maxDv = tuning.fall.airControl * TICK_SECONDS;
   if (dv > maxDv) {
@@ -216,7 +220,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   const released = update.action.kind === 'Throw' && update.action.phase === 'Release' && !(f.action.kind === 'Throw' && f.action.phase === 'Release');
   if (released) emit({ type: 'DaggerThrown', thrower: index });
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
-  const { blockImpact, air: _air, slide: _slide, ...rest } = f;
+  const { blockImpact, air: _air, slide: _slide, slow, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
   // A Slide carries a grounded Fighter along on top of its walk; once airborne its speed lives in `air` instead.
   const sliding = !air && f.slide ? advanceSlide(f.slide) : undefined;
@@ -234,7 +238,8 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
     daggers: released ? f.daggers - 1 : f.daggers,
     motion: followMotion(tuning, f.weapon, f.motion, update.motion, update.blendTicks),
   };
-  return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}) };
+  // The Slow counts down every Tick, in Stagger and in the air too; it is stripped, never stored, at zero.
+  return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}), ...(slow && slow.ticks > 1 ? { slow: { ticks: slow.ticks - 1 } } : {}) };
 }
 
 /**
@@ -323,16 +328,20 @@ function settleBodies(
 }
 
 /** How Fighter `i` fell this Tick: to the last Hit on it, or else to a hard Landing. */
-function felled(events: readonly SimEvent[], i: number, fighters: readonly FighterState[], tick: number): Death {
-  const blow = fellingBlow(events, i, fighters);
+function felled(events: readonly SimEvent[], i: number, fighters: readonly FighterState[], tick: number, tuning: TuningData): Death {
+  const blow = fellingBlow(events, i, fighters, tuning);
   const fall = !blow && events.some((e) => e.type === 'Land' && e.fighter === i && e.damage > 0);
   return { tick, cause: fall ? 'Fall' : 'Hit', blow };
 }
 
-/** The last Hit this Tick on Fighter `defender`, as the blow that felled it. */
-function fellingBlow(events: readonly SimEvent[], defender: number, fighters: readonly FighterState[]): DeathBlow | null {
+/** The last Hit this Tick on Fighter `defender` (a blade's or a dagger's), as the blow that felled it. A dagger drives the body at its launch speed, along a Thrust. */
+function fellingBlow(events: readonly SimEvent[], defender: number, fighters: readonly FighterState[], tuning: TuningData): DeathBlow | null {
   for (let k = events.length - 1; k >= 0; k--) {
     const e = events[k]!;
+    if (e.type === 'DaggerHit' && e.defender === defender) {
+      const { x, z } = fighters[e.thrower]!.position;
+      return { point: e.point, bladeSpeed: tuning.dagger.speed, direction: 'Thrust', from: { x, z } };
+    }
     if (e.type !== 'Hit' || e.defender !== defender) continue;
     const { x, z } = fighters[e.attacker]!.position;
     return { point: e.point, bladeSpeed: e.bladeSpeed, direction: e.direction, from: { x, z } };
@@ -367,15 +376,27 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   // Daggers already in flight move first; one thrown this Tick leaves the solved left hand and first moves next Tick.
   const flight = advanceDaggers(state.daggers, arena, tuning, emit);
   const thrown = events.flatMap((e) => (e.type === 'DaggerThrown' ? [launchDagger(fighters[e.thrower]!, e.thrower, tuning)] : []));
-  const daggers = [...flight.daggers, ...thrown];
+  let flying = flight.daggers;
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), intents, tuning, emit);
+  if (fighting) {
+    // Daggers land after blade and Kick contacts, against the post-contact Fighters; one that hit or was Blocked is spent.
+    const resolved = resolveDaggers(fighters, findDaggerContacts(flight.sweeps, fighters, tuning), flight.sweeps, tick, tuning, emit);
+    fighters = resolved.fighters;
+    // `flight.daggers` holds a survivor for each sweep that did not end, in order.
+    let survivor = 0;
+    flying = flight.sweeps.flatMap((sweep, k) => {
+      const next = sweep.ended ? undefined : flight.daggers[survivor++];
+      return next && !resolved.spent.has(k) ? [next] : [];
+    });
+  }
+  const daggers = [...flying, ...thrown];
   if (fighting)
     fighters = fighters.map((f) => {
       const cause = f.death || f.air ? null : deadlyGround(arena, f.position.x, f.position.z, f.y);
       return cause ? { ...f, hp: 0, death: { tick, cause, blow: null } } : f;
     });
-  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick) }));
+  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick, tuning) }));
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.

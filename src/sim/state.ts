@@ -132,6 +132,11 @@ export interface Slide {
   readonly ticks: number;
 }
 
+/** The Slow a dagger Hit leaves: walking and air steering run at `dagger.slowFactor` for these many more Ticks (never stored as zero). */
+export interface Slow {
+  readonly ticks: number;
+}
+
 export interface FighterState {
   /** Position on the ground plane, centre of the Arena is the origin. */
   readonly position: Vec2;
@@ -163,6 +168,8 @@ export interface FighterState {
   readonly gait: GaitState;
   /** Present while a Kick's push is carrying the Fighter along the floor (a Slide); absent otherwise, and while airborne. */
   readonly slide?: Slide;
+  /** Present while a dagger Hit's Slow lasts; absent once it has run out. A new dagger Hit restarts it at the same strength. */
+  readonly slow?: Slow;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
   readonly blockImpact?: BlockImpact;
   /** Present once the Fighter has fallen (its HP reached zero). It is no longer simulated, hits and is hit by nothing, and no longer blocks bodies: its state stays as it was on that Tick. */

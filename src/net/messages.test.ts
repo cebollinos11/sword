@@ -110,6 +110,16 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(slide({ vx: 0, vz: 0, ticks: -1 })))).toBeNull();
   });
 
+  it('carries a Slow through a resync, and refuses a malformed one', () => {
+    const state = matchState();
+    const slow = (v: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, slow: v }, ...state.duel.fighters.slice(1)] } });
+    const slowed = slow({ ticks: 120 });
+    expect(parseNetMessage(resync(slowed))).toEqual(resync(slowed));
+    expect(parseNetMessage(resync(slow({})))).toBeNull();
+    expect(parseNetMessage(resync(slow({ ticks: -1 })))).toBeNull();
+    expect(parseNetMessage(resync(slow({ ticks: 'long' })))).toBeNull();
+  });
+
   it('refuses a resync whose Match state is malformed', () => {
     const good = matchState();
     const fighter = good.duel.fighters[0]!;
