@@ -44,13 +44,14 @@ describe('Player vs AI Match driver', () => {
     expect(driver.state!.duel.fighters[0]!.position.z).toBeLessThan(z0);
   });
 
-  it('the difficulty changes how the AI defends: Hard blocks more of the same Attacks than Easy', () => {
+  it('the difficulty changes how the AI defends: Hard is hit by fewer of the same Attacks than Easy', () => {
     // Step in to 1.3 m, then tap an Overhead every 90 Ticks.
     const local = (t: number): Intent =>
       t < 12 ? { ...IDLE_INTENT, move: { x: 0, z: 1 } } : { ...IDLE_INTENT, attack: t % 90 === 0 };
     const easy = play('Easy', local, 2400);
     const hard = play('Hard', local, 2400);
-    expect(hard.blocks).toBeGreaterThan(easy.blocks);
+    expect(easy.hits).toBeGreaterThan(0);
+    expect(hard.hits).toBeLessThan(easy.hits);
   });
 
   it('rejects an unknown difficulty', () => {

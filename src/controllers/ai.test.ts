@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
@@ -261,10 +261,11 @@ describe('AI Controller in the multilevel library', () => {
     const engaged = run.events.find((e) => e.type === 'AttackPhase' && e.fighter === 0 && e.phase === 'Wind-up');
     expect(engaged, 'the AI never attacked').toBeDefined();
     const at = run.states[engaged!.tick]!.fighters[0]!;
-    expect(at.y).toBe(6);
-    expect(Math.hypot(at.position.x - 5, at.position.z - 10.5)).toBeLessThan(repo.ai.attackRange + 0.2);
+    // On the gallery (it may leap in with a jumping Attack), within the reach it steps in and swings from.
+    expect(Math.abs(at.y - 6)).toBeLessThan(0.5);
+    expect(Math.hypot(at.position.x - 5, at.position.z - 10.5)).toBeLessThan(repo.ai.attackRange + 1.4);
     // It walked there: no fall on the way.
-    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0)).toBe(false);
+    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.tick <= engaged!.tick)).toBe(false);
   });
 
   it('backing off at an open ledge, it strafes along it rather than stepping off', () => {
@@ -365,5 +366,67 @@ describe('AI Controller: Kick', () => {
     expect(hashValue(a.run.final)).toBe(hashValue(b.run.final));
     const c = duel(tuning, walk(200, { x: 0, z: -1 }), 150, 2, 8);
     expect(hashValue(c.run.final)).not.toBe(hashValue(a.run.final));
+  });
+});
+
+describe('AI Controller: repertoire', () => {
+  const sharp = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
+
+  it('with duckRate 1 it Crouches under a Left or Right swing instead of Blocking it, and is not hit', () => {
+    for (const direction of ['Left', 'Right'] as const) {
+      const { run, aiIntents } = vsAi(passive, { ...sharp, duckRate: 1 }, [...wait(30), ...attack(direction)], 150);
+      expect(aiIntents.some((i) => i.crouch), direction).toBe(true);
+      expect(aiIntents.some((i) => i.block), direction).toBe(false);
+      expect(run.events.some((e) => e.type === 'Hit' && e.defender === 1), direction).toBe(false);
+    }
+  });
+
+  it('still Blocks an Overhead or a Thrust whatever its duckRate (a Crouch would take them to the head)', () => {
+    for (const direction of ['Overhead', 'Thrust'] as const) {
+      const { run } = vsAi(passive, { ...sharp, duckRate: 1 }, [...wait(30), ...attack(direction)], 150);
+      expect(run.events.filter((e) => e.type === 'Block'), direction).toEqual([expect.objectContaining({ defender: 1, direction })]);
+    }
+  });
+
+  it('with chamberRate 1 it Chambers an Attack released as soon as it can be, timed off the Wind-up it saw', () => {
+    for (const direction of DIRECTIONS) {
+      const { run } = vsAi(passive, { ...sharp, chamberRate: 1 }, [...wait(30), ...attack(direction)], 150);
+      expect(run.events.filter((e) => e.type === 'Chamber'), direction).toEqual([expect.objectContaining({ chamberer: 1, attacker: 0 })]);
+      expect(run.events.some((e) => e.type === 'Hit' && e.defender === 1), direction).toBe(false);
+    }
+  });
+
+  it('a Chamber that misses its timing (the Wind-up is held) falls back to a Block', () => {
+    const { run } = vsAi(passive, { ...sharp, chamberRate: 1 }, [...wait(30), ...attack('Overhead', 40)], 200);
+    expect(run.events.some((e) => e.type === 'Chamber')).toBe(false);
+    expect(run.events.filter((e) => e.type === 'Block')).toEqual([expect.objectContaining({ defender: 1, direction: 'Overhead' })]);
+  });
+
+  it('with a jumpAttackRate it leaps in from beyond its reach with an Overhead that lands', () => {
+    const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0 } };
+    const ai = createAiController(eager, { ...sharp, footwork: 0.5, aggression: 0, jumpAttackRate: 0.05 });
+    const run = runControllers(eager, createInitialState(eager, 3, duelPlacements(3.5)), [scriptedController(wait(1)), ai], 600);
+    const jump = run.events.find((e) => e.type === 'Jump' && e.fighter === 1);
+    expect(jump, 'it never jumped').toBeDefined();
+    expect(run.states[jump!.tick]!.fighters[1]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead' });
+    expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 1 && e.tick > jump!.tick && e.tick < jump!.tick + 60)).toBe(true);
+  });
+
+  it('with chainRate 1 it Chains a second Attack while its target is still in reach', () => {
+    const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, aggression: 0.2 } };
+    const ai = createAiController(eager, { ...sharp, chainRate: 1 });
+    const run = runControllers(eager, createInitialState(eager, 5, duelPlacements(1.2)), [scriptedController(wait(1)), ai], 400);
+    expect(run.states.some((s) => s.fighters[1]!.action.kind === 'Attack' && (s.fighters[1]!.action as { chain?: unknown }).chain !== undefined)).toBe(true);
+  });
+
+  it('attacks around a Block it sees raised: never into the Direction that Block stops', () => {
+    const eager: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, aggression: 0.2 } };
+    const ai = createAiController(eager, sharp);
+    const run = runControllers(eager, createInitialState(eager, 9, duelPlacements(1.2)), [scriptedController(hold(900, { block: true, direction: 'Left' })), ai], 900);
+    const swings = run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Wind-up');
+    expect(swings.length).toBeGreaterThan(3);
+    // A Left Block meets a Right Attack.
+    for (const e of swings) expect(e.type === 'AttackPhase' && e.direction).not.toBe('Right');
+    expect(run.events.some((e) => e.type === 'Block')).toBe(false);
   });
 });

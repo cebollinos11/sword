@@ -37,7 +37,7 @@ What a Controller asks its Fighter to do on a given Tick (move, aim Direction, a
 _Avoid_: Command, input (when meaning the abstract request)
 
 **Reaction Time**:
-The delay before an AI Controller may act on what it sees of the other Fighters; together with mistake rate it defines AI difficulty. With several enemies, the AI fights the nearest and Blocks the nearest enemy Attack that can reach it.
+The delay before an AI Controller may act on what it sees of the other Fighters. Together with mistake rate and how much of its repertoire it uses (circling and spacing, pressure, disengaging, punishing openings, Chains, jumping Attacks, Crouching under swings, Chambers), it defines AI difficulty: Easy, Normal or Hard (Tuning Data `ai.difficulties`). With several enemies, the AI fights the nearest and defends against the nearest enemy Attack that can reach it.
 
 ## Motion
 

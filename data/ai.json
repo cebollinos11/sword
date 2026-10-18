@@ -5,8 +5,53 @@
   "kickRate": 0.12,
   "aggression": 0.02,
   "difficulties": {
-    "Easy": { "reactionTime": 0.35, "mistakeRate": 0.45, "feintRate": 0.05 },
-    "Normal": { "reactionTime": 0.25, "mistakeRate": 0.2, "feintRate": 0.15 },
-    "Hard": { "reactionTime": 0.18, "mistakeRate": 0.05, "feintRate": 0.3 }
+    "Easy": {
+      "reactionTime": 0.4,
+      "mistakeRate": 0.4,
+      "feintRate": 0.05,
+      "aggression": 0.015,
+      "kickRate": 0.04,
+      "footwork": 0.3,
+      "pressure": 0.1,
+      "caution": 0.15,
+      "punish": 0.4,
+      "chainRate": 0.05,
+      "preempt": 0,
+      "jumpAttackRate": 0.0008,
+      "duckRate": 0.05,
+      "chamberRate": 0
+    },
+    "Normal": {
+      "reactionTime": 0.26,
+      "mistakeRate": 0.18,
+      "feintRate": 0.15,
+      "aggression": 0.025,
+      "kickRate": 0.1,
+      "footwork": 0.6,
+      "pressure": 0.3,
+      "caution": 0.4,
+      "punish": 0.75,
+      "chainRate": 0.25,
+      "preempt": 0.3,
+      "jumpAttackRate": 0.002,
+      "duckRate": 0.2,
+      "chamberRate": 0.08
+    },
+    "Hard": {
+      "reactionTime": 0.16,
+      "mistakeRate": 0.04,
+      "feintRate": 0.3,
+      "aggression": 0.035,
+      "kickRate": 0.15,
+      "footwork": 0.9,
+      "pressure": 0.5,
+      "caution": 0.6,
+      "punish": 1,
+      "chainRate": 0.45,
+      "preempt": 0.6,
+      "jumpAttackRate": 0.004,
+      "duckRate": 0.35,
+      "chamberRate": 0.25
+    }
   }
 }

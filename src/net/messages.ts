@@ -325,18 +325,45 @@ function isDeath(v: unknown): boolean {
 
 /** What an AI saw of one Fighter on one Tick. */
 function isSighting(v: unknown): boolean {
-  return isObject(v) && isVec2(v.position) && isNum(v.y) && isAction(v.action) && isTeam(v.team) && isBool(v.fallen) && (v.attackStart === null || isTick(v.attackStart));
+  return (
+    isObject(v) &&
+    isVec2(v.position) &&
+    isNum(v.y) &&
+    isVec2(v.velocity) &&
+    isAction(v.action) &&
+    isNum(v.motionTick) &&
+    isNum(v.crouch) &&
+    isBool(v.airborne) &&
+    isNum(v.hp) &&
+    typeof v.weapon === 'string' &&
+    isTeam(v.team) &&
+    isBool(v.fallen) &&
+    isBool(v.moving) &&
+    (v.attackStart === null || isTick(v.attackStart))
+  );
 }
 
-/** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its Block and Feint plans. */
+const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace'];
+const MODES = ['Neutral', 'Pressure', 'Disengage'];
+
+/** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its plans. */
 function isAiMemory(v: unknown): boolean {
-  if (!isObject(v) || !isInt(v.lastTick)) return false;
+  if (!isObject(v) || !isInt(v.lastTick) || !isNum(v.lastHp)) return false;
   const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerFighter(o.fighters, isSighting));
-  const block = v.blockPlan === null || (isObject(v.blockPlan) && isTick(v.blockPlan.attacker) && isTick(v.blockPlan.attackStart) && isDirection(v.blockPlan.direction));
+  const d = v.defencePlan;
+  const defence = d === null || (isObject(d) && isTick(d.attacker) && isTick(d.attackStart) && DEFENCE_KINDS.includes(d.kind as string) && isDirection(d.direction) && isInt(d.pressAt));
   const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
+  const a = v.attackPlan;
+  const attack =
+    a === null ||
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
-  return seen && block && feint && route;
+  const tactic = isObject(v.tactic) && MODES.includes(v.tactic.mode as string) && isInt(v.tactic.until);
+  const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until);
+  const o = v.opening;
+  const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go));
+  return seen && defence && feint && attack && route && tactic && strafe && opening;
 }
 const isAiMemoryOrNull = isNullable(isAiMemory);

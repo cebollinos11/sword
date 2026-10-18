@@ -2,41 +2,74 @@
  * The rule-based AI Controller.
  *
  * Fairness rules (spec #7, story 25/26):
- *  - It only observes what a human could see of the other Fighters: position,
- *    team, whether they have fallen, and the visible Action (the Wind-up pose
- *    reveals the Direction). Never anyone's Intents or HP-to-come.
+ *  - It only observes what a human could see of the other Fighters: position
+ *    and how it is moving, height, crouch, HP bar, Weapon, team, whether they
+ *    have fallen, and the visible Action and pose (the Wind-up pose reveals the
+ *    Direction, and how far along it is). Never anyone's Intents.
  *  - It acts on the others only as seen `reactionTime` ago (its Reaction
  *    Time). Its own Fighter it knows up to date.
- *  - With several enemies it fights the nearest one, and blocks whichever
- *    enemy Attack nearest to it can reach it (see `intent`).
+ *  - With several enemies it fights the nearest one, and defends against
+ *    whichever enemy Attack nearest to it can reach it (see `intent`).
  *  - It fights only on the same level (feet within LEVEL of each other's).
  *    To reach an enemy on another Walk Surface it follows the navmesh
  *    (`findPath`, `steer`), re-planning when either moves to another surface
- *    or every REPATH_TICKS; the route is part of its memory. Backing off, it
- *    never steps off a ledge: it strafes, or holds its ground.
- *  - It makes mistakes at `mistakeRate`: a wrong-Direction Block (rolled once
- *    per opponent Attack), or a mistimed Attack from out of range.
- *  - It Feints at `feintRate`: that share of its Attacks hold the Wind-up and
- *    then switch to another Direction (an Attack Feint) before Releasing.
- *  - It Kicks an opponent within `kickRange` who was last seen moving (a
- *    Kick knocks down anyone who gives movement input, ADR 0007), at `kickRate`
- *    per Tick; `mistakeRate` makes it lose the chance, or Kick from just out
- *    of reach. It never Kicks an opponent lying in a Knockdown (the leg passes
- *    over a body on the floor).
+ *    or every REPATH_TICKS; the route is part of its memory. Fighting, it
+ *    never steps off a ledge or onto Lava or Water (`safeMove`): it turns
+ *    aside, or holds its ground, and it only jumps where it lands safely.
+ *
+ * How it fights (each part scaled by its difficulty preset, `AiDifficulty`):
+ *  - Defence: against an Attack it Blocks in the Direction that meets it; or
+ *    Crouches under a Left or Right (`duckRate`: a Crouch lets both pass over);
+ *    or tries a Chamber, attacking into it timed off how far along its Wind-up
+ *    was (`chamberRate`); or, when its own Wind-up will land first, swings on
+ *    (`preempt`). A wrong-Direction Block is the mistake (`mistakeRate`,
+ *    rolled once per opponent Attack). An Attack Feint is a new Attack to plan for.
+ *  - Footwork (`footwork`): it hovers just outside the longer of the two
+ *    Weapons' reach (inside its own if its Weapon is the longer), circling its
+ *    opponent, switching sides now and then or when the way is unsafe.
+ *  - Tactics: Neutral (spacing and probing), Pressure (`pressure`: closing in,
+ *    attacking and Chaining more, more likely when ahead on HP) and Disengage
+ *    (`caution`: backing out of reach after being hit, or when low on HP;
+ *    shuffling back out of a Blocked recoil, and stepping away in Recovery).
+ *  - Attacking: from its spacing it steps in and swings into the Attack,
+ *    holding the Wind-up while it closes; it keeps walking through the
+ *    Release. It aims (pitch) at its opponent's chest, so it reaches one
+ *    crouched or lying down. It picks a Direction around a raised Block,
+ *    Overhead or Thrust against a Crouch, Thrust at long range; a mistake is
+ *    a random one. It punishes openings (`punish`, rolled once per opening):
+ *    Recovery, a Blocked or Chambered recoil, a hard Landing, a Knockdown,
+ *    a whiffed Kick. It meets an opponent walking into its reach with an
+ *    Attack already on the way (`preempt`), leaps in with a jumping Overhead
+ *    from just out of reach (`jumpAttackRate`), Chains a second Attack while
+ *    its opponent is still in reach (`chainRate`), Feints at `feintRate` (and
+ *    Feints away from a Block it sees raised against its Wind-up), and now and
+ *    then swings from out of range (the mistake).
+ *  - Kicks: it Kicks an opponent within `kickRange` who was last seen moving
+ *    (a Kick knocks down anyone who gives movement input, ADR 0007), at
+ *    `kickRate` per Tick, far more readily with a drop, Lava or Water behind
+ *    them; `mistakeRate` makes it lose the chance, or Kick from just out of
+ *    reach. It never Kicks an opponent lying in a Knockdown.
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
+ *
+ * With every optional parameter left out it walks straight in, attacks at
+ * `ai.aggression` from `ai.attackRange`, backs off inside `ai.retreatRange`
+ * and always punishes an opening: the plain AI the tests drive.
  *
  * Deterministic given the seeded generator in state: it holds no generator of
  * its own. Each Tick it draws from a generator derived from the Simulation's
  * `state.rng` (which the Simulation advances every Tick) and its Fighter index,
  * so scrubbing back or re-simulating the same state gives the same Intents
- * without saving any generator. A given seed and the same opponent always give
- * the same Intents.
+ * given the same memory (`save`/`load`). It only draws for the parts of its
+ * repertoire its difficulty uses.
  */
 import {
   arenaOf,
+  attackTimings,
+  blockedAt,
   createRng,
+  deadlyGround,
   findPath,
   groundBelow,
   navPolygon,
@@ -46,6 +79,7 @@ import {
   mirrorDirection,
   nextFloat,
   secondsToTicks,
+  TICK_SECONDS,
   type Action,
   type Direction,
   type FighterState,
@@ -54,7 +88,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import type { AiDifficulty, TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type AiDifficulty, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -62,7 +96,15 @@ interface Sighting {
   readonly position: Vec2;
   /** Height of its feet. */
   readonly y: number;
+  /** How it moved since the Tick before (m per Tick). */
+  readonly velocity: Vec2;
   readonly action: Action;
+  /** The playhead of its Motion (how far along its Wind-up is, as its pose shows). */
+  readonly motionTick: number;
+  readonly crouch: number;
+  readonly airborne: boolean;
+  readonly hp: number;
+  readonly weapon: string;
   readonly team: number;
   readonly fallen: boolean;
   /** Its feet moved since the Tick before (walking, or being pushed). */
@@ -77,20 +119,59 @@ interface Observation {
   readonly fighters: readonly Sighting[];
 }
 
-/** The Block Direction chosen for one enemy Attack (rolled once, so a mistake sticks). */
-interface BlockPlan {
+/**
+ * How it means to meet one enemy Attack (rolled once, so a mistake sticks): Block it in `direction`, Crouch
+ * under it (Duck), attack into it on Tick `pressAt` (Chamber), or swing on with its own faster Attack (Outpace).
+ */
+interface DefencePlan {
   readonly attacker: number;
   readonly attackStart: number;
+  readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace';
   readonly direction: Direction;
+  readonly pressAt: number;
 }
 
-/** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox and the Rollback session. */
-interface AiMemory {
-  readonly seen: readonly Observation[];
-  readonly lastTick: number;
-  readonly blockPlan: BlockPlan | null;
-  readonly feintPlan: FeintPlan | null;
-  readonly route: Route | null;
+/** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
+interface FeintPlan {
+  readonly from: Direction;
+  readonly into: Direction;
+  readonly at: number;
+}
+
+/** How it means to play out its own current Attack. */
+interface AttackPlan {
+  /** The Direction of the Attack this plan is for. */
+  readonly direction: Direction;
+  /** It may hold the Wind-up while it closes in (swinging into the Attack) until this Tick. */
+  readonly holdUntil: number;
+  /** Whether it has rolled to Feint away from a Block raised against this Attack. */
+  readonly reFeintRolled: boolean;
+  /** Whether it has rolled to Chain, and the Direction it Chains into (null: no Chain). */
+  readonly chainRolled: boolean;
+  readonly chain: Direction | null;
+  /** It held attack for the Chain last Tick: the next Attack starts on the Idle Tick. */
+  readonly chainHeld: boolean;
+}
+
+type Mode = 'Neutral' | 'Pressure' | 'Disengage';
+
+/** Its current tactic, until Duel Tick `until`. */
+interface Tactic {
+  readonly mode: Mode;
+  readonly until: number;
+}
+
+/** Which way it circles (+1 or -1, around its opponent), until Duel Tick `until`. */
+interface Strafe {
+  readonly sign: number;
+  readonly until: number;
+}
+
+/** Whether it goes for the opening it last saw (`fighter`'s, seen up to Tick `seen`). */
+interface OpeningRoll {
+  readonly fighter: number;
+  readonly seen: number;
+  readonly go: boolean;
 }
 
 /** The way to its target on another Walk Surface: Links (`findPath`, null if there is none) planned on Tick `at` from surface `from` to `to`. */
@@ -101,19 +182,51 @@ interface Route {
   readonly links: readonly number[] | null;
 }
 
+/** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox and the Rollback session. */
+interface AiMemory {
+  readonly seen: readonly Observation[];
+  readonly lastTick: number;
+  readonly defencePlan: DefencePlan | null;
+  readonly feintPlan: FeintPlan | null;
+  readonly attackPlan: AttackPlan | null;
+  readonly route: Route | null;
+  readonly tactic: Tactic;
+  readonly strafe: Strafe;
+  readonly opening: OpeningRoll | null;
+  /** Its own HP last Tick (-1 before its first), to notice being hit. */
+  readonly lastHp: number;
+}
+
+/** A difficulty preset with every optional part filled in. */
+type Skill = Required<AiDifficulty>;
+
 /** A route is re-planned at least this often (Ticks), as its target moves about. */
 const REPATH_TICKS = 30;
-/** It fights (attacks, blocks, backs off) only an enemy whose feet are within this height of its own (m). */
+/** It fights (attacks, backs off) only an enemy whose feet are within this height of its own (m). */
 const LEVEL = 0.5;
-/** Backing off, it looks this far (m) behind it for a ledge. */
-const RETREAT_PROBE = 0.8;
-
-/** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
-interface FeintPlan {
-  readonly from: Direction;
-  readonly into: Direction;
-  readonly at: number;
-}
+/** It defends against an Attack from an enemy whose feet are within this height of its own (m): a blade reaches up or down a stair. */
+const DEFEND_LEVEL = 1.0;
+/** Moving while it fights, it looks this far (m) ahead of its step for a ledge, Lava or Water. */
+const SAFETY_PROBE = 0.8;
+/** A Thrust reaches this much (m) further than a swing. */
+const THRUST_REACH = 0.15;
+/** From this far (m) beyond its reach it may step in and swing into an Attack, holding the Wind-up while it closes. */
+const SWING_IN = 0.7;
+/** It holds a Wind-up for at most this many Ticks while it closes in. */
+const SWING_IN_HOLD = 22;
+/** Hovering, it stands this far (m) beyond the longer reach. */
+const HOVER_MARGIN = 0.25;
+/** Disengaging, it backs off to this far (m) beyond the longer reach. */
+const DISENGAGE_MARGIN = 1.0;
+/** A jumping Attack is launched from between these distances (m) beyond its reach. */
+const JUMP_FROM = 0.2;
+const JUMP_TO = 1.3;
+/** A Chamber is pressed this many Ticks into the incoming Release (1 = its first Tick). */
+const CHAMBER_AT = 2;
+/** It aims (pitch) at this height (m) up a standing Fighter: the chest. */
+const AIM_HEIGHT = 1.3;
+/** A Fighter lying in a Knockdown is aimed at this high (m). */
+const LYING_AIM = 0.3;
 
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
@@ -126,17 +239,39 @@ export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
   return d;
 }
 
+/** A preset with its optional parts filled in: the global `ai.aggression`/`ai.kickRate`, always punishing, and nothing else. */
+function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
+  return {
+    aggression: tuning.ai.aggression,
+    kickRate: tuning.ai.kickRate,
+    footwork: 0,
+    pressure: 0,
+    caution: 0,
+    punish: 1,
+    chainRate: 0,
+    preempt: 0,
+    jumpAttackRate: 0,
+    duckRate: 0,
+    chamberRate: 0,
+    ...d,
+  };
+}
+
 /** Is this visible Action an Attack that can still land (Wind-up or Release)? */
 const isThreat = (a: Action): a is Extract<Action, { kind: 'Attack' }> => a.kind === 'Attack' && a.phase !== 'Recovery';
 /** Is this visible Action a Kick whose leg can still land (Wind-up or Release)? */
 const isKickThreat = (a: Action): boolean => a.kind === 'Kick' && a.phase !== 'Recovery';
 /**
  * A visible opening: the opponent is committed (Recovery, of an Attack or a
- * Kick) or recoiling from a Block (the defender's earned timing advantage). A
+ * Kick), recoiling from a Block or a Chamber (the defender's earned timing
+ * advantage), crouched from a hard Landing, or lying in a Knockdown. A
  * Stagger from being hit is not one: after a Trade both Fighters Stagger
  * together, and punishing it would just make two AIs Trade again in lockstep.
  */
-const isOpening = (a: Action): boolean => (a.kind === 'Stagger' && a.cause === 'Blocked') || ((a.kind === 'Attack' || a.kind === 'Kick') && a.phase === 'Recovery');
+const isOpening = (a: Action): boolean =>
+  (a.kind === 'Stagger' && a.cause !== 'Hit') || ((a.kind === 'Attack' || a.kind === 'Kick') && a.phase === 'Recovery') || (a.kind === 'Knockdown' && a.phase !== 'Rising');
+/** The Direction a visible Fighter guards in: its Block's, or a Knockdown's guard. */
+const guardOf = (a: Action): Direction | null => (a.kind === 'Block' ? a.direction : a.kind === 'Knockdown' ? a.guard : null);
 
 /** murmur3's 32-bit finaliser: spreads nearby seeds (consecutive Ticks, Fighter indices) over the whole range. */
 function mix32(h: number): number {
@@ -153,39 +288,61 @@ function tickRng(state: SimState, fighter: number): RngState {
   return createRng(mix32(state.rng.seed ^ Math.imul(fighter + 1, 0x9e3779b9)));
 }
 
+const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 });
+const NEUTRAL: Tactic = Object.freeze({ mode: 'Neutral', until: -1 });
+const NO_STRAFE: Strafe = Object.freeze({ sign: 1, until: -1 });
+
+function unit(v: Vec2): Vec2 {
+  const d = Math.hypot(v.x, v.z);
+  return d > 1e-9 ? { x: v.x / d, z: v.z / d } : ZERO;
+}
+
+/** `v` turned by `a` radians about the vertical (same sense as facing). */
+const rotate = (v: Vec2, a: number): Vec2 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
+
 class AiController implements Controller {
   private readonly reactionTicks: number;
+  private readonly skill: Skill;
   /** This Tick's generator (derived from state each call, never carried between Ticks). */
   private rng: RngState = createRng(0);
   /** Observations of every Fighter, oldest first; only the last reactionTicks + 1 are kept. */
   private seen: Observation[] = [];
   private lastTick = -1;
-  /** The Block Direction chosen for one enemy Attack (rolled once, so a mistake sticks). */
-  private blockPlan: BlockPlan | null = null;
-  /** Its own Attack it is about to Feint, if any. */
+  private defencePlan: DefencePlan | null = null;
   private feintPlan: FeintPlan | null = null;
-  /** Its way to a target on another Walk Surface, if it is following one. */
+  private attackPlan: AttackPlan | null = null;
   private route: Route | null = null;
+  private tactic: Tactic = NEUTRAL;
+  private strafe: Strafe = NO_STRAFE;
+  private opening: OpeningRoll | null = null;
+  private lastHp = -1;
 
   constructor(
     private readonly tuning: TuningData,
-    private readonly difficulty: AiDifficulty,
+    difficulty: AiDifficulty,
   ) {
     this.reactionTicks = secondsToTicks(difficulty.reactionTime);
+    this.skill = skillOf(tuning, difficulty);
   }
 
-  /** All of the Controller's memory, as plain data (observations are immutable, so a shallow array copy is enough). */
+  /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    return { seen: [...this.seen], lastTick: this.lastTick, blockPlan: this.blockPlan, feintPlan: this.feintPlan, route: this.route };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, route, tactic, strafe, opening, lastHp } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, route, tactic, strafe, opening, lastHp };
   }
 
   load(saved: unknown): void {
     const m = saved as AiMemory;
     this.seen = [...m.seen];
     this.lastTick = m.lastTick;
-    this.blockPlan = m.blockPlan;
+    this.defencePlan = m.defencePlan;
     this.feintPlan = m.feintPlan;
+    this.attackPlan = m.attackPlan;
     this.route = m.route;
+    this.tactic = m.tactic;
+    this.strafe = m.strafe;
+    this.opening = m.opening;
+    this.lastHp = m.lastHp;
   }
 
   private random(): number {
@@ -194,36 +351,76 @@ class AiController implements Controller {
     return v;
   }
 
-  private randomDirection(except?: Direction): Direction {
-    const options = DIRECTIONS.filter((d) => d !== except);
+  /** True at chance `p`; never draws when `p` is 0 or 1, so a part of the repertoire left out costs no randomness. */
+  private chance(p: number): boolean {
+    if (p <= 0) return false;
+    if (p >= 1) return true;
+    return this.random() < p;
+  }
+
+  private pick<T>(options: readonly T[]): T {
     return options[Math.min(options.length - 1, Math.floor(this.random() * options.length))]!;
+  }
+
+  private randomDirection(except?: Direction): Direction {
+    return this.pick(DIRECTIONS.filter((d) => d !== except));
+  }
+
+  private forget(): void {
+    this.defencePlan = null;
+    this.feintPlan = null;
+    this.attackPlan = null;
+    this.route = null;
+    this.opening = null;
   }
 
   private observe(state: SimState): void {
     if (state.tick <= this.lastTick) {
       // A new Duel: forget what was seen.
       this.seen = [];
-      this.blockPlan = null;
-      this.feintPlan = null;
-      this.route = null;
+      this.forget();
+      this.tactic = NEUTRAL;
+      this.strafe = NO_STRAFE;
+      this.lastHp = -1;
     }
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
     const fighters = state.fighters.map((o, i): Sighting => {
       const before = prev?.fighters[i];
-      // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a Block for.
+      // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
       const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
       const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
-      const moving = before !== undefined && (before.position.x !== o.position.x || before.position.z !== o.position.z);
-      return { position: o.position, y: o.y, action: o.action, team: o.team, fallen: o.death !== undefined, moving, attackStart };
+      const velocity = before ? { x: o.position.x - before.position.x, z: o.position.z - before.position.z } : ZERO;
+      const moving = velocity.x !== 0 || velocity.z !== 0;
+      return {
+        position: o.position,
+        y: o.y,
+        velocity,
+        action: o.action,
+        motionTick: o.motion.tick,
+        crouch: o.crouch,
+        airborne: o.air !== undefined,
+        hp: o.hp,
+        weapon: o.weapon,
+        team: o.team,
+        fallen: o.death !== undefined,
+        moving,
+        attackStart,
+      };
     });
     this.seen.push({ tick: state.tick, fighters });
     if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
   }
 
+  /** How far (m) a Fighter with `weapon` reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one. */
+  private reach(weapon: string): number {
+    const { attackRange } = this.tuning.ai;
+    return attackRange + weaponByName(this.tuning, weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length;
+  }
+
   /**
-   * Acts on everyone as seen Reaction Time ago: it Blocks the nearest enemy
-   * Attack that can reach it (its nearest enemy's, or any from within
+   * Acts on everyone as seen Reaction Time ago: it defends against the nearest
+   * enemy Attack that can reach it (its nearest enemy's, or any from within
    * THREAT_REACH × `ai.attackRange`, on its level), else closes on and fights its nearest
    * living enemy (nearest in 3D; ranges are measured flat). Teammates it ignores.
    */
@@ -236,56 +433,176 @@ class AiController implements Controller {
     const self = state.fighters[fighter]!;
     const enemies = seen.fighters
       .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
-      .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y) }))
+      .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
       .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team)
       .sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
-      this.blockPlan = null;
-      this.feintPlan = null;
-      this.route = null;
+      this.forget();
       return IDLE_INTENT;
     }
-    const facing = (o: Sighting): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z) });
+    const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
+
+    this.think(state.tick, self, nearest.o);
 
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    const threat = enemies.find(({ o, flat, level }, k) => level && isThreat(o.action) && o.attackStart !== null && (k === 0 || flat <= reach));
+    const threat = enemies.find(({ o, flat, near }, k) => near && isThreat(o.action) && o.attackStart !== null && (k === 0 || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
       this.feintPlan = null;
-      return this.defend(self.action, threat.i, threat.o.action.direction, threat.o.attackStart, facing(threat.o));
+      return this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat));
     }
-    this.blockPlan = null;
+    this.defencePlan = null;
 
     // A Kick coming: stand still (it only knocks down a mover), and do not start anything else.
     const kickReach = this.tuning.ai.kickRange;
     if (enemies.some(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach)) {
       this.feintPlan = null;
-      return facing(nearest.o);
+      return aimAt(nearest.o, nearest.flat);
     }
 
-    const { o: target, flat: dist, level } = nearest;
-    const base = facing(target);
-    const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : { x: 0, z: 0 };
+    const { o: target, i: targetIndex, flat: dist, level } = nearest;
+    const base = aimAt(target, dist);
+    const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : ZERO;
+    const away: Vec2 = { x: -toward.x, z: -toward.z };
     const feint = this.feint(state.tick, self.action, base);
     if (feint) return feint;
-    if (self.action.kind !== 'Idle') return base; // let go of block/attack; finish what it is doing
-    const { attackRange, retreatRange, aggression } = this.tuning.ai;
+
+    switch (self.action.kind) {
+      case 'Attack':
+        return this.pressOn(state, self, target, dist, toward, base);
+      case 'Fall':
+        // In the air with nothing to swing: keep the line it leapt on.
+        return { ...base, move: self.air ? unit({ x: self.air.vx, z: self.air.vz }) : ZERO };
+      case 'Stagger':
+        // Its Attack was Blocked: shuffle back out of reach through the recoil, if it is minded to.
+        if (self.action.cause === 'Blocked' && (this.skill.caution > 0 || this.skill.footwork > 0)) return { ...base, move: this.safeMove(state, self, away) };
+        return base;
+      case 'Idle':
+        break;
+      default:
+        return base; // let go of a Block; finish what it is doing
+    }
+
     if (!level) {
       // Another level: find the way there, looking where it walks.
       const move = this.approach(state, self, target);
       return { ...IDLE_INTENT, move, face: move.x === 0 && move.z === 0 ? base.face : Math.atan2(move.x, move.z) };
     }
-    const kick = this.kick(target, dist);
+
+    // A Chain it held through Recovery: the next Attack starts now.
+    const chained = this.attackPlan;
+    if (chained?.chain && chained.chainHeld) return this.startAttack(state.tick, self, target, dist, base, { direction: chained.chain });
+    this.attackPlan = null;
+
+    const kick = this.kick(state, target, dist, toward);
     if (kick) return { ...base, kick: true };
-    if (dist > attackRange) {
-      // Mistimed Attack: swinging from out of range.
-      if (this.random() < aggression * this.difficulty.mistakeRate) return this.startAttack(state.tick, base);
-      return { ...base, move: this.approach(state, self, target) };
+
+    const myReach = this.reach(self.weapon);
+    const theirReach = this.reach(target.weapon);
+    const aggression = this.skill.aggression * (this.tactic.mode === 'Pressure' ? 2.5 : this.tactic.mode === 'Disengage' ? 0.2 : 1);
+
+    // An opening, near enough to step in on: punish it (unless the AI never attacks, aggression 0).
+    if (this.skill.aggression > 0 && isOpening(target.action) && dist <= myReach + SWING_IN && this.goesFor(targetIndex, seen.tick)) {
+      return this.startAttack(state.tick, self, target, dist, { ...base, move: dist > myReach ? toward : ZERO }, { swingIn: dist > myReach });
     }
-    if (dist < retreatRange) return { ...base, move: this.retreat(state, self, { x: -toward.x, z: -toward.z }) };
-    // An opening (its target in Recovery or Staggered) is always punished, unless the AI never attacks (aggression 0).
-    if (aggression > 0 && (isOpening(target.action) || this.random() < aggression)) return this.startAttack(state.tick, base);
-    return base;
+
+    if (this.skill.footwork <= 0) {
+      // The plain AI: walk straight in, attack in range, back off when crowded.
+      if (dist > myReach) {
+        // Mistimed Attack: swinging from out of range.
+        if (this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+        return { ...base, move: this.approach(state, self, target) };
+      }
+      if (dist < this.tuning.ai.retreatRange) return { ...base, move: this.retreat(state, self, away) };
+      if (this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
+      return base;
+    }
+
+    // Far off: close in along the navmesh.
+    const longer = Math.max(myReach, theirReach);
+    if (dist > longer + SWING_IN + 1.5) return { ...base, move: this.approach(state, self, target) };
+
+    // Meet an opponent walking into reach with an Attack already on the way.
+    const closing = -(target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
+    if (target.action.kind === 'Idle' && closing > 0.5 && dist > myReach && dist <= myReach + SWING_IN && this.chance(this.skill.preempt * 0.3)) {
+      return this.startAttack(state.tick, self, target, dist, base, { swingIn: true });
+    }
+
+    // Leap in with an Overhead from just out of reach.
+    const notBusy = target.action.kind === 'Idle' || target.action.kind === 'Block';
+    if (!self.air && notBusy && dist >= myReach + JUMP_FROM && dist <= myReach + JUMP_TO && this.chance(this.skill.jumpAttackRate * (this.tactic.mode === 'Disengage' ? 0.2 : 1))) {
+      if (this.safeLanding(state, self, toward)) {
+        return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true }, { direction: 'Overhead', swingIn: true });
+      }
+    }
+
+    // Disengaging and crowded: hop back out of reach.
+    if (this.tactic.mode === 'Disengage' && !self.air && dist < theirReach + 0.2 && notBusy && this.chance(this.skill.jumpAttackRate * 0.5) && this.safeLanding(state, self, away)) {
+      return { ...base, move: away, jump: true };
+    }
+
+    // From its spacing: step in and swing (or swing from where it stands, in reach).
+    if (dist <= myReach && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
+    if (dist <= myReach + SWING_IN && this.chance(aggression * 0.6)) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
+    if (dist > myReach + SWING_IN && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+
+    return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach) };
+  }
+
+  /** Once a Tick: notice being hit, and pick its tactic (and circling side) as the old one runs out. */
+  private think(tick: number, self: FighterState, target: Sighting): void {
+    const { caution, pressure, footwork } = this.skill;
+    const hurt = this.lastHp >= 0 && self.hp < this.lastHp;
+    this.lastHp = self.hp;
+    if (hurt && this.chance(caution)) {
+      this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
+    } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
+      const max = this.tuning.fighter.maxHp;
+      const ahead = (self.hp - target.hp) / max;
+      const press = Math.min(1, Math.max(0, pressure * (0.7 + ahead * 1.5)));
+      const back = caution * (self.hp < 0.35 * max ? 0.45 : 0.08);
+      const r = this.random();
+      const mode: Mode = r < press ? 'Pressure' : r < press + back ? 'Disengage' : 'Neutral';
+      this.tactic = { mode, until: tick + 60 + Math.floor(this.random() * 120) };
+    }
+    if (footwork > 0 && tick >= this.strafe.until) this.strafe = { sign: this.random() < 0.5 ? 1 : -1, until: tick + 40 + Math.floor(this.random() * 100) };
+  }
+
+  /** Whether to go for the opening it sees on `fighter` (rolled once per opening, at `punish`). */
+  private goesFor(fighter: number, seenTick: number): boolean {
+    const o = this.opening;
+    const go = o && o.fighter === fighter && o.seen >= seenTick - 1 ? o.go : this.chance(this.skill.punish);
+    this.opening = { fighter, seen: seenTick, go };
+    return go;
+  }
+
+  /** Where to stand, circling: hovering at its spacing for the tactic, along the side it circles, never stepping somewhere unsafe. */
+  private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number): Vec2 {
+    const { mode } = this.tactic;
+    const longer = Math.max(myReach, theirReach);
+    // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
+    const poke = myReach > theirReach + 0.2 ? myReach - 0.1 : longer + HOVER_MARGIN;
+    const spacing = mode === 'Pressure' ? (this.tuning.ai.retreatRange + myReach) / 2 : mode === 'Disengage' ? longer + DISENGAGE_MARGIN : poke;
+    const radial = Math.max(-1, Math.min(1, (dist - spacing) * 2.5));
+    let side = this.strafe.sign * this.skill.footwork * (mode === 'Pressure' ? 0.5 : 1);
+    const tangent = (s: number): Vec2 => ({ x: -toward.z * s, z: toward.x * s });
+    if (side !== 0 && !this.safe(state, self, unit(tangent(side)))) {
+      side = -side;
+      this.strafe = { sign: -this.strafe.sign, until: this.strafe.until };
+    }
+    const t = tangent(side);
+    const m = { x: toward.x * radial + t.x, z: toward.z * radial + t.z };
+    const len = Math.hypot(m.x, m.z);
+    if (len < 0.15) return ZERO;
+    return this.safeMove(state, self, len > 1 ? { x: m.x / len, z: m.z / len } : m);
+  }
+
+  /** Where it pitches its look: at the chest of `o` (lower when it crouches, the floor when it lies in a Knockdown), so its blows reach it. */
+  private aim(self: FighterState, o: Sighting, flat: number): number {
+    const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
+    const theirs = o.action.kind === 'Knockdown' ? LYING_AIM : AIM_HEIGHT * (1 - crouchDrop * o.crouch);
+    const mine = AIM_HEIGHT * (1 - crouchDrop * self.crouch);
+    return Math.atan2(o.y + theirs - (self.y + mine), Math.max(flat, 0.5));
   }
 
   /**
@@ -305,44 +622,158 @@ class AiController implements Controller {
       this.route = route;
       if (route.links) goal = steer(arena, this.tuning, route.links, self.position, target.position);
     } else if (from === to) this.route = null;
-    const dx = goal.x - self.position.x;
-    const dz = goal.z - self.position.z;
-    const d = Math.hypot(dx, dz);
-    return d > 1e-9 ? { x: dx / d, z: dz / d } : { x: 0, z: 0 };
+    return unit({ x: goal.x - self.position.x, z: goal.z - self.position.z });
+  }
+
+  /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
+  private safe(state: SimState, self: FighterState, dir: Vec2, probe = SAFETY_PROBE): boolean {
+    if (dir.x === 0 && dir.z === 0) return true;
+    const arena = arenaOf(this.tuning, state.arena);
+    const { stepUp } = this.tuning.fall;
+    for (const k of [0.5, 1]) {
+      const x = self.position.x + dir.x * probe * k;
+      const z = self.position.z + dir.z * probe * k;
+      const g = groundBelow(arena, x, z, self.y + stepUp);
+      if (g === null || self.y - g.y > stepUp || deadlyGround(arena, x, z, g.y) || blockedAt(arena, x, z, g.y, this.tuning)) return false;
+    }
+    return true;
+  }
+
+  /** `m` if it walks onto safe ground, else the nearest safe heading turned up to 135° aside (keeping its speed), else standing still. */
+  private safeMove(state: SimState, self: FighterState, m: Vec2): Vec2 {
+    const len = Math.hypot(m.x, m.z);
+    if (len === 0) return m;
+    const dir = { x: m.x / len, z: m.z / len };
+    for (const a of [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, (3 * Math.PI) / 4, (-3 * Math.PI) / 4]) {
+      const d = a === 0 ? dir : rotate(dir, a);
+      if (this.safe(state, self, d)) return { x: d.x * len, z: d.z * len };
+    }
+    return ZERO;
   }
 
   /** Back off along `away`, unless that steps off a ledge: then strafe (left, else right), or hold its ground. */
   private retreat(state: SimState, self: FighterState, away: Vec2): Vec2 {
-    const arena = arenaOf(this.tuning, state.arena);
-    const { stepUp } = this.tuning.fall;
-    const safe = (m: Vec2) => {
-      const g = groundBelow(arena, self.position.x + m.x * RETREAT_PROBE, self.position.z + m.z * RETREAT_PROBE, self.y + stepUp);
-      return g !== null && self.y - g.y <= stepUp;
-    };
-    return [away, { x: -away.z, z: away.x }, { x: away.z, z: -away.x }].find(safe) ?? { x: 0, z: 0 };
+    return [away, { x: -away.z, z: away.x }, { x: away.z, z: -away.x }].find((m) => this.safe(state, self, m)) ?? ZERO;
+  }
+
+  /** Whether a Jump along `dir` lands on safe, level ground: it carries about jumpSpeed × 2 / gravity seconds of walk. */
+  private safeLanding(state: SimState, self: FighterState, dir: Vec2): boolean {
+    const { jumpSpeed, gravity } = this.tuning.fall;
+    const flight = ((2 * jumpSpeed) / gravity) * this.tuning.fighter.walkSpeed;
+    return this.safe(state, self, dir, flight + 0.3);
   }
 
   /**
    * Whether to Kick `target` this Tick: at `kickRate`, when it was last seen moving and is within `kickRange`
-   * (the chance is lost at `mistakeRate`); a mistimed Kick from just beyond it, within `attackRange`, is the mistake.
-   * Never at an opponent in a Knockdown. Draws from the generator only when a Kick is possible.
+   * (the chance is lost at `mistakeRate`), four times as readily with a drop, Lava or Water behind it; a
+   * mistimed Kick from just beyond it, within `attackRange`, is the mistake. Never at an opponent in a
+   * Knockdown. Draws from the generator only when a Kick is possible.
    */
-  private kick(target: Sighting, dist: number): boolean {
-    const { kickRange, kickRate, attackRange } = this.tuning.ai;
+  private kick(state: SimState, target: Sighting, dist: number, toward: Vec2): boolean {
+    const { kickRange, attackRange } = this.tuning.ai;
+    const { kickRate, mistakeRate } = this.skill;
     if (kickRate <= 0 || !target.moving || target.action.kind === 'Knockdown' || dist > attackRange) return false;
-    const { mistakeRate } = this.difficulty;
-    if (dist <= kickRange) return this.random() < kickRate * (1 - mistakeRate);
-    return this.random() < kickRate * mistakeRate;
+    if (dist > kickRange) return this.random() < kickRate * mistakeRate;
+    const ringOut = this.skill.footwork > 0 && this.hazardBehind(state, target, toward);
+    return this.random() < Math.min(1, kickRate * (1 - mistakeRate) * (ringOut ? 4 : 1));
   }
 
-  /** Press attack in a random Direction; at `feintRate` it plans to Feint this Attack into another Direction. */
-  private startAttack(tick: number, base: Intent): Intent {
-    const direction = this.randomDirection();
-    if (this.random() < this.difficulty.feintRate) {
-      const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
-      this.feintPlan = { from: direction, into: this.randomDirection(direction), at };
+  /** Whether a Knockdown's Slide along `dir` would carry `target` off a ledge, or into Lava or Water. */
+  private hazardBehind(state: SimState, target: Sighting, dir: Vec2): boolean {
+    const arena = arenaOf(this.tuning, state.arena);
+    const { stepUp } = this.tuning.fall;
+    for (const k of [0.8, 1.6, 2.4]) {
+      const x = target.position.x + dir.x * k;
+      const z = target.position.z + dir.z * k;
+      const g = groundBelow(arena, x, z, target.y + stepUp);
+      if (g === null || target.y - g.y > this.tuning.fall.safeHeight * 0.5 || deadlyGround(arena, x, z, g.y)) return true;
     }
+    return false;
+  }
+
+  /**
+   * The Direction to attack `target` in: around the Direction it guards, Overhead or Thrust against a Crouch or
+   * a Fighter in the air, often a Thrust (the longest reach) from the edge of its reach; a random one on a mistake.
+   */
+  private chooseDirection(self: FighterState, target: Sighting, dist: number): Direction {
+    if (this.chance(this.skill.mistakeRate)) return this.randomDirection();
+    const guard = guardOf(target.action);
+    let options = DIRECTIONS.filter((d) => guard === null || mirrorDirection(d) !== guard);
+    if (target.crouch > 0.5 || target.airborne || target.action.kind === 'Knockdown') {
+      const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
+      if (high.length > 0) options = high;
+    }
+    if (options.includes('Thrust') && dist > this.reach(self.weapon) - 0.1 && this.random() < 0.6) return 'Thrust';
+    return this.pick(options);
+  }
+
+  /**
+   * Press attack: in `direction`, or one chosen against the target's guard. With `swingIn` it may hold the
+   * Wind-up while it closes in. At `feintRate` it plans to Feint this Attack into another Direction.
+   */
+  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean } = {}): Intent {
+    const direction = opts.direction ?? this.chooseDirection(self, target, dist);
+    if (this.chance(this.skill.feintRate)) {
+      const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
+      this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
+    }
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0;
+    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false } : null;
     return { ...base, attack: true, direction };
+  }
+
+  /** The Direction to Feint `from` into: around the target's guard, never `from` itself. */
+  private chooseFeint(target: Sighting, from: Direction): Direction {
+    const guard = guardOf(target.action);
+    const options = DIRECTIONS.filter((d) => d !== from && (guard === null || mirrorDirection(d) !== guard));
+    return options.length > 0 ? this.pick(options) : this.randomDirection(from);
+  }
+
+  /**
+   * Its own Attack under way. Wind-up: hold it while it closes in (swinging into the Attack), Feint away
+   * from a Block it sees raised against it, else let it Release. Release: walk on into it. Recovery: Chain
+   * another Attack while the target is still in reach, or step back out of reach.
+   */
+  private pressOn(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent {
+    const a = self.action as Extract<Action, { kind: 'Attack' }>;
+    const tick = state.tick;
+    let plan = this.attackPlan;
+    if (plan && plan.direction !== a.direction && !plan.chain) plan = this.attackPlan = { ...plan, direction: a.direction };
+    const myReach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
+    const closeIn = dist > Math.max(1.0, this.tuning.ai.retreatRange + 0.1) ? toward : ZERO;
+    if (a.phase === 'Wind-up') {
+      const guard = guardOf(target.action);
+      if (plan && !plan.reFeintRolled && guard === mirrorDirection(a.direction)) {
+        const go = this.chance(Math.min(1, this.skill.feintRate * 2));
+        plan = this.attackPlan = { ...plan, reFeintRolled: true };
+        if (go) {
+          const into = this.chooseFeint(target, a.direction);
+          this.attackPlan = { ...plan, direction: into };
+          return { ...base, attack: true, direction: into, move: closeIn };
+        }
+      }
+      if (plan && tick < plan.holdUntil && dist > myReach - 0.05) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
+      return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
+    }
+    if (a.phase === 'Release') return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
+    // Recovery.
+    if (plan && this.skill.chainRate > 0) {
+      if (!plan.chainRolled) {
+        const p = this.skill.chainRate * (this.tactic.mode === 'Pressure' ? 1.5 : 1) * (a.landed ? 1.2 : 1);
+        const chain = this.chance(Math.min(1, p)) ? this.chooseDirection(self, target, dist) : null;
+        plan = this.attackPlan = { ...plan, chainRolled: true, chain };
+      }
+      if (plan.chain && dist <= this.reach(self.weapon) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
+        this.attackPlan = { ...plan, chainHeld: true };
+        return { ...base, attack: true, direction: plan.chain, move: this.safeMove(state, self, closeIn) };
+      }
+      this.attackPlan = { ...plan, chainHeld: false };
+    }
+    // Not Chaining: step back out of a counter, if it is cautious.
+    if (this.skill.caution > 0 && (this.tactic.mode !== 'Pressure' || !a.landed) && dist < this.reach(target.weapon) + 0.2) {
+      return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
+    }
+    return base;
   }
 
   /** While a planned Feint's Wind-up runs: hold attack, then switch Direction (the Feint) and let the new Attack Release. */
@@ -355,21 +786,70 @@ class AiController implements Controller {
     }
     if (tick < plan.at) return { ...base, attack: true, direction: plan.from };
     this.feintPlan = null;
+    if (this.attackPlan) this.attackPlan = { ...this.attackPlan, direction: plan.into };
     return { ...base, attack: true, direction: plan.into };
   }
 
-  /** Block the seen Attack, in the Direction that meets it unless this Attack's roll made it a mistake. */
-  private defend(self: Action, attacker: number, attackDirection: Direction, attackStart: number, base: Intent): Intent {
-    if (this.blockPlan?.attacker !== attacker || this.blockPlan.attackStart !== attackStart) {
-      const mistake = this.random() < this.difficulty.mistakeRate;
-      const meets = mirrorDirection(attackDirection);
-      this.blockPlan = { attacker, attackStart, direction: mistake ? this.randomDirection(meets) : meets };
+  /**
+   * Meet the seen Attack as planned for it (rolled once per Attack): Block it in the Direction that meets it
+   * (unless the roll made it a mistake), Crouch under a Left or Right, Chamber it, or swing on when its own
+   * Wind-up lands first.
+   */
+  private defend(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent): Intent {
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    const attackStart = seen.attackStart!;
+    const meets = mirrorDirection(atk.direction);
+    if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
+      this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets);
+      this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
-    const direction = this.blockPlan.direction;
+    let plan = this.defencePlan;
+    const own = self.action;
+    switch (plan.kind) {
+      case 'Duck':
+        return { ...base, crouch: true };
+      case 'Outpace':
+        // Its own Wind-up lands first: let it go (it may already have Released).
+        if (own.kind === 'Attack') return base;
+        plan = this.defencePlan = { ...plan, kind: 'Block', direction: meets };
+        break;
+      case 'Chamber': {
+        if (state.tick < plan.pressAt) return own.kind === 'Idle' ? base : { ...base, block: true, direction: meets };
+        if (state.tick === plan.pressAt && (own.kind === 'Idle' || (own.kind === 'Fall' && self.air?.jumped))) return { ...base, attack: true, direction: meets };
+        // Pressed: let its Attack run until it can see whether the Chamber took; still threatened after that, Block (a Block Feint).
+        if (own.kind === 'Attack' && state.tick <= plan.pressAt + this.reactionTicks + 2) return base;
+        plan = this.defencePlan = { ...plan, kind: 'Block', direction: meets };
+        break;
+      }
+      case 'Block':
+        break;
+    }
+    const direction = plan.direction;
     // A Block's Direction is fixed on press: drop a Block in another Direction for a Tick, then raise this one.
-    if (self.kind === 'Block' && self.direction !== direction) return base;
+    if (own.kind === 'Block' && own.direction !== direction) return base;
     // Mid-Wind-up, pressing block Feints into the Block.
     return { ...base, block: true, direction };
+  }
+
+  private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction): DefencePlan {
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    const plan = (kind: DefencePlan['kind'], direction = meets, pressAt = -1): DefencePlan => ({ attacker, attackStart, kind, direction, pressAt });
+    if (this.random() < this.skill.mistakeRate) return plan('Block', this.randomDirection(meets));
+    const own = self.action;
+    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
+    const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
+    if (own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self.weapon)) {
+      const mine = attackTimings(this.tuning, self.weapon, own.direction);
+      if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
+    }
+    if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) return plan('Duck');
+    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && this.skill.chamberRate > 0) {
+      // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
+      const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
+      if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);
+    }
+    return plan('Block');
   }
 }
 

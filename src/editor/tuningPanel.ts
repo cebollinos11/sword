@@ -1,7 +1,7 @@
 /**
  * Tuning panels for the Duel sandbox: Weapons (pick one from the roster; every field,
  * the Off-hand Grip included), Hit Zone
- * multipliers, AI difficulty (Reaction Time, mistake rate per preset) and the
+ * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
  * Block (the facing rule and the Block Impact's give and bounce) and Fall (gravity, the Jump, Landing damage, steps) and Camera (where the
  * third-person and orbit cameras sit; seen in a Player vs AI run, applied without a re-run).
@@ -11,7 +11,7 @@
  * Save writes the validated section to `data/<section>.json`, a Weapon to `data/weapons/<file>`.
  */
 import type { FolderApi, Pane } from 'tweakpane';
-import { GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
+import { AI_DIFFICULTY_EXTRAS, GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
 
@@ -108,6 +108,12 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
       g.addBinding(d, 'reactionTime', { min: 0, max: 1, step: 0.01, label: 'Reaction Time (s)' }).on('change', () => apply('ai'));
       g.addBinding(d, 'mistakeRate', { min: 0, max: 1, step: 0.01, label: 'mistake rate' }).on('change', () => apply('ai'));
       g.addBinding(d, 'feintRate', { min: 0, max: 1, step: 0.01, label: 'feint rate' }).on('change', () => apply('ai'));
+      // The optional parts of its repertoire this preset sets (a missing one keeps its default).
+      for (const key of AI_DIFFICULTY_EXTRAS) {
+        if (d[key] === undefined) continue;
+        const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
+        g.addBinding(d, key, { min: 0, max: key === 'aggression' || key === 'kickRate' || key === 'jumpAttackRate' ? 0.2 : 1, step: 0.001, label }).on('change', () => apply('ai'));
+      }
     }
   });
 

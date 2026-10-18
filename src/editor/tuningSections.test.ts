@@ -100,7 +100,7 @@ describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () =
     session.commitSection('hitZones');
     session.commitSection('ai');
     expect(session.tuning.hitZones.head.multiplier).toBe(2);
-    expect(session.tuning.ai.difficulties.Hard).toEqual({ reactionTime: 0.1, mistakeRate: 0, feintRate: 0.5 });
+    expect(session.tuning.ai.difficulties.Hard).toEqual({ ...aiJson.difficulties.Hard, reactionTime: 0.1, mistakeRate: 0, feintRate: 0.5 });
 
     const zones = session.sectionFile('hitZones');
     const ai = session.sectionFile('ai');

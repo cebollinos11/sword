@@ -137,7 +137,7 @@ describe('Peer message validation: AI memory in a resync', () => {
 
   it('refuses malformed AI memory', () => {
     const good = aiMemory() as Record<string, unknown>;
-    for (const bad of [42, {}, { ...good, lastTick: 'x' }, { ...good, seen: [{ tick: 1, fighters: [{}] }] }, { ...good, blockPlan: { attacker: 1 } }, { ...good, feintPlan: { from: 'Up' } }]) {
+    for (const bad of [42, {}, { ...good, lastTick: 'x' }, { ...good, seen: [{ tick: 1, fighters: [{}] }] }, { ...good, defencePlan: { attacker: 1 } }, { ...good, attackPlan: { direction: 'Overhead' } }, { ...good, tactic: { mode: 'Panic', until: 0 } }, { ...good, feintPlan: { from: 'Up' } }]) {
       expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
     }
     expect(parseNetMessage({ ...resync(matchState()), ai: undefined })).toBeNull();

@@ -366,6 +366,10 @@ function parseIntent(raw: unknown, path: string): Intent {
     attack: bool(o.attack, `${path}.attack`),
     block: bool(o.block, `${path}.block`),
     face,
+    ...(o.pitch === undefined ? {} : { pitch: num(o.pitch, `${path}.pitch`) }),
+    ...(o.jump === undefined ? {} : { jump: bool(o.jump, `${path}.jump`) }),
+    ...(o.crouch === undefined ? {} : { crouch: bool(o.crouch, `${path}.crouch`) }),
+    ...(o.kick === undefined ? {} : { kick: bool(o.kick, `${path}.kick`) }),
   };
 }
 

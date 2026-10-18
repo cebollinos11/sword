@@ -193,15 +193,40 @@ export interface SkeletonTuning {
   readonly forearm: number;
 }
 
-/** One AI difficulty preset: together, Reaction Time and mistake rate define AI difficulty. */
+/** One AI difficulty preset: Reaction Time and mistake rate, and how much of the AI's repertoire (footwork, pressure, jumps, ducks, Chambers...) it uses. */
 export interface AiDifficulty {
   /** Reaction Time in seconds: the AI only acts on what it saw of its opponent this long ago. */
   readonly reactionTime: number;
   /** Chance (0..1) of a mistake per decision: a wrong-Direction Block, or a mistimed Attack. */
   readonly mistakeRate: number;
-  /** Chance (0..1) that one of its Attacks is a deliberate Feint: it holds the Wind-up, then switches Direction. */
+  /** Chance (0..1) that one of its Attacks is a deliberate Feint: it holds the Wind-up, then switches Direction (or away from a Block it sees raised against it). */
   readonly feintRate: number;
+  /** Overrides `ai.aggression` for this preset: chance (0..1) per Tick of starting an Attack from its spacing. */
+  readonly aggression?: number;
+  /** Overrides `ai.kickRate` for this preset. */
+  readonly kickRate?: number;
+  /** 0..1: how much it circles its opponent and keeps its spacing (hovering just outside reach) rather than walking straight in. 0 = it walks straight in. */
+  readonly footwork?: number;
+  /** 0..1: how often it switches to pressing the attack (closing in, Chaining, more Attacks), more so when ahead on HP. */
+  readonly pressure?: number;
+  /** 0..1: chance it disengages (backs off out of reach for a while) after being hit, and how wary it is when low on HP. */
+  readonly caution?: number;
+  /** 0..1: chance it punishes a visible opening (Recovery, a Blocked recoil, a hard Landing, a Knockdown). Default 1. */
+  readonly punish?: number;
+  /** 0..1: chance it Chains another Attack while its own is in Recovery and the opponent is still in reach. */
+  readonly chainRate?: number;
+  /** 0..1: chance per Tick that it meets an opponent walking into its reach with an Attack already on the way, or out-speeds a slower Wind-up. */
+  readonly preempt?: number;
+  /** 0..1: chance per Tick, from just beyond reach, that it leaps in with an Overhead (a jumping Attack). */
+  readonly jumpAttackRate?: number;
+  /** 0..1: chance it Crouches under a Left or Right Attack rather than Blocking it. */
+  readonly duckRate?: number;
+  /** 0..1: chance it tries to Chamber an Attack (attacking into it, timed to its Release) rather than Blocking it. */
+  readonly chamberRate?: number;
 }
+
+/** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {
@@ -340,7 +365,8 @@ function parseAi(raw: unknown): AiTuning {
       const p = record(d[name], where);
       const reactionTime = finiteNumber(p, 'reactionTime', where);
       if (reactionTime < 0) throw new TuningDataError(`${where}.reactionTime must be >= 0, got ${reactionTime}`);
-      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where) }];
+      const extras = Object.fromEntries(AI_DIFFICULTY_EXTRAS.filter((k) => p[k] !== undefined).map((k) => [k, fraction(p, k, where)]));
+      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where), ...extras }];
     }),
   );
   return {
