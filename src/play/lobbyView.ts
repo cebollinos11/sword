@@ -24,8 +24,8 @@ import {
 } from '../lobby';
 import { button, h, hex, select, thumb, thumbImage, weaponThumb } from './dom';
 
-/** How the menu presents each Arena; one missing here shows its file name on a plain card. */
-export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string; art: string }>> = {
+/** How the menu presents each Arena; one missing here shows its file name on a plain card. `hidden` keeps it off the Map picker (it stays the Editor's). */
+export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string; art: string; hidden?: boolean }>> = {
   library: {
     label: 'Library',
     blurb: 'Stacks, ladders and reading tables',
@@ -50,8 +50,14 @@ export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string;
     label: 'Training circle',
     blurb: 'Open ground, nowhere to hide',
     art: 'radial-gradient(ellipse at 50% 80%, #b9d98a, #5f8a3a 50%, #2d4a1b)',
+    hidden: true,
   },
 };
+
+/** The Arenas a Match can be played in: every one but those hidden from the picker. */
+export function pickableArenas(tuning: TuningData): string[] {
+  return Object.keys(tuning.arenas).filter((a) => !ARENA_INFO[a]?.hidden);
+}
 
 export function arenaLabel(arena: string): string {
   return ARENA_INFO[arena]?.label ?? arena;
@@ -183,7 +189,7 @@ function weaponSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { 
 
 function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
-  const arenas = Object.keys(ctx.tuning.arenas);
+  const arenas = pickableArenas(ctx.tuning);
   const maps = h('div', 'map-grid');
   for (const a of arenas) {
     const info = ARENA_INFO[a];

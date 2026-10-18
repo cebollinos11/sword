@@ -314,8 +314,12 @@ export class Menu {
   // --- Title ---
 
   private titleScreen(): HTMLElement {
-    const editor = h('a', 'nav-item nav-link', null, h('span', 'nav-label', 'Editor'), h('span', 'nav-hint', 'Author Motions and Weapons'));
-    editor.href = '#/editor';
+    // The Editor is for developers: only offered with ?dev=1 in the URL (the #/editor route itself stays open).
+    let editor: HTMLAnchorElement | null = null;
+    if (new URLSearchParams(location.search).get('dev') === '1') {
+      editor = h('a', 'nav-item nav-link', null, h('span', 'nav-label', 'Editor'), h('span', 'nav-hint', 'Author Motions and Weapons'));
+      editor.href = '#/editor';
+    }
     const nav = h(
       'nav',
       'title-nav',

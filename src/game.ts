@@ -10,6 +10,7 @@ import { bindTouchInput, isTouchDevice } from './play/touch';
 import { Hud } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
+import { pickableArenas } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
@@ -114,7 +115,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const hud = new Hud(container, tuning, () => openPause());
 
   const weapons = Object.keys(tuning.weapons);
-  const arenas = Object.keys(tuning.arenas);
+  const arenas = pickableArenas(tuning);
   const difficulties = Object.keys(tuning.ai.difficulties);
   const savedWeapon = stored(WEAPON_STORAGE_KEY);
   const savedArena = stored(ARENA_STORAGE_KEY);
