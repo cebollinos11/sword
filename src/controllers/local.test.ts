@@ -335,6 +335,22 @@ describe('Local Controller: Throw', () => {
     expect(c.sample().throw).toBe(true);
   });
 
+  it('E held is sent as throwHeld on every Tick it is held, and not after it is let go', () => {
+    const c = new LocalController();
+    expect(c.sample().throwHeld).toBeUndefined();
+    c.keyDown('KeyE');
+    expect(c.sample()).toMatchObject({ throw: true, throwHeld: true });
+    expect(c.sample().throwHeld).toBe(true);
+    c.keyUp('KeyE');
+    expect(c.sample().throwHeld).toBeUndefined();
+    // A tap shorter than a Tick throws without holding.
+    c.keyDown('KeyE');
+    c.keyUp('KeyE');
+    const tap = c.sample();
+    expect(tap.throw).toBe(true);
+    expect(tap.throwHeld).toBeUndefined();
+  });
+
   it('losing focus lets go of E, and a throw does not change the Direction the next Attack takes', () => {
     const c = new LocalController();
     c.mouseMove(-200, 0);

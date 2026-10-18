@@ -140,7 +140,7 @@ A small blade each Fighter carries 3 of per Duel (no pickups; a thrown one is go
 _Avoid_: Knife, projectile, shuriken
 
 **Throw**:
-An Action (E key) in which the Fighter throws a Throwing Dagger with its off hand. It follows an Attack's phases (Wind-up, Release, Recovery) and lasts about 0.5 s; the dagger leaves the hand on the first Tick of Release. The Fighter can still walk, turn and crouch, but cannot Attack, Block, Kick, Feint or cancel. It starts from Idle, with a dagger left, on the ground or in a Jump. With a two-handed Weapon the off hand lets go of the Off-hand Grip during the Throw.
+An Action (E key) in which the Fighter takes a Throwing Dagger by its point in its off hand, draws it back behind its head and throws it, the dagger spinning end over end. It follows an Attack's phases (Wind-up, Release, Recovery): the Wind-up takes 0.8 s to reach its held pose and, like an Attack's, holds there while E is held, for up to 2 s, after which the dagger goes by itself. The dagger shows in the hand from the start of the Wind-up, so the opponent can see a throw coming, and leaves it on the first Tick of Release; the whole Throw lasts about 1.25 s unheld. The Fighter can still walk, turn and crouch, but cannot Attack, Block, Kick, Feint or cancel. It starts from Idle, with a dagger left, on the ground or in a Jump. With a two-handed Weapon the off hand lets go of the Off-hand Grip during the Throw.
 _Avoid_: Shot, toss
 
 **Slow**:

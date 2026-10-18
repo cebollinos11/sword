@@ -251,9 +251,9 @@ const AIM_HEIGHT = 1.3;
 const LYING_AIM = 0.3;
 
 /** The dagger leaves the left hand, this far (m) off the thrower's centreline, and flies parallel to its facing. */
-const LEFT_HAND = 0.2;
+const LEFT_HAND = 0.12;
 /** The height (m) of the throwing hand above the feet at Release. */
-const HAND_HEIGHT = 1.25;
+const HAND_HEIGHT = 1.65;
 /** An enemy throw is aimed at the AI when the line it faces passes within this distance (m) of it. */
 const THROW_AIM_MISS = 0.6;
 /** It only throws at a target walking away faster than this fraction of its walk speed. */

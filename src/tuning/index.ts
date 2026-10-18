@@ -134,6 +134,8 @@ export interface DaggerTuning {
   readonly slowTicks: number;
   /** Share of its walking speed a Fighter keeps while it throws. */
   readonly throwWalkFactor: number;
+  /** Ticks a Throw's Wind-up can be held at its held pose before the dagger leaves the hand by itself. */
+  readonly maxHoldTicks: number;
   /** How hard a Blocked dagger shakes the defender's sword hand, as a share of a full Block Impact. */
   readonly blockImpact: number;
 }
@@ -401,6 +403,7 @@ function parseDagger(raw: unknown): DaggerTuning {
     slowFactor: positiveNumber(d, 'slowFactor', 'dagger'),
     slowTicks: wholeTicks(d, 'slowTicks', 'dagger'),
     throwWalkFactor: positiveNumber(d, 'throwWalkFactor', 'dagger'),
+    maxHoldTicks: wholeTicks(d, 'maxHoldTicks', 'dagger'),
     blockImpact: finiteNumber(d, 'blockImpact', 'dagger'),
   };
 }

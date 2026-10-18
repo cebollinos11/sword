@@ -1,5 +1,42 @@
 import { describe, expect, it } from 'vitest';
-import { embedAt, embedPosition } from './daggerView';
+import { createInitialState, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState } from '../sim';
+import { loadTuningData } from '../tuning';
+import { embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
+
+const tuning = loadTuningData();
+
+describe('a dagger in the hand', () => {
+  const tick = (s: SimState, intent = {}): SimState => step(s, [{ ...IDLE_INTENT, ...intent }], tuning);
+
+  it('shows from the first Tick of a Throw until it leaves the hand', () => {
+    let s = createInitialState(tuning, 1);
+    expect(holdsDagger(s.fighters[0]!)).toBe(false);
+    s = tick(s, { throw: true });
+    expect(holdsDagger(s.fighters[0]!)).toBe(true);
+    while (s.daggers.length === 0) s = tick(s);
+    expect(holdsDagger(s.fighters[0]!)).toBe(false);
+  });
+
+  it('is held by its point: the tip at the wrist, pointing down the forearm, the handle out past the fingers', () => {
+    const pose = fighterPose(createInitialState(tuning, 1).fighters[0]!, tuning);
+    const { leftHand: h, leftElbow: e } = pose.joints;
+    const { origin, tip } = heldDagger(pose);
+    const toElbow = { x: e.x - h.x, y: e.y - h.y, z: e.z - h.z };
+    const len = Math.hypot(toElbow.x, toElbow.y, toElbow.z);
+    expect(tip.x * toElbow.x + tip.y * toElbow.y + tip.z * toElbow.z).toBeCloseTo(len, 9);
+    // The blade/handle join is beyond the hand, away from the elbow.
+    expect(Math.hypot(origin.x - e.x, origin.y - e.y, origin.z - e.z)).toBeGreaterThan(len + 0.2);
+  });
+});
+
+describe('a dagger in flight', () => {
+  it('leaves the hand handle first and spins end over end at a steady rate', () => {
+    expect(spinAngle(0)).toBeCloseTo(Math.PI, 9);
+    const perSecond = Math.round(1 / TICK_SECONDS);
+    expect(spinAngle(perSecond) - spinAngle(0)).toBeCloseTo(2 * Math.PI * SPIN_TURNS_PER_SECOND, 9);
+    expect(spinAngle(3, 0.5)).toBeCloseTo((spinAngle(3) + spinAngle(4)) / 2, 9);
+  });
+});
 
 describe('a dagger embedded in a Fighter', () => {
   it('stays at the same spot on the body as the Fighter moves and turns', () => {

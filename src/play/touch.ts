@@ -112,7 +112,7 @@ export interface TouchInputBinding {
 /**
  * On-screen touch controls for a Local Controller: a floating joystick in the
  * lower left walks, the Attack and Block swipe pads in the lower right fight,
- * the Jump and Throw buttons beside them Jump and throw a dagger (a tap each), and dragging anywhere else turns the camera. Multi-touch, so you can walk,
+ * the Jump and Throw buttons beside them Jump (a tap) and throw a dagger (held: hold it back, let go to throw), and dragging anywhere else turns the camera. Multi-touch, so you can walk,
  * look and hold an Attack at once.
  */
 export function bindTouchInput(local: LocalController, container: HTMLElement): TouchInputBinding {

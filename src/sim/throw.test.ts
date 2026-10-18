@@ -35,15 +35,62 @@ describe('Throw Action', () => {
   it('starts on throw and runs Wind-up, Release, Recovery in order, then Idle', () => {
     const { phases, end } = runThrow(fresh());
     expect([...new Set(phases)]).toEqual(['Wind-up', 'Release', 'Recovery']);
-    expect(phases.indexOf('Release')).toBe(timings.windUpEnd);
+    // The Wind-up plays to its held pose, and (throw not held) Releases on the next Tick.
+    expect(phases.indexOf('Release')).toBe(timings.windUpEnd + 1);
     expect(phases.indexOf('Recovery')).toBe(timings.releaseEnd);
     expect(phases.length).toBe(timings.end);
     expect(thrower(end).action.kind).toBe('Idle');
   });
 
-  it('lasts about half a second', () => {
-    expect(timings.end).toBeGreaterThanOrEqual(25);
-    expect(timings.end).toBeLessThanOrEqual(35);
+  it('takes 0.8 s to get the dagger ready, and about 1.25 s in all', () => {
+    expect(timings.windUpEnd).toBe(48);
+    expect(timings.end).toBeGreaterThanOrEqual(70);
+    expect(timings.end).toBeLessThanOrEqual(80);
+  });
+
+  it('holds the Wind-up at its held pose while throw is held, and Releases when it is let go', () => {
+    let s = tick(fresh(), { throw: true, throwHeld: true });
+    s = ticks(s, timings.windUpEnd + 30, { throwHeld: true });
+    const a = thrower(s).action;
+    expect(a.kind === 'Throw' && a.phase).toBe('Wind-up');
+    expect(thrower(s).motion.tick).toBe(timings.windUpEnd);
+    expect(thrower(s).daggers).toBe(tuning.dagger.count);
+    s = tick(s);
+    const b = thrower(s).action;
+    expect(b.kind === 'Throw' && b.phase).toBe('Release');
+    expect(thrower(s).daggers).toBe(tuning.dagger.count - 1);
+    expect(s.events.filter((e) => e.type === 'DaggerThrown')).toHaveLength(1);
+  });
+
+  it('lets the dagger go by itself once the hold runs out', () => {
+    let s = tick(fresh(), { throw: true, throwHeld: true });
+    const windingUp = (st: SimState) => {
+      const a = thrower(st).action;
+      return a.kind === 'Throw' && a.phase === 'Wind-up';
+    };
+    let windUp = 0;
+    while (windingUp(s)) {
+      s = tick(s, { throwHeld: true });
+      if (++windUp > 1000) throw new Error('never Released');
+    }
+    // The Wind-up's own Ticks, the held Ticks, then the Release.
+    expect(windUp).toBe(timings.windUpEnd + tuning.dagger.maxHoldTicks + 1);
+    expect(thrower(s).daggers).toBe(tuning.dagger.count - 1);
+  });
+
+  it('holding throw neither starts a Throw nor repeats one', () => {
+    expect(thrower(tick(fresh(), { throwHeld: true })).action.kind).toBe('Idle');
+    let s = tick(fresh(), { throw: true, throwHeld: true });
+    s = ticks(s, timings.windUpEnd + tuning.dagger.maxHoldTicks + timings.end + 10, { throwHeld: true });
+    expect(thrower(s).action.kind).toBe('Idle');
+    expect(thrower(s).daggers).toBe(tuning.dagger.count - 1);
+  });
+
+  it('cannot be cancelled while held', () => {
+    let s = tick(fresh(), { throw: true, throwHeld: true });
+    s = ticks(s, timings.windUpEnd + 10, { throwHeld: true, attack: true, block: true, kick: true, direction: 'Left' });
+    const a = thrower(s).action;
+    expect(a.kind === 'Throw' && a.phase).toBe('Wind-up');
   });
 
   it('remembers the Tick its Wind-up started', () => {
@@ -56,7 +103,7 @@ describe('Throw Action', () => {
   it('spends one dagger on the first Tick of Release, and says so', () => {
     expect(thrower(fresh()).daggers).toBe(tuning.dagger.count);
     let s = tick(fresh(), { throw: true });
-    for (let i = 0; i < timings.windUpEnd - 1; i++) {
+    for (let i = 0; i < timings.windUpEnd; i++) {
       expect(thrower(s).daggers).toBe(tuning.dagger.count);
       s = tick(s);
     }

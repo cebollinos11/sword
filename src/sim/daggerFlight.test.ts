@@ -20,7 +20,8 @@ const ticks = (s: SimState, n: number, intent: Partial<Intent> = {}): SimState =
   for (let i = 0; i < n; i++) s = tick(s, intent);
   return s;
 };
-const releaseTicks = throwTimings(tuning, Object.keys(tuning.weapons)[0]!).windUpEnd;
+// The Wind-up plays to its held pose, then (throw let go) Releases on the next Tick.
+const releaseTicks = throwTimings(tuning, Object.keys(tuning.weapons)[0]!).windUpEnd + 1;
 
 /** Throw from `s`, stopping on the Tick the dagger leaves the hand. */
 function throwNow(s: SimState, intent: Partial<Intent> = {}): SimState {
@@ -122,11 +123,17 @@ describe('Dagger flight', () => {
   });
 
   it('keeps daggers in the order they were thrown, and two in the air at once', () => {
-    // Away from the Wall, so the first is still flying when the second leaves the hand.
-    const away = { face: Math.PI };
-    let s = throwNow(ticks(fresh(), 60, away), away);
-    s = ticks(s, throwTimings(tuning, Object.keys(tuning.weapons)[0]!).end - releaseTicks, away);
-    s = throwNow(s, away);
+    // Away from the Wall, and floating for long enough, so the first is still flying when the second leaves the hand
+    // (a whole Throw outlasts a real dagger's flight).
+    const floaty = { ...tuning, dagger: { ...tuning.dagger, gravity: 0, maxTicks: 600 } };
+    const away = { ...IDLE_INTENT, face: Math.PI };
+    const run = (s: SimState, n: number, intent: Intent = away): SimState => {
+      for (let i = 0; i < n; i++) s = step(s, [i === 0 ? intent : away], floaty);
+      return s;
+    };
+    let s = run(run(fresh(), 60), releaseTicks + 1, { ...away, throw: true });
+    s = run(s, throwTimings(tuning, Object.keys(tuning.weapons)[0]!).end - releaseTicks);
+    s = run(s, releaseTicks + 1, { ...away, throw: true });
     expect(s.daggers.length).toBe(2);
     expect(s.daggers[0]!.thrownAt).toBeLessThan(s.daggers[1]!.thrownAt);
     expect(s.daggers[0]!.ticks).toBeGreaterThan(s.daggers[1]!.ticks);

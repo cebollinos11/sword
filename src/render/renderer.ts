@@ -67,6 +67,7 @@ export class Renderer {
   render(prev: SimState, curr: SimState, alpha: number): void {
     this.stage.setArena(curr.arena);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
+    const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, this.tuning));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
       const chosen = i === this.player.fighter;
@@ -79,12 +80,12 @@ export class Renderer {
         this.stage.scene.add(slot.view.root);
       }
       slot.view.root.visible = true;
-      slot.view.update(drawnPose(prev, curr, i, alpha, this.tuning), weaponByName(this.tuning, f.weapon));
+      slot.view.update(poses[i]!, weaponByName(this.tuning, f.weapon));
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const now = performance.now();
-    this.daggers.update(prev, curr, alpha, (now - this.lastDraw) / 1000);
+    this.daggers.update(prev, curr, alpha, (now - this.lastDraw) / 1000, poses);
     this.impacts.update((now - this.lastDraw) / 1000);
     this.lastDraw = now;
     this.stage.draw();

@@ -82,7 +82,8 @@ function quantiseYaw(yaw: number): number {
  *   camera yaw is sent as `face`; vertical mouse tilts it up and down, sent as
  *   `pitch` (the Fighter leans its torso with it). Space Jumps: one press is
  *   one Jump (sent on one Tick), however long it is held.
- *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger the same way.
+ *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
+ *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
  */
 export class LocalController implements Controller {
   private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false };
@@ -193,6 +194,7 @@ export class LocalController implements Controller {
     const jump = this.pressed.jump;
     const kick = this.pressed.kick;
     const throwing = this.pressed.throw;
+    const throwHeld = this.held.throw;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
@@ -204,7 +206,7 @@ export class LocalController implements Controller {
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }) };
+    return { ...intent, ...(jump && { jump }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }) };
   }
 
   intent(): Intent {

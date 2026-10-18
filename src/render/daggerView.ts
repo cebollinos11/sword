@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DaggerState, FighterState, SimState, Vec3 } from '../sim';
+import { TICK_SECONDS, type DaggerState, type FighterState, type SimState, type SkeletonPose, type Vec3 } from '../sim';
 
 /** How long (s) a dagger that stuck in a Wall or the floor stays drawn there. Render-only: the Simulation has already dropped it. */
 export const STUCK_SECONDS = 2;
@@ -32,6 +32,38 @@ export function embedPosition(e: Embed, fighter: Pick<FighterState, 'position' |
 }
 
 const FORWARD = new THREE.Vector3(0, 0, 1);
+const spin = new THREE.Quaternion();
+const SIDE = new THREE.Vector3(1, 0, 0);
+
+/** How fast (turns per second) a dagger in flight spins end over end, as a dagger thrown by its point does. Render-only. */
+export const SPIN_TURNS_PER_SECOND = 2.5;
+
+/**
+ * How far (radians) a dagger `ticks` (and `alpha` of one more) into its flight has turned end over end about its side, from leaving
+ * the hand handle first (pi): the tip goes back, up and over toward the front, as an overhand throw spins it.
+ */
+export const spinAngle = (ticks: number, alpha = 0): number => Math.PI + 2 * Math.PI * SPIN_TURNS_PER_SECOND * (ticks + alpha) * TICK_SECONDS;
+
+/** How far (m) past the wrist, along the forearm, the point sits in the hand: the blade lies along the fingers, the handle sticks out past them. */
+const PINCH = 0.03;
+
+/**
+ * A dagger held by its point in the left hand of `pose`: its tip a little past the wrist and the blade pointing back down the forearm,
+ * so the handle stands out beyond the fingers. `origin` is where the mesh's blade meets its handle; `tip` the way its point faces.
+ */
+export function heldDagger(pose: SkeletonPose): { origin: Vec3; tip: Vec3 } {
+  const { leftHand: h, leftElbow: e } = pose.joints;
+  const fx = h.x - e.x;
+  const fy = h.y - e.y;
+  const fz = h.z - e.z;
+  const len = Math.hypot(fx, fy, fz) || 1;
+  const out = { x: fx / len, y: fy / len, z: fz / len };
+  const reach = PINCH + BLADE;
+  return { origin: { x: h.x + out.x * reach, y: h.y + out.y * reach, z: h.z + out.z * reach }, tip: { x: -out.x, y: -out.y, z: -out.z } };
+}
+
+/** Whether Fighter `f` has a dagger in its hand to show: it is winding up a Throw (from Release on, the dagger is in flight). */
+export const holdsDagger = (f: FighterState): boolean => !f.death && f.action.kind === 'Throw' && f.action.phase === 'Wind-up';
 
 /** A small dagger mesh pointing along +z, its tip at z = BLADE. Shares geometry and materials. */
 function daggerMesh(shared: { blade: THREE.BufferGeometry; handle: THREE.BufferGeometry; steel: THREE.Material; wood: THREE.Material }): THREE.Group {
@@ -50,8 +82,9 @@ function daggerMesh(shared: { blade: THREE.BufferGeometry; handle: THREE.BufferG
 const key = (d: DaggerState): string => `${d.owner}:${d.thrownAt}`;
 
 /**
- * Draws the Throwing Daggers in flight as small blades along their velocity, interpolated between Ticks like the Fighters,
- * and leaves each one that stuck at its `DaggerStuck` point for `STUCK_SECONDS`. It only reads the Simulation.
+ * Draws the Throwing Daggers: one held by its point in the left hand of each Fighter winding up a Throw, so its opponent can see it
+ * coming; those in flight as small blades along their velocity, spinning end over end and interpolated between Ticks like the
+ * Fighters; and each one that stuck at its `DaggerStuck` point for `STUCK_SECONDS`. It only reads the Simulation.
  */
 export class DaggerViews {
   private readonly root = new THREE.Group();
@@ -66,14 +99,19 @@ export class DaggerViews {
   private readonly stuck: { mesh: THREE.Group; left: number }[] = [];
   /** Daggers sticking out of a Fighter for as long as its Slow lasts (render-only, from `DaggerHit` and `slow`). */
   private readonly embedded: { embed: Embed; mesh: THREE.Group }[] = [];
+  /** The dagger in each Fighter's hand, by Fighter index (made on first use, hidden when it holds none). */
+  private readonly held: THREE.Group[] = [];
   private lastTick = -Infinity;
 
   constructor(scene: THREE.Scene) {
     scene.add(this.root);
   }
 
-  /** Draw the daggers between Tick `prev` and Tick `curr` (`alpha` in [0, 1]); `seconds` is the time since the last draw, for the stuck ones' fade. */
-  update(prev: SimState, curr: SimState, alpha: number, seconds: number): void {
+  /**
+   * Draw the daggers between Tick `prev` and Tick `curr` (`alpha` in [0, 1]); `seconds` is the time since the last draw, for the stuck
+   * ones' fade. `poses` are the Fighters' poses as drawn this frame, for the daggers in their hands.
+   */
+  update(prev: SimState, curr: SimState, alpha: number, seconds: number, poses: readonly SkeletonPose[]): void {
     if (curr.tick < this.lastTick) this.clear();
     if (curr.tick !== this.lastTick) {
       // Each new Tick's `DaggerStuck` events plant a dagger once, however many frames draw that Tick.
@@ -99,11 +137,32 @@ export class DaggerViews {
       const a = before.has(k) ? alpha : 1;
       mesh.position.set(from.x + (d.position.x - from.x) * a, from.y + (d.position.y - from.y) * a, from.z + (d.position.z - from.z) * a);
       mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(d.velocity.x, d.velocity.y, d.velocity.z).normalize());
+      mesh.quaternion.multiply(spin.setFromAxisAngle(SIDE, spinAngle(d.ticks, a - 1)));
     }
     for (const [k, mesh] of this.flying) {
       if (seen.has(k)) continue;
       this.root.remove(mesh);
       this.flying.delete(k);
+    }
+
+    for (let i = 0; i < Math.max(this.held.length, curr.fighters.length); i++) {
+      const f = curr.fighters[i];
+      const pose = poses[i];
+      const holding = f !== undefined && pose !== undefined && holdsDagger(f);
+      let mesh = this.held[i];
+      if (!holding) {
+        if (mesh) mesh.visible = false;
+        continue;
+      }
+      if (!mesh) {
+        mesh = daggerMesh(this.shared);
+        this.held[i] = mesh;
+        this.root.add(mesh);
+      }
+      const { origin, tip } = heldDagger(pose);
+      mesh.visible = true;
+      mesh.position.set(origin.x, origin.y, origin.z);
+      mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(tip.x, tip.y, tip.z));
     }
 
     for (let i = this.embedded.length - 1; i >= 0; i--) {
@@ -155,5 +214,6 @@ export class DaggerViews {
     for (const mesh of this.flying.values()) this.root.remove(mesh);
     this.flying.clear();
     for (const s of this.stuck.splice(0)) this.root.remove(s.mesh);
+    for (const mesh of this.held) mesh.visible = false;
   }
 }

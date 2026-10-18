@@ -73,14 +73,18 @@ export interface KickAction {
 }
 
 /**
- * A Throw: the off (left) hand draws back and throws a Throwing Dagger, driven by the Throw Motion's `windUpEnd` / `releaseEnd` markers like an
- * Attack. The dagger leaves the hand on the first Tick of Release. The Fighter can still walk, turn and crouch, but not Attack, Block, Kick, Feint or cancel.
+ * A Throw: the off (left) hand takes a Throwing Dagger by its point, draws it back behind the head and throws it, driven by the Throw Motion's
+ * `windUpEnd` / `releaseEnd` markers like an Attack. Like an Attack's, its Wind-up holds at its held pose while throw is held (up to
+ * `dagger.maxHoldTicks`). The dagger leaves the hand on the first Tick of Release. The Fighter can still walk, turn and crouch, but not Attack,
+ * Block, Kick, Feint or cancel.
  */
 export interface ThrowAction {
   readonly kind: 'Throw';
   readonly phase: AttackPhase;
   /** The Tick (`SimState.tick`) on which this Throw's Wind-up started: a Block only stops its dagger if it was raised on or after it. */
   readonly startTick: number;
+  /** Ticks the Wind-up has been held at its held pose so far; absent until it is held. */
+  readonly held?: number;
 }
 
 /** The phases of a Knockdown, in order: the fall, lying, the Get-up. */

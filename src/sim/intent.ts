@@ -59,6 +59,11 @@ export interface Intent {
    * leaves the off hand in Release. It can still walk and turn while throwing but is committed otherwise. Held down, it does not repeat.
    */
   readonly throw?: boolean;
+  /**
+   * Throw button held this Tick (absent = let go). It holds a Throw's Wind-up at its held pose, for up to `dagger.maxHoldTicks`; letting go
+   * (or running out of hold) Releases the dagger. It never starts a Throw: only `throw` does.
+   */
+  readonly throwHeld?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({

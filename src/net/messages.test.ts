@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, stepMatch, type MatchState } from '../sim';
+import { createMatch, IDLE_INTENT, stepMatch, throwTimings, type MatchState } from '../sim';
 import { createAiController } from '../controllers';
 import { parseNetMessage } from './messages';
 
@@ -23,7 +23,9 @@ function kickingMatchState(): MatchState {
 /** A Match state caught mid-Throw, with a dagger spent, as a host would send it. */
 function throwingMatchState(): MatchState {
   let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
-  for (let t = 0; t < 14; t++) m = stepMatch(m, [{ ...IDLE_INTENT, throw: t === 0 }, IDLE_INTENT], tuning);
+  // A few Ticks past Release: the dagger is in flight and the Throw is still on.
+  const released = throwTimings(tuning, m.duel.fighters[0]!.weapon).windUpEnd + 4;
+  for (let t = 0; t < released; t++) m = stepMatch(m, [{ ...IDLE_INTENT, throw: t === 0 }, IDLE_INTENT], tuning);
   return JSON.parse(JSON.stringify(m)) as MatchState;
 }
 
