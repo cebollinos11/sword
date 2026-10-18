@@ -90,11 +90,13 @@ function frame(along: THREE.Vector3, toward: THREE.Vector3): THREE.Quaternion {
  * straight limb keeps a steady roll; the hands follow the forearms.
  */
 export function boneFrames(j: Joints): Record<BodyBone, BoneFrame> {
-  const up = new THREE.Vector3(0, 1, 0);
   const hipsLeft = between(j.rightHip, j.leftHip);
-  const forward = new THREE.Vector3().crossVectors(hipsLeft, up).normalize();
   const shoulderLeft = between(j.rightShoulder, j.leftShoulder).normalize();
   const spineUp = between(j.pelvis, j.chest).normalize();
+  // A standing pelvis stays level however the spine leans; a fallen one (a Death Ragdoll) turns with the spine, so a body on its side keeps its legs' roll.
+  const level = THREE.MathUtils.clamp((spineUp.y - 0.2) / 0.4, 0, 1);
+  const up = spineUp.clone().lerp(new THREE.Vector3(0, 1, 0), level).normalize();
+  const forward = new THREE.Vector3().crossVectors(hipsLeft, up).normalize();
   const chestForward = new THREE.Vector3().crossVectors(shoulderLeft, spineUp).normalize();
 
   const frames = {

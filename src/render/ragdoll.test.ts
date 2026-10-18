@@ -49,6 +49,23 @@ describe('Death Ragdoll', () => {
       expect(d(lying.joints[a], lying.joints[b])).toBeCloseTo(d(pose.joints[a], pose.joints[b]), 1);
   });
 
+  it('never bends a knee backwards, whichever way the body is knocked', () => {
+    const sub = (a: Vec3, b: Vec3): Vec3 => ({ x: b.x - a.x, y: b.y - a.y, z: b.z - a.z });
+    const cross = (a: Vec3, b: Vec3): Vec3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+    const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
+    for (const direction of ['Left', 'Right', 'Overhead'] as const)
+      for (const from of [{ x: 0, z: -1 }, { x: 1, z: 1 }, { x: -1, z: 0.5 }])
+        for (const t of [0.4, 1, 3]) {
+          const { joints: j } = ragdollPose(pose, { ...death, blow: { ...death.blow!, direction, from } }, t, weapon, tuning);
+          const left = sub(j.rightHip, j.leftHip);
+          for (const side of ['left', 'right'] as const) {
+            // The knee turns about the hips' left-right axis the same way as standing: shin swinging back under the thigh.
+            const knee = cross(sub(j[`${side}Hip`], j[`${side}Knee`]), sub(j[`${side}Knee`], j[`${side}Ankle`]));
+            expect(dot(knee, left), `${side} knee, ${direction} from ${from.x},${from.z} at ${t}s`).toBeGreaterThan(0);
+          }
+        }
+  });
+
   it('lets go of the Weapon, which keeps its length and falls on its own', () => {
     const lying = ragdollPose(pose, death, 3, weapon, tuning);
     expect(d(lying.blade.hilt, lying.blade.tip)).toBeCloseTo(d(pose.blade.hilt, pose.blade.tip), 1);

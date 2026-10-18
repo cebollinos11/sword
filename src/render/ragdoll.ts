@@ -7,8 +7,8 @@
  * replays and Rollback all draw the same fall.
  *
  * Verlet particles, one per joint plus three on the Weapon, held together by
- * distance constraints: the torso and head are rigid, the limbs hinge freely
- * (but cannot fold flat), and everything lands on the Arena's Walk Surfaces: each particle on
+ * distance constraints: the torso and head are rigid, the knees and elbows bend
+ * only the way they bend in life (never backwards, sideways or flat), and everything lands on the Arena's Walk Surfaces: each particle on
  * the highest one under it, so a body that falls off a ledge drops to the floor below.
  */
 import { groundBelow, JOINT_NAMES, type Death, type JointName, type SkeletonPose, type Vec3 } from '../sim';
@@ -91,6 +91,39 @@ const FOLDS: [JointName, JointName, number][] = [
   ['leftHip', 'leftAnkle', 0.45],
   ['rightHip', 'rightAnkle', 0.45],
 ];
+
+/** Which way a hinge bends, given the torso as it lies now. */
+type Bend = (body: Torso, chain: Vec3) => Vec3;
+interface Torso {
+  /** Right hip to left hip, pelvis to chest, and the chest's front, as unit vectors. */
+  readonly left: Vec3;
+  readonly up: Vec3;
+  readonly forward: Vec3;
+}
+/** Knees and feet bend in the leg's own plane: forward of the line from hip to ankle (or along the shin), as when standing. */
+const LEG: Bend = (t, c) => cross(c, t.left);
+/** Elbows bend toward the arm poles of src/sim/skeleton.ts: out, down and back. */
+const arm =
+  (out: number): Bend =>
+  (t) => ({ x: t.left.x * 0.6 * out - t.up.x - t.forward.x * 0.4, y: t.left.y * 0.6 * out - t.up.y - t.forward.y * 0.4, z: t.left.z * 0.6 * out - t.up.z - t.forward.z * 0.4 });
+/**
+ * Hinges: each joint stays off the line between its two neighbours on the side
+ * the living pose bends it, turned at most `swing` radians round that line from
+ * it, and at least `least` metres off it. So knees and elbows never bend
+ * backwards or sideways and the feet never spin round the shins; the Body
+ * model rolls each limb by that same side (src/render/bodyRig.ts), so it never twists.
+ */
+const HINGES: [joint: JointName, from: JointName, to: JointName, bend: Bend, swing: number, least: number][] = [
+  ['leftKnee', 'leftHip', 'leftAnkle', LEG, 0.35, 0.03],
+  ['rightKnee', 'rightHip', 'rightAnkle', LEG, 0.35, 0.03],
+  ['leftToe', 'leftKnee', 'leftAnkle', LEG, 0.5, 0],
+  ['rightToe', 'rightKnee', 'rightAnkle', LEG, 0.5, 0],
+  ['leftElbow', 'leftShoulder', 'leftHand', arm(1), 0.8, 0.02],
+  ['rightElbow', 'rightShoulder', 'rightHand', arm(-1), 0.8, 0.02],
+];
+/** How far behind the hip (backwards) and across the body (inwards) a knee may swing, as a share of the thigh. */
+const HIP_BACK = 0.45;
+const HIP_IN = 0.3;
 
 function dist(p: Float64Array, a: number, b: number): number {
   return Math.hypot(p[3 * a]! - p[3 * b]!, p[3 * a + 1]! - p[3 * b + 1]!, p[3 * a + 2]! - p[3 * b + 2]!);
@@ -200,8 +233,67 @@ function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Arra
       p[3 * b + 1] = p[3 * b + 1]! - dy * f;
       p[3 * b + 2] = p[3 * b + 2]! - dz * f;
     }
+    const body = torso(p);
+    for (const [j, a, b, bend, swing, least] of HINGES) hinge(p, J[j], J[a], J[b], bend(body, sub(p, J[a], J[b])), swing, least);
+    for (const [hip, knee, out] of [[J.leftHip, J.leftKnee, 1], [J.rightHip, J.rightKnee, -1]] as const) {
+      const thigh = dist(p, hip, knee);
+      limit(p, knee, hip, body.forward, -HIP_BACK * thigh);
+      limit(p, knee, hip, scale(body.left, out), -HIP_IN * thigh);
+    }
     for (let i = 0; i < COUNT; i++) if (p[3 * i + 1]! < floor[i]! + radius[i]!) p[3 * i + 1] = floor[i]! + radius[i]!;
   }
+}
+
+/** From particle `a` to particle `b`. */
+const sub = (p: Float64Array, a: number, b: number): Vec3 => ({ x: p[3 * b]! - p[3 * a]!, y: p[3 * b + 1]! - p[3 * a + 1]!, z: p[3 * b + 2]! - p[3 * a + 2]! });
+const dot = (a: Vec3, b: Vec3) => a.x * b.x + a.y * b.y + a.z * b.z;
+const cross = (a: Vec3, b: Vec3): Vec3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+const scale = (v: Vec3, k: number): Vec3 => ({ x: v.x * k, y: v.y * k, z: v.z * k });
+const nudge = (p: Float64Array, i: number, v: Vec3, k: number) => {
+  p[3 * i] = p[3 * i]! + v.x * k;
+  p[3 * i + 1] = p[3 * i + 1]! + v.y * k;
+  p[3 * i + 2] = p[3 * i + 2]! + v.z * k;
+};
+
+function torso(p: Float64Array): Torso {
+  const left = norm(sub(p, J.rightHip, J.leftHip));
+  const up = norm(sub(p, J.pelvis, J.chest));
+  return { left, up, forward: norm(cross(left, up)) };
+}
+
+/** Keep joint `j` off the line from `a` to `b` toward `bend`, within `swing` radians of it and at least `least` off the line. */
+function hinge(p: Float64Array, j: number, a: number, b: number, bend: Vec3, swing: number, least: number): void {
+  const chain = sub(p, a, b);
+  const length = Math.hypot(chain.x, chain.y, chain.z);
+  if (length < 1e-9) return;
+  const axis = scale(chain, 1 / length);
+  const toJoint = sub(p, a, j);
+  const off = { x: toJoint.x - axis.x * dot(toJoint, axis), y: toJoint.y - axis.y * dot(toJoint, axis), z: toJoint.z - axis.z * dot(toJoint, axis) };
+  const along = dot(bend, axis);
+  const f = { x: bend.x - axis.x * along, y: bend.y - axis.y * along, z: bend.z - axis.z * along };
+  const fl = Math.hypot(f.x, f.y, f.z);
+  if (fl < 1e-6) return;
+  const front = scale(f, 1 / fl);
+  const side = cross(axis, front);
+  const r = Math.hypot(off.x, off.y, off.z);
+  const angle = Math.atan2(dot(off, side), dot(off, front));
+  if (r >= least && Math.abs(angle) <= swing) return;
+  const turn = Math.max(-swing, Math.min(swing, angle));
+  const reach = Math.max(r, least);
+  const want = { x: (front.x * Math.cos(turn) + side.x * Math.sin(turn)) * reach, y: (front.y * Math.cos(turn) + side.y * Math.sin(turn)) * reach, z: (front.z * Math.cos(turn) + side.z * Math.sin(turn)) * reach };
+  // The joint moves two thirds of the way and its neighbours the rest, so the limb as a whole keeps its momentum.
+  const move = { x: want.x - off.x, y: want.y - off.y, z: want.z - off.z };
+  nudge(p, j, move, 2 / 3);
+  nudge(p, a, move, -1 / 3);
+  nudge(p, b, move, -1 / 3);
+}
+
+/** Keep joint `j` at least `least` from `root` along `dir` (a unit vector), splitting the correction between them. */
+function limit(p: Float64Array, j: number, root: number, dir: Vec3, least: number): void {
+  const short = least - dot(sub(p, root, j), dir);
+  if (short <= 0) return;
+  nudge(p, j, dir, short / 2);
+  nudge(p, root, dir, -short / 2);
 }
 
 /**
