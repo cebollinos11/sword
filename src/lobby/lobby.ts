@@ -26,6 +26,8 @@ export interface Member {
   readonly name: string;
   /** Their Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
+  /** The Body they are drawn as (render-only; a name the renderer does not know is drawn as a random one). */
+  readonly body: string;
   /** Ready to start (guests; the host starts when everyone is). */
   readonly ready: boolean;
 }
@@ -63,16 +65,17 @@ export interface SeatRef {
   readonly index: number;
 }
 
-/** What a started Match needs from the Lobby. Index p of `weapons`/`names`/`members` is Player p. */
+/** What a started Match needs from the Lobby. Index p of `weapons`/`names`/`bodies`/`members` is Player p. */
 export interface LobbyLineup {
   readonly lineup: Lineup;
   readonly weapons: readonly string[];
   readonly names: readonly string[];
+  readonly bodies: readonly string[];
   readonly members: readonly number[];
 }
 
 export interface NewLobbyOptions {
-  readonly host: { readonly name: string; readonly weapon: string };
+  readonly host: { readonly name: string; readonly weapon: string; readonly body: string };
   readonly settings: LobbySettings;
   /** Online: Open Seats for three guests (one beside the host, two opposite); offline this AI opposite. */
   readonly online: boolean;
@@ -88,7 +91,7 @@ export function newLobby(o: NewLobbyOptions): LobbyState {
   const host: Seat = { kind: 'Player', member: 0 };
   return {
     settings: o.settings,
-    members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, ready: true }],
+    members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, body: o.host.body, ready: true }],
     teams: o.online ? [row(host, OPEN), row(OPEN, OPEN)] : [row(host), row({ kind: 'AI', ...o.ai })],
     generation: 0,
     playing: false,
@@ -174,7 +177,7 @@ export function updateMember(state: LobbyState, id: number, patch: Partial<Omit<
   const old = member(state, id);
   if (!old) return state;
   const fresh = { ...old, ...patch };
-  if (fresh.name === old.name && fresh.weapon === old.weapon && fresh.ready === old.ready) return state;
+  if (fresh.name === old.name && fresh.weapon === old.weapon && fresh.body === old.body && fresh.ready === old.ready) return state;
   return { ...state, members: state.members.map((m) => (m.id === id ? fresh : m)) };
 }
 
@@ -193,7 +196,7 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
       else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty }, weapon: s.weapon });
     }
   });
-  return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), members: seated.map((m) => m.id) };
+  return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };
 }
 
 /** Why a Match cannot start now, or null. `requireReady`: every guest must be ready (a start from the Lobby, not a restart). */

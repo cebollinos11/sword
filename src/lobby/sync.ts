@@ -4,7 +4,7 @@
  * The host owns the Lobby: it applies every change (its own, and what guests
  * ask for) and sends each guest the whole state, on every change and every
  * HEARTBEAT_MS besides. Guests only ever send their own wishes (name, Weapon,
- * ready, a Seat to move to), again in full and repeatedly, tagged with a
+ * Body, ready, a Seat to move to), again in full and repeatedly, tagged with a
  * sequence number the host acknowledges. The Room link may lose or reorder
  * messages (it is tuned for Intents), and this way nothing needs to arrive
  * twice: the next copy covers a lost one.
@@ -40,7 +40,7 @@ export const MAX_NAME = 16;
 export type LobbyStatus = 'Joining' | 'Open' | 'Closed';
 
 /** What a player may change about themselves. */
-export type MemberPatch = Partial<Pick<Member, 'name' | 'weapon' | 'ready'>>;
+export type MemberPatch = Partial<Pick<Member, 'name' | 'weapon' | 'body' | 'ready'>>;
 
 export interface Lobby {
   readonly online: boolean;
@@ -220,13 +220,13 @@ export class HostLobby extends Base implements Lobby {
       if (m.tuningHash !== this.tuningHash) return this.refuse(link, 'TuningDataMismatch');
       const id = this.nextId++;
       const weapon = this.tuning.weapons[m.weapon] ? m.weapon : this.state.members[0]!.weapon;
-      const joined = join(this.state, { id, name: cleanName(m.name), weapon, ready: false });
+      const joined = join(this.state, { id, name: cleanName(m.name), weapon, body: m.body, ready: false });
       if (!joined) return this.refuse(link, 'RoomFull');
       link.id = id;
       return this.set(joined);
     }
     if (m.type !== 'member' || link.id === null || m.seq < link.seq) return;
-    const patch: MemberPatch = { name: cleanName(m.name), ready: m.ready, ...(this.tuning.weapons[m.weapon] ? { weapon: m.weapon } : {}) };
+    const patch: MemberPatch = { name: cleanName(m.name), body: m.body, ready: m.ready, ...(this.tuning.weapons[m.weapon] ? { weapon: m.weapon } : {}) };
     let next = updateMember(this.state, link.id, patch);
     if (m.seq > link.seq) {
       link.seq = m.seq;
@@ -251,7 +251,7 @@ export class GuestLobby extends Base implements Lobby {
   status: LobbyStatus = 'Joining';
   private readonly channels: Channels;
   private readonly tuningHash: string;
-  private mine: { name: string; weapon: string; ready: boolean };
+  private mine: { name: string; weapon: string; body: string; ready: boolean };
   private seq = 0;
   private acked = -1;
   private move: { seq: number; to: SeatRef } | null = null;
@@ -264,11 +264,11 @@ export class GuestLobby extends Base implements Lobby {
   constructor(
     transport: Transport,
     private readonly tuning: TuningData,
-    me: { name: string; weapon: string },
+    me: { name: string; weapon: string; body: string },
   ) {
     super();
     this.tuningHash = tuningDataHash(tuning);
-    this.mine = { name: cleanName(me.name), weapon: me.weapon, ready: false };
+    this.mine = { name: cleanName(me.name), weapon: me.weapon, body: me.body, ready: false };
     this.channels = splitTransport(transport);
     this.channels.room.onMessage((raw) => this.receive(parseLobbyMessage(raw)));
     this.channels.room.onClose(() => this.closed(this.closing ? null : 'The host closed the Room (disconnected).'));
@@ -307,7 +307,7 @@ export class GuestLobby extends Base implements Lobby {
     if (now - this.heard > LOBBY_TIMEOUT_MS) return this.closed('Lost the connection to the host.');
     if (this.status === 'Joining' && now - this.sentAt >= HEARTBEAT_MS) {
       this.sentAt = now;
-      this.channels.room.send({ type: 'join', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, name: this.mine.name, weapon: this.mine.weapon } satisfies LobbyMessage);
+      this.channels.room.send({ type: 'join', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, name: this.mine.name, weapon: this.mine.weapon, body: this.mine.body } satisfies LobbyMessage);
     } else if (this.status === 'Open' && now - this.sentAt >= HEARTBEAT_MS * 2) this.sendWishes();
   }
 

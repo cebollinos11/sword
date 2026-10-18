@@ -136,7 +136,7 @@ export class Menu {
   private connecting = { title: '', detail: '', code: '' };
   private inGame = false;
   private joinText = '';
-  /** The Body model you are drawn as, in every Match (render-only; the other Fighters wear random ones). */
+  /** The Body model you are drawn as, in every Match (render-only; the other players see it too, and the AIs wear random ones). */
   body: BodyModelName = storedBody();
   /** Your name in Rooms. */
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
@@ -414,6 +414,7 @@ export class Menu {
       const card = button('body-card', '', () => {
         this.body = b;
         store(BODY_STORAGE_KEY, b);
+        this.lobby?.setMine({ body: b });
         grid.querySelectorAll('.body-card').forEach((c) => c.setAttribute('aria-pressed', String(c === card)));
       });
       card.append(h('span', 'body-picture', null, thumbImage('', 'bodies', b, BODY_LABELS[b])), h('span', 'body-name', BODY_LABELS[b]));

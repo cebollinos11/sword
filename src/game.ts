@@ -3,7 +3,7 @@ import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { placeOrbitCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
-import { lineupMatch, LocalController, playerFighter, type PlayerNumber } from './controllers';
+import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
@@ -49,6 +49,8 @@ export interface MatchPresentation {
   readonly driver: MatchDriver;
   /** Each Player's name (index = Player number), for the HUD. */
   readonly names?: readonly string[];
+  /** Each Player's chosen Body (index = Player number); the AIs wear random ones. */
+  readonly bodies?: readonly string[];
 }
 
 export interface Game {
@@ -119,6 +121,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   let driver: MatchDriver | null = null;
   let names: readonly string[] | null = null;
+  let bodies: readonly string[] | null = null;
   let prev: MatchState = createMatch(tuning, { bestOf: 1 });
   let curr: MatchState = prev;
   let accumulator = 0;
@@ -183,7 +186,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const arena = arenas.find((a) => a === savedArena) ?? tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
-    return { host: { name: menu.name, weapon }, settings: { arena, bestOf: 3 }, online, ai: { difficulty, weapon: weapons[0]! } };
+    return { host: { name: menu.name, weapon, body: menu.body }, settings: { arena, bestOf: 3 }, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
   // --- Lobby and Room ---
@@ -246,12 +249,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function launch(l: Lobby, s: LobbyState): void {
     playing = s.generation;
     lobbyShown = true;
-    const { lineup, weapons: picks, names: playerNames, members } = lobbyLineup(s);
+    const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
     const match = { bestOf: s.settings.bestOf, arena: s.settings.arena, seed: randomSeed() };
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
       const d = playerVsAi(tuning, { lineup, weapon: picks[0]!, ...match });
-      return game.play({ driver: d, names: playerNames });
+      return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
     const weapon = picks[me]!;
@@ -265,7 +268,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (!transport) return;
       session = createRollbackSession({ role: 'guest', transport, tuning, weapon });
     }
-    game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames });
+    game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames, bodies: playerBodies });
   }
 
   /** The broker options, or undefined (after showing why) if the URL is unusable. */
@@ -324,7 +327,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         if (attempt !== pending) return transport.close();
         attempt = null;
         const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
-        adopt(new GuestLobby(transport, tuning, { name: menu.name, weapon }));
+        adopt(new GuestLobby(transport, tuning, { name: menu.name, weapon, body: menu.body }));
         menu.showConnecting('Joining Room', 'Connected. Waiting for the host’s Lobby…', code);
       },
       (e) => failed(pending, e),
@@ -334,11 +337,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   // --- Matches ---
 
   const game: Game = {
-    play({ driver: d, names: n }) {
+    play({ driver: d, names: n, bodies: b }) {
       if (driver !== d) driver?.close?.();
       driver = d;
       names = n ?? null;
-      // Fresh random Bodies for everyone but the player.
+      bodies = b ?? null;
+      // Fresh random Bodies for the AIs.
       renderer.recast();
       local.releaseAll();
       announcer = new MatchAnnouncer();
@@ -456,13 +460,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let previewKey = '';
   let preview: MatchState = curr;
   /** Behind the menus: the Lobby's Map and Fighters standing ready (or a plain Duel on the last Map). */
-  function previewMatch(): { match: MatchState; me: number } {
+  function previewMatch(): { match: MatchState; me: number; bodies: (string | undefined)[] } {
     const s = lobby?.state;
     const arena = s?.settings.arena ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
     let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!] };
     let me = 0;
+    let chosen: (string | undefined)[] = [];
     if (s) {
-      const { lineup, weapons: picks, members } = lobbyLineup(s);
+      const { lineup, weapons: picks, bodies: playerBodies, members } = lobbyLineup(s);
+      chosen = fighterBodies(lineup, playerBodies);
       const player = members.indexOf(lobby!.me ?? -1);
       if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena });
       me = player >= 0 ? playerFighter(lineup, player as PlayerNumber) : -1;
@@ -476,7 +482,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // Not a fieldable Lineup (yet): keep the last scene.
       }
     }
-    return { match: preview, me };
+    return { match: preview, me, bodies: chosen };
   }
 
   // --- The loop ---
@@ -530,10 +536,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
       else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
       renderer.setPlayer(me, menu.body);
+      renderer.setChosenBodies(fighterBodies(driver.lineup, bodies));
       renderer.render(before, curr.duel, alpha);
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names });
     } else {
-      const { match, me } = previewMatch();
+      const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;
       const mine = duel.fighters[me];
       if (menu.focus === 'character' && mine) {
@@ -546,6 +553,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(duel, duel, 1), (now / 1000) * ORBIT_SPEED, renderer.collider);
       }
       renderer.setPlayer(me, menu.body);
+      renderer.setChosenBodies(chosen);
       renderer.render(duel, duel, 1);
     }
     requestAnimationFrame(frame);
@@ -563,6 +571,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
   requestAnimationFrame(frame);
   return game;
+}
+
+/** Each Fighter's chosen Body: its Player's (index = Player number), none for an AI. */
+function fighterBodies(lineup: Lineup | null, bodies: readonly string[] | null): (string | undefined)[] {
+  return (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
 }
 
 /** Where the living Fighters are, on average (the Arena centre if none). */

@@ -10,7 +10,7 @@ export type RefuseLobbyReason = 'RoomFull' | 'TuningDataMismatch' | 'ProtocolMis
 
 export type LobbyMessage =
   /** Guest → host, repeated until the first `lobby` arrives. */
-  | { readonly type: 'join'; readonly protocol: number; readonly tuningHash: string; readonly name: string; readonly weapon: string }
+  | { readonly type: 'join'; readonly protocol: number; readonly tuningHash: string; readonly name: string; readonly weapon: string; readonly body: string }
   /** Host → guest: the whole Lobby, the guest's Member id, and the last of its sequence numbers applied. */
   | { readonly type: 'lobby'; readonly state: LobbyState; readonly you: number; readonly ack: number }
   /** Host → guest: turned away. The link closes soon after. */
@@ -21,6 +21,7 @@ export type LobbyMessage =
       readonly seq: number;
       readonly name: string;
       readonly weapon: string;
+      readonly body: string;
       readonly ready: boolean;
       readonly seat: SeatRef | null;
     };
@@ -53,7 +54,7 @@ function isSeat(v: unknown): boolean {
 }
 
 function isMember(v: unknown): boolean {
-  return isObject(v) && isCount(v.id) && isShortString(v.name) && isShortString(v.weapon) && typeof v.ready === 'boolean';
+  return isObject(v) && isCount(v.id) && isShortString(v.name) && isShortString(v.weapon) && isShortString(v.body) && typeof v.ready === 'boolean';
 }
 
 function isLobbyState(v: unknown): v is LobbyState {
@@ -82,13 +83,13 @@ export function parseLobbyMessage(m: unknown): LobbyMessage | null {
   if (!isObject(m)) return null;
   switch (m.type) {
     case 'join':
-      return isInt(m.protocol) && isShortString(m.tuningHash) && isShortString(m.name) && isShortString(m.weapon) ? (m as unknown as LobbyMessage) : null;
+      return isInt(m.protocol) && isShortString(m.tuningHash) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) ? (m as unknown as LobbyMessage) : null;
     case 'lobby':
       return isLobbyState(m.state) && isCount(m.you) && isInt(m.ack) ? (m as unknown as LobbyMessage) : null;
     case 'refuse':
       return REASONS.has(m.reason) ? (m as unknown as LobbyMessage) : null;
     case 'member':
-      return isInt(m.seq) && isShortString(m.name) && isShortString(m.weapon) && typeof m.ready === 'boolean' && (m.seat === null || isSeatRef(m.seat))
+      return isInt(m.seq) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) && typeof m.ready === 'boolean' && (m.seat === null || isSeatRef(m.seat))
         ? (m as unknown as LobbyMessage)
         : null;
     default:

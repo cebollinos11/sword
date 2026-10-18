@@ -11,7 +11,7 @@ const STEP = 1000 / TICK_RATE;
 
 function room(net: MemoryTransportOptions = {}) {
   const host = new HostLobby(tuning, {
-    host: { name: 'Ana', weapon: first },
+    host: { name: 'Ana', weapon: first, body: 'monk' },
     settings: { arena: 'circle', bestOf: 3 },
     online: true,
     ai: { difficulty: 'Normal', weapon: first },
@@ -22,7 +22,7 @@ function room(net: MemoryTransportOptions = {}) {
     const link = createMemoryTransportPair(net);
     links.push(link);
     host.addGuest(link.a);
-    return new GuestLobby(link.b, guestTuning, { name, weapon: second });
+    return new GuestLobby(link.b, guestTuning, { name, weapon: second, body: 'snake' });
   };
   const guests: GuestLobby[] = [];
   const run = (ms: number, each?: () => void) => {
@@ -54,6 +54,19 @@ describe('Lobby sync', () => {
     // A swap: the Open Seat the guest took went to their old one.
     expect(r.host.state.teams[1]![0]).toEqual({ kind: 'Open' });
     expect(JSON.stringify(g.state)).toBe(JSON.stringify(r.host.state));
+  });
+
+  it('every player sees the Body each Member chose, through a lossy link', () => {
+    const r = room({ latencyMs: 40, jitterMs: 20, loss: 0.2, seed: 5 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(2000);
+    expect(g.state?.members.map((m) => m.body)).toEqual(['monk', 'snake']);
+    g.setMine({ body: 'wraith' });
+    r.host.setMine({ body: 'prince' });
+    r.run(3000);
+    expect(r.host.state.members.map((m) => m.body)).toEqual(['prince', 'wraith']);
+    expect(lobbyLineup(g.state!).bodies).toEqual(['prince', 'wraith']);
   });
 
   it('the host’s changes reach the guest', () => {

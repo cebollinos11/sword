@@ -26,7 +26,8 @@ export const BODY_LABELS: Record<BodyModelName, string> = {
   wraith: 'Wraith',
 };
 
-const isBody = (s: string | null): s is Body => s === 'skeleton' || (BODY_MODELS as readonly string[]).includes(s ?? '');
+/** A Body this game knows (e.g. one named over the wire). */
+export const isBody = (s: string | null): s is Body => s === 'skeleton' || (BODY_MODELS as readonly string[]).includes(s ?? '');
 
 /** The Body every Fighter must wear when the page URL asks for one (`?body=skeleton`, `?body=monk`...), else null. */
 export function forcedBody(): Body | null {

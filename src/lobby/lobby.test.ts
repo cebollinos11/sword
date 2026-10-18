@@ -22,12 +22,12 @@ const tuning = loadTuningData();
 const weapon = Object.keys(tuning.weapons)[0]!;
 const other = Object.keys(tuning.weapons)[1] ?? weapon;
 const options = (online: boolean): NewLobbyOptions => ({
-  host: { name: 'Host', weapon },
+  host: { name: 'Host', weapon, body: 'monk' },
   settings: { arena: 'circle', bestOf: 3 },
   online,
   ai: { difficulty: 'Normal', weapon: other },
 });
-const guest = { id: 1, name: 'Guest', weapon: other, ready: false };
+const guest = { id: 1, name: 'Guest', weapon: other, body: 'snake', ready: false };
 
 describe('Lobby', () => {
   it('a Skirmish starts as you against one AI', () => {

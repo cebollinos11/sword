@@ -2,7 +2,7 @@ import type * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
 import type { SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
-import { forcedBody, randomBody, type Body } from './bodyModel';
+import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
@@ -15,12 +15,14 @@ import { Stage } from './stage';
  */
 export class Renderer {
   private readonly stage: Stage;
-  /** Each Fighter's view, its colour and Body, and whether that Body is the local player's choice. */
+  /** Each Fighter's view, its colour and Body, and whether that Body was a player's choice (rather than random). */
   private readonly views: ({ view: FighterView; colour: number; body: Body; chosen: boolean } | undefined)[] = [];
   /** One Body for everyone, when the page URL asks for it. */
   private readonly forced = forcedBody();
   /** The Fighter the local player drives (-1: none, e.g. behind the menu) and the Body they chose. */
   private player: { fighter: number; body: Body } = { fighter: -1, body: 'female' };
+  /** The Bodies the other players chose, by Fighter (undefined: none, so a random one). */
+  private others: readonly (string | undefined)[] = [];
   private lastDraw = performance.now();
   /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
   readonly impacts: ImpactEffects;
@@ -50,14 +52,19 @@ export class Renderer {
   }
 
   /**
-   * The local player drives Fighter `fighter` (-1: none) and wears `body`; every other Fighter
-   * wears a random model (unless the page URL forces one Body on everyone). Takes effect at once.
+   * The local player drives Fighter `fighter` (-1: none) and wears `body`; the others wear what
+   * their players chose (see setChosenBodies), or a random model (unless the page URL forces one Body on everyone). Takes effect at once.
    */
   setPlayer(fighter: number, body: Body): void {
     this.player = { fighter, body };
   }
 
-  /** A new Match: every Fighter but the local player's is dressed afresh in a random model. */
+  /** The Bodies the other players chose, by Fighter; a Fighter with none (an AI) wears a random one. Takes effect at once. */
+  setChosenBodies(byFighter: readonly (string | undefined)[]): void {
+    this.others = byFighter;
+  }
+
+  /** A new Match: every Fighter no player chose a Body for is dressed afresh in a random model. */
   recast(): void {
     for (const slot of this.views) if (slot) this.stage.scene.remove(slot.view.root);
     this.views.length = 0;
@@ -70,8 +77,10 @@ export class Renderer {
     const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, this.tuning));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
-      const chosen = i === this.player.fighter;
-      const body = this.forced ?? (chosen ? this.player.body : slot && !slot.chosen ? slot.body : randomBody());
+      const other = this.others[i];
+      const picked = i === this.player.fighter ? this.player.body : other !== undefined && isBody(other) ? other : undefined;
+      const chosen = picked !== undefined;
+      const body = this.forced ?? picked ?? (slot && !slot.chosen ? slot.body : randomBody());
       if (!slot || slot.colour !== colours[i] || slot.body !== body) {
         // First sight of this Fighter, a new Match put another team in its slot, or it changed Body.
         if (slot) this.stage.scene.remove(slot.view.root);
