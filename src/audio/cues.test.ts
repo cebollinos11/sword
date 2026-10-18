@@ -59,3 +59,24 @@ describe('Landing sounds', () => {
     expect(land(30)[0]).toMatchObject({ strength: 1 });
   });
 });
+
+describe('Dagger sounds', () => {
+  const point = { x: 1, y: 1, z: 2 };
+  it('a thrown dagger whooshes, a Hit thumps like any Hit, a Block clinks and a stuck dagger thunks', () => {
+    expect(soundCues([{ type: 'DaggerThrown', thrower: 1 }])).toEqual([{ sound: 'Throw', fighter: 1 }]);
+    expect(soundCues([{ type: 'DaggerHit', thrower: 0, defender: 1, zone: 'torso', point, damage: 5 }])).toEqual([
+      { sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number) },
+    ]);
+    expect(soundCues([{ type: 'DaggerBlocked', thrower: 0, defender: 1, point }])).toEqual([{ sound: 'Clink', defender: 1 }]);
+    expect(soundCues([{ type: 'DaggerStuck', point, direction: { x: 0, y: 0, z: 1 } }])).toEqual([{ sound: 'Thunk', point }]);
+  });
+
+  it('a harder dagger Hit is not quieter than a lighter one, and none is louder than the maximum', () => {
+    const strength = (damage: number) => {
+      const c = soundCues([{ type: 'DaggerHit', thrower: 0, defender: 1, zone: 'head', point, damage }])[0]!;
+      return c.sound === 'Hit' ? c.strength : NaN;
+    };
+    expect(strength(10)).toBeGreaterThanOrEqual(strength(5));
+    expect(strength(500)).toBe(1);
+  });
+});

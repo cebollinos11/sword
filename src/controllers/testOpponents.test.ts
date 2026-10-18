@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { attack, createInitialState, DIRECTIONS, duelPlacements, hold, mirrorDirection, wait, type Track } from '../sim';
+import { attack, createInitialState, DIRECTIONS, duelPlacements, hold, IDLE_INTENT, mirrorDirection, wait, type Track } from '../sim';
 import { LODGE_TICKS } from '../sim/actions/attack';
-import { dummyController, runControllers, scriptedController, wallController } from './index';
+import { dummyController, runControllers, scriptedController, wallController, runnerController } from './index';
 
 const tuning = loadTuningData();
 const DISTANCE = 1.3; // every Direction hits from here (see directions.test.ts)
@@ -61,5 +61,17 @@ describe('Test opponent: Wall', () => {
     const run = vs(wallController(), [...wait(40), ...attack('Overhead')], 200, placements);
     expect(run.events.some((e) => e.type === 'Block' && e.defender === 1)).toBe(true);
     expect(run.events.some((e) => e.type === 'Hit' && e.defender === 1)).toBe(false);
+  });
+});
+
+describe('Test opponent: Runner', () => {
+  it('turns its back and walks away from its opponent, so a dagger thrown at it is hit in the back', () => {
+    // The dagger leaves the left hand, 0.2 m off the centreline, and flies straight: stand the thrower a little to the right so it is on the runner's line.
+    const placements = duelPlacements(5).map((p, i) => (i === 0 ? { ...p, position: { ...p.position, x: -0.2 } } : p));
+    const run = vs(runnerController(), [...wait(10), { ticks: 1, intent: { ...IDLE_INTENT, throw: true } }, ...wait(100)], 160, placements);
+    const first = run.states[0]!.fighters[1]!;
+    const last = run.states[run.states.length - 1]!.fighters[1]!;
+    expect(last.position.z).toBeGreaterThan(first.position.z + 1);
+    expect(run.events.some((e) => e.type === 'DaggerHit' && e.defender === 1)).toBe(true);
   });
 });

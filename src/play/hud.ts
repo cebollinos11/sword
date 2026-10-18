@@ -45,6 +45,9 @@ export class Hud {
   private readonly crosshair = document.createElement('div');
   private readonly leave = document.createElement('button');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
+  /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
+  private daggerIcons: HTMLElement[] = [];
+  private slowTag: HTMLElement | null = null;
   /** What the bars were built for; they are rebuilt when it changes. */
   private built = '';
   private bannerUntil = 0;
@@ -114,6 +117,9 @@ export class Hud {
       bar.value.textContent = String(Math.ceil(hp));
       bar.box.classList.toggle('fallen', Boolean(f?.death));
     }
+    const mine = match.duel.fighters[me];
+    this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
+    this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
     this.score.textContent = `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
     this.frames++;
     const now = performance.now();
@@ -129,11 +135,31 @@ export class Hud {
     }
   }
 
+  /** The local Player's row under their HP bar: a small icon per dagger and a tag shown while a dagger Hit slows them. */
+  private buildDaggers(): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'hud-daggers';
+    for (let i = 0; i < this.tuning.dagger.count; i++) {
+      const icon = document.createElement('span');
+      icon.className = 'hud-dagger';
+      this.daggerIcons.push(icon);
+      row.append(icon);
+    }
+    const slow = document.createElement('span');
+    slow.className = 'hud-slow';
+    slow.textContent = 'Slowed';
+    this.slowTag = slow;
+    row.append(slow);
+    return row;
+  }
+
   private build(teams: readonly number[], me: number, myTeam: number, lineup: Lineup | null, key: string): void {
     this.built = key;
     const colours = fighterColours(teams);
     // Left: your team, you first; right: the enemy team. Otherwise in Fighter order.
     const order = teams.map((_, i) => i).sort((a, b) => Number(b === me) - Number(a === me) || a - b);
+    this.daggerIcons = [];
+    this.slowTag = null;
     this.bars = order.map((fighter) => {
       const box = document.createElement('div');
       box.className = 'hud-fighter';
@@ -150,6 +176,7 @@ export class Hud {
       value.className = 'hud-hp';
       bar.append(fill, value);
       box.append(name, bar);
+      if (fighter === me) box.append(this.buildDaggers());
       return { fighter, box, fill, value };
     });
     this.sides.forEach((side, s) => side.replaceChildren(...this.bars.filter((b) => (teams[b.fighter] === myTeam) === (s === 0)).map((b) => b.box)));

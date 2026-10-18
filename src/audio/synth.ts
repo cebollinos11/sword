@@ -3,11 +3,14 @@
  *  - Swing: a band-passed noise whoosh sweeping upwards;
  *  - Block: a metallic clang of inharmonic partials;
  *  - Hit: a low thump with a dull noise burst, scaled by the Hit's strength;
- *  - Land: a deep thud on wooden boards, scaled by the height of the drop.
+ *  - Land: a deep thud on wooden boards, scaled by the height of the drop;
+ *  - Throw: a short, high whoosh (a dagger leaving the hand);
+ *  - Clink: a quiet, high ting (a dagger Blocked);
+ *  - Thunk: a dry knock (a dagger stuck in wood).
  * Browser-only; never imported by the Simulation.
  */
 import type { Direction } from '../sim';
-import type { BlockCue, HitCue, LandCue, SoundCue, SwingCue } from './cues';
+import type { BlockCue, ClinkCue, HitCue, LandCue, SoundCue, SwingCue, ThrowCue, ThunkCue } from './cues';
 import type { SoundPlayer } from './listener';
 
 const MASTER_GAIN = 0.5;
@@ -41,6 +44,12 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.hit(ctx, cue);
       case 'Land':
         return this.land(ctx, cue);
+      case 'Throw':
+        return this.throwDagger(ctx, cue);
+      case 'Clink':
+        return this.clink(ctx, cue);
+      case 'Thunk':
+        return this.thunk(ctx, cue);
     }
   }
 
@@ -119,6 +128,50 @@ export class WebAudioPlayer implements SoundPlayer {
     click.connect(high).connect(this.envelope(ctx, 0.5, 0.002, 0.05));
     click.start(t);
     click.stop(t + 0.07);
+  }
+
+  private throwDagger(ctx: AudioContext, _cue: ThrowCue): void {
+    const t = ctx.currentTime;
+    const duration = 0.14;
+    const src = this.noiseSource(ctx);
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.Q.value = 4;
+    band.frequency.setValueAtTime(1800, t);
+    band.frequency.exponentialRampToValueAtTime(5200, t + duration);
+    src.connect(band).connect(this.envelope(ctx, 0.45, duration * 0.4, duration));
+    src.start(t);
+    src.stop(t + duration + 0.02);
+  }
+
+  private clink(ctx: AudioContext, _cue: ClinkCue): void {
+    const t = ctx.currentTime;
+    const duration = 0.22;
+    const out = this.envelope(ctx, 0.2, 0.002, duration);
+    for (const [freq, level] of [
+      [2400, 1],
+      [3650, 0.5],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      osc.connect(g).connect(out);
+      osc.start(t);
+      osc.stop(t + duration + 0.02);
+    }
+  }
+
+  private thunk(ctx: AudioContext, _cue: ThunkCue): void {
+    const t = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, t);
+    osc.frequency.exponentialRampToValueAtTime(110, t + 0.08);
+    osc.connect(this.envelope(ctx, 0.5, 0.002, 0.11));
+    osc.start(t);
+    osc.stop(t + 0.12);
   }
 
   private land(ctx: AudioContext, cue: LandCue): void {

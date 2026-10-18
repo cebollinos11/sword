@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DaggerState, SimState } from '../sim';
+import type { DaggerState, FighterState, SimState, Vec3 } from '../sim';
 
 /** How long (s) a dagger that stuck in a Wall or the floor stays drawn there. Render-only: the Simulation has already dropped it. */
 export const STUCK_SECONDS = 2;
@@ -7,6 +7,29 @@ export const STUCK_SECONDS = 2;
 /** Dagger dimensions (m): blade, then handle. */
 const BLADE = 0.22;
 const HANDLE = 0.1;
+
+/** Where a dagger that Hit a Fighter sits on it, in the Fighter's own frame (x right of its facing, z ahead), so it moves and turns with the body. */
+export interface Embed {
+  readonly defender: number;
+  /** Offset from the Fighter's feet, rotated by minus its facing. */
+  readonly local: { x: number; y: number; z: number };
+}
+
+/** The `DaggerHit` point as an offset in the defender's frame. */
+export function embedAt(defender: number, point: Vec3, fighter: Pick<FighterState, 'position' | 'y' | 'facing'>): Embed {
+  const dx = point.x - fighter.position.x;
+  const dz = point.z - fighter.position.z;
+  const c = Math.cos(fighter.facing);
+  const s = Math.sin(fighter.facing);
+  return { defender, local: { x: dx * c - dz * s, y: point.y - fighter.y, z: dx * s + dz * c } };
+}
+
+/** The same offset back in the world, for the Fighter as it stands now. */
+export function embedPosition(e: Embed, fighter: Pick<FighterState, 'position' | 'y' | 'facing'>): Vec3 {
+  const c = Math.cos(fighter.facing);
+  const s = Math.sin(fighter.facing);
+  return { x: fighter.position.x + e.local.x * c + e.local.z * s, y: fighter.y + e.local.y, z: fighter.position.z - e.local.x * s + e.local.z * c };
+}
 
 const FORWARD = new THREE.Vector3(0, 0, 1);
 
@@ -41,6 +64,8 @@ export class DaggerViews {
   };
   private readonly flying = new Map<string, THREE.Group>();
   private readonly stuck: { mesh: THREE.Group; left: number }[] = [];
+  /** Daggers sticking out of a Fighter for as long as its Slow lasts (render-only, from `DaggerHit` and `slow`). */
+  private readonly embedded: { embed: Embed; mesh: THREE.Group }[] = [];
   private lastTick = -Infinity;
 
   constructor(scene: THREE.Scene) {
@@ -52,7 +77,10 @@ export class DaggerViews {
     if (curr.tick < this.lastTick) this.clear();
     if (curr.tick !== this.lastTick) {
       // Each new Tick's `DaggerStuck` events plant a dagger once, however many frames draw that Tick.
-      if (curr.tick > this.lastTick) for (const e of curr.events) if (e.type === 'DaggerStuck') this.plant(e.point, e.direction);
+      if (curr.tick > this.lastTick) for (const e of curr.events) {
+        if (e.type === 'DaggerStuck') this.plant(e.point, e.direction);
+        else if (e.type === 'DaggerHit') this.embed(embedAt(e.defender, e.point, curr.fighters[e.defender]!));
+      }
       this.lastTick = curr.tick;
     }
 
@@ -78,6 +106,24 @@ export class DaggerViews {
       this.flying.delete(k);
     }
 
+    for (let i = this.embedded.length - 1; i >= 0; i--) {
+      const { embed, mesh } = this.embedded[i]!;
+      const was = prev.fighters[embed.defender];
+      const now = curr.fighters[embed.defender];
+      // Gone with the Slow (or the Duel): only the newest dagger in a Fighter stays while the Slow is refreshed.
+      if (!now?.slow || this.embedded.some((o, j) => j > i && o.embed.defender === embed.defender)) {
+        this.root.remove(mesh);
+        this.embedded.splice(i, 1);
+        continue;
+      }
+      const at = embedPosition(embed, now);
+      const from = was ? embedPosition(embed, was) : at;
+      mesh.position.set(from.x + (at.x - from.x) * alpha, from.y + (at.y - from.y) * alpha, from.z + (at.z - from.z) * alpha);
+      // The tip points into the body: from the surface toward the Fighter's axis, in the Fighter's frame.
+      const inward = new THREE.Vector3(now.position.x - at.x, 0, now.position.z - at.z);
+      if (inward.lengthSq() > 1e-6) mesh.quaternion.setFromUnitVectors(FORWARD, inward.normalize());
+    }
+
     for (let i = this.stuck.length - 1; i >= 0; i--) {
       const s = this.stuck[i]!;
       s.left -= Math.min(0.1, Math.max(0, seconds));
@@ -98,7 +144,14 @@ export class DaggerViews {
     this.stuck.push({ mesh, left: STUCK_SECONDS });
   }
 
+  private embed(embed: Embed): void {
+    const mesh = daggerMesh(this.shared);
+    this.root.add(mesh);
+    this.embedded.push({ embed, mesh });
+  }
+
   private clear(): void {
+    for (const e of this.embedded.splice(0)) this.root.remove(e.mesh);
     for (const mesh of this.flying.values()) this.root.remove(mesh);
     this.flying.clear();
     for (const s of this.stuck.splice(0)) this.root.remove(s.mesh);

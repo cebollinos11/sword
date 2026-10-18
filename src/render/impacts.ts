@@ -14,10 +14,23 @@ export interface ImpactBurst {
   readonly strength: number;
 }
 
+/** A dagger Hit bursts at full strength at this much damage (a head Hit with repo Tuning Data: 5 x the head multiplier). */
+const DAGGER_FULL_DAMAGE = 15;
+/** A Blocked dagger sparks lightly. */
+const DAGGER_BLOCK_STRENGTH = 0.4;
+
 /** The bursts triggered by one Tick's events, in event order (strength: Blade Speed over the attacker's Weapon's reference speed). */
 export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning: TuningData): ImpactBurst[] {
   const bursts: ImpactBurst[] = [];
   for (const e of duel.events) {
+    if (e.type === 'DaggerHit') {
+      bursts.push({ kind: 'Hit', point: e.point, strength: Math.min(1, Math.max(0.3, e.damage / DAGGER_FULL_DAMAGE)) });
+      continue;
+    }
+    if (e.type === 'DaggerBlocked') {
+      bursts.push({ kind: 'Block', point: e.point, strength: DAGGER_BLOCK_STRENGTH });
+      continue;
+    }
     if (e.type !== 'Hit' && e.type !== 'Block') continue;
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     bursts.push({ kind: e.type, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });

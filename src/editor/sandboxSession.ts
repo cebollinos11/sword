@@ -63,7 +63,7 @@ export interface SandboxSession<S> {
 }
 
 export interface PlayerVsAiSandboxOptions extends MatchOptions {
-  /** An AI difficulty preset name from Tuning Data (`ai.difficulties`), or a test opponent (`TEST_OPPONENTS`: Dummy, Wall). */
+  /** An AI difficulty preset name from Tuning Data (`ai.difficulties`), or a test opponent (`TEST_OPPONENTS`: Dummy, Wall, Runner). */
   readonly opponent: string;
 }
 

@@ -17,6 +17,11 @@ const CSS = `
 .hud-hp { position: absolute; inset: 0; font-size: 0.75rem; line-height: 1.1rem; text-align: center; text-shadow: 0 1px 2px #000a; }
 .hud-fighter:not(.hud-you) .hud-hp { display: none; }
 .hud-side-1 .hud-hp { transform: scaleX(-1); }
+.hud-daggers { display: flex; align-items: center; gap: 0.25rem; margin-top: 0.3rem; height: 1.1rem; }
+.hud-dagger { width: 0.4rem; height: 1rem; background: linear-gradient(#e8ecf0, #9aa4ae); clip-path: polygon(50% 0, 100% 70%, 100% 100%, 0 100%, 0 70%); transition: opacity 150ms; }
+.hud-dagger.spent { opacity: 0.2; }
+.hud-slow { margin-left: 0.5rem; font-size: 0.7rem; font-weight: 700; color: #ffb060; text-shadow: 0 1px 2px #000a; opacity: 0; transition: opacity 150ms; }
+.hud-slow.visible { opacity: 1; }
 .hud-centre { text-align: center; text-shadow: 0 1px 3px #000a; min-width: 7rem; }
 .hud-score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
 .hud-leave { pointer-events: auto; margin-top: 0.3rem; font: inherit; font-size: 0.75rem; color: #fff; background: #0006;

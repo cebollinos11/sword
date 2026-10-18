@@ -3,7 +3,7 @@
  * the Simulation and only listens to its events (ADR 0001); this mapping is
  * pure, so it is tested headlessly.
  */
-import type { Direction, SimEvent } from '../sim';
+import type { Direction, SimEvent, Vec3 } from '../sim';
 import type { HitZone } from '../tuning';
 
 /** The swing sound: an Attack entered Release. */
@@ -34,7 +34,25 @@ export interface LandCue {
   readonly strength: number;
 }
 
-export type SoundCue = SwingCue | BlockCue | HitCue | LandCue;
+/** A Throw entered Release: the dagger whooshes out of the hand. */
+export interface ThrowCue {
+  readonly sound: 'Throw';
+  readonly fighter: number;
+}
+
+/** A thrown dagger was Blocked by rule: a light clink. */
+export interface ClinkCue {
+  readonly sound: 'Clink';
+  readonly defender: number;
+}
+
+/** A thrown dagger stuck in a Wall or the floor at `point`: a short thunk. */
+export interface ThunkCue {
+  readonly sound: 'Thunk';
+  readonly point: Vec3;
+}
+
+export type SoundCue = SwingCue | BlockCue | HitCue | LandCue | ThrowCue | ClinkCue | ThunkCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;
@@ -58,6 +76,18 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
         break;
       case 'KickLanded':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });
+        break;
+      case 'DaggerThrown':
+        cues.push({ sound: 'Throw', fighter: e.thrower });
+        break;
+      case 'DaggerHit':
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });
+        break;
+      case 'DaggerBlocked':
+        cues.push({ sound: 'Clink', defender: e.defender });
+        break;
+      case 'DaggerStuck':
+        cues.push({ sound: 'Thunk', point: e.point });
         break;
       case 'Land':
         if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: Math.min(1, Math.max(0.15, e.height / FULL_STRENGTH_DROP)) });

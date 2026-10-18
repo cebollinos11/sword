@@ -160,7 +160,7 @@ Goal: the AI uses daggers against runners and defends against them.
 - [x] Stage 1: Vocabulary, tuning and the Throw Action
 - [x] Stage 2: Flight
 - [x] Stage 3: Contact: Hit, Slow and Block
-- [ ] Stage 4: Feedback and feel
+- [x] Stage 4: Feedback and feel
 - [ ] Stage 5: AI
 
 ### Notes for later stages
@@ -196,3 +196,11 @@ Goal: the AI uses daggers against runners and defends against them.
 - A dagger Hit on a Knockdown Fighter wounds and slows it, no Stagger. Death: `fellingBlow` (now takes `tuning`) reads `DaggerHit` -> `DeathBlow { point, bladeSpeed: dagger.speed, direction: 'Thrust', from: thrower position }`, so the ragdoll is driven by the dagger's launch speed (capped by its `MAX_PUSH`); Stage 4 may want to check that it looks right.
 - Tests: `src/sim/daggerContact.test.ts` (new; real throws for the Block timing, hand-placed daggers (`dartAt`) for the Knockdown, felling and double-Hit cases) and a Slow case in `messages.test.ts`.
 
+**Stage 4**
+- **Audio:** `cues.ts` gained `ThrowCue { sound: 'Throw', fighter }` (on `DaggerThrown`), `ClinkCue { 'Clink', defender }` (`DaggerBlocked`) and `ThunkCue { 'Thunk', point }` (`DaggerStuck`); a `DaggerHit` reuses `HitCue` (strength = damage / 45, floored at 0.2, so a dagger Hit is quiet next to a blade Hit). `synth.ts` has a placeholder sound for each. A Wall-stick on the same Tick as a Hit thunks as well as thumps (harmless).
+- **Impacts:** `impactBursts` makes a `Hit` burst at a `DaggerHit` point (strength = damage / 15, floored 0.3) and a light `Block` burst (0.4) at a `DaggerBlocked` point; a `DaggerStuck` makes none.
+- **HUD:** `hud.ts` shows one small dagger icon per `dagger.count` under the local Player's HP bar (`.hud-dagger`, dimmed with `.spent`) and a "Slowed" tag (`.hud-slow`) while `slow` is set. Checked in the app: the count went 3 -> 2 after pressing E.
+- **Render:** `daggerView.ts` also leaves the dagger sticking out of a Fighter that a `DaggerHit` landed on, for as long as that Fighter has `slow` (render-only; `embedAt`/`embedPosition` keep it in the Fighter's frame; only the newest dagger per Fighter stays when the Slow is refreshed). Tested in `daggerView.test.ts`.
+- **Editor:** `describeAction` already read `Throw · <phase>` (Stage 1) and the Motion list already had Throw. New test opponent **Runner** (`runnerController`, in `TEST_OPPONENTS`, so "Runner (test)" in the sandbox's Player vs AI list): never attacks or blocks, faces away and walks straight away. The sandbox help text mentions E.
+- **Not done / not verified:** the preview pane ran at ~1 fps, so I could not capture a dagger in flight, a Hit, or the Slow indicator on screen, and could not judge the arc's feel. Stage 4's "screenshots" and "how it feels" items still need a look in a real browser (`npm run dev`: pick "Runner (test)" in the sandbox and press E). Checked in code only: the arc (18 m/s, 4 deg loft, 9.8 g) rises ~0.35 m and drops ~0.38 m over 5 m, so it is close to flat out to ~12 m. No Tuning Data changed.
+- **Gotcha for the AI (Stage 5):** the dagger leaves the **left** hand, ~0.2 m off the Fighter's centreline, and flies parallel to `facing` (no convergence). A dagger thrown straight at a target standing on the thrower's centreline passes 0.2 m to its left and **misses** (the torso capsule is narrower than that). The Runner test had to stand the thrower 0.2 m to the right. The AI's aim must offset `face` toward the thrower's right by about atan(0.2 / distance), or the plan's "aim at the camera ray point" alternative must be used. This is the lead the plan warned about; it is a real feel issue for humans too, so a later stage may want to aim from the camera ray.
