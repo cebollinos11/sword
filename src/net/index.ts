@@ -3,6 +3,7 @@
  * Import from `../net`, not from the internal files.
  */
 export type { Transport } from './transport';
+export { splitTransport, type Channels } from './channels';
 export { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 export {
   CHECKSUM_INTERVAL,

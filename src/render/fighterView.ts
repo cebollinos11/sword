@@ -108,6 +108,12 @@ export class FighterView {
     this.root.add(this.sword.group, this.polearm.group);
   }
 
+  /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
+  set bodyVisible(on: boolean) {
+    this.skeleton.visible = on && !this.model;
+    if (this.model) this.model.root.visible = on;
+  }
+
   /** Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data). */
   update(pose: SkeletonPose, weapon: WeaponTuning): void {
     const p = pose.joints;

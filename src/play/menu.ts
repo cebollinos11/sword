@@ -1,67 +1,71 @@
 import type { TuningData } from '../tuning';
-import type { Lineup } from '../controllers';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
+import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { button, h, thumb, thumbImage } from './dom';
+import { arenaLabel, lobbyBody } from './lobbyView';
 import { ensurePlayStyles } from './styles';
-import { TeamSetup } from './teamSetup';
 import { isTouchDevice } from './touch';
 
-export interface PlayerVsAiChoice {
-  readonly bestOf: number;
-  /** The Arena every Duel is fought in (a Tuning Data Arena name). */
-  readonly arena: string;
-  /** Your Weapon (a Tuning Data Weapon name). */
-  readonly weapon: string;
-  /** Who fights: you (Player 0), and the AIs on both teams with their difficulty and Weapon. */
-  readonly lineup: Lineup;
-}
-
-export interface CreateRoomChoice {
-  readonly bestOf: number;
-  /** The Arena every Duel is fought in (a Tuning Data Arena name); the host picks it. */
-  readonly arena: string;
-  /** Your Weapon; the other player picks theirs. */
-  readonly weapon: string;
-  /** Who fights: you (Player 0), the other player (Player 1, ally or enemy), and any AIs. */
-  readonly lineup: Lineup;
-  /** The broker URL as typed (blank = the public PeerJS broker). */
-  readonly broker: string;
-}
-
-export interface JoinRoomChoice {
-  /** What the player typed or pasted: a Room code or a Room link. */
-  readonly room: string;
-  /** Your Weapon; the other player picks theirs. */
-  readonly weapon: string;
-  readonly broker: string;
-}
-
+/** What the player can ask for from the menus; the game decides what happens. */
 export interface MenuHandlers {
-  onStart(choice: PlayerVsAiChoice): void;
-  onCreateRoom(choice: CreateRoomChoice): void;
-  onJoinRoom(choice: JoinRoomChoice): void;
-  /** Leave the Room screen (stop hosting / joining). */
-  onLeaveRoom(): void;
+  /** Set up a Skirmish (you and AIs): the game opens its Lobby. */
+  onSkirmish(): void;
+  onCreateRoom(broker: string): void;
+  /** `room`: a Room code or link, as typed or pasted. */
+  onJoinRoom(room: string, broker: string): void;
+  /** The Lobby's main button: start the Match (host), or restart it with the current settings (in game). */
+  onStart(): void;
+  /** Leave the Lobby (close the Room, leave it, or drop the Skirmish setup) for the title screen. */
+  onLeaveLobby(): void;
+  /** Close the in-game menu. */
+  onResume(): void;
+  /** Host, online, in game: end the Match for everyone and gather in the Lobby. */
+  onBackToLobby(): void;
+  /** In game: stop playing and leave (the Room too) for the title screen. */
+  onQuit(): void;
 }
 
-/** What the Room screen shows while a Player vs Player Match is being set up. */
-export type RoomView =
-  | { readonly kind: 'Creating' }
-  | { readonly kind: 'Hosting'; readonly code: string; readonly link: string }
-  | { readonly kind: 'Joining'; readonly code: string };
+/** A Room this player hosts: what to show others so they can join. */
+export interface RoomInvite {
+  readonly code: string;
+  readonly link: string;
+}
 
-const BEST_OF = [1, 3, 5] as const;
+type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lobby' | 'pause';
+
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
-const ARENA_STORAGE_KEY = 'sword.arena';
+const NAME_STORAGE_KEY = 'sword.name';
 
-/** How the menu names each Arena; one missing here shows its file name. */
-const ARENA_LABELS: Readonly<Record<string, string>> = {
-  library: 'Library',
-  chamber: 'Carbon-freezing chamber',
-  ship: 'Pirate ship',
-  summit: 'Snowy summit',
-  circle: 'Training circle',
-};
+function stored(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function store(key: string, value: string | null): void {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch {
+    // Storage unavailable: the choice just isn't remembered.
+  }
+}
+
+function storedBroker(): string {
+  try {
+    return new URLSearchParams(location.search).get('broker') ?? stored(BROKER_STORAGE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+function storedBody(): BodyModelName {
+  const saved = stored(BODY_STORAGE_KEY);
+  return BODY_MODELS.find((b) => b === saved) ?? 'female';
+}
 
 /** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
 type FullscreenDocument = Document & { webkitFullscreenEnabled?: boolean; webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void };
@@ -94,335 +98,459 @@ function toggleFullscreen(): void {
   }
 }
 
-function storedBroker(): string {
-  try {
-    return new URLSearchParams(location.search).get('broker') ?? localStorage.getItem(BROKER_STORAGE_KEY) ?? '';
-  } catch {
-    return '';
-  }
-}
+/** The controls, as [keys, what they do]. */
+const KEYS: readonly (readonly [string, string])[] = [
+  ['Mouse', 'Aim the camera; the last way you moved picks the Direction (up = Overhead, down = Thrust)'],
+  ['Hold left mouse', 'Wind up an Attack; let go to swing'],
+  ['Right mouse', 'Block in the Direction you last moved'],
+  ['W A S D', 'Walk'],
+  ['Space', 'Jump'],
+  ['C (hold)', 'Crouch'],
+  ['F', 'Kick'],
+  ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
+  ['Q', 'Feint, during a Wind-up, into the Direction you last moved'],
+  ['Esc', 'Menu (frees the mouse)'],
+];
 
-function storedBody(): BodyModelName {
-  try {
-    const saved = localStorage.getItem(BODY_STORAGE_KEY);
-    return BODY_MODELS.find((b) => b === saved) ?? 'female';
-  } catch {
-    return 'female';
-  }
-}
-
-function storeBody(value: BodyModelName): void {
-  try {
-    localStorage.setItem(BODY_STORAGE_KEY, value);
-  } catch {
-    // Storage unavailable: the model just isn't remembered.
-  }
-}
-
-/** The Arena picked last time, if it still exists, else `fallback`. */
-function storedArena(arenas: readonly string[], fallback: string): string {
-  try {
-    const saved = localStorage.getItem(ARENA_STORAGE_KEY);
-    return arenas.find((a) => a === saved) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function storeArena(value: string): void {
-  try {
-    localStorage.setItem(ARENA_STORAGE_KEY, value);
-  } catch {
-    // Storage unavailable: the Arena just isn't remembered.
-  }
-}
-
-function storeBroker(value: string): void {
-  try {
-    if (value.trim()) localStorage.setItem(BROKER_STORAGE_KEY, value.trim());
-    else localStorage.removeItem(BROKER_STORAGE_KEY);
-  } catch {
-    // Storage unavailable: the broker just isn't remembered.
-  }
-}
+const TOUCH_HELP =
+  'Drag the left thumb to walk and drag anywhere else to turn the camera. On the Attack pad, swipe left, right, up (Overhead) ' +
+  'or down (Thrust) to wind up in that Direction, and lift to swing. A tap repeats the last Direction. Swipe a new way while ' +
+  'holding to feint. The Block pad works the same way. ☰ opens the menu.';
 
 /**
- * The start menu: Player vs AI (your Weapon, your AI allies and AI enemies with each one's
- * difficulty and Weapon, Match length) and Player vs Player online (your Weapon; to create a Room
- * also the Match length, whether the other player is your ally or enemy, and any AIs; or join one
- * by code/link; optional broker URL). A separate Room screen shows the code and link while waiting.
+ * The menus, drawn over the live 3D scene: the title screen (Skirmish, Play
+ * Online, Character, How to Play, Editor), the online screen (host or join a
+ * Room), the Lobby (Skirmish setup or a Room's Lobby), and in a Match the
+ * in-game menu (resume, restart, change the Match setup, leave). They only
+ * show and ask; the game owns the Lobby and the Matches.
  */
 export class Menu {
-  readonly root = document.createElement('div');
-  private readonly result = document.createElement('p');
-  private readonly startButton = document.createElement('button');
-  private readonly main = document.createElement('div');
-  private readonly room = document.createElement('div');
-  private readonly roomTitle = document.createElement('h2');
-  private readonly roomCode = document.createElement('div');
-  private readonly roomLink = document.createElement('input');
-  private readonly roomCopy = document.createElement('button');
-  private readonly roomStatus = document.createElement('p');
-  private readonly joinInput = document.createElement('input');
-  private readonly brokerInput = document.createElement('input');
-  private bestOf = 3;
-  private onlineBestOf = 3;
-  private weapon: string;
-  /** The Arena a Match you start (or a Room you create) is fought in. */
-  private arena: string;
-  /** Your Weapon for a Player vs Player Match (also used when joining from a Room link). */
-  onlineWeapon: string;
+  readonly root = h('div', 'menu');
+  private readonly frame = h('div', 'menu-frame');
+  private screen: Screen = 'title';
+  private history: Screen[] = [];
+  private message: string | null = null;
+  private lobby: Lobby | null = null;
+  private unsubscribe: (() => void) | null = null;
+  private invite: RoomInvite | null = null;
+  private connecting = { title: '', detail: '', code: '' };
+  private inGame = false;
+  private joinText = '';
   /** The Body model you are drawn as, in every Match (render-only; the other Fighters wear random ones). */
   body: BodyModelName = storedBody();
+  /** Your name in Rooms. */
+  name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
+  /** The broker URL as typed (blank = the public PeerJS broker). */
+  broker: string = storedBroker();
 
-  constructor(container: HTMLElement, tuning: TuningData, handlers: MenuHandlers) {
+  constructor(
+    container: HTMLElement,
+    private readonly tuning: TuningData,
+    private readonly handlers: MenuHandlers,
+  ) {
     ensurePlayStyles();
-    const weapons = Object.keys(tuning.weapons);
-    this.weapon = this.onlineWeapon = weapons[0]!;
-    const arenas = Object.keys(tuning.arenas);
-    this.arena = storedArena(arenas, tuning.arena.match);
-    const row = this.choiceRow.bind(this);
-
-    this.root.className = 'menu';
-    const panel = document.createElement('div');
-    panel.className = 'menu-panel';
-
-    const head = document.createElement('div');
-    head.className = 'menu-head';
-    const title = document.createElement('h1');
-    title.textContent = 'Sword';
-    const fullscreen = document.createElement('button');
-    fullscreen.type = 'button';
-    fullscreen.className = 'menu-fullscreen';
-    const labelFullscreen = () => {
-      fullscreen.textContent = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
-      fullscreen.setAttribute('aria-pressed', String(isFullscreen()));
-    };
-    labelFullscreen();
-    fullscreen.hidden = !fullscreenSupported(); // e.g. iPhone Safari has no Fullscreen API
-    fullscreen.addEventListener('click', toggleFullscreen);
-    document.addEventListener('fullscreenchange', labelFullscreen);
-    document.addEventListener('webkitfullscreenchange', labelFullscreen);
-    head.append(title, fullscreen);
-    this.result.className = 'menu-result';
-
-    const labels = BODY_MODELS.map((b) => BODY_LABELS[b]);
-    const model = this.choiceRow('Your Model', labels, BODY_LABELS[this.body], (v) => {
-      this.body = BODY_MODELS[labels.indexOf(v)]!;
-      storeBody(this.body);
-    });
-    const map = this.mapRow(arenas);
-
-    // --- Player vs AI ---
-    const mode = document.createElement('h2');
-    mode.textContent = 'Player vs AI';
-    const weapon = this.choiceRow('Your Weapon', weapons, this.weapon, (v) => (this.weapon = v));
-    const teams = new TeamSetup(tuning, false, row);
-    const bestOf = this.bestOfRow(this.bestOf, (n) => (this.bestOf = n));
-    this.startButton.className = 'menu-start';
-    this.startButton.textContent = 'Start Match';
-    this.startButton.addEventListener('click', () => handlers.onStart({ bestOf: this.bestOf, arena: this.arena, weapon: this.weapon, lineup: teams.lineup() }));
-
-    // --- Player vs Player ---
-    const online = document.createElement('h2');
-    online.textContent = 'Player vs Player (online)';
-    const onlineWeapon = this.choiceRow('Your Weapon', weapons, this.onlineWeapon, (v) => (this.onlineWeapon = v));
-    const hostBox = document.createElement('details');
-    hostBox.className = 'menu-host';
-    const hostSummary = document.createElement('summary');
-    hostSummary.textContent = 'Room setup (when you create one)';
-    const onlineBestOf = this.bestOfRow(this.onlineBestOf, (n) => (this.onlineBestOf = n));
-    const onlineTeams = new TeamSetup(tuning, true, row);
-    hostBox.append(hostSummary, onlineBestOf, onlineTeams.root);
-    const create = document.createElement('button');
-    create.type = 'button';
-    create.className = 'menu-create-room';
-    create.textContent = 'Create Room';
-    create.addEventListener('click', () => {
-      storeBroker(this.brokerInput.value);
-      handlers.onCreateRoom({ bestOf: this.onlineBestOf, arena: this.arena, weapon: this.onlineWeapon, lineup: onlineTeams.lineup(), broker: this.brokerInput.value });
-    });
-
-    const joinRow = document.createElement('form');
-    joinRow.className = 'menu-row menu-join';
-    this.joinInput.type = 'text';
-    this.joinInput.placeholder = 'Room code or link';
-    this.joinInput.setAttribute('aria-label', 'Room code or link');
-    this.joinInput.autocomplete = 'off';
-    this.joinInput.spellcheck = false;
-    const join = document.createElement('button');
-    join.type = 'submit';
-    join.className = 'menu-join-room';
-    join.textContent = 'Join Room';
-    joinRow.addEventListener('submit', (e) => {
-      e.preventDefault();
-      storeBroker(this.brokerInput.value);
-      handlers.onJoinRoom({ room: this.joinInput.value, weapon: this.onlineWeapon, broker: this.brokerInput.value });
-    });
-    joinRow.append(this.joinInput, join);
-
-    const brokerBox = document.createElement('details');
-    brokerBox.className = 'menu-broker';
-    const brokerSummary = document.createElement('summary');
-    brokerSummary.textContent = 'Broker';
-    this.brokerInput.type = 'text';
-    this.brokerInput.placeholder = 'blank = public PeerJS broker, or https://host:port/path?key=…';
-    this.brokerInput.setAttribute('aria-label', 'Broker URL');
-    this.brokerInput.spellcheck = false;
-    this.brokerInput.value = storedBroker();
-    if (this.brokerInput.value) brokerBox.open = true;
-    const brokerHelp = document.createElement('p');
-    brokerHelp.className = 'menu-help';
-    brokerHelp.textContent =
-      'The PeerJS server the two players meet through (only to connect; the Match itself runs peer to peer). Both players must use the same one; Room links carry it.';
-    brokerBox.append(brokerSummary, this.brokerInput, brokerHelp);
-
-    const help = document.createElement('p');
-    help.className = 'menu-help';
-    help.innerHTML = isTouchDevice()
-      ? 'Drag the <b>left thumb</b> to walk and drag anywhere else to turn the camera. On the <b>Attack</b> pad, ' +
-        'swipe left, right, up (Overhead) or down (Thrust) to wind up in that Direction, and lift to swing. A tap ' +
-        'repeats the last Direction. Swipe a new way while holding to feint. The <b>Block</b> pad works the same way.'
-      : 'Move the mouse to aim the camera and pick a Direction (left, right, up = Overhead, down = Thrust), then ' +
-      '<b>hold left mouse</b> to wind up and let go to swing. <b>Right mouse</b> blocks in the Direction you last moved. ' +
-      '<b>WASD</b> walks. <b>Q</b> during a wind-up feints into the Direction you last moved. Esc frees the mouse.';
-
-    const editor = document.createElement('a');
-    editor.className = 'menu-link';
-    editor.href = '#/editor';
-    editor.textContent = 'Open the Editor';
-
-    this.main.append(model, map, mode, weapon, teams.root, bestOf, this.startButton, online, onlineWeapon, hostBox, create, joinRow, brokerBox, help, editor);
-
-    // --- Room screen ---
-    this.room.className = 'menu-room';
-    this.roomCode.className = 'menu-room-code';
-    const linkRow = document.createElement('div');
-    linkRow.className = 'menu-row';
-    this.roomLink.type = 'text';
-    this.roomLink.readOnly = true;
-    this.roomLink.className = 'menu-room-link';
-    this.roomLink.setAttribute('aria-label', 'Room link');
-    this.roomLink.addEventListener('focus', () => this.roomLink.select());
-    this.roomCopy.type = 'button';
-    this.roomCopy.textContent = 'Copy link';
-    this.roomCopy.addEventListener('click', () => {
-      void navigator.clipboard?.writeText(this.roomLink.value).then(
-        () => (this.roomCopy.textContent = 'Copied'),
-        () => this.roomLink.select(),
-      );
-    });
-    linkRow.append(this.roomLink, this.roomCopy);
-    this.roomStatus.className = 'menu-room-status';
-    const leave = document.createElement('button');
-    leave.type = 'button';
-    leave.className = 'menu-leave-room';
-    leave.textContent = 'Cancel';
-    leave.addEventListener('click', () => handlers.onLeaveRoom());
-    this.room.append(this.roomTitle, this.roomCode, linkRow, this.roomStatus, leave);
-    this.room.hidden = true;
-
-    panel.append(head, this.result, this.main, this.room);
-    this.root.append(panel);
+    this.root.append(this.frame);
     container.append(this.root);
+    const relabel = () => this.root.querySelectorAll<HTMLButtonElement>('.menu-fullscreen').forEach((b) => this.labelFullscreen(b));
+    document.addEventListener('fullscreenchange', relabel);
+    document.addEventListener('webkitfullscreenchange', relabel);
   }
 
-  /** The main menu, optionally with a result or error line on top. */
-  show(result?: string): void {
-    this.result.textContent = result ?? '';
-    this.result.hidden = !result;
-    this.startButton.textContent = result ? 'Play again' : 'Start Match';
-    this.main.hidden = false;
-    this.room.hidden = true;
-    this.root.hidden = false;
+  get visible(): boolean {
+    return !this.root.hidden;
   }
 
-  /** The Room screen (creating, waiting for a guest with code and link, or joining). */
-  showRoom(view: RoomView): void {
-    this.result.hidden = true;
-    this.main.hidden = true;
-    this.room.hidden = false;
-    this.root.hidden = false;
-    const linkRow = this.roomLink.parentElement!;
-    switch (view.kind) {
-      case 'Creating':
-        this.roomTitle.textContent = 'Creating a Room…';
-        this.roomCode.textContent = '';
-        linkRow.hidden = true;
-        this.roomStatus.textContent = 'Registering with the broker.';
-        break;
-      case 'Hosting':
-        this.roomTitle.textContent = 'Room';
-        this.roomCode.textContent = view.code;
-        this.roomLink.value = view.link;
-        this.roomCopy.textContent = 'Copy link';
-        linkRow.hidden = false;
-        this.roomStatus.textContent = 'Send the code or the link to the other player. Waiting for them to join…';
-        break;
-      case 'Joining':
-        this.roomTitle.textContent = 'Joining Room';
-        this.roomCode.textContent = view.code;
-        linkRow.hidden = true;
-        this.roomStatus.textContent = 'Connecting to the host…';
-        break;
-    }
+  /** What the camera behind the menu should look at: your Fighter close up on the Character screen, else the scene. */
+  get focus(): 'character' | 'scene' {
+    return this.visible && this.screen === 'settings' ? 'character' : 'scene';
+  }
+
+  /** In a Match, the in-game menu is up (it dims the Match instead of hiding it). */
+  get paused(): boolean {
+    return this.visible && this.inGame;
+  }
+
+  /** The title screen, optionally with a message (a result, or why something failed). */
+  showTitle(message?: string): void {
+    this.setLobby(null);
+    this.inGame = false;
+    this.history = [];
+    this.go('title', message);
+  }
+
+  /** The online screen (host or join), optionally with a message. */
+  showOnline(message?: string): void {
+    this.setLobby(null);
+    this.inGame = false;
+    this.history = ['title'];
+    this.go('online', message);
+  }
+
+  /** Creating or joining a Room. */
+  showConnecting(title: string, detail: string, code = ''): void {
+    this.connecting = { title, detail, code };
+    this.inGame = false;
+    this.history = ['title', 'online'];
+    this.go('connecting');
+  }
+
+  /** The Lobby (out of a Match): Skirmish setup or a Room's Lobby, with an invite for a Room you host. */
+  showLobby(lobby: Lobby, invite: RoomInvite | null = null, message?: string): void {
+    this.setLobby(lobby, invite);
+    this.inGame = false;
+    this.history = lobby.online ? ['title', 'online'] : ['title'];
+    this.go('lobby', message);
+  }
+
+  /** In a Match: the in-game menu. */
+  showPause(lobby: Lobby | null, invite: RoomInvite | null = null, message?: string): void {
+    this.setLobby(lobby, invite);
+    this.inGame = true;
+    this.history = [];
+    this.go('pause', message);
   }
 
   hide(): void {
     this.root.hidden = true;
+    this.root.classList.remove('menu-in-game');
   }
 
-  private bestOfRow(initial: number, onPick: (n: number) => void): HTMLElement {
-    return this.choiceRow(
-      'Match',
-      BEST_OF.map((n) => `Best of ${n}`),
-      `Best of ${initial}`,
-      (v) => onPick(Number(v.replace('Best of ', ''))),
+  /** Esc in the menu: one screen back, or out of the in-game menu. */
+  back(): void {
+    if (this.screen === 'pause') return this.handlers.onResume();
+    if (this.screen === 'lobby' && !this.inGame) return this.handlers.onLeaveLobby();
+    if (this.screen === 'connecting') return this.handlers.onLeaveLobby();
+    const previous = this.history.pop();
+    if (previous) this.go(previous);
+  }
+
+  private setLobby(lobby: Lobby | null, invite: RoomInvite | null = null): void {
+    if (lobby !== this.lobby) {
+      this.unsubscribe?.();
+      this.unsubscribe = lobby?.onChange(() => this.onLobbyChange()) ?? null;
+    }
+    this.lobby = lobby;
+    this.invite = invite;
+  }
+
+  private onLobbyChange(): void {
+    if (this.visible && (this.screen === 'lobby' || this.screen === 'pause')) this.render();
+  }
+
+  /** Open a screen; `message` shows on top of it until the next screen. */
+  private go(screen: Screen, message?: string): void {
+    this.screen = screen;
+    this.message = message ?? null;
+    this.root.hidden = false;
+    this.root.classList.toggle('menu-in-game', this.inGame);
+    this.root.classList.toggle('menu-on-title', screen === 'title');
+    this.render();
+  }
+
+  /** Open a sub-screen that Back returns from. */
+  private open(screen: Screen): void {
+    this.history.push(this.screen);
+    this.go(screen);
+  }
+
+  private render(): void {
+    // Keep the focused field's text and caret when the Lobby re-renders under it.
+    const scrollers = [...this.frame.querySelectorAll('.menu-scroll')].map((e) => e.scrollTop);
+    const content = this.build();
+    this.frame.className = `menu-frame menu-screen-${this.screen}`;
+    this.frame.replaceChildren(content);
+    this.frame.querySelectorAll('.menu-scroll').forEach((e, i) => (e.scrollTop = scrollers[i] ?? 0));
+  }
+
+  private build(): HTMLElement {
+    switch (this.screen) {
+      case 'title':
+        return this.titleScreen();
+      case 'online':
+        return this.onlineScreen();
+      case 'settings':
+        return this.settingsScreen();
+      case 'controls':
+        return this.controlsScreen();
+      case 'connecting':
+        return this.connectingScreen();
+      case 'lobby':
+        return this.lobbyScreen();
+      case 'pause':
+        return this.pauseScreen();
+    }
+  }
+
+  private messageLine(): HTMLElement | null {
+    return this.message ? h('p', 'menu-message', this.message) : null;
+  }
+
+  private labelFullscreen(b: HTMLButtonElement): void {
+    b.textContent = isFullscreen() ? 'Exit fullscreen' : 'Fullscreen';
+    b.setAttribute('aria-pressed', String(isFullscreen()));
+  }
+
+  private fullscreenButton(): HTMLButtonElement | null {
+    if (!fullscreenSupported()) return null; // e.g. iPhone Safari has no Fullscreen API
+    const b = button('menu-fullscreen ghost', '', toggleFullscreen);
+    this.labelFullscreen(b);
+    return b;
+  }
+
+  private navItem(label: string, hint: string, onClick: () => void, className = ''): HTMLButtonElement {
+    const b = h('button', `nav-item ${className}`, null, h('span', 'nav-label', label), h('span', 'nav-hint', hint));
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  private backButton(label = 'Back', onClick = () => this.back()): HTMLButtonElement {
+    return button('back-button ghost', `‹ ${label}`, onClick);
+  }
+
+  private card(title: string, ...children: (Node | null | false)[]): HTMLElement {
+    return h('div', 'menu-card', null, h('div', 'card-head', null, this.backButton(), h('h2', 'card-title', title)), this.messageLine(), ...children);
+  }
+
+  // --- Title ---
+
+  private titleScreen(): HTMLElement {
+    const editor = h('a', 'nav-item nav-link', null, h('span', 'nav-label', 'Editor'), h('span', 'nav-hint', 'Author Motions and Weapons'));
+    editor.href = '#/editor';
+    const nav = h(
+      'nav',
+      'title-nav',
+      null,
+      this.navItem('Skirmish', 'You and AI Fighters, up to 3 a side', () => this.handlers.onSkirmish(), 'primary'),
+      this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
+      this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
+      this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
+      editor,
+    );
+    const you = button('you-chip', '', () => this.open('settings'));
+    const face = h('span', 'you-avatar');
+    face.style.backgroundImage = `url("${thumb('bodies', this.body)}"), linear-gradient(135deg, #f5cd7a, #a8742a)`;
+    you.append(face, h('span', 'you-text', null, h('b', '', this.name), h('span', '', BODY_LABELS[this.body])));
+    return h(
+      'div',
+      'title-screen',
+      null,
+      h('div', 'title-hero', null, h('h1', 'logo', 'Sword'), h('p', 'tagline', 'Read the blade. Answer the blow.'), this.messageLine(), nav),
+      h('div', 'title-foot', null, you, this.fullscreenButton()),
     );
   }
 
-  /** The Map dropdown: the Arena of a Match you start or a Room you create (whoever joins plays the host's). */
-  private mapRow(arenas: readonly string[]): HTMLElement {
-    const row = document.createElement('label');
-    row.className = 'menu-row';
-    const name = document.createElement('span');
-    name.className = 'menu-label';
-    name.textContent = 'Map';
-    const select = document.createElement('select');
-    select.className = 'menu-map';
-    for (const a of arenas) select.append(new Option(ARENA_LABELS[a] ?? a, a, false, a === this.arena));
-    select.addEventListener('change', () => {
-      this.arena = select.value;
-      storeArena(this.arena);
+  // --- Online ---
+
+  private nameField(): HTMLElement {
+    const input = h('input', 'text-input');
+    input.type = 'text';
+    input.maxLength = MAX_NAME;
+    input.value = this.name;
+    input.placeholder = 'Your name';
+    input.setAttribute('aria-label', 'Your name');
+    input.spellcheck = false;
+    input.addEventListener('change', () => {
+      this.name = cleanName(input.value);
+      input.value = this.name;
+      store(NAME_STORAGE_KEY, this.name);
+      this.lobby?.setMine({ name: this.name });
     });
-    row.append(name, select);
-    return row;
+    return h('label', 'field', null, h('span', 'field-label', 'Your name'), input);
   }
 
-  private choiceRow(label: string, options: readonly string[], initial: string, onPick: (v: string) => void): HTMLElement {
-    const row = document.createElement('div');
-    row.className = 'menu-row';
-    const name = document.createElement('span');
-    name.className = 'menu-label';
-    name.textContent = label;
-    const group = document.createElement('div');
-    group.className = 'menu-choices';
-    group.setAttribute('role', 'radiogroup');
-    group.setAttribute('aria-label', label);
-    const buttons = options.map((option) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = option;
-      b.setAttribute('role', 'radio');
-      b.addEventListener('click', () => {
-        for (const other of buttons) other.setAttribute('aria-checked', String(other === b));
-        onPick(option);
-      });
-      b.setAttribute('aria-checked', String(option === initial));
-      return b;
+  private onlineScreen(): HTMLElement {
+    const host = h(
+      'div',
+      'choice-card',
+      null,
+      h('h3', '', 'Host a Room'),
+      h('p', '', 'Get a code and a link to send. You pick the Map, the teams and any AI Fighters in the Lobby.'),
+      button('cta', 'Create Room', () => {
+        store(BROKER_STORAGE_KEY, this.broker.trim() || null);
+        this.handlers.onCreateRoom(this.broker);
+      }),
+    );
+    const code = h('input', 'text-input code-input');
+    code.type = 'text';
+    code.placeholder = 'ABC123 or a Room link';
+    code.setAttribute('aria-label', 'Room code or link');
+    code.autocomplete = 'off';
+    code.spellcheck = false;
+    code.value = this.joinText;
+    code.addEventListener('input', () => (this.joinText = code.value));
+    const form = h('form', 'join-form', null, code, h('button', 'cta secondary', 'Join'));
+    (form.lastChild as HTMLButtonElement).type = 'submit';
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      store(BROKER_STORAGE_KEY, this.broker.trim() || null);
+      this.handlers.onJoinRoom(code.value, this.broker);
     });
-    group.append(...buttons);
-    row.append(name, group);
-    return row;
+    const join = h('div', 'choice-card', null, h('h3', '', 'Join a Room'), h('p', '', 'Type the code your friend sent, or paste their link.'), form);
+
+    const broker = h('input', 'text-input');
+    broker.type = 'text';
+    broker.placeholder = 'blank = public PeerJS broker, or https://host:port/path?key=…';
+    broker.setAttribute('aria-label', 'Broker URL');
+    broker.spellcheck = false;
+    broker.value = this.broker;
+    broker.addEventListener('input', () => (this.broker = broker.value));
+    const advanced = h(
+      'details',
+      'advanced',
+      null,
+      h('summary', '', 'Advanced: broker'),
+      broker,
+      h('p', 'menu-help', 'The PeerJS server players meet through (only to connect; Matches run peer to peer). Everyone must use the same one; Room links carry it.'),
+    );
+    advanced.open = Boolean(this.broker);
+    return this.card('Play Online', this.nameField(), h('div', 'choice-grid', null, host, join), advanced);
+  }
+
+  // --- Character ---
+
+  private settingsScreen(): HTMLElement {
+    const grid = h('div', 'body-grid');
+    for (const b of BODY_MODELS) {
+      const card = button('body-card', '', () => {
+        this.body = b;
+        store(BODY_STORAGE_KEY, b);
+        grid.querySelectorAll('.body-card').forEach((c) => c.setAttribute('aria-pressed', String(c === card)));
+      });
+      card.append(h('span', 'body-picture', null, thumbImage('', 'bodies', b, BODY_LABELS[b])), h('span', 'body-name', BODY_LABELS[b]));
+      card.setAttribute('aria-pressed', String(b === this.body));
+      grid.append(card);
+    }
+    const display = h('div', 'lb-row', null, h('span', 'field-label', 'Display'), this.fullscreenButton() ?? h('span', 'menu-help', 'Fullscreen is not available here.'));
+    return this.card(
+      'Character',
+      this.nameField(),
+      h('div', 'field', null, h('span', 'field-label', 'Look'), grid),
+      h('p', 'menu-help', 'Only you see your look: everyone else is drawn in a random one, and it never changes how a Fighter fights.'),
+      display,
+    );
+  }
+
+  // --- How to Play ---
+
+  private controlsScreen(): HTMLElement {
+    const body = isTouchDevice()
+      ? h('p', 'menu-help big', TOUCH_HELP)
+      : h('dl', 'keys', null, ...KEYS.flatMap(([k, what]) => [h('dt', '', null, ...k.split(' + ').map((x) => h('kbd', '', x))), h('dd', '', what)]));
+    const tips = h(
+      'ul',
+      'tips',
+      null,
+      h('li', '', 'A Block stops an Attack only from its Direction: watch the Wind-up, then answer it.'),
+      h('li', '', 'Hold attack during Recovery to Chain straight into the next swing.'),
+      h('li', '', 'A Kick knocks down a Fighter who moves into it, and only shoves one who stands still.'),
+      h('li', '', 'Three daggers a Duel: a hit wounds and slows.'),
+    );
+    return this.card('How to Play', h('div', 'menu-scroll', null, body, h('h3', 'lb-heading', 'Tips'), tips));
+  }
+
+  // --- Connecting ---
+
+  private connectingScreen(): HTMLElement {
+    const { title, detail, code } = this.connecting;
+    return h(
+      'div',
+      'menu-card narrow centre',
+      null,
+      h('div', 'spinner'),
+      h('h2', 'card-title', title),
+      code ? h('div', 'room-code', code) : null,
+      h('p', 'menu-help', detail),
+      button('ghost', 'Cancel', () => this.handlers.onLeaveLobby()),
+    );
+  }
+
+  // --- Lobby ---
+
+  private inviteBlock(): HTMLElement | null {
+    if (!this.invite) return null;
+    const { code, link } = this.invite;
+    const copy = button('ghost small', 'Copy link', () => {
+      void navigator.clipboard?.writeText(link).then(
+        () => (copy.textContent = 'Copied ✓'),
+        () => linkInput.select(),
+      );
+    });
+    const linkInput = h('input', 'text-input link-input');
+    linkInput.type = 'text';
+    linkInput.readOnly = true;
+    linkInput.value = link;
+    linkInput.setAttribute('aria-label', 'Room link');
+    linkInput.addEventListener('focus', () => linkInput.select());
+    return h('div', 'invite', null, h('div', 'invite-code', null, h('span', 'field-label', 'Room code'), h('span', 'room-code', code)), h('div', 'invite-link', null, linkInput, copy));
+  }
+
+  private lobbyScreen(): HTMLElement {
+    const lobby = this.lobby;
+    if (!lobby?.state) return this.connectingScreen();
+    const state = lobby.state;
+    const title = !lobby.online ? 'Skirmish' : this.inGame ? 'Match setup' : lobby.isHost ? 'Your Room' : 'Room';
+    const leaveLabel = this.inGame ? 'Back' : lobby.online ? (lobby.isHost ? 'Close Room' : 'Leave Room') : 'Back';
+    const head = h('div', 'lb-header', null, h('div', 'lb-title', null, this.backButton(leaveLabel), h('h2', 'card-title', title)), this.inviteBlock());
+
+    const me = lobby.me === null ? undefined : member(state, lobby.me);
+    let status = '';
+    const actions: HTMLElement[] = [];
+    if (this.inGame) {
+      if (lobby.isHost) {
+        const problem = startProblem(state, false);
+        status = problem ?? (lobby.online ? 'Restarting starts a fresh Match for everyone with these settings.' : 'Restarting starts a fresh Match with these settings.');
+        const restart = button('cta', 'Restart with these settings', () => this.handlers.onStart());
+        restart.disabled = Boolean(problem);
+        actions.push(restart);
+      } else status = 'Only the host restarts the Match; your Weapon and Seat apply then.';
+    } else if (!lobby.online) {
+      const problem = startProblem(state, false);
+      status = problem ?? 'Pick your Weapon and fill the Seats, then fight.';
+      const fight = button('cta', 'Fight', () => this.handlers.onStart());
+      fight.disabled = Boolean(problem);
+      actions.push(fight);
+    } else if (lobby.isHost) {
+      const problem = startProblem(state, true);
+      status =
+        state.members.length < 2 ? `Waiting for a player to join…${problem ? '' : ' Or start now against the AI.'}` : (problem ?? 'Everyone is ready.');
+      const start = button('cta', 'Start Match', () => this.handlers.onStart());
+      start.disabled = Boolean(problem);
+      actions.push(start);
+    } else {
+      const ready = Boolean(me?.ready);
+      status = state.playing ? 'A Match is on: you join the next one.' : ready ? 'Waiting for the host to start…' : 'Say when you are ready.';
+      const toggle = button(ready ? 'cta secondary' : 'cta', ready ? 'Not ready' : 'Ready', () => lobby.setMine({ ready: !ready }));
+      actions.push(toggle);
+    }
+    const foot = h('div', 'lb-footer', null, h('p', 'lb-status', status), h('div', 'lb-actions', null, ...actions));
+    return h(
+      'div',
+      'menu-card wide lobby',
+      null,
+      head,
+      this.messageLine(),
+      h('div', 'menu-scroll', null, lobbyBody({ tuning: this.tuning, lobby, inGame: this.inGame })),
+      foot,
+    );
+  }
+
+  // --- In-game menu ---
+
+  private pauseScreen(): HTMLElement {
+    const lobby = this.lobby;
+    const online = Boolean(lobby?.online);
+    const host = lobby?.isHost ?? true;
+    const nav = h('nav', 'title-nav compact', null, this.navItem('Resume', 'Back to the fight (Esc)', () => this.handlers.onResume(), 'primary'));
+    if (host) nav.append(this.navItem('Restart Match', online ? 'A fresh Match for everyone, same settings' : 'Start over, same settings', () => this.handlers.onStart()));
+    if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
+    nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
+    nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
+    if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
+    const leave = !online ? 'Quit to title' : host ? 'Close Room' : 'Leave Room';
+    nav.append(this.navItem(leave, online ? 'Everyone else is told you left' : 'Leave this Skirmish', () => this.handlers.onQuit(), 'danger'));
+    const settings = lobby?.state?.settings;
+    const where = settings ? `${arenaLabel(settings.arena)} · Best of ${settings.bestOf}. ` : '';
+    const note = h('p', 'menu-help', where + (online ? 'Online Matches keep running while this menu is open.' : 'The Match waits for you.'));
+    return h('div', 'menu-card narrow pause', null, h('h2', 'card-title', online ? 'Match menu' : 'Paused'), this.messageLine(), note, nav, this.inviteBlock());
   }
 }

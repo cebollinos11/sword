@@ -56,6 +56,11 @@ function template(body: BodyModelName): Promise<THREE.Object3D> {
   return p;
 }
 
+/** Start loading a Body model (e.g. ahead of showing it); resolves once it is in. */
+export function preloadBody(body: BodyModelName): Promise<void> {
+  return template(body).then(() => undefined);
+}
+
 /** A Fighter's own copy of a Body model, posed through its rig. */
 export interface BodyModel {
   readonly root: THREE.Object3D;

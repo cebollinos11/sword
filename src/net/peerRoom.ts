@@ -1,13 +1,14 @@
 /**
  * Rooms over PeerJS (browser only; not unit-tested). The host registers a
  * Room's peer ID on the broker (the public PeerJS broker unless a broker URL
- * is configured) and waits for one guest; the guest connects to that ID. Once
- * the data channel is open, both sides get a Transport for the Rollback
- * session and drop the broker (the WebRTC connection is direct).
+ * is configured) and stays registered while the Room lives, so guests can join
+ * and rejoin; each guest connects to that ID and drops the broker once its data
+ * channel is open (the WebRTC connection is direct). Each connection is a
+ * Transport: the Room link the Lobby and every Match's Rollback session share.
  *
  * PeerJS is imported on demand, so Player vs AI never downloads it.
  */
-import type { DataConnection, Peer, PeerJSOption } from 'peerjs';
+import type { Peer, PeerJSOption } from 'peerjs';
 import { createPeerTransport } from './peerTransport';
 import { randomRoomCode, roomPeerId, type BrokerOptions } from './room';
 import type { Transport } from './transport';
@@ -24,8 +25,15 @@ export interface PendingRoom {
   cancel(): void;
 }
 
-export interface HostedRoom extends PendingRoom {
+/** A Room this browser hosts: it stays open on the broker, so guests can join (and rejoin) for as long as it lives. */
+export interface HostedRoom {
   readonly code: string;
+  /** Called with each guest whose connection opens (the Lobby decides whether they stay). */
+  onGuest(handler: (transport: Transport) => void): void;
+  /** Called once if the Room breaks for good (a RoomError for the player). */
+  onError(handler: (error: RoomError) => void): void;
+  /** Close the Room: the broker registration and every guest's connection. */
+  cancel(): void;
 }
 
 /** How long a guest waits for the direct connection before giving up. */
@@ -90,7 +98,7 @@ function keepRegistered(peer: Peer, needed: () => boolean): void {
   });
 }
 
-/** Create a Room: returns its code as soon as it is registered; `connected` resolves when a guest joins. */
+/** Create a Room: returns as soon as it is registered on the broker; guests then arrive through `onGuest`. */
 export async function hostRoom(broker: BrokerOptions | null): Promise<HostedRoom> {
   const { Peer } = await import('peerjs');
   for (let attempt = 0; attempt < CREATE_ATTEMPTS; attempt++) {
@@ -103,42 +111,43 @@ export async function hostRoom(broker: BrokerOptions | null): Promise<HostedRoom
       if (errorType(e) === 'unavailable-id') continue;
       throw new RoomError(describe(e, broker));
     }
-    let guest: DataConnection | null = null;
     let done = false;
+    let guestHandler: ((t: Transport) => void) | null = null;
+    let errorHandler: ((e: RoomError) => void) | null = null;
+    const waiting: Transport[] = [];
+    const guests = new Set<Transport>();
     keepRegistered(peer, () => !done);
-    const connected = new Promise<Transport>((resolve, reject) => {
-      peer.on('connection', (conn) => {
-        if (guest || done) {
-          // The Room is taken: turn away anyone else.
-          conn.on('open', () => conn.close());
-          return;
-        }
-        guest = conn;
-        conn.on('open', () => {
-          done = true;
-          peer.disconnect();
-          resolve(createPeerTransport(conn, () => peer.destroy()));
-        });
-        const failed = () => {
-          if (!done) guest = null;
-        };
-        conn.on('close', failed);
-        conn.on('error', failed);
+    peer.on('connection', (conn) => {
+      if (done) return;
+      conn.on('open', () => {
+        if (done) return conn.close();
+        const transport = createPeerTransport(conn);
+        guests.add(transport);
+        transport.onClose(() => guests.delete(transport));
+        if (guestHandler) guestHandler(transport);
+        else waiting.push(transport);
       });
-      peer.on('error', (e) => {
-        if (done) return;
-        // A broker hiccup while waiting is retried by keepRegistered; anything else ends the Room.
-        if (errorType(e) === 'network' || errorType(e) === 'socket-closed') return;
-        done = true;
-        peer.destroy();
-        reject(new RoomError(describe(e, broker)));
-      });
+    });
+    peer.on('error', (e) => {
+      if (done) return;
+      // A broker hiccup is retried by keepRegistered, and one guest's failed connection only loses that guest.
+      if (['network', 'socket-closed', 'webrtc', 'negotiation-failed', 'connection-closed', 'peer-unavailable'].includes(errorType(e))) return;
+      done = true;
+      peer.destroy();
+      errorHandler?.(new RoomError(describe(e, broker)));
     });
     return {
       code,
-      connected,
+      onGuest(handler) {
+        guestHandler = handler;
+        for (const t of waiting.splice(0)) handler(t);
+      },
+      onError(handler) {
+        errorHandler = handler;
+      },
       cancel() {
         done = true;
+        for (const t of [...guests]) t.close();
         peer.destroy();
       },
     };

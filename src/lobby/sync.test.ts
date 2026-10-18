@@ -1,0 +1,162 @@
+import { describe, expect, it } from 'vitest';
+import { loadTuningData, withWeapon } from '../tuning';
+import { IDLE_INTENT, TICK_RATE } from '../sim';
+import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions, type RollbackSession } from '../net';
+import { lobbyLineup, updateSettings } from './lobby';
+import { GuestLobby, HostLobby, LOBBY_TIMEOUT_MS } from './sync';
+
+const tuning = loadTuningData();
+const [first, second] = Object.keys(tuning.weapons) as [string, string];
+const STEP = 1000 / TICK_RATE;
+
+function room(net: MemoryTransportOptions = {}) {
+  const host = new HostLobby(tuning, {
+    host: { name: 'Ana', weapon: first },
+    settings: { arena: 'circle', bestOf: 3 },
+    online: true,
+    ai: { difficulty: 'Normal', weapon: first },
+  });
+  let now = 0;
+  const links: ReturnType<typeof createMemoryTransportPair>[] = [];
+  const connect = (name: string, guestTuning = tuning) => {
+    const link = createMemoryTransportPair(net);
+    links.push(link);
+    host.addGuest(link.a);
+    return new GuestLobby(link.b, guestTuning, { name, weapon: second });
+  };
+  const guests: GuestLobby[] = [];
+  const run = (ms: number, each?: () => void) => {
+    for (let t = 0; t < ms; t += STEP) {
+      now += STEP;
+      for (const l of links) l.advance(STEP);
+      host.pump(now);
+      for (const g of guests) g.pump(now);
+      each?.();
+    }
+  };
+  return { host, guests, connect, run };
+}
+
+describe('Lobby sync', () => {
+  it('a guest joins, picks, moves and readies, through a lossy link', () => {
+    const r = room({ latencyMs: 40, jitterMs: 20, loss: 0.2, seed: 3 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(2000);
+    expect(g.status).toBe('Open');
+    expect(g.me).toBe(1);
+    expect(r.host.state.members.map((m) => m.name)).toEqual(['Ana', 'Bo']);
+    g.setMine({ weapon: first, ready: true });
+    g.moveMe({ team: 0, index: 1 });
+    r.run(3000);
+    expect(r.host.state.members[1]).toMatchObject({ weapon: first, ready: true });
+    expect(r.host.state.teams[0]![1]).toEqual({ kind: 'Player', member: 1 });
+    // A swap: the Closed Seat the guest took went to their old one.
+    expect(r.host.state.teams[1]![0]).toEqual({ kind: 'Closed' });
+    expect(JSON.stringify(g.state)).toBe(JSON.stringify(r.host.state));
+  });
+
+  it('the host’s changes reach the guest', () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    r.host.edit((s) => updateSettings(s, { arena: 'library', bestOf: 5 }));
+    r.run(500);
+    expect(g.state!.settings).toEqual({ arena: 'library', bestOf: 5 });
+  });
+
+  it('turns away a second guest (the Room is full) and a guest with other Tuning Data', () => {
+    const r = room();
+    const a = r.connect('Bo');
+    const b = r.connect('Cy');
+    const c = r.connect('Di', withWeapon(tuning, { damage: 1 }));
+    r.guests.push(a, b, c);
+    r.run(3000);
+    expect(a.status).toBe('Open');
+    expect(b.status).toBe('Closed');
+    expect(b.failure).toMatch(/full/);
+    expect(c.status).toBe('Closed');
+    expect(c.failure).toMatch(/game data/);
+    expect(r.host.state.members).toHaveLength(2);
+  });
+
+  it('a guest leaving opens their Seat, and the host notices', () => {
+    const r = room();
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    g.close();
+    r.run(100);
+    expect(r.host.state.members).toHaveLength(1);
+    expect(r.host.state.teams[1]![0]).toEqual({ kind: 'Open' });
+  });
+
+  it('a silent host times out', () => {
+    const r = room();
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    // Only the guest's clock runs on: the host stops sending.
+    let now = 1000;
+    for (let t = 0; t <= LOBBY_TIMEOUT_MS + 100; t += 100) g.pump((now += 100));
+    expect(g.status).toBe('Closed');
+    expect(g.failure).toMatch(/Lost/);
+  });
+
+  it('restarts a Match with new settings over the same link', () => {
+    const r = room({ latencyMs: 30, jitterMs: 10 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    g.setMine({ ready: true });
+    r.run(1000);
+
+    let sessions: [RollbackSession, RollbackSession] | null = null;
+    let started = 0;
+    const startSessions = () => {
+      const gen = r.host.state.generation;
+      const { lineup } = lobbyLineup(r.host.state);
+      const settings = r.host.state.settings;
+      sessions?.forEach((s) => s.close());
+      const h = createRollbackSession({
+        role: 'host',
+        transport: r.host.matchTransport(gen)!,
+        tuning,
+        weapon: first,
+        lineup,
+        match: { bestOf: settings.bestOf, arena: settings.arena, seed: gen },
+      });
+      const gs = createRollbackSession({ role: 'guest', transport: g.matchTransport(g.state!.generation)!, tuning, weapon: g.state!.members[1]!.weapon });
+      sessions = [h, gs];
+      started = gen;
+    };
+    const tick = () => {
+      if (r.host.state.playing && r.host.state.generation !== started && g.state!.generation === r.host.state.generation) startSessions();
+      sessions?.forEach((s) => s.tick(IDLE_INTENT));
+    };
+
+    expect(r.host.start(true)).toBeNull();
+    r.run(1500, tick);
+    expect(sessions![0].status).toBe('Running');
+    expect(sessions![1].status).toBe('Running');
+    expect(sessions![1].state!.config.arena).toBe('circle');
+
+    r.host.edit((s) => updateSettings(s, { arena: 'library' }));
+    expect(r.host.start(false)).toBeNull();
+    r.run(1500, tick);
+    expect(started).toBe(2);
+    expect(sessions![0].status).toBe('Running');
+    expect(sessions![1].status).toBe('Running');
+    expect(sessions![1].state!.config.arena).toBe('library');
+    expect(sessions![1].currentTick).toBeGreaterThan(30);
+    expect(g.status).toBe('Open');
+
+    // Back in the Lobby, the guest must ready again (its heartbeats do not restore the old flag).
+    r.host.backToLobby();
+    r.run(3000);
+    expect(r.host.state.members[1]!.ready).toBe(false);
+    expect(g.state!.members[1]!.ready).toBe(false);
+    expect(r.host.start(true)).toMatch(/Bo/);
+  });
+});

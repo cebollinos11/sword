@@ -1,0 +1,227 @@
+/**
+ * The Lobby: who is in a Room (or a Skirmish), where each of them sits, and
+ * the Match settings, before and between Matches. Plain data and pure
+ * functions, so the host can send it to every guest as is.
+ *
+ * Two teams of MAX_TEAM_SIZE Seats each. A Seat is Open (a human may take it),
+ * Closed, an AI (difficulty and Weapon), or a Player (a Member). Members are
+ * the humans: the host is always first. The Lobby is laid out for up to
+ * MAX_PLAYERS humans; a Match fields SUPPORTED_PLAYERS of them for now, so no
+ * more Seats than that may be Open or taken by Players.
+ *
+ * Starting a Match bumps `generation` and records who plays it (`inMatch`); a
+ * restart from the in-game menu is just another start. The Lineup of a Match
+ * reads the Seats team by team: Player numbers follow the Members' order.
+ */
+import { MAX_TEAM_SIZE } from '../sim';
+import type { Lineup, LineupSlot, PlayerNumber } from '../controllers';
+
+/** The most humans a Room is laid out for. */
+export const MAX_PLAYERS = 4;
+/** The most humans a Match can field today (the Rollback session is two-peer). */
+export const SUPPORTED_PLAYERS = 2;
+export const TEAM_COUNT = 2;
+export const BEST_OF = [1, 3, 5] as const;
+
+export interface Member {
+  /** Stable for as long as the Member stays: the host is 0, guests count up from 1. */
+  readonly id: number;
+  readonly name: string;
+  /** Their Weapon (a Tuning Data Weapon name). */
+  readonly weapon: string;
+  /** Ready to start (guests; the host starts when everyone is). */
+  readonly ready: boolean;
+}
+
+export type Seat =
+  | { readonly kind: 'Open' }
+  | { readonly kind: 'Closed' }
+  | { readonly kind: 'Player'; readonly member: number }
+  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string };
+
+export type SeatKind = Seat['kind'];
+
+export interface LobbySettings {
+  /** The Arena (a Tuning Data Arena name). */
+  readonly arena: string;
+  readonly bestOf: number;
+}
+
+export interface LobbyState {
+  readonly settings: LobbySettings;
+  /** Every human in the Lobby; the host first. */
+  readonly members: readonly Member[];
+  /** TEAM_COUNT teams of MAX_TEAM_SIZE Seats. */
+  readonly teams: readonly (readonly Seat[])[];
+  /** How many Matches were started; the current or last one's generation. */
+  readonly generation: number;
+  /** A Match is being played (the one numbered `generation`). */
+  readonly playing: boolean;
+  /** The Members playing it (a guest who joins meanwhile waits for the next). */
+  readonly inMatch: readonly number[];
+}
+
+export interface SeatRef {
+  readonly team: number;
+  readonly index: number;
+}
+
+/** What a started Match needs from the Lobby. Index p of `weapons`/`names`/`members` is Player p. */
+export interface LobbyLineup {
+  readonly lineup: Lineup;
+  readonly weapons: readonly string[];
+  readonly names: readonly string[];
+  readonly members: readonly number[];
+}
+
+export interface NewLobbyOptions {
+  readonly host: { readonly name: string; readonly weapon: string };
+  readonly settings: LobbySettings;
+  /** Online: the second team starts with an Open Seat; offline with this AI. */
+  readonly online: boolean;
+  readonly ai: { readonly difficulty: string; readonly weapon: string };
+}
+
+const OPEN: Seat = { kind: 'Open' };
+const CLOSED: Seat = { kind: 'Closed' };
+
+/** A fresh Lobby: the host on team 0, and an Open Seat (online) or an AI (offline) on team 1. */
+export function newLobby(o: NewLobbyOptions): LobbyState {
+  const row = (first: Seat) => [first, ...Array.from({ length: MAX_TEAM_SIZE - 1 }, () => CLOSED)];
+  return {
+    settings: o.settings,
+    members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, ready: true }],
+    teams: [row({ kind: 'Player', member: 0 }), row(o.online ? OPEN : { kind: 'AI', ...o.ai })],
+    generation: 0,
+    playing: false,
+    inMatch: [],
+  };
+}
+
+export function seatAt(state: LobbyState, at: SeatRef): Seat | undefined {
+  return state.teams[at.team]?.[at.index];
+}
+
+/** Where a Member sits, or null. */
+export function seatOf(state: LobbyState, member: number): SeatRef | null {
+  for (let team = 0; team < state.teams.length; team++) {
+    const index = state.teams[team]!.findIndex((s) => s.kind === 'Player' && s.member === member);
+    if (index >= 0) return { team, index };
+  }
+  return null;
+}
+
+export function member(state: LobbyState, id: number): Member | undefined {
+  return state.members.find((m) => m.id === id);
+}
+
+/** Seats a human could take or holds: Open and Player Seats. */
+export function humanSeats(state: LobbyState): number {
+  return state.teams.flat().filter((s) => s.kind === 'Open' || s.kind === 'Player').length;
+}
+
+/** Fighters a team would field: its Players and AIs. */
+export function teamSize(state: LobbyState, team: number): number {
+  return (state.teams[team] ?? []).filter((s) => s.kind === 'Player' || s.kind === 'AI').length;
+}
+
+/** May this Seat be set to `kind` (by the host)? Player Seats are the Members' own; Open Seats stay within SUPPORTED_PLAYERS. */
+export function canSetSeat(state: LobbyState, at: SeatRef, kind: Exclude<SeatKind, 'Player'>): boolean {
+  const seat = seatAt(state, at);
+  if (!seat || seat.kind === 'Player') return false;
+  if (kind === 'Open' && seat.kind !== 'Open') return humanSeats(state) < SUPPORTED_PLAYERS;
+  return true;
+}
+
+function withSeat(state: LobbyState, at: SeatRef, seat: Seat): LobbyState {
+  return { ...state, teams: state.teams.map((row, t) => (t === at.team ? row.map((s, i) => (i === at.index ? seat : s)) : row)) };
+}
+
+/** Set a Seat to Open, Closed or an AI (host only). Unchanged if not allowed. */
+export function setSeat(state: LobbyState, at: SeatRef, seat: Exclude<Seat, { kind: 'Player' }>): LobbyState {
+  return canSetSeat(state, at, seat.kind) ? withSeat(state, at, seat) : state;
+}
+
+/**
+ * Move a Member to another Seat by swapping: whatever sat there (Open, Closed or an AI) takes the
+ * Member's old Seat. Another Player's Seat cannot be taken. Unchanged if not allowed.
+ */
+export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbyState {
+  const from = seatOf(state, id);
+  const target = seatAt(state, to);
+  if (!from || !target || target.kind === 'Player') return state;
+  return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
+}
+
+/** A guest joins into the first Open Seat; null when there is none (the Room is full). */
+export function join(state: LobbyState, m: Member): LobbyState | null {
+  if (state.members.length >= SUPPORTED_PLAYERS || member(state, m.id)) return null;
+  for (let team = state.teams.length - 1; team >= 0; team--) {
+    // The emptier team first, so a guest lands opposite the host by default.
+    const index = state.teams[team]!.findIndex((s) => s.kind === 'Open');
+    if (index >= 0) return withSeat({ ...state, members: [...state.members, m] }, { team, index }, { kind: 'Player', member: m.id });
+  }
+  return null;
+}
+
+/** A guest leaves: their Seat opens again. */
+export function leave(state: LobbyState, id: number): LobbyState {
+  if (id === 0 || !member(state, id)) return state;
+  const at = seatOf(state, id);
+  const left: LobbyState = { ...state, members: state.members.filter((m) => m.id !== id), inMatch: state.inMatch.filter((m) => m !== id) };
+  return at ? withSeat(left, at, OPEN) : left;
+}
+
+export function updateMember(state: LobbyState, id: number, patch: Partial<Omit<Member, 'id'>>): LobbyState {
+  const old = member(state, id);
+  if (!old) return state;
+  const fresh = { ...old, ...patch };
+  if (fresh.name === old.name && fresh.weapon === old.weapon && fresh.ready === old.ready) return state;
+  return { ...state, members: state.members.map((m) => (m.id === id ? fresh : m)) };
+}
+
+export function updateSettings(state: LobbyState, patch: Partial<LobbySettings>): LobbyState {
+  return { ...state, settings: { ...state.settings, ...patch } };
+}
+
+/** Who fights, read off the Seats team by team (Open and Closed Seats field nobody). */
+export function lobbyLineup(state: LobbyState): LobbyLineup {
+  const seated = state.members.filter((m) => seatOf(state, m.id));
+  const playerOf = (id: number) => seated.findIndex((m) => m.id === id) as PlayerNumber;
+  const lineup: LineupSlot[] = [];
+  state.teams.forEach((row, team) => {
+    for (const s of row) {
+      if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) } });
+      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty }, weapon: s.weapon });
+    }
+  });
+  return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), members: seated.map((m) => m.id) };
+}
+
+/** Why a Match cannot start now, or null. `requireReady`: every guest must be ready (a start from the Lobby, not a restart). */
+export function startProblem(state: LobbyState, requireReady: boolean): string | null {
+  for (let team = 0; team < state.teams.length; team++) {
+    if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
+  }
+  if (requireReady) {
+    const waiting = state.members.find((m) => m.id !== 0 && !m.ready);
+    if (waiting) return `Waiting for ${waiting.name} to be ready.`;
+  }
+  return null;
+}
+
+/** Start (or restart) a Match: a new generation, played by every seated Member; everyone's ready flag resets. */
+export function startMatch(state: LobbyState): LobbyState {
+  return {
+    ...state,
+    generation: state.generation + 1,
+    playing: true,
+    inMatch: lobbyLineup(state).members,
+    members: state.members.map((m) => ({ ...m, ready: m.id === 0 })),
+  };
+}
+
+/** Back to the Lobby: the Match ends for everyone. */
+export function endMatch(state: LobbyState): LobbyState {
+  return { ...state, playing: false, inMatch: [] };
+}

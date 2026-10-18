@@ -205,13 +205,13 @@ _Avoid_: Death animation, death Motion
 A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
 
 **Rematch**:
-A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends. Online play always rematches, so the Players stay in the Room until one of them leaves; Player vs AI goes back to the menu instead.
+A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.
 
 **Match Mode**:
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
-The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked from the menu's Map dropdown (the host's pick online): the library (three levels, `art/build_library.py`) by default, the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), the pirate ship (a deck with a raised quarterdeck and a plank, over Water, `art/build_ship.py`) or the snowy summit (a shelf and a plateau holding a crashed starship, on a cliff edge whose drop is a Death by Fall, `art/build_summit.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
+The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked as the Lobby's Map (the host's pick online): the library (three levels, `art/build_library.py`) by default, the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), the pirate ship (a deck with a raised quarterdeck and a plank, over Water, `art/build_ship.py`) or the snowy summit (a shelf and a plateau holding a crashed starship, on a cliff edge whose drop is a Death by Fall, `art/build_summit.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
 
 **Walk Surface**:
 A floor or ramp of an Arena that Fighters stand on: a flat (or evenly sloping) convex polygon. A Fighter walks onto a neighbouring one within a step up or down; higher ground is a wall, lower ground a ledge it walks off. The Walk Surfaces are also the AI's navmesh: shared edges join them, and open ledges drop from one to the one below.
@@ -243,5 +243,17 @@ _Avoid_: Airborne (for the Action)
 A Fighter reaching the ground again. A drop (from the top of its arc) within the safe height is soft: a Fall ends in Idle. A deeper one deals fall damage by the metre beyond it and Staggers it (Landed); it can fell the Fighter (a Death by Fall).
 
 **Room**:
-A shareable code/link through which two peers (the two Players) connect for a Player vs Player Match.
-_Avoid_: Lobby, session, server
+A shareable code/link through which Players connect for online play. It stays open as long as its host is in it: guests join (and rejoin), and the Lobby and every Match, restarts included, run over the same connection (the Room link), so a restart never reconnects anyone (ADR 0009).
+_Avoid_: session, server
+
+**Lobby**:
+Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Map, Match length), before and between Matches, and in the in-game menu's Match setup. The host owns it and sends it to every guest. Laid out for up to four Players; a Match fields two for now. A start or a restart is a new generation of the Lobby's Match, played by whoever is seated.
+_Avoid_: Room (the connection), Lineup (what a start reads off it)
+
+**Seat**:
+A place on a Team in the Lobby (three a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
+_Avoid_: Slot (that is the Lineup's)
+
+**Skirmish**:
+Player vs AI, set up in its own offline Lobby: you and any AI allies and enemies. Its in-game menu pauses the Match.
+_Avoid_: Single player, practice

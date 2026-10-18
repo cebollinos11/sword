@@ -4,6 +4,7 @@ import { loadTuningData, TuningDataError, type TuningData } from './tuning';
  * App entry and router. Routes are hash-based so they work on GitHub Pages:
  *   /sword/            the game
  *   /sword/#/editor    the Editor (loaded on demand, so the game never ships Tweakpane up front)
+ *   /sword/#/thumbs    dev server only: draws and saves the menu's pictures (public/thumbs/)
  */
 const container = document.getElementById('app')!;
 
@@ -34,7 +35,9 @@ window.addEventListener('hashchange', () => location.reload());
 
 const tuning = load();
 if (tuning) {
-  if (location.hash.startsWith('#/editor')) {
+  if (import.meta.env.DEV && location.hash.startsWith('#/thumbs')) {
+    void import('./thumbs').then((m) => m.startThumbs(container, tuning));
+  } else if (location.hash.startsWith('#/editor')) {
     void import('./editor').then((m) => m.startEditor(container, tuning));
   } else {
     void import('./game').then((m) => m.startGame(container, tuning));

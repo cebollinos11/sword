@@ -116,6 +116,7 @@ export class Stage {
   collider: CameraCollider;
   private arena: string;
   private setting: THREE.Object3D;
+  private loaded: Promise<void> = Promise.resolve();
   private pixelRatio: number;
   private lastFrame = 0;
   private slowTime = 0;
@@ -146,6 +147,11 @@ export class Stage {
 
   get canvas(): HTMLCanvasElement {
     return this.renderer.domElement;
+  }
+
+  /** Resolves once the current Arena's model (if it has one) has loaded, or failed to. */
+  ready(): Promise<void> {
+    return this.loaded;
   }
 
   /** Draw the Arena named `name` (a Tuning Data Arena); nothing changes if it is already drawn. */
@@ -193,6 +199,7 @@ export class Stage {
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {
     const look = ARENA_LOOKS[name];
     const setting = look ? modelled(name, look, () => this.arena === name) : outdoors(geometry);
+    this.loaded = setting.loaded ?? Promise.resolve();
     this.scene.background = setting.background;
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
@@ -204,6 +211,8 @@ interface Setting {
   readonly root: THREE.Object3D;
   readonly background: THREE.Color;
   readonly fog: THREE.Fog;
+  /** Resolves when the model is in (modelled Arenas only). */
+  readonly loaded?: Promise<void>;
 }
 
 /** An open-air Arena: sky, sun, a grass plain and the Walk Surfaces as sand-coloured ground. */
@@ -273,11 +282,11 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   const root = new THREE.Group();
   root.add(...look.lights());
   if (look.snow) root.add(snowfall(look.snow));
-  void arenaModel(name, look.lamps)
+  const loaded = arenaModel(name, look.lamps)
     .then((model) => {
       // Shown only if this Arena is still the one drawn once it has loaded.
       if (current()) root.add(model);
     })
     .catch((e: unknown) => console.error(`Arena model "${name}" failed to load`, e));
-  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far) };
+  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded };
 }

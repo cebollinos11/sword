@@ -12,14 +12,16 @@ export interface HudView {
   readonly lineup: Lineup | null;
   /** Round-trip time to the opponent in ms; null offline or until measured. */
   readonly ping?: number | null;
+  /** Each Player's name (index = Player number), from the Lobby. */
+  readonly names?: readonly string[] | null;
 }
 
-/** A Fighter's short HUD label: "You", the other human Player, or an AI by difficulty. */
-function label(lineup: Lineup | null, fighter: number, me: number): string {
+/** A Fighter's short HUD label: "You", the other human Player by name, or an AI by difficulty. */
+function label(lineup: Lineup | null, fighter: number, me: number, names: readonly string[] | null | undefined): string {
   if (fighter === me) return 'You';
   const pilot = lineup?.[fighter]?.pilot;
   if (!pilot) return '';
-  return pilot.kind === 'Player' ? `Player ${pilot.player + 1}` : `${pilot.difficulty} AI`;
+  return pilot.kind === 'Player' ? (names?.[pilot.player] ?? `Player ${pilot.player + 1}`) : `${pilot.difficulty} AI`;
 }
 
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
@@ -43,7 +45,7 @@ export class Hud {
   private fps = 0;
   private readonly banner = document.createElement('div');
   private readonly crosshair = document.createElement('div');
-  private readonly leave = document.createElement('button');
+  private readonly menu = document.createElement('button');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
@@ -52,11 +54,11 @@ export class Hud {
   private built = '';
   private bannerUntil = 0;
 
-  /** `onLeave`: the player clicked Leave (only offered while `leavable`). */
+  /** `onMenu`: the player clicked the menu button (the in-game menu; Esc does the same). */
   constructor(
     container: HTMLElement,
     private readonly tuning: TuningData,
-    onLeave: () => void,
+    onMenu: () => void,
   ) {
     ensurePlayStyles();
     this.root.className = 'hud';
@@ -64,19 +66,19 @@ export class Hud {
     const centre = document.createElement('div');
     centre.className = 'hud-centre';
     this.score.className = 'hud-score';
-    this.leave.type = 'button';
-    this.leave.className = 'hud-leave';
-    this.leave.textContent = 'Leave';
-    this.leave.title = 'Leave the Match (Esc frees the mouse first)';
-    this.leave.hidden = true;
-    this.leave.addEventListener('click', onLeave);
-    centre.append(this.score, this.leave);
+    this.menu.type = 'button';
+    this.menu.className = 'hud-menu';
+    this.menu.textContent = '☰';
+    this.menu.title = 'Menu (Esc)';
+    this.menu.setAttribute('aria-label', 'Menu');
+    this.menu.addEventListener('click', onMenu);
+    centre.append(this.score);
     this.sides.forEach((side, i) => (side.className = `hud-team hud-side-${i}`));
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
     this.banner.className = 'hud-banner';
     this.stats.className = 'hud-stats';
     this.crosshair.className = 'hud-crosshair';
-    this.root.append(this.top, this.banner, this.stats, this.crosshair);
+    this.root.append(this.top, this.banner, this.stats, this.crosshair, this.menu);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -90,11 +92,6 @@ export class Hud {
     this.root.hidden = true;
   }
 
-  /** Offer a Leave button (online, where Matches restart on their own and only leaving ends them). */
-  set leavable(on: boolean) {
-    this.leave.hidden = !on;
-  }
-
   /** Show a message in the middle of the screen for `seconds` (wall clock, cosmetic only). */
   announce(text: string, seconds = 2): void {
     this.banner.textContent = text;
@@ -106,8 +103,8 @@ export class Hud {
     const teams = match.config.teams;
     const me = view.localFighter;
     const myTeam = teams[me] ?? 0;
-    const key = JSON.stringify([teams, me, view.lineup]);
-    if (key !== this.built) this.build(teams, me, myTeam, view.lineup, key);
+    const key = JSON.stringify([teams, me, view.lineup, view.names]);
+    if (key !== this.built) this.build(teams, me, myTeam, view.lineup, view.names, key);
 
     const max = this.tuning.fighter.maxHp;
     for (const bar of this.bars) {
@@ -153,7 +150,7 @@ export class Hud {
     return row;
   }
 
-  private build(teams: readonly number[], me: number, myTeam: number, lineup: Lineup | null, key: string): void {
+  private build(teams: readonly number[], me: number, myTeam: number, lineup: Lineup | null, names: readonly string[] | null | undefined, key: string): void {
     this.built = key;
     const colours = fighterColours(teams);
     // Left: your team, you first; right: the enemy team. Otherwise in Fighter order.
@@ -166,7 +163,7 @@ export class Hud {
       if (fighter === me) box.classList.add('hud-you');
       const name = document.createElement('div');
       name.className = 'hud-label';
-      name.textContent = label(lineup, fighter, me);
+      name.textContent = label(lineup, fighter, me, names);
       const bar = document.createElement('div');
       bar.className = 'hud-bar';
       const fill = document.createElement('div');
