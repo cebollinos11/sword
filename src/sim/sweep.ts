@@ -31,6 +31,8 @@ export interface SweepContact<C extends Capsule = Capsule> {
   readonly bladeSpeed: number;
   /** Where along the blade the contact was: 0 at the hilt, 1 at the tip. */
   readonly along: number;
+  /** When in the Tick the contact was: 0 at last Tick's blade, 1 at this Tick's. */
+  readonly s: number;
 }
 
 /**
@@ -50,7 +52,7 @@ export function sweepContact<C extends Capsule>(from: BladeTransform, to: BladeT
       const depth = capsule.radius - distance;
       if (best && (s > best.s || (s === best.s && depth <= best.depth))) continue;
       const point = lerp(p0, p1, s);
-      best = { s, depth, contact: { capsule, point, bladeSpeed: length(sub(p1, p0)) / TICK_SECONDS, along: u } };
+      best = { s, depth, contact: { capsule, point, bladeSpeed: length(sub(p1, p0)) / TICK_SECONDS, along: u, s } };
     }
   }
   return best?.contact ?? null;

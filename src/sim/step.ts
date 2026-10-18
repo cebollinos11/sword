@@ -378,7 +378,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const thrown = events.flatMap((e) => (e.type === 'DaggerThrown' ? [launchDagger(fighters[e.thrower]!, e.thrower, tuning)] : []));
   let flying = flight.daggers;
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
-  if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), intents, tuning, emit);
+  if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, arena, tuning), intents, tuning, emit);
   if (fighting) {
     // Daggers land after blade and Kick contacts, against the post-contact Fighters; one that hit or was Blocked is spent.
     const resolved = resolveDaggers(fighters, findDaggerContacts(flight.sweeps, fighters, tuning), flight.sweeps, tick, tuning, emit);

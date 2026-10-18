@@ -4,7 +4,7 @@
  * their inputs, so both peers (and a Rollback re-simulation) see the same dagger.
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
-import { groundBelow, surfaceHeight, surfacesAt } from './arena';
+import { groundBelow, surfaceHeight, surfacesAt, wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import type { Emit } from './events';
 import { fighterPose } from './pose';
@@ -44,26 +44,6 @@ export function launchDagger(f: FighterState, index: number, tuning: TuningData)
   };
 }
 
-/** Where the segment a→b first crosses a Wall (the point), or null. */
-function wallCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry): Vec3 | null {
-  let best: { t: number; point: Vec3 } | null = null;
-  const dx = b.x - a.x;
-  const dz = b.z - a.z;
-  for (const w of arena.walls) {
-    const ex = w.b.x - w.a.x;
-    const ez = w.b.z - w.a.z;
-    const denom = dx * ez - dz * ex;
-    if (Math.abs(denom) < 1e-12) continue;
-    const t = ((w.a.x - a.x) * ez - (w.a.z - a.z) * ex) / denom;
-    const u = ((w.a.x - a.x) * dz - (w.a.z - a.z) * dx) / denom;
-    if (t < 0 || t > 1 || u < 0 || u > 1) continue;
-    const y = a.y + (b.y - a.y) * t;
-    if (y < w.bottom || y > w.top) continue;
-    if (!best || t < best.t) best = { t, point: { x: a.x + dx * t, y, z: a.z + dz * t } };
-  }
-  return best?.point ?? null;
-}
-
 /**
  * Where the segment a→b first meets a Walk Surface (the point), or null. It meets one by passing down through
  * its plane inside its outline, or by running into raised ground sideways that a body could not walk onto
@@ -97,7 +77,7 @@ function fly(d: DaggerState, arena: ArenaGeometry, tuning: TuningData, emit: Emi
   for (let k = 1; k <= samples; k++) {
     const t = k / samples;
     const q: Vec3 = { x: d.position.x + (target.x - d.position.x) * t, y: d.position.y + (target.y - d.position.y) * t, z: d.position.z + (target.z - d.position.z) * t };
-    const hit = wallCrossing(prev, q, arena) ?? groundCrossing(prev, q, arena, tuning);
+    const hit = wallCrossing(prev, q, arena)?.point ?? groundCrossing(prev, q, arena, tuning);
     if (hit) {
       emit({ type: 'DaggerStuck', point: hit, direction: normalize(velocity) });
       return { next: d, sweep: { from: d.position, to: hit, ended: true, dagger: d } };

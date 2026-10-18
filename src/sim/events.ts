@@ -84,6 +84,17 @@ export interface BlockEvent {
   readonly bladeSpeed: number;
 }
 
+/** An Attack's Blade Sweep reached an Arena Wall (a pillar, a wall, a rail) before any Fighter: the blade stops and the attacker recoils. */
+export interface WallStrikeEvent {
+  readonly type: 'WallStrike';
+  readonly attacker: number;
+  readonly direction: Direction;
+  /** World-space point where the blade met the Wall. */
+  readonly point: Vec3;
+  /** Blade Speed at the contact point, m/s. */
+  readonly bladeSpeed: number;
+}
+
 /**
  * `chamberer` countered `attacker`'s Attack (in `direction`) by attacking into it, in the
  * mirrored Direction, inside the Chamber window: the incoming Attack is cancelled (`attacker` Staggers, cause Chambered)
@@ -152,7 +163,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

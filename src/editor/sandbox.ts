@@ -561,6 +561,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
         if (e.type === 'AttackPhase') return `${e.tick} F${e.fighter} ${e.phase}`;
         if (e.type === 'KickLanded') return `${e.tick} Kick ${e.attacker}→${e.defender} ${e.outcome} ${e.zone} −${e.damage.toFixed(1)}`;
         if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
+        if (e.type === 'WallStrike') return `${e.tick} F${e.attacker}'s ${e.direction} strikes a wall`;
         if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;
         if (e.type === 'Chamber') return `${e.tick} Chamber: F${e.chamberer} cancels F${e.attacker} (${e.direction})`;
         if (e.type === 'Feint') return `${e.tick} F${e.fighter} Feint ${e.from} → ${e.into.kind} ${e.into.direction}`;

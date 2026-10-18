@@ -52,10 +52,18 @@ export interface ThunkCue {
   readonly point: Vec3;
 }
 
-export type SoundCue = SwingCue | BlockCue | HitCue | LandCue | ThrowCue | ClinkCue | ThunkCue;
+/** A blade stopped by an Arena Wall: a dull knock with a short ring. `strength` is 0..1, from the Blade Speed. */
+export interface WallStrikeCue {
+  readonly sound: 'WallStrike';
+  readonly strength: number;
+}
+
+export type SoundCue = WallStrikeCue | SwingCue | BlockCue | HitCue | LandCue | ThrowCue | ClinkCue | ThunkCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;
+/** A blade meeting a Wall at this Blade Speed (m/s) or faster knocks at full strength. */
+const FULL_STRENGTH_WALL_SPEED = 10;
 /** A Landing from this high (m) thuds at full strength; one from lower than LAND_QUIET makes no sound. */
 const FULL_STRENGTH_DROP = 5;
 const LAND_QUIET = 0.2;
@@ -70,6 +78,9 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
         break;
       case 'Block':
         cues.push({ sound: 'Block', defender: e.defender });
+        break;
+      case 'WallStrike':
+        cues.push({ sound: 'WallStrike', strength: Math.min(1, Math.max(0.25, e.bladeSpeed / FULL_STRENGTH_WALL_SPEED)) });
         break;
       case 'Hit':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: Math.min(1, Math.max(0.2, e.damage / FULL_STRENGTH_DAMAGE)) });

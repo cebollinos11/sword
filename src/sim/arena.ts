@@ -6,6 +6,7 @@
  */
 import { surfacePlane, type ArenaGeometry, type TuningData, type WalkSurface, type WallSegment } from '../tuning';
 import type { Vec2 } from './state';
+import type { Vec3 } from './vec';
 
 /** A Walk Surface ready for queries: its plane (y = a·x + c·z + d) and bounds from above. */
 interface IndexedSurface {
@@ -153,6 +154,29 @@ export function blockedAt(arena: ArenaGeometry, x: number, z: number, y: number,
     if (h > y + tuning.fall.stepUp + 1e-9 && h < y + tuning.fighter.height) return true;
   }
   return false;
+}
+
+/**
+ * Where the segment a→b first crosses a Wall (its vertical face, between `bottom` and `top`): `t` along the
+ * segment (0 at a) and the point, or null. Ties go to the Wall earlier in the file.
+ */
+export function wallCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry): { t: number; point: Vec3 } | null {
+  let best: { t: number; point: Vec3 } | null = null;
+  const dx = b.x - a.x;
+  const dz = b.z - a.z;
+  for (const w of arena.walls) {
+    const ex = w.b.x - w.a.x;
+    const ez = w.b.z - w.a.z;
+    const denom = dx * ez - dz * ex;
+    if (Math.abs(denom) < 1e-12) continue;
+    const t = ((w.a.x - a.x) * ez - (w.a.z - a.z) * ex) / denom;
+    const u = ((w.a.x - a.x) * dz - (w.a.z - a.z) * dx) / denom;
+    if (t < 0 || t > 1 || u < 0 || u > 1) continue;
+    const y = a.y + (b.y - a.y) * t;
+    if (y < w.bottom || y > w.top) continue;
+    if (!best || t < best.t) best = { t, point: { x: a.x + dx * t, y, z: a.z + dz * t } };
+  }
+  return best;
 }
 
 /** Whether a Wall's solid height range overlaps a capsule standing at `y` (from `stepUp` above its feet to its top). */

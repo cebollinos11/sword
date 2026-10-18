@@ -102,7 +102,7 @@ Holding attack during Recovery: the pose blends straight from where it is to the
 _Avoid_: Combo, cancel, buffer
 
 **Stagger**:
-A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
+A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
 _Avoid_: Stun, flinch, hitstun
 
 **Trade**:
@@ -165,7 +165,7 @@ Cancelling an Attack's wind-up into a different Action: an Attack in another Dir
 Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. The incoming Attack is cancelled (its attacker Staggers) and the chamberer's own Attack continues.
 
 **Blade Sweep**:
-The volume the Weapon's blade traces between ticks; whatever it intersects is hit. Hits are physical, never abstract.
+The volume the Weapon's blade traces between ticks; whatever it intersects is hit, unless a Wall stops it first. Hits are physical, never abstract.
 _Avoid_: Hitbox, hit check
 
 **Blade Speed**:
@@ -226,7 +226,7 @@ A Walk Surface marked deadly like Lava: a Fighter that comes to stand on it drow
 _Avoid_: Sea (for the data), kill zone
 
 **Wall**:
-A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs.
+A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs. A Blade Sweep that reaches one before any Fighter stops there (a Wall Strike): nothing behind it is hit, and the attacker recoils (Stagger, Blocked). A blade already through a Wall when its Release begins strikes it at once: there is no room to swing.
 
 **Jump**:
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands.

@@ -6,11 +6,15 @@
  *      whole Weapon (pommel or butt to tip) when it Blocks that Attack by rule,
  *      so a Block lands where the blades meet rather than when the Attack
  *      reaches the body. A Hit behind the attacker's Head deals less damage.
+ *      An Arena Wall (a pillar, a wall, a rail) the sweep reaches first stops
+ *      it there: nothing behind the Wall is hit.
  *   2. resolveContacts: every contact is resolved against the same
  *      pre-resolution state, so two Attacks landing on one Tick both count.
- *   3. resolveContact: a Block, or a hit that Staggers the victim.
+ *   3. resolveContact: a Block, a hit that Staggers the victim, or a blade
+ *      stopped by a Wall, which makes the attacker recoil.
  */
-import { weaponByName, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
 import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
@@ -21,6 +25,7 @@ import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
 import type { AttackAction, FighterState, StaggerCause } from './state';
+import type { BladeTransform } from './skeleton';
 import { bladeSamples, closestSegmentSegment, sweepContact, type Capsule } from './sweep';
 import type { DaggerSweep } from './dagger';
 import { lerp, length, normalize, scale, sub, type Vec3 } from './vec';
@@ -50,7 +55,16 @@ export interface KickContact {
   readonly point: Vec3;
 }
 
-export type Contact = BladeContact | KickContact;
+/** A live Blade Sweep reaching an Arena Wall before any Fighter this Tick: the blade stops there and the attacker recoils. */
+export interface WallContact {
+  readonly wall: true;
+  readonly attacker: number;
+  readonly direction: Direction;
+  readonly point: Vec3;
+  readonly bladeSpeed: number;
+}
+
+export type Contact = BladeContact | KickContact | WallContact;
 
 /**
  * The capsule a Blocking defender's Weapon presents to the Blade Sweep: all of it, from the pommel or
@@ -76,7 +90,26 @@ export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZon
   return weapon.damage * (bladeSpeed / weapon.speed) * tuning.hitZones[zone].multiplier * (head ? 1 : weapon.shaftDamage);
 }
 
-export function findContacts(prev: readonly FighterState[], next: readonly FighterState[], tuning: TuningData): Contact[] {
+/**
+ * The first point the Blade Sweep from `from` to `to` meets an Arena Wall, or null: a blade already through a
+ * Wall at last Tick's pose meets it at once (s = 0, no room to swing); otherwise the earliest crossing of any
+ * sampled point's path. `s` is when in the Tick, as `SweepContact.s`.
+ */
+function wallContact(from: BladeTransform, to: BladeTransform, arena: ArenaGeometry, samples: number): { s: number; point: Vec3; bladeSpeed: number } | null {
+  if (arena.walls.length === 0) return null;
+  const speedAt = (u: number) => length(sub(lerp(to.hilt, to.tip, u), lerp(from.hilt, from.tip, u))) / TICK_SECONDS;
+  const through = wallCrossing(from.hilt, from.tip, arena);
+  if (through) return { s: 0, point: through.point, bladeSpeed: speedAt(through.t) };
+  let best: { s: number; point: Vec3; bladeSpeed: number } | null = null;
+  for (let i = 0; i < samples; i++) {
+    const u = i / (samples - 1);
+    const c = wallCrossing(lerp(from.hilt, from.tip, u), lerp(to.hilt, to.tip, u), arena);
+    if (c && (!best || c.t < best.s)) best = { s: c.t, point: c.point, bladeSpeed: speedAt(u) };
+  }
+  return best;
+}
+
+export function findContacts(prev: readonly FighterState[], next: readonly FighterState[], arena: ArenaGeometry, tuning: TuningData): Contact[] {
   const contacts: Contact[] = [];
   next.forEach((attacker, i) => {
     const before = prev[i];
@@ -85,6 +118,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const direction = attacker.action.direction;
     const weapon = weaponByName(tuning, attacker.weapon);
     const samples = bladeSamples(weapon.length);
+    const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
       if (j === i || defender.death) return;
       const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
@@ -93,8 +127,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       const c = sweepContact(before.blade, attacker.blade, blocked ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
       if (!c) return;
       const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed };
-      contacts.push(blocked ? { ...at, blocked } : { ...at, blocked, zone: (c.capsule as HitCapsule).zone, onHead: onHead(weapon, c.along) });
+      found.push({ s: c.s, contact: blocked ? { ...at, blocked } : { ...at, blocked, zone: (c.capsule as HitCapsule).zone, onHead: onHead(weapon, c.along) } });
     });
+    // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
+    const wall = wallContact(before.blade, attacker.blade, arena, samples);
+    if (wall && found.every((f) => f.s > wall.s)) contacts.push({ wall: true, attacker: i, direction, point: wall.point, bladeSpeed: wall.bladeSpeed });
+    else contacts.push(...found.filter((f) => !wall || f.s <= wall.s).map((f) => f.contact));
   });
   return contacts;
 }
@@ -210,6 +248,7 @@ export function resolveContacts(
   const out = fighters.slice();
   for (const c of contacts) {
     if ('kick' in c) resolveKick(fighters, out, c, intents[c.defender] ?? IDLE_INTENT, tuning, emit);
+    else if ('wall' in c) resolveWall(out, c, tuning, emit);
     else resolveContact(fighters, out, c, tuning, emit);
   }
   return out;
@@ -252,6 +291,16 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
   out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
+}
+
+/**
+ * A blade stopped by a Wall: the attacker recoils as from a Block (Stagger, cause Blocked), unless a Trade this
+ * Tick has Staggered it already.
+ */
+function resolveWall(out: FighterState[], c: WallContact, tuning: TuningData, emit: Emit): void {
+  const { attacker, direction, point, bladeSpeed } = c;
+  emit({ type: 'WallStrike', attacker, direction, point, bladeSpeed });
+  if (out[attacker]!.action.kind === 'Attack') out[attacker] = staggerFighter(out[attacker]!, attacker, 'Blocked', tuning, emit);
 }
 
 /**

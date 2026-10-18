@@ -6,11 +6,12 @@
  *  - Land: a deep thud on wooden boards, scaled by the height of the drop;
  *  - Throw: a short, high whoosh (a dagger leaving the hand);
  *  - Clink: a quiet, high ting (a dagger Blocked);
- *  - Thunk: a dry knock (a dagger stuck in wood).
+ *  - Thunk: a dry knock (a dagger stuck in wood);
+ *  - WallStrike: a dull knock with a short, damped ring (a blade stopped by a Wall).
  * Browser-only; never imported by the Simulation.
  */
 import type { Direction } from '../sim';
-import type { BlockCue, ClinkCue, HitCue, LandCue, SoundCue, SwingCue, ThrowCue, ThunkCue } from './cues';
+import type { BlockCue, ClinkCue, HitCue, LandCue, SoundCue, SwingCue, ThrowCue, ThunkCue, WallStrikeCue } from './cues';
 import type { SoundPlayer } from './listener';
 
 const MASTER_GAIN = 0.5;
@@ -50,6 +51,8 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.clink(ctx, cue);
       case 'Thunk':
         return this.thunk(ctx, cue);
+      case 'WallStrike':
+        return this.wallStrike(ctx, cue);
     }
   }
 
@@ -172,6 +175,33 @@ export class WebAudioPlayer implements SoundPlayer {
     osc.connect(this.envelope(ctx, 0.5, 0.002, 0.11));
     osc.start(t);
     osc.stop(t + 0.12);
+  }
+
+  private wallStrike(ctx: AudioContext, cue: WallStrikeCue): void {
+    const t = ctx.currentTime;
+    const s = cue.strength;
+    // The knock of the blow on stone or wood.
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(180, t);
+    osc.frequency.exponentialRampToValueAtTime(70, t + 0.1);
+    osc.connect(this.envelope(ctx, 0.7 * s, 0.002, 0.14));
+    osc.start(t);
+    osc.stop(t + 0.16);
+    // The blade answering: a short, damped ring.
+    for (const [freq, level] of [
+      [940, 1],
+      [1530, 0.5],
+    ] as const) {
+      const ring = ctx.createOscillator();
+      ring.type = 'triangle';
+      ring.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.value = level;
+      ring.connect(g).connect(this.envelope(ctx, 0.18 * s, 0.003, 0.18));
+      ring.start(t);
+      ring.stop(t + 0.2);
+    }
   }
 
   private land(ctx: AudioContext, cue: LandCue): void {

@@ -1,6 +1,6 @@
 /**
- * Placeholder impact effects: a burst where a Hit connects or a Block stops a
- * blow. Like audio, they live outside the Simulation and only listen to its
+ * Placeholder impact effects: a burst where a Hit connects, or a Block or a Wall
+ * stops a blow. Like audio, they live outside the Simulation and only listen to its
  * events (ADR 0001); which burst each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
@@ -31,9 +31,10 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
       bursts.push({ kind: 'Block', point: e.point, strength: DAGGER_BLOCK_STRENGTH });
       continue;
     }
-    if (e.type !== 'Hit' && e.type !== 'Block') continue;
+    if (e.type !== 'Hit' && e.type !== 'Block' && e.type !== 'WallStrike') continue;
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
-    bursts.push({ kind: e.type, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
+    // A blade stopped by a Wall sparks off it like steel on steel.
+    bursts.push({ kind: e.type === 'Hit' ? 'Hit' : 'Block', point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }
