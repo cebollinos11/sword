@@ -59,6 +59,7 @@ const ARENA_LABELS: Readonly<Record<string, string>> = {
   library: 'Library',
   chamber: 'Carbon-freezing chamber',
   ship: 'Pirate ship',
+  summit: 'Snowy summit',
   circle: 'Training circle',
 };
 

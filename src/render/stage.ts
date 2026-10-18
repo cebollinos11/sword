@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf } from '../sim';
 import type { ArenaGeometry, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
+import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
 const VERTICAL_FOV = 60;
@@ -31,6 +32,8 @@ interface ArenaLook {
   readonly fog: { readonly color: number; readonly near: number; readonly far: number };
   /** Each point light costs every pixel of every surface, so only the lamps listed here are kept; the room lights stand in for the rest. */
   readonly lamps: readonly Lamp[];
+  /** Snow falling round the camera, if any. */
+  readonly snow?: SnowfallLook;
 }
 
 const directional = (color: number, intensity: number, x: number, y: number, z: number): THREE.DirectionalLight => {
@@ -85,6 +88,19 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
     background: 0xa7b0b4,
     fog: { color: 0xa7b0b4, near: 2, far: 22 },
     lamps: [],
+  },
+  // A cold mountain top in a snowstorm: dim sun through the cloud, blue sky light, mist that swallows the far peaks, snow driving east.
+  summit: {
+    lights: () => [
+      new THREE.HemisphereLight(0xd6e4ff, 0x7d8898, 1.0),
+      new THREE.AmbientLight(0x8c98ac, 0.3),
+      directional(0xfff0da, 1.25, 9, 11, 6),
+      directional(0x9fbcff, 0.3, -7, 6, -8),
+    ],
+    background: 0xc3cfdb,
+    fog: { color: 0xc3cfdb, near: 0, far: 22 },
+    lamps: [],
+    snow: { count: 8000, box: [32, 18, 32], fall: 1.1, size: 0.055, wind: [0.9, 0.25], color: 0xf6f9ff, opacity: 0.9 },
   },
 };
 
@@ -256,6 +272,7 @@ function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3
 function modelled(name: string, look: ArenaLook, current: () => boolean): Setting {
   const root = new THREE.Group();
   root.add(...look.lights());
+  if (look.snow) root.add(snowfall(look.snow));
   void arenaModel(name, look.lamps)
     .then((model) => {
       // Shown only if this Arena is still the one drawn once it has loaded.
