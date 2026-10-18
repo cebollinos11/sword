@@ -566,6 +566,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
         if (e.type === 'Feint') return `${e.tick} F${e.fighter} Feint ${e.from} → ${e.into.kind} ${e.into.direction}`;
         if (e.type === 'Jump') return `${e.tick} F${e.fighter} Jump`;
         if (e.type === 'DaggerThrown') return `${e.tick} F${e.thrower} throws a dagger`;
+        if (e.type === 'DaggerStuck') return `${e.tick} dagger sticks at (${e.point.x.toFixed(1)}, ${e.point.y.toFixed(1)}, ${e.point.z.toFixed(1)})`;
         if (e.type === 'Land') return `${e.tick} F${e.fighter} Land ${e.height.toFixed(2)} m${e.damage > 0 ? ` −${e.damage.toFixed(1)}` : ''}`;
         return `${e.tick} Duel over: ${e.winner === null ? 'draw' : `F${e.winner} wins`}`;
       })

@@ -74,6 +74,16 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
+  it('carries a dagger in flight through a resync, and refuses a malformed one', () => {
+    const state = throwingMatchState();
+    const [dagger] = state.duel.daggers;
+    expect(dagger).toBeDefined();
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const withDaggers = (daggers: unknown) => resync({ ...state, duel: { ...state.duel, daggers } });
+    for (const bad of [undefined, 'one', [{ ...dagger, owner: -1 }], [{ ...dagger, team: 2 }], [{ ...dagger, position: { x: 0 } }], [{ ...dagger, velocity: undefined }], [{ ...dagger, ticks: 1.5 }], [{ ...dagger, thrownAt: 'now' }]])
+      expect(parseNetMessage(withDaggers(bad))).toBeNull();
+  });
+
   it('carries a Knockdown through a resync, and refuses a malformed one', () => {
     const state = matchState();
     const down = (action: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, action }, ...state.duel.fighters.slice(1)] } });

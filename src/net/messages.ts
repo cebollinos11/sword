@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOption
 import type { Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -278,6 +278,11 @@ function isDuelState(v: unknown): boolean {
   return v.status === 'Over' && (v.winner === null || isWinner(v.winner)) && isTick(v.tick);
 }
 
+/** A dagger in flight: who threw it, when, and where it is going. */
+function isDagger(v: unknown): boolean {
+  return isObject(v) && isInt(v.owner) && v.owner >= 0 && isTeam(v.team) && isTick(v.thrownAt) && isVec3(v.position) && isVec3(v.velocity) && isTick(v.ticks);
+}
+
 function isSimState(v: unknown): boolean {
   return (
     isObject(v) &&
@@ -286,6 +291,7 @@ function isSimState(v: unknown): boolean {
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
     isPerFighter(v.fighters, isFighter) &&
+    isArrayOf(v.daggers, isDagger) &&
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent)
   );

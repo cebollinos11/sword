@@ -212,6 +212,22 @@ export interface BlockImpact {
   readonly tick: number;
 }
 
+/** A Throwing Dagger in flight (ADR 0008). Ordered in `SimState.daggers` by when it was thrown. */
+export interface DaggerState {
+  /** The Fighter that threw it (it passes through that Fighter). */
+  readonly owner: number;
+  /** The thrower's team (it passes through the thrower's teammates). */
+  readonly team: number;
+  /** The Tick (`SimState.tick`) its throw's Wind-up started: a Block only stops it if it was raised on or after it. */
+  readonly thrownAt: number;
+  /** Where it is. */
+  readonly position: Vec3;
+  /** Its velocity (m/s), up positive. */
+  readonly velocity: Vec3;
+  /** Ticks it has flown. */
+  readonly ticks: number;
+}
+
 export interface MotionPlayback {
   /** A Motion name from Tuning Data. */
   readonly name: string;
@@ -256,6 +272,8 @@ export interface SimState {
   readonly arena: string;
   readonly rng: RngState;
   readonly fighters: readonly FighterState[];
+  /** Throwing Daggers in flight, in the order they were thrown. */
+  readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
   /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
   readonly events: readonly SimEvent[];

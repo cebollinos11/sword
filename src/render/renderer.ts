@@ -3,6 +3,7 @@ import type { CameraCollider } from './cameraCollider';
 import type { SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { forcedBody, randomBody, type Body } from './bodyModel';
+import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
@@ -23,6 +24,7 @@ export class Renderer {
   private lastDraw = performance.now();
   /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
   readonly impacts: ImpactEffects;
+  private readonly daggers: DaggerViews;
 
   constructor(
     container: HTMLElement,
@@ -30,6 +32,7 @@ export class Renderer {
   ) {
     this.stage = new Stage(container, tuning);
     this.impacts = new ImpactEffects(this.stage.scene, tuning);
+    this.daggers = new DaggerViews(this.stage.scene);
   }
 
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
@@ -81,6 +84,7 @@ export class Renderer {
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const now = performance.now();
+    this.daggers.update(prev, curr, alpha, (now - this.lastDraw) / 1000);
     this.impacts.update((now - this.lastDraw) / 1000);
     this.lastDraw = now;
     this.stage.draw();

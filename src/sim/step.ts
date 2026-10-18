@@ -2,6 +2,7 @@ import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } 
 import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
+import { advanceDaggers, launchDagger } from './dagger';
 import { arenaOf, blockedAt, deadlyGround, groundBelow } from './arena';
 import { resolveBodies } from './collision';
 import { findContacts, resolveContacts, staggerFighter } from './combat';
@@ -90,6 +91,7 @@ export function createInitialState(
         gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
+    daggers: [],
     duel: DUEL_FIGHTING,
     events: [],
   };
@@ -362,6 +364,10 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     fighting,
     emit,
   );
+  // Daggers already in flight move first; one thrown this Tick leaves the solved left hand and first moves next Tick.
+  const flight = advanceDaggers(state.daggers, arena, tuning, emit);
+  const thrown = events.flatMap((e) => (e.type === 'DaggerThrown' ? [launchDagger(fighters[e.thrower]!, e.thrower, tuning)] : []));
+  const daggers = [...flight.daggers, ...thrown];
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, tuning), intents, tuning, emit);
   if (fighting)
@@ -373,5 +379,5 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, duel, events };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events };
 }
