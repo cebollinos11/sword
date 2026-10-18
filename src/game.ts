@@ -392,6 +392,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (!driver) return;
     menu.hide();
     input.enabled = true;
+    // On touch devices a pointer lock (Android Chrome grants one) sends every touch to the canvas, past the touch controls.
+    if (touchInput) return;
     try {
       void Promise.resolve(renderer.canvas.requestPointerLock()).catch(() => undefined);
     } catch {
