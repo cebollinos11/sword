@@ -46,6 +46,11 @@ export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string;
     blurb: 'Mist, snowfall and a long drop',
     art: 'radial-gradient(circle at 70% 20%, #ffffffcc, transparent 40%), linear-gradient(180deg, #c9d8e6, #7f98b0 55%, #3e5267)',
   },
+  train: {
+    label: 'Wasteland express',
+    blurb: 'Bevelled roofs, open gaps, a long way down',
+    art: 'radial-gradient(circle at 50% 60%, #ffd08acc, transparent 16%), linear-gradient(180deg, #241c26, #94463e 38%, #c98a56 60%, #4a3236 61%, #8f7f6c 66%, #5a4a3e)',
+  },
   circle: {
     label: 'Training circle',
     blurb: 'Open ground, nowhere to hide',

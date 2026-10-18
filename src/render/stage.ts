@@ -34,6 +34,20 @@ interface ArenaLook {
   readonly lamps: readonly Lamp[];
   /** Snow falling round the camera, if any. */
   readonly snow?: SnowfallLook;
+  /** Parts of the model drawn without fog (a sky dome), by node name. */
+  readonly unfogged?: readonly string[];
+  /** The world sliding past a still Arena (a moving train's surroundings). */
+  readonly scroll?: ScrollLook;
+}
+
+/**
+ * Parts of an Arena's model that slide past along -z, at `speed` (m/s) times each band's
+ * `parallax`. Each band is one node of the model, a tile `length` metres long along z from
+ * z = 0, whose copies end to end cover a tile's length on either side of the Arena. Render-only.
+ */
+interface ScrollLook {
+  readonly speed: number;
+  readonly bands: readonly { readonly node: string; readonly length: number; readonly parallax: number }[];
 }
 
 const directional = (color: number, intensity: number, x: number, y: number, z: number): THREE.DirectionalLight => {
@@ -102,6 +116,26 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
     lamps: [],
     snow: { count: 8000, box: [32, 18, 32], fall: 1.1, size: 0.055, wind: [0.9, 0.25], color: 0xf6f9ff, opacity: 0.9 },
   },
+  // A wasteland sunset: a swollen sun low behind the train, dusky sky light, thick brown dust, and the ruins rushing past.
+  train: {
+    lights: () => [
+      new THREE.HemisphereLight(0xf0c09a, 0x5a4030, 1.1),
+      new THREE.AmbientLight(0x5e4a48, 0.4),
+      directional(0xffa060, 1.45, 3, 3, -16),
+      directional(0x8a90b8, 0.4, -6, 8, 10),
+    ],
+    background: 0xb07a52,
+    fog: { color: 0xa87650, near: 18, far: 210 },
+    lamps: [],
+    unfogged: ['Train_Sky'],
+    scroll: {
+      speed: 15,
+      bands: [
+        { node: 'Train_Near', length: 240, parallax: 1 },
+        { node: 'Train_Far', length: 480, parallax: 0.3 },
+      ],
+    },
+  },
 };
 
 /**
@@ -117,6 +151,8 @@ export class Stage {
   private arena: string;
   private setting: THREE.Object3D;
   private loaded: Promise<void> = Promise.resolve();
+  /** Moves the current Arena's moving parts to the time given (s), if it has any. */
+  private animate: ((seconds: number) => void) | undefined;
   private pixelRatio: number;
   private lastFrame = 0;
   private slowTime = 0;
@@ -176,6 +212,7 @@ export class Stage {
   }
 
   draw(): void {
+    this.animate?.(performance.now() / 1000);
     this.renderer.render(this.scene, this.camera);
     this.adapt();
   }
@@ -200,6 +237,7 @@ export class Stage {
     const look = ARENA_LOOKS[name];
     const setting = look ? modelled(name, look, () => this.arena === name) : outdoors(geometry);
     this.loaded = setting.loaded ?? Promise.resolve();
+    this.animate = setting.animate;
     this.scene.background = setting.background;
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
@@ -213,6 +251,8 @@ interface Setting {
   readonly fog: THREE.Fog;
   /** Resolves when the model is in (modelled Arenas only). */
   readonly loaded?: Promise<void>;
+  /** Moves its moving parts to the time given (s). */
+  readonly animate?: (seconds: number) => void;
 }
 
 /** An open-air Arena: sky, sun, a grass plain and the Walk Surfaces as sand-coloured ground. */
@@ -282,11 +322,54 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   const root = new THREE.Group();
   root.add(...look.lights());
   if (look.snow) root.add(snowfall(look.snow));
+  let bands: ScrollBand[] = [];
   const loaded = arenaModel(name, look.lamps)
     .then((model) => {
+      for (const node of look.unfogged ?? []) model.getObjectByName(node)?.traverse(unfog);
+      if (look.scroll) bands = scrolling(model, look.scroll);
       // Shown only if this Arena is still the one drawn once it has loaded.
       if (current()) root.add(model);
     })
     .catch((e: unknown) => console.error(`Arena model "${name}" failed to load`, e));
-  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded };
+  const speed = look.scroll?.speed ?? 0;
+  const animate = look.scroll
+    ? (seconds: number) => {
+        for (const b of bands) b.group.position.z = -((seconds * speed * b.parallax) % b.length);
+      }
+    : undefined;
+  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate };
+}
+
+function unfog(o: THREE.Object3D): void {
+  if (o instanceof THREE.Mesh) (o.material as THREE.MeshLambertMaterial).fog = false;
+}
+
+interface ScrollBand {
+  /** Holds the tile's copies end to end; slid back by up to a tile's length. */
+  readonly group: THREE.Group;
+  readonly length: number;
+  readonly parallax: number;
+}
+
+/** Sets up `model`'s scrolling bands (once: the model is shared by every Match in its Arena). */
+function scrolling(model: THREE.Object3D, look: ScrollLook): ScrollBand[] {
+  const made = model.userData.scrollBands as ScrollBand[] | undefined;
+  if (made) return made;
+  const bands: ScrollBand[] = [];
+  for (const { node, length, parallax } of look.bands) {
+    const tile = model.getObjectByName(node);
+    if (!tile) continue;
+    const group = new THREE.Group();
+    tile.parent!.add(group);
+    // Copies one tile back, here and one ahead: slid back by up to a tile, they always cover a tile either side.
+    for (const k of [-1, 0, 1]) {
+      const copy = k === 0 ? tile : tile.clone();
+      copy.position.z += k * length;
+      copy.updateMatrix();
+      group.add(copy);
+    }
+    bands.push({ group, length, parallax });
+  }
+  model.userData.scrollBands = bands;
+  return bands;
 }
