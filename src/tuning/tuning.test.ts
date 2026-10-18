@@ -39,6 +39,8 @@ function goodRaw() {
       retreatRange: 0.9,
       kickRange: 1,
       kickRate: 0.1,
+      throwRange: 12,
+      throwRate: 0.04,
       aggression: 0.05,
       difficulties: { Normal: { reactionTime: 0.25, mistakeRate: 0.2, feintRate: 0.1 } },
     },
@@ -142,7 +144,9 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, aggression: 2 } })).toThrow(/ai\.aggression/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, kickRate: 2 } })).toThrow(/ai\.kickRate/);
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, kickRange: 0 } })).toThrow(/ai\.kickRange/);
-    expect(parseTuningData(good).ai).toMatchObject({ kickRange: 1, kickRate: 0.1 });
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, throwRate: 2 } })).toThrow(/ai.throwRate/);
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, throwRange: 0 } })).toThrow(/ai.throwRange/);
+    expect(parseTuningData(good).ai).toMatchObject({ kickRange: 1, kickRate: 0.1, throwRange: 12, throwRate: 0.04 });
     expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0, feintRate: 1 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0, feintRate: 1 });
   });
 

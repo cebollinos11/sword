@@ -112,7 +112,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
       for (const key of AI_DIFFICULTY_EXTRAS) {
         if (d[key] === undefined) continue;
         const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
-        g.addBinding(d, key, { min: 0, max: key === 'aggression' || key === 'kickRate' || key === 'jumpAttackRate' ? 0.2 : 1, step: 0.001, label }).on('change', () => apply('ai'));
+        g.addBinding(d, key, { min: 0, max: key === 'aggression' || key === 'kickRate' || key === 'throwRate' || key === 'jumpAttackRate' ? 0.2 : 1, step: 0.001, label }).on('change', () => apply('ai'));
       }
     }
   });

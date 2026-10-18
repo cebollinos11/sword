@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
@@ -428,5 +428,103 @@ describe('AI Controller: repertoire', () => {
     // A Left Block meets a Right Attack.
     for (const e of swings) expect(e.type === 'AttackPhase' && e.direction).not.toBe('Right');
     expect(run.events.some((e) => e.type === 'Block')).toBe(false);
+  });
+});
+
+describe('AI Controller: Throwing Dagger', () => {
+  const sharp = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
+  /** Throws every chance it gets; never attacks or kicks. */
+  const thrower: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0, kickRate: 0, throwRate: 1 } };
+  /** Never throws of its own. */
+  const catcher: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0, kickRate: 0, throwRate: 0 } };
+
+  /** The AI is Fighter 0 at the origin facing +z; Fighter 1 `gap` m ahead. */
+  function duel(tuning: TuningData, difficulty: AiDifficulty, other: ReturnType<typeof scriptedController>, ticks: number, gap = 5, seed = 1) {
+    const ai = createAiController(tuning, difficulty);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const initial = createInitialState(tuning, seed, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: gap }, facing: Math.PI }]);
+    return { run: runControllers(tuning, initial, [recording, other], ticks), intents };
+  }
+
+  it('throws at a target walking away out of its reach, and hits it', () => {
+    const { run, intents } = duel(thrower, sharp, scriptedController(walk(400, { x: 0, z: 1 })), 200);
+    expect(intents.some((i) => i.throw)).toBe(true);
+    expect(run.events.some((e) => e.type === 'DaggerHit' && e.defender === 1)).toBe(true);
+  });
+
+  it('never throws more than the daggers it carries', () => {
+    const { run } = duel(thrower, sharp, scriptedController(walk(900, { x: 0, z: 1 })), 800, 3);
+    expect(run.events.filter((e) => e.type === 'DaggerThrown' && e.thrower === 0)).toHaveLength(repo.dagger.count);
+    expect(run.final.fighters[0]!.daggers).toBe(0);
+  });
+
+  it('never throws at a target in melee reach, standing still, or coming closer', () => {
+    expect(duel(thrower, sharp, scriptedController(wait(150)), 150, 1).intents.some((i) => i.throw)).toBe(false);
+    expect(duel(thrower, sharp, scriptedController(wait(150)), 150, 6).intents.some((i) => i.throw)).toBe(false);
+    expect(duel(thrower, sharp, scriptedController(walk(100, { x: 0, z: -1 })), 100, 6).intents.some((i) => i.throw)).toBe(false);
+  });
+
+  it('never throws beyond its throwRange, nor when throwRate is 0', () => {
+    const far = duel(thrower, sharp, scriptedController(walk(100, { x: 0, z: 1 })), 100, thrower.ai.throwRange + 1);
+    expect(far.intents.some((i) => i.throw)).toBe(false);
+    expect(duel(catcher, sharp, scriptedController(walk(200, { x: 0, z: 1 })), 200).intents.some((i) => i.throw)).toBe(false);
+  });
+
+  it('a throw is deterministic: the same hash at the end of two runs', () => {
+    const a = duel(thrower, { ...sharp, mistakeRate: 0.3 }, scriptedController(walk(400, { x: 0, z: 1 })), 240, 5, 7);
+    const b = duel(thrower, { ...sharp, mistakeRate: 0.3 }, scriptedController(walk(400, { x: 0, z: 1 })), 240, 5, 7);
+    expect(hashValue(a.run.final)).toBe(hashValue(b.run.final));
+  });
+
+  /** Fighter 0 (scripted) throws at the AI, Fighter 1, `gap` m away, on Tick 10; it stands 0.2 m to the right so the dagger flies at the AI. */
+  function thrownAt(difficulty: AiDifficulty, seed = 1, gap = 8, block?: Track) {
+    const ai = createAiController(catcher, difficulty);
+    const initial = createInitialState(catcher, seed, [{ position: { x: -0.2, z: 0 }, facing: 0 }, { position: { x: 0, z: gap }, facing: Math.PI }]);
+    return runControllers(catcher, initial, [scriptedController([...wait(10), ...hold(1, { throw: true }), ...wait(200)]), block ? scriptedController(block) : ai], 200);
+  }
+
+  it('turns and Blocks a throw it sees in time', () => {
+    const run = thrownAt(sharp);
+    expect(run.events.filter((e) => e.type === 'DaggerBlocked' && e.defender === 1)).toHaveLength(1);
+    expect(run.events.some((e) => e.type === 'DaggerHit')).toBe(false);
+  });
+
+  it('an unthreatened target is hit by the same throw (so the Block was the AI)', () => {
+    const run = thrownAt(sharp, 1, 8, wait(200));
+    expect(run.events.some((e) => e.type === 'DaggerHit' && e.defender === 1)).toBe(true);
+  });
+
+  it('Blocks a throw even when it had its back turned', () => {
+    const ai = createAiController(catcher, sharp);
+    const initial = createInitialState(catcher, 1, [{ position: { x: -0.2, z: 0 }, facing: 0 }, { position: { x: 0, z: 8 }, facing: 0 }]);
+    const run = runControllers(catcher, initial, [scriptedController([...wait(10), ...hold(1, { throw: true }), ...wait(200)]), ai], 200);
+    expect(run.events.some((e) => e.type === 'DaggerBlocked' && e.defender === 1)).toBe(true);
+  });
+
+  it('lets go of a Block held from before the throw and raises it again, so the dagger is Blocked', () => {
+    const ai = createAiController(catcher, sharp);
+    const initial = createInitialState(catcher, 1, [{ position: { x: -0.2, z: 0 }, facing: 0 }, { position: { x: 0, z: 8 }, facing: Math.PI }]);
+    // Fighter 0's own track is long enough; the AI is helped into a Block first by a wrapper that holds one until the throw is seen.
+    const early = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (s.tick < 14 ? { ...IDLE_INTENT, block: true, direction: 'Overhead' as Direction, face: Math.PI } : ai.intent(s, i)) };
+    const run = runControllers(catcher, initial, [scriptedController([...wait(10), ...hold(1, { throw: true }), ...wait(200)]), early], 200);
+    expect(run.events.some((e) => e.type === 'DaggerBlocked' && e.defender === 1)).toBe(true);
+    expect(run.events.some((e) => e.type === 'DaggerHit')).toBe(false);
+  });
+
+  it('with a mistake rate of 1 it never reacts, so a throw hits it', () => {
+    const run = thrownAt({ reactionTime: 0.1, mistakeRate: 1, feintRate: 0 });
+    expect(run.events.some((e) => e.type === 'DaggerHit' && e.defender === 1)).toBe(true);
+  });
+
+  it('a higher mistake rate lets more throws through over many Duels', () => {
+    const hits = (mistakeRate: number) => {
+      let n = 0;
+      for (let seed = 1; seed <= 20; seed++) n += thrownAt({ reactionTime: 0.1, mistakeRate, feintRate: 0 }, seed).events.filter((e) => e.type === 'DaggerHit').length;
+      return n;
+    };
+    expect(hits(0)).toBe(0);
+    expect(hits(0.5)).toBeGreaterThan(0);
+    expect(hits(0.5)).toBeLessThan(20);
   });
 });

@@ -49,6 +49,14 @@
  *    `kickRate` per Tick, far more readily with a drop, Lava or Water behind
  *    them; `mistakeRate` makes it lose the chance, or Kick from just out of
  *    reach. It never Kicks an opponent lying in a Knockdown.
+ *  - Throws: an Idle AI with daggers left throws one (at `throwRate`; `mistakeRate` makes it lose the
+ *    chance and spoils its aim) at an enemy on its level beyond its reach, within `throwRange`, in line of
+ *    sight and last seen walking away. It leads the target (its walk over the flight and Reaction Time) and
+ *    offsets for its left hand (the dagger leaves the left hand, parallel to the facing).
+ *  - Against a Throw Wind-up or Release aimed at it, it turns to the thrower and raises a Block, and keeps it
+ *    raised while that dagger is still on its way. Its Reaction Time means it raises it after the Wind-up began,
+ *    which is what a Block needs to stop a dagger (a Block held from before does not: it lets go and raises it
+ *    again). `mistakeRate` is the chance, rolled once per throw, that it fails to.
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
@@ -79,6 +87,7 @@ import {
   mirrorDirection,
   nextFloat,
   secondsToTicks,
+  throwTimings,
   TICK_SECONDS,
   type Action,
   type Direction,
@@ -107,10 +116,20 @@ interface Sighting {
   readonly weapon: string;
   readonly team: number;
   readonly fallen: boolean;
+  /** Which way its body faces. */
+  readonly facing: number;
   /** Its feet moved since the Tick before (walking, or being pushed). */
   readonly moving: boolean;
   /** The Tick its current Attack became visible (identifies one Attack), or null when not attacking. */
   readonly attackStart: number | null;
+}
+
+/** An enemy throw the AI means to Block (`react`) or let be, rolled once per throw. */
+interface ThrowPlan {
+  readonly thrower: number;
+  /** The enemy Throw's `startTick`, which is also its dagger's `thrownAt`. */
+  readonly startTick: number;
+  readonly react: boolean;
 }
 
 /** What the AI saw of every Fighter on one Tick (its own Fighter included, unused). */
@@ -189,6 +208,9 @@ interface AiMemory {
   readonly defencePlan: DefencePlan | null;
   readonly feintPlan: FeintPlan | null;
   readonly attackPlan: AttackPlan | null;
+  readonly throwPlan: ThrowPlan | null;
+  /** The error (radians) it rolled for its current throw's aim. */
+  readonly aimError: number;
   readonly route: Route | null;
   readonly tactic: Tactic;
   readonly strafe: Strafe;
@@ -228,6 +250,20 @@ const AIM_HEIGHT = 1.3;
 /** A Fighter lying in a Knockdown is aimed at this high (m). */
 const LYING_AIM = 0.3;
 
+/** The dagger leaves the left hand, this far (m) off the thrower's centreline, and flies parallel to its facing. */
+const LEFT_HAND = 0.2;
+/** The height (m) of the throwing hand above the feet at Release. */
+const HAND_HEIGHT = 1.25;
+/** An enemy throw is aimed at the AI when the line it faces passes within this distance (m) of it. */
+const THROW_AIM_MISS = 0.6;
+/** It only throws at a target walking away faster than this fraction of its walk speed. */
+const FLEEING = 0.25;
+/** Line of sight is checked at this spacing (m). */
+const SIGHT_SPACING = 0.5;
+/** The widest error (radians) a throw's aim can have, at a mistake rate of 1. */
+const AIM_ERROR = 0.25;
+const DEG = Math.PI / 180;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -244,6 +280,7 @@ function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
   return {
     aggression: tuning.ai.aggression,
     kickRate: tuning.ai.kickRate,
+    throwRate: tuning.ai.throwRate,
     footwork: 0,
     pressure: 0,
     caution: 0,
@@ -261,6 +298,8 @@ function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
 const isThreat = (a: Action): a is Extract<Action, { kind: 'Attack' }> => a.kind === 'Attack' && a.phase !== 'Recovery';
 /** Is this visible Action a Kick whose leg can still land (Wind-up or Release)? */
 const isKickThreat = (a: Action): boolean => a.kind === 'Kick' && a.phase !== 'Recovery';
+/** Is this visible Action a Throw whose dagger is not out of the hand yet or has just left it (Wind-up or Release)? */
+const isThrowThreat = (a: Action): a is Extract<Action, { kind: 'Throw' }> => a.kind === 'Throw' && a.phase !== 'Recovery';
 /**
  * A visible opening: the opponent is committed (Recovery, of an Attack or a
  * Kick), recoiling from a Block or a Chamber (the defender's earned timing
@@ -300,6 +339,16 @@ function unit(v: Vec2): Vec2 {
 /** `v` turned by `a` radians about the vertical (same sense as facing). */
 const rotate = (v: Vec2, a: number): Vec2 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
 
+/** An enemy as the AI sees it this Tick. */
+interface Enemy {
+  readonly o: Sighting;
+  readonly i: number;
+  readonly flat: number;
+  readonly level: boolean;
+  readonly dist: number;
+  readonly near: boolean;
+}
+
 class AiController implements Controller {
   private readonly reactionTicks: number;
   private readonly skill: Skill;
@@ -311,6 +360,8 @@ class AiController implements Controller {
   private defencePlan: DefencePlan | null = null;
   private feintPlan: FeintPlan | null = null;
   private attackPlan: AttackPlan | null = null;
+  private throwPlan: ThrowPlan | null = null;
+  private aimError = 0;
   private route: Route | null = null;
   private tactic: Tactic = NEUTRAL;
   private strafe: Strafe = NO_STRAFE;
@@ -327,8 +378,8 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, route, tactic, strafe, opening, lastHp } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, route, tactic, strafe, opening, lastHp };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, tactic, strafe, opening, lastHp } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, tactic, strafe, opening, lastHp };
   }
 
   load(saved: unknown): void {
@@ -338,6 +389,8 @@ class AiController implements Controller {
     this.defencePlan = m.defencePlan;
     this.feintPlan = m.feintPlan;
     this.attackPlan = m.attackPlan;
+    this.throwPlan = m.throwPlan;
+    this.aimError = m.aimError;
     this.route = m.route;
     this.tactic = m.tactic;
     this.strafe = m.strafe;
@@ -370,6 +423,7 @@ class AiController implements Controller {
     this.defencePlan = null;
     this.feintPlan = null;
     this.attackPlan = null;
+    this.throwPlan = null;
     this.route = null;
     this.opening = null;
   }
@@ -404,6 +458,7 @@ class AiController implements Controller {
         weapon: o.weapon,
         team: o.team,
         fallen: o.death !== undefined,
+        facing: o.facing,
         moving,
         attackStart,
       };
@@ -453,6 +508,13 @@ class AiController implements Controller {
     }
     this.defencePlan = null;
 
+    // A dagger coming: face the thrower and Block it (raised after the throw began, or it does not count).
+    const dodge = this.dodgeThrow(state, self, enemies, aimAt);
+    if (dodge) {
+      this.feintPlan = null;
+      return dodge;
+    }
+
     // A Kick coming: stand still (it only knocks down a mover), and do not start anything else.
     const kickReach = this.tuning.ai.kickRange;
     if (enemies.some(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach)) {
@@ -479,6 +541,9 @@ class AiController implements Controller {
         return base;
       case 'Idle':
         break;
+      case 'Throw':
+        // Its dagger still in the hand: keep the aim on the target as it moves.
+        return level ? { ...base, ...this.throwAim(self, target, dist) } : base;
       default:
         return base; // let go of a Block; finish what it is doing
     }
@@ -496,6 +561,8 @@ class AiController implements Controller {
 
     const kick = this.kick(state, target, dist, toward);
     if (kick) return { ...base, kick: true };
+
+    if (this.toss(state, self, target, dist, toward)) return { ...base, ...this.throwAim(self, target, dist), throw: true };
 
     const myReach = this.reach(self.weapon);
     const theirReach = this.reach(target.weapon);
@@ -676,6 +743,94 @@ class AiController implements Controller {
     if (dist > kickRange) return this.random() < kickRate * mistakeRate;
     const ringOut = this.skill.footwork > 0 && this.hazardBehind(state, target, toward);
     return this.random() < Math.min(1, kickRate * (1 - mistakeRate) * (ringOut ? 4 : 1));
+  }
+
+  /**
+   * Whether to throw a dagger at `target` this Tick: it has daggers left, the target is beyond its reach and
+   * within `throwRange`, in line of sight, and was last seen walking away. At `throwRate` per Tick, lost at
+   * `mistakeRate`. Rolls the aim error for the throw. Draws from the generator only when a throw is possible.
+   */
+  private toss(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2): boolean {
+    const { throwRange } = this.tuning.ai;
+    const { throwRate, mistakeRate } = this.skill;
+    if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self.weapon) || dist > throwRange) return false;
+    const walkingAway = (target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
+    if (walkingAway < FLEEING || !this.clearLine(state, self, target)) return false;
+    if (!this.chance(throwRate * (1 - mistakeRate))) return false;
+    this.aimError = mistakeRate > 0 ? (this.random() * 2 - 1) * AIM_ERROR * mistakeRate : 0;
+    return true;
+  }
+
+  /** Whether no ground rises in the way between it and `target` (sampled along the line). */
+  private clearLine(state: SimState, self: FighterState, target: Sighting): boolean {
+    const arena = arenaOf(this.tuning, state.arena);
+    const dx = target.position.x - self.position.x;
+    const dz = target.position.z - self.position.z;
+    const steps = Math.ceil(Math.hypot(dx, dz) / SIGHT_SPACING);
+    for (let k = 1; k < steps; k++) {
+      if (blockedAt(arena, self.position.x + (dx * k) / steps, self.position.z + (dz * k) / steps, self.y, this.tuning)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * The facing and pitch that put a dagger on `target`: aimed at where it will be when the dagger gets there (its
+   * last seen walk over Reaction Time, the Wind-up still to run and the flight), from the left hand, with the
+   * arc's drop made up and the loft taken off, plus the error rolled for this throw.
+   */
+  private throwAim(self: FighterState, target: Sighting, dist: number): Pick<Intent, 'face' | 'pitch'> {
+    const { speed, gravity, loft } = this.tuning.dagger;
+    const windUpEnd = throwTimings(this.tuning, self.weapon).windUpEnd;
+    const windUp = self.action.kind === 'Throw' ? Math.max(0, windUpEnd - self.motion.tick) : windUpEnd;
+    const ticks = this.reactionTicks + windUp + dist / speed / TICK_SECONDS;
+    const x = target.position.x + target.velocity.x * ticks;
+    const z = target.position.z + target.velocity.z * ticks;
+    // Aim from the left hand (it sits left of the facing, which is (cos, -sin)); one pass settles the heading.
+    const rough = Math.atan2(x - self.position.x, z - self.position.z);
+    const hx = self.position.x + Math.cos(rough) * LEFT_HAND;
+    const hz = self.position.z - Math.sin(rough) * LEFT_HAND;
+    const flat = Math.max(Math.hypot(x - hx, z - hz), 0.5);
+    const flight = flat / speed;
+    const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
+    const rise = target.y + AIM_HEIGHT * (1 - crouchDrop * target.crouch) - (self.y + HAND_HEIGHT) + 0.5 * gravity * flight * flight;
+    return { face: Math.atan2(x - hx, z - hz) + this.aimError, pitch: Math.atan2(rise, flat) - loft * DEG };
+  }
+
+  /**
+   * An enemy Throw aimed at it, or its dagger still on its way: turn to the thrower and Block. Whether it
+   * does is rolled once per throw (`mistakeRate` says no). A Block already up from before the throw began does
+   * not stop the dagger, so it lets that go for a Tick and raises it again. Null when there is nothing to Block.
+   */
+  private dodgeThrow(state: SimState, self: FighterState, enemies: readonly Enemy[], aimAt: (o: Sighting, flat: number) => Intent): Intent | null {
+    const { throwRange } = this.tuning.ai;
+    const aimed = enemies.find(({ o, flat, near }) => near && flat <= throwRange && isThrowThreat(o.action) && this.aimedAt(o, self));
+    const aimedThrow = aimed && isThrowThreat(aimed.o.action) ? aimed.o.action : null;
+    if (aimed && aimedThrow && (this.throwPlan?.thrower !== aimed.i || this.throwPlan.startTick !== aimedThrow.startTick)) {
+      this.throwPlan = { thrower: aimed.i, startTick: aimedThrow.startTick, react: !this.chance(this.skill.mistakeRate) };
+    }
+    const plan = this.throwPlan;
+    if (!plan?.react) return null;
+    const onItsWay = state.daggers.some(
+      (d) => d.owner === plan.thrower && d.thrownAt === plan.startTick && (self.position.x - d.position.x) * d.velocity.x + (self.position.z - d.position.z) * d.velocity.z > 0,
+    );
+    const aimedNow = aimed !== undefined && aimed.i === plan.thrower && aimedThrow?.startTick === plan.startTick;
+    const thrower = enemies.find((e) => e.i === plan.thrower);
+    if (!thrower || !(onItsWay || aimedNow)) return null;
+    const own = self.action;
+    const base = aimAt(thrower.o, thrower.flat);
+    if (own.kind === 'Block' && state.tick - own.age < plan.startTick) return base;
+    return { ...base, block: true, direction: own.kind === 'Block' ? own.direction : 'Overhead' };
+  }
+
+  /** Whether `o`'s facing carries a dagger within THROW_AIM_MISS of `self`. */
+  private aimedAt(o: Sighting, self: FighterState): boolean {
+    const dx = self.position.x - o.position.x;
+    const dz = self.position.z - o.position.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist < 1e-6) return true;
+    const off = Math.atan2(dx, dz) - o.facing;
+    const turn = Math.abs(Math.atan2(Math.sin(off), Math.cos(off)));
+    return turn < Math.PI / 2 && dist * Math.sin(turn) <= THROW_AIM_MISS;
   }
 
   /** Whether a Knockdown's Slide along `dir` would carry `target` off a ledge, or into Lava or Water. */

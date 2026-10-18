@@ -232,6 +232,8 @@ export interface AiDifficulty {
   readonly aggression?: number;
   /** Overrides `ai.kickRate` for this preset. */
   readonly kickRate?: number;
+  /** Overrides `ai.throwRate` for this preset. */
+  readonly throwRate?: number;
   /** 0..1: how much it circles its opponent and keeps its spacing (hovering just outside reach) rather than walking straight in. 0 = it walks straight in. */
   readonly footwork?: number;
   /** 0..1: how often it switches to pressing the attack (closing in, Chaining, more Attacks), more so when ahead on HP. */
@@ -253,7 +255,7 @@ export interface AiDifficulty {
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {
@@ -265,6 +267,10 @@ export interface AiTuning {
   readonly kickRange: number;
   /** Chance (0..1) per Tick that an Idle AI Kicks a moving opponent in `kickRange`. 0 = it never Kicks. */
   readonly kickRate: number;
+  /** Distance (m) to the opponent within which an Idle AI with daggers left may throw one at it, when it is moving away. */
+  readonly throwRange: number;
+  /** Chance (0..1) per Tick that an Idle AI throws a dagger at an opponent moving away in range. 0 = it never throws. */
+  readonly throwRate: number;
   /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack (it always punishes an opening). 0 = it never attacks. */
   readonly aggression: number;
   /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
@@ -419,6 +425,8 @@ function parseAi(raw: unknown): AiTuning {
     retreatRange: positiveNumber(ai, 'retreatRange', 'ai'),
     kickRange: positiveNumber(ai, 'kickRange', 'ai'),
     kickRate: fraction(ai, 'kickRate', 'ai'),
+    throwRange: positiveNumber(ai, 'throwRange', 'ai'),
+    throwRate: fraction(ai, 'throwRate', 'ai'),
     aggression: fraction(ai, 'aggression', 'ai'),
     difficulties,
   };
