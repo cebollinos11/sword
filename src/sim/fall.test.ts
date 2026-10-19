@@ -103,6 +103,25 @@ describe('Falling and Landing', () => {
     expect(land.type === 'Land' && land.damage).toBe(0);
   });
 
+  it('holding Jump boosts it higher, and still lands softly on level ground', () => {
+    const plain = fall.jumpSpeed ** 2 / (2 * fall.gravity);
+    const r = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true, jumpHeld: true } }, { ticks: 239, intent: { jumpHeld: true } }], 240);
+    const apex = Math.max(...r.states.map((s) => s.fighters[0]!.y));
+    expect(apex).toBeGreaterThan(fall.safeHeight + plain);
+    const land = landing(r);
+    expect(land.type === 'Land' && land.damage).toBe(0);
+    expect(r.states[land.tick]!.fighters[0]!.action.kind).toBe('Idle');
+  });
+
+  it('a tap (let go within jumpBoostDelay) is a plain hop, and holding Jump again does not resume the boost', () => {
+    const tapTicks = secondsToTicks(fall.jumpBoostDelay) - 1;
+    const tap = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true, jumpHeld: true } }, { ticks: tapTicks - 1, intent: { jumpHeld: true } }], 120);
+    const regrip = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true, jumpHeld: true } }, { ticks: tapTicks - 1, intent: { jumpHeld: true } }, { ticks: 1, intent: {} }, { ticks: 30, intent: { jumpHeld: true } }], 120);
+    const apex = (r: ScriptRun) => Math.max(...r.states.map((s) => s.fighters[0]!.y));
+    expect(apex(tap)).toBeCloseTo(fall.jumpSpeed ** 2 / (2 * fall.gravity), 1);
+    expect(apex(regrip)).toBeCloseTo(apex(tap), 9);
+  });
+
   it('a Jump carries the walk with it', () => {
     const r = run({ position: { x: 0, z: 0 }, facing: 0 }, [{ ticks: 1, intent: { jump: true, move: { x: 0, z: 1 } } }, ...walk(119, { x: 0, z: 1 })], 120);
     const land = landing(r);

@@ -142,6 +142,9 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     const on = (b: { on(ev: 'change', h: () => void): unknown }) => b.on('change', () => apply('fall'));
     on(f.addBinding(fl, 'gravity', { min: 1, max: 40, step: 0.5, label: 'gravity (m/s²)' }));
     on(f.addBinding(fl, 'jumpSpeed', { min: 0, max: 12, step: 0.1, label: 'jump speed (m/s)' }));
+    on(f.addBinding(fl, 'jumpBoost', { min: 0, max: 60, step: 0.5, label: 'held jump boost (m/s²)' }));
+    on(f.addBinding(fl, 'jumpBoostDelay', { min: 0, max: 0.5, step: 0.01, label: 'held jump boost delay (s)' }));
+    on(f.addBinding(fl, 'jumpBoostTime', { min: 0, max: 2, step: 0.01, label: 'held jump boost time (s)' }));
     on(f.addBinding(fl, 'airControl', { min: 0, max: 20, step: 0.5, label: 'air control (m/s²)' }));
     on(f.addBinding(fl, 'fallDelay', { min: 0, max: 1, step: 0.01, label: 'fall delay (s)' }));
     on(f.addBinding(fl, 'safeHeight', { min: 0, max: 10, step: 0.1, label: 'safe height (m)' }));

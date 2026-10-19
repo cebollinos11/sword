@@ -127,6 +127,10 @@ export interface Airborne {
   readonly ticks: number;
   /** Whether it left the ground by jumping. */
   readonly jumped: boolean;
+  /** Ticks of Jump boost left: while Jump stays held it is pushed up at `fall.jumpBoost`. Absent once let go or spent (it never comes back). */
+  readonly boost?: number;
+  /** The height it jumped from (a Jump only): a Landing's drop is measured from no higher than a plain Jump's top above it, so a boosted Jump lands softly. */
+  readonly launchY?: number;
 }
 
 /** A push along the floor, decelerating to a stop: its current velocity (m/s) and the Ticks it has left (see `slide.ts`). */

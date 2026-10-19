@@ -165,7 +165,7 @@ function duck(f: FighterState, intent: Intent, tuning: TuningData): number {
 }
 
 /**
- * An airborne Fighter's flight this Tick: gravity pulls it down, and it steers its
+ * An airborne Fighter's flight this Tick: gravity pulls it down (a held Jump's boost pushes back up), and it steers its
  * horizontal velocity toward where its Intent walks at no more than `fall.airControl` (m/s²).
  */
 function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData): Pick<FighterState, 'position' | 'y' | 'air'> {
@@ -186,12 +186,17 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
   }
   const vx = air.vx + dvx;
   const vz = air.vz + dvz;
-  const vy = air.vy - tuning.fall.gravity * TICK_SECONDS;
+  // A Jump held past `fall.jumpBoostDelay` keeps pushing up while its boost lasts (so a tap stays a hop); letting go ends it for good.
+  const held = air.boost !== undefined && intent.jumpHeld === true;
+  const pushing = held && air.ticks >= secondsToTicks(tuning.fall.jumpBoostDelay);
+  const vy = air.vy + ((pushing ? tuning.fall.jumpBoost : 0) - tuning.fall.gravity) * TICK_SECONDS;
   const y = f.y + vy * TICK_SECONDS;
+  const { boost: _boost, ...rest } = air;
+  const boost = pushing ? air.boost! - 1 : held ? air.boost! : 0;
   return {
     position: { x: f.position.x + vx * TICK_SECONDS, z: f.position.z + vz * TICK_SECONDS },
     y,
-    air: { ...air, vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1 },
+    air: { ...rest, vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1, ...(boost > 0 ? { boost } : {}) },
   };
 }
 
@@ -210,7 +215,9 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
   if (jumps(f, intent)) {
     const to = walk(f, intent, tuning);
-    air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true };
+    air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true, launchY: f.y };
+    const boost = secondsToTicks(tuning.fall.jumpBoostTime);
+    if (boost > 0 && tuning.fall.jumpBoost > 0) air = { ...air, boost };
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
@@ -244,13 +251,17 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
 }
 
 /**
- * A Fighter that just landed (last Tick `prev` was airborne): a drop (from the top of its arc)
+ * A Fighter that just landed (last Tick `prev` was airborne): a drop (from the top of its arc, capped for a Jump)
  * within `fall.safeHeight` lands softly and a Fall ends in Idle; a deeper one deals
  * `fall.damagePerMetre` per metre beyond it (only while the Duel is being fought) and
  * Staggers it (cause `Landed`). A Fighter already Staggered by something else keeps that Stagger.
  */
 function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
-  const height = Math.max(0, prev.air!.peakY - f.y);
+  // A Jump's drop counts from no higher than a plain Jump's top above where it left, so a boosted Jump lands softly on level ground.
+  const { peakY, launchY } = prev.air!;
+  const { jumpSpeed, gravity } = tuning.fall;
+  const top = launchY === undefined ? peakY : Math.min(peakY, launchY + (jumpSpeed * jumpSpeed) / (2 * gravity));
+  const height = Math.max(0, top - f.y);
   const hard = height > tuning.fall.safeHeight;
   const damage = hard && fighting ? (height - tuning.fall.safeHeight) * tuning.fall.damagePerMetre : 0;
   emit({ type: 'Land', fighter: index, height, damage });

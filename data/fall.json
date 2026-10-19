@@ -1,6 +1,9 @@
 {
   "gravity": 14,
   "jumpSpeed": 4.8,
+  "jumpBoost": 25,
+  "jumpBoostDelay": 0.12,
+  "jumpBoostTime": 0.35,
   "airControl": 4,
   "fallDelay": 0.2,
   "safeHeight": 1.6,

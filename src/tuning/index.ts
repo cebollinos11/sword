@@ -66,6 +66,12 @@ export interface FallTuning {
   readonly gravity: number;
   /** Upward speed (m/s) a Jump starts with. */
   readonly jumpSpeed: number;
+  /** Upward acceleration (m/s², against gravity) while Jump stays held after a Jump. 0 = no boost. */
+  readonly jumpBoost: number;
+  /** How long (s) Jump must stay held before the boost starts, so a tap is a plain hop. */
+  readonly jumpBoostDelay: number;
+  /** The longest (s) a held Jump keeps boosting, after `jumpBoostDelay`. */
+  readonly jumpBoostTime: number;
   /** How fast (m/s²) an airborne Fighter can steer its horizontal velocity toward where its Intent walks. */
   readonly airControl: number;
   /** Seconds airborne (without jumping) before the Fall Action takes over, so a step off a low ledge does not. */
@@ -528,6 +534,9 @@ export function parseTuningData(raw: unknown): TuningData {
     fall: {
       gravity: positiveNumber(fa, 'gravity', 'fall'),
       jumpSpeed: positiveNumber(fa, 'jumpSpeed', 'fall'),
+      jumpBoost: finiteNumber(fa, 'jumpBoost', 'fall'),
+      jumpBoostDelay: finiteNumber(fa, 'jumpBoostDelay', 'fall'),
+      jumpBoostTime: finiteNumber(fa, 'jumpBoostTime', 'fall'),
       airControl: finiteNumber(fa, 'airControl', 'fall'),
       fallDelay: finiteNumber(fa, 'fallDelay', 'fall'),
       safeHeight: finiteNumber(fa, 'safeHeight', 'fall'),

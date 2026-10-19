@@ -45,6 +45,11 @@ export interface Intent {
    */
   readonly jump?: boolean;
   /**
+   * Jump button held this Tick (absent = let go). Held from the start of a Jump past `fall.jumpBoostDelay`, it keeps pushing the Fighter up
+   * at `fall.jumpBoost` for up to `fall.jumpBoostTime`; letting go ends the boost for that Jump. It never starts a Jump: only `jump` does.
+   */
+  readonly jumpHeld?: boolean;
+  /**
    * Crouch held this Tick (absent = standing). The Fighter's `crouch` amount moves toward 1 while it is held and back to 0 when let go, at
    * `fighter.crouchSpeed`. It is not an Action: a Fighter can crouch while Attacking, Blocking or in the air, and Attack or Block while crouched.
    */
