@@ -9,8 +9,7 @@ import { weaponByName, type TuningData } from '../tuning';
 
 /** A burst at a contact point. `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
-  /** Parry: a Perfect Block, a bigger, brighter, cooler burst. */
-  readonly kind: 'Hit' | 'Block' | 'Parry';
+  readonly kind: 'Hit' | 'Block';
   readonly point: Vec3;
   readonly strength: number;
 }
@@ -35,9 +34,7 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     if (e.type !== 'Hit' && e.type !== 'Block' && e.type !== 'WallStrike') continue;
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     // A blade stopped by a Wall sparks off it like steel on steel.
-    const kind = e.type === 'Hit' ? 'Hit' : e.type === 'Block' && e.perfect ? 'Parry' : 'Block';
-    // A Perfect Block always bursts at full strength.
-    bursts.push({ kind, point: e.point, strength: kind === 'Parry' ? 1 : Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
+    bursts.push({ kind: e.type === 'Hit' ? 'Hit' : 'Block', point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }
@@ -56,8 +53,6 @@ interface Look {
   /** Flash radius at full strength, metres. */
   readonly flashRadius: number;
   readonly flashLife: number;
-  /** Slow, glowing bits that linger and drift down after the burst, if any. */
-  readonly embers?: { readonly colours: readonly number[]; readonly count: number; readonly speed: number; readonly size: number; readonly life: number; readonly gravity: number };
 }
 
 const LOOKS: Record<ImpactBurst['kind'], Look> = {
@@ -73,30 +68,17 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     flashRadius: 0.26,
     flashLife: 0.15,
   },
-  // Fast white and blue-white streaks off the steel.
+  // Fast bright streaks off the steel.
   Block: {
-    colours: [0xffffff, 0xe8f4ff, 0xc4e2ff],
-    flashColour: 0xf0f8ff,
-    count: 28,
-    speed: 6.5,
-    size: [0.012, 0.12],
-    life: 0.34,
-    gravity: 5,
-    flashRadius: 0.32,
-    flashLife: 0.1,
-  },
-  // A Perfect Block: a white-hot, blue-edged starburst whose embers hang in the air, and a bigger, longer flash.
-  Parry: {
-    colours: [0xffffff, 0xe8f4ff, 0xa8d8ff],
-    flashColour: 0xf0f8ff,
-    count: 48,
-    speed: 8.5,
-    size: [0.014, 0.16],
-    life: 0.45,
-    gravity: 3,
-    flashRadius: 0.55,
-    flashLife: 0.16,
-    embers: { colours: [0xd8eeff, 0x9ccfff, 0xffffff], count: 18, speed: 1.8, size: 0.02, life: 1.2, gravity: 1.5 },
+    colours: [0xffffff, 0xfff2a0, 0xffd040],
+    flashColour: 0xfff8d0,
+    count: 12,
+    speed: 4.5,
+    size: [0.012, 0.09],
+    life: 0.28,
+    gravity: 4,
+    flashRadius: 0.22,
+    flashLife: 0.09,
   },
 };
 
@@ -181,16 +163,6 @@ export class ImpactEffects {
       const p = this.spawn(this.box, colour, at, look.life * (0.6 + 0.4 * Math.random()), look.gravity);
       p.velocity.randomDirection().multiplyScalar(look.speed * strength * (0.4 + 0.6 * Math.random()));
       p.mesh.scale.set(look.size[0], look.size[0], look.size[1]);
-    }
-    if (look.embers) {
-      const e = look.embers;
-      for (let k = 0; k < Math.round(e.count * (0.4 + 0.6 * strength)); k++) {
-        const colour = e.colours[Math.floor(Math.random() * e.colours.length)]!;
-        const p = this.spawn(this.box, colour, at, e.life * (0.5 + 0.5 * Math.random()), e.gravity);
-        p.velocity.randomDirection().multiplyScalar(e.speed * (0.3 + 0.7 * Math.random()));
-        p.velocity.y += 0.8;
-        p.mesh.scale.setScalar(e.size);
-      }
     }
   }
 

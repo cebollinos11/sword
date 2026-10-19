@@ -48,17 +48,6 @@ describe('soundCues', () => {
   });
 });
 
-describe('Block sounds', () => {
-  it('a Block clangs harder for a faster blade', () => {
-    const block = (bladeSpeed: number) => soundCues([{ type: 'Block', attacker: 0, defender: 1, direction: 'Left', perfect: false, point: { x: 0, y: 1.4, z: 0.6 }, bladeSpeed }])[0]!;
-    const soft = block(3);
-    const hard = block(15);
-    expect(soft).toMatchObject({ sound: 'Block', defender: 1 });
-    expect(soft.sound === 'Block' && hard.sound === 'Block' && hard.strength > soft.strength && soft.strength > 0).toBe(true);
-    expect(block(60)).toMatchObject({ strength: 1 });
-  });
-});
-
 describe('Landing sounds', () => {
   it('a Landing thuds, harder for a deeper drop; a tiny drop is silent', () => {
     const land = (height: number) => soundCues([{ type: 'Land', fighter: 1, height, damage: 0 }]);

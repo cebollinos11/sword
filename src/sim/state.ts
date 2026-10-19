@@ -50,11 +50,8 @@ export interface BlockAction {
   readonly age: number;
 }
 
-/**
- * Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), its Attack was met by a
- * Perfect Block (Parried: a longer recoil it cannot walk out of), its Attack was Chambered, or it Landed hard from a fall.
- */
-export type StaggerCause = 'Hit' | 'Blocked' | 'Parried' | 'Chambered' | 'Landed';
+/** Why a Fighter Staggers: it was hit, its Attack was Blocked (the attacker recoils), its Attack was Chambered, or it Landed hard from a fall. */
+export type StaggerCause = 'Hit' | 'Blocked' | 'Chambered' | 'Landed';
 
 /** A short forced Action in which the Fighter cannot act; it lasts as long as the Stagger Motion. */
 export interface StaggerAction {
@@ -179,8 +176,6 @@ export interface FighterState {
   readonly slow?: Slow;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */
   readonly blockImpact?: BlockImpact;
-  /** Present while the Fighter is held in Hitstop: the Ticks left in which it stands frozen (only its Block Impact rings on). Absent at zero. */
-  readonly hitstop?: number;
   /** Present once the Fighter has fallen (its HP reached zero). It is no longer simulated, hits and is hit by nothing, and no longer blocks bodies: its state stays as it was on that Tick. */
   readonly death?: Death;
 }

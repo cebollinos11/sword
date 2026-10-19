@@ -23,16 +23,6 @@ describe('impactBursts', () => {
   });
 });
 
-describe('impactBursts for a Perfect Block', () => {
-  it('a Perfect Block bursts as a full-strength Parry where the blades meet', () => {
-    const fighters = createInitialState(tuning, 1, duelPlacements(1.3)).fighters;
-    const point = { x: 0, y: 1.5, z: 0.6 };
-    const event = { type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', point, bladeSpeed: 2 } as const;
-    expect(impactBursts({ fighters, events: [{ ...event, perfect: true }] }, tuning)).toEqual([{ kind: 'Parry', point, strength: 1 }]);
-    expect(impactBursts({ fighters, events: [{ ...event, perfect: false }] }, tuning)).toEqual([{ kind: 'Block', point, strength: expect.any(Number) }]);
-  });
-});
-
 describe('impactBursts for daggers', () => {
   const point = { x: 0.2, y: 1.1, z: 3 };
   const fighters = createInitialState(tuning, 1, duelPlacements(3)).fighters;

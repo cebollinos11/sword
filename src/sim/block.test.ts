@@ -21,7 +21,7 @@ describe('Block', () => {
     expect(hitsOf(run)).toEqual([]);
     expect(run.final.fighters[1]!.hp).toBe(100);
     const blocks = eventsOf(run, 'Block');
-    expect(blocks).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', perfect: false, point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
+    expect(blocks).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
     const t = blocks[0]!.tick;
     expect(run.states[t]!.fighters[0]!.action).toMatchObject({ kind: 'Stagger' });
     expect(run.states[t]!.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Overhead' });
@@ -129,8 +129,7 @@ describe('Stagger', () => {
   });
 
   it("a Blocked attacker's recoil is a shorter Stagger than a hit Stagger", () => {
-    // Counted outside Hitstop, which freezes the Fighter in its first recoil pose.
-    const staggerTicks = (run: ScriptRun, fighter: number) => run.states.filter((s) => s.fighters[fighter]!.action.kind === 'Stagger' && !s.fighters[fighter]!.hitstop).length;
+    const staggerTicks = (run: ScriptRun, fighter: number) => run.states.filter((s) => s.fighters[fighter]!.action.kind === 'Stagger').length;
     const blocked = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 200) });
     const hit = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: wait(1) });
     expect(eventsOf(blocked, 'Stagger')).toEqual([expect.objectContaining({ fighter: 0, cause: 'Blocked' })]);
@@ -204,54 +203,5 @@ describe('Block correction window', () => {
     const track = [...block('Overhead', window + 3), ...block('Thrust', 40)];
     const run = runDuel(tuning, { placements: placements(3), a: wait(80), b: track });
     expect(dirOf(run, window + 10)).toBe('Overhead');
-  });
-});
-
-describe('Perfect Block and Hitstop', () => {
-  /** The Tick the Overhead from 1.3 m lands on a Block held from the start. */
-  const contact = eventsOf(runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 120) }), 'Block')[0]!.tick;
-  /** Fighter 1 raises its Overhead Block `early` Ticks before the blow lands. */
-  const lateBlock = (early: number) => runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: [...wait(contact - early), ...block('Overhead', 120)] });
-
-  it('a Block raised just before the blow lands is Perfect: the attacker is Parried, and recoils longer without walking', () => {
-    const run = lateBlock(2);
-    const [b] = eventsOf(run, 'Block');
-    expect(b).toMatchObject({ perfect: true, attacker: 0, defender: 1 });
-    expect(eventsOf(run, 'Stagger')).toEqual([expect.objectContaining({ fighter: 0, cause: 'Parried' })]);
-    const recoil = (r: ScriptRun) => r.states.filter((s) => s.fighters[0]!.action.kind === 'Stagger').length;
-    const held = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 120) });
-    const extra = secondsToTicks(tuning.block.perfectRecoil) + secondsToTicks(tuning.block.perfectHitstop) - secondsToTicks(tuning.block.hitstop);
-    expect(recoil(run)).toBe(recoil(held) + extra);
-  });
-
-  it('a Block raised earlier than the Perfect window is an ordinary Block', () => {
-    const run = lateBlock(secondsToTicks(tuning.block.perfectWindow) + 2);
-    expect(eventsOf(run, 'Block')).toEqual([expect.objectContaining({ perfect: false })]);
-    expect(eventsOf(run, 'Stagger')).toEqual([expect.objectContaining({ cause: 'Blocked' })]);
-  });
-
-  it('a Block freezes both Fighters for the Hitstop, longer for a Perfect Block; the Block Impact rings on through it', () => {
-    for (const [run, seconds] of [
-      [runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Overhead', 120) }), tuning.block.hitstop],
-      [lateBlock(2), tuning.block.perfectHitstop],
-    ] as const) {
-      const t = eventsOf(run, 'Block')[0]!.tick;
-      const ticks = secondsToTicks(seconds);
-      expect(ticks).toBeGreaterThan(0);
-      for (const i of [0, 1]) {
-        const at = run.states[t]!.fighters[i]!;
-        expect(at.hitstop).toBe(ticks);
-        for (let k = 1; k <= ticks; k++) {
-          const f = run.states[t + k]!.fighters[i]!;
-          expect(f.motion).toEqual(at.motion);
-          expect(f.action).toEqual(at.action);
-          expect(f.position).toEqual(at.position);
-        }
-        expect(run.states[t + ticks]!.fighters[i]!.hitstop).toBeUndefined();
-      }
-      // Then the attacker's recoil plays on (the defender's Block Motion may already be held at its end).
-      expect(run.states[t + ticks + 1]!.fighters[0]!.motion).not.toEqual(run.states[t]!.fighters[0]!.motion);
-      expect(run.states[t + ticks]!.fighters[1]!.blockImpact!.tick).toBe(ticks);
-    }
   });
 });

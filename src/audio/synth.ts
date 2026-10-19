@@ -1,8 +1,7 @@
 /**
  * Placeholder sounds, synthesised with WebAudio (no binary assets):
  *  - Swing: a band-passed noise whoosh sweeping upwards;
- *  - Block: a metallic clang of inharmonic partials over a low thud, with a beating ring and a scrape, scaled by the blow's strength;
- *    a Perfect Block adds a bright, bell-like ting that rings out over it;
+ *  - Block: a metallic clang of inharmonic partials;
  *  - Hit: a low thump with a dull noise burst, scaled by the Hit's strength;
  *  - Land: a deep thud on wooden boards, scaled by the height of the drop;
  *  - Throw: a short, high whoosh (a dagger leaving the hand);
@@ -105,14 +104,10 @@ export class WebAudioPlayer implements SoundPlayer {
     src.stop(t + duration + 0.02);
   }
 
-  private block(ctx: AudioContext, cue: BlockCue): void {
+  private block(ctx: AudioContext, _cue: BlockCue): void {
     const t = ctx.currentTime;
-    const s = cue.strength;
-    // No two clangs alike: each blow detunes the steel a little.
-    const pitch = 0.94 + Math.random() * 0.12;
-    // A harder blow rings longer.
-    const duration = 0.35 + 0.55 * s;
-    const out = this.envelope(ctx, 0.2 + 0.25 * s, 0.003, duration);
+    const duration = 0.45;
+    const out = this.envelope(ctx, 0.35, 0.003, duration);
     for (const [freq, level] of [
       [1180, 1],
       [1870, 0.7],
@@ -121,67 +116,21 @@ export class WebAudioPlayer implements SoundPlayer {
     ] as const) {
       const osc = ctx.createOscillator();
       osc.type = 'triangle';
-      osc.frequency.value = freq * pitch;
+      osc.frequency.value = freq;
       const g = ctx.createGain();
       g.gain.value = level;
       osc.connect(g).connect(out);
       osc.start(t);
       osc.stop(t + duration + 0.02);
     }
-    // Two partials a few hertz apart beat against each other: the shimmer of a ringing blade.
-    for (const freq of [742, 747]) {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq * pitch;
-      osc.connect(this.envelope(ctx, 0.12 * s, 0.01, duration * 1.4));
-      osc.start(t);
-      osc.stop(t + duration * 1.4 + 0.02);
-    }
-    // The weight of the blow through the arms: a short, low thud.
-    const body = ctx.createOscillator();
-    body.type = 'sine';
-    body.frequency.setValueAtTime(150, t);
-    body.frequency.exponentialRampToValueAtTime(55, t + 0.12);
-    body.connect(this.envelope(ctx, 0.75 * s, 0.002, 0.16));
-    body.start(t);
-    body.stop(t + 0.18);
     // A sharp click for the moment of impact.
     const click = this.noiseSource(ctx);
     const high = ctx.createBiquadFilter();
     high.type = 'highpass';
     high.frequency.value = 3000;
-    click.connect(high).connect(this.envelope(ctx, 0.35 + 0.35 * s, 0.002, 0.05));
+    click.connect(high).connect(this.envelope(ctx, 0.5, 0.002, 0.05));
     click.start(t);
     click.stop(t + 0.07);
-    // Steel grinding on steel as the blades slide apart.
-    const scrape = this.noiseSource(ctx);
-    const band = ctx.createBiquadFilter();
-    band.type = 'bandpass';
-    band.Q.value = 6;
-    band.frequency.setValueAtTime(5200 * pitch, t);
-    band.frequency.exponentialRampToValueAtTime(2600 * pitch, t + 0.16);
-    scrape.connect(band).connect(this.envelope(ctx, 0.25 * s, 0.01, 0.18));
-    scrape.start(t);
-    scrape.stop(t + 0.2);
-    if (cue.perfect) this.perfectTing(ctx);
-  }
-
-  /** A Perfect Block's ting: a bright, bell-like chime (near-harmonic partials) that rings out long over the clang. */
-  private perfectTing(ctx: AudioContext): void {
-    const t = ctx.currentTime;
-    const duration = 1.3;
-    for (const [freq, level] of [
-      [2093, 1],
-      [4186, 0.45],
-      [6280, 0.2],
-    ] as const) {
-      const osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      osc.connect(this.envelope(ctx, 0.22 * level, 0.004, duration * (1 - 0.3 * (freq / 6280))));
-      osc.start(t);
-      osc.stop(t + duration + 0.02);
-    }
   }
 
   private throwDagger(ctx: AudioContext, _cue: ThrowCue): void {

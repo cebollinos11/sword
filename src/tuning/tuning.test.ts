@@ -17,7 +17,7 @@ function goodRaw() {
     chamber: { windowSeconds: 0.15 },
     kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
-    block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15, perfectWindow: 0.12, perfectRecoil: 0.3, hitstop: 0.05, perfectHitstop: 0.1 },
+    block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5 },

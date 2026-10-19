@@ -78,8 +78,6 @@ export interface BlockEvent {
   readonly attacker: number;
   readonly defender: number;
   readonly direction: Direction;
-  /** A Perfect Block: raised within `block.perfectWindow` of the blow landing (the attacker is Parried). */
-  readonly perfect: boolean;
   /** World-space point where the Blade Sweep met the defender's blade (or body). */
   readonly point: Vec3;
   /** Blade Speed at the contact point, m/s. */

@@ -244,16 +244,6 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
 }
 
 /**
- * A Fighter held in Hitstop this Tick: it stands frozen (Action, Motion, movement, facing all as they were, its Intent
- * ignored), except that its Block Impact rings on, so the blow shakes the frozen blade. Then the Hitstop counts down.
- */
-function holdFighter(f: FighterState, tuning: TuningData): FighterState {
-  const { blockImpact, hitstop, ...rest } = f;
-  const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
-  return { ...rest, ...(impact ? { blockImpact: impact } : {}), ...(hitstop! > 1 ? { hitstop: hitstop! - 1 } : {}) };
-}
-
-/**
  * A Fighter that just landed (last Tick `prev` was airborne): a drop (from the top of its arc)
  * within `fall.safeHeight` lands softly and a Fall ends in Idle; a deeper one deals
  * `fall.damagePerMetre` per metre beyond it (only while the Duel is being fought) and
@@ -364,7 +354,7 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
  * Advance the Simulation by exactly one Tick. Pure: never mutates `state`.
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
- * Order within a Tick: Actions and movement (a Fighter in Hitstop stands frozen) → Chambers → Blade Sweeps against Hit Zones
+ * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
  * → damage → Deaths (a Fighter standing on lava or water dies of it, whatever its HP) → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
  * its team still fighting. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
@@ -378,7 +368,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (f.death ? f : f.hitstop ? holdFighter(f, tuning) : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
+    state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
     arena,
     fighting,
