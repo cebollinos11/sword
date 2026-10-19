@@ -353,6 +353,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // An online Match has no state until the peers connect; its first Tick then sounds.
       audio.seek(start?.tick ?? 0);
       renderer.impacts.seek(start?.tick ?? 0);
+      renderer.shake.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;
         present(start, d.localFighter);
@@ -491,7 +492,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   setInterval(() => lobby?.pump(performance.now()), LOBBY_PUMP_MS);
 
   function frame(now: number): void {
-    accumulator += Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
+    const frameSeconds = (now - last) / 1000;
+    accumulator += Math.min(frameSeconds, MAX_TICKS_PER_FRAME * TICK_SECONDS);
     last = now;
     // A Skirmish pauses with its menu open; an online Match runs on (the other players are still fighting).
     const frozen = menu.paused && !lobby?.online;
@@ -509,6 +511,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       curr = d.state;
       audio.onMatchTick(curr);
       renderer.impacts.onTick(curr.tick, curr.duel);
+      renderer.shake.onTick(curr.tick, curr.duel, d.localFighter);
       present(curr, d.localFighter);
     }
     if (frozen) accumulator = 0;
@@ -536,6 +539,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
         placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
       else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+      renderer.shake.apply(renderer.camera, frozen ? 0 : frameSeconds);
       renderer.setPlayer(me, menu.body);
       renderer.setChosenBodies(fighterBodies(driver.lineup, bodies));
       renderer.render(before, curr.duel, alpha);

@@ -13,10 +13,11 @@ export interface SwingCue {
   readonly direction: Direction;
 }
 
-/** An Attack was Blocked by rule. */
+/** An Attack was Blocked by rule. `strength` is 0..1, from the Blade Speed: a harder blow clangs louder and rings longer. */
 export interface BlockCue {
   readonly sound: 'Block';
   readonly defender: number;
+  readonly strength: number;
 }
 
 /** A Blade Sweep landed a Hit. `strength` is 0..1, from the damage dealt. */
@@ -64,6 +65,8 @@ export type SoundCue = WallStrikeCue | SwingCue | BlockCue | HitCue | LandCue | 
 const FULL_STRENGTH_DAMAGE = 45;
 /** A blade meeting a Wall at this Blade Speed (m/s) or faster knocks at full strength. */
 const FULL_STRENGTH_WALL_SPEED = 10;
+/** A blow Blocked at this Blade Speed (m/s) or faster clangs at full strength (about a Weapon's reference speed). */
+const FULL_STRENGTH_BLOCK_SPEED = 20;
 /** A Landing from this high (m) thuds at full strength; one from lower than LAND_QUIET makes no sound. */
 const FULL_STRENGTH_DROP = 5;
 const LAND_QUIET = 0.2;
@@ -77,7 +80,7 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
         if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction });
         break;
       case 'Block':
-        cues.push({ sound: 'Block', defender: e.defender });
+        cues.push({ sound: 'Block', defender: e.defender, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / FULL_STRENGTH_BLOCK_SPEED)) });
         break;
       case 'WallStrike':
         cues.push({ sound: 'WallStrike', strength: Math.min(1, Math.max(0.25, e.bladeSpeed / FULL_STRENGTH_WALL_SPEED)) });

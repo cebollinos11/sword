@@ -5,6 +5,7 @@ import { weaponByName, type TuningData } from '../tuning';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
+import { CameraShake } from './cameraShake';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 
@@ -26,6 +27,8 @@ export class Renderer {
   private lastDraw = performance.now();
   /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
   readonly impacts: ImpactEffects;
+  /** The camera's jolt on the local player's Blocks: fed like `impacts`, applied after the camera is placed. */
+  readonly shake: CameraShake;
   private readonly daggers: DaggerViews;
 
   constructor(
@@ -34,6 +37,7 @@ export class Renderer {
   ) {
     this.stage = new Stage(container, tuning);
     this.impacts = new ImpactEffects(this.stage.scene, tuning);
+    this.shake = new CameraShake(tuning);
     this.daggers = new DaggerViews(this.stage.scene);
   }
 
