@@ -106,7 +106,7 @@ Holding attack during Recovery: the pose blends straight from where it is to the
 _Avoid_: Combo, cancel, buffer
 
 **Stagger**:
-A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
+A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Parried (having an Attack met by a Perfect Block: a longer recoil the attacker cannot walk out of), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
 _Avoid_: Stun, flinch, hitstun
 
 **Trade**:
@@ -127,6 +127,14 @@ _Avoid_: Strike, swing (as a noun for the whole thing)
 **Block**:
 A directional defensive Action that stops an Attack when its Direction meets the Attack's (the same for Overhead and Thrust; mirrored for Left and Right, since a swing from the attacker's right arrives on the defender's left) and the defender roughly faces the attacker. Decided by rule, not by blade-on-blade geometry; but a Block lands where the Blade Sweep first reaches the defender's Weapon (anywhere from pommel or butt to tip) or body, so the blades meet (ADR 0002).
 _Avoid_: Parry, guard
+
+**Perfect Block**:
+A Block raised at most `block.perfectWindow` (Tuning Data) before the blow it stops lands. It stops the blow like any Block, but the attacker is Parried (its recoil holds `block.perfectRecoil` longer, and it cannot walk through it): the defender's opening. Not for the guard of a Fighter in Knockdown.
+_Avoid_: Parry (for the defender's Action), riposte
+
+**Hitstop**:
+When a Block lands, both Fighters freeze for a few Ticks (`block.hitstop`; `block.perfectHitstop` for a Perfect Block): Action, Motion, movement and facing hold and their Intents are ignored, only the Block Impact rings on. Part of the simulation, so both peers freeze the same Ticks; both freeze equally, so it shifts nobody's timing advantage.
+_Avoid_: Hit pause, freeze frame
 
 **Block Impact**:
 The give and bounce of a Blocked blow on the defender: the sword hand is knocked back along the Attack, springs forward past the Block and rings down to it (Tuning Data `block.impact*`, scaled by Blade Speed, by the attacker's Weapon's Block Impact dealt and by the defender's Weapon's Block Impact taken). It changes the pose, never the outcome (the Block already decided it).

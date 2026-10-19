@@ -18,6 +18,8 @@ export interface BlockCue {
   readonly sound: 'Block';
   readonly defender: number;
   readonly strength: number;
+  /** A Perfect Block: the clang rings out with a bright, bell-like ting over it. */
+  readonly perfect: boolean;
 }
 
 /** A Blade Sweep landed a Hit. `strength` is 0..1, from the damage dealt. */
@@ -80,7 +82,7 @@ export function soundCues(events: readonly SimEvent[]): SoundCue[] {
         if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction });
         break;
       case 'Block':
-        cues.push({ sound: 'Block', defender: e.defender, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / FULL_STRENGTH_BLOCK_SPEED)) });
+        cues.push({ sound: 'Block', defender: e.defender, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / FULL_STRENGTH_BLOCK_SPEED)), perfect: e.perfect });
         break;
       case 'WallStrike':
         cues.push({ sound: 'WallStrike', strength: Math.min(1, Math.max(0.25, e.bladeSpeed / FULL_STRENGTH_WALL_SPEED)) });

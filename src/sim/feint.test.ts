@@ -65,7 +65,7 @@ describe('Feint', () => {
       b: [...hold(10, { attack: true }), ...hold(100, { attack: true, block: true })],
     });
     expect(hitsOf(run)).toEqual([]);
-    expect(eventsOf(run, 'Block')).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
+    expect(eventsOf(run, 'Block')).toEqual([{ type: 'Block', attacker: 0, defender: 1, direction: 'Overhead', perfect: false, point: expect.any(Object), bladeSpeed: expect.any(Number), tick: expect.any(Number) }]);
   });
 
   it('an Attack Feint gets past a Block in the original Direction', () => {

@@ -2,6 +2,7 @@
  * Placeholder sounds, synthesised with WebAudio (no binary assets):
  *  - Swing: a band-passed noise whoosh sweeping upwards;
  *  - Block: a metallic clang of inharmonic partials over a low thud, with a beating ring and a scrape, scaled by the blow's strength;
+ *    a Perfect Block adds a bright, bell-like ting that rings out over it;
  *  - Hit: a low thump with a dull noise burst, scaled by the Hit's strength;
  *  - Land: a deep thud on wooden boards, scaled by the height of the drop;
  *  - Throw: a short, high whoosh (a dagger leaving the hand);
@@ -162,6 +163,25 @@ export class WebAudioPlayer implements SoundPlayer {
     scrape.connect(band).connect(this.envelope(ctx, 0.25 * s, 0.01, 0.18));
     scrape.start(t);
     scrape.stop(t + 0.2);
+    if (cue.perfect) this.perfectTing(ctx);
+  }
+
+  /** A Perfect Block's ting: a bright, bell-like chime (near-harmonic partials) that rings out long over the clang. */
+  private perfectTing(ctx: AudioContext): void {
+    const t = ctx.currentTime;
+    const duration = 1.3;
+    for (const [freq, level] of [
+      [2093, 1],
+      [4186, 0.45],
+      [6280, 0.2],
+    ] as const) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      osc.connect(this.envelope(ctx, 0.22 * level, 0.004, duration * (1 - 0.3 * (freq / 6280))));
+      osc.start(t);
+      osc.stop(t + duration + 0.02);
+    }
   }
 
   private throwDagger(ctx: AudioContext, _cue: ThrowCue): void {

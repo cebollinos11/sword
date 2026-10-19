@@ -145,7 +145,7 @@ const REFUSE_REASONS: ReadonlySet<string> = new Set<RefuseReason>(['TuningDataMi
 const DIRECTION_SET: ReadonlySet<string> = new Set<string>(DIRECTIONS);
 const PHASE_SET: ReadonlySet<string> = new Set<string>(ATTACK_PHASES);
 const KNOCKDOWN_PHASES: ReadonlySet<string> = new Set<KnockdownPhase>(['Falling', 'Down', 'Rising']);
-const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Chambered', 'Landed']);
+const STAGGER_CAUSES: ReadonlySet<string> = new Set<StaggerCause>(['Hit', 'Blocked', 'Parried', 'Chambered', 'Landed']);
 
 const isObject = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === 'string';
@@ -278,6 +278,7 @@ function isFighter(v: unknown): boolean {
     (v.air === undefined || isAirborne(v.air)) &&
     (v.slide === undefined || isSlide(v.slide)) &&
     (v.slow === undefined || isSlow(v.slow)) &&
+    (v.hitstop === undefined || isTick(v.hitstop)) &&
     isNum(v.facing) &&
     isNum(v.pitch) &&
     isNum(v.crouch) &&

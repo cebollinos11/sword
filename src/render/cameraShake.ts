@@ -30,7 +30,8 @@ export function blockJolts(duel: Pick<SimState, 'events' | 'fighters'>, tuning: 
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     // The defender takes the blow full on; the attacker feels its blade bounce back.
     const felt = e.defender === fighter ? 1 : 0.7;
-    jolts.push(felt * Math.min(1, Math.max(0.3, e.bladeSpeed / speed)));
+    // A Perfect Block always jolts at full strength.
+    jolts.push(felt * (e.perfect ? 1 : Math.min(1, Math.max(0.3, e.bladeSpeed / speed))));
   }
   return jolts;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { TICK_SECONDS } from './constants';
+import { secondsToTicks, TICK_SECONDS } from './constants';
 import { attack, createInitialState, hold, runDuel, runScript, wait, walk, type HitEvent, type ScriptRun, type SimState } from './index';
 
 const tuning = loadTuningData();
@@ -59,8 +59,8 @@ describe('Staggered Fighters', () => {
     expect(at(blockTick).action).toMatchObject({ kind: 'Stagger', cause: 'Blocked' });
     const halfStep = tuning.fighter.walkSpeed * TICK_SECONDS * 0.5;
     let recoilTicks = 0;
-    // A Tick's Intent shows up one state later, so the first two recoil Ticks are skipped.
-    for (let t = blockTick + 2; at(t).action.kind === 'Stagger'; t++) {
+    // A Tick's Intent shows up one state later, so the first two recoil Ticks are skipped, and so is the Hitstop that freezes it first.
+    for (let t = blockTick + 2 + secondsToTicks(tuning.block.hitstop); at(t).action.kind === 'Stagger'; t++) {
       expect(at(t - 1).position.z - at(t).position.z).toBeCloseTo(halfStep, 9);
       recoilTicks++;
     }

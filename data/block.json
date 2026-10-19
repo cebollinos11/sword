@@ -6,5 +6,9 @@
   "impactLean": 5,
   "impactFrequency": 4,
   "impactDuration": 0.2,
-  "correctionWindow": 0.15
+  "correctionWindow": 0.15,
+  "perfectWindow": 0.12,
+  "perfectRecoil": 0.3,
+  "hitstop": 0.05,
+  "perfectHitstop": 0.1
 }

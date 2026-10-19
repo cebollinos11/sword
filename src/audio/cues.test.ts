@@ -50,7 +50,7 @@ describe('soundCues', () => {
 
 describe('Block sounds', () => {
   it('a Block clangs harder for a faster blade', () => {
-    const block = (bladeSpeed: number) => soundCues([{ type: 'Block', attacker: 0, defender: 1, direction: 'Left', point: { x: 0, y: 1.4, z: 0.6 }, bladeSpeed }])[0]!;
+    const block = (bladeSpeed: number) => soundCues([{ type: 'Block', attacker: 0, defender: 1, direction: 'Left', perfect: false, point: { x: 0, y: 1.4, z: 0.6 }, bladeSpeed }])[0]!;
     const soft = block(3);
     const hard = block(15);
     expect(soft).toMatchObject({ sound: 'Block', defender: 1 });

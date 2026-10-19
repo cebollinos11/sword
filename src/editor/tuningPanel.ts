@@ -135,6 +135,10 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     f.addBinding(b, 'impactFrequency', { min: 1, max: 15, step: 0.5, label: 'bounce (Hz)' }).on('change', () => apply('block'));
     f.addBinding(b, 'impactDuration', { min: 0.05, max: 1.5, step: 0.05, label: 'settle (s)' }).on('change', () => apply('block'));
     f.addBinding(b, 'correctionWindow', { min: 0.02, max: 0.5, step: 0.01, label: 'direction correction (s)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'perfectWindow', { min: 0.02, max: 0.5, step: 0.01, label: 'perfect window (s)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'perfectRecoil', { min: 0.02, max: 1, step: 0.01, label: 'parried extra recoil (s)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'hitstop', { min: 0, max: 0.3, step: 0.01, label: 'hitstop (s)' }).on('change', () => apply('block'));
+    f.addBinding(b, 'perfectHitstop', { min: 0, max: 0.3, step: 0.01, label: 'perfect hitstop (s)' }).on('change', () => apply('block'));
   });
 
   folder('fall', (f) => {

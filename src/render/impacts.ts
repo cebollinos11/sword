@@ -9,7 +9,8 @@ import { weaponByName, type TuningData } from '../tuning';
 
 /** A burst at a contact point. `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
-  readonly kind: 'Hit' | 'Block';
+  /** Parry: a Perfect Block, a bigger, brighter, cooler burst. */
+  readonly kind: 'Hit' | 'Block' | 'Parry';
   readonly point: Vec3;
   readonly strength: number;
 }
@@ -34,7 +35,9 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     if (e.type !== 'Hit' && e.type !== 'Block' && e.type !== 'WallStrike') continue;
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     // A blade stopped by a Wall sparks off it like steel on steel.
-    bursts.push({ kind: e.type === 'Hit' ? 'Hit' : 'Block', point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
+    const kind = e.type === 'Hit' ? 'Hit' : e.type === 'Block' && e.perfect ? 'Parry' : 'Block';
+    // A Perfect Block always bursts at full strength.
+    bursts.push({ kind, point: e.point, strength: kind === 'Parry' ? 1 : Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }
@@ -85,6 +88,20 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     flashLife: 0.1,
     embers: { colours: [0xffb040, 0xff8020, 0xffd070], count: 10, speed: 1.4, size: 0.018, life: 0.9, gravity: 2.5 },
     light: { colour: 0xffd890, intensity: 14, life: 0.16 },
+  },
+  // A Perfect Block: a white-hot, blue-edged starburst that hangs in the air, and a bigger, longer flash.
+  Parry: {
+    colours: [0xffffff, 0xe8f4ff, 0xa8d8ff, 0xfff2a0],
+    flashColour: 0xf0f8ff,
+    count: 48,
+    speed: 8.5,
+    size: [0.014, 0.16],
+    life: 0.45,
+    gravity: 3,
+    flashRadius: 0.55,
+    flashLife: 0.16,
+    embers: { colours: [0xd8eeff, 0x9ccfff, 0xffffff], count: 18, speed: 1.8, size: 0.02, life: 1.2, gravity: 1.5 },
+    light: { colour: 0xdcecff, intensity: 30, life: 0.3 },
   },
 };
 

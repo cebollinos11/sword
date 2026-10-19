@@ -159,6 +159,14 @@ export interface BlockTuning {
   readonly impactDuration: number;
   /** Seconds after a Block is raised during which changing the Intent's Direction re-aims it (a late flick still counts). */
   readonly correctionWindow: number;
+  /** A Block raised at most this many seconds before the blow lands is a Perfect Block. */
+  readonly perfectWindow: number;
+  /** Seconds a Perfect Block's attacker (Stagger, cause Parried) stays stuck at the end of its Recoil, unable to walk: the defender's opening. */
+  readonly perfectRecoil: number;
+  /** Hitstop: seconds both Fighters freeze when a Block lands. */
+  readonly hitstop: number;
+  /** Hitstop: seconds both Fighters freeze when a Perfect Block lands. */
+  readonly perfectHitstop: number;
 }
 
 /**
@@ -537,6 +545,10 @@ export function parseTuningData(raw: unknown): TuningData {
       impactFrequency: positiveNumber(bl, 'impactFrequency', 'block'),
       impactDuration: positiveNumber(bl, 'impactDuration', 'block'),
       correctionWindow: positiveNumber(bl, 'correctionWindow', 'block'),
+      perfectWindow: positiveNumber(bl, 'perfectWindow', 'block'),
+      perfectRecoil: positiveNumber(bl, 'perfectRecoil', 'block'),
+      hitstop: finiteNumber(bl, 'hitstop', 'block'),
+      perfectHitstop: finiteNumber(bl, 'perfectHitstop', 'block'),
     },
     match: {
       duelDistance: positiveNumber(ma, 'duelDistance', 'match'),

@@ -15,7 +15,7 @@
  */
 import { weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
-import { TICK_SECONDS } from './constants';
+import { secondsToTicks, TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
 import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
@@ -257,7 +257,7 @@ export function resolveContacts(
 /** Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). */
 export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
   // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
-  const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
+  const hold = cause === 'Blocked' || cause === 'Parried' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
   const { action, motion } = stagger(cause, hold);
   emit({ type: 'Stagger', fighter: index, cause });
   const staggered = { ...f, action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
@@ -275,10 +275,12 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const action = attacker.action as AttackAction;
   if (action.landed) return;
   if (c.blocked) {
-    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed });
-    out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
+    const perfect = isPerfectBlock(defender, tuning);
+    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, perfect, point: c.point, bladeSpeed: c.bladeSpeed });
+    const hitstop = secondsToTicks(perfect ? tuning.block.perfectHitstop : tuning.block.hitstop);
+    out[c.attacker] = withHitstop(staggerFighter(out[c.attacker]!, c.attacker, perfect ? 'Parried' : 'Blocked', tuning, emit), hitstop);
     // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
-    out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) };
+    out[c.defender] = withHitstop({ ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) }, hitstop);
     return;
   }
   const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
@@ -292,6 +294,14 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
   out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
 }
+
+/** A Perfect Block: a Block (not a guard from the floor) raised within `block.perfectWindow` of the blow landing. */
+export function isPerfectBlock(defender: FighterState, tuning: TuningData): boolean {
+  return defender.action.kind === 'Block' && defender.action.age < secondsToTicks(tuning.block.perfectWindow);
+}
+
+/** `f` frozen in Hitstop for (at least) `ticks` Ticks. */
+const withHitstop = (f: FighterState, ticks: number): FighterState => (ticks > 0 ? { ...f, hitstop: Math.max(f.hitstop ?? 0, ticks) } : f);
 
 /**
  * A blade stopped by a Wall: the attacker recoils as from a Block (Stagger, cause Blocked), unless a Trade this
