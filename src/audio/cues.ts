@@ -3,11 +3,8 @@
  * Simulation and only listens to its events (ADR 0001); this mapping is
  * pure, so it is tested headlessly.
  *
- * Most sounds come straight from a Tick's events. A few come from comparing
- * a Tick's state with the one before it (a Kick snapping out, a body hitting
- * the floor in a Knockdown, a Death), since the Simulation raises no event
- * for them; and a few from the Match's own events (a Duel starting, the Match
- * ending).
+ * Most sounds come from a Tick's events; a Duel starting and the Match
+ * ending come from the Match's own events.
  */
 import type { DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
 import type { HitZone } from '../tuning';
@@ -206,13 +203,11 @@ function weaponWeight(fighter: FighterState | undefined): number {
 }
 
 /**
- * The sounds triggered by one Tick, in event order, followed by those read from the change of state, and last the Duel ending.
- * `now` is the state the Tick produced (it gives the Weapons and the floor); `before` the one before it,
- * when known (without it, no state-change sounds).
+ * The sounds triggered by one Tick, in event order. `now` is the state the Tick produced: it gives
+ * the Weapons and the floor (without it, a middling Weapon on stone).
  */
-export function soundCues(events: readonly SimEvent[], now?: SimState, before?: SimState | null): SoundCue[] {
+export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue[] {
   const cues: SoundCue[] = [];
-  const ending: SoundCue[] = [];
   const surface = arenaSurface(now?.arena);
   const fighter = (i: number) => now?.fighters[i];
   for (const e of events) {
@@ -240,6 +235,15 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, before?: 
       case 'Feint':
         cues.push({ sound: 'Feint', fighter: e.fighter });
         break;
+      case 'KickPhase':
+        if (e.phase === 'Release') cues.push({ sound: 'Kick', fighter: e.fighter });
+        break;
+      case 'KnockdownPhase':
+        if (e.phase === 'Down') cues.push({ sound: 'BodyFall', fighter: e.fighter, surface });
+        break;
+      case 'Death':
+        cues.push({ sound: 'Death', fighter: e.fighter, cause: e.cause });
+        break;
       case 'KickLanded':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Kick' });
         if (e.outcome === 'Knockdown') cues.push({ sound: 'Knockdown', fighter: e.defender });
@@ -266,31 +270,10 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, before?: 
         if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: clamp(e.height / FULL_STRENGTH_DROP, 0.15, 1), surface });
         break;
       case 'DuelEnd':
-        ending.push({ sound: 'DuelEnd', winner: e.winner });
+        cues.push({ sound: 'DuelEnd', winner: e.winner });
         break;
     }
   }
-  if (now && before) cues.push(...changeCues(before, now));
-  // The Duel ends after the blow (and the Death) that ended it.
-  return [...cues, ...ending];
-}
-
-/** The sounds read from how each Fighter changed over a Tick: a Kick snapping out, a body hitting the floor, a Death. */
-export function changeCues(before: SimState, now: SimState): SoundCue[] {
-  const cues: SoundCue[] = [];
-  const surface = arenaSurface(now.arena);
-  now.fighters.forEach((f, i) => {
-    const was = before.fighters[i];
-    if (!was) return;
-    const { action } = f;
-    if (action.kind === 'Kick' && action.phase === 'Release' && !(was.action.kind === 'Kick' && was.action.phase === 'Release')) {
-      cues.push({ sound: 'Kick', fighter: i });
-    }
-    if (action.kind === 'Knockdown' && action.phase === 'Down' && !(was.action.kind === 'Knockdown' && was.action.phase === 'Down')) {
-      cues.push({ sound: 'BodyFall', fighter: i, surface });
-    }
-    if (f.death && !was.death) cues.push({ sound: 'Death', fighter: i, cause: f.death.cause });
-  });
   return cues;
 }
 

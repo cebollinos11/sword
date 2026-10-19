@@ -37,12 +37,18 @@ export const updateKnockdown: ActionHandler<KnockdownAction> = (f, intent, ctx) 
   switch (a.phase) {
     case 'Falling': {
       const end = motionTicks(ctx.tuning, f.weapon, KNOCKDOWN_MOTION);
-      if (f.motion.tick + 1 >= end) return { action: { ...a, phase: 'Down', ticks: 0, guard }, motion: { name: KNOCKDOWN_MOTION, tick: end } };
+      if (f.motion.tick + 1 >= end) {
+        ctx.emit({ type: 'KnockdownPhase', fighter: ctx.fighter, phase: 'Down' });
+        return { action: { ...a, phase: 'Down', ticks: 0, guard }, motion: { name: KNOCKDOWN_MOTION, tick: end } };
+      }
       return { action: { ...a, guard }, motion: advance(f.motion) };
     }
     case 'Down': {
       const ticks = a.ticks + 1;
-      if (ticks >= ctx.tuning.kick.knockdownTicks) return { action: { ...a, phase: 'Rising', ticks: 0, guard }, motion: { name: GET_UP_MOTION, tick: 0 } };
+      if (ticks >= ctx.tuning.kick.knockdownTicks) {
+        ctx.emit({ type: 'KnockdownPhase', fighter: ctx.fighter, phase: 'Rising' });
+        return { action: { ...a, phase: 'Rising', ticks: 0, guard }, motion: { name: GET_UP_MOTION, tick: 0 } };
+      }
       return { action: { ...a, ticks, guard }, motion: f.motion };
     }
     case 'Rising': {

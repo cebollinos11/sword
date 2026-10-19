@@ -37,6 +37,21 @@ describe('Kick Action', () => {
     expect(kicker(end).action.kind).toBe('Idle');
   });
 
+  it('raises a KickPhase event as it enters each phase', () => {
+    let s = tick(fresh(), { kick: true });
+    const phases: { phase: string; at: number }[] = [];
+    for (let i = 0; i < 1000 && kicking(s); i++) {
+      for (const e of s.events) if (e.type === 'KickPhase') phases.push({ phase: e.phase, at: i });
+      s = tick(s);
+    }
+    // Release begins with the leg snapping out at windUpEnd, Recovery at releaseEnd.
+    expect(phases).toEqual([
+      { phase: 'Wind-up', at: 0 },
+      { phase: 'Release', at: timings.windUpEnd },
+      { phase: 'Recovery', at: timings.releaseEnd },
+    ]);
+  });
+
   it('a Kick that lands nothing holds its pose for whiffRecovery more Ticks', () => {
     const { phases } = runKick(fresh());
     expect(phases.length).toBe(timings.end + WHIFF);

@@ -84,6 +84,13 @@ describe('Knockdown', () => {
     expect(knockedDown(shaking).fighters[1]!.blockImpact).toBeUndefined();
   });
 
+  it('raises a KnockdownPhase event when the body hits the floor and when it starts to get up', () => {
+    const lying = until(knockedDown(), 'Down');
+    expect(lying.events).toContainEqual({ type: 'KnockdownPhase', fighter: 1, phase: 'Down' });
+    const rising = until(lying, 'Rising');
+    expect(rising.events).toContainEqual({ type: 'KnockdownPhase', fighter: 1, phase: 'Rising' });
+  });
+
   it('falls, lies for knockdownTicks, gets up and is Idle again', () => {
     let s = knockedDown();
     const phases: string[] = [];

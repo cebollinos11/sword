@@ -26,6 +26,15 @@ describe('Death', () => {
     });
   });
 
+  it('raises a Death event on that Tick, after the blow and before the Duel ends, and never again', () => {
+    const s = fell();
+    const types = s.events.map((e) => e.type).filter((t) => ['Hit', 'Death', 'DuelEnd'].includes(t));
+    expect(types).toEqual(['Hit', 'Death', 'DuelEnd']);
+    expect(s.events).toContainEqual({ type: 'Death', fighter: 1, cause: 'Hit' });
+    const later = step(s, [IDLE_INTENT, IDLE_INTENT], tuning);
+    expect(later.events.some((e) => e.type === 'Death')).toBe(false);
+  });
+
   it('stops simulating the fallen Fighter: it stays exactly as it fell', () => {
     const s = fell();
     let later = s;

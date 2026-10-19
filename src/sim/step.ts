@@ -398,6 +398,9 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
       return cause ? { ...f, hp: 0, death: { tick, cause, blow: null } } : f;
     });
   if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick, tuning) }));
+  fighters.forEach((f, i) => {
+    if (f.death?.tick === tick) emit({ type: 'Death', fighter: i, cause: f.death.cause });
+  });
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.

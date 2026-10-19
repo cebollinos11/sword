@@ -70,6 +70,10 @@ describe('Match', () => {
     expect(m.duel.fighters.map((f) => f.hp)).toEqual([100, 100]);
   });
 
+  it("raises the first Duel's DuelStart on the Match's first state, as every later Duel raises its own", () => {
+    expect(createMatch(tuning, { arena: 'circle', bestOf: 3 }).events).toEqual([{ type: 'DuelStart', duelNumber: 1 }]);
+  });
+
   it('resets Fighters to their starting positions, facing and HP between Duels', () => {
     let m = createMatch(tuning, { arena: 'circle', bestOf: 3, distance: DISTANCE, seed: 7, interDuelTicks: 30 });
     m = runUntil(m, 0, duelOver);

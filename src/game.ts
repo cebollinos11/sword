@@ -360,8 +360,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       resultAt = null;
       hud.show();
       const start = d.state;
-      // An online Match has no state until the peers connect; its first Tick then sounds.
-      audio.seek(start?.tick ?? 0);
+      // An online Match has no state until the peers connect; its first state then sounds.
+      audio.seek(start ? start.tick - 1 : -1);
       renderer.impacts.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;
@@ -518,6 +518,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     last = now;
     // A Skirmish pauses with its menu open; an online Match runs on (the other players are still fighting).
     const frozen = menu.paused && !lobby?.online;
+    // A Match's first state (Tick 0, with its first DuelStart) is never stepped into: hear it once it exists.
+    if (driver?.state && !inShot) audio.onMatchTick(driver.state);
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;

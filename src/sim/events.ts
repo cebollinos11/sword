@@ -1,6 +1,6 @@
 import type { HitZone } from '../tuning';
 import type { Direction } from './intent';
-import type { AttackPhase, StaggerCause } from './state';
+import type { AttackPhase, DeathCause, KnockdownPhase, StaggerCause } from './state';
 import type { Vec3 } from './vec';
 
 /** A Fighter's Attack entered a phase (Wind-up on press, Release = the swing sound, Recovery). */
@@ -9,6 +9,27 @@ export interface AttackPhaseEvent {
   readonly fighter: number;
   readonly direction: Direction;
   readonly phase: AttackPhase;
+}
+
+/** A Fighter's Kick entered a phase (Wind-up on press, Release = the leg snapping out, Recovery). */
+export interface KickPhaseEvent {
+  readonly type: 'KickPhase';
+  readonly fighter: number;
+  readonly phase: AttackPhase;
+}
+
+/** A Fighter's Knockdown moved on to a later phase: Down (the body hits the floor) or Rising (the Get-up). It begins Falling with a KickLanded. */
+export interface KnockdownPhaseEvent {
+  readonly type: 'KnockdownPhase';
+  readonly fighter: number;
+  readonly phase: Exclude<KnockdownPhase, 'Falling'>;
+}
+
+/** A Fighter fell (its Death): its HP reached zero, from a Hit or a Fall, or it came to stand in Lava or Water. */
+export interface DeathEvent {
+  readonly type: 'Death';
+  readonly fighter: number;
+  readonly cause: DeathCause;
 }
 
 /** A Blade Sweep connected with a Hit Zone and dealt damage (none to a teammate). */
@@ -163,7 +184,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

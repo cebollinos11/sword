@@ -35,6 +35,7 @@ describe('The carbon-freezing chamber Arena', () => {
     expect(f.death?.cause).toBe('Lava');
     expect(f.hp).toBe(0);
     expect(f.y).toBe(-4);
+    expect(m.duel.events).toContainEqual({ type: 'Death', fighter: 0, cause: 'Lava' });
     expect(m.duel.duel).toMatchObject({ status: 'Over', winner: 1 });
   });
 

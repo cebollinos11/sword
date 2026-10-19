@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { attack, createInitialState, duelPlacements, hold, runDuel, type FighterState, type SimState } from '../sim';
-import { arenaSurface, changeCues, matchCues, soundCues } from './cues';
+import { loadTuningData, withWeapon } from '../tuning';
+import { attack, createInitialState, duelPlacements, hold, runDuel } from '../sim';
+import { arenaSurface, matchCues, soundCues } from './cues';
 
 const tuning = loadTuningData();
 
@@ -105,34 +105,32 @@ describe('Footsteps and floors', () => {
   });
 });
 
-describe('Sounds read from the change of state', () => {
-  const base = createInitialState(tuning, 1, duelPlacements(2));
-  const withFighter = (s: SimState, i: number, patch: Partial<FighterState>): SimState => ({
-    ...s,
-    tick: s.tick + 1,
-    fighters: s.fighters.map((f, j) => (j === i ? { ...f, ...patch } : f)),
+describe('Kicks, Knockdowns and Deaths', () => {
+  it('a Kick snapping out, a body hitting the floor and a Death each sound on their event', () => {
+    const state = { ...createInitialState(tuning, 1, duelPlacements(2)), arena: 'ship' };
+    expect(
+      soundCues(
+        [
+          { type: 'KickPhase', fighter: 0, phase: 'Wind-up' },
+          { type: 'KickPhase', fighter: 0, phase: 'Release' },
+          { type: 'KickPhase', fighter: 0, phase: 'Recovery' },
+          { type: 'KnockdownPhase', fighter: 1, phase: 'Down' },
+          { type: 'KnockdownPhase', fighter: 1, phase: 'Rising' },
+          { type: 'Death', fighter: 1, cause: 'Water' },
+        ],
+        state,
+      ),
+    ).toEqual([
+      { sound: 'Kick', fighter: 0 },
+      { sound: 'BodyFall', fighter: 1, surface: 'wood' },
+      { sound: 'Death', fighter: 1, cause: 'Water' },
+    ]);
   });
 
-  it('a Kick snapping out, a body hitting the floor and a Death each sound once, on the Tick they happen', () => {
-    const windUp = withFighter(base, 0, { action: { kind: 'Kick', phase: 'Wind-up', landed: false } });
-    const release = withFighter(windUp, 0, { action: { kind: 'Kick', phase: 'Release', landed: false } });
-    const still = withFighter(release, 0, { action: { kind: 'Kick', phase: 'Release', landed: false } });
-    expect(changeCues(windUp, release)).toEqual([{ sound: 'Kick', fighter: 0 }]);
-    expect(changeCues(release, still)).toEqual([]);
-
-    const falling = withFighter(base, 1, { action: { kind: 'Knockdown', phase: 'Falling', ticks: 0, guard: null } });
-    const down = withFighter(falling, 1, { action: { kind: 'Knockdown', phase: 'Down', ticks: 0, guard: null } });
-    expect(changeCues(falling, down)).toEqual([{ sound: 'BodyFall', fighter: 1, surface: 'stone' }]);
-
-    const dead = withFighter(base, 1, { hp: 0, death: { tick: 1, cause: 'Water', blow: null } });
-    expect(changeCues(base, dead)).toEqual([{ sound: 'Death', fighter: 1, cause: 'Water' }]);
-    expect(changeCues(dead, withFighter(dead, 1, {}))).toEqual([]);
-  });
-
-  it('without the state before, nothing is read from change', () => {
-    const dead = withFighter(base, 1, { hp: 0, death: { tick: 1, cause: 'Hit', blow: null } });
-    expect(soundCues([], dead)).toEqual([]);
-    expect(soundCues([], dead, base)).toEqual([{ sound: 'Death', fighter: 1, cause: 'Hit' }]);
+  it('the blow that ends a Duel sounds before the Death, and the Death before the Duel ends', () => {
+    const run = runDuel(withWeapon(tuning, { damage: 10_000 }), { distance: 1.2, a: attack('Overhead'), b: [] });
+    const cues = run.states.flatMap((s) => soundCues(s.events, s)).map((c) => c.sound);
+    expect(cues).toEqual(['Swing', 'Hit', 'Death', 'DuelEnd']);
   });
 });
 

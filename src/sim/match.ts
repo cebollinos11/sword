@@ -154,7 +154,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     duel,
     nextDuelTick: null,
     status: { status: 'InProgress' },
-    events: [],
+    events: [{ type: 'DuelStart', duelNumber: 1 }],
   };
 }
 

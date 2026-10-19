@@ -9,7 +9,7 @@ import { weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { Action, AttackPhase, KickAction } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
-import type { ActionHandler, ActionStarter, ActionUpdate } from './types';
+import type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';
 
 /** The Motion that animates (and times) a Kick. */
 export const KICK_MOTION = 'Kick';
@@ -42,12 +42,16 @@ const play = (action: KickAction, tick: number): ActionUpdate => ({ action, moti
  * Pressing kick starts a Kick: not while crouched. (`startAction` already refuses anything in the air
  * unless the Fighter jumped there, so a Kick can start in a Jump but not after walking off a ledge.)
  */
-export const startKick: ActionStarter = (f, intent) => {
+export const startKick: ActionStarter = (f, intent, ctx) => {
   if (intent.kick !== true || f.crouch > KICK_MAX_CROUCH) return null;
+  ctx.emit({ type: 'KickPhase', fighter: ctx.fighter, phase: 'Wind-up' });
   return play({ kind: 'Kick', phase: 'Wind-up', landed: false }, 0);
 };
 
-const enter = (a: KickAction, phase: AttackPhase, tick: number): ActionUpdate => play({ ...a, phase }, tick);
+function enter(a: KickAction, phase: AttackPhase, tick: number, ctx: ActionContext): ActionUpdate {
+  if (phase !== a.phase) ctx.emit({ type: 'KickPhase', fighter: ctx.fighter, phase });
+  return play({ ...a, phase }, tick);
+}
 
 export const updateKick: ActionHandler<KickAction> = (f, _intent, ctx) => {
   const a = f.action;
@@ -55,9 +59,9 @@ export const updateKick: ActionHandler<KickAction> = (f, _intent, ctx) => {
   const tick = f.motion.tick;
   switch (a.phase) {
     case 'Wind-up':
-      return enter(a, tick + 1 >= t.windUpEnd ? 'Release' : 'Wind-up', tick + 1);
+      return enter(a, tick + 1 >= t.windUpEnd ? 'Release' : 'Wind-up', tick + 1, ctx);
     case 'Release':
-      return enter(a, tick + 1 >= t.releaseEnd ? 'Recovery' : 'Release', tick + 1);
+      return enter(a, tick + 1 >= t.releaseEnd ? 'Recovery' : 'Release', tick + 1, ctx);
     case 'Recovery': {
       // A Kick that landed nothing is open for longer: the pose is held while `whiff` counts down. Checked here, not on the
       // Tick Recovery began, so a Kick that lands on its last Release Tick is not punished.
