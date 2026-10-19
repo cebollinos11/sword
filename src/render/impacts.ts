@@ -58,8 +58,6 @@ interface Look {
   readonly flashLife: number;
   /** Slow, glowing bits that linger and drift down after the burst, if any. */
   readonly embers?: { readonly colours: readonly number[]; readonly count: number; readonly speed: number; readonly size: number; readonly life: number; readonly gravity: number };
-  /** A flash of light that lights up what is around the contact, if any: peak intensity (candela) at full strength. */
-  readonly light?: { readonly colour: number; readonly intensity: number; readonly life: number };
 }
 
 const LOOKS: Record<ImpactBurst['kind'], Look> = {
@@ -75,10 +73,10 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     flashRadius: 0.26,
     flashLife: 0.15,
   },
-  // Fast bright streaks off the steel, embers that drift down after them, and a flash that lights up the Fighters.
+  // Fast white and blue-white streaks off the steel.
   Block: {
-    colours: [0xffffff, 0xfff2a0, 0xffd040, 0xffa020],
-    flashColour: 0xfff8d0,
+    colours: [0xffffff, 0xe8f4ff, 0xc4e2ff],
+    flashColour: 0xf0f8ff,
     count: 28,
     speed: 6.5,
     size: [0.012, 0.12],
@@ -86,12 +84,10 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     gravity: 5,
     flashRadius: 0.32,
     flashLife: 0.1,
-    embers: { colours: [0xffb040, 0xff8020, 0xffd070], count: 10, speed: 1.4, size: 0.018, life: 0.9, gravity: 2.5 },
-    light: { colour: 0xffd890, intensity: 14, life: 0.16 },
   },
-  // A Perfect Block: a white-hot, blue-edged starburst that hangs in the air, and a bigger, longer flash.
+  // A Perfect Block: a white-hot, blue-edged starburst whose embers hang in the air, and a bigger, longer flash.
   Parry: {
-    colours: [0xffffff, 0xe8f4ff, 0xa8d8ff, 0xfff2a0],
+    colours: [0xffffff, 0xe8f4ff, 0xa8d8ff],
     flashColour: 0xf0f8ff,
     count: 48,
     speed: 8.5,
@@ -101,7 +97,6 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     flashRadius: 0.55,
     flashLife: 0.16,
     embers: { colours: [0xd8eeff, 0x9ccfff, 0xffffff], count: 18, speed: 1.8, size: 0.02, life: 1.2, gravity: 1.5 },
-    light: { colour: 0xdcecff, intensity: 30, life: 0.3 },
   },
 };
 
@@ -131,18 +126,11 @@ export class ImpactEffects {
   private lastTick = -Infinity;
   /** Effect time, seconds. */
   private clock = 0;
-  /**
-   * One light reused by every burst's flash (adding and removing lights would recompile the
-   * scene's shaders): dark until a burst lights it, then fading over `life`.
-   */
-  private readonly light = new THREE.PointLight(0xffffff, 0, 4, 2);
-  private lightFlash = { peak: 0, born: 0, life: 1 };
 
   constructor(
     scene: THREE.Scene,
     private readonly tuning: TuningData,
   ) {
-    this.root.add(this.light);
     scene.add(this.root);
   }
 
@@ -156,16 +144,12 @@ export class ImpactEffects {
   seek(tick: number): void {
     this.lastTick = tick;
     for (const p of this.live.splice(0)) this.remove(p);
-    this.light.intensity = 0;
-    this.lightFlash.peak = 0;
   }
 
   /** Advance the particles by `seconds`. */
   update(seconds: number): void {
     const dt = Math.min(0.1, Math.max(0, seconds));
     this.clock += dt;
-    const flash = (this.clock - this.lightFlash.born) / this.lightFlash.life;
-    this.light.intensity = flash < 1 ? this.lightFlash.peak * (1 - flash) * (1 - flash) : 0;
     for (let i = this.live.length - 1; i >= 0; i--) {
       const p = this.live[i]!;
       const t = (this.clock - p.born) / p.life;
@@ -207,13 +191,6 @@ export class ImpactEffects {
         p.velocity.y += 0.8;
         p.mesh.scale.setScalar(e.size);
       }
-    }
-    // The strongest burst so far still lit keeps the light.
-    if (look.light && look.light.intensity * strength >= this.light.intensity) {
-      this.light.color.setHex(look.light.colour);
-      this.light.position.copy(at);
-      this.lightFlash = { peak: look.light.intensity * strength, born: this.clock, life: look.light.life };
-      this.light.intensity = this.lightFlash.peak;
     }
   }
 
