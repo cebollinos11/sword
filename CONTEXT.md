@@ -152,7 +152,7 @@ The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in th
 _Avoid_: Debuff, snare, root
 
 **Knockdown**:
-The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, and also the Action that follows: 5 damage, a long Slide, then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). Throughout it can turn and Block but cannot move, Attack, Kick or Jump, and it can be hit normally. It interrupts whatever the Fighter was doing.
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, and also the Action that follows: 5 damage, a long Slide, then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally. It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
 
 **Get-up**:

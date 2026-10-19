@@ -176,7 +176,7 @@ describe('Knockdown', () => {
     expect(down(s.fighters[1]!).guard).toBeNull();
   });
 
-  it('a downed Fighter turns but does not walk, attack, kick or jump', () => {
+  it('a downed Fighter does not turn, walk, attack, kick or jump', () => {
     const lying = until(knockedDown(), 'Down');
     // The Slide is over by now, so any movement would be the Fighter's own.
     expect(lying.fighters[1]!.slide).toBeUndefined();
@@ -189,12 +189,7 @@ describe('Knockdown', () => {
     expect(after.y).toBe(before.y);
     expect(after.crouch).toBe(before.crouch);
     expect(after.pitch).toBe(before.pitch);
-    // It turned toward where it was told to face.
-    expect(after.facing).not.toBe(before.facing);
-    const turned = run(s, 20, {}, { face: 0.5 });
-    expect(down(turned.fighters[1]!).phase).toBe('Down');
-    expect(turned.fighters[1]!.facing).toBeCloseTo(0.5, 9);
-    expect(turned.fighters[1]!.position).toEqual(before.position);
+    expect(after.facing).toBe(before.facing);
   });
 
   it('a Kick on a Fighter already in Knockdown is a Shove: 1 hp, its Action untouched', () => {

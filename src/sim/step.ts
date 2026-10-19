@@ -130,11 +130,12 @@ function wrapYaw(a: number): number {
 /**
  * The Fighter's facing after this Tick: it turns toward `intent.face` the
  * shorter way round, at most `fighter.turnSpeed` degrees per second, and lands
- * exactly on it. A Staggered Fighter cannot act, so it cannot turn either.
+ * exactly on it. A Staggered Fighter cannot act, so it cannot turn either,
+ * and a Fighter in Knockdown lies (or gets up) facing the way it fell.
  */
 function turn(f: FighterState, intent: Intent, tuning: TuningData): number {
   const face = intent.face ?? null; // tolerate Intents built before `face` existed
-  if (face === null || f.action.kind === 'Stagger') return f.facing;
+  if (face === null || f.action.kind === 'Stagger' || f.action.kind === 'Knockdown') return f.facing;
   const maxStep = (tuning.fighter.turnSpeed * Math.PI * TICK_SECONDS) / 180;
   const delta = wrapYaw(face - f.facing);
   if (Math.abs(delta) <= maxStep) return wrapYaw(face);

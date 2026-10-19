@@ -2,8 +2,8 @@
  * The Knockdown Action (ADR 0007): the Fighter falls flat on its back (Falling, the Knockdown Motion tilting
  * the whole body), lies there for `kick.knockdownTicks` (Down, the Motion held at its end) and gets up
  * (Rising, the GetUp Motion), then is Idle again. It interrupts whatever the Fighter was doing and ends only
- * by running its course. Throughout it can turn and guard (hold block: `guard` is the Direction held, which
- * Blocks by the normal rule), but cannot move, Attack, Kick or Jump. It can be hit like anyone: its Hit Zones
+ * by running its course. Throughout it can guard (hold block: `guard` is the Direction held, which
+ * Blocks by the normal rule), but cannot turn, move, Attack, Kick or Jump. It can be hit like anyone: its Hit Zones
  * lie where the body lies.
  */
 import { weaponMotion, type TuningData } from '../../tuning';
