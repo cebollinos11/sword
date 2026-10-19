@@ -37,9 +37,9 @@ Today a Fighter who turns and runs gets away: everyone walks at `fighter.walkSpe
 - **Hit:** when a dagger reaches a Fighter and is not Blocked, it **Hits**. It deals `dagger.damage` (5) × the Hit Zone multiplier. It Staggers the victim (cause `Hit`, which interrupts their Action, as a blade Hit does). It also applies the **Slow**.
   - A dagger Hit on a Fighter in Knockdown wounds it and slows it, but does not Stagger it, the same as a blade.
   - HP that reaches zero goes through the existing Death path (cause `Hit`, with the dagger as the felling blow).
-- **Slow:** walking (and air steering) runs at `dagger.slowFactor` (0.6) of the normal speed for `dagger.slowTicks` (3 s = 180 Ticks). A new dagger Hit **restarts the timer** at the same strength. The Slow does not stack. It multiplies with crouch and recoil. It does not slow turning, Jumps, Slides or Motions.
+- **Slow:** walking (and air steering) runs at `dagger.slowFactor` (0.05) of the normal speed for `dagger.slowTicks` (3 s = 180 Ticks). A new dagger Hit **restarts the timer** at the same strength. The Slow does not stack. It multiplies with crouch and recoil. It does not slow turning, Jumps, Slides or Motions.
 - **AI** (the interviewee had no preference; this is the default): the AI throws at an enemy who is out of `attackRange`, inside `throwRange`, has line of sight, and is moving away. The rate scales with difficulty. When the AI sees a throw Wind-up aimed at it (within its Reaction Time), it turns toward the thrower and raises a Block. Easy often fails to.
-- **Tuning Data `data/dagger.json`:** `count 3`, `speed ≈18` (m/s), `gravity 9.8`, `loft ≈4` (deg), `radius ≈0.04` (sweep padding), `maxTicks ≈90`, `damage 5`, `slowFactor 0.6`, `slowTicks 180`, `throwWalkFactor 1`, `blockImpact ≈0.3`.
+- **Tuning Data `data/dagger.json`:** `count 3`, `speed ≈18` (m/s), `gravity 9.8`, `loft ≈4` (deg), `radius ≈0.04` (sweep padding), `maxTicks ≈90`, `damage 5`, `slowFactor 0.05`, `slowTicks 180`, `throwWalkFactor 1`, `blockImpact ≈0.3`.
 
 ### Calls made while writing this plan (cheap to change; flag in review)
 - Daggers pass through teammates. Friendly fire from a ranged weapon in a 3v3 brawl felt more frustrating than interesting.

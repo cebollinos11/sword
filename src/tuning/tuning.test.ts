@@ -99,7 +99,7 @@ describe('Tuning Data', () => {
 
   it('loads the Dagger Tuning Data and its Throw Motion, and rejects bad Dagger data', () => {
     const t = loadTuningData();
-    expect(t.dagger).toEqual({ count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 });
+    expect(t.dagger).toEqual({ count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.05, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 });
     expect(t.motions.Throw!.markers.windUpEnd).toBeLessThan(t.motions.Throw!.markers.releaseEnd!);
     const good = goodRaw();
     expect(() => parseTuningData({ ...good, dagger: undefined })).toThrow(/dagger/);

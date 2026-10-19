@@ -6,7 +6,7 @@
   "radius": 0.04,
   "maxTicks": 90,
   "damage": 5,
-  "slowFactor": 0.6,
+  "slowFactor": 0.05,
   "slowTicks": 180,
   "throwWalkFactor": 1,
   "maxHoldTicks": 120,
