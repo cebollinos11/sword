@@ -78,7 +78,9 @@ export class Hud {
     this.banner.className = 'hud-banner';
     this.stats.className = 'hud-stats';
     this.crosshair.className = 'hud-crosshair';
-    this.root.append(this.top, this.banner, this.stats, this.crosshair, this.menu);
+    const bars = [document.createElement('div'), document.createElement('div')];
+    bars.forEach((bar, i) => (bar.className = `hud-letterbox hud-letterbox-${i}`));
+    this.root.append(...bars, this.top, this.banner, this.stats, this.crosshair, this.menu);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -90,6 +92,11 @@ export class Hud {
 
   hide(): void {
     this.root.hidden = true;
+  }
+
+  /** Letterbox the view and hide the bars and crosshair (the Final Blow Shot), or show them again. */
+  cinematic(on: boolean): void {
+    this.root.classList.toggle('hud-cinematic', on);
   }
 
   /** Show a message in the middle of the screen for `seconds` (wall clock, cosmetic only). */

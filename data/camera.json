@@ -5,5 +5,11 @@
   "ahead": 2.45,
   "lookHeight": 1.3499999999999999,
   "orbitDistance": 7,
-  "orbitHeight": 5
+  "orbitHeight": 5,
+  "finalBlowLead": 0.35,
+  "finalBlowTail": 0.55,
+  "finalBlowSpeed": 0.3,
+  "finalBlowDistance": 3.4,
+  "finalBlowHeight": 1.6,
+  "finalBlowSpin": 0.35
 }

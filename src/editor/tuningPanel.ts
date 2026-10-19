@@ -163,6 +163,13 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     const orbit = f.addFolder({ title: 'Orbit (after a fall)' });
     on(orbit.addBinding(c, 'orbitDistance', { min: 1, max: 20, step: 0.1, label: 'distance (m)' }));
     on(orbit.addBinding(c, 'orbitHeight', { min: 0.5, max: 15, step: 0.1, label: 'height (m)' }));
+    const shot = f.addFolder({ title: 'Final Blow Shot' });
+    on(shot.addBinding(c, 'finalBlowLead', { min: 0, max: 1.5, step: 0.05, label: 'lead (s)' }));
+    on(shot.addBinding(c, 'finalBlowTail', { min: 0.05, max: 2, step: 0.05, label: 'tail (s)' }));
+    on(shot.addBinding(c, 'finalBlowSpeed', { min: 0.05, max: 1, step: 0.05, label: 'speed (× real time)' }));
+    on(shot.addBinding(c, 'finalBlowDistance', { min: 1, max: 10, step: 0.1, label: 'distance (m)' }));
+    on(shot.addBinding(c, 'finalBlowHeight', { min: 0, max: 6, step: 0.1, label: 'height (m)' }));
+    on(shot.addBinding(c, 'finalBlowSpin', { min: -2, max: 2, step: 0.05, label: 'spin (rad/s)' }));
   });
 
   root.addBinding(ui, 'status', { readonly: true, label: 'status', multiline: true, rows: 2 });

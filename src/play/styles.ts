@@ -35,6 +35,12 @@ const CSS = `
 @media (pointer: fine) { .hud-menu { top: 0.6rem; bottom: auto; left: auto; right: 0.6rem; transform: none; width: 2rem; height: 2rem; font-size: 0.95rem; } .hud-stats { right: 3rem; } }
 .hud-crosshair { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%;
   background: #fffe; box-shadow: 0 0 0 1px #0008; }
+.hud-letterbox { position: absolute; left: 0; right: 0; height: 11vh; background: #000; transform: scaleY(0); transition: transform 350ms ease-out; }
+.hud-letterbox-0 { top: 0; transform-origin: top; }
+.hud-letterbox-1 { bottom: 0; transform-origin: bottom; }
+.hud-cinematic .hud-letterbox { transform: scaleY(1); }
+.hud-top, .hud-crosshair { transition: opacity 250ms; }
+.hud-cinematic .hud-top, .hud-cinematic .hud-crosshair { opacity: 0; }
 .touch { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   font-family: system-ui, sans-serif; color: #fff; --pad: clamp(84px, 24vmin, 132px); --edge: max(18px, env(safe-area-inset-right));
   --base: max(18px, env(safe-area-inset-bottom)); }

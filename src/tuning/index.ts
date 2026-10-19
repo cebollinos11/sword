@@ -180,6 +180,18 @@ export interface CameraTuning {
   readonly orbitDistance: number;
   /** Orbit camera: height (m) above the floor. */
   readonly orbitHeight: number;
+  /** Final Blow Shot: seconds of the Duel shown before the last Fighter falls... */
+  readonly finalBlowLead: number;
+  /** ...and after it. */
+  readonly finalBlowTail: number;
+  /** Final Blow Shot: how fast the Duel plays (1 = real time). */
+  readonly finalBlowSpeed: number;
+  /** Final Blow Shot: the camera's distance (m) from the fallen Fighter... */
+  readonly finalBlowDistance: number;
+  /** ...its height (m) above the floor there... */
+  readonly finalBlowHeight: number;
+  /** ...and how fast it spins around it (radians per second, + anticlockwise seen from above). */
+  readonly finalBlowSpin: number;
 }
 
 /** How a Match is paced. */
@@ -554,6 +566,12 @@ export function parseTuningData(raw: unknown): TuningData {
       lookHeight: finiteNumber(cam, 'lookHeight', 'camera'),
       orbitDistance: positiveNumber(cam, 'orbitDistance', 'camera'),
       orbitHeight: positiveNumber(cam, 'orbitHeight', 'camera'),
+      finalBlowLead: finiteNumber(cam, 'finalBlowLead', 'camera'),
+      finalBlowTail: positiveNumber(cam, 'finalBlowTail', 'camera'),
+      finalBlowSpeed: positiveNumber(cam, 'finalBlowSpeed', 'camera'),
+      finalBlowDistance: positiveNumber(cam, 'finalBlowDistance', 'camera'),
+      finalBlowHeight: finiteNumber(cam, 'finalBlowHeight', 'camera'),
+      finalBlowSpin: finiteNumber(cam, 'finalBlowSpin', 'camera'),
     },
     motions,
     motionOverrides,

@@ -11,6 +11,8 @@ const eyeAt = new THREE.Vector3();
 
 /** The lowest the third-person camera may sink (m above the feet) when looking up. */
 const MIN_CAMERA_HEIGHT = 0.3;
+/** The Final Blow Shot looks at this height (m) above the fallen Fighter's feet: between standing and lying. */
+const SHOT_LOOK_HEIGHT = 0.8;
 
 /**
  * Third-person camera: over the right shoulder of the Fighter at `position`,
@@ -47,6 +49,25 @@ export function placeThirdPersonCamera(
   if (collider) collider.pull(pivot.set(position.x + rx * shoulder * 0.5, y + lookHeight, position.z + rz * shoulder * 0.5), eyeAt);
   camera.position.copy(eyeAt);
   camera.lookAt(position.x + fx * look.forward + rx * shoulder * 0.5, y + lookHeight + look.up, position.z + fz * look.forward + rz * shoulder * 0.5);
+}
+
+/**
+ * Final Blow Shot camera: `distance` back from `centre` and `height` above its floor,
+ * looking along `yaw` at the fallen Fighter's middle, close and low enough to see the blow land.
+ */
+export function placeShotCamera(
+  camera: THREE.PerspectiveCamera,
+  centre: CameraTarget,
+  yaw: number,
+  distance: number,
+  height: number,
+  collider?: CameraCollider,
+): void {
+  const y = centre.y ?? 0;
+  eyeAt.set(centre.x - Math.sin(yaw) * distance, y + height, centre.z - Math.cos(yaw) * distance);
+  if (collider) collider.pull(pivot.set(centre.x, y + SHOT_LOOK_HEIGHT, centre.z), eyeAt);
+  camera.position.copy(eyeAt);
+  camera.lookAt(centre.x, y + SHOT_LOOK_HEIGHT, centre.z);
 }
 
 /**

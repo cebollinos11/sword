@@ -1,7 +1,7 @@
 import { createMatch, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
-import { placeOrbitCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
+import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { playerVsAi, type MatchDriver } from './play/driver';
@@ -10,6 +10,7 @@ import { bindTouchInput, isTouchDevice } from './play/touch';
 import { Hud } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
+import { FinalBlowShot } from './play/finalBlow';
 import { pickableArenas } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
@@ -130,6 +131,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let resultAt: number | null = null;
   let resultText = '';
   let announcer = new MatchAnnouncer();
+  /** The slow-motion replay of each Duel's final blow; while it plays, audio and impacts follow it rather than the live Match. */
+  const finalBlow = new FinalBlowShot(tuning.camera);
+  let inShot = false;
 
   /** The Lobby the player is in (a Skirmish's, or a Room's), if any. */
   let lobby: Lobby | null = null;
@@ -347,6 +351,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       renderer.recast();
       local.releaseAll();
       announcer = new MatchAnnouncer();
+      endShot();
+      finalBlow.stop();
       resultAt = null;
       hud.show();
       const start = d.state;
@@ -370,6 +376,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     driver = null;
     playing = 0;
     resultAt = null;
+    endShot();
+    finalBlow.stop();
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -418,6 +426,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     pausedAt = performance.now();
     openPause();
   });
+
+  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. */
+  function endShot(): void {
+    if (!inShot) return;
+    inShot = false;
+    hud.cinematic(false);
+    audio.seek(curr.tick);
+    renderer.impacts.seek(curr.tick);
+  }
 
   function aimAtDuelStart(match: MatchState): void {
     if (!driver) return;
@@ -491,7 +508,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   setInterval(() => lobby?.pump(performance.now()), LOBBY_PUMP_MS);
 
   function frame(now: number): void {
-    accumulator += Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
+    const elapsed = Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
+    accumulator += elapsed;
     last = now;
     // A Skirmish pauses with its menu open; an online Match runs on (the other players are still fighting).
     const frozen = menu.paused && !lobby?.online;
@@ -507,8 +525,17 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
       curr = d.state;
-      audio.onMatchTick(curr);
-      renderer.impacts.onTick(curr.tick, curr.duel);
+      if (finalBlow.record(curr, local.yaw) && !inShot) {
+        // The last Fighter of a Team fell: cut to the Final Blow Shot, which replays from a moment before.
+        inShot = true;
+        hud.cinematic(true);
+        audio.seek(finalBlow.startTick!);
+        renderer.impacts.seek(finalBlow.startTick!);
+      }
+      if (!inShot) {
+        audio.onMatchTick(curr);
+        renderer.impacts.onTick(curr.tick, curr.duel);
+      }
       present(curr, d.localFighter);
     }
     if (frozen) accumulator = 0;
@@ -516,7 +543,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const notice = driver?.takeNotice?.();
     if (notice) hud.announce(notice, 3);
     if (!driver) accumulator = 0;
-    if (resultAt !== null && now >= resultAt) {
+    if (resultAt !== null && now >= resultAt && !inShot) {
       resultAt = null;
       const l = lobby;
       stopMatch();
@@ -532,13 +559,25 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const before: SimState = prev.duelNumber === curr.duelNumber ? prev.duel : curr.duel;
       const me = driver.localFighter;
       const yaw = local.yaw;
-      // Fallen while the team fights on: orbit the fight instead of staring at the floor.
-      if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
-        placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
-      else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+      const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
+      if (inShot && !shot) endShot();
       renderer.setPlayer(me, menu.body);
       renderer.setChosenBodies(fighterBodies(driver.lineup, bodies));
-      renderer.render(before, curr.duel, alpha);
+      if (shot) {
+        for (const m of shot.reached) {
+          audio.onMatchTick(m);
+          renderer.impacts.onTick(m.tick, m.duel);
+        }
+        const { camera } = tuning;
+        placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
+        renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
+      } else {
+        // Fallen while the team fights on: orbit the fight instead of staring at the floor.
+        if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
+          placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
+        else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+        renderer.render(before, curr.duel, alpha);
+      }
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names });
     } else {
       const { match, me, bodies: chosen } = previewMatch();

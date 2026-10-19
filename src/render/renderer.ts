@@ -70,8 +70,11 @@ export class Renderer {
     this.views.length = 0;
   }
 
-  /** Draw a frame between Tick `prev` and Tick `curr`; `alpha` in [0, 1]. Each Fighter wears its team's colour. */
-  render(prev: SimState, curr: SimState, alpha: number): void {
+  /**
+   * Draw a frame between Tick `prev` and Tick `curr`; `alpha` in [0, 1]. Each Fighter wears its team's colour.
+   * `timeScale` slows the effects that run on wall time (sparks, spinning daggers) to match a slowed-down replay.
+   */
+  render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
     this.stage.setArena(curr.arena);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
     const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, this.tuning));
@@ -94,8 +97,9 @@ export class Renderer {
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const now = performance.now();
-    this.daggers.update(prev, curr, alpha, (now - this.lastDraw) / 1000, poses);
-    this.impacts.update((now - this.lastDraw) / 1000);
+    const seconds = ((now - this.lastDraw) / 1000) * timeScale;
+    this.daggers.update(prev, curr, alpha, seconds, poses);
+    this.impacts.update(seconds);
     this.lastDraw = now;
     this.stage.draw();
   }
