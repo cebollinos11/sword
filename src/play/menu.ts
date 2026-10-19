@@ -23,6 +23,8 @@ export interface MenuHandlers {
   onBackToLobby(): void;
   /** In game: stop playing and leave (the Room too) for the title screen. */
   onQuit(): void;
+  /** PlayStation resolution turned on or off (see Menu.ps1). */
+  onPs1(on: boolean): void;
 }
 
 /** A Room this player hosts: what to show others so they can join. */
@@ -36,6 +38,7 @@ type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lob
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
 const NAME_STORAGE_KEY = 'sword.name';
+const PS1_STORAGE_KEY = 'sword.ps1';
 
 function stored(key: string): string | null {
   try {
@@ -140,6 +143,8 @@ export class Menu {
   body: BodyModelName = storedBody();
   /** Your name in Rooms. */
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
+  /** Draw the game at PlayStation resolution (240 lines, the screen's aspect ratio kept). */
+  ps1: boolean = stored(PS1_STORAGE_KEY) === '1';
   /** The broker URL as typed (blank = the public PeerJS broker). */
   broker: string = storedBroker();
 
@@ -303,6 +308,18 @@ export class Menu {
     return b;
   }
 
+  /** Toggles PlayStation resolution; stays on this screen. */
+  private ps1Item(): HTMLButtonElement {
+    const b = this.navItem(`PS1 Resolution: ${this.ps1 ? 'On' : 'Off'}`, 'Play in 240 chunky lines, at your screen\'s shape', () => {
+      this.ps1 = !this.ps1;
+      store(PS1_STORAGE_KEY, this.ps1 ? '1' : null);
+      this.handlers.onPs1(this.ps1);
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(this.ps1));
+    return b;
+  }
+
   private backButton(label = 'Back', onClick = () => this.back()): HTMLButtonElement {
     return button('back-button ghost', `‹ ${label}`, onClick);
   }
@@ -328,6 +345,7 @@ export class Menu {
       this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
+      this.ps1Item(),
       editor,
     );
     const you = button('you-chip', '', () => this.open('settings'));
@@ -550,6 +568,7 @@ export class Menu {
     if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
+    nav.append(this.ps1Item());
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
     const leave = !online ? 'Quit to title' : host ? 'Close Room' : 'Leave Room';
     nav.append(this.navItem(leave, online ? 'Everyone else is told you left' : 'Leave this Skirmish', () => this.handlers.onQuit(), 'danger'));

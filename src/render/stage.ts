@@ -16,6 +16,8 @@ const PIXEL_RATIO_STEP = 0.5;
 /** Frames averaged before judging, and the average frame time (ms) above which it steps down (about 45 fps). */
 const ADAPT_FRAMES = 90;
 const SLOW_FRAME_MS = 22;
+/** PlayStation resolution: the picture is drawn this many lines tall (as wide as the screen's aspect ratio makes it) and scaled up in hard-edged pixels. */
+const PS1_LINES = 240;
 
 /** One lamp of a model, by name prefix: its brightness (candela), how far it reaches (m) and its colour. */
 interface Lamp {
@@ -154,6 +156,8 @@ export class Stage {
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
   private animate: ((seconds: number) => void) | undefined;
   private pixelRatio: number;
+  /** Drawn at PlayStation resolution (see setPs1). */
+  private ps1 = false;
   private lastFrame = 0;
   private slowTime = 0;
   private slowFrames = 0;
@@ -165,7 +169,6 @@ export class Stage {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     // Fill rate is the cost here (per-pixel lights): a 2x display would shade four times the pixels for little visible gain.
     this.pixelRatio = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
-    this.renderer.setPixelRatio(this.pixelRatio);
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, 200);
@@ -200,9 +203,18 @@ export class Stage {
     this.collider = new CameraCollider(geometry);
   }
 
+  /** Draw at PlayStation resolution (PS1_LINES tall, the screen's aspect ratio kept) or the usual one. */
+  setPs1(on: boolean): void {
+    if (on === this.ps1) return;
+    this.ps1 = on;
+    this.canvas.style.imageRendering = on ? 'pixelated' : '';
+    this.resize();
+  }
+
   resize(): void {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
+    this.renderer.setPixelRatio(this.ps1 ? PS1_LINES / h : this.pixelRatio);
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     // A tall (portrait) screen keeps at least MIN_HORIZONTAL_FOV across, so the opponent stays in view.
@@ -222,12 +234,11 @@ export class Stage {
     const now = performance.now();
     const dt = now - this.lastFrame;
     this.lastFrame = now;
-    if (dt > 250 || this.pixelRatio <= MIN_PIXEL_RATIO) return;
+    if (dt > 250 || this.ps1 || this.pixelRatio <= MIN_PIXEL_RATIO) return;
     this.slowTime += dt;
     if (++this.slowFrames < ADAPT_FRAMES) return;
     if (this.slowTime / this.slowFrames > SLOW_FRAME_MS) {
       this.pixelRatio = Math.max(MIN_PIXEL_RATIO, this.pixelRatio - PIXEL_RATIO_STEP);
-      this.renderer.setPixelRatio(this.pixelRatio);
       this.resize();
     }
     this.slowTime = this.slowFrames = 0;

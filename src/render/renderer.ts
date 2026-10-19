@@ -46,6 +46,11 @@ export class Renderer {
     return this.stage.canvas;
   }
 
+  /** Draw at PlayStation resolution (the screen's aspect ratio kept), or the usual one. */
+  setPs1(on: boolean): void {
+    this.stage.setPs1(on);
+  }
+
   /** Keeps the camera inside the Arena last drawn. */
   get collider(): CameraCollider {
     return this.stage.collider;

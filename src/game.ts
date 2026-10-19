@@ -185,7 +185,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       leave();
       menu.showTitle();
     },
+    onPs1(on) {
+      renderer.setPs1(on);
+    },
   });
+  renderer.setPs1(menu.ps1);
 
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
