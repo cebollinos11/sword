@@ -56,6 +56,31 @@ describe('SimAudio', () => {
     }
     expect(m.status).toMatchObject({ status: 'Over', winner: 0 });
     expect(player.played.filter((s) => s === 'Hit')).toHaveLength(2);
+    // Each Duel is heralded (the first though the Match raised no event for it) and each blow that ends one is a Death;
+    // the Duel that wins the Match ends on the fanfare, not the gong.
+    expect(player.played.filter((s) => ['DuelStart', 'DuelEnd', 'MatchEnd', 'Death'].includes(s))).toEqual([
+      'DuelStart',
+      'Death',
+      'DuelEnd',
+      'DuelStart',
+      'Death',
+      'MatchEnd',
+    ]);
+  });
+
+  it('hears what changed between the Ticks it plays, but not across a jump', () => {
+    const player = recorder();
+    const audio = new SimAudio(player);
+    const run = runDuel(withWeapon(tuning, { damage: 10_000 }), { distance: 1.2, a: attack('Overhead'), b: [] });
+    const fell = run.states.findIndex((s) => s.fighters[1]!.death);
+    for (const s of run.states.slice(1)) audio.onTick(s.tick, s.events, s);
+    expect(player.played.filter((s) => s === 'Death')).toHaveLength(1);
+
+    const again = recorder();
+    const jumped = new SimAudio(again);
+    jumped.seek(fell - 1);
+    jumped.onTick(fell, run.states[fell]!.events, run.states[fell]);
+    expect(again.played).not.toContain('Death');
   });
 
   it('is silent while muted', () => {

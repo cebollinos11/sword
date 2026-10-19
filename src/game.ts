@@ -436,6 +436,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (!inShot) return;
     inShot = false;
     hud.cinematic(false);
+    audio.setSpeed(1);
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
   }
@@ -534,6 +535,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         inShot = true;
         hud.cinematic(true);
         audio.seek(finalBlow.startTick!);
+        audio.setSpeed(tuning.camera.finalBlowSpeed);
         renderer.impacts.seek(finalBlow.startTick!);
       }
       if (!inShot) {

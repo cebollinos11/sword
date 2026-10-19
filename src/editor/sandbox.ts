@@ -356,7 +356,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const impacts = new ImpactEffects(stage.scene, tuning);
   let heard = ui.tick;
   const hear = (t: number) => {
-    audio.onTick(t, run.duel(t).events);
+    audio.onTick(t, run.duel(t).events, run.duel(t));
     impacts.onTick(t, run.duel(t));
     heard = t;
   };
@@ -492,6 +492,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   let drawn = last;
   function frame(now: number): void {
     if (ui.playing) accumulator += Math.min((now - last) / 1000, 0.25) * ui.speed;
+    audio.setSpeed(ui.speed);
     last = now;
     while (accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
