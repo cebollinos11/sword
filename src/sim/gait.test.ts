@@ -126,7 +126,7 @@ describe('Gait: stepping', () => {
       expect(landed.y).toBeCloseTo(ANKLE, 9);
       expect(landed.x).toBeCloseTo(e.position.x, 9);
       expect(landed.z).toBeCloseTo(e.position.z, 9);
-      const peak = Math.max(...Array.from({ length: STEP_TICKS }, (_, k) => ankle(run, e.tick - 1 - k, e.foot).y));
+      const peak = Math.max(...Array.from({ length: STEP_TICKS }, (_, k) => e.tick - 1 - k).filter((t) => t >= 0).map((t) => ankle(run, t, e.foot).y));
       expect(peak).toBeGreaterThan(ANKLE + tuning.gait.stepHeight / 2);
     }
   });
@@ -143,7 +143,7 @@ describe('Gait: whatever moves the body', () => {
   it('a Fighter pushed by its opponent steps', () => {
     const run = runDuel(tuning, { distance: 2, a: walk(120, { x: 0, z: 1 }), b: wait(120), ticks: 120 });
     expect(run.final.fighters[1]!.position.z).toBeGreaterThan(1.5);
-    expect(steps(run, 1).length).toBeGreaterThan(4);
+    expect(steps(run, 1).length).toBeGreaterThan(3);
     expectPlantedFeetFixed(run, 0, 120, 1);
   });
 
@@ -278,7 +278,8 @@ describe('Gait: the hips carry the walk', () => {
   });
 
   it('a stride longer than the legs reach sinks the pelvis just enough that the planted foot stays on the floor', () => {
-    const t = { ...tuning, gait: { ...tuning.gait, hipBob: 0, hipSway: 0 } };
+    // Legs that only just reach the floor from the Motion's hips, so every stride is out of their reach.
+    const t = { ...tuning, skeleton: { ...tuning.skeleton, thigh: 0.45, shin: 0.45 }, gait: { ...tuning.gait, hipBob: 0, hipSway: 0 } };
     const run = runDuel(t, { ...lone, a: walk(120, { x: 0, z: 1 }), ticks: 120 });
     expect(run.states.some((s) => pelvis(t, run, s.tick).y < motionPelvis(t, run, s.tick).y - 0.01)).toBe(true);
     expectPlantedFeetFixed(run, 0, 120);
@@ -389,23 +390,138 @@ describe('Gait determinism', () => {
   });
 });
 
-describe('Gait: stride follows speed', () => {
-  /** Steps per second and metres per step over a steady walk at `speed` (0..1 of walk speed). */
-  const pace = (speed: number) => {
-    const run = runDuel(tuning, { ...lone, a: walk(180, { x: 0, z: speed }), ticks: 180 });
-    const late = steps(run).filter((e) => e.tick > 60);
+describe('Gait: paced like a person', () => {
+  /** Fighter 0 with a clear path forward (Fighter 1 parked off to the side, behind it). */
+  const open = { placements: [{ position: { x: 0, z: -5 }, facing: 0 }, { position: { x: 6, z: -6 }, facing: Math.PI }] };
+  const walkAt = (t: typeof tuning, speed: number) => runDuel(t, { ...open, a: walk(150, { x: 0, z: speed }), ticks: 150 });
+  /** Over a steady walk: steps per second, metres per step and the share of Ticks with both feet down. */
+  const pace = (run: ScriptRun) => {
+    const late = steps(run).filter((e) => e.tick > 40);
     const perStep = (late[late.length - 1]!.tick - late[0]!.tick) / (late.length - 1);
     const [a, b] = [run.states[late[0]!.tick]!.fighters[0]!.position, run.states[late[late.length - 1]!.tick]!.fighters[0]!.position];
-    return { cadence: 60 / perStep, length: Math.hypot(b.x - a.x, b.z - a.z) / (late.length - 1) };
+    const ticks = run.states.slice(41);
+    const bothDown = ticks.filter((s) => FEET.every((foot) => !lifted(ankle(run, s.tick, foot)))).length / ticks.length;
+    return { cadence: 60 / perStep, length: Math.hypot(b.x - a.x, b.z - a.z) / (late.length - 1), bothDown };
   };
 
-  it('a faster walk takes longer strides, not just quicker ones', () => {
-    const [slow, fast] = [pace(0.4), pace(1)];
+  it('a faster walk takes longer strides and quicker steps', () => {
+    const [slow, fast] = [pace(walkAt(tuning, 0.3)), pace(walkAt(tuning, 1))];
     expect(fast.length).toBeGreaterThan(slow.length * 1.5);
-    expect(fast.cadence).toBeLessThan(slow.cadence * 1.5);
+    expect(fast.cadence).toBeGreaterThan(slow.cadence * 1.2);
   });
 
   it('a full-speed walk steps no faster than once per step duration', () => {
-    expect(pace(1).cadence).toBeLessThanOrEqual(1 / tuning.gait.stepDuration + 1e-9);
+    expect(pace(walkAt(tuning, 1)).cadence).toBeLessThanOrEqual(1 / tuning.gait.stepDuration + 1e-9);
+  });
+
+  it('a slow walk keeps both feet down between steps, a full-speed one hardly ever', () => {
+    expect(pace(walkAt(tuning, 0.3)).bothDown).toBeGreaterThan(0.3);
+    expect(pace(walkAt(tuning, 1)).bothDown).toBeLessThan(0.15); // only the Tick one foot lands and the other lifts
+  });
+
+  it('the first step off a standstill is a quick one, and the pelvis never has to sink far for it', () => {
+    for (const move of Object.values(DIRECTIONS)) {
+      const run = runDuel(tuning, { ...lone, a: walk(40, move), ticks: 40 });
+      expect(steps(run)[0]!.tick).toBeLessThan(STEP_TICKS);
+      for (const s of run.states) expect(fighterPose(s.fighters[0]!, tuning).joints.pelvis.y, `Tick ${s.tick}`).toBeGreaterThan(homeAnkle(run, s.tick, 'left').y + 0.75);
+    }
+  });
+
+  /** Where each foot lands front to back, relative to the body, averaged over a steady walk: the stance's stagger. */
+  const stagger = (t: typeof tuning, speed: number) => {
+    const run = walkAt(t, speed);
+    const late = steps(run).filter((e) => e.tick > 40);
+    const mean = (foot: Foot) => {
+      const own = late.filter((e) => e.foot === foot);
+      return own.reduce((sum, e) => sum + e.position.z - run.states[e.tick]!.fighters[0]!.position.z, 0) / own.length;
+    };
+    return Math.abs(mean('left') - mean('right'));
+  };
+
+  it("walking forward draws the stance's front-to-back stagger in under the hips, the more the faster", () => {
+    const keep = { ...tuning, gait: { ...tuning.gait, squareUp: 0 } };
+    expect(stagger(tuning, 1)).toBeLessThan(stagger(keep, 1) / 2);
+    expect(stagger(tuning, 1)).toBeLessThan(stagger(tuning, 0.3));
+  });
+});
+
+describe('Gait: the foot rolls', () => {
+  const run = runDuel(tuning, { ...lone, a: walk(60, { x: 0, z: -1 }), ticks: 60 });
+  /** The foot's pitch (degrees, + toe up) on a Tick, measured against its planted pitch. */
+  const pitch = (r: ScriptRun, t: number, foot: Foot, tn = tuning) => {
+    const j = fighterPose(r.states[t]!.fighters[0]!, tn).joints;
+    const [a, toe] = foot === 'left' ? [j.leftAnkle, j.leftToe] : [j.rightAnkle, j.rightToe];
+    const flat = Math.atan2(-ANKLE, Math.hypot(toe.x - a.x, toe.z - a.z));
+    return ((Math.atan2(toe.y - a.y, Math.hypot(toe.x - a.x, toe.z - a.z)) - flat) * 180) / Math.PI;
+  };
+  const midSteps = (r: ScriptRun) => steps(r).filter((e) => e.tick > 20);
+
+  it('a planted foot is flat on the floor', () => {
+    for (let t = 0; t <= 60; t++)
+      for (const foot of FEET) if (!lifted(ankle(run, t, foot))) expect(Math.abs(pitch(run, t, foot)), `${foot} at Tick ${t}`).toBeLessThan(1e-6);
+  });
+
+  it('stepping back, the foot lifts heel first and lands toes first; stepping forward the reverse', () => {
+    const forward = runDuel(tuning, { ...lone, a: walk(60, { x: 0, z: 1 }), ticks: 60 });
+    for (const [r, sign] of [[forward, 1], [run, -1]] as const) {
+      for (const e of midSteps(r)) {
+        const early = e.tick - Math.round((STEP_TICKS * 3) / 4); // a quarter into a full step
+        const late = e.tick - Math.round(STEP_TICKS / 4); // three quarters in
+        expect(sign * pitch(r, early, e.foot), `toe-off, Step at ${e.tick}`).toBeLessThan(-tuning.gait.toeRoll / 2);
+        expect(sign * pitch(r, late, e.foot), `heel strike, Step at ${e.tick}`).toBeGreaterThan(tuning.gait.toeRoll / 2);
+      }
+    }
+  });
+
+  it('the toes never dip below the floor, and with no toe roll the feet stay flat', () => {
+    for (let t = 0; t <= 60; t++) {
+      const j = fighterPose(run.states[t]!.fighters[0]!, tuning).joints;
+      expect(Math.min(j.leftToe.y, j.rightToe.y), `Tick ${t}`).toBeGreaterThanOrEqual(-1e-9);
+    }
+    const flatFeet = { ...tuning, gait: { ...tuning.gait, toeRoll: 0 } };
+    const r = runDuel(flatFeet, { ...lone, a: walk(60, { x: 0, z: -1 }), ticks: 60 });
+    for (let t = 0; t <= 60; t++) for (const foot of FEET) expect(Math.abs(pitch(r, t, foot, flatFeet)), `${foot} at Tick ${t}`).toBeLessThan(1e-6);
+  });
+});
+
+describe('Gait: the hips turn with the stride', () => {
+  /** How far (degrees) the pelvis is turned on a Tick, + with the right hip forward of the left (Fighter-local). */
+  const hipTurn = (t: typeof tuning, r: ScriptRun, tick: number) => {
+    const f = r.states[tick]!.fighters[0]!;
+    const j = fighterPose(f, t).joints;
+    const forward = { x: Math.sin(f.facing), z: Math.cos(f.facing) };
+    const right = { x: -Math.cos(f.facing), z: Math.sin(f.facing) };
+    const d = { x: j.rightHip.x - j.leftHip.x, z: j.rightHip.z - j.leftHip.z };
+    return (Math.atan2(d.x * forward.x + d.z * forward.z, d.x * right.x + d.z * right.z) * 180) / Math.PI;
+  };
+  /** How far forward (m, Fighter-local) the right foot is of the left, beyond where the Motion puts them. */
+  const rightAhead = (r: ScriptRun, tick: number) => {
+    const f = r.states[tick]!.fighters[0]!;
+    const forward = { x: Math.sin(f.facing), z: Math.cos(f.facing) };
+    const along = (p: Vec3) => p.x * forward.x + p.z * forward.z;
+    const gap = (foot: Foot) => along(ankle(r, tick, foot)) - along(homeAnkle(r, tick, foot));
+    return gap('right') - gap('left');
+  };
+
+  it('the pelvis turns toward whichever foot is forward, by up to the hip twist', () => {
+    const run = runDuel(tuning, { ...lone, a: walk(90, { x: 0.3, z: -1 }), ticks: 90 });
+    let turned = 0;
+    for (let t = 20; t <= 90; t++) {
+      const [turn, ahead] = [hipTurn(tuning, run, t), rightAhead(run, t)];
+      expect(Math.abs(turn), `Tick ${t}`).toBeLessThanOrEqual(tuning.gait.hipTwist + 1e-6);
+      if (Math.abs(ahead) > 0.2) {
+        expect(Math.sign(turn), `Tick ${t}`).toBe(Math.sign(ahead));
+        turned++;
+      }
+    }
+    expect(turned).toBeGreaterThan(10);
+  });
+
+  it('standing, or with no hip twist, the pelvis is square', () => {
+    const still = runDuel(tuning, { ...lone, a: wait(60), ticks: 60 });
+    for (const s of still.states) expect(Math.abs(hipTurn(tuning, still, s.tick)), `Tick ${s.tick}`).toBeLessThan(1e-9);
+    const square = { ...tuning, gait: { ...tuning.gait, hipTwist: 0 } };
+    const run = runDuel(square, { ...lone, a: walk(60, { x: 0, z: 1 }), ticks: 60 });
+    for (const s of run.states) expect(Math.abs(hipTurn(square, run, s.tick)), `Tick ${s.tick}`).toBeLessThan(1e-9);
   });
 });

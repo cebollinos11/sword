@@ -1,8 +1,12 @@
 {
   "strideThreshold": 0.2,
+  "strideLength": 0.6,
+  "squareUp": 0.8,
   "maxLead": 0.35,
   "stepDuration": 0.25,
   "stepHeight": 0.1,
   "hipBob": 0.03,
-  "hipSway": 0.025
+  "hipSway": 0.025,
+  "hipTwist": 8,
+  "toeRoll": 25
 }

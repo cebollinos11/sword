@@ -19,7 +19,7 @@ function goodRaw() {
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
-    gait: { strideThreshold: 0.2, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02 },
+    gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5 },
     skeleton: {
       pelvisHeight: 0.95,
@@ -178,10 +178,14 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData(withGait({ hipBob: -0.01 }))).toThrow(/gait\.hipBob/);
     expect(() => parseTuningData(withGait({ hipBob: 1 }))).toThrow(/gait\.hipBob/);
     expect(() => parseTuningData(withGait({ maxLead: -0.1 }))).toThrow(/gait\.maxLead/);
+    expect(() => parseTuningData(withGait({ strideLength: 0 }))).toThrow(/gait\.strideLength/);
+    expect(() => parseTuningData(withGait({ squareUp: 1.5 }))).toThrow(/gait\.squareUp/);
+    expect(() => parseTuningData(withGait({ hipTwist: -1 }))).toThrow(/gait\.hipTwist/);
+    expect(() => parseTuningData(withGait({ toeRoll: 90 }))).toThrow(/gait\.toeRoll/);
     expect(() => parseTuningData(withGait({ hipSway: 'lots' }))).toThrow(/gait\.hipSway/);
     expect(() => parseTuningData(withGait({ hipSway: -0.01 }))).toThrow(/gait\.hipSway/);
     expect(() => parseTuningData(withGait({ hipSway: 1 }))).toThrow(/gait\.hipSway/);
-    expect(parseTuningData(withGait({ hipBob: 0, hipSway: 0 })).gait).toMatchObject({ hipBob: 0, hipSway: 0 });
+    expect(parseTuningData(withGait({ hipBob: 0, hipSway: 0, hipTwist: 0, toeRoll: 0, squareUp: 0 })).gait).toMatchObject({ hipBob: 0, hipSway: 0, hipTwist: 0, toeRoll: 0, squareUp: 0 });
   });
 
   it('requires an Idle Motion and unique Motion names', () => {
