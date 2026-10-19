@@ -87,7 +87,7 @@ describe('Footsteps and floors', () => {
     expect(arenaSurface(undefined)).toBe('stone');
   });
 
-  it('steps, jumps and landings sound on the floor of the Arena', () => {
+  it('jumps and landings sound on the floor of the Arena, and steps are silent', () => {
     const state = { ...createInitialState(tuning, 1, duelPlacements(2)), arena: 'summit' };
     const cues = soundCues(
       [
@@ -98,7 +98,6 @@ describe('Footsteps and floors', () => {
       state,
     );
     expect(cues).toEqual([
-      { sound: 'Step', fighter: 0, surface: 'snow' },
       { sound: 'Jump', fighter: 1, surface: 'snow' },
       { sound: 'Land', fighter: 1, strength: expect.any(Number), surface: 'snow' },
     ]);

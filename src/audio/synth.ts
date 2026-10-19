@@ -1,5 +1,5 @@
 /**
- * The game's sounds, synthesised with WebAudio (no binary assets). Every sound is layered from a
+ * The game's sounds, synthesised with WebAudio. Every synthesised sound is layered from a
  * few primitives (enveloped tones, filtered noise, and the inharmonic ring of struck metal) and
  * varies a little in pitch and colour each time it plays, so repeated blows never sound canned:
  *  - Swing: a whoosh, deeper and longer for a heavier Weapon, panned across the swing's path;
@@ -7,11 +7,12 @@
  *  - Hit: a thud with a cut for a blade's edge, a blunt whack for a shaft, a punch for a Kick;
  *  - Chamber: a double clash and a blade sliding along a blade;
  *  - Feint, Kick, Jump: a flick, a snap and a push of air;
- *  - Knockdown, BodyFall, Land, Step: bodies and feet on the Arena's floor (wood, stone, metal, snow);
+ *  - Knockdown, BodyFall, Land: bodies and feet on the Arena's floor (wood, stone, metal, snow);
  *  - Death: a deep, final boom and a body falling; a hiss in Lava; a splash in Water;
  *  - Throw, Clink, Thunk: a spinning dagger, a dagger turned aside, a dagger stuck;
  *  - WallStrike: a blade knocking on a Wall and ringing;
  *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
+ * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
  * Everything passes through a small room reverb and a compressor. In slow motion (`setSpeed`)
  * sounds deepen and stretch, and the room grows. Browser-only; never imported by the Simulation.
  */
@@ -24,13 +25,13 @@ import type {
   HitCue,
   LandCue,
   SoundCue,
-  StepCue,
   Surface,
   SwingCue,
   ThunkCue,
   WallStrikeCue,
 } from './cues';
 import type { SoundPlayer } from './listener';
+import { STOCK_CLIPS, stockFile, stockFor, type StockClip, type StockPlay } from './stock';
 
 const MASTER_GAIN = 0.55;
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
@@ -108,6 +109,9 @@ export class WebAudioPlayer implements SoundPlayer {
   private dry: GainNode | null = null;
   private reverb: ConvolverNode | null = null;
   private noise: AudioBuffer | null = null;
+  /** Loaded stock clips by file, and the variant of each clip set played last (so it is not played twice running). */
+  private readonly clips = new Map<string, AudioBuffer>();
+  private readonly lastVariant = new Map<StockClip, number>();
   /** How much longer (≥ 1) and deeper (≤ 1) sounds play in slow motion, and how much more of the room is heard. */
   private stretch = 1;
   private deepen = 1;
@@ -132,6 +136,8 @@ export class WebAudioPlayer implements SoundPlayer {
   play(cue: SoundCue): void {
     const ctx = this.context();
     if (!ctx || ctx.state !== 'running') return;
+    const stock = stockFor(cue);
+    if (stock && this.clip(cue, stock)) return;
     switch (cue.sound) {
       case 'Swing':
         return this.swing(cue);
@@ -151,8 +157,6 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.bodyFall(cue);
       case 'Jump':
         return this.jump(cue.surface);
-      case 'Step':
-        return this.step(cue);
       case 'Land':
         return this.land(cue);
       case 'Death':
@@ -199,7 +203,46 @@ export class WebAudioPlayer implements SoundPlayer {
     const data = this.noise.getChannelData(0);
     for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
     this.ctx = ctx;
+    this.loadClips(ctx);
     return ctx;
+  }
+
+  /** Fetch every stock clip once (a few hundred kB); until one arrives its cues are synthesised. */
+  private loadClips(ctx: AudioContext): void {
+    for (const [clip, set] of Object.entries(STOCK_CLIPS) as [StockClip, (typeof STOCK_CLIPS)[StockClip]][]) {
+      for (let n = 0; n < set.count; n++) {
+        const file = stockFile(clip, n);
+        fetch(`${import.meta.env.BASE_URL}${file}`)
+          .then((res) => (res.ok ? res.arrayBuffer() : Promise.reject(new Error(`${file}: ${res.status}`))))
+          .then((data) => ctx.decodeAudioData(data))
+          .then((buffer) => this.clips.set(file, buffer))
+          .catch((err) => console.warn('Stock sound not loaded:', err));
+      }
+    }
+  }
+
+  /** Plays a stock clip for `cue`; false when it has not loaded (the cue is then synthesised). */
+  private clip(cue: SoundCue, s: StockPlay): boolean {
+    const ctx = this.ctx!;
+    const set = STOCK_CLIPS[s.clip];
+    let variant = s.variant;
+    if (variant === undefined) {
+      const last = this.lastVariant.get(s.clip);
+      variant = Math.floor(Math.random() * (set.count - (last === undefined || set.count < 2 ? 0 : 1)));
+      if (last !== undefined && set.count >= 2 && variant >= last) variant++;
+    }
+    const buffer = this.clips.get(stockFile(s.clip, variant));
+    if (!buffer) return false;
+    this.lastVariant.set(s.clip, variant);
+    const rate = s.rate * vary(0.04) * this.deepen;
+    const pan = cue.sound === 'Swing' ? SWING_PAN[cue.direction] : 0;
+    const out = this.bus(s.wet, s.level * set.level, pan, buffer.duration / rate / this.stretch);
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    src.connect(out);
+    src.start(ctx.currentTime + s.at * this.stretch);
+    return true;
   }
 
   /**
@@ -406,11 +449,6 @@ export class WebAudioPlayer implements SoundPlayer {
     const out = this.bus(0.05, 0.6);
     this.footfall(out, surface, 0.6);
     this.hiss(out, { filter: 'bandpass', freq: 500, to: 1100, q: 1, dur: 0.18, peak: 0.3, attack: 0.05 });
-  }
-
-  private step(cue: StepCue): void {
-    const out = this.bus(0.06, 0.16 * vary(0.25), 0);
-    this.footfall(out, cue.surface, 1);
   }
 
   private land(cue: LandCue): void {

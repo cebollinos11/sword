@@ -9,7 +9,7 @@
 import type { DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
 import type { HitZone } from '../tuning';
 
-/** What a floor is made of, for footsteps and landings. */
+/** What a floor is made of, for jumps and landings. */
 export type Surface = 'wood' | 'stone' | 'metal' | 'snow';
 
 /** The swing sound: an Attack entered Release. `weight` is 0 (a light sword) to 1 (a polearm), from the Weapon's length. */
@@ -74,13 +74,6 @@ export interface BodyFallCue {
 /** A Fighter jumped. */
 export interface JumpCue {
   readonly sound: 'Jump';
-  readonly fighter: number;
-  readonly surface: Surface;
-}
-
-/** A foot came down at the end of a step (the Gait). */
-export interface StepCue {
-  readonly sound: 'Step';
   readonly fighter: number;
   readonly surface: Surface;
 }
@@ -154,7 +147,6 @@ export type SoundCue =
   | KnockdownCue
   | BodyFallCue
   | JumpCue
-  | StepCue
   | LandCue
   | DeathCue
   | ThrowCue
@@ -262,9 +254,6 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
         break;
       case 'Jump':
         cues.push({ sound: 'Jump', fighter: e.fighter, surface });
-        break;
-      case 'Step':
-        cues.push({ sound: 'Step', fighter: e.fighter, surface });
         break;
       case 'Land':
         if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: clamp(e.height / FULL_STRENGTH_DROP, 0.15, 1), surface });

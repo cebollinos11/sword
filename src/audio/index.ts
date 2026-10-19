@@ -1,5 +1,5 @@
 /**
- * Audio: listens to Simulation events and plays synthesised sounds. Lives outside the Simulation (ADR 0001); the Simulation never
+ * Audio: listens to Simulation events and plays synthesised sounds and stock clips. Lives outside the Simulation (ADR 0001); the Simulation never
  * imports it.
  */
 import { SimAudio } from './listener';
