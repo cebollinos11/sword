@@ -7,13 +7,15 @@
  * Rules, per Tick, for each foot:
  *   - Its home is the current Motion's foot target at the Fighter's position
  *     and facing. The place it belongs is that home led along the body's
- *     motion this Tick: where the home will be one step from now if the body
- *     keeps moving, at most 80% of the stride threshold ahead. A standing body
- *     has no lead. The lead lands a walking foot ahead of the body, so a foot
- *     stays within the leg's reach until its next step.
- *   - A stepping foot moves from where it lifted to that place (re-evaluated each Tick)
- *     over the step duration, along an arc up to the step height, then lands:
- *     it is planted again and a `Step` event is emitted.
+ *     motion this Tick: where the home will be half a step from now if the
+ *     body keeps moving, at most the max lead ahead. A standing body has no
+ *     lead. So a walking foot lands as far ahead of its home as the body then
+ *     carries it behind before it next lifts: the faster the walk, the longer
+ *     the stride, while the cadence stays near one step per step duration.
+ *   - A stepping foot moves from where it lifted to where it will belong when
+ *     it lands (re-evaluated each Tick, so it holds still in the world while
+ *     the body keeps a steady pace) over the step duration, along an arc up to
+ *     the step height, then lands: it is planted again and a `Step` event is emitted.
  *   - A planted foot stays fixed while the body moves. Once it is more than the
  *     stride threshold from where it belongs it starts a step, but only while
  *     the other foot is planted. When both qualify, the one further off goes
@@ -32,7 +34,8 @@
  * their home under the body, and plant there again on landing.
  *
  * The hips bob and sway with each step (hipShift), swaying toward wherever the
- * planted foot actually is (so Motions with crossed feet sway the right way); the hands and blade still
+ * planted foot actually is (so Motions with crossed feet sway the right way), and sink as
+ * far as a long stride needs to keep both feet within the legs' reach; the hands and blade still
  * come from the Motion, so walking never changes a Blade Sweep.
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
@@ -146,19 +149,39 @@ export function footPose(foot: FootState, tuning: TuningData): FootPose {
   return { ground: lerp2(foot.planted, foot.step.target, k), y: foot.y + (foot.step.y - foot.y) * k, lift: tuning.gait.stepHeight * arc(u) };
 }
 
+/** How much of the leg's full length (thigh + shin) the Gait lets a stride use, so a straddling knee keeps a little bend. */
+const REACH = 0.97;
+
 /**
  * How far the hips are shifted this Tick, for a Fighter at `at` whose Motion
- * puts its hips at `hip` (Fighter-local). While a foot steps, the pelvis dips
- * by the hip bob and shifts sideways toward the planted foot (wherever it is
- * relative to the hips) by the hip sway, both peaking mid-step and zero at
- * lift-off and landing. With both feet planted it is zero.
+ * puts its hips at `hip` and its feet at `home` (Fighter-local). While a foot
+ * steps, the pelvis dips by the hip bob and shifts sideways toward the planted
+ * foot (wherever it is relative to the hips) by the hip sway, both peaking
+ * mid-step and zero at lift-off and landing. On top of that, whenever the Gait
+ * has a foot further from its hip than the leg reaches from the Motion's hip
+ * height, the pelvis sinks until it reaches (only by what the Gait adds: a
+ * Motion's own feet out of reach are left as authored).
  */
-export function hipShift(gait: GaitState, at: Placement, hip: Vec3, tuning: TuningData): HipShift {
+export function hipShift(gait: GaitState, at: Placement, hip: Vec3, home: Record<Foot, Vec2>, tuning: TuningData): HipShift {
   const stepping = FEET.find((foot) => gait[foot].step);
-  if (!stepping) return { sideways: 0, drop: 0 };
-  const h = arc(stepProgress(gait[stepping].step!, tuning));
-  const planted = toLocal(gait[stepping === 'left' ? 'right' : 'left'].planted, at);
-  return { sideways: Math.sign(planted.x - hip.x) * tuning.gait.hipSway * h, drop: tuning.gait.hipBob * h };
+  const h = stepping ? arc(stepProgress(gait[stepping].step!, tuning)) : 0;
+  const planted = stepping && toLocal(gait[stepping === 'left' ? 'right' : 'left'].planted, at);
+  const sideways = planted ? Math.sign(planted.x - hip.x) * tuning.gait.hipSway * h : 0;
+  const bob = tuning.gait.hipBob * h;
+  const { thigh, shin, hipWidth, ankleHeight } = tuning.skeleton;
+  const leg = REACH * (thigh + shin);
+  /** How far the pelvis must sink for a leg to reach a foot `across` (m) away on the floor whose ankle is `rise` (m) above the Fighter's level. */
+  const sink = (across: number, rise: number) => Math.max(0, hip.y - bob - ankleHeight - rise - Math.sqrt(Math.max(0, leg * leg - across * across)));
+  let reach = 0;
+  for (const foot of FEET) {
+    const side = foot === 'left' ? -hipWidth / 2 : hipWidth / 2;
+    const pose = footPose(gait[foot], tuning);
+    const p = toLocal(pose.ground, at);
+    const gaitSink = sink(Math.hypot(p.x - (hip.x + sideways + side), p.z - hip.z), pose.y - (at.y ?? 0) + pose.lift);
+    const motionSink = sink(Math.hypot(home[foot].x - (hip.x + side), home[foot].z - hip.z), 0);
+    reach = Math.max(reach, gaitSink - motionSink);
+  }
+  return { sideways, drop: bob + reach };
 }
 
 /** Wrap a yaw difference into (-π, π]. */
@@ -183,7 +206,9 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;
   const here = footHome(tuning, after.weapon, after.motion, after);
-  const ahead = still ? here : ledFootHome(here, after, body, ticks, tuning);
+  /** Where each foot belongs `inTicks` from now (the body's lead added), or its home while the body stands. */
+  const belongs = (inTicks: number) => (still ? here : ledFootHome(here, after, body, inTicks, tuning));
+  const ahead = belongs(ticks / 2);
 
   const next: Record<Foot, FootState> = { ...before.gait };
   // 1. Stepping feet advance; a foot that reaches the end of its step lands.
@@ -194,7 +219,11 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     if (t >= ticks) {
       next[foot] = { planted: ahead[foot], y: ground(ahead[foot]), step: null };
       emit({ type: 'Step', fighter, foot, position: ahead[foot] });
-    } else next[foot] = { planted: f.planted, y: f.y, step: { tick: t, target: ahead[foot], y: ground(ahead[foot]) } };
+    } else {
+      // Aim where the foot will belong when it lands, so it holds still in the world while the body keeps a steady pace.
+      const target = belongs(ticks - t + ticks / 2)[foot];
+      next[foot] = { planted: f.planted, y: f.y, step: { tick: t, target, y: ground(target) } };
+    }
   }
   // 2. A standing body lets planted feet glide toward their home (at most a stride per step duration).
   if (still) {
@@ -222,7 +251,8 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
         return reach(b) > reach(a) ? b : a;
       };
       const foot = qualifies.reduce(first);
-      next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, target: ahead[foot], y: ground(ahead[foot]) } };
+      const target = belongs(ticks + ticks / 2)[foot];
+      next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, target, y: ground(target) } };
     }
   }
   // 4. A foot the Motion owns is planted where the Motion puts it (a stepping one stops where it is).
@@ -233,16 +263,15 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
 }
 
 /**
- * Each foot's home where the body will be one step from now if it keeps
- * moving as it did this Tick, led at most 80% of the stride threshold ahead of
- * the current home (so a foot that just landed never qualifies straight away).
+ * Each foot's home where the body will be `inTicks` from now if it keeps
+ * moving as it did this Tick, led at most the max lead ahead of the current home.
  */
-function ledFootHome(here: Record<Foot, Vec2>, after: FighterState, body: BodyMotion, ticks: number, tuning: TuningData): Record<Foot, Vec2> {
+function ledFootHome(here: Record<Foot, Vec2>, after: FighterState, body: BodyMotion, inTicks: number, tuning: TuningData): Record<Foot, Vec2> {
   const future = footHome(tuning, after.weapon, after.motion, {
-    position: { x: after.position.x + body.x * ticks, z: after.position.z + body.z * ticks },
-    facing: after.facing + body.yaw * ticks,
+    position: { x: after.position.x + body.x * inTicks, z: after.position.z + body.z * inTicks },
+    facing: after.facing + body.yaw * inTicks,
   });
-  const maxLead = 0.8 * tuning.gait.strideThreshold;
+  const { maxLead } = tuning.gait;
   const led = (foot: Foot): Vec2 => {
     const d = dist(future[foot], here[foot]);
     return d <= maxLead ? future[foot] : lerp2(here[foot], future[foot], maxLead / d);

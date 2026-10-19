@@ -171,7 +171,8 @@ describe('Gait: whatever moves the body', () => {
     const run = runDuel(tuning, { distance: 1.3, a: [...attack('Overhead'), ...wait(hit.tick - 1), ...walk(60, { x: 0, z: 1 })], b: wait(1) });
     const staggered = (t: number) => run.states[t]!.fighters[1]!.action.kind === 'Stagger';
     expect(staggered(hit.tick)).toBe(true);
-    expect(steps(run, 1).filter((e) => staggered(e.tick)).length).toBeGreaterThan(0);
+    const liftedWhileStaggered = run.states.some((s, t) => staggered(t) && FEET.some((foot) => lifted(ankle(run, s.tick, foot, 1))));
+    expect(liftedWhileStaggered).toBe(true);
     // Not pushed, the same Stagger takes no steps.
     const unpushed = runDuel(tuning, { distance: 1.3, a: attack('Overhead'), b: wait(1) });
     expect(steps(unpushed, 1)).toEqual([]);
@@ -205,7 +206,9 @@ describe('Gait never touches the blade', () => {
 });
 
 describe('Gait: the hips carry the walk', () => {
-  const withHips = (hipBob: number, hipSway: number) => ({ ...tuning, gait: { ...tuning.gait, hipBob, hipSway } });
+  /** Legs long enough that no stride is out of reach, so the pelvis never sinks for reach and only bob and sway move it. */
+  const roomy = { ...tuning.skeleton, thigh: 0.7, shin: 0.7 };
+  const withHips = (hipBob: number, hipSway: number) => ({ ...tuning, skeleton: roomy, gait: { ...tuning.gait, hipBob, hipSway } });
   const pelvis = (t: typeof tuning, run: ScriptRun, tick: number) => fighterPose(run.states[tick]!.fighters[0]!, t).joints.pelvis;
   /** The pelvis where the Motion's hip target puts it at the Fighter's position and facing. */
   const motionPelvis = (t: typeof tuning, run: ScriptRun, tick: number) => {
@@ -274,6 +277,17 @@ describe('Gait: the hips carry the walk', () => {
     for (const s of run.states) expect(pelvis(t, run, s.tick), `Tick ${s.tick}`).toEqual(motionPelvis(t, run, s.tick));
   });
 
+  it('a stride longer than the legs reach sinks the pelvis just enough that the planted foot stays on the floor', () => {
+    const t = { ...tuning, gait: { ...tuning.gait, hipBob: 0, hipSway: 0 } };
+    const run = runDuel(t, { ...lone, a: walk(120, { x: 0, z: 1 }), ticks: 120 });
+    expect(run.states.some((s) => pelvis(t, run, s.tick).y < motionPelvis(t, run, s.tick).y - 0.01)).toBe(true);
+    expectPlantedFeetFixed(run, 0, 120);
+    // The same walk on legs that reach every stride never sinks.
+    const long = { ...t, skeleton: roomy };
+    const reaching = runDuel(long, { ...lone, a: walk(120, { x: 0, z: 1 }), ticks: 120 });
+    for (const s of reaching.states) expect(pelvis(long, reaching, s.tick), `Tick ${s.tick}`).toEqual(motionPelvis(long, reaching, s.tick));
+  });
+
   it("with strong hip bob and sway, planted feet still never slide and the blade is still the standing Attack's", () => {
     const t = withHips(0.06, 0.06);
     const run = runDuel(t, { ...lone, a: [...hold(1, { attack: true, direction: 'Right', move: { x: 0.6, z: 0.8 } }), ...walk(80, { x: -1, z: 0.3 })], ticks: 81 });
@@ -319,7 +333,7 @@ describe('Gait and Hit Zones', () => {
     };
     const lowThrust = { ...tuning, motions: { ...tuning.motions, Thrust: low } };
     // Fighter 1 walks into the Thrust and is hit on the leg it is stepping with.
-    const run = runDuel(lowThrust, { distance: 2.1, a: [...wait(8), ...attack('Thrust')], b: walk(60, { x: 0, z: -0.5 }), ticks: 60 });
+    const run = runDuel(lowThrust, { distance: 2, a: [...wait(2), ...attack('Thrust')], b: walk(60, { x: 0, z: -0.5 }), ticks: 60 });
     const hit = run.events.find((e): e is HitEvent & { tick: number } => e.type === 'Hit')!;
     expect(hit).toMatchObject({ defender: 1, zone: 'limbs' });
 
@@ -372,5 +386,26 @@ describe('Gait determinism', () => {
     expect(steps(turned).length).toBeGreaterThan(0);
     expect(ankle(turned, 31, 'left')).not.toEqual(ankle(stood, 31, 'left'));
     expect(hashState(turned.final)).not.toBe(hashState(stood.final));
+  });
+});
+
+describe('Gait: stride follows speed', () => {
+  /** Steps per second and metres per step over a steady walk at `speed` (0..1 of walk speed). */
+  const pace = (speed: number) => {
+    const run = runDuel(tuning, { ...lone, a: walk(180, { x: 0, z: speed }), ticks: 180 });
+    const late = steps(run).filter((e) => e.tick > 60);
+    const perStep = (late[late.length - 1]!.tick - late[0]!.tick) / (late.length - 1);
+    const [a, b] = [run.states[late[0]!.tick]!.fighters[0]!.position, run.states[late[late.length - 1]!.tick]!.fighters[0]!.position];
+    return { cadence: 60 / perStep, length: Math.hypot(b.x - a.x, b.z - a.z) / (late.length - 1) };
+  };
+
+  it('a faster walk takes longer strides, not just quicker ones', () => {
+    const [slow, fast] = [pace(0.4), pace(1)];
+    expect(fast.length).toBeGreaterThan(slow.length * 1.5);
+    expect(fast.cadence).toBeLessThan(slow.cadence * 1.5);
+  });
+
+  it('a full-speed walk steps no faster than once per step duration', () => {
+    expect(pace(1).cadence).toBeLessThanOrEqual(1 / tuning.gait.stepDuration + 1e-9);
   });
 });

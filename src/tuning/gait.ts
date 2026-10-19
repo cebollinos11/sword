@@ -7,6 +7,8 @@ import { finiteNumber, record, TuningDataError } from './validate';
 export interface GaitTuning {
   /** How far (m) a planted foot may be from where the Motion puts it before it steps there; smaller differences glide. */
   readonly strideThreshold: number;
+  /** How far (m) ahead of where the Motion puts it a walking foot may land; the faster the walk, the further ahead it lands, up to this. */
+  readonly maxLead: number;
   /** How long (s) one step takes, lift-off to landing. */
   readonly stepDuration: number;
   /** How high (m) the ankle rises above ankle height at the middle of a step. */
@@ -24,6 +26,7 @@ export interface GaitTuning {
  */
 export const GAIT_FIELDS: Readonly<Record<keyof GaitTuning, { readonly min: number; readonly max: number; readonly minExclusive: boolean; readonly step: number }>> = {
   strideThreshold: { min: 0, max: 1, minExclusive: true, step: 0.005 },
+  maxLead: { min: 0, max: 1, minExclusive: false, step: 0.005 },
   stepDuration: { min: 0, max: 2, minExclusive: true, step: 1 / 60 }, // one Tick: steps last whole Ticks
   stepHeight: { min: 0, max: 0.5, minExclusive: false, step: 0.005 },
   hipBob: { min: 0, max: 0.2, minExclusive: false, step: 0.001 },
@@ -41,6 +44,7 @@ export function parseGait(raw: unknown): GaitTuning {
   };
   return {
     strideThreshold: field('strideThreshold'),
+    maxLead: field('maxLead'),
     stepDuration: field('stepDuration'),
     stepHeight: field('stepHeight'),
     hipBob: field('hipBob'),

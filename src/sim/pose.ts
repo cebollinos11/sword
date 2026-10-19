@@ -68,6 +68,6 @@ export function fighterPose(f: FighterState, tuning: TuningData): SkeletonPose {
     tuning.skeleton,
     weaponByName(tuning, f.weapon),
     f,
-    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, tuning), aim: f.pitch, offHandFree: throwOffHandFree(f, tuning), ground: { left: left.y - f.y, right: right.y - f.y } },
+    { lift: { left: left.lift, right: targets.kickFoot ? 0 : right.lift }, hipShift: hipShift(f.gait, f, targets.hip, { left: targets.leftFoot, right: targets.kickFoot ?? targets.rightFoot }, tuning), aim: f.pitch, offHandFree: throwOffHandFree(f, tuning), ground: { left: left.y - f.y, right: right.y - f.y } },
   );
 }
