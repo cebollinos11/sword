@@ -114,6 +114,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
         const label = key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`);
         g.addBinding(d, key, { min: 0, max: key === 'aggression' || key === 'kickRate' || key === 'throwRate' || key === 'jumpAttackRate' ? 0.2 : 1, step: 0.001, label }).on('change', () => apply('ai'));
       }
+      if (d.jumpNav !== undefined) g.addBinding(d, 'jumpNav', { min: -1, max: 30, step: 1, label: 'jump nav (Ticks held)' }).on('change', () => apply('ai'));
     }
   });
 

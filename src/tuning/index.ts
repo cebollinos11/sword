@@ -272,6 +272,8 @@ export interface AiDifficulty {
   readonly duckRate?: number;
   /** 0..1: chance it tries to Chamber an Attack (attacking into it, timed to its Release) rather than Blocking it. */
   readonly chamberRate?: number;
+  /** The longest hold (Ticks of Jump held) of a jump Link it follows to reach an enemy: 0 = taps only, -1 (the default) = it never follows jump Links. */
+  readonly jumpNav?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
@@ -438,7 +440,13 @@ function parseAi(raw: unknown): AiTuning {
       const reactionTime = finiteNumber(p, 'reactionTime', where);
       if (reactionTime < 0) throw new TuningDataError(`${where}.reactionTime must be >= 0, got ${reactionTime}`);
       const extras = Object.fromEntries(AI_DIFFICULTY_EXTRAS.filter((k) => p[k] !== undefined).map((k) => [k, fraction(p, k, where)]));
-      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where), ...extras }];
+      let jumpNav: { jumpNav?: number } = {};
+      if (p.jumpNav !== undefined) {
+        const n = finiteNumber(p, 'jumpNav', where);
+        if (!Number.isInteger(n) || n < -1) throw new TuningDataError(`${where}.jumpNav must be a whole number of Ticks, -1 or more, got ${n}`);
+        jumpNav = { jumpNav: n };
+      }
+      return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where), ...extras, ...jumpNav }];
     }),
   );
   return {

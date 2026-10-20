@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, hashValue, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
@@ -526,5 +527,97 @@ describe('AI Controller: Throwing Dagger', () => {
     expect(hits(0)).toBe(0);
     expect(hits(0.5)).toBeGreaterThan(0);
     expect(hits(0.5)).toBeLessThan(20);
+  });
+});
+
+describe('AI Controller: jump Links', { timeout: 60_000 }, () => {
+  /** An AI (Fighter 0) at `me` and an idle enemy (Fighter 1) at `it`, in `arena`; each `[x, y, z]`. */
+  const standoff = (arena: string, me: [number, number, number], it: [number, number, number], seed = 1) =>
+    createInitialState(repo, seed, [me, it].map(([x, y, z]) => ({ position: { x, z }, y, facing: 0 })), [], [0, 1], arena);
+  const surfaceOf = (arena: string, f: { position: { x: number; z: number }; y: number }) => {
+    const a = repo.arenas[arena]!;
+    return a.walk[groundBelow(a, f.position.x, f.position.z, f.y + 1e-6)?.surface ?? -1]?.id;
+  };
+  const chase = (difficulty: string, arena: string, me: [number, number, number], it: [number, number, number], seconds: number, seed = 1) =>
+    runControllers(repo, standoff(arena, me, it, seed), [createAiController(repo, difficulty), scriptedController(wait(1))], TICK_RATE * seconds);
+
+  it('a Normal AI on the summit plateau Jumps onto the containers to reach an enemy standing on them', () => {
+    const run = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 15);
+    const on = run.states.findIndex((s) => surfaceOf('summit', s.fighters[0]!) === 'WALK_containers_top');
+    expect(on, 'it never got onto the containers').toBeGreaterThan(0);
+    expect(run.events.some((e) => e.type === 'Jump' && e.fighter === 0)).toBe(true);
+    expect(run.states.every((s) => !s.fighters[0]!.death)).toBe(true);
+  });
+
+  it('a Hard AI on the chamber ring Jumps across onto a catwalk to reach an enemy on it', () => {
+    const run = chase('Hard', 'chamber', [2, 0, 4], [0, 0, 12.5], 15);
+    const on = run.states.findIndex((s) => surfaceOf('chamber', s.fighters[0]!) === 'WALK_catwalk0');
+    expect(on, 'it never got onto the catwalk').toBeGreaterThan(0);
+    expect(run.states.every((s) => !s.fighters[0]!.death)).toBe(true);
+  });
+
+  it('an Easy AI only taps: it never holds Jump for a jump Link, so it never gets onto the catwalk', () => {
+    const run = chase('Easy', 'chamber', [2, 0, 4], [0, 0, 12.5], 15);
+    expect(run.states.some((s) => surfaceOf('chamber', s.fighters[0]!) === 'WALK_catwalk0')).toBe(false);
+    expect(run.states.every((s) => !s.fighters[0]!.death)).toBe(true);
+  });
+
+  it('without `jumpNav` (the plain AI) it takes no jump Links', () => {
+    const run = runControllers(repo, standoff('summit', [0, 2, -8], [3, 2.5, -4.1]), [createAiController(repo, { reactionTime: 0.2, mistakeRate: 0, feintRate: 0 }), scriptedController(wait(1))], TICK_RATE * 10);
+    expect(run.events.some((e) => e.type === 'Jump' && e.fighter === 0)).toBe(false);
+  });
+
+  it('is deterministic: the same seed gives the same Ticks', () => {
+    const a = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 8, 5);
+    const b = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 8, 5);
+    expect(a.states.map((s) => hashValue(s))).toEqual(b.states.map((s) => hashValue(s)));
+  });
+
+  it('keeps its jump in its memory: restored mid-run-up, it decides exactly as it would have', () => {
+    const initial = standoff('summit', [0, 2, -8], [3, 2.5, -4.1]);
+    const ai = createAiController(repo, 'Normal');
+    // Run a Tick at a time until it is lining up a jump Link.
+    let s = initial;
+    let saved: unknown = null;
+    for (let t = 0; t < TICK_RATE * 10 && saved === null; t++) {
+      s = runControllers(repo, s, [ai, scriptedController(wait(1))], 1).final;
+      const memory = ai.save!() as { jumpRun: { stage: string } | null };
+      if (memory.jumpRun && memory.jumpRun.stage !== 'Fly') saved = memory;
+    }
+    expect(saved, 'it never lined up a Jump').not.toBeNull();
+    const restored = createAiController(repo, 'Normal');
+    restored.load!(saved);
+    const a = runControllers(repo, s, [ai, scriptedController(wait(1))], 120);
+    const b = runControllers(repo, s, [restored, scriptedController(wait(1))], 120);
+    expect(hashValue(b.final)).toBe(hashValue(a.final));
+  });
+});
+
+describe('AI Controller: follows onto every held-Jump spot', { timeout: 120_000 }, () => {
+  /** A Hard (or Normal) AI 0.8 m back from where the spot's Jump takes off, an idle enemy where that Jump lands: the Tick the AI stands on the same Walk Surface, or -1. */
+  function follow(difficulty: string, s: (typeof JUMP_SPOTS)[number], seconds = 20): number {
+    const arena = repo.arenas[s.arena]!;
+    const y = groundBelow(arena, s.x, s.z, s.y + repo.fall.stepUp)!.y;
+    const lands = jumpArc(arena, repo, { at: { x: s.x, z: s.z }, y, heading: s.move, holdTicks: s.hold }).lands!;
+    const lid = groundBelow(arena, lands.x, lands.z, lands.y + 1e-6)!.surface;
+    const start = { x: s.x - s.move.x * 0.8, z: s.z - s.move.z * 0.8 };
+    const initial = createInitialState(repo, 1, [{ position: start, y, facing: 0 }, { position: lands, y: lands.y, facing: Math.PI }], [], [0, 1], s.arena);
+    const run = runControllers(repo, initial, [createAiController(repo, difficulty), scriptedController(wait(1))], TICK_RATE * seconds);
+    expect(run.states.every((st) => !st.fighters[0]!.death), `${s.spot}: the AI died`).toBe(true);
+    return run.states.findIndex((st) => {
+      const f = st.fighters[0]!;
+      return !f.air && groundBelow(arena, f.position.x, f.position.z, f.y + 1e-6)?.surface === lid;
+    });
+  }
+
+  it('a Hard AI follows an enemy onto each of them, on every Arena (and a Normal one onto those held no longer than its jumpNav)', () => {
+    const report: string[] = [];
+    for (const s of JUMP_SPOTS) {
+      const hard = follow('Hard', s);
+      const normal = follow('Normal', s);
+      report.push(`${s.arena} ${s.spot}: Hard ${hard < 0 ? 'no' : `${(hard / TICK_RATE).toFixed(1)} s`}, Normal ${normal < 0 ? 'no' : `${(normal / TICK_RATE).toFixed(1)} s`}`);
+      expect(hard, `Hard onto ${s.arena} ${s.spot}`).toBeGreaterThan(0);
+    }
+    console.log(report.join('\n'));
   });
 });

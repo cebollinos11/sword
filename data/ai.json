@@ -22,7 +22,8 @@
       "preempt": 0,
       "jumpAttackRate": 0.0008,
       "duckRate": 0.05,
-      "chamberRate": 0
+      "chamberRate": 0,
+      "jumpNav": 0
     },
     "Normal": {
       "reactionTime": 0.26,
@@ -39,7 +40,8 @@
       "preempt": 0.3,
       "jumpAttackRate": 0.002,
       "duckRate": 0.2,
-      "chamberRate": 0.08
+      "chamberRate": 0.08,
+      "jumpNav": 20
     },
     "Hard": {
       "reactionTime": 0.16,
@@ -56,7 +58,8 @@
       "preempt": 0.6,
       "jumpAttackRate": 0.004,
       "duckRate": 0.35,
-      "chamberRate": 0.25
+      "chamberRate": 0.25,
+      "jumpNav": 30
     }
   }
 }

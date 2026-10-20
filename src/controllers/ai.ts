@@ -80,6 +80,8 @@ import {
   deadlyGround,
   findPath,
   groundBelow,
+  JITTER_POS,
+  navMesh,
   navPolygon,
   steer,
   DIRECTIONS,
@@ -93,6 +95,8 @@ import {
   type Direction,
   type FighterState,
   type Intent,
+  type JumpLink,
+  type PathOptions,
   type RngState,
   type SimState,
   type Vec2,
@@ -201,6 +205,24 @@ interface Route {
   readonly links: readonly number[] | null;
 }
 
+/**
+ * A jump Link of its route it is carrying out (`link`, its id): walking to the run-up point behind the takeoff
+ * (LineUp), running in along the heading (RunIn), or in the air since it pressed Jump on Tick `flew` (Fly). Not airborne by
+ * Tick `deadline`, it gives up on it.
+ */
+interface JumpRun {
+  readonly link: number;
+  readonly stage: 'LineUp' | 'RunIn' | 'Fly';
+  readonly deadline: number;
+  readonly flew: number;
+}
+
+/** A jump Link it gave up on, on Tick `at`: left out of its routes for JUMP_RETRY Ticks, so it does not try it again straight away. */
+interface FailedJump {
+  readonly link: number;
+  readonly at: number;
+}
+
 /** The AI Controller's memory (what it has seen and its plans), saved and loaded by the Editor sandbox and the Rollback session. */
 interface AiMemory {
   readonly seen: readonly Observation[];
@@ -212,6 +234,8 @@ interface AiMemory {
   /** The error (radians) it rolled for its current throw's aim. */
   readonly aimError: number;
   readonly route: Route | null;
+  readonly jumpRun: JumpRun | null;
+  readonly failedJumps: readonly FailedJump[];
   readonly tactic: Tactic;
   readonly strafe: Strafe;
   readonly opening: OpeningRoll | null;
@@ -249,6 +273,20 @@ const CHAMBER_AT = 2;
 const AIM_HEIGHT = 1.3;
 /** A Fighter lying in a Knockdown is aimed at this high (m). */
 const LYING_AIM = 0.3;
+
+/** A jump Link is run up to from this far (m) behind its takeoff, along its heading. */
+const RUNUP = 0.6;
+/** Lining up for a jump Link, it is at the run-up point once this close (m) to it. */
+const LINED_UP = 0.12;
+/**
+ * Running in, it presses Jump once it is no more than this far (m) short of the takeoff along the heading. It is lined
+ * up within LINED_UP across it, and a Tick's walk takes it less than this past it: well inside the error check's JITTER_POS.
+ */
+const TAKEOFF_SHORT = 0.1;
+/** It gives up on a jump Link it is still not airborne on this many Ticks after it could have walked to the run-up point. */
+const JUMP_PATIENCE = 120;
+/** A jump Link it gave up on is left out of its routes for this many Ticks. */
+const JUMP_RETRY = 60;
 
 /** The dagger leaves the left hand, this far (m) off the thrower's centreline, and flies parallel to its facing. */
 const LEFT_HAND = 0.12;
@@ -290,6 +328,7 @@ function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
     jumpAttackRate: 0,
     duckRate: 0,
     chamberRate: 0,
+    jumpNav: -1,
     ...d,
   };
 }
@@ -363,6 +402,8 @@ class AiController implements Controller {
   private throwPlan: ThrowPlan | null = null;
   private aimError = 0;
   private route: Route | null = null;
+  private jumpRun: JumpRun | null = null;
+  private failedJumps: readonly FailedJump[] = [];
   private tactic: Tactic = NEUTRAL;
   private strafe: Strafe = NO_STRAFE;
   private opening: OpeningRoll | null = null;
@@ -378,8 +419,8 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, tactic, strafe, opening, lastHp } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, tactic, strafe, opening, lastHp };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, tactic, strafe, opening, lastHp } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, tactic, strafe, opening, lastHp };
   }
 
   load(saved: unknown): void {
@@ -392,6 +433,8 @@ class AiController implements Controller {
     this.throwPlan = m.throwPlan;
     this.aimError = m.aimError;
     this.route = m.route;
+    this.jumpRun = m.jumpRun;
+    this.failedJumps = m.failedJumps;
     this.tactic = m.tactic;
     this.strafe = m.strafe;
     this.opening = m.opening;
@@ -426,6 +469,8 @@ class AiController implements Controller {
     this.throwPlan = null;
     this.route = null;
     this.opening = null;
+    // A Jump already in the air is carried through.
+    if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
   }
 
   private observe(state: SimState): void {
@@ -433,6 +478,8 @@ class AiController implements Controller {
       // A new Duel: forget what was seen.
       this.seen = [];
       this.forget();
+      this.jumpRun = null;
+      this.failedJumps = [];
       this.tactic = NEUTRAL;
       this.strafe = NO_STRAFE;
       this.lastHp = -1;
@@ -482,6 +529,11 @@ class AiController implements Controller {
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
     this.observe(state);
+    return this.flying(state, state.fighters[fighter]!, this.decide(state, fighter));
+  }
+
+  /** What it would do this Tick, before a Jump it is in the air on has its say (`flying`). */
+  private decide(state: SimState, fighter: number): Intent {
     const seen = this.seen[0];
     if (!seen || seen.tick !== state.tick - this.reactionTicks) return IDLE_INTENT;
 
@@ -548,10 +600,11 @@ class AiController implements Controller {
         return base; // let go of a Block; finish what it is doing
     }
 
-    if (!level) {
-      // Another level: find the way there, looking where it walks.
-      const move = this.approach(state, self, target);
-      return { ...IDLE_INTENT, move, face: move.x === 0 && move.z === 0 ? base.face : Math.atan2(move.x, move.z) };
+    if (!level || this.jumpRun || this.jumpFirst(state, self, target)) {
+      // Another level, or a Jump on the way: find the way there, looking where it walks (and starting nothing on the way).
+      const way = this.approach(state, self, target);
+      const { move } = way;
+      return { ...IDLE_INTENT, ...way, face: move.x === 0 && move.z === 0 ? base.face : Math.atan2(move.x, move.z) };
     }
 
     // A Chain it held through Recovery: the next Attack starts now.
@@ -578,7 +631,7 @@ class AiController implements Controller {
       if (dist > myReach) {
         // Mistimed Attack: swinging from out of range.
         if (this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
-        return { ...base, move: this.approach(state, self, target) };
+        return { ...base, ...this.approach(state, self, target) };
       }
       if (dist < this.tuning.ai.retreatRange) return { ...base, move: this.retreat(state, self, away) };
       if (this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
@@ -587,7 +640,7 @@ class AiController implements Controller {
 
     // Far off: close in along the navmesh.
     const longer = Math.max(myReach, theirReach);
-    if (dist > longer + SWING_IN + 1.5) return { ...base, move: this.approach(state, self, target) };
+    if (dist > longer + SWING_IN + 1.5) return { ...base, ...this.approach(state, self, target) };
 
     // Meet an opponent walking into reach with an Attack already on the way.
     const closing = -(target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
@@ -673,23 +726,114 @@ class AiController implements Controller {
   }
 
   /**
-   * Which way to walk to `target`: straight at it on the same Walk Surface (or off the navmesh), else
-   * towards the next corner of its route there, re-planned when either changes surface or every REPATH_TICKS.
+   * Its route to `target` (Links, from where it stands), re-planned when either changes surface or every REPATH_TICKS;
+   * null when they share a Walk Surface, either is off the navmesh, it is in the air, or there is no way. It follows jump
+   * Links held no longer than its `jumpNav` (none while Slowed, as a Slowed Jump falls short), except one it just gave up on.
    */
-  private approach(state: SimState, self: FighterState, target: Sighting): Vec2 {
+  private routeTo(state: SimState, self: FighterState, target: Sighting): readonly number[] | null {
     const arena = arenaOf(this.tuning, state.arena);
     const me = { x: self.position.x, z: self.position.z, y: self.y };
     const it = { x: target.position.x, z: target.position.z, y: target.y };
     const from = navPolygon(arena, this.tuning, me);
     const to = navPolygon(arena, this.tuning, it);
-    let goal = target.position;
-    if (from >= 0 && to >= 0 && from !== to && !self.air) {
-      const r = this.route;
-      const route = !r || r.from !== from || r.to !== to || state.tick - r.at >= REPATH_TICKS ? { from, to, at: state.tick, links: findPath(arena, this.tuning, me, it) } : r;
-      this.route = route;
-      if (route.links) goal = steer(arena, this.tuning, route.links, self.position, target.position);
-    } else if (from === to) this.route = null;
-    return unit({ x: goal.x - self.position.x, z: goal.z - self.position.z });
+    if (from < 0 || to < 0 || from === to || self.air) {
+      if (from === to) this.route = null;
+      return null;
+    }
+    const r = this.route;
+    if (!r || r.from !== from || r.to !== to || state.tick - r.at >= REPATH_TICKS) {
+      this.failedJumps = this.failedJumps.filter((f) => state.tick - f.at < JUMP_RETRY);
+      const { jumpNav } = this.skill;
+      const options: PathOptions = { jumps: jumpNav >= 0 && !self.slow, maxJumpHold: jumpNav, exclude: this.failedJumps.map((f) => f.link) };
+      this.route = { from, to, at: state.tick, links: findPath(arena, this.tuning, me, it, options) };
+    }
+    return this.route!.links;
+  }
+
+  /** Whether the next Link of its route to `target` is a jump Link. */
+  private jumpFirst(state: SimState, self: FighterState, target: Sighting): boolean {
+    const first = this.routeTo(state, self, target)?.[0];
+    return first !== undefined && navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[first]!.kind === 'jump';
+  }
+
+  /**
+   * Which way to walk to `target` (and when to Jump): straight at it on the same Walk Surface (or off the navmesh),
+   * else towards the next corner of its route there, or through the jump Link its route takes next (`takeJump`); with
+   * no way there, as near as it safely can.
+   */
+  private approach(state: SimState, self: FighterState, target: Sighting): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
+    const arena = arenaOf(this.tuning, state.arena);
+    const links = this.routeTo(state, self, target);
+    const first = links?.[0] === undefined ? undefined : navMesh(arena, this.tuning).links[links[0]]!;
+    if (first?.kind === 'jump') return this.takeJump(state, self, links![0]!, first);
+    if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
+    const goal = links ? steer(arena, this.tuning, links, self.position, target.position) : target.position;
+    const move = unit({ x: goal.x - self.position.x, z: goal.z - self.position.z });
+    // No way there it can take: go as near as it safely can, never off a ledge or into Lava or Water.
+    return { move: this.route && !this.route.links ? this.safeMove(state, self, move) : move };
+  }
+
+  /**
+   * Carry out jump Link `id` (`link`): walk to the run-up point RUNUP behind its takeoff, then run in along its heading
+   * and press Jump as it reaches the takeoff (holding it while it flies: `flying`). Pushed off the line (or past the
+   * takeoff), it lines up again; not airborne in time, it gives up on the Link (`giveUpJump`).
+   */
+  private takeJump(state: SimState, self: FighterState, id: number, link: JumpLink): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
+    const { takeoff, heading } = link;
+    const runup = { x: takeoff.x - heading.x * RUNUP, z: takeoff.z - heading.z * RUNUP };
+    const toRunup = { x: runup.x - self.position.x, z: runup.z - self.position.z };
+    let run = this.jumpRun?.link === id && this.jumpRun.stage !== 'Fly' ? this.jumpRun : null;
+    if (!run) {
+      const walk = Math.ceil(Math.hypot(toRunup.x, toRunup.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
+      run = { link: id, stage: 'LineUp', deadline: state.tick + walk + JUMP_PATIENCE, flew: -1 };
+    }
+    if (state.tick > run.deadline) {
+      this.giveUpJump(state.tick, id);
+      return { move: ZERO };
+    }
+    const off = { x: self.position.x - takeoff.x, z: self.position.z - takeoff.z };
+    const along = off.x * heading.x + off.z * heading.z;
+    const across = Math.abs(off.x * heading.z - off.z * heading.x);
+    if (run.stage === 'RunIn' && (along > JITTER_POS || across > LINED_UP)) run = { ...run, stage: 'LineUp' };
+    if (run.stage === 'LineUp') {
+      if (Math.hypot(toRunup.x, toRunup.z) > LINED_UP) {
+        this.jumpRun = run;
+        return { move: unit(toRunup) };
+      }
+      run = { ...run, stage: 'RunIn' };
+    }
+    if (along >= -TAKEOFF_SHORT) {
+      this.jumpRun = { ...run, stage: 'Fly', flew: state.tick };
+      return { move: heading, jump: true, jumpHeld: link.holdTicks > 0 };
+    }
+    this.jumpRun = run;
+    return { move: heading };
+  }
+
+  /** Give up on jump Link `id` on Tick `tick`: forget it, and leave it out of its routes for a while. */
+  private giveUpJump(tick: number, id: number): void {
+    this.jumpRun = null;
+    this.route = null;
+    this.failedJumps = [...this.failedJumps.filter((f) => tick - f.at < JUMP_RETRY), { link: id, at: tick }];
+  }
+
+  /**
+   * In the air on a jump Link: keep walking along its heading and hold Jump for its hold, starting nothing (it may still
+   * Block). Back on the ground it is done, and re-plans from wherever it landed; if the press never took it off, it gives up on the Link.
+   */
+  private flying(state: SimState, self: FighterState, intent: Intent): Intent {
+    const run = this.jumpRun;
+    if (!run || run.stage !== 'Fly' || state.tick === run.flew) return intent;
+    if (!self.air) {
+      if (state.tick === run.flew + 1) this.giveUpJump(state.tick, run.link);
+      else {
+        this.jumpRun = null;
+        this.route = null;
+      }
+      return intent;
+    }
+    const link = navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[run.link] as JumpLink;
+    return { ...intent, move: link.heading, jump: false, jumpHeld: state.tick - run.flew < link.holdTicks, attack: false, kick: false, throw: false };
   }
 
   /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
