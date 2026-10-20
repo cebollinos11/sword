@@ -4,6 +4,7 @@ import { arenaOf } from '../sim';
 import type { ArenaGeometry, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
+import { greybox, isGreybox } from './greybox';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -152,6 +153,8 @@ export class Stage {
   /** The current Arena's camera collider. */
   collider: CameraCollider;
   private arena: string;
+  /** The geometry drawn: a new copy under the same name (a regenerated Arena) is drawn again. */
+  private geometry: ArenaGeometry;
   private setting: THREE.Object3D;
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
@@ -172,7 +175,7 @@ export class Stage {
 
   constructor(
     private readonly container: HTMLElement,
-    private readonly tuning: TuningData,
+    private tuning: TuningData,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     // Fill rate is the cost here (per-pixel lights): a 2x display would shade four times the pixels for little visible gain.
@@ -185,6 +188,7 @@ export class Stage {
 
     this.arena = tuning.arena.editor;
     const geometry = arenaOf(tuning, this.arena);
+    this.geometry = geometry;
     this.setting = this.build(this.arena, geometry);
     this.collider = new CameraCollider(geometry);
 
@@ -203,12 +207,22 @@ export class Stage {
 
   /** Draw the Arena named `name` (a Tuning Data Arena); nothing changes if it is already drawn. */
   setArena(name: string): void {
-    if (name === this.arena) return;
+    const geometry = arenaOf(this.tuning, name);
+    if (name === this.arena && geometry === this.geometry) return;
     this.scene.remove(this.setting);
     this.arena = name;
-    const geometry = arenaOf(this.tuning, name);
+    this.geometry = geometry;
     this.setting = this.build(name, geometry);
     this.collider = new CameraCollider(geometry);
+  }
+
+  /**
+   * Resolve Arenas (and build jump Link arcs) from `tuning` from now on, e.g. a copy holding a Generated Arena
+   * (the Arena Lab). The Arena drawn is drawn again if `tuning` gives it different geometry.
+   */
+  setTuning(tuning: TuningData): void {
+    this.tuning = tuning;
+    this.setArena(this.arena);
   }
 
   /** Draw at PlayStation resolution (PS1_LINES tall, the screen's aspect ratio kept) or the usual one. */
@@ -271,7 +285,7 @@ export class Stage {
 
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {
     const look = ARENA_LOOKS[name];
-    const setting = look ? modelled(name, look, () => this.arena === name) : outdoors(geometry);
+    const setting: Setting = look ? modelled(name, look, () => this.arena === name) : isGreybox(name) ? greybox(geometry) : outdoors(geometry);
     this.loaded = setting.loaded ?? Promise.resolve();
     this.animate = setting.animate;
     this.scene.background = setting.background;
