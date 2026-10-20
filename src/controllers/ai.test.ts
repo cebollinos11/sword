@@ -674,6 +674,39 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
     expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThan(5);
   });
 
+  /** `walk` (with a Lava sheet 1 m down under all of it), the AI (Fighter 0, `ai`) at `me` and an idle enemy at `it`; whether the AI dies, and how often it Jumps. */
+  function overLava(walk: unknown[], ai: AiDifficulty, me: [number, number, number], it: [number, number, number], ticks: number, hp = 1) {
+    const arena = parseArena({ name: 'lava', walk: [...walk, { id: 'WALK_lava', lava: true, points: [[-10, -1, -10], [10, -1, -10], [10, -1, 10], [-10, -1, 10]] }] }, 'lava');
+    const tuning: TuningData = { ...repo, arenas: { ...repo.arenas, lava: arena }, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, throwRate: 0 } };
+    const placed = createInitialState(tuning, 1, [me, it].map(([x, y, z], i) => ({ position: { x, z }, y, facing: i === 0 ? Math.atan2(it[0] - x, it[2] - z) : Math.atan2(x - it[0], z - it[2]) })), [], [0, 1], 'lava');
+    const initial = { ...placed, fighters: placed.fighters.map((f, i) => (i === 0 ? { ...f, hp: hp * tuning.fighter.maxHp } : f)) };
+    const run = runControllers(tuning, initial, [createAiController(tuning, ai), scriptedController(wait(1))], ticks);
+    return { died: run.states.some((s) => s.fighters[0]!.death !== undefined), jumps: run.events.filter((e) => e.type === 'Jump' && e.fighter === 0).length };
+  }
+
+  it('Disengaging at the tip of a pier over Lava, it never hops back into the Lava', () => {
+    // A 1.5 m-wide pier running out to z 0; the AI at its tip, low on HP (so it Disengages), its enemy in its face.
+    const pier = [{ id: 'WALK_pier', points: [[-0.75, 0, -8], [0.75, 0, -8], [0.75, 0, 0], [-0.75, 0, 0]] }];
+    // Low on HP, a caution this high makes every tactic it picks Disengage.
+    const hopper = { ...aiDifficulty(repo, 'Hard'), aggression: 0, pressure: 0, caution: 3, jumpAttackRate: 1, kickRate: 0, throwRate: 0 };
+    const r = overLava(pier, hopper, [0, 0, -0.5], [0, 0, -1.8], 600, 0.2);
+    expect(r.died).toBe(false);
+    expect(r.jumps).toBe(0);
+  });
+
+  it('never leaps at an enemy across a Lava pool with a jumping Attack that comes down in it', () => {
+    // A floor around a pool (x -2..2, z 0..2.5); the AI on its south side, the enemy just across on the north.
+    const ring = [
+      { id: 'WALK_s', points: [[-6, 0, -6], [6, 0, -6], [6, 0, 0], [-6, 0, 0]] },
+      { id: 'WALK_n', points: [[-6, 0, 2.5], [6, 0, 2.5], [6, 0, 8], [-6, 0, 8]] },
+      { id: 'WALK_w', points: [[-6, 0, 0], [-2, 0, 0], [-2, 0, 2.5], [-6, 0, 2.5]] },
+      { id: 'WALK_e', points: [[2, 0, 0], [6, 0, 0], [6, 0, 2.5], [2, 0, 2.5]] },
+    ];
+    const leaper = { ...aiDifficulty(repo, 'Hard'), jumpAttackRate: 1, kickRate: 0, throwRate: 0 };
+    const r = overLava(ring, leaper, [0, 0, -0.3], [0, 0, 2.9], 300);
+    expect(r.died).toBe(false);
+  });
+
   it("never Jumps off the train's nose or sides", () => {
     let jumps = 0;
     for (const seed of [1, 2, 3]) {
