@@ -22,12 +22,12 @@ import type { ButtonApi } from 'tweakpane';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
 import { motionPose, motionTempo, playedSeconds, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
-import { EASES, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type PoseKeyChannel, type TuningData } from '../tuning';
+import { EASES, guardKey, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizmo';
-import { addPoseKey, removePoseKey, retimePoseKey, scaleMotion, setChannel } from './motionEdit';
+import { addPoseKey, isLinked, linkChannel, removePoseKey, retimePoseKey, scaleMotion, setChannel } from './motionEdit';
 import { saveJsonFile } from './save';
 import { startSandbox } from './sandbox';
 import { EditorSession, motionPath, type MotionDraft } from './session';
@@ -112,6 +112,8 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   const draft = (): MotionDraft => session.draft(ui.motion, override());
   /** The Motion the previewed Weapon plays (its override, or the default). */
   const liveMotion = (): Motion => weaponMotion(session.tuning, ui.weapon, ui.motion)!;
+  /** The previewed Weapon's guard: what channels linked to "idle" show. */
+  const guard = () => guardKey(session.tuning, ui.weapon);
 
   const pane = new Pane({ title: 'Motion Editor' });
   pane.addButton({ title: 'Duel sandbox →' }).on('click', () => (location.hash = '#/editor/sandbox'));
@@ -207,7 +209,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     if (key) {
       ui.playing = false;
       ui.time = key.time;
-      gizmo.setContext({ draft: draft(), key: index!, pose: previewPose() });
+      gizmo.setContext({ draft: draft(), key: index!, pose: previewPose(), guard: guard() });
     } else {
       selected = null;
       gizmo.setContext(undefined);
@@ -220,7 +222,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     const i = retimePoseKey(draft(), index, time);
     selected = i;
     ui.time = draft().poseKeys[i]!.time;
-    gizmo.setContext({ draft: draft(), key: i, pose: previewPose() });
+    gizmo.setContext({ draft: draft(), key: i, pose: previewPose(), guard: guard() });
     if (keyFolder) keyFolder.title = `Pose Key ${i}`;
     keyUi.time = ui.time;
     applyEdit();
@@ -228,7 +230,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   };
 
   const addKey = (time: number) => {
-    const i = addPoseKey(draft(), time, loaded.skeleton);
+    const i = addPoseKey(draft(), time, loaded.skeleton, guard());
     applyEdit();
     select(i);
   };
@@ -260,7 +262,11 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   document.body.appendChild(timeline.element);
 
   // --- Fields -------------------------------------------------------------
-  const keyUi = { time: 0, channels: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean> };
+  const keyUi = {
+    time: 0,
+    channels: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean>,
+    linked: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean>,
+  };
 
   const buildKeyFolder = () => {
     if (keyFolder) pane.remove(keyFolder);
@@ -277,10 +283,22 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     f.addBinding(key, 'ease', { options: Object.fromEntries(EASES.map((e) => [e, e])), label: 'ease (into key)' }).on('change', applyEdit);
     const channels = f.addFolder({ title: 'Channels set by this key' });
     for (const c of POSE_KEY_CHANNELS) {
-      keyUi.channels[c] = key[c] !== undefined;
+      keyUi.channels[c] = key[c] !== undefined || isLinked(draft(), selected, c);
       channels.addBinding(keyUi.channels, c, { label: CHANNEL_LABELS[c] }).on('change', (e) => {
         if (selected === null) return;
-        setChannel(draft(), selected, c, e.value, loaded.skeleton);
+        setChannel(draft(), selected, c, e.value, loaded.skeleton, guard());
+        applyEdit();
+        buildKeyFolder();
+      });
+    }
+    // Linked channels follow the Idle's first Pose Key (each Weapon's own Idle): change an Idle and they move with it.
+    const linked = f.addFolder({ title: 'Linked to Idle (guard)' });
+    for (const c of POSE_KEY_CHANNELS) {
+      if (guard()[c] === undefined || ui.motion === 'Idle') continue;
+      keyUi.linked[c] = isLinked(draft(), selected, c);
+      linked.addBinding(keyUi.linked, c, { label: CHANNEL_LABELS[c] }).on('change', (e) => {
+        if (selected === null) return;
+        linkChannel(draft(), selected, c, e.value, loaded.skeleton, guard());
         applyEdit();
         buildKeyFolder();
       });

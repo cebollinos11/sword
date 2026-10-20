@@ -9,6 +9,7 @@
  * APIs take the override's Weapon name as `override`, and leave it out for the default.
  */
 import {
+  checkIdleLinks,
   checkMotionOverride,
   motionFileName,
   parseMotion,
@@ -109,17 +110,23 @@ export class EditorSession {
     return d;
   }
 
-  /** Validate a draft and, if valid, make it live. Throws TuningDataError otherwise. */
+  /**
+   * Validate a draft and, if valid, make it live. Throws TuningDataError otherwise, e.g. where a channel linked
+   * to "idle" is one some Weapon's Idle does not set (an Idle edit is checked against every Motion linking to it).
+   */
   commit(name: string, override?: string): Motion {
     const motion = parseMotion(this.draft(name, override));
     if (motion.name !== name) throw new TuningDataError(`Renaming Motions is not supported here (was "${name}")`);
+    let next: TuningData;
     if (override === undefined) {
-      this.tuning = { ...this.tuning, motions: { ...this.tuning.motions, [name]: motion } };
+      next = { ...this.tuning, motions: { ...this.tuning.motions, [name]: motion } };
     } else {
       checkMotionOverride(this.tuning.motions, override, motion);
       const own = { ...this.tuning.motionOverrides[override], [name]: motion };
-      this.tuning = { ...this.tuning, motionOverrides: { ...this.tuning.motionOverrides, [override]: own } };
+      next = { ...this.tuning, motionOverrides: { ...this.tuning.motionOverrides, [override]: own } };
     }
+    checkIdleLinks(next);
+    this.tuning = next;
     return motion;
   }
 

@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 import type { Placement, SkeletonPose, Vec3 } from '../sim';
-import type { PoseKeyChannel, SkeletonTuning } from '../tuning';
+import type { PoseKey, PoseKeyChannel, SkeletonTuning } from '../tuning';
 import { handGizmoAxes, handRotationFromGizmo, localToWorld, torsoFromGizmo, torsoGizmoAxes, worldToLocal, type GizmoAxes } from './gizmoMath';
 import { channelValueAt, setChannel } from './motionEdit';
 import type { MotionDraft } from './session';
@@ -53,6 +53,8 @@ export interface GizmoContext {
   key: number;
   /** The previewed pose at that key's time (for the chest position). */
   pose: SkeletonPose;
+  /** The previewed Weapon's guard, which channels linked to "idle" take (see `guardKey`). */
+  guard: PoseKey;
 }
 
 export class PoseGizmo {
@@ -121,7 +123,7 @@ export class PoseGizmo {
     if (!key) return;
     for (const [t, h] of this.handles) {
       h.position.copy(this.worldPosition(t, ctx));
-      const set = key[CHANNEL[t]] !== undefined;
+      const set = key[CHANNEL[t]] !== undefined || key.idle?.includes(CHANNEL[t]) === true;
       const active = t === this.target || (t === 'swordHand' && this.target === 'swordAngle');
       (h.material as THREE.MeshBasicMaterial).color.copy(active ? ACTIVE_COLOUR : set ? SET_COLOUR : INHERITED_COLOUR);
     }
@@ -140,7 +142,7 @@ export class PoseGizmo {
   /** The channel's value on the selected key, or what it inherits there. */
   private value<C extends PoseKeyChannel>(ctx: GizmoContext, c: C) {
     const key = ctx.draft.poseKeys[ctx.key]!;
-    return (key[c] as ReturnType<typeof channelValueAt<C>> | undefined) ?? channelValueAt(ctx.draft, c, key.time, this.skeleton);
+    return (key[c] as ReturnType<typeof channelValueAt<C>> | undefined) ?? channelValueAt(ctx.draft, c, key.time, this.skeleton, ctx.guard);
   }
 
   private worldPosition(t: GizmoTarget, ctx: GizmoContext): THREE.Vector3 {
@@ -185,7 +187,7 @@ export class PoseGizmo {
     const channel = CHANNEL[this.target];
     const key = ctx.draft.poseKeys[ctx.key]!;
     const added = key[channel] === undefined;
-    setChannel(ctx.draft, ctx.key, channel, true, this.skeleton);
+    setChannel(ctx.draft, ctx.key, channel, true, this.skeleton, ctx.guard);
     const pos = worldToLocal({ x: this.proxy.position.x, y: this.proxy.position.y, z: this.proxy.position.z }, this.at);
     const axis = (v: THREE.Vector3): Vec3 => {
       const w = v.applyQuaternion(this.proxy.quaternion);

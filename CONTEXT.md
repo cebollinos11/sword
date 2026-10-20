@@ -45,6 +45,10 @@ The delay before an AI Controller may act on what it sees of the other Fighters.
 A timed target for part of the Skeleton (hand position/rotation, torso twist, hip, foot plant, and for a Kick the kicking foot and a whole-body tilt) with an easing curve; IK solves the bones to reach it.
 _Avoid_: Keyframe, frame
 
+**Guard**:
+The pose a Fighter holds when Idle: the first Pose Key of the Idle Motion its Weapon plays (the Weapon's Idle override, or the default). A Pose Key can link any channel to the Guard (written `"idle"` in the Motion file) instead of holding a value of its own; it then takes that channel from the Guard of whichever Weapon plays it, so changing an Idle moves every Motion that starts or ends on guard with it, for that Weapon alone if it is an override. Every Motion that starts or ends on guard links those channels; an Idle links nothing, and every Weapon's Guard must set each channel a Motion it plays links.
+_Avoid_: Idle pose, rest pose
+
 **Motion**:
 A named sequence of Pose Keys that animates one Action, e.g. the Overhead Attack.
 _Avoid_: Animation, clip

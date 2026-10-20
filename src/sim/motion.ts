@@ -3,9 +3,10 @@
  * per Skeleton channel. Each channel interpolates independently between the
  * Pose Keys that set it, eased by the later key's easing curve. Before its
  * first key a channel holds that key; after its last key it holds the last;
- * a channel no key sets stays at the rest pose.
+ * a channel no key sets stays at the rest pose. A channel a key links to the
+ * guard ("idle") takes the guard's value there.
  */
-import { weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData, type WeaponTempo } from '../tuning';
+import { guardKey, weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData, type WeaponTempo } from '../tuning';
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
 import { authoredSeconds, motionTempo } from './tempo';
@@ -72,20 +73,28 @@ const LERP: { readonly [C in keyof PoseTargets]-?: (a: Value<C>, b: Value<C>, t:
   body: (a: BodyTarget, b: BodyTarget, t: number): BodyTarget => ({ tilt: num(a.tilt, b.tilt, t), drop: num(a.drop, b.drop, t) }),
 };
 
-function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], channel: C, time: number, rest: PoseTargets[C]): PoseTargets[C] {
-  let prev: PoseKey | undefined;
+/** The value Pose Key `k` gives `channel`: its own, the guard's where it links the channel to it, or undefined if it sets neither. */
+function keyValue<C extends keyof PoseTargets>(k: PoseKey, channel: C, guard: PoseKey | undefined): PoseTargets[C] | undefined {
+  const own = k.idle?.includes(channel) ? guard : k;
+  return own?.[channel] as PoseTargets[C] | undefined;
+}
+
+function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], channel: C, time: number, rest: PoseTargets[C], guard: PoseKey | undefined): PoseTargets[C] {
+  let prev: PoseTargets[C] | undefined;
+  let prevTime = 0;
   for (const k of keys) {
-    const v = k[channel] as PoseTargets[C] | undefined;
+    const v = keyValue(k, channel, guard);
     if (v === undefined) continue;
     if (k.time >= time) {
-      if (!prev || k.time === prev.time) return v;
-      const u = (time - prev.time) / (k.time - prev.time);
+      if (prev === undefined || k.time === prevTime) return v;
+      const u = (time - prevTime) / (k.time - prevTime);
       const lerpFn = LERP[channel] as unknown as (a: PoseTargets[C], b: PoseTargets[C], t: number) => PoseTargets[C];
-      return lerpFn(prev[channel] as PoseTargets[C], v, ease(k.ease, u));
+      return lerpFn(prev, v, ease(k.ease, u));
     }
-    prev = k;
+    prev = v;
+    prevTime = k.time;
   }
-  return prev ? (prev[channel] as PoseTargets[C]) : rest;
+  return prev ?? rest;
 }
 
 /** Authored seconds into the Motion at a Tick of playback (played at `tempo`, if any): looping Motions wrap, others hold their end. */
@@ -95,17 +104,18 @@ export function motionTime(motion: Motion, tick: number, tempo?: WeaponTempo): n
   return Math.min(tempo ? authoredSeconds(motion, tempo, t) : t, motion.duration);
 }
 
-export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTuning): PoseTargets {
+/** The Pose targets of `motion` at `time`, its channels linked to the guard taking `guard`'s values (see `guardKey`; without one they count as unset). */
+export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTuning, guard?: PoseKey): PoseTargets {
   const rest = restTargets(skeleton);
   const k = motion.poseKeys;
   return {
-    rightHand: sampleChannel(k, 'rightHand', time, rest.rightHand),
-    leftHand: sampleChannel(k, 'leftHand', time, rest.leftHand),
-    torso: sampleChannel(k, 'torso', time, rest.torso),
-    hip: sampleChannel(k, 'hip', time, rest.hip),
-    leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot),
-    rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot),
-    ...optionalChannels(sampleChannel(k, 'kickFoot', time, undefined), sampleChannel(k, 'body', time, undefined)),
+    rightHand: sampleChannel(k, 'rightHand', time, rest.rightHand, guard),
+    leftHand: sampleChannel(k, 'leftHand', time, rest.leftHand, guard),
+    torso: sampleChannel(k, 'torso', time, rest.torso, guard),
+    hip: sampleChannel(k, 'hip', time, rest.hip, guard),
+    leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot, guard),
+    rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot, guard),
+    ...optionalChannels(sampleChannel(k, 'kickFoot', time, undefined, guard), sampleChannel(k, 'body', time, undefined, guard)),
   };
 }
 
@@ -124,11 +134,14 @@ export function channelValue<C extends keyof PoseTargets>(targets: PoseTargets, 
   return (channel === 'kickFoot' ? plantedAnkle(targets.rightFoot, s.ankleHeight) : NO_BODY) as Value<C>;
 }
 
-/** The Pose targets of the named Motion, as `weapon` plays it (at its Tempo), `tick` Ticks in (looping or holding its end as the Motion says). */
+/**
+ * The Pose targets of the named Motion, as `weapon` plays it (at its Tempo, from its guard), `tick` Ticks in
+ * (looping or holding its end as the Motion says).
+ */
 export function motionTargets(tuning: TuningData, weapon: string, name: string, tick: number): PoseTargets {
   const motion = weaponMotion(tuning, weapon, name);
   if (!motion) throw new Error(`Unknown Motion "${name}"`);
-  return sampleMotion(motion, motionTime(motion, tick, motionTempo(tuning, weapon, name)), tuning.skeleton);
+  return sampleMotion(motion, motionTime(motion, tick, motionTempo(tuning, weapon, name)), tuning.skeleton, guardKey(tuning, weapon));
 }
 
 /** The upper body: the channels a held Motion can freeze (the torso and both hands). */

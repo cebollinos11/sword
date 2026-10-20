@@ -11,6 +11,11 @@
  *     "poseKeys": [ PoseKey, ... ] // at least one, in time order
  *   }
  *
+ * A channel written as "idle" (e.g. `"rightHand": "idle"`) is linked to the
+ * guard: it takes that channel of the first Pose Key of the Idle Motion the
+ * playing Weapon uses (its override, or the default), so changing an Idle
+ * moves every Motion that starts or ends on guard with it.
+ *
  * All positions are in the Fighter-local frame: x = the Fighter's right,
  * y = up, z = forward (facing), origin on the floor between the feet.
  * Angles are degrees. See NOTES.md for the per-channel meaning.
@@ -69,6 +74,11 @@ export interface PoseKey {
   readonly kickFoot?: Vec3;
   /** Tilts and lowers the whole body; absent means upright. */
   readonly body?: BodyTarget;
+  /**
+   * Channels linked to the guard (written `"<channel>": "idle"`): each takes its value from the first Pose Key of
+   * the playing Weapon's Idle, and the key holds no value of its own for it. Absent when none are linked.
+   */
+  readonly idle?: readonly PoseKeyChannel[];
 }
 
 export interface Motion {
@@ -94,7 +104,7 @@ function foot(v: unknown, where: string): FootPlant {
 }
 
 function poseKey(raw: unknown, where: string, duration: number): PoseKey {
-  const o = record(raw, where);
+  const o = { ...record(raw, where) };
   const time = finiteNumber(o, 'time', where);
   if (time < 0 || time > duration) {
     throw new TuningDataError(`${where}.time must be within 0..duration (${duration}), got ${time}`);
@@ -104,6 +114,9 @@ function poseKey(raw: unknown, where: string, duration: number): PoseKey {
     throw new TuningDataError(`${where}.ease must be one of ${EASES.join(', ')}, got ${JSON.stringify(o.ease)}`);
   }
   const key: { -readonly [K in keyof PoseKey]: PoseKey[K] } = { time, ease: ease as Ease };
+  const idle = idleLinks(o, where);
+  for (const c of idle) delete o[c];
+  if (idle.length > 0) key.idle = idle;
   if (o.rightHand !== undefined) {
     const h = record(o.rightHand, `${where}.rightHand`);
     key.rightHand = {
@@ -128,6 +141,21 @@ function poseKey(raw: unknown, where: string, duration: number): PoseKey {
     key.body = { tilt: finiteNumber(b, 'tilt', `${where}.body`), drop: finiteNumber(b, 'drop', `${where}.body`) };
   }
   return key;
+}
+
+/**
+ * The channels a raw Pose Key links to the guard, in channel order: those written `"idle"` in a file, or listed in
+ * `idle` (a Motion already parsed, e.g. an Editor draft, where a linked channel holds no value).
+ */
+function idleLinks(o: Record<string, unknown>, where: string): PoseKeyChannel[] {
+  let listed: readonly unknown[] = [];
+  if (o.idle !== undefined) {
+    listed = array(o.idle, `${where}.idle`);
+    for (const c of listed) {
+      if (!(POSE_KEY_CHANNELS as readonly unknown[]).includes(c)) throw new TuningDataError(`${where}.idle: ${JSON.stringify(c)} is not a Pose Key channel`);
+    }
+  }
+  return POSE_KEY_CHANNELS.filter((c) => o[c] === 'idle' || listed.includes(c));
 }
 
 /** Validate one raw (parsed JSON) Motion. Throws TuningDataError naming the offending path. */
@@ -166,13 +194,19 @@ export function motionFileName(name: string): string {
   return `${name.toLowerCase()}.json`;
 }
 
+/** Whether any Pose Key of `m` links a channel to the guard. */
+export const linksIdle = (m: Motion): boolean => m.poseKeys.some((k) => k.idle !== undefined);
+
 /** Stable, diff-friendly JSON for a Motion file (2-space indent, trailing newline). */
 export function serializeMotion(m: Motion): string {
   const out: Record<string, unknown> = { name: m.name, duration: m.duration, loop: m.loop };
   if (Object.keys(m.markers).length > 0) out.markers = m.markers;
   out.poseKeys = m.poseKeys.map((k) => {
     const o: Record<string, unknown> = { time: k.time, ease: k.ease };
-    for (const c of POSE_KEY_CHANNELS) if (k[c] !== undefined) o[c] = k[c];
+    for (const c of POSE_KEY_CHANNELS) {
+      if (k.idle?.includes(c)) o[c] = 'idle';
+      else if (k[c] !== undefined) o[c] = k[c];
+    }
     return o;
   });
   return `${JSON.stringify(out, null, 2)}\n`;

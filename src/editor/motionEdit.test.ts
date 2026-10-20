@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { addPoseKey, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
+import { guardKey, loadTuningData } from '../tuning';
+import { addPoseKey, isLinked, linkChannel, removePoseKey, retimePoseKey, setChannel } from './motionEdit';
 import { EditorSession } from './session';
 
 const tuning = loadTuningData();
+const guard = guardKey(tuning, 'Arming Sword');
 
 describe('Pose Key editing', () => {
   it('adds a Pose Key at a time, in time order, holding the pose the Motion has there', () => {
     const session = new EditorSession(tuning);
     const d = session.draft('Overhead');
-    const i = addPoseKey(d, 0.5, tuning.skeleton);
+    const i = addPoseKey(d, 0.5, tuning.skeleton, guard);
     expect(i).toBe(2);
     expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.35, 0.5, 0.6, 1.1]);
     // Torso twist at 0.5 s: easeIn from 15 (0.35) to -5 (0.6), u = 0.6 -> 15 - 20 * 0.36 = 7.8.
     expect(d.poseKeys[2]!.torso!.twist).toBeCloseTo(7.8, 6);
-    // Feet are only set at 0 s, so they hold that plant.
+    // Feet are only set at 0 s (linked to the guard), so they hold the guard's plant.
     expect(d.poseKeys[2]!.leftFoot).toEqual({ x: -0.12, z: 0.12 });
     // It takes the easing curve of the segment it splits.
     expect(d.poseKeys[2]!.ease).toBe('easeIn');
@@ -46,9 +47,9 @@ describe('Pose Key editing', () => {
   it('sets a channel on a Pose Key from the pose there, and clears it again', () => {
     const session = new EditorSession(tuning);
     const d = session.draft('Overhead');
-    // The 0.35 s key does not plant the feet; turning the channel on holds the 0 s plant.
+    // The 0.35 s key does not plant the feet; turning the channel on holds the 0 s plant (the guard's).
     expect(d.poseKeys[1]!.rightFoot).toBeUndefined();
-    setChannel(d, 1, 'rightFoot', true, tuning.skeleton);
+    setChannel(d, 1, 'rightFoot', true, tuning.skeleton, guard);
     expect(d.poseKeys[1]!.rightFoot).toEqual({ x: 0.14, z: -0.12 });
     // Already set: switching on again keeps the authored value.
     d.poseKeys[1]!.rightFoot!.x = 0.3;
@@ -61,5 +62,34 @@ describe('Pose Key editing', () => {
     setChannel(idle, 0, 'rightFoot', false, tuning.skeleton);
     setChannel(idle, 1, 'rightFoot', true, tuning.skeleton);
     expect(idle.poseKeys[1]!.rightFoot).toEqual({ x: 0.1, z: 0 });
+  });
+
+  it('links a channel to the guard and unlinks it, keeping the guard as its own value', () => {
+    const session = new EditorSession(tuning);
+    const d = session.draft('Overhead');
+    expect(isLinked(d, 0, 'rightHand')).toBe(true);
+    expect(d.poseKeys[0]).not.toHaveProperty('rightHand');
+    linkChannel(d, 0, 'rightHand', false, tuning.skeleton, guard);
+    expect(isLinked(d, 0, 'rightHand')).toBe(false);
+    expect(d.poseKeys[0]!.rightHand).toEqual(guard.rightHand);
+    // Unlinking a channel that is not linked keeps its value.
+    linkChannel(d, 0, 'rightHand', false, tuning.skeleton, guard);
+    expect(d.poseKeys[0]!.rightHand).toEqual(guard.rightHand);
+    linkChannel(d, 1, 'torso', true, tuning.skeleton, guard);
+    expect(d.poseKeys[1]).not.toHaveProperty('torso');
+    expect(d.poseKeys[1]!.idle).toEqual(['torso']);
+    // Turning a linked channel on as its own value (as dragging its gizmo does) unlinks it too.
+    setChannel(d, 0, 'hip', true, tuning.skeleton, guard);
+    expect(isLinked(d, 0, 'hip')).toBe(false);
+    expect(d.poseKeys[0]!.hip).toEqual(guard.hip);
+    expect(() => session.commit('Overhead')).not.toThrow();
+    expect(session.tuning.motions.Overhead!.poseKeys[1]!.idle).toEqual(['torso']);
+  });
+
+  it('refuses an Idle edit that drops a channel some Motion links to', () => {
+    const session = new EditorSession(tuning);
+    setChannel(session.draft('Idle'), 0, 'rightHand', false, tuning.skeleton);
+    expect(() => session.commit('Idle')).toThrow(/linked to "idle"/);
+    expect(session.tuning.motions.Idle).toBe(tuning.motions.Idle);
   });
 });

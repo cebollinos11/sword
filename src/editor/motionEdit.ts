@@ -6,7 +6,7 @@
  * (parseMotion) before it becomes live.
  */
 import { channelValue, sampleMotion, type PoseTargets } from '../sim';
-import { POSE_KEY_CHANNELS, type PoseKeyChannel, type SkeletonTuning } from '../tuning';
+import { POSE_KEY_CHANNELS, type PoseKey, type PoseKeyChannel, type SkeletonTuning } from '../tuning';
 import type { MotionDraft } from './session';
 
 type PoseKeyDraft = MotionDraft['poseKeys'][number];
@@ -20,9 +20,28 @@ export function snapTime(time: number, duration: number): number {
   return Math.min(Math.max(+t.toFixed(4), 0), duration);
 }
 
-/** The value a Motion's channel has at `time` (what a new Pose Key there would hold). */
-export function channelValueAt<C extends PoseKeyChannel>(d: MotionDraft, channel: C, time: number, skeleton: SkeletonTuning): NonNullable<PoseTargets[C]> {
-  return structuredClone(channelValue(sampleMotion(d, time, skeleton), channel, skeleton));
+/**
+ * The value a Motion's channel has at `time` (what a new Pose Key there would hold), its channels linked to the
+ * guard taking `guard`'s values (the previewed Weapon's, see `guardKey`).
+ */
+export function channelValueAt<C extends PoseKeyChannel>(
+  d: MotionDraft,
+  channel: C,
+  time: number,
+  skeleton: SkeletonTuning,
+  guard?: PoseKey,
+): NonNullable<PoseTargets[C]> {
+  return structuredClone(channelValue(sampleMotion(d, time, skeleton, guard), channel, skeleton));
+}
+
+/** Whether Pose Key `index` links `channel` to the guard. */
+export const isLinked = (d: MotionDraft, index: number, channel: PoseKeyChannel): boolean => d.poseKeys[index]?.idle?.includes(channel) ?? false;
+
+/** Stop Pose Key `index` linking `channel` to the guard (it then holds no value for it unless one is set after). */
+function unlink(key: PoseKeyDraft, channel: PoseKeyChannel): void {
+  if (!key.idle?.includes(channel)) return;
+  key.idle = key.idle.filter((c) => c !== channel);
+  if (key.idle.length === 0) delete key.idle;
 }
 
 function insertIndex(d: MotionDraft, time: number): number {
@@ -58,14 +77,28 @@ export function removePoseKey(d: MotionDraft, index: number): void {
 }
 
 /**
- * Make Pose Key `index` set `channel` (to the pose the Motion has at that
- * key's time, unless it already sets it) or stop setting it.
+ * Make Pose Key `index` set `channel` to its own value (to the pose the Motion has at that key's time, the
+ * guard's if it was linked to it, unless it already sets it) or stop setting it. Either way it is no longer linked.
  */
-export function setChannel(d: MotionDraft, index: number, channel: PoseKeyChannel, on: boolean, skeleton: SkeletonTuning): void {
-  const key = d.poseKeys[index] as Record<PoseKeyChannel, unknown> | undefined;
+export function setChannel(d: MotionDraft, index: number, channel: PoseKeyChannel, on: boolean, skeleton: SkeletonTuning, guard?: PoseKey): void {
+  const key = d.poseKeys[index];
   if (!key) throw new RangeError(`No Pose Key ${index}`);
-  if (!on) delete key[channel];
-  else if (key[channel] === undefined) key[channel] = channelValueAt(d, channel, d.poseKeys[index]!.time, skeleton);
+  const values = key as Record<PoseKeyChannel, unknown>;
+  if (on && values[channel] === undefined) values[channel] = channelValueAt(d, channel, key.time, skeleton, guard);
+  if (!on) delete values[channel];
+  unlink(key, channel);
+}
+
+/** Link `channel` of Pose Key `index` to the guard (dropping any value of its own), or unlink it, keeping the guard's value as its own. */
+export function linkChannel(d: MotionDraft, index: number, channel: PoseKeyChannel, linked: boolean, skeleton: SkeletonTuning, guard?: PoseKey): void {
+  const key = d.poseKeys[index];
+  if (!key) throw new RangeError(`No Pose Key ${index}`);
+  if (!linked) {
+    if (isLinked(d, index, channel)) setChannel(d, index, channel, true, skeleton, guard);
+    return;
+  }
+  delete (key as Record<PoseKeyChannel, unknown>)[channel];
+  key.idle = POSE_KEY_CHANNELS.filter((c) => c === channel || key.idle?.includes(c));
 }
 
 /**
@@ -86,16 +119,16 @@ export function scaleMotion(d: MotionDraft, seconds: number): void {
 
 /**
  * Add a Pose Key at `time` holding the pose the Motion has there, for every
- * channel some Pose Key already sets. It takes the easing curve of the
+ * channel some Pose Key already sets (or links to the guard). It takes the easing curve of the
  * segment it splits. Returns the new key's index.
  */
-export function addPoseKey(d: MotionDraft, time: number, skeleton: SkeletonTuning): number {
+export function addPoseKey(d: MotionDraft, time: number, skeleton: SkeletonTuning, guard?: PoseKey): number {
   const t = snapTime(time, d.duration);
-  const sampled = sampleMotion(d, t, skeleton);
+  const sampled = sampleMotion(d, t, skeleton, guard);
   const i = insertIndex(d, t);
   const key: PoseKeyDraft = { time: t, ease: d.poseKeys[i]?.ease ?? 'linear' };
   for (const c of POSE_KEY_CHANNELS) {
-    if (d.poseKeys.some((k) => k[c] !== undefined)) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(channelValue(sampled, c, skeleton));
+    if (d.poseKeys.some((k) => k[c] !== undefined || k.idle?.includes(c))) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(channelValue(sampled, c, skeleton));
   }
   d.poseKeys.splice(i, 0, key);
   return i;

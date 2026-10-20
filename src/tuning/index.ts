@@ -20,7 +20,7 @@ import fallJson from '../../data/fall.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
-import { parseMotion, motionFileName, type Motion } from './motion';
+import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
 
@@ -32,7 +32,7 @@ export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
-export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
+export { EASES, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTempo, WeaponTuning } from './weapon';
 export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
@@ -366,6 +366,34 @@ export function weaponMotion(tuning: Pick<TuningData, 'motions' | 'motionOverrid
   return tuning.motionOverrides[weapon]?.[name] ?? tuning.motions[name];
 }
 
+/** The guard of a Fighter wielding `weapon`: the first Pose Key of its Idle (its override, or the default). Linked channels take their value from it. */
+export function guardKey(tuning: Pick<TuningData, 'motions' | 'motionOverrides'>, weapon: string): PoseKey {
+  return weaponMotion(tuning, weapon, 'Idle')!.poseKeys[0]!;
+}
+
+/**
+ * Check every channel linked to the guard against every Weapon that plays it: an Idle links nothing, and each
+ * Weapon's guard sets every channel a Motion it plays links. Throws TuningDataError naming the path.
+ */
+export function checkIdleLinks(tuning: Pick<TuningData, 'weapons' | 'motions' | 'motionOverrides'>): void {
+  const idles = [tuning.motions.Idle, ...Object.values(tuning.motionOverrides).map((own) => own.Idle)];
+  for (const idle of idles) if (idle && linksIdle(idle)) throw new TuningDataError(`motions/Idle: the Idle Motion cannot link a channel to "idle"`);
+  for (const weapon of Object.keys(tuning.weapons)) {
+    const guard = guardKey(tuning, weapon);
+    for (const name of Object.keys(tuning.motions)) {
+      const motion = weaponMotion(tuning, weapon, name)!;
+      motion.poseKeys.forEach((k, i) => {
+        for (const c of k.idle ?? []) {
+          if (guard[c] === undefined) {
+            const at = tuning.motionOverrides[weapon]?.[name] ? `motionOverrides/${weapon}/${name}` : `motions/${name}`;
+            throw new TuningDataError(`${at}.poseKeys[${i}].${c} is linked to "idle", but ${weapon}'s Idle does not set ${c} in its first Pose Key`);
+          }
+        }
+      });
+    }
+  }
+}
+
 /**
  * Check a Motion override against the default it replaces: it must have the
  * same name as an existing default and keep every marker the default has (the
@@ -539,6 +567,7 @@ export function parseTuningData(raw: unknown): TuningData {
     });
     if (Object.keys(own).length > 0) motionOverrides[weapon] = own;
   }
+  checkIdleLinks({ weapons, motions, motionOverrides });
 
   return {
     fighter: {
