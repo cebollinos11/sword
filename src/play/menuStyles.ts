@@ -161,6 +161,8 @@ export const MENU_CSS = `
   font-size: 0.95rem; line-height: 1; color: var(--muted); }
 .seat-controls select { flex: 1 1 5.5rem; min-width: 0; }
 .seat-move:hover { color: var(--text); background: #ffffff1f; }
+.lb-seed { width: 8rem; padding: 0.3rem 0.5rem; border-radius: 6px; border: 1px solid var(--line-2); background: #0007; font-size: 0.82rem; }
+.lb-seed:focus { border-color: var(--gold); outline: none; }
 .map-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: 0.5rem; margin-bottom: 0.6rem; }
 .map-card { position: relative; display: flex; flex-direction: column; justify-content: flex-end; text-align: left; min-height: 5.6rem; padding: 0.5rem 0.6rem;
   border-radius: 10px; border: 1px solid var(--line); overflow: hidden; background: #000; transition: transform 140ms, border-color 140ms; }
