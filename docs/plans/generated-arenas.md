@@ -1,6 +1,6 @@
 # Generated Arenas: assembled from a Blender kit, tested in a dev Arena Lab
 
-> Status: Stages 1 and 2 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder). Settle the open questions (end of this file) before Stage 4.
+> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Settle the open questions (end of this file) before Stage 4.
 
 ## Context
 
@@ -130,6 +130,30 @@ Shown only when `import.meta.env.DEV` or `?dev=1` (move `devMode()` out of `src/
 - Fix AI navigation bugs it finds in `nav.ts` and `ai.ts`, not in the generator. Every Arena benefits.
 
 **Done when:** most seeds give Duels that end in normal time, with no AI stuck, and the soak table looks sensible.
+
+### Result (done)
+`SOAK_ARENAS=1 npx vitest run src/sim/arenaGen/arenaGen.soak.test.ts --silent=false` (add `SOAK_DUELS=3` for three Duels per seed, from Match seeds `seed`, `seed + 1000`, `seed + 2000`). The table splits the walk to the fight ("to contact": the first Tick within 8 m) from time apart after it, and marks a Death a Kick Knockdown led to (`Kick>`). One Duel per seed runs in about 40 s, three in about 75 s.
+
+| Seeds 1–50 × 3 Duels | Before | After |
+|---|---|---|
+| Duels that ended (2 min cap) | 150/150 | 150/150 |
+| Median Duel (the circle: 27.0 s) | 25.1 s | 26.0 s |
+| Longest Duel | 117.8 s (seed 12) | 67 s |
+| Median time to contact | 1.6 s | 1.6 s |
+| Time apart > 8 m after contact | 0% | 0% |
+| Duels with an Abyss death | 9 | 6 |
+| ...not after a Kick Knockdown (the AI walked in) | 1 (seed 31) | 0 |
+
+What it found, both AI bugs, fixed in `src/controllers/ai.ts` with a focused test each:
+- **Seed 31: a Hard AI walked into the Abyss.** It stood on a ramp's top edge beside a void cell and stepped past the cell's open corner: both points `safeMove` looks at (0.4 and 0.8 m ahead) were floor, but the straight line between them clipped the corner by 3 cm. `stepIsSafe` now looks at the ground 0.1 m to either side of each point too.
+- **Seed 12: two Hard AIs swapped levels for two minutes.** Each chased the other's level by the same pair of jump Links, so they crossed in the air and landed swapped, every 4.5 s. An AI now starts no jump Link while it sees its enemy in the air; it waits to see where it lands.
+
+In the lab (Watch Hard vs Hard, colliders on), seed 12 now meets within 5 s and fights on the plateau edge.
+
+No judge rule or generator param changed: nothing in the soak pointed at the Layouts.
+- **No spawn under a floor:** none in seeds 1–200. The grid cannot make one (a spawn cell's eight neighbours are solid ground, and nothing overhangs). Worth a judge rule once a Blender Kit (Stage 4) can overhang.
+- **1-cell-wide dead-end ledges:** a raised cell walking reaches from one side only shows up in about half of seeds 1–200, but no stuck AI, long Duel or Death in the soak happened on one.
+- **What is left is the open-edges question (below):** every Abyss death now follows a Kick Knockdown off an open edge (6 of 150 Duels, none on the circle). Railing more edges would cut that. This is a design choice, not a bug.
 
 ## Stage 4: the Blender kit
 
