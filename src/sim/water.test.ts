@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena } from '../tuning';
-import { deadlyGround } from './arena';
+import { deadlyGround, groundBelow } from './arena';
 import { navMesh } from './nav';
-import { createMatch, IDLE_INTENT, stepMatch, type Intent, type MatchState } from './index';
+import { createInitialState, createMatch, IDLE_INTENT, step, stepMatch, type Intent, type MatchState, type SimState } from './index';
 
 const tuning = loadTuningData();
 const ship = tuning.arenas.ship!;
@@ -62,6 +62,79 @@ describe('The pirate ship Arena', () => {
   it('gives the AI no way into the sea', () => {
     const sea = ship.walk.findIndex((s) => s.water);
     expect(navMesh(ship, tuning).links.filter((l) => l.to === sea)).toEqual([]);
+  });
+});
+
+type Move = { x: number; z: number };
+
+/** The id of the Walk Surface Fighter 0 stands on. */
+function standingOn(s: SimState): string | undefined {
+  const f = s.fighters[0]!;
+  const g = groundBelow(ship, f.position.x, f.position.z, f.y + 1e-6);
+  return g && Math.abs(g.y - f.y) < 1e-6 ? ship.walk[g.surface]!.id : undefined;
+}
+
+/**
+ * Fighter 0 alone on the ship at (x, y, z), Jumps walking along `move`, holding Jump for `hold` Ticks (0 is a tap),
+ * keeps walking until it lands, then stands still for a moment.
+ */
+function jumpFrom([x, y, z]: [number, number, number], move: Move, hold: number): SimState {
+  let s = createInitialState(tuning, 1, [{ position: { x, z }, facing: Math.atan2(move.x, move.z), y }], [], [], 'ship');
+  let rose = false;
+  for (let t = 0; t < 300; t++) {
+    s = step(s, [{ ...IDLE_INTENT, move, jump: t === 0, jumpHeld: t < hold }], tuning);
+    if (s.fighters[0]!.air) rose = true;
+    else if (rose) break;
+  }
+  for (let t = 0; t < 10; t++) s = step(s, [IDLE_INTENT], tuning);
+  return s;
+}
+
+/** Steps Fighter 0 walking `move` for `ticks` Ticks; every state along the way. */
+function walkAlong(s: SimState, move: Move, ticks: number): SimState[] {
+  const states = [s];
+  for (let t = 0; t < ticks; t++) states.push((s = step(s, [{ ...IDLE_INTENT, move }], tuning)));
+  return states;
+}
+
+describe('The crates on deck can be jumped onto and walked on', () => {
+  const landed = jumpFrom([-1.95, 0, 4.9], { x: 0, z: 1 }, 0);
+
+  it('a tap from the deck ends standing on the big crate', () => {
+    const f = landed.fighters[0]!;
+    expect(f.air).toBeUndefined();
+    expect(f.death).toBeUndefined();
+    expect(f.y).toBeCloseTo(1, 6);
+    expect(standingOn(landed)).toBe('WALK_crate0_top');
+  });
+
+  it('walking across the top keeps the Fighter up there', () => {
+    // It lands just past the near edge, so on across towards the far one.
+    const states = walkAlong(landed, { x: 0, z: 1 }, 18);
+    for (const s of states) {
+      expect(s.fighters[0]!.y).toBeCloseTo(1, 6);
+      expect(standingOn(s)).toBe('WALK_crate0_top');
+    }
+    expect(states.at(-1)!.fighters[0]!.position.z).toBeGreaterThan(landed.fighters[0]!.position.z + 0.6);
+  });
+
+  it('walking on steps down onto the small crate', () => {
+    const f = landed.fighters[0]!;
+    const [dx, dz] = [-1.55 - f.position.x, 6.85 - f.position.z];
+    const d = Math.hypot(dx, dz);
+    const s = walkAlong(walkAlong(landed, { x: dx / d, z: dz / d }, Math.round((d / tuning.fighter.walkSpeed) * 60)).at(-1)!, { x: 0, z: 0 }, 30).at(-1)!;
+    expect(s.fighters[0]!.death).toBeUndefined();
+    expect(s.fighters[0]!.y).toBeCloseTo(0.7, 6);
+    expect(standingOn(s)).toBe('WALK_crate1_top');
+  });
+
+  it('walking off the inboard edge comes back down to the deck', () => {
+    const s = walkAlong(walkAlong(landed, { x: 1, z: 0 }, 40).at(-1)!, { x: 0, z: 0 }, 60).at(-1)!;
+    const f = s.fighters[0]!;
+    expect(f.air).toBeUndefined();
+    expect(f.death).toBeUndefined();
+    expect(f.y).toBe(0);
+    expect(standingOn(s)).toBe('WALK_deck');
   });
 });
 

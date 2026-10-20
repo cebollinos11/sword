@@ -281,9 +281,16 @@ def wall(id, a, b, bottom, top):
 
 
 def square(id, x, z, hx, hz, bottom, top):
+    """Four Walls round a box of half extents hx, hz at (x, z); returns its corners."""
     corners = [(x - hx, z - hz), (x + hx, z - hz), (x + hx, z + hz), (x - hx, z + hz)]
     for e in range(4):
         wall(f'{id}_{e}', corners[e], corners[(e + 1) % 4], bottom, top)
+    return corners
+
+
+def lid(id, corners, y):
+    """A Walk Surface over a prop's Walls (the same corners), at their top: clear the Walls and you stand on it."""
+    WALK.append((f'{id}_top', [(r4(x), y, r4(z)) for x, z in corners], False))
 
 
 # The bulwarks. Over the main deck from -0.5 (so a body is never under one) to RAIL; beside the stairs, stepped up with them; round the quarterdeck from 1.0.
@@ -315,8 +322,9 @@ for k, (side, z) in enumerate(CANNONS):
     square(f'cannon{k}', x, z, 0.6, 0.3, 0.0, 0.7)
 for k, (x, z) in enumerate(BARRELS):
     square(f'barrel{k}', x, z, 0.3, 0.3, 0.0, 0.9)
+# The crates have lids at their tops, so a Jump that clears one lands on it; where the pair overlaps, the higher wins.
 for k, (x, z, h) in enumerate(CRATES):
-    square(f'crate{k}', x, z, h, h, 0.0, 2 * h)
+    lid(f'crate{k}', square(f'crate{k}', x, z, h, h, 0.0, 2 * h), 2 * h)
 
 # The two teams face each other along the waist, between the stairs and the mainmast.
 for slot, x in enumerate((0.0, 1.4, -1.4)):
