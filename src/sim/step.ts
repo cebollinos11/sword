@@ -3,7 +3,8 @@ import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
-import { arenaOf, blockedAt, ceilingAbove, deadlyGround, groundBelow } from './arena';
+import { arenaOf, deadlyGround, groundBelow } from './arena';
+import { flyBody, landingDamage, landingDrop, settleGround, takeOff } from './air';
 import { resolveBodies } from './collision';
 import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
@@ -15,7 +16,7 @@ import { followMotion } from './motion';
 import { bladeAndLeg, fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { Airborne, Death, DeathBlow, FighterState, SimState, Vec2 } from './state';
+import type { Airborne, Death, DeathBlow, FighterState, SimState } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -165,39 +166,12 @@ function duck(f: FighterState, intent: Intent, tuning: TuningData): number {
 }
 
 /**
- * An airborne Fighter's flight this Tick: gravity pulls it down (a held Jump's boost pushes back up), and it steers its
- * horizontal velocity toward where its Intent walks at no more than `fall.airControl` (m/s²).
+ * An airborne Fighter's flight this Tick (`flyBody`): it steers toward where its Intent walks, at its walk speed
+ * (slowed by a dagger Hit), unless it is locked.
  */
 function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData): Pick<FighterState, 'position' | 'y' | 'air'> {
-  let { x: mx, z: mz } = locked(f) ? { x: 0, z: 0 } : intent.move;
-  const len = Math.hypot(mx, mz);
-  if (len > 1) {
-    mx /= len;
-    mz /= len;
-  }
-  const topSpeed = tuning.fighter.walkSpeed * slowFactor(f, tuning);
-  let dvx = mx * topSpeed - air.vx;
-  let dvz = mz * topSpeed - air.vz;
-  const dv = Math.hypot(dvx, dvz);
-  const maxDv = tuning.fall.airControl * TICK_SECONDS;
-  if (dv > maxDv) {
-    dvx *= maxDv / dv;
-    dvz *= maxDv / dv;
-  }
-  const vx = air.vx + dvx;
-  const vz = air.vz + dvz;
-  // A Jump held past `fall.jumpBoostDelay` keeps pushing up while its boost lasts (so a tap stays a hop); letting go ends it for good.
-  const held = air.boost !== undefined && intent.jumpHeld === true;
-  const pushing = held && air.ticks >= secondsToTicks(tuning.fall.jumpBoostDelay);
-  const vy = air.vy + ((pushing ? tuning.fall.jumpBoost : 0) - tuning.fall.gravity) * TICK_SECONDS;
-  const y = f.y + vy * TICK_SECONDS;
-  const { boost: _boost, ...rest } = air;
-  const boost = pushing ? air.boost! - 1 : held ? air.boost! : 0;
-  return {
-    position: { x: f.position.x + vx * TICK_SECONDS, z: f.position.z + vz * TICK_SECONDS },
-    y,
-    air: { ...rest, vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1, ...(boost > 0 ? { boost } : {}) },
-  };
+  const move = locked(f) ? { x: 0, z: 0 } : intent.move;
+  return flyBody(f, air, move, intent.jumpHeld === true, tuning.fighter.walkSpeed * slowFactor(f, tuning), tuning);
 }
 
 /** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking or Attacking. */
@@ -214,10 +188,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   let air = f.air;
   let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
   if (jumps(f, intent)) {
-    const to = walk(f, intent, tuning);
-    air = { vx: (to.x - f.position.x) / TICK_SECONDS, vz: (to.z - f.position.z) / TICK_SECONDS, vy: tuning.fall.jumpSpeed, peakY: f.y, ticks: 0, jumped: true, launchY: f.y };
-    const boost = secondsToTicks(tuning.fall.jumpBoostTime);
-    if (boost > 0 && tuning.fall.jumpBoost > 0) air = { ...air, boost };
+    air = takeOff(f.position, walk(f, intent, tuning), f.y, tuning);
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
@@ -257,70 +228,15 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
  * Staggers it (cause `Landed`). A Fighter already Staggered by something else keeps that Stagger.
  */
 function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
-  // A Jump's drop counts from no higher than a plain Jump's top above where it left, so a boosted Jump lands softly on level ground.
-  const { peakY, launchY } = prev.air!;
-  const { jumpSpeed, gravity } = tuning.fall;
-  const top = launchY === undefined ? peakY : Math.min(peakY, launchY + (jumpSpeed * jumpSpeed) / (2 * gravity));
-  const height = Math.max(0, top - f.y);
+  const height = landingDrop(prev.air!, f.y, tuning);
   const hard = height > tuning.fall.safeHeight;
-  const damage = hard && fighting ? (height - tuning.fall.safeHeight) * tuning.fall.damagePerMetre : 0;
+  const damage = fighting ? landingDamage(height, tuning) : 0;
   emit({ type: 'Land', fighter: index, height, damage });
   // A Fighter lying down takes the damage but stays down: it is not Staggered upright.
   if (hard && f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
   if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
   if (f.action.kind !== 'Fall') return f;
   return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, IDLE_MOTION) };
-}
-
-/**
- * A rising Fighter whose head reaches a Walk Surface overhead (`ceilingAbove`) stops under it: its feet are held
- * `fighter.height` below, it stops rising (keeping its drift) and any Jump boost left is lost.
- */
-function bumpHead(prev: FighterState, f: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
-  if (!f.air || f.y <= prev.y) return f;
-  const h = ceilingAbove(arena, f.position.x, f.position.z, prev.y, f.y, tuning);
-  if (h === null) return f;
-  const { boost: _boost, ...air } = f.air;
-  const y = h - tuning.fighter.height;
-  return { ...f, y, air: { ...air, vy: 0, peakY: Math.max(prev.air?.peakY ?? prev.y, y) } };
-}
-
-/**
- * Put a Fighter whose body has settled (`f`; last Tick `prev`) on the ground, or in the air:
- *   - Standing, it follows the Walk Surface under it up a step (`fall.stepUp`) or down one
- *     (`fall.snapDown`), so ramps walk both ways. Where there is no ground within a step, or
- *     ground higher than a step blocks the body (`blockedAt`), or it is off the Arena, it slides along whichever axis has ground,
- *     or stays put. Deeper ground below is a ledge: it goes airborne at the speed it walked off at.
- *   - Airborne, it lands once its feet reach the ground under them; rising, its head stops under a Walk Surface overhead (`bumpHead`).
- */
-function settleGround(prev: FighterState, rising: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
-  const { stepUp, snapDown } = tuning.fall;
-  const f = bumpHead(prev, rising, arena, tuning);
-  const reach = Math.max(prev.y, f.y) + stepUp;
-  const under = (p: Vec2) => (blockedAt(arena, p.x, p.z, f.y, tuning) ? null : groundBelow(arena, p.x, p.z, reach));
-  let position = f.position;
-  let g = under(position);
-  if (!g) {
-    // Nothing to stand on within a step: blocked, so slide along whichever axis still has ground.
-    const tries: Vec2[] = [{ x: position.x, z: prev.position.z }, { x: prev.position.x, z: position.z }, prev.position];
-    for (const p of tries) {
-      g = under(p);
-      if (g) {
-        position = p;
-        break;
-      }
-    }
-    if (!g) return { ...f, position: prev.position };
-  }
-  const { air, ...rest } = f;
-  if (air) {
-    if (f.y > g.y) return position === f.position ? f : { ...f, position, air: { ...air, vx: 0, vz: 0 } };
-    return { ...rest, position, y: g.y };
-  }
-  if (g.y >= f.y - snapDown) return { ...rest, position, y: g.y };
-  const vx = (position.x - prev.position.x) / TICK_SECONDS;
-  const vz = (position.z - prev.position.z) / TICK_SECONDS;
-  return { ...rest, position, air: { vx, vz, vy: 0, peakY: f.y, ticks: 0, jumped: false } };
 }
 
 /**

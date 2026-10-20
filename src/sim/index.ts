@@ -43,6 +43,7 @@ export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, blockedAt, deadlyGround, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
+export { jumpArc, jumpArcFrom, MAX_AIR_TICKS, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
 export { corners, DROP_DAMAGE_LIMIT, findPath, navMesh, navPolygon, steer, type NavLink, type NavMesh, type NavPoint } from './nav';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
