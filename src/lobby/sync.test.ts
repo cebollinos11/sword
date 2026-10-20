@@ -79,6 +79,19 @@ describe('Lobby sync', () => {
     expect(g.state!.settings).toEqual({ arena: 'library', bestOf: 5 });
   });
 
+  it('a Random Map (gen:<kit>:<seed>) reaches the guest; a gen: name of a Kit it lacks does not', () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    r.host.edit((s) => updateSettings(s, { arena: 'gen:greybox:1234' }));
+    r.run(500);
+    expect(g.state!.settings.arena).toBe('gen:greybox:1234');
+    r.host.edit((s) => updateSettings(s, { arena: 'gen:marble:1' }));
+    r.run(500);
+    expect(g.state!.settings.arena).toBe('gen:greybox:1234');
+  });
+
   it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {
     const r = room();
     const bad = r.connect('Ed', withWeapon(tuning, { damage: 1 }));

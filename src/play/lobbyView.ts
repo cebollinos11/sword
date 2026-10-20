@@ -5,7 +5,7 @@
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { MAX_TEAM_SIZE } from '../sim';
+import { MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
 import type { TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
@@ -65,7 +65,36 @@ export function pickableArenas(tuning: TuningData): string[] {
 }
 
 export function arenaLabel(arena: string): string {
-  return ARENA_INFO[arena]?.label ?? arena;
+  const seed = mapSeed(arena);
+  return seed !== null ? `Random · seed ${seed}` : (ARENA_INFO[arena]?.label ?? arena);
+}
+
+/** The Random Map card's picture (public/thumbs/arenas/random.webp) and its painted stand-in. */
+const RANDOM_THUMB = 'random';
+const RANDOM_ART = 'linear-gradient(160deg, #6f747c, #3a3e45 60%, #1d2024)';
+/** Seeds the host picks run up to this (short enough to read out and type in again). */
+const MAX_PICKED_SEED = 1_000_000;
+
+/**
+ * The Random Map with `seed`: a Generated Arena of the first Kit (only `greybox` for now, so the Kit is not offered
+ * as a choice), named `gen:<kit>:<seed>`, which every peer builds from the name alone (`withGeneratedArena`).
+ */
+export function randomMap(tuning: TuningData, seed: number): string {
+  return `gen:${Object.keys(tuning.kits)[0]}:${seed}`;
+}
+
+/** The seed of a Random Map, or null for a hand-made Arena (or a malformed name). */
+export function mapSeed(arena: string): number | null {
+  try {
+    return parseGeneratedName(arena)?.seed ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** A fresh seed for the Random Map (picked by the host, outside the Simulation, so Math.random is fine). */
+function pickSeed(): number {
+  return Math.floor(Math.random() * MAX_PICKED_SEED);
 }
 
 /** What the view needs besides the Lobby. */
@@ -206,6 +235,8 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { arena: a })));
     maps.append(card);
   }
+  if (Object.keys(ctx.tuning.kits).length > 0) maps.append(randomCard(ctx, state, editable));
+  const seed = mapSeed(state.settings.arena);
   const length = h('div', 'segmented');
   length.setAttribute('role', 'radiogroup');
   length.setAttribute('aria-label', 'Match length');
@@ -217,7 +248,36 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     length.append(b);
   }
   const hint = editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
-  return section('Map', maps, h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length), hint);
+  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', 'Seed'), seedInput(ctx, seed)) : null;
+  return section('Map', maps, seedRow, h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length), hint);
+}
+
+/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the seed in play. */
+function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement {
+  const seed = mapSeed(state.settings.arena);
+  const blurb = seed === null ? 'A new Arena from a seed' : editable ? `Seed ${seed} · pick again to reroll` : `Seed ${seed}`;
+  const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', 'Random'), h('span', 'map-blurb', blurb));
+  (card.firstChild as HTMLElement).style.background = `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`;
+  card.setAttribute('aria-pressed', String(seed !== null));
+  card.disabled = !editable && seed === null;
+  if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, pickSeed()) })));
+  return card;
+}
+
+/** Host: type a seed in to play a Random Map again. */
+function seedInput(ctx: LobbyViewContext, seed: number): HTMLInputElement {
+  const input = h('input', 'lb-seed');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '1';
+  input.value = String(seed);
+  input.setAttribute('aria-label', 'Random Map seed');
+  input.addEventListener('change', () => {
+    const next = Number(input.value);
+    if (Number.isSafeInteger(next) && next >= 0) ctx.lobby.edit((s) => updateSettings(s, { arena: randomMap(ctx.tuning, next) }));
+    else input.value = String(seed);
+  });
+  return input;
 }
 
 // --- Your Weapon ---

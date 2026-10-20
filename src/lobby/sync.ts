@@ -13,6 +13,7 @@
  */
 import type { TuningData } from '../tuning';
 import { tuningDataHash } from '../tuning';
+import { isArenaName } from '../sim';
 import { PROTOCOL_VERSION, splitTransport, type Channels, type Transport } from '../net';
 import {
   endMatch,
@@ -366,7 +367,7 @@ export class GuestLobby extends Base implements Lobby {
   /** Everything the state names exists here (the Tuning Data hashes matched, so this guards against a broken host). */
   private valid(s: LobbyState): boolean {
     const t = this.tuning;
-    if (!t.arenas[s.settings.arena]) return false;
+    if (!isArenaName(t, s.settings.arena)) return false;
     if (!s.members.every((m) => t.weapons[m.weapon])) return false;
     return s.teams.flat().every((seat) => seat.kind !== 'AI' || (t.weapons[seat.weapon] && t.ai.difficulties[seat.difficulty]));
   }
