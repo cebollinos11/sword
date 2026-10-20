@@ -121,7 +121,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { defaultWeaponName, weaponByName, type AiDifficulty, type TuningData } from '../tuning';
+import { defaultWeaponName, weaponByName, type AiDifficulty, type ArenaGeometry, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -289,6 +289,8 @@ const LEVEL = 0.5;
 const DEFEND_LEVEL = 1.0;
 /** Moving while it fights, it looks this far (m) ahead of its step for a ledge, Lava or Water. */
 const SAFETY_PROBE = 0.8;
+/** ...and this far (m) to either side of where it looks. */
+const SAFETY_MARGIN = 0.1;
 /** A Thrust reaches this much (m) further than a swing. */
 const THRUST_REACH = 0.15;
 /** From this far (m) beyond its reach it may step in and swing into an Attack, holding the Wind-up while it closes. */
@@ -839,7 +841,15 @@ class AiController implements Controller {
     if (run?.escape && run.stage !== 'Fly') return this.takeJump(state, self, run.link, navMesh(arena, this.tuning).links[run.link] as JumpLink);
     const links = this.routeTo(state, self, target);
     const first = links?.[0] === undefined ? undefined : navMesh(arena, this.tuning).links[links[0]]!;
-    if (first?.kind === 'jump') return this.takeJump(state, self, links![0]!, first);
+    if (first?.kind === 'jump') {
+      // Its enemy in the air may be on its way here: wait to see where it lands, rather than both taking the Links at once
+      // and swapping levels, again and again. The wait does not count against the run.
+      if (target.airborne) {
+        if (run && run.link === links![0]) this.jumpRun = { ...run, deadline: run.deadline + 1 };
+        return { move: ZERO };
+      }
+      return this.takeJump(state, self, links![0]!, first);
+    }
     if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
     const goal = links ? steer(arena, this.tuning, links, self.position, target.position) : target.position;
     const move = unit({ x: goal.x - self.position.x, z: goal.z - self.position.z });
@@ -975,16 +985,7 @@ class AiController implements Controller {
 
   /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
   private safe(state: SimState, self: FighterState, dir: Vec2): boolean {
-    if (dir.x === 0 && dir.z === 0) return true;
-    const arena = arenaOf(this.tuning, state.arena);
-    const { stepUp } = this.tuning.fall;
-    for (const k of [0.5, 1]) {
-      const x = self.position.x + dir.x * SAFETY_PROBE * k;
-      const z = self.position.z + dir.z * SAFETY_PROBE * k;
-      const g = groundBelow(arena, x, z, self.y + stepUp);
-      if (g === null || self.y - g.y > stepUp || deadlyGround(arena, x, z, g.y) || blockedAt(arena, x, z, g.y, this.tuning)) return false;
-    }
-    return true;
+    return stepIsSafe(arenaOf(this.tuning, state.arena), this.tuning, self.position, self.y, dir);
   }
 
   /** `m` if it walks onto safe ground, else the nearest safe heading turned up to 135° aside (keeping its speed), else standing still. */
@@ -1337,6 +1338,28 @@ class AiController implements Controller {
 }
 
 /** A rule-based AI Controller with the given difficulty (a preset from `tuning.ai.difficulties`, or explicit values). */
+/**
+ * Whether a step from feet at (`at`, `y`) along `dir` (a unit vector) keeps it on safe ground, looking up to SAFETY_PROBE
+ * ahead: no ledge (a drop of more than a step), no Lava, Water or Abyss, no higher ground in the way. The ground is looked
+ * at SAFETY_MARGIN to either side of each point too, so a walk that cuts an open corner between the points is not safe.
+ */
+export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2): boolean {
+  if (dir.x === 0 && dir.z === 0) return true;
+  const { stepUp } = tuning.fall;
+  const solid = (x: number, z: number) => {
+    const g = groundBelow(arena, x, z, y + stepUp);
+    return g !== null && y - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
+  };
+  for (const k of [0.5, 1]) {
+    const x = at.x + dir.x * SAFETY_PROBE * k;
+    const z = at.z + dir.z * SAFETY_PROBE * k;
+    const g = solid(x, z);
+    if (!g || blockedAt(arena, x, z, g.y, tuning)) return false;
+    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN)) return false;
+  }
+  return true;
+}
+
 export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string): Controller {
   return new AiController(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty);
 }

@@ -5,6 +5,7 @@ import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '
 import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { aiDifficulty, createAiController, runControllers, runMatch, scriptedController } from './index';
+import { stepIsSafe } from './ai';
 
 const repo = loadTuningData();
 /** The AI never starts Attacks of its own here, so it is free to defend. */
@@ -311,6 +312,38 @@ describe('AI Controller in the multilevel library', () => {
   });
 });
 
+describe('AI Controller: a step is safe', () => {
+  // An L of floor: x -3..0 north of z 0, x 0..3 all along; the corner x < 0, z < 0 is open to the Abyss.
+  const corner = parseArena(
+    {
+      name: 'corner',
+      walk: [
+        { id: 'WALK_west', points: [[-3, 0, 0], [0, 0, 0], [0, 0, 4], [-3, 0, 4]] },
+        { id: 'WALK_east', points: [[0, 0, -4], [3, 0, -4], [3, 0, 0], [0, 0, 0]] },
+        { id: 'WALK_east_north', points: [[0, 0, 0], [3, 0, 0], [3, 0, 4], [0, 0, 4]] },
+        { id: 'WALK_abyss', abyss: true, points: [[-10, -8, -10], [10, -8, -10], [10, -8, 10], [-10, -8, 10]] },
+      ],
+      walls: [],
+    },
+    'corner',
+  );
+  const heading = (x: number, z: number) => ({ x: x / Math.hypot(x, z), z: z / Math.hypot(x, z) });
+
+  it('is not, off a ledge into the Abyss', () => {
+    expect(stepIsSafe(corner, repo, { x: -1.5, z: 0.3 }, 0, heading(0, -1))).toBe(false);
+    expect(stepIsSafe(corner, repo, { x: -1.5, z: 0.3 }, 0, heading(0, 1))).toBe(true);
+    expect(stepIsSafe(corner, repo, { x: 1.5, z: 0.3 }, 0, heading(0, -1))).toBe(true);
+  });
+
+  it('is not, cutting an open corner between the points it looks at (Generated Arena seed 31)', () => {
+    // Just west of x 0 by the corner, heading a little east of south: every point ahead it looks at is floor,
+    // but the straight walk there crosses the open corner first.
+    expect(stepIsSafe(corner, repo, { x: -0.01, z: 0.1 }, 0, heading(0.04, -1))).toBe(false);
+    // Clear of the corner, the same heading is safe.
+    expect(stepIsSafe(corner, repo, { x: 0.3, z: 0.1 }, 0, heading(0.04, -1))).toBe(true);
+  });
+});
+
 describe('AI Controller: Kick', () => {
   const perfect = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
   const reactionTicks = Math.round(0.1 * TICK_RATE);
@@ -578,6 +611,39 @@ describe('AI Controller: jump Links', { timeout: 60_000 }, () => {
     const run = chase('Easy', 'chamber', [2, 0, 4], [0, 0, 12.5], 15);
     expect(run.states.some((s) => surfaceOf('chamber', s.fighters[0]!) === 'WALK_catwalk0')).toBe(false);
     expect(run.states.every((s) => !s.fighters[0]!.death)).toBe(true);
+  });
+
+  it('starts no jump Link while it sees its enemy in the air: it waits to see where it lands (Generated Arena seed 12)', () => {
+    // Two AIs on two levels each chasing the other's took the same Links at once, swapping levels again and again.
+    const h = 2;
+    const ledge = parseArena(
+      {
+        name: 'ledge',
+        walk: [
+          { id: 'WALK_floor', points: [[-10, 0, -10], [10, 0, -10], [10, 0, 10], [-10, 0, 10]] },
+          { id: 'WALK_ledge', points: [[-3, h, -3], [3, h, -3], [3, h, 1], [-3, h, 1]] },
+        ],
+        walls: [
+          { id: 'WALL_n', a: [3, 1], b: [-3, 1], bottom: 0, top: h },
+          { id: 'WALL_e', a: [3, -3], b: [3, 1], bottom: 0, top: h },
+          { id: 'WALL_w', a: [-3, 1], b: [-3, -3], bottom: 0, top: h },
+          { id: 'WALL_s', a: [-3, -3], b: [3, -3], bottom: 0, top: h },
+        ],
+      },
+      'ledge',
+    );
+    const tuning: TuningData = { ...repo, arenas: { ...repo.arenas, ledge }, ai: { ...repo.ai, kickRate: 0, throwRate: 0 } };
+    const hard = aiDifficulty(repo, 'Hard');
+    const reaction = Math.round(hard.reactionTime * TICK_RATE);
+    // The enemy, up on the ledge, Jumps on the spot over and over.
+    const hop: Track = [...hold(1, { jump: true, jumpHeld: true }), ...hold(20, { jumpHeld: true }), ...wait(90)];
+    const initial = createInitialState(tuning, 1, [{ position: { x: 0, z: 4 }, facing: Math.PI }, { position: { x: 0, z: -1 }, y: h, facing: 0 }], [], [0, 1], 'ledge');
+    const run = runControllers(tuning, initial, [createAiController(tuning, hard), scriptedController(Array.from({ length: 6 }, () => hop).flat())], TICK_RATE * 10);
+    const jumps = run.events.filter((e) => e.type === 'Jump' && e.fighter === 0);
+    expect(jumps.length, 'it never Jumped up').toBeGreaterThan(0);
+    // Its Jump on Tick t was pressed looking at the enemy as it was Reaction Time before Tick t - 1.
+    for (const j of jumps) expect(run.states[j.tick - 1 - reaction]!.fighters[1]!.air, `Jump on Tick ${j.tick}`).toBeUndefined();
+    expect(run.states.at(-1)!.fighters[0]!.y).toBe(h);
   });
 
   it('without `jumpNav` (the plain AI) it takes no jump Links', () => {
