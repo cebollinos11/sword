@@ -217,7 +217,7 @@ _Avoid_: Kill cam
 A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
 
 **Rematch**:
-A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.
+A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends; on a Random Map it is fought on the next seed's Generated Arena. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.
 
 **Match Mode**:
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two to four Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
@@ -245,7 +245,7 @@ _Avoid_: Void, kill zone, pit
 A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs. A Blade Sweep that reaches one before any Fighter stops there (a Wall Strike): nothing behind it is hit, and the attacker recoils (Stagger, Blocked). A blade already through a Wall when its Release begins strikes it at once: there is no room to swing.
 
 **Generated Arena**:
-An Arena built at run time from a Kit, a seed and generator settings, rather than read from `data/arenas/`: a Layout assembled into ordinary Walk Surfaces, Walls and spawns, with an Abyss under it all, and judged with the real navmesh (every spawn reaches every enemy spawn by walking and dropping alone, no deadly ground near a spawn), rerolled until it passes (ADR 0014). Its name records how it was made (`gen:greybox:1234`), so the same name always builds the same Arena. To the Simulation, the AI and the camera it is just another Arena. The Lobby's **Random** Map is one: the host picks the seed, the Map setting carries the name, and every peer builds the Arena from the name alone (with the default generator settings); the generator's version is part of the Tuning Data hash.
+An Arena built at run time from a Kit, a seed and generator settings, rather than read from `data/arenas/`: a Layout assembled into ordinary Walk Surfaces, Walls and spawns, with an Abyss under it all, and judged with the real navmesh (every spawn reaches every enemy spawn by walking and dropping alone, no deadly ground near a spawn), rerolled until it passes (ADR 0014). Its name records how it was made (`gen:greybox:1234`), so the same name always builds the same Arena. To the Simulation, the AI and the camera it is just another Arena. The Lobby's **Random** Map is one: the host picks the first Match's seed, the Map setting carries the name, each new Match (and Rematch) moves on to the next seed by a fixed step while every Duel of a Match keeps its Arena, and every peer builds the Arena from the name alone (with the default generator settings); the generator's version is part of the Tuning Data hash.
 _Avoid_: Random map, procedural level (for the data)
 
 **Kit**:
