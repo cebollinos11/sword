@@ -1,9 +1,10 @@
-import { arenaOf, createMatch, isArenaName, navMesh, nextArenaName, parseGeneratedName, secondsToTicks, TICK_SECONDS, withGeneratedArena, type Layout, type MatchOptions, type MatchState, type SimState } from './sim';
+import { arenaOf, createMatch, isArenaName, navMesh, nextArenaName, parseGeneratedName, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createArenaWorlds } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
@@ -60,9 +61,6 @@ export interface Game {
   play(presentation: MatchPresentation): void;
 }
 
-/** Random Maps built lately, kept so a restart or the scene behind the menus does not generate them again. */
-const KEPT_WORLDS = 4;
-
 /** Seeds a fresh Match (outside the Simulation, so Math.random is fine). */
 function randomSeed(): number {
   return (Math.random() * 0x7fffffff) | 0;
@@ -104,21 +102,8 @@ interface Attempt {
  * reconnects. Behind the menus the scene shows the Lobby's Map and Fighters.
  */
 export function startGame(container: HTMLElement, tuning: TuningData): Game {
-  const worlds = new Map<string, { tuning: TuningData; layout?: Layout }>();
-  /**
-   * The Tuning Data a Match on Arena `name` is played with: `tuning` itself, or for a Random Map (`gen:<kit>:<seed>`) a
-   * copy holding the Arena every peer builds from that name, with its Layout. The same copy each time (the navmesh is
-   * cached per Arena and Tuning Data).
-   */
-  function arenaWorld(name: string): { tuning: TuningData; layout?: Layout } {
-    let world = worlds.get(name);
-    if (!world) {
-      world = withGeneratedArena(tuning, name);
-      worlds.set(name, world);
-      if (worlds.size > KEPT_WORLDS) worlds.delete(worlds.keys().next().value!);
-    }
-    return world;
-  }
+  /** The Tuning Data a Match on an Arena is played with, and a Random Map's Layout (`createArenaWorlds`). */
+  const arenaWorld = createArenaWorlds(tuning);
   const renderer = new Renderer(container, tuning, arenaWorld);
   const audio = createBrowserAudio();
   const local = new LocalController();

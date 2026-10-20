@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena } from '../../tuning';
+import { arenaOf } from '../arena';
 import { hashValue } from '../hash';
 import { ARENA_SEED_RANGE, DEFAULT_GEN_PARAMS, generateArena, GREYBOX_KIT, isArenaName, nextArenaName, nextArenaSeed, parseGeneratedName, withGeneratedArena } from './index';
 
@@ -87,5 +88,32 @@ describe('nextArenaSeed / nextArenaName: the Arena of the next Match', () => {
   it('moves a Random Map to the next seed, and leaves a hand-made Arena as it is', () => {
     expect(nextArenaName('gen:greybox:12')).toBe('gen:greybox:381979');
     expect(nextArenaName('library')).toBe('library');
+  });
+});
+
+describe('a Generated Arena built on demand (a Rematch onto the next Random Map)', () => {
+  it('arenaOf builds a gen: name Tuning Data does not hold, once, and the copies withGeneratedArena made share it', () => {
+    const base = loadTuningData();
+    const copy = withGeneratedArena(base, 'gen:greybox:21').tuning;
+    const next = arenaOf(copy, 'gen:greybox:22');
+    expect(next).toStrictEqual(generateArena(GREYBOX_KIT, 22, DEFAULT_GEN_PARAMS, base).arena);
+    expect(arenaOf(copy, 'gen:greybox:22')).toBe(next);
+    // The Renderer asks the base for it (with its Layout): the same build.
+    expect(withGeneratedArena(base, 'gen:greybox:22').tuning.arenas['gen:greybox:22']).toBe(next);
+    expect(arenaOf(base, 'gen:greybox:22')).toBe(next);
+  });
+
+  it('builds a name the cache has dropped again: the same Arena', () => {
+    const base = loadTuningData();
+    const first = arenaOf(base, 'gen:greybox:30');
+    for (let seed = 31; seed < 45; seed++) arenaOf(base, `gen:greybox:${seed}`);
+    const again = arenaOf(base, 'gen:greybox:30');
+    expect(again).toStrictEqual(first);
+    expect(hashValue(again)).toBe(hashValue(first));
+  });
+
+  it('still refuses a name it cannot build', () => {
+    expect(() => arenaOf(tuning, 'gen:marble:1')).toThrow(/Unknown Arena/);
+    expect(() => arenaOf(tuning, 'nowhere')).toThrow(/Unknown Arena/);
   });
 });
