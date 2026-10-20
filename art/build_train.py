@@ -30,7 +30,9 @@ Walk Surface sloping down to the edge, striped and lit, so a Fighter pushed
 onto it is already on the way off. A narrow gangway crosses each gap (the AI
 cannot jump, and a Fighter can walk them); anywhere else a gap is a jump. Off
 the sides, the ends or a gangway, the ground is far enough down that the fall
-kills (a Death by Fall). A locomotive pulls ahead, out of reach.
+kills (a Death by Fall). A locomotive pulls ahead: a held Jump from the
+flatcar's deck clears the bulkhead and the gap onto its roof, and it takes
+another jump to come back. The props on the flatcar have flat tops to stand on.
 
 The model has four parts:
   - Train:       the train, the guideway beams and the ground: still.
@@ -63,13 +65,14 @@ BOX_A = (0.45, 10.45)  # the front freight car's z span (Team 0 starts on it)
 BOX_B = (-10.45, -0.45)  # the rear freight car's (Team 1)
 FLAT = (11.35, 20.35)  # the flatcar, ahead of freight car A
 PASS = (-23.35, -11.35)  # the passenger car, behind freight car B
-LOCO = (22.85, 38.0)  # the locomotive: out of reach (a 2.5 m gap)
+LOCO = (22.85, 38.0)  # the locomotive: a 2.5 m gap ahead, its roof reached by a held Jump from the flatcar
 FLAT_Y = -1.2  # the flatcar's deck: a drop that does not hurt (fall.safeHeight is 1.6), a climb back by its sloping end
 FLAT_RAMP = (11.35, 13.35, -0.4)  # the flatcar's sloping rear deck: z from, z to, height at its rear
 PASS_Y = 0.6  # the passenger car's roof
 PASS_RAMP = (-11.35, -12.35, 0.3)  # its sloping front end: z from, z to, height at the front
 CLERESTORY = (0.5, -14.0, -21.5, 0.9)  # the raised sensor spine down its roof: half width, z from, z to, height
 LOCO_Y = 0.5  # the locomotive's roof
+LOCO_NOSE = LOCO[1] - 6.0  # where its nose starts: the roof is flat to here, the nose beyond slopes away
 GROUND = -8.0  # the ground: a fall to it kills from anywhere (100 HP, 22 per metre past 1.6)
 BODY_BOTTOM = -3.0  # the wagons' undersides
 POD = (-3.75, -3.3)  # the maglev pods under them
@@ -81,6 +84,7 @@ SKY_R = 170.0  # inside the camera's far plane (200) from anywhere on the train
 SUN_DIR = Vector((0.18, 0.08, -1.0)).normalized()  # towards the sun: low, behind the train
 
 VENTS = [(0.75, 5.2), (-0.75, 8.4), (-0.75, -5.2), (0.75, -8.4)]  # roof heat sinks (x, z): Walls
+LOCO_VENTS = [(x, LOCO[0] + dz) for dz in (2.0, 4.0) for x in (-0.7, 0.7)]  # the locomotive's
 HATCHES = [(-0.6, 6.6), (0.6, 1.6), (0.6, -6.6), (-0.6, -1.6)]
 CRATE_STACK = (0.75, 15.0)  # on the flatcar: a container with a smaller one on it
 BARRELS = (-0.8, 17.1)  # waste drums
@@ -315,6 +319,7 @@ floor('pass_spine', -cw, cw, cz0, cz1, cy)
 floor('pass_right', cw, TOP_HW, cz0, cz1, PASS_Y)
 bevels('pass_mid', cz0, cz1, PASS_Y)
 roof('pass_back', cz1, PASS[0], PASS_Y)
+roof('loco', LOCO[0], LOCO_NOSE, LOCO_Y)  # the nose beyond stays open: walking off it is a Death by Fall
 floor('ground', -60.0, 60.0, -80.0, 80.0, GROUND)
 
 
@@ -322,19 +327,36 @@ def wall(id, a, b, bottom, top):
     WALLS.append((id, (r4(a[0]), r4(a[1])), (r4(b[0]), r4(b[1])), bottom, top))
 
 
+def ring(id, corners, bottom, top):
+    """A Wall along each edge of the convex footprint `corners` ((x, z), in order); returns the corners."""
+    for e in range(len(corners)):
+        wall(f'{id}_{e}', corners[e], corners[(e + 1) % len(corners)], bottom, top)
+    return corners
+
+
 def rect(id, x, z, hx, hz, bottom, top):
-    """Four Walls round a box of half extents hx, hz at (x, z)."""
-    corners = [(x - hx, z - hz), (x + hx, z - hz), (x + hx, z + hz), (x - hx, z + hz)]
-    for e in range(4):
-        wall(f'{id}_{e}', corners[e], corners[(e + 1) % 4], bottom, top)
+    """Four Walls round a box of half extents hx, hz at (x, z); returns its corners."""
+    return ring(id, [(x - hx, z - hz), (x + hx, z - hz), (x + hx, z + hz), (x - hx, z + hz)], bottom, top)
+
+
+def lid(id, corners, y):
+    """A Walk Surface over a prop's Walls (the same corners), at their top: clear the Walls and you stand on it."""
+    WALK.append((f'{id}_top', [(r4(x), y, r4(z)) for x, z in corners]))
 
 
 for k, (x, z) in enumerate(VENTS):
     rect(f'vent{k}', x, z, 0.28, 0.28, -0.5, 0.55)
-rect('crates', *CRATE_STACK, 0.55, 0.55, FLAT_Y - 0.5, FLAT_Y + 1.8)
-rect('barrels', *BARRELS, 0.45, 0.45, FLAT_Y - 0.5, FLAT_Y + 0.9)
-rect('cell', *CELL, 0.42, 0.42, FLAT_Y - 0.5, FLAT_Y + 1.45)
-# The bulkhead closes the flatcar's front, too high to jump: past it is the gap to the locomotive.
+# The flatcar's cargo: each prop's Walls stop at its drawn top, with a lid there, so a Jump that clears them
+# lands on top (the crate stack's lid is the small container's top, over the big one's footprint).
+lid('crates', rect('crates', *CRATE_STACK, 0.55, 0.55, FLAT_Y - 0.5, FLAT_Y + 1.8), FLAT_Y + 1.8)
+lid('barrels', rect('barrels', *BARRELS, 0.45, 0.45, FLAT_Y - 0.5, FLAT_Y + 0.9), FLAT_Y + 0.9)
+lid('cell', rect('cell', *CELL, 0.42, 0.42, FLAT_Y - 0.5, FLAT_Y + 1.45), FLAT_Y + 1.45)
+# The locomotive's roof: the fin down its back and its four heat sinks.
+rect('loco_fin', 0.0, (LOCO[0] + LOCO_NOSE) / 2, 0.06, (LOCO_NOSE - LOCO[0]) / 2 - 0.5, LOCO_Y - 0.5, LOCO_Y + 0.5)
+for k, (x, z) in enumerate(LOCO_VENTS):
+    rect(f'loco_vent{k}', x, z, 0.28, 0.28, LOCO_Y - 0.5, LOCO_Y + 0.55)
+# The bulkhead closes the flatcar's front, too high to step over: past it is the gap to the locomotive,
+# which a held Jump from the deck clears.
 wall('bulkhead', (-HW, BULKHEAD_Z), (HW, BULKHEAD_Z), FLAT_Y - 0.5, 0.3)
 
 # The two teams face each other across the gangway between the freight cars.
@@ -345,7 +367,7 @@ for slot, x in enumerate((0.0, 0.9, -0.9)):
 # ---------------------------------------------------------------- the train
 
 
-def ring(top):
+def section(top):
     """A wagon's cross-section (x, y) with its roof at `top`: the flat roof, the bevels, the sides leaning in, the
     chamfered underside. Clockwise from the roof's right corner, seen from +z; edge k runs from point k to k + 1."""
     right = [(TOP_HW, top), (HW, top - BEVEL), (HW - 0.1, -2.4), (HW - 0.4, BODY_BOTTOM)]
@@ -370,7 +392,7 @@ def hull(segs, body, roof_mats, caps=(True, True), chunk=2.5):
         top = lambda z: t0 + (t1 - t0) * (z - z0) / (z1 - z0)
         for c in range(n):
             za, zb = z0 + (z1 - z0) * c / n, z0 + (z1 - z0) * (c + 1) / n
-            ra, rb = ring(top(za)), ring(top(zb))
+            ra, rb = section(top(za)), section(top(zb))
             for e in range(len(ra) - 1):
                 if e in (EDGE_BEVEL_R, EDGE_BEVEL_L):
                     continue
@@ -401,7 +423,7 @@ def hull(segs, body, roof_mats, caps=(True, True), chunk=2.5):
     for (z0, z1, t0, t1), end, d, on in ((segs[0], 0, -1, caps[0]), (segs[-1], 1, 1, caps[1])):
         if on:
             z, t = (z0, t0) if end == 0 else (z1, t1)
-            G.face([(x, y, z) for x, y in ring(t)], 'HullMid', (0, 0, d))
+            G.face([(x, y, z) for x, y in section(t)], 'HullMid', (0, 0, d))
 
 
 def end_lights(z, top, d):
@@ -577,7 +599,7 @@ def planks():
 def locomotive():
     """A bullet-nosed engine: a plated body with a lit cab, its nose tapering low to the beams."""
     z0, z1 = LOCO
-    n0 = z1 - 6.0  # where the nose starts
+    n0 = LOCO_NOSE
     hull([(z0, n0, LOCO_Y, LOCO_Y)], ('Plate', 'Hull'), ('Hull', 'HullMid'), caps=(True, False))
     end_lights(z0, LOCO_Y, -1)
     for s in (-1, 1):
@@ -592,7 +614,7 @@ def locomotive():
     for i in range(6):
         t = i / 5
         sx, sy = 1 - 0.55 * t, 1 - 0.6 * t ** 1.4
-        stations.append([Vector((x * sx, BODY_BOTTOM + (y - BODY_BOTTOM) * sy, n0 + 6.0 * t ** 0.9)) for x, y in ring(LOCO_Y)])
+        stations.append([Vector((x * sx, BODY_BOTTOM + (y - BODY_BOTTOM) * sy, n0 + 6.0 * t ** 0.9)) for x, y in section(LOCO_Y)])
     centre = lambda st: sum(st, Vector()) / len(st)
     for i in range(5):
         a, b = stations[i], stations[i + 1]
@@ -622,9 +644,8 @@ def locomotive():
     # A fin down its back, heat sinks, and the reactor's glow under the roof.
     G.box((-0.06, LOCO_Y, z0 + 0.5), (0.06, LOCO_Y + 0.5, n0 - 0.5), 'HullDark', skip=('-y',))
     G.box((-0.07, LOCO_Y + 0.42, z0 + 0.5), (0.07, LOCO_Y + 0.5, n0 - 0.5), 'NeonRed', skip=('-y',))
-    for z in (z0 + 2.0, z0 + 4.0):
-        heat_sink(-0.7, LOCO_Y, z)
-        heat_sink(0.7, LOCO_Y, z)
+    for x, z in LOCO_VENTS:
+        heat_sink(x, LOCO_Y, z)
     underframe(z0, z1)
 
 
