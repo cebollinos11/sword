@@ -222,9 +222,9 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
 }
 
 /**
- * A Fighter that just landed (last Tick `prev` was airborne), counted by `landing`: a Jump lands without fall damage,
- * a Fighter in Knockdown takes `fall.knockdownDamageFactor` times it from the real top of its arc and stays down, and one
- * that walked or was pushed off a ledge takes it (only while the Duel is being fought) and, beyond `fall.safeHeight`, Staggers
+ * A Fighter that just landed (last Tick `prev` was airborne), counted by `landing`: only a Fighter in Knockdown takes fall
+ * damage (`fall.knockdownDamageFactor` times it from the real top of its arc, only while the Duel is being fought) and stays
+ * down; a Jump lands unhurt, and one that walked or was pushed off a ledge lands unhurt but, beyond `fall.safeHeight`, Staggers
  * (cause `Landed`). A soft Landing ends a Fall in Idle. A Fighter already Staggered by something else keeps that Stagger.
  */
 function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {

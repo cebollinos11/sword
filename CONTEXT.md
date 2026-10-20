@@ -202,7 +202,7 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Landing whose fall damage took its last HP, or one on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -272,7 +272,7 @@ The Action of a Fighter in the air, after a Jump or once it has been off the gro
 _Avoid_: Airborne (for the Action)
 
 **Landing**:
-A Fighter reaching the ground again. After a Jump it is always soft: no fall damage, and a Fall ends in Idle. After walking, sliding or being pushed off a ledge, a drop (from the top of its arc) within the safe height is soft; a deeper one deals fall damage by the metre beyond it and Staggers it (Landed). A Fighter in Knockdown takes double that fall damage (`fall.knockdownDamageFactor`), from the real top of its arc, Jump or not, and stays down. Fall damage can fell the Fighter (a Death by Fall), as can landing on an Abyss (ADR 0012).
+A Fighter reaching the ground again. After a Jump it is always soft: no fall damage, and a Fall ends in Idle. After walking, sliding or being pushed off a ledge, it is unhurt too: a drop (from the top of its arc) within the safe height is soft, and a deeper one Staggers it (Landed). Only a Fighter in Knockdown takes fall damage: double (`fall.knockdownDamageFactor`) the damage by the metre beyond the safe height, from the real top of its arc, Jump or not, and it stays down. Fall damage can fell the Fighter (a Death by Fall), as can landing on an Abyss (ADR 0012, ADR 0015).
 
 **Room**:
 A shareable code/link through which Players connect for online play. It stays open as long as its host is in it: guests join (and rejoin), and the Lobby and every Match, restarts included, run over the same connection (the Room link), so a restart never reconnects anyone (ADR 0009).

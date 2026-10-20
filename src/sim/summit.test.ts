@@ -53,11 +53,11 @@ describe('The snowy summit Arena', () => {
     expect(f.y).toBeCloseTo(2);
   });
 
-  it('a Fighter who walks off the plateau face lands hurt but alive', () => {
+  it('a Fighter who walks off the plateau face lands unhurt', () => {
     const f = walkFor(matchAt(0, -6, 2), { x: 0, z: 1 }, 60 * 2).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBe(0);
-    expect(f.hp).toBeLessThan(tuning.fighter.maxHp);
+    expect(f.hp).toBe(tuning.fighter.maxHp);
   });
 
   it('the crag stops a Fighter walking into it', () => {

@@ -134,7 +134,8 @@ export interface Landing {
  *   - In Knockdown (knocked down in the air, or knocked off a ledge): the drop from the real top of the arc, Jump or not,
  *     dealing `fall.knockdownDamageFactor` times the fall damage. It stays down, so it is never hard.
  *   - After a Jump: no fall damage and never hard, however deep the drop (only deadly ground kills).
- *   - Otherwise (walked, slid or was pushed off a ledge): the drop from the top of its arc deals fall damage, and is hard beyond `fall.safeHeight`.
+ *   - Otherwise (walked, slid or was pushed off a ledge): no fall damage either, but the drop from the top of its arc is hard beyond `fall.safeHeight`.
+ * Only a Knockdown Landing deals fall damage.
  */
 export function landing(air: Airborne, y: number, knockedDown: boolean, tuning: TuningData): Landing {
   if (knockedDown) {
@@ -143,5 +144,5 @@ export function landing(air: Airborne, y: number, knockedDown: boolean, tuning: 
   }
   if (air.jumped) return { drop: landingDrop(air, y, tuning), damage: 0, hard: false };
   const drop = Math.max(0, air.peakY - y);
-  return { drop, damage: landingDamage(drop, tuning), hard: drop > tuning.fall.safeHeight };
+  return { drop, damage: 0, hard: drop > tuning.fall.safeHeight };
 }

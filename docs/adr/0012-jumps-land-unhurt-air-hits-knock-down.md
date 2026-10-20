@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted. Amended by ADR 0015: walking off a ledge no longer deals fall damage either.
 
 ## Context
 

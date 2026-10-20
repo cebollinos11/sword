@@ -9,7 +9,7 @@ Measured in the Simulation with `data/fall.json` as of this note (`jumpBoost` 25
 - **Highest ledge you can land on:** about **4.3 m** above takeoff. A Fighter stands on ground up to `fall.stepUp` (0.35 m) above its feet, so a ledge counts as reached once its feet get within 0.35 m of the top.
 - **Farthest jump on level ground:** about **4.3 m**, in 1.7 s.
 - **A tap** is the old hop: 0.78 m high, 1.7 m long.
-- **No Landing damage** from any Jump, however deep the drop (ADR 0012): only deadly ground (Lava, Water, an Abyss) kills a jumper. Walking off a ledge still hurts once the drop passes `safeHeight` (1.6 m), and a Fighter knocked down in the air takes double fall damage from the real top of its arc. So the AI may leap down at an enemy from any height that lands on safe ground.
+- **No Landing damage** from any Jump, however deep the drop (ADR 0012): only deadly ground (Lava, Water, an Abyss) kills a jumper. Walking off a ledge does not hurt either (ADR 0015), though a drop past `safeHeight` (1.6 m) Staggers; only a Fighter knocked down in the air takes fall damage, double, from the real top of its arc. So the AI may leap down at an enemy from any height that lands on safe ground.
 - **A floor overhead caps the jump:** a Walk Surface is solid from below, so under one (the library's bridge or mezzanines) the feet rise no higher than its height minus `fighter.height` (1.8 m). The head bumps it, the rise stops, and any boost left is lost.
 - **Standing and running jumps reach the same.** A Jump starts at full walk speed in whatever direction the Fighter is walking, and air speed never goes above walk speed. A Slowed Fighter (dagger Hit) moves at 0.6× speed, so it jumps the same height but only about 0.6× as far.
 

@@ -53,33 +53,26 @@ describe('Falling and Landing', () => {
     expect(r.events.some((e) => e.type === 'Stagger')).toBe(false);
   });
 
-  it('a deeper drop hurts by the metre beyond the safe height, and Staggers the Fighter (Landed)', () => {
+  it('a deeper drop does not hurt, but Staggers the Fighter (Landed)', () => {
     const r = walkOff(3, 0, 2.5);
     const land = landing(r);
-    const expected = (2.5 - fall.safeHeight) * fall.damagePerMetre;
-    expect(land.type === 'Land' && land.damage).toBeCloseTo(expected, 9);
+    expect(land).toMatchObject({ fighter: 0, damage: 0 });
     const after = r.states[land.tick]!.fighters[0]!;
-    expect(after.hp).toBeCloseTo(repo.fighter.maxHp - expected, 9);
+    expect(after.hp).toBe(repo.fighter.maxHp);
     expect(after.action).toEqual({ kind: 'Stagger', cause: 'Landed' });
     expect(after.motion.name).toBe('Land');
     expect(r.events).toContainEqual(expect.objectContaining({ type: 'Stagger', fighter: 0, cause: 'Landed', tick: land.tick }));
   });
 
-  it('damage grows linearly with the drop', () => {
-    const damage = (h: number) => Math.max(0, h - fall.safeHeight) * fall.damagePerMetre;
-    const r = walkOff(3, 0, 2.5);
-    const land = landing(r);
-    expect(land.type === 'Land' && land.damage).toBeCloseTo(damage(land.type === 'Land' ? land.height : 0), 9);
-    expect(damage(fall.safeHeight + 2) - damage(fall.safeHeight + 1)).toBeCloseTo(fall.damagePerMetre, 9);
-  });
-
-  it('a fatal fall fells the Fighter, with cause Fall and no blow', () => {
+  it('walking off a 10 m spire lands unhurt: only a Knockdown Landing deals fall damage', () => {
     const r = walkOff(-5, 0, 10);
     const land = landing(r);
+    expect(land.type === 'Land' && land.height).toBeGreaterThan(9);
+    expect(land).toMatchObject({ fighter: 0, damage: 0 });
     const after = r.states[land.tick]!;
-    expect(after.fighters[0]!.hp).toBe(0);
-    expect(after.fighters[0]!.death).toEqual({ tick: land.tick, cause: 'Fall', blow: null });
-    expect(after.duel.status).toBe('Over');
+    expect(after.fighters[0]!.hp).toBe(repo.fighter.maxHp);
+    expect(after.fighters[0]!.death).toBeUndefined();
+    expect(after.fighters[0]!.action).toEqual({ kind: 'Stagger', cause: 'Landed' });
   });
 
   it('walking off a ledge Falls only after the fall delay', () => {
