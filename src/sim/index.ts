@@ -44,6 +44,27 @@ export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DeathEvent, DuelEndEve
 export type { Foot, FootState, GaitState } from './gait';
 export { arenaOf, blockedAt, deadlyGround, groundBelow, surfaceHeight, surfacesAt, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
+export {
+  assembleArena,
+  DEFAULT_GEN_PARAMS,
+  DEFAULT_JUDGE_RULES,
+  generateArena,
+  generatedName,
+  generateLayout,
+  GREYBOX_KIT,
+  judgeArena,
+  MAX_ATTEMPTS,
+  type GeneratedArena,
+  type GenParams,
+  type Judgement,
+  type JudgeRules,
+  type JudgeStats,
+  type Kit,
+  type Layout,
+  type Piece,
+  type PieceId,
+  type PlacedPiece,
+} from './arenaGen';
 export { corners, DROP_DAMAGE_LIMIT, findPath, JUMP_HOLDS, navMesh, navPolygon, steer, type DropLink, type JumpLink, type NavLink, type NavMesh, type NavPoint, type PathOptions, type WalkLink } from './nav';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';

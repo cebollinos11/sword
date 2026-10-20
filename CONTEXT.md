@@ -244,6 +244,22 @@ _Avoid_: Void, kill zone, pit
 **Wall**:
 A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs. A Blade Sweep that reaches one before any Fighter stops there (a Wall Strike): nothing behind it is hit, and the attacker recoils (Stagger, Blocked). A blade already through a Wall when its Release begins strikes it at once: there is no room to swing.
 
+**Generated Arena**:
+An Arena built at run time from a Kit, a seed and generator settings, rather than read from `data/arenas/`: a Layout assembled into ordinary Walk Surfaces, Walls and spawns, with an Abyss under it all, and judged with the real navmesh (every spawn reaches every enemy spawn by walking and dropping alone, no deadly ground near a spawn), rerolled until it passes (ADR 0014). Its name records how it was made (`gen:greybox:1234`), so the same name always builds the same Arena. To the Simulation, the AI and the camera it is just another Arena.
+_Avoid_: Random map, procedural level (for the data)
+
+**Kit**:
+A set of Pieces sharing one grid size and set of floor heights, with one look (a theme). The first is the grey placeholder `greybox` (3 m cells, floors at 0, 3 and 6 m, 0.8 m crates), written in TypeScript.
+_Avoid_: Tileset, theme (for the data)
+
+**Piece**:
+One placeable part of a Kit (a floor, a ramp, a crate, a pillar, a rail, a bridge, a void with no floor): its look plus its own Walk Surfaces and Walls, its connectors (where walking crosses its sides, and at what height) and its skirts (how high its ground stands along each side, so a Wall goes under a floor that stands above its neighbour), all relative to its grid cells. Placed on whole cells, turned by quarter turns only.
+_Avoid_: Tile, prefab, module
+
+**Layout**:
+The Pieces a seed places on the grid (each with its cell, level and quarter turn), before they are assembled into an Arena. The same Kit, seed and settings always give the same Layout.
+_Avoid_: Map (the Lobby's pick of Arena), level
+
 **Jump**:
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 
