@@ -46,7 +46,7 @@ describe('Navmesh', () => {
   it('finds the way from the ground floor up to the gallery: a ramp, the mezzanine, the bridge, the grand ramp', () => {
     const from: NavPoint = { x: 0, y: 0, z: -4 };
     const to: NavPoint = { x: 6, y: 6, z: 10 };
-    const path = findPath(library, tuning, from, to)!;
+    const path = findPath(library, tuning, from, to, { jumps: false })!;
     const names = surfaces(path);
     expect(names.at(-1)).toBe('gallery');
     expect(names.slice(-3)).toEqual(['bridge', 'ramp_grand', 'gallery']);
@@ -55,6 +55,14 @@ describe('Navmesh', () => {
     // The first corner to walk to is the alcove's mouth, not straight at the gallery.
     const next = steer(library, tuning, path, from, to);
     expect(next.z).toBeLessThan(-6);
+  });
+
+  it('jumps up from the ground floor onto the bridge, a shortcut past the ramps, when it may jump', () => {
+    const path = findPath(library, tuning, { x: 0, y: 0, z: -4 }, { x: 6, y: 6, z: 10 })!;
+    const first = navMesh(library, tuning).links[path[0]!]!;
+    expect(first.kind).toBe('jump');
+    expect(first.kind === 'jump' && first.shortcut).toBe(true);
+    expect(surfaces(path)).toEqual(['bridge', 'ramp_grand', 'gallery']);
   });
 
   it('takes a drop down when it is the short way, and walks within one surface straight', () => {
@@ -67,8 +75,8 @@ describe('Navmesh', () => {
   it('breaks ties the same way every time (the twin ramps cost the same)', () => {
     const from: NavPoint = { x: 0, y: 0, z: -7.5 };
     const to: NavPoint = { x: 0, y: 3, z: 0 };
-    const a = findPath(library, tuning, from, to)!;
-    expect(findPath(library, tuning, from, to)).toEqual(a);
+    const a = findPath(library, tuning, from, to, { jumps: false })!;
+    expect(findPath(library, tuning, from, to, { jumps: false })).toEqual(a);
     expect(surfaces(a)[0]).toBe('ramp_east'); // the lower id of the two
   });
 
@@ -235,6 +243,58 @@ describe('Jump Links', () => {
     const { arena, t } = world([...walk, { id: 'WALK_ceiling', points: [[-10, 2.3, -10], [10, 2.3, -10], [10, 2.3, 20], [-10, 2.3, 20]] }], walls);
     expect(jumps(arena, t, 0, 1)).toEqual([]);
     expect(jumps(arena, t, 0, 2)).toEqual([]);
+  });
+
+  /**
+   * A 2 m lid (x -3..3, z 3..7) on the south floor (z ..3), with a ramp up onto its east side from a strip of floor beyond
+   * (x 9..12): walking up from in front of the lid's west end goes all the way round by the ramp.
+   */
+  function terrace() {
+    return cutWorld(
+      [
+        { id: 'WALK_lid', points: [[-3, 2, 3], [3, 2, 3], [3, 2, 7], [-3, 2, 7]] },
+        { id: 'WALK_ramp', points: [[3, 2, 3], [9, 0, 3], [9, 0, 7], [3, 2, 7]] },
+        { id: 'WALK_strip', points: [[9, 0, 3], [12, 0, 3], [12, 0, 7], [9, 0, 7]] },
+      ],
+      [
+        { id: 'WALL_lid', a: [-3, 3], b: [3, 3], bottom: 0, top: 2 },
+        { id: 'WALL_ramp', a: [3, 3], b: [9, 3], bottom: 0, top: 2 },
+      ],
+    );
+  }
+  /** A floor (x -10..12) up to z 3, where the terrace stands, and whatever else is given, as a fresh Arena. */
+  function cutWorld(walk: unknown[], walls: unknown[]) {
+    const arena = parseArena({ name: 't', walk: [{ id: 'WALK_floor', points: [[-10, 0, -10], [12, 0, -10], [12, 0, 3], [-10, 0, 3]] }, ...walk], walls }, 't');
+    return { arena, t: { ...tuning, arenas: { ...tuning.arenas, t: arena } } };
+  }
+
+  it('a lid the stairs also reach gets a shortcut jump Link up, and a path from far round the stairs takes it', () => {
+    const { arena, t } = terrace();
+    const mesh = navMesh(arena, t);
+    // Walking gets there: floor, strip, ramp, lid.
+    expect(findPath(arena, t, { x: -2, y: 0, z: 1 }, { x: -2, y: 2, z: 5 }, { jumps: false })!.length).toBe(3);
+    const path = findPath(arena, t, { x: -2, y: 0, z: 1 }, { x: -2, y: 2, z: 5 })!;
+    expect(path).toHaveLength(1);
+    const l = mesh.links[path[0]!]!;
+    expect(l.kind === 'jump' && l.shortcut).toBe(true);
+    // A shortcut is taken whatever its hold, by an AI held to short ones too.
+    expect(findPath(arena, t, { x: -2, y: 0, z: 1 }, { x: -2, y: 2, z: 5 }, { maxJumpHold: 0 })).toEqual(path);
+    expect(findPath(arena, t, { x: -2, y: 0, z: 1 }, { x: -2, y: 2, z: 5 }, { jumps: false })).not.toEqual(path);
+  });
+
+  it('walks up the stairs when they are about as short as the Jump', () => {
+    const { arena, t } = terrace();
+    const mesh = navMesh(arena, t);
+    const path = findPath(arena, t, { x: 9.5, y: 0, z: 1 }, { x: 2.5, y: 2, z: 5 })!;
+    expect(path.map((id) => mesh.links[id]!.kind)).toEqual(['walk', 'walk', 'walk']);
+  });
+
+  it('a Link up onto somewhere only a Jump gets to is no shortcut', () => {
+    const { walk, walls } = block(3.5);
+    const { arena, t } = world(walk, walls);
+    const up = jumps(arena, t, 0, 1);
+    expect(up.length).toBeGreaterThan(0);
+    for (const l of up) expect(l.kind === 'jump' && l.shortcut).toBe(false);
   });
 
   it('builds the same Links in the same order every time', () => {

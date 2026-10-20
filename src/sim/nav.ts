@@ -6,7 +6,8 @@
  * one-way drop Link to the surface below, if the drop costs no more than
  * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage. A jump Link
  * goes up onto a lid or ledge, or across a gap, onto a Walk Surface the one it
- * leaves cannot already get to by walking and dropping: found by running Jumps
+ * leaves cannot already get to by walking and dropping, or can only by a longer way
+ * round (a shortcut: up onto a floor the stairs also reach): found by running Jumps
  * through `jumpArc` (the Simulation's own flight), and kept only if every
  * slightly-off version of the Jump lands there too (`jumpHolds`), so a Link
  * never hangs on a perfect Jump. Its cost is the walk to its takeoff, its
@@ -58,6 +59,8 @@ export interface JumpLink extends LinkBase {
   readonly lands: NavPoint;
   /** The fall damage of its Landing (none for a Jump onto ground at or above where it left). */
   readonly damage: number;
+  /** Whether `to` can be got to by walking and dropping too, only by a longer way (it is a shortcut up: a floor the stairs also reach). */
+  readonly shortcut: boolean;
 }
 
 export type NavLink = WalkLink | DropLink | JumpLink;
@@ -91,6 +94,11 @@ const MARGIN = 0.1;
 export const JUMP_HOLDS: readonly number[] = [0, 10, 15, 20, 25, 30];
 /** Path cost (m) of taking a jump Link, on top of its flight: walking wins when it is about as short. */
 const JUMP_COST = 1.5;
+/**
+ * A Jump onto somewhere walking and dropping also get to is a Link (a shortcut) only if walking there from its takeoff
+ * costs at least this much (m) more than the Jump (its flight and JUMP_COST): a Jump that barely saves a step is left out.
+ */
+const SHORTCUT_SAVING = 1;
 /** Jumps off an edge are tried along its normal and turned this far (radians) either way, so ground beyond at a slant is found too. */
 const JUMP_SLANT = (20 * Math.PI) / 180;
 /** Jump Links are looked for from points this far apart (m) along an edge (and at least one, in its middle). */
@@ -271,8 +279,9 @@ interface FoundJump extends Attempt {
 }
 
 /**
- * The jump Links: Jumps that land on a Walk Surface the one they leave cannot already get to by walking and dropping
- * (`eligible`), found two ways, each from points JUMP_PROBE_STEP apart along an edge:
+ * The jump Links: Jumps that land on a Walk Surface the one they leave cannot already get to by walking and dropping,
+ * or (a shortcut) that land higher than a step up on one it can, but only by a way at least SHORTCUT_SAVING longer than
+ * the Jump (`worth`), found two ways, each from points JUMP_PROBE_STEP apart along an edge:
  *   - onto a target: from STANDOFF_STEP after STANDOFF_STEP out from each of its edges (from MARGIN beyond a Fighter's
  *     radius, to a full Jump's reach), off whatever eligible Walk Surface is there, straight at the edge, with each of
  *     JUMP_HOLDS that could get over it (`ledgeReach`): lids and ledges, wherever they stand;
@@ -307,10 +316,32 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
     while (todo.length) for (const c of next[todo.pop()!]!) if (!seen.has(c)) seen.add(c), todo.push(c);
     return seen;
   });
-  /** Whether a Jump off `from` onto `to` is worth a Link: `to` is somewhere else, not deadly, and not already got to. */
-  const eligible = (from: number, to: number) => to >= 0 && to !== from && !deadly(arena.walk[from]!) && !deadly(arena.walk[to]!) && !reaches[from]!.has(root(to));
-  /** Whether a Jump comes down somewhere `to` can walk to (its walk group), not deadly and not hurting too much. */
-  const okOnto = (to: number) => (r: JumpResult) => r.surface >= 0 && root(r.surface) === root(to) && !r.deadly && r.damage <= DROP_DAMAGE_LIMIT;
+  /** Whether a Jump off `from` onto `to` could be a Link: `to` is somewhere else, and neither is deadly. */
+  const eligible = (from: number, to: number) => to >= 0 && to !== from && !deadly(arena.walk[from]!) && !deadly(arena.walk[to]!);
+  /** Whether walking and dropping already get from `from` to `to`, so a Jump there is only a shortcut. */
+  const reached = (from: number, to: number) => reaches[from]!.has(root(to));
+  // Walking and dropping alone, to see what a shortcut saves.
+  const walkMesh: NavMesh = { links, out: arena.walk.map((_, k) => links.flatMap((l, id) => (l.from === k ? [id] : []))) };
+  /**
+   * The path cost (m) of walking and dropping from `p` on `from` to `q` on `to` (Infinity if there is no way): the length
+   * of the string pulled through its portals, plus its drops' fall damage as `findPath` counts it.
+   */
+  const walkCost = (from: number, p: Vec2, to: number, q: Vec2) => {
+    const way = cheapest(tuning, walkMesh, from, p, to, q, () => true);
+    if (!way) return Infinity;
+    let cost = way.path.reduce((c, id) => c + Math.max(0, links[id]!.drop - safeHeight) * damagePerMetre * DAMAGE_COST, 0);
+    let last = p;
+    for (const c of pull(tuning, walkMesh, way.path, p, q)) (cost += dist(last, c)), (last = c);
+    return cost;
+  };
+  /** Whether a Jump off `from` at `p` onto `to` at `q`, costing at least `jump` (m), saves enough walking to be a Link (always, if walking never gets there). */
+  const worth = (from: number, p: Vec2, to: number, q: Vec2, jump: number) => !reached(from, to) || walkCost(from, p, to, q) >= jump + SHORTCUT_SAVING;
+  /**
+   * Whether a Jump `a` comes down somewhere `to` can walk to (its walk group), not deadly and not hurting too much,
+   * and (for a shortcut) still saving enough walking from where it lands.
+   */
+  const okOnto = (a: Attempt, to: number) => (r: JumpResult) =>
+    r.surface >= 0 && root(r.surface) === root(to) && !r.deadly && r.damage <= DROP_DAMAGE_LIMIT && worth(a.from, a.takeoff, r.surface, r.lands!, jumpTravel(tuning, r.ticks));
   const planOf = (a: Attempt, hold: number) => ({ at: a.takeoff, y: a.y, heading: a.heading, holdTicks: hold, giveUpBelow: a.giveUpBelow });
   /** Where a Fighter can stand on `k` at `p` (on it, clear of higher ground and Walls): its height, else null. */
   const standing = (k: number, p: Vec2): number | null => {
@@ -319,6 +350,12 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
     const pushed = pushOutOfWalls(p, y, arena, tuning);
     return pushed.x === p.x && pushed.z === p.z ? y : null;
   };
+  /** Whether a Walk Surface overhead at `p` would stop the head of a Fighter Jumping from `y` before its feet got up to `top`. */
+  const capped = (p: Vec2, y: number, top: number) =>
+    surfacesAt(arena, p.x, p.z).some((k) => {
+      const h = surfaceHeight(arena, k, p.x, p.z);
+      return h > y + stepUp && h - tuning.fighter.height < top;
+    });
   const out: JumpLink[] = [];
 
   /** Search one edge (of `length`), trying `attempts(u)` at each point along it, and add its Links. */
@@ -335,7 +372,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
         const a = tries.find((t) => t.from === f.from && t.key === f.key);
         if (!a || done.has(pair(f.from, f.to))) continue;
         const arc = jumpArc(arena, tuning, planOf(a, f.hold));
-        if (!okOnto(f.to)(arc)) continue;
+        if (!okOnto(a, f.to)(arc)) continue;
         done.add(pair(f.from, f.to));
         here.push({ ...a, u, to: f.to, hold: f.hold, arc, checked: false });
       }
@@ -345,8 +382,8 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
           const plan = planOf(a, JUMP_HOLDS[h]!);
           const arc = jumpArc(arena, tuning, plan);
           const to = arc.surface;
-          if ((a.onto >= 0 && to !== a.onto) || !eligible(a.from, to) || done.has(pair(a.from, to))) continue;
-          if (!okOnto(to)(arc) || !jumpHolds(arena, tuning, plan, okOnto(to))) continue;
+          if ((a.onto >= 0 ? to !== a.onto : reached(a.from, to)) || !eligible(a.from, to) || done.has(pair(a.from, to))) continue;
+          if (!okOnto(a, to)(arc) || !jumpHolds(arena, tuning, plan, okOnto(a, to))) continue;
           done.add(pair(a.from, to));
           here.push({ ...a, u, to, hold: plan.holdTicks, arc, checked: true });
         }
@@ -367,7 +404,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
     for (const run of runs) {
       const middle = (run.length - 1) / 2;
       const order = run.map((_, k) => k).sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle) || a - b);
-      const pick = order.map((k) => run[k]!).find((f) => f.checked || jumpHolds(arena, tuning, planOf(f, f.hold), okOnto(f.to)))!;
+      const pick = order.map((k) => run[k]!).find((f) => f.checked || jumpHolds(arena, tuning, planOf(f, f.hold), okOnto(f, f.to)))!;
       const a = run[0]!.takeoff;
       const b = run[run.length - 1]!.takeoff;
       const { heading } = pick;
@@ -388,6 +425,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
         airTicks: pick.arc.ticks,
         lands: { x: lands.x, z: lands.z, y: lands.y },
         damage: pick.arc.damage,
+        shortcut: reached(pick.from, pick.to),
       });
     }
   };
@@ -400,6 +438,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
       search(e.length, (u) => {
         const o = at(e, u);
         const top = surfaceHeight(arena, j, o.x, o.z);
+        const inside = { x: o.x - e.n.x * 0.05, z: o.z - e.n.z * 0.05 };
         const tries: Attempt[] = [];
         let key = 0;
         for (let standoff = inset; standoff <= full.distance; standoff += STANDOFF_STEP, key++) {
@@ -407,11 +446,16 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
           for (const k of surfacesAt(arena, takeoff.x, takeoff.z)) {
             if (!eligible(k, j)) continue;
             const rise = top - surfaceHeight(arena, k, takeoff.x, takeoff.z);
-            if (rise > maxUp || rise < -maxDown) continue;
-            const holds = allHolds.filter((h) => ledgeReach(levels[h]!, rise, tuning) >= standoff);
+            const shortcut = reached(k, j);
+            if (rise > maxUp || rise < (shortcut ? stepUp : -maxDown)) continue;
+            const reach = allHolds.filter((h) => ledgeReach(levels[h]!, rise, tuning) >= standoff);
+            // A shortcut tries only the shortest hold that could get there: walking still does if it fails.
+            const holds = shortcut ? reach.slice(0, 1) : reach;
             if (!holds.length) continue;
             const y = standing(k, takeoff);
-            if (y !== null) tries.push({ from: k, takeoff, y, heading, key, onto: j, holds, giveUpBelow: top - stepUp - 0.05 });
+            // A shortcut is not looked for over a railed edge, or from under a floor that stops the Jump: most fail, and walking gets there anyway.
+            if (y === null || (shortcut && (capped(takeoff, y, top) || walled(arena, tuning, takeoff, inside, top)))) continue;
+            if (worth(k, takeoff, j, o, standoff + JUMP_COST)) tries.push({ from: k, takeoff, y, heading, key, onto: j, holds, giveUpBelow: top - stepUp - 0.05 });
           }
         }
         return tries;
@@ -431,13 +475,13 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
         const tries: Attempt[] = [];
         [0, JUMP_SLANT, -JUMP_SLANT].forEach((angle, key) => {
           const heading = angle === 0 ? e.n : turned(e.n, angle);
-          // Only where some eligible Walk Surface no higher than a step lies within a full Jump ahead (higher ones are found onto them).
+          // Only where some eligible Walk Surface walking does not get to, no higher than a step, lies within a full Jump ahead (higher ones are found onto them).
           let lowest = Infinity;
           for (let d = PROBE_STEP; d <= full.distance + inset; d += PROBE_STEP) {
             const p = { x: takeoff.x + heading.x * d, z: takeoff.z + heading.z * d };
             for (const t of surfacesAt(arena, p.x, p.z)) {
               const h = surfaceHeight(arena, t, p.x, p.z);
-              if (eligible(k, t) && h <= y + stepUp && h >= y - maxDown) lowest = Math.min(lowest, h);
+              if (eligible(k, t) && !reached(k, t) && h <= y + stepUp && h >= y - maxDown) lowest = Math.min(lowest, h);
             }
           }
           if (lowest < Infinity) tries.push({ from: k, takeoff, y, heading, key, onto: -1, holds: allHolds, giveUpBelow: lowest - stepUp - 0.05 });
@@ -468,7 +512,7 @@ const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 export interface PathOptions {
   /** Whether it may take jump Links at all (default true). */
   readonly jumps?: boolean;
-  /** The longest hold (Ticks) of a jump Link it may take (default: any). */
+  /** The longest hold (Ticks) of a jump Link it may take (default: any), but for shortcuts, which it may take held any length. */
   readonly maxJumpHold?: number;
   /** Link ids it must not take. */
   readonly exclude?: readonly number[];
@@ -485,10 +529,26 @@ export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoin
   const start = navPolygon(arena, tuning, from);
   const goal = navPolygon(arena, tuning, to);
   if (start < 0 || goal < 0) return null;
-  if (start === goal) return [];
-  const mesh = navMesh(arena, tuning);
+  const takes = (l: NavLink, id: number) => !exclude.includes(id) && (l.kind !== 'jump' || (jumps && (l.shortcut || l.holdTicks <= maxJumpHold)));
+  return cheapest(tuning, navMesh(arena, tuning), start, from, goal, to, takes)?.path ?? null;
+}
+
+/**
+ * A* over the Links of `mesh` that `takes` lets through, from polygon `start` at `from` to polygon `goal` at `to`: the
+ * Links (ids) and the cost (as `findPath` counts it, plus the walk from the last one to `to`); null when there is no way.
+ */
+function cheapest(
+  tuning: TuningData,
+  mesh: NavMesh,
+  start: number,
+  from: Vec2,
+  goal: number,
+  to: Vec2,
+  takes: (l: NavLink, id: number) => boolean,
+): { path: number[]; cost: number } | null {
+  if (start === goal) return { path: [], cost: dist(from, to) };
   const { safeHeight, damagePerMetre } = tuning.fall;
-  const count = arena.walk.length;
+  const count = mesh.out.length;
   const g = new Float64Array(count).fill(Infinity);
   const entry: Vec2[] = new Array<Vec2>(count);
   const via = new Int32Array(count).fill(-1);
@@ -512,11 +572,10 @@ export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoin
     closed[best] = 1;
     for (const id of mesh.out[best]!) {
       const l = mesh.links[id]!;
-      if (closed[l.to] || exclude.includes(id)) continue;
-      if (l.kind === 'jump' && (!jumps || l.holdTicks > maxJumpHold)) continue;
+      if (closed[l.to] || !takes(l, id)) continue;
       const m = l.kind === 'jump' ? l.lands : mid(l);
       const damage = l.kind === 'jump' ? l.damage : Math.max(0, l.drop - safeHeight) * damagePerMetre;
-      const travel = l.kind === 'jump' ? dist(entry[best]!, l.takeoff) + l.airTicks * TICK_SECONDS * tuning.fighter.walkSpeed + JUMP_COST : dist(entry[best]!, m);
+      const travel = l.kind === 'jump' ? dist(entry[best]!, l.takeoff) + jumpTravel(tuning, l.airTicks) : dist(entry[best]!, m);
       const cost = g[best]! + travel + damage * DAMAGE_COST;
       if (cost < g[l.to]!) {
         g[l.to] = cost;
@@ -527,8 +586,11 @@ export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoin
   }
   const path: number[] = [];
   for (let k = goal; k !== start; k = mesh.links[via[k]!]!.from) path.push(via[k]!);
-  return path.reverse();
+  return { path: path.reverse(), cost: g[goal]! + dist(entry[goal]!, to) };
 }
+
+/** The path cost (m) of a Jump's flight of `airTicks` (as far as a Fighter walks in that time) and JUMP_COST. */
+const jumpTravel = (tuning: TuningData, airTicks: number) => airTicks * TICK_SECONDS * tuning.fighter.walkSpeed + JUMP_COST;
 
 /** z-component of (a - o) × (b - o), seen from above with (x, z) as (x, y): > 0 when b lies anticlockwise of a around o. */
 const cross = (o: Vec2, a: Vec2, b: Vec2) => (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
@@ -536,7 +598,11 @@ const same = (a: Vec2, b: Vec2) => a.x === b.x && a.z === b.z;
 
 /** The string-pulled path from `from` through the portals of `path` (Link ids) to `to`: its corners, `to` last. */
 export function corners(arena: ArenaGeometry, tuning: TuningData, path: readonly number[], from: Vec2, to: Vec2): Vec2[] {
-  const mesh = navMesh(arena, tuning);
+  return pull(tuning, navMesh(arena, tuning), path, from, to);
+}
+
+/** `corners`, through the Links of `mesh`. */
+function pull(tuning: TuningData, mesh: NavMesh, path: readonly number[], from: Vec2, to: Vec2): Vec2[] {
   const d = tuning.fighter.radius + CROSSING;
   const shift = (l: NavLink, k: number) => ({
     left: { x: l.left.x + l.normal.x * k, z: l.left.z + l.normal.z * k },

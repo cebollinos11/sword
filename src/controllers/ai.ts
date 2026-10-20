@@ -14,7 +14,8 @@
  *    To reach an enemy on another Walk Surface it follows the navmesh
  *    (`findPath`, `steer`), re-planning when either moves to another surface
  *    or every REPATH_TICKS; the route is part of its memory. It follows jump
- *    Links held no longer than its `jumpNav` (none without one): it lines up
+ *    Links held no longer than its `jumpNav`, and shortcut ones (up onto a
+ *    floor it could walk to the long way) at any hold (none without one): it lines up
  *    behind the takeoff, runs in, presses Jump there and holds it for the
  *    Link's hold (`takeJump`, `flying`; the run is in its memory too), giving
  *    up on a Link it cannot get airborne on in time. With no way to its enemy

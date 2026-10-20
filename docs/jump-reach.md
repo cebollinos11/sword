@@ -69,7 +69,7 @@ The spots only a Jump gets to. Each prop is a lid: a Walk Surface over its Walls
   - the big crate, 1.0: a tap from the deck at (-1.95, 4.9), along +z. The small crate (0.7) beside it is a step down. Walking off the big crate's outboard side carries you over the bulwark into the sea, as a tap over the rail does.
 - **Library** (`library.test.ts`; ground floor y 0)
   - the two reading tables, 0.8 (the tabletop; the 3.2 × 1.7 lid covers the chairs too): a tap from the floor at (-5, 8.6), along +z
-  - Not the bridge or the mezzanines from below: their undersides stop the Jump (a floor overhead caps it, above).
+  - Not the bridge or the mezzanines from below: their undersides stop the Jump (a floor overhead caps it, above). From the floor beside them a Jump held about 0.4 s does get up onto them, where no rail stands: the ramps also get there, so these are shortcut jump Links (ADR 0013), which every AI takes when they save walking.
 - **Chamber** (`lava.test.ts`; ring y 0)
   - the two catwalks, 0: a full Jump from the ring's edge at (0, ±7.2), along ±z, crosses the 3.5 m gap and lands at about r 12. Side rails keep you on. The open end facing the ring is unrailed, so walking off it drops you into the lava. A full Jump from the end back along ∓z lands on the ring.
 

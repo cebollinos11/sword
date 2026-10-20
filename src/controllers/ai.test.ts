@@ -256,7 +256,10 @@ describe('AI Controller in the multilevel library', () => {
   const inLibrary = (placements: { x: number; y: number; z: number; facing: number }[], teams: number[]) =>
     createInitialState(repo, 1, placements.map(({ x, y, z, facing }) => ({ position: { x, z }, y, facing })), [], teams, 'library');
 
-  it('finds its way from the ground floor up to an enemy on the gallery, and engages it there', () => {
+  const surfaceOf = (f: { position: { x: number; z: number }; y: number }) => library.walk[groundBelow(library, f.position.x, f.position.z, f.y + 1e-6)?.surface ?? -1]?.id;
+  const library = repo.arenas.library!;
+
+  it('finds its way from the ground floor up to an enemy on the gallery, Jumping onto the bridge, and engages it there', () => {
     const initial = inLibrary([{ x: -4.5, y: 0, z: -4.5, facing: Math.PI / 2 }, { x: 5, y: 6, z: 10.5, facing: Math.PI }], [0, 1]);
     const run = runControllers(repo, initial, [createAiController(repo, 'Normal'), scriptedController(wait(1))], TICK_RATE * 60);
     const engaged = run.events.find((e) => e.type === 'AttackPhase' && e.fighter === 0 && e.phase === 'Wind-up');
@@ -265,9 +268,24 @@ describe('AI Controller in the multilevel library', () => {
     // On the gallery (it may leap in with a jumping Attack), within the reach it steps in and swings from.
     expect(Math.abs(at.y - 6)).toBeLessThan(0.5);
     expect(Math.hypot(at.position.x - 5, at.position.z - 10.5)).toBeLessThan(repo.ai.attackRange + 1.4);
-    // It walked there: no fall on the way.
-    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.tick <= engaged!.tick)).toBe(false);
+    // It Jumped up onto the bridge rather than walking round by a ramp, and landed unhurt.
+    const before = run.states.slice(0, engaged!.tick).map((s) => surfaceOf(s.fighters[0]!));
+    expect(before).toContain('WALK_bridge');
+    expect(before.some((n) => n === 'WALK_ramp_west' || n === 'WALK_ramp_east')).toBe(false);
+    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.damage > 0 && e.tick <= engaged!.tick)).toBe(false);
   });
+
+  for (const difficulty of ['Easy', 'Normal', 'Hard']) {
+    it(`${difficulty}: Jumps up onto the mezzanine to reach an enemy standing there, rather than walking round by the ramps`, () => {
+      const initial = inLibrary([{ x: -5, y: 0, z: 4, facing: -Math.PI / 2 }, { x: -10.5, y: 3, z: 4, facing: Math.PI / 2 }], [0, 1]);
+      const run = runControllers(repo, initial, [createAiController(repo, difficulty), scriptedController(wait(1))], TICK_RATE * 10);
+      const up = run.states.findIndex((s) => !s.fighters[0]!.air && surfaceOf(s.fighters[0]!) === 'WALK_mezz_west');
+      expect(up, 'it never got onto the mezzanine').toBeGreaterThan(0);
+      // Walking round by the west ramp is over 20 m: some 6 s. The Jump takes well under half that.
+      expect(up).toBeLessThan(TICK_RATE * 3);
+      expect(run.states.slice(0, up).some((s) => surfaceOf(s.fighters[0]!) === 'WALK_ramp_west')).toBe(false);
+    });
+  }
 
   it('backing off at an open ledge, it strafes along it rather than stepping off', () => {
     // On the bridge with its back to a gap in the rail (x -6..-4.5 on its south side), an enemy too close in front.
