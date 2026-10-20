@@ -19,6 +19,7 @@ import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 import { parseGait, type GaitTuning } from './gait';
+import { parseKit, type Kit } from './kit';
 import { parseMotion, motionFileName, type Motion } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
 import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
@@ -28,6 +29,8 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
+export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
+export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTuning } from './weapon';
@@ -311,6 +314,8 @@ export interface TuningData {
   readonly arena: ArenaSelection;
   /** Every Arena, keyed by name (data/arenas/<name>.json). */
   readonly arenas: Readonly<Record<string, ArenaGeometry>>;
+  /** Every Kit a Generated Arena can be assembled from, keyed by name (data/kits/<name>.json). */
+  readonly kits: Readonly<Record<string, Kit>>;
   /** Height, falls and jumps. */
   readonly fall: FallTuning;
   /** The Weapon roster, keyed by name, in file order; the first is the default Weapon. */
@@ -480,6 +485,13 @@ export function parseTuningData(raw: unknown): TuningData {
     if (arenas[arena.name]) throw new TuningDataError(`arenas: duplicate Arena name "${arena.name}"`);
     arenas[arena.name] = arena;
   });
+  const kits: Record<string, Kit> = {};
+  if (root.kits !== undefined)
+    (Array.isArray(root.kits) ? root.kits : Object.values(record(root.kits, 'kits'))).forEach((raw, i) => {
+      const kit = parseKit(raw, `kits[${i}]`);
+      if (kits[kit.name]) throw new TuningDataError(`kits: duplicate Kit name "${kit.name}"`);
+      kits[kit.name] = kit;
+    });
   const fa = record(root.fall, 'fall');
   const s = record(root.skeleton, 'skeleton');
   const hz = record(root.hitZones, 'hitZones');
@@ -545,6 +557,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,
+    kits,
     fall: {
       gravity: positiveNumber(fa, 'gravity', 'fall'),
       jumpSpeed: positiveNumber(fa, 'jumpSpeed', 'fall'),
@@ -610,6 +623,8 @@ const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', {
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
 /** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
+/** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
+const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 
 /** Bundled files in file (path) order. */
 const inFileOrder = (files: Record<string, unknown>) => Object.entries(files).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -653,6 +668,12 @@ export function loadTuningData(): TuningData {
       const file = path.slice(path.lastIndexOf('/') + 1);
       const name = record(raw, `data/arenas/${file}`).name;
       if (typeof name === 'string' && `${name}.json` !== file) throw new TuningDataError(`data/arenas/${file}: Arena "${name}" must live in ${name}.json`);
+      return raw;
+    }),
+    kits: inFileOrder(kitFiles).map(([path, raw]) => {
+      const file = path.slice(path.lastIndexOf('/') + 1);
+      const name = record(raw, `data/kits/${file}`).name;
+      if (typeof name === 'string' && `${name}.json` !== file) throw new TuningDataError(`data/kits/${file}: Kit "${name}" must live in ${name}.json`);
       return raw;
     }),
     fall: fallJson,

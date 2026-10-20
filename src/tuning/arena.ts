@@ -100,7 +100,7 @@ function signedArea2(points: readonly ArenaPoint[]): number {
 }
 
 /** Throws unless the polygon is convex and non-degenerate from above, and planar (within 1 cm). */
-function checkSurface(s: WalkSurface, where: string): void {
+export function checkSurface(s: Pick<WalkSurface, 'id' | 'points'>, where: string): void {
   const pts = s.points;
   if (pts.length < 3) throw new TuningDataError(`${where}.points must have at least 3 corners`);
   const area = signedArea2(pts);
