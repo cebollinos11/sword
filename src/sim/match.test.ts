@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import {
+  arenaOf,
   createMatch,
   duelPlacements,
   hashValue,
@@ -201,7 +202,57 @@ describe('Rematch', () => {
     expect(m).toMatchObject({ matchNumber: 2, score: [0, 1], status: { status: 'Over', winner: 1 } });
   });
 
+  it('keeps a hand-made Arena for every Match', () => {
+    const over = overAfterBestOf1(40);
+    expect(over.arena).toBe('circle');
+    let m = over;
+    while (m.matchNumber === 1) m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], tuning);
+    expect(m.arena).toBe('circle');
+    expect(m.duel.arena).toBe('circle');
+  });
+
   it('rejects a rematch pause below one Tick', () => {
     expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, rematchTicks: 0 })).toThrow(/rematchTicks/);
+  });
+});
+
+describe('A Random Map: a new Arena every Match, the same one every Duel', () => {
+  const FIRST = 'gen:greybox:12';
+  const NEXT = 'gen:greybox:381979';
+  const idle = [IDLE_INTENT, IDLE_INTENT];
+  /** Steps until `done`, from a hand-set state (a Duel or Match just decided), without fighting it out. */
+  const stepUntil = (m: MatchState, done: (m: MatchState) => boolean) => {
+    for (let i = 0; i < 100 && !done(m); i++) m = stepMatch(m, idle, tuning);
+    if (!done(m)) throw new Error('condition never reached');
+    return m;
+  };
+  const start = createMatch(tuning, { arena: FIRST, bestOf: 3, seed: 7, rematchTicks: 20 });
+
+  it('starts on the Arena it names, built from the name', () => {
+    expect(start.arena).toBe(FIRST);
+    expect(start.duel.arena).toBe(FIRST);
+  });
+
+  it('fights every Duel of a Match on the same Arena', () => {
+    const duelDecided = { ...start, score: [1, 0], nextDuelTick: start.tick + 5 };
+    const second = stepUntil(duelDecided, (m) => m.duelNumber === 2);
+    expect(second.arena).toBe(FIRST);
+    expect(second.duel.arena).toBe(FIRST);
+  });
+
+  it('rematches onto the next Arena, then the one after, every peer deriving the same names', () => {
+    const decide = (m: MatchState): MatchState => ({ ...m, score: [2, 0], status: { status: 'Over', winner: 0, tick: m.tick } });
+    const second = stepUntil(decide(start), (m) => m.matchNumber === 2);
+    expect(second.arena).toBe(NEXT);
+    expect(second.duel.arena).toBe(NEXT);
+    expect(second.config.arena).toBe(FIRST);
+    // Built from the name on demand (Tuning Data holds no such Arena), and its Duels start at its spawns.
+    expect(tuning.arenas[NEXT]).toBeUndefined();
+    const spawn = arenaOf(tuning, NEXT).spawns.find((p) => p.team === 0 && p.slot === 0)!;
+    expect(second.duel.fighters[0]!.position).toEqual({ x: spawn.position.x, z: spawn.position.z });
+    const third = stepUntil(decide(second), (m) => m.matchNumber === 3);
+    expect(third.arena).toBe('gen:greybox:763946');
+    // The same Match, stepped again, rematches onto the same Arena.
+    expect(hashValue(stepUntil(decide(start), (m) => m.matchNumber === 2))).toBe(hashValue(second));
   });
 });

@@ -5,6 +5,7 @@
  * from Tuning Data only (never state), so it cannot change an outcome.
  */
 import { surfacePlane, type ArenaGeometry, type TuningData, type WalkSurface, type WallSegment } from '../tuning';
+import { generatedArena, isArenaName } from './arenaGen/named';
 import type { Vec2 } from './state';
 import type { Vec3 } from './vec';
 
@@ -89,9 +90,12 @@ function indexOf(arena: ArenaGeometry): ArenaIndex {
   return index;
 }
 
-/** The Arena named `name` in Tuning Data. Throws on an unknown name. */
+/**
+ * The Arena named `name` in Tuning Data, or the Generated Arena a `gen:<kit>:<seed>` name builds from Tuning Data's Kit
+ * (built once and reused, `generatedArena`: a Rematch's next Random Map, Stage 6). Throws on an unknown name.
+ */
 export function arenaOf(tuning: Pick<TuningData, 'arenas'>, name: string): ArenaGeometry {
-  const arena = tuning.arenas[name];
+  const arena = tuning.arenas[name] ?? ('kits' in tuning && isArenaName(tuning as TuningData, name) ? generatedArena(tuning as TuningData, name)?.arena : undefined);
   if (!arena) throw new Error(`Unknown Arena "${name}" (have: ${Object.keys(tuning.arenas).join(', ')})`);
   return arena;
 }

@@ -19,6 +19,7 @@ import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
 import { arenaOf } from './arena';
+import { nextArenaName } from './arenaGen/named';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
 
@@ -41,8 +42,9 @@ export interface MatchConfig {
   /** Ticks after the Match ends before a fresh Match (same config, score 0–0) starts, or null for none (the default). */
   readonly rematchTicks: number | null;
   /**
-   * The Arena every Duel is fought in (a Tuning Data Arena name; default `arena.match`). Fighters start
-   * at its spawns when it has one for each, else in two facing lines (`distance`, `spacing`).
+   * The Arena the first Match's Duels are fought in (a Tuning Data Arena name, or a Generated Arena's `gen:<kit>:<seed>`;
+   * default `arena.match`); each Rematch moves to the next (`MatchState.arena`). Fighters start at its spawns when it
+   * has one for each, else in two facing lines (`distance`, `spacing`).
    */
   readonly arena: string;
 }
@@ -77,6 +79,11 @@ export interface MatchState {
   readonly config: MatchConfig;
   /** 1-based number of this Match, counting rematches (see `rematchTicks`). */
   readonly matchNumber: number;
+  /**
+   * The Arena this Match's Duels are fought in, every one of them: `config.arena` for the first Match, and at each
+   * Rematch the next (`nextArenaName`: a Random Map's next seed, a hand-made Arena itself), which every peer builds.
+   */
+  readonly arena: string;
   /** Match Ticks since the first Match started, carried across rematches (Duel ticks restart at 0 each Duel). */
   readonly tick: number;
   /** 1-based number of the current Duel, draws included. */
@@ -106,8 +113,8 @@ export function checkTeams(teams: readonly number[]): void {
 }
 
 /** Where each Fighter starts: team t's k-th Fighter at the Arena's spawn for (t, k), or (if any is missing) in two facing lines. */
-function startPlacements(tuning: TuningData, config: MatchConfig): Placement[] {
-  const { spawns } = arenaOf(tuning, config.arena);
+function startPlacements(tuning: TuningData, config: MatchConfig, arena: string): Placement[] {
+  const { spawns } = arenaOf(tuning, arena);
   const seen = [0, 0];
   const placed = config.teams.map((team) => {
     const slot = seen[team]!++;
@@ -117,12 +124,12 @@ function startPlacements(tuning: TuningData, config: MatchConfig): Placement[] {
   return placed.every((p) => p !== undefined) ? placed : teamPlacements(config.teams, config.distance, config.spacing);
 }
 
-function initialDuel(tuning: TuningData, config: MatchConfig, seed: number): SimState {
-  return createInitialState(tuning, seed, startPlacements(tuning, config), config.weapons, config.teams, config.arena);
+function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, seed: number): SimState {
+  return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena);
 }
 
-function freshDuel(tuning: TuningData, config: MatchConfig, rng: SimState['rng']): SimState {
-  return { ...initialDuel(tuning, config, 0), rng };
+function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
+  return { ...initialDuel(tuning, config, arena, 0), rng };
 }
 
 /** A Match at Tick 0: Duel 1 about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
@@ -144,10 +151,11 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     throw new RangeError(`interDuelTicks must be an integer >= 1, got ${config.interDuelTicks}`);
   if (config.rematchTicks !== null && (!Number.isInteger(config.rematchTicks) || config.rematchTicks < 1))
     throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
-  const duel = initialDuel(tuning, config, options.seed ?? 1);
+  const duel = initialDuel(tuning, config, config.arena, options.seed ?? 1);
   return {
     config,
     matchNumber: 1,
+    arena: config.arena,
     tick: 0,
     duelNumber: 1,
     score: [0, 0],
@@ -173,15 +181,18 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
 
   const { status: over, config } = match;
   if (over.status === 'Over' && config.rematchTicks !== null && tick >= over.tick + config.rematchTicks) {
-    // A fresh Match: Duel 1, score 0–0, the generator carried on so it isn't a replay of the last one.
+    // A fresh Match: Duel 1, score 0–0, the generator carried on so it isn't a replay of the last one, on the next
+    // Arena (a Random Map's next seed; the game builds it ahead, while the result shows, so this Tick only reads it).
     events.push({ type: 'DuelStart', duelNumber: 1 });
+    const arena = nextArenaName(match.arena);
     return {
       ...match,
       matchNumber: match.matchNumber + 1,
+      arena,
       tick,
       duelNumber: 1,
       score: [0, 0],
-      duel: freshDuel(tuning, match.config, match.duel.rng),
+      duel: freshDuel(tuning, match.config, arena, match.duel.rng),
       nextDuelTick: null,
       status: { status: 'InProgress' },
       events,
@@ -191,7 +202,7 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
   if (match.nextDuelTick !== null && tick >= match.nextDuelTick) {
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, duelNumber, duel: freshDuel(tuning, match.config, match.duel.rng), nextDuelTick: null, events };
+    return { ...match, tick, duelNumber, duel: freshDuel(tuning, match.config, match.arena, match.duel.rng), nextDuelTick: null, events };
   }
 
   const duel = step(match.duel, intents, tuning);

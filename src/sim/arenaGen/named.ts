@@ -4,7 +4,7 @@
  * builds the same Arena from the Lobby's Map setting.
  */
 import type { TuningData } from '../../tuning';
-import { generateArena } from './generate';
+import { generateArena, type GeneratedArena } from './generate';
 import type { Layout } from './grid';
 import { DEFAULT_GEN_PARAMS } from './layout';
 
@@ -48,16 +48,46 @@ export function isArenaName(tuning: Pick<TuningData, 'arenas' | 'kits'>, name: s
   }
 }
 
+/** How many Generated Arenas one Tuning Data keeps built; a name dropped from the cache is built again (the same Arena). */
+const KEPT_BUILDS = 8;
+/** Built Generated Arenas, per Tuning Data (its base, for a copy withGeneratedArena made), most recently used last. */
+const builds = new WeakMap<object, Map<string, GeneratedArena>>();
+/** Each copy withGeneratedArena made, to the Tuning Data it copied: the copy shares that one's builds. */
+const bases = new WeakMap<object, TuningData>();
+
+/**
+ * Generated Arena `name` (gen:<kit>:<seed>) from Tuning Data's Kit, with DEFAULT_GEN_PARAMS, built once and then reused
+ * while it stays among the last few. Pure: the same name always gives the same Arena. Null for a name that is not gen:.
+ */
+export function generatedArena(tuning: TuningData, name: string): GeneratedArena | null {
+  const parsed = parseGeneratedName(name);
+  if (!parsed) return null;
+  const base = bases.get(tuning) ?? tuning;
+  let kept = builds.get(base);
+  if (!kept) builds.set(base, (kept = new Map()));
+  let built = kept.get(name);
+  if (built) {
+    kept.delete(name);
+  } else {
+    const kit = base.kits[parsed.kit];
+    if (!kit) throw new Error(`Generated Arena "${name}": no Kit "${parsed.kit}" (have: ${Object.keys(base.kits).join(', ')})`);
+    built = generateArena(kit, parsed.seed, DEFAULT_GEN_PARAMS, base);
+    if (kept.size >= KEPT_BUILDS) kept.delete(kept.keys().next().value!);
+  }
+  kept.set(name, built);
+  return built;
+}
+
 /**
  * The Tuning Data to play Arena `name` in: for a `gen:<kit>:<seed>` name, a copy holding the Arena generated from
  * `tuning.kits[kit]` and that seed with DEFAULT_GEN_PARAMS, plus its Layout (for drawing it from the Kit's model);
  * any other name, `tuning` unchanged. Throws on an unknown Kit or a seed that is not a whole number.
  */
 export function withGeneratedArena(tuning: TuningData, name: string): { tuning: TuningData; layout?: Layout } {
-  const parsed = parseGeneratedName(name);
-  if (!parsed) return { tuning };
-  const kit = tuning.kits[parsed.kit];
-  if (!kit) throw new Error(`Generated Arena "${name}": no Kit "${parsed.kit}" (have: ${Object.keys(tuning.kits).join(', ')})`);
-  const { arena, layout } = generateArena(kit, parsed.seed, DEFAULT_GEN_PARAMS, tuning);
-  return { tuning: { ...tuning, arenas: { ...tuning.arenas, [arena.name]: arena } }, layout };
+  const built = generatedArena(tuning, name);
+  if (!built) return { tuning };
+  const { arena, layout } = built;
+  const copy: TuningData = { ...tuning, arenas: { ...tuning.arenas, [arena.name]: arena } };
+  bases.set(copy, bases.get(tuning) ?? tuning);
+  return { tuning: copy, layout };
 }

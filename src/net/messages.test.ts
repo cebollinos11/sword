@@ -161,6 +161,8 @@ describe('Peer message validation', () => {
       null,
       { ...good, tick: 'late' },
       { ...good, score: [1] },
+      { ...good, arena: undefined },
+      { ...good, arena: '' },
       { ...good, config: { ...good.config, bestOf: -1 } },
       { ...good, config: { ...good.config, weapons: undefined } },
       { ...good, config: { ...good.config, weapons: ['Halberd'] } },

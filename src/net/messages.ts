@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOption
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -350,6 +350,8 @@ function isMatchState(v: unknown): v is MatchState {
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isInt(v.matchNumber) &&
     v.matchNumber >= 1 &&
+    isString(v.arena) &&
+    v.arena.length > 0 &&
     isTick(v.tick) &&
     isInt(v.duelNumber) &&
     v.duelNumber >= 1 &&
