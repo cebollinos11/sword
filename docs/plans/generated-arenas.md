@@ -184,6 +184,10 @@ The first Blender Kit is `greybox`, plain grey Pieces with no theme (open questi
 
 ## Stage 5: Random Map in the game and online
 
+**Decisions (settled before building):**
+- **No theme yet.** `greybox` is the only Kit, and what is being judged now is whether the gameplay is good. The Lobby's Kit choice stays hidden while there is only one Kit.
+- **A Random Map uses `DEFAULT_GEN_PARAMS`.** The Arena name is `gen:<kit>:<seed>` and nothing else, so the name alone rebuilds the same Arena on every peer.
+
 - **The Lobby and Skirmish offer a "Random" Map** (with a Kit choice, if there's more than one). The host picks a seed. The Lobby's Map setting carries the Arena name `gen:<kit>:<seed>`. Lobby messages already accept a short string for `arena`.
 - **Every peer builds the Arena from the name:**
   - A helper `withArena(tuning, name)` returns the Tuning Data copy, generating the Arena if the name starts with `gen:`.
