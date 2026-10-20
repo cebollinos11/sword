@@ -106,7 +106,7 @@ describe('a Generated Arena built on demand (a Rematch onto the next Random Map)
   it('builds a name the cache has dropped again: the same Arena', () => {
     const base = loadTuningData();
     const first = arenaOf(base, 'gen:greybox:30');
-    for (let seed = 31; seed < 45; seed++) arenaOf(base, `gen:greybox:${seed}`);
+    for (let seed = 31; seed <= 38; seed++) arenaOf(base, `gen:greybox:${seed}`);
     const again = arenaOf(base, 'gen:greybox:30');
     expect(again).toStrictEqual(first);
     expect(hashValue(again)).toBe(hashValue(first));

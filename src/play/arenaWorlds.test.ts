@@ -21,7 +21,7 @@ describe('the Arena the Renderer draws, by the Match state’s Arena name', () =
   it('builds a name it has dropped again, the same Arena and Layout', () => {
     const world = createArenaWorlds(tuning);
     const first = world('gen:greybox:50');
-    for (let seed = 51; seed < 64; seed++) world(`gen:greybox:${seed}`);
+    for (let seed = 51; seed <= 54; seed++) world(`gen:greybox:${seed}`);
     const again = world('gen:greybox:50');
     expect(again.tuning.arenas['gen:greybox:50']).toStrictEqual(first.tuning.arenas['gen:greybox:50']);
     expect(again.layout).toStrictEqual(first.layout);

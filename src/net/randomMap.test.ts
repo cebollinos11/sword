@@ -3,8 +3,9 @@
  * Lobby's Map setting alone, and the two stay in step; peers whose generators or Kits differ refuse each other.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash, type TuningData } from '../tuning';
-import { createMatch, DIRECTIONS, GENERATOR_VERSION, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, withGeneratedArena, type Intent } from '../sim';
+import { loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
+import { lineupAis, lineupMatch, type Controller, type Lineup } from '../controllers';
+import { arenaOf, createMatch, DIRECTIONS, GENERATOR_VERSION, hashValue, IDLE_INTENT, nextArenaName, stepMatch, TICK_RATE, withGeneratedArena, type Intent } from '../sim';
 import { createMemoryTransportPair } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, type SessionEvent } from './session';
 import { PROTOCOL_VERSION } from './messages';
@@ -68,6 +69,68 @@ describe('a Random Map online', () => {
       expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
     }
     expect(s.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
+  });
+
+  it('two peers rematch onto the next Random Map, each building it, and stay in step through it', () => {
+    // One clean hit decides a Duel, and each Player has a Hard AI beside them: Duels end soon, the Players standing idle.
+    const lethal = () => withWeapon(peerTuning(), { damage: 10_000 });
+    const [hostTuning, guestTuning] = [lethal(), lethal()];
+    const lineup: Lineup = [
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 1, pilot: { kind: 'Player', player: 1 } },
+      { team: 0, pilot: { kind: 'AI', difficulty: 'Hard' } },
+      { team: 1, pilot: { kind: 'AI', difficulty: 'Hard' } },
+    ];
+    const match = { bestOf: 1, arena: NAME, seed: 9, rematchTicks: 30 };
+    const pair = createMemoryTransportPair({ latencyMs: 40, jitterMs: 20, seed: 4 });
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning: hostTuning, match, lineup, weapon: 'Arming Sword' });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning: guestTuning, weapon: 'Arming Sword' });
+    const events: SessionEvent[] = [];
+    guest.onEvent((e) => events.push(e));
+    const confirmed = () => Math.min(host.confirmedTick, guest.confirmedTick);
+    // Into the second Match, and a while on into it.
+    let rematchAt: number | null = null;
+    // Each peer keeps only its recent checksums: note them as they are confirmed.
+    const sums = [new Map<number, string>(), new Map<number, string>()];
+    for (let i = 0; i < 40_000 && (rematchAt === null || confirmed() < rematchAt + 300); i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+      guest.tick(IDLE_INTENT);
+      if (rematchAt === null && host.state?.matchNumber === 2) rematchAt = host.state.tick;
+      for (const [k, s] of [host, guest].entries()) {
+        for (let t = confirmed() - (confirmed() % CHECKSUM_INTERVAL); t > 0 && !sums[k]!.has(t); t -= CHECKSUM_INTERVAL) {
+          const sum = s.checksumAt(t);
+          if (sum === undefined) break;
+          sums[k]!.set(t, sum);
+        }
+      }
+    }
+    expect(rematchAt).not.toBeNull();
+    expect(confirmed()).toBeGreaterThanOrEqual(rematchAt! + 300);
+
+    // What both should agree on: the Match stepped offline with the same Intents and fresh AI Controllers.
+    const ais = lineupAis(hostTuning, lineup);
+    let m = createMatch(hostTuning, lineupMatch(hostTuning, lineup, ['Arming Sword', 'Arming Sword'], match));
+    let checked = 0;
+    for (let t = 1; t <= confirmed(); t++) {
+      m = stepMatch(m, lineup.map((slot, i) => (slot.pilot.kind === 'Player' ? IDLE_INTENT : (ais[i] as Controller).intent(m.duel, i))), hostTuning);
+      if (t % CHECKSUM_INTERVAL !== 0) continue;
+      const hash = hashValue(m);
+      expect(sums[0]!.get(t), `host @${t}`).toBe(hash);
+      expect(sums[1]!.get(t), `guest @${t}`).toBe(hash);
+      checked++;
+    }
+    expect(checked).toBeGreaterThan(10);
+    expect(events.some((e) => e.type === 'Desync')).toBe(false);
+
+    // The second Match is on the next Random Map, which each peer built for itself from its name.
+    const next = nextArenaName(NAME);
+    expect(next).not.toBe(NAME);
+    for (const s of [host, guest]) expect(s.state).toMatchObject({ matchNumber: 2, arena: next, duel: { arena: next } });
+    expect(m.arena).toBe(next);
+    const [hostArena, guestArena] = [arenaOf(hostTuning, next), arenaOf(guestTuning, next)];
+    expect(guestArena).not.toBe(hostArena);
+    expect(hashValue(guestArena)).toBe(hashValue(hostArena));
   });
 
   it('a peer whose Kit file differs is refused', () => {
