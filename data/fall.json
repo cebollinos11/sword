@@ -8,6 +8,7 @@
   "fallDelay": 0.2,
   "safeHeight": 1.6,
   "damagePerMetre": 22,
+  "knockdownDamageFactor": 2,
   "stepUp": 0.35,
   "snapDown": 0.4
 }

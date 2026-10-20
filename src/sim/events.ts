@@ -25,7 +25,7 @@ export interface KnockdownPhaseEvent {
   readonly phase: Exclude<KnockdownPhase, 'Falling'>;
 }
 
-/** A Fighter fell (its Death): its HP reached zero, from a Hit or a Fall, or it came to stand in Lava or Water. */
+/** A Fighter fell (its Death): its HP reached zero, from a Hit or a Fall, or it came to stand in Lava, Water or an Abyss (a Fall). */
 export interface DeathEvent {
   readonly type: 'Death';
   readonly fighter: number;

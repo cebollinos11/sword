@@ -4,7 +4,7 @@ import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
 import { arenaOf, deadlyGround, groundBelow } from './arena';
-import { flyBody, landingDamage, landingDrop, settleGround, takeOff } from './air';
+import { flyBody, landing, settleGround, takeOff } from './air';
 import { resolveBodies } from './collision';
 import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
@@ -222,18 +222,17 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
 }
 
 /**
- * A Fighter that just landed (last Tick `prev` was airborne): a drop (from the top of its arc, capped for a Jump)
- * within `fall.safeHeight` lands softly and a Fall ends in Idle; a deeper one deals
- * `fall.damagePerMetre` per metre beyond it (only while the Duel is being fought) and
- * Staggers it (cause `Landed`). A Fighter already Staggered by something else keeps that Stagger.
+ * A Fighter that just landed (last Tick `prev` was airborne), counted by `landing`: a Jump lands without fall damage,
+ * a Fighter in Knockdown takes `fall.knockdownDamageFactor` times it from the real top of its arc and stays down, and one
+ * that walked or was pushed off a ledge takes it (only while the Duel is being fought) and, beyond `fall.safeHeight`, Staggers
+ * (cause `Landed`). A soft Landing ends a Fall in Idle. A Fighter already Staggered by something else keeps that Stagger.
  */
 function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
-  const height = landingDrop(prev.air!, f.y, tuning);
-  const hard = height > tuning.fall.safeHeight;
-  const damage = fighting ? landingDamage(height, tuning) : 0;
-  emit({ type: 'Land', fighter: index, height, damage });
+  const { drop, damage: fallDamage, hard } = landing(prev.air!, f.y, f.action.kind === 'Knockdown', tuning);
+  const damage = fighting ? fallDamage : 0;
+  emit({ type: 'Land', fighter: index, height: drop, damage });
   // A Fighter lying down takes the damage but stays down: it is not Staggered upright.
-  if (hard && f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
+  if (f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
   if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
   if (f.action.kind !== 'Fall') return f;
   return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, IDLE_MOTION) };
@@ -296,7 +295,7 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
  * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
- * → damage → Deaths (a Fighter standing on lava or water dies of it, whatever its HP) → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
+ * → damage → Deaths (a Fighter standing on lava, water or an abyss dies of it, whatever its HP) → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
  * its team still fighting. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
  */

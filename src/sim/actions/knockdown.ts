@@ -1,7 +1,8 @@
 /**
  * The Knockdown Action (ADR 0007): the Fighter falls flat on its back (Falling, the Knockdown Motion tilting
  * the whole body), lies there for `kick.knockdownTicks` (Down, the Motion held at its end) and gets up
- * (Rising, the GetUp Motion), then is Idle again. It interrupts whatever the Fighter was doing and ends only
+ * (Rising, the GetUp Motion), then is Idle again. Knocked down in the air, it lies in the air and its time lying
+ * only counts on the ground: it lies the whole `kick.knockdownTicks` after it lands, and never gets up mid-air. It interrupts whatever the Fighter was doing and ends only
  * by running its course. Throughout it can guard (hold block: `guard` is the Direction held, which
  * Blocks by the normal rule), but cannot turn, move, Attack, Kick or Jump. It can be hit like anyone: its Hit Zones
  * lie where the body lies.
@@ -44,6 +45,8 @@ export const updateKnockdown: ActionHandler<KnockdownAction> = (f, intent, ctx) 
       return { action: { ...a, guard }, motion: advance(f.motion) };
     }
     case 'Down': {
+      // In the air the time lying waits for the ground.
+      if (f.air) return { action: { ...a, guard }, motion: f.motion };
       const ticks = a.ticks + 1;
       if (ticks >= ctx.tuning.kick.knockdownTicks) {
         ctx.emit({ type: 'KnockdownPhase', fighter: ctx.fighter, phase: 'Rising' });
@@ -52,6 +55,8 @@ export const updateKnockdown: ActionHandler<KnockdownAction> = (f, intent, ctx) 
       return { action: { ...a, ticks, guard }, motion: f.motion };
     }
     case 'Rising': {
+      // Pushed off the ground while getting up, it holds its pose until it lands.
+      if (f.air) return { action: { ...a, guard }, motion: f.motion };
       const end = motionTicks(ctx.tuning, f.weapon, GET_UP_MOTION);
       if (f.motion.tick + 1 >= end) return { action: IDLE_ACTION, motion: IDLE_MOTION };
       return { action: { ...a, guard }, motion: advance(f.motion) };

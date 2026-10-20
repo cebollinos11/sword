@@ -740,6 +740,8 @@ def collision(coll):
         me = bpy.data.meshes.new(f'WALK_{id}')
         me.from_pydata([tuple(to_blender(p)) for p in pts], [], [list(range(len(pts)))])
         obj = bpy.data.objects.new(f'WALK_{id}', me)
+        if id == 'valley':
+            obj['abyss'] = 1  # a fall to it kills, a Jump or not (a Death by Fall)
         coll.objects.link(obj)
     for id, a, b, bottom, top in WALLS:
         q = [(a[0], bottom, a[1]), (b[0], bottom, b[1]), (b[0], top, b[1]), (a[0], top, a[1])]
@@ -771,7 +773,10 @@ def export_json(coll):
     for o in objs:
         if o.name.startswith('WALK_'):
             poly = o.data.polygons[0]
-            walk.append({'id': o.name, 'points': [to_game(o.matrix_world @ o.data.vertices[i].co) for i in poly.vertices]})
+            w = {'id': o.name, 'points': [to_game(o.matrix_world @ o.data.vertices[i].co) for i in poly.vertices]}
+            if o.get('abyss'):
+                w['abyss'] = True
+            walk.append(w)
         elif o.name.startswith('WALL_'):
             vs = [to_game(o.matrix_world @ v.co) for v in o.data.vertices]
             walls.append({'id': o.name, 'a': [vs[0][0], vs[0][2]], 'b': [vs[1][0], vs[1][2]], 'bottom': vs[0][1], 'top': vs[2][1]})
@@ -783,7 +788,8 @@ def export_json(coll):
 def write_json(path, data):
     """Compact enough to read: one surface, wall or spawn per line."""
     def surface(w):
-        return f'    {{ "id": {json.dumps(w["id"])}, "points": {json.dumps(w["points"])} }}'
+        abyss = ', "abyss": true' if w.get('abyss') else ''
+        return f'    {{ "id": {json.dumps(w["id"])}{abyss}, "points": {json.dumps(w["points"])} }}'
     lines = ['{', '  "name": "summit",', '  "walk": [']
     lines += [surface(w) + (',' if k < len(data['walk']) - 1 else '') for k, w in enumerate(data['walk'])]
     lines += ['  ],', '  "walls": [']

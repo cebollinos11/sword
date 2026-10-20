@@ -121,3 +121,27 @@ export function landingDrop(air: Airborne, y: number, tuning: TuningData): numbe
 
 /** The fall damage of a Landing that dropped `height` (m): `fall.damagePerMetre` per metre beyond `fall.safeHeight`, while the Duel is being fought. */
 export const landingDamage = (height: number, tuning: TuningData): number => (height > tuning.fall.safeHeight ? (height - tuning.fall.safeHeight) * tuning.fall.damagePerMetre : 0);
+
+/** How a Landing at feet `y` after the flight `air` counts: the drop (m), its fall damage, and whether it is hard (it Staggers). */
+export interface Landing {
+  readonly drop: number;
+  readonly damage: number;
+  readonly hard: boolean;
+}
+
+/**
+ * A Landing at feet `y` after the flight `air`, the Fighter in Knockdown (`knockedDown`) or not:
+ *   - In Knockdown (knocked down in the air, or knocked off a ledge): the drop from the real top of the arc, Jump or not,
+ *     dealing `fall.knockdownDamageFactor` times the fall damage. It stays down, so it is never hard.
+ *   - After a Jump: no fall damage and never hard, however deep the drop (only deadly ground kills).
+ *   - Otherwise (walked, slid or was pushed off a ledge): the drop from the top of its arc deals fall damage, and is hard beyond `fall.safeHeight`.
+ */
+export function landing(air: Airborne, y: number, knockedDown: boolean, tuning: TuningData): Landing {
+  if (knockedDown) {
+    const drop = Math.max(0, air.peakY - y);
+    return { drop, damage: landingDamage(drop, tuning) * tuning.fall.knockdownDamageFactor, hard: false };
+  }
+  if (air.jumped) return { drop: landingDrop(air, y, tuning), damage: 0, hard: false };
+  const drop = Math.max(0, air.peakY - y);
+  return { drop, damage: landingDamage(drop, tuning), hard: drop > tuning.fall.safeHeight };
+}

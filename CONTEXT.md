@@ -152,7 +152,7 @@ The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in th
 _Avoid_: Debuff, snare, root
 
 **Knockdown**:
-The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, and also the Action that follows: 5 damage, a long Slide, then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally. It interrupts whatever the Fighter was doing.
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
 
 **Get-up**:
@@ -198,7 +198,7 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a hard Landing that took its last HP), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Landing whose fall damage took its last HP, or one on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -219,7 +219,7 @@ A fresh Match (same options, score 0–0) that starts on its own a few seconds a
 Which Controllers fight: Player vs AI (one Player, any AI allies and enemies), Player vs Player (online: two to four Players, as allies or enemies, plus any AIs), or AI vs AI. Each Fighter's Weapon is picked with it (each Player picks their own).
 
 **Arena**:
-The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked as the Lobby's Map (the host's pick online): the library (three levels, `art/build_library.py`) by default, the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), the pirate ship (a deck with a raised quarterdeck and a plank, over Water, `art/build_ship.py`), the snowy summit (a shelf and a plateau holding a crashed starship, on a cliff edge whose drop is a Death by Fall, `art/build_summit.py`) or the wasteland train (the roofs of four wagons of a maglev train, each roof bevelled down to its edges, gangways across the gaps between them, the ground far enough below for a Death by Fall, while the wasteland scrolls past outside the Simulation, `art/build_train.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
+The space a Duel takes place in, as Tuning Data (`data/arenas/<name>.json`): its Walk Surfaces, Walls and spawns, simulated in the Tick (ADR 0006). A Match is fought in the Arena picked as the Lobby's Map (the host's pick online): the library (three levels, `art/build_library.py`) by default, the carbon-freezing chamber (a ring-shaped platform over Lava, `art/build_chamber.py`), the pirate ship (a deck with a raised quarterdeck and a plank, over Water, `art/build_ship.py`), the snowy summit (a shelf and a plateau holding a crashed starship, on a cliff edge over a valley that is an Abyss, `art/build_summit.py`) or the wasteland train (the roofs of four wagons of a maglev train, each roof bevelled down to its edges, gangways across the gaps between them, the ground far below an Abyss, while the wasteland scrolls past outside the Simulation, `art/build_train.py`), each modelled in Blender, each Fighter starting at its Team's spawn; the Editor keeps a flat circle with no obstacles, where Duels start with the two Teams in facing lines across its centre.
 
 **Walk Surface**:
 A floor or ramp of an Arena that Fighters stand on: a flat (or evenly sloping) convex polygon. A Fighter walks onto a neighbouring one within a step up or down; higher ground is a wall, lower ground a ledge it walks off, and it is solid from below: a Jump under one bumps its head on it. The Walk Surfaces are also the AI's navmesh: shared edges join them, open ledges drop from one to the one below, and jump Links Jump up onto (or across to) one that cannot be walked or dropped to, where the Simulation's own arc lands there even when the Jump is made a little off (ADR 0011).
@@ -233,11 +233,15 @@ _Avoid_: Kill zone, hazard
 A Walk Surface marked deadly like Lava: a Fighter that comes to stand on it drowns (a Death by Water), whatever its HP. The pirate ship's sea: walking off the plank or jumping over the rail ends there. The AI never paths onto Lava or Water.
 _Avoid_: Sea (for the data), kill zone
 
+**Abyss**:
+A Walk Surface marked deadly like Lava: ground so far below the fight that a Fighter landing on it dies (a Death by Fall), whatever its HP and however it got there, a Jump included. The summit's valley floor and the ground under the train. The AI never paths onto it or Jumps where it could land on it.
+_Avoid_: Void, kill zone, pit
+
 **Wall**:
 A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs. A Blade Sweep that reaches one before any Fighter stops there (a Wall Strike): nothing behind it is hit, and the attacker recoils (Stagger, Blocked). A blade already through a Wall when its Release begins strikes it at once: there is no room to swing.
 
 **Jump**:
-A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing counts its drop from no higher than a plain hop's top, so a boosted Jump lands softly on level ground. How high and far a Jump reaches: `docs/jump-reach.md`.
+A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 
 **Crouch**:
 Holding C (not Ctrl, which browsers keep for Ctrl+W) lowers the Fighter's hips and hands by `fighter.crouchDepth`, easing at `fighter.crouchSpeed`, with its feet planted. Not an Action: it combines with Attack, Block and Jump, and while crouched a Fighter walks at `fighter.crouchWalkFactor` of its speed. Lowered hips and hands mean lowered Hit Zones and blows.
@@ -248,7 +252,7 @@ The Action of a Fighter in the air, after a Jump or once it has been off the gro
 _Avoid_: Airborne (for the Action)
 
 **Landing**:
-A Fighter reaching the ground again. A drop (from the top of its arc) within the safe height is soft: a Fall ends in Idle. A deeper one deals fall damage by the metre beyond it and Staggers it (Landed); it can fell the Fighter (a Death by Fall).
+A Fighter reaching the ground again. After a Jump it is always soft: no fall damage, and a Fall ends in Idle. After walking, sliding or being pushed off a ledge, a drop (from the top of its arc) within the safe height is soft; a deeper one deals fall damage by the metre beyond it and Staggers it (Landed). A Fighter in Knockdown takes double that fall damage (`fall.knockdownDamageFactor`), from the real top of its arc, Jump or not, and stays down. Fall damage can fell the Fighter (a Death by Fall), as can landing on an Abyss (ADR 0012).
 
 **Room**:
 A shareable code/link through which Players connect for online play. It stays open as long as its host is in it: guests join (and rejoin), and the Lobby and every Match, restarts included, run over the same connection (the Room link), so a restart never reconnects anyone (ADR 0009).

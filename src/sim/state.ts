@@ -129,7 +129,7 @@ export interface Airborne {
   readonly jumped: boolean;
   /** Ticks of Jump boost left: while Jump stays held it is pushed up at `fall.jumpBoost`. Absent once let go or spent (it never comes back). */
   readonly boost?: number;
-  /** The height it jumped from (a Jump only): a Landing's drop is measured from no higher than a plain Jump's top above it, so a boosted Jump lands softly. */
+  /** The height it jumped from (a Jump only): the drop a Jump's Landing reports is measured from no higher than a plain Jump's top above it (a Jump lands without fall damage anyway). */
   readonly launchY?: number;
 }
 
@@ -191,7 +191,7 @@ export interface FighterState {
 export interface Death {
   /** The Duel Tick on which it fell. */
   readonly tick: number;
-  /** What felled it: a Hit, a hard Landing from a fall, or landing in lava or water. */
+  /** What felled it: a Hit, fall damage or an Abyss (Fall), or landing in lava or water. */
   readonly cause: DeathCause;
   /** The Hit that felled it, or null if none is known. */
   readonly blow: DeathBlow | null;

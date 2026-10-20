@@ -134,10 +134,14 @@ describe('jumpIsSafe: the check every Jump the AI makes goes through', () => {
     expect(jumpIsSafe(ship, repo, tap(x))).toBe(false);
     expect(jumpIsSafe(ship, repo, tap(x - 0.3))).toBe(true);
   });
-  it('a Jump down that hurts is not safe', () => {
-    // Off a 2 m ledge the drop counts from the top of a tap's arc: 2.8 m, beyond the safe height.
-    const ledge = parseArena({ name: 'l', walk: [{ id: 'WALK_floor', points: [[-20, 0, -20], [20, 0, -20], [20, 0, 40], [-20, 0, 40]] }, { id: 'WALK_ledge', points: [[-5, 2, -5], [5, 2, -5], [5, 2, 0], [-5, 2, 0]] }], walls: [] }, 'l');
-    expect(jumpArc(ledge, repo, { at: { x: 0, z: -0.5 }, y: 2, heading: FORWARD, holdTicks: 0 }).damage).toBeGreaterThan(0);
-    expect(jumpIsSafe(ledge, repo, { at: { x: 0, z: -0.5 }, y: 2, heading: FORWARD, holdTicks: 0 })).toBe(false);
+  it('a Jump down any drop lands unhurt, so it is safe unless it lands on an Abyss', () => {
+    const floor = (abyss: boolean) => ({ id: 'WALK_floor', ...(abyss ? { abyss: true } : {}), points: [[-20, -8, -20], [20, -8, -20], [20, -8, 40], [-20, -8, 40]] });
+    const ledge = (abyss: boolean) => parseArena({ name: 'l', walk: [floor(abyss), { id: 'WALK_ledge', points: [[-5, 0, -5], [5, 0, -5], [5, 0, 0], [-5, 0, 0]] }], walls: [] }, 'l');
+    const plan = { at: { x: 0, z: -0.5 }, y: 0, heading: FORWARD, holdTicks: 0 };
+    const arc = jumpArc(ledge(false), repo, plan);
+    expect(arc.drop).toBeGreaterThan(repo.fall.safeHeight);
+    expect(arc.damage).toBe(0);
+    expect(jumpIsSafe(ledge(false), repo, plan)).toBe(true);
+    expect(jumpIsSafe(ledge(true), repo, plan)).toBe(false);
   });
 });

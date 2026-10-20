@@ -6,7 +6,7 @@
  *
  * - Walk Surfaces: planar convex polygons (floors and ramps) Fighters stand on.
  *   Seen from above, polygons that share an edge are neighbours (the navmesh).
- *   One marked `lava` or `water` kills whoever lands on it.
+ *   One marked `lava`, `water` or `abyss` kills whoever lands on it.
  * - Walls: vertical segments with a bottom and a top height, that Fighter
  *   capsules cannot pass where their heights overlap.
  * - Spawns: where each team's k-th Fighter starts a Duel.
@@ -28,6 +28,8 @@ export interface WalkSurface {
   readonly lava?: boolean;
   /** Water: a Fighter that comes to stand on it drowns (a Death by Water). */
   readonly water?: boolean;
+  /** Abyss: ground so far below the fight that a Fighter landing on it dies (a Death by Fall), however it got there, a Jump or not. */
+  readonly abyss?: boolean;
 }
 
 /** A vertical wall segment from `a` to `b` (ground plane), solid between heights `bottom` and `top`. */
@@ -155,11 +157,13 @@ export function parseArena(raw: unknown, where: string): ArenaGeometry {
     const id = nonEmptyString(o, 'id', at);
     if (ids.has(id)) throw new TuningDataError(`${at}: duplicate id "${id}"`);
     ids.add(id);
-    if (o.lava !== undefined && typeof o.lava !== 'boolean') throw new TuningDataError(`${at}.lava must be true or false`);
-    if (o.water !== undefined && typeof o.water !== 'boolean') throw new TuningDataError(`${at}.water must be true or false`);
-    if (o.lava === true && o.water === true) throw new TuningDataError(`${at} cannot be both lava and water`);
+    const kinds = (['lava', 'water', 'abyss'] as const).filter((k) => {
+      if (o[k] !== undefined && typeof o[k] !== 'boolean') throw new TuningDataError(`${at}.${k} must be true or false`);
+      return o[k] === true;
+    });
+    if (kinds.length > 1) throw new TuningDataError(`${at} cannot be both ${kinds.join(' and ')}`);
     const points = array(o.points, `${at}.points`).map((p, k) => triple(p, `${at}.points[${k}]`));
-    const surface: WalkSurface = o.lava === true ? { id, points, lava: true } : o.water === true ? { id, points, water: true } : { id, points };
+    const surface: WalkSurface = kinds[0] ? { id, points, [kinds[0]]: true } : { id, points };
     checkSurface(surface, at);
     return surface;
   });

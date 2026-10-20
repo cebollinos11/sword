@@ -80,6 +80,8 @@ export interface FallTuning {
   readonly safeHeight: number;
   /** Damage per metre dropped beyond `safeHeight`. */
   readonly damagePerMetre: number;
+  /** What fall damage is multiplied by when the Fighter lands in Knockdown (Jump or not). */
+  readonly knockdownDamageFactor: number;
   /** The highest rise (m) a walking Fighter steps up onto. Higher ground is a wall. */
   readonly stepUp: number;
   /** The deepest drop (m) a walking Fighter follows down (down a ramp, off a step). Deeper, it goes airborne. */
@@ -553,6 +555,7 @@ export function parseTuningData(raw: unknown): TuningData {
       fallDelay: finiteNumber(fa, 'fallDelay', 'fall'),
       safeHeight: finiteNumber(fa, 'safeHeight', 'fall'),
       damagePerMetre: finiteNumber(fa, 'damagePerMetre', 'fall'),
+      knockdownDamageFactor: finiteNumber(fa, 'knockdownDamageFactor', 'fall'),
       stepUp: finiteNumber(fa, 'stepUp', 'fall'),
       snapDown: finiteNumber(fa, 'snapDown', 'fall'),
     },

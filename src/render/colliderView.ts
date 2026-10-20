@@ -2,8 +2,8 @@ import * as THREE from 'three';
 import { JUMP_HOLDS, jumpArc, navMesh, surfaceHeight } from '../sim';
 import type { ArenaGeometry, TuningData, WalkSurface } from '../tuning';
 
-/** Walk Surface colours by kind: plain ground, lava, water. */
-const WALK_COLORS = { plain: 0x3ddc4a, lava: 0xff3020, water: 0x2a7bff } as const;
+/** Walk Surface colours by kind: plain ground, lava, water, abyss. */
+const WALK_COLORS = { plain: 0x3ddc4a, lava: 0xff3020, water: 0x2a7bff, abyss: 0x8a2be2 } as const;
 const WALL_COLOR = 0xff9020;
 /** Jump Link arcs fade from the first colour (a tap) to the second (the longest hold). */
 const JUMP_TAP_COLOR = 0x40e0ff;
@@ -15,7 +15,7 @@ const RENDER_ORDER = 10;
 
 type WalkKind = keyof typeof WALK_COLORS;
 
-const kindOf = (s: WalkSurface): WalkKind => (s.lava ? 'lava' : s.water ? 'water' : 'plain');
+const kindOf = (s: WalkSurface): WalkKind => (s.lava ? 'lava' : s.water ? 'water' : s.abyss ? 'abyss' : 'plain');
 
 /** The Walk Surfaces as triangle fans (x, y, z per vertex), `lift` metres up. */
 export function walkFans(surfaces: readonly WalkSurface[], lift = 0): number[] {

@@ -10,7 +10,7 @@
  * through `jumpArc` (the Simulation's own flight), and kept only if every
  * slightly-off version of the Jump lands there too (`jumpHolds`), so a Link
  * never hangs on a perfect Jump. Its cost is the walk to its takeoff, its
- * flight and JUMP_COST. No Link leads onto lava or water: the AI never paths
+ * flight and JUMP_COST. No Link leads onto lava, water or an abyss: the AI never paths
  * into what kills it.
  *
  * `findPath` runs A* over Links from the start polygon to the goal's, and

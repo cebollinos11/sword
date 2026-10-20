@@ -10,8 +10,8 @@
  *      it there: nothing behind the Wall is hit.
  *   2. resolveContacts: every contact is resolved against the same
  *      pre-resolution state, so two Attacks landing on one Tick both count.
- *   3. resolveContact: a Block, a hit that Staggers the victim, or a blade
- *      stopped by a Wall, which makes the attacker recoil.
+ *   3. resolveContact: a Block, a hit that Staggers the victim (or, in the air,
+ *      knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
 import { weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
@@ -24,7 +24,7 @@ import { IDLE_INTENT, type Direction, type Intent } from './intent';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
-import type { AttackAction, FighterState, StaggerCause } from './state';
+import type { Airborne, AttackAction, FighterState, StaggerCause } from './state';
 import type { BladeTransform } from './skeleton';
 import { bladeSamples, closestSegmentSegment, sweepContact, type Capsule } from './sweep';
 import type { DaggerSweep } from './dagger';
@@ -198,7 +198,8 @@ export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: rea
  * Apply this Tick's dagger contacts, all judged against the pre-resolution `fighters` (who was Blocking). Blocked by
  * rule (ADR 0008): the defender is in a Block, roughly faces the thrower, and raised that Block on or after the Tick the
  * throw's Wind-up started (`tick - age >= thrownAt`); nothing else happens but a light Block Impact. Otherwise a Hit:
- * damage x Hit Zone multiplier, a Stagger (not for a Fighter lying in Knockdown) and the Slow, restarted if it was already on.
+ * damage x Hit Zone multiplier, a Stagger (not for a Fighter lying in Knockdown; in the air, a Knockdown and a push along the
+ * dagger's flight instead: `hitInAir`) and the Slow, restarted if it was already on.
  * Returns the Fighters and the sweeps whose dagger is spent.
  */
 export function resolveDaggers(
@@ -227,7 +228,7 @@ export function resolveDaggers(
     emit({ type: 'DaggerHit', thrower: d.owner, defender: c.defender, zone: c.zone, point: c.point, damage });
     const hurt = out[c.defender]!;
     const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
-    out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
+    out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
   }
   return { fighters: out, spent };
 }
@@ -265,8 +266,44 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
 }
 
 /**
+ * Knock a Fighter down (ADR 0007): a Knockdown interrupts its Action, its Block Impact is dropped, a Jump's boost
+ * left is lost, and its pose is re-solved lying.
+ */
+function knockDown(f: FighterState, tuning: TuningData): FighterState {
+  const { blockImpact: _impact, air, ...rest } = f;
+  const { action, motion } = knockdown();
+  let flight: Airborne | undefined;
+  if (air) {
+    const { boost: _boost, ...kept } = air;
+    flight = kept;
+  }
+  const down = { ...rest, ...(flight ? { air: flight } : {}), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
+  return { ...down, ...bladeAndLeg(fighterPose(down, tuning)) };
+}
+
+/** An airborne Fighter pushed along (dx, dz) (any length; none at all pushes nothing): its velocity gains `distance` spread over `ticks`, as the mean speed of that Slide. */
+function pushInAir(f: FighterState, dx: number, dz: number, distance: number, ticks: number): FighterState {
+  const d = Math.hypot(dx, dz);
+  if (!f.air || d === 0) return f;
+  const speed = distance / (ticks * TICK_SECONDS);
+  return { ...f, air: { ...f.air, vx: f.air.vx + (dx / d) * speed, vz: f.air.vz + (dz / d) * speed } };
+}
+
+/**
+ * A blade or dagger Hit that did `damage` to `wounded` while it is airborne: it is knocked down (unless it already is)
+ * and pushed along (dx, dz) as hard as a Kick's Knockdown pushes. Null when it is on the ground or took no damage (a teammate's
+ * Hit), so the Hit Staggers as usual.
+ */
+function hitInAir(wounded: FighterState, damage: number, dx: number, dz: number, tuning: TuningData): FighterState | null {
+  if (!wounded.air || damage <= 0) return null;
+  const pushed = pushInAir(wounded, dx, dz, tuning.kick.knockdownSlide, tuning.kick.knockdownSlideTicks);
+  return pushed.action.kind === 'Knockdown' ? pushed : knockDown(pushed, tuning);
+}
+
+/**
  * One contact. Blocked (by rule, ADR 0002): no damage, the attacker recoils
- * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers.
+ * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers,
+ * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`).
  * A hit on a teammate Staggers it all the same but deals no damage.
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
@@ -289,8 +326,9 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, damage });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+  const away = hitInAir(wounded, damage, defender.position.x - attacker.position.x, defender.position.z - attacker.position.z, tuning);
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
-  out[c.defender] = hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit);
+  out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
 }
 
 /**
@@ -318,8 +356,8 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   if (kicker.action.kind === 'Kick') out[c.attacker] = { ...kicker, action: { ...kicker.action, landed: true } };
 
   const { x: mx, z: mz } = defenderIntent.move;
-  // A defender already in Knockdown is only Shoved: nobody is knocked down twice.
-  const knocked = (mx !== 0 || mz !== 0) && defender.action.kind !== 'Knockdown';
+  // An enemy in the air is knocked down whatever it does; a defender already in Knockdown is only Shoved: nobody is knocked down twice.
+  const knocked = (mx !== 0 || mz !== 0 || (defender.air !== undefined && attacker.team !== defender.team)) && defender.action.kind !== 'Knockdown';
   const { kick } = tuning;
   const damage = attacker.team === defender.team ? 0 : knocked ? kick.knockdownDamage : kick.shoveDamage;
   const distance = knocked ? kick.knockdownSlide : kick.shoveSlide;
@@ -337,11 +375,8 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   }
 
   const hurt = out[c.defender]!;
-  const speed = distance / (ticks * TICK_SECONDS);
   // Already in the air, the push is a change of velocity (at the Slide's mean speed); on the ground it is a Slide.
-  const pushed = hurt.air
-    ? { ...hurt, air: { ...hurt.air, vx: hurt.air.vx + dx * speed, vz: hurt.air.vz + dz * speed } }
-    : { ...hurt, slide: startSlide(dx, dz, distance, ticks) };
+  const pushed = hurt.air ? pushInAir(hurt, dx, dz, distance, ticks) : { ...hurt, slide: startSlide(dx, dz, distance, ticks) };
   const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
@@ -349,8 +384,5 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
     out[c.defender] = wounded;
     return;
   }
-  const { blockImpact: _impact, ...rest } = wounded;
-  const { action, motion } = knockdown();
-  const down = { ...rest, action, motion: followMotion(tuning, wounded.weapon, wounded.motion, motion) };
-  out[c.defender] = { ...down, ...bladeAndLeg(fighterPose(down, tuning)) };
+  out[c.defender] = knockDown(wounded, tuning);
 }

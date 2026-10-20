@@ -7,7 +7,7 @@
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
 import { deadlyGround, groundBelow } from './arena';
-import { flyBody, landingDamage, landingDrop, settleGround, takeOff, type AirBody } from './air';
+import { flyBody, landing, settleGround, takeOff, type AirBody } from './air';
 import { resolveBodies } from './collision';
 import { TICK_SECONDS } from './constants';
 import type { Airborne, Vec2 } from './state';
@@ -52,7 +52,7 @@ export interface JumpResult {
   readonly drop: number;
   /** The fall damage of that drop. */
   readonly damage: number;
-  /** It lands on Lava or Water, or drops far enough to fell a Fighter at full HP, or never lands. */
+  /** It lands on Lava, Water or an Abyss, or drops far enough to fell a Fighter at full HP (never, after a Jump), or never lands. */
   readonly deadly: boolean;
   /** Where the body is after each Tick, takeoff excluded and the landing last. */
   readonly path: readonly ArcPoint[];
@@ -85,8 +85,7 @@ function fly(arena: ArenaGeometry, tuning: TuningData, start: AirBody, air0: Air
     const next = settleGround(body, { ...flown, position }, arena, tuning);
     path.push({ x: next.position.x, z: next.position.z, y: next.y });
     if (!next.air) {
-      const drop = body.air ? landingDrop(body.air, next.y, tuning) : 0;
-      const damage = landingDamage(drop, tuning);
+      const { drop, damage } = body.air ? landing(body.air, next.y, false, tuning) : { drop: 0, damage: 0 };
       const surface = groundBelow(arena, next.position.x, next.position.z, next.y + 1e-6)?.surface ?? -1;
       const deadly = deadlyGround(arena, next.position.x, next.position.z, next.y) !== null || damage >= tuning.fighter.maxHp;
       return { lands: { x: next.position.x, z: next.position.z, y: next.y }, surface, ticks: tick, drop, damage, deadly, path };

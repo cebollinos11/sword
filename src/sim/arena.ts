@@ -148,15 +148,18 @@ export function groundBelow(arena: ArenaGeometry, x: number, z: number, maxY: nu
   return best;
 }
 
-/** What kills a body standing at `y` at (x, z): the ground under its feet is a `lava` or `water` Walk Surface; null if neither. */
-export function deadlyGround(arena: ArenaGeometry, x: number, z: number, y: number): 'Lava' | 'Water' | null {
+/** What kills a body standing at `y` at (x, z): the ground under its feet is a `lava`, `water` or `abyss` Walk Surface; null if none. */
+export function deadlyGround(arena: ArenaGeometry, x: number, z: number, y: number): DeadlyGround | null {
   const g = groundBelow(arena, x, z, y + 1e-6);
   if (!g || g.y < y - 1e-6) return null;
   return deadly(arena.walk[g.surface]!);
 }
 
+/** How a deadly Walk Surface kills whoever comes to stand on it: the Death's cause (an Abyss is a Death by Fall). */
+export type DeadlyGround = 'Lava' | 'Water' | 'Fall';
+
 /** What a Walk Surface kills whoever stands on with, if anything. */
-export const deadly = (s: WalkSurface): 'Lava' | 'Water' | null => (s.lava ? 'Lava' : s.water ? 'Water' : null);
+export const deadly = (s: WalkSurface): DeadlyGround | null => (s.lava ? 'Lava' : s.water ? 'Water' : s.abyss ? 'Fall' : null);
 
 /**
  * Whether a body standing at `y` at (x, z) would be inside solid ground: some

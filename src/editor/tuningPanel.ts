@@ -150,6 +150,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     on(f.addBinding(fl, 'fallDelay', { min: 0, max: 1, step: 0.01, label: 'fall delay (s)' }));
     on(f.addBinding(fl, 'safeHeight', { min: 0, max: 10, step: 0.1, label: 'safe height (m)' }));
     on(f.addBinding(fl, 'damagePerMetre', { min: 0, max: 100, step: 1, label: 'damage per metre' }));
+    on(f.addBinding(fl, 'knockdownDamageFactor', { min: 0, max: 5, step: 0.1, label: 'knocked-down factor' }));
     on(f.addBinding(fl, 'stepUp', { min: 0, max: 1, step: 0.01, label: 'step up (m)' }));
     on(f.addBinding(fl, 'snapDown', { min: 0, max: 1, step: 0.01, label: 'snap down (m)' }));
   });
