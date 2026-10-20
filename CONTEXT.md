@@ -53,6 +53,10 @@ _Avoid_: Animation, clip
 A Weapon's own version of a default Motion, with the same name (Tuning Data `data/motions/<Weapon file>/`). A Fighter plays its Weapon's override where there is one, the default otherwise. An override keeps the markers its Action needs.
 _Avoid_: Variant, weapon animation
 
+**Tempo**:
+A Weapon's pace through the Attack Motions: one multiplier each for Wind-up, Release and Recovery (Tuning Data `tempo` in the Weapon file), stretching that phase's playback time without moving any Pose Key, so the pose at each phase boundary stays the authored one (ADR 0016). 1 plays the Motion as authored; 2 takes twice as long.
+_Avoid_: Motion speed, animation speed
+
 **Motion Blend**:
 The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter was in to a Motion that takes over, so the Skeleton never snaps between Motions (e.g. letting go of a Block). Part of the simulation, so the blade it moves is the blade that hits.
 _Avoid_: Transition, tween
@@ -176,7 +180,7 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, and its Heavy Blow (if any). No shields.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any) and its Tempo. No shields.
 
 **Weapon roster**:
 Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.

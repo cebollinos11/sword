@@ -124,6 +124,7 @@ export type { BladeTransform, JointName, KickLeg, Placement, SkeletonPose } from
 export { BONES, JOINT_NAMES, kickLegOf } from './skeleton';
 export { fighterPose, motionPose, playbackPose } from './pose';
 export { channelValue, ease, motionTime, restTargets, sampleMotion, type PoseTargets } from './motion';
+export { authoredSeconds, motionTempo, playedSeconds } from './tempo';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';

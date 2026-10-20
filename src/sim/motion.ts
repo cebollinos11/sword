@@ -5,9 +5,10 @@
  * first key a channel holds that key; after its last key it holds the last;
  * a channel no key sets stays at the rest pose.
  */
-import { weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData } from '../tuning';
+import { weaponMotion, type BodyTarget, type Ease, type FootPlant, type HandTarget, type Motion, type PoseKey, type SkeletonTuning, type TorsoTarget, type TuningData, type WeaponTempo } from '../tuning';
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
+import { authoredSeconds, motionTempo } from './tempo';
 import { lerp, type Vec3 } from './vec';
 
 /** Every channel resolved: the targets IK solves the Skeleton to reach. */
@@ -87,10 +88,11 @@ function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], ch
   return prev ? (prev[channel] as PoseTargets[C]) : rest;
 }
 
-/** Seconds into the Motion at a Tick of playback: looping Motions wrap, others hold their end. */
-export function motionTime(motion: Motion, tick: number): number {
+/** Authored seconds into the Motion at a Tick of playback (played at `tempo`, if any): looping Motions wrap, others hold their end. */
+export function motionTime(motion: Motion, tick: number, tempo?: WeaponTempo): number {
   const t = tick / TICK_RATE;
-  return motion.loop ? t % motion.duration : Math.min(t, motion.duration);
+  if (motion.loop) return t % motion.duration;
+  return Math.min(tempo ? authoredSeconds(motion, tempo, t) : t, motion.duration);
 }
 
 export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTuning): PoseTargets {
@@ -122,11 +124,11 @@ export function channelValue<C extends keyof PoseTargets>(targets: PoseTargets, 
   return (channel === 'kickFoot' ? plantedAnkle(targets.rightFoot, s.ankleHeight) : NO_BODY) as Value<C>;
 }
 
-/** The Pose targets of the named Motion, as `weapon` plays it, `tick` Ticks in (looping or holding its end as the Motion says). */
+/** The Pose targets of the named Motion, as `weapon` plays it (at its Tempo), `tick` Ticks in (looping or holding its end as the Motion says). */
 export function motionTargets(tuning: TuningData, weapon: string, name: string, tick: number): PoseTargets {
   const motion = weaponMotion(tuning, weapon, name);
   if (!motion) throw new Error(`Unknown Motion "${name}"`);
-  return sampleMotion(motion, motionTime(motion, tick), tuning.skeleton);
+  return sampleMotion(motion, motionTime(motion, tick, motionTempo(tuning, weapon, name)), tuning.skeleton);
 }
 
 /** The upper body: the channels a held Motion can freeze (the torso and both hands). */

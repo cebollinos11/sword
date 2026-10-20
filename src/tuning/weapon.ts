@@ -47,6 +47,20 @@ export interface WeaponHeavyBlow {
   readonly blockSlideTicks: number;
 }
 
+/**
+ * A Weapon's Tempo: how much slower (> 1) or faster (< 1) than authored its Attacks play each phase. The Attack
+ * Motions are authored once; each phase (Wind-up, Release, Recovery, split at the `windUpEnd` and `releaseEnd`
+ * markers) is stretched by its multiplier, its Pose Keys untouched (ADR 0016).
+ */
+export interface WeaponTempo {
+  readonly windUp: number;
+  readonly release: number;
+  readonly recovery: number;
+}
+
+/** Play the Attacks as authored (the default for a Weapon file without a Tempo). */
+export const UNIT_TEMPO: WeaponTempo = { windUp: 1, release: 1, recovery: 1 };
+
 /** No Heavy Blow (the default for a Weapon file without one). */
 export const NO_HEAVY_BLOW: WeaponHeavyBlow = { speed: 0, knockdownSlide: 0, knockdownSlideTicks: 1, blockSlide: 0, blockSlideTicks: 1 };
 
@@ -73,6 +87,7 @@ export interface WeaponTuning {
   readonly shaftDamage: number;
   readonly blockImpact: WeaponBlockImpact;
   readonly heavyBlow: WeaponHeavyBlow;
+  readonly tempo: WeaponTempo;
   readonly look: WeaponLook;
 }
 
@@ -150,6 +165,13 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     };
   }
 
+  let tempo = UNIT_TEMPO;
+  if (o.tempo !== undefined) {
+    const where = `${at}.tempo`;
+    const t = record(o.tempo, where);
+    tempo = { windUp: positiveNumber(t, 'windUp', where), release: positiveNumber(t, 'release', where), recovery: positiveNumber(t, 'recovery', where) };
+  }
+
   return {
     name,
     grip,
@@ -162,6 +184,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     shaftDamage,
     blockImpact,
     heavyBlow,
+    tempo,
     look: oneOf(o, 'look', at, WEAPON_LOOKS, 'sword'),
   };
 }
@@ -179,6 +202,7 @@ export function serializeWeapon(w: WeaponTuning): string {
   if (w.offHandGrip) out.offHandGrip = { along: w.offHandGrip.along, around: w.offHandGrip.around, radial: w.offHandGrip.radial };
   Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage, blockImpact: { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken } });
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
+  out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
   out.look = w.look;
   return `${JSON.stringify(out, null, 2)}\n`;
 }

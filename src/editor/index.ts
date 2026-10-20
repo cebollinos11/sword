@@ -21,7 +21,7 @@ import type * as THREE from 'three';
 import type { ButtonApi } from 'tweakpane';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
-import { motionPose, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
+import { motionPose, motionTempo, playedSeconds, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
 import { EASES, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
@@ -127,14 +127,21 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   let motionFolder: FolderApi | undefined;
   let keyFolder: FolderApi | undefined;
 
+  /** Seconds of play by which the previewed Weapon, at its Tempo, reaches authored second `authored` of the Motion. */
+  const played = (authored: number): number => {
+    const tempo = motionTempo(session.tuning, ui.weapon, ui.motion);
+    return tempo ? playedSeconds(liveMotion(), tempo, authored) : authored;
+  };
+
+  /** The blade on every Tick the previewed Weapon plays the Motion for, at its Tempo, so the trail spaces out as the sim does. */
   const rebuildTrail = () => {
     const motion = liveMotion();
-    const ticks = secondsToTicks(motion.duration);
+    const ticks = secondsToTicks(played(motion.duration));
     const blades: BladeTransform[] = [];
     for (let t = 0; t <= ticks; t++) blades.push(motionPose(session.tuning, ui.motion, t, ORIGIN, ui.weapon).blade);
     const { windUpEnd, releaseEnd } = motion.markers;
     trail.set(blades, (t) =>
-      windUpEnd !== undefined && releaseEnd !== undefined ? t / TICK_RATE >= windUpEnd && t / TICK_RATE <= releaseEnd : false,
+      windUpEnd !== undefined && releaseEnd !== undefined ? t / TICK_RATE >= played(windUpEnd) && t / TICK_RATE <= played(releaseEnd) : false,
     );
   };
 
@@ -174,7 +181,8 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
   };
 
   // --- Gizmo and timeline -------------------------------------------------
-  const previewPose = () => motionPose(session.tuning, ui.motion, Math.min(ui.time, liveMotion().duration) * TICK_RATE, ORIGIN, ui.weapon);
+  // The timeline is in authored seconds; the pose is looked up at the played time that shows it.
+  const previewPose = () => motionPose(session.tuning, ui.motion, played(Math.min(ui.time, liveMotion().duration)) * TICK_RATE, ORIGIN, ui.weapon);
 
   const gizmo = new PoseGizmo(
     stage.camera,

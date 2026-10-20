@@ -33,8 +33,8 @@ export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Ski
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, POSE_KEY_CHANNELS, motionFileName, parseMotion, serializeMotion } from './motion';
-export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTuning } from './weapon';
-export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
+export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTempo, WeaponTuning } from './weapon';
+export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */

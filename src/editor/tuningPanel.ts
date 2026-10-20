@@ -96,6 +96,10 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     on(heavy.addBinding(w.heavyBlow, 'knockdownSlideTicks', { min: 1, max: 60, step: 1, label: 'knockdown ticks' }));
     on(heavy.addBinding(w.heavyBlow, 'blockSlide', { min: 0, max: 2, step: 0.05, label: 'block slide (m)' }));
     on(heavy.addBinding(w.heavyBlow, 'blockSlideTicks', { min: 1, max: 60, step: 1, label: 'block ticks' }));
+    const tempo = f.addFolder({ title: 'Tempo (× authored phase length)' });
+    on(tempo.addBinding(w.tempo, 'windUp', { min: 0.25, max: 4, step: 0.05, label: 'wind-up ×' }));
+    on(tempo.addBinding(w.tempo, 'release', { min: 0.25, max: 4, step: 0.05, label: 'release ×' }));
+    on(tempo.addBinding(w.tempo, 'recovery', { min: 0.25, max: 4, step: 0.05, label: 'recovery ×' }));
     f.addButton({ title: 'Save to data/weapons/' }).on('click', () => void save(() => session.weaponFile(ui.weapon)));
   };
   buildWeapon();

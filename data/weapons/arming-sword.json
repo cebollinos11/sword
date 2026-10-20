@@ -11,5 +11,10 @@
     "dealt": 1,
     "taken": 1
   },
+  "tempo": {
+    "windUp": 1,
+    "release": 1,
+    "recovery": 1
+  },
   "look": "sword"
 }

@@ -3,6 +3,7 @@ import {
   defaultWeaponName,
   loadTuningData,
   NO_HEAVY_BLOW,
+  UNIT_TEMPO,
   parseTuningData,
   parseWeapon,
   serializeWeapon,
@@ -45,7 +46,7 @@ describe('Weapon roster', () => {
 
   it('fills in the optional fields: a sword is all Head, full shaft damage, Block Impact ×1, drawn as a sword', () => {
     const w = parseWeapon({ name: 'Dagger', grip: 'oneHanded', length: 0.3, damage: 15, speed: 20, gripLength: 0.1 });
-    expect(w).toMatchObject({ head: 0.3, shaftDamage: 1, blockImpact: { dealt: 1, taken: 1 }, heavyBlow: NO_HEAVY_BLOW, look: 'sword' });
+    expect(w).toMatchObject({ head: 0.3, shaftDamage: 1, blockImpact: { dealt: 1, taken: 1 }, heavyBlow: NO_HEAVY_BLOW, tempo: UNIT_TEMPO, look: 'sword' });
     expect(JSON.parse(serializeWeapon(w)).heavyBlow).toBeUndefined();
     expect(parseWeapon(JSON.parse(serializeWeapon(w)))).toEqual(w);
   });
@@ -69,6 +70,8 @@ describe('Weapon roster', () => {
     expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, speed: -1 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.speed must be >= 0/);
     expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, blockSlideTicks: 2.5 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.blockSlideTicks must be a whole number/);
     expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, knockdownSlideTicks: 0 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.knockdownSlideTicks/);
+    expect(() => parseWeapon(halberd({ tempo: { windUp: 0, release: 1, recovery: 1 } }))).toThrow(/^weapons\/Halberd\.tempo\.windUp/);
+    expect(() => parseWeapon(halberd({ tempo: { windUp: 1, release: 1 } }))).toThrow(/^weapons\/Halberd\.tempo\.recovery/);
     expect(parseWeapon(JSON.parse(serializeWeapon(tuning.weapons.Halberd!)))).toEqual(tuning.weapons.Halberd);
     expect(() => parseTuningData(raw(tuning, { weapons: [] }))).toThrow(TuningDataError);
     expect(() => parseTuningData(raw(tuning, { weapons: [tuning.weapons.Halberd, tuning.weapons.Halberd] }))).toThrow(/duplicate Weapon name "Halberd"/);

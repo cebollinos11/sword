@@ -23,5 +23,10 @@
     "blockSlide": 0.5,
     "blockSlideTicks": 8
   },
+  "tempo": {
+    "windUp": 1,
+    "release": 1,
+    "recovery": 1
+  },
   "look": "hammer"
 }

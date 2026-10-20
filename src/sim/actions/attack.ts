@@ -1,12 +1,14 @@
 /**
  * The Attack Action: Wind-up → Release → Recovery, driven by the Attack's
  * Motion. Phase boundaries come from the Motion's `windUpEnd` and
- * `releaseEnd` markers; Recovery ends with the Motion.
+ * `releaseEnd` markers; Recovery ends with the Motion. The Weapon's Tempo
+ * stretches each phase (see tempo.ts).
  */
-import { weaponMotion, type TuningData } from '../../tuning';
+import { UNIT_TEMPO, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { Direction, Intent } from '../intent';
 import { motionBlendTicks } from '../motion';
+import { motionTempo, playedSeconds } from '../tempo';
 import type { Action, AttackAction, AttackPhase, FighterState } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';
@@ -27,7 +29,7 @@ export interface AttackTimings {
   readonly end: number;
 }
 
-/** Phase boundaries of an Attack in `direction` by a Fighter wielding `weapon` (its Motion override, if any, sets them). */
+/** Phase boundaries of an Attack in `direction` by a Fighter wielding `weapon` (its Motion override, if any, sets them; its Tempo stretches them). */
 export function attackTimings(tuning: TuningData, weapon: string, direction: Direction): AttackTimings {
   const name = attackMotionName(direction);
   const motion = weaponMotion(tuning, weapon, name);
@@ -36,7 +38,9 @@ export function attackTimings(tuning: TuningData, weapon: string, direction: Dir
   if (windUpEnd === undefined || releaseEnd === undefined) {
     throw new Error(`Attack Motion "${name}" needs windUpEnd and releaseEnd markers`);
   }
-  return { windUpEnd: secondsToTicks(windUpEnd), releaseEnd: secondsToTicks(releaseEnd), end: secondsToTicks(motion.duration) };
+  const tempo = motionTempo(tuning, weapon, name) ?? UNIT_TEMPO;
+  const played = (authored: number) => secondsToTicks(playedSeconds(motion, tempo, authored));
+  return { windUpEnd: played(windUpEnd), releaseEnd: played(releaseEnd), end: played(motion.duration) };
 }
 
 function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: ActionContext): ActionUpdate {
