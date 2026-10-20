@@ -25,7 +25,8 @@ Layout: a round shaft, its floor a pool of lava (y LAVA). A ring-shaped steel
 platform (y 0, from R_IN to R_OUT) stands over it on struts, with no rail: off
 its outer edge or down the hole in its centre is the lava, and the lava kills.
 Above the hole hangs the freezing apparatus; two retracted catwalks stop short
-of the platform at the shaft's doors. Under 10 000 triangles.
+of the platform at the shaft's doors, a gap a held Jump crosses (and the AI
+cannot). Under 10 000 triangles.
 """
 import json
 import math
@@ -53,6 +54,8 @@ SEG = 48  # segments of every drawn circle
 SIM_SEG = 24  # Walk Surface pieces of the platform ring
 CATWALK_END = 11.0  # the retracted catwalks stop here (radius)
 CATWALKS = (math.pi / 2, -math.pi / 2)  # their bearings (angle from +x toward +z)
+CATWALK_HW = 0.9  # a catwalk's floor, each side of its middle (the drawn grate)
+CATWALK_RAIL = 0.95  # its side rails, each side of its middle
 
 rng = random.Random(11)
 
@@ -208,6 +211,15 @@ for k in range(SEG):
     p, q = polar(SHAFT, a0, 0), polar(SHAFT, a1, 0)
     WALLS.append((f'shaft{k:02d}', (p[0], p[2]), (q[0], q[2]), LAVA - 2, CEIL))
 
+# The catwalks: a floor each from its end to the shaft wall (which closes the door end), railed along its sides but
+# open at its end, 3.5 m from the ring's edge: a held Jump crosses the gap onto it and back, a miss falls in the lava.
+for k, b in enumerate(CATWALKS):
+    across = (-math.sin(b), math.cos(b))
+    at = lambda r, w: (r * math.cos(b) + w * across[0], r * math.sin(b) + w * across[1])  # r out along it, w across it
+    WALK.append((f'catwalk{k}', [(x, 0.0, z) for x, z in (at(CATWALK_END, -CATWALK_HW), at(CATWALK_END, CATWALK_HW), at(SHAFT, CATWALK_HW), at(SHAFT, -CATWALK_HW))], False))
+    for side, name in ((-1, 'a'), (1, 'b')):
+        WALLS.append((f'catwalk{k}_rail_{name}', at(CATWALK_END, side * CATWALK_RAIL), at(SHAFT, side * CATWALK_RAIL), -0.5, 1.0))
+
 # The two teams face each other across the hole, on the ring's middle.
 SPAWN_R = (R_IN + R_OUT) / 2
 for slot, off in enumerate((0.0, 0.42, -0.42)):
@@ -310,9 +322,9 @@ def build_shaft():
         mid = (SHAFT + CATWALK_END) / 2
         half = (SHAFT - CATWALK_END) / 2
         G.obox(polar(mid, b, -0.15), (half, 0.15, 1.0), -b, 'SteelDark')
-        G.obox(polar(mid, b, 0.0), (half, 0.005, 0.9), -b, 'Grate', skip=('-y',))
+        G.obox(polar(mid, b, 0.0), (half, 0.005, CATWALK_HW), -b, 'Grate', skip=('-y',))
         for side in (-1, 1):
-            s = (-math.sin(b) * side * 0.95, 0, math.cos(b) * side * 0.95)
+            s = (-math.sin(b) * side * CATWALK_RAIL, 0, math.cos(b) * side * CATWALK_RAIL)
             p0 = Vector(polar(CATWALK_END, b, 1.0)) + Vector(s)
             p1 = Vector(polar(SHAFT - 0.4, b, 1.0)) + Vector(s)
             pipe(G, p0, p1, 0.04, 'Steel', sides=6)
