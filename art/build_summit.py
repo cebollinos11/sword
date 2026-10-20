@@ -70,9 +70,13 @@ RIM = [(4.6, -10.8, HIGH), (5.6, -8.0, HIGH), (5.6, -5.0, HIGH), (5.6, -5.0, 0.0
        (6.6, 2.2, 0.0), (6.2, 4.6, 0.0), (5.4, 7.0, 0.0)]
 
 HULL = ((-1.8, -10.1), 0.18)  # the wrecked starship's hull on the plateau: centre (x, z), yaw
+HULL_TOP = 3.45  # the drawn hull's spine (3.3 to 3.5 along it, measured): its Walls' top and its lid
 NACELLE = ((-5.4, 3.7), 0.25)  # its engine, thrown onto the shelf: centre, yaw (its axis along local z)
+NACELLE_TOP = 1.3  # the drawn nacelle's top (1.05 to 1.37 along it, measured): its Walls' top and its lid
 CONTAINERS = ((3.0, -4.1), 0.12)  # two cargo containers, one on the other, under the plateau's face
-DISH = (3.8, 5.6)  # a fallen comms dish
+DISH = (3.8, 5.6)  # a fallen comms dish, lying face-up
+DISH_R = 1.1  # the octagon round its rim (radius 1.05), from above
+DISH_RIM = 1.1  # its rim's height (1.0 to 1.2, tilted): its Walls' top and its lid
 PYLON = (3.9, -6.3)  # a beacon pylon the crew planted on the plateau
 CRATES = [(-3.4, -4.3, 0.4, 0.3), (-2.6, 6.3, 0.45, -0.2)]  # (x, z, half size, yaw)
 
@@ -254,29 +258,41 @@ def wall(id, a, b, bottom, top):
     WALLS.append((id, (r4(a[0]), r4(a[1])), (r4(b[0]), r4(b[1])), bottom, top))
 
 
+def ring(id, corners, bottom, top):
+    """A Wall along each edge of the convex footprint `corners` ((x, z), in order); returns the corners."""
+    for e in range(len(corners)):
+        wall(f'{id}_{e}', corners[e], corners[(e + 1) % len(corners)], bottom, top)
+    return corners
+
+
 def rect(id, x, z, hx, hz, yaw, bottom, top):
-    """Four Walls round a box of half extents hx, hz at (x, z), turned `yaw` like `placed`."""
+    """Four Walls round a box of half extents hx, hz at (x, z), turned `yaw` like `placed`; returns its corners."""
     cs, sn = math.cos(yaw), math.sin(yaw)
-    corners = [(x + lx * cs + lz * sn, z - lx * sn + lz * cs) for lx, lz in ((-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz))]
-    for e in range(4):
-        wall(f'{id}_{e}', corners[e], corners[(e + 1) % 4], bottom, top)
+    return ring(id, [(x + lx * cs + lz * sn, z - lx * sn + lz * cs) for lx, lz in ((-hx, -hz), (hx, -hz), (hx, hz), (-hx, hz))], bottom, top)
+
+
+def lid(id, corners, y):
+    """A Walk Surface over a prop's Walls (the same corners), at their top: clear the Walls and you stand on it."""
+    WALK.append((f'{id}_top', [(r4(x), y, r4(z)) for x, z in corners]))
 
 
 # The crags: tall, so the camera stops short of them. Each runs from under the floor beside it.
 for k, (a, b) in enumerate(zip(CRAG, CRAG[1:])):
     wall(f'crag{k}', a, b, min(floor_y(*a), floor_y(*b)) - 0.5, 14.0)
 
-# The wreck and its debris.
+# The wreck and its debris. Each prop's Walls stop at its drawn top, with a lid there, so a Jump that
+# clears them lands on top and a Fighter can walk about up there (and walk off the edge).
 (hx, hz), hyaw = HULL
-rect('hull', hx, hz, 3.7, 1.25, hyaw, HIGH - 0.5, HIGH + 1.7)
+lid('hull', rect('hull', hx, hz, 3.7, 1.25, hyaw, HIGH - 0.5, HULL_TOP), HULL_TOP)
 (nx, nz), nyaw = NACELLE
-rect('nacelle', nx, nz, 0.8, 1.5, nyaw, -0.5, 1.4)
+lid('nacelle', rect('nacelle', nx, nz, 0.8, 1.5, nyaw, -0.5, NACELLE_TOP), NACELLE_TOP)
 (cx, cz), cyaw = CONTAINERS
-rect('containers', cx, cz, 1.2, 0.62, cyaw, -0.5, 2.5)
-rect('dish', *DISH, 0.75, 0.75, 0.0, -0.5, 1.7)
+lid('containers', rect('containers', cx, cz, 1.2, 0.62, cyaw, -0.5, 2.5), 2.5)
+# The dish lies face-up: an octagon round its rim.
+lid('dish', ring('dish', [(DISH[0] + DISH_R * math.cos(angle(k, 8) + math.pi / 8), DISH[1] + DISH_R * math.sin(angle(k, 8) + math.pi / 8)) for k in range(8)], -0.5, DISH_RIM), DISH_RIM)
 rect('pylon', *PYLON, 0.22, 0.22, 0.0, HIGH - 0.5, HIGH + 3.5)
 for k, (x, z, h, yaw) in enumerate(CRATES):
-    rect(f'crate{k}', x, z, h, h, yaw, -0.5, 2 * h)
+    lid(f'crate{k}', rect(f'crate{k}', x, z, h, h, yaw, -0.5, 2 * h), 2 * h)
 
 # The two teams face each other across the shelf, the summit's face behind one of them.
 for slot, x in enumerate((0.0, 1.4, -1.4)):
@@ -288,7 +304,7 @@ for slot, x in enumerate((0.0, 1.4, -1.4)):
 
 def floors():
     for id, pts in WALK:
-        if id == 'valley':
+        if id == 'valley' or id.endswith('_top'):  # the lids sit on props, which draw their own tops
             continue
         G.face(pts, 'Snow', (0, 1, 0))
     # Wind-packed hollows, ice and the odd bare rock, scattered over the floors.
@@ -536,16 +552,17 @@ def crates():
 
 
 def dish():
+    """Knocked off its mount, it lies face-up and a little tilted, its rim at about DISH_RIM; its feed arm buckled into the bowl."""
     x, z = DISH
-    pipe(G, (x, -0.2, z), (x, 0.5, z), 0.16, 'HullDark', sides=6)
+    pipe(G, (x, -0.2, z), (x, 0.8, z), 0.16, 'HullDark', sides=6)
     G.box((x - 0.4, 0.0, z - 0.3), (x + 0.4, 0.25, z + 0.3), 'Panel', skip=('-y',))
-    m = placed(x, 0.9, z, 2.4, roll=0.0, pitch=0.0) @ Matrix.Rotation(1.0, 4, 'X')
-    n, r, depth = 12, 1.05, 0.3
+    n, r, depth, tilt = 12, 1.05, 0.3, 0.12
+    m = placed(x, DISH_RIM - depth * math.cos(tilt), z, 2.4) @ Matrix.Rotation(tilt - math.pi / 2, 4, 'X')
     rim = [m @ Vector((r * math.cos(angle(k, n)), r * math.sin(angle(k, n)), depth)) for k in range(n)]
     apex = m @ Vector((0, 0, 0))
     for k in range(n):
         G.both([apex, rim[k], rim[(k + 1) % n]], 'Panel', 'HullDark')
-    feed = m @ Vector((0, 0, 0.95))
+    feed = m @ Vector((0.55, -0.35, 0.4))
     for k in (0, 4, 8):
         G.strut(rim[k], feed, 0.04, 'HullDark')
     G.box(tuple(feed - Vector((0.08, 0.08, 0.08))), tuple(feed + Vector((0.08, 0.08, 0.08))), 'Beacon')
