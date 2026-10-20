@@ -623,34 +623,54 @@ describe('AI Controller: follows onto every held-Jump spot', { timeout: 120_000 
 });
 
 describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, () => {
-  it('from a raised ledge, a Hard AI leaps down at an enemy below with an Overhead that lands', () => {
-    // A floor and a 0.7 m ledge (x -3..3, z -3..1), walled up to its top; the enemy waits on the floor in front of it.
+  /** A floor and a ledge `h` high (x -3..3, z -3..1), walled up to its top; a Hard AI (jumpy) on the ledge, the enemy waiting on the floor in front of it. Its first Jump, and what came of it. */
+  function leapDown(h: number, seed: number, enemyZ = 3.2) {
     const ledge = parseArena(
       {
         name: 'ledge',
         walk: [
           { id: 'WALK_floor', points: [[-10, 0, -10], [10, 0, -10], [10, 0, 10], [-10, 0, 10]] },
-          { id: 'WALK_ledge', points: [[-3, 0.7, -3], [3, 0.7, -3], [3, 0.7, 1], [-3, 0.7, 1]] },
+          { id: 'WALK_ledge', points: [[-3, h, -3], [3, h, -3], [3, h, 1], [-3, h, 1]] },
         ],
         walls: [
-          { id: 'WALL_n', a: [3, 1], b: [-3, 1], bottom: 0, top: 0.7 },
-          { id: 'WALL_e', a: [3, -3], b: [3, 1], bottom: 0, top: 0.7 },
-          { id: 'WALL_w', a: [-3, 1], b: [-3, -3], bottom: 0, top: 0.7 },
-          { id: 'WALL_s', a: [-3, -3], b: [3, -3], bottom: 0, top: 0.7 },
+          { id: 'WALL_n', a: [3, 1], b: [-3, 1], bottom: 0, top: h },
+          { id: 'WALL_e', a: [3, -3], b: [3, 1], bottom: 0, top: h },
+          { id: 'WALL_w', a: [-3, 1], b: [-3, -3], bottom: 0, top: h },
+          { id: 'WALL_s', a: [-3, -3], b: [3, -3], bottom: 0, top: h },
         ],
       },
       'ledge',
     );
     const tuning: TuningData = { ...repo, arenas: { ...repo.arenas, ledge }, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, throwRate: 0 } };
     const leaper = { ...aiDifficulty(repo, 'Hard'), jumpAttackRate: 0.2, throwRate: 0 };
-    const initial = createInitialState(tuning, 2, [{ position: { x: 0, z: -0.5 }, y: 0.7, facing: 0 }, { position: { x: 0, z: 3.2 }, y: 0, facing: Math.PI }], [], [0, 1], 'ledge');
+    const initial = createInitialState(tuning, seed, [{ position: { x: 0, z: -0.5 }, y: h, facing: 0 }, { position: { x: 0, z: enemyZ }, y: 0, facing: Math.PI }], [], [0, 1], 'ledge');
     const run = runControllers(tuning, initial, [createAiController(tuning, leaper), scriptedController(wait(1))], 300);
     const jump = run.events.find((e) => e.type === 'Jump' && e.fighter === 0);
-    expect(jump, 'it never jumped').toBeDefined();
-    expect(run.states[jump!.tick]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead' });
-    expect(run.states[jump!.tick - 1]!.fighters[0]!.y).toBeCloseTo(0.7, 9);
-    expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 0 && e.tick > jump!.tick && e.tick < jump!.tick + 60)).toBe(true);
-    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.damage > 0)).toBe(false);
+    if (!jump) return null;
+    return {
+      from: run.states[jump.tick - 1]!.fighters[0]!.y,
+      action: run.states[jump.tick]!.fighters[0]!.action,
+      hit: run.events.some((e) => e.type === 'Hit' && e.attacker === 0 && e.tick > jump.tick && e.tick < jump.tick + 60),
+      hurt: run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.damage > 0),
+    };
+  }
+
+  it('from a raised ledge, a Hard AI leaps down at an enemy below with an Overhead that lands', () => {
+    // The ledge's edge is at z 1: the enemy stands from just below it to beyond a Jump's reach.
+    let leaps = 0;
+    let hits = 0;
+    for (const enemyZ of [2.2, 2.7, 3.2]) {
+      for (let seed = 1; seed <= 4; seed++) {
+        const leap = leapDown(0.7, seed, enemyZ);
+        if (!leap || leap.from < 0.7 - 1e-9) continue; // it walked off, or dropped down first
+        expect(leap.action).toMatchObject({ kind: 'Attack', direction: 'Overhead' });
+        expect(leap.hurt).toBe(false);
+        leaps++;
+        if (leap.hit) hits++;
+      }
+    }
+    expect(leaps, 'it hardly ever leapt down').toBeGreaterThanOrEqual(3);
+    expect(hits, `only ${hits} of its ${leaps} jumping Attacks down landed`).toBe(leaps);
   });
 
   /** Two jumpy AIs (Hard, leaping and hopping back at every chance) fighting at `places` in `arena` for `ticks`: neither dies by Water or a Fall. */
@@ -695,15 +715,15 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
   });
 
   it('never leaps at an enemy across a Lava pool with a jumping Attack that comes down in it', () => {
-    // A floor around a pool (x -2..2, z 0..2.5); the AI on its south side, the enemy just across on the north.
+    // A floor around a pool (x -2..2, z 0..1.6); the AI on its south side, the enemy just across on the north.
     const ring = [
       { id: 'WALK_s', points: [[-6, 0, -6], [6, 0, -6], [6, 0, 0], [-6, 0, 0]] },
-      { id: 'WALK_n', points: [[-6, 0, 2.5], [6, 0, 2.5], [6, 0, 8], [-6, 0, 8]] },
-      { id: 'WALK_w', points: [[-6, 0, 0], [-2, 0, 0], [-2, 0, 2.5], [-6, 0, 2.5]] },
-      { id: 'WALK_e', points: [[2, 0, 0], [6, 0, 0], [6, 0, 2.5], [2, 0, 2.5]] },
+      { id: 'WALK_n', points: [[-6, 0, 1.6], [6, 0, 1.6], [6, 0, 8], [-6, 0, 8]] },
+      { id: 'WALK_w', points: [[-6, 0, 0], [-2, 0, 0], [-2, 0, 1.6], [-6, 0, 1.6]] },
+      { id: 'WALK_e', points: [[2, 0, 0], [6, 0, 0], [6, 0, 1.6], [2, 0, 1.6]] },
     ];
     const leaper = { ...aiDifficulty(repo, 'Hard'), jumpAttackRate: 1, kickRate: 0, throwRate: 0 };
-    const r = overLava(ring, leaper, [0, 0, -0.3], [0, 0, 2.9], 300);
+    const r = overLava(ring, leaper, [0, 0, -0.3], [0, 0, 2.0], 300);
     expect(r.died).toBe(false);
   });
 
@@ -714,7 +734,8 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
       jumps += r.jumps;
       expect(r.deaths, `seed ${seed}`).toEqual([]);
     }
-    expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThan(5);
+    // On the narrow nose a jumping Attack seldom lands, so they seldom leap: the Lava scenarios above are what prove the check.
+    expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThanOrEqual(3);
   });
 });
 

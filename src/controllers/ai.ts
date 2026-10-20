@@ -1016,27 +1016,35 @@ class AiController implements Controller {
 
   /**
    * A jumping Attack at `target`: an Overhead with a Jump along `toward`, held for the shortest of its holds whose arc
-   * (`jumpArc`) brings it within its reach of where the target will be (as seen, carried on at the walk it was seen at),
-   * at a height its blade reaches, at some Tick from the end of its Wind-up (which it may hold while it closes) to its
-   * Landing, and that lands safely (`jumpIsSafe`). Null when none does. It covers leaping down onto lower ground too.
+   * (`jumpArc`) brings it within its reach (in 3D) of where the target will be (as seen, carried on at the walk it was seen at)
+   * as its blade comes down (the second half of its Release, which starts once it is in
+   * reach or can hold its Wind-up no longer), and that lands safely (`jumpIsSafe`). It never Feints it: the
+   * arc was picked for this Release. Null when none does. It covers leaping down onto lower ground too.
    */
   private leap(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent | null {
     const arena = arenaOf(this.tuning, state.arena);
     const reach = this.reach(self.weapon);
-    const windUp = attackTimings(this.tuning, self.weapon, 'Overhead').windUpEnd;
+    const { windUpEnd: windUp, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Overhead');
+    const release = releaseEnd - windUp;
     for (const hold of this.leapHolds()) {
       const plan = { at: self.position, y: self.y, heading: toward, holdTicks: hold };
       const arc = jumpArc(arena, this.tuning, plan);
       if (!arc.lands) continue;
-      let meets = false;
-      for (let k = windUp; k <= Math.min(arc.ticks, windUp + SWING_IN_HOLD) && !meets; k++) {
-        const p = arc.path[k - 1]!;
+      /** Where it is `k` Ticks after the press (on the ground where it lands, once down), and how far from where the target will be then. */
+      const at = (k: number) => arc.path[Math.min(k, arc.ticks) - 1]!;
+      const off = (k: number) => {
+        const p = at(k);
         const lead = this.reactionTicks + k;
-        const flat = Math.hypot(target.position.x + target.velocity.x * lead - p.x, target.position.z + target.velocity.z * lead - p.z);
-        meets = flat <= reach && Math.abs(target.y - p.y) <= DEFEND_LEVEL;
-      }
+        return Math.hypot(target.position.x + target.velocity.x * lead - p.x, target.position.z + target.velocity.z * lead - p.z);
+      };
+      // It Releases as it comes within its reach (as `pressOn` does), or once it can hold the Wind-up no longer...
+      let released = windUp;
+      while (released < SWING_IN_HOLD && off(released) > reach - 0.05) released++;
+      // ...and its blade comes down in the second half of the Release: it must be within reach all through it, counting the height between them.
+      let meets = true;
+      for (let k = released + Math.ceil(release / 2); k <= released + release && meets; k++) meets = Math.hypot(off(k), target.y - at(k).y) <= reach;
       if (!meets || !jumpIsSafe(arena, this.tuning, plan)) continue;
-      return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction: 'Overhead', swingIn: true, holdJump: hold });
+      return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction: 'Overhead', swingIn: true, holdJump: hold, timed: true });
     }
     return null;
   }

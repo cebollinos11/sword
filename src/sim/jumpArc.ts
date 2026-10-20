@@ -165,7 +165,11 @@ export const JITTER_HEADING = (5 * Math.PI) / 180;
 /** `v` turned by `a` radians about the vertical (same sense as facing). */
 const turned = (v: Vec2, a: number): Vec2 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
 
-/** Whether a Jump is safe to make: it, and every variant of the error check (`jumpHolds`), comes down on ground that is not deadly, without fall damage. */
+/**
+ * Whether a Jump is safe to make: it, and every variant of the error check (`jumpHolds`), comes down on ground that is
+ * not deadly, without fall damage. No damage at all, as any is a hard Landing: its Stagger (`land`, 0.8 s) outlasts
+ * the one a jumping Attack's Hit deals (0.5 s), so even a Jump that hits would leave its maker open.
+ */
 export const jumpIsSafe = (arena: ArenaGeometry, tuning: TuningData, plan: JumpPlan): boolean =>
   jumpHolds(arena, tuning, plan, (r) => r.lands !== null && !r.deadly && r.damage === 0);
 
