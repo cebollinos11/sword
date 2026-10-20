@@ -1,9 +1,13 @@
 import * as THREE from 'three';
-import type { ArenaGeometry, WalkSurface } from '../tuning';
+import { JUMP_HOLDS, jumpArc, navMesh, surfaceHeight } from '../sim';
+import type { ArenaGeometry, TuningData, WalkSurface } from '../tuning';
 
 /** Walk Surface colours by kind: plain ground, lava, water. */
 const WALK_COLORS = { plain: 0x3ddc4a, lava: 0xff3020, water: 0x2a7bff } as const;
 const WALL_COLOR = 0xff9020;
+/** Jump Link arcs fade from the first colour (a tap) to the second (the longest hold). */
+const JUMP_TAP_COLOR = 0x40e0ff;
+const JUMP_FULL_COLOR = 0xff40ff;
 const WALK_OPACITY = 0.5;
 const WALL_OPACITY = 0.35;
 /** Drawn after the Arena's model (and the snow). */
@@ -89,6 +93,40 @@ export function colliderView(arena: ArenaGeometry): THREE.Group {
     group.add(lines('walls-edges', edges, outline(WALL_COLOR)));
   }
   return group;
+}
+
+/**
+ * The navmesh's jump Links (`jump-links`), each drawn as the arc its Jump flies (`jumpArc`, from its takeoff to its
+ * Landing), coloured from cyan (a tap) to magenta (the longest hold), so a level designer sees where the AI can
+ * Jump. Null when the Arena has none. Builds the navmesh if it is not built yet (cached per Arena). Render-only.
+ */
+export function jumpLinkArcs(arena: ArenaGeometry, tuning: TuningData): THREE.LineSegments | null {
+  const jumps = navMesh(arena, tuning).links.flatMap((l) => (l.kind === 'jump' ? [l] : []));
+  if (jumps.length === 0) return null;
+  const longest = JUMP_HOLDS[JUMP_HOLDS.length - 1]!;
+  const tap = new THREE.Color(JUMP_TAP_COLOR);
+  const full = new THREE.Color(JUMP_FULL_COLOR);
+  const positions: number[] = [];
+  const colors: number[] = [];
+  for (const l of jumps) {
+    const y = surfaceHeight(arena, l.from, l.takeoff.x, l.takeoff.z);
+    const arc = jumpArc(arena, tuning, { at: l.takeoff, y, heading: l.heading, holdTicks: l.holdTicks });
+    const c = tap.clone().lerp(full, Math.min(1, l.holdTicks / longest));
+    let prev = { x: l.takeoff.x, y, z: l.takeoff.z };
+    for (const p of arc.path) {
+      positions.push(prev.x, prev.y, prev.z, p.x, p.y, p.z);
+      colors.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      prev = p;
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const material = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9, depthWrite: false, fog: false });
+  const arcs = new THREE.LineSegments(geometry, material);
+  arcs.name = 'jump-links';
+  arcs.renderOrder = RENDER_ORDER + 1;
+  return arcs;
 }
 
 /** How see-through an Arena's model is drawn under the collider view. */

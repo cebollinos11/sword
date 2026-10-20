@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf } from '../sim';
 import type { ArenaGeometry, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
-import { colliderView, seeThrough, walkFans } from './colliderView';
+import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -162,6 +162,9 @@ export class Stage {
   /** The collision geometry drawn over a see-through model (see setColliders). */
   private colliders = false;
   private overlay: THREE.Object3D | undefined;
+  /** The Arena the collider view is of, and whether its jump Link arcs have been added (on first showing: they need the navmesh). */
+  private overlayArena: ArenaGeometry | undefined;
+  private overlayJumps = false;
   private seeThrough: ((on: boolean) => void) | undefined;
   private lastFrame = 0;
   private slowTime = 0;
@@ -224,6 +227,11 @@ export class Stage {
   }
 
   private showColliders(): void {
+    if (this.overlay && this.colliders && !this.overlayJumps && this.overlayArena) {
+      const arcs = jumpLinkArcs(this.overlayArena, this.tuning);
+      if (arcs) this.overlay.add(arcs);
+      this.overlayJumps = true;
+    }
     if (this.overlay) this.overlay.visible = this.colliders;
     this.seeThrough?.(this.colliders);
   }
@@ -270,6 +278,8 @@ export class Stage {
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
     this.overlay = colliderView(geometry);
+    this.overlayArena = geometry;
+    this.overlayJumps = false;
     setting.root.add(this.overlay);
     this.seeThrough = setting.seeThrough;
     this.showColliders();

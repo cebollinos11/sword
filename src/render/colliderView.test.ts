@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { parseArena } from '../tuning';
-import { colliderView, seeThrough } from './colliderView';
+import { loadTuningData, parseArena } from '../tuning';
+import { navMesh } from '../sim';
+import { colliderView, jumpLinkArcs, seeThrough } from './colliderView';
 
 const arena = parseArena(
   {
@@ -64,5 +65,29 @@ describe('colliderView', () => {
     seeThrough(model, false);
     expect(material.alphaHash).toBe(false);
     expect(material.opacity).toBe(1);
+  });
+});
+
+describe('jumpLinkArcs', () => {
+  const tuning = loadTuningData();
+  it("draws each of the navmesh's jump Links as the arc its Jump flies, coloured by how long Jump is held", () => {
+    const train = tuning.arenas.train!;
+    const jumps = navMesh(train, tuning).links.filter((l) => l.kind === 'jump');
+    expect(jumps.length).toBeGreaterThan(0);
+    const arcs = jumpLinkArcs(train, tuning)!;
+    expect(arcs.name).toBe('jump-links');
+    const position = arcs.geometry.getAttribute('position');
+    const color = arcs.geometry.getAttribute('color');
+    expect(position.count).toBe(color.count);
+    // At least a segment per Tick of flight, per Link.
+    expect(position.count).toBeGreaterThanOrEqual(jumps.reduce((n, l) => n + 2 * l.airTicks, 0));
+    // Taps and full Jumps are drawn in different colours.
+    const reds = new Set(Array.from({ length: color.count }, (_, k) => color.getX(k).toFixed(3)));
+    expect(reds.size).toBeGreaterThan(1);
+  });
+
+  it('is nothing for an Arena without jump Links', () => {
+    const flat = parseArena({ name: 'flat', walk: [{ id: 'f', points: [[0, 0, 0], [1, 0, 0], [1, 0, 1]] }], walls: [] }, 'flat');
+    expect(jumpLinkArcs(flat, tuning)).toBeNull();
   });
 });

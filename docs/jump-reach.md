@@ -51,7 +51,7 @@ The higher the ledge, the earlier on the way down the Fighter must already be ov
 
 The spots only a Jump gets to. Each prop is a lid: a Walk Surface over its Walls at its drawn top, so a Jump that clears the Walls lands on top and the Fighter can walk about up there and walk (or jump) off. Heights are the lid's `y`; "held 0.25 s" is 15 Ticks of Jump, "full" 0.5 s or more. Each is checked by a Simulation test in the Arena's test file.
 
-**The AI can't follow onto any of them.** It only taps Jump to dodge and never jumps to get somewhere, and the navmesh gives a lid drop links down to the floor but none up. The AI can walk off a lid it ends up on.
+**The AI follows onto every one of them.** The navmesh has a jump Link onto each (and back, where dropping off is deadly): found by running Jumps through the Simulation's own flight (`jumpArc`) and kept only if the Jump still lands there when taken off 0.2 m off, held a Tick shorter or longer, or aimed 5° off. A Normal AI follows jump Links held up to 20 Ticks, so it follows onto all but the full Jumps (the locomotive's roof and the chamber's catwalks); a Hard one onto all; an Easy one only taps. Each is checked in `src/sim/jumpLinks.test.ts` (a jump Link) and `src/controllers/ai.test.ts` (an AI follows an enemy onto it). The `?dev=1` collider view draws every jump Link's arc, cyan for a tap to magenta for a full Jump.
 
 - **Summit** (`summit.test.ts`; shelf y 0, plateau y 2)
   - the hull, 3.45: a held (0.25 s) Jump from the plateau at (-1.8, -7.0), along −z

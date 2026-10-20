@@ -13,9 +13,15 @@
  *  - It fights only on the same level (feet within LEVEL of each other's).
  *    To reach an enemy on another Walk Surface it follows the navmesh
  *    (`findPath`, `steer`), re-planning when either moves to another surface
- *    or every REPATH_TICKS; the route is part of its memory. Fighting, it
- *    never steps off a ledge or onto Lava or Water (`safeMove`): it turns
- *    aside, or holds its ground, and it only jumps where it lands safely.
+ *    or every REPATH_TICKS; the route is part of its memory. It follows jump
+ *    Links held no longer than its `jumpNav` (none without one): it lines up
+ *    behind the takeoff, runs in, presses Jump there and holds it for the
+ *    Link's hold (`takeJump`, `flying`; the run is in its memory too), giving
+ *    up on a Link it cannot get airborne on in time. With no way to its enemy
+ *    it goes only as near as it safely can. Fighting, it never steps off a
+ *    ledge or onto Lava or Water (`safeMove`): it turns aside, or holds its
+ *    ground, and it only Jumps where the Simulation's own arc, made a little
+ *    off every way, lands safely (`jumpIsSafe`).
  *
  * How it fights (each part scaled by its difficulty preset, `AiDifficulty`):
  *  - Defence: against an Attack it Blocks in the Direction that meets it; or
@@ -40,10 +46,18 @@
  *    Recovery, a Blocked or Chambered recoil, a hard Landing, a Knockdown,
  *    a whiffed Kick. It meets an opponent walking into its reach with an
  *    Attack already on the way (`preempt`), leaps in with a jumping Overhead
- *    from just out of reach (`jumpAttackRate`), Chains a second Attack while
+ *    from out of reach, or down off a ledge (`jumpAttackRate`; held for the
+ *    shortest hold up to its `jumpNav` whose arc brings it within reach of where
+ *    the opponent will be), Chains a second Attack while
  *    its opponent is still in reach (`chainRate`), Feints at `feintRate` (and
  *    Feints away from a Block it sees raised against its Wind-up), and now and
  *    then swings from out of range (the mistake).
+ *  - Jumps: an opponent seen in the air, it predicts the Landing from what it
+ *    saw (`jumpArcFrom`, as moving, with no more boost: it cannot see Jump held),
+ *    and at `landingPunish` (rolled once per Jump) stands just inside its reach
+ *    of it and times an Overhead to Release as the opponent lands. Disengaging
+ *    near a jump Link away from its opponent, onto another Walk Surface, it takes
+ *    it (`jumpEscapeRate`), and holds its ground up there while it Disengages.
  *  - Kicks: it Kicks an opponent within `kickRange` who was last seen moving
  *    (a Kick knocks down anyone who gives movement input, ADR 0007), at
  *    `kickRate` per Tick, far more readily with a drop, Lava or Water behind
