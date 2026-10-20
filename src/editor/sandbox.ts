@@ -185,7 +185,7 @@ const PLAYER_MATCH_MAX_TICKS = 60 * 60 * 30;
 const PLAYER_VS_AI = 'Player vs AI';
 
 /** Settings of the Arena Lab (the "Generated Arena" folder edits these). */
-const lab = { seed: 1, ...DEFAULT_GEN_PARAMS, use: true, colliders: true, report: '(press Generate)' };
+const lab = { kit: 'greybox', seed: 1, ...DEFAULT_GEN_PARAMS, use: true, colliders: true, report: '(press Generate)' };
 /** The largest seed Random seed picks. */
 const LAB_MAX_SEED = 999_999;
 
@@ -308,7 +308,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
       if (labTuning?.base !== session.tuning) labTuning = { base: session.tuning, tuning: withArena(session.tuning, generated!.arena) };
       tuning = labTuning.tuning;
     } else tuning = session.tuning;
-    stage.setArena(tuning.arena.editor, tuning);
+    // The Layout too, so the Stage draws the Arena from its Kit's model.
+    stage.setArena(tuning.arena.editor, tuning, fightingGenerated() ? generated!.layout : undefined);
   };
   /** The orbit camera over the generated Arena's whole footprint, or close in on the circle's middle. */
   const frameOrbit = () => {
@@ -498,7 +499,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     const folder = pane.addFolder({ title: 'Generated Arena', expanded: true });
     const generate = () => {
       const { seed, cols, rows, levels, voidDensity, coverDensity, minOpenFloor } = lab;
-      generated = labArena(seed, { cols, rows, levels, voidDensity, coverDensity, minOpenFloor }, session.tuning);
+      generated = labArena(seed, { cols, rows, levels, voidDensity, coverDensity, minOpenFloor }, session.tuning, lab.kit);
       labTuning = { base: session.tuning, tuning: generated.tuning };
       lab.report = describeReport(generated);
       lab.use = true;
@@ -508,6 +509,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
       if (!run.local) frameOrbit();
       pane.refresh();
     };
+    folder.addBinding(lab, 'kit', { label: 'Kit', options: Object.fromEntries(Object.keys(session.tuning.kits).map((k) => [k, k])) }).on('change', generate);
     folder.addBinding(lab, 'seed', { min: 1, max: LAB_MAX_SEED, step: 1 });
     folder.addBinding(lab, 'cols', { min: 3, max: 12, step: 1 });
     folder.addBinding(lab, 'rows', { min: 3, max: 12, step: 1 });

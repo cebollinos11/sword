@@ -77,3 +77,15 @@ describe('describeReport', () => {
     expect(text).toContain('not timed');
   });
 });
+
+describe('labArena: the Kit dropdown', () => {
+  it('generates from the Kit named, out of the Tuning Data', () => {
+    const lab = labArena(5, DEFAULT_GEN_PARAMS, tuning, 'greybox');
+    expect(lab.layout.kit).toBe('greybox');
+    expect(lab.arena).toEqual(generateArena(tuning.kits.greybox!, 5, DEFAULT_GEN_PARAMS, tuning).arena);
+  });
+
+  it('refuses a Kit the Tuning Data does not hold', () => {
+    expect(() => labArena(5, DEFAULT_GEN_PARAMS, tuning, 'marble')).toThrow(/no Kit "marble"/);
+  });
+});

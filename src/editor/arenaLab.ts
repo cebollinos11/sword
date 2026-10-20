@@ -2,7 +2,7 @@
  * The Arena Lab (docs/plans/generated-arenas.md, Stage 2): the sandbox's dev-only folder for generating, rerolling,
  * viewing and fighting on Generated Arenas. The pure part (no DOM, no three.js; unit-tested).
  */
-import { generateArena, GREYBOX_KIT, judgeArena, type GeneratedArena, type GenParams } from '../sim';
+import { generateArena, judgeArena, type GeneratedArena, type GenParams } from '../sim';
 import type { ArenaGeometry, TuningData } from '../tuning';
 
 /** A copy of `tuning` holding `arena`, which the Editor fights in (`arena.editor`): every script, the AI and the navmesh use it unchanged. */
@@ -16,12 +16,14 @@ export interface LabArena extends GeneratedArena {
 }
 
 /**
- * The greybox Arena `seed` gives, as `generateArena` builds it, with its report judged again with the clock running
+ * The Arena `seed` gives from the Kit named `kit` (out of `tuning.kits`), as `generateArena` builds it, with its report judged again with the clock running
  * (the lab shows the real navmesh build time; the Simulation never reads a clock). It is judged with the Tuning Data
  * returned, so the navmesh (cached per Arena and Tuning Data) is not built again for the Match.
  */
-export function labArena(seed: number, params: GenParams, tuning: TuningData): LabArena {
-  const generated = generateArena(GREYBOX_KIT, seed, params, tuning);
+export function labArena(seed: number, params: GenParams, tuning: TuningData, kit = 'greybox'): LabArena {
+  const kitData = tuning.kits[kit];
+  if (!kitData) throw new Error(`no Kit "${kit}" (have: ${Object.keys(tuning.kits).join(', ')})`);
+  const generated = generateArena(kitData, seed, params, tuning);
   const fought = withArena(tuning, generated.arena);
   const report = judgeArena(generated.arena, fought, { minOpenFloor: params.minOpenFloor, now: () => performance.now() });
   return { ...generated, report, tuning: fought };
