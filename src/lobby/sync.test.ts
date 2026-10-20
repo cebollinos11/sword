@@ -92,6 +92,28 @@ describe('Lobby sync', () => {
     expect(g.state!.settings.arena).toBe('gen:greybox:1234');
   });
 
+  it('each Match on a Random Map reaches the guest with the Arena it is played on: the next seed after the last played', () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    r.host.edit((s) => updateSettings(s, { arena: 'gen:greybox:12' }));
+    expect(r.host.start(false)).toBeNull();
+    r.run(500);
+    expect(g.state!.matchArena).toBe('gen:greybox:12');
+    // A Rematch moved the Match on to the next seed; the host's restart follows on from there.
+    expect(r.host.start(false, 'gen:greybox:381979')).toBeNull();
+    r.run(500);
+    expect(g.state!.matchArena).toBe('gen:greybox:763946');
+    expect(g.state!.settings.arena).toBe('gen:greybox:12');
+    // A broken host's Match Arena of a Kit the guest lacks, or not a name at all, is ignored.
+    for (const matchArena of ['gen:marble:1', 7]) {
+      r.host.edit((s) => ({ ...s, matchArena }) as typeof s);
+      r.run(500);
+      expect(g.state!.matchArena).toBe('gen:greybox:763946');
+    }
+  });
+
   it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {
     const r = room();
     const bad = r.connect('Ed', withWeapon(tuning, { damage: 1 }));

@@ -57,8 +57,11 @@ export interface Lobby {
   edit(change: (state: LobbyState) => LobbyState): void;
   setMine(patch: MemberPatch): void;
   moveMe(to: SeatRef): void;
-  /** Host: start (or restart) a Match. Returns why not, or null. */
-  start(requireReady: boolean): string | null;
+  /**
+   * Host: start (or restart) a Match. `played`: the Arena the Match being replaced is on now (a Rematch may have moved
+   * it on from the one it started on), so a Random Map's next Match follows on from it. Returns why not, or null.
+   */
+  start(requireReady: boolean, played?: string): string | null;
   /** Host: end the Match for everyone. */
   backToLobby(): void;
   /**
@@ -159,9 +162,9 @@ export class HostLobby extends Base implements Lobby {
     this.set(moveMember(this.state, 0, to));
   }
 
-  start(requireReady: boolean): string | null {
+  start(requireReady: boolean, played?: string): string | null {
     const problem = startProblem(this.state, requireReady);
-    if (!problem) this.set(startMatch(this.state));
+    if (!problem) this.set(startMatch(this.state, played));
     return problem;
   }
 
@@ -367,7 +370,7 @@ export class GuestLobby extends Base implements Lobby {
   /** Everything the state names exists here (the Tuning Data hashes matched, so this guards against a broken host). */
   private valid(s: LobbyState): boolean {
     const t = this.tuning;
-    if (!isArenaName(t, s.settings.arena)) return false;
+    if (!isArenaName(t, s.settings.arena) || (s.matchArena !== null && !isArenaName(t, s.matchArena))) return false;
     if (!s.members.every((m) => t.weapons[m.weapon])) return false;
     return s.teams.flat().every((seat) => seat.kind !== 'AI' || (t.weapons[seat.weapon] && t.ai.difficulties[seat.difficulty]));
   }

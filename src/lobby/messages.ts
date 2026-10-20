@@ -74,7 +74,8 @@ function isLobbyState(v: unknown): v is LobbyState {
     isCount(v.generation) &&
     typeof v.playing === 'boolean' &&
     Array.isArray(inMatch) &&
-    inMatch.every(isCount)
+    inMatch.every(isCount) &&
+    (v.matchArena === null || isShortString(v.matchArena))
   );
 }
 

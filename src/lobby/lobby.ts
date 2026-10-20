@@ -9,10 +9,12 @@
  * them, so no more Seats than that may be Open or taken by Players.
  *
  * Starting a Match bumps `generation` and records who plays it (`inMatch`); a
- * restart from the in-game menu is just another start. The Lineup of a Match
+ * restart from the in-game menu is just another start. Each Match's Arena is
+ * the Map setting for the first and, for a Random Map, the next seed after
+ * that (`nextMatchArena`). The Lineup of a Match
  * reads the Seats team by team: Player numbers follow the Members' order.
  */
-import { MAX_TEAM_SIZE } from '../sim';
+import { MAX_TEAM_SIZE, nextArenaName } from '../sim';
 import { MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
 
 /** The most humans a Room holds (and a Match fields). */
@@ -41,7 +43,7 @@ export type Seat =
 export type SeatKind = Seat['kind'];
 
 export interface LobbySettings {
-  /** The Arena (a Tuning Data Arena name). */
+  /** The Arena (a Tuning Data Arena name, or a Random Map's `gen:<kit>:<seed>`: the seed of the first Match). */
   readonly arena: string;
   readonly bestOf: number;
 }
@@ -58,6 +60,8 @@ export interface LobbyState {
   readonly playing: boolean;
   /** The Members playing it (a guest who joins meanwhile waits for the next). */
   readonly inMatch: readonly number[];
+  /** The Arena Match `generation` started on, or null when none has since the Map was last set. */
+  readonly matchArena: string | null;
 }
 
 export interface SeatRef {
@@ -96,6 +100,7 @@ export function newLobby(o: NewLobbyOptions): LobbyState {
     generation: 0,
     playing: false,
     inMatch: [],
+    matchArena: null,
   };
 }
 
@@ -181,8 +186,17 @@ export function updateMember(state: LobbyState, id: number, patch: Partial<Omit<
   return { ...state, members: state.members.map((m) => (m.id === id ? fresh : m)) };
 }
 
+/** Setting the Map (even to the one it was: a seed typed in again) starts the run of Arenas over: the next Match is on it. */
 export function updateSettings(state: LobbyState, patch: Partial<LobbySettings>): LobbyState {
-  return { ...state, settings: { ...state.settings, ...patch } };
+  return { ...state, settings: { ...state.settings, ...patch }, ...(patch.arena !== undefined ? { matchArena: null } : {}) };
+}
+
+/**
+ * The Arena the next Match is played on: the Map setting, or after a Match on it, the one after the Arena last
+ * played (`played`, when a Rematch online moved on from the one the Match started on): a Random Map's next seed.
+ */
+export function nextMatchArena(state: LobbyState, played?: string): string {
+  return state.matchArena === null ? state.settings.arena : nextArenaName(played ?? state.matchArena);
 }
 
 /** Who fights, read off the Seats team by team (Open and Closed Seats field nobody). */
@@ -211,10 +225,14 @@ export function startProblem(state: LobbyState, requireReady: boolean): string |
   return null;
 }
 
-/** Start (or restart) a Match: a new generation, played by every seated Member; everyone's ready flag resets. */
-export function startMatch(state: LobbyState): LobbyState {
+/**
+ * Start (or restart) a Match: a new generation, played by every seated Member on the next Arena (`nextMatchArena`,
+ * `played` as there); everyone's ready flag resets.
+ */
+export function startMatch(state: LobbyState, played?: string): LobbyState {
   return {
     ...state,
+    matchArena: nextMatchArena(state, played),
     generation: state.generation + 1,
     playing: true,
     inMatch: lobbyLineup(state).members,

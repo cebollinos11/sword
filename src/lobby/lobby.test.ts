@@ -9,12 +9,14 @@ import {
   lobbyLineup,
   moveMember,
   newLobby,
+  nextMatchArena,
   seatOf,
   setSeat,
   startMatch,
   startProblem,
   MAX_PLAYERS,
   updateMember,
+  updateSettings,
   type NewLobbyOptions,
 } from './lobby';
 
@@ -115,5 +117,44 @@ describe('Lobby', () => {
   it('leaves the state untouched when a Member update changes nothing', () => {
     const s = newLobby(options(true));
     expect(updateMember(s, 0, { name: 'Host' })).toBe(s);
+  });
+});
+
+describe('The Arena of each Match', () => {
+  const random = (seed: number) => updateSettings(newLobby(options(false)), { arena: `gen:greybox:${seed}` });
+
+  it('plays the first Match on the Map setting, and each Match after on the next seed', () => {
+    let s = random(12);
+    expect(nextMatchArena(s)).toBe('gen:greybox:12');
+    s = startMatch(s);
+    expect(s.matchArena).toBe('gen:greybox:12');
+    s = startMatch(endMatch(s));
+    expect(s.matchArena).toBe('gen:greybox:381979');
+    expect(s.settings.arena).toBe('gen:greybox:12');
+    // A restart from the in-game menu is a new Match too.
+    expect(startMatch(s).matchArena).toBe('gen:greybox:763946');
+  });
+
+  it('follows on from the Arena last played (online, a Rematch may have moved on)', () => {
+    const s = startMatch(random(12));
+    expect(startMatch(s, 'gen:greybox:381979').matchArena).toBe('gen:greybox:763946');
+  });
+
+  it('starts over from the Map setting when it changes, so a seed typed in replays that map', () => {
+    let s = startMatch(startMatch(random(12)));
+    // Typing in the first seed again replays it.
+    expect(nextMatchArena(updateSettings(s, { arena: 'gen:greybox:12' }))).toBe('gen:greybox:12');
+    s = updateSettings(s, { arena: 'gen:greybox:5' });
+    expect(s.matchArena).toBeNull();
+    expect(nextMatchArena(s)).toBe('gen:greybox:5');
+    expect(startMatch(s).matchArena).toBe('gen:greybox:5');
+    // The Match length changing keeps the run going.
+    expect(updateSettings(startMatch(s), { bestOf: 5 }).matchArena).toBe('gen:greybox:5');
+  });
+
+  it('plays a hand-made Map on itself every Match', () => {
+    let s = startMatch(newLobby(options(false)));
+    s = startMatch(endMatch(s));
+    expect(s.matchArena).toBe('circle');
   });
 });
