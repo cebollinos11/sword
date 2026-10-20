@@ -205,24 +205,19 @@ export class Stage {
     return this.loaded;
   }
 
-  /** Draw the Arena named `name` (a Tuning Data Arena); nothing changes if it is already drawn. */
-  setArena(name: string): void {
-    const geometry = arenaOf(this.tuning, name);
+  /**
+   * Draw the Arena named `name`, from `tuning` if given (which Arenas, and jump Link arcs, then come from from now on:
+   * e.g. a copy holding a Generated Arena, in the Arena Lab). Nothing changes if that geometry is already drawn.
+   */
+  setArena(name: string, tuning: TuningData = this.tuning): void {
+    this.tuning = tuning;
+    const geometry = arenaOf(tuning, name);
     if (name === this.arena && geometry === this.geometry) return;
     this.scene.remove(this.setting);
     this.arena = name;
     this.geometry = geometry;
     this.setting = this.build(name, geometry);
     this.collider = new CameraCollider(geometry);
-  }
-
-  /**
-   * Resolve Arenas (and build jump Link arcs) from `tuning` from now on, e.g. a copy holding a Generated Arena
-   * (the Arena Lab). The Arena drawn is drawn again if `tuning` gives it different geometry.
-   */
-  setTuning(tuning: TuningData): void {
-    this.tuning = tuning;
-    this.setArena(this.arena);
   }
 
   /** Draw at PlayStation resolution (PS1_LINES tall, the screen's aspect ratio kept) or the usual one. */

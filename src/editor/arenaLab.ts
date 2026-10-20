@@ -10,14 +10,21 @@ export function withArena(tuning: TuningData, arena: ArenaGeometry): TuningData 
   return { ...tuning, arenas: { ...tuning.arenas, [arena.name]: arena }, arena: { ...tuning.arena, editor: arena.name } };
 }
 
+/** A Generated Arena in the lab, with the Tuning Data to fight in it (`withArena`). */
+export interface LabArena extends GeneratedArena {
+  readonly tuning: TuningData;
+}
+
 /**
  * The greybox Arena `seed` gives, as `generateArena` builds it, with its report judged again with the clock running
- * (the lab shows the real navmesh build time; the Simulation never reads a clock).
+ * (the lab shows the real navmesh build time; the Simulation never reads a clock). It is judged with the Tuning Data
+ * returned, so the navmesh (cached per Arena and Tuning Data) is not built again for the Match.
  */
-export function labArena(seed: number, params: GenParams, tuning: TuningData): GeneratedArena {
+export function labArena(seed: number, params: GenParams, tuning: TuningData): LabArena {
   const generated = generateArena(GREYBOX_KIT, seed, params, tuning);
-  const report = judgeArena(generated.arena, tuning, { minOpenFloor: params.minOpenFloor, now: () => performance.now() });
-  return { ...generated, report };
+  const fought = withArena(tuning, generated.arena);
+  const report = judgeArena(generated.arena, fought, { minOpenFloor: params.minOpenFloor, now: () => performance.now() });
+  return { ...generated, report, tuning: fought };
 }
 
 /** The judge's report as the lab shows it: verdict, attempts, counts, build time, then any reasons. */

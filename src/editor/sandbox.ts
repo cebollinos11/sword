@@ -6,7 +6,8 @@
  * Movement, an AI vs AI Match (two AI Controllers, difficulty per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play red with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
- * The "Weapons" folder picks each Fighter's Weapon for every script.
+ * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
+ * folder (the Arena Lab, arenaLab.ts) generates an Arena from a seed and fights every script in it instead of the circle.
  *
  * The run is stepped through a `SandboxSession` (sandboxSession.ts), which
  * keeps every Tick as a snapshot plus the Controllers' memory. Scripts are
@@ -29,6 +30,7 @@ import {
   hitZoneCapsules,
   hold,
   TICK_SECONDS,
+  DEFAULT_GEN_PARAMS,
   wait,
   walk,
   type Direction,
@@ -63,6 +65,9 @@ import { EditorSession } from './session';
 import { addTuningPanels } from './tuningPanel';
 import { recordingSandbox, recordReplay } from './replay';
 import { addReplayPanel } from './replayPanel';
+import { describeReport, frameArena, labArena, withArena, type LabArena } from './arenaLab';
+import { saveJsonFile } from './save';
+import { devMode } from '../devMode';
 
 /** What the sandbox plays: a session to scrub through, the Duel at each Tick, plus the Match around it for an AI vs AI run. */
 interface SandboxRun {
@@ -179,6 +184,11 @@ const playerMatch = { ai: 'Normal', seed: 1, bestOf: 3 };
 const PLAYER_MATCH_MAX_TICKS = 60 * 60 * 30;
 const PLAYER_VS_AI = 'Player vs AI';
 
+/** Settings of the Arena Lab (the "Generated Arena" folder edits these). */
+const lab = { seed: 1, ...DEFAULT_GEN_PARAMS, use: true, colliders: true, report: '(press Generate)' };
+/** The largest seed Random seed picks. */
+const LAB_MAX_SEED = 999_999;
+
 /**
  * Player vs AI: you are red (Fighter 0, the Local Controller fed by mouse and
  * keys), the AI (or a test opponent: Dummy, Wall) is blue. Live: nothing is precomputed, playing extends the run.
@@ -286,6 +296,31 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const controls = new OrbitControls(stage.camera, stage.canvas);
   controls.target.set(0, 1.1, 0);
   controls.update();
+
+  /** The Arena Lab's Generated Arena, if one has been generated. */
+  let generated: LabArena | null = null;
+  /** The generated Arena's Tuning Data copy, made again once the live Tuning Data is edited (it is cached: the navmesh is built per copy). */
+  let labTuning: { base: TuningData; tuning: TuningData } | null = null;
+  const fightingGenerated = () => lab.use && generated !== null;
+  /** Point `tuning` (and the Stage) at the generated Arena when it is in use, otherwise at the live Tuning Data's own. */
+  const applyArena = () => {
+    if (fightingGenerated()) {
+      if (labTuning?.base !== session.tuning) labTuning = { base: session.tuning, tuning: withArena(session.tuning, generated!.arena) };
+      tuning = labTuning.tuning;
+    } else tuning = session.tuning;
+    stage.setArena(tuning.arena.editor, tuning);
+  };
+  /** The orbit camera over the generated Arena's whole footprint, or close in on the circle's middle. */
+  const frameOrbit = () => {
+    if (fightingGenerated()) {
+      const { target, position } = frameArena(generated!.arena, stage.camera.fov);
+      stage.camera.position.set(position.x, position.y, position.z);
+      controls.target.set(target.x, target.y, target.z);
+    } else {
+      stage.camera.position.set(3.6, 2.2, 0);
+      controls.target.set(0, 1.1, 0);
+    }
+  };
 
   /** Player vs AI: the human's Controller, fed by mouse/keys on the canvas only while a live run is shown. */
   const local = new LocalController();
@@ -403,6 +438,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   };
   const rerun = () => {
     const wasLive = !!run.local;
+    applyArena();
     run = SCRIPTS[script.name]!(tuning, local);
     ui.tick = 0;
     accumulator = 0;
@@ -412,8 +448,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
       ui.speed = run.local ? 1 : 0.5;
       if (!run.local) {
         if (document.pointerLockElement) document.exitPointerLock();
-        stage.camera.position.set(3.6, 2.2, 0);
-        controls.target.set(0, 1.1, 0);
+        frameOrbit();
       }
     }
   };
@@ -457,8 +492,82 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     text: 'You are red. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Q Feint · E throw a dagger · Space pause/play (try the Runner (test) opponent).',
   };
   vs.addBinding(help, 'text', { readonly: true, label: 'controls', multiline: true, rows: 3 });
+
+  /** The Arena Lab: generate an Arena from a seed, look it over with its jump Links, and fight or watch Hard AIs on it. */
+  function addArenaLab(): void {
+    const folder = pane.addFolder({ title: 'Generated Arena', expanded: true });
+    const generate = () => {
+      const { seed, cols, rows, levels, voidDensity, coverDensity, minOpenFloor } = lab;
+      generated = labArena(seed, { cols, rows, levels, voidDensity, coverDensity, minOpenFloor }, session.tuning);
+      labTuning = { base: session.tuning, tuning: generated.tuning };
+      lab.report = describeReport(generated);
+      lab.use = true;
+      lab.colliders = true;
+      stage.setColliders(true);
+      rerun();
+      if (!run.local) frameOrbit();
+      pane.refresh();
+    };
+    folder.addBinding(lab, 'seed', { min: 1, max: LAB_MAX_SEED, step: 1 });
+    folder.addBinding(lab, 'cols', { min: 3, max: 12, step: 1 });
+    folder.addBinding(lab, 'rows', { min: 3, max: 12, step: 1 });
+    folder.addBinding(lab, 'levels', { min: 1, max: 3, step: 1 });
+    folder.addBinding(lab, 'voidDensity', { label: 'void density', min: 0, max: 0.5, step: 0.01 });
+    folder.addBinding(lab, 'coverDensity', { label: 'cover density', min: 0, max: 0.5, step: 0.01 });
+    folder.addBinding(lab, 'minOpenFloor', { label: 'min open floor', min: 0, max: 1, step: 0.05 });
+    folder.addButton({ title: 'Generate' }).on('click', generate);
+    folder.addButton({ title: 'Reroll (seed + 1)' }).on('click', () => {
+      lab.seed = Math.min(LAB_MAX_SEED, lab.seed + 1);
+      generate();
+    });
+    folder.addButton({ title: 'Random seed' }).on('click', () => {
+      // The one place outside the Simulation Math.random is allowed: picking a seed. The Arena still comes from the seed alone.
+      lab.seed = 1 + Math.floor(Math.random() * LAB_MAX_SEED);
+      generate();
+    });
+    folder.addBinding(lab, 'use', { label: 'use generated Arena' }).on('change', () => {
+      rerun();
+      if (!run.local) frameOrbit();
+    });
+    folder.addBinding(lab, 'colliders', { label: 'colliders + jump Links' }).on('change', () => stage.setColliders(lab.colliders));
+    folder.addBinding(lab, 'report', { readonly: true, label: 'report', multiline: true, rows: 6 });
+    /** Fight on the generated Arena (generating it first if there is none yet). */
+    const onGenerated = (start: () => void) => {
+      if (!generated) generate();
+      lab.use = true;
+      start();
+      ui.playing = true;
+      pane.refresh();
+    };
+    folder.addButton({ title: 'Play vs Hard' }).on('click', () =>
+      onGenerated(() => {
+        playerMatch.ai = 'Hard';
+        switchTo(PLAYER_VS_AI);
+      }),
+    );
+    folder.addButton({ title: 'Watch Hard vs Hard' }).on('click', () =>
+      onGenerated(() => {
+        aiMatch.red = aiMatch.blue = 'Hard';
+        switchTo('AI vs AI Match');
+        frameOrbit();
+      }),
+    );
+    folder.addButton({ title: 'Save Arena JSON' }).on('click', () => {
+      if (!generated) return;
+      const { arena } = generated;
+      // Named after the seed it was generated from (gen:greybox:<seed>), which the seed box may have moved on from.
+      const file = `gen-${arena.name.split(':').pop()}.json`;
+      void saveJsonFile(file, `${JSON.stringify(arena, null, 2)}
+`).then(
+        (result) => (lab.report = `${describeReport(generated!)}
+saved ${file} (${result})`),
+        (e: unknown) => console.error('Saving the Arena failed', e),
+      );
+    });
+  }
+  if (import.meta.env.DEV || devMode()) addArenaLab();
+  // Re-running applies the generated Arena (if in use) to the edited Tuning Data, so an edit keeps you where you are.
   addTuningPanels(pane, session, () => {
-    tuning = session.tuning;
     const tick = ui.tick;
     rerun();
     ui.tick = Math.min(tick, lastTick());

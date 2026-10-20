@@ -1,6 +1,6 @@
 # Generated Arenas: assembled from a Blender kit, tested in a dev Arena Lab
 
-> Status: plan. Stages 1–3 can start now. Settle the open questions (end of this file) before Stage 4.
+> Status: Stages 1 and 2 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder). Settle the open questions (end of this file) before Stage 4.
 
 ## Context
 

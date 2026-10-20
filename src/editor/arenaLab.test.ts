@@ -50,6 +50,12 @@ describe('labArena: a Generated Arena judged with the clock running', () => {
     expect(lab.arena).toEqual(generateArena(GREYBOX_KIT, 5, DEFAULT_GEN_PARAMS, tuning).arena);
     expect(lab.report.stats.buildMs).toEqual(expect.any(Number));
   });
+
+  it('comes with the Tuning Data to fight in it (judged with it, so its navmesh is already built)', () => {
+    const lab = labArena(5, DEFAULT_GEN_PARAMS, tuning);
+    expect(lab.tuning.arena.editor).toBe(lab.arena.name);
+    expect(lab.tuning.arenas[lab.arena.name]).toBe(lab.arena);
+  });
 });
 
 describe('describeReport', () => {
