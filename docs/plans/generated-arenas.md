@@ -1,6 +1,6 @@
 # Generated Arenas: assembled from a Blender kit, tested in a dev Arena Lab
 
-> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Stage 4 done as a greybox pipeline (Stage 4, Result); a themed Kit is art only. Stage 5 done: a Random Map in Skirmish and online (Stage 5, Result).
+> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Stage 4 done as a greybox pipeline (Stage 4, Result); a themed Kit is art only. Stage 5 done: a Random Map in Skirmish and online (Stage 5, Result). Stage 6 in progress: a new Random Arena every Match.
 
 ## Context
 
@@ -206,8 +206,24 @@ The first Blender Kit is `greybox`, plain grey Pieces with no theme (open questi
 - **Thumbnail:** `public/thumbs/arenas/random.webp`, the usual Arena shot of `gen:greybox:12` from the Kit model. `#/thumbs/<prefix>` now saves only the pictures under that prefix (`#/thumbs/arenas/random`), so the others were not redrawn.
 - **Checked:** `npm test` and `npx tsc --noEmit` green; no hand-made or Generated Arena changed. The soak (`SOAK_DUELS=3`) still gives Stage 3's After column exactly: 150/150 ended, median 26.0 s, longest 67 s, 1.6 s to contact, 0% apart, 6 Abyss deaths, all after a Kick Knockdown. In `npm run dev`: Skirmish → Random → Fight starts a Match on the generated Arena, drawn from `models/kits/greybox.glb`; a two-tab online Room with Random (seed 16962) ran about 2000 Ticks with the host's and guest's checksums equal at every Tick both still held, and no resync.
 
+## Stage 6: a new Random Arena every Match
+
+When the Map is Random, every new Match is fought on a fresh Generated Arena: in a Skirmish each Fight from the Lobby and each "Restart Match"; online each Start and Restart by the host, and each automatic Rematch (`rematchTicks`). Every Duel of one Match is still fought on the same Arena.
+
+**Decisions (made before building):**
+- **A new Arena per Match, not per Duel.** The Arena never changes between the Duels of one Match.
+- **The Lobby's Map setting `gen:<kit>:<seed>` stays the seed of the first Match,** so typing a seed in still replays that map.
+- **Each following Match's seed comes from the previous one by a fixed integer step** (`nextArenaSeed`): no `Math.random`, no trig. The in-game menu and the HUD show the seed of the Arena being played, so a good one can be replayed.
+
+**How the automatic Rematch, inside the Simulation, gets its Arena (settled before coding):**
+- **`stepMatch` derives it.** `MatchState.arena` is the Arena the current Match is fought on: `config.arena` for the first Match, and at each Rematch `nextArenaName(match.arena)` (the same name for a hand-made Arena, `gen:<kit>:<next seed>` for a Generated one). Every Duel of the Match starts on `match.arena`.
+- **`arenaOf` resolves `gen:` names lazily.** A name that Tuning Data does not hold, of a Kit it does hold, is built with `generateArena` from that Kit and seed with `DEFAULT_GEN_PARAMS`, through a pure cache keyed by the Tuning Data object and the name. `withGeneratedArena` uses the same cache, and its copies share their base's entries, so the Renderer, the Simulation and the next Lobby Match all reuse one build. The cache keeps the last few names; a dropped name is rebuilt (the same name always builds the same Arena). Every peer builds the next Arena itself, so nothing new crosses the wire and the Simulation stays a pure function of state, Intents and Tuning Data.
+- **The cost:** a build takes a few hundred ms (about 1.5 judge runs, each with a navmesh). Inside a Tick that would be a hitch on every peer at the Rematch, and Rollback may re-simulate that Tick. So the game warms the cache: once a Match is Over it builds the next Arena (and its navmesh for the Match's Tuning Data) during the result screen, `rematchTicks` (5 s) before the Rematch Tick needs it. Re-simulation then only reads the cache. A peer that missed the warm (a guest resynced into the result) still builds it inside the Tick, slowly but identically.
+- **Start and Restart:** the Lobby records the Arena its last Match was started on (`LobbyState.matchArena`, null again whenever the Map setting changes). The next Match uses the Map setting when it is null, else the Arena after the one last played (which online may be a Rematch's). The host sends the Lobby to every guest, so everyone builds the same name. The Lobby's Random card and Seed field show the next Match's seed: typing one in sets the Map setting, so the next Match is that one.
+- **Versions:** `PROTOCOL_VERSION` 14 → 15: `MatchState` (in a resync) and `LobbyState` (in the Lobby message) gain a field, and a Match now rematches onto another Arena, so peers on different builds refuse each other. `GENERATOR_VERSION` stays 1: no name builds a different Arena. The step joins its list of what needs a bump (it decides which name a Rematch builds, and is checked at connect only through the Tuning Data hash).
+
 ## Later
-- **A new Arena every Duel:** needs Match state to carry the Duel's Arena name and the Stage to swap Arenas between Duels. This is the Gauntlet's "different Arena each Floor" question.
+- **A new Arena every Duel:** needs the Stage to swap Arenas between Duels (Match state already carries its Arena name, Stage 6). This is the Gauntlet's "different Arena each Floor" question.
 - **More Kits** (themes).
 - **Larger Pieces** that span several cells (a ship's deck, a train wagon).
 
