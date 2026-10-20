@@ -10,6 +10,7 @@ Measured in the Simulation with `data/fall.json` as of this note (`jumpBoost` 25
 - **Farthest jump on level ground:** about **4.3 m**, in 1.7 s.
 - **A tap** is the old hop: 0.78 m high, 1.7 m long.
 - **No Landing damage** from any Jump onto ground at or above where it took off: a Jump's drop counts from no higher than a tap's top. Jumping *down* off a ledge still hurts by the drop below takeoff (beyond `safeHeight` 1.6 m).
+- **A floor overhead caps the jump:** a Walk Surface is solid from below, so under one (the library's bridge or mezzanines) the feet rise no higher than its height minus `fighter.height` (1.8 m). The head bumps it, the rise stops, and any boost left is lost.
 - **Standing and running jumps reach the same.** A Jump starts at full walk speed in whatever direction the Fighter is walking, and air speed never goes above walk speed. A Slowed Fighter (dagger Hit) moves at 0.6× speed, so it jumps the same height but only about 0.6× as far.
 
 Anything within 4.3 m up and the distances below is reachable for a player. A spot meant to be out of bounds needs to be taller than that, or walled off.

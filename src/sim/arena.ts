@@ -157,6 +157,22 @@ export function blockedAt(arena: ArenaGeometry, x: number, z: number, y: number,
 }
 
 /**
+ * The Walk Surface a body rising from feet at `fromY` to `toY` at (x, z) bumps its head on: the lowest one there
+ * between its last top and its new top (`fighter.height` above the feet) and more than a step (`fall.stepUp`)
+ * above its new feet. A Walk Surface is solid from below. Null when nothing is overhead.
+ */
+export function ceilingAbove(arena: ArenaGeometry, x: number, z: number, fromY: number, toY: number, tuning: TuningData): number | null {
+  const { height } = tuning.fighter;
+  let best: number | null = null;
+  for (const i of surfacesAt(arena, x, z)) {
+    const h = surfaceHeight(arena, i, x, z);
+    if (h < fromY + height - 1e-9 || h > toY + height + 1e-9 || h <= toY + tuning.fall.stepUp + 1e-9) continue;
+    if (best === null || h < best) best = h;
+  }
+  return best;
+}
+
+/**
  * Where the segment a→b first crosses a Wall (its vertical face, between `bottom` and `top`): `t` along the
  * segment (0 at a) and the point, or null. Ties go to the Wall earlier in the file.
  */

@@ -3,7 +3,7 @@ import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
-import { arenaOf, blockedAt, deadlyGround, groundBelow } from './arena';
+import { arenaOf, blockedAt, ceilingAbove, deadlyGround, groundBelow } from './arena';
 import { resolveBodies } from './collision';
 import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
@@ -273,15 +273,29 @@ function land(prev: FighterState, f: FighterState, index: number, fighting: bool
 }
 
 /**
+ * A rising Fighter whose head reaches a Walk Surface overhead (`ceilingAbove`) stops under it: its feet are held
+ * `fighter.height` below, it stops rising (keeping its drift) and any Jump boost left is lost.
+ */
+function bumpHead(prev: FighterState, f: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
+  if (!f.air || f.y <= prev.y) return f;
+  const h = ceilingAbove(arena, f.position.x, f.position.z, prev.y, f.y, tuning);
+  if (h === null) return f;
+  const { boost: _boost, ...air } = f.air;
+  const y = h - tuning.fighter.height;
+  return { ...f, y, air: { ...air, vy: 0, peakY: Math.max(prev.air?.peakY ?? prev.y, y) } };
+}
+
+/**
  * Put a Fighter whose body has settled (`f`; last Tick `prev`) on the ground, or in the air:
  *   - Standing, it follows the Walk Surface under it up a step (`fall.stepUp`) or down one
  *     (`fall.snapDown`), so ramps walk both ways. Where there is no ground within a step, or
  *     ground higher than a step blocks the body (`blockedAt`), or it is off the Arena, it slides along whichever axis has ground,
  *     or stays put. Deeper ground below is a ledge: it goes airborne at the speed it walked off at.
- *   - Airborne, it lands once its feet reach the ground under them.
+ *   - Airborne, it lands once its feet reach the ground under them; rising, its head stops under a Walk Surface overhead (`bumpHead`).
  */
-function settleGround(prev: FighterState, f: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
+function settleGround(prev: FighterState, rising: FighterState, arena: ArenaGeometry, tuning: TuningData): FighterState {
   const { stepUp, snapDown } = tuning.fall;
+  const f = bumpHead(prev, rising, arena, tuning);
   const reach = Math.max(prev.y, f.y) + stepUp;
   const under = (p: Vec2) => (blockedAt(arena, p.x, p.z, f.y, tuning) ? null : groundBelow(arena, p.x, p.z, reach));
   let position = f.position;
