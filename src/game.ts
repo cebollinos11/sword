@@ -1,4 +1,4 @@
-import { createMatch, isArenaName, secondsToTicks, TICK_SECONDS, withGeneratedArena, type Layout, type MatchOptions, type MatchState, type SimState } from './sim';
+import { arenaOf, createMatch, isArenaName, navMesh, nextArenaName, parseGeneratedName, secondsToTicks, TICK_SECONDS, withGeneratedArena, type Layout, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
@@ -13,7 +13,7 @@ import { MatchAnnouncer } from './play/announcer';
 import { FinalBlowShot } from './play/finalBlow';
 import { pickableArenas } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
-import { GuestLobby, HostLobby, lobbyLineup, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
+import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
   BrokerUrlError,
   createRollbackSession,
@@ -160,6 +160,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let lobbyShown = false;
   /** The Match generation being played (0: none). */
   let playing = 0;
+  /** The Arena of the Match played last in this Lobby (online a Rematch moves it on), or null: a Random Map's next Match follows on from it. */
+  let played: string | null = null;
+  /** The Tuning Data the Match is played with, and the Rematch (`matchNumber`) whose next Arena is built already. */
+  let matchTuning = tuning;
+  let warmed = 0;
   /** The Skirmish setup, kept for the next Skirmish. */
   let skirmish: HostLobby | null = null;
   let room: HostedRoom | null = null;
@@ -185,7 +190,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     onStart() {
       if (!lobby) return;
       const inGame = Boolean(driver);
-      const problem = lobby.start(!inGame && lobby.online);
+      const problem = lobby.start(!inGame && lobby.online, played ?? undefined);
       if (problem) return inGame ? menu.showPause(lobby, invite, problem) : menu.showLobby(lobby, invite, problem);
       if (inGame) resume();
     },
@@ -240,6 +245,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (lobby && lobby !== skirmish) lobby.close();
     skirmish?.backToLobby();
     lobby = null;
+    setPlayed(null);
     room?.cancel();
     room = null;
     invite = null;
@@ -276,14 +282,41 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) store(ARENA_STORAGE_KEY, s.settings.arena);
   }
 
+  /** Remember the Arena being played, and name it in the in-game menu. */
+  function setPlayed(arena: string | null): void {
+    if (arena === played) return;
+    played = arena;
+    menu.setArenaInPlay(arena);
+  }
+
+  /**
+   * An online Match is over and a Rematch follows on the next Arena: build it now, while the result shows, with its
+   * navmesh for the Match's Tuning Data, so the Rematch Tick (and any Rollback re-simulating it) only reads it.
+   */
+  function warmNextArena(match: MatchState): void {
+    if (match.status.status !== 'Over' || match.config.rematchTicks === null || warmed === match.matchNumber) return;
+    warmed = match.matchNumber;
+    const next = nextArenaName(match.arena);
+    if (next === match.arena) return;
+    // After this frame, so the result is on screen first.
+    setTimeout(() => {
+      navMesh(arenaOf(matchTuning, next), matchTuning);
+      arenaWorld(next);
+    }, 0);
+  }
+
   /** Start Match `s.generation`: against the AI locally, or through a Rollback session with the other players (the host links to every guest; a guest to the host). */
   function launch(l: Lobby, s: LobbyState): void {
     playing = s.generation;
     lobbyShown = true;
     const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
-    const match = { bestOf: s.settings.bestOf, arena: s.settings.arena, seed: randomSeed() };
+    // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
+    const arena = s.matchArena ?? s.settings.arena;
+    const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed() };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
-    const { tuning: matchTuning } = arenaWorld(s.settings.arena);
+    matchTuning = arenaWorld(arena).tuning;
+    warmed = 0;
+    setPlayed(arena);
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
       const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match });
@@ -483,7 +516,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (e.type === 'DuelEnd') {
         hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
       } else if (e.type === 'DuelStart') {
-        hud.announce(e.duelNumber === 1 && match.matchNumber > 1 ? `Match ${match.matchNumber}` : `Duel ${e.duelNumber}`, 1.5);
+        const seed = parseGeneratedName(match.arena)?.seed;
+        const title = e.duelNumber === 1 && match.matchNumber > 1 ? `Match ${match.matchNumber}` : `Duel ${e.duelNumber}`;
+        // A Random Map's seed with each Match's first Duel, so a good one can be played again.
+        hud.announce(e.duelNumber === 1 && seed !== undefined ? `${title} · seed ${seed}` : title, e.duelNumber === 1 && seed !== undefined ? 2.5 : 1.5);
         aimAtDuelStart(match);
       } else if (e.type === 'Fell') {
         hud.announce('You fell', 1.5);
@@ -509,7 +545,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** Behind the menus: the Lobby's Map and Fighters standing ready (or a plain Duel on the last Map). */
   function previewMatch(): { match: MatchState; me: number; bodies: (string | undefined)[] } {
     const s = lobby?.state;
-    const arena = s?.settings.arena ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
+    // The next Match's Arena (built now, so the Fight that starts it does not wait for it).
+    const arena = (s && nextMatchArena(s, played ?? undefined)) ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
     let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!] };
     let me = 0;
     let chosen: (string | undefined)[] = [];
@@ -569,6 +606,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.impacts.onTick(curr.tick, curr.duel);
       }
       present(curr, d.localFighter);
+      setPlayed(curr.arena);
+      warmNextArena(curr);
     }
     if (frozen) accumulator = 0;
     if (driver?.waiting) hud.announce(driver.waiting, 0.5);

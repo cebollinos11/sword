@@ -12,6 +12,7 @@ export {
   member,
   moveMember,
   newLobby,
+  nextMatchArena,
   seatAt,
   seatOf,
   setSeat,

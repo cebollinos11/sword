@@ -13,6 +13,7 @@ import {
   canSetSeat,
   MAX_PLAYERS,
   member,
+  nextMatchArena,
   seatOf,
   setSeat,
   teamSize,
@@ -100,6 +101,8 @@ export interface LobbyViewContext {
   readonly lobby: Lobby;
   /** In a Match (the in-game Match setup): changes apply on restart, and nobody readies. */
   readonly inGame: boolean;
+  /** The Arena of the Match being played or played last (a Random Map's next Match follows on from it), or null. */
+  readonly played?: string | null;
 }
 
 /** The whole Lobby body: teams on the left, settings and your Weapon on the right. */
@@ -233,7 +236,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     maps.append(card);
   }
   if (Object.keys(ctx.tuning.kits).length > 0) maps.append(randomCard(ctx, state, editable));
-  const seed = mapSeed(state.settings.arena);
+  const seed = mapSeed(nextMatchArena(state, ctx.played ?? undefined));
   const length = h('div', 'segmented');
   length.setAttribute('role', 'radiogroup');
   length.setAttribute('aria-label', 'Match length');
@@ -245,14 +248,14 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     length.append(b);
   }
   const hint = editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
-  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', 'Seed'), seedInput(ctx, seed)) : null;
+  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', 'Next seed'), seedInput(ctx, seed)) : null;
   return section('Map', maps, seedRow, h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length), hint);
 }
 
-/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the seed in play. */
+/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next). */
 function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement {
-  const seed = mapSeed(state.settings.arena);
-  const blurb = seed === null ? 'A new Arena from a seed' : editable ? `Seed ${seed} · pick again to reroll` : `Seed ${seed}`;
+  const seed = mapSeed(state.settings.arena) === null ? null : mapSeed(nextMatchArena(state, ctx.played ?? undefined));
+  const blurb = seed === null ? 'A new Arena every Match' : editable ? `Next: seed ${seed} · pick again to reroll` : `Next: seed ${seed}`;
   const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', 'Random'), h('span', 'map-blurb', blurb));
   (card.firstChild as HTMLElement).style.background = `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`;
   card.setAttribute('aria-pressed', String(seed !== null));
@@ -261,7 +264,7 @@ function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean)
   return card;
 }
 
-/** Host: type a seed in to play a Random Map again. */
+/** Host: type a seed in to play a Random Map again (the next Match is on it). */
 function seedInput(ctx: LobbyViewContext, seed: number): HTMLInputElement {
   const input = h('input', 'lb-seed');
   input.type = 'number';
