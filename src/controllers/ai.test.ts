@@ -741,7 +741,8 @@ describe('AI Controller: Jumps in a fight', { timeout: 120_000 }, () => {
     const normal = punishes('Normal');
     const easy = punishes('Easy');
     console.log(`landing punishes over 10 seeds: Hard ${hard}, Normal ${normal}, Easy ${easy}`);
-    expect(hard).toBeGreaterThanOrEqual(5);
+    // Every Landing it rolls to meet, it hits: what it misses is its roll saying no, or being mid-Attack already as the enemy jumps.
+    expect(hard).toBeGreaterThanOrEqual(8);
     expect(hard).toBeGreaterThan(normal);
     expect(easy).toBeLessThanOrEqual(1);
   });

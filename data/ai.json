@@ -63,7 +63,7 @@
       "jumpAttackRate": 0.004,
       "duckRate": 0.35,
       "chamberRate": 0.25,
-      "landingPunish": 0.7,
+      "landingPunish": 0.85,
       "jumpEscapeRate": 0.25,
       "jumpNav": 30
     }
