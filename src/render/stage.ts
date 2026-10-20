@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf } from '../sim';
 import type { ArenaGeometry, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
+import { colliderView, seeThrough, walkFans } from './colliderView';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -158,6 +159,10 @@ export class Stage {
   private pixelRatio: number;
   /** Drawn at PlayStation resolution (see setPs1). */
   private ps1 = false;
+  /** The collision geometry drawn over a see-through model (see setColliders). */
+  private colliders = false;
+  private overlay: THREE.Object3D | undefined;
+  private seeThrough: ((on: boolean) => void) | undefined;
   private lastFrame = 0;
   private slowTime = 0;
   private slowFrames = 0;
@@ -211,6 +216,18 @@ export class Stage {
     this.resize();
   }
 
+  /** Draw the Arena's Walk Surfaces and Walls over its model, made see-through (a developer view), or not. Kept across setArena. */
+  setColliders(on: boolean): void {
+    if (on === this.colliders) return;
+    this.colliders = on;
+    this.showColliders();
+  }
+
+  private showColliders(): void {
+    if (this.overlay) this.overlay.visible = this.colliders;
+    this.seeThrough?.(this.colliders);
+  }
+
   resize(): void {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
@@ -252,6 +269,10 @@ export class Stage {
     this.scene.background = setting.background;
     this.scene.fog = setting.fog;
     this.scene.add(setting.root);
+    this.overlay = colliderView(geometry);
+    setting.root.add(this.overlay);
+    this.seeThrough = setting.seeThrough;
+    this.showColliders();
     return setting.root;
   }
 }
@@ -264,6 +285,8 @@ interface Setting {
   readonly loaded?: Promise<void>;
   /** Moves its moving parts to the time given (s). */
   readonly animate?: (seconds: number) => void;
+  /** Draws the model see-through, or solid; applied to the model when it loads too (modelled Arenas only). */
+  readonly seeThrough?: (on: boolean) => void;
 }
 
 /** An open-air Arena: sky, sun, a grass plain and the Walk Surfaces as sand-coloured ground. */
@@ -282,11 +305,7 @@ function outdoors(arena: ArenaGeometry): Setting {
 
 /** The Walk Surfaces as triangle fans, a centimetre up. */
 function walkSurfaces(arena: ArenaGeometry, material: THREE.Material): THREE.Mesh {
-  const positions: number[] = [];
-  for (const s of arena.walk) {
-    const p = s.points;
-    for (let k = 1; k + 1 < p.length; k++) for (const q of [p[0]!, p[k]!, p[k + 1]!]) positions.push(q.x, q.y + 0.01, q.z);
-  }
+  const positions = walkFans(arena.walk, 0.01);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geometry.computeVertexNormals();
@@ -334,12 +353,19 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   root.add(...look.lights());
   if (look.snow) root.add(snowfall(look.snow));
   let bands: ScrollBand[] = [];
+  // The model is shared by every Match in its Arena, so the see-through setting is applied to it whenever it is shown.
+  let clear = false;
+  let shown: THREE.Object3D | undefined;
   const loaded = arenaModel(name, look.lamps)
     .then((model) => {
       for (const node of look.unfogged ?? []) model.getObjectByName(node)?.traverse(unfog);
       if (look.scroll) bands = scrolling(model, look.scroll);
       // Shown only if this Arena is still the one drawn once it has loaded.
-      if (current()) root.add(model);
+      if (current()) {
+        shown = model;
+        seeThrough(model, clear);
+        root.add(model);
+      }
     })
     .catch((e: unknown) => console.error(`Arena model "${name}" failed to load`, e));
   const speed = look.scroll?.speed ?? 0;
@@ -348,7 +374,11 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
         for (const b of bands) b.group.position.z = -((seconds * speed * b.parallax) % b.length);
       }
     : undefined;
-  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate };
+  const see = (on: boolean) => {
+    clear = on;
+    if (shown) seeThrough(shown, on);
+  };
+  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate, seeThrough: see };
 }
 
 function unfog(o: THREE.Object3D): void {

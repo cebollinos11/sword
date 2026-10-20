@@ -51,6 +51,11 @@ export class Renderer {
     this.stage.setPs1(on);
   }
 
+  /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
+  setColliders(on: boolean): void {
+    this.stage.setColliders(on);
+  }
+
   /** Keeps the camera inside the Arena last drawn. */
   get collider(): CameraCollider {
     return this.stage.collider;

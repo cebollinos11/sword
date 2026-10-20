@@ -25,6 +25,8 @@ export interface MenuHandlers {
   onQuit(): void;
   /** PlayStation resolution turned on or off (see Menu.ps1). */
   onPs1(on: boolean): void;
+  /** The collider view turned on or off (see Menu.colliders; offered only with ?dev=1). */
+  onColliders(on: boolean): void;
 }
 
 /** A Room this player hosts: what to show others so they can join. */
@@ -39,6 +41,10 @@ const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
 const NAME_STORAGE_KEY = 'sword.name';
 const PS1_STORAGE_KEY = 'sword.ps1';
+const COLLIDERS_STORAGE_KEY = 'sword.colliders';
+
+/** Developer options (the Editor link, the collider view) are only offered with ?dev=1 in the URL. */
+const devMode = (): boolean => new URLSearchParams(location.search).get('dev') === '1';
 
 function stored(key: string): string | null {
   try {
@@ -145,6 +151,8 @@ export class Menu {
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
   /** Draw the game at PlayStation resolution (240 lines, the screen's aspect ratio kept). */
   ps1: boolean = stored(PS1_STORAGE_KEY) === '1';
+  /** Draw the Arena's collision geometry over a see-through model (a developer view: only with ?dev=1). */
+  colliders: boolean = devMode() && stored(COLLIDERS_STORAGE_KEY) === '1';
   /** The broker URL as typed (blank = the public PeerJS broker). */
   broker: string = storedBroker();
 
@@ -320,6 +328,19 @@ export class Menu {
     return b;
   }
 
+  /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
+  private colliderItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    const b = this.navItem(`Show Colliders: ${this.colliders ? 'On' : 'Off'}`, 'Walk Surfaces and Walls over a see-through Arena', () => {
+      this.colliders = !this.colliders;
+      store(COLLIDERS_STORAGE_KEY, this.colliders ? '1' : null);
+      this.handlers.onColliders(this.colliders);
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(this.colliders));
+    return b;
+  }
+
   private backButton(label = 'Back', onClick = () => this.back()): HTMLButtonElement {
     return button('back-button ghost', `‹ ${label}`, onClick);
   }
@@ -333,7 +354,7 @@ export class Menu {
   private titleScreen(): HTMLElement {
     // The Editor is for developers: only offered with ?dev=1 in the URL (the #/editor route itself stays open).
     let editor: HTMLAnchorElement | null = null;
-    if (new URLSearchParams(location.search).get('dev') === '1') {
+    if (devMode()) {
       editor = h('a', 'nav-item nav-link', null, h('span', 'nav-label', 'Editor'), h('span', 'nav-hint', 'Author Motions and Weapons'));
       editor.href = '#/editor';
     }
@@ -346,6 +367,7 @@ export class Menu {
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
       this.ps1Item(),
+      this.colliderItem(),
       editor,
     );
     const you = button('you-chip', '', () => this.open('settings'));
@@ -569,6 +591,8 @@ export class Menu {
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
     nav.append(this.ps1Item());
+    const colliders = this.colliderItem();
+    if (colliders) nav.append(colliders);
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
     const leave = !online ? 'Quit to title' : host ? 'Close Room' : 'Leave Room';
     nav.append(this.navItem(leave, online ? 'Everyone else is told you left' : 'Leave this Skirmish', () => this.handlers.onQuit(), 'danger'));
