@@ -3,13 +3,15 @@
  * renderer and saves them under public/thumbs/ (through the dev server's `/__thumbs/` endpoint):
  *
  * - arenas/<Arena>.webp: each Arena with two Fighters squaring up at their spawns;
+ * - arenas/random.webp: the Random Map's card, the same shot of one greybox Generated Arena (RANDOM_SHOT);
  * - bodies/<model>.webp: each Body model, full length, on a transparent background;
  * - weapons/<file>.webp: each Weapon on its own, on a transparent background.
  *
- * Rerun it after adding or changing an Arena, a Body model or a Weapon.
+ * Rerun it after adding or changing an Arena, a Body model or a Weapon. `#/thumbs/<path prefix>` saves only the
+ * pictures under it (e.g. `#/thumbs/arenas/random`).
  */
 import * as THREE from 'three';
-import { createMatch, type SimState } from '../sim';
+import { createMatch, withGeneratedArena, type Layout, type SimState } from '../sim';
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { Stage } from '../render/stage';
 import { drawnPose, FighterView, teamColour } from '../render/fighterView';
@@ -35,6 +37,8 @@ const NEUTRAL = 0x8a8f99;
 const ARENA_SHOT = { side: 0.95, minSide: 4.5, up: 0.35, minUp: 2.2, along: -0.35 };
 /** Arenas walled in beside the Fighters' line: shot from behind the first Fighter instead, high, looking down the line. */
 const FROM_BEHIND: ReadonlySet<string> = new Set(['library']);
+/** The Generated Arena the Random Map's card shows: any greybox one stands for them all. */
+const RANDOM_SHOT = 'gen:greybox:12';
 
 export async function startThumbs(container: HTMLElement, tuning: TuningData): Promise<void> {
   const log = document.createElement('pre');
@@ -55,9 +59,15 @@ export async function startThumbs(container: HTMLElement, tuning: TuningData): P
     say(`${res.ok ? 'saved' : 'FAILED'} ${path} (${Math.round(blob.size / 1024)} kB)`);
   };
 
-  for (const arena of Object.keys(tuning.arenas)) await save(`arenas/${arena}.webp`, await arenaShot(container, tuning, arena));
-  for (const body of BODY_MODELS) await save(`bodies/${body}.webp`, await bodyShot(tuning, body));
-  for (const [file, weapon] of weaponFiles(tuning)) await save(`weapons/${file}.webp`, weaponShot(tuning, weapon));
+  const only = location.hash.replace(/^#\/thumbs\/?/, '');
+  const wanted = (path: string) => path.startsWith(only);
+  for (const arena of Object.keys(tuning.arenas)) if (wanted(`arenas/${arena}`)) await save(`arenas/${arena}.webp`, await arenaShot(container, tuning, arena));
+  if (wanted('arenas/random')) {
+    const random = withGeneratedArena(tuning, RANDOM_SHOT);
+    await save('arenas/random.webp', await arenaShot(container, random.tuning, RANDOM_SHOT, random.layout));
+  }
+  for (const body of BODY_MODELS) if (wanted(`bodies/${body}`)) await save(`bodies/${body}.webp`, await bodyShot(tuning, body));
+  for (const [file, weapon] of weaponFiles(tuning)) if (wanted(`weapons/${file}`)) await save(`weapons/${file}.webp`, weaponShot(tuning, weapon));
   say('done');
   document.title = 'Thumbnails done';
 }
@@ -95,14 +105,14 @@ async function duellists(tuning: TuningData, arena: string, bodies: readonly Bod
   return { state, views };
 }
 
-async function arenaShot(container: HTMLElement, tuning: TuningData, arena: string): Promise<HTMLCanvasElement> {
+async function arenaShot(container: HTMLElement, tuning: TuningData, arena: string, layout?: Layout): Promise<HTMLCanvasElement> {
   const box = document.createElement('div');
   box.style.cssText = `position:fixed;left:0;top:0;width:${ARENA_SIZE.w}px;height:${ARENA_SIZE.h}px;visibility:hidden`;
   container.append(box);
   const stage = new Stage(box, tuning);
   stage.renderer.setPixelRatio(SUPERSAMPLE);
   stage.resize();
-  stage.setArena(arena);
+  stage.setArena(arena, tuning, layout);
   await stage.ready();
   const { state, views } = await duellists(tuning, arena, ARENA_BODIES, [teamColour(0, 0), teamColour(1, 0)]);
   for (const v of views) stage.scene.add(v.root);
