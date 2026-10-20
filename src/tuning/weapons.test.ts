@@ -36,7 +36,7 @@ describe('Weapon roster', () => {
     expect(tuning.weapons['Arming Sword']!.offHandGrip).toBeUndefined();
     expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 22, gripLength: 0.28, offHandGrip: { along: 0.14 } });
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.6 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
-    expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.5 } });
+    expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.15 } });
   });
 
   it('names each Weapon file after its Weapon', () => {

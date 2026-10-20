@@ -17,7 +17,7 @@
     "taken": 0.8
   },
   "heavyBlow": {
-    "speed": 1.5,
+    "speed": 1.15,
     "knockdownSlide": 2.5,
     "knockdownSlideTicks": 14,
     "blockSlide": 0.5,

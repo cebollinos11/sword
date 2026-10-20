@@ -27,7 +27,7 @@ const blocked = (t: TuningData, weapon: string, d: Direction, distance: number) 
 
 describe('Heavy Hit', () => {
   it('a Sledge Hammer Head Hit at or above its Heavy Blow speed knocks the defender down and pushes it away by `knockdownSlide`', () => {
-    const run = swing(tuning, 'Sledge Hammer', 'Overhead', 1.5);
+    const run = swing(tuning, 'Sledge Hammer', 'Overhead', 1.4);
     const [hit] = events<HitEvent>(run, 'Hit');
     const hammer = tuning.weapons['Sledge Hammer']!;
     expect(hit).toMatchObject({ head: true, heavy: true });
@@ -47,7 +47,7 @@ describe('Heavy Hit', () => {
   it('the same Hit below the Heavy Blow speed only Staggers', () => {
     const hammer = tuning.weapons['Sledge Hammer']!;
     const slower = withWeapon(tuning, { heavyBlow: { ...hammer.heavyBlow, speed: 3 } }, 'Sledge Hammer');
-    const run = swing(slower, 'Sledge Hammer', 'Overhead', 1.5);
+    const run = swing(slower, 'Sledge Hammer', 'Overhead', 1.4);
     const [hit] = events<HitEvent>(run, 'Hit');
     expect(hit).toMatchObject({ head: true, heavy: false });
     expect(run.states.find((s) => s.events.includes(hit!))!.fighters[1]!.action.kind).toBe('Stagger');
@@ -72,7 +72,7 @@ describe('Heavy Hit', () => {
 
 describe('Heavy Blow Blocked', () => {
   it('pushes the defender back by `blockSlide`, its Block holding, and the attacker recoils as from any Block', () => {
-    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.7);
+    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.45);
     const [block] = events<BlockEvent>(run, 'Block');
     expect(block).toMatchObject({ heavy: true });
     const at = run.states.find((s) => s.events.includes(block!))!;
@@ -83,7 +83,7 @@ describe('Heavy Blow Blocked', () => {
   });
 
   it('a slower Blocked blow does not push', () => {
-    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.3);
+    const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.0);
     expect(events<BlockEvent>(run, 'Block')[0]).toMatchObject({ heavy: false });
     expect(moved(run)).toBeLessThan(1e-9);
   });
