@@ -23,6 +23,8 @@
       "jumpAttackRate": 0.0008,
       "duckRate": 0.05,
       "chamberRate": 0,
+      "landingPunish": 0,
+      "jumpEscapeRate": 0,
       "jumpNav": 0
     },
     "Normal": {
@@ -41,6 +43,8 @@
       "jumpAttackRate": 0.002,
       "duckRate": 0.2,
       "chamberRate": 0.08,
+      "landingPunish": 0.3,
+      "jumpEscapeRate": 0.1,
       "jumpNav": 20
     },
     "Hard": {
@@ -59,6 +63,8 @@
       "jumpAttackRate": 0.004,
       "duckRate": 0.35,
       "chamberRate": 0.25,
+      "landingPunish": 0.7,
+      "jumpEscapeRate": 0.25,
       "jumpNav": 30
     }
   }

@@ -684,3 +684,63 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
     expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThan(5);
   });
 });
+
+describe('AI Controller: Jumps in a fight', { timeout: 120_000 }, () => {
+  const tough: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, throwRate: 0 } };
+
+  /** Over seeds 1..10, how often the AI (at the centre) lands a Hit with an Attack Released as an enemy lands a Jump made toward it from 4 m (the Hit comes as its blade gets there, within the Release). */
+  function punishes(difficulty: string): number {
+    let hits = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const toward = { x: 0, z: -1 };
+      const jumper: Track = [...wait(40), { ticks: 1, intent: { ...IDLE_INTENT, move: toward, jump: true } }, { ticks: 30, intent: { ...IDLE_INTENT, move: toward } }, ...wait(60)];
+      const initial = createInitialState(tough, seed, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 4 }, facing: Math.PI }]);
+      const run = runControllers(tough, initial, [createAiController(tough, { ...aiDifficulty(repo, difficulty), throwRate: 0, kickRate: 0 }), scriptedController(jumper)], 130);
+      const land = run.events.find((e) => e.type === 'Land' && e.fighter === 1)!;
+      expect(land, `seed ${seed}: the enemy never landed`).toBeDefined();
+      if (run.events.some((e) => e.type === 'Hit' && e.attacker === 0 && e.tick >= land.tick - 2 && e.tick <= land.tick + 20)) hits++;
+    }
+    return hits;
+  }
+
+  it('a Hard AI punishes an enemy landing a Jump far more often than a Normal one; an Easy one does not try', () => {
+    const hard = punishes('Hard');
+    const normal = punishes('Normal');
+    const easy = punishes('Easy');
+    console.log(`landing punishes over 10 seeds: Hard ${hard}, Normal ${normal}, Easy ${easy}`);
+    expect(hard).toBeGreaterThanOrEqual(5);
+    expect(hard).toBeGreaterThan(normal);
+    expect(easy).toBeLessThanOrEqual(1);
+  });
+
+  /** A floor with a 1 m lid (x -3..3, z 3..7) walled up to its top; the AI (low on HP, so it Disengages) just south of it, an idle enemy pressing it from further south. */
+  function escape(difficulty: AiDifficulty, ticks = 600) {
+    const lid = parseArena(
+      {
+        name: 'lid',
+        walk: [
+          { id: 'WALK_floor', points: [[-10, 0, -10], [10, 0, -10], [10, 0, 20], [-10, 0, 20]] },
+          { id: 'WALK_lid', points: [[-3, 1, 3], [3, 1, 3], [3, 1, 7], [-3, 1, 7]] },
+        ],
+        walls: [
+          { id: 'WALL_s', a: [-3, 3], b: [3, 3], bottom: 0, top: 1 },
+          { id: 'WALL_e', a: [3, 3], b: [3, 7], bottom: 0, top: 1 },
+          { id: 'WALL_n', a: [3, 7], b: [-3, 7], bottom: 0, top: 1 },
+          { id: 'WALL_w', a: [-3, 7], b: [-3, 3], bottom: 0, top: 1 },
+        ],
+      },
+      'lid',
+    );
+    const tuning: TuningData = { ...tough, arenas: { ...tough.arenas, lid } };
+    const placed = createInitialState(tuning, 3, [{ position: { x: 0, z: 2.1 }, facing: Math.PI }, { position: { x: 0, z: 0.9 }, facing: 0 }], [], [0, 1], 'lid');
+    const initial = { ...placed, fighters: placed.fighters.map((f, i) => (i === 0 ? { ...f, hp: 0.2 * tuning.fighter.maxHp } : f)) };
+    const run = runControllers(tuning, initial, [createAiController(tuning, difficulty), scriptedController(wait(1))], ticks);
+    return run.states.some((s) => s.fighters[0]!.y === 1 && !s.fighters[0]!.air);
+  }
+
+  it('a Hard AI Disengaging next to a lid Jumps up onto it, away from its enemy; an Easy one does not', () => {
+    const wary = { caution: 1, pressure: 0, aggression: 0, jumpAttackRate: 0, throwRate: 0, kickRate: 0 };
+    expect(escape({ ...aiDifficulty(repo, 'Hard'), ...wary })).toBe(true);
+    expect(escape({ ...aiDifficulty(repo, 'Easy'), ...wary })).toBe(false);
+  });
+});

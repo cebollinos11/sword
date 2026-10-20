@@ -272,12 +272,16 @@ export interface AiDifficulty {
   readonly duckRate?: number;
   /** 0..1: chance it tries to Chamber an Attack (attacking into it, timed to its Release) rather than Blocking it. */
   readonly chamberRate?: number;
+  /** 0..1: chance, rolled once per Jump an enemy makes, that it meets the Landing: it predicts where the enemy comes down, stands in reach of it and times an Attack to it. */
+  readonly landingPunish?: number;
+  /** 0..1: chance per Tick, Disengaging near a jump Link away from its enemy, that it takes it (onto ground its enemy must Jump after it to). */
+  readonly jumpEscapeRate?: number;
   /** The longest hold (Ticks of Jump held) of a jump Link it follows to reach an enemy: 0 = taps only, -1 (the default) = it never follows jump Links. */
   readonly jumpNav?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {
