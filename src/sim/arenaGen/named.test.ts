@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena } from '../../tuning';
 import { hashValue } from '../hash';
-import { DEFAULT_GEN_PARAMS, generateArena, GREYBOX_KIT, isArenaName, parseGeneratedName, withGeneratedArena } from './index';
+import { ARENA_SEED_RANGE, DEFAULT_GEN_PARAMS, generateArena, GREYBOX_KIT, isArenaName, nextArenaName, nextArenaSeed, parseGeneratedName, withGeneratedArena } from './index';
 
 const tuning = loadTuningData();
 
@@ -54,5 +54,38 @@ describe('parseGeneratedName and isArenaName: checking a name without building i
     expect(isArenaName(tuning, 'gen:marble:5')).toBe(false);
     expect(isArenaName(tuning, 'gen:greybox:x')).toBe(false);
     expect(isArenaName(tuning, 'nowhere')).toBe(false);
+  });
+});
+
+describe('nextArenaSeed / nextArenaName: the Arena of the next Match', () => {
+  it('steps a seed by a fixed whole number, within the Random Map range', () => {
+    expect(nextArenaSeed(0)).toBe(381_967);
+    expect(nextArenaSeed(12)).toBe(381_979);
+    expect(nextArenaSeed(700_000)).toBe(81_967);
+    // A seed typed in above the range comes back into it.
+    expect(nextArenaSeed(5_000_000)).toBe(381_967);
+  });
+
+  it('gives the same next seed for the same seed, a whole number in range', () => {
+    for (const seed of [0, 1, 4242, 999_999, 123_456_789]) {
+      const next = nextArenaSeed(seed);
+      expect(nextArenaSeed(seed)).toBe(next);
+      expect(Number.isInteger(next) && next >= 0 && next < ARENA_SEED_RANGE).toBe(true);
+    }
+  });
+
+  it('repeats no seed in a long run of Matches', () => {
+    const seen = new Set<number>();
+    let seed = 16962;
+    for (let i = 0; i < 1000; i++) {
+      expect(seen.has(seed)).toBe(false);
+      seen.add(seed);
+      seed = nextArenaSeed(seed);
+    }
+  });
+
+  it('moves a Random Map to the next seed, and leaves a hand-made Arena as it is', () => {
+    expect(nextArenaName('gen:greybox:12')).toBe('gen:greybox:381979');
+    expect(nextArenaName('library')).toBe('library');
   });
 });

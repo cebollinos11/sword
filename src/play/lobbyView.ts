@@ -5,7 +5,7 @@
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
+import { ARENA_SEED_RANGE, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
 import type { TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
@@ -72,9 +72,6 @@ export function arenaLabel(arena: string): string {
 /** The Random Map card's picture (public/thumbs/arenas/random.webp) and its painted stand-in. */
 const RANDOM_THUMB = 'random';
 const RANDOM_ART = 'linear-gradient(160deg, #6f747c, #3a3e45 60%, #1d2024)';
-/** Seeds the host picks run up to this (short enough to read out and type in again). */
-const MAX_PICKED_SEED = 1_000_000;
-
 /**
  * The Random Map with `seed`: a Generated Arena of the first Kit (only `greybox` for now, so the Kit is not offered
  * as a choice), named `gen:<kit>:<seed>`, which every peer builds from the name alone (`withGeneratedArena`).
@@ -94,7 +91,7 @@ export function mapSeed(arena: string): number | null {
 
 /** A fresh seed for the Random Map (picked by the host, outside the Simulation, so Math.random is fine). */
 function pickSeed(): number {
-  return Math.floor(Math.random() * MAX_PICKED_SEED);
+  return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
 /** What the view needs besides the Lobby. */

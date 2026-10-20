@@ -10,6 +10,11 @@ import { DEFAULT_GEN_PARAMS } from './layout';
 
 const PREFIX = 'gen:';
 
+/** Random Map seeds run from 0 to ARENA_SEED_RANGE - 1 (short enough to read out). */
+export const ARENA_SEED_RANGE = 1_000_000;
+/** The fixed step from one Match's seed to the next: odd and not a multiple of 5, so it visits every seed in range before any repeats. */
+const ARENA_SEED_STEP = 381_967;
+
 /** The Kit and seed a `gen:<kit>:<seed>` name gives, or null for any other name. Throws on a gen: name that is malformed. */
 export function parseGeneratedName(name: string): { kit: string; seed: number } | null {
   if (!name.startsWith(PREFIX)) return null;
@@ -20,6 +25,17 @@ export function parseGeneratedName(name: string): { kit: string; seed: number } 
   // Written as generatedName writes it (no sign, no leading zeros), so the name the Arena carries is the one asked for.
   if (!/^\d+$/.test(text) || !Number.isSafeInteger(seed) || String(seed) !== text) throw new Error(`Generated Arena "${name}": the seed "${text}" is not a whole number`);
   return { kit, seed };
+}
+
+/** The seed of the Match after one on `seed` (Stage 6): a fixed whole-number step, so every peer derives the same one. */
+export function nextArenaSeed(seed: number): number {
+  return ((seed % ARENA_SEED_RANGE) + ARENA_SEED_STEP) % ARENA_SEED_RANGE;
+}
+
+/** The Arena of the Match after one on `name`: a Random Map's next seed (`nextArenaSeed`); a hand-made Arena itself. */
+export function nextArenaName(name: string): string {
+  const parsed = parseGeneratedName(name);
+  return parsed ? `${PREFIX}${parsed.kit}:${nextArenaSeed(parsed.seed)}` : name;
 }
 
 /** May a Lobby name this Arena: one Tuning Data holds, or a well-formed gen: name of a Kit it holds? Builds nothing. */
