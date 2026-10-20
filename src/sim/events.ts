@@ -45,6 +45,8 @@ export interface HitEvent {
   readonly bladeSpeed: number;
   /** Whether the Weapon's Head landed (full damage); false for a Hit from the shaft behind it (× `shaftDamage`). */
   readonly head: boolean;
+  /** A Heavy Blow on an enemy (the Weapon's `heavyBlow`): it knocks the defender down and pushes it away. */
+  readonly heavy: boolean;
   readonly damage: number;
 }
 
@@ -103,6 +105,8 @@ export interface BlockEvent {
   readonly point: Vec3;
   /** Blade Speed at the contact point, m/s. */
   readonly bladeSpeed: number;
+  /** A Heavy Blow (the attacker's Weapon's `heavyBlow`): the Block holds, but the defender is pushed back. */
+  readonly heavy: boolean;
 }
 
 /** An Attack's Blade Sweep reached an Arena Wall (a pillar, a wall, a rail) before any Fighter: the blade stops and the attacker recoils. */

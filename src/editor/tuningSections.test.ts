@@ -7,6 +7,7 @@ import gaitJson from '../../data/gait.json';
 import hitZonesJson from '../../data/hitZones.json';
 import armingSwordJson from '../../data/weapons/arming-sword.json';
 import halberdJson from '../../data/weapons/halberd.json';
+import sledgeHammerJson from '../../data/weapons/sledge-hammer.json';
 import longswordJson from '../../data/weapons/longsword.json';
 import { GAIT_FIELDS, loadTuningData, parseTuningData, parseWeapon, TuningDataError } from '../tuning';
 import { EditorSession, TUNING_SECTIONS } from './session';
@@ -41,8 +42,8 @@ describe('EditorSession Weapons', () => {
 
   it('saves every Weapon unchanged when nothing was edited', () => {
     const session = new EditorSession(tuning);
-    const repo: Record<string, unknown> = { 'Arming Sword': armingSwordJson, Longsword: longswordJson, Halberd: halberdJson };
-    expect(session.weaponNames()).toEqual(['Arming Sword', 'Halberd', 'Longsword']);
+    const repo: Record<string, unknown> = { 'Arming Sword': armingSwordJson, Longsword: longswordJson, Halberd: halberdJson, 'Sledge Hammer': sledgeHammerJson };
+    expect(session.weaponNames()).toEqual(['Arming Sword', 'Halberd', 'Longsword', 'Sledge Hammer']);
     for (const name of session.weaponNames()) expect(JSON.parse(session.weaponFile(name).text)).toEqual(repo[name]);
   });
 

@@ -40,7 +40,7 @@ function boneRadius(a: JointName, b: JointName): number {
  * model whose bones follow the Skeleton, shown in place of the primitives once
  * it has loaded. Its Weapon is drawn to the Weapon's dimensions (a sword:
  * blade, crossguard, grip and pommel; a polearm: shaft, axe blade, spike and
- * back hook over the Head). It only reads poses.
+ * back hook over the Head; a hammer: shaft and a rectangular head across the tip). It only reads poses.
  */
 export class FighterView {
   readonly root = new THREE.Group();
@@ -51,6 +51,7 @@ export class FighterView {
   private readonly head: THREE.Mesh;
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
+  private readonly hammer: HammerMeshes;
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
@@ -106,7 +107,14 @@ export class FighterView {
       spike: new THREE.Mesh(new THREE.ConeGeometry(1, 1, 8), steel),
     };
     this.polearm.group.add(this.polearm.shaft, this.polearm.axe, this.polearm.hook, this.polearm.spike);
-    this.root.add(this.sword.group, this.polearm.group);
+    this.hammer = {
+      group: new THREE.Group(),
+      shaft: new THREE.Mesh(cylinder, wood),
+      head: new THREE.Mesh(box, steel),
+      collar: new THREE.Mesh(cylinder, dark),
+    };
+    this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
+    this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
   }
 
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
@@ -122,10 +130,11 @@ export class FighterView {
     for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
     this.head.position.set(p.head.x, p.head.y, p.head.z);
     this.model?.rig.pose(p);
-    const polearm = weapon.look === 'polearm';
-    this.sword.group.visible = !polearm;
-    this.polearm.group.visible = polearm;
-    if (polearm) placePolearm(this.polearm, pose.blade, weapon);
+    this.sword.group.visible = weapon.look === 'sword';
+    this.polearm.group.visible = weapon.look === 'polearm';
+    this.hammer.group.visible = weapon.look === 'hammer';
+    if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
+    else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
     else placeSword(this.sword, pose.blade, weapon);
   }
 }
@@ -144,6 +153,13 @@ interface PolearmMeshes {
   readonly axe: THREE.Mesh;
   readonly hook: THREE.Mesh;
   readonly spike: THREE.Mesh;
+}
+
+interface HammerMeshes {
+  readonly group: THREE.Group;
+  readonly shaft: THREE.Mesh;
+  readonly head: THREE.Mesh;
+  readonly collar: THREE.Mesh;
 }
 
 const tmpA = new THREE.Vector3();
@@ -210,6 +226,15 @@ function placePolearm(m: PolearmMeshes, b: BladeTransform, w: WeaponTuning): voi
   const at = len - spike - axe / 2;
   placeInFrame(m.axe, at, 0.09, [0.01, axe, 0.16]);
   placeInFrame(m.hook, at, -0.06, [0.01, 0.04, 0.12]);
+}
+
+function placeHammer(m: HammerMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  // The head is a steel block across the tip, its long side along the edge (the faces strike); the shaft runs into it.
+  const head = Math.max(w.head, 0.05);
+  placeInFrame(m.shaft, (len - w.gripLength) / 2, 0, [0.02, len + w.gripLength, 0.02]);
+  placeInFrame(m.head, len - head / 2, 0, [head * 0.85, head, head * 2.4]);
+  placeInFrame(m.collar, len - head - 0.04, 0, [0.026, 0.08, 0.026]);
 }
 
 /** Interpolate two solved poses (render-only smoothing between Ticks). */

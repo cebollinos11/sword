@@ -16,5 +16,12 @@
     "dealt": 1.5,
     "taken": 0.7
   },
+  "heavyBlow": {
+    "speed": 1.8,
+    "knockdownSlide": 1.5,
+    "knockdownSlideTicks": 12,
+    "blockSlide": 0.3,
+    "blockSlideTicks": 6
+  },
   "look": "polearm"
 }

@@ -37,7 +37,7 @@ import { add, cross, dot, length, normalize, scale, sub, type Vec3 } from './vec
 const tuning = loadTuningData();
 const ORIGIN: Placement = { position: { x: 0, z: 0 }, facing: 0 };
 const PLACED: Placement = { position: { x: 1.5, z: -2 }, facing: 2.1 };
-const TWO_HANDED = ['Longsword', 'Halberd'];
+const TWO_HANDED = ['Longsword', 'Halberd', 'Sledge Hammer'];
 const reach = tuning.skeleton.upperArm + tuning.skeleton.forearm;
 const dist = (a: Vec3, b: Vec3) => length(sub(a, b));
 

@@ -10,10 +10,10 @@
  *      it there: nothing behind the Wall is hit.
  *   2. resolveContacts: every contact is resolved against the same
  *      pre-resolution state, so two Attacks landing on one Tick both count.
- *   3. resolveContact: a Block, a hit that Staggers the victim (or, in the air,
- *      knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
+ *   3. resolveContact: a Block, a hit that Staggers the victim (or, in the air or
+ *      from a Heavy Blow, knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
-import { weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { isHeavyBlow, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { LODGE_TICKS } from './actions/attack';
@@ -41,7 +41,9 @@ export type BladeContact = {
   readonly direction: Direction;
   readonly point: Vec3;
   readonly bladeSpeed: number;
-} & ({ readonly blocked: true } | { readonly blocked: false; readonly zone: HitZone; readonly onHead: boolean });
+  /** Whether the contact point is on the attacker's Head (see `onHead`). */
+  readonly onHead: boolean;
+} & ({ readonly blocked: true } | { readonly blocked: false; readonly zone: HitZone });
 
 /**
  * A Kick's leg sweep touching another Fighter's Hit Zone this Tick (ADR 0007). It ignores Blocks and
@@ -126,8 +128,8 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       // Whichever the sweep reaches first lands: a Blocking blade stops the Attack where the blades meet.
       const c = sweepContact(before.blade, attacker.blade, blocked ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
       if (!c) return;
-      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed };
-      found.push({ s: c.s, contact: blocked ? { ...at, blocked } : { ...at, blocked, zone: (c.capsule as HitCapsule).zone, onHead: onHead(weapon, c.along) } });
+      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed, onHead: onHead(weapon, c.along) };
+      found.push({ s: c.s, contact: blocked ? { ...at, blocked } : { ...at, blocked, zone: (c.capsule as HitCapsule).zone } });
     });
     // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
     const wall = wallContact(before.blade, attacker.blade, arena, samples);
@@ -296,37 +298,66 @@ function pushInAir(f: FighterState, dx: number, dz: number, distance: number, ti
  */
 function hitInAir(wounded: FighterState, damage: number, dx: number, dz: number, tuning: TuningData): FighterState | null {
   if (!wounded.air || damage <= 0) return null;
-  const pushed = pushInAir(wounded, dx, dz, tuning.kick.knockdownSlide, tuning.kick.knockdownSlideTicks);
+  return pushDown(wounded, dx, dz, tuning.kick.knockdownSlide, tuning.kick.knockdownSlideTicks, tuning);
+}
+
+/** Push `f` along (dx, dz) and knock it down, unless it already is (then it is only pushed again). */
+function pushDown(f: FighterState, dx: number, dz: number, distance: number, ticks: number, tuning: TuningData): FighterState {
+  const pushed = push(f, dx, dz, distance, ticks);
   return pushed.action.kind === 'Knockdown' ? pushed : knockDown(pushed, tuning);
+}
+
+/** Push `f` along the unit direction (dx, dz): a Slide on the ground; in the air, a change of velocity at the Slide's mean speed. */
+function push(f: FighterState, dx: number, dz: number, distance: number, ticks: number): FighterState {
+  return f.air ? pushInAir(f, dx, dz, distance, ticks) : { ...f, slide: startSlide(dx, dz, distance, ticks) };
+}
+
+/** The unit direction along the ground from `attacker` to `defender` (the attacker's facing when they stand on one spot). */
+function awayFrom(attacker: FighterState, defender: FighterState): { dx: number; dz: number } {
+  const dx = defender.position.x - attacker.position.x;
+  const dz = defender.position.z - attacker.position.z;
+  const d = Math.hypot(dx, dz);
+  return d > 0 ? { dx: dx / d, dz: dz / d } : { dx: Math.sin(attacker.facing), dz: Math.cos(attacker.facing) };
 }
 
 /**
  * One contact. Blocked (by rule, ADR 0002): no damage, the attacker recoils
- * into Stagger and the defender's sword hand absorbs the blow (Block Impact). Otherwise a hit: the defender takes damage and Staggers,
- * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`).
- * A hit on a teammate Staggers it all the same but deals no damage.
+ * into Stagger and the defender's sword hand absorbs the blow (Block Impact); a Heavy Blow also pushes the defender
+ * back (its Weapon's `heavyBlow.blockSlide`), the Block holding. Otherwise a hit: the defender takes damage and Staggers,
+ * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
+ * wherever it is and pushes it away (`heavyBlow.knockdownSlide`).
+ * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow).
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
   if (action.landed) return;
+  const weapon = weaponByName(tuning, attacker.weapon);
+  const { dx, dz } = awayFrom(attacker, defender);
   if (c.blocked) {
-    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed });
+    const heavy = isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
+    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed, heavy });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
     // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
-    out[c.defender] = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) };
+    const guarded = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) };
+    out[c.defender] = heavy ? push(guarded, dx, dz, weapon.heavyBlow.blockSlide, weapon.heavyBlow.blockSlideTicks) : guarded;
     return;
   }
-  const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weaponByName(tuning, attacker.weapon), c.zone, c.bladeSpeed, c.onHead);
+  const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weapon, c.zone, c.bladeSpeed, c.onHead);
+  const heavy = damage > 0 && isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
   const current = out[c.attacker]!;
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
   if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
   const hurt = out[c.defender]!;
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
-  emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, damage });
+  emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
-  const away = hitInAir(wounded, damage, defender.position.x - attacker.position.x, defender.position.z - attacker.position.z, tuning);
+  if (heavy) {
+    out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, tuning);
+    return;
+  }
+  const away = hitInAir(wounded, damage, dx, dz, tuning);
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
   out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
 }
@@ -363,20 +394,9 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   const distance = knocked ? kick.knockdownSlide : kick.shoveSlide;
   const ticks = knocked ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
 
-  let dx = defender.position.x - attacker.position.x;
-  let dz = defender.position.z - attacker.position.z;
-  const d = Math.hypot(dx, dz);
-  if (d > 0) {
-    dx /= d;
-    dz /= d;
-  } else {
-    dx = Math.sin(attacker.facing);
-    dz = Math.cos(attacker.facing);
-  }
-
+  const { dx, dz } = awayFrom(attacker, defender);
   const hurt = out[c.defender]!;
-  // Already in the air, the push is a change of velocity (at the Slide's mean speed); on the ground it is a Slide.
-  const pushed = hurt.air ? pushInAir(hurt, dx, dz, distance, ticks) : { ...hurt, slide: startSlide(dx, dz, distance, ticks) };
+  const pushed = push(hurt, dx, dz, distance, ticks);
   const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).

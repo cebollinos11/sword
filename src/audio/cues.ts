@@ -58,7 +58,7 @@ export interface KickCue {
   readonly fighter: number;
 }
 
-/** A Kick knocked a Fighter down: a heavy shove, before the body hits the floor (see BodyFallCue). */
+/** A Kick or a Heavy Blow knocked a Fighter down: a heavy shove, before the body hits the floor (see BodyFallCue). */
 export interface KnockdownCue {
   readonly sound: 'Knockdown';
   readonly fighter: number;
@@ -220,6 +220,7 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
         break;
       case 'Hit':
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? 'Edge' : 'Shaft' });
+        if (e.heavy) cues.push({ sound: 'Knockdown', fighter: e.defender });
         break;
       case 'Chamber':
         cues.push({ sound: 'Chamber', chamberer: e.chamberer });

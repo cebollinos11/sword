@@ -152,14 +152,14 @@ The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in th
 _Avoid_: Debuff, snare, root
 
 **Knockdown**:
-The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, of a Heavy Blow that Hits, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
 
 **Get-up**:
 The last phase of a Knockdown: the Fighter rises from lying back to Idle.
 
 **Slide**:
-A push the simulation gives a Fighter over a few Ticks, decelerating, along the floor away from the Kicker. Subject to body collision and arena edges, so a Slide can carry a Fighter off a ledge (ADR 0006). Not Knockback, which names nothing in the game.
+A push the simulation gives a Fighter over a few Ticks, decelerating, along the floor away from the Kicker (or from the attacker of a Heavy Blow). Subject to body collision and arena edges, so a Slide can carry a Fighter off a ledge (ADR 0006). Not Knockback, which names nothing in the game.
 _Avoid_: Knockback, pushback
 
 **Feint**:
@@ -176,10 +176,10 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, and how hard its Block Impact hits and is taken. No shields.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, and its Heavy Blow (if any). No shields.
 
 **Weapon roster**:
-Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword and the Halberd.
+Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
 _Avoid_: Loadout, inventory
 
 **Grip**:
@@ -189,7 +189,11 @@ How a Weapon is held: one-handed (the off hand follows its own Pose Keys) or two
 The spot on a two-handed Weapon's grip or shaft where the off hand holds it, in the Weapon's own frame (distance back from the sword hand, angle around the axis, distance off it). When the off hand cannot reach it, the Weapon moves toward the off shoulder until it can (ADR 0004).
 
 **Head**:
-The striking part of a Weapon, measured back from the tip (the Halberd's axe and spike; all of a sword). A Hit from the Head deals full damage; one from the shaft behind it deals less. Blocks meet anywhere along the Weapon.
+The striking part of a Weapon, measured back from the tip (the Halberd's axe and spike; the Sledge Hammer's block; all of a sword). A Hit from the Head deals full damage; one from the shaft behind it deals less. Blocks meet anywhere along the Weapon.
+
+**Heavy Blow**:
+A contact of a Weapon's Head at or above its Heavy Blow speed (Tuning Data `heavyBlow.speed`, a multiple of the Weapon's reference Blade Speed): today the Halberd's and the Sledge Hammer's. A Heavy Blow that Hits an enemy deals its damage and knocks it down, pushing it away (`heavyBlow.knockdownSlide`); one that is Blocked still recoils the attacker, and pushes the defender back a little (`heavyBlow.blockSlide`), its Block holding. A shaft contact is never one, however fast. Weapons without `heavyBlow` have none.
+_Avoid_: Knockback
 
 ## Match
 

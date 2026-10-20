@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   defaultWeaponName,
   loadTuningData,
+  NO_HEAVY_BLOW,
   parseTuningData,
   parseWeapon,
   serializeWeapon,
@@ -28,12 +29,13 @@ const halberd = (patch: Record<string, unknown>) => ({ ...tuning.weapons.Halberd
 
 describe('Weapon roster', () => {
   it('loads every Weapon from data/weapons/, the Arming Sword first (the default)', () => {
-    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Halberd', 'Longsword']);
+    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Halberd', 'Longsword', 'Sledge Hammer']);
     expect(defaultWeaponName(tuning)).toBe('Arming Sword');
     expect(tuning.weapons['Arming Sword']).toMatchObject({ grip: 'oneHanded', length: 0.9, damage: 30, speed: 25, gripLength: 0.12, head: 0.9, look: 'sword' });
     expect(tuning.weapons['Arming Sword']!.offHandGrip).toBeUndefined();
     expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 22, gripLength: 0.28, offHandGrip: { along: 0.14 } });
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.6 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
+    expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.5 } });
   });
 
   it('names each Weapon file after its Weapon', () => {
@@ -43,7 +45,8 @@ describe('Weapon roster', () => {
 
   it('fills in the optional fields: a sword is all Head, full shaft damage, Block Impact ×1, drawn as a sword', () => {
     const w = parseWeapon({ name: 'Dagger', grip: 'oneHanded', length: 0.3, damage: 15, speed: 20, gripLength: 0.1 });
-    expect(w).toMatchObject({ head: 0.3, shaftDamage: 1, blockImpact: { dealt: 1, taken: 1 }, look: 'sword' });
+    expect(w).toMatchObject({ head: 0.3, shaftDamage: 1, blockImpact: { dealt: 1, taken: 1 }, heavyBlow: NO_HEAVY_BLOW, look: 'sword' });
+    expect(JSON.parse(serializeWeapon(w)).heavyBlow).toBeUndefined();
     expect(parseWeapon(JSON.parse(serializeWeapon(w)))).toEqual(w);
   });
 
@@ -62,6 +65,11 @@ describe('Weapon roster', () => {
     expect(() => parseWeapon(halberd({ grip: 'threeHanded' }))).toThrow(/^weapons\/Halberd\.grip must be one of oneHanded, twoHanded/);
     expect(() => parseWeapon(halberd({ look: 'axe' }))).toThrow(/^weapons\/Halberd\.look/);
     expect(() => parseWeapon(halberd({ blockImpact: { dealt: 0, taken: 1 } }))).toThrow(/^weapons\/Halberd\.blockImpact\.dealt/);
+    const heavy = tuning.weapons.Halberd!.heavyBlow;
+    expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, speed: -1 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.speed must be >= 0/);
+    expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, blockSlideTicks: 2.5 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.blockSlideTicks must be a whole number/);
+    expect(() => parseWeapon(halberd({ heavyBlow: { ...heavy, knockdownSlideTicks: 0 } }))).toThrow(/^weapons\/Halberd\.heavyBlow\.knockdownSlideTicks/);
+    expect(parseWeapon(JSON.parse(serializeWeapon(tuning.weapons.Halberd!)))).toEqual(tuning.weapons.Halberd);
     expect(() => parseTuningData(raw(tuning, { weapons: [] }))).toThrow(TuningDataError);
     expect(() => parseTuningData(raw(tuning, { weapons: [tuning.weapons.Halberd, tuning.weapons.Halberd] }))).toThrow(/duplicate Weapon name "Halberd"/);
   });

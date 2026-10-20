@@ -14,7 +14,7 @@ export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
 /** One-handed: the off hand follows its Pose Keys. Two-handed: it holds the Off-hand Grip. */
 export type WeaponGrip = (typeof WEAPON_GRIPS)[number];
 
-export const WEAPON_LOOKS = ['sword', 'polearm'] as const;
+export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer'] as const;
 /** How the Renderer draws the Weapon. */
 export type WeaponLook = (typeof WEAPON_LOOKS)[number];
 
@@ -33,6 +33,22 @@ export interface WeaponBlockImpact {
   readonly dealt: number;
   readonly taken: number;
 }
+
+/**
+ * A Weapon's Heavy Blow: a Head contact at or above `speed` × its reference Blade Speed. A Heavy Hit knocks the
+ * victim down and pushes it away (a Slide of `knockdownSlide` over `knockdownSlideTicks`); a Blocked Heavy Blow
+ * pushes the defender back (`blockSlide` over `blockSlideTicks`), its Block holding. `speed` 0: the Weapon has none.
+ */
+export interface WeaponHeavyBlow {
+  readonly speed: number;
+  readonly knockdownSlide: number;
+  readonly knockdownSlideTicks: number;
+  readonly blockSlide: number;
+  readonly blockSlideTicks: number;
+}
+
+/** No Heavy Blow (the default for a Weapon file without one). */
+export const NO_HEAVY_BLOW: WeaponHeavyBlow = { speed: 0, knockdownSlide: 0, knockdownSlideTicks: 1, blockSlide: 0, blockSlideTicks: 1 };
 
 /** A held Weapon: one entry in the Weapon roster. */
 export interface WeaponTuning {
@@ -56,7 +72,13 @@ export interface WeaponTuning {
   /** Damage multiplier (0..1) for Hits behind the Head (the shaft). */
   readonly shaftDamage: number;
   readonly blockImpact: WeaponBlockImpact;
+  readonly heavyBlow: WeaponHeavyBlow;
   readonly look: WeaponLook;
+}
+
+/** Whether a Head contact at `bladeSpeed` is a Heavy Blow of `weapon` (never for a Weapon without one, or a shaft contact). */
+export function isHeavyBlow(weapon: WeaponTuning, bladeSpeed: number, head: boolean): boolean {
+  return head && weapon.heavyBlow.speed > 0 && bladeSpeed >= weapon.heavyBlow.speed * weapon.speed;
 }
 
 /** The repo file a Weapon lives in, under `data/weapons/` (its stem also names its Motion override folder). */
@@ -105,6 +127,28 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     const b = record(o.blockImpact, `${at}.blockImpact`);
     blockImpact = { dealt: positiveNumber(b, 'dealt', `${at}.blockImpact`), taken: positiveNumber(b, 'taken', `${at}.blockImpact`) };
   }
+  let heavyBlow = NO_HEAVY_BLOW;
+  if (o.heavyBlow !== undefined) {
+    const where = `${at}.heavyBlow`;
+    const h = record(o.heavyBlow, where);
+    const atLeast = (key: string, min: number) => {
+      const v = finiteNumber(h, key, where);
+      if (v < min) throw new TuningDataError(`${where}.${key} must be >= ${min}, got ${v}`);
+      return v;
+    };
+    const ticks = (key: string) => {
+      const v = atLeast(key, 1);
+      if (!Number.isInteger(v)) throw new TuningDataError(`${where}.${key} must be a whole number of Ticks, got ${v}`);
+      return v;
+    };
+    heavyBlow = {
+      speed: atLeast('speed', 0),
+      knockdownSlide: atLeast('knockdownSlide', 0),
+      knockdownSlideTicks: ticks('knockdownSlideTicks'),
+      blockSlide: atLeast('blockSlide', 0),
+      blockSlideTicks: ticks('blockSlideTicks'),
+    };
+  }
 
   return {
     name,
@@ -117,6 +161,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     head,
     shaftDamage,
     blockImpact,
+    heavyBlow,
     look: oneOf(o, 'look', at, WEAPON_LOOKS, 'sword'),
   };
 }
@@ -132,6 +177,8 @@ export function serializeWeapon(w: WeaponTuning): string {
     gripLength: w.gripLength,
   };
   if (w.offHandGrip) out.offHandGrip = { along: w.offHandGrip.along, around: w.offHandGrip.around, radial: w.offHandGrip.radial };
-  Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage, blockImpact: { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken }, look: w.look });
+  Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage, blockImpact: { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken } });
+  if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
+  out.look = w.look;
   return `${JSON.stringify(out, null, 2)}\n`;
 }

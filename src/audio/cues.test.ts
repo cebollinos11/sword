@@ -65,13 +65,13 @@ describe('soundCues', () => {
         { type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Left' },
         { type: 'Feint', fighter: 0, from: 'Left', into: { kind: 'Block', direction: 'Left' } },
         { type: 'KickLanded', attacker: 0, defender: 1, outcome: 'Knockdown', zone: 'torso', point, damage: 5 },
-        { type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, damage: 6 },
+        { type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, heavy: false, damage: 6 },
         { type: 'DuelEnd', winner: 0 },
       ]).map((c) => c.sound),
     ).toEqual(['Chamber', 'Feint', 'Hit', 'Knockdown', 'Hit', 'DuelEnd']);
     const kick = soundCues([{ type: 'KickLanded', attacker: 0, defender: 1, outcome: 'Shove', zone: 'torso', point, damage: 1 }]);
     expect(kick).toEqual([{ sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Kick' }]);
-    const shaft = soundCues([{ type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, damage: 6 }]);
+    const shaft = soundCues([{ type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, heavy: false, damage: 6 }]);
     expect(shaft[0]).toMatchObject({ by: 'Shaft' });
   });
 });
