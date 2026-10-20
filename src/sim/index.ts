@@ -54,6 +54,7 @@ export {
   GREYBOX_KIT,
   judgeArena,
   MAX_ATTEMPTS,
+  turnPoint,
   type GeneratedArena,
   type GenParams,
   type Judgement,

@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { arenaOf } from '../sim';
-import type { ArenaGeometry, TuningData } from '../tuning';
+import { arenaOf, type Layout } from '../sim';
+import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
-import { greybox, isGreybox } from './greybox';
+import { abyss, greybox, isGreybox } from './greybox';
+import { kitPlacements, type KitPlacement } from './kitPlacement';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -143,6 +144,20 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
 };
 
 /**
+ * Kits drawn from a model (public/models/kits/<name>.glb, exported by art/build_kit_<name>.py): a Generated Arena of one
+ * of these Kits is drawn as its Layout's Pieces. Generated Arenas of other Kits are drawn as a greybox.
+ */
+const KIT_LOOKS: Readonly<Record<string, ArenaLook>> = {
+  // Plain grey Pieces under a flat studio light, over a dark Abyss in grey haze.
+  greybox: {
+    lights: () => [new THREE.HemisphereLight(0xffffff, 0x445066, 1.25), directional(0xffffff, 1.35, 6, 12, -4), directional(0xb8c4d8, 0.4, -8, 6, 9)],
+    background: 0x2a2d33,
+    fog: { color: 0x2a2d33, near: 40, far: 120 },
+    lamps: [],
+  },
+};
+
+/**
  * The shared 3D scene: WebGL renderer, camera, and the Arena with its light and air. `setArena`
  * swaps the Arena drawn (a Match's, or the Editor's flat circle); `collider` keeps the camera inside it.
  */
@@ -155,6 +170,8 @@ export class Stage {
   private arena: string;
   /** The geometry drawn: a new copy under the same name (a regenerated Arena) is drawn again. */
   private geometry: ArenaGeometry;
+  /** The Layout a Generated Arena was assembled from, if known: drawn from its Kit's model when the Kit has one. */
+  private layout: Layout | undefined;
   private setting: THREE.Object3D;
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
@@ -207,15 +224,17 @@ export class Stage {
 
   /**
    * Draw the Arena named `name`, from `tuning` if given (which Arenas, and jump Link arcs, then come from from now on:
-   * e.g. a copy holding a Generated Arena, in the Arena Lab). Nothing changes if that geometry is already drawn.
+   * e.g. a copy holding a Generated Arena, in the Arena Lab). A Generated Arena given with its `layout` is drawn from its
+   * Kit's model (`tuning.kits`), if the Kit has one. Nothing changes if that geometry is already drawn.
    */
-  setArena(name: string, tuning: TuningData = this.tuning): void {
+  setArena(name: string, tuning: TuningData = this.tuning, layout?: Layout): void {
     this.tuning = tuning;
     const geometry = arenaOf(tuning, name);
     if (name === this.arena && geometry === this.geometry) return;
     this.scene.remove(this.setting);
     this.arena = name;
     this.geometry = geometry;
+    this.layout = layout;
     this.setting = this.build(name, geometry);
     this.collider = new CameraCollider(geometry);
   }
@@ -280,7 +299,16 @@ export class Stage {
 
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {
     const look = ARENA_LOOKS[name];
-    const setting: Setting = look ? modelled(name, look, () => this.arena === name) : isGreybox(name) ? greybox(geometry) : outdoors(geometry);
+    const layout = this.layout;
+    const kitLook = layout && KIT_LOOKS[layout.kit];
+    const kit = layout && kitLook ? this.tuning.kits[layout.kit] : undefined;
+    const setting: Setting = look
+      ? modelled(name, look, () => this.arena === name)
+      : kit && kitLook && layout
+        ? kitted(kit, layout, kitLook, geometry, () => this.geometry === geometry)
+        : isGreybox(name)
+          ? greybox(geometry)
+          : outdoors(geometry);
     this.loaded = setting.loaded ?? Promise.resolve();
     this.animate = setting.animate;
     this.scene.background = setting.background;
@@ -333,6 +361,12 @@ function walkSurfaces(arena: ArenaGeometry, material: THREE.Material): THREE.Mes
 
 const models = new Map<string, Promise<THREE.Object3D>>();
 
+/** Flat Lambert materials like the rest of the scene; glass and flames keep their glow. */
+function lambert(o: THREE.Mesh): void {
+  const from = o.material as THREE.MeshStandardMaterial;
+  o.material = new THREE.MeshLambertMaterial({ color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
+}
+
 function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3D> {
   let p = models.get(name);
   if (!p) {
@@ -341,9 +375,7 @@ function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3
       const dropped: THREE.Object3D[] = [];
       root.traverse((o) => {
         if (o instanceof THREE.Mesh) {
-          // Flat Lambert materials like the rest of the scene; glass and flames keep their glow.
-          const from = o.material as THREE.MeshStandardMaterial;
-          o.material = new THREE.MeshLambertMaterial({ color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
+          lambert(o);
           o.matrixAutoUpdate = false;
           o.updateMatrix();
         } else if (o instanceof THREE.PointLight) {
@@ -398,6 +430,79 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
     if (shown) seeThrough(shown, on);
   };
   return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate, seeThrough: see };
+}
+
+const kitModels = new Map<string, Promise<THREE.Object3D>>();
+
+/** A Kit's model (loaded once, shared by every Generated Arena of the Kit): a root node per Piece, holding its look. */
+function kitModel(name: string): Promise<THREE.Object3D> {
+  let p = kitModels.get(name);
+  if (!p) {
+    p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/kits/${name}.glb`).then((gltf) => {
+      gltf.scene.traverse((o) => {
+        if (o instanceof THREE.Mesh) lambert(o);
+      });
+      gltf.scene.updateMatrixWorld(true);
+      return gltf.scene;
+    });
+    kitModels.set(name, p);
+  }
+  return p;
+}
+
+/** The Kit model's parts placed as `placements` says: one InstancedMesh per mesh of each node, an instance per placement. */
+function kitInstances(model: THREE.Object3D, placements: readonly KitPlacement[]): THREE.Group {
+  const group = new THREE.Group();
+  group.name = 'kit';
+  const byNode = new Map<string, THREE.Matrix4[]>();
+  for (const p of placements) {
+    const list = byNode.get(p.node) ?? [];
+    list.push(new THREE.Matrix4().fromArray(p.matrix));
+    byNode.set(p.node, list);
+  }
+  for (const [node, matrices] of byNode) {
+    const template = model.getObjectByName(node);
+    if (!template) {
+      console.error(`Kit model has no node "${node}"`);
+      continue;
+    }
+    // Each mesh relative to its Piece's root: where the root stands in the model file is ignored.
+    const toRoot = template.matrixWorld.clone().invert();
+    template.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      const local = toRoot.clone().multiply(o.matrixWorld);
+      const mesh = new THREE.InstancedMesh(o.geometry, o.material, matrices.length);
+      mesh.name = `${node}:${o.name}`;
+      matrices.forEach((m, i) => mesh.setMatrixAt(i, m.clone().multiply(local)));
+      mesh.instanceMatrix.needsUpdate = true;
+      mesh.computeBoundingSphere();
+      group.add(mesh);
+    });
+  }
+  return group;
+}
+
+/** A Generated Arena drawn from its Kit's model: the Kit's lights and air (`look`), the Abyss, and each placed Piece once the model has loaded. */
+function kitted(kit: Kit, layout: Layout, look: ArenaLook, arena: ArenaGeometry, current: () => boolean): Setting {
+  const root = new THREE.Group();
+  root.add(...look.lights());
+  const pit = abyss(arena);
+  if (pit) root.add(pit);
+  let clear = false;
+  let shown: THREE.Object3D | undefined;
+  const loaded = kitModel(kit.name)
+    .then((model) => {
+      if (!current()) return;
+      shown = kitInstances(model, kitPlacements(kit, layout));
+      seeThrough(shown, clear);
+      root.add(shown);
+    })
+    .catch((e: unknown) => console.error(`Kit model "${kit.name}" failed to load`, e));
+  const see = (on: boolean) => {
+    clear = on;
+    if (shown) seeThrough(shown, on);
+  };
+  return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, seeThrough: see };
 }
 
 function unfog(o: THREE.Object3D): void {

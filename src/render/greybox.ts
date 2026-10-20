@@ -15,7 +15,7 @@ const BACKGROUND = 0x2a2d33;
 const GRID_METRES = 3;
 const GRID_PIXELS_PER_METRE = 32;
 
-/** A Generated Arena (named `gen:*`) is drawn as a greybox: it has no model. */
+/** A Generated Arena (named `gen:*`) is drawn as a greybox when its Kit has no model (or its Layout is not known). */
 export const isGreybox = (name: string): boolean => name.startsWith('gen:');
 
 /** The grid tile: white, a faint line every metre and a strong one along its own edges (multiplied into the floor's tint). */
@@ -98,6 +98,12 @@ function walls(arena: ArenaGeometry): THREE.Mesh {
   return mesh;
 }
 
+/** The Arena's Abyss, drawn dark, if it has one (shared with a Kit's look). */
+export function abyss(arena: ArenaGeometry): THREE.Mesh | undefined {
+  const surfaces = arena.walk.filter((s) => s.abyss);
+  return surfaces.length > 0 ? fanMesh('greybox-abyss', walkFans(surfaces), new THREE.MeshLambertMaterial({ color: ABYSS_COLOR, side: THREE.DoubleSide })) : undefined;
+}
+
 /**
  * The look of an Arena with no model, built in the Arena Lab (a Generated Arena): Walk Surfaces tinted by height under a
  * metre grid, a dark Abyss, and Walls as thin grey boxes, under a plain grey sky. Render-only.
@@ -109,8 +115,8 @@ export function greybox(arena: ArenaGeometry): { root: THREE.Group; background: 
   sun.position.set(6, 12, -4);
   root.add(sun);
   root.add(floors(arena));
-  const abyss = arena.walk.filter((s) => s.abyss);
-  if (abyss.length > 0) root.add(fanMesh('greybox-abyss', walkFans(abyss), new THREE.MeshLambertMaterial({ color: ABYSS_COLOR, side: THREE.DoubleSide })));
+  const pit = abyss(arena);
+  if (pit) root.add(pit);
   if (arena.walls.length > 0) root.add(walls(arena));
   return { root, background: new THREE.Color(BACKGROUND), fog: new THREE.Fog(BACKGROUND, 40, 120) };
 }
