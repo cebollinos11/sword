@@ -4,8 +4,14 @@
  * above) at heights within a step are joined by a walk Link through the shared
  * stretch. An open ledge (no Wall at its height, lower ground beyond) gets a
  * one-way drop Link to the surface below, if the drop costs no more than
- * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage. No Link leads
- * onto lava or water: the AI never paths into what kills it.
+ * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage. A jump Link
+ * goes up onto a lid or ledge, or across a gap, onto a Walk Surface the one it
+ * leaves cannot already get to by walking and dropping: found by running Jumps
+ * through `jumpArc` (the Simulation's own flight), and kept only if every
+ * slightly-off version of the Jump lands there too (`jumpHolds`), so a Link
+ * never hangs on a perfect Jump. Its cost is the walk to its takeoff, its
+ * flight and JUMP_COST. No Link leads onto lava or water: the AI never paths
+ * into what kills it.
  *
  * `findPath` runs A* over Links from the start polygon to the goal's, and
  * `steer` pulls a string through the Links' portals (a funnel) for the next
@@ -15,20 +21,46 @@
  * and cached, like the Arena's lookup grid.
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
-import { deadly, groundBelow, surfaceHeight, surfacesAt } from './arena';
+import { blockedAt, deadly, groundBelow, pushOutOfWalls, surfaceHeight, surfacesAt } from './arena';
+import { TICK_SECONDS } from './constants';
+import { jumpArc, jumpHolds, ledgeReach, levelJump, type JumpResult } from './jumpArc';
 import type { Vec2 } from './state';
 
-/** A way from one Walk Surface into another, through `left`..`right` (as seen walking through it) on the first's edge. */
-export interface NavLink {
+/** What every Link has: a way from one Walk Surface into another, through `left`..`right` (as seen walking through it) on the first's edge. */
+interface LinkBase {
   readonly from: number;
   readonly to: number;
   readonly left: Vec2;
   readonly right: Vec2;
   /** The unit normal out of `from` through the portal. */
   readonly normal: Vec2;
-  /** Height dropped through it (m); 0 for a walk Link. */
+  /** Height dropped through it (m); 0 for a walk or jump Link. */
   readonly drop: number;
 }
+
+/** Walking across a shared edge, within a step up or down. */
+export interface WalkLink extends LinkBase {
+  readonly kind: 'walk';
+}
+
+/** Walking off an open ledge onto lower ground. */
+export interface DropLink extends LinkBase {
+  readonly kind: 'drop';
+}
+
+/** A Jump from `takeoff` along `heading`, holding Jump `holdTicks`: it lands at `lands` after `airTicks`. Its portal is the stretch of takeoffs it was found from, across its heading. */
+export interface JumpLink extends LinkBase {
+  readonly kind: 'jump';
+  readonly takeoff: Vec2;
+  readonly heading: Vec2;
+  readonly holdTicks: number;
+  readonly airTicks: number;
+  readonly lands: NavPoint;
+  /** The fall damage of its Landing (none for a Jump onto ground at or above where it left). */
+  readonly damage: number;
+}
+
+export type NavLink = WalkLink | DropLink | JumpLink;
 
 export interface NavMesh {
   /** Every Link, in build order (its index is its id). */
@@ -53,6 +85,18 @@ const PROBE_OUT = 0.35;
 const CROSSING = 0.15;
 /** A corner closer than this (m) has been reached: steer for the next one. */
 const REACHED = 0.3;
+/** A jump Link takes off at least this far (m, beyond a Fighter's radius) from the edge it jumps onto, or inside the edge it jumps off. */
+const MARGIN = 0.1;
+/** The Ticks of Jump held a jump Link is tried with, shortest first; the first that passes the error check is kept. */
+export const JUMP_HOLDS: readonly number[] = [0, 10, 15, 20, 25, 30];
+/** Path cost (m) of taking a jump Link, on top of its flight: walking wins when it is about as short. */
+const JUMP_COST = 1.5;
+/** Jumps off an edge are tried along its normal and turned this far (radians) either way, so ground beyond at a slant is found too. */
+const JUMP_SLANT = (20 * Math.PI) / 180;
+/** Jump Links are looked for from points this far apart (m) along an edge (and at least one, in its middle). */
+const JUMP_PROBE_STEP = 0.75;
+/** A jump Link's takeoff is tried this much further out (m) from its target's edge each time. */
+const STANDOFF_STEP = 0.25;
 
 const cache = new WeakMap<ArenaGeometry, WeakMap<TuningData, NavMesh>>();
 
@@ -135,6 +179,8 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
   const maxDrop = safeHeight + DROP_DAMAGE_LIMIT / damagePerMetre;
   const r = tuning.fighter.radius;
   const tol = 1e-3;
+  /** Walk Surfaces whose edges lie along each other at heights within a step, walled between or not. */
+  const touching: [number, number][] = [];
 
   for (let i = 0; i < count; i++) {
     for (const e of edges[i]!) {
@@ -150,13 +196,14 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
           if (u1 - u0 < 2 * r) continue;
           const ends = [at(e, u0), at(e, u1)];
           if (ends.some((v) => Math.abs(surfaceHeight(arena, i, v.x, v.z) - surfaceHeight(arena, j, v.x, v.z)) > stepUp)) continue;
+          touching.push([i, j]);
           const mid = at(e, (u0 + u1) / 2);
           const y = surfaceHeight(arena, i, mid.x, mid.z);
           const inside = { x: mid.x - e.n.x * 0.05, z: mid.z - e.n.z * 0.05 };
           const beyond = { x: mid.x + e.n.x * (r + PROBE_OUT), z: mid.z + e.n.z * (r + PROBE_OUT) };
           if (walled(arena, tuning, inside, beyond, y)) continue;
           const p = portal(e, u0, u1, tuning);
-          if (p) links.push({ from: i, to: j, ...p, normal: e.n, drop: 0 });
+          if (p) links.push({ kind: 'walk', from: i, to: j, ...p, normal: e.n, drop: 0 });
         }
       }
       // Drop Links: probe out over the edge; where there is no ground within a step, but lower ground not too far down, it is a ledge.
@@ -178,13 +225,223 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
       }
       for (const run of runs) {
         const p = portal(e, run.u0, run.u1, tuning);
-        if (p) links.push({ from: i, to: run.to, ...p, normal: e.n, drop: run.drop });
+        if (p) links.push({ kind: 'drop', from: i, to: run.to, ...p, normal: e.n, drop: run.drop });
       }
     }
   }
+  links.push(...jumpLinks(arena, tuning, edges, links, touching));
   const out: number[][] = Array.from({ length: count }, () => []);
   links.forEach((l, id) => out[l.from]!.push(id));
   return { links, out };
+}
+
+/** `v` turned by `a` radians about the vertical (same sense as facing). */
+const turned = (v: Vec2, a: number): Vec2 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
+
+/** One way to Jump from one point: off Walk Surface `from` at `takeoff` (feet at `y`) along `heading`, trying the holds `holds` (indices into JUMP_HOLDS). */
+interface Attempt {
+  readonly from: number;
+  readonly takeoff: Vec2;
+  readonly y: number;
+  readonly heading: Vec2;
+  /** Tells apart the ways tried from one point (a standoff, or a slant): neighbouring takeoffs tried the same way can make one Link. */
+  readonly key: number;
+  /** The Walk Surface it must land on, or -1 for whichever it may (`eligible`). */
+  readonly onto: number;
+  readonly holds: readonly number[];
+  /** A Jump that must land this high has failed once it comes down below this (`JumpPlan.giveUpBelow`). */
+  readonly giveUpBelow: number;
+}
+
+/** A Jump found from one point along an edge (`u` along it): the way it was tried, where it lands and how long it holds Jump. */
+interface FoundJump extends Attempt {
+  readonly u: number;
+  readonly to: number;
+  readonly hold: number;
+  readonly arc: JumpResult;
+  /** Whether it passed the error check (else only its own Jump was run: it carries on the run of the takeoff before it). */
+  readonly checked: boolean;
+}
+
+/**
+ * The jump Links: Jumps that land on a Walk Surface the one they leave cannot already get to by walking and dropping
+ * (`eligible`), found two ways, each from points JUMP_PROBE_STEP apart along an edge:
+ *   - onto a target: from STANDOFF_STEP after STANDOFF_STEP out from each of its edges (from MARGIN beyond a Fighter's
+ *     radius, to a full Jump's reach), off whatever eligible Walk Surface is there, straight at the edge, with each of
+ *     JUMP_HOLDS that could get over it (`ledgeReach`): lids and ledges, wherever they stand;
+ *   - off a source: from MARGIN beyond a Fighter's radius inside each of its edges, along the edge's normal and turned
+ *     JUMP_SLANT either way, where some eligible Walk Surface no higher than a step lies within a full Jump ahead: gaps,
+ *     and the far side of them.
+ * The first Jump from a point that passes the error check (`jumpHolds`: every variant lands in the walk group it did, none deadly,
+ * none dealing more than DROP_DAMAGE_LIMIT) is kept for each Walk Surface it reaches, nearest and shortest hold first.
+ * A point next to one already found first tries that one's way and hold, running only its own Jump; neighbouring
+ * points found the same way make one Link, whose takeoff is the one nearest the run's middle that passes the error
+ * check (the first in a run always has). Walk Surfaces that touch along an edge at the same height count as joined
+ * even where a Wall stands between them at the midpoint (so no walk Link was made): Jump Links do not stand in for those.
+ */
+function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (readonly Edge[])[], links: readonly NavLink[], touching: readonly (readonly [number, number])[]): JumpLink[] {
+  const { stepUp, safeHeight, damagePerMetre } = tuning.fall;
+  const maxDown = safeHeight + DROP_DAMAGE_LIMIT / damagePerMetre;
+  const full = levelJump(tuning, JUMP_HOLDS[JUMP_HOLDS.length - 1]!);
+  const levels = JUMP_HOLDS.map((h) => levelJump(tuning, h, -(maxDown + full.apex)));
+  const maxUp = full.apex + stepUp;
+  const inset = tuning.fighter.radius + MARGIN;
+  const allHolds = JUMP_HOLDS.map((_, h) => h);
+  // Walk groups: Walk Surfaces joined by walking (walk Links, either way, or touching).
+  const group = arena.walk.map((_, k) => k);
+  const root = (k: number): number => (group[k] === k ? k : (group[k] = root(group[k]!)));
+  const join = (a: number, b: number) => (group[Math.max(root(a), root(b))] = Math.min(root(a), root(b)));
+  for (const l of links) if (l.kind === 'walk') join(l.from, l.to);
+  for (const [a, b] of touching) join(a, b);
+  // Which walk groups each Walk Surface already gets to, walking and dropping.
+  const next = arena.walk.map(() => new Set<number>());
+  for (const l of links) if (l.kind === 'drop') next[root(l.from)]!.add(root(l.to));
+  const reaches = arena.walk.map((_, k) => {
+    const seen = new Set([root(k)]);
+    const todo = [root(k)];
+    while (todo.length) for (const c of next[todo.pop()!]!) if (!seen.has(c)) seen.add(c), todo.push(c);
+    return seen;
+  });
+  /** Whether a Jump off `from` onto `to` is worth a Link: `to` is somewhere else, not deadly, and not already got to. */
+  const eligible = (from: number, to: number) => to >= 0 && to !== from && !deadly(arena.walk[from]!) && !deadly(arena.walk[to]!) && !reaches[from]!.has(root(to));
+  /** Whether a Jump comes down somewhere `to` can walk to (its walk group), not deadly and not hurting too much. */
+  const okOnto = (to: number) => (r: JumpResult) => r.surface >= 0 && root(r.surface) === root(to) && !r.deadly && r.damage <= DROP_DAMAGE_LIMIT;
+  const planOf = (a: Attempt, hold: number) => ({ at: a.takeoff, y: a.y, heading: a.heading, holdTicks: hold, giveUpBelow: a.giveUpBelow });
+  /** Where a Fighter can stand on `k` at `p` (on it, clear of higher ground and Walls): its height, else null. */
+  const standing = (k: number, p: Vec2): number | null => {
+    const y = surfaceHeight(arena, k, p.x, p.z);
+    if (groundBelow(arena, p.x, p.z, y + stepUp)?.surface !== k || blockedAt(arena, p.x, p.z, y, tuning)) return null;
+    const pushed = pushOutOfWalls(p, y, arena, tuning);
+    return pushed.x === p.x && pushed.z === p.z ? y : null;
+  };
+  const out: JumpLink[] = [];
+
+  /** Search one edge (of `length`), trying `attempts(u)` at each point along it, and add its Links. */
+  const search = (length: number, attempts: (u: number) => readonly Attempt[]) => {
+    const found: FoundJump[] = [];
+    let before: FoundJump[] = [];
+    for (let u = Math.min(JUMP_PROBE_STEP, length) / 2; u < length; u += JUMP_PROBE_STEP) {
+      const tries = attempts(u);
+      const done = new Set<number>();
+      const pair = (from: number, to: number) => from * arena.walk.length + to;
+      const here: FoundJump[] = [];
+      // The way the point before found, first.
+      for (const f of before) {
+        const a = tries.find((t) => t.from === f.from && t.key === f.key);
+        if (!a || done.has(pair(f.from, f.to))) continue;
+        const arc = jumpArc(arena, tuning, planOf(a, f.hold));
+        if (!okOnto(f.to)(arc)) continue;
+        done.add(pair(f.from, f.to));
+        here.push({ ...a, u, to: f.to, hold: f.hold, arc, checked: false });
+      }
+      for (const a of tries) {
+        for (const h of a.holds) {
+          if (a.onto >= 0 && done.has(pair(a.from, a.onto))) break;
+          const plan = planOf(a, JUMP_HOLDS[h]!);
+          const arc = jumpArc(arena, tuning, plan);
+          const to = arc.surface;
+          if ((a.onto >= 0 && to !== a.onto) || !eligible(a.from, to) || done.has(pair(a.from, to))) continue;
+          if (!okOnto(to)(arc) || !jumpHolds(arena, tuning, plan, okOnto(to))) continue;
+          done.add(pair(a.from, to));
+          here.push({ ...a, u, to, hold: plan.holdTicks, arc, checked: true });
+        }
+      }
+      found.push(...here);
+      before = here;
+    }
+    // Runs of neighbouring points found the same way, in the order they start along the edge.
+    const runs: FoundJump[][] = [];
+    for (const f of found) {
+      const run = runs.find((r) => {
+        const last = r[r.length - 1]!;
+        return last.from === f.from && last.to === f.to && last.key === f.key && last.hold === f.hold && Math.abs(f.u - last.u - JUMP_PROBE_STEP) < 1e-9;
+      });
+      if (run) run.push(f);
+      else runs.push([f]);
+    }
+    for (const run of runs) {
+      const middle = (run.length - 1) / 2;
+      const order = run.map((_, k) => k).sort((a, b) => Math.abs(a - middle) - Math.abs(b - middle) || a - b);
+      const pick = order.map((k) => run[k]!).find((f) => f.checked || jumpHolds(arena, tuning, planOf(f, f.hold), okOnto(f.to)))!;
+      const a = run[0]!.takeoff;
+      const b = run[run.length - 1]!.takeoff;
+      const { heading } = pick;
+      // Walking along the heading, the left-hand side is the heading turned anticlockwise: (-h.z, h.x).
+      const leftOfB = (b.x - a.x) * -heading.z + (b.z - a.z) * heading.x > 0;
+      const lands = pick.arc.lands!;
+      out.push({
+        kind: 'jump',
+        from: pick.from,
+        to: pick.to,
+        left: leftOfB ? b : a,
+        right: leftOfB ? a : b,
+        normal: heading,
+        drop: 0,
+        takeoff: pick.takeoff,
+        heading,
+        holdTicks: pick.hold,
+        airTicks: pick.arc.ticks,
+        lands: { x: lands.x, z: lands.z, y: lands.y },
+        damage: pick.arc.damage,
+      });
+    }
+  };
+
+  // Onto each target, straight at its edges from further and further out.
+  arena.walk.forEach((surface, j) => {
+    if (deadly(surface)) return;
+    for (const e of edges[j]!) {
+      const heading = { x: -e.n.x, z: -e.n.z };
+      search(e.length, (u) => {
+        const o = at(e, u);
+        const top = surfaceHeight(arena, j, o.x, o.z);
+        const tries: Attempt[] = [];
+        let key = 0;
+        for (let standoff = inset; standoff <= full.distance; standoff += STANDOFF_STEP, key++) {
+          const takeoff = { x: o.x + e.n.x * standoff, z: o.z + e.n.z * standoff };
+          for (const k of surfacesAt(arena, takeoff.x, takeoff.z)) {
+            if (!eligible(k, j)) continue;
+            const rise = top - surfaceHeight(arena, k, takeoff.x, takeoff.z);
+            if (rise > maxUp || rise < -maxDown) continue;
+            const holds = allHolds.filter((h) => ledgeReach(levels[h]!, rise, tuning) >= standoff);
+            if (!holds.length) continue;
+            const y = standing(k, takeoff);
+            if (y !== null) tries.push({ from: k, takeoff, y, heading, key, onto: j, holds, giveUpBelow: top - stepUp - 0.05 });
+          }
+        }
+        return tries;
+      });
+    }
+  });
+
+  // Off each source, out over its edges.
+  arena.walk.forEach((surface, k) => {
+    if (deadly(surface)) return;
+    for (const e of edges[k]!) {
+      search(e.length, (u) => {
+        const o = at(e, u);
+        const takeoff = { x: o.x - e.n.x * inset, z: o.z - e.n.z * inset };
+        const y = standing(k, takeoff);
+        if (y === null) return [];
+        const tries: Attempt[] = [];
+        [0, JUMP_SLANT, -JUMP_SLANT].forEach((angle, key) => {
+          const heading = angle === 0 ? e.n : turned(e.n, angle);
+          // Only where some eligible Walk Surface no higher than a step lies within a full Jump ahead (higher ones are found onto them).
+          let lowest = Infinity;
+          for (let d = PROBE_STEP; d <= full.distance + inset; d += PROBE_STEP) {
+            const p = { x: takeoff.x + heading.x * d, z: takeoff.z + heading.z * d };
+            for (const t of surfacesAt(arena, p.x, p.z)) {
+              const h = surfaceHeight(arena, t, p.x, p.z);
+              if (eligible(k, t) && h <= y + stepUp && h >= y - maxDown) lowest = Math.min(lowest, h);
+            }
+          }
+          if (lowest < Infinity) tries.push({ from: k, takeoff, y, heading, key, onto: -1, holds: allHolds, giveUpBelow: lowest - stepUp - 0.05 });
+        });
+        return tries;
+      });
+    }
+  });
+  return out;
 }
 
 /** A point on the Arena: where on the ground plane, and the height of the feet. */
@@ -202,12 +459,24 @@ export function navPolygon(arena: ArenaGeometry, tuning: TuningData, p: NavPoint
 const mid = (l: NavLink): Vec2 => ({ x: (l.left.x + l.right.x) / 2, z: (l.left.z + l.right.z) / 2 });
 const dist = (a: Vec2, b: Vec2) => Math.hypot(a.x - b.x, a.z - b.z);
 
+/** Which Links a path may take. */
+export interface PathOptions {
+  /** Whether it may take jump Links at all (default true). */
+  readonly jumps?: boolean;
+  /** The longest hold (Ticks) of a jump Link it may take (default: any). */
+  readonly maxJumpHold?: number;
+  /** Link ids it must not take. */
+  readonly exclude?: readonly number[];
+}
+
 /**
  * The Links (ids) to walk through from `from` to `to`, cheapest first by distance between portal
- * midpoints plus the fall damage of drops; [] when both are on the same Walk Surface, null when
+ * midpoints plus the fall damage of drops, and for a jump Link the walk to its takeoff, its flight
+ * (as far as it walks in that time) and JUMP_COST; [] when both are on the same Walk Surface, null when
  * there is no way (or either is off the Walk Surfaces). Deterministic: ties go to the lower id.
  */
-export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoint, to: NavPoint): number[] | null {
+export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoint, to: NavPoint, options: PathOptions = {}): number[] | null {
+  const { jumps = true, maxJumpHold = Infinity, exclude = [] } = options;
   const start = navPolygon(arena, tuning, from);
   const goal = navPolygon(arena, tuning, to);
   if (start < 0 || goal < 0) return null;
@@ -238,10 +507,12 @@ export function findPath(arena: ArenaGeometry, tuning: TuningData, from: NavPoin
     closed[best] = 1;
     for (const id of mesh.out[best]!) {
       const l = mesh.links[id]!;
-      if (closed[l.to]) continue;
-      const m = mid(l);
-      const damage = Math.max(0, l.drop - safeHeight) * damagePerMetre;
-      const cost = g[best]! + dist(entry[best]!, m) + damage * DAMAGE_COST;
+      if (closed[l.to] || exclude.includes(id)) continue;
+      if (l.kind === 'jump' && (!jumps || l.holdTicks > maxJumpHold)) continue;
+      const m = l.kind === 'jump' ? l.lands : mid(l);
+      const damage = l.kind === 'jump' ? l.damage : Math.max(0, l.drop - safeHeight) * damagePerMetre;
+      const travel = l.kind === 'jump' ? dist(entry[best]!, l.takeoff) + l.airTicks * TICK_SECONDS * tuning.fighter.walkSpeed + JUMP_COST : dist(entry[best]!, m);
+      const cost = g[best]! + travel + damage * DAMAGE_COST;
       if (cost < g[l.to]!) {
         g[l.to] = cost;
         entry[l.to] = m;

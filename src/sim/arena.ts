@@ -20,6 +20,8 @@ interface IndexedSurface {
   readonly maxX: number;
   readonly minZ: number;
   readonly maxZ: number;
+  /** Per edge, how far (scaled by its length) a point may lie outside it and still count as inside: EDGE_EPS × its length. */
+  readonly slack: readonly number[];
 }
 
 interface ArenaIndex {
@@ -30,6 +32,12 @@ interface ArenaIndex {
   readonly rows: number;
   /** Per grid cell, the indices of the surfaces whose bounds overlap it, ascending. */
   readonly cells: readonly (readonly number[])[];
+  /** The last point looked up and the surfaces there: a Tick asks for the same point several times. A cache of a pure function, so it cannot change an outcome. */
+  last: { readonly x: number; readonly z: number; readonly at: readonly number[] } | null;
+  /** Per Wall (in file order), its bounds from above: minX, maxX, minZ, maxZ. */
+  readonly wallBounds: Float64Array;
+  /** Per body radius, per grid cell, the Walls (ascending) that come within two radii of it: built on first use. */
+  readonly wallCells: Map<number, readonly (readonly number[])[]>;
 }
 
 /** Grid cell size (m) of the surface lookup. */
@@ -49,7 +57,11 @@ function buildIndex(arena: ArenaGeometry): ArenaIndex {
       const q = surface.points[(i + 1) % surface.points.length]!;
       area += p.x * q.z - q.x * p.z;
     });
-    return { surface, a, c, d, winding: Math.sign(area), minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
+    const slack = surface.points.map((p, i) => {
+      const q = surface.points[(i + 1) % surface.points.length]!;
+      return EDGE_EPS * Math.hypot(q.x - p.x, q.z - p.z);
+    });
+    return { surface, a, c, d, winding: Math.sign(area), minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs), slack };
   });
   const x0 = Math.floor(Math.min(...surfaces.map((s) => s.minX)));
   const z0 = Math.floor(Math.min(...surfaces.map((s) => s.minZ)));
@@ -63,7 +75,9 @@ function buildIndex(arena: ArenaGeometry): ArenaIndex {
     const r1 = Math.floor((s.maxZ - z0) / CELL);
     for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) cells[r * cols + c]!.push(i);
   });
-  return { surfaces, x0, z0, cols, rows, cells };
+  const wallBounds = new Float64Array(arena.walls.length * 4);
+  arena.walls.forEach((w, i) => wallBounds.set([Math.min(w.a.x, w.b.x), Math.max(w.a.x, w.b.x), Math.min(w.a.z, w.b.z), Math.max(w.a.z, w.b.z)], i * 4));
+  return { surfaces, x0, z0, cols, rows, cells, last: null, wallBounds, wallCells: new Map() };
 }
 
 function indexOf(arena: ArenaGeometry): ArenaIndex {
@@ -91,18 +105,20 @@ function inside(s: IndexedSurface, x: number, z: number): boolean {
     const ex = q.x - p.x;
     const ez = q.z - p.z;
     const cross = (ex * (z - p.z) - ez * (x - p.x)) * s.winding;
-    if (cross < -EDGE_EPS * Math.hypot(ex, ez)) return false;
+    if (cross < -s.slack[i]!) return false;
   }
   return true;
 }
 
 /** Surfaces (by index into `arena.walk`) whose polygon, seen from above, contains (x, z), ascending. */
-export function surfacesAt(arena: ArenaGeometry, x: number, z: number): number[] {
+export function surfacesAt(arena: ArenaGeometry, x: number, z: number): readonly number[] {
   const index = indexOf(arena);
+  if (index.last && index.last.x === x && index.last.z === z) return index.last.at;
   const c = Math.floor((x - index.x0) / CELL);
   const r = Math.floor((z - index.z0) / CELL);
-  if (c < 0 || r < 0 || c >= index.cols || r >= index.rows) return [];
-  return index.cells[r * index.cols + c]!.filter((i) => inside(index.surfaces[i]!, x, z));
+  const at = c < 0 || r < 0 || c >= index.cols || r >= index.rows ? [] : index.cells[r * index.cols + c]!.filter((i) => inside(index.surfaces[i]!, x, z));
+  index.last = { x, z, at };
+  return at;
 }
 
 /** The height of Walk Surface `i` above (x, z) (its plane, wherever the point is). */
@@ -198,14 +214,58 @@ export function wallCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry): { t: numbe
 /** Whether a Wall's solid height range overlaps a capsule standing at `y` (from `stepUp` above its feet to its top). */
 const wallOverlaps = (w: WallSegment, y: number, stepUp: number, height: number): boolean => w.bottom < y + height && w.top > y + stepUp;
 
+/** The Walls (ascending) that come within two radii (`radius`) of grid cell (c, r) of `index`. */
+function wallsNear(index: ArenaIndex, radius: number, c: number, r: number): readonly number[] {
+  let cells = index.wallCells.get(radius);
+  if (!cells) {
+    const near = 2 * radius + 1e-9;
+    const b = index.wallBounds;
+    const all: number[][] = Array.from({ length: index.cols * index.rows }, () => []);
+    for (let k = 0; k < b.length / 4; k++) {
+      const c0 = Math.max(0, Math.floor((b[k * 4]! - near - index.x0) / CELL));
+      const c1 = Math.min(index.cols - 1, Math.floor((b[k * 4 + 1]! + near - index.x0) / CELL));
+      const r0 = Math.max(0, Math.floor((b[k * 4 + 2]! - near - index.z0) / CELL));
+      const r1 = Math.min(index.rows - 1, Math.floor((b[k * 4 + 3]! + near - index.z0) / CELL));
+      for (let rr = r0; rr <= r1; rr++) for (let cc = c0; cc <= c1; cc++) all[rr * index.cols + cc]!.push(k);
+    }
+    cells = all;
+    index.wallCells.set(radius, cells);
+  }
+  return cells[r * index.cols + c]!;
+}
+
 /**
  * Push a circle (a Fighter capsule from above) of `radius` at `p` out of
  * every Wall it overlaps at its height, in file order. Deterministic.
+ *
+ * Only the Walls within two radii of its grid cell are looked at, while the pushes move it less than a radius
+ * altogether (so no other Wall comes within reach); otherwise, or off the grid, every Wall is. Either way the
+ * result is the same as pushing it out of every Wall in turn.
  */
 export function pushOutOfWalls(p: Vec2, y: number, arena: ArenaGeometry, tuning: TuningData): Vec2 {
+  const index = indexOf(arena);
+  const c = Math.floor((p.x - index.x0) / CELL);
+  const r = Math.floor((p.z - index.z0) / CELL);
+  if (c >= 0 && r >= 0 && c < index.cols && r < index.rows) {
+    const near = pushOut(p, y, arena, tuning, wallsNear(index, tuning.fighter.radius, c, r));
+    if (near.moved < tuning.fighter.radius) return near.at;
+  }
+  return pushOut(p, y, arena, tuning, null).at;
+}
+
+/** Push the circle at `p` out of the Walls `walls` (indices, ascending; null: all of them) in turn: where it ends, and how far it was pushed altogether. */
+function pushOut(p: Vec2, y: number, arena: ArenaGeometry, tuning: TuningData, walls: readonly number[] | null): { at: Vec2; moved: number } {
   const { radius, height } = tuning.fighter;
+  const bounds = indexOf(arena).wallBounds;
+  // Beyond a Wall's bounds by more than the radius, the circle cannot touch it.
+  const far = radius + 1e-9;
   let { x, z } = p;
-  for (const w of arena.walls) {
+  let moved = 0;
+  const count = walls ? walls.length : arena.walls.length;
+  for (let n = 0; n < count; n++) {
+    const k = walls ? walls[n]! : n;
+    const w = arena.walls[k]!;
+    if (x < bounds[k * 4]! - far || x > bounds[k * 4 + 1]! + far || z < bounds[k * 4 + 2]! - far || z > bounds[k * 4 + 3]! + far) continue;
     if (!wallOverlaps(w, y, tuning.fall.stepUp, height)) continue;
     const ex = w.b.x - w.a.x;
     const ez = w.b.z - w.a.z;
@@ -226,8 +286,9 @@ export function pushOutOfWalls(p: Vec2, y: number, arena: ArenaGeometry, tuning:
       dx /= d;
       dz /= d;
     }
+    moved += radius - d;
     x = qx + dx * radius;
     z = qz + dz * radius;
   }
-  return { x, z };
+  return { at: { x, z }, moved };
 }

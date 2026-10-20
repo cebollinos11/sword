@@ -141,10 +141,12 @@ describe('The catwalks can be jumped onto from the ring and walked on', () => {
     });
   }
 
-  it('gives the AI no way onto a catwalk', () => {
+  it('gives the AI a way onto a catwalk only by jumping', () => {
     const catwalks = chamber.walk.flatMap((w, i) => (w.id.startsWith('WALK_catwalk') ? [i] : []));
     expect(catwalks).toHaveLength(2);
-    expect(navMesh(chamber, tuning).links.filter((l) => catwalks.includes(l.to))).toEqual([]);
+    const onto = navMesh(chamber, tuning).links.filter((l) => catwalks.includes(l.to));
+    for (const c of catwalks) expect(onto.some((l) => l.to === c)).toBe(true);
+    expect(onto.every((l) => l.kind === 'jump')).toBe(true);
   });
 });
 

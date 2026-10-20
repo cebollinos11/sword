@@ -52,13 +52,12 @@ export function flyBody(body: AirBody, air: Airborne, move: Vec2, jumpHeld: bool
   const pushing = held && air.ticks >= secondsToTicks(tuning.fall.jumpBoostDelay);
   const vy = air.vy + ((pushing ? tuning.fall.jumpBoost : 0) - tuning.fall.gravity) * TICK_SECONDS;
   const y = body.y + vy * TICK_SECONDS;
-  const { boost: _boost, ...rest } = air;
   const boost = pushing ? air.boost! - 1 : held ? air.boost! : 0;
-  return {
-    position: { x: body.position.x + vx * TICK_SECONDS, z: body.position.z + vz * TICK_SECONDS },
-    y,
-    air: { ...rest, vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1, ...(boost > 0 ? { boost } : {}) },
-  };
+  // Built field by field (no spread: this runs every airborne Tick, and many times over in `jumpArc`), keeping `launchY` only if it has one.
+  const next: { -readonly [K in keyof Airborne]: Airborne[K] } = { vx, vz, vy, peakY: Math.max(air.peakY, y), ticks: air.ticks + 1, jumped: air.jumped };
+  if (air.launchY !== undefined) next.launchY = air.launchY;
+  if (boost > 0) next.boost = boost;
+  return { position: { x: body.position.x + vx * TICK_SECONDS, z: body.position.z + vz * TICK_SECONDS }, y, air: next };
 }
 
 /**
