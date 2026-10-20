@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type TuningData } from '../tuning';
-import { arenaOf, createInitialState, jumpArc, jumpArcFrom, runScript, type Track } from './index';
+import { arenaOf, createInitialState, jumpArc, jumpArcFrom, jumpIsSafe, runScript, type Track } from './index';
 
 
 const repo = loadTuningData();
@@ -111,5 +111,33 @@ describe('jumpArc predicts a Jump exactly as the Simulation runs it', () => {
     const arc = jumpArcFrom(arenaOf(t, 't'), t, { at: mid.position, y: mid.y, air: mid.air!, move: FORWARD });
     expect(arc.ticks).toBe(land.tick - 10);
     expect(arc.lands!.z).toBeCloseTo(sim.states[land.tick]!.fighters[0]!.position.z, 9);
+  });
+});
+
+describe('jumpIsSafe: the check every Jump the AI makes goes through', () => {
+  const ship = arenaOf(repo, 'ship');
+  const train = arenaOf(repo, 'train');
+  it("a tap over the ship's rail is not safe (it ends in the sea); one along the deck is", () => {
+    expect(jumpIsSafe(ship, repo, { at: { x: 2.5, z: 4 }, y: 0, heading: { x: 1, z: 0 }, holdTicks: 0 })).toBe(false);
+    expect(jumpIsSafe(ship, repo, { at: { x: 0, z: 4 }, y: 0, heading: { x: 0, z: 1 }, holdTicks: 0 })).toBe(true);
+  });
+  it("a tap off the locomotive's nose is not safe; one back along its roof is", () => {
+    expect(jumpIsSafe(train, repo, { at: { x: 0, z: 31.5 }, y: 0.5, heading: { x: 0, z: 1 }, holdTicks: 0 })).toBe(false);
+    expect(jumpIsSafe(train, repo, { at: { x: 0, z: 31.5 }, y: 0.5, heading: { x: 0, z: -1 }, holdTicks: 0 })).toBe(true);
+  });
+  it('a Jump that only just stays on the deck is not safe: a slightly-off version of it ends in the sea', () => {
+    const tap = (x: number) => ({ at: { x, z: 4 }, y: 0, heading: { x: 1, z: 0 }, holdTicks: 0 });
+    // The furthest takeoff toward the rail from which a tap still comes down on the deck.
+    let x = 0;
+    while (!jumpArc(ship, repo, tap(x + 0.05)).deadly) x += 0.05;
+    expect(jumpArc(ship, repo, tap(x)).deadly).toBe(false);
+    expect(jumpIsSafe(ship, repo, tap(x))).toBe(false);
+    expect(jumpIsSafe(ship, repo, tap(x - 0.3))).toBe(true);
+  });
+  it('a Jump down that hurts is not safe', () => {
+    // Off a 2 m ledge the drop counts from the top of a tap's arc: 2.8 m, beyond the safe height.
+    const ledge = parseArena({ name: 'l', walk: [{ id: 'WALK_floor', points: [[-20, 0, -20], [20, 0, -20], [20, 0, 40], [-20, 0, 40]] }, { id: 'WALK_ledge', points: [[-5, 2, -5], [5, 2, -5], [5, 2, 0], [-5, 2, 0]] }], walls: [] }, 'l');
+    expect(jumpArc(ledge, repo, { at: { x: 0, z: -0.5 }, y: 2, heading: FORWARD, holdTicks: 0 }).damage).toBeGreaterThan(0);
+    expect(jumpIsSafe(ledge, repo, { at: { x: 0, z: -0.5 }, y: 2, heading: FORWARD, holdTicks: 0 })).toBe(false);
   });
 });

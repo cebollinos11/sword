@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, type AiDifficulty, type TuningData } from '../tuning';
+import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
 import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
-import { createAiController, runControllers, runMatch, scriptedController } from './index';
+import { aiDifficulty, createAiController, runControllers, runMatch, scriptedController } from './index';
 
 const repo = loadTuningData();
 /** The AI never starts Attacks of its own here, so it is free to defend. */
@@ -619,5 +619,68 @@ describe('AI Controller: follows onto every held-Jump spot', { timeout: 120_000 
       expect(hard, `Hard onto ${s.arena} ${s.spot}`).toBeGreaterThan(0);
     }
     console.log(report.join('\n'));
+  });
+});
+
+describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, () => {
+  it('from a raised ledge, a Hard AI leaps down at an enemy below with an Overhead that lands', () => {
+    // A floor and a 0.7 m ledge (x -3..3, z -3..1), walled up to its top; the enemy waits on the floor in front of it.
+    const ledge = parseArena(
+      {
+        name: 'ledge',
+        walk: [
+          { id: 'WALK_floor', points: [[-10, 0, -10], [10, 0, -10], [10, 0, 10], [-10, 0, 10]] },
+          { id: 'WALK_ledge', points: [[-3, 0.7, -3], [3, 0.7, -3], [3, 0.7, 1], [-3, 0.7, 1]] },
+        ],
+        walls: [
+          { id: 'WALL_n', a: [3, 1], b: [-3, 1], bottom: 0, top: 0.7 },
+          { id: 'WALL_e', a: [3, -3], b: [3, 1], bottom: 0, top: 0.7 },
+          { id: 'WALL_w', a: [-3, 1], b: [-3, -3], bottom: 0, top: 0.7 },
+          { id: 'WALL_s', a: [-3, -3], b: [3, -3], bottom: 0, top: 0.7 },
+        ],
+      },
+      'ledge',
+    );
+    const tuning: TuningData = { ...repo, arenas: { ...repo.arenas, ledge }, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0, throwRate: 0 } };
+    const leaper = { ...aiDifficulty(repo, 'Hard'), jumpAttackRate: 0.2, throwRate: 0 };
+    const initial = createInitialState(tuning, 2, [{ position: { x: 0, z: -0.5 }, y: 0.7, facing: 0 }, { position: { x: 0, z: 3.2 }, y: 0, facing: Math.PI }], [], [0, 1], 'ledge');
+    const run = runControllers(tuning, initial, [createAiController(tuning, leaper), scriptedController(wait(1))], 300);
+    const jump = run.events.find((e) => e.type === 'Jump' && e.fighter === 0);
+    expect(jump, 'it never jumped').toBeDefined();
+    expect(run.states[jump!.tick]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead' });
+    expect(run.states[jump!.tick - 1]!.fighters[0]!.y).toBeCloseTo(0.7, 9);
+    expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 0 && e.tick > jump!.tick && e.tick < jump!.tick + 60)).toBe(true);
+    expect(run.events.some((e) => e.type === 'Land' && e.fighter === 0 && e.damage > 0)).toBe(false);
+  });
+
+  /** Two jumpy AIs (Hard, leaping and hopping back at every chance) fighting at `places` in `arena` for `ticks`: neither dies by Water or a Fall. */
+  function soak(arena: string, places: [number, number, number][], seed: number, ticks = 600) {
+    const tuning: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 }, ai: { ...repo.ai, kickRate: 0 } };
+    const jumpy = { ...aiDifficulty(repo, 'Hard'), jumpAttackRate: 0.3, caution: 1, kickRate: 0 };
+    const initial = createInitialState(tuning, seed, places.map(([x, y, z], i) => ({ position: { x, z }, y, facing: i === 0 ? 0 : Math.PI })), [], [0, 1], arena);
+    const run = runControllers(tuning, initial, [createAiController(tuning, jumpy), createAiController(tuning, jumpy)], ticks);
+    const jumps = run.events.filter((e) => e.type === 'Jump').length;
+    const deaths = run.events.filter((e) => e.type === 'Death');
+    return { jumps, deaths };
+  }
+
+  it("never Jumps off the ship's rail into the sea", () => {
+    let jumps = 0;
+    for (const seed of [1, 2, 3]) {
+      const r = soak('ship', [[2.4, 0, 3], [2.4, 0, 5.2]], seed);
+      jumps += r.jumps;
+      expect(r.deaths, `seed ${seed}`).toEqual([]);
+    }
+    expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThan(5);
+  });
+
+  it("never Jumps off the train's nose or sides", () => {
+    let jumps = 0;
+    for (const seed of [1, 2, 3]) {
+      const r = soak('train', [[0.5, 0.5, 26.5], [0.5, 0.5, 31.3]], seed);
+      jumps += r.jumps;
+      expect(r.deaths, `seed ${seed}`).toEqual([]);
+    }
+    expect(jumps, 'they never jumped: the soak proves nothing').toBeGreaterThan(5);
   });
 });

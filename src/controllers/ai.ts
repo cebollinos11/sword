@@ -81,6 +81,10 @@ import {
   findPath,
   groundBelow,
   JITTER_POS,
+  JUMP_HOLDS,
+  jumpArc,
+  jumpIsSafe,
+  levelJump,
   navMesh,
   navPolygon,
   steer,
@@ -174,6 +178,8 @@ interface AttackPlan {
   readonly chain: Direction | null;
   /** It held attack for the Chain last Tick: the next Attack starts on the Idle Tick. */
   readonly chainHeld: boolean;
+  /** A jumping Attack: it keeps Jump held while in the air before this Tick (-1: not one). */
+  readonly holdJumpUntil: number;
 }
 
 type Mode = 'Neutral' | 'Pressure' | 'Disengage';
@@ -264,9 +270,8 @@ const SWING_IN_HOLD = 22;
 const HOVER_MARGIN = 0.25;
 /** Disengaging, it backs off to this far (m) beyond the longer reach. */
 const DISENGAGE_MARGIN = 1.0;
-/** A jumping Attack is launched from between these distances (m) beyond its reach. */
+/** A jumping Attack at an enemy on its level is launched from at least this far (m) beyond its reach. */
 const JUMP_FROM = 0.2;
-const JUMP_TO = 1.3;
 /** A Chamber is pressed this many Ticks into the incoming Release (1 = its first Tick). */
 const CHAMBER_AT = 2;
 /** It aims (pitch) at this height (m) up a standing Fighter: the chest. */
@@ -529,7 +534,8 @@ class AiController implements Controller {
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
     this.observe(state);
-    return this.flying(state, state.fighters[fighter]!, this.decide(state, fighter));
+    const self = state.fighters[fighter]!;
+    return this.flying(state, self, this.holdingJump(state.tick, self, this.decide(state, fighter)));
   }
 
   /** What it would do this Tick, before a Jump it is in the air on has its say (`flying`). */
@@ -600,6 +606,13 @@ class AiController implements Controller {
         return base; // let go of a Block; finish what it is doing
     }
 
+    // An enemy on lower ground in reach of a jumping Attack: leap down at it.
+    const below = target.y < self.y - LEVEL && (target.action.kind === 'Idle' || target.action.kind === 'Block');
+    if (below && !this.jumpRun && dist <= this.reach(self.weapon) + this.leapRange() && this.chance(this.skill.jumpAttackRate)) {
+      const leap = this.leap(state, self, target, dist, toward, base);
+      if (leap) return leap;
+    }
+
     if (!level || this.jumpRun || this.jumpFirst(state, self, target)) {
       // Another level, or a Jump on the way: find the way there, looking where it walks (and starting nothing on the way).
       const way = this.approach(state, self, target);
@@ -648,17 +661,16 @@ class AiController implements Controller {
       return this.startAttack(state.tick, self, target, dist, base, { swingIn: true });
     }
 
-    // Leap in with an Overhead from just out of reach.
+    // Leap in with an Overhead from out of reach.
     const notBusy = target.action.kind === 'Idle' || target.action.kind === 'Block';
-    if (!self.air && notBusy && dist >= myReach + JUMP_FROM && dist <= myReach + JUMP_TO && this.chance(this.skill.jumpAttackRate * (this.tactic.mode === 'Disengage' ? 0.2 : 1))) {
-      if (this.safeLanding(state, self, toward)) {
-        return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true }, { direction: 'Overhead', swingIn: true });
-      }
+    if (!self.air && notBusy && dist >= myReach + JUMP_FROM && dist <= myReach + this.leapRange() && this.chance(this.skill.jumpAttackRate * (this.tactic.mode === 'Disengage' ? 0.2 : 1))) {
+      const leap = this.leap(state, self, target, dist, toward, base);
+      if (leap) return leap;
     }
 
     // Disengaging and crowded: hop back out of reach.
-    if (this.tactic.mode === 'Disengage' && !self.air && dist < theirReach + 0.2 && notBusy && this.chance(this.skill.jumpAttackRate * 0.5) && this.safeLanding(state, self, away)) {
-      return { ...base, move: away, jump: true };
+    if (this.tactic.mode === 'Disengage' && !self.air && dist < theirReach + 0.2 && notBusy && this.chance(this.skill.jumpAttackRate * 0.5)) {
+      if (jumpIsSafe(arenaOf(this.tuning, state.arena), this.tuning, { at: self.position, y: self.y, heading: away, holdTicks: 0 })) return { ...base, move: away, jump: true };
     }
 
     // From its spacing: step in and swing (or swing from where it stands, in reach).
@@ -837,13 +849,13 @@ class AiController implements Controller {
   }
 
   /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
-  private safe(state: SimState, self: FighterState, dir: Vec2, probe = SAFETY_PROBE): boolean {
+  private safe(state: SimState, self: FighterState, dir: Vec2): boolean {
     if (dir.x === 0 && dir.z === 0) return true;
     const arena = arenaOf(this.tuning, state.arena);
     const { stepUp } = this.tuning.fall;
     for (const k of [0.5, 1]) {
-      const x = self.position.x + dir.x * probe * k;
-      const z = self.position.z + dir.z * probe * k;
+      const x = self.position.x + dir.x * SAFETY_PROBE * k;
+      const z = self.position.z + dir.z * SAFETY_PROBE * k;
       const g = groundBelow(arena, x, z, self.y + stepUp);
       if (g === null || self.y - g.y > stepUp || deadlyGround(arena, x, z, g.y) || blockedAt(arena, x, z, g.y, this.tuning)) return false;
     }
@@ -867,11 +879,48 @@ class AiController implements Controller {
     return [away, { x: -away.z, z: away.x }, { x: away.z, z: -away.x }].find((m) => this.safe(state, self, m)) ?? ZERO;
   }
 
-  /** Whether a Jump along `dir` lands on safe, level ground: it carries about jumpSpeed × 2 / gravity seconds of walk. */
-  private safeLanding(state: SimState, self: FighterState, dir: Vec2): boolean {
-    const { jumpSpeed, gravity } = this.tuning.fall;
-    const flight = ((2 * jumpSpeed) / gravity) * this.tuning.fighter.walkSpeed;
-    return this.safe(state, self, dir, flight + 0.3);
+  /** The holds (Ticks) a jumping Attack may use, shortest first: up to its `jumpNav`, or a tap without one. */
+  private leapHolds(): number[] {
+    return JUMP_HOLDS.filter((h) => h <= Math.max(0, this.skill.jumpNav));
+  }
+
+  /** How far (m) its longest jumping Attack carries it on level ground. */
+  private leapRange(): number {
+    const holds = this.leapHolds();
+    return levelJump(this.tuning, holds[holds.length - 1]!).distance;
+  }
+
+  /**
+   * A jumping Attack at `target`: an Overhead with a Jump along `toward`, held for the shortest of its holds whose arc
+   * (`jumpArc`) brings it within its reach of where the target will be (as seen, carried on at the walk it was seen at),
+   * at a height its blade reaches, at some Tick from the end of its Wind-up (which it may hold while it closes) to its
+   * Landing, and that lands safely (`jumpIsSafe`). Null when none does. It covers leaping down onto lower ground too.
+   */
+  private leap(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent | null {
+    const arena = arenaOf(this.tuning, state.arena);
+    const reach = this.reach(self.weapon);
+    const windUp = attackTimings(this.tuning, self.weapon, 'Overhead').windUpEnd;
+    for (const hold of this.leapHolds()) {
+      const plan = { at: self.position, y: self.y, heading: toward, holdTicks: hold };
+      const arc = jumpArc(arena, this.tuning, plan);
+      if (!arc.lands) continue;
+      let meets = false;
+      for (let k = windUp; k <= Math.min(arc.ticks, windUp + SWING_IN_HOLD) && !meets; k++) {
+        const p = arc.path[k - 1]!;
+        const lead = this.reactionTicks + k;
+        const flat = Math.hypot(target.position.x + target.velocity.x * lead - p.x, target.position.z + target.velocity.z * lead - p.z);
+        meets = flat <= reach && Math.abs(target.y - p.y) <= DEFEND_LEVEL;
+      }
+      if (!meets || !jumpIsSafe(arena, this.tuning, plan)) continue;
+      return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction: 'Overhead', swingIn: true, holdJump: hold });
+    }
+    return null;
+  }
+
+  /** Keep Jump held through a jumping Attack's hold, while in the air. */
+  private holdingJump(tick: number, self: FighterState, intent: Intent): Intent {
+    const plan = this.attackPlan;
+    return plan && self.air && tick < plan.holdJumpUntil ? { ...intent, jumpHeld: true } : intent;
   }
 
   /**
@@ -1010,14 +1059,15 @@ class AiController implements Controller {
    * Press attack: in `direction`, or one chosen against the target's guard. With `swingIn` it may hold the
    * Wind-up while it closes in. At `feintRate` it plans to Feint this Attack into another Direction.
    */
-  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean } = {}): Intent {
+  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number } = {}): Intent {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist);
     if (this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
       this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
     }
     const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0;
-    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false } : null;
+    const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
+    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil } : null;
     return { ...base, attack: true, direction };
   }
 
