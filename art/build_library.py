@@ -61,6 +61,7 @@ RAIL = 1.0  # balustrade height
 PILLARS = [(-INNER, RAMP_Z[0]), (INNER, RAMP_Z[0]), (-INNER, GAL), (INNER, GAL)]
 PILLAR = 0.3  # half width
 TABLES = [(-5.0, 10.1), (5.0, 10.1)]  # reading tables (with chairs) under the gallery
+TABLE_TOP = 0.8  # the tabletop (the chair backs reach 1.0, too thin to stand on)
 
 rng = random.Random(7)
 
@@ -239,11 +240,20 @@ for k, (px, pz) in enumerate(PILLARS):
     for e in range(4):
         wall(f'pillar{k}_{e}', corners[e], corners[(e + 1) % 4], -1, CEIL)
 
+
+def lid(id, corners, y):
+    """A Walk Surface over a prop's Walls (the same corners), at their top: clear the Walls and you stand on it."""
+    walk(f'{id}_top', [(x, y, z) for x, z in corners])
+
+
+# The tables (with their chairs) are platforms: Walls up to the tabletop and a lid on it, so a Jump that clears them
+# lands on the table rather than inside it.
 for k, (tx, tz) in enumerate(TABLES):
     hx, hz = 1.6, 0.85  # the table and its chairs
     corners = [(tx - hx, tz - hz), (tx + hx, tz - hz), (tx + hx, tz + hz), (tx - hx, tz + hz)]
     for e in range(4):
-        wall(f'table{k}_{e}', corners[e], corners[(e + 1) % 4], 0, 1.0)
+        wall(f'table{k}_{e}', corners[e], corners[(e + 1) % 4], 0, TABLE_TOP)
+    lid(f'table{k}', corners, TABLE_TOP)
 
 # The two teams face each other across the open floor south of the bridge, clear of anything overhead.
 for slot, z in enumerate((-4.5, -3.0, -6.0)):
@@ -461,7 +471,7 @@ def candle(x, y, z, holder='Brass'):
 
 
 def table(tx, tz):
-    G.box((tx - 1.2, 0.74, tz - 0.5), (tx + 1.2, 0.8, tz + 0.5), 'Wood')
+    G.box((tx - 1.2, 0.74, tz - 0.5), (tx + 1.2, TABLE_TOP, tz + 0.5), 'Wood')
     for sx in (-1, 1):
         for sz in (-1, 1):
             G.box((tx + sx * 1.1 - 0.05, 0, tz + sz * 0.4 - 0.05), (tx + sx * 1.1 + 0.05, 0.74, tz + sz * 0.4 + 0.05), 'DarkWood', skip=('-y', '+y'))

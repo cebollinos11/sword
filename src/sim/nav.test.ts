@@ -28,7 +28,11 @@ describe('Navmesh', () => {
     const drops = links.filter((l) => l.drop > 0);
     expect(drops.some((l) => l.from === id('bridge') && l.to === id('floor_centre'))).toBe(true);
     expect(drops.some((l) => l.from === id('mezz_south') && l.to === id('floor_alcove'))).toBe(true);
-    for (const l of drops) expect(l.drop).toBeCloseTo(3, 6); // the gallery's 6 m drop is never taken
+    // The gallery's 6 m drop is never taken; every drop is off a 3 m level, or off a reading table (0.8 m).
+    const tables = [id('table0_top'), id('table1_top')];
+    for (const l of drops) expect(l.drop).toBeCloseTo(tables.includes(l.from) ? 0.8 : 3, 6);
+    for (const t of tables) expect(drops.some((l) => l.from === t)).toBe(true);
+    expect(links.some((l) => tables.includes(l.to))).toBe(false); // and the AI never climbs onto a table
     expect(drops.some((l) => l.from === id('gallery'))).toBe(false);
     // The bridge's drops are only at its two gaps in the rail (x -6..-4.5 south, 4.5..6 north).
     for (const l of drops.filter((d) => d.from === id('bridge'))) {
