@@ -1,4 +1,4 @@
-import { createMatch, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { createMatch, isArenaName, secondsToTicks, TICK_SECONDS, withGeneratedArena, type Layout, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
@@ -60,6 +60,9 @@ export interface Game {
   play(presentation: MatchPresentation): void;
 }
 
+/** Random Maps built lately, kept so a restart or the scene behind the menus does not generate them again. */
+const KEPT_WORLDS = 4;
+
 /** Seeds a fresh Match (outside the Simulation, so Math.random is fine). */
 function randomSeed(): number {
   return (Math.random() * 0x7fffffff) | 0;
@@ -101,7 +104,22 @@ interface Attempt {
  * reconnects. Behind the menus the scene shows the Lobby's Map and Fighters.
  */
 export function startGame(container: HTMLElement, tuning: TuningData): Game {
-  const renderer = new Renderer(container, tuning);
+  const worlds = new Map<string, { tuning: TuningData; layout?: Layout }>();
+  /**
+   * The Tuning Data a Match on Arena `name` is played with: `tuning` itself, or for a Random Map (`gen:<kit>:<seed>`) a
+   * copy holding the Arena every peer builds from that name, with its Layout. The same copy each time (the navmesh is
+   * cached per Arena and Tuning Data).
+   */
+  function arenaWorld(name: string): { tuning: TuningData; layout?: Layout } {
+    let world = worlds.get(name);
+    if (!world) {
+      world = withGeneratedArena(tuning, name);
+      worlds.set(name, world);
+      if (worlds.size > KEPT_WORLDS) worlds.delete(worlds.keys().next().value!);
+    }
+    return world;
+  }
+  const renderer = new Renderer(container, tuning, arenaWorld);
   const audio = createBrowserAudio();
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
@@ -197,7 +215,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
-    const arena = arenas.find((a) => a === savedArena) ?? tuning.arena.match;
+    const arena = savedArena !== null && (arenas.includes(savedArena) || (savedArena.startsWith('gen:') && isArenaName(tuning, savedArena))) ? savedArena : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     return { host: { name: menu.name, weapon, body: menu.body }, settings: { arena, bestOf: 3 }, online, ai: { difficulty, weapon: weapons[0]! } };
   }
@@ -264,9 +282,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     lobbyShown = true;
     const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
     const match = { bestOf: s.settings.bestOf, arena: s.settings.arena, seed: randomSeed() };
+    // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
+    const { tuning: matchTuning } = arenaWorld(s.settings.arena);
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
-      const d = playerVsAi(tuning, { lineup, weapon: picks[0]!, ...match });
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
@@ -275,11 +295,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) {
       // A guest who left between the start and now gets an AI in their place from the first Tick.
       const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-      session = createRollbackSession({ role: 'host', guests, tuning, weapon, match: { ...match, rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup });
+      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup });
     } else {
       const transport = l.matchTransport(s.generation, 0);
       if (!transport) return;
-      session = createRollbackSession({ role: 'guest', transport, tuning, weapon });
+      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon });
     }
     game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames, bodies: playerBodies });
   }
@@ -503,7 +523,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const key = JSON.stringify(options);
     if (key !== previewKey) {
       try {
-        preview = createMatch(tuning, options);
+        preview = createMatch(arenaWorld(arena).tuning, options);
         previewKey = key;
       } catch {
         // Not a fieldable Lineup (yet): keep the last scene.

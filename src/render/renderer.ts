@@ -1,12 +1,15 @@
 import type * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
-import type { SimState } from '../sim';
+import type { Layout, SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
+
+/** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
+export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
 
 /**
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
@@ -28,9 +31,14 @@ export class Renderer {
   readonly impacts: ImpactEffects;
   private readonly daggers: DaggerViews;
 
+  /**
+   * `world` gives, for each Arena name a Match is played on, the Tuning Data holding it and its Layout (a Random Map's
+   * Generated Arena is drawn from its Kit's model); by default every Arena is one of `tuning`'s own.
+   */
   constructor(
     container: HTMLElement,
     private readonly tuning: TuningData,
+    private readonly world: ArenaWorld = () => ({ tuning }),
   ) {
     this.stage = new Stage(container, tuning);
     this.impacts = new ImpactEffects(this.stage.scene, tuning);
@@ -85,9 +93,10 @@ export class Renderer {
    * `timeScale` slows the effects that run on wall time (sparks, spinning daggers) to match a slowed-down replay.
    */
   render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
-    this.stage.setArena(curr.arena);
+    const world = this.world(curr.arena);
+    this.stage.setArena(curr.arena, world.tuning, world.layout);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
-    const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, this.tuning));
+    const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, world.tuning));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
       const other = this.others[i];
