@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { hashValue } from '../sim';
+import { DEFAULT_GEN_PARAMS, generateArena, GREYBOX_KIT, hashValue } from '../sim';
 import { LocalController } from '../controllers';
 import { LIVE_SCRUB_CHUNK, liveScrubMax, matchSandbox, playerVsAiSession } from './sandboxSession';
 import { compareReplay, recordingSandbox, recordReplay } from './replay';
+import { withArena } from './arenaLab';
 
 const tuning = loadTuningData();
 const options = { opponent: 'Normal', bestOf: 3, seed: 4 };
@@ -120,5 +121,25 @@ describe('Sandbox session: Player vs a test opponent', () => {
     const session = playerVsAiSession(tuning, local, { ...options, opponent: 'Dummy' });
     play(session, local, swing, 400);
     expect(session.history.some((m) => m.duel.events.some((e) => e.type === 'Block'))).toBe(false);
+  });
+});
+
+describe('Sandbox session: Player vs AI on a Generated Arena (the Arena Lab)', () => {
+  it('runs 600 Ticks there with no divergence, and replays them identically', () => {
+    const { arena } = generateArena(GREYBOX_KIT, 7, DEFAULT_GEN_PARAMS, tuning);
+    const lab = withArena(tuning, arena);
+    const local = new LocalController();
+    const recorder = recordingSandbox(matchSandbox(lab));
+    const session = playerVsAiSession(lab, local, { ...options, opponent: 'Hard' }, recorder);
+    expect(session.state.duel.arena).toBe(arena.name);
+    play(session, local, swing, 600);
+    expect(session.frontier).toBe(600);
+    // Scrub back and play the same again: the recorded future is kept.
+    session.seek(300);
+    play(session, local, swing, 600);
+    expect(session.divergence).toBeNull();
+    expect(session.frontier).toBe(600);
+    const replay = recordReplay(lab, session.history, recorder.intentsOf(session.history));
+    expect(compareReplay(replay, lab).identical).toBe(true);
   });
 });
