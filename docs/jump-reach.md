@@ -47,6 +47,32 @@ For a ledge of a given height (above the takeoff ground), the farthest its near 
 
 The higher the ledge, the earlier on the way down the Fighter must already be over it, so the reach shrinks.
 
+## Places a held Jump reaches, by Arena
+
+The spots only a Jump gets to. Each prop is a lid: a Walk Surface over its Walls at its drawn top, so a Jump that clears the Walls lands on top and the Fighter can walk about up there and walk (or jump) off. Heights are the lid's `y`; "held 0.25 s" is 15 Ticks of Jump, "full" 0.5 s or more. Each is checked by a Simulation test in the Arena's test file.
+
+**The AI can't follow onto any of them.** It only taps Jump to dodge and never jumps to get somewhere, and the navmesh gives a lid drop links down to the floor but none up. The AI can walk off a lid it ends up on.
+
+- **Summit** (`summit.test.ts`; shelf y 0, plateau y 2)
+  - the hull, 3.45: a held (0.25 s) Jump from the plateau at (-1.8, -7.0), along −z
+  - the containers, 2.5: a tap from the plateau at (3.0, -5.6), along +z
+  - the nacelle, 1.3: held 0.25 s from the shelf at (-3.5, 3.7), along −x
+  - the dish (lying face-up), 1.1: held 0.25 s from the shelf at (3.8, 4.0), along +z
+  - the crate by the back crag, 0.9: a tap from the shelf at (-2.6, 5.2), along +z
+  - the crate in the nook, 0.8: a tap from the shelf at (-3.4, -3.2), along −z
+- **Train** (`train.test.ts`; flatcar deck y −1.2)
+  - the locomotive's roof, 0.5: a full Jump from the deck at (-0.6, 19.0), along +z over the bulkhead and the 2.5 m gap. A full Jump back along −z lands on the deck. Its nose and sides are a Death by Fall.
+  - the crate stack, 0.6: held 0.25 s from the deck at (0.75, 13.6), along +z
+  - the power cell, 0.25: held 0.25 s from the deck at (0.7, 16.8), along +z
+  - the waste drums, −0.3: a tap from the deck at (-0.8, 15.9), along +z
+- **Ship** (`water.test.ts`; main deck y 0)
+  - the big crate, 1.0: a tap from the deck at (-1.95, 4.9), along +z. The small crate (0.7) beside it is a step down. Walking off the big crate's outboard side carries you over the bulwark into the sea, as a tap over the rail does.
+- **Library** (`library.test.ts`; ground floor y 0)
+  - the two reading tables, 0.8 (the tabletop; the 3.2 × 1.7 lid covers the chairs too): a tap from the floor at (-5, 8.6), along +z
+  - Not the bridge or the mezzanines from below: their undersides stop the Jump (a floor overhead caps it, above).
+- **Chamber** (`lava.test.ts`; ring y 0)
+  - the two catwalks, 0: a full Jump from the ring's edge at (0, ±7.2), along ±z, crosses the 3.5 m gap and lands at about r 12. Side rails keep you on. The open end facing the ring is unrailed, so walking off it drops you into the lava. A full Jump from the end back along ∓z lands on the ring.
+
 ## Updating this note
 
 After changing `data/fall.json` or the walk speed, re-measure:
