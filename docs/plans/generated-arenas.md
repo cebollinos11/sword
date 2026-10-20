@@ -1,6 +1,6 @@
 # Generated Arenas: assembled from a Blender kit, tested in a dev Arena Lab
 
-> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Settle the open questions (end of this file) before Stage 4.
+> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Stage 4 done as a greybox pipeline (Stage 4, Result); a themed Kit is art only. Next: Stage 5.
 
 ## Context
 
@@ -173,6 +173,14 @@ No judge rule or generator param changed: nothing in the soak pointed at the Lay
 - The lab gains a **Kit** dropdown.
 
 **Done when:** a generated Arena in the first themed Kit looks close to a hand-built one in the lab, and the Stage 2–3 checks still pass.
+
+### Result (done, as a greybox pipeline)
+The first Blender Kit is `greybox`, plain grey Pieces with no theme (open questions, below). The pipeline is all there, so a themed Kit is art only: a new `art/build_kit_<theme>.py`, its two outputs, and an `ArenaLook` in `KIT_LOOKS`.
+- **`art/build_kit_greybox.py`** builds, from the same numbers as the TypeScript Kit had, one `PIECE_<id>` root per Piece (floor, ramp, crate, pillar, rail, bridge, void) with its look as child meshes, plus `TRIM_support`, a column one cell wide and one level tall, which the renderer stacks under every cell of a solid Piece above level 0 (a raised floor would float otherwise). Each Piece's `WALK_<id>_<n>` and `WALL_<id>_<n>` helpers stand in the `Collision` collection; footprint, `solid`, connectors and skirts are properties of its root. It writes `public/models/kits/greybox.glb`, `data/kits/greybox.json` (read back from the helpers and roots, cell-local) and `art/kit_greybox.blend`. Trim, edge and visual variants are left for a themed Kit.
+- **Kits are Tuning Data:** `parseKit` (`src/tuning/kit.ts`, where the Kit types now live) validates each `data/kits/*.json`: every Piece present under its own id, Walk Surfaces convex and planar, everything inside the Piece's footprint, connectors and skirts on its cells and sides. `TuningData.kits` is hashed. `GREYBOX_KIT` is read from the file, and `toStrictEqual` the hand-written Kit (kept as `greyboxKit.reference.ts`, tests only), so no Layout or Arena changed: seeds 1–200 still pass, and the soak (`SOAK_DUELS=3`) gives Stage 3's After column exactly (150/150 ended, median 26.0 s, longest 67 s, 1.6 s to contact, 0% apart, 6 Abyss deaths, all after a Kick Knockdown).
+- **Renderer:** `Stage.setArena(name, tuning, layout)` draws a Generated Arena given its Layout from its Kit's model when the Kit is in `KIT_LOOKS` (lights and fog per Kit), and as `greybox(arena)` otherwise. The model is loaded once per Kit; each node is one `InstancedMesh` per mesh, one instance per placement. `kitPlacements` (`src/render/kitPlacement.ts`, pure) gives each placement's matrix from `turnPoint`: entries 0, ±1 and whole-cell offsets, no trig. Its test moves every Piece's own Walls and Walk Surfaces by those matrices and gets the assembled Arena's exactly.
+- **Check:** `art/render_kit.py` renders Arenas dumped by `KIT_DUMP=<file> npx vitest run src/render/kitPlacement.dump.test.ts` from the same placements, with the collider view over them. Seeds 1, 12 and 31 line up: tile seams on the collider tiles' edges, crates and pillars inside their Walls, ramps on their slopes, skirt Walls down the raised edges.
+- **The lab** has a Kit dropdown (`tuning.kits`, only `greybox` for now) and hands the Stage the Layout.
 
 ## Stage 5: Random Map in the game and online
 

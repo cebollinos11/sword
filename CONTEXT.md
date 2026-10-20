@@ -249,7 +249,7 @@ An Arena built at run time from a Kit, a seed and generator settings, rather tha
 _Avoid_: Random map, procedural level (for the data)
 
 **Kit**:
-A set of Pieces sharing one grid size and set of floor heights, with one look (a theme). The first is the grey placeholder `greybox` (3 m cells, floors at 0, 3 and 6 m, 0.8 m crates), written in TypeScript.
+A set of Pieces sharing one grid size and set of floor heights, with one look (a theme). Tuning Data (`data/kits/<name>.json`, hashed), built in Blender with its model (`public/models/kits/<name>.glb`) by `art/build_kit_<name>.py`. The first is the grey placeholder `greybox` (3 m cells, floors at 0, 3 and 6 m, 0.8 m crates), plain grey Pieces with no theme.
 _Avoid_: Tileset, theme (for the data)
 
 **Piece**:
