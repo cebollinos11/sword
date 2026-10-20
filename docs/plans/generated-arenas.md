@@ -1,6 +1,6 @@
 # Generated Arenas: assembled from a Blender kit, tested in a dev Arena Lab
 
-> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Stage 4 done as a greybox pipeline (Stage 4, Result); a themed Kit is art only. Next: Stage 5.
+> Status: Stages 1–3 done (the Arena Lab: `#/editor/sandbox?dev=1`, "Generated Arena" folder; the soak: Stage 3, Result). Stage 4 done as a greybox pipeline (Stage 4, Result); a themed Kit is art only. Stage 5 done: a Random Map in Skirmish and online (Stage 5, Result).
 
 ## Context
 
@@ -195,6 +195,16 @@ The first Blender Kit is `greybox`, plain grey Pieces with no theme (open questi
 - **The Tuning Data hash includes the Kit files and a `GENERATOR_VERSION` constant.** Any change to the generator that could alter a Layout bumps the version, so peers on different builds refuse each other instead of drifting apart.
 - **Test:** two simulated peers (`src/net/memoryTransport.ts`) build the same Arena from the same name and checksums agree for 600 Ticks.
 - **Thumbnail:** a generic "Random" picture in `public/thumbs/arenas/`.
+
+### Result (done)
+- **`withGeneratedArena(tuning, name)`** (`src/sim/arenaGen/named.ts`): a `gen:<kit>:<seed>` name gives a Tuning Data copy holding the Arena generated from `tuning.kits[kit]` and that seed with `DEFAULT_GEN_PARAMS`, plus its Layout; any other name comes back unchanged. An unknown Kit, a malformed name, or a seed that is not written as a whole number (no sign, no leading zeros, so the Arena's own name is the one asked for) throws. `parseGeneratedName` and `isArenaName` check a name without building it (a guest's Lobby accepts a `gen:` name of a Kit it holds). Built twice, the same name gives deep-equal Arenas with the same `hashValue`, and `parseArena` accepts them.
+- **`GENERATOR_VERSION`** (`src/sim/arenaGen/version.ts`, now 1) is part of `tuningDataHash`; its comment says when to bump it. Every Tuning Data hash changed once with it (none is stored in the repo).
+- **Lobby and Skirmish:** a **Random** card after the hand-made Maps (the Kit choice stays hidden while `greybox` is the only Kit). Picking it, or picking it again, rolls a seed (`Math.random`, in the menu, up to 1 000 000 so it is easy to read out); the card shows the seed, and the host has a Seed field to type one in to replay a map. The Lobby's Map setting is just `gen:greybox:<seed>`; the last Map, Random seed included, is remembered for the next Lobby. The menu's label is `Random · seed <n>`.
+- **Every peer builds the Arena from the name:** `startGame` keeps the last few built (`arenaWorld`, so a restart and the scene behind the menus reuse the same copy and its navmesh) and hands its Tuning Data to `playerVsAi` and `createRollbackSession`. The Session hash then covers the Arena too.
+- **Renderer:** given `arenaWorld`, it looks up each Match state's Arena name and passes the Tuning Data and Layout to `Stage.setArena`, so a Random Map is drawn from the greybox Kit model (and a fallen Fighter's ragdoll uses the generated geometry).
+- **Online test** (`src/net/randomMap.test.ts`): two peers, each loading its own Tuning Data and building `gen:greybox:4242` from the name, agree with each other and with the Match stepped offline at every checksum for 600 Ticks (latency and jitter). A peer whose greybox Kit differs is refused, and so is a hello hashed with another `GENERATOR_VERSION`.
+- **Thumbnail:** `public/thumbs/arenas/random.webp`, the usual Arena shot of `gen:greybox:12` from the Kit model. `#/thumbs/<prefix>` now saves only the pictures under that prefix (`#/thumbs/arenas/random`), so the others were not redrawn.
+- **Checked:** `npm test` and `npx tsc --noEmit` green; no hand-made or Generated Arena changed. The soak (`SOAK_DUELS=3`) still gives Stage 3's After column exactly: 150/150 ended, median 26.0 s, longest 67 s, 1.6 s to contact, 0% apart, 6 Abyss deaths, all after a Kick Knockdown. In `npm run dev`: Skirmish → Random → Fight starts a Match on the generated Arena, drawn from `models/kits/greybox.glb`; a two-tab online Room with Random (seed 16962) ran about 2000 Ticks with the host's and guest's checksums equal at every Tick both still held, and no resync.
 
 ## Later
 - **A new Arena every Duel:** needs Match state to carry the Duel's Arena name and the Stage to swap Arenas between Duels. This is the Gauntlet's "different Arena each Floor" question.
