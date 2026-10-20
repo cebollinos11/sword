@@ -189,8 +189,8 @@ No judge rule or generator param changed: nothing in the soak pointed at the Lay
 - **More Kits** (themes).
 - **Larger Pieces** that span several cells (a ship's deck, a train wagon).
 
-## Open questions (settle before Stage 4)
-- **Grid size:** 3 m (matches the library's bands and ramps) or 4 m (more room to fight per cell)?
-- **Heights:** are 0, 3 and 6 m (+0.8 m cover) right? At 3 m, raised floors can be reached by Jump from below (reach is about 4.3 m up). 6 m from the ground is a ramp only, unless climbed by a step via 3 m.
-- **Theme of the first Kit:** reuse the library's look (ruins or stone) or something new?
-- **Open edges:** how much of the edge drops into the Abyss, versus railed or walled? This decides how deadly Kicks and Heavy Blows are near edges.
+## Open questions (settle before Stage 4): all answered
+- **Grid size** (answered): 3 m cells, as `GREYBOX_KIT` has now (matches the library's bands and ramps).
+- **Heights** (answered): 0, 3 and 6 m, plus 0.8 m cover, as `GREYBOX_KIT` has now. A 3 m floor can be reached by Jump from below (reach is about 4.3 m up); 6 m from the ground is by ramp, or by a step via 3 m.
+- **Theme of the first Kit** (answered): none yet. The first Blender Kit is `greybox`: plain grey Pieces, flat greys and tints, no other materials. Stage 4 is about the pipeline (Blender → `.glb` + Kit JSON → Tuning Data → renderer), so a themed Kit later is art only.
+- **Open edges** (answered): keep them mostly open, with rails where the generator places them today. Ring-outs by Kick are part of the game.
