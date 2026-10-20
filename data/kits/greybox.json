@@ -1,0 +1,140 @@
+{
+  "name": "greybox",
+  "cell": 3,
+  "levelHeight": 3,
+  "maxLevels": 3,
+  "pieces": {
+    "floor": {
+      "id": "floor", "cols": 1, "rows": 1, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 0, 3], [0, 0, 3]], "tile": true}
+      ],
+      "walls": [],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 0, "y": 0},
+        {"col": 0, "row": 0, "side": 1, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0},
+        {"col": 0, "row": 0, "side": 3, "y": 0}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 2, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 0}
+      ]
+    },
+    "ramp": {
+      "id": "ramp", "cols": 1, "rows": 2, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 3, 6], [0, 3, 6]]}
+      ],
+      "walls": [],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 0, "y": 0},
+        {"col": 0, "row": 1, "side": 2, "y": 3}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 1.5},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 1.5},
+        {"col": 0, "row": 1, "side": 1, "min": 1.5, "max": 3},
+        {"col": 0, "row": 1, "side": 3, "min": 1.5, "max": 3},
+        {"col": 0, "row": 1, "side": 2, "min": 3, "max": 3}
+      ]
+    },
+    "crate": {
+      "id": "crate", "cols": 1, "rows": 1, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 0, 0.75], [0, 0, 0.75]]},
+        {"points": [[2.25, 0, 0.75], [3, 0, 0.75], [3, 0, 2.25], [2.25, 0, 2.25]]},
+        {"points": [[0, 0, 2.25], [3, 0, 2.25], [3, 0, 3], [0, 0, 3]]},
+        {"points": [[0, 0, 0.75], [0.75, 0, 0.75], [0.75, 0, 2.25], [0, 0, 2.25]]},
+        {"points": [[0.75, 0.8, 0.75], [2.25, 0.8, 0.75], [2.25, 0.8, 2.25], [0.75, 0.8, 2.25]]}
+      ],
+      "walls": [
+        {"a": [0.75, 0.75], "b": [2.25, 0.75], "bottom": 0, "top": 0.8},
+        {"a": [2.25, 0.75], "b": [2.25, 2.25], "bottom": 0, "top": 0.8},
+        {"a": [2.25, 2.25], "b": [0.75, 2.25], "bottom": 0, "top": 0.8},
+        {"a": [0.75, 2.25], "b": [0.75, 0.75], "bottom": 0, "top": 0.8}
+      ],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 0, "y": 0},
+        {"col": 0, "row": 0, "side": 1, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0},
+        {"col": 0, "row": 0, "side": 3, "y": 0}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 2, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 0}
+      ]
+    },
+    "pillar": {
+      "id": "pillar", "cols": 1, "rows": 1, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 0, 1], [0, 0, 1]]},
+        {"points": [[2, 0, 1], [3, 0, 1], [3, 0, 2], [2, 0, 2]]},
+        {"points": [[0, 0, 2], [3, 0, 2], [3, 0, 3], [0, 0, 3]]},
+        {"points": [[0, 0, 1], [1, 0, 1], [1, 0, 2], [0, 0, 2]]}
+      ],
+      "walls": [
+        {"a": [1, 1], "b": [2, 1], "bottom": 0, "top": 4},
+        {"a": [2, 1], "b": [2, 2], "bottom": 0, "top": 4},
+        {"a": [2, 2], "b": [1, 2], "bottom": 0, "top": 4},
+        {"a": [1, 2], "b": [1, 1], "bottom": 0, "top": 4}
+      ],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 0, "y": 0},
+        {"col": 0, "row": 0, "side": 1, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0},
+        {"col": 0, "row": 0, "side": 3, "y": 0}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 2, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 0}
+      ]
+    },
+    "rail": {
+      "id": "rail", "cols": 1, "rows": 1, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 0, 3], [0, 0, 3]], "tile": true}
+      ],
+      "walls": [
+        {"a": [0, 0], "b": [3, 0], "bottom": 0, "top": 1}
+      ],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 1, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0},
+        {"col": 0, "row": 0, "side": 3, "y": 0}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 2, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 0}
+      ]
+    },
+    "bridge": {
+      "id": "bridge", "cols": 1, "rows": 1, "solid": false,
+      "walk": [
+        {"points": [[0.5, 0, 0], [2.5, 0, 0], [2.5, 0, 3], [0.5, 0, 3]]}
+      ],
+      "walls": [],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 0, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0}
+      ],
+      "skirts": []
+    },
+    "void": {
+      "id": "void", "cols": 1, "rows": 1, "solid": false,
+      "walk": [],
+      "walls": [],
+      "connectors": [],
+      "skirts": []
+    }
+  }
+}
