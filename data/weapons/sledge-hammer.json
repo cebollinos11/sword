@@ -1,16 +1,16 @@
 {
   "name": "Sledge Hammer",
   "grip": "twoHanded",
-  "length": 1.25,
+  "length": 0.81,
   "damage": 40,
   "speed": 20,
-  "gripLength": 0.55,
+  "gripLength": 0.79,
   "offHandGrip": {
-    "along": 0.45,
+    "along": 0.41000000000000003,
     "around": 0,
-    "radial": 0
+    "radial": 0.02
   },
-  "head": 0.16,
+  "head": 0.15,
   "shaftDamage": 0.25,
   "blockImpact": {
     "dealt": 1.8,
