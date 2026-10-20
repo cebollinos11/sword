@@ -1,8 +1,8 @@
 /**
  * The navmesh (ADR 0006): the Arena's Walk Surfaces are its polygons, so it
  * needs no data of its own. Surfaces whose edges lie along each other (from
- * above) at heights within a step are joined by a walk Link through the shared
- * stretch. An open ledge (no Wall at its height, lower ground beyond) gets a
+ * above) at heights within a step are joined by a walk Link through each part
+ * of the shared stretch no Wall stands across. An open ledge (no Wall at its height, lower ground beyond) gets a
  * one-way drop Link to the surface below, if the drop costs no more than
  * DROP_DAMAGE_LIMIT of fall damage; its cost counts that damage. A jump Link
  * goes up onto a lid or ledge, or across a gap, onto a Walk Surface the one it
@@ -179,8 +179,6 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
   const maxDrop = safeHeight + DROP_DAMAGE_LIMIT / damagePerMetre;
   const r = tuning.fighter.radius;
   const tol = 1e-3;
-  /** Walk Surfaces whose edges lie along each other at heights within a step, walled between or not. */
-  const touching: [number, number][] = [];
 
   for (let i = 0; i < count; i++) {
     for (const e of edges[i]!) {
@@ -196,14 +194,23 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
           if (u1 - u0 < 2 * r) continue;
           const ends = [at(e, u0), at(e, u1)];
           if (ends.some((v) => Math.abs(surfaceHeight(arena, i, v.x, v.z) - surfaceHeight(arena, j, v.x, v.z)) > stepUp)) continue;
-          touching.push([i, j]);
-          const mid = at(e, (u0 + u1) / 2);
-          const y = surfaceHeight(arena, i, mid.x, mid.z);
-          const inside = { x: mid.x - e.n.x * 0.05, z: mid.z - e.n.z * 0.05 };
-          const beyond = { x: mid.x + e.n.x * (r + PROBE_OUT), z: mid.z + e.n.z * (r + PROBE_OUT) };
-          if (walled(arena, tuning, inside, beyond, y)) continue;
-          const p = portal(e, u0, u1, tuning);
-          if (p) links.push({ kind: 'walk', from: i, to: j, ...p, normal: e.n, drop: 0 });
+          // Probe across the stretch every PROBE_STEP: each run of points with no Wall across is a portal.
+          const runs: { u0: number; u1: number }[] = [];
+          const step = (u1 - u0) / Math.max(1, Math.round((u1 - u0) / PROBE_STEP));
+          for (let u = u0 + step / 2; u < u1; u += step) {
+            const o = at(e, u);
+            const y = surfaceHeight(arena, i, o.x, o.z);
+            const inside = { x: o.x - e.n.x * 0.05, z: o.z - e.n.z * 0.05 };
+            const beyond = { x: o.x + e.n.x * (r + PROBE_OUT), z: o.z + e.n.z * (r + PROBE_OUT) };
+            if (walled(arena, tuning, inside, beyond, y)) continue;
+            const last = runs[runs.length - 1];
+            if (last && last.u1 >= u - step / 2 - 1e-9) last.u1 = Math.min(u1, u + step / 2);
+            else runs.push({ u0: Math.max(u0, u - step / 2), u1: Math.min(u1, u + step / 2) });
+          }
+          for (const run of runs) {
+            const p = portal(e, run.u0, run.u1, tuning);
+            if (p) links.push({ kind: 'walk', from: i, to: j, ...p, normal: e.n, drop: 0 });
+          }
         }
       }
       // Drop Links: probe out over the edge; where there is no ground within a step, but lower ground not too far down, it is a ledge.
@@ -229,7 +236,7 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
       }
     }
   }
-  links.push(...jumpLinks(arena, tuning, edges, links, touching));
+  links.push(...jumpLinks(arena, tuning, edges, links));
   const out: number[][] = Array.from({ length: count }, () => []);
   links.forEach((l, id) => out[l.from]!.push(id));
   return { links, out };
@@ -276,10 +283,9 @@ interface FoundJump extends Attempt {
  * none dealing more than DROP_DAMAGE_LIMIT) is kept for each Walk Surface it reaches, nearest and shortest hold first.
  * A point next to one already found first tries that one's way and hold, running only its own Jump; neighbouring
  * points found the same way make one Link, whose takeoff is the one nearest the run's middle that passes the error
- * check (the first in a run always has). Walk Surfaces that touch along an edge at the same height count as joined
- * even where a Wall stands between them at the midpoint (so no walk Link was made): Jump Links do not stand in for those.
+ * check (the first in a run always has).
  */
-function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (readonly Edge[])[], links: readonly NavLink[], touching: readonly (readonly [number, number])[]): JumpLink[] {
+function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (readonly Edge[])[], links: readonly NavLink[]): JumpLink[] {
   const { stepUp, safeHeight, damagePerMetre } = tuning.fall;
   const maxDown = safeHeight + DROP_DAMAGE_LIMIT / damagePerMetre;
   const full = levelJump(tuning, JUMP_HOLDS[JUMP_HOLDS.length - 1]!);
@@ -287,12 +293,11 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
   const maxUp = full.apex + stepUp;
   const inset = tuning.fighter.radius + MARGIN;
   const allHolds = JUMP_HOLDS.map((_, h) => h);
-  // Walk groups: Walk Surfaces joined by walking (walk Links, either way, or touching).
+  // Walk groups: Walk Surfaces joined by walking (walk Links, either way).
   const group = arena.walk.map((_, k) => k);
   const root = (k: number): number => (group[k] === k ? k : (group[k] = root(group[k]!)));
   const join = (a: number, b: number) => (group[Math.max(root(a), root(b))] = Math.min(root(a), root(b)));
   for (const l of links) if (l.kind === 'walk') join(l.from, l.to);
-  for (const [a, b] of touching) join(a, b);
   // Which walk groups each Walk Surface already gets to, walking and dropping.
   const next = arena.walk.map(() => new Set<number>());
   for (const l of links) if (l.kind === 'drop') next[root(l.from)]!.add(root(l.to));

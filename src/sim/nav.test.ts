@@ -103,6 +103,42 @@ describe('Navmesh', () => {
       expect(Math.abs(c.x - 4)).toBeLessThanOrEqual(ell.fighter.radius + 0.15 + 1e-9);
     }
   });
+
+  it('walks across a shared edge on either side of a Wall that stands across its middle, but not through the Wall', () => {
+    // Two floors sharing x = 0 (z 0..8), and a 1 m crate straddling the edge at z 3.5..4.5.
+    const arena = parseArena(
+      {
+        name: 'crate',
+        walk: [
+          { id: 'WALK_a', points: [[-4, 0, 0], [0, 0, 0], [0, 0, 8], [-4, 0, 8]] },
+          { id: 'WALK_b', points: [[0, 0, 0], [4, 0, 0], [4, 0, 8], [0, 0, 8]] },
+        ],
+        walls: [
+          { id: 'WALL_s', a: [-0.5, 3.5], b: [0.5, 3.5], bottom: 0, top: 1 },
+          { id: 'WALL_e', a: [0.5, 3.5], b: [0.5, 4.5], bottom: 0, top: 1 },
+          { id: 'WALL_n', a: [0.5, 4.5], b: [-0.5, 4.5], bottom: 0, top: 1 },
+          { id: 'WALL_w', a: [-0.5, 4.5], b: [-0.5, 3.5], bottom: 0, top: 1 },
+        ],
+      },
+      'crate',
+    );
+    const t: TuningData = { ...tuning, arenas: { ...tuning.arenas, crate: arena } };
+    const across = navMesh(arena, t).links.filter((l) => l.kind === 'walk' && l.from === 0 && l.to === 1);
+    // One portal on each side of the crate, neither reaching into it.
+    expect(across).toHaveLength(2);
+    const [south, north] = [...across].sort((a, b) => a.left.z + a.right.z - b.left.z - b.right.z);
+    expect(Math.max(south!.left.z, south!.right.z)).toBeLessThan(3.5);
+    expect(Math.min(north!.left.z, north!.right.z)).toBeGreaterThan(4.5);
+    expect(findPath(arena, t, { x: -2, y: 0, z: 6 }, { x: 2, y: 0, z: 6 })).toHaveLength(1);
+  });
+
+  it('joins the train\'s flatcar deck to its left bevel, past the waste drums standing on the edge', () => {
+    const train = tuning.arenas.train!;
+    const at = (name: string) => train.walk.findIndex((s) => s.id === `WALK_${name}`);
+    const { links } = navMesh(train, tuning);
+    expect(links.some((l) => l.kind === 'walk' && l.from === at('flat_deck') && l.to === at('flat_deck_bevel_l'))).toBe(true);
+    expect(links.some((l) => l.kind === 'walk' && l.from === at('flat_deck_bevel_l') && l.to === at('flat_deck'))).toBe(true);
+  });
 });
 
 describe('Jump Links', () => {
