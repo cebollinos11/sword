@@ -9,3 +9,4 @@ export { assembleArena, SPAWNS_PER_TEAM } from './assemble';
 export { DEADLY_RADIUS, DEFAULT_JUDGE_RULES, MIN_SPAWN_GAP, judgeArena, type Judgement, type JudgeRules, type JudgeStats } from './judge';
 export { generateArena, generatedName, MAX_ATTEMPTS, type GeneratedArena } from './generate';
 export { isArenaName, parseGeneratedName, withGeneratedArena } from './named';
+export { GENERATOR_VERSION } from './version';

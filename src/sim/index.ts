@@ -50,6 +50,7 @@ export {
   DEFAULT_JUDGE_RULES,
   generateArena,
   generatedName,
+  GENERATOR_VERSION,
   isArenaName,
   parseGeneratedName,
   withGeneratedArena,

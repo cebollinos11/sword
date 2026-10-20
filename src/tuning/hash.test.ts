@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GENERATOR_VERSION } from '../sim/arenaGen/version';
 import { loadTuningData, tuningDataHash, withWeapon, type TuningData } from './index';
 
 const tuning = loadTuningData();
@@ -30,6 +31,11 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(gait)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(hipBob)).not.toBe(tuningDataHash(tuning));
     expect(tuningDataHash(hipSway)).not.toBe(tuningDataHash(tuning));
+  });
+
+  it('changes with GENERATOR_VERSION, so peers whose generators could build different Layouts refuse each other', () => {
+    expect(tuningDataHash(tuning, GENERATOR_VERSION)).toBe(tuningDataHash(tuning));
+    expect(tuningDataHash(tuning, GENERATOR_VERSION + 1)).not.toBe(tuningDataHash(tuning));
   });
 
   it('ignores the camera (presentation only)', () => {
