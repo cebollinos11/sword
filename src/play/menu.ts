@@ -1,6 +1,7 @@
 import type { TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
 import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { devMode } from '../devMode';
 import { button, h, thumb, thumbImage } from './dom';
 import { arenaLabel, lobbyBody } from './lobbyView';
 import { ensurePlayStyles } from './styles';
@@ -43,8 +44,6 @@ const NAME_STORAGE_KEY = 'sword.name';
 const PS1_STORAGE_KEY = 'sword.ps1';
 const COLLIDERS_STORAGE_KEY = 'sword.colliders';
 
-/** Developer options (the Editor link, the collider view) are only offered with ?dev=1 in the URL. */
-const devMode = (): boolean => new URLSearchParams(location.search).get('dev') === '1';
 
 function stored(key: string): string | null {
   try {
