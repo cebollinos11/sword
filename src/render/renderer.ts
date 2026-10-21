@@ -1,7 +1,8 @@
 import type * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
-import type { Layout, SimState } from '../sim';
+import { arenaOf, type Layout, type SimState } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
+import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
@@ -30,6 +31,7 @@ export class Renderer {
   /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
   readonly impacts: ImpactEffects;
   private readonly daggers: DaggerViews;
+  private readonly shadows = new BlobShadows();
 
   /**
    * `world` gives, for each Arena name a Match is played on, the Tuning Data holding it and its Layout (a Random Map's
@@ -43,6 +45,7 @@ export class Renderer {
     this.stage = new Stage(container, tuning);
     this.impacts = new ImpactEffects(this.stage.scene, tuning);
     this.daggers = new DaggerViews(this.stage.scene);
+    this.stage.scene.add(this.shadows.root);
   }
 
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
@@ -115,6 +118,7 @@ export class Renderer {
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
+    this.shadows.update(poses, arenaOf(world.tuning, curr.arena));
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     this.daggers.update(prev, curr, alpha, seconds, poses);
