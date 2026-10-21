@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import {
   attack,
+  createInitialState,
   fighterPose,
   hashState,
   hitZoneCapsules,
@@ -17,6 +18,7 @@ import {
   runDuel,
   runScript,
   secondsToTicks,
+  SHEATHED_IDLE_MOTION,
   snapshot,
   wait,
   walk,
@@ -523,5 +525,37 @@ describe('Gait: the hips turn with the stride', () => {
     const square = { ...tuning, gait: { ...tuning.gait, hipTwist: 0 } };
     const run = runDuel(square, { ...lone, a: walk(60, { x: 0, z: 1 }), ticks: 60 });
     for (const s of run.states) expect(Math.abs(hipTurn(square, run, s.tick)), `Tick ${s.tick}`).toBeLessThan(1e-9);
+  });
+});
+
+describe('Gait: a Sheathed walk', () => {
+  /** Fighter 0 at the Arena centre facing +z, Sheathed or drawn (Fighter 1 parked far away, facing it). */
+  const sheathedAt = (sheathed: boolean, placements = lone.placements) => {
+    const s = createInitialState(tuning, 1, placements);
+    return { ...s, fighters: [{ ...s.fighters[0]!, sheathed, motion: { name: sheathed ? SHEATHED_IDLE_MOTION : 'Idle', tick: 0 } }, s.fighters[1]!] };
+  };
+  /** Metres per step over a steady full-speed walk forward. */
+  const strideLength = (run: ScriptRun) => {
+    const late = steps(run).filter((e) => e.tick > 40);
+    const [a, b] = [run.states[late[0]!.tick]!.fighters[0]!.position, run.states[late[late.length - 1]!.tick]!.fighters[0]!.position];
+    return Math.hypot(b.x - a.x, b.z - a.z) / (late.length - 1);
+  };
+
+  for (const [name, move] of Object.entries(DIRECTIONS)) {
+    it(`walking ${name} Sheathed (faster), planted feet never slide and the feet step`, () => {
+      const run = runScript(tuning, sheathedAt(true), [walk(60, move)], 60);
+      const at = run.states[60]!.fighters[0]!.position;
+      expect(Math.hypot(at.x, at.z)).toBeCloseTo(60 * (tuning.fighter.walkSpeed / 60) * tuning.fighter.sheathedWalkFactor, 6);
+      expectPlantedFeetFixed(run, 0, 60);
+      expect(steps(run).length).toBeGreaterThan(3);
+    });
+  }
+
+  it('a Sheathed walk keeps the full-speed cadence with strides as much longer as it is faster, and the pelvis sinks only a little more for them', () => {
+    // A clear path forward: Fighter 1 parked off to the side, behind.
+    const open = [{ position: { x: 0, z: -5 }, facing: 0 }, { position: { x: 6, z: -6 }, facing: Math.PI }];
+    const [drawn, sheathed] = [false, true].map((s) => runScript(tuning, sheathedAt(s, open), [walk(100, { x: 0, z: 1 })], 100));
+    expect(strideLength(sheathed!)).toBeCloseTo(strideLength(drawn!) * tuning.fighter.sheathedWalkFactor, 6);
+    for (const s of sheathed!.states) expect(fighterPose(s.fighters[0]!, tuning).joints.pelvis.y, `Tick ${s.tick}`).toBeGreaterThan(homeAnkle(sheathed!, s.tick, 'left').y + 0.7);
   });
 });

@@ -66,7 +66,7 @@ The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter 
 _Avoid_: Transition, tween
 
 **Gait**:
-The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. It is not a Motion: it runs alongside whatever Action is current.
+The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. A faster walk takes longer strides: up to full walk speed it also steps more often, and beyond it (a Sheathed walk) it keeps that cadence and only lengthens its stride. It is not a Motion: it runs alongside whatever Action is current.
 _Avoid_: Walk animation, walk cycle, locomotion
 
 **Tuning Data**:
@@ -164,7 +164,7 @@ The Action that takes a Sheathed Weapon back into the hand, the reverse of a She
 _Avoid_: Unsheathe
 
 **Sheathed**:
-A Fighter whose Weapon is put away in its slot (Fighter state `sheathed`). It walks faster (`fighter.sheathedWalkFactor`, multiplying with Crouch, Slow and a Throw's walk), but a Jump takes off and steers at its drawn walk speed (ADR 0017). It can still Jump, Crouch, Kick and Throw, but cannot Attack or Block, so it has no Blade Sweep, Block or Chamber, and a Knockdown holds no guard. Its sheathed Weapon is render-only: nothing in the Simulation touches it (ADR 0017). Every Duel starts drawn.
+A Fighter whose Weapon is put away in its slot (Fighter state `sheathed`). It walks faster (`fighter.sheathedWalkFactor`, multiplying with Crouch, Slow and a Throw's walk, with longer strides), except during a Sheathe or Draw, and a Jump takes off and steers at its drawn walk speed (ADR 0017). It can still Jump, Crouch, Kick and Throw, but cannot Attack or Block, so it has no Blade Sweep, Block or Chamber, and a Knockdown holds no guard. Its sheathed Weapon is render-only: nothing in the Simulation touches it (ADR 0017). Every Duel starts drawn.
 _Avoid_: Holstered, stowed
 
 **Slow**:

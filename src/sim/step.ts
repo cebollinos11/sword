@@ -108,8 +108,14 @@ const locked = (f: FighterState): boolean => (f.action.kind === 'Stagger' && f.a
 /** The share of its speed a Fighter keeps while a dagger Hit's Slow lasts (1 when it is not slowed). It multiplies with crouch and recoil. */
 const slowFactor = (f: FighterState, tuning: TuningData): number => (f.slow ? tuning.dagger.slowFactor : 1);
 
-/** Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly). */
-function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState['position'] {
+/** Whether the Fighter walks at its Sheathed speed: Sheathed and not in the middle of a Sheathe or Draw, which walk at the drawn speed. */
+const sheathedPace = (f: FighterState): boolean => f.sheathed && f.action.kind !== 'Sheathe' && f.action.kind !== 'Draw';
+
+/**
+ * Where the Fighter's movement Intent takes it this Tick, before collision. A Staggered Fighter cannot act, so it cannot walk (but a recoiling one walks slowly).
+ * A Sheathed Fighter walks `fighter.sheathedWalkFactor` faster, unless `drawnPace` (the walk a Jump takes off with, which is always the drawn one: ADR 0017).
+ */
+function walk(f: FighterState, intent: Intent, tuning: TuningData, drawnPace = false): FighterState['position'] {
   if (locked(f)) return f.position;
   let { x: mx, z: mz } = intent.move;
   const len = Math.hypot(mx, mz);
@@ -118,7 +124,7 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData): FighterState
     mx /= len;
     mz /= len;
   }
-  const speed = slowFactor(f, tuning) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const speed = slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }
@@ -187,7 +193,7 @@ const jumps = (f: FighterState, intent: Intent): boolean =>
 
 /**
  * One Fighter's Action and movement this Tick, before bodies collide. A Jump leaps
- * off the ground with the walk it had (an Idle Fighter Falls, one Attacking or Blocking keeps
+ * off the ground with the walk it had, at its drawn speed even when Sheathed (an Idle Fighter Falls, one Attacking or Blocking keeps
  * at it, and a jumper can Attack or Block mid-air); a Fighter that walked off a ledge and has been
  * airborne for `fall.fallDelay` (or more) Falls, whatever it was doing, unless it is Staggered.
  */
@@ -195,7 +201,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   let air = f.air;
   let update = updateAction(f, intent, { fighter: index, tick, tuning, emit });
   if (jumps(f, intent)) {
-    air = takeOff(f.position, walk(f, intent, tuning), f.y, tuning);
+    air = takeOff(f.position, walk(f, intent, tuning, true), f.y, tuning);
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });

@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type TuningData } from '../tuning';
 import {
+  arenaOf,
   createInitialState,
   createMatch,
   duelPlacements,
   hashState,
   IDLE_INTENT,
+  jumpArc,
   offHandFree,
   restore,
   sheatheTimings,
@@ -35,6 +37,7 @@ const tuning: TuningData = {
       },
       'ledge',
     ),
+    flat: parseArena({ name: 'flat', walk: [{ id: 'WALK_floor', points: [[-20, 0, -20], [20, 0, -20], [20, 0, 40], [-20, 0, 40]] }], walls: [] }, 'flat'),
   },
 };
 
@@ -264,5 +267,77 @@ describe('Sheathe and Draw', () => {
     for (let i = 0; i < 20; i++) mid = tick(mid, { move: { x: 0.3, z: 1 }, sheathe: i === 3 });
     expect(kind(mid)).toBe('Sheathe');
     expect(hashState(script(restore(snapshot(mid)), 20))).toBe(hashState(a));
+  });
+
+  describe('movement', () => {
+    const FORWARD = { x: 0, z: 1 };
+    const DRAWN = tuning.fighter.walkSpeed / 60;
+    /** How far one more Tick of walking forward carries the Fighter. */
+    const stride = (s: SimState, intent: Partial<Intent> = {}): number => me(tick(s, { move: FORWARD, ...intent })).position.z - me(s).position.z;
+    /** A lone Fighter on open, flat ground, Sheathed or drawn, standing Idle. */
+    const standing = (sheathed: boolean, at = { x: 0, z: -10 }): SimState => {
+      const s = createInitialState(tuning, 1, [{ position: at, facing: 0 }], [SWORD], [], 'flat');
+      return { ...s, fighters: [{ ...me(s), sheathed, motion: { name: sheathed ? SHEATHED_IDLE_MOTION : 'Idle', tick: 0 } }] };
+    };
+
+    it('a Sheathed Fighter walks at fighter.sheathedWalkFactor times the drawn speed', () => {
+      expect(tuning.fighter.sheathedWalkFactor).toBeGreaterThan(1);
+      expect(stride(toggle(fresh()).end)).toBeCloseTo(DRAWN * tuning.fighter.sheathedWalkFactor, 12);
+      expect(stride(fresh())).toBeCloseTo(DRAWN, 12);
+    });
+
+    it('the Sheathed speed stacks with Crouch and Slow', () => {
+      const sheathed = toggle(fresh()).end;
+      const crouched = ticks(sheathed, 30, { crouch: true });
+      expect(me(crouched).crouch).toBe(1);
+      expect(stride(crouched, { crouch: true })).toBeCloseTo(DRAWN * tuning.fighter.sheathedWalkFactor * tuning.fighter.crouchWalkFactor, 12);
+      const slowed: SimState = { ...sheathed, fighters: [{ ...me(sheathed), slow: { ticks: 30 } }] };
+      expect(stride(slowed)).toBeCloseTo(DRAWN * tuning.fighter.sheathedWalkFactor * tuning.dagger.slowFactor, 12);
+    });
+
+    it('a Sheathe or a Draw walks at the drawn speed, even once Sheathed', () => {
+      const sheathing = tick(fresh(), { sheathe: true });
+      expect(stride(sheathing)).toBeCloseTo(DRAWN, 12);
+      const { swap, end } = sheatheTimings(tuning, SWORD, 'Sheathe');
+      const pastSwap = ticks(sheathing, swap + 1);
+      expect(me(pastSwap).sheathed).toBe(true);
+      expect(kind(pastSwap)).toBe('Sheathe');
+      expect(stride(pastSwap)).toBeCloseTo(DRAWN, 12);
+      expect(end).toBeGreaterThan(swap + 2);
+      const drawing = tick(toggle(fresh()).end, { sheathe: true });
+      expect(kind(drawing)).toBe('Draw');
+      expect(me(drawing).sheathed).toBe(true);
+      expect(stride(drawing)).toBeCloseTo(DRAWN, 12);
+    });
+
+    for (const hold of [0, 15, 30]) {
+      it(`a Sheathed Jump held ${hold} Ticks, from a run, flies exactly the drawn arc (jumpArc) and lands Sheathed`, () => {
+        /** Run 20 Ticks forward, then Jump holding it `hold` Ticks, walking on until it lands. */
+        const run = (sheathed: boolean) => {
+          let s = ticks(standing(sheathed), 20, { move: FORWARD });
+          const from = me(s);
+          const path: { x: number; z: number; y: number }[] = [];
+          for (let i = 0; i < 300; i++) {
+            s = tick(s, { move: FORWARD, jump: i === 0, jumpHeld: i < hold });
+            path.push({ ...me(s).position, y: me(s).y });
+            if (!me(s).air) break;
+          }
+          return { from, path, end: me(s) };
+        };
+        const sheathed = run(true);
+        const drawn = run(false);
+        // It ran faster before the Jump, but the Jump itself is the drawn one.
+        expect(sheathed.from.position.z - drawn.from.position.z).toBeCloseTo(20 * DRAWN * (tuning.fighter.sheathedWalkFactor - 1), 9);
+        const arc = jumpArc(arenaOf(tuning, 'flat'), tuning, { at: sheathed.from.position, y: 0, heading: FORWARD, holdTicks: hold });
+        expect(sheathed.path).toHaveLength(arc.ticks);
+        sheathed.path.forEach((p, i) => {
+          expect(p.x, `Tick ${i}`).toBeCloseTo(arc.path[i]!.x, 9);
+          expect(p.z, `Tick ${i}`).toBeCloseTo(arc.path[i]!.z, 9);
+          expect(p.y, `Tick ${i}`).toBeCloseTo(arc.path[i]!.y, 9);
+          expect(p.z - sheathed.from.position.z, `Tick ${i}`).toBeCloseTo(drawn.path[i]!.z - drawn.from.position.z, 9);
+        });
+        expect(sheathed.end.sheathed).toBe(true);
+      });
+    }
   });
 });

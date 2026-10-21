@@ -16,7 +16,9 @@
  *     down between steps, while at full speed one foot lifts as the other lands.
  *   - The place a foot belongs is its home led along the body's motion this
  *     Tick: where the home will be half a stance from now if the body keeps
- *     moving (half a step for a turn), at most the max lead ahead. A standing
+ *     moving (half a step for a turn), at most the max lead ahead (above full
+ *     walk speed, as a Sheathed Fighter walks, the max lead grows with the
+ *     speed, so the stride lengthens instead of the cadence rising). A standing
  *     body has no lead. So a walking foot lands as far ahead of its home as
  *     the body then carries it behind before it next lifts.
  *   - A stepping foot moves from where it lifted to where it will belong when
@@ -313,6 +315,12 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
 }
 
 /**
+ * How far (m) a foot may lead its home at this speed (m per Tick): the max lead, grown in step with the speed above
+ * full walk speed (a Sheathed walk), so a faster walk keeps the full-speed cadence and lengthens its stride instead.
+ */
+const maxLead = (speed: number, tuning: TuningData): number => tuning.gait.maxLead * Math.max(1, speed / (tuning.fighter.walkSpeed * TICK_SECONDS));
+
+/**
  * How a steady walk at this Tick's speed is paced: how far the body carries a
  * planted foot over its stance (at most twice the max lead), and how far its
  * home squares up. Footfalls land the stride length × √(speed / walk speed)
@@ -326,7 +334,7 @@ function pace(body: BodyMotion, at: Placement, ticks: number, tuning: TuningData
   const stride = tuning.gait.strideLength * Math.sqrt(Math.min(1, speed / full));
   const stance = 2 * Math.max(ticks, stride / speed) - ticks;
   const forward = Math.abs(toLocal({ x: at.position.x + body.x, z: at.position.z + body.z }, at).z);
-  return { stanceTravel: Math.min(speed * stance, 2 * tuning.gait.maxLead), squareUp: tuning.gait.squareUp * Math.min(1, forward / full) };
+  return { stanceTravel: Math.min(speed * stance, 2 * maxLead(speed, tuning)), squareUp: tuning.gait.squareUp * Math.min(1, forward / full) };
 }
 
 /**
@@ -340,10 +348,10 @@ function ledFootHome(after: FighterState, body: BodyMotion, inTicks: number, lea
   const at = (move: number, turn: number) =>
     footHome(tuning, after.weapon, after.motion, { position: { x: after.position.x + body.x * move, z: after.position.z + body.z * move }, facing: after.facing + body.yaw * turn }, squareUp);
   const [then, future] = [at(inTicks, inTicks), at(ahead, inTicks + turnTicks)];
-  const { maxLead } = tuning.gait;
+  const most = maxLead(speed, tuning);
   const led = (foot: Foot): Vec2 => {
     const d = dist(future[foot], then[foot]);
-    return d <= maxLead ? future[foot] : lerp2(then[foot], future[foot], maxLead / d);
+    return d <= most ? future[foot] : lerp2(then[foot], future[foot], most / d);
   };
   return { left: led('left'), right: led('right') };
 }
