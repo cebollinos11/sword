@@ -11,5 +11,6 @@
   "finalBlowSpeed": 0.3,
   "finalBlowDistance": 3.4,
   "finalBlowHeight": 1.6,
-  "finalBlowSpin": 0.35
+  "finalBlowSpin": 0.35,
+  "shake": 1
 }

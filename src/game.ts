@@ -1,6 +1,7 @@
 import { arenaOf, createMatch, isArenaName, navMesh, nextArenaName, parseGeneratedName, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
+import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
@@ -137,6 +138,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** The slow-motion replay of each Duel's final blow; while it plays, audio and impacts follow it rather than the live Match. */
   const finalBlow = new FinalBlowShot(tuning.camera);
   let inShot = false;
+  /** Jolts the player's camera on the Hits, Knockdowns and hurting Landings of the live Match (never during the Final Blow Shot). */
+  const shake = new CameraShake();
 
   /** The Lobby the player is in (a Skirmish's, or a Room's), if any. */
   let lobby: Lobby | null = null;
@@ -405,6 +408,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // An online Match has no state until the peers connect; its first state then sounds.
       audio.seek(start ? start.tick - 1 : -1);
       renderer.impacts.seek(start?.tick ?? 0);
+      shake.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;
         present(start, d.localFighter);
@@ -481,6 +485,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     audio.setSpeed(1);
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
+    shake.seek(curr.tick);
   }
 
   function aimAtDuelStart(match: MatchState): void {
@@ -585,10 +590,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         audio.seek(finalBlow.startTick!);
         audio.setSpeed(tuning.camera.finalBlowSpeed);
         renderer.impacts.seek(finalBlow.startTick!);
+        shake.seek(curr.tick);
       }
       if (!inShot) {
         audio.onMatchTick(curr);
         renderer.impacts.onTick(curr.tick, curr.duel);
+        shake.onTick(curr.tick, curr.duel.events, d.localFighter);
       }
       present(curr, d.localFighter);
       setPlayed(curr.arena);
@@ -632,6 +639,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
           placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
         else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+        shake.update(frozen ? 0 : elapsed);
+        shake.apply(renderer.camera, tuning.camera.shake);
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;

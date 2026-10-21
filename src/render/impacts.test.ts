@@ -21,6 +21,11 @@ describe('impactBursts', () => {
     expect(bursts.map((b) => b.kind)).toEqual(['Block']);
     expect(bursts[0]!.point.y).toBeGreaterThan(1);
   });
+
+  it('a Heavy Blow bursts bigger than a plain Hit', () => {
+    const run = runDuel(tuning, { distance: 1.4, weapons: ['Sledge Hammer', 'Arming Sword'], a: attack('Overhead'), b: [] });
+    expect(run.states.flatMap((s) => impactBursts(s, tuning)).map((b) => b.kind)).toEqual(['Heavy']);
+  });
 });
 
 describe('impactBursts for daggers', () => {

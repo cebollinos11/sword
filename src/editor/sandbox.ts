@@ -45,6 +45,7 @@ import {
 import { weaponByName, type HitZone, type TuningData } from '../tuning';
 import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
+import { CameraShake } from '../render/cameraShake';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
@@ -390,10 +391,13 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   // Sounds and impact effects play for Ticks reached by playing or stepping; scrubbing and restarting are silent.
   const audio = createBrowserAudio();
   const impacts = new ImpactEffects(stage.scene, tuning);
+  // Only a live run's third-person camera shakes, on your Fighter (red); the orbit camera stays still.
+  const shake = new CameraShake();
   let heard = ui.tick;
   const hear = (t: number) => {
     audio.onTick(t, run.duel(t).events, run.duel(t));
     impacts.onTick(t, run.duel(t));
+    shake.onTick(t, run.duel(t).events, 0);
     heard = t;
   };
   pane.addBinding(audio, 'muted', { label: 'mute sound' });
@@ -615,6 +619,7 @@ saved ${file} (${result})`),
     if (ui.tick !== heard) {
       audio.seek(ui.tick);
       impacts.seek(ui.tick);
+      shake.seek(ui.tick);
       heard = ui.tick;
     }
     const t = ui.tick;
@@ -640,6 +645,7 @@ saved ${file} (${result})`),
       const l = (u: number, v: number) => u + (v - u) * alpha;
       const at = { x: l(g.position.x, f.position.x), y: l(g.y, f.y), z: l(g.position.z, f.position.z) };
       placeThirdPersonCamera(stage.camera, session.tuning.camera, at, run.local.yaw, run.local.pitch, stage.collider);
+      shake.apply(stage.camera, session.tuning.camera.shake);
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {
@@ -698,7 +704,9 @@ saved ${file} (${result})`),
 
     if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
-    impacts.update(ui.playing ? ((now - drawn) / 1000) * ui.speed : 0);
+    const seconds = ui.playing ? ((now - drawn) / 1000) * ui.speed : 0;
+    impacts.update(seconds);
+    shake.update(seconds);
     drawn = now;
     stage.draw();
     requestAnimationFrame(frame);
