@@ -8,6 +8,7 @@ import { DaggerViews } from './daggerView';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
+import { SwingTrails } from './swingTrail';
 
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
 export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
@@ -32,6 +33,7 @@ export class Renderer {
   readonly impacts: ImpactEffects;
   private readonly daggers: DaggerViews;
   private readonly shadows = new BlobShadows();
+  private readonly trails: SwingTrails;
 
   /**
    * `world` gives, for each Arena name a Match is played on, the Tuning Data holding it and its Layout (a Random Map's
@@ -45,6 +47,7 @@ export class Renderer {
     this.stage = new Stage(container, tuning);
     this.impacts = new ImpactEffects(this.stage.scene, tuning);
     this.daggers = new DaggerViews(this.stage.scene);
+    this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
   }
 
@@ -123,6 +126,7 @@ export class Renderer {
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     this.daggers.update(prev, curr, alpha, seconds, poses);
     this.impacts.update(seconds);
+    this.trails.update(prev, curr, poses.map((p) => p.blade), seconds);
     this.lastDraw = now;
     this.stage.draw();
   }
