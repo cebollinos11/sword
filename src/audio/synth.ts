@@ -10,6 +10,7 @@
  *  - Knockdown, BodyFall, Land: bodies and feet on the Arena's floor (wood, stone, metal, snow);
  *  - Death: a deep, final boom and a body falling; a hiss in Lava; a splash in Water;
  *  - Throw, Clink, Thunk: a spinning dagger, a dagger turned aside, a dagger stuck;
+ *  - Sheathe, Draw: steel sliding into its slot and seating, and sliding out brighter with a ring;
  *  - WallStrike: a blade knocking on a Wall and ringing;
  *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
  * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
@@ -21,9 +22,11 @@ import type {
   BlockCue,
   BodyFallCue,
   DeathCue,
+  DrawCue,
   DuelStartCue,
   HitCue,
   LandCue,
+  SheatheCue,
   SoundCue,
   Surface,
   SwingCue,
@@ -163,6 +166,10 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.death(cue);
       case 'Throw':
         return this.throwDagger();
+      case 'Sheathe':
+        return this.sheathe(cue);
+      case 'Draw':
+        return this.draw(cue);
       case 'Clink':
         return this.clink();
       case 'Thunk':
@@ -412,6 +419,29 @@ export class WebAudioPlayer implements SoundPlayer {
   private feint(): void {
     const out = this.bus(0.05, 1);
     this.hiss(out, { filter: 'bandpass', freq: 900 * vary(0.1), to: 500, q: 1.5, dur: 0.09, peak: 0.6, attack: 0.02 });
+  }
+
+  private sheathe(cue: SheatheCue): void {
+    const w = cue.weight;
+    const p = (1 - 0.3 * w) * vary(0.06);
+    const dur = 0.2 + 0.08 * w;
+    const out = this.bus(0.15, 0.7);
+    // Steel sliding in: a narrow scrape falling as the blade goes home.
+    this.hiss(out, { filter: 'bandpass', freq: 4200 * p, to: 2200 * p, q: 8, dur, peak: 0.4, attack: 0.03, flutter: 40 });
+    // Seated: a soft knock and a short, damped ring.
+    this.tone(out, { freq: 180 * p, to: 90, at: dur * 0.9, dur: 0.08, peak: 0.35, attack: 0.002 });
+    this.ring(out, { base: 1100 * p, partials: STEEL.slice(0, 2), at: dur * 0.9, peak: 0.05, decay: 0.25 });
+  }
+
+  private draw(cue: DrawCue): void {
+    const w = cue.weight;
+    const p = (1 - 0.3 * w) * vary(0.06);
+    const dur = 0.24 + 0.08 * w;
+    const out = this.bus(0.25, 0.8);
+    // Steel sliding out: a scrape rising and brightening as the blade clears the slot.
+    this.hiss(out, { filter: 'bandpass', freq: 2600 * p, to: 7000 * p, q: 7, dur, peak: 0.45, attack: dur * 0.6, flutter: 45 });
+    // Clear of it: the blade rings on.
+    this.ring(out, { base: 1500 * p, partials: STEEL, at: dur * 0.85, peak: 0.07, decay: 0.9, attack: 0.008 });
   }
 
   private wallStrike(cue: WallStrikeCue): void {

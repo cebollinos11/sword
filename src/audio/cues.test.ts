@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon } from '../tuning';
-import { attack, createInitialState, duelPlacements, hold, runDuel } from '../sim';
-import { arenaSurface, matchCues, soundCues } from './cues';
+import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, type Intent, type SimState } from '../sim';
+import { arenaSurface, matchCues, soundCues, type SoundCue } from './cues';
 
 const tuning = loadTuningData();
 
@@ -177,5 +177,48 @@ describe('Dagger sounds', () => {
     };
     expect(strength(10)).toBeGreaterThanOrEqual(strength(5));
     expect(strength(500)).toBe(1);
+  });
+});
+
+describe('Sheathe and Draw sounds', () => {
+  const step1 = (s: SimState, intent: Partial<Intent> = {}) => step(s, [{ ...IDLE_INTENT, ...intent }], tuning);
+  /** Every cue of a Fighter who Sheathes, waits, then Draws (by pressing Attack). */
+  const sheatheThenDraw = (weapon: string) => {
+    let s = createInitialState(tuning, 1, undefined, [weapon]);
+    const cues: SoundCue[] = [];
+    const run = (n: number, intent: Partial<Intent> = {}) => {
+      for (let i = 0; i < n; i++) {
+        s = step1(s, i === 0 ? intent : {});
+        cues.push(...soundCues(s.events, s));
+      }
+    };
+    run(120, { sheathe: true });
+    expect(s.fighters[0]!.sheathed).toBe(true);
+    run(120, { attack: true, direction: 'Overhead' });
+    expect(s.fighters[0]!.sheathed).toBe(false);
+    return cues;
+  };
+
+  it('the Weapon sliding into its slot and out again each sound once, on the swap', () => {
+    const cues = sheatheThenDraw('Arming Sword');
+    expect(cues).toEqual([
+      { sound: 'Sheathe', fighter: 0, weight: expect.any(Number) },
+      { sound: 'Draw', fighter: 0, weight: expect.any(Number) },
+    ]);
+  });
+
+  it('a heavier Weapon slides heavier', () => {
+    const weight = (weapon: string) => {
+      const c = sheatheThenDraw(weapon)[0]!;
+      return c.sound === 'Sheathe' ? c.weight : NaN;
+    };
+    expect(weight('Halberd')).toBeGreaterThan(weight('Arming Sword'));
+  });
+
+  it('the Sheathed and Drawn events map to their cues', () => {
+    expect(soundCues([{ type: 'Sheathed', fighter: 1 }, { type: 'Drawn', fighter: 0 }])).toEqual([
+      { sound: 'Sheathe', fighter: 1, weight: 0.3 },
+      { sound: 'Draw', fighter: 0, weight: 0.3 },
+    ]);
   });
 });

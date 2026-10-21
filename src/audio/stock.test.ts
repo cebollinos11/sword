@@ -24,6 +24,8 @@ describe('stockFor', () => {
 
   it('cues with no fitting clip stay synthesised', () => {
     expect(stockFor({ sound: 'Feint', fighter: 0 })).toBeNull();
+    expect(stockFor({ sound: 'Sheathe', fighter: 0, weight: 0 })).toBeNull();
+    expect(stockFor({ sound: 'Draw', fighter: 0, weight: 0 })).toBeNull();
     expect(stockFor({ sound: 'DuelStart', duelNumber: 1 })).toBeNull();
     expect(stockFor({ sound: 'Death', fighter: 0, cause: 'Water' })).toBeNull();
   });

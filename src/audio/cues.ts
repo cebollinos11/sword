@@ -99,6 +99,23 @@ export interface ThrowCue {
   readonly fighter: number;
 }
 
+/**
+ * A Sheathe reached its swap: steel sliding into its slot, ending in a soft seat. `weight` is the Weapon's
+ * (0 light … 1 heavy), as for a Swing.
+ */
+export interface SheatheCue {
+  readonly sound: 'Sheathe';
+  readonly fighter: number;
+  readonly weight: number;
+}
+
+/** A Draw reached its swap: steel sliding out of its slot, brighter than a Sheathe, ending in a ring. */
+export interface DrawCue {
+  readonly sound: 'Draw';
+  readonly fighter: number;
+  readonly weight: number;
+}
+
 /** A thrown dagger was Blocked by rule: a light clink. */
 export interface ClinkCue {
   readonly sound: 'Clink';
@@ -150,6 +167,8 @@ export type SoundCue =
   | LandCue
   | DeathCue
   | ThrowCue
+  | SheatheCue
+  | DrawCue
   | ClinkCue
   | ThunkCue
   | WallStrikeCue
@@ -258,6 +277,12 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
         break;
       case 'Land':
         if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: clamp(e.height / FULL_STRENGTH_DROP, 0.15, 1), surface });
+        break;
+      case 'Sheathed':
+        cues.push({ sound: 'Sheathe', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)) });
+        break;
+      case 'Drawn':
+        cues.push({ sound: 'Draw', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)) });
         break;
       case 'DuelEnd':
         cues.push({ sound: 'DuelEnd', winner: e.winner });

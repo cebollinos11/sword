@@ -133,6 +133,11 @@ depending on the Weapon.
 **Where:** `src/sim/events.ts`, `src/audio/cues.ts`, `src/audio/stock.ts`/`synth.ts`.
 - Events `Sheathed { fighter }` and `Drawn { fighter }` (emitted in Stage 2) map to `Sheathe` / `Draw` cues: a short metallic
   slide, with Draw brighter. Add tests in `cues.test.ts`.
+- _As built:_ `SheatheCue`/`DrawCue` carry the Fighter and the Weapon's `weight` (as a Swing does, from the blade's length, which the
+  hand pose still solves while Sheathed), so a heavier Weapon slides lower and longer. Both are synthesised (`synth.ts`: a narrow scrape
+  falling into a soft knock for a Sheathe; rising, brighter and ending in a steel ring for a Draw); no stock clip fits, so `stockFor`
+  leaves them synthesised. `cues.test.ts` drives a real Sheathe then an Attack-pressed Draw and checks each sounds exactly once.
+  `stock.ts` and `events.ts` needed nothing else.
 
 ## Stage 7: AI
 **Where:** `src/controllers/ai.ts`, `src/controllers/ai.test.ts`.
