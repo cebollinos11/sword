@@ -96,7 +96,7 @@ _Avoid_: Session (on its own), netcode, connection
 ## Combat
 
 **Action**:
-What a Fighter is doing right now: Idle, Attack, Block, Kick, Throw, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
+What a Fighter is doing right now: Idle, Attack, Block, Kick, Throw, Sheathe, Draw, Stagger, Knockdown, or Fall. A Fighter has exactly one Action at a time.
 _Avoid_: State, move, animation
 
 **Wind-up**:
@@ -155,12 +155,24 @@ _Avoid_: Knife, projectile, shuriken
 An Action (E key) in which the Fighter takes a Throwing Dagger by its point in its off hand, draws it back behind its head and throws it, the dagger spinning end over end. It follows an Attack's phases (Wind-up, Release, Recovery): the Wind-up takes 0.8 s to reach its held pose and, like an Attack's, holds there while E is held, for up to 2 s, after which the dagger goes by itself. The dagger shows in the hand from the start of the Wind-up, so the opponent can see a throw coming, and leaves it on the first Tick of Release; the whole Throw lasts about 1.25 s unheld. The Fighter can still walk, turn and crouch, but cannot Attack, Block, Kick, Feint or cancel. It starts from Idle, with a dagger left, on the ground or in a Jump. With a two-handed Weapon the off hand lets go of the Off-hand Grip during the Throw.
 _Avoid_: Shot, toss
 
+**Sheathe**:
+An Action (R key, or the Sheathe pad) in which the Fighter puts its Weapon away in its Weapon's slot, on the hip or on the back, leaving it Sheathed. It starts from Idle, on the ground, on the run or in a Jump, and is committed: the Fighter walks (at its drawn speed), turns and crouches, but cannot Jump, Kick, Throw, Attack or Block until it ends. The Weapon changes from hand to slot at the Motion's `swap` marker, and that is the moment the Fighter becomes Sheathed: a Stagger or Knockdown before it leaves the Weapon drawn, one after it leaves it Sheathed. It lasts 0.7 s for a hip slot and 1.0 s for a back slot, and carries on through a ledge Fall and a soft Landing.
+_Avoid_: Holster, stow
+
+**Draw**:
+The Action that takes a Sheathed Weapon back into the hand, the reverse of a Sheathe, with the same timing, rules and `swap` marker (the Fighter stops being Sheathed there). R starts it, and so does pressing Attack or Block while Sheathed: there is no quick-draw Attack, the Draw plays in full first. It ends on the Guard.
+_Avoid_: Unsheathe
+
+**Sheathed**:
+A Fighter whose Weapon is put away in its slot (Fighter state `sheathed`). It walks faster (`fighter.sheathedWalkFactor`, multiplying with Crouch, Slow and a Throw's walk), but a Jump takes off and steers at its drawn walk speed (ADR 0017). It can still Jump, Crouch, Kick and Throw, but cannot Attack or Block, so it has no Blade Sweep, Block or Chamber, and a Knockdown holds no guard. Its sheathed Weapon is render-only: nothing in the Simulation touches it (ADR 0017). Every Duel starts drawn.
+_Avoid_: Holstered, stowed
+
 **Slow**:
 The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in the air) at 0.6× speed. A new dagger Hit restarts the timer at the same strength; it does not stack. It multiplies with crouch and recoil, and does not slow turning, Jumps, Slides or Motions.
 _Avoid_: Debuff, snare, root
 
 **Knockdown**:
-The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, of a Heavy Blow that Hits, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, of a Heavy Blow that Hits, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block (unless Sheathed: it then holds no guard) but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
 
 **Get-up**:
@@ -184,7 +196,7 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any) and its Tempo. No shields.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed. No shields.
 
 **Weapon roster**:
 Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
@@ -214,7 +226,7 @@ How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
-A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon. Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
+A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays on the body). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:
@@ -269,7 +281,7 @@ The Pieces a seed places on the grid (each with its cell, level and quarter turn
 _Avoid_: Map (the Lobby's pick of Arena), level
 
 **Jump**:
-A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it. It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
+A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it, at its drawn walk speed even when Sheathed (ADR 0017). It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 
 **Crouch**:
 Holding C (not Ctrl, which browsers keep for Ctrl+W) lowers the Fighter's hips and hands by `fighter.crouchDepth`, easing at `fighter.crouchSpeed`, with its feet planted. Not an Action: it combines with Attack, Block and Jump, and while crouched a Fighter walks at `fighter.crouchWalkFactor` of its speed. Lowered hips and hands mean lowered Hit Zones and blows.
