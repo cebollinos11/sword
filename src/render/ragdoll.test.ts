@@ -67,6 +67,21 @@ describe('Death Ragdoll', () => {
         }
   });
 
+  it('stays down once it has fallen, never bouncing back up or floating off the floor', () => {
+    const height = (p: SkeletonPose) => Object.values(p.joints).reduce((s, j) => s + j.y, 0) / Object.values(p.joints).length;
+    // Falls that once had a knee or elbow fight the floor and lift the body up to 2 m off it.
+    for (const [direction, from, bladeSpeed, sheathed] of [
+      ['Overhead', { x: -1, z: 0.5 }, 20, false],
+      ['Overhead', { x: 0, z: -1 }, 10, false],
+      ['Left', { x: -1, z: 0.5 }, 10, false],
+      ['Left', { x: 1, z: 1 }, 10, false],
+      ['Right', { x: 1, z: 0 }, 20, false],
+    ] as const) {
+      const blow: Death = { ...death, blow: { ...death.blow!, direction, from, bladeSpeed } };
+      for (let t = 1.2; t <= 3; t += 1 / 30) expect(height(ragdollPose(pose, blow, t, weapon, tuning, undefined, sheathed)), `${direction} from ${from.x},${from.z} at ${t.toFixed(2)}s`).toBeLessThan(0.35);
+    }
+  });
+
   it('lets go of the Weapon, which keeps its length and falls on its own', () => {
     const lying = ragdollPose(pose, death, 3, weapon, tuning);
     expect(d(lying.blade.hilt, lying.blade.tip)).toBeCloseTo(d(pose.blade.hilt, pose.blade.tip), 1);

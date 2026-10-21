@@ -244,7 +244,7 @@ function satisfy(p: Float64Array, cs: readonly Constraint[], radius: Float64Arra
       p[3 * b + 2] = p[3 * b + 2]! - dz * f;
     }
     const body = torso(p);
-    for (const [j, a, b, bend, swing, least] of HINGES) hinge(p, J[j], J[a], J[b], bend(body, sub(p, J[a], J[b])), swing, least);
+    for (const [j, a, b, bend, swing, least] of HINGES) hinge(p, radius, floor, J[j], J[a], J[b], bend(body, sub(p, J[a], J[b])), swing, least);
     for (const [hip, knee, out] of [[J.leftHip, J.leftKnee, 1], [J.rightHip, J.rightKnee, -1]] as const) {
       const thigh = dist(p, hip, knee);
       limit(p, knee, hip, body.forward, -HIP_BACK * thigh);
@@ -272,7 +272,7 @@ function torso(p: Float64Array): Torso {
 }
 
 /** Keep joint `j` off the line from `a` to `b` toward `bend`, within `swing` radians of it and at least `least` off the line. */
-function hinge(p: Float64Array, j: number, a: number, b: number, bend: Vec3, swing: number, least: number): void {
+function hinge(p: Float64Array, radius: Float64Array, floor: Float64Array, j: number, a: number, b: number, bend: Vec3, swing: number, least: number): void {
   const chain = sub(p, a, b);
   const length = Math.hypot(chain.x, chain.y, chain.z);
   if (length < 1e-9) return;
@@ -293,9 +293,25 @@ function hinge(p: Float64Array, j: number, a: number, b: number, bend: Vec3, swi
   const want = { x: (front.x * Math.cos(turn) + side.x * Math.sin(turn)) * reach, y: (front.y * Math.cos(turn) + side.y * Math.sin(turn)) * reach, z: (front.z * Math.cos(turn) + side.z * Math.sin(turn)) * reach };
   // The joint moves two thirds of the way and its neighbours the rest, so the limb as a whole keeps its momentum.
   const move = { x: want.x - off.x, y: want.y - off.y, z: want.z - off.z };
-  nudge(p, j, move, 2 / 3);
-  nudge(p, a, move, -1 / 3);
-  nudge(p, b, move, -1 / 3);
+  const ids = [j, a, b];
+  const share = [2 / 3, -1 / 3, -1 / 3];
+  // Nothing is pushed down through its floor; and since the floor would push it straight back up, the rest give up
+  // as much of their rise, so the limb never shoves itself off the ground (a knee bending toward the floor it lies on
+  // would otherwise lever the hip and ankle up a little every step, and the body would float away).
+  const dy = ids.map((i, n) => {
+    const y = share[n]! * move.y;
+    return y >= 0 ? y : Math.max(y, Math.min(0, floor[i]! + radius[i]! - p[3 * i + 1]!));
+  });
+  const net = dy.reduce((s, y) => s + y, 0);
+  if (net > 0) {
+    const rise = dy.reduce((s, y) => s + Math.max(0, y), 0);
+    for (let n = 0; n < 3; n++) if (dy[n]! > 0) dy[n] = dy[n]! * (1 - net / rise);
+  }
+  ids.forEach((i, n) => {
+    p[3 * i] = p[3 * i]! + move.x * share[n]!;
+    p[3 * i + 1] = p[3 * i + 1]! + dy[n]!;
+    p[3 * i + 2] = p[3 * i + 2]! + move.z * share[n]!;
+  });
 }
 
 /** Keep joint `j` at least `least` from `root` along `dir` (a unit vector), splitting the correction between them. */
@@ -335,6 +351,8 @@ interface Fall {
   readonly cs: Constraint[];
   readonly radius: Float64Array;
   readonly floor: Float64Array;
+  /** The least energy (kinetic and potential, per unit mass of each particle) the fall has had so far: it may never have more. */
+  energy: number;
   steps: number;
   drawn: SkeletonPose | null;
 }
@@ -350,7 +368,7 @@ function fallFor(pose: SkeletonPose, death: Death, weapon: WeaponTuning, tuning:
   const cached = falls.get(key);
   if (cached && cached.weapon === weapon && cached.tuning === tuning && cached.arena === arena && cached.steps <= steps) return cached;
   const { pos, prev } = start(pose, death, weapon, sheathed);
-  const fall: Fall = { key, weapon, tuning, arena, pos, prev, cs: constraints(pos, sheathed), radius: radii(tuning), floor: new Float64Array(COUNT), steps: 0, drawn: null };
+  const fall: Fall = { key, weapon, tuning, arena, pos, prev, cs: constraints(pos, sheathed), radius: radii(tuning), floor: new Float64Array(COUNT), energy: Infinity, steps: 0, drawn: null };
   falls.delete(key);
   falls.set(key, fall);
   if (falls.size > MAX_FALLS) falls.delete(falls.keys().next().value!);
@@ -374,7 +392,28 @@ function advance(f: Fall, steps: number, arena: ArenaGeometry | undefined): void
       }
     }
     satisfy(pos, cs, radius, floor);
+    f.energy = spend(pos, prev, f.energy);
   }
+}
+
+/**
+ * Keep the fall from gaining energy. The constraints set the body right by moving its particles, and Verlet keeps
+ * every such move as speed; when they fight each other (a knee flipped to the wrong side, a limb jammed against the
+ * floor) the body would pick up speed from nowhere and tumble or rise off the ground. So whenever it has more energy
+ * than it has had before, it is slowed down to that. Returns the new least energy.
+ */
+function spend(pos: Float64Array, prev: Float64Array, most: number): number {
+  let kinetic = 0;
+  let potential = 0;
+  for (let i = 0; i < COUNT; i++) {
+    const o = 3 * i;
+    kinetic += 0.5 * ((pos[o]! - prev[o]!) ** 2 + (pos[o + 1]! - prev[o + 1]!) ** 2 + (pos[o + 2]! - prev[o + 2]!) ** 2) / (STEP * STEP);
+    potential += GRAVITY * pos[o + 1]!;
+  }
+  if (kinetic + potential <= most) return kinetic + potential;
+  const keep = kinetic > 0 ? Math.sqrt(Math.max(0, most - potential) / kinetic) : 0;
+  for (let i = 0; i < 3 * COUNT; i++) prev[i] = pos[i]! - (pos[i]! - prev[i]!) * keep;
+  return most;
 }
 
 /** The Skeleton and Weapon the particles at `pos` make up. */
