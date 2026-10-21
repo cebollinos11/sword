@@ -6,6 +6,7 @@ import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { abyss, greybox, isGreybox } from './greybox';
 import { kitPlacements, type KitPlacement } from './kitPlacement';
+import { sky, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -39,6 +40,8 @@ interface ArenaLook {
   readonly lamps: readonly Lamp[];
   /** Snow falling round the camera, if any. */
   readonly snow?: SnowfallLook;
+  /** A space sky round the camera, if any (drawn behind everything, unfogged). */
+  readonly sky?: SkyLook;
   /** Parts of the model drawn without fog (a sky dome), by node name. */
   readonly unfogged?: readonly string[];
   /** The world sliding past a still Arena (a moving train's surroundings). */
@@ -148,12 +151,13 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
  * of these Kits is drawn as its Layout's Pieces. Generated Arenas of other Kits are drawn as a greybox.
  */
 const KIT_LOOKS: Readonly<Record<string, ArenaLook>> = {
-  // Plain grey Pieces under a flat studio light, over a dark Abyss in grey haze.
+  // Plain grey Pieces adrift in mystic space: violet starlight, a cyan rim, and a heavy nebula mist that swallows the far Pieces and the Abyss.
   greybox: {
-    lights: () => [new THREE.HemisphereLight(0xffffff, 0x445066, 1.25), directional(0xffffff, 1.35, 6, 12, -4), directional(0xb8c4d8, 0.4, -8, 6, 9)],
-    background: 0x2a2d33,
-    fog: { color: 0x2a2d33, near: 40, far: 120 },
+    lights: () => [new THREE.HemisphereLight(0xc8b8ff, 0x3a2a60, 1.2), directional(0xe6d8ff, 1.2, 6, 12, -4), directional(0x6fd8e0, 0.55, -8, 6, 9)],
+    background: 0x2a1f4a,
+    fog: { color: 0x2a1f4a, near: 5, far: 34 },
     lamps: [],
+    sky: { deep: 0x2b0f5c, glow: 0xa8328c, highlight: 0x5fe0d8, horizon: 0x2a1f4a },
   },
 };
 
@@ -402,6 +406,7 @@ function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3
 function modelled(name: string, look: ArenaLook, current: () => boolean): Setting {
   const root = new THREE.Group();
   root.add(...look.lights());
+  if (look.sky) root.add(sky(look.sky));
   if (look.snow) root.add(snowfall(look.snow));
   let bands: ScrollBand[] = [];
   // The model is shared by every Match in its Arena, so the see-through setting is applied to it whenever it is shown.
@@ -482,10 +487,11 @@ function kitInstances(model: THREE.Object3D, placements: readonly KitPlacement[]
   return group;
 }
 
-/** A Generated Arena drawn from its Kit's model: the Kit's lights and air (`look`), the Abyss, and each placed Piece once the model has loaded. */
+/** A Generated Arena drawn from its Kit's model: the Kit's lights, air and sky (`look`), the Abyss, and each placed Piece once the model has loaded. */
 function kitted(kit: Kit, layout: Layout, look: ArenaLook, arena: ArenaGeometry, current: () => boolean): Setting {
   const root = new THREE.Group();
   root.add(...look.lights());
+  if (look.sky) root.add(sky(look.sky));
   const pit = abyss(arena);
   if (pit) root.add(pit);
   let clear = false;
