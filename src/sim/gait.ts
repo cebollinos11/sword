@@ -18,7 +18,8 @@
  *     Tick: where the home will be half a stance from now if the body keeps
  *     moving (half a step for a turn), at most the max lead ahead (above full
  *     walk speed, as a Sheathed Fighter walks, the max lead grows with the
- *     speed, so the stride lengthens instead of the cadence rising). A standing
+ *     square root of the speed, so the stride lengthens and the cadence rises
+ *     a little, keeping the hips from sinking into a lunge). A standing
  *     body has no lead. So a walking foot lands as far ahead of its home as
  *     the body then carries it behind before it next lifts.
  *   - A stepping foot moves from where it lifted to where it will belong when
@@ -315,10 +316,11 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
 }
 
 /**
- * How far (m) a foot may lead its home at this speed (m per Tick): the max lead, grown in step with the speed above
- * full walk speed (a Sheathed walk), so a faster walk keeps the full-speed cadence and lengthens its stride instead.
+ * How far (m) a foot may lead its home at this speed (m per Tick): the max lead, grown with the square root of the speed above
+ * full walk speed (a Sheathed walk), so a faster walk lengthens its stride and steps a little more often, rather than only taking
+ * strides so long the hips sink into a lunge.
  */
-const maxLead = (speed: number, tuning: TuningData): number => tuning.gait.maxLead * Math.max(1, speed / (tuning.fighter.walkSpeed * TICK_SECONDS));
+const maxLead = (speed: number, tuning: TuningData): number => tuning.gait.maxLead * Math.sqrt(Math.max(1, speed / (tuning.fighter.walkSpeed * TICK_SECONDS)));
 
 /**
  * How a steady walk at this Tick's speed is paced: how far the body carries a

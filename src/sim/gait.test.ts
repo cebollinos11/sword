@@ -551,11 +551,13 @@ describe('Gait: a Sheathed walk', () => {
     });
   }
 
-  it('a Sheathed walk keeps the full-speed cadence with strides as much longer as it is faster, and the pelvis sinks only a little more for them', () => {
+  it('a Sheathed walk takes longer strides and steps a little more often, and the pelvis sinks only a little more for them', () => {
     // A clear path forward: Fighter 1 parked off to the side, behind.
     const open = [{ position: { x: 0, z: -5 }, facing: 0 }, { position: { x: 6, z: -6 }, facing: Math.PI }];
     const [drawn, sheathed] = [false, true].map((s) => runScript(tuning, sheathedAt(s, open), [walk(100, { x: 0, z: 1 })], 100));
-    expect(strideLength(sheathed!)).toBeCloseTo(strideLength(drawn!) * tuning.fighter.sheathedWalkFactor, 6);
-    for (const s of sheathed!.states) expect(fighterPose(s.fighters[0]!, tuning).joints.pelvis.y, `Tick ${s.tick}`).toBeGreaterThan(homeAnkle(sheathed!, s.tick, 'left').y + 0.7);
+    // The lead grows with √speed: strides about √1.6 longer than at full walk speed, short of 1.6 times (which would hold the cadence).
+    expect(strideLength(sheathed!)).toBeGreaterThan(strideLength(drawn!) * Math.sqrt(tuning.fighter.sheathedWalkFactor));
+    expect(strideLength(sheathed!)).toBeLessThan(strideLength(drawn!) * tuning.fighter.sheathedWalkFactor * 0.9);
+    for (const s of sheathed!.states) expect(fighterPose(s.fighters[0]!, tuning).joints.pelvis.y, `Tick ${s.tick}`).toBeGreaterThan(homeAnkle(sheathed!, s.tick, 'left').y + 0.76);
   });
 });
