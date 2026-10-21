@@ -113,7 +113,7 @@ describe('Tuning Data', () => {
 
   it('loads the Kick Tuning Data and its Motion, and rejects bad Kick data', () => {
     const t = loadTuningData();
-    expect(t.kick).toEqual({ knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 });
+    expect(t.kick).toEqual({ knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 1.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 });
     expect(t.motions.Kick!.markers.windUpEnd).toBeLessThan(t.motions.Kick!.markers.releaseEnd!);
     const good = goodRaw();
     expect(() => parseTuningData({ ...good, kick: undefined })).toThrow(/kick/);

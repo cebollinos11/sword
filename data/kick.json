@@ -1,7 +1,7 @@
 {
   "knockdownDamage": 5,
   "shoveDamage": 1,
-  "knockdownSlide": 2.5,
+  "knockdownSlide": 1.5,
   "shoveSlide": 0.3,
   "knockdownSlideTicks": 12,
   "shoveSlideTicks": 6,

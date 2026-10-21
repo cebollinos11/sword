@@ -18,7 +18,7 @@
   },
   "heavyBlow": {
     "speed": 1.15,
-    "knockdownSlide": 2.5,
+    "knockdownSlide": 1.5,
     "knockdownSlideTicks": 14,
     "blockSlide": 0.5,
     "blockSlideTicks": 8
