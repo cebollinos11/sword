@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { hashValue, motionPose, sampleMotion, type Placement } from './index';
 import { arcLerp, lerp, vec3 } from './vec';
-import { loadTuningData, parseMotion, type Motion, type TuningData } from '../tuning';
+import { defaultWeaponName, loadTuningData, parseMotion, weaponMotion, type Motion, type TuningData } from '../tuning';
 
 const tuning = loadTuningData();
 const ORIGIN: Placement = { position: { x: 0, z: 0 }, facing: 0 };
 
-/** Tuning Data with one Motion replaced, as the Editor does while tweaking. */
+/** Tuning Data with one Motion replaced, as the Editor does while tweaking: the default Weapon's own override of it, if it has one. */
 function withMotion(base: TuningData, motion: Motion): TuningData {
+  const weapon = defaultWeaponName(base);
+  const own = base.motionOverrides[weapon];
+  if (own?.[motion.name]) return { ...base, motionOverrides: { ...base.motionOverrides, [weapon]: { ...own, [motion.name]: motion } } };
   return { ...base, motions: { ...base.motions, [motion.name]: motion } };
 }
 
@@ -105,7 +108,7 @@ describe('IK limits', () => {
   });
 
   it("a planted foot out of the leg's reach leaves its ankle short of the floor, but its toe stays on the floor", () => {
-    const idle = tuning.motions.Idle!;
+    const idle = weaponMotion(tuning, defaultWeaponName(tuning), 'Idle')!;
     const lunge = { ...idle, poseKeys: idle.poseKeys.map((k) => (k.leftFoot ? { ...k, leftFoot: { x: -0.1, z: 2 } } : k)) };
     const pose = motionPose(withMotion(tuning, lunge), 'Idle', 0, ORIGIN);
     expect(pose.joints.leftAnkle.y).toBeGreaterThan(tuning.skeleton.ankleHeight + 0.1);

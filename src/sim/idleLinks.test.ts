@@ -5,6 +5,8 @@ import { motionTargets } from './motion';
 const tuning = loadTuningData();
 const SWORD = 'Arming Sword';
 const HAMMER = 'Sledge Hammer';
+/** A Weapon with no Idle of its own: it guards on the shared Idle. */
+const LONGSWORD = 'Longsword';
 
 /** `motion` with its first Pose Key's sword hand raised to `y`. */
 function guardAt(motion: Motion, y: number): Motion {
@@ -34,10 +36,10 @@ describe('Channels linked to the guard ("idle")', () => {
   it('follow a changed Idle: every Motion that starts on guard moves with it', () => {
     const raised = withIdle(tuning, guardAt(tuning.motions.Idle!, 1.3));
     for (const name of ['Overhead', 'Thrust', 'Kick', 'Stagger', 'BlockLeft']) {
-      expect(motionTargets(raised, SWORD, name, 0).rightHand.position.y).toBe(1.3);
+      expect(motionTargets(raised, LONGSWORD, name, 0).rightHand.position.y).toBe(1.3);
     }
     // A key of its own is untouched: the Overhead's held Wind-up.
-    expect(motionTargets(raised, SWORD, 'Overhead', 21).rightHand).toEqual(motionTargets(tuning, SWORD, 'Overhead', 21).rightHand);
+    expect(motionTargets(raised, LONGSWORD, 'Overhead', 21).rightHand).toEqual(motionTargets(tuning, LONGSWORD, 'Overhead', 21).rightHand);
   });
 
   it("take each Weapon's own Idle override, even in a default Motion it shares", () => {

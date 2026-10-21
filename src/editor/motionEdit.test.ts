@@ -59,7 +59,7 @@ describe('Pose Key editing', () => {
     expect(d.poseKeys[1]).not.toHaveProperty('rightFoot');
     // A channel no key sets comes from the rest pose (rest right foot: half the 0.2 m hip width out).
     const idle = session.draft('Idle');
-    setChannel(idle, 0, 'rightFoot', false, tuning.skeleton);
+    idle.poseKeys.forEach((_, i) => setChannel(idle, i, 'rightFoot', false, tuning.skeleton));
     setChannel(idle, 1, 'rightFoot', true, tuning.skeleton);
     expect(idle.poseKeys[1]!.rightFoot).toEqual({ x: 0.1, z: 0 });
   });

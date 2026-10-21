@@ -3,7 +3,7 @@
  * body. Without them nothing changes (bit for bit).
  */
 import { describe, expect, it } from 'vitest';
-import { defaultWeaponName, loadTuningData, parseMotion, weaponByName, type Motion, type TuningData } from '../tuning';
+import { defaultWeaponName, loadTuningData, parseMotion, weaponByName, weaponMotion, type Motion, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { updateGait } from './gait';
 import { channelValue, lerpTargets, playbackTargets, sampleMotion } from './motion';
@@ -19,11 +19,15 @@ const PLACEMENTS = [
 ];
 const KICK: Vec3 = { x: 0.14, y: 0.5, z: 0.6 };
 
-/** Tuning Data whose Idle Motion has `channels` on its first Pose Key (and so, held, throughout). */
+/** The Idle the default Weapon plays: its own override, or the shared one. */
+const idleOf = (t: TuningData): Motion => weaponMotion(t, defaultWeaponName(t), 'Idle')!;
+
+/** Tuning Data whose default Weapon's Idle has `channels` on its first Pose Key (and so, held, throughout). */
 function withIdle(base: TuningData, channels: object): TuningData {
-  const idle = base.motions.Idle!;
+  const idle = idleOf(base);
   const motion: Motion = parseMotion({ ...idle, poseKeys: idle.poseKeys.map((k, i) => (i === 0 ? { ...k, ...channels } : k)) });
-  return { ...base, motions: { ...base.motions, Idle: motion } };
+  const weapon = defaultWeaponName(base);
+  return { ...base, motionOverrides: { ...base.motionOverrides, [weapon]: { ...base.motionOverrides[weapon], Idle: motion } } };
 }
 
 const kicking = withIdle(tuning, { kickFoot: KICK });
@@ -43,10 +47,10 @@ describe('kickFoot', () => {
   });
 
   it('is sampled and blended like any channel, and absent when no key sets it', () => {
-    const a = sampleMotion(tuning.motions.Idle!, 0, tuning.skeleton);
-    const b = sampleMotion(kicking.motions.Idle!, 0, tuning.skeleton);
+    const a = sampleMotion(idleOf(tuning), 0, tuning.skeleton);
+    const b = sampleMotion(idleOf(kicking), 0, tuning.skeleton);
     expect(a).not.toHaveProperty('kickFoot');
-    expect(sampleMotion(kicking.motions.Idle!, 0.5, tuning.skeleton).kickFoot).toEqual(KICK);
+    expect(sampleMotion(idleOf(kicking), 0.5, tuning.skeleton).kickFoot).toEqual(KICK);
     const ankle = tuning.skeleton.ankleHeight;
     expect(lerpTargets(a, b, 0.5, ankle).kickFoot!.y).toBeCloseTo((ankle + KICK.y) / 2, 9);
     expect(lerpTargets(a, b, 0, ankle)).not.toHaveProperty('kickFoot');
@@ -55,7 +59,7 @@ describe('kickFoot', () => {
   });
 
   it('has an editor default: the planted right ankle, and upright', () => {
-    const t = sampleMotion(tuning.motions.Idle!, 0, tuning.skeleton);
+    const t = sampleMotion(idleOf(tuning), 0, tuning.skeleton);
     expect(channelValue(t, 'kickFoot', tuning.skeleton)).toEqual({ x: t.rightFoot.x, y: tuning.skeleton.ankleHeight, z: t.rightFoot.z });
     expect(channelValue(t, 'body', tuning.skeleton)).toEqual({ tilt: 0, drop: 0 });
   });
@@ -124,8 +128,8 @@ describe('body', () => {
 
   it('blends the pivot between keys, and leaves it out where no key sets one', () => {
     const ankle = tuning.skeleton.ankleHeight;
-    const a = sampleMotion(lying.motions.Idle!, 0, tuning.skeleton);
-    const b = sampleMotion(withIdle(tuning, { body: { tilt: 40, drop: 0.2, pivot: 0.4 } }).motions.Idle!, 0, tuning.skeleton);
+    const a = sampleMotion(idleOf(lying), 0, tuning.skeleton);
+    const b = sampleMotion(idleOf(withIdle(tuning, { body: { tilt: 40, drop: 0.2, pivot: 0.4 } })), 0, tuning.skeleton);
     expect(lerpTargets(a, b, 0.5, ankle).body).toEqual({ tilt: 65, drop: 0.1, pivot: 0.2 });
     expect(lerpTargets(a, a, 0.5, ankle).body).not.toHaveProperty('pivot');
   });
