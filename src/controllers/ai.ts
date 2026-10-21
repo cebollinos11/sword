@@ -75,6 +75,11 @@
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
+ *  - Sheathe and Draw: it never Sheathes. Its own Fighter Sheathed (after an AI
+ *    Takeover), it Draws (pressing attack Draws) once an enemy on its level is
+ *    near, and a Block it means raises once the Draw is done. An enemy it sees
+ *    Sheathed, Sheathing or Drawing cannot Block (`defenceless`): rolled once at
+ *    `punish`, it skips spacing and Feints and closes in to swing.
  *
  * With every optional parameter left out it walks straight in, attacks at
  * `ai.aggression` from `ai.attackRange`, backs off inside `ai.retreatRange`
@@ -149,6 +154,8 @@ interface Sighting {
   readonly attackStart: number | null;
   /** The Tick it was first seen off the ground this time (identifies one Jump or fall), or null when on the ground. */
   readonly airStart: number | null;
+  /** Its Weapon is in its slot (on its hip or back, for anyone to see). */
+  readonly sheathed: boolean;
 }
 
 /** An enemy throw the AI means to Block (`react`) or let be, rolled once per throw. */
@@ -390,6 +397,11 @@ const isThrowThreat = (a: Action): a is Extract<Action, { kind: 'Throw' }> => a.
  */
 const isOpening = (a: Action): boolean =>
   (a.kind === 'Stagger' && a.cause !== 'Hit') || ((a.kind === 'Attack' || a.kind === 'Kick') && a.phase === 'Recovery') || (a.kind === 'Knockdown' && a.phase !== 'Rising');
+/**
+ * A Fighter who cannot Block for a while, as anyone can see: Sheathed (its Weapon on its body), or Sheathing or Drawing (committed, its
+ * Weapon on the way to or from its slot).
+ */
+const defenceless = (o: Sighting): boolean => o.sheathed || o.action.kind === 'Sheathe' || o.action.kind === 'Draw';
 /** The Direction a visible Fighter guards in: its Block's, or a Knockdown's guard. */
 const guardOf = (a: Action): Direction | null => (a.kind === 'Block' ? a.direction : a.kind === 'Knockdown' ? a.guard : null);
 
@@ -557,6 +569,7 @@ class AiController implements Controller {
         moving,
         attackStart,
         airStart,
+        sheathed: o.sheathed,
       };
     });
     this.seen.push({ tick: state.tick, fighters });
@@ -684,6 +697,17 @@ class AiController implements Controller {
     const myReach = this.reach(self.weapon);
     const theirReach = this.reach(target.weapon);
     const aggression = this.skill.aggression * (this.tactic.mode === 'Pressure' ? 2.5 : this.tactic.mode === 'Disengage' ? 0.2 : 1);
+
+    if (this.skill.aggression > 0 && level) {
+      // Its own Weapon Sheathed (it took over a Sheathed Fighter): Draw it (pressing attack Draws) once the enemy is near.
+      if (self.sheathed && dist <= Math.max(myReach, theirReach) + SWING_IN + 1.5) return { ...base, attack: true, direction: 'Overhead' };
+      // An enemy who cannot Block: no spacing or Feints, close in and swing (rolled once, like an opening, at `punish`).
+      if (defenceless(target) && this.goesFor(targetIndex, seen.tick)) {
+        if (dist <= myReach) return this.startAttack(state.tick, self, target, dist, base);
+        if (dist <= myReach + SWING_IN) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
+        return { ...base, ...this.approach(state, self, target) };
+      }
+    }
 
     // An opening, near enough to step in on: punish it (unless the AI never attacks, aggression 0).
     if (this.skill.aggression > 0 && isOpening(target.action) && dist <= myReach + SWING_IN && this.goesFor(targetIndex, seen.tick)) {
@@ -1192,11 +1216,11 @@ class AiController implements Controller {
   /**
    * Press attack: in `direction`, or one chosen against the target's guard. With `swingIn` it may hold the
    * Wind-up while it closes in. At `feintRate` it plans to Feint this Attack into another Direction, unless it is
-   * `timed` (its Release must come when it was pressed for).
+   * `timed` (its Release must come when it was pressed for) or the target cannot Block anyway (`defenceless`).
    */
   private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean } = {}): Intent {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist);
-    if (!opts.timed && this.chance(this.skill.feintRate)) {
+    if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
       this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
     }
@@ -1328,7 +1352,8 @@ class AiController implements Controller {
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
     }
     if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) return plan('Duck');
-    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && this.skill.chamberRate > 0) {
+    // Sheathed, its press would only Draw: no Chamber.
+    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
       const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
       if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);

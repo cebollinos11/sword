@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, IDLE_INTENT, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { attack, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { aiDifficulty, createAiController, runControllers, runMatch, scriptedController } from './index';
 import { stepIsSafe } from './ai';
@@ -881,5 +881,87 @@ describe('AI Controller: Jumps in a fight', { timeout: 120_000 }, () => {
     const wary = { caution: 1, pressure: 0, aggression: 0, jumpAttackRate: 0, throwRate: 0, kickRate: 0 };
     expect(escape({ ...aiDifficulty(repo, 'Hard'), ...wary })).toBe(true);
     expect(escape({ ...aiDifficulty(repo, 'Easy'), ...wary })).toBe(false);
+  });
+});
+
+describe('AI Controller: Sheathe and Draw', { timeout: 60_000 }, () => {
+  /** Fighter 0 scripted by `a` against an AI Fighter 1, `distance` apart; `sheathed` starts the AI's own Fighter Sheathed (an AI Takeover). */
+  function vsAiAt(difficulty: string, a: Track, ticks: number, opts: { distance: number; sheathed?: boolean; seed?: number }) {
+    const ai = createAiController(repo, difficulty);
+    const aiIntents: Intent[] = [];
+    const recording = {
+      intent: (s: Parameters<typeof ai.intent>[0], i: number) => {
+        const intent = ai.intent(s, i);
+        aiIntents.push(intent);
+        return intent;
+      },
+    };
+    let initial = createInitialState(repo, opts.seed ?? 1, duelPlacements(opts.distance));
+    if (opts.sheathed) {
+      initial = { ...initial, fighters: initial.fighters.map((f, i) => (i === 1 ? { ...f, sheathed: true, motion: { name: SHEATHED_IDLE_MOTION, tick: 0 } } : f)) };
+    }
+    const run = runControllers(repo, initial, [scriptedController(a), recording], ticks);
+    return { run, aiIntents };
+  }
+
+  it('never presses sheathe, in a whole AI vs AI Match', () => {
+    const pressed: Intent[] = [];
+    const recording = (difficulty: string) => {
+      const ai = createAiController(repo, difficulty);
+      return {
+        intent: (s: Parameters<typeof ai.intent>[0], i: number) => {
+          const intent = ai.intent(s, i);
+          if (intent.sheathe) pressed.push(intent);
+          return intent;
+        },
+      };
+    };
+    const { final } = runMatch(repo, createMatch(repo, { bestOf: 1, seed: 7 }), [recording('Hard'), recording('Normal')], 30_000);
+    expect(final.status.status).toBe('Over');
+    expect(pressed).toEqual([]);
+  });
+
+  for (const difficulty of ['Easy', 'Normal', 'Hard']) {
+    it(`taking over a Sheathed Fighter, a ${difficulty} AI Draws as it nears its enemy, presses nothing during the Draw, then fights`, () => {
+      for (let seed = 1; seed <= 3; seed++) {
+        const { run, aiIntents } = vsAiAt(difficulty, wait(900), 900, { distance: 5, sheathed: true, seed });
+        const kinds = run.states.map((s) => s.fighters[1]!.action.kind);
+        const drawStart = kinds.indexOf('Draw');
+        // From 5 m it Draws within its Reaction Time and a few (fast, Sheathed) steps, not whenever it next rolls to attack.
+        expect(drawStart, `seed ${seed}`).toBeGreaterThan(0);
+        expect(drawStart, `seed ${seed}`).toBeLessThan(60);
+        const drawEnd = kinds.indexOf('Idle', drawStart);
+        expect(run.states[drawEnd]!.fighters[1]!.sheathed).toBe(false);
+        // aiIntents[k] was chosen looking at states[k]: no attack, block or sheathe pressed while the Draw plays.
+        expect(aiIntents.slice(drawStart, drawEnd).filter((i) => i.attack || i.block || i.sheathe)).toEqual([]);
+        // Drawn, it fights: an Attack of its own lands on the dummy, and it stays drawn.
+        expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 1 && e.tick > drawEnd)).toBe(true);
+        expect(run.states.at(-1)!.fighters[1]!.sheathed).toBe(false);
+      }
+    });
+  }
+
+  it('presses a Sheathed enemy: it closes and attacks within a second and a half, and never Feints at it', () => {
+    for (let seed = 1; seed <= 5; seed++) {
+      const { run } = vsAiAt('Hard', [...hold(1, { sheathe: true }), ...wait(400)], 400, { distance: 3.5, seed });
+      expect(run.states[60]!.fighters[0]!.sheathed).toBe(true);
+      const firstAttack = run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Attack');
+      expect(firstAttack, `seed ${seed}`).toBeGreaterThan(0);
+      expect(firstAttack, `seed ${seed}`).toBeLessThan(90);
+      const firstHit = run.events.find((e) => e.type === 'Hit' && e.attacker === 1);
+      expect(firstHit, `seed ${seed}`).toBeDefined();
+      expect(run.events.filter((e) => e.type === 'Feint' && e.fighter === 1 && e.tick <= firstHit!.tick)).toEqual([]);
+    }
+  });
+
+  it('presses an enemy who is in the middle of Sheathing, before the Weapon is away', () => {
+    // An Arming Sword's hip Sheathe takes 0.7 s: from just outside swinging-in range its Attack is on the way before it ends.
+    for (let seed = 1; seed <= 6; seed++) {
+      const { run } = vsAiAt('Hard', [...hold(1, { sheathe: true }), ...wait(200)], 200, { distance: 2.5, seed });
+      const sheathing = run.states.map((s) => s.fighters[0]!.action.kind).lastIndexOf('Sheathe');
+      const firstAttack = run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Attack');
+      expect(firstAttack, `seed ${seed}`).toBeGreaterThan(0);
+      expect(firstAttack, `seed ${seed}`).toBeLessThanOrEqual(sheathing);
+    }
   });
 });

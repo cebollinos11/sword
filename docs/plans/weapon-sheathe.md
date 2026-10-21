@@ -148,6 +148,14 @@ depending on the Weapon.
   Sheathed or mid-Sheathe, it skips feints and defensive spacing and presses the Attack. Add a test that it closes and
   attacks within N Ticks.
 - Update the **Reaction Time** repertoire in `CONTEXT.md` ("punishing a Sheathed enemy").
+- _As built:_ pressing Attack while Sheathed already Drew, so a Sheathed AI never stalled for good, but it only Drew whenever it next
+  rolled to attack: a footwork AI hovered Sheathed for up to 3.5 s. It now presses attack (to Draw) as soon as an enemy on its level is
+  within the footwork range (the longer reach + 2.2 m), so from 5 m it Draws within 0.5–0.8 s, and presses nothing during the Draw (it
+  plays out through the `default` branch). A Chamber is not planned while Sheathed (the press would only Draw); a Block it plans raises
+  once the Draw ends. The `Sighting` gained `sheathed`; `defenceless` is Sheathed, Sheathing or Drawing. The press on such an enemy is
+  rolled once at `punish`, like an opening (so Easy sometimes lets it be), and goes before the opening check: in reach it swings, within
+  `SWING_IN` it swings in, else it walks straight in (`approach`), skipping spacing, Disengage hovering and Feints (`startAttack` rolls no
+  Feint at a defenceless target). Since the AI never Sheathes, AI vs AI Matches draw the same randomness as before and are unchanged.
 
 ## Stage 8: Wrap-up
 - `README.md` controls list (R key). Check the Tuning Data hash (`src/tuning/hash.ts`) picks up the new files and fields.
