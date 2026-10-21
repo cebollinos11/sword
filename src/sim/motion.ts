@@ -3,6 +3,7 @@
  * per Skeleton channel. Each channel interpolates independently between the
  * Pose Keys that set it, eased by the later key's easing curve. Before its
  * first key a channel holds that key; after its last key it holds the last;
+ * the hands of a key whose path is `arc` arrive along an arc about the chest;
  * a channel no key sets stays at the rest pose. A channel a key links to the
  * guard ("idle") takes the guard's value there.
  */
@@ -10,7 +11,7 @@ import { guardKey, weaponMotion, type BodyTarget, type Ease, type FootPlant, typ
 import { secondsToTicks, TICK_RATE } from './constants';
 import type { MotionPlayback } from './state';
 import { authoredSeconds, motionTempo } from './tempo';
-import { lerp, type Vec3 } from './vec';
+import { arcLerp, lerp, vec3, type Vec3 } from './vec';
 
 /** Every channel resolved: the targets IK solves the Skeleton to reach. */
 export interface PoseTargets {
@@ -73,13 +74,26 @@ const LERP: { readonly [C in keyof PoseTargets]-?: (a: Value<C>, b: Value<C>, t:
   body: (a: BodyTarget, b: BodyTarget, t: number): BodyTarget => ({ tilt: num(a.tilt, b.tilt, t), drop: num(a.drop, b.drop, t) }),
 };
 
+/** The hand channels, which a Pose Key's `path` bends. */
+const HANDS: readonly (keyof PoseTargets)[] = ['rightHand', 'leftHand'];
+
+/** The chest at rest: what an `arc` path swings the hands round (the point `solveSkeleton` aims about, too). */
+const chest = (s: SkeletonTuning): Vec3 => vec3(0, s.pelvisHeight + s.spine, 0);
+
 /** The value Pose Key `k` gives `channel`: its own, the guard's where it links the channel to it, or undefined if it sets neither. */
 function keyValue<C extends keyof PoseTargets>(k: PoseKey, channel: C, guard: PoseKey | undefined): PoseTargets[C] | undefined {
   const own = k.idle?.includes(channel) ? guard : k;
   return own?.[channel] as PoseTargets[C] | undefined;
 }
 
-function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], channel: C, time: number, rest: PoseTargets[C], guard: PoseKey | undefined): PoseTargets[C] {
+function sampleChannel<C extends keyof PoseTargets>(
+  keys: readonly PoseKey[],
+  channel: C,
+  time: number,
+  rest: PoseTargets[C],
+  guard: PoseKey | undefined,
+  skeleton: SkeletonTuning,
+): PoseTargets[C] {
   let prev: PoseTargets[C] | undefined;
   let prevTime = 0;
   for (const k of keys) {
@@ -89,7 +103,11 @@ function sampleChannel<C extends keyof PoseTargets>(keys: readonly PoseKey[], ch
       if (prev === undefined || k.time === prevTime) return v;
       const u = (time - prevTime) / (k.time - prevTime);
       const lerpFn = LERP[channel] as unknown as (a: PoseTargets[C], b: PoseTargets[C], t: number) => PoseTargets[C];
-      return lerpFn(prev, v, ease(k.ease, u));
+      const t = ease(k.ease, u);
+      const value = lerpFn(prev, v, t);
+      if (k.path !== 'arc' || !HANDS.includes(channel)) return value;
+      const [a, b] = [prev, v] as unknown as [{ position: Vec3 }, { position: Vec3 }];
+      return { ...value, position: arcLerp(a.position, b.position, chest(skeleton), t) };
     }
     prev = v;
     prevTime = k.time;
@@ -109,13 +127,13 @@ export function sampleMotion(motion: Motion, time: number, skeleton: SkeletonTun
   const rest = restTargets(skeleton);
   const k = motion.poseKeys;
   return {
-    rightHand: sampleChannel(k, 'rightHand', time, rest.rightHand, guard),
-    leftHand: sampleChannel(k, 'leftHand', time, rest.leftHand, guard),
-    torso: sampleChannel(k, 'torso', time, rest.torso, guard),
-    hip: sampleChannel(k, 'hip', time, rest.hip, guard),
-    leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot, guard),
-    rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot, guard),
-    ...optionalChannels(sampleChannel(k, 'kickFoot', time, undefined, guard), sampleChannel(k, 'body', time, undefined, guard)),
+    rightHand: sampleChannel(k, 'rightHand', time, rest.rightHand, guard, skeleton),
+    leftHand: sampleChannel(k, 'leftHand', time, rest.leftHand, guard, skeleton),
+    torso: sampleChannel(k, 'torso', time, rest.torso, guard, skeleton),
+    hip: sampleChannel(k, 'hip', time, rest.hip, guard, skeleton),
+    leftFoot: sampleChannel(k, 'leftFoot', time, rest.leftFoot, guard, skeleton),
+    rightFoot: sampleChannel(k, 'rightFoot', time, rest.rightFoot, guard, skeleton),
+    ...optionalChannels(sampleChannel(k, 'kickFoot', time, undefined, guard, skeleton), sampleChannel(k, 'body', time, undefined, guard, skeleton)),
   };
 }
 

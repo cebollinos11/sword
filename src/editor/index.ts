@@ -22,7 +22,7 @@ import type { ButtonApi } from 'tweakpane';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
 import { motionPose, motionTempo, playedSeconds, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
-import { EASES, guardKey, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type PoseKeyChannel, type TuningData } from '../tuning';
+import { EASES, guardKey, PATHS, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type Path, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
@@ -266,6 +266,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     time: 0,
     channels: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean>,
     linked: Object.fromEntries(POSE_KEY_CHANNELS.map((c) => [c, false])) as Record<PoseKeyChannel, boolean>,
+    path: 'linear' as Path,
   };
 
   const buildKeyFolder = () => {
@@ -281,6 +282,12 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       if (selected !== null && e.last !== false) retime(selected, e.value);
     });
     f.addBinding(key, 'ease', { options: Object.fromEntries(EASES.map((e) => [e, e])), label: 'ease (into key)' }).on('change', applyEdit);
+    keyUi.path = key.path ?? 'linear';
+    f.addBinding(keyUi, 'path', { options: Object.fromEntries(PATHS.map((p) => [p, p])), label: 'hand path (into key)' }).on('change', (e) => {
+      if (e.value === 'arc') key.path = 'arc';
+      else delete key.path;
+      applyEdit();
+    });
     const channels = f.addFolder({ title: 'Channels set by this key' });
     for (const c of POSE_KEY_CHANNELS) {
       keyUi.channels[c] = key[c] !== undefined || isLinked(draft(), selected, c);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { hashValue, motionPose, type Placement } from './index';
+import { hashValue, motionPose, sampleMotion, type Placement } from './index';
+import { arcLerp, lerp, vec3 } from './vec';
 import { loadTuningData, parseMotion, type Motion, type TuningData } from '../tuning';
 
 const tuning = loadTuningData();
@@ -114,5 +115,70 @@ describe('IK limits', () => {
 
   it('an unknown Motion name is an error', () => {
     expect(() => motionPose(tuning, 'Pirouette', 0, ORIGIN)).toThrow(/Pirouette/);
+  });
+});
+
+describe('Hand paths', () => {
+  const chest = vec3(0, tuning.skeleton.pelvisHeight + tuning.skeleton.spine, 0);
+  const hand = (x: number, y: number, z: number) => ({ position: { x, y, z }, rotation: { x: 0, y: 0, z: 0 } });
+  const swing = (path?: 'arc') =>
+    parseMotion({
+      name: 'Swing',
+      duration: 1,
+      poseKeys: [
+        { time: 0, ease: 'linear', rightHand: hand(0.5, 1.45, 0) },
+        { time: 1, ease: 'linear', ...(path && { path }), rightHand: hand(-0.5, 1.45, 0), leftHand: { position: { x: -0.3, y: 1, z: 0.3 } } },
+      ],
+    });
+
+  it('arcLerp keeps the distance from the pivot when both ends share it, and passes through both ends', () => {
+    const a = vec3(0.5, 1.45, 0);
+    const b = vec3(0, 1.45, 0.5);
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) expect(dist(arcLerp(a, b, chest, t), chest)).toBeCloseTo(0.5, 9);
+    expect(dist(arcLerp(a, b, chest, 0), a)).toBeCloseTo(0, 9);
+    expect(dist(arcLerp(a, b, chest, 1), b)).toBeCloseTo(0, 9);
+  });
+
+  it('arcLerp falls back to a straight line where the arc is undefined', () => {
+    const a = vec3(0.5, 1.45, 0);
+    for (const b of [vec3(0.8, 1.45, 0), vec3(-0.5, 1.45, 0), chest]) expect(arcLerp(a, b, chest, 0.3)).toEqual(lerp(a, b, 0.3));
+  });
+
+  it('a linear key sends the hand straight through the chest; an arc key swings it round in front', () => {
+    const linear = sampleMotion(swing(), 0.5, tuning.skeleton).rightHand.position;
+    expect(dist(linear, chest)).toBeCloseTo(0, 9);
+    // From the right to the left of the chest the arc is a half-circle: in line with it, so it falls back to straight.
+    // Nudge the start forward and it must go round in front, keeping its distance.
+    const m = swing('arc');
+    const nudged = parseMotion({ ...m, poseKeys: [{ ...m.poseKeys[0]!, rightHand: hand(0.5, 1.45, 0.05) }, m.poseKeys[1]!] });
+    const arc = sampleMotion(nudged, 0.5, tuning.skeleton).rightHand.position;
+    expect(arc.z).toBeGreaterThan(0.4);
+    expect(dist(arc, chest)).toBeCloseTo(0.5, 2);
+  });
+
+  it('bends only the hands, leaving the rotation and other channels interpolating linearly', () => {
+    const m = parseMotion({
+      name: 'Swing',
+      duration: 1,
+      poseKeys: [
+        { time: 0, ease: 'linear', rightHand: { position: { x: 0.5, y: 1.45, z: 0 }, rotation: { x: 0, y: 90, z: 0 } }, hip: { x: 0, y: 0.95, z: 0 } },
+        { time: 1, ease: 'linear', path: 'arc', rightHand: { position: { x: 0, y: 1.45, z: 0.5 }, rotation: { x: 0, y: 0, z: 0 } }, hip: { x: 0, y: 0.95, z: 0.2 } },
+      ],
+    });
+    const p = sampleMotion(m, 0.5, tuning.skeleton);
+    expect(p.rightHand.rotation.y).toBeCloseTo(45, 9);
+    expect(p.hip.z).toBeCloseTo(0.1, 9);
+    expect(dist(p.rightHand.position, chest)).toBeCloseTo(0.5, 9);
+  });
+
+  it('swings the Left and Right hands farther from the chest mid-Release than a straight line would', () => {
+    for (const name of ['Left', 'Right']) {
+      const m = tuning.motions[name]!;
+      const straight = parseMotion({ ...m, poseKeys: m.poseKeys.map(({ path: _, ...k }) => k) });
+      const mid = (m.markers.windUpEnd! + m.markers.releaseEnd!) / 2;
+      const arc = sampleMotion(m, mid, tuning.skeleton).rightHand.position;
+      const line = sampleMotion(straight, mid, tuning.skeleton).rightHand.position;
+      expect(dist(arc, chest), name).toBeGreaterThan(dist(line, chest));
+    }
   });
 });

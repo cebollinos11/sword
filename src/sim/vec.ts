@@ -18,6 +18,28 @@ export const lerp = (a: Vec3, b: Vec3, t: number): Vec3 => ({
   z: a.z + (b.z - a.z) * t,
 });
 
+/**
+ * From `a` to `b` round `pivot`: the direction from the pivot turns along a great circle while the distance from it
+ * changes linearly, so the point sweeps an arc about the pivot instead of cutting the chord. Falls back to `lerp`
+ * where the arc is undefined (an end on the pivot, or the ends in line with it).
+ */
+export function arcLerp(a: Vec3, b: Vec3, pivot: Vec3, t: number): Vec3 {
+  const da = sub(a, pivot);
+  const db = sub(b, pivot);
+  const la = length(da);
+  const lb = length(db);
+  if (la < 1e-9 || lb < 1e-9) return lerp(a, b, t);
+  const cos = Math.min(Math.max(dot(da, db) / (la * lb), -1), 1);
+  const angle = Math.acos(cos);
+  const sin = Math.sin(angle);
+  if (sin < 1e-6) return lerp(a, b, t);
+  // Slerp of the unit directions, scaled to the interpolated distance.
+  const wa = Math.sin((1 - t) * angle) / sin / la;
+  const wb = Math.sin(t * angle) / sin / lb;
+  const r = la + (lb - la) * t;
+  return add(pivot, scale(add(scale(da, wa), scale(db, wb)), r));
+}
+
 export function normalize(a: Vec3, fallback: Vec3 = { x: 0, y: 1, z: 0 }): Vec3 {
   const l = length(a);
   return l > 1e-9 ? scale(a, 1 / l) : fallback;

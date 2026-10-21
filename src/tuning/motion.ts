@@ -11,6 +11,9 @@
  *     "poseKeys": [ PoseKey, ... ] // at least one, in time order
  *   }
  *
+ * A Pose Key may also set `"path": "arc"`: the hands then arrive at it along an
+ * arc about the chest instead of in a straight line (see `PATHS`).
+ *
  * A channel written as "idle" (e.g. `"rightHand": "idle"`) is linked to the
  * guard: it takes that channel of the first Pose Key of the Idle Motion the
  * playing Weapon uses (its override, or the default), so changing an Idle
@@ -26,6 +29,13 @@ import { array, finiteNumber, nonEmptyString, positiveNumber, record, TuningData
 export const EASES = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'step'] as const;
 /** How a channel arrives at a Pose Key from the previous Pose Key that sets it. */
 export type Ease = (typeof EASES)[number];
+
+export const PATHS = ['linear', 'arc'] as const;
+/**
+ * How the hands travel to a Pose Key from the previous Pose Key that sets them: straight (`linear`, a Thrust), or
+ * round the chest (`arc`, a swing), their direction from it turning while their distance from it changes linearly.
+ */
+export type Path = (typeof PATHS)[number];
 
 /** A foot plant on the floor (Fighter-local x/z). */
 export interface FootPlant {
@@ -62,6 +72,8 @@ export interface BodyTarget {
 export interface PoseKey {
   readonly time: number;
   readonly ease: Ease;
+  /** How the hands arrive at this key; absent means `linear`. */
+  readonly path?: Path;
   /** The sword hand. */
   readonly rightHand?: HandTarget;
   readonly leftHand?: { readonly position: Vec3 };
@@ -114,6 +126,12 @@ function poseKey(raw: unknown, where: string, duration: number): PoseKey {
     throw new TuningDataError(`${where}.ease must be one of ${EASES.join(', ')}, got ${JSON.stringify(o.ease)}`);
   }
   const key: { -readonly [K in keyof PoseKey]: PoseKey[K] } = { time, ease: ease as Ease };
+  if (o.path !== undefined) {
+    if (typeof o.path !== 'string' || !(PATHS as readonly string[]).includes(o.path)) {
+      throw new TuningDataError(`${where}.path must be one of ${PATHS.join(', ')}, got ${JSON.stringify(o.path)}`);
+    }
+    if (o.path !== 'linear') key.path = o.path as Path;
+  }
   const idle = idleLinks(o, where);
   for (const c of idle) delete o[c];
   if (idle.length > 0) key.idle = idle;
@@ -203,6 +221,7 @@ export function serializeMotion(m: Motion): string {
   if (Object.keys(m.markers).length > 0) out.markers = m.markers;
   out.poseKeys = m.poseKeys.map((k) => {
     const o: Record<string, unknown> = { time: k.time, ease: k.ease };
+    if (k.path === 'arc') o.path = k.path;
     for (const c of POSE_KEY_CHANNELS) {
       if (k.idle?.includes(c)) o[c] = 'idle';
       else if (k[c] !== undefined) o[c] = k[c];

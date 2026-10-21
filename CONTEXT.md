@@ -42,7 +42,7 @@ The delay before an AI Controller may act on what it sees of the other Fighters.
 ## Motion
 
 **Pose Key**:
-A timed target for part of the Skeleton (hand position/rotation, torso twist, hip, foot plant, and for a Kick the kicking foot and a whole-body tilt) with an easing curve; IK solves the bones to reach it.
+A timed target for part of the Skeleton (hand position/rotation, torso twist, hip, foot plant, and for a Kick the kicking foot and a whole-body tilt) with an easing curve and a hand path: straight (a Thrust) or an arc round the chest (a swing), so a swing's hands sweep round the body between keys instead of cutting the chord; IK solves the bones to reach it.
 _Avoid_: Keyframe, frame
 
 **Guard**:

@@ -28,12 +28,14 @@
     {
       "time": 0.48,
       "ease": "easeIn",
+      "path": "arc",
       "rightHand": { "position": { "x": 0.15, "y": 1.35, "z": 0.5 }, "rotation": { "x": -5, "y": 10, "z": -90 } },
       "torso": { "twist": 0, "lean": 10 }
     },
     {
       "time": 0.6,
       "ease": "easeOut",
+      "path": "arc",
       "rightHand": { "position": { "x": -0.3, "y": 1.25, "z": 0.35 }, "rotation": { "x": 0, "y": -80, "z": -90 } },
       "leftHand": { "position": { "x": -0.3, "y": 0.9, "z": -0.05 } },
       "torso": { "twist": -35, "lean": 10 },

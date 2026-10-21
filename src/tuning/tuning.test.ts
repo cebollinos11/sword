@@ -240,6 +240,14 @@ describe('Motion validation', () => {
     expect(() => parseMotion(motion([key(0, { ease: 'bouncy' })]))).toThrow(/Overhead\.poseKeys\[0\]\.ease/);
   });
 
+  it('keeps an arc hand path, drops a linear one, and rejects an unknown one', () => {
+    const m = parseMotion(motion([key(0, { path: 'linear' }), key(1, { path: 'arc' })]));
+    expect(m.poseKeys[0]).not.toHaveProperty('path');
+    expect(m.poseKeys[1]?.path).toBe('arc');
+    expect(parseMotion(JSON.parse(serializeMotion(m)))).toEqual(m);
+    expect(() => parseMotion(motion([key(0, { path: 'zigzag' })]))).toThrow(/Overhead\.poseKeys\[0\]\.path/);
+  });
+
   it('rejects Pose Keys out of time order or past the duration', () => {
     expect(() => parseMotion(motion([key(0.5), key(0.2)]))).toThrow(/time order/);
     expect(() => parseMotion(motion([key(0), key(1.5)]))).toThrow(/duration/);

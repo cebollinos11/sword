@@ -119,14 +119,15 @@ export function scaleMotion(d: MotionDraft, seconds: number): void {
 
 /**
  * Add a Pose Key at `time` holding the pose the Motion has there, for every
- * channel some Pose Key already sets (or links to the guard). It takes the easing curve of the
- * segment it splits. Returns the new key's index.
+ * channel some Pose Key already sets (or links to the guard). It takes the easing curve and hand path
+ * of the segment it splits. Returns the new key's index.
  */
 export function addPoseKey(d: MotionDraft, time: number, skeleton: SkeletonTuning, guard?: PoseKey): number {
   const t = snapTime(time, d.duration);
   const sampled = sampleMotion(d, t, skeleton, guard);
   const i = insertIndex(d, t);
-  const key: PoseKeyDraft = { time: t, ease: d.poseKeys[i]?.ease ?? 'linear' };
+  const next = d.poseKeys[i];
+  const key: PoseKeyDraft = { time: t, ease: next?.ease ?? 'linear', ...(next?.path && { path: next.path }) };
   for (const c of POSE_KEY_CHANNELS) {
     if (d.poseKeys.some((k) => k[c] !== undefined || k.idle?.includes(c))) (key as Record<PoseKeyChannel, unknown>)[c] = structuredClone(channelValue(sampled, c, skeleton));
   }

@@ -83,7 +83,8 @@ describe('Block', () => {
     // A hair-thin blade leaves only the body to stop the Attack, as before blades had a collider.
     const bodyOnly = { ...tuning, block: { ...tuning.block, bladeRadius: 1e-6 } };
     for (const [attackDir, blockDir] of [['Overhead', 'Overhead'], ['Left', 'Right']] as const) {
-      const at = (t: typeof tuning) => eventsOf(runDuel(t, { placements: placements(1.3), a: attack(attackDir), b: block(blockDir, 120) }), 'Block')[0]!.tick;
+      // From 1.2 m: farther off, the swing's arc brings blade and body into reach on the same Tick.
+      const at = (t: typeof tuning) => eventsOf(runDuel(t, { placements: placements(1.2), a: attack(attackDir), b: block(blockDir, 120) }), 'Block')[0]!.tick;
       expect(at(tuning)).toBeLessThan(at(bodyOnly));
     }
   });

@@ -31,8 +31,8 @@ export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';
-export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
-export { EASES, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
+export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
+export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTempo, WeaponTuning } from './weapon';
 export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
