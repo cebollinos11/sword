@@ -6,7 +6,7 @@ import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { abyss, greybox, isGreybox } from './greybox';
 import { kitPlacements, type KitPlacement } from './kitPlacement';
-import { sky, type SkyLook } from './sky';
+import { sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -42,6 +42,8 @@ interface ArenaLook {
   readonly snow?: SnowfallLook;
   /** A space sky round the camera, if any (drawn behind everything, unfogged). */
   readonly sky?: SkyLook;
+  /** A material of the model (by name) drawn as window glass looking out on `sky`, tinted by `tint` (`amount`, 0 to 1). */
+  readonly windows?: { readonly material: string; readonly sky: SkyLook; readonly tint: number; readonly amount: number };
   /** Parts of the model drawn without fog (a sky dome), by node name. */
   readonly unfogged?: readonly string[];
   /** The world sliding past a still Arena (a moving train's surroundings). */
@@ -64,9 +66,12 @@ const directional = (color: number, intensity: number, x: number, y: number, z: 
   return light;
 };
 
+/** Mystic space: a violet and magenta nebula with cyan wisps over the stars, sinking into violet mist. */
+const MYSTIC_SKY: SkyLook = { deep: 0x2b0f5c, glow: 0xa8328c, highlight: 0x5fe0d8, horizon: 0x2a1f4a };
+
 /** Arenas drawn from a model (public/models/arenas/<name>.glb, exported by art/build_<name>.py); the rest are drawn from their Walk Surfaces. */
 const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
-  // Warm, dim candlelight, cool moonlight through the windows, and brown haze.
+  // Warm, dim candlelight, cool light through windows onto a nebula, and brown haze.
   library: {
     lights: () => [
       new THREE.HemisphereLight(0x8c97b8, 0x3a2616, 0.9),
@@ -82,6 +87,7 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
       { prefix: 'LIGHT_sconce1', intensity: 7, distance: 9, color: 0xffb470 },
       { prefix: 'LIGHT_gallery', intensity: 14, distance: 12, color: 0xffb470 },
     ],
+    windows: { material: 'Library_Glass', sky: MYSTIC_SKY, tint: 0x9fb4e0, amount: 0.12 },
   },
   // Lava glow from below, cold light from the freezing head above, and smoky orange air.
   chamber: {
@@ -157,7 +163,7 @@ const KIT_LOOKS: Readonly<Record<string, ArenaLook>> = {
     background: 0x2a1f4a,
     fog: { color: 0x2a1f4a, near: 5, far: 34 },
     lamps: [],
-    sky: { deep: 0x2b0f5c, glow: 0xa8328c, highlight: 0x5fe0d8, horizon: 0x2a1f4a },
+    sky: MYSTIC_SKY,
   },
 };
 
@@ -368,7 +374,7 @@ const models = new Map<string, Promise<THREE.Object3D>>();
 /** Flat Lambert materials like the rest of the scene; glass and flames keep their glow. */
 function lambert(o: THREE.Mesh): void {
   const from = o.material as THREE.MeshStandardMaterial;
-  o.material = new THREE.MeshLambertMaterial({ color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
+  o.material = new THREE.MeshLambertMaterial({ name: from.name, color: from.color, emissive: from.emissive, emissiveIntensity: from.emissiveIntensity, side: from.side });
 }
 
 function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3D> {
@@ -415,6 +421,7 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   const loaded = arenaModel(name, look.lamps)
     .then((model) => {
       for (const node of look.unfogged ?? []) model.getObjectByName(node)?.traverse(unfog);
+      if (look.windows) glaze(model, look.windows);
       if (look.scroll) bands = scrolling(model, look.scroll);
       // Shown only if this Arena is still the one drawn once it has loaded.
       if (current()) {
@@ -509,6 +516,17 @@ function kitted(kit: Kit, layout: Layout, look: ArenaLook, arena: ArenaGeometry,
     if (shown) seeThrough(shown, on);
   };
   return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, seeThrough: see };
+}
+
+/** Draws the windows' glass as the sky beyond it. */
+function glaze(model: THREE.Object3D, windows: NonNullable<ArenaLook['windows']>): void {
+  let pane: THREE.ShaderMaterial | undefined;
+  model.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || o.material.name !== windows.material) return;
+    pane ??= skyPane(windows.sky, windows.tint, windows.amount);
+    pane.name = windows.material;
+    o.material = pane;
+  });
 }
 
 function unfog(o: THREE.Object3D): void {

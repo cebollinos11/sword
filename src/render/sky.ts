@@ -11,11 +11,22 @@ export interface SkyLook {
 /** The dome's radius (m): well inside the camera's far plane. It follows the camera, so it is never reached. */
 const RADIUS = 100;
 
-const vertexShader = /* glsl */ `
+/** The dome's: the direction is the vertex's own (the dome is centred on the camera). */
+const domeVertexShader = /* glsl */ `
   varying vec3 vDir;
   void main() {
     vDir = position;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+/** A window pane's: the direction is from the camera through the pane, so the sky stays put beyond it as the camera moves. */
+const paneVertexShader = /* glsl */ `
+  varying vec3 vDir;
+  void main() {
+    vec4 world = modelMatrix * vec4(position, 1.0);
+    vDir = world.xyz - cameraPosition;
+    gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
 
@@ -25,6 +36,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uGlow;
   uniform vec3 uHighlight;
   uniform vec3 uHorizon;
+  uniform vec3 uTint;
+  uniform float uTintAmount;
   varying vec3 vDir;
 
   float hash(vec3 p) {
@@ -83,6 +96,7 @@ const fragmentShader = /* glsl */ `
     // The mist rises from the horizon and fills everything below it.
     float mist = smoothstep(0.22, -0.08, dir.y);
     color = mix(color, uHorizon, mist);
+    color = mix(color, uTint, uTintAmount);
     gl_FragColor = vec4(color, 1.0);
     #include <colorspace_fragment>
   }
@@ -94,14 +108,7 @@ const fragmentShader = /* glsl */ `
  * never fogged. Render-only.
  */
 export function sky(look: SkyLook): THREE.Mesh {
-  const uniforms = {
-    uTime: { value: 0 },
-    uDeep: { value: new THREE.Color(look.deep) },
-    uGlow: { value: new THREE.Color(look.glow) },
-    uHighlight: { value: new THREE.Color(look.highlight) },
-    uHorizon: { value: new THREE.Color(look.horizon) },
-  };
-  const material = new THREE.ShaderMaterial({ uniforms, vertexShader, fragmentShader, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
+  const material = skyMaterial(look, domeVertexShader, { side: THREE.BackSide, depthWrite: false, depthTest: false });
   const dome = new THREE.Mesh(new THREE.SphereGeometry(RADIUS, 48, 24), material);
   dome.name = 'sky';
   // It is always round the camera: never culled, drawn before the Arena.
@@ -110,10 +117,37 @@ export function sky(look: SkyLook): THREE.Mesh {
   dome.matrixAutoUpdate = false;
   const at = new THREE.Vector3();
   dome.onBeforeRender = (_renderer, _scene, camera) => {
-    // Wrapped to keep float precision in the shader.
-    uniforms.uTime.value = (performance.now() / 1000) % 3600;
     // Centred on the camera: the parent (an Arena's root) sits at the origin, unmoved.
     dome.matrixWorld.makeTranslation(at.setFromMatrixPosition(camera.matrixWorld));
   };
   return dome;
+}
+
+/**
+ * Window glass that looks out on the sky: each pane drawn as the sky seen through it, faintly tinted
+ * by the glass (`tint`, `amount` from 0 to 1). For a closed room, where a dome would never be seen. Render-only.
+ */
+export function skyPane(look: SkyLook, tint: number, amount: number): THREE.ShaderMaterial {
+  const material = skyMaterial(look, paneVertexShader, { side: THREE.DoubleSide });
+  material.uniforms.uTint!.value.set(tint);
+  material.uniforms.uTintAmount!.value = amount;
+  return material;
+}
+
+function skyMaterial(look: SkyLook, vertexShader: string, params: THREE.ShaderMaterialParameters): THREE.ShaderMaterial {
+  const uniforms = {
+    uTime: { value: 0 },
+    uDeep: { value: new THREE.Color(look.deep) },
+    uGlow: { value: new THREE.Color(look.glow) },
+    uHighlight: { value: new THREE.Color(look.highlight) },
+    uHorizon: { value: new THREE.Color(look.horizon) },
+    uTint: { value: new THREE.Color() },
+    uTintAmount: { value: 0 },
+  };
+  const material = new THREE.ShaderMaterial({ ...params, uniforms, vertexShader, fragmentShader, fog: false });
+  material.onBeforeRender = () => {
+    // Wrapped to keep float precision in the shader.
+    uniforms.uTime.value = (performance.now() / 1000) % 3600;
+  };
+  return material;
 }
