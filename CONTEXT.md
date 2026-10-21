@@ -172,11 +172,11 @@ The effect of a Throwing Dagger Hit: for 3 s the Fighter walks (and steers in th
 _Avoid_: Debuff, snare, root
 
 **Knockdown**:
-The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, of a Heavy Blow that Hits, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter falls flat on its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block (unless Sheathed: it then holds no guard) but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
+The outcome of a Kick on a Fighter who gave any movement input on the contact Tick, of a Heavy Blow that Hits, or of any damaging Hit (blade, Throwing Dagger or Kick) on a Fighter in the air, and also the Action that follows: a push away (a long Slide on the ground; in the air, as much speed added to its flight), then the Fighter buckles, sits back and rolls flat onto its back, stays down for a fixed time and gets up (the Get-up). A Kick's Knockdown deals 5 damage. Knocked down in the air, it lies in the air and its time down only starts once it lands: it never gets up before it has landed. Its Landing deals double fall damage, counted from the real top of its arc even after a Jump (ADR 0012). Throughout it can Block (unless Sheathed: it then holds no guard) but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (a Hit pushes it again but does not restart it). It interrupts whatever the Fighter was doing.
 _Avoid_: Knockback (reserved: see Block Impact), stun
 
 **Get-up**:
-The last phase of a Knockdown: the Fighter rises from lying back to Idle.
+The last phase of a Knockdown: the Fighter sits up, draws its feet in and rises through a crouch to Idle.
 
 **Slide**:
 A push the simulation gives a Fighter over a few Ticks, decelerating, along the floor away from the Kicker (or from the attacker of a Heavy Blow). Subject to body collision and arena edges, so a Slide can carry a Fighter off a ledge (ADR 0006). Not Knockback, which names nothing in the game.

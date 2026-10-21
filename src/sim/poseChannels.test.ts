@@ -111,6 +111,25 @@ describe('body', () => {
     expect(flat.blade.tip.y - lowered.blade.tip.y).toBeCloseTo(0.1, 9);
   });
 
+  it('tilts about a raised pivot: at the pelvis height, the pelvis stays where it was and the rest rolls about it', () => {
+    const upright = motionPose(tuning, 'Idle', 0, ORIGIN);
+    const hips = upright.joints.pelvis.y;
+    const rolled = motionPose(withIdle(tuning, { body: { tilt: 90, drop: 0, pivot: hips } }), 'Idle', 0, ORIGIN);
+    expect(dist(rolled.joints.pelvis, upright.joints.pelvis)).toBeLessThan(1e-9);
+    expect(rolled.joints.head.y).toBeCloseTo(hips, 1);
+    expect(rolled.joints.head.z).toBeLessThan(rolled.joints.pelvis.z - 0.5);
+    // A pivot of 0 is the ground point, as when it is absent.
+    expect(hashValue(motionPose(withIdle(tuning, { body: { tilt: 90, drop: 0, pivot: 0 } }), 'Idle', 0, ORIGIN))).toBe(hashValue(motionPose(lying, 'Idle', 0, ORIGIN)));
+  });
+
+  it('blends the pivot between keys, and leaves it out where no key sets one', () => {
+    const ankle = tuning.skeleton.ankleHeight;
+    const a = sampleMotion(lying.motions.Idle!, 0, tuning.skeleton);
+    const b = sampleMotion(withIdle(tuning, { body: { tilt: 40, drop: 0.2, pivot: 0.4 } }).motions.Idle!, 0, tuning.skeleton);
+    expect(lerpTargets(a, b, 0.5, ankle).body).toEqual({ tilt: 65, drop: 0.1, pivot: 0.2 });
+    expect(lerpTargets(a, a, 0.5, ankle).body).not.toHaveProperty('pivot');
+  });
+
   it('makes both feet follow the Motion in the Gait', () => {
     const run = runDuel(lying, { placements: PLACEMENTS, a: walk(40, { x: 0, z: 1 }), b: wait(40), ticks: 40 });
     expect(run.events.some((e) => e.type === 'Step' && e.fighter === 0)).toBe(false);

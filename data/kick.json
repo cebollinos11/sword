@@ -3,7 +3,7 @@
   "shoveDamage": 1,
   "knockdownSlide": 1.5,
   "shoveSlide": 0.3,
-  "knockdownSlideTicks": 12,
+  "knockdownSlideTicks": 24,
   "shoveSlideTicks": 6,
   "knockdownTicks": 60,
   "whiffRecovery": 24,

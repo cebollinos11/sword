@@ -1,6 +1,6 @@
 {
   "name": "Knockdown",
-  "duration": 0.5,
+  "duration": 0.6,
   "loop": false,
   "poseKeys": [
     {
@@ -15,8 +15,39 @@
       "body": { "tilt": 0, "drop": 0 }
     },
     {
-      "time": 0.5,
+      "time": 0.12,
+      "ease": "easeOut",
+      "rightHand": { "position": { "x": 0.32, "y": 1.1, "z": 0.3 }, "rotation": { "x": -60, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.36, "y": 1.05, "z": 0.25 } },
+      "torso": { "twist": 0, "lean": 25 },
+      "hip": { "x": 0, "y": 0.72, "z": 0 },
+      "body": { "tilt": 8, "drop": 0 }
+    },
+    {
+      "time": 0.3,
       "ease": "easeIn",
+      "rightHand": { "position": { "x": 0.3, "y": 0.85, "z": 0.5 }, "rotation": { "x": -60, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.32, "y": 0.85, "z": 0.45 } },
+      "torso": { "twist": 0, "lean": 30 },
+      "hip": { "x": 0, "y": 0.5, "z": 0 },
+      "leftFoot": { "x": -0.12, "z": 0.38 },
+      "rightFoot": { "x": 0.13, "z": 0.34 },
+      "body": { "tilt": 40, "drop": 0.19, "pivot": -0.2 }
+    },
+    {
+      "time": 0.45,
+      "ease": "easeIn",
+      "rightHand": { "position": { "x": 0.45, "y": 0.75, "z": 0.15 }, "rotation": { "x": -90, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.45, "y": 0.75, "z": 0.15 } },
+      "torso": { "twist": 0, "lean": -6 },
+      "hip": { "x": 0, "y": 0.72, "z": 0 },
+      "leftFoot": { "x": -0.13, "z": 0.25 },
+      "rightFoot": { "x": 0.15, "z": 0.18 },
+      "body": { "tilt": 90, "drop": -0.12 }
+    },
+    {
+      "time": 0.6,
+      "ease": "easeOut",
       "rightHand": { "position": { "x": 0.3, "y": 0.7, "z": 0.1 }, "rotation": { "x": -90, "y": 0, "z": 0 } },
       "leftHand": { "position": { "x": -0.3, "y": 0.7, "z": 0.1 } },
       "torso": { "twist": 0, "lean": 0 },

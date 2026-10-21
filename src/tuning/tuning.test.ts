@@ -15,7 +15,7 @@ function goodRaw() {
       limbs: { multiplier: 0.6, radius: 0.06 },
     },
     chamber: { windowSeconds: 0.15 },
-    kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
+    kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
@@ -113,7 +113,7 @@ describe('Tuning Data', () => {
 
   it('loads the Kick Tuning Data and its Motion, and rejects bad Kick data', () => {
     const t = loadTuningData();
-    expect(t.kick).toEqual({ knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 1.5, shoveSlide: 0.3, knockdownSlideTicks: 12, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 });
+    expect(t.kick).toEqual({ knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 1.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 });
     expect(t.motions.Kick!.markers.windUpEnd).toBeLessThan(t.motions.Kick!.markers.releaseEnd!);
     const good = goodRaw();
     expect(() => parseTuningData({ ...good, kick: undefined })).toThrow(/kick/);
@@ -231,11 +231,15 @@ describe('Motion validation', () => {
     expect(m.poseKeys[0]?.body).toEqual({ tilt: 90, drop: 0.1 });
     expect(m.poseKeys[1]).not.toHaveProperty('kickFoot');
     expect(parseMotion(JSON.parse(serializeMotion(m)))).toEqual(m);
+    const pivoted = parseMotion(motion([key(0, { body: { tilt: 40, drop: 0.2, pivot: 0.5 } }), key(1)]));
+    expect(pivoted.poseKeys[0]?.body).toEqual({ tilt: 40, drop: 0.2, pivot: 0.5 });
+    expect(parseMotion(JSON.parse(serializeMotion(pivoted)))).toEqual(pivoted);
   });
 
   it('rejects a malformed kickFoot or body with the full path', () => {
     expect(() => parseMotion(motion([key(0, { kickFoot: { x: 0, y: 'up', z: 0 } })]))).toThrow(/poseKeys\[0\]\.kickFoot\.y/);
     expect(() => parseMotion(motion([key(0, { body: { tilt: 90 } })]))).toThrow(/poseKeys\[0\]\.body/);
+    expect(() => parseMotion(motion([key(0, { body: { tilt: 90, drop: 0, pivot: 'hips' } })]))).toThrow(/poseKeys\[0\]\.body/);
   });
 
   it('rejects an unknown easing curve, naming the Pose Key', () => {

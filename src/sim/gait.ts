@@ -43,7 +43,8 @@
  *
  * A foot the Motion owns is not stepped: the right foot while the Motion sets `kickFoot`, and
  * both feet while the Motion tilts the body (`body.tilt`, lying down). An owned foot stays planted
- * under the Motion's target, and once released it is where it was left, so it glides or steps home from there.
+ * under the Motion's target: taken over away from it (mid-stride), it closes the gap at a step's pace
+ * rather than snapping there. Once released it is where it was left, so it glides or steps home from there.
  *
  * Feet stand on the Walk Surface under them (a foot on a ramp or a step sits at
  * that height). While the body is airborne the feet take no steps: they follow
@@ -308,9 +309,20 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
       next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, ticks: length, target, y: ground(target) } };
     }
   }
-  // 4. A foot the Motion owns is planted where the Motion puts it (a stepping one stops where it is).
-  for (const foot of FEET) {
-    if (owned[foot]) next[foot] = { planted: here[foot], y: ground(here[foot]), step: null };
+  // 4. A foot the Motion owns is planted where the Motion puts it, closing any gap it was taken over with (mid-stride, or off its
+  // home) at a step's pace, the gap carried along with the body (a stepping foot stops where it is).
+  if (owned.left || owned.right) {
+    const was = footHome(tuning, before.weapon, before.motion, before);
+    const catchUp = tuning.gait.strideLength / ticks;
+    for (const foot of FEET) {
+      if (!owned[foot]) continue;
+      const at = footPose(before.gait[foot], tuning).ground;
+      const gap = { x: at.x - was[foot].x, z: at.z - was[foot].z };
+      const d = Math.hypot(gap.x, gap.z);
+      const keep = d <= catchUp ? 0 : (d - catchUp) / d;
+      const planted = { x: here[foot].x + gap.x * keep, z: here[foot].z + gap.z * keep };
+      next[foot] = { planted, y: ground(planted), step: null };
+    }
   }
   return next;
 }

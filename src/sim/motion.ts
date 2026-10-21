@@ -71,7 +71,11 @@ const LERP: { readonly [C in keyof PoseTargets]-?: (a: Value<C>, b: Value<C>, t:
   leftFoot: (a: FootPlant, b: FootPlant, t: number): FootPlant => ({ x: num(a.x, b.x, t), z: num(a.z, b.z, t) }),
   rightFoot: (a: FootPlant, b: FootPlant, t: number): FootPlant => ({ x: num(a.x, b.x, t), z: num(a.z, b.z, t) }),
   kickFoot: (a: Vec3, b: Vec3, t: number): Vec3 => lerp(a, b, t),
-  body: (a: BodyTarget, b: BodyTarget, t: number): BodyTarget => ({ tilt: num(a.tilt, b.tilt, t), drop: num(a.drop, b.drop, t) }),
+  body: (a: BodyTarget, b: BodyTarget, t: number): BodyTarget => ({
+    tilt: num(a.tilt, b.tilt, t),
+    drop: num(a.drop, b.drop, t),
+    ...((a.pivot !== undefined || b.pivot !== undefined) && { pivot: num(a.pivot ?? 0, b.pivot ?? 0, t) }),
+  }),
 };
 
 /** The hand channels, which a Pose Key's `path` bends. */

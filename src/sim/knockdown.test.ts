@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, weaponMotion, type TuningData } from '../tuning';
+import { footPose } from './gait';
 import { fighterPose } from './pose';
 import { createInitialState, GET_UP_MOTION, hashValue, hitZoneCapsules, IDLE_INTENT, KNOCKDOWN_MOTION, secondsToTicks, step, type FighterState, type Intent, type KnockdownAction, type SimState } from './index';
 
@@ -82,6 +83,23 @@ describe('Knockdown', () => {
     const s = facing();
     const shaking = { ...s, fighters: [s.fighters[0]!, { ...s.fighters[1]!, blockImpact: { direction: 'Overhead' as const, strength: 1, tick: 0 } }] };
     expect(knockedDown(shaking).fighters[1]!.blockImpact).toBeUndefined();
+  });
+
+  it('takes the feet over from a walk without a snap: they close in on the Motion at a step\'s pace, carried with the body', () => {
+    let s = knockedDown();
+    const pace = tuning.gait.strideLength / secondsToTicks(tuning.gait.stepDuration);
+    for (let i = 0; i < 40; i++) {
+      const before = s.fighters[1]!;
+      s = tick(s);
+      const after = s.fighters[1]!;
+      for (const foot of ['left', 'right'] as const) {
+        const was = footPose(before.gait[foot], tuning).ground;
+        const is = footPose(after.gait[foot], tuning).ground;
+        const moved = Math.hypot(is.x - after.position.x - (was.x - before.position.x), is.z - after.position.z - (was.z - before.position.z));
+        // Relative to the body, a foot moves no faster than the Motion moves it plus the step pace.
+        expect(moved, `${foot} on Tick ${i}`).toBeLessThan(pace + 0.06);
+      }
+    }
   });
 
   it('raises a KnockdownPhase event when the body hits the floor and when it starts to get up', () => {

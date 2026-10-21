@@ -56,12 +56,17 @@ export interface TorsoTarget {
   readonly lean: number;
 }
 
-/** The whole body laid back, for lying down: tilted about the ground point under the pelvis, then lowered. */
+/** The whole body laid back, for lying down: tilted about a point under (or at) the pelvis, then lowered. */
 export interface BodyTarget {
-  /** Degrees the whole body tilts about the ground point under the pelvis; positive tilts it back (head toward -z). */
+  /** Degrees the whole body tilts about its pivot; positive tilts it back (head toward -z). */
   readonly tilt: number;
   /** Metres everything is lowered after tilting. */
   readonly drop: number;
+  /**
+   * Height (m) of the pivot above the ground, under the pelvis (in the upright frame): 0, or absent, tilts about the ground
+   * point under the pelvis (falling like a plank from the feet); the pelvis height rolls the body about its hips (sitting back).
+   */
+  readonly pivot?: number;
 }
 
 /**
@@ -156,7 +161,11 @@ function poseKey(raw: unknown, where: string, duration: number): PoseKey {
   if (o.kickFoot !== undefined) key.kickFoot = vec3(o.kickFoot, `${where}.kickFoot`);
   if (o.body !== undefined) {
     const b = record(o.body, `${where}.body`);
-    key.body = { tilt: finiteNumber(b, 'tilt', `${where}.body`), drop: finiteNumber(b, 'drop', `${where}.body`) };
+    key.body = {
+      tilt: finiteNumber(b, 'tilt', `${where}.body`),
+      drop: finiteNumber(b, 'drop', `${where}.body`),
+      ...(b.pivot !== undefined && { pivot: finiteNumber(b, 'pivot', `${where}.body`) }),
+    };
   }
   return key;
 }

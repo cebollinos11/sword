@@ -266,10 +266,10 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
     rightToe: targets.kickFoot ? kickToe : toe(rightAnkle, ground.right, lift.right, pitch.right),
   };
 
-  // The whole body laid back: every joint (and the Weapon) swings about the ground point under the pelvis, then drops.
-  const { tilt, drop: bodyDrop } = targets.body ?? { tilt: 0, drop: 0 };
+  // The whole body laid back: every joint (and the Weapon) swings about the pivot under the pelvis (on the ground unless raised), then drops.
+  const { tilt, drop: bodyDrop, pivot: pivotHeight = 0 } = targets.body ?? { tilt: 0, drop: 0 };
   const laid = tilt !== 0 || bodyDrop !== 0;
-  const pivot = vec3(pelvis.x, 0, pelvis.z);
+  const pivot = vec3(pelvis.x, pivotHeight, pelvis.z);
   const lay = (v: Vec3): Vec3 => {
     const r = add(pivot, rotateX(sub(v, pivot), -tilt));
     return { x: r.x, y: r.y - bodyDrop, z: r.z };
