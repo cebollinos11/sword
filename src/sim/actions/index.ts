@@ -5,14 +5,16 @@
  * its own file, register it in HANDLERS, and (if Idle can start it) add a
  * starter to STARTERS.
  */
+import { weaponMotion, type TuningData } from '../../tuning';
+import { secondsToTicks } from '../constants';
 import type { Intent } from '../intent';
-import type { Action, ActionKind, FighterState } from '../state';
+import type { Action, ActionKind, FighterState, MotionPlayback } from '../state';
 import { startAttack, updateAttack } from './attack';
 import { startBlock, updateBlock } from './block';
 import { updateFall } from './fall';
 import { feint } from './feint';
 import { startKick, updateKick } from './kick';
-import { IDLE_ACTION, IDLE_MOTION, idleMotionFor } from './idleAction';
+import { IDLE_ACTION, IDLE_MOTION, idleMotionFor, LAND_SOFT_MOTION } from './idleAction';
 import { updateKnockdown } from './knockdown';
 import { startSheathe, updateSheathe } from './sheathe';
 import { updateStagger } from './stagger';
@@ -35,7 +37,18 @@ export function startAction(f: FighterState, intent: Intent, ctx: ActionContext)
 // A Chain reaches Idle still showing the next Attack's Motion: if that Attack doesn't start after all, Idle takes over. A Sheathed Fighter's
 // Idle plays on as the Sheathed Idle (stepFighter swaps it in for IDLE_MOTION).
 const updateIdle: ActionHandler<Extract<Action, { kind: 'Idle' }>> = (f, intent, ctx) =>
-  startAction(f, intent, ctx) ?? { action: IDLE_ACTION, motion: f.motion.name === idleMotionFor(f) ? advance(f.motion) : IDLE_MOTION };
+  startAction(f, intent, ctx) ?? { action: IDLE_ACTION, motion: idleMotion(f, ctx.tuning) };
+
+/**
+ * Idle's Motion next Tick. A soft Landing's `LandSoft` plays out first, then hands over to Idle at the Tick Idle would have
+ * reached had it started on the Landing, so its sway carries on in step; any other Motion gives way to Idle at once.
+ */
+function idleMotion(f: FighterState, tuning: TuningData): MotionPlayback {
+  if (f.motion.name === idleMotionFor(f)) return advance(f.motion);
+  if (f.motion.name !== LAND_SOFT_MOTION) return IDLE_MOTION;
+  const next = advance(f.motion);
+  return next.tick < secondsToTicks(weaponMotion(tuning, f.weapon, LAND_SOFT_MOTION)!.duration) ? next : { ...IDLE_MOTION, tick: next.tick };
+}
 
 const HANDLERS: { readonly [K in ActionKind]: ActionHandler<Extract<Action, { kind: K }>> } = {
   Idle: updateIdle,
@@ -63,7 +76,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
 export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
-export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, SHEATHED_IDLE_MOTION } from './idleAction';
+export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
 export { THROW_MOTION, throwTimings, type ThrowTimings } from './throw';
 export { offHandFree, sheatheMotionName, sheatheTimings, type SheatheKind, type SheatheTimings } from './sheathe';

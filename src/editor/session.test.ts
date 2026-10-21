@@ -21,6 +21,7 @@ describe('EditorSession', () => {
       'Kick',
       'Knockdown',
       'Land',
+      'LandSoft',
       'Left',
       'Recoil',
       'Right',

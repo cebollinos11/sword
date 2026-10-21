@@ -4,6 +4,9 @@ export const IDLE_ACTION: IdleAction = { kind: 'Idle' };
 /** Idle's Motion from its start; every Action that ends returns here. */
 export const IDLE_MOTION: MotionPlayback = { name: 'Idle', tick: 0 };
 
+/** The Motion a soft Landing plays in Idle: the hips dip and the torso leans as the legs take the weight, then Idle carries on. */
+export const LAND_SOFT_MOTION = 'LandSoft';
+
 /** The Motion a Sheathed Fighter plays while Idle: empty hands, relaxed. */
 export const SHEATHED_IDLE_MOTION = 'SheathedIdle';
 
