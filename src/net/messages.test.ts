@@ -99,6 +99,11 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(intents([{ ...IDLE_INTENT, throw: 1 }]))).toBeNull();
   });
 
+  it('refuses an Intent whose sheathe is not a boolean, and accepts one that Sheathes', () => {
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, sheathe: 'yes' }]))).toBeNull();
+    expect(parseNetMessage(intents([{ ...IDLE_INTENT, sheathe: true }]))).toEqual(intents([{ ...IDLE_INTENT, sheathe: true }]));
+  });
+
   it('carries the Throw Action and the dagger count through a resync', () => {
     const state = throwingMatchState();
     expect(state.duel.fighters[0]!.action.kind).toBe('Throw');

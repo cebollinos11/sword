@@ -103,6 +103,9 @@ depending on the Weapon.
   driver passes in. Update the touch help text (`touch.ts:115`).
 - `messages.ts:180`: add `(v.sheathe === undefined || isBool(v.sheathe))`, and a test that rejects a non-boolean.
 - Tests: `local.test.ts` (R gives a single pressed Tick), `touch.test.ts` (tapping the pad), `messages.test.ts`.
+- _As built:_ no R binding existed anywhere (editor, menu). The touch help text is `TOUCH_HELP` in `src/play/menu.ts`, not
+  `touch.ts:115`; the keyboard list there (`KEYS`) gained R too. The pad's face is the pure `sheathePadFace(sheathed)`, and
+  `game.ts` sets `touchInput.sheathed` from the local Fighter every frame. The resync state check had already landed in Stage 2.
 
 ## Stage 5: Motions and rendering
 **Where:** `data/motions/*.json` (authored in the Editor), `src/render/fighterView.ts`, `src/render/ragdoll.ts`, `src/editor/actionLabels.ts`.

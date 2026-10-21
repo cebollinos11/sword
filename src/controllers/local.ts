@@ -1,7 +1,7 @@
 import type { Direction, Intent } from '../sim';
 import type { Controller } from './controller';
 
-export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw';
+export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw' | 'sheathe';
 
 /** The key that Jumps. */
 const JUMP_KEY = 'Space';
@@ -11,6 +11,9 @@ const THROW_KEY = 'KeyE';
 
 /** The key that Kicks. */
 const KICK_KEY = 'KeyF';
+
+/** The key that Sheathes the Weapon, or Draws it when Sheathed. */
+const SHEATHE_KEY = 'KeyR';
 
 /** The key held to crouch (not Ctrl: browsers keep Ctrl+W, which would close the tab). */
 const CROUCH_KEY = 'KeyC';
@@ -84,11 +87,12 @@ function quantiseYaw(yaw: number): number {
  *   one Jump (sent on one Tick), and holding it boosts that Jump higher (sent as `jumpHeld` on every Tick it is held).
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
+ *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
  */
 export class LocalController implements Controller {
-  private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false };
+  private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
   /** Pressed since the last sample: a click shorter than a Tick still reaches the Simulation for one Tick. */
-  private readonly pressed = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false };
+  private readonly pressed = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
   private readonly moving = { forward: false, back: false, left: false, right: false };
   /** The Direction of the most recent mouse gesture (what the next press will use). */
   private gestured: Direction = 'Overhead';
@@ -143,7 +147,7 @@ export class LocalController implements Controller {
     if (this.held[button]) return;
     this.held[button] = true;
     this.pressed[button] = true;
-    if (button === 'jump' || button === 'crouch' || button === 'kick' || button === 'throw') return;
+    if (button === 'jump' || button === 'crouch' || button === 'kick' || button === 'throw' || button === 'sheathe') return;
     this.latched = this.gestured;
     this.travel = { x: 0, y: 0 };
   }
@@ -161,6 +165,7 @@ export class LocalController implements Controller {
     else if (code === CROUCH_KEY) this.buttonDown('crouch');
     else if (code === KICK_KEY) this.buttonDown('kick');
     else if (code === THROW_KEY) this.buttonDown('throw');
+    else if (code === SHEATHE_KEY) this.buttonDown('sheathe');
   }
 
   keyUp(code: string): void {
@@ -170,6 +175,7 @@ export class LocalController implements Controller {
     else if (code === CROUCH_KEY) this.buttonUp('crouch');
     else if (code === KICK_KEY) this.buttonUp('kick');
     else if (code === THROW_KEY) this.buttonUp('throw');
+    else if (code === SHEATHE_KEY) this.buttonUp('sheathe');
   }
 
   /**
@@ -183,7 +189,7 @@ export class LocalController implements Controller {
 
   /** Let go of every button and key (the window lost focus). */
   releaseAll(): void {
-    this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = false;
+    this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
   }
 
@@ -196,18 +202,20 @@ export class LocalController implements Controller {
     const kick = this.pressed.kick;
     const throwing = this.pressed.throw;
     const throwHeld = this.held.throw;
+    const sheathe = this.pressed.sheathe;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
     this.pressed.crouch = false;
     this.pressed.kick = false;
     this.pressed.throw = false;
+    this.pressed.sheathe = false;
     // A held Block follows the latest gesture: the Simulation only lets it re-aim shortly after it was raised (`block.correctionWindow`).
     if (block && !attack) this.latched = this.gestured;
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }) };
+    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }) };
   }
 
   intent(): Intent {

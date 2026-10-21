@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LocalController } from '../controllers';
-import { PadGesture, stickKeys, SWIPE_PX } from './touch';
+import { PadGesture, sheathePadFace, stickKeys, SWIPE_PX } from './touch';
 
 const far = SWIPE_PX + 2;
 
@@ -80,5 +80,24 @@ describe('joystick', () => {
     [5, 5, []],
   ] as const)('deflection (%d, %d) holds %j', (dx, dy, keys) => {
     expect([...stickKeys(dx, dy)].sort()).toEqual([...keys].sort());
+  });
+});
+
+describe('Sheathe pad', () => {
+  it('tapping it Sheathes (or Draws) on one Tick, however long the finger stays down', () => {
+    const local = new LocalController();
+    local.buttonDown('sheathe');
+    expect(local.sample().sheathe).toBe(true);
+    expect(local.sample().sheathe).toBeUndefined();
+    local.buttonUp('sheathe');
+    expect(local.sample().sheathe).toBeUndefined();
+  });
+
+  it('shows Sheathe while the Weapon is drawn and Draw while Sheathed, with a different icon', () => {
+    const drawn = sheathePadFace(false);
+    const sheathed = sheathePadFace(true);
+    expect(drawn.label).toBe('Sheathe');
+    expect(sheathed.label).toBe('Draw');
+    expect(drawn.icon).not.toBe(sheathed.icon);
   });
 });

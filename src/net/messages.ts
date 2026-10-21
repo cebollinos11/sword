@@ -177,7 +177,7 @@ function isLineupSlot(v: unknown): boolean {
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);

@@ -634,6 +634,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         renderer.render(before, curr.duel, alpha);
       }
+      if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names });
     } else {
       const { match, me, bodies: chosen } = previewMatch();

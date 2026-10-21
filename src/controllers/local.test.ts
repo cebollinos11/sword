@@ -320,6 +320,31 @@ describe('Local Controller: Kick', () => {
   });
 });
 
+describe('Local Controller: Sheathe', () => {
+  it('R Sheathes (or Draws) once per press, on one Tick, however long it is held', () => {
+    const c = new LocalController();
+    expect(c.sample().sheathe).toBeUndefined();
+    c.keyDown('KeyR');
+    expect(c.sample().sheathe).toBe(true);
+    expect(c.sample().sheathe).toBeUndefined();
+    c.keyUp('KeyR');
+    expect(c.sample().sheathe).toBeUndefined();
+    // A tap shorter than a Tick still Sheathes.
+    c.keyDown('KeyR');
+    c.keyUp('KeyR');
+    expect(c.sample().sheathe).toBe(true);
+  });
+
+  it('a Sheathe does not change the Direction the next Attack takes', () => {
+    const c = new LocalController();
+    c.mouseMove(-200, 0);
+    c.keyDown('KeyR');
+    c.sample();
+    c.buttonDown('attack');
+    expect(c.sample().direction).toBe('Left');
+  });
+});
+
 describe('Local Controller: Throw', () => {
   it('E throws once per press, on one Tick, however long it is held', () => {
     const c = new LocalController();

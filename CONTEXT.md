@@ -160,7 +160,7 @@ An Action (R key, or the Sheathe pad) in which the Fighter puts its Weapon away 
 _Avoid_: Holster, stow
 
 **Draw**:
-The Action that takes a Sheathed Weapon back into the hand, the reverse of a Sheathe, with the same timing, rules and `swap` marker (the Fighter stops being Sheathed there). R starts it, and so does pressing Attack or Block while Sheathed: there is no quick-draw Attack, the Draw plays in full first. It ends on the Guard.
+The Action that takes a Sheathed Weapon back into the hand, the reverse of a Sheathe, with the same timing, rules and `swap` marker (the Fighter stops being Sheathed there). R starts it, as does the Sheathe pad (which reads Draw while Sheathed), and so does pressing Attack or Block while Sheathed: there is no quick-draw Attack, the Draw plays in full first. It ends on the Guard.
 _Avoid_: Unsheathe
 
 **Sheathed**:

@@ -14,6 +14,11 @@ const STICK_DEAD = 14;
 
 const ARROW: Readonly<Record<Direction, string>> = { Overhead: '▲', Thrust: '▼', Left: '◀', Right: '▶' };
 
+/** What the Sheathe pad shows: Sheathe while the local Fighter's Weapon is drawn, Draw while it is Sheathed. */
+export function sheathePadFace(sheathed: boolean): { icon: string; label: string } {
+  return sheathed ? { icon: '⚔', label: 'Draw' } : { icon: '⤓', label: 'Sheathe' };
+}
+
 /** True on touch-first devices (phones, tablets), where the touch controls are shown. */
 export function isTouchDevice(): boolean {
   return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
@@ -106,13 +111,16 @@ export function stickKeys(dx: number, dy: number): Set<string> {
 export interface TouchInputBinding {
   /** Show the controls and feed touches to the Controller only while true (a Match is on). */
   enabled: boolean;
+  /** Whether the local Fighter is Sheathed: the Sheathe pad flips to Draw. */
+  sheathed: boolean;
   dispose(): void;
 }
 
 /**
  * On-screen touch controls for a Local Controller: a floating joystick in the
  * lower left walks, the Attack and Block swipe pads in the lower right fight,
- * the Jump and Throw buttons beside them Jump (a tap) and throw a dagger (held: hold it back, let go to throw), and dragging anywhere else turns the camera. Multi-touch, so you can walk,
+ * the Jump and Throw buttons beside them Jump (a tap) and throw a dagger (held: hold it back, let go to throw), the Sheathe button
+ * Sheathes the Weapon or, while Sheathed, Draws it (a tap), and dragging anywhere else turns the camera. Multi-touch, so you can walk,
  * look and hold an Attack at once.
  */
 export function bindTouchInput(local: LocalController, container: HTMLElement): TouchInputBinding {
@@ -146,9 +154,20 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
     name.className = 'touch-pad-label';
     name.textContent = label;
     el.append(name);
-    return { el, button, pointer: -1 };
+    return { el, name, button, pointer: -1 };
   };
-  const taps = [tap('jump', 'Jump'), tap('throw', 'Throw')];
+  const sheathePad = tap('sheathe', '');
+  const sheatheIcon = document.createElement('span');
+  sheatheIcon.className = 'touch-pad-arrow';
+  sheathePad.el.prepend(sheatheIcon);
+  const taps = [tap('jump', 'Jump'), tap('throw', 'Throw'), sheathePad];
+  let sheathed = false;
+  const showSheathed = () => {
+    const face = sheathePadFace(sheathed);
+    sheatheIcon.textContent = face.icon;
+    sheathePad.name.textContent = face.label;
+  };
+  showSheathed();
   root.append(stickBase, ...pads.map((p) => p.el), ...taps.map((t) => t.el));
   container.append(root);
 
@@ -273,6 +292,14 @@ export function bindTouchInput(local: LocalController, container: HTMLElement): 
       if (!on) releaseAll();
       enabled = on;
       root.hidden = !on;
+    },
+    get sheathed() {
+      return sheathed;
+    },
+    set sheathed(on: boolean) {
+      if (on === sheathed) return;
+      sheathed = on;
+      showSheathed();
     },
     dispose() {
       releaseAll();

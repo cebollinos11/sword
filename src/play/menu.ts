@@ -116,6 +116,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['C (hold)', 'Crouch'],
   ['F', 'Kick'],
   ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
+  ['R', 'Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again'],
   ['Q', 'Feint, during a Wind-up, into the Direction you last moved'],
   ['Esc', 'Menu (frees the mouse)'],
 ];
@@ -123,7 +124,8 @@ const KEYS: readonly (readonly [string, string])[] = [
 const TOUCH_HELP =
   'Drag the left thumb to walk and drag anywhere else to turn the camera. On the Attack pad, swipe left, right, up (Overhead) ' +
   'or down (Thrust) to wind up in that Direction, and lift to swing. A tap repeats the last Direction. Swipe a new way while ' +
-  'holding to feint. The Block pad works the same way. ☰ opens the menu.';
+  'holding to feint. The Block pad works the same way. Sheathe puts your Weapon away to walk faster (you cannot Attack or Block); ' +
+  'tap it again (it now reads Draw) to take it back out. ☰ opens the menu.';
 
 /**
  * The menus, drawn over the live 3D scene: the title screen (Skirmish, Play
