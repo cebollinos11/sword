@@ -250,6 +250,51 @@ describe('AI Controller: teams', () => {
     expect(blocking.direction).toBe('Overhead');
     expect(blocking.face).toBeCloseTo(Math.PI / 2); // toward the attacker at +x
   });
+
+  /** Whether `face` turns toward +x (rather than +z/-z). */
+  const facesX = (face: number) => Math.sin(face) > 0.9;
+
+  it('keeps fighting its enemy while another comes only a little nearer', () => {
+    // Its enemy waits 2.5 m to its right (+x); a second enemy walks in from far ahead (+z) and stops 2 m away.
+    const ai = createAiController(passive, perfect);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const placements = [
+      { position: { x: 0, z: 0 }, facing: 0 },
+      { position: { x: 2.5, z: 0 }, facing: -Math.PI / 2 },
+      { position: { x: 0, z: 6 }, facing: Math.PI },
+    ];
+    const initial = createInitialState(passive, 1, placements, [], [0, 1, 1]);
+    const ticks = 240;
+    const run = runControllers(passive, initial, [recording, scriptedController(wait(ticks)), scriptedController([...walk(ticks, { x: 0, z: -1 })])], ticks);
+    // Ticks (after its Reaction Time) on which the walker is nearer than its first enemy, but by less than 1.5 m.
+    const dist = (s: (typeof run.states)[number], k: number) => Math.hypot(s.fighters[k]!.position.x - s.fighters[0]!.position.x, s.fighters[k]!.position.z - s.fighters[0]!.position.z);
+    const closer = [...intents.keys()].filter((t) => {
+      const seen = run.states[t - reactionTicks];
+      return seen && dist(seen, 2) < dist(seen, 1) && dist(seen, 2) > dist(seen, 1) - 1.4;
+    });
+    expect(closer.length).toBeGreaterThan(5);
+    for (const t of closer) expect(facesX(intents[t]!.face!), `tick ${t}`).toBe(true);
+  });
+
+  it('turns on an enemy that attacks it from behind, and stays on it once the Attack is over', () => {
+    // Its nearest enemy idles ahead (+z); a second enemy steps up behind it (-z), swings an Overhead at it, then backs off.
+    const ai = createAiController(passive, perfect);
+    const intents: Intent[] = [];
+    const recording = { intent: (s: Parameters<typeof ai.intent>[0], i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+    const placements = [
+      { position: { x: 0, z: 0 }, facing: 0 },
+      { position: { x: 0, z: 1.2 }, facing: Math.PI },
+      { position: { x: 0, z: -1.3 }, facing: 0 },
+    ];
+    const initial = createInitialState(passive, 1, placements, [], [0, 1, 1]);
+    const ticks = 200;
+    const run = runControllers(passive, initial, [recording, scriptedController(wait(ticks)), scriptedController([...wait(20), ...attack('Overhead', 1), ...wait(60), ...walk(ticks, { x: 0, z: -1 })])], ticks);
+    expect(run.events.some((e) => e.type === 'Block' && e.attacker === 2 && e.defender === 0)).toBe(true);
+    // Once the Attack is over and it backs off, the one ahead is the nearer by far; it still faces the one behind (-z).
+    const after = intents.slice(150, 200);
+    expect(after.every((i) => Math.cos(i.face!) < -0.9)).toBe(true);
+  });
 });
 
 describe('AI Controller in the multilevel library', () => {

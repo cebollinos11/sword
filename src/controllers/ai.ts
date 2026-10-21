@@ -8,8 +8,10 @@
  *    Direction, and how far along it is). Never anyone's Intents.
  *  - It acts on the others only as seen `reactionTime` ago (its Reaction
  *    Time). Its own Fighter it knows up to date.
- *  - With several enemies it fights the nearest one, and defends against
- *    whichever enemy Attack nearest to it can reach it (see `intent`).
+ *  - With several enemies it fights its focus: the nearest one, kept until
+ *    another is clearly nearer, or one that swings or Kicks at it, kept for
+ *    a while (`chooseFocus`). It defends against whichever enemy Attack
+ *    nearest to it can reach it (see `intent`).
  *  - It fights only on the same level (feet within LEVEL of each other's).
  *    To reach an enemy on another Walk Surface it follows the navmesh
  *    (`findPath`, `steer`), re-planning when either moves to another surface
@@ -283,6 +285,13 @@ interface AiMemory {
   readonly opening: OpeningRoll | null;
   /** Its own HP last Tick (-1 before its first), to notice being hit. */
   readonly lastHp: number;
+  readonly focus: Focus | null;
+}
+
+/** The enemy it fights (`fighter`), kept whatever the others do until Tick `until` (-1: only while none is much nearer). */
+interface Focus {
+  readonly fighter: number;
+  readonly until: number;
 }
 
 /** A difficulty preset with every optional part filled in. */
@@ -412,8 +421,12 @@ function mix32(h: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** Besides its nearest enemy's, the AI defends against any enemy Attack from within this many times `ai.attackRange`. */
+/** Besides its focus's, the AI defends against any enemy Attack from within this many times `ai.attackRange`. */
 const THREAT_REACH = 2;
+/** An enemy that swings or Kicks at it stays its focus for this many Ticks (3 s), however near the others. */
+const AGGRO_TICKS = secondsToTicks(3);
+/** It leaves its focus for another enemy only once that one is this much (m) nearer. */
+const SWITCH_MARGIN = 1.5;
 
 /** This Tick's generator for one Fighter's AI, derived from the Simulation's seeded generator in state. */
 function tickRng(state: SimState, fighter: number): RngState {
@@ -463,6 +476,7 @@ class AiController implements Controller {
   private strafe: Strafe = NO_STRAFE;
   private opening: OpeningRoll | null = null;
   private lastHp = -1;
+  private focus: Focus | null = null;
 
   constructor(
     private readonly tuning: TuningData,
@@ -474,8 +488,8 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus };
   }
 
   load(saved: unknown): void {
@@ -495,6 +509,7 @@ class AiController implements Controller {
     this.strafe = m.strafe;
     this.opening = m.opening;
     this.lastHp = m.lastHp;
+    this.focus = m.focus;
   }
 
   private random(): number {
@@ -540,6 +555,7 @@ class AiController implements Controller {
       this.tactic = NEUTRAL;
       this.strafe = NO_STRAFE;
       this.lastHp = -1;
+      this.focus = null;
     }
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
@@ -584,9 +600,9 @@ class AiController implements Controller {
 
   /**
    * Acts on everyone as seen Reaction Time ago: it defends against the nearest
-   * enemy Attack that can reach it (its nearest enemy's, or any from within
-   * THREAT_REACH × `ai.attackRange`, on its level), else closes on and fights its nearest
-   * living enemy (nearest in 3D; ranges are measured flat). Teammates it ignores.
+   * enemy Attack that can reach it (its focus's, or any from within
+   * THREAT_REACH × `ai.attackRange`, on its level), else closes on and fights its focus
+   * (`chooseFocus`; nearest in 3D; ranges are measured flat). Teammates it ignores.
    */
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
@@ -609,14 +625,17 @@ class AiController implements Controller {
     const nearest = enemies[0];
     if (!nearest) {
       this.forget();
+      this.focus = null;
       return IDLE_INTENT;
     }
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
-    this.think(state.tick, self, nearest.o);
-
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    const threat = enemies.find(({ o, flat, near }, k) => near && isThreat(o.action) && o.attackStart !== null && (k === 0 || flat <= reach));
+    const focused = this.chooseFocus(state.tick, self, enemies, reach);
+
+    this.think(state.tick, self, focused.o);
+
+    const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
       this.feintPlan = null;
       return this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat));
@@ -634,10 +653,10 @@ class AiController implements Controller {
     const kickReach = this.tuning.ai.kickRange;
     if (enemies.some(({ o, flat, level }) => level && isKickThreat(o.action) && flat <= kickReach)) {
       this.feintPlan = null;
-      return aimAt(nearest.o, nearest.flat);
+      return aimAt(focused.o, focused.flat);
     }
 
-    const { o: target, i: targetIndex, flat: dist, level } = nearest;
+    const { o: target, i: targetIndex, flat: dist, level } = focused;
     const base = aimAt(target, dist);
     const toward: Vec2 = dist > 0 ? { x: (target.position.x - self.position.x) / dist, z: (target.position.z - self.position.z) / dist } : ZERO;
     const away: Vec2 = { x: -toward.x, z: -toward.z };
@@ -768,6 +787,24 @@ class AiController implements Controller {
   }
 
   /** Once a Tick: notice being hit, and pick its tactic (and circling side) as the old one runs out. */
+  /**
+   * The enemy it fights (`enemies` nearest first, never empty): one that swings or Kicks at it from within `reach`
+   * becomes its focus for AGGRO_TICKS (the nearest such, if several); else it keeps its focus while that enemy is
+   * standing and no other is SWITCH_MARGIN nearer, and otherwise takes its nearest.
+   */
+  private chooseFocus(tick: number, self: FighterState, enemies: readonly Enemy[], reach: number): Enemy {
+    const attacker = enemies.find(({ o, flat, near }) => near && flat <= reach && (isThreat(o.action) || isKickThreat(o.action)) && this.aimedAt(o, self));
+    if (attacker) {
+      this.focus = { fighter: attacker.i, until: tick + AGGRO_TICKS };
+      return attacker;
+    }
+    const nearest = enemies[0]!;
+    const kept = this.focus && enemies.find(({ i }) => i === this.focus!.fighter);
+    if (kept && (tick < this.focus!.until || kept.dist <= nearest.dist + SWITCH_MARGIN)) return kept;
+    this.focus = { fighter: nearest.i, until: -1 };
+    return nearest;
+  }
+
   private think(tick: number, self: FighterState, target: Sighting): void {
     const { caution, pressure, footwork } = this.skill;
     const hurt = this.lastHp >= 0 && self.hp < this.lastHp;

@@ -416,6 +416,7 @@ function isAiMemory(v: unknown): boolean {
   const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until);
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go));
-  return seen && defence && feint && attack && route && tactic && strafe && opening;
+  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until));
+  return seen && defence && feint && attack && route && tactic && strafe && opening && focus;
 }
 const isAiMemoryOrNull = isNullable(isAiMemory);
