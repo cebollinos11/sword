@@ -384,3 +384,54 @@ describe('Rollback session: Weapons', () => {
     expect(() => createRollbackSession({ role: 'guest', transport: pair.b, tuning, weapon: 'Pike' })).toThrow(/Pike/);
   });
 });
+
+describe('Rollback session: Sheathe and Draw', () => {
+  const TICKS = 420;
+  /** The host Sheathes, runs, Jumps while Sheathed, then Draws; the guest only walks about (no Attacks to cut the script short). */
+  const hostScript = (tick: number): Intent => ({
+    ...IDLE_INTENT,
+    move: tick >= 10 && tick < 330 ? { x: 0.4, z: -1 } : { x: 0, z: 0 },
+    sheathe: tick === 10 || tick === 300,
+    jump: tick === 150,
+  });
+  const walker = randomIntents(37);
+  const guestScript = (tick: number): Intent => ({ ...walker(tick), attack: false, block: false });
+
+  function offline() {
+    let m = createMatch(tuning, MATCH);
+    const hashes = new Map<number, string>();
+    const seen: string[] = [];
+    for (let t = 1; t <= TICKS; t++) {
+      m = stepMatch(m, [hostScript(t), guestScript(t)], tuning);
+      const f = m.duel.fighters[0]!;
+      for (const e of m.duel.events) if ((e.type === 'Sheathed' || e.type === 'Drawn') && e.fighter === 0) seen.push(e.type);
+      if (f.sheathed && f.air && !seen.includes('Jumped Sheathed')) seen.push('Jumped Sheathed');
+      if (t % CHECKSUM_INTERVAL === 0) hashes.set(t, hashValue(m));
+    }
+    return { hashes, seen };
+  }
+
+  it('a scripted Sheathe, run, Sheathed Jump and Draw gives the same hashes on reruns and on both peers through Rollbacks', () => {
+    const a = offline();
+    expect(a.seen).toEqual(['Sheathed', 'Jumped Sheathed', 'Drawn']);
+    expect(offline().hashes).toEqual(a.hashes);
+
+    const pair = createMemoryTransportPair({ latencyMs: 50, jitterMs: 30, seed: 4 });
+    const s = {
+      pair,
+      host: createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH }),
+      guest: createRollbackSession({ role: 'guest', transport: pair.b, tuning }),
+    };
+    for (let i = 0; i < 20_000 && Math.min(s.host.confirmedTick, s.guest.confirmedTick) < TICKS; i++) {
+      pair.advance(TICK_MS);
+      s.host.tick(hostScript(s.host.currentTick + 1));
+      s.guest.tick(guestScript(s.guest.currentTick + 1));
+    }
+    expect(Math.min(s.host.confirmedTick, s.guest.confirmedTick)).toBeGreaterThanOrEqual(TICKS);
+    expect(s.guest.stats.rollbacks + s.host.stats.rollbacks).toBeGreaterThan(0);
+    for (const [tick, hash] of a.hashes) {
+      expect(s.host.checksumAt(tick), `host @${tick}`).toBe(hash);
+      expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
+    }
+  });
+});

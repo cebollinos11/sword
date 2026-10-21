@@ -33,6 +33,33 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(hipSway)).not.toBe(tuningDataHash(tuning));
   });
 
+  it('covers Sheathe and Draw: the five Motions, the back-slot overrides, each Weapon’s sheathe slot and fighter.sheathedWalkFactor', () => {
+    const base = tuningDataHash(tuning);
+    for (const name of ['SheatheHip', 'DrawHip', 'SheatheBack', 'DrawBack', 'SheathedIdle']) {
+      const m = tuning.motions[name]!;
+      expect(m, name).toBeDefined();
+      expect(tuningDataHash({ ...tuning, motions: { ...tuning.motions, [name]: { ...m, duration: m.duration + 0.01 } } }), name).not.toBe(base);
+    }
+    for (const weapon of ['Halberd', 'Sledge Hammer']) {
+      const own = tuning.motionOverrides[weapon]!;
+      for (const name of ['SheatheBack', 'DrawBack']) {
+        const m = own[name]!;
+        expect(m, `${weapon}/${name}`).toBeDefined();
+        const changed = { ...tuning.motionOverrides, [weapon]: { ...own, [name]: { ...m, duration: m.duration + 0.01 } } };
+        expect(tuningDataHash({ ...tuning, motionOverrides: changed }), `${weapon}/${name}`).not.toBe(base);
+      }
+    }
+    for (const [name, weapon] of Object.entries(tuning.weapons)) {
+      const { slot, offset, rotation } = weapon.sheathe;
+      const moved = (sheathe: typeof weapon.sheathe) => tuningDataHash(withWeapon(tuning, { sheathe }, name));
+      expect(moved({ slot: slot === 'hip' ? 'back' : 'hip', offset, rotation }), name).not.toBe(base);
+      expect(moved({ slot, offset: { ...offset, x: offset.x + 0.01 }, rotation }), name).not.toBe(base);
+      expect(moved({ slot, offset, rotation: { ...rotation, y: rotation.y + 0.01 } }), name).not.toBe(base);
+    }
+    const faster: TuningData = { ...tuning, fighter: { ...tuning.fighter, sheathedWalkFactor: tuning.fighter.sheathedWalkFactor + 0.1 } };
+    expect(tuningDataHash(faster)).not.toBe(base);
+  });
+
   it('changes with GENERATOR_VERSION, so peers whose generators could build different Layouts refuse each other', () => {
     expect(tuningDataHash(tuning, GENERATOR_VERSION)).toBe(tuningDataHash(tuning));
     expect(tuningDataHash(tuning, GENERATOR_VERSION + 1)).not.toBe(tuningDataHash(tuning));

@@ -160,6 +160,16 @@ depending on the Weapon.
 ## Stage 8: Wrap-up
 - `README.md` controls list (R key). Check the Tuning Data hash (`src/tuning/hash.ts`) picks up the new files and fields.
 - Final full `npm test`, `npx tsc --noEmit`, and a lint run if the repo has a lint script.
+- _As built:_ the README had no controls list, so it gained a Controls section (keyboard and touch, the same lines as How to Play)
+  with R and the Sheathe pad. `tuningDataHash` already hashed every simulated field, so it needed no change; `hash.test.ts` now checks
+  that the five new Motions, the Halberd and Sledge Hammer `SheatheBack`/`DrawBack` overrides, each Weapon's `sheathe` slot, offset and
+  rotation, and `fighter.sheathedWalkFactor` all move the hash. `sheathe.test.ts` already covered reruns and a snapshot restore of a lone
+  Fighter; `session.test.ts` now plays a scripted Duel (the host Sheathes, runs, Jumps while Sheathed and Draws) between two peers over a
+  jittery link, with Rollbacks, and checks both peers' checksums against an offline rerun. The repo has no lint script. `MEASURE_JUMP=1`
+  gives the same numbers as `docs/jump-reach.md`. Checked in headless Chromium (driven over the DevTools protocol): R puts the Arming
+  Sword on the left hip with both hands empty, a left click Draws, and the AI presses the Sheathed player; at phone width the touch pad
+  reads Sheathe, and Draw after a tap. Not checked by hand: an online two-tab Room (no broker here; the Rollback test stands in for it),
+  the jump gap and a Hit mid-Draw (both covered by `sheathe.test.ts`).
 
 ---
 
