@@ -107,7 +107,7 @@ The phase of an Attack after the button is let go; the only phase in which the B
 _Avoid_: Swing phase, active frames
 
 **Recovery**:
-The committed phase after Release, before the Fighter can act again.
+The committed phase after Release, before the Fighter can act again. Its Motion first carries the swing on past its line (the follow-through: the blade overshoots, the torso over-rotates, the hips settle) and then eases back to guard. The Blade Sweep is live only up to the pose at the end of Release, so the follow-through can never hit.
 
 **Chain**:
 Holding attack during Recovery: the pose blends straight from where it is to the next Attack's held Wind-up pose instead of back to guard, and that Attack starts when Recovery ends. Pose only: Recovery, the Idle Tick after it and the Wind-up last as long as ever. Letting go during Recovery drops the Chain.

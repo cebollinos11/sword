@@ -35,6 +35,15 @@
       "hip": { "x": 0, "y": 0.86, "z": 0.08 }
     },
     {
+      "time": 0.72,
+      "ease": "easeOut",
+      "path": "arc",
+      "rightHand": { "position": { "x": 0.08, "y": 0.86, "z": 0.45 }, "rotation": { "x": 48, "y": 0, "z": 0 } },
+      "leftHand": { "position": { "x": -0.28, "y": 0.8, "z": -0.08 } },
+      "torso": { "twist": -8, "lean": 28 },
+      "hip": { "x": 0, "y": 0.82, "z": 0.1 }
+    },
+    {
       "time": 1.1,
       "ease": "easeInOut",
       "rightHand": "idle",

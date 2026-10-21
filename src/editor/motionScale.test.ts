@@ -11,7 +11,7 @@ describe('scaling a Motion timeline', () => {
     const d = session.draft('Overhead');
     scaleMotion(d, 2.2); // Overhead is 1.1 s: everything doubles
     expect(d.duration).toBe(2.2);
-    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.7, 1.2, 2.2]);
+    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.7, 1.2, 1.44, 2.2]);
     expect(d.markers).toEqual({ windUpEnd: 0.7, releaseEnd: 1.2 });
     expect(() => session.commit('Overhead')).not.toThrow();
   });
@@ -23,7 +23,7 @@ describe('scaling a Motion timeline', () => {
     scaleMotion(d, 0.55); // half length
     expect(d.duration).toBe(0.55);
     expect(d.poseKeys[d.poseKeys.length - 1]!.time).toBe(0.55);
-    expect(d.poseKeys.map((k) => k.ease)).toEqual(['linear', 'easeOut', 'easeIn', 'easeInOut']);
+    expect(d.poseKeys.map((k) => k.ease)).toEqual(['linear', 'easeOut', 'easeIn', 'easeOut', 'easeInOut']);
     expect(d.poseKeys.map(({ time: _t, ...rest }) => rest)).toEqual(before);
     expect(d.markers.releaseEnd).toBeLessThanOrEqual(d.duration);
     expect(() => session.commit('Overhead')).not.toThrow();

@@ -12,7 +12,7 @@ describe('Pose Key editing', () => {
     const d = session.draft('Overhead');
     const i = addPoseKey(d, 0.5, tuning.skeleton, guard);
     expect(i).toBe(2);
-    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.35, 0.5, 0.6, 1.1]);
+    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.35, 0.5, 0.6, 0.72, 1.1]);
     // Torso twist at 0.5 s: easeIn from 15 (0.35) to -5 (0.6), u = 0.6 -> 15 - 20 * 0.36 = 7.8.
     expect(d.poseKeys[2]!.torso!.twist).toBeCloseTo(7.8, 6);
     // Feet are only set at 0 s (linked to the guard), so they hold the guard's plant.
@@ -30,10 +30,10 @@ describe('Pose Key editing', () => {
     // Dragged past its neighbour: it moves in the list and the new index is returned.
     expect(retimePoseKey(d, 2, 0.2)).toBe(1);
     expect(d.poseKeys[1]).toBe(released);
-    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.2, 0.35, 1.1]);
-    expect(retimePoseKey(d, 1, 5)).toBe(3);
+    expect(d.poseKeys.map((k) => k.time)).toEqual([0, 0.2, 0.35, 0.72, 1.1]);
+    expect(retimePoseKey(d, 1, 5)).toBe(4);
     expect(released.time).toBe(1.1);
-    expect(retimePoseKey(d, 3, -1)).toBe(0);
+    expect(retimePoseKey(d, 4, -1)).toBe(0);
     expect(released.time).toBe(0);
   });
 
