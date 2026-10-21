@@ -21,9 +21,10 @@ import type * as THREE from 'three';
 import type { ButtonApi } from 'tweakpane';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Pane, type FolderApi } from 'tweakpane';
-import { motionPose, motionTempo, playedSeconds, secondsToTicks, TICK_RATE, type BladeTransform, type Placement } from '../sim';
+import { motionPose, motionTempo, playedSeconds, secondsToTicks, TICK_RATE, type BladeTransform, type Placement, type SkeletonPose } from '../sim';
 import { EASES, guardKey, PATHS, POSE_KEY_CHANNELS, weaponByName, weaponMotion, type Motion, type Path, type PoseKeyChannel, type TuningData } from '../tuning';
 import { FIGHTER_COLOURS, FighterView } from '../render/fighterView';
+import { sheathedBlade } from '../render/sheathed';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { GIZMO_LABELS, GIZMO_TARGETS, PoseGizmo, type GizmoTarget } from './gizmo';
@@ -31,6 +32,7 @@ import { addPoseKey, isLinked, linkChannel, removePoseKey, retimePoseKey, scaleM
 import { saveJsonFile } from './save';
 import { startSandbox } from './sandbox';
 import { EditorSession, motionPath, type MotionDraft } from './session';
+import { sheathePreview } from './sheathePreview';
 import { Timeline } from './timeline';
 import { BladeSweepTrail } from './trail';
 
@@ -184,7 +186,11 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
 
   // --- Gizmo and timeline -------------------------------------------------
   // The timeline is in authored seconds; the pose is looked up at the played time that shows it.
-  const previewPose = () => motionPose(session.tuning, ui.motion, played(Math.min(ui.time, liveMotion().duration)) * TICK_RATE, ORIGIN, ui.weapon);
+  // A Sheathe, Draw or Sheathed Idle shows the Weapon in its slot (and the off hand let go) as play would.
+  const sheathing = () => sheathePreview(liveMotion(), Math.min(ui.time, liveMotion().duration), session.tuning);
+  const previewPose = () => motionPose(session.tuning, ui.motion, played(Math.min(ui.time, liveMotion().duration)) * TICK_RATE, ORIGIN, ui.weapon, sheathing().offHandFree);
+  /** The preview as drawn: the gizmo keeps working on the hand even while the Weapon is shown in its slot. */
+  const drawnPreview = (pose: SkeletonPose): SkeletonPose => (sheathing().sheathed ? { ...pose, blade: sheathedBlade(pose, weaponByName(session.tuning, ui.weapon)) } : pose);
 
   const gizmo = new PoseGizmo(
     stage.camera,
@@ -408,7 +414,7 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
       pane.refresh();
     }
     const pose = previewPose();
-    fighter.update(pose, weaponByName(session.tuning, ui.weapon));
+    fighter.update(drawnPreview(pose), weaponByName(session.tuning, ui.weapon));
     gizmo.setPose(pose);
     timeline.update(draft(), selected, ui.time);
     if (ui.view === 'gameplay') {

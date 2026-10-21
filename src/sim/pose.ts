@@ -2,7 +2,7 @@ import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
 import { applyBlockImpact, applyGuard, offHandFree } from './actions';
 import { footPitch, footPose, hipShift, toLocal } from './gait';
 import { motionTargets, playbackTargets, type PoseTargets } from './motion';
-import { kickLegOf, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
+import { kickLegOf, NO_GAIT, solveSkeleton, type Placement, type SkeletonPose } from './skeleton';
 import type { FighterState, MotionPlayback } from './state';
 
 /** What a Fighter records of its solved Skeleton each Tick: the blade and the kicking leg, whose last-Tick values bound the next Tick's sweeps. */
@@ -10,10 +10,11 @@ export const bladeAndLeg = (pose: SkeletonPose): Pick<FighterState, 'blade' | 'k
 
 /**
  * The solved Skeleton of a Fighter wielding `weapon` (default: the default Weapon) at `placement`,
- * `tick` Ticks into the named Motion as that Weapon plays it. Pure and deterministic: the same inputs always give the same pose.
+ * `tick` Ticks into the named Motion as that Weapon plays it, a two-handed Weapon's off hand let go by `offHandFree` (0..1, as `offHandFree`
+ * gives in play). Pure and deterministic: the same inputs always give the same pose.
  */
-export function motionPose(tuning: TuningData, motionName: string, tick: number, placement: Placement, weapon = defaultWeaponName(tuning)): SkeletonPose {
-  return solveSkeleton(motionTargets(tuning, weapon, motionName, tick), tuning.skeleton, weaponByName(tuning, weapon), placement);
+export function motionPose(tuning: TuningData, motionName: string, tick: number, placement: Placement, weapon = defaultWeaponName(tuning), offHandFree = 0): SkeletonPose {
+  return solveSkeleton(motionTargets(tuning, weapon, motionName, tick), tuning.skeleton, weaponByName(tuning, weapon), placement, offHandFree === 0 ? NO_GAIT : { ...NO_GAIT, offHandFree });
 }
 
 /** The solved Skeleton of a playback (with any Motion Blend) at `placement`, Gait aside: a Fighter wielding `weapon` standing still. */

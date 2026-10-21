@@ -89,7 +89,11 @@ describe('EditorSession Motion overrides', () => {
       ...session.tuning,
       weapons: Object.values(session.tuning.weapons),
       motions: Object.values(session.tuning.motions),
-      motionOverrides: { Halberd: [JSON.parse(file.text)] },
+      // The repo's own overrides, and this one saved alongside them.
+      motionOverrides: {
+        ...Object.fromEntries(Object.entries(tuning.motionOverrides).map(([w, own]) => [w, Object.values(own)])),
+        Halberd: [...Object.values(tuning.motionOverrides.Halberd ?? {}), JSON.parse(file.text)],
+      },
     });
     expect(reloaded.motionOverrides).toEqual(session.tuning.motionOverrides);
   });
@@ -115,7 +119,7 @@ describe('EditorSession Motion overrides', () => {
     expect(session.removeOverride('Halberd', 'Idle')).toBe('data/motions/halberd/idle.json');
     expect(session.hasOverride('Halberd', 'Idle')).toBe(false);
     expect(weaponMotion(session.tuning, 'Halberd', 'Idle')).toBe(tuning.motions.Idle);
-    expect(session.tuning.motionOverrides).toEqual({});
+    expect(session.tuning.motionOverrides).toEqual(tuning.motionOverrides);
     // A fresh override starts from the default again, not the dropped edit.
     session.createOverride('Halberd', 'Idle');
     expect(session.draft('Idle', 'Halberd').duration).toBe(tuning.motions.Idle!.duration);

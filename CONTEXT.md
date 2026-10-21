@@ -66,7 +66,7 @@ The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter 
 _Avoid_: Transition, tween
 
 **Gait**:
-The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. A faster walk takes longer strides: up to full walk speed it also steps more often, and beyond it (a Sheathed walk) it keeps that cadence and only lengthens its stride. It is not a Motion: it runs alongside whatever Action is current.
+The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. A faster walk takes longer strides: up to full walk speed it also steps more often, and beyond it (a Sheathed walk) its stride keeps lengthening and its cadence rises only a little, so the hips do not sink into a lunge. It is not a Motion: it runs alongside whatever Action is current.
 _Avoid_: Walk animation, walk cycle, locomotion
 
 **Tuning Data**:
@@ -156,7 +156,7 @@ An Action (E key) in which the Fighter takes a Throwing Dagger by its point in i
 _Avoid_: Shot, toss
 
 **Sheathe**:
-An Action (R key, or the Sheathe pad) in which the Fighter puts its Weapon away in its Weapon's slot, on the hip or on the back, leaving it Sheathed. It starts from Idle, on the ground, on the run or in a Jump, and is committed: the Fighter walks (at its drawn speed), turns and crouches, but cannot Jump, Kick, Throw, Attack or Block until it ends. The Weapon changes from hand to slot at the Motion's `swap` marker, and that is the moment the Fighter becomes Sheathed: a Stagger or Knockdown before it leaves the Weapon drawn, one after it leaves it Sheathed. It lasts 0.7 s for a hip slot and 1.0 s for a back slot, and carries on through a ledge Fall and a soft Landing.
+An Action (R key, or the Sheathe pad) in which the Fighter puts its Weapon away in its Weapon's slot, on the hip or on the back, leaving it Sheathed. It starts from Idle, on the ground, on the run or in a Jump, and is committed: the Fighter walks (at its drawn speed), turns and crouches, but cannot Jump, Kick, Throw, Attack or Block until it ends. The Weapon changes from hand to slot at the Motion's `swap` marker, and that is the moment the Fighter becomes Sheathed: a Stagger or Knockdown before it leaves the Weapon drawn, one after it leaves it Sheathed. It lasts 0.7 s for a hip slot and 1.0 s for a back slot, and carries on through a ledge Fall and a soft Landing. Its Motion (`SheatheHip` or `SheatheBack`, which a Weapon can override, as the Halberd and Sledge Hammer do to stand their heads up) brings the sword hand to the slot at `swap`, so the Weapon is drawn in the slot from that Tick without a jump. While Sheathed the Fighter stands in the Sheathed Idle (`SheathedIdle`): relaxed, hands empty.
 _Avoid_: Holster, stow
 
 **Draw**:
@@ -196,7 +196,7 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed. No shields.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. No shields.
 
 **Weapon roster**:
 Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
@@ -226,7 +226,7 @@ How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
-A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays on the body). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
+A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:

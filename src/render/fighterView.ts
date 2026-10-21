@@ -3,6 +3,7 @@ import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTrans
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
+import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
@@ -247,13 +248,16 @@ export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonP
 
 /**
  * The pose to draw for Fighter `i` a share `alpha` of the way from Tick `from` to Tick `to` (the same Duel):
- * its solved Skeletons interpolated, or once it has fallen, its Death Ragdoll at that moment.
+ * its solved Skeletons interpolated, or once it has fallen, its Death Ragdoll at that moment. While it is Sheathed (as of `to`),
+ * the Weapon is in its slot on the body, not in the hand (ADR 0017: only drawing moves it there).
  */
 export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData): SkeletonPose {
   const f = to.fighters[i]!;
+  const weapon = weaponByName(tuning, f.weapon);
   if (f.death) {
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
-    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weaponByName(tuning, f.weapon), tuning, arenaOf(tuning, to.arena));
+    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, tuning, arenaOf(tuning, to.arena), f.sheathed);
   }
-  return lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
+  const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
+  return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;
 }

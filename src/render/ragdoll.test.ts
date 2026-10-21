@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { duelPlacements, fighterPose, createInitialState, type Death, type SkeletonPose, type Vec3 } from '../sim';
 import { loadTuningData, parseArena, weaponByName } from '../tuning';
 import { ragdollPose } from './ragdoll';
+import { sheathedBlade } from './sheathed';
 
 const tuning = loadTuningData();
 const fighter = createInitialState(tuning, 1, duelPlacements(2)).fighters[1]!; // at +z, facing -z
@@ -71,6 +72,22 @@ describe('Death Ragdoll', () => {
     expect(d(lying.blade.hilt, lying.blade.tip)).toBeCloseTo(d(pose.blade.hilt, pose.blade.tip), 1);
     expect(d(lying.blade.hilt, lying.joints.rightHand)).toBeGreaterThan(0.15);
     expect(Math.max(lying.blade.hilt.y, lying.blade.tip.y)).toBeLessThan(0.2);
+  });
+
+  it.each(['Arming Sword', 'Longsword', 'Halberd'])('keeps a Sheathed %s in its slot on the body as it falls', (name) => {
+    const w = weaponByName(tuning, name);
+    const worn = sheathedBlade(pose, w);
+    const start = ragdollPose(pose, death, 0, w, tuning, undefined, true);
+    expect(start.blade).toEqual(worn);
+    // Where it sits on the torso (from the chest, against the spine) stays put through the fall.
+    const fromChest = (p: SkeletonPose) => [d(p.blade.hilt, p.joints.chest), d(p.blade.tip, p.joints.chest), d(p.blade.hilt, p.joints.pelvis), d(p.blade.tip, p.joints.pelvis)];
+    for (const t of [0.5, 1.5, 3]) {
+      const lying = ragdollPose(pose, death, t, w, tuning, undefined, true);
+      fromChest(lying).forEach((v, k) => expect(v).toBeCloseTo(fromChest(start)[k]!, 1));
+      expect(lowest(lying)).toBeGreaterThan(0);
+    }
+    // A drawn one still leaves the hand.
+    expect(ragdollPose(pose, death, 3, w, tuning, undefined, false).blade).not.toEqual(ragdollPose(pose, death, 3, w, tuning, undefined, true).blade);
   });
 });
 

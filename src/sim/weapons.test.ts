@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type Motion, type OffHandGrip, type TuningData } from '../tuning';
-import { advanceBlockImpact } from './actions';
+import { advanceBlockImpact, SHEATHED_IDLE_MOTION, sheatheMotionName } from './actions';
 import {
   attack,
   createInitialState,
@@ -51,10 +51,12 @@ const events = <T extends HitEvent | BlockEvent>(run: ScriptRun, type: T['type']
   run.states.flatMap((s) => s.events).filter((e): e is T => e.type === type);
 
 describe('Off-hand Grip (Skeleton solve)', () => {
-  it('a two-handed Weapon puts the off hand on its Off-hand Grip at every Pose Key of every Motion', () => {
+  it('a two-handed Weapon puts the off hand on its Off-hand Grip at every Pose Key of every Motion (but those that let it go)', () => {
+    // A Sheathe, a Draw and the Sheathed Idle let go of the grip in play (offHandFree), so they may put the off hand anywhere.
+    const letsGo = new Set([SHEATHED_IDLE_MOTION, ...(['Sheathe', 'Draw'] as const).flatMap((k) => [sheatheMotionName(k, 'hip'), sheatheMotionName(k, 'back')])]);
     for (const weapon of TWO_HANDED) {
       const grip = tuning.weapons[weapon]!.offHandGrip!;
-      for (const motion of Object.values(tuning.motions)) {
+      for (const motion of Object.values(tuning.motions).filter((m) => !letsGo.has(m.name))) {
         for (const key of motion.poseKeys) {
           for (const at of [ORIGIN, PLACED]) {
             const pose = motionPose(tuning, motion.name, key.time * TICK_RATE, at, weapon);

@@ -143,7 +143,7 @@ export interface GaitOffsets {
   readonly offHandFree?: number;
 }
 
-const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
+export const NO_GAIT: GaitOffsets = { lift: { left: 0, right: 0 }, hipShift: { sideways: 0, drop: 0 } };
 
 /**
  * The Off-hand Grip's spot for a Weapon held at `hand`, with its axis (hand →

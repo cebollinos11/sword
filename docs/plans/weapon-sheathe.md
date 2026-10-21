@@ -117,6 +117,17 @@ depending on the Weapon.
 - Ragdoll: when Sheathed at Death, the Weapon rides the torso instead of leaving the hand (`ragdoll.ts:145` `start`).
 - Editor: `actionLabels.ts` gains Sheathe and Draw. Update `session.test.ts` with the new Motion names.
 - Check visually with the `run` skill: walk Sheathed with each Weapon, and Draw/Sheathe while standing, walking and jumping.
+- _As built:_ the slot transform is `sheathedBlade(pose, weapon)` in `src/render/sheathed.ts` (frame: the hips' or shoulders' axis,
+  up the spine). Rather than a `sheathed` argument to `fighterView.update`, `drawnPose` puts the Weapon in its slot when the Fighter is
+  Sheathed, so the game, the sandbox and the thumbnails all get it, and `FighterView` is unchanged. The ragdoll (`ragdollPose(..., sheathed)`)
+  starts the Weapon's particles in the slot and rods them to the torso. The back Motions are a sword's (blade hanging down);
+  the Halberd and Sledge Hammer override `SheatheBack`/`DrawBack` (`data/motions/<weapon>/`) to stand their heads up over the shoulder.
+  The swap keys' hands were snapped to the slots numerically, and `sheathed.test.ts` checks that the hand meets the slot (within 6 cm and
+  20°) at every swap for every Weapon. The Editor previews the Weapon in its slot past/before `swap` (`sheathePreview.ts`), with the
+  off hand let go, through `motionPose`'s new `offHandFree` argument. `actionLabels.ts` already had the Actions. Two existing tests had
+  assumed things this stage changes: `session.test.ts` assumed the repo had no Motion overrides, and `weapons.test.ts` assumed every
+  Motion keeps the off hand on its grip (now except the Sheathe family, which lets go in play). The 1 m Sheathed stride looked like a
+  lunge, so the Gait's max lead now grows with √speed (a 0.87 m stride, the cadence a little quicker).
 
 ## Stage 6: Audio
 **Where:** `src/sim/events.ts`, `src/audio/cues.ts`, `src/audio/stock.ts`/`synth.ts`.

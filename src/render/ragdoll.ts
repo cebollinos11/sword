@@ -9,10 +9,12 @@
  * Verlet particles, one per joint plus three on the Weapon, held together by
  * distance constraints: the torso and head are rigid, the knees and elbows bend
  * only the way they bend in life (never backwards, sideways or flat), and everything lands on the Arena's Walk Surfaces: each particle on
- * the highest one under it, so a body that falls off a ledge drops to the floor below.
+ * the highest one under it, so a body that falls off a ledge drops to the floor below. A Sheathed Weapon stays in its slot: its
+ * particles are held rigidly to the torso and fall with it.
  */
 import { groundBelow, JOINT_NAMES, type Death, type JointName, type SkeletonPose, type Vec3 } from '../sim';
 import type { ArenaGeometry, TuningData, WeaponTuning } from '../tuning';
+import { sheathedBlade } from './sheathed';
 
 /** Simulation step and how long the fall is simulated before it is left lying still (seconds). */
 const STEP = 1 / 120;
@@ -129,10 +131,12 @@ function dist(p: Float64Array, a: number, b: number): number {
   return Math.hypot(p[3 * a]! - p[3 * b]!, p[3 * a + 1]! - p[3 * b + 1]!, p[3 * a + 2]! - p[3 * b + 2]!);
 }
 
-function constraints(p: Float64Array): Constraint[] {
+function constraints(p: Float64Array, sheathed: boolean): Constraint[] {
   const out: Constraint[] = [];
   const rod = (a: number, b: number, min = false, share = 1) => out.push({ a, b, length: dist(p, a, b) * share, min });
   for (let i = 0; i < TORSO.length; i++) for (let k = i + 1; k < TORSO.length; k++) rod(J[TORSO[i]!], J[TORSO[k]!]);
+  // A Sheathed Weapon is part of the torso.
+  if (sheathed) for (const w of [BUTT, TIP, EDGE]) for (const t of TORSO) rod(w, J[t]);
   for (const [a, b] of LIMBS) rod(J[a], J[b]);
   for (const [a, b, share] of FOLDS) rod(J[a], J[b], true, share);
   rod(BUTT, TIP);
@@ -142,11 +146,11 @@ function constraints(p: Float64Array): Constraint[] {
 }
 
 /** The fall's particles in their starting places (`pos`) and one step back (`prev`, so `pos - prev` is the starting velocity per step). */
-function start(pose: SkeletonPose, death: Death, weapon: WeaponTuning): { pos: Float64Array; prev: Float64Array } {
+function start(pose: SkeletonPose, death: Death, weapon: WeaponTuning, sheathed: boolean): { pos: Float64Array; prev: Float64Array } {
   const pos = new Float64Array(3 * COUNT);
   const set = (i: number, v: Vec3) => pos.set([v.x, v.y, v.z], 3 * i);
   JOINT_NAMES.forEach((n, i) => set(i, pose.joints[n]));
-  const { hilt, tip, edge } = pose.blade;
+  const { hilt, tip, edge } = sheathed ? sheathedBlade(pose, weapon) : pose.blade;
   const axis = norm({ x: tip.x - hilt.x, y: tip.y - hilt.y, z: tip.z - hilt.z });
   const butt = { x: hilt.x - axis.x * weapon.gripLength, y: hilt.y - axis.y * weapon.gripLength, z: hilt.z - axis.z * weapon.gripLength };
   set(BUTT, butt);
@@ -180,6 +184,12 @@ function start(pose: SkeletonPose, death: Death, weapon: WeaponTuning): { pos: F
   for (const knee of [J.leftKnee, J.rightKnee]) {
     vel[3 * knee] = vel[3 * knee]! + forward.x * BUCKLE;
     vel[3 * knee + 2] = vel[3 * knee + 2]! + forward.z * BUCKLE;
+  }
+  if (sheathed) {
+    // It falls with the chest it rides on.
+    for (const i of [BUTT, TIP, EDGE]) for (let c = 0; c < 3; c++) vel[3 * i + c] = vel[3 * J.chest + c]!;
+    const prev = pos.map((v, i) => v - vel[i]! * STEP);
+    return { pos, prev };
   }
   // The hand lets go: the Weapon flies off with the hand's push, up, and turning end over end.
   const hand = J.rightHand;
@@ -299,11 +309,12 @@ function limit(p: Float64Array, j: number, root: number, dir: Vec3, least: numbe
 /**
  * The Skeleton (and Weapon) of a Fighter `seconds` after it fell in `pose` (its pose on the Tick of its Death),
  * wielding `weapon`, in `arena` (default: on a flat floor at y 0). Pure and deterministic; after a few seconds the body lies still.
+ * `sheathed`: it fell Sheathed, so its Weapon starts (and stays) in its slot instead of leaving the hand.
  */
-export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, weapon: WeaponTuning, tuning: TuningData, arena?: ArenaGeometry): SkeletonPose {
+export function ragdollPose(pose: SkeletonPose, death: Death, seconds: number, weapon: WeaponTuning, tuning: TuningData, arena?: ArenaGeometry, sheathed = false): SkeletonPose {
   const steps = Math.round(Math.min(Math.max(seconds, 0), SETTLE_SECONDS) / STEP);
-  if (steps === 0) return pose;
-  const fall = fallFor(pose, death, weapon, tuning, arena, steps);
+  if (steps === 0) return sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;
+  const fall = fallFor(pose, death, weapon, tuning, arena, steps, sheathed);
   if (fall.steps === steps && fall.drawn) return fall.drawn;
   advance(fall, steps, arena);
   fall.drawn = drawn(fall.pos, weapon);
@@ -333,13 +344,13 @@ const falls = new Map<string, Fall>();
 const MAX_FALLS = 64;
 
 /** The cached fall for these inputs if it can step on to `steps`, else a fresh one from the start. */
-function fallFor(pose: SkeletonPose, death: Death, weapon: WeaponTuning, tuning: TuningData, arena: ArenaGeometry | undefined, steps: number): Fall {
+function fallFor(pose: SkeletonPose, death: Death, weapon: WeaponTuning, tuning: TuningData, arena: ArenaGeometry | undefined, steps: number, sheathed: boolean): Fall {
   const { chest, rightHand } = pose.joints;
-  const key = JSON.stringify([death, chest, rightHand, pose.blade.tip]);
+  const key = JSON.stringify([death, chest, rightHand, pose.blade.tip, sheathed]);
   const cached = falls.get(key);
   if (cached && cached.weapon === weapon && cached.tuning === tuning && cached.arena === arena && cached.steps <= steps) return cached;
-  const { pos, prev } = start(pose, death, weapon);
-  const fall: Fall = { key, weapon, tuning, arena, pos, prev, cs: constraints(pos), radius: radii(tuning), floor: new Float64Array(COUNT), steps: 0, drawn: null };
+  const { pos, prev } = start(pose, death, weapon, sheathed);
+  const fall: Fall = { key, weapon, tuning, arena, pos, prev, cs: constraints(pos, sheathed), radius: radii(tuning), floor: new Float64Array(COUNT), steps: 0, drawn: null };
   falls.delete(key);
   falls.set(key, fall);
   if (falls.size > MAX_FALLS) falls.delete(falls.keys().next().value!);
