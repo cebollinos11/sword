@@ -149,6 +149,22 @@ describe('Peer message validation', () => {
     ]) expect(parseNetMessage(resync(down(bad)))).toBeNull();
   });
 
+  it("carries a blade Hit's Stagger and the side it came from through a resync, and refuses a malformed one", () => {
+    const state = matchState();
+    const staggered = (action: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, action }, ...state.duel.fighters.slice(1)] } });
+    for (const good of [
+      { kind: 'Stagger', cause: 'Hit', from: 'Left' },
+      { kind: 'Stagger', cause: 'Hit', from: 'Thrust' },
+      { kind: 'Stagger', cause: 'Hit' },
+      { kind: 'Stagger', cause: 'Blocked' },
+    ]) expect(parseNetMessage(resync(staggered(good)))).toEqual(resync(staggered(good)));
+    for (const bad of [
+      { kind: 'Stagger', cause: 'Hit', from: 'Sideways' },
+      { kind: 'Stagger', cause: 'Hit', from: null },
+      { kind: 'Stagger', cause: 'Blocked', from: 'Left' },
+    ]) expect(parseNetMessage(resync(staggered(bad)))).toBeNull();
+  });
+
   it('carries a Slide through a resync, and refuses a malformed one', () => {
     const state = matchState();
     const slide = (v: unknown) => ({ ...state, duel: { ...state.duel, fighters: [{ ...state.duel.fighters[0]!, slide: v }, ...state.duel.fighters.slice(1)] } });

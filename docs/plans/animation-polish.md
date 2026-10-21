@@ -1,6 +1,8 @@
 # Animation & feel polish: hit reactions, follow-through, impact feel, soft landing
 
-> Status: planned, not started. Stages 1–4 below are independent; do them in order, one commit (or more) per Stage. Mark each Stage done here (with a short Result) when it lands.
+> Status: Stage 1 done; Stages 2–4 planned. Stages 1–4 below are independent; do them in order, one commit (or more) per Stage. Mark each Stage done here (with a short Result) when it lands.
+>
+> **Stage 1 done.** Result: a blade Hit's Stagger carries `from`, the side the blow came from as the defender sees it, so it is the Hit's Direction mirrored for Left and Right (a Left swing lands on the right and plays `StaggerRight`). The plan first said to pass the Hit's Direction unchanged; that would have flinched the body toward the blade. `StaggerLeft`/`StaggerRight`/`StaggerOverhead`/`StaggerThrust` are 0.5 s each, like `Stagger`. The Halberd and Sledge Hammer inherit them, and the Tuning Data hash covers them. Every blade Hit lands on the same Tick and Staggers for the same number of Ticks as before (checked against a Tuning Data with the reactions removed).
 
 ## Context
 The Knockdown rework landed on `main` (53fdf98). Looking through the other Motions (`data/motions/*.json`) and the effects code turned up four places that feel stiff or flat. The user picked all four:

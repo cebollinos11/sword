@@ -28,6 +28,10 @@ describe('EditorSession', () => {
       'SheathedIdle',
       'SheatheHip',
       'Stagger',
+      'StaggerLeft',
+      'StaggerOverhead',
+      'StaggerRight',
+      'StaggerThrust',
       'Throw',
       'Thrust',
     ]);

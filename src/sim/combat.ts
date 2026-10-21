@@ -20,7 +20,7 @@ import { LODGE_TICKS } from './actions/attack';
 import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
-import { IDLE_INTENT, type Direction, type Intent } from './intent';
+import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
@@ -257,11 +257,14 @@ export function resolveContacts(
   return out;
 }
 
-/** Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). */
-export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit): FighterState {
+/**
+ * Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). `from` (a blade Hit
+ * only) is the side the blow came from, from the Fighter's own view.
+ */
+export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit, from?: Direction): FighterState {
   // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
   const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
-  const { action, motion } = stagger(cause, hold);
+  const { action, motion } = stagger(tuning, f.weapon, cause, hold, from);
   emit({ type: 'Stagger', fighter: index, cause });
   const staggered = { ...f, action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
   return { ...staggered, ...bladeAndLeg(fighterPose(staggered, tuning)) };
@@ -359,7 +362,8 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   }
   const away = hitInAir(wounded, damage, dx, dz, tuning);
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
-  out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
+  // The blow arrives on the defender's side mirrored from the attacker's (a Left swing lands on its right).
+  out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit, mirrorDirection(direction)));
 }
 
 /**

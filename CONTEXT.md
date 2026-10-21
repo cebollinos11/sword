@@ -114,7 +114,7 @@ Holding attack during Recovery: the pose blends straight from where it is to the
 _Avoid_: Combo, cancel, buffer
 
 **Stagger**:
-A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
+A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in). A blade Hit's Stagger plays the hit reaction for the side the blow came from, from the Fighter's own view (the Attack's Direction mirrored for Left and Right, as for a Block: a Left swing lands on the right): `StaggerLeft`, `StaggerRight`, `StaggerOverhead` or `StaggerThrust`, the body moving away from the blow. Each lasts as long as `Stagger`, so the Stagger's length never depends on the Direction. A Weapon without that Motion, and a Throwing Dagger Hit, play `Stagger`.
 _Avoid_: Stun, flinch, hitstun
 
 **Trade**:

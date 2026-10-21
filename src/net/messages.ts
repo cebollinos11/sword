@@ -223,7 +223,7 @@ function isAction(v: unknown): boolean {
     case 'Knockdown':
       return KNOCKDOWN_PHASES.has(v.phase as string) && isTick(v.ticks) && (v.guard === null || isDirection(v.guard));
     case 'Stagger':
-      return STAGGER_CAUSES.has(v.cause as string);
+      return STAGGER_CAUSES.has(v.cause as string) && (v.from === undefined || (v.cause === 'Hit' && isDirection(v.from)));
     case 'Fall':
     case 'Sheathe':
     case 'Draw':
