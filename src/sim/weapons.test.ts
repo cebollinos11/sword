@@ -137,13 +137,13 @@ describe('Off-hand Grip (Skeleton solve)', () => {
 describe('Head and shaft', () => {
   /** A Halberd Overhead from `distance`: its first Hit. */
   const halberdHit = (t: TuningData, distance: number) =>
-    events<HitEvent>(runDuel(t, { distance, weapons: ['Halberd', 'Arming Sword'], a: attack('Overhead'), b: [] }), 'Hit')[0]!;
+    events<HitEvent>(runDuel(t, { placements: [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: -0.2, z: distance }, facing: Math.PI }], weapons: ['Halberd', 'Arming Sword'], a: attack('Overhead'), b: [] }), 'Hit')[0]!;
   const fullShaft = withWeapon(tuning, { shaftDamage: 1 }, 'Halberd');
 
   it('a Halberd Hit with the Head deals full damage', () => {
-    const hit = halberdHit(tuning, 1.6);
+    const hit = halberdHit(tuning, 1.75);
     expect(hit.head).toBe(true);
-    expect(hit.damage).toBeCloseTo(halberdHit(fullShaft, 1.6).damage, 9);
+    expect(hit.damage).toBeCloseTo(halberdHit(fullShaft, 1.75).damage, 9);
   });
 
   it('the same Hit landed with the shaft behind the Head deals damage × shaftDamage', () => {

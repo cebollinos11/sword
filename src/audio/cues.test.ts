@@ -13,12 +13,19 @@ describe('soundCues', () => {
   });
 
   it('a Hit plays the hit sound, louder for a harder Hit', () => {
-    // From 1.2 m an Overhead hits the head; offset 0.3 m sideways it only clips a limb.
-    const head = runDuel(tuning, { distance: 1.2, a: attack('Overhead'), b: [] });
+    // From 1.2 m, 0.2 m to the sword side, an Overhead hits the head; 0.2 m to the other side it only clips a limb.
+    const head = runDuel(tuning, {
+      placements: [
+        { position: { x: 0, z: 0 }, facing: 0 },
+        { position: { x: -0.2, z: 1.2 }, facing: Math.PI },
+      ],
+      a: attack('Overhead'),
+      b: [],
+    });
     const limb = runDuel(tuning, {
       placements: [
         { position: { x: 0, z: 0 }, facing: 0 },
-        { position: { x: 0.3, z: 1.2 }, facing: Math.PI },
+        { position: { x: 0.2, z: 1.2 }, facing: Math.PI },
       ],
       a: attack('Overhead'),
       b: [],

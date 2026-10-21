@@ -87,8 +87,9 @@ describe('Overhead Attack', () => {
   });
 
   it('a head hit deals more damage than a limb hit at equal Blade Speed', () => {
-    const head = hitsOf(runDuel(tuning, { placements: facingOff(1.2, 0), a: attack('Overhead') }))[0]!;
-    const limb = hitsOf(runDuel(tuning, { placements: facingOff(1.2, 0.3), a: attack('Overhead') }))[0]!;
+    // The arc brings the blade down on the sword side: a defender 0.2 m that way takes it on the head, 0.2 m the other on a limb.
+    const head = hitsOf(runDuel(tuning, { placements: facingOff(1.2, -0.2), a: attack('Overhead') }))[0]!;
+    const limb = hitsOf(runDuel(tuning, { placements: facingOff(1.2, 0.2), a: attack('Overhead') }))[0]!;
     expect(head.zone).toBe('head');
     expect(limb.zone).toBe('limbs');
     expect(Math.abs(head.bladeSpeed - limb.bladeSpeed) / head.bladeSpeed).toBeLessThan(0.05);
@@ -98,7 +99,7 @@ describe('Overhead Attack', () => {
 
   it('a faster blade at contact deals more damage on the same Hit Zone', () => {
     const torsoHits = [0.9, 1.4]
-      .map((d) => hitsOf(runDuel(tuning, { placements: facingOff(d, -0.2), a: attack('Overhead') }))[0]!)
+      .map((d) => hitsOf(runDuel(tuning, { placements: facingOff(d), a: attack('Overhead') }))[0]!)
       .sort((p, q) => p.bladeSpeed - q.bladeSpeed);
     expect(torsoHits.map((h) => h.zone)).toEqual(['torso', 'torso']);
     expect(torsoHits[1]!.bladeSpeed).toBeGreaterThan(torsoHits[0]!.bladeSpeed);

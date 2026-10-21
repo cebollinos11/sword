@@ -171,8 +171,8 @@ describe('Hand paths', () => {
     expect(dist(p.rightHand.position, chest)).toBeCloseTo(0.5, 9);
   });
 
-  it('swings the Left and Right hands farther from the chest mid-Release than a straight line would', () => {
-    for (const name of ['Left', 'Right']) {
+  it('swings the Overhead, Left and Right hands farther from the chest mid-Release than a straight line would', () => {
+    for (const name of ['Overhead', 'Left', 'Right']) {
       const m = tuning.motions[name]!;
       const straight = parseMotion({ ...m, poseKeys: m.poseKeys.map(({ path: _, ...k }) => k) });
       const mid = (m.markers.windUpEnd! + m.markers.releaseEnd!) / 2;
