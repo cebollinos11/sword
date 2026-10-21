@@ -178,6 +178,18 @@ export interface LandEvent {
   readonly damage: number;
 }
 
+/** A Sheathe reached its swap: the Weapon went into its slot and the Fighter is Sheathed (steel sliding into the scabbard). */
+export interface SheathedEvent {
+  readonly type: 'Sheathed';
+  readonly fighter: number;
+}
+
+/** A Draw reached its swap: the Weapon left its slot and is back in the hand (steel sliding out). */
+export interface DrawnEvent {
+  readonly type: 'Drawn';
+  readonly fighter: number;
+}
+
 /** The Duel ended this Tick. `winner` is a team (0 or 1), or null for a draw. */
 export interface DuelEndEvent {
   readonly type: 'DuelEnd';
@@ -188,7 +200,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | SheathedEvent | DrawnEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;

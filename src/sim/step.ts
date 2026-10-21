@@ -1,5 +1,5 @@
 import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
-import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, updateAction } from './actions';
+import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
@@ -16,7 +16,7 @@ import { followMotion } from './motion';
 import { bladeAndLeg, fighterPose, motionPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
-import type { Airborne, Death, DeathBlow, FighterState, SimState } from './state';
+import type { Airborne, Death, DeathBlow, FighterState, MotionPlayback, SimState } from './state';
 
 /** A lone Fighter at the Arena centre, facing +z. */
 export const CENTRE_PLACEMENT: Placement = { position: { x: 0, z: 0 }, facing: 0 };
@@ -89,6 +89,7 @@ export function createInitialState(
         motion: IDLE_MOTION,
         ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
         daggers: tuning.dagger.count,
+        sheathed: false,
         gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
@@ -174,6 +175,12 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
   return flyBody(f, air, move, intent.jumpHeld === true, tuning.fighter.walkSpeed * slowFactor(f, tuning), tuning);
 }
 
+/** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), or a Sheathe or Draw, which carries on in the air. */
+const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind);
+
+/** A playback of the Idle Motion as the Fighter's own Idle plays it (the Sheathed Idle while `sheathed`); any other Motion as it is. */
+const idleAs = (m: MotionPlayback, sheathed: boolean): MotionPlayback => (m.name === IDLE_MOTION.name ? { ...m, name: idleMotionFor({ sheathed }) } : m);
+
 /** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking or Attacking. */
 const jumps = (f: FighterState, intent: Intent): boolean =>
   intent.jump === true && !f.air && (f.action.kind === 'Idle' || f.action.kind === 'Block' || f.action.kind === 'Attack');
@@ -192,9 +199,10 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
     // An Attack or Block carries on in the air; only an Idle Fighter takes the Fall pose.
     if (update.action.kind === 'Idle') update = fall();
     emit({ type: 'Jump', fighter: index });
-  } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && update.action.kind !== 'Fall' && update.action.kind !== 'Stagger' && update.action.kind !== 'Knockdown') {
+  } else if (air && !air.jumped && air.ticks + 1 >= secondsToTicks(tuning.fall.fallDelay) && !keepsOnFalling(update)) {
     update = fall();
   }
+  const sheathed = update.sheathed ?? f.sheathed;
   // The dagger leaves the hand on the first Tick of Release: one fewer to throw.
   const released = update.action.kind === 'Throw' && update.action.phase === 'Release' && !(f.action.kind === 'Throw' && f.action.phase === 'Release');
   if (released) emit({ type: 'DaggerThrown', thrower: index });
@@ -215,7 +223,8 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
     crouch: duck(f, intent, tuning),
     action: update.action,
     daggers: released ? f.daggers - 1 : f.daggers,
-    motion: followMotion(tuning, f.weapon, f.motion, update.motion, update.blendTicks),
+    sheathed,
+    motion: followMotion(tuning, f.weapon, f.motion, idleAs(update.motion, sheathed), update.blendTicks),
   };
   // The Slow counts down every Tick, in Stagger and in the air too; it is stripped, never stored, at zero.
   return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}), ...(slow && slow.ticks > 1 ? { slow: { ticks: slow.ticks - 1 } } : {}) };
@@ -235,7 +244,7 @@ function land(prev: FighterState, f: FighterState, index: number, fighting: bool
   if (f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
   if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
   if (f.action.kind !== 'Fall') return f;
-  return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, IDLE_MOTION) };
+  return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, idleAs(IDLE_MOTION, f.sheathed)) };
 }
 
 /**

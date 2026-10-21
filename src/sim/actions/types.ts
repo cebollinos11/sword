@@ -19,6 +19,8 @@ export interface ActionUpdate {
   readonly motion: MotionPlayback;
   /** Start a fresh Motion Blend this many Ticks long, even if the Motion carries on (absent: the usual rule, see followMotion). */
   readonly blendTicks?: number;
+  /** Present on the Tick a Sheathe or Draw swaps the Weapon between hand and slot: the Fighter's new `sheathed`. */
+  readonly sheathed?: boolean;
 }
 
 /** Advances a Fighter whose current Action is `A` by one Tick. Must be pure apart from `ctx.emit`. */

@@ -17,8 +17,8 @@ import type { ActionHandler, ActionStarter } from './types';
 export const blockMotionName = (direction: Direction): string => `Block${direction}`;
 
 /** Pressing block (from Idle) raises a Block in the Intent's Direction. */
-export const startBlock: ActionStarter = (_f, intent) => {
-  if (!intent.block) return null;
+export const startBlock: ActionStarter = (f, intent) => {
+  if (!intent.block || f.sheathed) return null;
   const action: BlockAction = { kind: 'Block', direction: intent.direction, age: 0 };
   return { action, motion: { name: blockMotionName(action.direction), tick: 0 } };
 };

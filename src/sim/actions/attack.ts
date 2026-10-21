@@ -48,9 +48,9 @@ function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: Acti
   return { action: { ...action, phase }, motion: { name: attackMotionName(action.direction), tick } };
 }
 
-/** Pressing attack starts a Wind-up in the Intent's Direction. */
-export const startAttack: ActionStarter = (_f, intent, ctx) => {
-  if (!intent.attack) return null;
+/** Pressing attack starts a Wind-up in the Intent's Direction. Never while Sheathed: that Draws instead (startSheathe). */
+export const startAttack: ActionStarter = (f, intent, ctx) => {
+  if (!intent.attack || f.sheathed) return null;
   const action: AttackAction = { kind: 'Attack', direction: intent.direction, phase: 'Wind-up', landed: false };
   ctx.emit({ type: 'AttackPhase', fighter: ctx.fighter, direction: action.direction, phase: 'Wind-up' });
   return { action, motion: { name: attackMotionName(action.direction), tick: 0 } };

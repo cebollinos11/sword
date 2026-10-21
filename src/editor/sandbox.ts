@@ -686,6 +686,8 @@ saved ${file} (${result})`),
         if (e.type === 'DaggerHit') return `${e.tick} dagger ${e.thrower}→${e.defender} ${e.zone} −${e.damage.toFixed(1)}`;
         if (e.type === 'DaggerBlocked') return `${e.tick} Block ${e.defender} stops F${e.thrower}'s dagger`;
         if (e.type === 'Land') return `${e.tick} F${e.fighter} Land ${e.height.toFixed(2)} m${e.damage > 0 ? ` −${e.damage.toFixed(1)}` : ''}`;
+        if (e.type === 'Sheathed') return `${e.tick} F${e.fighter} Sheathed`;
+        if (e.type === 'Drawn') return `${e.tick} F${e.fighter} Drawn`;
         return `${e.tick} Duel over: ${e.winner === null ? 'draw' : `F${e.winner} wins`}`;
       })
       .join('\n');

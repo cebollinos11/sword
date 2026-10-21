@@ -22,6 +22,8 @@ export function describeAction(a: Action): string {
       return `Stagger (${a.cause})`;
     case 'Idle':
     case 'Fall':
+    case 'Sheathe':
+    case 'Draw':
       return a.kind;
   }
 }

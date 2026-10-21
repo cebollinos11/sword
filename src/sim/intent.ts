@@ -69,6 +69,11 @@ export interface Intent {
    * (or running out of hold) Releases the dagger. It never starts a Throw: only `throw` does.
    */
   readonly throwHeld?: boolean;
+  /**
+   * Sheathe pressed this Tick (absent = not pressed). An Idle Fighter, on the ground, on the run or in a Jump, starts a Sheathe if its Weapon is
+   * drawn and a Draw if it is Sheathed: a committed Action (it can still walk, turn and crouch). Held down, it does not repeat.
+   */
+  readonly sheathe?: boolean;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({
@@ -79,4 +84,5 @@ export const IDLE_INTENT: Intent = Object.freeze({
   face: null,
   kick: false,
   throw: false,
+  sheathe: false,
 });

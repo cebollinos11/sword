@@ -4,7 +4,7 @@
  * (Rising, the GetUp Motion), then is Idle again. Knocked down in the air, it lies in the air and its time lying
  * only counts on the ground: it lies the whole `kick.knockdownTicks` after it lands, and never gets up mid-air. It interrupts whatever the Fighter was doing and ends only
  * by running its course. Throughout it can guard (hold block: `guard` is the Direction held, which
- * Blocks by the normal rule), but cannot turn, move, Attack, Kick or Jump. It can be hit like anyone: its Hit Zones
+ * Blocks by the normal rule), unless it is Sheathed, but cannot turn, move, Attack, Kick or Jump. It can be hit like anyone: its Hit Zones
  * lie where the body lies.
  */
 import { weaponMotion, type TuningData } from '../../tuning';
@@ -33,8 +33,8 @@ function motionTicks(tuning: TuningData, weapon: string, name: string): number {
 
 export const updateKnockdown: ActionHandler<KnockdownAction> = (f, intent, ctx) => {
   const a = f.action;
-  // Holding block guards in the Intent's Direction; the guard follows the Intent every Tick.
-  const guard = intent.block ? intent.direction : null;
+  // Holding block guards in the Intent's Direction; the guard follows the Intent every Tick. A Sheathed Fighter has nothing to guard with.
+  const guard = intent.block && !f.sheathed ? intent.direction : null;
   switch (a.phase) {
     case 'Falling': {
       const end = motionTicks(ctx.tuning, f.weapon, KNOCKDOWN_MOTION);

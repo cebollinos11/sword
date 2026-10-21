@@ -10,5 +10,6 @@
   "lookHipShift": 0.3,
   "crouchDepth": 0.4,
   "crouchSpeed": 6,
-  "crouchWalkFactor": 0.5
+  "crouchWalkFactor": 0.5,
+  "sheathedWalkFactor": 1.6
 }

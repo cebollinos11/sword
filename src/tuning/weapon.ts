@@ -8,6 +8,7 @@
  * perpendicular to the axis. A two-handed Weapon's off hand holds the
  * Off-hand Grip, a spot on the grip or shaft behind the main hand.
  */
+import type { Vec3 } from '../sim/vec';
 import { finiteNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
 
 export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
@@ -58,6 +59,23 @@ export interface WeaponTempo {
   readonly recovery: number;
 }
 
+export const SHEATHE_SLOTS = ['hip', 'back'] as const;
+/** Where a Weapon rides while Sheathed: on the left hip, or across the back. It also picks the Sheathe and Draw Motions. */
+export type SheatheSlot = (typeof SHEATHE_SLOTS)[number];
+
+/**
+ * Where a Weapon rides while Sheathed: its slot, and the Weapon's place and turn relative to that slot's joint (the pelvis for the hip,
+ * the chest for the back) in the Fighter-local frame. The slot is gameplay (it picks the Sheathe and Draw Motions, and so their timing);
+ * the offset and rotation are render-only (ADR 0017).
+ */
+export interface WeaponSheathe {
+  readonly slot: SheatheSlot;
+  /** Metres from the slot's joint to the sword hand's grip point. */
+  readonly offset: Vec3;
+  /** Euler degrees, as a Pose Key's hand rotation. */
+  readonly rotation: Vec3;
+}
+
 /** Play the Attacks as authored (the default for a Weapon file without a Tempo). */
 export const UNIT_TEMPO: WeaponTempo = { windUp: 1, release: 1, recovery: 1 };
 
@@ -88,6 +106,8 @@ export interface WeaponTuning {
   readonly blockImpact: WeaponBlockImpact;
   readonly heavyBlow: WeaponHeavyBlow;
   readonly tempo: WeaponTempo;
+  /** Where it rides while Sheathed. */
+  readonly sheathe: WeaponSheathe;
   readonly look: WeaponLook;
 }
 
@@ -172,6 +192,15 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     tempo = { windUp: positiveNumber(t, 'windUp', where), release: positiveNumber(t, 'release', where), recovery: positiveNumber(t, 'recovery', where) };
   }
 
+  const sheatheAt = `${at}.sheathe`;
+  if (o.sheathe === undefined) throw new TuningDataError(`${sheatheAt} is required`);
+  const sh = record(o.sheathe, sheatheAt);
+  const vec3 = (key: string): Vec3 => {
+    const v = record(sh[key], `${sheatheAt}.${key}`);
+    return { x: finiteNumber(v, 'x', `${sheatheAt}.${key}`), y: finiteNumber(v, 'y', `${sheatheAt}.${key}`), z: finiteNumber(v, 'z', `${sheatheAt}.${key}`) };
+  };
+  const sheathe: WeaponSheathe = { slot: oneOf(sh, 'slot', sheatheAt, SHEATHE_SLOTS), offset: vec3('offset'), rotation: vec3('rotation') };
+
   return {
     name,
     grip,
@@ -185,6 +214,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     blockImpact,
     heavyBlow,
     tempo,
+    sheathe,
     look: oneOf(o, 'look', at, WEAPON_LOOKS, 'sword'),
   };
 }
@@ -203,6 +233,7 @@ export function serializeWeapon(w: WeaponTuning): string {
   Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage, blockImpact: { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken } });
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
   out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
+  out.sheathe = { slot: w.sheathe.slot, offset: { ...w.sheathe.offset }, rotation: { ...w.sheathe.rotation } };
   out.look = w.look;
   return `${JSON.stringify(out, null, 2)}\n`;
 }

@@ -225,6 +225,8 @@ function isAction(v: unknown): boolean {
     case 'Stagger':
       return STAGGER_CAUSES.has(v.cause as string);
     case 'Fall':
+    case 'Sheathe':
+    case 'Draw':
       return true;
     default:
       return false;
@@ -285,6 +287,7 @@ function isFighter(v: unknown): boolean {
     isNum(v.hp) &&
     isInt(v.daggers) &&
     v.daggers >= 0 &&
+    isBool(v.sheathed) &&
     isString(v.weapon) &&
     isAction(v.action) &&
     isObject(v.motion) &&

@@ -28,5 +28,18 @@
     "release": 1,
     "recovery": 1
   },
+  "sheathe": {
+    "slot": "back",
+    "offset": {
+      "x": 0.05,
+      "y": 0.05,
+      "z": -0.16
+    },
+    "rotation": {
+      "x": 200,
+      "y": 0,
+      "z": -35
+    }
+  },
   "look": "polearm"
 }

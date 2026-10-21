@@ -87,6 +87,20 @@ export interface ThrowAction {
   readonly held?: number;
 }
 
+/**
+ * A Sheathe: the sword hand puts the Weapon away in its slot (the hip or the back, Weapon `sheathe.slot`), driven by the slot's Sheathe
+ * Motion. The Weapon leaves the hand at the Motion's `swap` marker, and from that Tick on the Fighter is Sheathed (`FighterState.sheathed`).
+ * Committed: the Fighter can walk (at its drawn speed), turn and crouch, but not Jump, Kick, Throw, Attack, Block or cancel.
+ */
+export interface SheatheAction {
+  readonly kind: 'Sheathe';
+}
+
+/** A Draw: the reverse of a Sheathe, by the slot's Draw Motion. The Weapon is back in the hand from its `swap` marker on. Committed like a Sheathe. */
+export interface DrawAction {
+  readonly kind: 'Draw';
+}
+
 /** The phases of a Knockdown, in order: the fall, lying, the Get-up. */
 export type KnockdownPhase = 'Falling' | 'Down' | 'Rising';
 
@@ -112,7 +126,7 @@ export interface FallAction {
  * What a Fighter is doing right now; exactly one at a time. A tagged union of
  * plain data: add a member here and a handler in `actions/index.ts`.
  */
-export type Action = IdleAction | AttackAction | BlockAction | KickAction | ThrowAction | KnockdownAction | StaggerAction | FallAction;
+export type Action = IdleAction | AttackAction | BlockAction | KickAction | ThrowAction | SheatheAction | DrawAction | KnockdownAction | StaggerAction | FallAction;
 export type ActionKind = Action['kind'];
 
 /** A Fighter off the ground (walked off a ledge, pushed off, or jumped): its velocity (m/s) and the top of its arc. */
@@ -172,6 +186,11 @@ export interface FighterState {
   readonly kickLeg: KickLeg;
   /** Throwing Daggers left to throw this Duel; refilled to `dagger.count` when a Duel starts. */
   readonly daggers: number;
+  /**
+   * Whether its Weapon is put away in its slot (Sheathed): it walks faster and cannot Attack or Block. It flips at a Sheathe's or Draw's
+   * `swap` marker, so an interrupted one keeps whatever already happened. False when a Duel starts. The sheathed Weapon is render-only (ADR 0017).
+   */
+  readonly sheathed: boolean;
   /** The feet: each one's planted world position and any step in progress (the Gait, ADR 0003). */
   readonly gait: GaitState;
   /** Present while a Kick's push is carrying the Fighter along the floor (a Slide); absent otherwise, and while airborne. */

@@ -1,0 +1,100 @@
+{
+  "name": "SheatheHip",
+  "duration": 0.7,
+  "loop": false,
+  "markers": {
+    "swap": 0.45
+  },
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "easeInOut",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.3,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": -0.02,
+          "y": 1,
+          "z": 0.25
+        },
+        "rotation": {
+          "x": 100,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "torso": {
+        "twist": -15,
+        "lean": 4
+      }
+    },
+    {
+      "time": 0.45,
+      "ease": "easeIn",
+      "rightHand": {
+        "position": {
+          "x": -0.12,
+          "y": 0.94,
+          "z": 0.1
+        },
+        "rotation": {
+          "x": 115,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "torso": {
+        "twist": -18,
+        "lean": 5
+      }
+    },
+    {
+      "time": 0.7,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": 0.24,
+          "y": 0.86,
+          "z": 0.06
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.24,
+          "y": 0.86,
+          "z": 0.06
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 0
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.93,
+        "z": 0
+      },
+      "leftFoot": {
+        "x": -0.12,
+        "z": 0.06
+      },
+      "rightFoot": {
+        "x": 0.12,
+        "z": -0.06
+      }
+    }
+  ]
+}

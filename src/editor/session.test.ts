@@ -6,13 +6,15 @@ import { EditorSession } from './session';
 const tuning = loadTuningData();
 
 describe('EditorSession', () => {
-  it('lists every Motion, Attacks, Blocks, Idle and Stagger alike', () => {
+  it('lists every Motion, Attacks, Blocks, Idle, Stagger and Sheathe alike', () => {
     expect(new EditorSession(tuning).motionNames()).toEqual([
       'Overhead',
       'BlockLeft',
       'BlockOverhead',
       'BlockRight',
       'BlockThrust',
+      'DrawBack',
+      'DrawHip',
       'Fall',
       'GetUp',
       'Idle',
@@ -22,6 +24,9 @@ describe('EditorSession', () => {
       'Left',
       'Recoil',
       'Right',
+      'SheatheBack',
+      'SheathedIdle',
+      'SheatheHip',
       'Stagger',
       'Throw',
       'Thrust',

@@ -33,8 +33,8 @@ export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Ski
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
-export type { OffHandGrip, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponTempo, WeaponTuning } from './weapon';
-export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
+export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponTempo, WeaponTuning } from './weapon';
+export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */
@@ -61,6 +61,8 @@ export interface FighterTuning {
   readonly crouchSpeed: number;
   /** The share of `walkSpeed` a fully crouched Fighter walks at (blends in with the crouch amount). */
   readonly crouchWalkFactor: number;
+  /** How many times `walkSpeed` a Sheathed Fighter walks at on the ground (not in a Jump: ADR 0017). Multiplies with crouch, Slow and a Throw's walk. */
+  readonly sheathedWalkFactor: number;
 }
 
 /** Height, falling and jumping (data/fall.json): how Fighters stand on, step between and fall onto Walk Surfaces. */
@@ -583,6 +585,7 @@ export function parseTuningData(raw: unknown): TuningData {
       crouchDepth: finiteNumber(f, 'crouchDepth', 'fighter'),
       crouchSpeed: positiveNumber(f, 'crouchSpeed', 'fighter'),
       crouchWalkFactor: positiveNumber(f, 'crouchWalkFactor', 'fighter'),
+      sheathedWalkFactor: positiveNumber(f, 'sheathedWalkFactor', 'fighter'),
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,

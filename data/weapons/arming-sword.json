@@ -16,5 +16,18 @@
     "release": 1,
     "recovery": 1
   },
+  "sheathe": {
+    "slot": "hip",
+    "offset": {
+      "x": -0.17,
+      "y": 0,
+      "z": 0.04
+    },
+    "rotation": {
+      "x": 115,
+      "y": 0,
+      "z": 0
+    }
+  },
   "look": "sword"
 }

@@ -7,8 +7,7 @@
  */
 import { weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
-import { motionBlendTicks } from '../motion';
-import type { AttackPhase, FighterState, ThrowAction } from '../state';
+import type { AttackPhase, ThrowAction } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
 import type { ActionHandler, ActionStarter, ActionUpdate } from './types';
 
@@ -63,14 +62,3 @@ export const updateThrow: ActionHandler<ThrowAction> = (f, intent, ctx) => {
       return play(a, tick + 1);
   }
 };
-
-/**
- * How far (0..1) a throwing Fighter's off hand has let go of a two-handed Weapon's Off-hand Grip: it lets go over the Motion Blend as the
- * Throw begins and takes the grip back over the Motion Blend before the Throw ends. 0 when not throwing.
- */
-export function throwOffHandFree(f: FighterState, tuning: TuningData): number {
-  if (f.action.kind !== 'Throw') return 0;
-  const { end } = throwTimings(tuning, f.weapon);
-  const blend = motionBlendTicks(tuning);
-  return Math.min(1, Math.max(0, Math.min(f.motion.tick, end - f.motion.tick) / blend));
-}

@@ -106,6 +106,18 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(state))).toEqual(resync(state));
   });
 
+  it('carries a Sheathe, and then a Sheathed Fighter, through a resync', () => {
+    let m = createMatch(tuning, { bestOf: 3, distance: 1.3, seed: 3 });
+    for (let t = 0; t < 10; t++) m = stepMatch(m, [{ ...IDLE_INTENT, sheathe: t === 0 }, IDLE_INTENT], tuning);
+    const sheathing = JSON.parse(JSON.stringify(m)) as MatchState;
+    expect(sheathing.duel.fighters[0]!.action.kind).toBe('Sheathe');
+    expect(parseNetMessage(resync(sheathing))).toEqual(resync(sheathing));
+    for (let t = 0; t < 120; t++) m = stepMatch(m, [IDLE_INTENT, IDLE_INTENT], tuning);
+    const sheathed = JSON.parse(JSON.stringify(m)) as MatchState;
+    expect(sheathed.duel.fighters[0]!.sheathed).toBe(true);
+    expect(parseNetMessage(resync(sheathed))).toEqual(resync(sheathed));
+  });
+
   it('carries a dagger in flight through a resync, and refuses a malformed one', () => {
     const state = throwingMatchState();
     const [dagger] = state.duel.daggers;
@@ -183,6 +195,8 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, action: { kind: 'Throw', phase: 'Release' } }),
       withFighter({ ...fighter, action: { kind: 'Throw', phase: 'Release', startTick: -1 } }),
       withFighter({ ...fighter, daggers: undefined }),
+      withFighter({ ...fighter, sheathed: undefined }),
+      withFighter({ ...fighter, sheathed: 'yes' }),
       withFighter({ ...fighter, daggers: -1 }),
       withFighter({ ...fighter, daggers: 1.5 }),
       withFighter({ ...fighter, kickLeg: undefined }),
