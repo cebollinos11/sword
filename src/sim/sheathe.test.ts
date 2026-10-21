@@ -144,6 +144,14 @@ describe('Sheathe and Draw', () => {
     expect(me(s).sheathed).toBe(true);
   });
 
+  it('a Sheathed Jump lands straight in the Sheathed Idle, not LandSoft', () => {
+    let s = tick(toggle(fresh()).end, { jump: true });
+    expect(me(s).air?.jumped).toBe(true);
+    while (me(s).air) s = tick(s);
+    expect(kind(s)).toBe('Idle');
+    expect(me(s).motion.name).toBe('SheathedIdle');
+  });
+
   it('cannot Jump, Kick, Throw, Attack or Block while it plays', () => {
     let s = ticks(tick(fresh(), { sheathe: true }), 2);
     for (const intent of [{ jump: true }, { kick: true }, { throw: true }, { attack: true }, { block: true }] satisfies Partial<Intent>[]) {

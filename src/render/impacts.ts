@@ -7,9 +7,9 @@ import * as THREE from 'three';
 import type { SimState, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 
-/** A burst at a contact point. `strength` is 0..1, from the Blade Speed at contact. */
+/** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
-  readonly kind: 'Hit' | 'Block';
+  readonly kind: 'Hit' | 'Heavy' | 'Block';
   readonly point: Vec3;
   readonly strength: number;
 }
@@ -34,7 +34,8 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     if (e.type !== 'Hit' && e.type !== 'Block' && e.type !== 'WallStrike') continue;
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     // A blade stopped by a Wall sparks off it like steel on steel.
-    bursts.push({ kind: e.type === 'Hit' ? 'Hit' : 'Block', point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
+    const kind = e.type !== 'Hit' ? 'Block' : e.heavy ? 'Heavy' : 'Hit';
+    bursts.push({ kind, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }
@@ -67,6 +68,18 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     gravity: 9,
     flashRadius: 0.26,
     flashLife: 0.15,
+  },
+  // A Heavy Blow: twice the bits, flung harder, under a bigger, hotter flash.
+  Heavy: {
+    colours: [0xff4a2a, 0xff2a1a, 0xd01010, 0xffb070],
+    flashColour: 0xffd0a0,
+    count: 36,
+    speed: 3.8,
+    size: [0.065, 0.065],
+    life: 0.7,
+    gravity: 9,
+    flashRadius: 0.5,
+    flashLife: 0.22,
   },
   // Fast bright streaks off the steel.
   Block: {

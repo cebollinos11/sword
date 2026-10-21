@@ -27,6 +27,14 @@ export function positiveNumber(obj: Record<string, unknown>, key: string, where:
   return v;
 }
 
+export function nonNegativeNumber(obj: Record<string, unknown>, key: string, where: string): number {
+  const v = obj[key];
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+    throw new TuningDataError(`${where}.${key} must be a number >= 0, got ${JSON.stringify(v)}`);
+  }
+  return v;
+}
+
 export function nonEmptyString(obj: Record<string, unknown>, key: string, where: string): string {
   const v = obj[key];
   if (typeof v !== 'string' || v.trim() === '') {

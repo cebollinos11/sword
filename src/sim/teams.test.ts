@@ -52,7 +52,7 @@ describe('Teammates', () => {
     const hit = s.events.find((e) => e.type === 'Hit')!;
     expect(hit).toMatchObject({ attacker: 0, defender: 1, damage: 0 });
     expect(s.fighters[1]!.hp).toBe(tuning.fighter.maxHp);
-    expect(s.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
+    expect(s.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit', from: 'Overhead' });
     expect(s.duel.status).toBe('Fighting');
   });
 });

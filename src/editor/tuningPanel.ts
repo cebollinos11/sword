@@ -175,6 +175,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     on(third.addBinding(c, 'eyeHeight', { min: 0.2, max: 10, step: 0.05, label: 'height (m)' }));
     on(third.addBinding(c, 'ahead', { min: -2, max: 10, step: 0.05, label: 'look ahead (m)' }));
     on(third.addBinding(c, 'lookHeight', { min: 0, max: 5, step: 0.05, label: 'look height (m)' }));
+    on(third.addBinding(c, 'shake', { min: 0, max: 3, step: 0.05, label: 'shake (0 = off)' }));
     const orbit = f.addFolder({ title: 'Orbit (after a fall)' });
     on(orbit.addBinding(c, 'orbitDistance', { min: 1, max: 20, step: 0.1, label: 'distance (m)' }));
     on(orbit.addBinding(c, 'orbitHeight', { min: 0.5, max: 15, step: 0.1, label: 'height (m)' }));

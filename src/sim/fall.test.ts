@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseArena, type TuningData } from '../tuning';
+import { loadTuningData, parseArena, weaponMotion, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
-import { createInitialState, hold, runScript, walk, type Placement, type ScriptRun, type Track } from './index';
+import { attack, createInitialState, hold, runScript, wait, walk, type Placement, type ScriptRun, type Track } from './index';
 
 const repo = loadTuningData();
 
@@ -155,6 +155,44 @@ describe('Falling and Landing', () => {
     for (let t = off; t < r.states.length; t++) {
       const f = r.states[t]!.fighters[0]!;
       if (f.air) expect(f.action.kind, `Tick ${t}`).not.toBe('Attack');
+    }
+  });
+});
+
+describe('Soft Landing', () => {
+  const origin: Placement = { position: { x: 0, z: 0 }, facing: 0 };
+  const me = (r: ScriptRun, t: number) => r.states[t]!.fighters[0]!;
+  /** How many Ticks `LandSoft` plays. */
+  const soft = secondsToTicks(weaponMotion(tuning, 'Arming Sword', 'LandSoft')!.duration);
+
+  it('a Jump on level ground lands in LandSoft, which plays out in Idle and hands over to Idle in step', () => {
+    const r = run(origin, hold(1, { jump: true }), 120);
+    const land = landing(r).tick;
+    for (let k = 0; k < soft; k++) {
+      expect(me(r, land + k).action.kind, `Tick ${land + k}`).toBe('Idle');
+      expect(me(r, land + k).motion).toMatchObject({ name: 'LandSoft', tick: k });
+    }
+    // Idle takes over at the Tick it would have reached had it started on the Landing, so its sway is not shifted.
+    expect(me(r, land + soft).action.kind).toBe('Idle');
+    expect(me(r, land + soft).motion).toMatchObject({ name: 'Idle', tick: soft });
+    expect(me(r, land + soft + 10).motion).toMatchObject({ name: 'Idle', tick: soft + 10 });
+  });
+
+  it('an Attack pressed on the landing Tick, or on any Tick of LandSoft, starts at once and keeps its timing', () => {
+    const land = landing(run(origin, hold(1, { jump: true }), 120)).tick;
+    /** The Tick the Attack starts and its phases, counted from the press at Tick `press`. */
+    const phases = (r: ScriptRun, press: number) => ({
+      starts: me(r, press).action.kind,
+      phases: r.events.filter((e) => e.type === 'AttackPhase').map((e) => [e.tick - press, e.type === 'AttackPhase' && e.phase]),
+    });
+    for (const k of [0, 1, 2, Math.floor(soft / 2), soft - 1]) {
+      const press = land + k;
+      const landed = run(origin, [...hold(1, { jump: true }), ...wait(press - 2), ...attack('Overhead')], press + 90);
+      const standing = run(origin, [...wait(press - 1), ...attack('Overhead')], press + 90);
+      if (k > 0) expect(me(landed, press - 1).motion.name).toBe('LandSoft');
+      expect(phases(landed, press), `pressed ${k} Ticks after the Landing`).toEqual(phases(standing, press));
+      expect(phases(landed, press).starts).toBe('Attack');
+      expect(phases(landed, press).phases.length).toBeGreaterThan(1);
     }
   });
 });

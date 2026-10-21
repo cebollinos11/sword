@@ -57,6 +57,11 @@ export type StaggerCause = 'Hit' | 'Blocked' | 'Chambered' | 'Landed';
 export interface StaggerAction {
   readonly kind: 'Stagger';
   readonly cause: StaggerCause;
+  /**
+   * A blade Hit only: the side the blow came from, from the Fighter's own view (the attacker's Direction mirrored for
+   * Left and Right, as a Block names it), which picks its hit reaction.
+   */
+  readonly from?: Direction;
 }
 
 /**

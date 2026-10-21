@@ -1,5 +1,5 @@
 import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
-import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, updateAction, type ActionUpdate } from './actions';
+import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
@@ -240,7 +240,8 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
  * A Fighter that just landed (last Tick `prev` was airborne), counted by `landing`: only a Fighter in Knockdown takes fall
  * damage (`fall.knockdownDamageFactor` times it from the real top of its arc, only while the Duel is being fought) and stays
  * down; a Jump lands unhurt, and one that walked or was pushed off a ledge lands unhurt but, beyond `fall.safeHeight`, Staggers
- * (cause `Landed`). A soft Landing ends a Fall in Idle. A Fighter already Staggered by something else keeps that Stagger.
+ * (cause `Landed`). A soft Landing ends a Fall in Idle, playing `LandSoft` (a Sheathed Fighter goes straight to its Sheathed Idle).
+ * A Fighter already Staggered by something else keeps that Stagger.
  */
 function land(prev: FighterState, f: FighterState, index: number, fighting: boolean, tuning: TuningData, emit: (e: SimEvent) => void): FighterState {
   const { drop, damage: fallDamage, hard } = landing(prev.air!, f.y, f.action.kind === 'Knockdown', tuning);
@@ -250,7 +251,8 @@ function land(prev: FighterState, f: FighterState, index: number, fighting: bool
   if (f.action.kind === 'Knockdown') return { ...f, hp: Math.max(0, f.hp - damage) };
   if (hard) return staggerFighter({ ...f, hp: Math.max(0, f.hp - damage) }, index, 'Landed', tuning, emit);
   if (f.action.kind !== 'Fall') return f;
-  return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, idleAs(IDLE_MOTION, f.sheathed)) };
+  const soft = f.sheathed ? idleAs(IDLE_MOTION, true) : { name: LAND_SOFT_MOTION, tick: 0 };
+  return { ...f, action: IDLE_ACTION, motion: followMotion(tuning, f.weapon, f.motion, soft) };
 }
 
 /**

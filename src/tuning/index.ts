@@ -22,7 +22,7 @@ import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
 import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
-import { array, finiteNumber, positiveNumber, record, TuningDataError } from './validate';
+import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
@@ -205,6 +205,8 @@ export interface CameraTuning {
   readonly finalBlowHeight: number;
   /** ...and how fast it spins around it (radians per second, + anticlockwise seen from above). */
   readonly finalBlowSpin: number;
+  /** How hard the third-person camera shakes on a Hit, a Kick's Knockdown or a hurting Landing (1 = as designed, 0 = off). */
+  readonly shake: number;
 }
 
 /** How a Match is paced. */
@@ -641,6 +643,7 @@ export function parseTuningData(raw: unknown): TuningData {
       finalBlowDistance: positiveNumber(cam, 'finalBlowDistance', 'camera'),
       finalBlowHeight: finiteNumber(cam, 'finalBlowHeight', 'camera'),
       finalBlowSpin: finiteNumber(cam, 'finalBlowSpin', 'camera'),
+      shake: nonNegativeNumber(cam, 'shake', 'camera'),
     },
     motions,
     motionOverrides,

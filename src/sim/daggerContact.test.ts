@@ -70,7 +70,9 @@ describe('Dagger Hit', () => {
     expect(hit.damage).toBeCloseTo(damage, 9);
     expect(at.fighters[1]!.hp).toBeCloseTo(fighter.maxHp - damage, 9);
     expect(events.some((e) => e.type === 'Stagger' && e.fighter === 1 && e.cause === 'Hit')).toBe(true);
-    expect(at.fighters[1]!.action.kind).toBe('Stagger');
+    // A dagger Hit plays the generic Stagger, not a directional hit reaction.
+    expect(at.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
+    expect(at.fighters[1]!.motion.name).toBe('Stagger');
     expect(at.daggers).toHaveLength(0);
     expect(at.fighters[1]!.slow).toEqual({ ticks: dagger.slowTicks });
 

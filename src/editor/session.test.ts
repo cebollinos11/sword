@@ -21,6 +21,7 @@ describe('EditorSession', () => {
       'Kick',
       'Knockdown',
       'Land',
+      'LandSoft',
       'Left',
       'Recoil',
       'Right',
@@ -28,6 +29,10 @@ describe('EditorSession', () => {
       'SheathedIdle',
       'SheatheHip',
       'Stagger',
+      'StaggerLeft',
+      'StaggerOverhead',
+      'StaggerRight',
+      'StaggerThrust',
       'Throw',
       'Thrust',
     ]);

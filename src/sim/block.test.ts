@@ -119,7 +119,7 @@ describe('Stagger', () => {
     expect(hits[0]).toMatchObject({ attacker: 0, defender: 1 });
     const t = hits[0]!.tick;
     expect(run.states[t - 1]!.fighters[1]!.action).toMatchObject({ kind: 'Attack', phase: 'Wind-up' });
-    expect(run.states[t]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
+    expect(run.states[t]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit', from: 'Overhead' });
     expect(eventsOf(run, 'Stagger')).toEqual([{ type: 'Stagger', fighter: 1, cause: 'Hit', tick: t }]);
     // The interrupted Attack never Releases, so Fighter 0 is never hit back.
     const releases = run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Release');
@@ -140,10 +140,32 @@ describe('Stagger', () => {
     expect(recoil).toBeLessThan(staggerTicks(hit, 1));
   });
 
+  it('a blade Hit plays the hit reaction for the side it lands on (a Left swing lands on the right), as long as Stagger', () => {
+    const staggerTicks = (run: ScriptRun) => run.states.filter((s) => s.fighters[1]!.action.kind === 'Stagger').length;
+    // Without the hit reactions every blade Hit falls back to the generic Stagger.
+    const { StaggerLeft: _l, StaggerRight: _r, StaggerOverhead: _o, StaggerThrust: _t, ...generic } = tuning.motions;
+    const plain = { ...tuning, motions: generic };
+    const stagger = tuning.motions.Stagger!;
+    const reactions = { Left: 'StaggerRight', Right: 'StaggerLeft', Overhead: 'StaggerOverhead', Thrust: 'StaggerThrust' } as const;
+    for (const [direction, reaction] of Object.entries(reactions)) {
+      expect(tuning.motions[reaction]!.duration).toBe(stagger.duration);
+      const run = runDuel(tuning, { placements: placements(1.3), a: attack(direction as keyof typeof reactions), b: wait(1) });
+      const t = hitsOf(run)[0]!.tick;
+      expect(run.states[t]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit', from: reaction.slice('Stagger'.length) });
+      expect(run.states[t]!.fighters[1]!.motion.name).toBe(reaction);
+      const before = runDuel(plain, { placements: placements(1.3), a: attack(direction as keyof typeof reactions), b: wait(1) });
+      expect(before.states[t]!.fighters[1]!.motion.name).toBe('Stagger');
+      // The same Hit on the same Tick, and the Stagger lasts exactly as long as before.
+      expect(hitsOf(before)).toEqual(hitsOf(run));
+      expect(staggerTicks(run)).toBe(staggerTicks(before));
+      expect(staggerTicks(run)).toBe(secondsToTicks(stagger.duration));
+    }
+  });
+
   it('a Staggered Fighter ignores its Intents until the Stagger ends', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: block('Thrust', 200) });
     const t = hitsOf(run)[0]!.tick;
-    expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
+    expect(run.states[t + 5]!.fighters[1]!.action).toEqual({ kind: 'Stagger', cause: 'Hit', from: 'Overhead' });
     // Still holding block once the Stagger ends: the Block goes back up.
     expect(run.states[t + 60]!.fighters[1]!.action).toMatchObject({ kind: 'Block', direction: 'Thrust' });
   });
@@ -181,7 +203,7 @@ describe('Trade', () => {
       const damage = hits.find((h) => h.defender === i)!.damage;
       expect(damage).toBeGreaterThan(0);
       expect(run.final.fighters[i]!.hp).toBeCloseTo(100 - damage, 9);
-      expect(run.states[t]!.fighters[i]!.action).toEqual({ kind: 'Stagger', cause: 'Hit' });
+      expect(run.states[t]!.fighters[i]!.action).toEqual({ kind: 'Stagger', cause: 'Hit', from: 'Overhead' });
     }
   });
 });

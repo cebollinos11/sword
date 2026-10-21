@@ -107,14 +107,14 @@ The phase of an Attack after the button is let go; the only phase in which the B
 _Avoid_: Swing phase, active frames
 
 **Recovery**:
-The committed phase after Release, before the Fighter can act again.
+The committed phase after Release, before the Fighter can act again. Its Motion first carries the swing on past its line (the follow-through: the blade overshoots, the torso over-rotates, the hips settle) and then eases back to guard. The Blade Sweep is live only up to the pose at the end of Release, so the follow-through can never hit.
 
 **Chain**:
 Holding attack during Recovery: the pose blends straight from where it is to the next Attack's held Wind-up pose instead of back to guard, and that Attack starts when Recovery ends. Pose only: Recovery, the Idle Tick after it and the Wind-up last as long as ever. Letting go during Recovery drops the Chain.
 _Avoid_: Combo, cancel, buffer
 
 **Stagger**:
-A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in).
+A short forced Action in which the Fighter cannot act. Its cause: Hit (being hit, interrupting the victim's Action), Blocked (having an Attack blocked, or its blade stopped by a Wall: the attacker recoils), Chambered (having an Attack Chambered), or Landed (a hard Landing: a crouch the Fighter is open in). A blade Hit's Stagger plays the hit reaction for the side the blow came from, from the Fighter's own view (the Attack's Direction mirrored for Left and Right, as for a Block: a Left swing lands on the right): `StaggerLeft`, `StaggerRight`, `StaggerOverhead` or `StaggerThrust`, the body moving away from the blow. Each lasts as long as `Stagger`, so the Stagger's length never depends on the Direction. A Weapon without that Motion, and a Throwing Dagger Hit, play `Stagger`.
 _Avoid_: Stun, flinch, hitstun
 
 **Trade**:
@@ -233,6 +233,10 @@ _Avoid_: Death animation, death Motion
 When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome.
 _Avoid_: Kill cam
 
+**Camera Shake**:
+A short jolt of the player's own camera (third-person, or the orbit camera once fallen): hard when its Fighter is Hit, lightly when it lands a Hit, harder still for a Heavy Blow either way, and hard when it is knocked down by a Kick or hurt by a Landing. It dies away in well under a second, scaled by `camera.shake` (0 turns it off), and never shakes the Final Blow Shot. Render only, like the bursts of red where a Hit lands (bigger and brighter for a Heavy Blow): it follows the Simulation's events, never changes an outcome, and always shakes the same way for the same events.
+_Avoid_: Screen shake, hit shake
+
 **Match**:
 A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
 
@@ -292,7 +296,7 @@ The Action of a Fighter in the air, after a Jump or once it has been off the gro
 _Avoid_: Airborne (for the Action)
 
 **Landing**:
-A Fighter reaching the ground again. After a Jump it is always soft: no fall damage, and a Fall ends in Idle. After walking, sliding or being pushed off a ledge, it is unhurt too: a drop (from the top of its arc) within the safe height is soft, and a deeper one Staggers it (Landed). Only a Fighter in Knockdown takes fall damage: double (`fall.knockdownDamageFactor`) the damage by the metre beyond the safe height, from the real top of its arc, Jump or not, and it stays down. Fall damage can fell the Fighter (a Death by Fall), as can landing on an Abyss (ADR 0012, ADR 0015).
+A Fighter reaching the ground again. After a Jump it is always soft: no fall damage, and a Fall ends in Idle. After walking, sliding or being pushed off a ledge, it is unhurt too: a drop (from the top of its arc) within the safe height is soft, and a deeper one Staggers it (Landed). Only a Fighter in Knockdown takes fall damage: double (`fall.knockdownDamageFactor`) the damage by the metre beyond the safe height, from the real top of its arc, Jump or not, and it stays down. Fall damage can fell the Fighter (a Death by Fall), as can landing on an Abyss (ADR 0012, ADR 0015). A soft Landing that ends a Fall plays `LandSoft` (0.25 s): the hips dip and the torso leans as the legs take the weight. The Fighter is Idle throughout, so it can act at once, and the Idle then carries on as if it had started on the Landing. Its Hit Zones dip with the body, so a blow in that moment can land a little differently. A Sheathed Fighter goes straight to its Sheathed Idle.
 
 **Room**:
 A shareable code/link through which Players connect for online play. It stays open as long as its host is in it: guests join (and rejoin), and the Lobby and every Match, restarts included, run over the same connection (the Room link), so a restart never reconnects anyone (ADR 0009).
