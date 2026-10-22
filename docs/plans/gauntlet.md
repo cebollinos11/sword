@@ -1,6 +1,6 @@
 # Gauntlet mode: a Run of Floors on Generated Arenas, solo or online co-op
 
-> Status: Stage 1 done (the Run in the Simulation, no UI: Stage 1, Result). Stage 2 done (a Run in Skirmish, offline: Stage 2, Result). Stage 3 skipped for now: `gauntlet.json` is untuned, as Stage 1 wrote it. Stage 4 done (online co-op: Stage 4, Result). The Decisions below were confirmed as proposed before Stage 1. Builds on the Generated Arenas (`docs/plans/generated-arenas.md`, Stages 1–6 done).
+> Status: Stage 1 done (the Run in the Simulation, no UI: Stage 1, Result). Stage 2 done (a Run in Skirmish, offline: Stage 2, Result). Stage 3 skipped for now: `gauntlet.json` is untuned, as Stage 1 wrote it. Stage 4 done (online co-op: Stage 4, Result). **Version 1: stopped here to get player feedback** (see "Version 1" below); Stage 3 and Stage 5 wait on it. The Decisions below were confirmed as proposed before Stage 1. Builds on the Generated Arenas (`docs/plans/generated-arenas.md`, Stages 1–6 done).
 
 ## Context
 You, alone or with up to two other humans online, fight through a series of enemy groups. Clear one and you move on to the next, on a new Generated Arena, until your Team is wiped out or you beat the final boss.
@@ -200,6 +200,14 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
   - **A guest joining mid-Run** (two tabs playing): the third tab got the Lobby, "A Match is on: you join the next one" (that line now says "Run" in a Gauntlet), and no session; after the host's Restart all three played the new Run, three humans on Team 0, Floor 1's enemy at 200 max HP (100 × 2).
 
   A headless check cannot show how it looks or feels: whether the results screen and its note read well over the frozen Floor, whether warming hitches on a real GPU, or how the orbit camera of a fallen Player plays (none of the autopilot Players was watched). The tabs shared one machine and broker, so there was no real network loss; Rollback depth stayed at the 15-Tick window under that load. No Run reached the boss (the autopilot loses on Floors 4 and 5 against enemies scaled for two or three humans), so the boss Floor online is covered only by the shared code paths. Whether a co-op Run is about as hard as a solo one (`perPlayerHp`) is for Stage 3.
+
+## Version 1: stop here and get player feedback
+What is built now (Stages 1, 2 and 4) is version 1 of the Gauntlet: a Run solo in Skirmish, or with up to three humans online, through the 7 Floors to the boss. Work stops here so players can try it before anything more is built. Stage 3 (tuning `gauntlet.json`) and Stage 5 (boss presentation and results polish) are not started; feedback decides whether and how they go ahead, and in what order. Things to learn from players:
+- Is a Run too hard or too easy, solo and in co-op (`perPlayerHp`)? Where do Runs end, and does the difficulty feel like it builds to the boss?
+- Do the HP carry-over, heal and revive feel right? Is the pause between Floors too long or too short?
+- Does the boss feel like a boss as it is (a "Boss" banner and label, the wraith Body, 3× HP), or does it need Stage 5's wider bar and pause?
+- Online: is waiting for the host after a Run clear, and is Restart onto the next seed what players expect?
+- What players miss most from Later (waves, boons, more enemies per human, random rosters).
 
 ## Stage 5: the boss and polish
 - The boss Floor's presentation: `Boss` banner, wider bar, the wraith Body, a short pause before the boss Floor.
