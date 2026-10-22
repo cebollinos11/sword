@@ -25,6 +25,7 @@ A **Run** is a Match in Gauntlet mode: a fixed set of Fighters for its whole len
 - **Names:** **Run** (the whole gauntlet: one Match in Gauntlet mode) and **Floor** (one Duel of a Run). **Benched** for an enemy slot a Floor leaves empty. **Match Mode** stays as is; the Lobby gains a **Format** setting: Duels (best-of-N, today) or Gauntlet. Added to `CONTEXT.md` in Stage 1.
 - **A new Generated Arena every Floor.** That is what the random levels are for. Floor 1 is the Lobby's Random Map (`gen:<kit>:<seed>`), Floor n is `nextArenaName` applied n − 1 times. So the Map seed *is* the Run seed: typing a seed in replays the same Run, and friends can share one. Gauntlet requires a Random Map (the Lobby hides the hand-made Maps in Gauntlet). Every Floor uses `DEFAULT_GEN_PARAMS`; a bigger boss Arena is Later (it needs the name to carry params, and a `GENERATOR_VERSION` bump).
 - **Enemies come from Tuning Data, not random generation (v1).** `data/gauntlet.json` lists each Floor's enemies (difficulty, Weapon, Body, HP scale). A Weapon or Body may be `"random"`, picked by a pure hash of (Run seed, Floor, slot), so a Run seed always gives the same enemies. Fully random rosters are Later.
+- **Enemy HP scales with the number of humans.** Each enemy's max HP is `fighter.maxHp × hpScale × (1 + perPlayerHp × (humans − 1))`, `perPlayerHp` 0.5 to start (Tuning Data): solo 1×, two humans 1.5×, three 2×. `humans` is the number of human Players in the Lineup when the Run starts; AI allies do not count. It stays fixed for the whole Run: a guest who leaves (AI Takeover) does not lower it, so no peer's Floors change mid-Run. Enemy counts stay as listed (scaling them is Later).
 - **Run length:** 7 Floors, the 7th the boss. Tuning Data, so it can change without code.
 - **HP carries over.** A survivor starts the next Floor with `min(maxHp, hp + heal × maxHp)`, `heal` 0.3. A fallen teammate (co-op or AI ally) sits out the rest of its Floor and comes back on the next at `revive × maxHp`, `revive` 0.4. No cost.
 - **Throwing Daggers refill every Floor** (3 each, as every Duel today). Simplest, and keeps the dagger game alive.
@@ -38,13 +39,14 @@ A **Run** is a Match in Gauntlet mode: a fixed set of Fighters for its whole len
 
 ### The Run inside `MatchState` (pure, rollback-safe)
 - `MatchConfig` gains `format: 'Duels' | 'Gauntlet'` (default Duels). For Gauntlet, `bestOf` is ignored and `teams` must be Team 0's 1–3 Fighters followed by exactly MAX_TEAM_SIZE Team 1 slots.
+- `MatchConfig` also gains `humans` (1 to 3 for a Run): the number of human Players, which today only the Lineup knows. `lineupMatch` fills it from `lineupPlayers(lineup)`, so every peer, building the Match from the same Lineup, gets the same number. `createMatch` checks it is 1 to Team 0's size.
 - `MatchState` gains `run: RunState | null`: `{ floor, floors, cleared, startTick }`. `hashValue` and `snapshot` cover it like the rest of the state, so Rollback and resync carry it.
 - `SimState` gains `floor?: number` (the Floor this Duel is), so a Controller, which only sees `SimState`, can tell Floors apart.
 - `stepMatch`, Gauntlet branch:
   - When a Floor's Duel ends with Team 0 the winner and Floors left: `nextDuelTick = tick + interFloorTicks` (`gauntlet.interFloorSeconds`, at least as long as the Final Blow Shot needs, as `match.interDuelSeconds` is today).
   - On `nextDuelTick`: `floor + 1`, `arena = nextArenaName(match.arena)`, and the Duel is `floorDuel(tuning, config, run, previousDuel, arena)`, carrying the generator (`rng`) on as `freshDuel` does.
   - When Team 0 loses (or draws) a Floor, or clears the last one: `status: Over` (winner 1 or 0), a `RunEnd` event with Floors cleared.
-- `floorDuel` replaces `freshDuel` for a Run. Per Fighter: Team 0 HP from the previous Duel (heal or revive, as above), Team 1 from the Floor's roster (its Weapon, `maxHp × hpScale`), every Fighter drawn (not Sheathed), daggers refilled, at the Arena's spawns. A Team 1 slot the Floor has no enemy for is Benched.
+- `floorDuel` replaces `freshDuel` for a Run. Per Fighter: Team 0 HP from the previous Duel (heal or revive, as above), Team 1 from the Floor's roster (its Weapon, and max HP scaled by `hpScale` and the number of humans, as in Decisions), every Fighter drawn (not Sheathed), daggers refilled, at the Arena's spawns. A Team 1 slot the Floor has no enemy for is Benched.
 
 ### Benched slots
 - `FighterState` gains `benched?: true`, set only at a Floor's start. A Benched Fighter has 0 HP and no `death`, stands at its slot's spawn, and is treated everywhere as out of the Duel: not stepped, never hits or is hit, never blocks bodies, never a target (the AI's enemy and threat choice), not counted by `updateDuel`, not drawn, no HUD bar, no Death Ragdoll, no Final Blow Shot.
@@ -59,6 +61,7 @@ A **Run** is a Match in Gauntlet mode: a fixed set of Fighters for its whole len
   "interFloorSeconds": 5,
   "heal": 0.3,
   "revive": 0.4,
+  "perPlayerHp": 0.5,
   "floors": [
     { "enemies": [{ "difficulty": "Easy", "weapon": "random", "body": "random" }] },
     { "enemies": [{ "difficulty": "Easy", "weapon": "random" }, { "difficulty": "Easy", "weapon": "random" }] },
@@ -70,7 +73,7 @@ A **Run** is a Match in Gauntlet mode: a fixed set of Fighters for its whole len
   ]
 }
 ```
-Numbers are starting points, tuned in Stage 3. The parser checks every difficulty and Weapon exists, 1 to MAX_TEAM_SIZE enemies a Floor, and at least one Floor. A Floor's enemy count scaling with the number of humans is Later.
+Numbers are starting points, tuned in Stage 3. The parser checks every difficulty and Weapon exists, 1 to MAX_TEAM_SIZE enemies a Floor, and at least one Floor. `perPlayerHp` must be 0 or more. Scaling a Floor's enemy count with the number of humans is Later.
 
 ### AI per Floor
 - Enemy slots keep one Controller each for the whole Run (the session and `playerVsAi` stay indexed by Fighter), but the Controller is a **Floor AI**: it reads `state.floor`, takes that Floor's difficulty for its slot from `gauntlet.json`, and keeps one `AiController` per difficulty. When `state.floor` differs from the Floor it last saw, it starts that Floor's AI from fresh memory. Its `save`/`load` carry the Floor it last saw plus the inner AI's memory, so Rollback across a Floor change and a resync both restore it exactly. A Benched slot's Floor AI returns `IDLE_INTENT`.
@@ -91,7 +94,7 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
 
 ### Online co-op
 - **Nothing new during play.** Every peer builds each Floor (its Arena, its enemies, carried HP) from the Run options, the Lineup and Tuning Data; the only Intents on the wire are still the Players'. Checksums cover `MatchState.run`, the Benched flags and per-Fighter max HP, so any drift between peers shows up as a Desync and is resynced from the host.
-- **Messages:** the Lobby message's `LobbyState.settings` gains `format`; the start message's `MatchOptions` gains `format`; a resync's `MatchState` gains `run`, `floor` and the new Fighter fields. Each is checked by its validator in `src/net/messages.ts` (a guest refuses a format it does not know, or a Gauntlet with a hand-made Map). `PROTOCOL_VERSION` goes up by one, so peers on different builds refuse each other.
+- **Messages:** the Lobby message's `LobbyState.settings` gains `format`; the start message's `MatchOptions` gains `format` and `humans`; a resync's `MatchState` gains `run`, `floor` and the new Fighter fields. Each is checked by its validator in `src/net/messages.ts` (a guest refuses a format it does not know, or a Gauntlet with a hand-made Map). `PROTOCOL_VERSION` goes up by one, so peers on different builds refuse each other.
 - **Tuning Data:** `gauntlet.json` is part of `tuningDataHash`, so peers with different Floors refuse each other at connect.
 - **AI Takeover mid-Run** works as today: the Fighter is a Team 0 slot, its takeover AI is an ordinary Normal AI that lasts for the Run. A guest who joins mid-Run waits for the next Run.
 - **A fallen Player spectates** with the orbit camera (as a fallen Fighter does today) until the next Floor, where they come back at `revive` HP.
@@ -114,6 +117,7 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
   - Floor change: Arena is the next seed, HP carried with the heal, a fallen teammate revived at `revive`, daggers refilled, unused enemy slots Benched.
   - A Benched Fighter is invisible to collision, Blade Sweep, daggers, Kicks, AI targeting and `updateDuel`.
   - Loss on a wipe, loss on a draw, win on the last Floor; `RunEnd` with Floors cleared.
+  - Enemy HP scaling: with 1, 2 and 3 humans in the Lineup, each enemy's max HP (and starting HP) is `maxHp × hpScale × (1 + perPlayerHp × (humans − 1))`; AI allies do not change it; the boss's `hpScale` multiplies with it.
   - Floor AI: memory reset at a Floor change; `save`/`load` across a Floor change gives the same Intents (Rollback).
   - Duels mode is untouched: existing Match tests pass unchanged, and an existing replay plays back identically.
 - **Soak:** AI vs AI Runs (three Hard allies vs the Floors) across 50 seeds: every Run ends, how far Runs get, how long Floors take, any Floor that hangs (enemies never reaching Team 0).
@@ -126,7 +130,7 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
 
 ## Stage 3: GATE, tune the Run
 - Play Runs solo and with AI allies, and tune `gauntlet.json` (enemy counts, difficulties, heal, revive, Run length, boss HP) until a Run feels like it builds to the boss. Record what changed and why in a Result section here.
-- Decide from play whether enemy counts should scale with the number of humans (Later, below).
+- Tune `perPlayerHp` with two and three humans (online, in Stage 4's checks, if not before): a co-op Run should be about as hard as a solo one. Decide from play whether enemy counts should scale too (Later, below).
 
 ## Stage 4: online co-op
 - Lobby message, start message and resync carry the new fields; validators; `PROTOCOL_VERSION` + 1.
@@ -134,7 +138,8 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
 - Warming on every peer; the results screen online, and the host's Restart onto the next Run seed.
 - **Tests** (memory transport, latency and jitter, as `src/net/randomMap.test.ts`):
   - Two and three Players with one-hit enemies play through Floor 1 → 3: every checksum on every peer equals the Run stepped offline, and every peer built each Floor's Arena itself (different objects, equal hashes).
-  - A guest leaves on Floor 2: AI Takeover on every peer, the Run goes on, checksums agree.
+  - A guest leaves on Floor 2: AI Takeover on every peer, the Run goes on, checksums agree, and Floor 3's enemies still have the HP of the Run's starting number of humans.
+  - Every peer's enemies have the same scaled HP (from `config.humans`, which the start message carries inside the Match options).
   - A guest forced to resync during the pause between Floors (before warming) catches up with no Desync after.
   - A Rollback that crosses a Floor change (a late Intent from the Tick before it) re-simulates to the same state.
   - A guest with a different `gauntlet.json` is refused at connect; one with the old protocol is refused.
@@ -146,7 +151,7 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
 
 ## Later
 - **Waves within a Floor:** more enemies than MAX_TEAM_SIZE, a Benched slot coming in when another falls. The Benched flag is the hook: unbenching a slot mid-Floor at the next free spawn.
-- **Scaling to the number of humans:** more enemies, or more HP, per Player.
+- **More enemies per human:** extra enemies (or waves) per Player, beyond the HP scaling of v1.
 - **Boons between Floors** (pick one of three): a choice is an input, so it must travel as an Intent during the pause between Floors. Real protocol work.
 - **Elite enemies:** more HP, faster Wind-up, always Chambering.
 - **Random rosters** from the Run seed, by tier, instead of the hand-written list.
@@ -156,5 +161,4 @@ Numbers are starting points, tuned in Stage 3. The parser checks every difficult
 
 ## Open questions
 - Confirm the Decisions above, especially: a new Arena every Floor; HP carry-over numbers; daggers refilled; 7 Floors; 3 humans at most.
-- Should a Run's Floors scale with the number of humans from v1, or wait for Stage 3's play?
 - Should the host be able to pick a starting Floor (practice the boss), dev only or for everyone?
