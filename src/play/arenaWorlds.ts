@@ -30,13 +30,12 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
 }
 
 /**
- * The Arena the game should build ahead for this Match state, or null for none: in a Run, the next Floor's from the
- * current Floor's first Tick on (none on the last Floor, or once the Run is over); in Duels, the Rematch's while the
- * result shows (none without a Rematch, or when it is the same hand-made Arena).
+ * The Arena the game should build ahead for this Match state, or null for none: in a Run, the next Floor's once the
+ * Floor is cleared with Floors left (during the pause before the next, `nextDuelTick`); in Duels, the Rematch's while
+ * the result shows (none without a Rematch, or when it is the same hand-made Arena).
  */
 export function arenaToWarm(match: MatchState): string | null {
-  const { run } = match;
-  if (run) return run.floor < run.floors && match.status.status === 'InProgress' ? nextArenaName(match.arena) : null;
+  if (match.run) return match.nextDuelTick !== null ? nextArenaName(match.arena) : null;
   if (match.status.status !== 'Over' || match.config.rematchTicks === null) return null;
   const next = nextArenaName(match.arena);
   return next === match.arena ? null : next;

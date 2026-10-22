@@ -36,6 +36,8 @@ const MAX_TICKS_PER_FRAME = 8;
 const RESULT_SECONDS = 2.5;
 /** How long a Run's results screen stays up, after its Final Blow Shot, before the Lobby returns (seconds, cosmetic). */
 const RUN_RESULT_SECONDS = 6;
+/** A Run's next Floor is built ahead at the latest this long before it starts (seconds), even while the Final Blow Shot plays. */
+const WARM_LEAD_SECONDS = 1.5;
 /** Online: how long after a Match ends a fresh one starts (part of the Match options, so both peers agree). */
 const REMATCH_SECONDS = 5;
 /** How often the Lobby gets its heartbeats and timeouts (ms). */
@@ -284,13 +286,14 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   /**
    * Build the next Arena ahead (`arenaToWarm`), with its navmesh for the Match's Tuning Data: an online Match's Rematch's
-   * while the result shows, or a Run's next Floor's in the current Floor's first moments (while its banner shows and the
-   * Fighters are still apart, long before the Floor can end), so the Tick that moves onto it (and any Rollback
-   * re-simulating it) only reads the cache.
+   * while the result shows, or a Run's next Floor's in the pause after a Floor is cleared, so the Tick that moves onto it
+   * (and any Rollback re-simulating it) only reads the cache. Building takes a few hundred ms, so a Run's waits for the
+   * Final Blow Shot to end (the Floor then stands still and the stall does not show), unless the next Floor is close.
    */
   function warmNextArena(match: MatchState): void {
     const next = arenaToWarm(match);
     if (next === null || next === warmed) return;
+    if (match.run && inShot && match.nextDuelTick !== null && match.nextDuelTick - match.tick > secondsToTicks(WARM_LEAD_SECONDS)) return;
     warmed = next;
     const t = matchTuning;
     // After this frame, so the result (or the new Floor) is on screen first.

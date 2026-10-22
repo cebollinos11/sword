@@ -38,9 +38,14 @@ describe('the Arena worlds across a Run’s Floor change', () => {
   /** A Run on `gen:greybox:12`, Team 0 one Fighter, a short pause between Floors. */
   const start = (matchTuning: typeof tuning) =>
     createMatch(matchTuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1], interDuelTicks: 5 });
-  /** Fell every enemy and step to the next Floor's first Tick, recording the Match state just before it. */
-  function clearFloor(m: MatchState, matchTuning: typeof tuning): { before: MatchState; after: MatchState } {
+  /** Fell every enemy and step until the Floor is cleared (the pause before the next has begun, or the Run is won). */
+  function clear(m: MatchState, matchTuning: typeof tuning): MatchState {
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };
+    while (m.nextDuelTick === null && m.status.status === 'InProgress') m = stepMatch(m, idle(m), matchTuning);
+    return m;
+  }
+  /** Step on to the next Floor's first Tick, returning the Match state just before it too. */
+  function nextFloor(m: MatchState, matchTuning: typeof tuning): { before: MatchState; after: MatchState } {
     const floor = m.run!.floor;
     let before = m;
     while (m.run!.floor === floor) {
@@ -49,20 +54,23 @@ describe('the Arena worlds across a Run’s Floor change', () => {
     }
     return { before, after: m };
   }
+  const clearFloor = (m: MatchState, matchTuning: typeof tuning) => nextFloor(clear(m, matchTuning), matchTuning);
 
-  it('warms the next Floor’s Arena from the Floor’s first Tick; the Floor change only reads it, and the Renderer draws the same geometry', () => {
+  it('warms the next Floor’s Arena once a Floor is cleared; the Floor change only reads it, and the Renderer draws the same geometry', () => {
     const world = createArenaWorlds(tuning);
     const matchTuning = world('gen:greybox:12').tuning;
     let m = start(matchTuning);
     const next = nextArenaName('gen:greybox:12');
-    // From Floor 1's first Tick: the next Floor's Arena is the one to build ahead.
+    // While the Floor is fought, nothing to build; once it is cleared, the next Floor's Arena.
+    expect(arenaToWarm(m)).toBeNull();
+    m = clear(m, matchTuning);
     expect(arenaToWarm(m)).toBe(next);
     warmArena(world, matchTuning, next);
     const warmed = arenaOf(matchTuning, next);
     const mesh = navMesh(warmed, matchTuning);
     const drawnAhead = world(next);
 
-    const { before, after } = clearFloor(m, matchTuning);
+    const { before, after } = nextFloor(m, matchTuning);
     m = after;
     // The Arena switches only on the next Floor's first Tick (the Final Blow Shot draws the Floor just ended).
     expect(before.arena).toBe('gen:greybox:12');
@@ -77,8 +85,9 @@ describe('the Arena worlds across a Run’s Floor change', () => {
     expect(drawn).toBe(drawnAhead);
     expect(arenaOf(drawn.tuning, m.duel.arena)).toBe(warmed);
     expect(drawn.layout).toStrictEqual(generateArena(GREYBOX_KIT, 381979, DEFAULT_GEN_PARAMS, tuning).layout);
-    // Floor 2 warms Floor 3's.
-    expect(arenaToWarm(m)).toBe(nextArenaName(next));
+    // Floor 2, once cleared, warms Floor 3's.
+    expect(arenaToWarm(m)).toBeNull();
+    expect(arenaToWarm(clear(m, matchTuning))).toBe(nextArenaName(next));
   });
 
   it('warms nothing on the last Floor or once the Run is over', () => {
@@ -87,6 +96,7 @@ describe('the Arena worlds across a Run’s Floor change', () => {
     let m = start(matchTuning);
     while (m.run!.floor < m.run!.floors) m = clearFloor(m, matchTuning).after;
     expect(arenaToWarm(m)).toBeNull();
+    expect(arenaToWarm(clear(m, matchTuning))).toBeNull();
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 0 ? { ...f, hp: 0 } : f)) } };
     while (m.status.status === 'InProgress') m = stepMatch(m, idle(m), matchTuning);
     expect(arenaToWarm(m)).toBeNull();
