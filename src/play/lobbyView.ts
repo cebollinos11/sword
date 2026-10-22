@@ -8,7 +8,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type MatchFormat } from '../sim';
-import type { TuningData } from '../tuning';
+import { DEFAULT_STYLE, RANDOM_PICK, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -242,9 +242,9 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
     row.append(avatar('AI', colour));
     const info = h('div', 'seat-info');
     if (host) {
-      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), weaponSelect(ctx, at, seat)));
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat)));
     } else {
-      info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', seat.weapon));
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', `${styleLabel(seat.style)} · ${seat.weapon}`));
     }
     row.append(info);
   } else {
@@ -273,9 +273,22 @@ function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat:
   for (const d of difficulties) options.push([`AI:${d}`, `${d} AI`]);
   const value = seat.kind === 'AI' ? `AI:${seat.difficulty}` : seat.kind;
   const weapon = seat.kind === 'AI' ? seat.weapon : Object.keys(ctx.tuning.weapons)[0]!;
+  const style = seat.kind === 'AI' && seat.style !== undefined ? { style: seat.style } : {};
   return select('Seat', options, value, (v) => {
-    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon } : { kind: v as 'Open' | 'Closed' };
+    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style } : { kind: v as 'Open' | 'Closed' };
     ctx.lobby.edit((s) => setSeat(s, at, next));
+  });
+}
+
+/** An AI Seat's Style, as shown: the default when it names none, "Random" for one picked from the Match seed. */
+const styleLabel = (style: string | undefined): string => (style === undefined ? DEFAULT_STYLE : style === RANDOM_PICK ? 'Random' : style);
+
+/** Host: an AI Seat's Style (how it fights), or Random (picked from each Match's seed, the same on every peer). */
+function styleSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>): HTMLSelectElement {
+  const styles: [string, string][] = [...Object.keys(ctx.tuning.ai.styles).map((s) => [s, s] as [string, string]), [RANDOM_PICK, 'Random']];
+  return select('AI Style', styles, seat.style ?? DEFAULT_STYLE, (v) => {
+    const { style: _old, ...rest } = seat;
+    ctx.lobby.edit((s) => setSeat(s, at, v === DEFAULT_STYLE ? rest : { ...rest, style: v }));
   });
 }
 

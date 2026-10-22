@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon } from '../tuning';
 import { IDLE_INTENT, TICK_RATE } from '../sim';
 import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions, type RollbackSession } from '../net';
-import { lobbyLineup, updateSettings } from './lobby';
+import { lobbyLineup, setSeat, updateSettings } from './lobby';
 import { GuestLobby, HostLobby, LOBBY_TIMEOUT_MS } from './sync';
 
 const tuning = loadTuningData();
@@ -112,6 +112,20 @@ describe('Lobby sync', () => {
       r.run(500);
       expect(g.state!.matchArena).toBe('gen:greybox:763946');
     }
+  });
+
+  it("each AI Seat's Style reaches the guest; a broken host's unknown Style is ignored", () => {
+    const r = room({ latencyMs: 30 });
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    const at = { team: 1, index: 1 };
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Tricky' }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Tricky' });
+    r.host.edit((s) => setSeat(s, at, { kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Sneaky' }));
+    r.run(500);
+    expect(g.state!.teams[1]![1]).toEqual({ kind: 'AI', difficulty: 'Expert', weapon: first, style: 'Tricky' });
   });
 
   it('takes three guests, turns away a fourth (the Room is full) and a guest with other Tuning Data', () => {

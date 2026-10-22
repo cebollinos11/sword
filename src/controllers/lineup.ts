@@ -6,8 +6,8 @@
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
  */
-import { checkRunTeams, checkTeams, type MatchFormat, type MatchOptions } from '../sim';
-import { defaultWeaponName, type TuningData } from '../tuning';
+import { checkRunTeams, checkTeams, runPick, type MatchFormat, type MatchOptions } from '../sim';
+import { DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 import { createFloorAi } from './floorAi';
@@ -18,8 +18,11 @@ export const MAX_PLAYERS = 4;
 /** A human Player: 0 (Player vs AI, or the host online), 1 to 3 (the guests online, in Lobby order). */
 export type PlayerNumber = 0 | 1 | 2 | 3;
 
-/** What drives a Fighter: a human Player, or the AI at a difficulty preset (Tuning Data `ai.difficulties`). */
-export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string };
+/**
+ * What drives a Fighter: a human Player, or the AI at a difficulty preset (Tuning Data `ai.difficulties`) playing a Style
+ * (`ai.styles`, or RANDOM_PICK: one picked from the Match seed by `lineupStyle`; absent: DEFAULT_STYLE).
+ */
+export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string };
 
 /**
  * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Floor decides who stands in the slot (its
@@ -51,7 +54,7 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
 /**
  * Throws unless the Lineup is playable with `players` human Players: valid teams
  * (1 to 3 Fighters a side), each Player driving exactly one Fighter, and every
- * AI difficulty and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
+ * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
  * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them).
  */
 export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels'): void {
@@ -72,6 +75,7 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
   for (const s of lineup) {
     if (floors(s)) continue;
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
+    if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);
     if (s.pilot.kind === 'AI' && s.weapon !== undefined && !tuning.weapons[s.weapon]) throw new RangeError(`Unknown Weapon "${s.weapon}"`);
   }
 }
@@ -92,13 +96,24 @@ export function lineupPlayers(lineup: Lineup): number {
 }
 
 /**
- * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Floor AI
- * instead (its Floors decide its difficulty), counting Team 1's slots from 0 in Fighter order.
+ * The Style Fighter `fighter`'s AI plays: its Pilot's, DEFAULT_STYLE when it names none, and for RANDOM_PICK one of
+ * `ai.styles` picked by a pure hash of the Match seed and the Fighter (`runPick`), so every peer picks the same.
  */
-export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels'): (Controller | null)[] {
+export function lineupStyle(tuning: TuningData, style: string | undefined, seed: number, fighter: number): string {
+  if (style !== RANDOM_PICK) return style ?? DEFAULT_STYLE;
+  const styles = Object.keys(tuning.ai.styles);
+  return styles[runPick(seed, 0, fighter, 2, styles.length)]!;
+}
+
+/**
+ * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Floor AI
+ * instead (its Floors decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order. `match` is the
+ * Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
+ */
+export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
   let slot = 0;
-  return lineup.map((s) => {
-    if (format === 'Gauntlet' && s.team === 1) return createFloorAi(tuning, slot++);
-    return s.pilot.kind === 'AI' ? createAiController(tuning, s.pilot.difficulty) : null;
+  return lineup.map((s, i) => {
+    if (format === 'Gauntlet' && s.team === 1) return createFloorAi(tuning, slot++, match.arena);
+    return s.pilot.kind === 'AI' ? createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i)) : null;
   });
 }

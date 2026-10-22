@@ -47,14 +47,30 @@
  *    Overhead or Thrust against a Crouch, Thrust at long range; a mistake is
  *    a random one. It punishes openings (`punish`, rolled once per opening):
  *    Recovery, a Blocked or Chambered recoil, a hard Landing, a Knockdown,
- *    a whiffed Kick. It meets an opponent walking into its reach with an
+ *    a whiffed Kick; with `punishFits` (rolled with it) only one its own
+ *    Wind-up (Tempo included) Releases inside, as the seen playhead says how
+ *    much is left of it (counted as seen: the opponent takes as long to see
+ *    the punish coming), and otherwise it spaces out. It meets an opponent
+ *    walking into its reach with an
  *    Attack already on the way (`preempt`), leaps in with a jumping Overhead
  *    from out of reach, or down off a ledge (`jumpAttackRate`; held for the
  *    shortest hold up to its `jumpNav` whose arc brings it within reach of where
  *    the opponent will be), Chains a second Attack while
  *    its opponent is still in reach (`chainRate`), Feints at `feintRate` (and
  *    Feints away from a Block it sees raised against its Wind-up), and now and
- *    then swings from out of range (the mistake).
+ *    then swings from out of range (the mistake). With `whiffCheck` (rolled
+ *    once per Attack) it does not swing at a target it sees backing out of
+ *    reach: about to Release, it holds the Wind-up while it may close in, or
+ *    Feints into a Block.
+ *  - Reading a low swing (`lowSwingRead`, rolled once per Attack it defends):
+ *    a Left or Right from an attacker seen looking down (pitch below
+ *    `ai.duckMaxPitch`; the torso leans with the look) hits a Crouch, so it
+ *    Blocks it rather than Duck, re-checking every Tick of the Wind-up.
+ *  - Breaking a held Wind-up (`holdBreak`, rolled once per Wind-up held
+ *    HOLD_BREAK_TICKS past its held pose): it stops turtling, backs out of
+ *    the attacker's reach with its Block kept, Kicks an attacker walking
+ *    after it (a mover is knocked down), and from just outside baits the
+ *    Release, stepping in under its Block and back, to punish the Recovery.
  *  - Jumps: an opponent seen in the air, it predicts the Landing from what it
  *    saw (`jumpArcFrom`, as moving, with no more boost: it cannot see Jump held),
  *    and at `landingPunish` (rolled once per Jump) stands just inside its reach
@@ -83,6 +99,8 @@
  *    Sheathed, Sheathing or Drawing cannot Block (`defenceless`): rolled once at
  *    `punish`, it skips spacing and Feints and closes in to swing.
  *
+ * A Style (Tuning Data `ai.styles`) scales its difficulty's chances (`skillOf`); the default Style changes nothing.
+ *
  * With every optional parameter left out it walks straight in, attacks at
  * `ai.aggression` from `ai.attackRange`, backs off inside `ai.retreatRange`
  * and always punishes an opening: the plain AI the tests drive.
@@ -108,6 +126,7 @@ import {
   jumpArc,
   jumpArcFrom,
   jumpIsSafe,
+  kickTimings,
   levelJump,
   navMesh,
   navPolygon,
@@ -117,6 +136,7 @@ import {
   mirrorDirection,
   nextFloat,
   secondsToTicks,
+  staggerMotionName,
   throwTimings,
   TICK_SECONDS,
   type Action,
@@ -129,7 +149,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { defaultWeaponName, weaponByName, type AiDifficulty, type ArenaGeometry, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -152,6 +172,8 @@ interface Sighting {
   readonly fallen: boolean;
   /** Which way its body faces. */
   readonly facing: number;
+  /** Where it looks (radians, up positive): its torso leans with it (`applyLook`). */
+  readonly pitch: number;
   /** Its feet moved since the Tick before (walking, or being pushed). */
   readonly moving: boolean;
   /** The Tick its current Attack became visible (identifies one Attack), or null when not attacking. */
@@ -186,6 +208,10 @@ interface DefencePlan {
   readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace';
   readonly direction: Direction;
   readonly pressAt: number;
+  /** It rolled to read the attacker's look (`lowSwingRead`): a Duck switches to a Block while the look is low. */
+  readonly reads?: boolean;
+  /** Whether it breaks this Wind-up's hold (`holdBreak`, rolled once it is held long enough), and the Tick it began to. */
+  readonly holdBreak?: { readonly go: boolean; readonly at: number };
 }
 
 /** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
@@ -210,6 +236,8 @@ interface AttackPlan {
   readonly chainHeld: boolean;
   /** A jumping Attack: it keeps Jump held while in the air before this Tick (-1: not one). */
   readonly holdJumpUntil: number;
+  /** It rolled to check for a whiff (`whiffCheck`): it does not Release at a target seen backing out of reach. */
+  readonly whiff: boolean;
 }
 
 type Mode = 'Neutral' | 'Pressure' | 'Disengage';
@@ -231,6 +259,8 @@ interface OpeningRoll {
   readonly fighter: number;
   readonly seen: number;
   readonly go: boolean;
+  /** It rolled to punish it only if its Wind-up Releases in time (`punishFits`). */
+  readonly fits: boolean;
 }
 
 /** The way to its target on another Walk Surface: Links (`findPath`, null if there is none) planned on Tick `at` from surface `from` to `to`. */
@@ -297,7 +327,7 @@ interface Focus {
 }
 
 /** A difficulty preset with every optional part filled in. */
-type Skill = Required<AiDifficulty>;
+export type Skill = Required<AiDifficulty>;
 
 /** A route is re-planned at least this often (Ticks), as its target moves about. */
 const REPATH_TICKS = 30;
@@ -360,6 +390,18 @@ const SIGHT_SPACING = 0.5;
 const AIM_ERROR = 0.25;
 const DEG = Math.PI / 180;
 
+/** A Wind-up held this many Ticks past its held pose is one it may break (`holdBreak`). */
+const HOLD_BREAK_TICKS = 15;
+/** Breaking a hold, it backs out for this many Ticks, then baits: this many Ticks stepping in under its Block, as many back out. */
+const BAIT_FIRST = 30;
+const BAIT_HALF = 30;
+/** Baiting, it steps this far (m) inside the attacker's reach. */
+const BAIT_INSIDE = 0.15;
+/** An enemy closing on it faster than this fraction of walk speed is walking after it. */
+const WALKING_AFTER = 0.3;
+/** A target backing off faster than this fraction of walk speed is backing out (`whiffCheck`). */
+const BACKING_OUT = 0.1;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -371,9 +413,19 @@ export function aiDifficulty(tuning: TuningData, name: string): AiDifficulty {
   return d;
 }
 
-/** A preset with its optional parts filled in: the global `ai.aggression`/`ai.kickRate`, always punishing, and nothing else. */
-function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
-  return {
+/** Look up a Style by name in Tuning Data. */
+export function aiStyle(tuning: TuningData, name: string): AiStyle {
+  const s = tuning.ai.styles[name];
+  if (!s) throw new Error(`Unknown AI Style "${name}" (have: ${Object.keys(tuning.ai.styles).join(', ')})`);
+  return s;
+}
+
+/**
+ * A preset with its optional parts filled in (the global `ai.aggression`/`ai.kickRate`, always punishing, and nothing
+ * else), and then scaled by `style`: each chance it names multiplied, clamped to 0..1. With no Style it is the preset.
+ */
+export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}): Skill {
+  const skill: { -readonly [K in keyof Skill]: Skill[K] } = {
     aggression: tuning.ai.aggression,
     kickRate: tuning.ai.kickRate,
     throwRate: tuning.ai.throwRate,
@@ -389,8 +441,17 @@ function skillOf(tuning: TuningData, d: AiDifficulty): Skill {
     landingPunish: 0,
     jumpEscapeRate: 0,
     jumpNav: -1,
+    lowSwingRead: 0,
+    holdBreak: 0,
+    whiffCheck: 0,
+    punishFits: 0,
     ...d,
   };
+  for (const k of AI_STYLE_KEYS) {
+    const m = style[k];
+    if (m !== undefined) skill[k] = Math.min(1, Math.max(0, skill[k] * m));
+  }
+  return skill;
 }
 
 /** Is this visible Action an Attack that can still land (Wind-up or Release)? */
@@ -483,9 +544,10 @@ class AiController implements Controller {
   constructor(
     private readonly tuning: TuningData,
     difficulty: AiDifficulty,
+    style?: AiStyle,
   ) {
     this.reactionTicks = secondsToTicks(difficulty.reactionTime);
-    this.skill = skillOf(tuning, difficulty);
+    this.skill = skillOf(tuning, difficulty, style);
   }
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
@@ -584,6 +646,7 @@ class AiController implements Controller {
         team: o.team,
         fallen: !inDuel(o),
         facing: o.facing,
+        pitch: o.pitch,
         moving,
         attackStart,
         airStart,
@@ -732,7 +795,12 @@ class AiController implements Controller {
 
     // An opening, near enough to step in on: punish it (unless the AI never attacks, aggression 0).
     if (this.skill.aggression > 0 && isOpening(target.action) && dist <= myReach + SWING_IN && this.goesFor(targetIndex, seen.tick)) {
-      return this.startAttack(state.tick, self, target, dist, { ...base, move: dist > myReach ? toward : ZERO }, { swingIn: dist > myReach });
+      const punish = { ...base, move: dist > myReach ? toward : ZERO };
+      if (!this.opening!.fits) return this.startAttack(state.tick, self, target, dist, punish, { swingIn: dist > myReach });
+      // Only an opening its own Wind-up Releases inside; else space out, out of the counter.
+      const direction = this.chooseDirection(self, target, dist);
+      if (this.landsInTime(self, target, dist, direction)) return this.startAttack(state.tick, self, target, dist, punish, { swingIn: dist > myReach, direction });
+      return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach) };
     }
 
     if (this.skill.footwork <= 0) {
@@ -828,9 +896,34 @@ class AiController implements Controller {
   /** Whether to go for the opening it sees on `fighter` (rolled once per opening, at `punish`). */
   private goesFor(fighter: number, seenTick: number): boolean {
     const o = this.opening;
-    const go = o && o.fighter === fighter && o.seen >= seenTick - 1 ? o.go : this.chance(this.skill.punish);
-    this.opening = { fighter, seen: seenTick, go };
+    const same = o && o.fighter === fighter && o.seen >= seenTick - 1;
+    const go = same ? o.go : this.chance(this.skill.punish);
+    const fits = same ? o.fits : this.chance(this.skill.punishFits);
+    this.opening = { fighter, seen: seenTick, go, fits };
     return go;
+  }
+
+  /**
+   * Whether its own Attack in `direction` on `target`'s opening, pressed now (stepping in first if `dist` is beyond its
+   * reach), Releases before the opening ends (`openingLeft`). The ends are counted as it saw the opening, Reaction Time
+   * ago: the opponent needs as long to see its Wind-up coming as it took to see the opening.
+   */
+  private landsInTime(self: FighterState, target: Sighting, dist: number, direction: Direction): boolean {
+    const { windUpEnd } = attackTimings(this.tuning, self.weapon, direction);
+    const walk = Math.ceil(Math.max(0, dist - this.reach(self.weapon)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
+    return Math.max(windUpEnd, walk) <= this.openingLeft(target);
+  }
+
+  /** Ticks `o`, as seen, has left of its opening before it can act again, as its playhead shows (a Knockdown: long enough). */
+  private openingLeft(o: Sighting): number {
+    const a = o.action;
+    if (a.kind === 'Attack') return attackTimings(this.tuning, o.weapon, a.direction).end - (a.chain?.tick ?? o.motionTick);
+    if (a.kind === 'Kick') return kickTimings(this.tuning, o.weapon).end - o.motionTick + (a.landed ? 0 : (a.whiff ?? this.tuning.kick.whiffRecovery));
+    if (a.kind === 'Stagger') {
+      const motion = weaponMotion(this.tuning, o.weapon, staggerMotionName(this.tuning, o.weapon, a.cause, a.from));
+      return (motion ? secondsToTicks(motion.duration) : 0) - o.motionTick;
+    }
+    return Infinity;
   }
 
   /** Where to stand, circling: hovering at its spacing for the tactic, along the side it circles, never stepping somewhere unsafe. */
@@ -1263,9 +1356,10 @@ class AiController implements Controller {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
       this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
     }
-    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0;
+    const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff;
     const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
-    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil } : null;
+    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff } : null;
     return { ...base, attack: true, direction };
   }
 
@@ -1300,6 +1394,11 @@ class AiController implements Controller {
         }
       }
       if (plan && tick < plan.holdUntil && dist > myReach - 0.05) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
+      // About to Release at a target seen backing out of reach: hold on while it may close in, else Feint into a Block.
+      if (plan?.whiff && !self.air && this.backingOut(self, target, dist, toward, a.direction, myReach)) {
+        if (tick < plan.holdUntil) return { ...base, attack: true, direction: a.direction, move: this.safeMove(state, self, toward) };
+        return { ...base, block: true, direction: a.direction };
+      }
       return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
     }
     if (a.phase === 'Release') return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
@@ -1321,6 +1420,23 @@ class AiController implements Controller {
       return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
     }
     return base;
+  }
+
+  /**
+   * Whether its own Wind-up in `direction` is about to Release (its last Tick before the held pose, or held) at `target`
+   * seen backing off, and the target, carrying on as seen (since it was seen) while it walks on after it from now (as
+   * `pressOn` does from beyond a metre), will be beyond `myReach` by the middle of the Release.
+   */
+  private backingOut(self: FighterState, target: Sighting, dist: number, toward: Vec2, direction: Direction, myReach: number): boolean {
+    const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, direction);
+    if (self.motion.tick < windUpEnd - 1) return false;
+    const step = this.tuning.fighter.walkSpeed * TICK_SECONDS;
+    const away = target.velocity.x * toward.x + target.velocity.z * toward.z;
+    if (away <= BACKING_OUT * step) return false;
+    const after = dist > Math.max(1.0, this.tuning.ai.retreatRange + 0.1) ? step : 0;
+    // It saw the target Reaction Time ago; its own walk from now on.
+    const ticks = 1 + Math.ceil((releaseEnd - windUpEnd) / 2);
+    return dist + away * (this.reactionTicks + ticks) - after * ticks > myReach;
   }
 
   /** While a planned Feint's Wind-up runs: hold attack, then switch Direction (the Feint) and let the new Attack Release. */
@@ -1350,11 +1466,16 @@ class AiController implements Controller {
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
-    let plan = this.defencePlan;
     const own = self.action;
+    const broken = this.breakHold(state, self, seen, flat, base, meets);
+    if (broken) return broken;
+    let plan = this.defencePlan;
     switch (plan.kind) {
       case 'Duck':
-        return { ...base, crouch: true };
+        // Reading the look: a Left or Right swung looking down hits a Crouch, so Block it instead.
+        if (!plan.reads || !this.lowLook(seen)) return { ...base, crouch: true };
+        plan = this.defencePlan = { ...plan, kind: 'Block', direction: meets };
+        break;
       case 'Outpace':
         // Its own Wind-up lands first: let it go (it may already have Released).
         if (own.kind === 'Attack') return base;
@@ -1371,11 +1492,61 @@ class AiController implements Controller {
       case 'Block':
         break;
     }
-    const direction = plan.direction;
-    // A Block's Direction is fixed on press: drop a Block in another Direction for a Tick, then raise this one.
+    return this.guard(own, base, plan.direction);
+  }
+
+  /** Raise (or keep) a Block in `direction`: a Block's Direction is fixed on press, so one in another Direction is dropped for a Tick first. Mid-Wind-up, pressing block Feints into the Block. */
+  private guard(own: Action, base: Intent, direction: Direction): Intent {
     if (own.kind === 'Block' && own.direction !== direction) return base;
-    // Mid-Wind-up, pressing block Feints into the Block.
     return { ...base, block: true, direction };
+  }
+
+  /** Whether `o` is seen looking down far enough that its Left or Right would hit a Crouch (`ai.duckMaxPitch`). */
+  private lowLook(o: Sighting): boolean {
+    return o.pitch < this.tuning.ai.duckMaxPitch * DEG;
+  }
+
+  /**
+   * Break the hold of `seen`'s Wind-up, held HOLD_BREAK_TICKS past its held pose (rolled once per Wind-up, at `holdBreak`),
+   * rather than turtle in a Block: Kick it if it walks after it (holding its ground under its Block until it is in
+   * `kickRange`), else back out of its reach keeping the Block for
+   * BAIT_FIRST Ticks, then bait (BAIT_HALF Ticks stepping BAIT_INSIDE into its reach under the Block, as many back out,
+   * Idle out there, ready to punish a Release that whiffs). Its Release seen from out of reach, it stays Idle. Null when it does not.
+   */
+  private breakHold(state: SimState, self: FighterState, seen: Sighting, flat: number, base: Intent, meets: Direction): Intent | null {
+    if (this.skill.holdBreak <= 0 || self.air) return null;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    let plan = this.defencePlan!;
+    const theirReach = this.reach(seen.weapon) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
+    if (atk.phase === 'Release') return plan.holdBreak?.go && flat > theirReach + 0.1 ? base : null;
+    const { windUpEnd } = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const held = state.tick - this.reactionTicks - plan.attackStart - windUpEnd;
+    if (atk.phase !== 'Wind-up' || held < HOLD_BREAK_TICKS) return null;
+    if (!plan.holdBreak) plan = this.defencePlan = { ...plan, holdBreak: { go: this.chance(this.skill.holdBreak), at: state.tick } };
+    if (!plan.holdBreak!.go) return null;
+    const own = self.action;
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    // Walking after it while holding: let it come on under its Block, and Kick it once in range (a mover is knocked
+    // down), letting the Block go for a Tick first.
+    const closing = -(seen.velocity.x * toward.x + seen.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
+    if (closing > WALKING_AFTER) {
+      // Where it is by now, carrying on as seen.
+      const lead = this.reactionTicks;
+      const gap = Math.hypot(seen.position.x + seen.velocity.x * lead - self.position.x, seen.position.z + seen.velocity.z * lead - self.position.z);
+      if (gap <= this.tuning.ai.kickRange && self.crouch < 0.5) {
+        if (own.kind === 'Idle') return { ...base, kick: true };
+        if (own.kind === 'Block') return base;
+      }
+      return this.guard(own, base, meets);
+    }
+    const k = state.tick - plan.holdBreak!.at;
+    const baiting = k >= BAIT_FIRST && Math.floor((k - BAIT_FIRST) / BAIT_HALF) % 2 === 0;
+    const spacing = baiting ? theirReach - BAIT_INSIDE : theirReach + HOVER_MARGIN;
+    const radial = Math.max(-1, Math.min(1, (flat - spacing) * 2.5));
+    const move = Math.abs(radial) < 0.15 ? ZERO : this.safeMove(state, self, { x: toward.x * radial, z: toward.z * radial });
+    // Its Block up while in its reach; out of it, Idle, ready to punish.
+    if (flat <= theirReach + 0.1 || baiting) return { ...this.guard(own, base, meets), move: own.kind === 'Block' && own.direction !== meets ? ZERO : move };
+    return { ...base, move: own.kind === 'Block' ? ZERO : move };
   }
 
   private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction): DefencePlan {
@@ -1390,7 +1561,11 @@ class AiController implements Controller {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
     }
-    if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) return plan('Duck');
+    if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) {
+      // Reading the look: never Duck a swing seen coming low (it would hit the Crouch).
+      if (!this.chance(this.skill.lowSwingRead)) return plan('Duck');
+      return this.lowLook(seen) ? { ...plan('Block'), reads: true } : { ...plan('Duck'), reads: true };
+    }
     // Sheathed, its press would only Draw: no Chamber.
     if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
@@ -1401,7 +1576,6 @@ class AiController implements Controller {
   }
 }
 
-/** A rule-based AI Controller with the given difficulty (a preset from `tuning.ai.difficulties`, or explicit values). */
 /**
  * Whether a step from feet at (`at`, `y`) along `dir` (a unit vector) keeps it on safe ground, looking up to SAFETY_PROBE
  * ahead: no ledge (a drop of more than a step), no Lava, Water or Abyss, no higher ground in the way. The ground is looked
@@ -1424,6 +1598,7 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
   return true;
 }
 
-export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string): Controller {
-  return new AiController(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty);
+/** A rule-based AI Controller with the given difficulty, playing `style` (a Style from `tuning.ai.styles`, or explicit multipliers; default DEFAULT_STYLE). */
+export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): Controller {
+  return new AiController(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
 }

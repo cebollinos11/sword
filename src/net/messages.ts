@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGenerated
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -189,11 +189,11 @@ export function isFormatOnMap(format: unknown, arena: unknown): boolean {
   return isFormat(format) && (format !== 'Gauntlet' || isRandomMapName(arena));
 }
 
-/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
+/** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
   if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon))) return false;
   const p = v.pilot;
-  return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty));
+  return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)));
 }
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
@@ -428,6 +428,7 @@ function isSighting(v: unknown): boolean {
     typeof v.weapon === 'string' &&
     isTeam(v.team) &&
     isBool(v.fallen) &&
+    isNum(v.pitch) &&
     isBool(v.moving) &&
     (v.attackStart === null || isTick(v.attackStart))
   );
@@ -441,19 +442,29 @@ function isAiMemory(v: unknown): boolean {
   if (!isObject(v) || !isInt(v.lastTick) || !isNum(v.lastHp)) return false;
   const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerFighter(o.fighters, isSighting));
   const d = v.defencePlan;
-  const defence = d === null || (isObject(d) && isTick(d.attacker) && isTick(d.attackStart) && DEFENCE_KINDS.includes(d.kind as string) && isDirection(d.direction) && isInt(d.pressAt));
+  const holdBreak = (h: unknown) => isObject(h) && isBool(h.go) && isTick(h.at);
+  const defence =
+    d === null ||
+    (isObject(d) &&
+      isTick(d.attacker) &&
+      isTick(d.attackStart) &&
+      DEFENCE_KINDS.includes(d.kind as string) &&
+      isDirection(d.direction) &&
+      isInt(d.pressAt) &&
+      (d.reads === undefined || isBool(d.reads)) &&
+      (d.holdBreak === undefined || holdBreak(d.holdBreak)));
   const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
   const a = v.attackPlan;
   const attack =
     a === null ||
-    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld));
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
   const tactic = isObject(v.tactic) && MODES.includes(v.tactic.mode as string) && isInt(v.tactic.until);
   const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until);
   const o = v.opening;
-  const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go));
+  const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
   const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until));
   return seen && defence && feint && attack && route && tactic && strafe && opening && focus;
 }

@@ -14,7 +14,7 @@
  */
 import { createMatch, hashValue, step, stepMatch, type Intent, type MatchOptions, type MatchState, type SimState, type TimedEvent } from '../sim';
 import type { TuningData } from '../tuning';
-import { createAiController, createTestOpponent, isTestOpponent, type Controller } from '../controllers';
+import { createAiController, createTestOpponent, isTestOpponent, lineupStyle, type Controller } from '../controllers';
 
 /** How the sandbox steps one kind of run (a bare Duel, or a Match of Duels). */
 export interface Sandbox<S> {
@@ -65,6 +65,8 @@ export interface SandboxSession<S> {
 export interface PlayerVsAiSandboxOptions extends MatchOptions {
   /** An AI difficulty preset name from Tuning Data (`ai.difficulties`), or a test opponent (`TEST_OPPONENTS`: Dummy, Wall, Runner). */
   readonly opponent: string;
+  /** The AI's Style (Tuning Data `ai.styles`, or RANDOM_PICK: picked from the seed); default DEFAULT_STYLE. */
+  readonly style?: string;
 }
 
 /**
@@ -82,8 +84,8 @@ export function playerVsAiSession(
   /** The Match sandbox to step through, e.g. wrapped by `recordingSandbox` to record a golden replay. */
   sandbox: Sandbox<MatchState> = matchSandbox(tuning),
 ): SandboxSession<MatchState> {
-  const { opponent, ...match } = options;
-  const other = isTestOpponent(opponent) ? createTestOpponent(opponent) : createAiController(tuning, opponent);
+  const { opponent, style, ...match } = options;
+  const other = isTestOpponent(opponent) ? createTestOpponent(opponent) : createAiController(tuning, opponent, lineupStyle(tuning, style, match.seed ?? 1, 1));
   return createSandboxSession(sandbox, createMatch(tuning, { arena: tuning.arena.editor, ...match }), [player, other]);
 }
 

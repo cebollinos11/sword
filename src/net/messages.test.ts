@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, stepMatch, throwTimings, type MatchState } from '../sim';
-import { createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
+import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage } from './messages';
 
 const tuning = loadTuningData();
@@ -255,6 +255,49 @@ describe('Peer message validation: AI memory in a resync', () => {
       expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
     }
     expect(parseNetMessage({ ...resync(matchState()), ai: undefined })).toBeNull();
+  });
+});
+
+describe('Peer message validation: AI Styles and the Stage 1 AI memory (docs/plans/ai-behaviour.md)', () => {
+  const withStyle = (style: unknown) => ({
+    type: 'hello',
+    protocol: 1,
+    tuningHash: 'abcd1234',
+    match: { bestOf: 3, seed: 4 },
+    lineup: [
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 1, pilot: { kind: 'AI', difficulty: 'Expert', style }, weapon: 'Halberd' },
+    ],
+    weapons: ['Halberd'],
+    player: 0,
+  });
+
+  it("a hello's Lineup carries each AI's Style, a string (Tuning Data judges it)", () => {
+    for (const style of ['Counter', 'random']) expect(parseNetMessage(withStyle(style))).toEqual(withStyle(style));
+    for (const style of [3, null, { name: 'Counter' }]) expect(parseNetMessage(withStyle(style)), JSON.stringify(style)).toBeNull();
+  });
+
+  /** An Expert's memory after it broke a held Wind-up (its plans carry the new rolls), as the host would send it. */
+  function expertMemory(): Record<string, unknown> {
+    const ai = createAiController(tuning, { ...aiDifficulty(tuning, 'Expert'), holdBreak: 1, whiffCheck: 1, punishFits: 1, lowSwingRead: 1 }, 'Defensive');
+    let m = createMatch(tuning, { bestOf: 1, seed: 3, distance: 1.3 });
+    for (let t = 0; t < 120; t++) m = stepMatch(m, [{ ...IDLE_INTENT, attack: t >= 10, direction: 'Overhead' }, ai.intent(m.duel, 1)], tuning);
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it('accepts a real Expert memory with its hold-break roll, and refuses malformed new fields', () => {
+    const good = expertMemory();
+    expect((good.defencePlan as { holdBreak?: unknown }).holdBreak).toEqual({ go: true, at: expect.any(Number) });
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const plan = good.defencePlan as Record<string, unknown>;
+    const seen = good.seen as { tick: number; fighters: Record<string, unknown>[] }[];
+    for (const bad of [
+      { ...good, defencePlan: { ...plan, holdBreak: { go: 'yes', at: 3 } } },
+      { ...good, defencePlan: { ...plan, reads: 1 } },
+      { ...good, seen: seen.map((o) => ({ ...o, fighters: o.fighters.map((f) => ({ ...f, pitch: 'down' })) })) },
+    ]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad]))).toBeNull();
+    }
   });
 });
 

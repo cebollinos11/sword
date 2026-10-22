@@ -4,7 +4,7 @@
  * functions, so the host can send it to every guest as is.
  *
  * Two teams of MAX_TEAM_SIZE Seats each. A Seat is Open (a human may take it),
- * Closed, an AI (difficulty and Weapon), or a Player (a Member). Members are
+ * Closed, an AI (difficulty, Weapon and Style), or a Player (a Member). Members are
  * the humans: the host is always first. A Room holds up to MAX_PLAYERS of
  * them, so no more Seats than that may be Open or taken by Players.
  *
@@ -42,7 +42,7 @@ export type Seat =
   | { readonly kind: 'Open' }
   | { readonly kind: 'Closed' }
   | { readonly kind: 'Player'; readonly member: number }
-  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string };
+  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string };
 
 export type SeatKind = Seat['kind'];
 
@@ -284,7 +284,7 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
     }
     for (const s of row) {
       if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) } });
-      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty }, weapon: s.weapon });
+      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon });
     }
   });
   return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };

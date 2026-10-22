@@ -280,7 +280,7 @@ class Session implements RollbackSession, PeerIntentSource {
       const format = o.match.format ?? 'Duels';
       checkLineup(o.tuning, this.lineup, guests.length + 1, format);
       this.localPlayer = 0;
-      this.setLineup(this.lineup, format);
+      this.setLineup(this.lineup, format, o.match);
       this.links = guests.map((t, i) => this.link(t, i + 1));
       // Dropped on the first Tick, so whoever listens hears of it.
       guests.forEach((t, i) => {
@@ -409,14 +409,14 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot). */
-  private setLineup(lineup: Lineup, format: MatchFormat): void {
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot), a random Style picked from `match`'s seed. */
+  private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
     this.players = lineupPlayers(lineup);
     this.playerOf = lineup.map((s) => (s.pilot.kind === 'Player' ? s.pilot.player : -1));
     this.fighterOf = Array.from({ length: this.players }, (_, p) => this.playerOf.indexOf(p));
     this.localFighter = this.fighterOf[this.localPlayer] ?? -1;
-    this.ais = lineupAis(this.tuning, lineup, format);
+    this.ais = lineupAis(this.tuning, lineup, format, match);
     for (let p = 0; p < this.players; p++) {
       this.intents[p] = new Map();
       this.used[p] = new Map();
@@ -722,7 +722,7 @@ class Session implements RollbackSession, PeerIntentSource {
       return this.refuse('TuningDataMismatch', m.tuningHash, true);
     }
     this.localPlayer = player;
-    this.setLineup(lineup, format);
+    this.setLineup(lineup, format, match);
     this.build(state);
   }
 

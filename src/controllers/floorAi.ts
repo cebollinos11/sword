@@ -1,11 +1,12 @@
 /**
  * The Floor AI: the Controller of one Team 1 slot of a Gauntlet Run (docs/plans/gauntlet.md). The slot keeps it for the
  * whole Run, while each Floor decides who stands there: it reads the Floor from `state.floor`, plays that Floor's
- * difficulty for its slot (Tuning Data `gauntlet.floors`), and starts that Floor's AI from fresh memory whenever the Floor
+ * difficulty and Style for its slot (Tuning Data `gauntlet.floors`, a `"random"` Style picked from the Run seed by
+ * `floorRoster`), and starts that Floor's AI from fresh memory whenever the Floor
  * changes. A slot the Floor leaves empty is Benched, and its Floor AI asks for nothing.
  */
-import { IDLE_INTENT, type Intent, type SimState } from '../sim';
-import type { TuningData } from '../tuning';
+import { floorRoster, IDLE_INTENT, type Intent, type SimState } from '../sim';
+import { DEFAULT_STYLE, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 
@@ -16,7 +17,7 @@ interface FloorAiMemory {
 }
 
 class FloorAi implements Controller {
-  /** One AI Controller per difficulty, made on first use, with the memory it was made with. */
+  /** One AI Controller per difficulty and Style, made on first use, with the memory it was made with. */
   private readonly ais = new Map<string, { readonly ai: Controller; readonly fresh: unknown }>();
   private floor = -1;
   /** The current Floor's AI, or null when the Floor has no enemy for this slot. */
@@ -26,16 +27,21 @@ class FloorAi implements Controller {
     private readonly tuning: TuningData,
     /** Which Team 1 slot (0-based, in Fighter order) it drives. */
     private readonly slot: number,
+    /** The Run's first Arena (its seed is the Run seed). */
+    private readonly arena: string,
   ) {}
 
   /** The AI that plays `floor`'s enemy for this slot, its memory as fresh as when it was made; null when the Floor has none. */
   private aiFor(floor: number): Controller | null {
-    const difficulty = this.tuning.gauntlet.floors[floor - 1]?.enemies[this.slot]?.difficulty;
-    if (difficulty === undefined) return null;
-    let kept = this.ais.get(difficulty);
+    if (floor < 1 || floor > this.tuning.gauntlet.floors.length) return null;
+    const enemy = floorRoster(this.tuning, { arena: this.arena, humans: 1 }, floor)[this.slot];
+    if (!enemy) return null;
+    const style = enemy.style ?? DEFAULT_STYLE;
+    const key = `${enemy.difficulty}/${style}`;
+    let kept = this.ais.get(key);
     if (!kept) {
-      const ai = createAiController(this.tuning, difficulty);
-      this.ais.set(difficulty, (kept = { ai, fresh: ai.save?.() }));
+      const ai = createAiController(this.tuning, enemy.difficulty, style);
+      this.ais.set(key, (kept = { ai, fresh: ai.save?.() }));
     }
     kept.ai.load?.(kept.fresh);
     return kept.ai;
@@ -63,7 +69,7 @@ class FloorAi implements Controller {
   }
 }
 
-/** A Floor AI for Team 1 slot `slot` (0-based) of a Gauntlet Run. */
-export function createFloorAi(tuning: TuningData, slot: number): Controller {
-  return new FloorAi(tuning, slot);
+/** A Floor AI for Team 1 slot `slot` (0-based) of a Gauntlet Run whose first Arena is `arena` (default `arena.match`, as `createMatch`'s). */
+export function createFloorAi(tuning: TuningData, slot: number, arena: string = tuning.arena.match): Controller {
+  return new FloorAi(tuning, slot, arena);
 }

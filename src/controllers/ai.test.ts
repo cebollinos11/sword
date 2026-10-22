@@ -4,14 +4,18 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
 import { attack, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
-import { aiDifficulty, createAiController, runControllers, runMatch, scriptedController } from './index';
-import { stepIsSafe } from './ai';
+import { aiDifficulty, aiStyle, createAiController, runControllers, runMatch, scriptedController } from './index';
+import { skillOf, stepIsSafe } from './ai';
 
 const repo = loadTuningData();
 /** The AI never starts Attacks of its own here, so it is free to defend. */
 const passive: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0 } };
 
 const DISTANCE = 1.3; // every Direction hits from here (see directions.test.ts)
+const defaultWeapon = Object.keys(repo.weapons)[0]!;
+/** The chest height (m) the AI aims at, and how much further a Thrust reaches (ai.ts AIM_HEIGHT, THRUST_REACH). */
+const AIM = 1.3;
+const THRUST = 0.15;
 
 /** Scripted Fighter 0 against an AI Fighter 1; returns the run plus every Intent the AI gave. */
 function vsAi(tuning: TuningData, difficulty: AiDifficulty, a: Track, ticks: number, seed = 1) {
@@ -1008,5 +1012,208 @@ describe('AI Controller: Sheathe and Draw', { timeout: 60_000 }, () => {
       expect(firstAttack, `seed ${seed}`).toBeGreaterThan(0);
       expect(firstAttack, `seed ${seed}`).toBeLessThanOrEqual(sheathing);
     }
+  });
+});
+
+describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => {
+  const ladder = [
+    ['Easy', 'Beginner', 0.4],
+    ['Normal', 'Skilled', 0.7],
+    ['Hard', 'Expert', 0.9],
+  ] as const;
+
+  it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
+    for (const [old, tier, knob] of ladder) {
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, ...rest } = aiDifficulty(repo, tier);
+      expect(rest, tier).toEqual(aiDifficulty(repo, old));
+      expect([lowSwingRead, holdBreak, whiffCheck, punishFits], tier).toEqual([knob, knob, knob, knob]);
+    }
+  });
+
+  it('Easy, Normal and Hard leave every new knob off', () => {
+    for (const name of ['Easy', 'Normal', 'Hard']) {
+      const skill = skillOf(repo, aiDifficulty(repo, name));
+      expect([skill.lowSwingRead, skill.holdBreak, skill.whiffCheck, skill.punishFits], name).toEqual([0, 0, 0, 0]);
+    }
+  });
+
+  it('a Style scales the chances it names, clamped to 0..1, and never the Reaction Time or mistake rate', () => {
+    const normal = aiDifficulty(repo, 'Normal');
+    expect(skillOf(repo, normal, aiStyle(repo, 'Balanced'))).toEqual(skillOf(repo, normal));
+    const style = { aggression: 2, footwork: 3, feintRate: 0, holdBreak: 5 };
+    const scaled = skillOf(repo, normal, style);
+    const plain = skillOf(repo, normal);
+    expect(scaled.aggression).toBeCloseTo(plain.aggression * 2);
+    expect(scaled.footwork).toBe(1); // 0.6 × 3, clamped
+    expect(scaled.feintRate).toBe(0);
+    expect(scaled.holdBreak).toBe(0); // off stays off: a Style never turns a new knob on
+    expect([scaled.reactionTime, scaled.mistakeRate, scaled.jumpNav]).toEqual([plain.reactionTime, plain.mistakeRate, plain.jumpNav]);
+    expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, 'Counter')).whiffCheck).toBeCloseTo(0.7 * 1.4);
+  });
+
+  it('every Style in Tuning Data plays differently from Balanced, and an unknown Style is refused', () => {
+    const play = (style: string) => {
+      const ais = [createAiController(repo, 'Skilled', style), createAiController(repo, 'Skilled', style)];
+      return hashValue(runMatch(repo, createMatch(repo, { bestOf: 1, seed: 21 }), ais, 1500).final);
+    };
+    const balanced = play('Balanced');
+    for (const style of Object.keys(repo.ai.styles).filter((s) => s !== 'Balanced')) expect(play(style), style).not.toBe(balanced);
+    expect(() => createAiController(repo, 'Skilled', 'Sneaky')).toThrow(/Unknown AI Style/);
+  }, 60_000);
+});
+
+describe('AI Stage 1: exploit fixes', { timeout: 60_000 }, () => {
+  /** No attacking, Kicking, throwing, spacing or mistakes of its own: it stands where it is and defends. */
+  const calm = { footwork: 0, pressure: 0, caution: 0, aggression: 0, kickRate: 0, throwRate: 0, mistakeRate: 0, feintRate: 0, chamberRate: 0, holdBreak: 0, whiffCheck: 0, punishFits: 0 };
+  const DEG = Math.PI / 180;
+  const dist = (s: { fighters: readonly { position: { x: number; z: number } }[] }) => Math.hypot(s.fighters[0]!.position.x - s.fighters[1]!.position.x, s.fighters[0]!.position.z - s.fighters[1]!.position.z);
+
+  it('ai.duckMaxPitch is derived from the Simulation: no Left or Right looking down less than it hits a Crouch, and a little more does', () => {
+    // A Crouched dummy looking level, or at the attacker's chest as the AI aims (leaning back); every Weapon, in reach.
+    const { crouchDepth, height } = repo.fighter;
+    let highestHit = -Infinity;
+    for (const weapon of Object.keys(repo.weapons)) {
+      for (const gap of [1.0, 1.3]) {
+        for (const look of [0, Math.atan2(AIM * (crouchDepth / height), gap)]) {
+          for (const direction of ['Left', 'Right'] as const) {
+            for (let deg = repo.ai.duckMaxPitch - 3; deg <= repo.ai.duckMaxPitch + 12; deg += 0.5) {
+              const pitch = deg * DEG;
+              const swing: Track = [...hold(30, { pitch }), ...hold(1, { attack: true, direction, pitch }), ...hold(80, { pitch })];
+              const initial = createInitialState(repo, 1, duelPlacements(gap), [weapon, defaultWeapon]);
+              const run = runControllers(repo, initial, [scriptedController(swing), scriptedController(hold(200, { crouch: true, pitch: look }))], 130);
+              const hit = run.events.some((e) => e.type === 'Hit' && e.defender === 1);
+              if (hit) highestHit = Math.max(highestHit, deg);
+              if (deg >= repo.ai.duckMaxPitch) expect(hit, `${weapon} ${direction} from ${gap} m at ${deg}°, the dummy looking ${look}`).toBe(false);
+            }
+          }
+        }
+      }
+    }
+    // Not a guess: the threshold sits within 1° of the steepest look that still hits.
+    expect(repo.ai.duckMaxPitch - highestHit).toBeLessThanOrEqual(1);
+  });
+
+  /** A Left or Right whose Wind-up is held 30 Ticks, looking `pitch` (radians) from the start, or only from `lowFrom` Ticks into the Wind-up. */
+  const swing = (direction: Direction, pitch: number, lowFrom = 0): Track => [
+    ...hold(30, { pitch: lowFrom > 0 ? 0 : pitch }),
+    ...hold(lowFrom, { attack: true, direction, pitch: 0 }),
+    ...hold(30 - lowFrom, { attack: true, direction, pitch }),
+    ...hold(100, { pitch }),
+  ];
+  const easyDucker = { ...aiDifficulty(repo, 'Easy'), ...calm, duckRate: 1 };
+  const reader = { ...aiDifficulty(repo, 'Beginner'), ...calm, duckRate: 1, lowSwingRead: 1 };
+  const hitOn = (run: { events: readonly { type: string; defender?: number }[] }) => run.events.filter((e) => e.type === 'Hit' && e.defender === 1).length;
+
+  it('lowSwingRead: a low-pitched Left or Right hits an Easy AI that Ducks it, while a Beginner reads the look and Blocks it', () => {
+    for (const direction of ['Left', 'Right'] as const) {
+      const ducked = vsAi(passive, easyDucker, swing(direction, -15 * DEG), 160);
+      expect(ducked.aiIntents.some((i) => i.crouch), direction).toBe(true);
+      expect(hitOn(ducked.run), direction).toBe(1);
+      const read = vsAi(passive, reader, swing(direction, -15 * DEG), 160);
+      expect(read.aiIntents.some((i) => i.crouch), direction).toBe(false);
+      expect(read.run.events.filter((e) => e.type === 'Block'), direction).toEqual([expect.objectContaining({ defender: 1 })]);
+      expect(hitOn(read.run), direction).toBe(0);
+      // A level swing it still Ducks, unhurt.
+      const level = vsAi(passive, reader, swing(direction, 0), 160);
+      expect(level.aiIntents.some((i) => i.crouch), direction).toBe(true);
+      expect(hitOn(level.run), direction).toBe(0);
+    }
+  });
+
+  it('lowSwingRead: a look that drops mid-Wind-up turns its Duck into a Block', () => {
+    for (const direction of ['Left', 'Right'] as const) {
+      const read = vsAi(passive, reader, swing(direction, -15 * DEG, 12), 200);
+      const firstCrouch = read.aiIntents.findIndex((i) => i.crouch);
+      expect(firstCrouch, direction).toBeGreaterThan(0);
+      expect(read.aiIntents.slice(firstCrouch).some((i) => i.block), direction).toBe(true);
+      expect(hitOn(read.run), direction).toBe(0);
+      expect(hitOn(vsAi(passive, easyDucker, swing(direction, -15 * DEG, 12), 200).run), direction).toBe(1);
+    }
+  });
+
+  /** An Overhead Wind-up pressed on Tick 10 and held for `ticks`, standing (or walking after the AI, from Tick `chaseFrom`). */
+  const held = (ticks: number, chaseFrom = Infinity): Track => [
+    ...wait(10),
+    ...hold(Math.min(ticks, chaseFrom), { attack: true, direction: 'Overhead' }),
+    ...hold(Math.max(0, ticks - chaseFrom), { attack: true, direction: 'Overhead', move: { x: 0, z: 1 } }),
+  ];
+  const breaker = { ...aiDifficulty(repo, 'Skilled'), ...calm, holdBreak: 1 };
+  const reach = repo.ai.attackRange;
+
+  it('holdBreak: a held Wind-up no longer pins it: it backs out of reach keeping its Block, then baits from just outside', () => {
+    const pinned = vsAi(passive, { ...breaker, holdBreak: 0 }, held(300), 300);
+    expect(pinned.aiIntents.slice(60).every((i) => i.block)).toBe(true);
+    expect(pinned.run.states.slice(60).every((s) => dist(s) < reach)).toBe(true);
+    const free = vsAi(passive, breaker, held(300), 300);
+    const out = free.run.states.findIndex((s, k) => k > 60 && dist(s) > reach + 0.1);
+    expect(out, 'it never got out of reach').toBeGreaterThan(0);
+    // Out there it lets its Block go (ready to punish), and it steps back in under its Block to bait the Release.
+    expect(free.run.states.slice(out).some((s) => s.fighters[1]!.action.kind === 'Idle')).toBe(true);
+    expect(free.run.states.slice(out).some((s) => dist(s) < reach && s.fighters[1]!.action.kind === 'Block')).toBe(true);
+    expect(hitOn(free.run)).toBe(0);
+  });
+
+  it('holdBreak: an attacker walking after it while holding its Wind-up is Kicked down', () => {
+    const chased = vsAi(passive, breaker, held(200, 60), 220);
+    expect(chased.run.events.some((e) => e.type === 'KickLanded')).toBe(true);
+    expect(chased.run.states.some((s) => s.fighters[0]!.action.kind === 'Knockdown')).toBe(true);
+    expect(hitOn(chased.run)).toBe(0);
+    const turtle = vsAi(passive, { ...breaker, holdBreak: 0 }, held(200, 60), 220);
+    expect(turtle.run.events.some((e) => e.type === 'KickLanded')).toBe(false);
+  });
+
+  it('whiffCheck: a target backing out of reach makes it Feint into a Block rather than swing at air', () => {
+    // It attacks the moment it can (aggression 1); the dummy backs off from the start, staying ahead of its walk.
+    const swinger = (whiffCheck: number) => ({ reactionTime: 0.3, mistakeRate: 0, feintRate: 0, aggression: 1, kickRate: 0, throwRate: 0, whiffCheck });
+    const backOff: Track = [...walk(60, { x: 0, z: -1 }), ...wait(200)];
+    const releasesBeyond = (r: ReturnType<typeof vsAi>) => r.run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Release' && dist(r.run.states[e.tick]!) > reach + THRUST);
+    const swung = vsAi(passive, swinger(0), backOff, 100);
+    expect(releasesBeyond(swung)).not.toEqual([]);
+    expect(swung.run.events.some((e) => e.type === 'Hit' && e.attacker === 1)).toBe(false);
+    const checked = vsAi(passive, swinger(1), backOff, 100);
+    expect(releasesBeyond(checked)).toEqual([]);
+    expect(checked.run.events.some((e) => e.type === 'Feint' && e.fighter === 1 && e.into.kind === 'Block')).toBe(true);
+    // A target it follows into reach is no whiff: it swings, and hits, as before.
+    const follow: Track = [...wait(12), ...walk(30, { x: 0, z: -1 }), ...wait(200)];
+    const close = vsAi(passive, { ...swinger(1), reactionTime: 0.1 }, follow, 60);
+    expect(close.run.events.some((e) => e.type === 'Feint')).toBe(false);
+    expect(close.run.events.some((e) => e.type === 'Hit' && e.attacker === 1)).toBe(true);
+  });
+
+  it('punishFits: a slow hammer does not punish a short opening, while a sword does', () => {
+    // A Sledge Hammer at a slow Tempo winds up in twice the Ticks: longer than a Blocked recoil lasts.
+    const hammer = repo.weapons['Sledge Hammer']!;
+    const slow: TuningData = { ...passive, weapons: { ...passive.weapons, 'Sledge Hammer': { ...hammer, tempo: { ...hammer.tempo, windUp: 2 } } } };
+    const punisher = (punishFits: number) => ({ reactionTime: 0.1, mistakeRate: 0, feintRate: 0, aggression: 1e-6, kickRate: 0, throwRate: 0, punish: 1, punishFits });
+    /** Its Attacks (Wind-ups) once the scripted Overhead it Blocked has recoiled. */
+    const punishes = (weapon: string, punishFits: number) => {
+      const ai = createAiController(slow, punisher(punishFits));
+      const run = runControllers(slow, createInitialState(slow, 1, duelPlacements(DISTANCE), [defaultWeapon, weapon]), [scriptedController([...wait(20), ...attack('Overhead')]), ai], 160);
+      expect(run.events.some((e) => e.type === 'Block' && e.defender === 1), weapon).toBe(true);
+      return run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Wind-up').length;
+    };
+    expect(punishes('Sledge Hammer', 0)).toBe(1);
+    expect(punishes('Sledge Hammer', 1)).toBe(0);
+    expect(punishes(defaultWeapon, 1)).toBe(1);
+  });
+
+  it('its memory round-trips through save() and load() as plain data, mid-hold-break: a restored Expert decides exactly as it would have', () => {
+    const expert = { ...aiDifficulty(repo, 'Expert'), holdBreak: 1 };
+    const ai = createAiController(repo, expert, 'Defensive');
+    const initial = createInitialState(repo, 4, duelPlacements(DISTANCE));
+    const script = scriptedController(held(400));
+    let s = initial;
+    let saved: unknown = null;
+    for (let t = 0; t < 300 && saved === null; t++) {
+      s = runControllers(repo, s, [script, ai], 1).final;
+      const memory = ai.save!() as { defencePlan: { holdBreak?: { go: boolean } } | null };
+      if (memory.defencePlan?.holdBreak?.go) saved = JSON.parse(JSON.stringify(memory));
+    }
+    expect(saved, 'it never broke the hold').not.toBeNull();
+    const restored = createAiController(repo, expert, 'Defensive');
+    restored.load!(saved);
+    const a = runControllers(repo, s, [script, ai], 150);
+    const b = runControllers(repo, s, [script, restored], 150);
+    expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
   });
 });

@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { createMatch, hashValue, IDLE_INTENT, inDuel, stepMatch, type Intent, type MatchState, type SimState } from '../sim';
+import { loadTuningData, RANDOM_PICK, type TuningData } from '../tuning';
+import { createMatch, floorRoster, hashValue, IDLE_INTENT, inDuel, stepMatch, type Intent, type MatchState, type SimState } from '../sim';
+import { createAiController } from './ai';
 import { controllerIntents, type Controller } from './controller';
 import { createFloorAi } from './floorAi';
 import { lineupAis, type Lineup } from './lineup';
 
 const tuning = loadTuningData();
+/** The Run's first Arena. */
+const ARENA = 'gen:greybox:77';
 const LINEUP: Lineup = [0, 0, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
 
 /**
@@ -14,7 +17,7 @@ const LINEUP: Lineup = [0, 0, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI
  */
 function runStates(before: number, after: number): SimState[] {
   const controllers = lineupAis(tuning, LINEUP, 'Gauntlet') as Controller[];
-  let m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 5, arena: 'gen:greybox:77', teams: LINEUP.map((s) => s.team), interDuelTicks: 10 });
+  let m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 5, arena: ARENA, teams: LINEUP.map((s) => s.team), interDuelTicks: 10 });
   const states: SimState[] = [];
   const advance = () => {
     states.push(m.duel);
@@ -83,6 +86,21 @@ describe('Floor AI', { timeout: 60_000 }, () => {
     const resynced = createFloorAi(tuning, 0);
     resynced.load!(JSON.parse(JSON.stringify(first.saves[change + 30])));
     expect(drive(resynced, change + 30).intents).toEqual(first.intents.slice(change + 30));
+  });
+
+  it("plays its Floor's Style: a named one, or a random one picked from the Run's first Arena (the Run seed)", () => {
+    const withStyle = (style: string): TuningData => {
+      const [first, ...rest] = tuning.gauntlet.floors;
+      return { ...tuning, gauntlet: { ...tuning.gauntlet, floors: [{ ...first!, enemies: [{ ...first!.enemies[0]!, style }] }, ...rest] } };
+    };
+    const floor1 = (ai: Controller) => states.slice(0, change).map((s) => hashValue(ai.intent(s, ENEMY)));
+    const aggressive = withStyle('Aggressive');
+    const easy = tuning.gauntlet.floors[0]!.enemies[0]!.difficulty;
+    expect(floor1(createFloorAi(aggressive, 0, ARENA))).toEqual(floor1(createAiController(aggressive, easy, 'Aggressive')));
+    expect(floor1(createFloorAi(aggressive, 0, ARENA))).not.toEqual(floor1(createAiController(aggressive, easy)));
+    const random = withStyle(RANDOM_PICK);
+    const picked = floorRoster(random, { arena: ARENA, humans: 1 }, 1)[0]!.style!;
+    expect(floor1(createFloorAi(random, 0, ARENA))).toEqual(floor1(createAiController(random, easy, picked)));
   });
 
   it('a Floor with no enemy for its slot leaves it idle', () => {

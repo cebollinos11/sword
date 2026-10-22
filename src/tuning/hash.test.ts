@@ -33,6 +33,14 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(hipSway)).not.toBe(tuningDataHash(tuning));
   });
 
+  it('covers the AI Styles, their knobs and ai.duckMaxPitch', () => {
+    const base = tuningDataHash(tuning);
+    const styles: TuningData = { ...tuning, ai: { ...tuning.ai, styles: { ...tuning.ai.styles, Counter: { ...tuning.ai.styles.Counter, whiffCheck: 2 } } } };
+    const knob: TuningData = { ...tuning, ai: { ...tuning.ai, difficulties: { ...tuning.ai.difficulties, Expert: { ...tuning.ai.difficulties.Expert!, holdBreak: 0.5 } } } };
+    const pitch: TuningData = { ...tuning, ai: { ...tuning.ai, duckMaxPitch: tuning.ai.duckMaxPitch - 1 } };
+    for (const changed of [styles, knob, pitch]) expect(tuningDataHash(changed)).not.toBe(base);
+  });
+
   it('covers Sheathe and Draw: the five Motions, the back-slot overrides, each Weapon’s sheathe slot and fighter.sheathedWalkFactor', () => {
     const base = tuningDataHash(tuning);
     for (const name of ['SheatheHip', 'DrawHip', 'SheatheBack', 'DrawBack', 'SheathedIdle']) {

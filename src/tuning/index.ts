@@ -19,7 +19,7 @@ import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import gauntletJson from '../../data/gauntlet.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
-import { parseGauntlet, type GauntletTuning } from './gauntlet';
+import { parseGauntlet, RANDOM_PICK, type GauntletTuning } from './gauntlet';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -290,10 +290,34 @@ export interface AiDifficulty {
   readonly jumpEscapeRate?: number;
   /** The longest hold (Ticks of Jump held) of a jump Link it follows to reach an enemy: 0 = taps only, -1 (the default) = it never follows jump Links. */
   readonly jumpNav?: number;
+  /**
+   * 0..1: chance, rolled once per Attack it defends, that it reads the attacker's look: it never Ducks a Left or Right seen
+   * pitched below `ai.duckMaxPitch` (a low swing hits a Crouch), and switches a Duck to a Block if the look drops mid-Wind-up.
+   */
+  readonly lowSwingRead?: number;
+  /**
+   * 0..1: chance, rolled once per Wind-up held past its held pose, that it stops turtling: it backs out of reach keeping its
+   * Block, Kicks an attacker walking after it, and from just outside baits the Release to punish the Recovery.
+   */
+  readonly holdBreak?: number;
+  /** 0..1: chance, rolled once per Attack of its own, that it holds the Wind-up (or Feints into a Block) rather than swing at a target backing out of reach. */
+  readonly whiffCheck?: number;
+  /** 0..1: chance, rolled once per opening, that it punishes it only if its own Wind-up lands before the opening ends, and otherwise spaces out. */
+  readonly punishFits?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits'] as const satisfies readonly (keyof AiDifficulty)[];
+
+/** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
+export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];
+export type AiStyleKey = (typeof AI_STYLE_KEYS)[number];
+
+/** A Style: a multiplier (0 or more) on each of a difficulty preset's chances it names; the result is clamped to 0..1. */
+export type AiStyle = Readonly<Partial<Record<AiStyleKey, number>>>;
+
+/** The default Style, which changes nothing (Tuning Data `ai.styles` must hold it, empty). */
+export const DEFAULT_STYLE = 'Balanced';
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {
@@ -311,8 +335,12 @@ export interface AiTuning {
   readonly throwRate: number;
   /** Chance (0..1) per Tick that an unthreatened, in-range, Idle AI starts an Attack (it always punishes an opening). 0 = it never attacks. */
   readonly aggression: number;
+  /** A Left or Right swung by a Fighter looking down more than this (degrees, negative: down) hits a Crouch (`lowSwingRead`). */
+  readonly duckMaxPitch: number;
   /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
   readonly difficulties: Readonly<Record<string, AiDifficulty>>;
+  /** Styles by name, in file order: how an AI fights, chosen apart from its difficulty. DEFAULT_STYLE is the identity. */
+  readonly styles: Readonly<Record<string, AiStyle>>;
 }
 
 export interface TuningData {
@@ -497,6 +525,20 @@ function parseAi(raw: unknown): AiTuning {
       return [name, { reactionTime, mistakeRate: fraction(p, 'mistakeRate', where), feintRate: fraction(p, 'feintRate', where), ...extras, ...jumpNav }];
     }),
   );
+  const st = record(ai.styles, 'ai.styles');
+  const styles = Object.fromEntries(
+    Object.keys(st).map((name) => {
+      const where = `ai.styles.${name}`;
+      if (name === RANDOM_PICK) throw new TuningDataError(`${where}: "${RANDOM_PICK}" names a random Style, not a Style`);
+      const m = record(st[name], where);
+      for (const k of Object.keys(m)) {
+        if (!(AI_STYLE_KEYS as readonly string[]).includes(k)) throw new TuningDataError(`${where}.${k}: a Style scales only ${AI_STYLE_KEYS.join(', ')}`);
+      }
+      const style: AiStyle = Object.fromEntries(AI_STYLE_KEYS.filter((k) => m[k] !== undefined).map((k) => [k, nonNegativeNumber(m, k, where)]));
+      return [name, style];
+    }),
+  );
+  if (!styles[DEFAULT_STYLE] || Object.keys(styles[DEFAULT_STYLE]).length > 0) throw new TuningDataError(`ai.styles.${DEFAULT_STYLE} must be present and empty: it is the default Style, which changes nothing`);
   return {
     attackRange: positiveNumber(ai, 'attackRange', 'ai'),
     retreatRange: positiveNumber(ai, 'retreatRange', 'ai'),
@@ -505,7 +547,9 @@ function parseAi(raw: unknown): AiTuning {
     throwRange: positiveNumber(ai, 'throwRange', 'ai'),
     throwRate: fraction(ai, 'throwRate', 'ai'),
     aggression: fraction(ai, 'aggression', 'ai'),
+    duckMaxPitch: finiteNumber(ai, 'duckMaxPitch', 'ai'),
     difficulties,
+    styles,
   };
 }
 
@@ -632,7 +676,7 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
-    gauntlet: parseGauntlet(root.gauntlet, Object.keys(weapons), Object.keys(ai.difficulties)),
+    gauntlet: parseGauntlet(root.gauntlet, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles)),
     skeleton,
     ai,
     gait: parseGait(root.gait),

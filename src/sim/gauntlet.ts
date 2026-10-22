@@ -14,6 +14,8 @@ export interface FloorEnemy {
   readonly weapon: string;
   /** A Body name, `"random"` when no Bodies were given to pick from, or absent (the usual random Body). Render-only. */
   readonly body?: string;
+  /** Its AI Style (Tuning Data `ai.styles`), or absent (the default Style). The Simulation never reads it. */
+  readonly style?: string;
   readonly maxHp: number;
 }
 
@@ -29,7 +31,7 @@ function mix32(h: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** A pure pick of one of `count` choices for (Run seed, Floor, slot); `salt` keeps the Weapon and Body picks apart. */
+/** A pure pick of one of `count` choices for (Run seed, Floor, slot); `salt` keeps the Weapon, Body and Style picks apart. */
 export function runPick(seed: number, floor: number, slot: number, salt: number, count: number): number {
   const h = mix32(mix32(mix32(seed ^ Math.imul(floor, 0x9e3779b9)) ^ Math.imul(slot + 1, 0x85ebca6b)) ^ Math.imul(salt + 1, 0xc2b2ae35));
   return h % count;
@@ -42,19 +44,21 @@ export function enemyMaxHp(tuning: TuningData, hpScale: number, humans: number):
 
 /**
  * Floor `floor`'s (1-based) enemy for each Team 1 slot, in slot order (MAX_FLOOR_ENEMIES of them), or null for a slot
- * the Floor leaves empty (Benched). A `"random"` Weapon is picked from the roster, and a `"random"` Body from `bodies`
- * when given, by `runPick` on the Run seed (`config.arena`, the first Floor's Arena). Throws on a Floor the Run lacks.
+ * the Floor leaves empty (Benched). A `"random"` Weapon is picked from the roster, a `"random"` Style from `ai.styles`, and
+ * a `"random"` Body from `bodies` when given, by `runPick` on the Run seed (`config.arena`, the first Floor's Arena). Throws on a Floor the Run lacks.
  */
 export function floorRoster(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'humans'>, floor: number, bodies?: readonly string[]): (FloorEnemy | null)[] {
   const listed = tuning.gauntlet.floors[floor - 1];
   if (!listed) throw new RangeError(`A Run has Floors 1 to ${tuning.gauntlet.floors.length}, not ${floor}`);
   const seed = runSeed(config.arena);
   const weapons = Object.keys(tuning.weapons);
+  const styles = Object.keys(tuning.ai.styles);
   return Array.from({ length: MAX_FLOOR_ENEMIES }, (_, slot) => {
     const e = listed.enemies[slot];
     if (!e) return null;
     const weapon = e.weapon === RANDOM_PICK ? weapons[runPick(seed, floor, slot, 0, weapons.length)]! : e.weapon;
     const body = e.body === RANDOM_PICK && bodies && bodies.length > 0 ? bodies[runPick(seed, floor, slot, 1, bodies.length)]! : e.body;
-    return { difficulty: e.difficulty, weapon, ...(body === undefined ? {} : { body }), maxHp: enemyMaxHp(tuning, e.hpScale, config.humans) };
+    const style = e.style === RANDOM_PICK ? styles[runPick(seed, floor, slot, 2, styles.length)]! : e.style;
+    return { difficulty: e.difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), maxHp: enemyMaxHp(tuning, e.hpScale, config.humans) };
   });
 }

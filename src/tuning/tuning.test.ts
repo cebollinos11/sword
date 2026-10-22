@@ -43,7 +43,9 @@ function goodRaw() {
       throwRange: 12,
       throwRate: 0.04,
       aggression: 0.05,
+      duckMaxPitch: -1,
       difficulties: { Normal: { reactionTime: 0.25, mistakeRate: 0.2, feintRate: 0.1 } },
+      styles: { Balanced: {} },
     },
     motions: [
       {
@@ -130,7 +132,7 @@ describe('Tuning Data', () => {
 
   it('loads AI difficulty presets (Reaction Time, mistake rate) from data/ai.json', () => {
     const t = loadTuningData();
-    expect(Object.keys(t.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard']);
+    expect(Object.keys(t.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard', 'Beginner', 'Skilled', 'Expert']);
     const { Easy, Hard } = t.ai.difficulties;
     expect(Hard!.reactionTime).toBeLessThan(Easy!.reactionTime);
     expect(Hard!.mistakeRate).toBeLessThan(Easy!.mistakeRate);
@@ -151,6 +153,27 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, ai: { ...good.ai, throwRange: 0 } })).toThrow(/ai.throwRange/);
     expect(parseTuningData(good).ai).toMatchObject({ kickRange: 1, kickRate: 0.1, throwRange: 12, throwRate: 0.04 });
     expect(parseTuningData(withDifficulty({ reactionTime: 0, mistakeRate: 0, feintRate: 1 })).ai.difficulties.Normal).toEqual({ reactionTime: 0, mistakeRate: 0, feintRate: 1 });
+    expect(() => parseTuningData(withDifficulty({ reactionTime: 0.2, mistakeRate: 0, feintRate: 0, holdBreak: 1.5 }))).toThrow(/ai\.difficulties\.Normal\.holdBreak/);
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, duckMaxPitch: 'low' } })).toThrow(/ai\.duckMaxPitch/);
+  });
+
+  it('loads the AI Styles from data/ai.json: Balanced (the default, empty) first, then Aggressive, Counter, Tricky and Defensive', () => {
+    const t = loadTuningData();
+    expect(Object.keys(t.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive']);
+    expect(t.ai.styles.Balanced).toEqual({});
+  });
+
+  it('rejects invalid AI Styles', () => {
+    const good = goodRaw();
+    const withStyles = (styles: object) => ({ ...good, ai: { ...good.ai, styles } });
+    expect(parseTuningData(withStyles({ Balanced: {}, Wary: { caution: 2, whiffCheck: 0.5 } })).ai.styles.Wary).toEqual({ caution: 2, whiffCheck: 0.5 });
+    expect(() => parseTuningData(withStyles({}))).toThrow(/ai\.styles\.Balanced/);
+    expect(() => parseTuningData(withStyles({ Balanced: { aggression: 2 } }))).toThrow(/ai\.styles\.Balanced/);
+    expect(() => parseTuningData(withStyles({ Balanced: {}, Wary: { caution: -1 } }))).toThrow(/ai\.styles\.Wary\.caution/);
+    // A Style changes how it fights, never how well: no Reaction Time, mistake rate or jumpNav.
+    for (const key of ['reactionTime', 'mistakeRate', 'jumpNav', 'nonsense']) expect(() => parseTuningData(withStyles({ Balanced: {}, Wary: { [key]: 1 } })), key).toThrow(/ai\.styles\.Wary/);
+    expect(() => parseTuningData(withStyles({ Balanced: {}, random: {} }))).toThrow(/ai\.styles\.random/);
+    expect(() => parseTuningData({ ...good, ai: { ...good.ai, styles: undefined } })).toThrow(/ai\.styles/);
   });
 
   it('loads the Gait (stride threshold, step duration, step height, hip bob, hip sway) from data/gait.json', () => {

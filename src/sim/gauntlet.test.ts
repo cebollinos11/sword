@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, type TuningData } from '../tuning';
 import { createAiController, lineupAis, lineupMatch, runMatch, type Controller, type Lineup } from '../controllers';
 import { nextArenaName } from './arenaGen/named';
 import { inDuel, updateDuel, DUEL_FIGHTING } from './duel';
@@ -75,6 +75,16 @@ describe('Gauntlet Run: deterministic', { timeout: 60_000 }, () => {
     const picks = new Set([1, 2, 3, 4, 5, 6].map((seed) => floorRoster(tuning, { arena: `gen:greybox:${seed}`, humans: 1 }, 2).map((e) => e?.weapon).join()));
     expect(picks.size).toBeGreaterThan(1);
     expect(runSeed(ARENA)).toBe(4242);
+  });
+
+  it('a "random" Style is picked from the Run seed, the Floor and the slot; a named one is kept, and none means the default', () => {
+    const styled: TuningData = { ...tuning, gauntlet: { ...tuning.gauntlet, floors: [{ boss: false, enemies: [{ difficulty: 'Easy', weapon: 'random', hpScale: 1, style: 'random' }, { difficulty: 'Easy', weapon: 'random', hpScale: 1, style: 'Tricky' }, { difficulty: 'Easy', weapon: 'random', hpScale: 1 }] }] } };
+    const roster = (seed: number) => floorRoster(styled, { arena: `gen:greybox:${seed}`, humans: 1 }, 1);
+    expect(roster(7)).toEqual(roster(7));
+    expect(roster(7).map((e) => e?.style)).toEqual([expect.any(String), 'Tricky', undefined]);
+    const picks = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => roster(seed)[0]!.style));
+    expect(picks.size).toBeGreaterThan(1);
+    for (const p of picks) expect(Object.keys(tuning.ai.styles)).toContain(p);
   });
 });
 

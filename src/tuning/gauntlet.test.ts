@@ -5,8 +5,9 @@ import { loadTuningData, MAX_FLOOR_ENEMIES, parseGauntlet, tuningDataHash, type 
 const tuning = loadTuningData();
 const WEAPONS = Object.keys(tuning.weapons);
 const DIFFICULTIES = Object.keys(tuning.ai.difficulties);
+const STYLES = Object.keys(tuning.ai.styles);
 const raw = () => JSON.parse(JSON.stringify(tuning.gauntlet)) as Record<string, unknown> & { floors: { enemies: Record<string, unknown>[] }[] };
-const parse = (g: unknown) => parseGauntlet(g, WEAPONS, DIFFICULTIES);
+const parse = (g: unknown) => parseGauntlet(g, WEAPONS, DIFFICULTIES, STYLES);
 
 describe('Gauntlet Tuning Data (data/gauntlet.json)', () => {
   it('loads the repo file: 7 Floors, the last the boss, and the HP carry-over numbers', () => {
@@ -34,6 +35,14 @@ describe('Gauntlet Tuning Data (data/gauntlet.json)', () => {
     expect(() => parse({ ...raw(), heal: 1.5 })).toThrow(/heal/);
     expect(() => parse({ ...raw(), interFloorSeconds: 0 })).toThrow(/interFloorSeconds/);
     expect(() => parse({ ...raw(), floors: [{ boss: 'yes', enemies: [{ difficulty: 'Easy', weapon: 'random' }] }] })).toThrow(/boss/);
+  });
+
+  it('takes an optional AI Style per enemy, a Style of ai.styles or "random", and rejects an unknown one', () => {
+    const floor = (enemies: unknown[]) => ({ ...raw(), floors: [{ enemies }] });
+    expect(parse(floor([{ difficulty: 'Easy', weapon: 'random', style: 'Counter' }, { difficulty: 'Easy', weapon: 'random', style: 'random' }])).floors[0]!.enemies.map((e) => e.style)).toEqual(['Counter', 'random']);
+    expect(parse(floor([{ difficulty: 'Easy', weapon: 'random' }])).floors[0]!.enemies[0]).not.toHaveProperty('style');
+    expect(() => parse(floor([{ difficulty: 'Easy', weapon: 'random', style: 'Sneaky' }]))).toThrow(/floors\[0\]\.enemies\[0\]\.style/);
+    expect(() => parse(floor([{ difficulty: 'Easy', weapon: 'random', style: 3 }]))).toThrow(/style/);
   });
 
   it('is in the Tuning Data hash: any change to it changes the hash', () => {

@@ -3,7 +3,7 @@
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
- * Movement, an AI vs AI Match (two AI Controllers, difficulty per Fighter
+ * Movement, an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play red with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
@@ -42,14 +42,14 @@ import {
   type SimState,
   type Track,
 } from '../sim';
-import { weaponByName, type HitZone, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, RANDOM_PICK, weaponByName, type HitZone, type TuningData } from '../tuning';
 import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { CameraShake } from '../render/cameraShake';
 import { Stage } from '../render/stage';
 import { BladeSweepTrail } from './trail';
 import { createBrowserAudio } from '../audio';
-import { createAiController, LocalController, scriptedController, TEST_OPPONENTS, type Controller } from '../controllers';
+import { createAiController, LocalController, lineupStyle, scriptedController, TEST_OPPONENTS, type Controller } from '../controllers';
 import { bindLocalInput } from '../play/input';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import {
@@ -106,7 +106,7 @@ function scripted(tuning: TuningData, distance: number, a: Track, b: Track, tick
 }
 
 /** Settings of the AI vs AI Match (the Tweakpane folder edits these). */
-const aiMatch = { red: 'Hard', blue: 'Normal', seed: 1, bestOf: 3 };
+const aiMatch = { red: 'Hard', redStyle: DEFAULT_STYLE, blue: 'Normal', blueStyle: DEFAULT_STYLE, seed: 1, bestOf: 3 };
 /** Stop an AI vs AI Match that never ends (e.g. two perfect AIs) after this many Ticks. */
 const AI_MATCH_MAX_TICKS = 60 * 60 * 5;
 
@@ -173,14 +173,15 @@ function movementDuel(tuning: TuningData): SandboxRun {
  * resuming after a scrub plays the same Match again.
  */
 function aiVsAiMatch(tuning: TuningData): SandboxRun {
-  const controllers = [createAiController(tuning, aiMatch.red), createAiController(tuning, aiMatch.blue)];
+  const style = (s: string, fighter: number) => lineupStyle(tuning, s, aiMatch.seed, fighter);
+  const controllers = [createAiController(tuning, aiMatch.red, style(aiMatch.redStyle, 0)), createAiController(tuning, aiMatch.blue, style(aiMatch.blueStyle, 1))];
   const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons(), arena: tuning.arena.editor });
   const run = precompute(matchSandbox(tuning), start, controllers, AI_MATCH_MAX_TICKS);
   return { ...run, match: (t) => run.session.history[t] as MatchState };
 }
 
 /** Settings of the Player vs AI Match (the Tweakpane folder edits these). */
-const playerMatch = { ai: 'Normal', seed: 1, bestOf: 3 };
+const playerMatch = { ai: 'Normal', style: DEFAULT_STYLE, seed: 1, bestOf: 3 };
 /** A live run keeps every Tick; stop playback after this many (30 minutes). */
 const PLAYER_MATCH_MAX_TICKS = 60 * 60 * 30;
 const PLAYER_VS_AI = 'Player vs AI';
@@ -198,7 +199,7 @@ function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun
   local.releaseAll();
   local.setYaw(0); // Fighter 0 starts facing +z
   const recorder = recordingSandbox(matchSandbox(tuning));
-  const options = { opponent: playerMatch.ai, bestOf: playerMatch.bestOf, seed: playerMatch.seed, weapons: pickedWeapons() };
+  const options = { opponent: playerMatch.ai, style: playerMatch.style, bestOf: playerMatch.bestOf, seed: playerMatch.seed, weapons: pickedWeapons() };
   const session = playerVsAiSession(tuning, local, options, recorder);
   return {
     session,
@@ -478,8 +479,12 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     rerun();
   };
   const rerunAi = () => switchTo('AI vs AI Match');
+  /** Every Style, and Random (picked from the seed). */
+  const styles = { ...Object.fromEntries(Object.keys(tuning.ai.styles).map((k) => [k, k])), Random: RANDOM_PICK };
   ai.addBinding(aiMatch, 'red', { label: 'red AI', options: difficulties }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'redStyle', { label: 'red Style', options: styles }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'blue', { label: 'blue AI', options: difficulties }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'blueStyle', { label: 'blue Style', options: styles }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunAi);
   /** Changing a Player vs AI setting starts a new Player vs AI Match. */
@@ -487,6 +492,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const rerunPlayer = () => switchTo(PLAYER_VS_AI);
   const opponents = { ...difficulties, ...Object.fromEntries(TEST_OPPONENTS.map((k) => [`${k} (test)`, k])) };
   vs.addBinding(playerMatch, 'ai', { label: 'AI', options: opponents }).on('change', rerunPlayer);
+  vs.addBinding(playerMatch, 'style', { label: 'Style', options: styles }).on('change', rerunPlayer);
   vs.addBinding(playerMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunPlayer);
   vs.addBinding(playerMatch, 'bestOf', { label: 'best of', options: { 1: 1, 3: 3, 5: 5 } }).on('change', rerunPlayer);
   vs.addButton({ title: 'Play (new Match)' }).on('click', () => {

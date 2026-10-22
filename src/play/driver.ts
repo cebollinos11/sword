@@ -50,7 +50,7 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
   const local: Controller = { intent: () => pending! };
-  const controllers = lineupAis(tuning, lineup, format).map((ai) => ai ?? local);
+  const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,
     lineup,

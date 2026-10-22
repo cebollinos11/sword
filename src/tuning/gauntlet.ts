@@ -5,7 +5,7 @@
  */
 import { array, nonNegativeNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
 
-/** A Weapon or Body written `"random"` is picked by a pure hash of the Run seed, the Floor and the slot. */
+/** A Weapon, Body or AI Style written `"random"` is picked by a pure hash of the Run seed, the Floor and the slot. */
 export const RANDOM_PICK = 'random';
 
 /** The most enemies a Floor lists: one per Team 1 slot (MAX_TEAM_SIZE in `src/sim/match.ts`). */
@@ -19,6 +19,8 @@ export interface GauntletEnemy {
   readonly weapon: string;
   /** A Body name, or `"random"`; absent: the usual random Body. Render-only, never read by the Simulation. */
   readonly body?: string;
+  /** An AI Style (Tuning Data `ai.styles`), or `"random"`; absent: the default Style. */
+  readonly style?: string;
   /** Its max HP as a multiple of `fighter.maxHp`, before scaling with the number of humans. */
   readonly hpScale: number;
 }
@@ -49,8 +51,8 @@ function share(obj: Record<string, unknown>, key: string, where: string, min: 'z
   return v;
 }
 
-/** Validate the raw Gauntlet against the Weapon roster and the AI difficulties. Accepts its own output. */
-export function parseGauntlet(raw: unknown, weapons: readonly string[], difficulties: readonly string[]): GauntletTuning {
+/** Validate the raw Gauntlet against the Weapon roster and the AI difficulties and Styles. Accepts its own output. */
+export function parseGauntlet(raw: unknown, weapons: readonly string[], difficulties: readonly string[], styles: readonly string[]): GauntletTuning {
   const g = record(raw, 'gauntlet');
   const floors = array(g.floors, 'gauntlet.floors').map((rawFloor, n): GauntletFloor => {
     const where = `gauntlet.floors[${n}]`;
@@ -64,8 +66,10 @@ export function parseGauntlet(raw: unknown, weapons: readonly string[], difficul
       const weapon = nonEmptyString(e, 'weapon', at);
       if (weapon !== RANDOM_PICK && !weapons.includes(weapon)) throw new TuningDataError(`${at}.weapon: unknown Weapon "${weapon}" (have: ${weapons.join(', ')}, or "${RANDOM_PICK}")`);
       const body = e.body === undefined ? undefined : nonEmptyString(e, 'body', at);
+      const style = e.style === undefined ? undefined : nonEmptyString(e, 'style', at);
+      if (style !== undefined && style !== RANDOM_PICK && !styles.includes(style)) throw new TuningDataError(`${at}.style: unknown AI Style "${style}" (have: ${styles.join(', ')}, or "${RANDOM_PICK}")`);
       const hpScale = e.hpScale === undefined ? 1 : positiveNumber(e, 'hpScale', at);
-      return { difficulty, weapon, ...(body === undefined ? {} : { body }), hpScale };
+      return { difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), hpScale };
     });
     if (enemies.length < 1 || enemies.length > MAX_FLOOR_ENEMIES)
       throw new TuningDataError(`${where}.enemies must list 1 to ${MAX_FLOOR_ENEMIES} enemies, got ${enemies.length}`);

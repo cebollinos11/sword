@@ -1,7 +1,7 @@
 /**
  * Tuning panels for the Duel sandbox: Weapons (pick one from the roster; every field,
  * the Off-hand Grip included), Hit Zone
- * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire) and the
+ * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire, and each Style's multipliers) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
  * Block (the facing rule and the Block Impact's give and bounce) and Fall (gravity, the Jump, Landing damage, steps) and Camera (where the
  * third-person and orbit cameras sit; seen in a Player vs AI run, applied without a re-run).
@@ -11,7 +11,7 @@
  * Save writes the validated section to `data/<section>.json`, a Weapon to `data/weapons/<file>`.
  */
 import type { FolderApi, Pane } from 'tweakpane';
-import { AI_DIFFICULTY_EXTRAS, GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
+import { AI_DIFFICULTY_EXTRAS, AI_STYLE_KEYS, GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
 
@@ -125,6 +125,14 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
         g.addBinding(d, key, { min: 0, max: key === 'aggression' || key === 'kickRate' || key === 'throwRate' || key === 'jumpAttackRate' ? 0.2 : 1, step: 0.001, label }).on('change', () => apply('ai'));
       }
       if (d.jumpNav !== undefined) g.addBinding(d, 'jumpNav', { min: -1, max: 30, step: 1, label: 'jump nav (Ticks held)' }).on('change', () => apply('ai'));
+    }
+    // Each Style's multipliers on a preset's chances (the default Style has none).
+    const styles = f.addFolder({ title: 'Styles', expanded: false });
+    for (const [name, st] of Object.entries(ai.styles)) {
+      const keys = AI_STYLE_KEYS.filter((k) => st[k] !== undefined);
+      if (keys.length === 0) continue;
+      const g = styles.addFolder({ title: name, expanded: false });
+      for (const key of keys) g.addBinding(st, key, { min: 0, max: 3, step: 0.05, label: `${key.replace(/[A-Z]/g, (c) => ` ${c.toLowerCase()}`)} ×` }).on('change', () => apply('ai'));
     }
   });
 

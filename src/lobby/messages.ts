@@ -1,6 +1,6 @@
 /**
  * The Lobby's messages on the Room channel. Shape checks only (what came over
- * the wire); whether the Weapons, Arenas and difficulties exist is for Tuning
+ * the wire); whether the Weapons, Arenas, difficulties and Styles exist is for Tuning
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
@@ -48,7 +48,7 @@ function isSeat(v: unknown): boolean {
     case 'Player':
       return isCount(v.member);
     case 'AI':
-      return isShortString(v.difficulty) && isShortString(v.weapon);
+      return isShortString(v.difficulty) && isShortString(v.weapon) && (v.style === undefined || isShortString(v.style));
     default:
       return false;
   }

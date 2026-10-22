@@ -19,6 +19,7 @@ import {
   updateSettings,
   type NewLobbyOptions,
 } from './lobby';
+import { parseLobbyMessage } from './messages';
 
 const tuning = loadTuningData();
 const weapon = Object.keys(tuning.weapons)[0]!;
@@ -41,6 +42,20 @@ describe('Lobby', () => {
     ]);
     expect(weapons).toEqual([weapon]);
     expect(() => checkLineup(tuning, lineup, 1)).not.toThrow();
+  });
+
+  it("an AI Seat's Style goes into the Lineup (none: the default), and a lobby message carries it", () => {
+    const at = { team: 1, index: 0 };
+    for (const style of ['Counter', 'random']) {
+      const s = setSeat(newLobby(options(false)), at, { kind: 'AI', difficulty: 'Skilled', weapon: other, style });
+      expect(lobbyLineup(s).lineup[1]).toEqual({ team: 1, pilot: { kind: 'AI', difficulty: 'Skilled', style }, weapon: other });
+      expect(() => checkLineup(tuning, lobbyLineup(s).lineup, 1)).not.toThrow();
+      const m = { type: 'lobby', you: 0, ack: 0, state: s };
+      expect(parseLobbyMessage(m)).toEqual(m);
+      const bad = setSeat(s, at, { kind: 'AI', difficulty: 'Skilled', weapon: other, style: 7 as unknown as string });
+      expect(parseLobbyMessage({ ...m, state: bad })).toBeNull();
+    }
+    expect(lobbyLineup(newLobby(options(false))).lineup[1]!.pilot).not.toHaveProperty('style');
   });
 
   it('a guest joins the Open Seat opposite the host, and the Lineup fields both Players', () => {

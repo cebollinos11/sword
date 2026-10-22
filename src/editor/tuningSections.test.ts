@@ -98,16 +98,19 @@ describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () =
     hard.reactionTime = 0.1;
     hard.mistakeRate = 0;
     hard.feintRate = 0.5;
+    (session.draftSection('ai').styles.Counter as { whiffCheck?: number }).whiffCheck = 2;
     session.commitSection('hitZones');
     session.commitSection('ai');
     expect(session.tuning.hitZones.head.multiplier).toBe(2);
     expect(session.tuning.ai.difficulties.Hard).toEqual({ ...aiJson.difficulties.Hard, reactionTime: 0.1, mistakeRate: 0, feintRate: 0.5 });
+    expect(session.tuning.ai.styles.Counter).toEqual({ ...aiJson.styles.Counter, whiffCheck: 2 });
 
     const zones = session.sectionFile('hitZones');
     const ai = session.sectionFile('ai');
     const reloaded = reloadWith(ai.fileName, ai.text);
     expect(reloaded.ai).toEqual(session.tuning.ai);
-    expect(Object.keys(reloaded.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard']);
+    expect(Object.keys(reloaded.ai.difficulties)).toEqual(['Easy', 'Normal', 'Hard', 'Beginner', 'Skilled', 'Expert']);
+    expect(Object.keys(reloaded.ai.styles)).toEqual(['Balanced', 'Aggressive', 'Counter', 'Tricky', 'Defensive']);
     expect(reloadWith(zones.fileName, zones.text).hitZones).toEqual({
       head: { multiplier: 2, radius: 0.12 },
       torso: { multiplier: 1, radius: 0.16 },

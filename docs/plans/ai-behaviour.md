@@ -1,10 +1,10 @@
 # AI behaviour: new tiers × Styles, in four playtestable Stages
 
-> Status: planned, no Stage started. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
+> Status: Stage 1 done (Styles, new tiers, exploit fixes), waiting for its playtest; Stage 2 (Team) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
 > Every Stage first reads this file, `CONTEXT.md`, ADRs 0001, 0005 and 0007, `src/controllers/ai.ts` and `src/controllers/ai.test.ts`. A Stage ends when `npm run typecheck` and `npm test` pass and the work is committed; then mark it done below and add its Result.
 
 ## Progress
-- [ ] Stage 1: Styles, new tiers, exploit fixes
+- [x] Stage 1: Styles, new tiers, exploit fixes
 - [ ] Stage 2: Team coordination
 - [ ] Stage 3: Feel
 - [ ] Stage 4: Adaptation
@@ -67,6 +67,43 @@ Merge the Style into the Skill in `skillOf`, clamping chances to 0..1. Pass it a
 - Tuning validation and the hash (`src/tuning/hash.ts`) cover `ai.styles`.
 
 **Tests:** the golden test; one test per knob (a low-pitched Left hits an Easy AI that Ducks it, while a Beginner reads the look and Blocks it; a held Wind-up no longer pins it; a target stepping out makes it hold or Feint instead of whiffing; a hammer doesn't punish a short Recovery); `save()`/`load()` round-trips; Lineup, lobby and Gauntlet validation with Styles.
+
+## Stage 1, Result
+**Built**
+- **Golden test** (`src/controllers/aiGolden.test.ts`, fixture `aiGolden.testdata.json`): Easy, Normal and Hard AI vs AI Matches (1 v 1 library, 2 v 2 `gen:greybox:5`, 1 v 3 chamber, mixed Weapons, up to 3000 Ticks each) with the Match hash at every Tick. Recorded in its own commit before `ai.ts` changed; it passes at the end of the Stage. Re-record only for a Simulation change (`RECORD_AI_GOLDEN=1`).
+- **Four knobs** in `AiDifficulty` (chances 0..1, in `AI_DIFFICULTY_EXTRAS`, 0 by default in `skillOf`, drawn only through `chance()`):
+  - `lowSwingRead`: rolled when it picks a Duck. Sightings carry `pitch`. A Left or Right seen pitched below `ai.duckMaxPitch` gets a Block, and a Duck turns into a Block on any Tick the look drops.
+  - `holdBreak`: rolled once a Wind-up is held `HOLD_BREAK_TICKS` (15) past its held pose. It backs out of reach under its Block for 30 Ticks, then baits in 30-Tick halves: in to 0.15 m inside their reach under its Block, then out to 0.25 m beyond it, Idle there. A Release seen from out of reach leaves it Idle, and the normal opening logic punishes the Recovery. An attacker walking after it: it holds its ground under its Block until the attacker is (predicted) within `kickRange`, drops the Block for a Tick and Kicks (a Knockdown).
+  - `whiffCheck`: rolled per own Attack. On the last Tick before its held pose, if the target seen backing off (carried on from when it was seen, minus its own walk-in from now) will be beyond reach mid-Release, it holds while `holdUntil` allows, else Feints into a Block.
+  - `punishFits`: rolled with the `punish` roll. It punishes only if its Wind-up for the chosen Direction (Tempo included), and any step in, fits in the opening's Ticks left as seen (Recovery, Kick whiff, Stagger Motion; a Knockdown always fits). Otherwise it spaces out with `footwork`.
+- **Memory**: the rolls live in the existing plans (`DefencePlan.reads`/`holdBreak`, `AttackPlan.whiff`, `OpeningRoll.fits`), so `save()`/`load()` carry them as before. The resync check (`src/net/messages.ts`) validates them, and `PROTOCOL_VERSION` is now 17.
+- **Styles**: `ai.styles` in `data/ai.json` (parsed, validated, in the hash). `skillOf(tuning, difficulty, style)` multiplies the chances a Style names, clamped to 0..1. `createAiController(tuning, difficulty, style?)` takes the Style.
+- **Tiers**: Beginner, Skilled and Expert copy Easy, Normal and Hard exactly and add the four knobs at 0.4 / 0.7 / 0.9.
+- **Wiring**:
+  - Lineup and Lobby: `Pilot.style` and the Lobby AI Seat's `style`, checked by `checkLineup`, the Lobby message check, the guest Lobby's validation and the net Lineup check. `lineupAis(…, match)` resolves `"random"` (`lineupStyle`). The Lobby has a Style picker beside each AI Seat's difficulty, and guests see "Style · Weapon".
+  - Gauntlet: an enemy's optional `style` (or `"random"`), resolved in `floorRoster` from the Run seed, Floor and slot. The Floor AI plays it.
+  - Editor: red and blue Style pickers in AI vs AI, a Style for Player vs AI, and a Styles folder in the tuning panel. The new knobs show in each preset that sets them.
+- **CONTEXT.md**: Style; the new tiers under Reaction Time; Lineup, Seat and Floor now name the Style.
+
+**Decided along the way (asked) and deviations**
+- **Knob form**: the knobs are chances, not switches, so Styles can scale them, and all four climb the same ladder (0.4 / 0.7 / 0.9). So a Beginner can still be baited, ducked or pinned more than half the time.
+- **Styles on old tiers**: any tier takes a Style, but a Style only multiplies, never sets. Easy, Normal and Hard keep the new knobs at 0 whatever the Style, and no Style touches Reaction Time, mistake rate or `jumpNav`. `Balanced` must be present and empty.
+- **Random**: written `"random"` (the Gauntlet's `RANDOM_PICK`). It is resolved when a Match starts, from the Match seed and the Fighter index, so an online automatic Rematch keeps the Styles of the Match before it (its Controllers carry over), and a restart rerolls. The HUD still shows only the tier.
+- **punishFits ends counted as seen**: the opponent needs as long to see the punish coming. Every Weapon still has Tempo 1 (21-Tick Wind-ups; a 30-Tick Recovery, a 29-Tick Recoil), so today every Weapon fits every Recovery and Recoil. The knob only bites once a Tempo slows a Wind-up. The test uses a Sledge Hammer at Wind-up ×2.
+- **`ai.duckMaxPitch` = −1°**, from the sweep (every Weapon, 1.0 and 1.3 m, the Crouched dummy looking level or up as the AI aims): the steepest look that still hits a Crouch is −1.5° (level dummy) or −2.5° (looking up). So any visibly downward look already hits a Crouch, and an AI attacker re-aiming at a Crouch drops below it within a few Ticks.
+- **whiffCheck counts its own walk**: the first version ignored it, and it Feinted at targets its walk-in would still reach.
+- **Style multipliers beyond the starting set**: Aggressive also has preempt ×1.3 and footwork ×0.8. Counter has pressure ×0.5, preempt ×1.3 and punishFits ×1.4. Defensive has aggression ×0.8.
+- **Defaults unchanged**: the Skirmish's AI Seat, the AI Takeover and the Gauntlet floors are still Normal and the old tiers. The Gauntlet data change waits for Stage 2.
+- **Soak, not a harness** (6 seeds, best of 3): Beginner beat Easy 1/6, Skilled beat Normal 3/6, Expert beat Hard 4/6. In the library, Defensive lost to Balanced 0/4 at every tier. These only flag what to watch in the playtest.
+
+**Playtest (`npm run dev`)**
+- Skirmish: set the AI Seat to Beginner, Skilled and Expert, each with every Style and Random. Do Aggressive, Counter, Tricky and Defensive feel distinct (pressure and Chains; waiting and Chambers; Feints, Kicks, leaps and throws; backing off and Ducks)? Is Defensive too passive?
+- **Bait then punish**: step in and out of reach against Skilled or Expert Counter. It should hold or Feint into a Block instead of swinging at air. Compare Normal, which still whiffs.
+- **Duck vs low swing**: against Expert Defensive (most Ducks), look slightly down and swing Left or Right. It should Block. Swing level and it may still Duck. Try dropping the look mid-Wind-up too.
+- **Held Wind-up**: hold an Overhead in its face. After about ¼ s plus its Reaction Time it should back out and start stepping in and out. Release while it is out: it should punish your Recovery. Walk after it holding: it should Kick you down.
+- Do the new tiers feel fair (Beginner beatable, not trivially exploitable at Skilled or Expert)?
+- Editor sandbox: AI vs AI with red and blue Styles, and the tuning panel's Styles folder.
+- Online with two tabs: the host sets an AI Seat to a Style and one to Random. The guest's Lobby shows them, and the Match runs with no resyncs.
 
 ## Stage 2: Team coordination (`teamwork` knob)
 It coordinates by observation only, reading allies' seen positions and Actions, so there is no shared memory and both peers stay in sync.

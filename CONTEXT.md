@@ -21,7 +21,7 @@ One of the two sides of a Match (team 0, team 1), each fielding 1 to 3 Fighters.
 _Avoid_: Side (in code), faction, squad
 
 **Lineup**:
-Who fights a Match: per Fighter, its Team and what drives it (a Player, or the AI at a difficulty with a Weapon). Online, the host chooses it.
+Who fights a Match: per Fighter, its Team and what drives it (a Player, or the AI at a difficulty and Style with a Weapon). Online, the host chooses it.
 _Avoid_: Roster (that is the Weapon roster), loadout
 
 **Skeleton**:
@@ -37,7 +37,11 @@ What a Controller asks its Fighter to do on a given Tick (move, aim Direction, a
 _Avoid_: Command, input (when meaning the abstract request)
 
 **Reaction Time**:
-The delay before an AI Controller may act on what it sees of the other Fighters. Together with mistake rate and how much of its repertoire it uses (circling and spacing, pressure, disengaging, punishing openings, punishing a Sheathed enemy (one Sheathed, Sheathing or Drawing cannot Block, so it closes in and swings without Feints), Chains, jumping Attacks, Crouching under swings, Chambers, following jump Links up to a hold (and shortcut ones at any hold), meeting an enemy's Landing, Jumping away from an enemy), it defines AI difficulty: Easy, Normal or Hard (Tuning Data `ai.difficulties`). An AI never Sheathes; taking over a Sheathed Fighter, it Draws once an enemy is near. With several enemies, the AI fights the nearest and defends against the nearest enemy Attack that can reach it. Every Jump it makes is checked against the Simulation's own arc first: it never Jumps where a slightly-off version of the Jump would land somewhere deadly or hurt it.
+The delay before an AI Controller may act on what it sees of the other Fighters. Together with mistake rate and how much of its repertoire it uses (circling and spacing, pressure, disengaging, punishing openings, punishing a Sheathed enemy (one Sheathed, Sheathing or Drawing cannot Block, so it closes in and swings without Feints), Chains, jumping Attacks, Crouching under swings, Chambers, following jump Links up to a hold (and shortcut ones at any hold), meeting an enemy's Landing, Jumping away from an enemy), it defines AI difficulty (Tuning Data `ai.difficulties`): Easy, Normal or Hard, or their newer counterparts Beginner, Skilled and Expert, the same strength ladder with the exploit fixes on (it reads a low swing's look and Blocks rather than Duck it, breaks a held Wind-up rather than turtle, holds or Feints rather than swing at a target backing out of reach, and punishes only an opening its own Wind-up Releases inside), each a little more often up the ladder. Easy, Normal and Hard stay exactly as they were until they are phased out. An AI never Sheathes; taking over a Sheathed Fighter, it Draws once an enemy is near. With several enemies, the AI fights the nearest and defends against the nearest enemy Attack that can reach it. Every Jump it makes is checked against the Simulation's own arc first: it never Jumps where a slightly-off version of the Jump would land somewhere deadly or hurt it.
+
+**Style**:
+How an AI fights, chosen apart from its difficulty (which says how well): Balanced (the default, which changes nothing), Aggressive, Counter, Tricky or Defensive, or Random (picked from the Match seed, or in a Run from the Run seed, so every peer picks the same). Tuning Data `ai.styles`: a multiplier on each of the difficulty's chances it names, never its Reaction Time or mistake rate. A Lobby AI Seat and a Floor's enemy each name one.
+_Avoid_: Personality, behaviour (for the setting), AI type
 
 ## Motion
 
@@ -249,7 +253,7 @@ A Match in the Gauntlet Format: Team 0 (one to three Fighters, the Players and a
 _Avoid_: Gauntlet (for one playthrough), campaign, dungeon
 
 **Floor**:
-One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it, each with its difficulty, Weapon and max HP. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
+One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it, each with its difficulty, Style, Weapon and max HP. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
 _Avoid_: Level, stage, room (Room is the online connection), wave
 
 **Benched**:
@@ -323,7 +327,7 @@ Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Ma
 _Avoid_: Room (the connection), Lineup (what a start reads off it)
 
 **Seat**:
-A place on a Team in the Lobby (three a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
+A place on a Team in the Lobby (three a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty, Style and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
 _Avoid_: Slot (that is the Lineup's)
 
 **Skirmish**:
