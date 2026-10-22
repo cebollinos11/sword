@@ -127,8 +127,11 @@ export class Hud {
     this.results.hidden = true;
   }
 
-  /** The results screen at a Run's end: Victory or Defeat, Floors cleared, the Run time and the Run seed (to replay or share). */
-  showResults(r: RunResult): void {
+  /**
+   * The results screen at a Run's end: Victory or Defeat, Floors cleared, the Run time and the Run seed (to replay or
+   * share). `note`: what comes next, online (the host's Restart or the Lobby), under it.
+   */
+  showResults(r: RunResult, note?: string): void {
     const line = (k: string, v: string) => {
       const row = document.createElement('div');
       row.className = 'hud-results-row';
@@ -143,6 +146,12 @@ export class Hud {
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    if (note) {
+      const next = document.createElement('p');
+      next.className = 'hud-results-note';
+      next.textContent = note;
+      this.results.append(next);
+    }
     this.banner.classList.remove('visible');
     this.bannerUntil = 0;
     this.results.hidden = false;

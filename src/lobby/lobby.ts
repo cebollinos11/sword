@@ -88,7 +88,7 @@ export interface LobbyLineup {
 export interface NewLobbyOptions {
   readonly host: { readonly name: string; readonly weapon: string; readonly body: string };
   readonly settings: LobbySettings;
-  /** Online: Open Seats for three guests (one beside the host, two opposite); offline this AI opposite. */
+  /** Online: Open Seats for three guests (one beside the host, two opposite; in a Gauntlet two beside the host); offline this AI opposite. */
   readonly online: boolean;
   readonly ai: { readonly difficulty: string; readonly weapon: string };
 }
@@ -96,14 +96,20 @@ export interface NewLobbyOptions {
 const OPEN: Seat = { kind: 'Open' };
 const CLOSED: Seat = { kind: 'Closed' };
 
-/** A fresh Lobby: the host on team 0; online, Open Seats for three guests (Open Seats field nobody), offline an AI on team 1. */
+/**
+ * A fresh Lobby: the host on team 0; online, Open Seats for three guests (Open Seats field nobody), offline an AI on
+ * team 1. An online Gauntlet opens two Seats beside the host instead (a Run's Players all fight on Team 0) and one
+ * opposite, hidden until the Lobby switches to Duels.
+ */
 export function newLobby(o: NewLobbyOptions): LobbyState {
   const row = (...first: Seat[]) => [...first, ...Array.from({ length: MAX_TEAM_SIZE - first.length }, () => CLOSED)];
   const host: Seat = { kind: 'Player', member: 0 };
+  const gauntlet = o.settings.format === 'Gauntlet';
+  const online = gauntlet ? [row(host, OPEN, OPEN), row(OPEN)] : [row(host, OPEN), row(OPEN, OPEN)];
   return {
     settings: o.settings,
     members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, body: o.host.body, ready: true }],
-    teams: o.online ? [row(host, OPEN), row(OPEN, OPEN)] : [row(host), row({ kind: 'AI', ...o.ai })],
+    teams: o.online ? online : [row(host), row({ kind: 'AI', ...o.ai })],
     generation: 0,
     playing: false,
     inMatch: [],
@@ -232,7 +238,8 @@ export function formatProblem(state: LobbyState, format: MatchFormat): string | 
 /**
  * Switch the Format (host only). Gauntlet forces a Random Map: a hand-made Map gives way to `randomArena` (a Random Map
  * with a fresh seed, picked by the caller), and moves every Player on Team 1 to Team 0 (swapping with what sat there,
- * an AI last). Unchanged when `formatProblem` refuses it.
+ * an AI last). Online, Team 1's Open Seats then move to Team 0's Empty ones, so guests can still join a Run (they join
+ * only on Team 0). Unchanged when `formatProblem` refuses it.
  */
 export function setFormat(state: LobbyState, format: MatchFormat, randomArena: string): LobbyState {
   if ((state.settings.format ?? 'Duels') === format || formatProblem(state, format)) return state;
@@ -246,6 +253,12 @@ export function setFormat(state: LobbyState, format: MatchFormat, randomArena: s
     const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0)!;
     const target = row[index]!;
     next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
+  }
+  for (let index = 0; index < MAX_TEAM_SIZE; index++) {
+    if (next.teams[1]![index]!.kind !== 'Open') continue;
+    const empty = next.teams[0]!.findIndex((s) => s.kind === 'Closed');
+    if (empty < 0) break;
+    next = withSeat(withSeat(next, { team: 0, index: empty }, OPEN), { team: 1, index }, CLOSED);
   }
   return next;
 }

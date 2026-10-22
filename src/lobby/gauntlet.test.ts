@@ -78,8 +78,12 @@ describe('Gauntlet Lobby: Players only on Team 0', () => {
     expect(moveMember(s, 0, { team: 1, index: 0 })).toBe(s);
     s = join(s, guest(1))!;
     expect(seatOf(s, 1)).toEqual({ team: 0, index: 1 });
-    // Team 0's Open Seats are taken: the Team 1 ones do not count.
-    expect(join(s, guest(2))).toBeNull();
+    // The switch moved an Open Seat from Team 1 beside the host (Stage 4), so a second guest joins there too.
+    s = join(s, guest(2))!;
+    expect(seatOf(s, 2)).toEqual({ team: 0, index: 2 });
+    // Team 0's Open Seats are taken: the Team 1 one left does not count.
+    expect(s.teams[1]!.some((x) => x.kind === 'Open')).toBe(true);
+    expect(join(s, guest(3))).toBeNull();
   });
 
   it('cannot switch to Gauntlet with more Players than Team 0 holds, and says why', () => {

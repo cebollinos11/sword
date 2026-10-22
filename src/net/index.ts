@@ -18,7 +18,7 @@ export {
   type SessionStatus,
   type TickResult,
 } from './session';
-export { PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
+export { isFormatOnMap, isRandomMapName, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
 export { createPeerTransport, type DataConnectionLike } from './peerTransport';
 export { hostRoom, joinRoom, RoomError, type HostedRoom, type PendingRoom } from './peerRoom';
 export {

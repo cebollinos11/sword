@@ -4,6 +4,7 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
+import { isFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
 export type RefuseLobbyReason = 'RoomFull' | 'TuningDataMismatch' | 'ProtocolMismatch';
@@ -64,6 +65,8 @@ function isLobbyState(v: unknown): v is LobbyState {
     isShortString(settings.arena) &&
     isInt(settings.bestOf) &&
     settings.bestOf > 0 &&
+    // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
+    isFormatOnMap(settings.format, settings.arena) &&
     Array.isArray(members) &&
     members.length >= 1 &&
     members.length <= MAX_PLAYERS &&
@@ -75,7 +78,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     typeof v.playing === 'boolean' &&
     Array.isArray(inMatch) &&
     inMatch.every(isCount) &&
-    (v.matchArena === null || isShortString(v.matchArena))
+    (v.matchArena === null || (isShortString(v.matchArena) && isFormatOnMap(settings.format, v.matchArena)))
   );
 }
 

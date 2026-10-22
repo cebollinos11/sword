@@ -26,9 +26,9 @@ describe('the Lobby view in Gauntlet', () => {
   const skirmish = (arena: string): LobbyState =>
     newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena, bestOf: 3 }, online: false, ai: { difficulty: 'Normal', weapon } });
 
-  it('offers the Format toggle in a Skirmish (online stays Duels for now)', () => {
+  it('offers the Format toggle in a Skirmish and online (online co-op, docs/plans/gauntlet.md Stage 4)', () => {
     expect(offeredFormats(false)).toEqual(['Duels', 'Gauntlet']);
-    expect(offeredFormats(true)).toEqual(['Duels']);
+    expect(offeredFormats(true)).toEqual(['Duels', 'Gauntlet']);
   });
 
   it('in Duels shows both teams, every Map, Best of N and the next seed', () => {

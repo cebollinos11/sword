@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, stepMatch, throwTimings, type MatchState } from '../sim';
-import { createAiController } from '../controllers';
+import { createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage } from './messages';
 
 const tuning = loadTuningData();
@@ -255,5 +255,98 @@ describe('Peer message validation: AI memory in a resync', () => {
       expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
     }
     expect(parseNetMessage({ ...resync(matchState()), ai: undefined })).toBeNull();
+  });
+});
+
+describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage 4)', () => {
+  const RUN = 'gen:greybox:4242';
+  const lineup: Lineup = [
+    { team: 0, pilot: { kind: 'Player', player: 0 } },
+    { team: 0, pilot: { kind: 'Player', player: 1 } },
+    ...Array.from({ length: 3 }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
+  ];
+  const hello = (match: unknown) => ({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match, lineup, weapons: ['Halberd', 'Halberd'], player: 1 });
+
+  /** A real Run 40 Ticks in, with its Floor AIs' memory, as the host would send it in a resync. */
+  function runResync(): { state: MatchState; ai: unknown[] } {
+    const ais = lineupAis(tuning, lineup, 'Gauntlet');
+    let m = createMatch(tuning, lineupMatch(tuning, lineup, ['Halberd', 'Halberd'], { bestOf: 1, arena: RUN, seed: 3, format: 'Gauntlet' }));
+    for (let t = 0; t < 40; t++) m = stepMatch(m, lineup.map((s, i) => (s.pilot.kind === 'AI' ? ais[i]!.intent(m.duel, i) : IDLE_INTENT)), tuning);
+    return JSON.parse(JSON.stringify({ state: m, ai: ais.map((a) => a?.save?.() ?? null) })) as { state: MatchState; ai: unknown[] };
+  }
+
+  it("accepts a Run's start message: the Format and its humans in the Match options", () => {
+    for (const match of [
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 2 },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet' },
+      { bestOf: 3, arena: 'library', format: 'Duels' },
+      { bestOf: 3, arena: 'library' },
+    ]) {
+      expect(parseNetMessage(hello(match)), JSON.stringify(match)).toEqual(hello(match));
+    }
+  });
+
+  it('refuses a Format it does not know, a Gauntlet on a hand-made Map, and humans a Run cannot field', () => {
+    for (const match of [
+      { bestOf: 1, arena: RUN, format: 'Survival' },
+      { bestOf: 1, arena: RUN, format: 7 },
+      { bestOf: 1, arena: RUN, format: null },
+      { bestOf: 1, arena: 'library', format: 'Gauntlet' },
+      { bestOf: 1, format: 'Gauntlet' },
+      { bestOf: 1, arena: 'gen:greybox:x', format: 'Gauntlet' },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 0 },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 4 },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 1.5 },
+    ]) {
+      expect(parseNetMessage(hello(match)), JSON.stringify(match)).toBeNull();
+    }
+  });
+
+  it("carries a Run through a resync: its progress, the Floor, each Fighter's max HP and Benched slots, and the Floor AIs' memory", () => {
+    const { state, ai } = runResync();
+    expect(state.run).toMatchObject({ floor: 1, floors: tuning.gauntlet.floors.length });
+    expect(state.duel.floor).toBe(1);
+    expect(state.duel.fighters.some((f) => f.benched)).toBe(true);
+    expect(ai.slice(2).every((m) => m !== null && typeof m === 'object' && 'floor' in m)).toBe(true);
+    const m = resync(state, ai);
+    expect(parseNetMessage(m)).toEqual(m);
+  });
+
+  it('refuses a malformed Run, Floor, max HP, Benched flag or Floor AI memory', () => {
+    const { state, ai } = runResync();
+    const fighters = (patch: object) => ({ ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 4 ? { ...f, ...patch } : f)) } });
+    const broken: unknown[] = [
+      { ...state, run: null },
+      { ...state, run: { ...state.run, floor: 0 } },
+      { ...state, run: { ...state.run, floor: state.run!.floors + 1 } },
+      { ...state, run: { ...state.run, cleared: -1 } },
+      { ...state, run: { ...state.run, startTick: 'then' } },
+      { ...state, duel: { ...state.duel, floor: 2 } },
+      { ...state, duel: { ...state.duel, floor: undefined } },
+      { ...state, config: { ...state.config, format: 'Survival' } },
+      { ...state, config: { ...state.config, arena: 'library' } },
+      { ...state, config: { ...state.config, humans: 5 } },
+      { ...state, config: { ...state.config, rematchTicks: 300 } },
+      fighters({ maxHp: 0 }),
+      fighters({ maxHp: 'lots' }),
+      fighters({ benched: false }),
+    ];
+    for (const bad of broken) expect(parseNetMessage(resync(bad, ai)), JSON.stringify(bad).slice(0, 100)).toBeNull();
+    for (const bad of [{ floor: 'one', memory: null }, { floor: 0, memory: null }, { floor: 1, memory: { lastTick: 'x' } }, { floor: 1 }]) {
+      expect(parseNetMessage(resync(state, [null, null, bad, ai[3], ai[4]])), JSON.stringify(bad)).toBeNull();
+    }
+    // A Duels state carries no Run.
+    const duels = matchState();
+    expect(parseNetMessage(resync({ ...duels, run: state.run }))).toBeNull();
+    expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, floor: 1 } }))).toBeNull();
+  });
+
+  it('accepts a Duels state with the new fields absent, as before', () => {
+    const duels = matchState() as unknown as Record<string, unknown> & MatchState;
+    const { run: _run, ...noRun } = duels;
+    const { format: _format, humans: _humans, ...config } = duels.config;
+    const fighters = duels.duel.fighters.map(({ maxHp: _maxHp, ...f }) => f);
+    const old = { ...noRun, config, duel: { ...duels.duel, fighters } };
+    expect(parseNetMessage(resync(old))).toEqual(resync(old));
   });
 });

@@ -37,6 +37,7 @@ const CSS = `
 .hud-results-title.defeat { color: #ff7a6a; }
 .hud-results-row { display: flex; justify-content: space-between; gap: 2rem; font-size: 1rem; padding: 0.15rem 0; }
 .hud-results-row b { font-variant-numeric: tabular-nums; }
+.hud-results-note { margin: 0.8rem 0 0; font-size: 0.9rem; opacity: 0.85; max-width: 18rem; }
 .hud-menu { pointer-events: auto; position: absolute; left: 50%; bottom: max(0.8rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
   width: 2.4rem; height: 2.4rem; border-radius: 50%; font-size: 1.1rem; color: #fff; background: #0007; border: 1px solid #fff6; cursor: pointer; opacity: 0.75; }
 .hud-menu:hover { opacity: 1; }

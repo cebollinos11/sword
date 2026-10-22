@@ -47,7 +47,7 @@
  * `tick(localIntent)` once per Tick.
  */
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
-import type { Intent, MatchOptions, MatchState, Snapshot } from '../sim';
+import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
 import {
   checkLineup,
@@ -61,7 +61,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isFloorAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -277,9 +277,10 @@ class Session implements RollbackSession, PeerIntentSource {
       this.matchOptions = o.match;
       this.lineup = o.lineup ?? ONE_VS_ONE;
       const guests = o.guests ?? (o.transport ? [o.transport] : []);
-      checkLineup(o.tuning, this.lineup, guests.length + 1);
+      const format = o.match.format ?? 'Duels';
+      checkLineup(o.tuning, this.lineup, guests.length + 1, format);
       this.localPlayer = 0;
-      this.setLineup(this.lineup);
+      this.setLineup(this.lineup, format);
       this.links = guests.map((t, i) => this.link(t, i + 1));
       // Dropped on the first Tick, so whoever listens hears of it.
       guests.forEach((t, i) => {
@@ -408,14 +409,14 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs. */
-  private setLineup(lineup: Lineup): void {
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot). */
+  private setLineup(lineup: Lineup, format: MatchFormat): void {
     this.lineup = lineup;
     this.players = lineupPlayers(lineup);
     this.playerOf = lineup.map((s) => (s.pilot.kind === 'Player' ? s.pilot.player : -1));
     this.fighterOf = Array.from({ length: this.players }, (_, p) => this.playerOf.indexOf(p));
     this.localFighter = this.fighterOf[this.localPlayer] ?? -1;
-    this.ais = lineupAis(this.tuning, lineup);
+    this.ais = lineupAis(this.tuning, lineup, format);
     for (let p = 0; p < this.players; p++) {
       this.intents[p] = new Map();
       this.used[p] = new Map();
@@ -453,7 +454,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.drop(link.peer, this.status === 'Running' ? this.confirmed[link.peer]! + 1 : 1);
   }
 
-  /** Player p left: the AI drives their Fighter from Tick `from` on. */
+  /** Player p left: the AI drives their Fighter from Tick `from` on (in a Run, an ordinary AI on their Team 0 slot for the rest of it; `config.humans` stays). */
   private drop(p: number, from: number): void {
     if (p === this.localPlayer) return this.disconnect('Dropped');
     if (p < 0 || p >= this.players || this.takeover[p] != null) return;
@@ -474,12 +475,12 @@ class Session implements RollbackSession, PeerIntentSource {
   private maybeStart(): void {
     if (this.role !== 'host' || this.status !== 'Connecting' || this.links.some((l) => !l.gone && l.weapon === null)) return;
     const picks = [this.weapon, ...this.links.map((l) => l.weapon ?? defaultWeaponName(this.tuning))];
-    this.build(this.matchOptions!, picks);
+    this.build(createMatch(this.tuning, lineupMatch(this.tuning, this.lineup!, picks, this.matchOptions!)));
     this.sendHellos();
   }
 
-  private build(options: MatchOptions, picks: readonly string[]): void {
-    this.state = createMatch(this.tuning, lineupMatch(this.tuning, this.lineup!, picks, options));
+  private build(state: MatchState): void {
+    this.state = state;
     this.states.set(0, snapshot(this.state));
     this.aiMemory.set(0, this.saveAis(0));
     this.status = 'Running';
@@ -611,7 +612,9 @@ class Session implements RollbackSession, PeerIntentSource {
         l.transport.send(hello);
         continue;
       }
-      const { weapons: _picks, teams: _teams, ...match } = this.matchOptions!;
+      // A Run's options also say how many humans it started with (its enemies' HP scales with that).
+      const { weapons: _picks, teams: _teams, ...options } = this.matchOptions!;
+      const match = state.run ? { ...options, humans: state.config.humans } : options;
       const weapons = this.fighterOf.map((i) => state.config.weapons[i]!);
       l.transport.send({ ...hello, match, lineup: this.lineup!, weapons, player: l.peer });
     }
@@ -706,16 +709,21 @@ class Session implements RollbackSession, PeerIntentSource {
     if (m.tuningHash !== this.tuningHash) return this.refuse('TuningDataMismatch', m.tuningHash, true);
     if (this.status !== 'Connecting' || !m.match || !m.lineup || !m.weapons || m.player === undefined) return;
     const { match, lineup, weapons, player } = m;
+    const format = match.format ?? 'Duels';
+    let state: MatchState;
     try {
       if (!weapons.every((w) => this.tuning.weapons[w])) throw new RangeError('Unknown Weapon');
       if (player < 1 || player >= weapons.length) throw new RangeError(`No Player ${player}`);
-      checkLineup(this.tuning, lineup, weapons.length);
+      checkLineup(this.tuning, lineup, weapons.length, format);
+      // A Run's humans are the Lineup's Players, as the host counted them.
+      if (format === 'Gauntlet' && match.humans !== lineupPlayers(lineup)) throw new RangeError(`A Run of ${lineupPlayers(lineup)} humans, not ${match.humans}`);
+      state = createMatch(this.tuning, lineupMatch(this.tuning, lineup, weapons, match));
     } catch {
       return this.refuse('TuningDataMismatch', m.tuningHash, true);
     }
     this.localPlayer = player;
-    this.setLineup(lineup);
-    this.build(match, weapons);
+    this.setLineup(lineup, format);
+    this.build(state);
   }
 
   private refuse(reason: RefuseReason, remoteHash: string, tellPeer = false): void {
@@ -778,9 +786,14 @@ class Session implements RollbackSession, PeerIntentSource {
     const teams = this.lineup!.map((s) => s.team);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
     if (state.duel.fighters.length !== teams.length || ai.length !== teams.length) return;
+    // The Format and a Run's humans are fixed at the start.
+    const config = this.state!.config;
+    if ((state.config.format ?? 'Duels') !== config.format || (config.format === 'Gauntlet' && state.config.humans !== config.humans)) return;
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
+      // A Run's Team 1 slots hold Floor AIs, every other AI an ordinary one: each takes only its own kind of memory.
+      if (m !== null && isFloorAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
       if (this.aiDrives(i, tick)) return m !== null;
       return m === null || (p >= 0 && this.takeover[p] != null);
     };

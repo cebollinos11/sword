@@ -100,9 +100,23 @@ function pickSeed(): number {
   return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
-/** The Formats the Lobby offers: both in a Skirmish; online only Duels for now (online co-op is Stage 4 of docs/plans/gauntlet.md). */
-export function offeredFormats(online: boolean): readonly MatchFormat[] {
-  return online ? ['Duels'] : MATCH_FORMATS;
+/** The Formats the Lobby offers: both, in a Skirmish and online (a Run online is co-op: every Player on Team 0). */
+export function offeredFormats(_online: boolean): readonly MatchFormat[] {
+  return MATCH_FORMATS;
+}
+
+/** Why a Format the Lobby offers cannot be picked now (shown under the toggle), or null: e.g. a Gauntlet with four Players. */
+export function formatRefusal(state: LobbyState, online: boolean): string | null {
+  for (const f of offeredFormats(online)) {
+    const problem = formatProblem(state, f);
+    if (problem) return problem;
+  }
+  return null;
+}
+
+/** What a seated Player who is not in the Match being played waits for: the next Match, or the next Run. */
+export function waitingTag(state: LobbyState): string {
+  return isGauntlet(state) ? 'Next Run' : 'Next Match';
 }
 
 /** The teams whose Seats the Lobby shows: both, or in a Gauntlet only Team 0 (the Floors fill Team 1). */
@@ -220,7 +234,7 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
     row.append(avatar(name.slice(0, 1).toUpperCase(), colour), info);
     if (lobby.online && !ctx.inGame && seat.member !== 0) {
       row.append(h('span', `seat-ready ${m?.ready ? 'is-ready' : ''}`, m?.ready ? 'Ready' : 'Not ready'));
-    } else if (waiting) row.append(h('span', 'seat-ready', 'Next Match'));
+    } else if (waiting) row.append(h('span', 'seat-ready', waitingTag(state)));
     return row;
   }
 
@@ -321,7 +335,9 @@ function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean):
     if (problem) b.title = problem;
     group.append(b);
   }
-  return h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
+  const refusal = editable ? formatRefusal(state, ctx.lobby.online) : null;
+  const row = h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
+  return refusal ? h('div', '', null, row, h('p', 'lb-note', refusal)) : row;
 }
 
 /** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next), or the Run seed. */

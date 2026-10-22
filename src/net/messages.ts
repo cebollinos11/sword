@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, MAX_TEAM_SIZE, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -72,7 +72,7 @@ export interface ResyncRequestMessage {
 
 /**
  * Host → guest: the host's confirmed Match state at `tick` and its AI Controllers' memory then (one
- * entry per Fighter, null where no AI drives it yet), plus the other Players' Intents up to `tick`
+ * entry per Fighter, null where no AI drives it yet; a Floor AI's on a Run's Team 1 slots), plus the other Players' Intents up to `tick`
  * that the guest may not have yet.
  */
 export interface ResyncMessage {
@@ -167,6 +167,27 @@ const isWeapons = (v: unknown): boolean => isPerFighter(v, isString);
 const isTeams = (v: unknown): boolean => isPerFighter(v, isTeam);
 const isNullable = (item: (x: unknown) => boolean) => (v: unknown): boolean => v === null || item(v);
 const isPlayer = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_PLAYERS;
+const FORMAT_SET: ReadonlySet<unknown> = new Set(MATCH_FORMATS);
+/** A Match Format this build knows (Duels or Gauntlet); absent means Duels. */
+const isFormat = (v: unknown): boolean => FORMAT_SET.has(v);
+/** The human Players a Run fields: 1 to Team 0's MAX_TEAM_SIZE. */
+const isHumans = (v: unknown): boolean => isInt(v) && v >= 1 && v <= MAX_TEAM_SIZE;
+
+/** A Random Map's name (`gen:<kit>:<seed>`), not a hand-made Arena. */
+export function isRandomMapName(v: unknown): boolean {
+  if (!isString(v)) return false;
+  try {
+    return parseGeneratedName(v) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** A Format and Map that go together: a Gauntlet is played on a Random Map only (its seed is the Run seed). */
+export function isFormatOnMap(format: unknown, arena: unknown): boolean {
+  if (format === undefined) return true;
+  return isFormat(format) && (format !== 'Gauntlet' || isRandomMapName(arena));
+}
 
 /** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
@@ -198,7 +219,9 @@ function isMatchOptions(v: unknown): boolean {
     (v.spacing === undefined || (isNum(v.spacing) && v.spacing > 0)) &&
     (v.weapons === undefined || isWeapons(v.weapons)) &&
     (v.teams === undefined || isTeams(v.teams)) &&
-    (v.arena === undefined || (isString(v.arena) && v.arena.length > 0))
+    (v.arena === undefined || (isString(v.arena) && v.arena.length > 0)) &&
+    isFormatOnMap(v.format, v.arena) &&
+    (v.humans === undefined || isHumans(v.humans))
   );
 }
 
@@ -304,7 +327,9 @@ function isFighter(v: unknown): boolean {
     isObject(v.gait) &&
     isFoot(v.gait.left) &&
     isFoot(v.gait.right) &&
-    (v.death === undefined || isDeath(v.death))
+    (v.death === undefined || isDeath(v.death)) &&
+    (v.maxHp === undefined || (isNum(v.maxHp) && v.maxHp > 0)) &&
+    (v.benched === undefined || v.benched === true)
   );
 }
 
@@ -333,8 +358,14 @@ function isSimState(v: unknown): boolean {
     isPerFighter(v.fighters, isFighter) &&
     isArrayOf(v.daggers, isDagger) &&
     isDuelState(v.duel) &&
-    isArrayOf(v.events, isEvent)
+    isArrayOf(v.events, isEvent) &&
+    (v.floor === undefined || (isInt(v.floor) && v.floor >= 1))
   );
+}
+
+/** A Run's progress: the Floor fought (1 to `floors`), Floors cleared (0 to `floors`), and the Tick it started on. */
+function isRun(v: unknown): boolean {
+  return isObject(v) && isInt(v.floors) && v.floors >= 1 && isInt(v.floor) && v.floor >= 1 && v.floor <= v.floors && isInt(v.cleared) && v.cleared >= 0 && v.cleared <= v.floors && isTick(v.startTick);
 }
 
 function isMatchState(v: unknown): v is MatchState {
@@ -364,7 +395,14 @@ function isMatchState(v: unknown): v is MatchState {
     (v.duel as Obj & { fighters: unknown[] }).fighters.length === (config.teams as unknown[]).length &&
     (v.nextDuelTick === null || isTick(v.nextDuelTick)) &&
     (status.status === 'InProgress' || (status.status === 'Over' && isWinner(status.winner) && isTick(status.tick))) &&
-    isArrayOf(v.events, isEvent)
+    isArrayOf(v.events, isEvent) &&
+    isFormatOnMap(config.format, config.arena) &&
+    isFormatOnMap(config.format, v.arena) &&
+    (config.humans === undefined || isHumans(config.humans)) &&
+    // A Run, and only a Run, carries its progress, and each of its Duels names its Floor.
+    (config.format === 'Gauntlet'
+      ? isRun(v.run) && (v.duel as Obj).floor === (v.run as Obj).floor && config.rematchTicks === null
+      : (v.run === undefined || v.run === null) && (v.duel as Obj).floor === undefined)
   );
 }
 
@@ -419,4 +457,12 @@ function isAiMemory(v: unknown): boolean {
   const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until));
   return seen && defence && feint && attack && route && tactic && strafe && opening && focus;
 }
-const isAiMemoryOrNull = isNullable(isAiMemory);
+
+/**
+ * A Floor AI's memory (a Run's Team 1 slot, `src/controllers/floorAi.ts`): the Floor it last saw (-1 for none yet) and
+ * that Floor's AI's memory (null on a Floor with no enemy for its slot).
+ */
+export function isFloorAiMemory(v: unknown): boolean {
+  return isObject(v) && isInt(v.floor) && (v.floor === -1 || v.floor >= 1) && (v.memory === null || isAiMemory(v.memory));
+}
+const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isFloorAiMemory(v));

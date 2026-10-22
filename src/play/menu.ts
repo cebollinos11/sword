@@ -572,7 +572,7 @@ export class Menu {
       actions.push(start);
     } else {
       const ready = Boolean(me?.ready);
-      status = state.playing ? 'A Match is on: you join the next one.' : ready ? 'Waiting for the host to start…' : 'Say when you are ready.';
+      status = state.playing ? (state.settings.format === 'Gauntlet' ? 'A Run is on: you join the next one.' : 'A Match is on: you join the next one.') : ready ? 'Waiting for the host to start…' : 'Say when you are ready.';
       const toggle = button(ready ? 'cta secondary' : 'cta', ready ? 'Not ready' : 'Ready', () => lobby.setMine({ ready: !ready }));
       actions.push(toggle);
     }
@@ -595,7 +595,11 @@ export class Menu {
     const online = Boolean(lobby?.online);
     const host = lobby?.isHost ?? true;
     const nav = h('nav', 'title-nav compact', null, this.navItem('Resume', 'Back to the fight (Esc)', () => this.handlers.onResume(), 'primary'));
-    if (host) nav.append(this.navItem('Restart Match', online ? 'A fresh Match for everyone, same settings' : 'Start over, same settings', () => this.handlers.onStart()));
+    const run = lobby?.state?.settings.format === 'Gauntlet';
+    const restart = run
+      ? this.navItem('Restart', online ? 'A new Run for everyone, on the next seed' : 'A new Run, on the next seed', () => this.handlers.onStart())
+      : this.navItem('Restart Match', online ? 'A fresh Match for everyone, same settings' : 'Start over, same settings', () => this.handlers.onStart());
+    if (host) nav.append(restart);
     if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));

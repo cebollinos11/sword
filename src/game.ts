@@ -1,4 +1,4 @@
-import { createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
@@ -14,7 +14,7 @@ import { floorBanner, Hud, runTime, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { FinalBlowShot } from './play/finalBlow';
-import { pickableArenas } from './play/lobbyView';
+import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
@@ -51,6 +51,7 @@ const CLOSE_UP_TURN = 0.38;
 
 const WEAPON_STORAGE_KEY = 'sword.weapon';
 const ARENA_STORAGE_KEY = 'sword.arena';
+const FORMAT_STORAGE_KEY = 'sword.format';
 const ROOM_ROUTE = '#/room/';
 
 /** What the loop needs to know to present a Match: the driver (which also says who the local player is). */
@@ -129,6 +130,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const difficulties = Object.keys(tuning.ai.difficulties);
   const savedWeapon = stored(WEAPON_STORAGE_KEY);
   const savedArena = stored(ARENA_STORAGE_KEY);
+  const savedFormat = stored(FORMAT_STORAGE_KEY);
 
   let driver: MatchDriver | null = null;
   let names: readonly string[] | null = null;
@@ -215,9 +217,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
-    const arena = savedArena !== null && (arenas.includes(savedArena) || (savedArena.startsWith('gen:') && isArenaName(tuning, savedArena))) ? savedArena : tuning.arena.match;
+    const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
+    // The Format picked last: a Gauntlet (a new Room in it opens two Seats beside the host) on its Random Map, or a fresh one.
+    const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
+    const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
-    return { host: { name: menu.name, weapon, body: menu.body }, settings: { arena, bestOf: 3 }, online, ai: { difficulty, weapon: weapons[0]! } };
+    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}) };
+    return { host: { name: menu.name, weapon, body: menu.body }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
   // --- Lobby and Room ---
@@ -274,7 +280,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function remember(l: Lobby, s: LobbyState): void {
     const me = s.members.find((m) => m.id === l.me);
     if (me) store(WEAPON_STORAGE_KEY, me.weapon);
-    if (l.isHost) store(ARENA_STORAGE_KEY, s.settings.arena);
+    if (l.isHost) {
+      store(ARENA_STORAGE_KEY, s.settings.arena);
+      store(FORMAT_STORAGE_KEY, s.settings.format ?? 'Duels');
+    }
   }
 
   /** Remember the Arena being played, and name it in the in-game menu. */
@@ -323,7 +332,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) {
       // A guest who left between the start and now gets an AI in their place from the first Tick.
       const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, rematchTicks: secondsToTicks(REMATCH_SECONDS) }, lineup });
+      // Duels restart on their own; a Run has no Rematch (the host starts the next one from the in-game menu).
+      const rematch = match.format === 'Gauntlet' ? {} : { rematchTicks: secondsToTicks(REMATCH_SECONDS) };
+      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup });
     } else {
       const transport = l.matchTransport(s.generation, 0);
       if (!transport) return;
@@ -636,9 +647,14 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (notice) hud.announce(notice, 3);
     if (!driver) accumulator = 0;
     if (runResult && !inShot) {
-      hud.showResults(runResult);
+      if (lobby?.online) {
+        // Online the results stay up on every peer, the Match running on behind them, until the host starts the next Run or ends it.
+        hud.showResults(runResult, lobby.isHost ? 'Esc: Restart for a new Run on the next seed, or Back to Lobby.' : 'Waiting for the host: a new Run, or back to the Lobby.');
+      } else {
+        hud.showResults(runResult);
+        resultAt = now + RUN_RESULT_SECONDS * 1000;
+      }
       runResult = null;
-      resultAt = now + RUN_RESULT_SECONDS * 1000;
     }
     if (resultAt !== null && now >= resultAt && !inShot) {
       resultAt = null;
