@@ -165,11 +165,18 @@ It coordinates by observation only, reading allies' seen positions and Actions, 
 - **The Gauntlet**: Beginner to Expert with random Styles. Floors 2, 4 and 6 are the team fights. Is the difficulty curve still right?
 - **Online, two tabs**: the host sets two Expert AIs on the guest's Team, or against both Players. Play a Match with no resyncs; then a Gauntlet Run.
 
-## Stage 3: Feel (`rhythm`, `reactionJitter`, human mistakes)
+## Stage 3: Feel (`rhythm`, `reactionJitter`, human mistakes, `jumpStep`)
 - **Rhythm:** a rolled attack timer replaces the per-Tick coin flip from spacing. The delay is a bell-ish roll (a sum of uniforms) scaled by aggression, with occasional fast double threats (step in, Attack, Chain) and pauses. The timer lives in memory.
 - **Reaction jitter:** each new threat gets a rolled extra delay (0..`reactionJitter`), stored in `DefencePlan`. The `seen` buffer grows by the jitter's Ticks.
 - **Human mistakes:** a mistake is now usually a *late* Block (it raises the Block a few Ticks too late) or a wrong Direction biased to the one beside the right Block, instead of a uniformly random wrong Direction. Lapses are a little likelier right after its own Attack or after being hit.
 - **Idle life:** it varies its spacing, stops circling at times and takes the odd short pause.
+- **Jump repositioning (`jumpStep`):** today it jumps only to leap in with an Overhead, to reach another level, or to get out while Disengaging. Circling, spacing and Stage 2's flank slots all walk. With `jumpStep` (rolled when it re-picks its circling side, like `Strafe.flank`) it may also hop to reposition:
+  - **To its flank slot:** a hop that carries it most of the way to a slot that is far round the target (say more than 60° off), instead of the long walk round.
+  - **Out of a pincer:** two enemies within reach on roughly opposite sides of it: a hop out sideways, so both are in front of it again.
+  - **Spacing:** the odd hop in or out to its spacing, instead of a walk.
+
+  Never from inside an enemy's reach while it is seen in Wind-up or Release, since a Fighter in the air cannot Block (a hit in the air is a Knockdown, ADR 0012). Every hop is a tap checked with `jumpIsSafe` first, as every Jump it makes is today. Old presets leave it off. Open questions for the Stage: the tier values (0.4/0.7/0.9 or lower, since hops are showy), and whether a Style scales it (Tricky up, Defensive down).
+- **Tests:** with `jumpStep` 1 in a 2 v 1 against a dummy, it reaches its flank slot by a hop sooner than walking does; caught between two enemies it hops out to have both in front; it never hops with an enemy Wind-up in reach, and never where `jumpIsSafe` says no; old presets never hop to reposition (the golden test).
 
 ## Stage 4: Adaptation (`adapt` knob)
 - **Habit memory per enemy:** decaying counts of the attack Directions it saw, the Block Directions held, held Wind-ups, and stepping out after it began a Wind-up (baiting). It is kept across the Duels of a Match: the `observe()` new-Duel reset spares it. A Gauntlet's Floor AI carries it from Floor to Floor.
