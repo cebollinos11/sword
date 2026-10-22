@@ -146,7 +146,7 @@ interface Takeover {
  * pause.
  */
 function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = []) {
-  const ais = lineupAis(tuning, lineup, 'Gauntlet');
+  const ais = lineupAis(tuning, lineup, 'Gauntlet', MATCH);
   const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: createAiController(tuning, TAKEOVER_DIFFICULTY) }]));
   let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
   const hashes = new Map<number, string>();

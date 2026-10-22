@@ -8,10 +8,10 @@
  *    Direction, and how far along it is). Never anyone's Intents.
  *  - It acts on the others only as seen `reactionTime` ago (its Reaction
  *    Time). Its own Fighter it knows up to date.
- *  - With several enemies it fights its focus: the nearest one, kept until
- *    another is clearly nearer, or one that swings or Kicks at it, kept for
- *    a while (`chooseFocus`). It defends against whichever enemy Attack
- *    nearest to it can reach it (see `intent`).
+ *  - With several enemies it fights its focus: the nearest one (or with
+ *    `teamwork` the one its allies leave free), kept until another is clearly
+ *    nearer, or one that swings or Kicks at it, kept for a while (`chooseFocus`).
+ *    It defends against whichever enemy Attack nearest to it can reach it (see `intent`).
  *  - It fights only on the same level (feet within LEVEL of each other's).
  *    To reach an enemy on another Walk Surface it follows the navmesh
  *    (`findPath`, `steer`), re-planning when either moves to another surface
@@ -93,6 +93,19 @@
  *  - Against a Kick Wind-up or Release within `kickRange` it stands still (a
  *    Kick only knocks down a mover), and Blocks only if a blade threatens too.
  *    A Kick in Recovery is an opening, like an Attack's.
+ *  - Teamwork (`teamwork`), by what it sees of its allies as it sees everyone, Reaction Time ago (their place, how
+ *    they move and their Action; never their plans), so the team shares no memory and every peer agrees:
+ *    - Flank slots (rolled as it picks its circling side): the team on its target (each ally seen nearer it than
+ *      any other enemy), ranked by Fighter index, takes slots around it (FLANKS: two at ±70°, three at 0° and ±115°
+ *      of their mean bearing), and it circles to its own instead of at random; it steers clear of any ally within CROWD.
+ *    - Turns (rolled once per Attack of its own): it starts no Attack from its spacing while an ally on its target is
+ *      seen swinging, and otherwise only in its own turn window (TURN_TICKS, by rank), pressing as often there as the
+ *      team would between them; it swings at once at a back turned on an ally, and punishes an opening as ever.
+ *    - No friendly fire (the same roll): it never lets a Wind-up go with an ally in its swing line (`keepClear`:
+ *      wide for a Left or Right, narrow for an Overhead or a Thrust), picks an Overhead or a Thrust with an ally beside
+ *      its line, and tries no Chamber or Outpace with one near it.
+ *    - Target spread (rolled as it picks an enemy): it fights the enemy its team leaves free (`spreadPick`), unless
+ *      the one they share is low on HP (LOW_HP) or the last standing.
  *  - Sheathe and Draw: it never Sheathes. Its own Fighter Sheathed (after an AI
  *    Takeover), it Draws (pressing attack Draws) once an enemy on its level is
  *    near, and a Block it means raises once the Draw is done. An enemy it sees
@@ -238,6 +251,8 @@ interface AttackPlan {
   readonly holdJumpUntil: number;
   /** It rolled to check for a whiff (`whiffCheck`): it does not Release at a target seen backing out of reach. */
   readonly whiff: boolean;
+  /** It rolled to play this Attack as one of a team (`teamwork`): it holds the Wind-up while an ally is in its swing line (`keepClear`), and takes its turn without a Chain. */
+  readonly team: boolean;
 }
 
 type Mode = 'Neutral' | 'Pressure' | 'Disengage';
@@ -252,6 +267,8 @@ interface Tactic {
 interface Strafe {
   readonly sign: number;
   readonly until: number;
+  /** It rolled to take a flank slot (`teamwork`) rather than circle: it steers to its slot around a target allies share, and clear of allies close by. */
+  readonly flank: boolean;
 }
 
 /** Whether it goes for the opening it last saw (`fighter`'s, seen up to Tick `seen`). */
@@ -318,12 +335,18 @@ interface AiMemory {
   /** Its own HP last Tick (-1 before its first), to notice being hit. */
   readonly lastHp: number;
   readonly focus: Focus | null;
+  /** Whether it plays its next Attack as one of a team (`teamwork`, rolled once per Attack once allies come into it), or null before the roll. */
+  readonly turn: boolean | null;
+  /** Holding its Wind-up for an ally in its swing line, it Feints into a Block on this Tick (-1: not holding for one). */
+  readonly lineHold: number;
 }
 
 /** The enemy it fights (`fighter`), kept whatever the others do until Tick `until` (-1: only while none is much nearer). */
 interface Focus {
   readonly fighter: number;
   readonly until: number;
+  /** It rolled to spread out (`teamwork`, as it picked this enemy): it fights the enemy its allies leave free (`spreadPick`), not the nearest. */
+  readonly spread: boolean;
 }
 
 /** A difficulty preset with every optional part filled in. */
@@ -402,6 +425,35 @@ const WALKING_AFTER = 0.3;
 /** A target backing off faster than this fraction of walk speed is backing out (`whiffCheck`). */
 const BACKING_OUT = 0.1;
 
+/** Flank slots (radians, around the target from the mean bearing of the team on it), by how many share it, in Fighter-index order. */
+const FLANKS: Readonly<Record<number, readonly number[]>> = { 2: [-70 * DEG, 70 * DEG], 3: [0, -115 * DEG, 115 * DEG] };
+/** It steers away from an ally closer than this (m). */
+const CROWD = 1.0;
+/**
+ * An ally is in its swing line within this much (m) beyond its reach, and this far (radians) either side of the line to its
+ * target: a Left or Right sweeps wide, an Overhead or a Thrust cuts close along the line.
+ */
+const LINE_MARGIN = 0.4;
+const LINE_WIDE = 90 * DEG;
+const LINE_NARROW = 30 * DEG;
+/** ...but a Left or Right sweeps round the body: an ally within CROWD is in its line up to this far (radians) round. */
+const LINE_CLOSE = 135 * DEG;
+/** It holds a Wind-up for an ally in its swing line for at most this many Ticks, then Feints into a Block. */
+const LINE_HOLD = 30;
+/** Once it holds for an ally, the ally must stand this much (m) further out before it lets go. */
+const LINE_SLACK = 0.4;
+/**
+ * Taking turns: the Duel's Ticks run in windows of TURN_TICKS, one for each of the team on a target in Fighter-index
+ * order; it starts an Attack from its spacing only in the first TURN_OPEN Ticks of its own. The rest (longer than any
+ * Reaction Time) lets the next one see a late Wind-up before its own window opens.
+ */
+const TURN_TICKS = 60;
+const TURN_OPEN = 30;
+/** Spreading out, it may take an enemy up to this much (m) further than its nearest. */
+const SPREAD_RANGE = 3;
+/** An enemy below this fraction of its max HP may be piled onto. */
+const LOW_HP = 0.35;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -445,6 +497,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     holdBreak: 0,
     whiffCheck: 0,
     punishFits: 0,
+    teamwork: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -498,7 +551,7 @@ function tickRng(state: SimState, fighter: number): RngState {
 
 const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 });
 const NEUTRAL: Tactic = Object.freeze({ mode: 'Neutral', until: -1 });
-const NO_STRAFE: Strafe = Object.freeze({ sign: 1, until: -1 });
+const NO_STRAFE: Strafe = Object.freeze({ sign: 1, until: -1, flank: false });
 
 function unit(v: Vec2): Vec2 {
   const d = Math.hypot(v.x, v.z);
@@ -507,6 +560,34 @@ function unit(v: Vec2): Vec2 {
 
 /** `v` turned by `a` radians about the vertical (same sense as facing). */
 const rotate = (v: Vec2, a: number): Vec2 => ({ x: v.x * Math.cos(a) + v.z * Math.sin(a), z: -v.x * Math.sin(a) + v.z * Math.cos(a) });
+
+/** An ally (a teammate standing) as the AI sees it this Tick. */
+interface Ally {
+  readonly o: Sighting;
+  readonly i: number;
+}
+
+/** What it sees of its team around its target this Tick (`teamView`). */
+interface TeamView {
+  readonly allies: readonly Ally[];
+  /** The team on its target, itself included (each ally seen nearer it than any other enemy), by Fighter index, and its own place there. */
+  readonly on: readonly number[];
+  readonly rank: number;
+  /** The bearing (radians, as a facing) from the target of its flank slot; null when it is alone on it. */
+  readonly slot: number | null;
+  /** An ally on its target is seen in Wind-up or Release. */
+  readonly attacking: boolean;
+  /** The target is seen facing an ally on it, not itself: its back is turned. */
+  readonly exposed: boolean;
+}
+
+/** How its team lets it attack this Tick (`turnOf`): wait (another's turn, or an ally in its swing line), or swing at a turned back. */
+interface Turn {
+  readonly wait: boolean;
+  readonly line: boolean;
+  readonly back: boolean;
+}
+const FREE: Turn = Object.freeze({ wait: false, line: false, back: false });
 
 /** An enemy as the AI sees it this Tick. */
 interface Enemy {
@@ -540,6 +621,10 @@ class AiController implements Controller {
   private opening: OpeningRoll | null = null;
   private lastHp = -1;
   private focus: Focus | null = null;
+  private turn: boolean | null = null;
+  private lineHold = -1;
+  /** This Tick's view of its team around its target and the way to it (`decide` sets it; never carried between Ticks). */
+  private view: { readonly team: TeamView; readonly toward: Vec2 } | null = null;
 
   constructor(
     private readonly tuning: TuningData,
@@ -552,8 +637,8 @@ class AiController implements Controller {
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold };
   }
 
   load(saved: unknown): void {
@@ -574,6 +659,8 @@ class AiController implements Controller {
     this.opening = m.opening;
     this.lastHp = m.lastHp;
     this.focus = m.focus;
+    this.turn = m.turn;
+    this.lineHold = m.lineHold;
   }
 
   private random(): number {
@@ -620,6 +707,8 @@ class AiController implements Controller {
       this.strafe = NO_STRAFE;
       this.lastHp = -1;
       this.focus = null;
+      this.turn = null;
+      this.lineHold = -1;
     }
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
@@ -671,9 +760,30 @@ class AiController implements Controller {
    */
   intent(state: SimState, fighter: number): Intent {
     this.rng = tickRng(state, fighter);
+    this.view = null;
     this.observe(state);
     const self = state.fighters[fighter]!;
-    return this.flying(state, self, this.holdingJump(state.tick, self, this.decide(state, fighter)));
+    return this.flying(state, self, this.holdingJump(state.tick, self, this.keepClear(state.tick, self, this.decide(state, fighter))));
+  }
+
+  /**
+   * Played as one of a team (its Attack's roll, or for a Chamber its next one's), it never lets a Wind-up go with an ally
+   * in its swing line (for the Wind-up's Direction), whichever plan pressed it: it holds the Wind-up for LINE_HOLD Ticks (until the ally stands
+   * LINE_SLACK clear beyond the line), then Feints into a Block.
+   */
+  private keepClear(tick: number, self: FighterState, intent: Intent): Intent {
+    const a = self.action;
+    if (a.kind !== 'Attack' || a.phase !== 'Wind-up') {
+      this.lineHold = -1;
+      return intent;
+    }
+    const v = this.view;
+    if (!v || self.air || intent.block || !(this.attackPlan?.team ?? this.turn)) return intent;
+    const holding = this.lineHold >= 0;
+    const reach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0) + (holding ? LINE_SLACK : 0);
+    if (!this.allyInLine(self, v.team, v.toward, reach, a.direction)) return intent;
+    if (!holding) this.lineHold = tick + LINE_HOLD;
+    return tick < this.lineHold ? { ...intent, attack: true, direction: a.direction } : { ...intent, attack: false, block: true, direction: a.direction };
   }
 
   /** What it would do this Tick, before a Jump it is in the air on has its say (`flying`). */
@@ -696,14 +806,18 @@ class AiController implements Controller {
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    const focused = this.chooseFocus(state.tick, self, enemies, reach);
+    // Its allies as seen (only with `teamwork`: without it, it never looks at them).
+    const allies: Ally[] = this.skill.teamwork > 0 ? seen.fighters.map((o, i) => ({ o, i })).filter(({ o, i }) => i !== fighter && !o.fallen && o.team === self.team) : [];
+    const focused = this.chooseFocus(state, self, fighter, enemies, reach, allies);
 
     this.think(state.tick, self, focused.o);
+    const team = allies.length > 0 ? this.teamView(self, fighter, focused, enemies, allies) : null;
+    if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
     const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
     if (threat && isThreat(threat.o.action) && threat.o.attackStart !== null) {
       this.feintPlan = null;
-      return this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat));
+      return this.defend(state, self, threat.i, threat.o, threat.flat, aimAt(threat.o, threat.flat), team);
     }
     this.defencePlan = null;
 
@@ -730,7 +844,7 @@ class AiController implements Controller {
 
     switch (self.action.kind) {
       case 'Attack':
-        return this.pressOn(state, self, target, dist, toward, base);
+        return this.pressOn(state, self, target, dist, toward, base, team);
       case 'Fall':
         // In the air with nothing to swing: keep the line it leapt on.
         return { ...base, move: self.air ? unit({ x: self.air.vx, z: self.air.vz }) : ZERO };
@@ -780,13 +894,16 @@ class AiController implements Controller {
 
     const myReach = this.reach(self.weapon);
     const theirReach = this.reach(target.weapon);
-    const aggression = this.skill.aggression * (this.tactic.mode === 'Pressure' ? 2.5 : this.tactic.mode === 'Disengage' ? 0.2 : 1);
+    const turn = this.turnOf(state.tick, self, team, toward, myReach);
+    // Taking turns, it presses as often in its own window as the team would between them.
+    const turns = this.turn === true && team !== null ? team.on.length : 1;
+    const aggression = this.skill.aggression * turns * (this.tactic.mode === 'Pressure' ? 2.5 : this.tactic.mode === 'Disengage' ? 0.2 : 1);
 
     if (this.skill.aggression > 0 && level) {
       // Its own Weapon Sheathed (it took over a Sheathed Fighter): Draw it (pressing attack Draws) once the enemy is near.
       if (self.sheathed && dist <= Math.max(myReach, theirReach) + SWING_IN + 1.5) return { ...base, attack: true, direction: 'Overhead' };
       // An enemy who cannot Block: no spacing or Feints, close in and swing (rolled once, like an opening, at `punish`).
-      if (defenceless(target) && this.goesFor(targetIndex, seen.tick)) {
+      if (defenceless(target) && !turn.line && this.goesFor(targetIndex, seen.tick)) {
         if (dist <= myReach) return this.startAttack(state.tick, self, target, dist, base);
         if (dist <= myReach + SWING_IN) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
         return { ...base, ...this.approach(state, self, target) };
@@ -794,24 +911,29 @@ class AiController implements Controller {
     }
 
     // An opening, near enough to step in on: punish it (unless the AI never attacks, aggression 0).
-    if (this.skill.aggression > 0 && isOpening(target.action) && dist <= myReach + SWING_IN && this.goesFor(targetIndex, seen.tick)) {
+    if (this.skill.aggression > 0 && isOpening(target.action) && dist <= myReach + SWING_IN && !turn.line && this.goesFor(targetIndex, seen.tick)) {
       const punish = { ...base, move: dist > myReach ? toward : ZERO };
       if (!this.opening!.fits) return this.startAttack(state.tick, self, target, dist, punish, { swingIn: dist > myReach });
       // Only an opening its own Wind-up Releases inside; else space out, out of the counter.
-      const direction = this.chooseDirection(self, target, dist);
+      const direction = this.chooseDirection(self, target, dist, this.narrowLine(self));
       if (this.landsInTime(self, target, dist, direction)) return this.startAttack(state.tick, self, target, dist, punish, { swingIn: dist > myReach, direction });
-      return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach) };
+      return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach, team) };
+    }
+
+    // Its target's back turned on an ally: swing at it now (stepping in, if need be).
+    if (turn.back && this.skill.aggression > 0 && level && dist <= myReach + SWING_IN) {
+      return this.startAttack(state.tick, self, target, dist, dist > myReach ? { ...base, move: toward } : base, { swingIn: dist > myReach });
     }
 
     if (this.skill.footwork <= 0) {
       // The plain AI: walk straight in, attack in range, back off when crowded.
       if (dist > myReach) {
         // Mistimed Attack: swinging from out of range.
-        if (this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+        if (!turn.wait && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
         return { ...base, ...this.approach(state, self, target) };
       }
       if (dist < this.tuning.ai.retreatRange) return { ...base, move: this.retreat(state, self, away) };
-      if (this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
+      if (!turn.wait && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
       return base;
     }
 
@@ -821,13 +943,13 @@ class AiController implements Controller {
 
     // Meet an opponent walking into reach with an Attack already on the way.
     const closing = -(target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
-    if (target.action.kind === 'Idle' && closing > 0.5 && dist > myReach && dist <= myReach + SWING_IN && this.chance(this.skill.preempt * 0.3)) {
+    if (target.action.kind === 'Idle' && closing > 0.5 && dist > myReach && dist <= myReach + SWING_IN && !turn.wait && this.chance(this.skill.preempt * 0.3)) {
       return this.startAttack(state.tick, self, target, dist, base, { swingIn: true });
     }
 
     // Leap in with an Overhead from out of reach.
     const notBusy = target.action.kind === 'Idle' || target.action.kind === 'Block';
-    if (!self.air && notBusy && dist >= myReach + JUMP_FROM && dist <= myReach + this.leapRange() && this.chance(this.skill.jumpAttackRate * (this.tactic.mode === 'Disengage' ? 0.2 : 1))) {
+    if (!self.air && notBusy && dist >= myReach + JUMP_FROM && dist <= myReach + this.leapRange() && !turn.wait && this.chance(this.skill.jumpAttackRate * (this.tactic.mode === 'Disengage' ? 0.2 : 1))) {
       const leap = this.leap(state, self, target, dist, toward, base);
       if (leap) return leap;
     }
@@ -849,30 +971,136 @@ class AiController implements Controller {
     }
 
     // From its spacing: step in and swing (or swing from where it stands, in reach).
-    if (dist <= myReach && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
-    if (dist <= myReach + SWING_IN && this.chance(aggression * 0.6)) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
-    if (dist > myReach + SWING_IN && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+    if (!turn.wait) {
+      if (dist <= myReach && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
+      if (dist <= myReach + SWING_IN && this.chance(aggression * 0.6)) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
+      if (dist > myReach + SWING_IN && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+    }
 
-    return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach) };
+    return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach, team) };
   }
 
   /** Once a Tick: notice being hit, and pick its tactic (and circling side) as the old one runs out. */
   /**
    * The enemy it fights (`enemies` nearest first, never empty): one that swings or Kicks at it from within `reach`
    * becomes its focus for AGGRO_TICKS (the nearest such, if several); else it keeps its focus while that enemy is
-   * standing and no other is SWITCH_MARGIN nearer, and otherwise takes its nearest.
+   * standing and no other is SWITCH_MARGIN nearer, and otherwise takes its nearest. With `allies` and more than one
+   * enemy, it rolls as it picks a new one (`teamwork`) to spread out: it takes the enemy its allies leave free
+   * (`spreadPick`) instead of the nearest, and keeps it while none is SWITCH_MARGIN nearer than that one.
    */
-  private chooseFocus(tick: number, self: FighterState, enemies: readonly Enemy[], reach: number): Enemy {
+  private chooseFocus(state: SimState, self: FighterState, fighter: number, enemies: readonly Enemy[], reach: number, allies: readonly Ally[]): Enemy {
+    const tick = state.tick;
+    const spread = this.focus?.spread ?? false;
     const attacker = enemies.find(({ o, flat, near }) => near && flat <= reach && (isThreat(o.action) || isKickThreat(o.action)) && this.aimedAt(o, self));
     if (attacker) {
-      this.focus = { fighter: attacker.i, until: tick + AGGRO_TICKS };
+      this.focus = { fighter: attacker.i, until: tick + AGGRO_TICKS, spread };
       return attacker;
     }
     const nearest = enemies[0]!;
+    const pick = spread ? this.spreadPick(state, self, fighter, enemies, allies) : nearest;
     const kept = this.focus && enemies.find(({ i }) => i === this.focus!.fighter);
-    if (kept && (tick < this.focus!.until || kept.dist <= nearest.dist + SWITCH_MARGIN)) return kept;
-    this.focus = { fighter: nearest.i, until: -1 };
-    return nearest;
+    if (kept && (tick < this.focus!.until || kept.dist <= pick.dist + SWITCH_MARGIN)) return kept;
+    const go = allies.length > 0 && enemies.length > 1 && this.chance(this.skill.teamwork);
+    const chosen = go ? this.spreadPick(state, self, fighter, enemies, allies) : nearest;
+    this.focus = { fighter: chosen.i, until: -1, spread: go };
+    return chosen;
+  }
+
+  /**
+   * The enemy to fight spreading out: its team (itself and `allies`, as seen) is shared out over `enemies` in Fighter-index
+   * order, each taking, of the enemies within SPREAD_RANGE of its nearest, the one the fewest before it took (nearest
+   * first on a tie). An enemy below LOW_HP of its max HP (its HP bar shows it), or the last standing, counts as free
+   * however many took it. The same sharing for every one of the team, so each takes its own.
+   */
+  private spreadPick(state: SimState, self: FighterState, fighter: number, enemies: readonly Enemy[], allies: readonly Ally[]): Enemy {
+    const free = (e: Enemy) => enemies.length === 1 || e.o.hp < LOW_HP * state.fighters[e.i]!.maxHp;
+    const taken = new Map<number, number>();
+    const load = (e: Enemy) => (free(e) ? 0 : (taken.get(e.i) ?? 0));
+    const members = [...allies.map(({ o, i }) => ({ i, at: o.position, y: o.y })), { i: fighter, at: self.position, y: self.y }].sort((a, b) => a.i - b.i);
+    for (const m of members) {
+      const near = enemies.map((e) => ({ e, d: Math.hypot(e.o.position.x - m.at.x, e.o.position.z - m.at.z, e.o.y - m.y) }));
+      const closest = Math.min(...near.map((n) => n.d));
+      const best = near.filter((n) => n.d <= closest + SPREAD_RANGE).sort((a, b) => load(a.e) - load(b.e) || a.d - b.d || a.e.i - b.e.i)[0]!.e;
+      if (m.i === fighter) return best;
+      taken.set(best.i, (taken.get(best.i) ?? 0) + 1);
+    }
+    return enemies[0]!;
+  }
+
+  /**
+   * Its team around `focused` as seen: the allies on it (each nearer it than any other enemy, in 3D, the lower index
+   * on a tie), its own flank slot among them (FLANKS, ranked by Fighter index, about the mean bearing of the team from
+   * the target), whether an ally on it is seen swinging, and whether the target faces one of them and not itself.
+   */
+  private teamView(self: FighterState, fighter: number, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[]): TeamView {
+    const t = focused.o;
+    const nearestEnemy = (o: Sighting) => {
+      let best = -1;
+      let bestDist = Infinity;
+      for (const e of enemies) {
+        const d = Math.hypot(e.o.position.x - o.position.x, e.o.position.z - o.position.z, e.o.y - o.y);
+        if (d < bestDist) [best, bestDist] = [e.i, d];
+      }
+      return best;
+    };
+    const onIt = allies.filter(({ o }) => nearestEnemy(o) === focused.i);
+    const on = [fighter, ...onIt.map(({ i }) => i)].sort((a, b) => a - b);
+    const rank = on.indexOf(fighter);
+    let slot: number | null = null;
+    if (on.length > 1) {
+      const bearings = [self.position, ...onIt.map(({ o }) => o.position)].map((p) => Math.atan2(p.x - t.position.x, p.z - t.position.z));
+      const mean = Math.atan2(bearings.reduce((a, b) => a + Math.sin(b), 0), bearings.reduce((a, b) => a + Math.cos(b), 0));
+      slot = mean + FLANKS[on.length]![rank]!;
+    }
+    const attacking = onIt.some(({ o }) => isThreat(o.action));
+    const exposed = onIt.some(({ o }) => this.aimedAt(t, o)) && !this.aimedAt(t, self);
+    return { allies, on, rank, slot, attacking, exposed };
+  }
+
+  /**
+   * Whether its team lets it start an Attack this Tick. With allies standing, it rolls (`teamRoll`) to play its next
+   * Attack as one of a team: then
+   * it waits while an ally is in its swing line or an ally on its target is seen swinging; swings at once at a back
+   * turned on an ally; and otherwise starts one from its spacing only in its own turn window (TURN_TICKS).
+   */
+  private turnOf(tick: number, self: FighterState, team: TeamView | null, toward: Vec2, myReach: number): Turn {
+    if (!team || !this.teamRoll()) return FREE;
+    const line = this.allyInLine(self, team, toward, myReach);
+    const n = team.on.length;
+    if (line) return { wait: true, line: true, back: false };
+    if (team.attacking) return { wait: true, line: false, back: false };
+    if (team.exposed) return { wait: false, line: false, back: true };
+    const mine = n < 2 || (tick % TURN_TICKS < TURN_OPEN && Math.floor(tick / TURN_TICKS) % n === team.rank);
+    return mine ? FREE : { wait: true, line: false, back: false };
+  }
+
+  /** Played as one of a team with an ally beside its line (where a Left or Right would sweep), it cuts along the line (an Overhead or a Thrust), not across it. */
+  private narrowLine(self: FighterState): boolean {
+    const v = this.view;
+    return this.turn === true && v !== null && this.allyInLine(self, v.team, v.toward, this.reach(self.weapon), 'Left');
+  }
+
+  /** Whether it plays its next Attack as one of a team: rolled at `teamwork` (once, kept in `turn` until it starts one). Only asked with allies standing. */
+  private teamRoll(): boolean {
+    if (this.turn === null) this.turn = this.chance(this.skill.teamwork);
+    return this.turn;
+  }
+
+  /**
+   * Whether an ally (where it is by now, carrying on as seen) stands where its blade would sweep in `direction` (any
+   * Direction: the narrowest, an Overhead's): within LINE_MARGIN beyond `myReach`, and LINE_WIDE (a Left or Right,
+   * LINE_CLOSE for an ally within CROWD) or LINE_NARROW (an Overhead or a Thrust) of the line `toward` its target.
+   */
+  private allyInLine(self: FighterState, team: TeamView, toward: Vec2, myReach: number, direction?: Direction): boolean {
+    const lead = this.reactionTicks;
+    const sweeps = direction === 'Left' || direction === 'Right';
+    return team.allies.some(({ o }) => {
+      const x = o.position.x + o.velocity.x * lead - self.position.x;
+      const z = o.position.z + o.velocity.z * lead - self.position.z;
+      const d = Math.hypot(x, z);
+      const cos = Math.cos(!sweeps ? LINE_NARROW : d < CROWD ? LINE_CLOSE : LINE_WIDE);
+      return d <= myReach + LINE_MARGIN && (d < 1e-6 || (x * toward.x + z * toward.z) / d > cos);
+    });
   }
 
   private think(tick: number, self: FighterState, target: Sighting): void {
@@ -890,7 +1118,10 @@ class AiController implements Controller {
       const mode: Mode = r < press ? 'Pressure' : r < press + back ? 'Disengage' : 'Neutral';
       this.tactic = { mode, until: tick + 60 + Math.floor(this.random() * 120) };
     }
-    if (footwork > 0 && tick >= this.strafe.until) this.strafe = { sign: this.random() < 0.5 ? 1 : -1, until: tick + 40 + Math.floor(this.random() * 100) };
+    if (footwork > 0 && tick >= this.strafe.until) {
+      const sign = this.random() < 0.5 ? 1 : -1;
+      this.strafe = { sign, until: tick + 40 + Math.floor(this.random() * 100), flank: this.chance(this.skill.teamwork) };
+    }
   }
 
   /** Whether to go for the opening it sees on `fighter` (rolled once per opening, at `punish`). */
@@ -926,8 +1157,12 @@ class AiController implements Controller {
     return Infinity;
   }
 
-  /** Where to stand, circling: hovering at its spacing for the tactic, along the side it circles, never stepping somewhere unsafe. */
-  private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number): Vec2 {
+  /**
+   * Where to stand, circling: hovering at its spacing for the tactic, along the side it circles, never stepping somewhere
+   * unsafe. Rolled to take a flank slot (`Strafe.flank`) with `team` on its target, it circles to its slot and stops
+   * there instead, and it steers clear of any ally within CROWD.
+   */
+  private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number, team: TeamView | null = null): Vec2 {
     const { mode } = this.tactic;
     const longer = Math.max(myReach, theirReach);
     // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
@@ -936,12 +1171,29 @@ class AiController implements Controller {
     const radial = Math.max(-1, Math.min(1, (dist - spacing) * 2.5));
     let side = this.strafe.sign * this.skill.footwork * (mode === 'Pressure' ? 0.5 : 1);
     const tangent = (s: number): Vec2 => ({ x: -toward.z * s, z: toward.x * s });
-    if (side !== 0 && !this.safe(state, self, unit(tangent(side)))) {
+    const flank = team !== null && this.strafe.flank;
+    if (flank && team.slot !== null) {
+      // To its slot: a positive side turns its bearing from the target up.
+      const off = team.slot - Math.atan2(-toward.x, -toward.z);
+      side = Math.max(-1, Math.min(1, Math.atan2(Math.sin(off), Math.cos(off)) * 2));
+      if (side !== 0 && !this.safe(state, self, unit(tangent(side)))) side = 0;
+    } else if (side !== 0 && !this.safe(state, self, unit(tangent(side)))) {
       side = -side;
-      this.strafe = { sign: -this.strafe.sign, until: this.strafe.until };
+      this.strafe = { ...this.strafe, sign: -this.strafe.sign };
     }
     const t = tangent(side);
     const m = { x: toward.x * radial + t.x, z: toward.z * radial + t.z };
+    if (flank) {
+      for (const { o } of team.allies) {
+        const dx = self.position.x - o.position.x;
+        const dz = self.position.z - o.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 1e-6 && d < CROWD) {
+          m.x += (dx / d) * (1 - d / CROWD) * 2;
+          m.z += (dz / d) * (1 - d / CROWD) * 2;
+        }
+      }
+    }
     const len = Math.hypot(m.x, m.z);
     if (len < 0.15) return ZERO;
     return this.safeMove(state, self, len > 1 ? { x: m.x / len, z: m.z / len } : m);
@@ -1305,8 +1557,8 @@ class AiController implements Controller {
     return { ...base, block: true, direction: own.kind === 'Block' ? own.direction : 'Overhead' };
   }
 
-  /** Whether `o`'s facing carries a dagger within THROW_AIM_MISS of `self`. */
-  private aimedAt(o: Sighting, self: FighterState): boolean {
+  /** Whether `o`'s facing carries a dagger (or a blow) within THROW_AIM_MISS of `self`. */
+  private aimedAt(o: Sighting, self: { readonly position: Vec2 }): boolean {
     const dx = self.position.x - o.position.x;
     const dz = self.position.z - o.position.z;
     const dist = Math.hypot(dx, dz);
@@ -1331,13 +1583,14 @@ class AiController implements Controller {
 
   /**
    * The Direction to attack `target` in: around the Direction it guards, Overhead or Thrust against a Crouch or
-   * a Fighter in the air, often a Thrust (the longest reach) from the edge of its reach; a random one on a mistake.
+   * a Fighter in the air (or `narrow`, with an ally beside its line), often a Thrust (the longest reach) from the edge of
+   * its reach; a random one on a mistake.
    */
-  private chooseDirection(self: FighterState, target: Sighting, dist: number): Direction {
+  private chooseDirection(self: FighterState, target: Sighting, dist: number, narrow = false): Direction {
     if (this.chance(this.skill.mistakeRate)) return this.randomDirection();
     const guard = guardOf(target.action);
     let options = DIRECTIONS.filter((d) => guard === null || mirrorDirection(d) !== guard);
-    if (target.crouch > 0.5 || target.airborne || target.action.kind === 'Knockdown') {
+    if (narrow || target.crouch > 0.5 || target.airborne || target.action.kind === 'Knockdown') {
       const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
       if (high.length > 0) options = high;
     }
@@ -1351,15 +1604,19 @@ class AiController implements Controller {
    * `timed` (its Release must come when it was pressed for) or the target cannot Block anyway (`defenceless`).
    */
   private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean } = {}): Intent {
-    const direction = opts.direction ?? this.chooseDirection(self, target, dist);
+    const direction = opts.direction ?? this.chooseDirection(self, target, dist, this.narrowLine(self));
     if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
       this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
     }
     const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
-    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff;
+    const team = this.turn === true;
+    this.turn = null;
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team;
     const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
-    this.attackPlan = planned ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff } : null;
+    this.attackPlan = planned
+      ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff, team }
+      : null;
     return { ...base, attack: true, direction };
   }
 
@@ -1373,15 +1630,17 @@ class AiController implements Controller {
   /**
    * Its own Attack under way. Wind-up: hold it while it closes in (swinging into the Attack), Feint away
    * from a Block it sees raised against it, else let it Release. Release: walk on into it. Recovery: Chain
-   * another Attack while the target is still in reach, or step back out of reach.
+   * another Attack while the target is still in reach, or step back out of reach. Played as one of a team
+   * (`AttackPlan.team`), it takes its turn without a Chain when others share its target or an ally is in its swing line.
    */
-  private pressOn(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent {
+  private pressOn(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent, team: TeamView | null): Intent {
     const a = self.action as Extract<Action, { kind: 'Attack' }>;
     const tick = state.tick;
     let plan = this.attackPlan;
     if (plan && plan.direction !== a.direction && !plan.chain) plan = this.attackPlan = { ...plan, direction: a.direction };
     const myReach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
     const closeIn = dist > Math.max(1.0, this.tuning.ai.retreatRange + 0.1) ? toward : ZERO;
+    const inLine = plan?.team === true && team !== null && this.allyInLine(self, team, toward, myReach);
     if (a.phase === 'Wind-up') {
       const guard = guardOf(target.action);
       if (plan && !plan.reFeintRolled && guard === mirrorDirection(a.direction)) {
@@ -1409,7 +1668,8 @@ class AiController implements Controller {
         const chain = this.chance(Math.min(1, p)) ? this.chooseDirection(self, target, dist) : null;
         plan = this.attackPlan = { ...plan, chainRolled: true, chain };
       }
-      if (plan.chain && dist <= this.reach(self.weapon) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
+      const myTurn = !plan.team || team === null || (team.on.length < 2 && !inLine);
+      if (plan.chain && myTurn && dist <= this.reach(self.weapon) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
         this.attackPlan = { ...plan, chainHeld: true };
         return { ...base, attack: true, direction: plan.chain, move: this.safeMove(state, self, closeIn) };
       }
@@ -1456,14 +1716,17 @@ class AiController implements Controller {
   /**
    * Meet the seen Attack as planned for it (rolled once per Attack): Block it in the Direction that meets it
    * (unless the roll made it a mistake), Crouch under a Left or Right, Chamber it, or swing on when its own
-   * Wind-up lands first.
+   * Wind-up lands first (neither of those, played as one of a team, with an ally where its blade would sweep).
    */
-  private defend(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent): Intent {
+  private defend(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent, team: TeamView | null): Intent {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const attackStart = seen.attackStart!;
     const meets = mirrorDirection(atk.direction);
     if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
-      this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets);
+      // Played as one of a team, it swings into no Attack (a Chamber, an Outpace) with an ally in its swing line.
+      const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+      const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self.weapon), 'Left');
+      this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
     const own = self.action;
@@ -1549,7 +1812,7 @@ class AiController implements Controller {
     return { ...base, move: own.kind === 'Block' ? ZERO : move };
   }
 
-  private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction): DefencePlan {
+  private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction, swings: boolean): DefencePlan {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const plan = (kind: DefencePlan['kind'], direction = meets, pressAt = -1): DefencePlan => ({ attacker, attackStart, kind, direction, pressAt });
     if (this.random() < this.skill.mistakeRate) return plan('Block', this.randomDirection(meets));
@@ -1557,7 +1820,7 @@ class AiController implements Controller {
     const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
-    if (own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self.weapon)) {
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self.weapon)) {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
     }
@@ -1567,7 +1830,7 @@ class AiController implements Controller {
       return this.lowLook(seen) ? { ...plan('Block'), reads: true } : { ...plan('Duck'), reads: true };
     }
     // Sheathed, its press would only Draw: no Chamber.
-    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && this.skill.chamberRate > 0) {
+    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
       const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
       if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);

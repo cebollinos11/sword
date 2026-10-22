@@ -90,7 +90,8 @@
       "lowSwingRead": 0.4,
       "holdBreak": 0.4,
       "whiffCheck": 0.4,
-      "punishFits": 0.4
+      "punishFits": 0.4,
+      "teamwork": 0.4
     },
     "Skilled": {
       "reactionTime": 0.26,
@@ -114,7 +115,8 @@
       "lowSwingRead": 0.7,
       "holdBreak": 0.7,
       "whiffCheck": 0.7,
-      "punishFits": 0.7
+      "punishFits": 0.7,
+      "teamwork": 0.7
     },
     "Expert": {
       "reactionTime": 0.16,
@@ -138,7 +140,8 @@
       "lowSwingRead": 0.9,
       "holdBreak": 0.9,
       "whiffCheck": 0.9,
-      "punishFits": 0.9
+      "punishFits": 0.9,
+      "teamwork": 0.9
     }
   },
   "styles": {

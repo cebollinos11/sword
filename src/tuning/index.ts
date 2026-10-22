@@ -304,10 +304,17 @@ export interface AiDifficulty {
   readonly whiffCheck?: number;
   /** 0..1: chance, rolled once per opening, that it punishes it only if its own Wind-up lands before the opening ends, and otherwise spaces out. */
   readonly punishFits?: number;
+  /**
+   * 0..1: chance it fights as one of a team, by what it sees of its allies (never what they mean to do): rolled as it picks its
+   * circling side, it takes a flank slot around the target its allies share and steers clear of allies close by; rolled once per
+   * Attack of its own, it waits while an ally on its target swings, takes turns with them, swings at a back turned on an ally,
+   * and never swings through an ally; rolled as it picks an enemy, it spreads out rather than pile onto one.
+   */
+  readonly teamwork?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];

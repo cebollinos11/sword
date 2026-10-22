@@ -299,6 +299,25 @@ describe('Peer message validation: AI Styles and the Stage 1 AI memory (docs/pla
       expect(parseNetMessage(resync(matchState(), [null, bad]))).toBeNull();
     }
   });
+
+  it("accepts a real team-playing Expert's memory (AI Stage 2) and refuses malformed team rolls", () => {
+    const ai = createAiController(tuning, { ...aiDifficulty(tuning, 'Expert'), teamwork: 1 });
+    const ally = createAiController(tuning, { ...aiDifficulty(tuning, 'Expert'), teamwork: 1 });
+    let m = createMatch(tuning, { bestOf: 1, seed: 3, teams: [1, 0, 0] });
+    for (let t = 0; t < 150; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1), ally.intent(m.duel, 2)], tuning);
+    const good = JSON.parse(JSON.stringify(ai.save!())) as Record<string, unknown>;
+    expect((good.strafe as { flank: unknown }).flank).toBe(true);
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const { lineHold: _lineHold, ...noLineHold } = good;
+    for (const bad of [
+      { ...good, strafe: { ...(good.strafe as object), flank: 'yes' } },
+      { ...good, focus: { ...(good.focus as object), spread: 1 } },
+      { ...good, turn: 'maybe' },
+      noLineHold,
+    ]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad]))).toBeNull();
+    }
+  });
 });
 
 describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage 4)', () => {

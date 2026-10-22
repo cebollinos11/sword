@@ -1024,16 +1024,16 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
-      expect([lowSwingRead, holdBreak, whiffCheck, punishFits], tier).toEqual([knob, knob, knob, knob]);
+      expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
     }
   });
 
   it('Easy, Normal and Hard leave every new knob off', () => {
     for (const name of ['Easy', 'Normal', 'Hard']) {
       const skill = skillOf(repo, aiDifficulty(repo, name));
-      expect([skill.lowSwingRead, skill.holdBreak, skill.whiffCheck, skill.punishFits], name).toEqual([0, 0, 0, 0]);
+      expect([skill.lowSwingRead, skill.holdBreak, skill.whiffCheck, skill.punishFits, skill.teamwork], name).toEqual([0, 0, 0, 0, 0]);
     }
   });
 
@@ -1214,6 +1214,119 @@ describe('AI Stage 1: exploit fixes', { timeout: 60_000 }, () => {
     restored.load!(saved);
     const a = runControllers(repo, s, [script, ai], 150);
     const b = runControllers(repo, s, [script, restored], 150);
+    expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
+  });
+});
+
+describe('AI Stage 2: team coordination (docs/plans/ai-behaviour.md)', { timeout: 120_000 }, () => {
+  /** A team of two (Fighters 1 and 2) on a dummy (Fighter 0) that never acts, looking at the pair (+z), with endless HP. */
+  const tough: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 } };
+  const pair = (teamwork: number) => ({ ...aiDifficulty(repo, 'Skilled'), teamwork, kickRate: 0, throwRate: 0 });
+  function onDummy(teamwork: number, seed: number, ticks = 1200) {
+    const placements = [
+      { position: { x: 0, z: 0 }, facing: 0 },
+      { position: { x: -0.6, z: 3 }, facing: Math.PI },
+      { position: { x: 0.6, z: 3 }, facing: Math.PI },
+    ];
+    const initial = createInitialState(tough, seed, placements, [], [1, 0, 0]);
+    return runControllers(tough, initial, [scriptedController(hold(ticks, { face: 0 })), createAiController(tough, pair(teamwork)), createAiController(tough, pair(teamwork))], ticks);
+  }
+  type Run = ReturnType<typeof onDummy>;
+  /** The angle (degrees) between Fighters 1 and 2 as seen from Fighter 0. */
+  const apart = (s: Run['final']) => {
+    const at = (k: number) => Math.atan2(s.fighters[k]!.position.x - s.fighters[0]!.position.x, s.fighters[k]!.position.z - s.fighters[0]!.position.z);
+    const d = at(1) - at(2);
+    return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) / DEG;
+  };
+  const DEG = Math.PI / 180;
+  const windingUp = (s: Run['final'], k: number) => {
+    const a = s.fighters[k]!.action;
+    return a.kind === 'Attack' && a.phase === 'Wind-up';
+  };
+
+  it('Beginner, Skilled and Expert work as a team at 0.4 / 0.7 / 0.9; Easy, Normal and Hard do not, and no Style scales it', () => {
+    expect(['Beginner', 'Skilled', 'Expert'].map((t) => skillOf(repo, aiDifficulty(repo, t)).teamwork)).toEqual([0.4, 0.7, 0.9]);
+    expect(['Easy', 'Normal', 'Hard'].map((t) => skillOf(repo, aiDifficulty(repo, t)).teamwork)).toEqual([0, 0, 0]);
+    for (const style of Object.keys(repo.ai.styles)) expect(skillOf(repo, aiDifficulty(repo, 'Skilled'), aiStyle(repo, style)).teamwork, style).toBe(0.7);
+  });
+
+  it('flank slots: in a 2 v 1 against a dummy, the two end up on opposite sides of it', () => {
+    for (let seed = 1; seed <= 6; seed++) expect(apart(onDummy(1, seed).final), `seed ${seed}`).toBeGreaterThan(120);
+    // Without teamwork they circle at random, and often end up side by side.
+    expect(Math.min(...[1, 2, 3, 4, 5, 6].map((seed) => apart(onDummy(0, seed).final)))).toBeLessThan(60);
+  });
+
+  it('turns: only one of them is ever in Wind-up at a time while the target faces them both, and they still land blows', () => {
+    let hits = 0;
+    for (let seed = 1; seed <= 6; seed++) {
+      const run = onDummy(1, seed);
+      expect(run.states.filter((s) => windingUp(s, 1) && windingUp(s, 2)).length, `seed ${seed}`).toBe(0);
+      hits += run.events.filter((e) => e.type === 'Hit' && e.defender === 0).length;
+    }
+    expect(hits).toBeGreaterThan(20);
+    const alone = onDummy(0, 1);
+    expect(alone.states.some((s) => windingUp(s, 1) && windingUp(s, 2))).toBe(true);
+  });
+
+  it('no friendly fire: a team of two never Staggers each other in seeded fights against a Skilled enemy', () => {
+    const teammateHits = (teamwork: number) => {
+      let n = 0;
+      for (let seed = 1; seed <= 8; seed++) {
+        const start = createMatch(repo, { bestOf: 1, seed, arena: 'library', teams: [0, 0, 1] });
+        const ais = [createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork }), createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork }), createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork: 0 })];
+        for (const m of runMatch(repo, start, ais, 4000).matches) n += m.duel.events.filter((e) => e.type === 'Hit' && e.defender !== 2 && e.attacker !== 2).length;
+      }
+      return n;
+    };
+    expect(teammateHits(1)).toBe(0);
+    expect(teammateHits(0)).toBeGreaterThan(5);
+  });
+
+  /** Two AIs (Fighters 0 and 1) against two idle dummies, both nearest the first (Fighter 2); `hp` is its HP fraction. */
+  function twoOnTwo(teamwork: number, hp = 1) {
+    const placements = [
+      { position: { x: -0.5, z: 0 }, facing: 0 },
+      { position: { x: 0.5, z: 0 }, facing: 0 },
+      { position: { x: 0, z: 3 }, facing: Math.PI },
+      { position: { x: 3, z: 4.5 }, facing: Math.PI },
+    ];
+    const initial = createInitialState(tough, 1, placements, [], [0, 0, 1, 1]);
+    const low = { ...initial, fighters: initial.fighters.map((f, i) => (i === 2 ? { ...f, hp: f.maxHp * hp } : f)) };
+    const calm = { ...pair(teamwork), aggression: 0 };
+    const ais = [createAiController(tough, calm), createAiController(tough, calm)];
+    const run = runControllers(tough, low, [...ais, scriptedController(wait(300)), scriptedController(wait(300))], 300);
+    // Each fights the enemy it focuses on, and has closed on it.
+    const fights = ais.map((ai) => (ai.save!() as { focus: { fighter: number } }).focus.fighter);
+    fights.forEach((j, k) => expect(Math.hypot(run.final.fighters[j]!.position.x - run.final.fighters[k]!.position.x, run.final.fighters[j]!.position.z - run.final.fighters[k]!.position.z)).toBeLessThan(2.5));
+    return fights;
+  }
+
+  it("target spread: in a team fight it takes the enemy its ally leaves free, unless the shared one is low on HP", () => {
+    expect(twoOnTwo(1)).toEqual([2, 3]);
+    expect(twoOnTwo(0)).toEqual([2, 2]);
+    expect(twoOnTwo(1, 0.2)).toEqual([2, 2]);
+  });
+
+  it('its team memory round-trips through save() and load() as plain data: restored mid-fight, the team decides exactly as it would have', () => {
+    const expert = { ...aiDifficulty(repo, 'Expert'), teamwork: 1 };
+    const placements = [
+      { position: { x: 0, z: 0 }, facing: 0 },
+      { position: { x: -0.6, z: 3 }, facing: Math.PI },
+      { position: { x: 0.6, z: 3 }, facing: Math.PI },
+    ];
+    let s = createInitialState(repo, 5, placements, [], [1, 0, 0]);
+    const dummy = scriptedController(hold(1000, { face: 0 }));
+    const ais = [createAiController(repo, expert), createAiController(repo, expert)];
+    s = runControllers(repo, s, [dummy, ...ais], 200).final;
+    const saved = ais.map((ai) => JSON.parse(JSON.stringify(ai.save!())) as { strafe: { flank: boolean }; focus: { spread: boolean } });
+    expect(saved.map((m) => m.strafe.flank)).toEqual([true, true]);
+    const restored = saved.map((m) => {
+      const ai = createAiController(repo, expert);
+      ai.load!(m);
+      return ai;
+    });
+    const a = runControllers(repo, s, [dummy, ...ais], 200);
+    const b = runControllers(repo, s, [dummy, ...restored], 200);
     expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
   });
 });

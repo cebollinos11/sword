@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGenerated
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -457,16 +457,17 @@ function isAiMemory(v: unknown): boolean {
   const a = v.attackPlan;
   const attack =
     a === null ||
-    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff));
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
   const tactic = isObject(v.tactic) && MODES.includes(v.tactic.mode as string) && isInt(v.tactic.until);
-  const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until);
+  const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until) && isBool(v.strafe.flank);
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
-  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until));
-  return seen && defence && feint && attack && route && tactic && strafe && opening && focus;
+  const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread));
+  const turn = (v.turn === null || isBool(v.turn)) && isInt(v.lineHold);
+  return seen && defence && feint && attack && route && tactic && strafe && opening && focus && turn;
 }
 
 /**

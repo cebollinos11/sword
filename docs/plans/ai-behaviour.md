@@ -1,11 +1,11 @@
 # AI behaviour: new tiers × Styles, in four playtestable Stages
 
-> Status: Stage 1 done (Styles, new tiers, exploit fixes), waiting for its playtest; Stage 2 (Team) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
+> Status: Stage 1 done and its playtest passed. Stage 2 (Team) done, waiting for its playtest; Stage 3 (Feel) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
 > Every Stage first reads this file, `CONTEXT.md`, ADRs 0001, 0005 and 0007, `src/controllers/ai.ts` and `src/controllers/ai.test.ts`. A Stage ends when `npm run typecheck` and `npm test` pass and the work is committed; then mark it done below and add its Result.
 
 ## Progress
 - [x] Stage 1: Styles, new tiers, exploit fixes
-- [ ] Stage 2: Team coordination
+- [x] Stage 2: Team coordination
 - [ ] Stage 3: Feel
 - [ ] Stage 4: Adaptation
 
@@ -113,6 +113,57 @@ It coordinates by observation only, reading allies' seen positions and Actions, 
 - **Target spread:** in team fights, it doesn't pile onto one enemy unless that enemy is low on HP or alone.
 - Then propose Gauntlet floors on the new tiers with random Styles, as `gauntlet.json` data.
 - **Tests:** in a 2 v 1 against a dummy, the two end up on opposite sides; they never Stagger each other in N seeded fights; only one is ever in Wind-up at a time when the target faces both.
+
+## Stage 2, Result
+**Built**
+- **One knob, `teamwork`** (a chance 0..1 in `AiDifficulty` and `AI_DIFFICULTY_EXTRAS`, 0 in `skillOf`, drawn only through `chance()`). Beginner, Skilled and Expert have it at 0.4 / 0.7 / 0.9. The golden test passes unchanged. With the knob at 0 the AI never even looks at its allies.
+- **By observation only.** It reads its allies in the same `seen` Observation as its enemies, Reaction Time ago: position, walk and Action. "Allies on its target" means each ally seen nearer that enemy than any other. It takes no plans from another AI, so humans count as allies too.
+- **Flank slots** (rolled with the circling side in `think`, kept in `Strafe.flank`): the team on a target, ranked by Fighter index, takes slots about the mean bearing of the team from the target: two at ±70°, three at 0° and ±115°. `footwork` circles to its slot and stops there, instead of circling at random. It also steers clear of any ally within 1 m.
+- **Turns** (rolled once per own Attack, kept in `turn` until it starts one):
+  - It starts no Attack from its spacing while an ally on its target is seen in Wind-up or Release.
+  - Otherwise it starts one only in its own turn window: 60-Tick windows, one per team member by rank, open for their first 30 Ticks. In its window it presses `n` times as often, so the team keeps the pace of one AI.
+  - It swings at once at a target seen facing an ally on it and not itself (`aimedAt`). It still punishes openings at once.
+- **No friendly fire** (same roll):
+  - `keepClear`, a last check on every Intent whatever plan pressed the Attack: it never lets a Wind-up go with an ally in its swing line. The line reaches its reach + 0.4 m and spans ±90° for a Left or Right (±135° for an ally within 1 m) or ±30° for an Overhead or Thrust. It holds the Wind-up up to 30 Ticks, until the ally is 0.4 m clearer, then Feints into a Block.
+  - With an ally beside its line it picks an Overhead or Thrust.
+  - It waits while an ally is in the narrow line.
+  - It tries no Chamber or Outpace with an ally near its line.
+  - Played as a team, it does not Chain while others share its target.
+- **Target spread** (rolled when it picks a new focus, kept in `Focus.spread`): the team is shared out in Fighter-index order. Each member takes, of the enemies within 3 m of its nearest, the one fewest before it took. An enemy below 35% of its max HP, or the last standing, counts as free.
+- **Memory**: `Strafe.flank`, `Focus.spread`, `AttackPlan.team`, `turn` and `lineHold`, all plain booleans or Ticks in `save()` and `load()`. The resync check in `src/net/messages.ts` validates them, and `PROTOCOL_VERSION` is now 18.
+- **Tests** (`ai.test.ts`, "AI Stage 2"):
+  - The ladder, off on the old tiers, no Style scaling it.
+  - 2 v 1 against a dummy: the two end up more than 120° apart in every seed (140° in practice).
+  - Never two Wind-ups at once while the target faces them both, and they still land blows.
+  - No teammate Hits in 8 seeded 2 v 1 fights against a Skilled enemy (many without the knob).
+  - Spread over two dummies, and piling onto a low-HP one.
+  - A `save()`/`load()` round trip mid-fight.
+  - The resync check accepts a real team memory and refuses malformed rolls (`messages.test.ts`).
+
+**Decided along the way (asked) and deviations**
+- **Rolls per situation**, like Stage 1's: the flank slot with the circling side; the turn and swing line once per own Attack; the spread once per focus pick.
+- **No Style scales `teamwork`.** It follows the tier only. It is in `AI_STYLE_KEYS`, so a Style could scale it later as data.
+- **Every ally counts**, a human too: the AI waits while you swing, never swings through you, and takes the slot opposite yours.
+- **Spread**: "low on HP" is below 35% of max HP; "alone" is the last of its Team standing.
+- **Beyond the plan**:
+  - **Turn windows.** "Hold while an ally is seen swinging" alone cannot stop two AIs starting within one Reaction Time of each other. The windows use only the Duel's Tick, which every peer and Fighter shares.
+  - **Pressing `n` times as often in its own window.** Without it a team of two landed about 40% of the blows one AI does.
+  - **A swing line that depends on the Direction, with Overhead or Thrust chosen beside an ally.** A single wide line stopped friendly fire but made a team of three lose 6 Matches in 20 to a single Skilled AI: it mostly stopped swinging.
+- **Soak, not a harness** (20 seeds, library, Skilled with `teamwork` 1 against Skilled with it 0; teammate Hits with teamwork off → on, then team 0's wins with it on):
+  - 2 v 1: friendly hits 32 → 0, won 20/20.
+  - 3 v 1: friendly hits 69 → 9, won 20/20.
+  - 2 v 2: friendly hits 46 → 10, won 9/20 (7/20 with it off).
+  - What still gets through is four bodies in a scrum, where an ally steps into a Release already on its way. Teamwork does not make a team win more. It changes how they fight.
+- **Gauntlet** (proposed and approved): the floors move to the new tiers with random Styles (`data/gauntlet.json`): Easy → Beginner, Normal → Skilled, Hard → Expert, every enemy `"style": "random"`, the boss included. Counts, Weapons, Bodies and `hpScale` are unchanged.
+- **A Stage 1 test gap, fixed**: the online Gauntlet test (`src/net/gauntlet.test.ts`) built its offline reference AIs without the Match options. Their `"random"` Styles came from the default Arena's seed instead of the Run's, so its reference disagreed with the peers as soon as a Floor named `"random"`. The game was right: every peer agreed with the others, with no Desync. The reference now passes the Match options, as the session does.
+
+**Playtest (`npm run dev`)**
+- **1 v 2** (Skirmish, two Skilled or Expert enemies): they should split to either side of you instead of queueing in front. Usually only one swings at a time. The one behind you swings when you turn to the other. Compare two Normal enemies, which crowd in and sometimes hit each other.
+- **1 v 3** (three Skilled or Expert): one ahead and two at the sides, taking turns. Does it feel like a group fight and still fair? Is it too passive, or too punishing when you turn your back?
+- **Allies**: you plus a Skilled or Expert AI ally against two enemies. Your ally should take the enemy you are not on, keep out of your swings and never swing through you.
+- **2 v 2 and 3 v 3 AI vs AI** (the Editor or a Skirmish with AI allies): do teams spread out one-on-one and pile onto a low-HP enemy?
+- **The Gauntlet**: Beginner to Expert with random Styles. Floors 2, 4 and 6 are the team fights. Is the difficulty curve still right?
+- **Online, two tabs**: the host sets two Expert AIs on the guest's Team, or against both Players. Play a Match with no resyncs; then a Gauntlet Run.
 
 ## Stage 3: Feel (`rhythm`, `reactionJitter`, human mistakes)
 - **Rhythm:** a rolled attack timer replaces the per-Tick coin flip from spacing. The delay is a bell-ish roll (a sum of uniforms) scaled by aggression, with occasional fast double threats (step in, Attack, Chain) and pauses. The timer lives in memory.

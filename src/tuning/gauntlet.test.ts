@@ -14,8 +14,8 @@ describe('Gauntlet Tuning Data (data/gauntlet.json)', () => {
     const g = tuning.gauntlet;
     expect(g.floors.length).toBe(7);
     expect(g.floors.map((f) => f.boss)).toEqual([false, false, false, false, false, false, true]);
-    expect(g.floors[6]!.enemies[0]).toEqual({ difficulty: 'Hard', weapon: 'Sledge Hammer', body: 'wraith', hpScale: 3 });
-    expect(g.floors[0]!.enemies[0]).toEqual({ difficulty: 'Easy', weapon: 'random', body: 'random', hpScale: 1 });
+    expect(g.floors[6]!.enemies[0]).toEqual({ difficulty: 'Expert', style: 'random', weapon: 'Sledge Hammer', body: 'wraith', hpScale: 3 });
+    expect(g.floors[0]!.enemies[0]).toEqual({ difficulty: 'Beginner', style: 'random', weapon: 'random', body: 'random', hpScale: 1 });
     expect([g.interFloorSeconds, g.heal, g.revive, g.perPlayerHp]).toEqual([5, 0.3, 0.4, 0.5]);
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
     expect(parse(g)).toEqual(g);
