@@ -29,7 +29,7 @@ The Fighter's hierarchy of bones, built from primitives and fully owned by the g
 _Avoid_: Rig, armature, model
 
 **Body**:
-How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model (female, monk, prince, brawler, librarian, duelist, snake, wraith) whose bones are placed on the Skeleton's joints every frame. Each player picks theirs in the menu, and online the Lobby tells every peer what each Member picked; the AIs wear random ones. Render-only: it never changes what the Skeleton does, and it is not part of the Match.
+How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model (female, monk, prince, brawler, librarian, duelist, snake, wraith, asturian) whose bones are placed on the Skeleton's joints every frame. Each player picks theirs in the menu, and online the Lobby tells every peer what each Member picked; the AIs wear random ones. Render-only: it never changes what the Skeleton does, and it is not part of the Match.
 _Avoid_: Skin, character model, avatar
 
 **Intent**:
