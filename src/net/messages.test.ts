@@ -320,6 +320,44 @@ describe('Peer message validation: AI Styles and the Stage 1 AI memory (docs/pla
   });
 });
 
+describe('Peer message validation: the Stage 3 AI memory (docs/plans/ai-behaviour.md)', () => {
+  /** An Expert with every feel knob on, against an attacker, as the host would send its memory: a beat, a late notice, its strafe's idle life. */
+  function feelMemory(): Record<string, unknown> {
+    const ai = createAiController(tuning, { ...aiDifficulty(tuning, 'Expert'), rhythm: 1, reactionJitter: 1, humanMistakes: 1, idleLife: 1, jumpStep: 1 });
+    let m = createMatch(tuning, { bestOf: 1, seed: 3, distance: 1.8 });
+    for (let t = 0; t < 900; t++) {
+      m = stepMatch(m, [{ ...IDLE_INTENT, attack: t % 60 >= 40, direction: 'Left' }, ai.intent(m.duel, 1)], tuning);
+      const memory = ai.save!() as { beat: { timed: boolean } | null; jitter: unknown };
+      if (t > 100 && memory.beat?.timed && memory.jitter) break;
+    }
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it('accepts a real feel memory (a beat, a jitter, idle life, a shaken Tick) and refuses malformed new fields', () => {
+    const good = feelMemory();
+    expect(good.beat).toEqual(expect.objectContaining({ timed: true }));
+    expect(good.jitter).toEqual(expect.objectContaining({ from: expect.any(Number) }));
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const { shaken: _shaken, ...noShaken } = good;
+    const strafe = good.strafe as Record<string, unknown>;
+    const { spacing: _spacing, ...noSpacing } = strafe;
+    for (const bad of [
+      { ...good, beat: { ...(good.beat as object), need: 'soon' } },
+      { ...good, beat: { timed: true } },
+      { ...good, jitter: { ...(good.jitter as object), from: -1 } },
+      { ...good, jitter: { from: 3, until: 'later', at: 2 } },
+      { ...good, strafe: { ...strafe, hop: 'yes' } },
+      { ...good, strafe: { ...strafe, still: 0 } },
+      { ...good, strafe: noSpacing },
+      { ...good, attackPlan: { direction: 'Left', holdUntil: -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, whiff: false, team: false, double: 'twice' } },
+      { ...good, defencePlan: { attacker: 0, attackStart: 3, kind: 'Block', direction: 'Right', pressAt: -1, raiseAt: 'late' } },
+      noShaken,
+    ]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
+    }
+  });
+});
+
 describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage 4)', () => {
   const RUN = 'gen:greybox:4242';
   const lineup: Lineup = [

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type Track } from '../sim';
+import { attack, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type SimState, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { aiDifficulty, aiStyle, createAiController, runControllers, runMatch, scriptedController } from './index';
 import { skillOf, stepIsSafe } from './ai';
@@ -10,6 +10,9 @@ import { skillOf, stepIsSafe } from './ai';
 const repo = loadTuningData();
 /** The AI never starts Attacks of its own here, so it is free to defend. */
 const passive: TuningData = { ...repo, ai: { ...repo.ai, aggression: 0 } };
+
+/** The Stage 3 feel knobs off: tests of other knobs on the new tiers play them as they were before it. */
+const NO_FEEL = { rhythm: 0, reactionJitter: 0, humanMistakes: 0, idleLife: 0, jumpStep: 0 };
 
 const DISTANCE = 1.3; // every Direction hits from here (see directions.test.ts)
 const defaultWeapon = Object.keys(repo.weapons)[0]!;
@@ -1024,7 +1027,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
     }
@@ -1064,7 +1067,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
 describe('AI Stage 1: exploit fixes', { timeout: 60_000 }, () => {
   /** No attacking, Kicking, throwing, spacing or mistakes of its own: it stands where it is and defends. */
-  const calm = { footwork: 0, pressure: 0, caution: 0, aggression: 0, kickRate: 0, throwRate: 0, mistakeRate: 0, feintRate: 0, chamberRate: 0, holdBreak: 0, whiffCheck: 0, punishFits: 0 };
+  const calm = { footwork: 0, pressure: 0, caution: 0, aggression: 0, kickRate: 0, throwRate: 0, mistakeRate: 0, feintRate: 0, chamberRate: 0, holdBreak: 0, whiffCheck: 0, punishFits: 0, ...NO_FEEL };
   const DEG = Math.PI / 180;
   const dist = (s: { fighters: readonly { position: { x: number; z: number } }[] }) => Math.hypot(s.fighters[0]!.position.x - s.fighters[1]!.position.x, s.fighters[0]!.position.z - s.fighters[1]!.position.z);
 
@@ -1273,7 +1276,8 @@ describe('AI Stage 2: team coordination (docs/plans/ai-behaviour.md)', { timeout
       let n = 0;
       for (let seed = 1; seed <= 8; seed++) {
         const start = createMatch(repo, { bestOf: 1, seed, arena: 'library', teams: [0, 0, 1] });
-        const ais = [createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork }), createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork }), createAiController(repo, { ...aiDifficulty(repo, 'Skilled'), teamwork: 0 })];
+        const skilled = { ...aiDifficulty(repo, 'Skilled'), ...NO_FEEL };
+        const ais = [createAiController(repo, { ...skilled, teamwork }), createAiController(repo, { ...skilled, teamwork }), createAiController(repo, { ...skilled, teamwork: 0 })];
         for (const m of runMatch(repo, start, ais, 4000).matches) n += m.duel.events.filter((e) => e.type === 'Hit' && e.defender !== 2 && e.attacker !== 2).length;
       }
       return n;
@@ -1330,3 +1334,295 @@ describe('AI Stage 2: team coordination (docs/plans/ai-behaviour.md)', { timeout
     expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
   });
 });
+
+describe('AI Stage 3: feel (docs/plans/ai-behaviour.md)', { timeout: 300_000 }, () => {
+  const DEG = Math.PI / 180;
+  const tough: TuningData = { ...repo, fighter: { ...repo.fighter, maxHp: 1e9 } };
+  const at = (s: { fighters: readonly { position: { x: number; z: number } }[] }, i: number, j: number) => Math.hypot(s.fighters[i]!.position.x - s.fighters[j]!.position.x, s.fighters[i]!.position.z - s.fighters[j]!.position.z);
+  type Memory = {
+    beat: { timed: boolean; need: number; done: number; double: boolean } | null;
+    jitter: { from: number; until: number } | null;
+    shaken: number;
+    strafe: { spacing: number; still: boolean; pause: number; hop: boolean };
+    seen: unknown[];
+  };
+
+  it('Beginner, Skilled and Expert have the feel knobs at 0.4 / 0.7 / 0.9 (jumpStep 0.2 / 0.35 / 0.5); Easy, Normal and Hard none; only Tricky and Defensive scale jumpStep', () => {
+    const knobs = (tier: string, style = 'Balanced') => {
+      const s = skillOf(repo, aiDifficulty(repo, tier), aiStyle(repo, style));
+      return [s.rhythm, s.reactionJitter, s.humanMistakes, s.idleLife, s.jumpStep];
+    };
+    expect(knobs('Beginner')).toEqual([0.4, 0.4, 0.4, 0.4, 0.2]);
+    expect(knobs('Skilled')).toEqual([0.7, 0.7, 0.7, 0.7, 0.35]);
+    expect(knobs('Expert')).toEqual([0.9, 0.9, 0.9, 0.9, 0.5]);
+    for (const tier of ['Easy', 'Normal', 'Hard']) for (const style of Object.keys(repo.ai.styles)) expect(knobs(tier, style), `${tier} ${style}`).toEqual([0, 0, 0, 0, 0]);
+    for (const style of Object.keys(repo.ai.styles)) {
+      const jumpStep = style === 'Tricky' ? 0.7 : style === 'Defensive' ? 0.175 : 0.35;
+      expect(knobs('Skilled', style), style).toEqual([0.7, 0.7, 0.7, 0.7, jumpStep]);
+    }
+  });
+
+  /** An AI (Fighter 1, `difficulty`) against a dummy (Fighter 0) that stands `gap` away looking at it, stepped a Tick at a time; its memory before each Tick. */
+  function onDummy(difficulty: AiDifficulty, ticks: number, gap = 2, seed = 1) {
+    const ai = createAiController(tough, difficulty);
+    const dummy = scriptedController(hold(ticks, { face: 0 }));
+    let s = createInitialState(tough, seed, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: gap }, facing: Math.PI }]);
+    const states = [s];
+    const memory: Memory[] = [];
+    for (let t = 0; t < ticks; t++) {
+      memory.push(ai.save!() as Memory);
+      s = runControllers(tough, s, [dummy, ai], 1).final;
+      states.push(s);
+    }
+    return { states, memory };
+  }
+  const starts = (states: readonly SimState[], k: number) => states.flatMap((s, t) => (t > 0 && s.fighters[k]!.action.kind === 'Attack' && states[t - 1]!.fighters[k]!.action.kind !== 'Attack' ? [t] : []));
+
+  it('rhythm: it starts no Attack from its spacing before its beat comes (the pace it needs spent), and a double threat Chains', () => {
+    const skilled = { ...aiDifficulty(repo, 'Skilled'), rhythm: 1, kickRate: 0, throwRate: 0, feintRate: 0, chainRate: 0, jumpAttackRate: 0 };
+    const { states, memory } = onDummy(skilled, 3000);
+    let timed = 0;
+    let doubles = 0;
+    let chained = 0;
+    for (const t of starts(states, 1)) {
+      // The Intent pressed on Tick t - 1 (as memory[t - 1] had it before) started it.
+      const beat = memory[t - 1]!.beat;
+      if (!beat) continue;
+      expect(beat.timed).toBe(true);
+      // At most the pace of Pressure (2.5 times its aggression) spent on that Tick.
+      expect(beat.done + 2.5 * skilled.aggression!, `Attack at ${t}`).toBeGreaterThanOrEqual(beat.need);
+      timed++;
+      if (!beat.double) continue;
+      doubles++;
+      let k = t;
+      while (k < states.length && states[k]!.fighters[1]!.action.kind === 'Attack' && !(states[k]!.fighters[1]!.action as { chain?: unknown }).chain) k++;
+      if (k < states.length && states[k]!.fighters[1]!.action.kind === 'Attack') chained++;
+    }
+    expect(timed, 'it never attacked on a beat').toBeGreaterThan(10);
+    expect(doubles, 'no double threat').toBeGreaterThan(0);
+    // chainRate 0: only a double threat Chains.
+    expect(chained).toBe(doubles);
+    // Without it there is no beat (a coin flip every Tick), and the beat keeps about the coin flip's pace.
+    const without = onDummy({ ...skilled, rhythm: 0 }, 3000);
+    expect(without.memory.every((m) => m.beat === null)).toBe(true);
+    const pace = starts(states, 1).length / starts(without.states, 1).length;
+    expect(pace).toBeGreaterThan(0.7);
+    expect(pace).toBeLessThan(1.4);
+  });
+
+  it('reactionJitter: it notices an Attack 1 to half its Reaction Time (at most 6 Ticks) late, rolled per Attack, and keeps that much more of what it saw', () => {
+    const reactionTime = 0.25;
+    const reactionTicks = Math.round(reactionTime * TICK_RATE);
+    const most = Math.min(6, Math.ceil(reactionTicks / 2));
+    const lates: number[] = [];
+    for (let seed = 1; seed <= 10; seed++) {
+      const ai = createAiController(passive, { reactionTime, mistakeRate: 0, feintRate: 0, reactionJitter: 1 });
+      const intents: Intent[] = [];
+      const recording = { intent: (s: SimState, i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+      const run = runControllers(passive, createInitialState(passive, seed, duelPlacements(DISTANCE)), [scriptedController([...wait(30), ...attack('Overhead')]), recording], 120);
+      expect((ai.save!() as Memory).seen.length).toBe(reactionTicks + most + 1);
+      const seen = run.states.findIndex((s) => s.fighters[0]!.action.kind === 'Attack');
+      lates.push(intents.findIndex((x) => x.block) - (seen + reactionTicks));
+    }
+    for (const late of lates) {
+      expect(late).toBeGreaterThanOrEqual(1);
+      expect(late).toBeLessThanOrEqual(most);
+    }
+    expect(new Set(lates).size, 'every Attack was as late').toBeGreaterThan(2);
+    // Without it, its memory keeps Reaction Time's worth (the Reaction Time test shows it reacts right on time).
+    const plain = createAiController(passive, { reactionTime, mistakeRate: 0, feintRate: 0 });
+    runControllers(passive, createInitialState(passive, 1, duelPlacements(DISTANCE)), [scriptedController(wait(60)), plain], 60);
+    expect((plain.save!() as Memory).seen.length).toBe(reactionTicks + 1);
+  });
+
+  /** Every Block it raises against a string of Attacks (at a mistake rate of 1): its Direction, the one that meets the Attack, and how many Ticks after Reaction Time it came. */
+  function mistakes(humanMistakes: number) {
+    const reactionTime = 0.25;
+    const reactionTicks = Math.round(reactionTime * TICK_RATE);
+    const dirs: Direction[] = ['Thrust', 'Left', 'Overhead', 'Right', 'Right', 'Left', 'Thrust', 'Overhead', 'Left', 'Thrust', 'Right', 'Overhead'];
+    const out: { block: Direction; meets: Direction; late: number }[] = [];
+    for (let seed = 1; seed <= 4; seed++) {
+      const ai = createAiController(passive, { reactionTime, mistakeRate: 1, feintRate: 0, humanMistakes });
+      const intents: Intent[] = [];
+      const recording = { intent: (s: SimState, i: number) => (intents.push(ai.intent(s, i)), intents[intents.length - 1]!) };
+      const a: Track = dirs.flatMap((d) => [...wait(80), ...attack(d, 30)]);
+      const run = runControllers(tough, createInitialState(tough, seed, duelPlacements(DISTANCE)), [scriptedController(a), recording], dirs.length * 110);
+      const begun = starts(run.states, 0);
+      begun.forEach((t, n) => {
+        const end = begun[n + 1] ?? intents.length;
+        const k = intents.findIndex((x, i) => i >= t && i < end && x.block);
+        const atk = run.states[t]!.fighters[0]!.action as { direction: Direction };
+        if (k >= 0) out.push({ block: intents[k]!.direction, meets: atk.direction === 'Left' ? 'Right' : atk.direction === 'Right' ? 'Left' : atk.direction, late: k - (t + reactionTicks) });
+      });
+    }
+    return out;
+  }
+  const opposite = (d: Direction): Direction => ({ Left: 'Right', Right: 'Left', Overhead: 'Thrust', Thrust: 'Overhead' })[d] as Direction;
+
+  it('humanMistakes: a mistake is a late Block or one beside the right Direction, never its opposite; without it, a wrong Direction on time', () => {
+    const human = mistakes(1);
+    expect(human.length).toBeGreaterThan(30);
+    for (const m of human) {
+      if (m.block === m.meets) expect(m.late, 'a right Block, so a late one').toBeGreaterThanOrEqual(3);
+      else {
+        expect(m.block).not.toBe(opposite(m.meets));
+        expect(m.late).toBe(0);
+      }
+    }
+    expect(human.filter((m) => m.block === m.meets).length, 'no late Block').toBeGreaterThan(5);
+    expect(human.filter((m) => m.block !== m.meets).length, 'no Block beside').toBeGreaterThan(5);
+    const plain = mistakes(0);
+    expect(plain.every((m) => m.block !== m.meets && m.late === 0)).toBe(true);
+    expect(plain.some((m) => m.block === opposite(m.meets))).toBe(true);
+  });
+
+  it('humanMistakes: just after its own Attack it is shaken for a while (its lapses likelier)', () => {
+    const skilled = { ...aiDifficulty(repo, 'Skilled'), humanMistakes: 1, kickRate: 0, throwRate: 0 };
+    const { states, memory } = onDummy(skilled, 600);
+    const recovery = states.findIndex((s) => s.fighters[1]!.action.kind === 'Attack' && (s.fighters[1]!.action as { phase: string }).phase === 'Recovery');
+    expect(recovery).toBeGreaterThan(0);
+    expect(memory[recovery + 1]!.shaken).toBeGreaterThan(recovery + 30);
+    expect(onDummy({ ...skilled, humanMistakes: 0 }, 300).memory.every((m) => m.shaken === -1)).toBe(true);
+  });
+
+  it('idleLife: it varies its spacing, stops circling and pauses now and then, where without it it circles steadily', () => {
+    const calm = { ...aiDifficulty(repo, 'Skilled'), aggression: 0, kickRate: 0, throwRate: 0, pressure: 0, caution: 0 };
+    const life = (idleLife: number) => {
+      let still = 0;
+      const gaps: number[] = [];
+      for (let seed = 1; seed <= 3; seed++) {
+        const { states } = onDummy({ ...calm, idleLife }, 1500, 2, seed);
+        for (let t = 300; t < states.length; t++) {
+          if (at(states[t]!, 1, 1) === 0 && states[t]!.fighters[1]!.position.x === states[t - 1]!.fighters[1]!.position.x && states[t]!.fighters[1]!.position.z === states[t - 1]!.fighters[1]!.position.z) still++;
+          gaps.push(at(states[t]!, 0, 1));
+        }
+      }
+      const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+      return { still, spread: Math.sqrt(gaps.reduce((a, b) => a + (b - mean) ** 2, 0) / gaps.length) };
+    };
+    const on = life(1);
+    const off = life(0);
+    expect(on.still).toBeGreaterThan(off.still + 100);
+    expect(on.spread).toBeGreaterThan(off.spread);
+  });
+  /** Fighters as (x, z) facing +z (0) or the AI-ish way; teams; Controllers; run for `ticks`. */
+  const placed = (spots: [number, number][], teams: number[], seed = 1, tuning: TuningData = tough, arena?: string) =>
+    createInitialState(tuning, seed, spots.map(([x, z]) => ({ position: { x, z }, facing: 0 })), [], teams, arena);
+  const hops = (run: { events: readonly { type: string; fighter?: number }[] }, k: number) => run.events.filter((e) => e.type === 'Jump' && e.fighter === k).length;
+  /** No attacking, Kicking, throwing or other Jumps of its own: only the hops show. */
+  const hopper = (jumpStep: number, teamwork = 0) => ({ ...aiDifficulty(repo, 'Skilled'), aggression: 0, kickRate: 0, throwRate: 0, jumpAttackRate: 0, jumpEscapeRate: 0, caution: 0, pressure: 0, jumpStep, teamwork });
+
+  it('jumpStep: in a 2 v 1 against a dummy, with its walk round blocked by a strip of Lava, it hops round to its flank slot, sooner than walking', () => {
+    // Open ground with a Lava strip (x -0.9..-0.5, z 0.8..4) cut out of it, a Lava sheet 1 m below.
+    const floor = (id: string, x0: number, x1: number, z0: number, z1: number) => ({ id, points: [[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]] });
+    const walk = [floor('WALK_w', -8, -0.9, -8, 8), floor('WALK_e', -0.5, 8, -8, 8), floor('WALK_s', -0.9, -0.5, -8, 0.8), floor('WALK_n', -0.9, -0.5, 4, 8)];
+    const arena = parseArena({ name: 'strip', walk: [...walk, { id: 'WALK_lava', lava: true, points: [[-10, -1, -10], [10, -1, -10], [10, -1, 10], [-10, -1, 10]] }] }, 'strip');
+    const tuning: TuningData = { ...tough, arenas: { ...tough.arenas, strip: arena } };
+    /** The angle (degrees) between Fighters 1 and 2 as seen from the dummy (Fighter 0). */
+    const apart = (st: SimState) => {
+      const b = (k: number) => Math.atan2(st.fighters[k]!.position.x - st.fighters[0]!.position.x, st.fighters[k]!.position.z - st.fighters[0]!.position.z);
+      const d = b(1) - b(2);
+      return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) / DEG;
+    };
+    const flank = (jumpStep: number, seed: number) => {
+      const ais = [createAiController(tuning, hopper(jumpStep, 1)), createAiController(tuning, hopper(jumpStep, 1))];
+      // Fighter 1 takes the slot to the west (-x), across the strip.
+      const run = runControllers(tuning, placed([[0, 0], [-0.15, 2], [0.15, 2.2]], [1, 0, 0], seed, tuning, 'strip'), [scriptedController(hold(900, { face: 0 })), ...ais], 900);
+      expect(run.states.some((st) => st.fighters.some((f) => f.death !== undefined)), `seed ${seed}`).toBe(false);
+      return { when: run.states.findIndex((st) => apart(st) > 120), hops: hops(run, 1) };
+    };
+    for (let seed = 1; seed <= 4; seed++) {
+      const hopped = flank(1, seed);
+      const walked = flank(0, seed);
+      expect(hopped.hops, `seed ${seed}`).toBeGreaterThan(0);
+      expect(walked.hops, `seed ${seed}`).toBe(0);
+      expect(hopped.when, `seed ${seed}: never on opposite sides`).toBeGreaterThan(0);
+      if (walked.when >= 0) expect(hopped.when, `seed ${seed}`).toBeLessThan(walked.when);
+    }
+    // On open ground, the walk round is not blocked, and it walks.
+    const open = runControllers(tough, placed([[0, 0], [-0.15, 2], [0.15, 2.2]], [1, 0, 0]), [scriptedController(hold(600, { face: 0 })), createAiController(tough, hopper(1, 1)), createAiController(tough, hopper(1, 1))], 600);
+    expect(hops(open, 1) + hops(open, 2)).toBe(0);
+  });
+
+  it('jumpStep: caught between two enemies, it hops out to have both in front of it', () => {
+    /** The angle (degrees) between the two enemies as seen from the AI (Fighter 2). */
+    const spread = (st: SimState) => {
+      const b = (k: number) => Math.atan2(st.fighters[k]!.position.x - st.fighters[2]!.position.x, st.fighters[k]!.position.z - st.fighters[2]!.position.z);
+      const d = b(0) - b(1);
+      return Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) / DEG;
+    };
+    for (let seed = 1; seed <= 4; seed++) {
+      const ai = createAiController(tough, hopper(1));
+      const dummies = [scriptedController(hold(200, { face: Math.PI / 2 })), scriptedController(hold(200, { face: -Math.PI / 2 }))];
+      const run = runControllers(tough, placed([[-1.2, 0], [1.2, 0], [0, 0]], [1, 1, 0], seed), [...dummies, ai], 200);
+      const hop = run.states.findIndex((st) => st.fighters[2]!.air !== undefined);
+      expect(hop, `seed ${seed}: it never hopped`).toBeGreaterThan(0);
+      expect(hop, `seed ${seed}`).toBeLessThan(60);
+      const landed = run.states.findIndex((st, t) => t > hop && st.fighters[2]!.air === undefined);
+      expect(spread(run.states[landed]!), `seed ${seed}`).toBeLessThan(100);
+    }
+  });
+
+  it('jumpStep: it never hops with an enemy Attack or Kick seen coming in reach, in seeded fights', () => {
+    const reactionTicks = Math.round(aiDifficulty(repo, 'Skilled').reactionTime * TICK_RATE);
+    const fighter = { ...aiDifficulty(repo, 'Skilled'), jumpAttackRate: 0, jumpEscapeRate: 0, jumpStep: 1 };
+    let total = 0;
+    for (const teams of [[0, 1], [0, 1, 1]]) {
+      for (let seed = 1; seed <= 4; seed++) {
+        const ais = teams.map(() => createAiController(tough, fighter));
+        const run = runControllers(tough, placed(teams.map((_, k) => [k * 1.5 - 1, 2 * (k % 2)] as [number, number]), teams, seed), ais, 1500);
+        run.states.forEach((st, t) => {
+          if (t === 0) return;
+          st.fighters.forEach((f, k) => {
+            if (f.air === undefined || run.states[t - 1]!.fighters[k]!.air !== undefined) return;
+            total++;
+            // It pressed Jump on Tick t - 1, looking at Tick t - 1 - Reaction Time.
+            const seen = run.states[t - 1 - reactionTicks]!;
+            seen.fighters.forEach((e, j) => {
+              if (e.team === f.team) return;
+              const coming = (e.action.kind === 'Attack' || e.action.kind === 'Kick') && e.action.phase !== 'Recovery';
+              expect(coming && at(seen, j, k) <= repo.ai.attackRange + 0.15, `teams ${teams} seed ${seed} Tick ${t}`).toBe(false);
+            });
+          });
+        });
+      }
+    }
+    expect(total, 'they never hopped: the soak proves nothing').toBeGreaterThan(10);
+  });
+
+  it('jumpStep: it never hops where jumpIsSafe says no: caught between two enemies on a pier over Lava, it does not hop off it', () => {
+    const arena = parseArena({ name: 'pier', walk: [{ id: 'WALK_pier', points: [[-0.75, 0, -8], [0.75, 0, -8], [0.75, 0, 8], [-0.75, 0, 8]] }, { id: 'WALK_lava', lava: true, points: [[-10, -1, -10], [10, -1, -10], [10, -1, 10], [-10, -1, 10]] }] }, 'pier');
+    const tuning: TuningData = { ...tough, arenas: { ...tough.arenas, pier: arena } };
+    const run = (spots: [number, number][], t: TuningData, name?: string) => {
+      const ai = createAiController(t, hopper(1));
+      const dummies = [scriptedController(hold(300, { face: 0 })), scriptedController(hold(300, { face: Math.PI }))];
+      return runControllers(t, placed(spots, [1, 1, 0], 1, t, name), [...dummies, ai], 300);
+    };
+    // Along the pier, enemies ahead and behind: the way out is sideways, into the Lava.
+    const pier = run([[0, -1.2], [0, 1.2], [0, 0]], tuning, 'pier');
+    expect(pier.states.some((st) => st.fighters[2]!.death !== undefined)).toBe(false);
+    expect(hops(pier, 2)).toBe(0);
+    // The same on open ground: it hops out.
+    expect(hops(run([[0, -1.2], [0, 1.2], [0, 0]], tough), 2)).toBeGreaterThan(0);
+  });
+
+  it('its memory round-trips through save() and load() as plain data, mid-plan: a restored Expert with every feel knob on decides exactly as it would have', () => {
+    const expert = { ...aiDifficulty(repo, 'Expert'), rhythm: 1, reactionJitter: 1, humanMistakes: 1, idleLife: 1, jumpStep: 1 };
+    const ai = createAiController(repo, expert, 'Tricky');
+    const script = scriptedController(Array.from({ length: 12 }, () => [...wait(40), ...attack('Left', 20)]).flat());
+    let s = createInitialState(repo, 6, duelPlacements(1.8));
+    let saved: unknown = null;
+    for (let t = 0; t < 600 && saved === null; t++) {
+      s = runControllers(repo, s, [script, ai], 1).final;
+      const memory = ai.save!() as Memory;
+      if (memory.jitter && s.tick < memory.jitter.until && memory.beat?.timed && memory.shaken > s.tick) saved = JSON.parse(JSON.stringify(memory));
+    }
+    expect(saved, 'it never had a beat, a late notice and a lapse at once').not.toBeNull();
+    const restored = createAiController(repo, expert, 'Tricky');
+    restored.load!(saved);
+    const a = runControllers(repo, s, [script, ai], 200);
+    const b = runControllers(repo, s, [script, restored], 200);
+    expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
+  });
+});
+

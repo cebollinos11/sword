@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGenerated
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -452,22 +452,28 @@ function isAiMemory(v: unknown): boolean {
       isDirection(d.direction) &&
       isInt(d.pressAt) &&
       (d.reads === undefined || isBool(d.reads)) &&
-      (d.holdBreak === undefined || holdBreak(d.holdBreak)));
+      (d.holdBreak === undefined || holdBreak(d.holdBreak)) &&
+      (d.raiseAt === undefined || isInt(d.raiseAt)));
   const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
   const a = v.attackPlan;
   const attack =
     a === null ||
-    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team));
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team) && (a.double === undefined || isBool(a.double)));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
   const tactic = isObject(v.tactic) && MODES.includes(v.tactic.mode as string) && isInt(v.tactic.until);
-  const strafe = isObject(v.strafe) && (v.strafe.sign === 1 || v.strafe.sign === -1) && isInt(v.strafe.until) && isBool(v.strafe.flank);
+  const st = v.strafe;
+  const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop);
   const o = v.opening;
   const opening = o === null || (isObject(o) && isTick(o.fighter) && isInt(o.seen) && isBool(o.go) && isBool(o.fits));
   const focus = v.focus === null || (isObject(v.focus) && isTick(v.focus.fighter) && isInt(v.focus.until) && isBool(v.focus.spread));
   const turn = (v.turn === null || isBool(v.turn)) && isInt(v.lineHold);
-  return seen && defence && feint && attack && route && tactic && strafe && opening && focus && turn;
+  const b = v.beat;
+  const beat = b === null || (isObject(b) && isBool(b.timed) && isNum(b.need) && isNum(b.done) && isBool(b.double) && isBool(b.wild));
+  const j = v.jitter;
+  const jitter = j === null || (isObject(j) && isTick(j.from) && isInt(j.until) && isInt(j.at));
+  return seen && defence && feint && attack && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
 }
 
 /**

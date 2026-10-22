@@ -311,10 +311,31 @@ export interface AiDifficulty {
    * and never swings through an ally; rolled as it picks an enemy, it spreads out rather than pile onto one.
    */
   readonly teamwork?: number;
+  /**
+   * 0..1: chance, rolled once per Attack of its own from its spacing, that it times it by a rhythm rather than a coin flip
+   * every Tick: a rolled beat (bell-shaped about its aggression's pace) with the odd pause, and now and then a fast double
+   * threat (step in, Attack, Chain).
+   */
+  readonly rhythm?: number;
+  /** 0..1: chance, rolled once per enemy Attack it sees coming, that it notices it late: by up to half its Reaction Time more (at most 0.1 s). */
+  readonly reactionJitter?: number;
+  /**
+   * 0..1: chance, rolled once per Attack it defends, that its mistake (at `mistakeRate`) is a human one: a Block raised a few
+   * Ticks late, or in a Direction beside the right one, a little likelier just after its own Attack or being hit.
+   */
+  readonly humanMistakes?: number;
+  /** 0..1: chance, rolled as it picks its circling side, that it varies its spacing, stops circling for a while, or takes a short pause. */
+  readonly idleLife?: number;
+  /**
+   * 0..1: chance, rolled as it picks its circling side, that it may hop (a tapped Jump) to reposition: out from between two
+   * enemies, or round to its flank slot when the walk there is blocked. Never with an enemy Attack in reach, and only where
+   * `jumpIsSafe` says it lands safely.
+   */
+  readonly jumpStep?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];

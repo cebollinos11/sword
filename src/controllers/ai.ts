@@ -7,7 +7,8 @@
  *    have fallen, and the visible Action and pose (the Wind-up pose reveals the
  *    Direction, and how far along it is). Never anyone's Intents.
  *  - It acts on the others only as seen `reactionTime` ago (its Reaction
- *    Time). Its own Fighter it knows up to date.
+ *    Time), or a little longer when it notices an Attack late (`reactionJitter`).
+ *    Its own Fighter it knows up to date.
  *  - With several enemies it fights its focus: the nearest one (or with
  *    `teamwork` the one its allies leave free), kept until another is clearly
  *    nearer, or one that swings or Kicks at it, kept for a while (`chooseFocus`).
@@ -106,6 +107,19 @@
  *      its line, and tries no Chamber or Outpace with one near it.
  *    - Target spread (rolled as it picks an enemy): it fights the enemy its team leaves free (`spreadPick`), unless
  *      the one they share is low on HP (LOW_HP) or the last standing.
+ *  - Feel (the human touches, each rolled as below; none changes what it sees, only when and how it acts on it):
+ *    - Rhythm (`rhythm`, rolled once per Attack from its spacing): instead of a coin flip every Tick, it swings on a beat,
+ *      the pace the coin flip would have pressed at summed up to a bell-shaped need (`Beat`), now and then after a pause,
+ *      now and then as a double threat (step in, swing, Chain).
+ *    - Reaction jitter (`reactionJitter`, rolled once per enemy Attack it sees coming): noticed 1 to half its Reaction Time
+ *      late (at most JITTER_MAX), it acts on the Tick before it saw it until then (`sight`; it keeps that much more of what it saw).
+ *    - Human mistakes (`humanMistakes`, rolled once per Attack it defends): its mistake is a Block raised a few Ticks late,
+ *      or one beside the right Direction, a little likelier just after its own Attack or being hit (`shaken`).
+ *    - Idle life (`idleLife`, rolled with its circling side): a spacing of its own, no circling for a while, a short pause.
+ *    - Jump steps (`jumpStep`, rolled with its circling side, one hop each): a tapped Jump out of a pincer, or round to its
+ *      flank slot when the walk round is blocked (`hopStep`). A hop is no quicker than a walk and cannot Block, so never
+ *      with an enemy Attack or Kick seen coming in reach (as seen Reaction Time ago, jitter or not), and only where
+ *      `jumpIsSafe` says it lands safely, its arc out of every enemy's reach.
  *  - Sheathe and Draw: it never Sheathes. Its own Fighter Sheathed (after an AI
  *    Takeover), it Draws (pressing attack Draws) once an enemy on its level is
  *    near, and a Block it means raises once the Draw is done. An enemy it sees
@@ -225,6 +239,8 @@ interface DefencePlan {
   readonly reads?: boolean;
   /** Whether it breaks this Wind-up's hold (`holdBreak`, rolled once it is held long enough), and the Tick it began to. */
   readonly holdBreak?: { readonly go: boolean; readonly at: number };
+  /** A late Block (`humanMistakes`): it raises it no sooner than this Tick. */
+  readonly raiseAt?: number;
 }
 
 /** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
@@ -253,6 +269,8 @@ interface AttackPlan {
   readonly whiff: boolean;
   /** It rolled to play this Attack as one of a team (`teamwork`): it holds the Wind-up while an ally is in its swing line (`keepClear`), and takes its turn without a Chain. */
   readonly team: boolean;
+  /** A double threat (`rhythm`): it Chains this Attack whatever its `chainRate`. */
+  readonly double?: boolean;
 }
 
 type Mode = 'Neutral' | 'Pressure' | 'Disengage';
@@ -269,6 +287,32 @@ interface Strafe {
   readonly until: number;
   /** It rolled to take a flank slot (`teamwork`) rather than circle: it steers to its slot around a target allies share, and clear of allies close by. */
   readonly flank: boolean;
+  /** Idle life (`idleLife`, rolled with the side): how much (m) further out than its spacing it hovers, whether it stops circling, and the Tick a short pause ends (-1: none). */
+  readonly spacing: number;
+  readonly still: boolean;
+  readonly pause: number;
+  /** It rolled to hop to reposition (`jumpStep`): the next hop it finds a reason and a safe way for, it takes (once). */
+  readonly hop: boolean;
+}
+
+/**
+ * When its next Attack from its spacing comes (`rhythm`, rolled once per such Attack; not `timed`, the old coin flip every Tick):
+ * once the pace it has spent (`done`: each Tick from its spacing, what the coin flip would have pressed at) reaches `need`;
+ * as a double threat (`double`: it Chains it); and whether, out of reach when it comes, it swings at air anyway (`wild`, the mistake).
+ */
+interface Beat {
+  readonly timed: boolean;
+  readonly need: number;
+  readonly done: number;
+  readonly double: boolean;
+  readonly wild: boolean;
+}
+
+/** The newest enemy Attack it rolled a jitter for (`reactionJitter`; its `attackStart`), and the Tick it notices it on: until then it acts on the Tick before it saw it. */
+interface Jitter {
+  readonly from: number;
+  readonly until: number;
+  readonly at: number;
 }
 
 /** Whether it goes for the opening it last saw (`fighter`'s, seen up to Tick `seen`). */
@@ -339,6 +383,12 @@ interface AiMemory {
   readonly turn: boolean | null;
   /** Holding its Wind-up for an ally in its swing line, it Feints into a Block on this Tick (-1: not holding for one). */
   readonly lineHold: number;
+  /** When its next Attack from its spacing comes (`rhythm`), or null before the roll. */
+  readonly beat: Beat | null;
+  /** The enemy Attack it is (or was last) late to notice (`reactionJitter`). */
+  readonly jitter: Jitter | null;
+  /** Lapses are likelier until this Tick (`humanMistakes`): just after its own Attack or being hit (-1: none). */
+  readonly shaken: number;
 }
 
 /** The enemy it fights (`fighter`), kept whatever the others do until Tick `until` (-1: only while none is much nearer). */
@@ -454,6 +504,53 @@ const SPREAD_RANGE = 3;
 /** An enemy below this fraction of its max HP may be piled onto. */
 const LOW_HP = 0.35;
 
+/**
+ * Rhythm: a beat needs a sum of BEAT_ROLLS uniforms of pace; at BEAT_PAUSE it pauses one to two beats more first, and at
+ * BEAT_DOUBLE it is a double threat. With the pauses, a beat needs 1 on average: the coin flip's own mean wait, whatever
+ * its tactic or range does to the pace on the way.
+ */
+const BEAT_ROLLS = 3;
+const BEAT_PAUSE = 0.15;
+const BEAT_DOUBLE = 0.2;
+const BEAT = 1 / (1 + BEAT_PAUSE * 1.5);
+/**
+ * Idle life: its spacing varies from SPACING_IN (m) inside its own to SPACING_OUT beyond; at LIFE_STILL it stops circling
+ * for the while, and at LIFE_PAUSE it stands still first for PAUSE_TICKS, plus up to as many more.
+ */
+const SPACING_IN = 0.15;
+const SPACING_OUT = 0.35;
+const LIFE_STILL = 0.3;
+const LIFE_PAUSE = 0.3;
+const PAUSE_TICKS = 15;
+/**
+ * Human mistakes: at LATE_SHARE a mistake is a Block raised LATE_MIN Ticks late (plus up to LATE_SPREAD more), else one in a
+ * Direction BESIDE the right one (never its opposite); for LAPSE_TICKS after its own Attack or being hit they are LAPSE times as likely.
+ */
+const LATE_SHARE = 0.6;
+const LATE_MIN = 3;
+const LATE_SPREAD = 6;
+const LAPSE = 1.5;
+const LAPSE_TICKS = 45;
+const BESIDE: Readonly<Record<Direction, readonly Direction[]>> = { Overhead: ['Left', 'Right'], Thrust: ['Left', 'Right'], Left: ['Overhead', 'Thrust'], Right: ['Overhead', 'Thrust'] };
+/**
+ * Jump steps: it hops out from between two enemies in reach seen more than PINCER apart (radians, from it), or round to a
+ * flank slot more than HOP_SLOT off its bearing when the walk round is blocked: unsafe, or an ally in the way (within
+ * ALLY_AHEAD (m) along it and ALLY_ASIDE across). Its arc stays HOP_CLEAR beyond every enemy's reach and ALLY_CLEAR from
+ * every ally, and it takes off with no enemy Attack or Kick seen coming within reach and HOP_THREAT more.
+ */
+const PINCER = 120 * DEG;
+const HOP_SLOT = 20 * DEG;
+const ALLY_AHEAD = 1.5;
+const ALLY_ASIDE = 0.8;
+const HOP_CLEAR = 0.1;
+const ALLY_CLEAR = 0.6;
+const HOP_THREAT = 0.5;
+/** ...a pincer is two enemies within this much (m) beyond their reach. */
+const PINCER_NEAR = 0.3;
+
+/** A late notice (`reactionJitter`) is at most this many Ticks (0.1 s): more, on a slow Reaction Time, and it Blocks almost nothing in time. */
+const JITTER_MAX = 6;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -498,6 +595,11 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     whiffCheck: 0,
     punishFits: 0,
     teamwork: 0,
+    rhythm: 0,
+    reactionJitter: 0,
+    humanMistakes: 0,
+    idleLife: 0,
+    jumpStep: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -551,7 +653,7 @@ function tickRng(state: SimState, fighter: number): RngState {
 
 const ZERO: Vec2 = Object.freeze({ x: 0, z: 0 });
 const NEUTRAL: Tactic = Object.freeze({ mode: 'Neutral', until: -1 });
-const NO_STRAFE: Strafe = Object.freeze({ sign: 1, until: -1, flank: false });
+const NO_STRAFE: Strafe = Object.freeze({ sign: 1, until: -1, flank: false, spacing: 0, still: false, pause: -1, hop: false });
 
 function unit(v: Vec2): Vec2 {
   const d = Math.hypot(v.x, v.z);
@@ -601,10 +703,12 @@ interface Enemy {
 
 class AiController implements Controller {
   private readonly reactionTicks: number;
+  /** The most Ticks late it may notice an Attack (`reactionJitter`): half its Reaction Time, at most JITTER_MAX, or 0 without the knob. */
+  private readonly jitterTicks: number;
   private readonly skill: Skill;
   /** This Tick's generator (derived from state each call, never carried between Ticks). */
   private rng: RngState = createRng(0);
-  /** Observations of every Fighter, oldest first; only the last reactionTicks + 1 are kept. */
+  /** Observations of every Fighter, oldest first; only the last reactionTicks + jitterTicks + 1 are kept. */
   private seen: Observation[] = [];
   private lastTick = -1;
   private defencePlan: DefencePlan | null = null;
@@ -623,6 +727,9 @@ class AiController implements Controller {
   private focus: Focus | null = null;
   private turn: boolean | null = null;
   private lineHold = -1;
+  private beat: Beat | null = null;
+  private jitter: Jitter | null = null;
+  private shaken = -1;
   /** This Tick's view of its team around its target and the way to it (`decide` sets it; never carried between Ticks). */
   private view: { readonly team: TeamView; readonly toward: Vec2 } | null = null;
 
@@ -633,12 +740,13 @@ class AiController implements Controller {
   ) {
     this.reactionTicks = secondsToTicks(difficulty.reactionTime);
     this.skill = skillOf(tuning, difficulty, style);
+    this.jitterTicks = this.skill.reactionJitter > 0 ? Math.min(JITTER_MAX, Math.max(1, Math.ceil(this.reactionTicks / 2))) : 0;
   }
 
   /** All of the Controller's memory, as plain data (observations and plans are immutable, so a shallow array copy is enough). */
   save(): AiMemory {
-    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold } = this;
-    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold };
+    const { seen, lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken } = this;
+    return { seen: [...seen], lastTick, defencePlan, feintPlan, attackPlan, throwPlan, aimError, route, jumpRun, failedJumps, landing, tactic, strafe, opening, lastHp, focus, turn, lineHold, beat, jitter, shaken };
   }
 
   load(saved: unknown): void {
@@ -661,6 +769,9 @@ class AiController implements Controller {
     this.focus = m.focus;
     this.turn = m.turn;
     this.lineHold = m.lineHold;
+    this.beat = m.beat;
+    this.jitter = m.jitter;
+    this.shaken = m.shaken;
   }
 
   private random(): number {
@@ -709,6 +820,9 @@ class AiController implements Controller {
       this.focus = null;
       this.turn = null;
       this.lineHold = -1;
+      this.beat = null;
+      this.jitter = null;
+      this.shaken = -1;
     }
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
@@ -743,7 +857,7 @@ class AiController implements Controller {
       };
     });
     this.seen.push({ tick: state.tick, fighters });
-    if (this.seen.length > this.reactionTicks + 1) this.seen.shift();
+    if (this.seen.length > this.reactionTicks + this.jitterTicks + 1) this.seen.shift();
   }
 
   /** How far (m) a Fighter with `weapon` reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one. */
@@ -786,10 +900,38 @@ class AiController implements Controller {
     return tick < this.lineHold ? { ...intent, attack: true, direction: a.direction } : { ...intent, attack: false, block: true, direction: a.direction };
   }
 
+  /**
+   * The Observation it acts on this Tick: everyone as seen Reaction Time ago, or null before it has seen that far back. With
+   * `reactionJitter`, each enemy Attack it sees coming (newer than any it rolled for) is rolled once to be noticed late, by 1
+   * to `jitterTicks` Ticks: until then it acts on what it saw the Tick before it noticed it, as if nothing had changed.
+   */
+  private sight(state: SimState, fighter: number): Observation | null {
+    if (this.jitterTicks === 0) {
+      const seen = this.seen[0];
+      return seen && seen.tick === state.tick - this.reactionTicks ? seen : null;
+    }
+    const now = this.seen.find((o) => o.tick === state.tick - this.reactionTicks);
+    if (!now) return null;
+    const self = state.fighters[fighter]!;
+    const reach = THREAT_REACH * this.tuning.ai.attackRange;
+    let newest = -1;
+    now.fighters.forEach((o, i) => {
+      if (i === fighter || o.fallen || o.team === self.team || !isThreat(o.action) || o.attackStart === null || Math.abs(o.y - self.y) >= DEFEND_LEVEL) return;
+      if (Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reach) newest = Math.max(newest, o.attackStart);
+    });
+    if (newest >= 0 && newest > (this.jitter?.from ?? -1)) {
+      const late = this.chance(this.skill.reactionJitter) ? 1 + Math.floor(this.random() * this.jitterTicks) : 0;
+      this.jitter = { from: newest, until: state.tick + late, at: now.tick - 1 };
+    }
+    const j = this.jitter;
+    if (!j || state.tick >= j.until) return now;
+    return this.seen.find((o) => o.tick === j.at) ?? now;
+  }
+
   /** What it would do this Tick, before a Jump it is in the air on has its say (`flying`). */
   private decide(state: SimState, fighter: number): Intent {
-    const seen = this.seen[0];
-    if (!seen || seen.tick !== state.tick - this.reactionTicks) return IDLE_INTENT;
+    const seen = this.sight(state, fighter);
+    if (!seen) return IDLE_INTENT;
 
     const self = state.fighters[fighter]!;
     const enemies = seen.fighters
@@ -937,6 +1079,10 @@ class AiController implements Controller {
       return base;
     }
 
+    // A hop to reposition: out of a pincer, round to its flank slot, or to its spacing.
+    const hop = this.hopStep(state, self, enemies, focused, team, base);
+    if (hop) return hop;
+
     // Far off: close in along the navmesh.
     const longer = Math.max(myReach, theirReach);
     if (dist > longer + SWING_IN + 1.5) return { ...base, ...this.approach(state, self, target) };
@@ -970,11 +1116,26 @@ class AiController implements Controller {
       if (jumpIsSafe(arenaOf(this.tuning, state.arena), this.tuning, { at: self.position, y: self.y, heading: away, holdTicks: 0 })) return { ...base, move: away, jump: true };
     }
 
-    // From its spacing: step in and swing (or swing from where it stands, in reach).
+    // From its spacing: step in and swing (or swing from where it stands, in reach), on its beat (`rhythm`) or at a coin flip every Tick.
     if (!turn.wait) {
-      if (dist <= myReach && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
-      if (dist <= myReach + SWING_IN && this.chance(aggression * 0.6)) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
-      if (dist > myReach + SWING_IN && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+      const beat = this.skill.rhythm > 0 ? this.beatOf() : null;
+      if (beat?.timed) {
+        // The pace the coin flip would press at here: its aggression in reach, less stepping in, none beyond.
+        const pace = dist <= myReach ? aggression : dist <= myReach + SWING_IN ? aggression * 0.6 : 0;
+        const done = beat.done + pace;
+        this.beat = { ...beat, done };
+        // Its beat come, it swings (only this uses the beat up: an Attack for another reason keeps the pace it has spent).
+        if (done >= beat.need && (pace > 0 || (beat.wild && this.chance(aggression)))) {
+          this.beat = null;
+          if (dist <= myReach) return this.startAttack(state.tick, self, target, dist, base, { double: beat.double });
+          if (dist <= myReach + SWING_IN) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true, double: beat.double });
+          return this.startAttack(state.tick, self, target, dist, base);
+        }
+      } else {
+        if (dist <= myReach && this.chance(aggression)) return this.startAttack(state.tick, self, target, dist, base);
+        if (dist <= myReach + SWING_IN && this.chance(aggression * 0.6)) return this.startAttack(state.tick, self, target, dist, { ...base, move: toward }, { swingIn: true });
+        if (dist > myReach + SWING_IN && this.chance(aggression * this.skill.mistakeRate)) return this.startAttack(state.tick, self, target, dist, base);
+      }
     }
 
     return { ...base, move: this.footwork(state, self, dist, toward, myReach, theirReach, team) };
@@ -1107,6 +1268,8 @@ class AiController implements Controller {
     const { caution, pressure, footwork } = this.skill;
     const hurt = this.lastHp >= 0 && self.hp < this.lastHp;
     this.lastHp = self.hp;
+    // Just hit, or in its own Recovery: shaken, it lapses more readily for a while.
+    if (this.skill.humanMistakes > 0 && (hurt || (self.action.kind === 'Attack' && self.action.phase === 'Recovery'))) this.shaken = tick + LAPSE_TICKS;
     if (hurt && this.chance(caution)) {
       this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
     } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
@@ -1120,8 +1283,35 @@ class AiController implements Controller {
     }
     if (footwork > 0 && tick >= this.strafe.until) {
       const sign = this.random() < 0.5 ? 1 : -1;
-      this.strafe = { sign, until: tick + 40 + Math.floor(this.random() * 100), flank: this.chance(this.skill.teamwork) };
+      const until = tick + 40 + Math.floor(this.random() * 100);
+      const flank = this.chance(this.skill.teamwork);
+      this.strafe = { sign, until, flank, ...this.idleLife(tick), hop: this.chance(this.skill.jumpStep) };
     }
+  }
+
+  /** Idle life for its next while of circling (`idleLife`, rolled with the side): a spacing of its own, maybe no circling, maybe a short pause first. */
+  private idleLife(tick: number): Pick<Strafe, 'spacing' | 'still' | 'pause'> {
+    if (!this.chance(this.skill.idleLife)) return { spacing: 0, still: false, pause: -1 };
+    const spacing = this.random() * (SPACING_IN + SPACING_OUT) - SPACING_IN;
+    const still = this.random() < LIFE_STILL;
+    const pause = this.random() < LIFE_PAUSE ? tick + PAUSE_TICKS + Math.floor(this.random() * (PAUSE_TICKS + 1)) : -1;
+    return { spacing, still, pause };
+  }
+
+  /**
+   * When its next Attack from its spacing comes (`rhythm`, rolled once per Attack): the pace it needs, bell-shaped about
+   * the coin flip's mean wait (BEAT_ROLLS uniforms), now and then with a pause first (BEAT_PAUSE), or as a double threat
+   * (BEAT_DOUBLE); whether it swings from out of reach when it comes is the mistake. Not timed, the coin flip it was.
+   */
+  private beatOf(): Beat {
+    if (this.beat) return this.beat;
+    if (!this.chance(this.skill.rhythm)) return (this.beat = { timed: false, need: 0, done: 0, double: false, wild: false });
+    let sum = 0;
+    for (let k = 0; k < BEAT_ROLLS; k++) sum += this.random();
+    let need = (sum / BEAT_ROLLS) * 2 * BEAT;
+    if (this.random() < BEAT_PAUSE) need += BEAT * (1 + this.random());
+    const double = this.random() < BEAT_DOUBLE;
+    return (this.beat = { timed: true, need, done: 0, double, wild: this.chance(this.skill.mistakeRate) });
   }
 
   /** Whether to go for the opening it sees on `fighter` (rolled once per opening, at `punish`). */
@@ -1164,12 +1354,11 @@ class AiController implements Controller {
    */
   private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number, team: TeamView | null = null): Vec2 {
     const { mode } = this.tactic;
-    const longer = Math.max(myReach, theirReach);
-    // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
-    const poke = myReach > theirReach + 0.2 ? myReach - 0.1 : longer + HOVER_MARGIN;
-    const spacing = mode === 'Pressure' ? (this.tuning.ai.retreatRange + myReach) / 2 : mode === 'Disengage' ? longer + DISENGAGE_MARGIN : poke;
+    const spacing = this.spacing(myReach, theirReach);
+    // Idle life: a short pause, out of their reach.
+    if (mode === 'Neutral' && state.tick < this.strafe.pause && dist > theirReach) return ZERO;
     const radial = Math.max(-1, Math.min(1, (dist - spacing) * 2.5));
-    let side = this.strafe.sign * this.skill.footwork * (mode === 'Pressure' ? 0.5 : 1);
+    let side = this.strafe.still ? 0 : this.strafe.sign * this.skill.footwork * (mode === 'Pressure' ? 0.5 : 1);
     const tangent = (s: number): Vec2 => ({ x: -toward.z * s, z: toward.x * s });
     const flank = team !== null && this.strafe.flank;
     if (flank && team.slot !== null) {
@@ -1197,6 +1386,16 @@ class AiController implements Controller {
     const len = Math.hypot(m.x, m.z);
     if (len < 0.15) return ZERO;
     return this.safeMove(state, self, len > 1 ? { x: m.x / len, z: m.z / len } : m);
+  }
+
+  /** How far (m) from its target it hovers, for its tactic (and in Neutral, its idle life's spacing). */
+  private spacing(myReach: number, theirReach: number): number {
+    const { mode } = this.tactic;
+    const longer = Math.max(myReach, theirReach);
+    // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
+    const poke = myReach > theirReach + 0.2 ? myReach - 0.1 : longer + HOVER_MARGIN;
+    if (mode === 'Pressure') return (this.tuning.ai.retreatRange + myReach) / 2;
+    return mode === 'Disengage' ? longer + DISENGAGE_MARGIN : this.strafe.spacing === 0 ? poke : poke + this.strafe.spacing;
   }
 
   /** Where it pitches its look: at the chest of `o` (lower when it crouches, the floor when it lies in a Knockdown), so its blows reach it. */
@@ -1459,6 +1658,87 @@ class AiController implements Controller {
     return null;
   }
 
+  /**
+   * A hop to reposition (`jumpStep`: rolled with its circling side, taken once), a tapped Jump. A hop is no quicker than a
+   * walk (it carries on at walk speed, then lands) and cannot Block, so it hops only where walking does worse: out from
+   * between two enemies on its level within reach (PINCER_NEAR) seen more than PINCER apart, sideways so both are in front;
+   * or round its target to its flank slot (`team`) more than HOP_SLOT off when the walk round is blocked (`walkBlocked`),
+   * landing as far from the target as it stands (or straight along its way round). Never with an enemy Attack or Kick
+   * seen coming within its reach and HOP_THREAT of where it takes off, and only a hop `jumpIsSafe` lands safely, whose arc
+   * (a pincer's last quarter) stays HOP_CLEAR beyond every enemy's reach and ALLY_CLEAR from every ally (each where it
+   * will be, carrying on as seen). Null when it does not hop.
+   */
+  private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
+    if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
+    const reachOf = (o: Sighting) => this.reach(o.weapon) + THRUST_REACH;
+    // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
+    const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
+    const coming = fresh.fighters.some(
+      (o, i) =>
+        enemies.some((e) => e.i === i) &&
+        (isThreat(o.action) || isKickThreat(o.action)) &&
+        Math.abs(o.y - self.y) < DEFEND_LEVEL &&
+        Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT,
+    );
+    if (coming) return null;
+    const arena = arenaOf(this.tuning, state.arena);
+    const at = self.position;
+    const t = focused.o.position;
+    const tries: { heading: Vec2; pincer: boolean }[] = [];
+    // Out of a pincer: sideways off the line between the two, its circling side first.
+    const close = enemies.filter(({ o, flat, level }) => level && flat <= reachOf(o) + PINCER_NEAR);
+    const bearing = (p: Vec2) => Math.atan2(p.x - at.x, p.z - at.z);
+    for (let a = 0; a < close.length && tries.length === 0; a++) {
+      for (let b = a + 1; b < close.length && tries.length === 0; b++) {
+        const d = bearing(close[a]!.o.position) - bearing(close[b]!.o.position);
+        if (Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) <= PINCER) continue;
+        const u = unit({ x: close[b]!.o.position.x - close[a]!.o.position.x, z: close[b]!.o.position.z - close[a]!.o.position.z });
+        const side = { x: -u.z * this.strafe.sign, z: u.x * this.strafe.sign };
+        tries.push({ heading: side, pincer: true }, { heading: { x: -side.x, z: -side.z }, pincer: true });
+      }
+    }
+    // Round to its flank slot, its walk there blocked: a chord of the circle it stands on, as far round as a hop carries it, or straight along its way round.
+    if (team && team.slot !== null && this.strafe.flank) {
+      const mine = Math.atan2(at.x - t.x, at.z - t.z);
+      const off = Math.atan2(Math.sin(team.slot - mine), Math.cos(team.slot - mine));
+      const r = focused.flat;
+      const round = unit({ x: (at.z - t.z) * Math.sign(off), z: -(at.x - t.x) * Math.sign(off) });
+      if (Math.abs(off) > HOP_SLOT && r > 0.5 && this.walkBlocked(state, self, team, round)) {
+        const turn = Math.sign(off) * Math.min(Math.abs(off), 2 * Math.asin(Math.min(1, levelJump(this.tuning, 0).distance / (2 * r))));
+        const land = { x: t.x + Math.sin(mine + turn) * r, z: t.z + Math.cos(mine + turn) * r };
+        tries.push({ heading: unit({ x: land.x - at.x, z: land.z - at.z }), pincer: false }, { heading: round, pincer: false });
+      }
+    }
+    const lead = this.reactionTicks;
+    for (const { heading, pincer } of tries) {
+      const plan = { at, y: self.y, heading, holdTicks: 0 };
+      const arc = jumpArc(arena, this.tuning, plan);
+      if (!arc.lands) continue;
+      let clear = true;
+      for (let k = pincer ? Math.ceil((arc.ticks * 3) / 4) : 1; k <= arc.ticks && clear; k++) {
+        const p = arc.path[k - 1]!;
+        const off = (o: Sighting) => Math.hypot(o.position.x + o.velocity.x * (lead + k) - p.x, o.position.z + o.velocity.z * (lead + k) - p.z);
+        clear = enemies.every(({ o }) => off(o) > reachOf(o) + HOP_CLEAR) && (team?.allies ?? []).every(({ o }) => off(o) > ALLY_CLEAR);
+      }
+      if (!clear || !jumpIsSafe(arena, this.tuning, plan)) continue;
+      this.strafe = { ...this.strafe, hop: false };
+      return { ...base, move: heading, jump: true };
+    }
+    return null;
+  }
+
+  /** Whether its walk `round` (a unit vector) to its flank slot is blocked: the step is unsafe, or an ally (where it is by now, carrying on as seen) stands in the way. */
+  private walkBlocked(state: SimState, self: FighterState, team: TeamView, round: Vec2): boolean {
+    if (!this.safe(state, self, round)) return true;
+    const lead = this.reactionTicks;
+    return team.allies.some(({ o }) => {
+      const x = o.position.x + o.velocity.x * lead - self.position.x;
+      const z = o.position.z + o.velocity.z * lead - self.position.z;
+      const along = x * round.x + z * round.z;
+      return along > 0 && along < ALLY_AHEAD && Math.abs(x * round.z - z * round.x) < ALLY_ASIDE;
+    });
+  }
+
   /** Keep Jump held through a jumping Attack's hold, while in the air. */
   private holdingJump(tick: number, self: FighterState, intent: Intent): Intent {
     const plan = this.attackPlan;
@@ -1603,7 +1883,7 @@ class AiController implements Controller {
    * Wind-up while it closes in. At `feintRate` it plans to Feint this Attack into another Direction, unless it is
    * `timed` (its Release must come when it was pressed for) or the target cannot Block anyway (`defenceless`).
    */
-  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean } = {}): Intent {
+  private startAttack(tick: number, self: FighterState, target: Sighting, dist: number, base: Intent, opts: { direction?: Direction; swingIn?: boolean; holdJump?: number; timed?: boolean; double?: boolean } = {}): Intent {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist, this.narrowLine(self));
     if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
@@ -1612,10 +1892,10 @@ class AiController implements Controller {
     const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
     const team = this.turn === true;
     this.turn = null;
-    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team;
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team || opts.double;
     const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
     this.attackPlan = planned
-      ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff, team }
+      ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff, team, ...(opts.double ? { double: true } : {}) }
       : null;
     return { ...base, attack: true, direction };
   }
@@ -1662,9 +1942,10 @@ class AiController implements Controller {
     }
     if (a.phase === 'Release') return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
     // Recovery.
-    if (plan && this.skill.chainRate > 0) {
+    if (plan && (this.skill.chainRate > 0 || plan.double)) {
       if (!plan.chainRolled) {
-        const p = this.skill.chainRate * (this.tactic.mode === 'Pressure' ? 1.5 : 1) * (a.landed ? 1.2 : 1);
+        // A double threat always Chains.
+        const p = plan.double ? 1 : this.skill.chainRate * (this.tactic.mode === 'Pressure' ? 1.5 : 1) * (a.landed ? 1.2 : 1);
         const chain = this.chance(Math.min(1, p)) ? this.chooseDirection(self, target, dist) : null;
         plan = this.attackPlan = { ...plan, chainRolled: true, chain };
       }
@@ -1753,6 +2034,8 @@ class AiController implements Controller {
         break;
       }
       case 'Block':
+        // A late Block (a human mistake): not raised yet.
+        if (plan.raiseAt !== undefined && state.tick < plan.raiseAt && !(own.kind === 'Block' && own.direction === plan.direction)) return base;
         break;
     }
     return this.guard(own, base, plan.direction);
@@ -1815,7 +2098,14 @@ class AiController implements Controller {
   private planDefence(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, attackStart: number, meets: Direction, swings: boolean): DefencePlan {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const plan = (kind: DefencePlan['kind'], direction = meets, pressAt = -1): DefencePlan => ({ attacker, attackStart, kind, direction, pressAt });
-    if (this.random() < this.skill.mistakeRate) return plan('Block', this.randomDirection(meets));
+    // A human mistake (`humanMistakes`): likelier while shaken; usually a late Block, else one beside the right Direction.
+    const human = this.chance(this.skill.humanMistakes);
+    const rate = human && state.tick < this.shaken ? Math.min(1, this.skill.mistakeRate * LAPSE) : this.skill.mistakeRate;
+    if (this.random() < rate) {
+      if (!human) return plan('Block', this.randomDirection(meets));
+      if (this.random() < LATE_SHARE) return { ...plan('Block'), raiseAt: state.tick + LATE_MIN + Math.floor(this.random() * (LATE_SPREAD + 1)) };
+      return plan('Block', this.pick(BESIDE[meets]));
+    }
     const own = self.action;
     const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).

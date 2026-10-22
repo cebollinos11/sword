@@ -1,12 +1,12 @@
 # AI behaviour: new tiers × Styles, in four playtestable Stages
 
-> Status: Stage 1 done and its playtest passed. Stage 2 (Team) done, waiting for its playtest; Stage 3 (Feel) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
+> Status: Stages 1 and 2 done and their playtests passed. Stage 3 (Feel) done, waiting for its playtest; Stage 4 (Adapt) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
 > Every Stage first reads this file, `CONTEXT.md`, ADRs 0001, 0005 and 0007, `src/controllers/ai.ts` and `src/controllers/ai.test.ts`. A Stage ends when `npm run typecheck` and `npm test` pass and the work is committed; then mark it done below and add its Result.
 
 ## Progress
 - [x] Stage 1: Styles, new tiers, exploit fixes
 - [x] Stage 2: Team coordination
-- [ ] Stage 3: Feel
+- [x] Stage 3: Feel
 - [ ] Stage 4: Adaptation
 
 ## Context
@@ -177,6 +177,45 @@ It coordinates by observation only, reading allies' seen positions and Actions, 
 
   Never from inside an enemy's reach while it is seen in Wind-up or Release, since a Fighter in the air cannot Block (a hit in the air is a Knockdown, ADR 0012). Every hop is a tap checked with `jumpIsSafe` first, as every Jump it makes is today. Old presets leave it off. Open questions for the Stage: the tier values (0.4/0.7/0.9 or lower, since hops are showy), and whether a Style scales it (Tricky up, Defensive down).
 - **Tests:** with `jumpStep` 1 in a 2 v 1 against a dummy, it reaches its flank slot by a hop sooner than walking does; caught between two enemies it hops out to have both in front; it never hops with an enemy Wind-up in reach, and never where `jumpIsSafe` says no; old presets never hop to reposition (the golden test).
+
+## Stage 3, Result
+**Built**
+- **Five knobs**, each a chance 0..1 in `AiDifficulty` and `AI_DIFFICULTY_EXTRAS`, 0 in `skillOf`, drawn only through `chance()` (or `random()` behind it). The golden test passes unchanged. With a knob off, the code path is the old one: the coin flip, and a `seen` buffer of Reaction Time + 1.
+  - `rhythm` (rolled once per Attack from its spacing): instead of a coin flip every Tick, a beat (`Beat`). Each Tick at its spacing it adds the pace the coin flip would have pressed at (its aggression in reach, 0.6 of it stepping in, none beyond; Pressure, Disengage and taking turns scale it as before). It swings once that adds up to a bell-shaped need (3 uniforms, mean 1). At 0.15 the need has a pause of one to two beats more, at 0.2 the beat is a double threat (step in, swing, always Chain), and the mistake is a swing from out of reach once the beat comes. Only a spacing Attack uses the beat up.
+  - `reactionJitter` (rolled once per enemy Attack seen coming in reach, newer than any it rolled for): noticed 1 to half its Reaction Time late, at most 6 Ticks. Until then it acts on the Observation from the Tick before it noticed (`sight`), as if nothing had changed. A Feint is a new Attack, so a late notice of one keeps the old Block a moment. The `seen` buffer grows by those Ticks.
+  - `humanMistakes` (rolled once per Attack it defends): a mistake (at `mistakeRate`) is at 0.6 a Block raised 3 to 9 Ticks late (`DefencePlan.raiseAt`), else one in a Direction beside the right one, never its opposite (a Left meets Overhead or Thrust, not Right). For 45 Ticks after its own Recovery or being hit (`shaken`), mistakes are 1.5 times as likely.
+  - `idleLife` (rolled with its circling side): a spacing of its own (0.15 m in to 0.35 m out, in Neutral), at 0.3 no circling for that while, and at 0.3 a pause of 15 to 30 Ticks first, never inside the enemy's reach.
+  - `jumpStep` (rolled with its circling side, one hop per roll, a tap): out of a pincer (two enemies on its level within their reach + 0.3 m, more than 120° apart as seen from it, hopping sideways off the line between them), or round to its flank slot more than 20° off when the walk round is blocked (the step is unsafe, or an ally stands in the way). It never hops with an enemy Attack or Kick seen within reach + 0.5 m, using its unjittered view (as seen Reaction Time ago, even an Attack it has not noticed yet). Every hop passes `jumpIsSafe`. The arc (for a pincer, its last quarter) stays 0.1 m beyond every enemy's reach and 0.6 m from every ally.
+- **Tiers**: Beginner, Skilled and Expert have `rhythm`, `reactionJitter`, `humanMistakes` and `idleLife` at 0.4 / 0.7 / 0.9, and `jumpStep` at 0.2 / 0.35 / 0.5. **Styles**: Tricky ×2 and Defensive ×0.5 on `jumpStep`, nothing else.
+- **Memory**: `beat`, `jitter`, `shaken`, `Strafe.spacing/still/pause/hop`, `DefencePlan.raiseAt` and `AttackPlan.double`, all plain numbers and booleans in `save()`/`load()`. The resync check in `src/net/messages.ts` validates them, and `PROTOCOL_VERSION` is now 19.
+- **Tests** (`ai.test.ts`, "AI Stage 3"; `messages.test.ts`): the ladder and Style scaling; rhythm (no spacing Attack before its beat, a double threat always Chains, the coin flip's pace); reactionJitter (the Block 1 to 6 Ticks late, varying per Attack, the longer buffer); humanMistakes (late or beside, never opposite; the old random wrong Direction without it; shaken after its own Attack); idleLife (it stands and varies its spacing more); jumpStep (a hop over a Lava strip blocking its walk reaches the slot in about 60 Ticks where walking takes 111 to 146, and on open ground it walks; caught between two enemies it hops out and lands with both within 100°; no hop with an enemy Attack or Kick seen in reach, over seeded 1 v 1 and 1 v 2 fights; on a pier over Lava it never hops off sideways, while on open ground it does); a `save()`/`load()` round trip mid-beat, mid-late-notice and shaken; the resync check accepting real memory and refusing malformed new fields.
+
+**Decided along the way (asked) and deviations**
+- **Stage 2's playtest passed** with no notes.
+- **reactionJitter** is a chance, not a size: on the ladder, late by 1 up to half its own Reaction Time. **Capped at 6 Ticks** (asked, after the soak): uncapped, Beginner's notices ran up to 12 Ticks on top of 0.4 s, and Beginner with every feel knob won only 57/160 against its plain self. Leave-one-out pinned it on the jitter.
+- **jumpStep** tiers at half the ladder (0.2 / 0.35 / 0.5), Tricky ×2, Defensive ×0.5.
+- **No spacing hops** (asked): a tap carries it at walk speed (1.7 m in 41 Ticks), then lands, cannot Block in the air, and the enemy meets its Landing. With them, Expert won 14/40 and Skilled 15/40 against themselves without feel; without them, 23/40 and 22/40.
+- **Flank hops only when the walk round is blocked** (asked): on open ground a hop reaches the slot later than walking (81 vs 73 Ticks in a 2 v 1, 127 vs 112 in a 3 v 1), so the plan's "sooner than walking" test holds only where walking is blocked. The test uses a Lava strip.
+- **The beat counts pace, not Ticks**: a beat set in Ticks ignored a change of tactic or range on the way, and was reset by any other Attack (a punish, a Chain). It threw away progress a coin flip never has, and Skilled attacked 15% less and won 12/40.
+- **The jitter is its own memory (`jitter`), not in `DefencePlan`**: while it is late there is no Attack in its sight, so no plan to carry it.
+- **Stage 1 and 2 tests on the new tiers** (lowSwingRead's Beginner, the no-friendly-fire Skilled teams) now turn the feel knobs off (`NO_FEEL`). They test their own knobs. With a feeling enemy, a team of two lets 0 to 3 teammate Hits through in 20 seeds whether its own feel knobs are on or off: the Stage 2 scrum residue.
+- **Soak** (library, best of 3, sides alternating; feel on = the tier as shipped, feel off = the same tier with the five knobs at 0):
+  - Feel on against feel off: Skilled 44/80, Expert 41/80, Beginner 33/80.
+  - Against the old counterpart (feel on / feel off): Expert vs Hard 20/40 / 19/40, Skilled vs Normal 15/40 / 16/40, Beginner vs Easy 75/200 / 90/200.
+  - Beginner still trails a little (about 7 points, 1.5 SD). Leaving out each knob in turn (160 seeds vs Easy) lands between 33% and 44%, within noise. No single part does it. If the playtest finds Beginner too weak, lower its `rhythm` or `reactionJitter`.
+  - Rhythm alone keeps the coin flip's pace (Skilled 20/40, Beginner 61/120, the same number of Attacks).
+  - Hops in team fights: 2 v 2 wins 26 → 28/30; in a 1 v 2 it survived 12% longer.
+
+**Playtest (`npm run dev`)**
+- Skirmish against Beginner, Skilled and Expert, each with Balanced and Tricky (most hops) and Defensive (fewest). Does it feel less robotic?
+  - **Rhythm and pauses**: its Attacks from spacing should come in uneven beats, sometimes a pause, sometimes a quick step-in swing and Chain, not a steady random drip. Does it still feel threatening?
+  - **Late Blocks**: now and then its Block goes up a moment late, or it Blocks the Direction beside yours (never the opposite). Is it likelier just after it swings or is hit? Feint against it: does a late notice sometimes keep the old Block?
+  - **Idle life**: it stands still for a moment, stops circling, drifts in and out of its spacing.
+- **Hops**: with an AI ally against one Skilled or Expert Tricky enemy, get that enemy between you and your ally: it should hop out sideways so you are both in front of it. In 2 v 1 against you, an AI whose way round to its flank is blocked (a ledge, Lava, an ally) should hop round. It must never hop while you swing at it in reach, and on a Generated Arena with Lava or ledges a hop should never land it in danger.
+- **1 v 2 and 1 v 3** with Skilled and Expert: does the feel make group fights more natural, or messier?
+- **Beginner** against Easy: is Beginner still beatable but not hopeless, and not weaker than it should be?
+- **The Gauntlet**: Beginner to Expert with random Styles. Is the difficulty curve still right?
+- **Online, two tabs**: Expert AIs on both Teams, a Match with no resyncs, then a Gauntlet Run.
 
 ## Stage 4: Adaptation (`adapt` knob)
 - **Habit memory per enemy:** decaying counts of the attack Directions it saw, the Block Directions held, held Wind-ups, and stepping out after it began a Wind-up (baiting). It is kept across the Duels of a Match: the `observe()` new-Duel reset spares it. A Gauntlet's Floor AI carries it from Floor to Floor.
