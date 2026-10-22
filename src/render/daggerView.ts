@@ -110,9 +110,9 @@ export class DaggerViews {
 
   /**
    * Draw the daggers between Tick `prev` and Tick `curr` (`alpha` in [0, 1]); `seconds` is the time since the last draw, for the stuck
-   * ones' fade. `poses` are the Fighters' poses as drawn this frame, for the daggers in their hands.
+   * ones' fade. `poses` are the Fighters' poses as drawn this frame, for the daggers in their hands (none for a Fighter not drawn).
    */
-  update(prev: SimState, curr: SimState, alpha: number, seconds: number, poses: readonly SkeletonPose[]): void {
+  update(prev: SimState, curr: SimState, alpha: number, seconds: number, poses: readonly (SkeletonPose | undefined)[]): void {
     if (curr.tick < this.lastTick) this.clear();
     if (curr.tick !== this.lastTick) {
       // Each new Tick's `DaggerStuck` events plant a dagger once, however many frames draw that Tick.

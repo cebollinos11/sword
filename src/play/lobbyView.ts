@@ -1,20 +1,25 @@
 /**
- * The Lobby drawn: the two teams with their Seats, the Match settings (Map
- * cards, Match length) and your Weapon cards. Used by the Skirmish setup, the
+ * The Lobby drawn: the two teams with their Seats, the Match settings (Format,
+ * Map cards, Match length) and your Weapon cards. In a Gauntlet, Team 1's Seats
+ * give way to the Floors, the hand-made Maps and the Match length are hidden,
+ * and the Random card names the Run seed. Used by the Skirmish setup, the
  * online Room Lobby and the in-game Match setup alike; who may change what
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
+import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type MatchFormat } from '../sim';
 import type { TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
   canSetSeat,
+  formatProblem,
+  isGauntlet,
   MAX_PLAYERS,
   member,
   nextMatchArena,
   seatOf,
+  setFormat,
   setSeat,
   teamSize,
   updateSettings,
@@ -95,6 +100,39 @@ function pickSeed(): number {
   return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
+/** The Formats the Lobby offers: both in a Skirmish; online only Duels for now (online co-op is Stage 4 of docs/plans/gauntlet.md). */
+export function offeredFormats(online: boolean): readonly MatchFormat[] {
+  return online ? ['Duels'] : MATCH_FORMATS;
+}
+
+/** The teams whose Seats the Lobby shows: both, or in a Gauntlet only Team 0 (the Floors fill Team 1). */
+export function shownTeams(state: LobbyState): number[] {
+  return isGauntlet(state) ? [0] : state.teams.map((_, team) => team);
+}
+
+/** The Map cards besides Random: every pickable Arena, or none in a Gauntlet (a Run is on the Random Map). */
+export function shownArenas(tuning: TuningData, state: LobbyState): string[] {
+  return isGauntlet(state) ? [] : pickableArenas(tuning);
+}
+
+/** Whether the Match length (Best of N) is shown: not for a Run. */
+export function showsBestOf(state: LobbyState): boolean {
+  return !isGauntlet(state);
+}
+
+/** What the Random card says under its name: the next Match's seed, or in a Gauntlet the Run seed. */
+export function randomBlurb(state: LobbyState, played: string | null | undefined, editable: boolean): string {
+  const seed = mapSeed(state.settings.arena) === null ? null : mapSeed(nextMatchArena(state, played ?? undefined));
+  if (seed === null) return 'A new Arena every Match';
+  const text = isGauntlet(state) ? `Run seed ${seed}` : `Next: seed ${seed}`;
+  return editable ? `${text} · pick again to reroll` : text;
+}
+
+/** The label beside the Seed field: the Run's seed in a Gauntlet, else the next Match's. */
+export function seedLabel(state: LobbyState): string {
+  return isGauntlet(state) ? 'Run seed' : 'Next seed';
+}
+
 /** What the view needs besides the Lobby. */
 export interface LobbyViewContext {
   readonly tuning: TuningData;
@@ -120,7 +158,8 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 // --- Teams ---
 
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  const teams = state.teams.map((_, team) => teamCard(ctx, state, team));
+  const shown = shownTeams(state);
+  const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
   const grid = h('div', 'lb-teams', null, teams[0]!, vs, teams[1]!);
   const humans = state.members.length;
@@ -141,6 +180,18 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
     const fights = seat.kind === 'Player' || seat.kind === 'AI';
     card.append(seatRow(ctx, state, { team, index }, seat, fights ? teamColour(team, k++) : null));
   }
+  return card;
+}
+
+/** In a Gauntlet, Team 1's place: the Floors the Run fights through. */
+function floorsCard(ctx: LobbyViewContext): HTMLElement {
+  const card = h('div', 'lb-team lb-team-1');
+  card.style.setProperty('--team', hex(teamColour(1, 0)));
+  const floors = ctx.tuning.gauntlet.floors.length;
+  card.append(
+    h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', `${floors} ${floors === 1 ? 'Floor' : 'Floors'}`)),
+    h('p', 'lb-note', `Clear each Floor's enemies to go on to the next, on a new Random Arena. The last Floor is the boss. HP carries over; fallen allies return on the next Floor.`),
+  );
   return card;
 }
 
@@ -223,7 +274,7 @@ function weaponSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { 
 
 function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
-  const arenas = pickableArenas(ctx.tuning);
+  const arenas = shownArenas(ctx.tuning, state);
   const maps = h('div', 'map-grid');
   for (const a of arenas) {
     const info = ARENA_INFO[a];
@@ -248,14 +299,35 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     length.append(b);
   }
   const hint = editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
-  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', 'Next seed'), seedInput(ctx, seed)) : null;
-  return section('Map', maps, seedRow, h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length), hint);
+  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
+  const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
+  return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
 }
 
-/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next). */
+/** The Format toggle (Duels or Gauntlet), when the Lobby offers more than one. */
+function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
+  const formats = offeredFormats(ctx.lobby.online);
+  if (formats.length < 2) return null;
+  const current = state.settings.format ?? 'Duels';
+  const group = h('div', 'segmented');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', 'Format');
+  for (const f of formats) {
+    const b = button('', f, () => ctx.lobby.edit((s) => setFormat(s, f, randomMap(ctx.tuning, pickSeed()))));
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(f === current));
+    const problem = formatProblem(state, f);
+    b.disabled = !editable || problem !== null;
+    if (problem) b.title = problem;
+    group.append(b);
+  }
+  return h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
+}
+
+/** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next), or the Run seed. */
 function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement {
   const seed = mapSeed(state.settings.arena) === null ? null : mapSeed(nextMatchArena(state, ctx.played ?? undefined));
-  const blurb = seed === null ? 'A new Arena every Match' : editable ? `Next: seed ${seed} · pick again to reroll` : `Next: seed ${seed}`;
+  const blurb = randomBlurb(state, ctx.played, editable);
   const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', 'Random'), h('span', 'map-blurb', blurb));
   (card.firstChild as HTMLElement).style.background = `url("${thumb('arenas', RANDOM_THUMB)}") center / cover no-repeat, ${RANDOM_ART}`;
   card.setAttribute('aria-pressed', String(seed !== null));

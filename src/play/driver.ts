@@ -37,16 +37,20 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly weapon: string;
 }
 
-/** A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other. Throws on an invalid Lineup. */
+/**
+ * A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other (in a
+ * Gauntlet, a Floor AI each Team 1 slot). Throws on an invalid Lineup.
+ */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
   const { lineup, weapon, ...matchOptions } = options;
-  checkLineup(tuning, lineup, 1);
+  const format = matchOptions.format ?? 'Duels';
+  checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
   const local: Controller = { intent: () => pending! };
-  const controllers = lineupAis(tuning, lineup).map((ai) => ai ?? local);
+  const controllers = lineupAis(tuning, lineup, format).map((ai) => ai ?? local);
   return {
     localFighter: me,
     lineup,

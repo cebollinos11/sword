@@ -18,6 +18,7 @@ export { FACE_STEPS, FEINT_KEY, GESTURE_PX, gestureDirection, LocalController, L
 export { createRemoteController, type PeerIntentSource } from './remote';
 export {
   checkLineup,
+  FLOOR_DIFFICULTY,
   lineupAis,
   lineupMatch,
   lineupPlayers,

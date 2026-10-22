@@ -16,7 +16,9 @@ export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readon
 /**
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
  * solved Skeletons between the previous and current Tick (or draws a fallen
- * Fighter's Death Ragdoll), and never writes back.
+ * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
+ * Team 1 slot its Floor leaves empty) is not drawn at all: no model, no shadow,
+ * no dagger in hand, no trail.
  */
 export class Renderer {
   private readonly stage: Stage;
@@ -102,9 +104,14 @@ export class Renderer {
     const world = this.world(curr.arena);
     this.stage.setArena(curr.arena, world.tuning, world.layout);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
-    const poses = curr.fighters.map((_, i) => drawnPose(prev, curr, i, alpha, world.tuning));
+    const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning)));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
+      const pose = poses[i];
+      if (!pose) {
+        if (slot) slot.view.root.visible = false;
+        return;
+      }
       const other = this.others[i];
       const picked = i === this.player.fighter ? this.player.body : other !== undefined && isBody(other) ? other : undefined;
       const chosen = picked !== undefined;
@@ -117,7 +124,7 @@ export class Renderer {
         this.stage.scene.add(slot.view.root);
       }
       slot.view.root.visible = true;
-      slot.view.update(poses[i]!, weaponByName(this.tuning, f.weapon));
+      slot.view.update(pose, weaponByName(this.tuning, f.weapon));
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
@@ -126,7 +133,7 @@ export class Renderer {
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     this.daggers.update(prev, curr, alpha, seconds, poses);
     this.impacts.update(seconds);
-    this.trails.update(prev, curr, poses.map((p) => p.blade), seconds);
+    this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
     this.lastDraw = now;
     this.stage.draw();
   }

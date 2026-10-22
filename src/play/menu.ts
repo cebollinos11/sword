@@ -606,7 +606,7 @@ export class Menu {
     const leave = !online ? 'Quit to title' : host ? 'Close Room' : 'Leave Room';
     nav.append(this.navItem(leave, online ? 'Everyone else is told you left' : 'Leave this Skirmish', () => this.handlers.onQuit(), 'danger'));
     const settings = lobby?.state?.settings;
-    const where = settings ? `${arenaLabel(this.arenaInPlay ?? settings.arena)} · Best of ${settings.bestOf}. ` : '';
+    const where = settings ? `${arenaLabel(this.arenaInPlay ?? settings.arena)} · ${settings.format === 'Gauntlet' ? 'Gauntlet' : `Best of ${settings.bestOf}`}. ` : '';
     const note = h('p', 'menu-help', where + (online ? 'Online Matches keep running while this menu is open.' : 'The Match waits for you.'));
     return h('div', 'menu-card narrow pause', null, h('h2', 'card-title', online ? 'Match menu' : 'Paused'), this.messageLine(), note, nav, this.inviteBlock());
   }

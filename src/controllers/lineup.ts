@@ -6,7 +6,7 @@
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
  */
-import { checkTeams, type MatchFormat, type MatchOptions } from '../sim';
+import { checkRunTeams, checkTeams, type MatchFormat, type MatchOptions } from '../sim';
 import { defaultWeaponName, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
@@ -20,6 +20,12 @@ export type PlayerNumber = 0 | 1 | 2 | 3;
 
 /** What drives a Fighter: a human Player, or the AI at a difficulty preset (Tuning Data `ai.difficulties`). */
 export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string };
+
+/**
+ * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Floor decides who stands in the slot (its
+ * Floor AI plays the Floor's difficulty for it, Tuning Data `gauntlet.floors`).
+ */
+export const FLOOR_DIFFICULTY = 'Floor';
 
 export interface LineupSlot {
   /** 0 or 1. */
@@ -45,10 +51,18 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
 /**
  * Throws unless the Lineup is playable with `players` human Players: valid teams
  * (1 to 3 Fighters a side), each Player driving exactly one Fighter, and every
- * AI difficulty and Weapon in Tuning Data.
+ * AI difficulty and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
+ * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them).
  */
-export function checkLineup(tuning: TuningData, lineup: Lineup, players: number): void {
-  checkTeams(lineup.map((s) => s.team));
+export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels'): void {
+  const teams = lineup.map((s) => s.team);
+  if (format === 'Gauntlet') checkRunTeams(teams);
+  else checkTeams(teams);
+  const floors = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1;
+  for (const s of lineup) {
+    if (floors(s) && (s.pilot.kind !== 'AI' || s.pilot.difficulty !== FLOOR_DIFFICULTY))
+      throw new RangeError(`A Gauntlet's Team 1 slots are the Floors' (an AI of difficulty "${FLOOR_DIFFICULTY}")`);
+  }
   if (!Number.isInteger(players) || players < 1 || players > MAX_PLAYERS) throw new RangeError(`A Match fields 1 to ${MAX_PLAYERS} Players, not ${players}`);
   for (let p = 0; p < MAX_PLAYERS; p++) {
     const driving = lineup.filter((s) => s.pilot.kind === 'Player' && s.pilot.player === p).length;
@@ -56,6 +70,7 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number)
     if (driving !== wanted) throw new RangeError(`Player ${p} must drive ${wanted} Fighter${wanted === 1 ? '' : 's'}, drives ${driving}`);
   }
   for (const s of lineup) {
+    if (floors(s)) continue;
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
     if (s.pilot.kind === 'AI' && s.weapon !== undefined && !tuning.weapons[s.weapon]) throw new RangeError(`Unknown Weapon "${s.weapon}"`);
   }

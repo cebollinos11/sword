@@ -68,11 +68,11 @@ export class BlobShadows {
   private texture: THREE.Texture | undefined;
   private readonly blobs: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>[] = [];
 
-  /** Lay a shadow under each of `poses` (by Fighter) on `arena`; the rest are hidden. */
-  update(poses: readonly SkeletonPose[], arena: ArenaGeometry): void {
+  /** Lay a shadow under each of `poses` (by Fighter) on `arena`; the rest (and a Fighter with no pose: not drawn) are hidden. */
+  update(poses: readonly (SkeletonPose | undefined)[], arena: ArenaGeometry): void {
     poses.forEach((pose, i) => {
       const blob = this.blobs[i] ?? this.add();
-      const at = blobPlacement(pose, arena);
+      const at = pose ? blobPlacement(pose, arena) : null;
       blob.visible = at !== null;
       if (!at) return;
       blob.position.set(at.position.x, at.position.y, at.position.z);

@@ -29,6 +29,14 @@ const CSS = `
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }
+.hud-results { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 16rem; padding: 1.2rem 1.6rem;
+  background: #000b; border: 1px solid #fff4; border-radius: 12px; text-align: center; text-shadow: 0 1px 2px #000a; }
+.hud-results[hidden] { display: none; }
+.hud-results-title { font-size: 2.4rem; font-weight: 800; margin-bottom: 0.6rem; }
+.hud-results-title.victory { color: #ffd56a; }
+.hud-results-title.defeat { color: #ff7a6a; }
+.hud-results-row { display: flex; justify-content: space-between; gap: 2rem; font-size: 1rem; padding: 0.15rem 0; }
+.hud-results-row b { font-variant-numeric: tabular-nums; }
 .hud-menu { pointer-events: auto; position: absolute; left: 50%; bottom: max(0.8rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
   width: 2.4rem; height: 2.4rem; border-radius: 50%; font-size: 1.1rem; color: #fff; background: #0007; border: 1px solid #fff6; cursor: pointer; opacity: 0.75; }
 .hud-menu:hover { opacity: 1; }

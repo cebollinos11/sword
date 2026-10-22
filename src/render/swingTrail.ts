@@ -104,10 +104,15 @@ export class SwingTrails {
     scene.add(this.root);
   }
 
-  update(prev: SimState, curr: SimState, blades: readonly BladeTransform[], seconds: number): void {
+  /** One blade per Fighter; a Fighter not drawn (undefined) leaves no trail. */
+  update(prev: SimState, curr: SimState, blades: readonly (BladeTransform | undefined)[], seconds: number): void {
     this.clock += Math.min(0.1, Math.max(0, seconds));
     blades.forEach((blade, i) => {
       let trail = this.trails[i];
+      if (!blade) {
+        trail?.clear();
+        return;
+      }
       if (!trail) {
         trail = new Trail(this.material);
         this.trails[i] = trail;

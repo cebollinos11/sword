@@ -13,9 +13,13 @@
  * the Map setting for the first and, for a Random Map, the next seed after
  * that (`nextMatchArena`). The Lineup of a Match
  * reads the Seats team by team: Player numbers follow the Members' order.
+ *
+ * In Gauntlet format (docs/plans/gauntlet.md) the Match is a Run: the Map must be a Random Map (its seed is the Run
+ * seed), Players sit only on Team 0, and Team 1's Seats are set aside (kept for Duels): the Lineup fills Team 1 with
+ * MAX_TEAM_SIZE Floor slots, each Floor deciding who stands there.
  */
-import { MAX_TEAM_SIZE, nextArenaName } from '../sim';
-import { MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
+import { MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
+import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -45,7 +49,10 @@ export type SeatKind = Seat['kind'];
 export interface LobbySettings {
   /** The Arena (a Tuning Data Arena name, or a Random Map's `gen:<kit>:<seed>`: the seed of the first Match). */
   readonly arena: string;
+  /** Best of N Duels (Duels only; a Run ignores it). */
   readonly bestOf: number;
+  /** Duels (absent: the default) or Gauntlet: a Run, on the Random Map, Team 1 the Floors' enemies. */
+  readonly format?: MatchFormat;
 }
 
 export interface LobbyState {
@@ -121,13 +128,28 @@ export function member(state: LobbyState, id: number): Member | undefined {
   return state.members.find((m) => m.id === id);
 }
 
+/** The Lobby plays a Gauntlet Run (not Duels). */
+export function isGauntlet(state: LobbyState): boolean {
+  return state.settings.format === 'Gauntlet';
+}
+
+/** A Random Map's name (`gen:<kit>:<seed>`), not a hand-made Arena. */
+function isRandomMap(arena: string): boolean {
+  try {
+    return parseGeneratedName(arena) !== null;
+  } catch {
+    return false;
+  }
+}
+
 /** Seats a human could take or holds: Open and Player Seats. */
 export function humanSeats(state: LobbyState): number {
   return state.teams.flat().filter((s) => s.kind === 'Open' || s.kind === 'Player').length;
 }
 
-/** Fighters a team would field: its Players and AIs. */
+/** Fighters a team would field: its Players and AIs (in a Gauntlet, Team 1 always fields its MAX_TEAM_SIZE Floor slots). */
 export function teamSize(state: LobbyState, team: number): number {
+  if (team === 1 && isGauntlet(state)) return MAX_TEAM_SIZE;
   return (state.teams[team] ?? []).filter((s) => s.kind === 'Player' || s.kind === 'AI').length;
 }
 
@@ -155,15 +177,18 @@ export function setSeat(state: LobbyState, at: SeatRef, seat: Exclude<Seat, { ki
 export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbyState {
   const from = seatOf(state, id);
   const target = seatAt(state, to);
-  if (!from || !target || target.kind === 'Player') return state;
+  if (!from || !target || target.kind === 'Player' || (to.team !== 0 && isGauntlet(state))) return state;
   return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
 }
 
-/** A guest joins into an Open Seat of the team fielding fewer Fighters (the later team on a tie, so opposite the host); null when none is Open (the Room is full). */
+/**
+ * A guest joins into an Open Seat of the team fielding fewer Fighters (the later team on a tie, so opposite the host; in
+ * a Gauntlet only Team 0); null when none is Open (the Room is full).
+ */
 export function join(state: LobbyState, m: Member): LobbyState | null {
   if (state.members.length >= MAX_PLAYERS || member(state, m.id)) return null;
   let best: SeatRef | null = null;
-  for (let team = state.teams.length - 1; team >= 0; team--) {
+  for (let team = isGauntlet(state) ? 0 : state.teams.length - 1; team >= 0; team--) {
     const index = state.teams[team]!.findIndex((s) => s.kind === 'Open');
     if (index >= 0 && (!best || teamSize(state, team) < teamSize(state, best.team))) best = { team, index };
   }
@@ -186,9 +211,43 @@ export function updateMember(state: LobbyState, id: number, patch: Partial<Omit<
   return { ...state, members: state.members.map((m) => (m.id === id ? fresh : m)) };
 }
 
-/** Setting the Map (even to the one it was: a seed typed in again) starts the run of Arenas over: the next Match is on it. */
-export function updateSettings(state: LobbyState, patch: Partial<LobbySettings>): LobbyState {
-  return { ...state, settings: { ...state.settings, ...patch }, ...(patch.arena !== undefined ? { matchArena: null } : {}) };
+/**
+ * Setting the Map (even to the one it was: a seed typed in again) starts the run of Arenas over: the next Match is on it.
+ * A Gauntlet keeps its Random Map: a hand-made one is ignored. The Format changes through `setFormat`.
+ */
+export function updateSettings(state: LobbyState, patch: Partial<Omit<LobbySettings, 'format'>>): LobbyState {
+  const { arena, ...rest } = patch;
+  const keep = arena === undefined || (isGauntlet(state) && !isRandomMap(arena));
+  if (keep && Object.keys(rest).length === 0) return state;
+  return { ...state, settings: { ...state.settings, ...rest, ...(keep ? {} : { arena }) }, ...(keep ? {} : { matchArena: null }) };
+}
+
+/** Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE. */
+export function formatProblem(state: LobbyState, format: MatchFormat): string | null {
+  if (format !== 'Gauntlet') return null;
+  const players = state.teams.flat().filter((s) => s.kind === 'Player').length;
+  return players > MAX_TEAM_SIZE ? `A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has ${players}.` : null;
+}
+
+/**
+ * Switch the Format (host only). Gauntlet forces a Random Map: a hand-made Map gives way to `randomArena` (a Random Map
+ * with a fresh seed, picked by the caller), and moves every Player on Team 1 to Team 0 (swapping with what sat there,
+ * an AI last). Unchanged when `formatProblem` refuses it.
+ */
+export function setFormat(state: LobbyState, format: MatchFormat, randomArena: string): LobbyState {
+  if ((state.settings.format ?? 'Duels') === format || formatProblem(state, format)) return state;
+  let next: LobbyState = { ...state, settings: { ...state.settings, format } };
+  if (format !== 'Gauntlet') return next;
+  if (!isRandomMap(next.settings.arena)) next = { ...next, settings: { ...next.settings, arena: randomArena }, matchArena: null };
+  for (const id of next.members.map((m) => m.id)) {
+    const at = seatOf(next, id);
+    if (!at || at.team === 0) continue;
+    const row = next.teams[0]!;
+    const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0)!;
+    const target = row[index]!;
+    next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
+  }
+  return next;
 }
 
 /**
@@ -199,12 +258,17 @@ export function nextMatchArena(state: LobbyState, played?: string): string {
   return state.matchArena === null ? state.settings.arena : nextArenaName(played ?? state.matchArena);
 }
 
-/** Who fights, read off the Seats team by team (Open and Closed Seats field nobody). */
+/** Who fights, read off the Seats team by team (Open and Closed Seats field nobody); in a Gauntlet Team 0's, then MAX_TEAM_SIZE Floor slots. */
 export function lobbyLineup(state: LobbyState): LobbyLineup {
+  const gauntlet = isGauntlet(state);
   const seated = state.members.filter((m) => seatOf(state, m.id));
   const playerOf = (id: number) => seated.findIndex((m) => m.id === id) as PlayerNumber;
   const lineup: LineupSlot[] = [];
   state.teams.forEach((row, team) => {
+    if (gauntlet && team === 1) {
+      for (let k = 0; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
+      return;
+    }
     for (const s of row) {
       if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) } });
       else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty }, weapon: s.weapon });

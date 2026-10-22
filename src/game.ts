@@ -1,15 +1,16 @@
-import { arenaOf, createMatch, isArenaName, navMesh, nextArenaName, parseGeneratedName, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { TuningData } from './tuning';
 import { Renderer } from './render/renderer';
+import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
-import { createArenaWorlds } from './play/arenaWorlds';
+import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
-import { Hud } from './play/hud';
+import { floorBanner, Hud, runTime, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { FinalBlowShot } from './play/finalBlow';
@@ -33,6 +34,8 @@ import {
 const MAX_TICKS_PER_FRAME = 8;
 /** How long the final result stays on screen before the Lobby returns (seconds, cosmetic). */
 const RESULT_SECONDS = 2.5;
+/** How long a Run's results screen stays up, after its Final Blow Shot, before the Lobby returns (seconds, cosmetic). */
+const RUN_RESULT_SECONDS = 6;
 /** Online: how long after a Match ends a fresh one starts (part of the Match options, so both peers agree). */
 const REMATCH_SECONDS = 5;
 /** How often the Lobby gets its heartbeats and timeouts (ms). */
@@ -134,6 +137,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let last = performance.now();
   let resultAt: number | null = null;
   let resultText = '';
+  /** A Run that ended, its results screen not shown yet (it waits for the Final Blow Shot). */
+  let runResult: RunResult | null = null;
   let announcer = new MatchAnnouncer();
   /** The slow-motion replay of each Duel's final blow; while it plays, audio and impacts follow it rather than the live Match. */
   const finalBlow = new FinalBlowShot(tuning.camera);
@@ -150,9 +155,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let playing = 0;
   /** The Arena of the Match played last in this Lobby (online a Rematch moves it on), or null: a Random Map's next Match follows on from it. */
   let played: string | null = null;
-  /** The Tuning Data the Match is played with, and the Rematch (`matchNumber`) whose next Arena is built already. */
+  /** The Tuning Data the Match is played with, and the Arena last built ahead for it (a Rematch's or the next Floor's). */
   let matchTuning = tuning;
-  let warmed = 0;
+  let warmed: string | null = null;
   /** The Skirmish setup, kept for the next Skirmish. */
   let skirmish: HostLobby | null = null;
   let room: HostedRoom | null = null;
@@ -278,19 +283,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * An online Match is over and a Rematch follows on the next Arena: build it now, while the result shows, with its
-   * navmesh for the Match's Tuning Data, so the Rematch Tick (and any Rollback re-simulating it) only reads it.
+   * Build the next Arena ahead (`arenaToWarm`), with its navmesh for the Match's Tuning Data: an online Match's Rematch's
+   * while the result shows, or a Run's next Floor's in the current Floor's first moments (while its banner shows and the
+   * Fighters are still apart, long before the Floor can end), so the Tick that moves onto it (and any Rollback
+   * re-simulating it) only reads the cache.
    */
   function warmNextArena(match: MatchState): void {
-    if (match.status.status !== 'Over' || match.config.rematchTicks === null || warmed === match.matchNumber) return;
-    warmed = match.matchNumber;
-    const next = nextArenaName(match.arena);
-    if (next === match.arena) return;
-    // After this frame, so the result is on screen first.
-    setTimeout(() => {
-      navMesh(arenaOf(matchTuning, next), matchTuning);
-      arenaWorld(next);
-    }, 0);
+    const next = arenaToWarm(match);
+    if (next === null || next === warmed) return;
+    warmed = next;
+    const t = matchTuning;
+    // After this frame, so the result (or the new Floor) is on screen first.
+    setTimeout(() => warmArena(arenaWorld, t, next), 0);
   }
 
   /** Start Match `s.generation`: against the AI locally, or through a Rollback session with the other players (the host links to every guest; a guest to the host). */
@@ -300,10 +304,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
-    const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed() };
+    const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
     matchTuning = arenaWorld(arena).tuning;
-    warmed = 0;
+    warmed = null;
     setPlayed(arena);
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
@@ -403,6 +407,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       endShot();
       finalBlow.stop();
       resultAt = null;
+      runResult = null;
       hud.show();
       const start = d.state;
       // An online Match has no state until the peers connect; its first state then sounds.
@@ -426,6 +431,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     driver = null;
     playing = 0;
     resultAt = null;
+    runResult = null;
     endShot();
     finalBlow.stop();
     input.enabled = false;
@@ -502,17 +508,35 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
    */
   function present(match: MatchState, me: number): void {
     const myTeam = match.config.teams[me] ?? 0;
+    const run = match.run;
     for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
-        hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
+        // A Run's Floor lost or its last cleared ends the Run: the results screen says so.
+        if (run && (e.winner !== 0 || run.floor === run.floors)) continue;
+        hud.announce(run ? 'Floor cleared' : e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
       } else if (e.type === 'DuelStart') {
         const seed = parseGeneratedName(match.arena)?.seed;
+        if (run) {
+          hud.announce(floorBanner(run.floor, run.floors, runSeed(match.config.arena)), 2.5);
+          aimAtDuelStart(match);
+          continue;
+        }
         const title = e.duelNumber === 1 && match.matchNumber > 1 ? `Match ${match.matchNumber}` : `Duel ${e.duelNumber}`;
         // A Random Map's seed with each Match's first Duel, so a good one can be played again.
         hud.announce(e.duelNumber === 1 && seed !== undefined ? `${title} · seed ${seed}` : title, e.duelNumber === 1 && seed !== undefined ? 2.5 : 1.5);
         aimAtDuelStart(match);
       } else if (e.type === 'Fell') {
         hud.announce('You fell', 1.5);
+      } else if (e.type === 'MatchEnd' && run && match.status.status === 'Over') {
+        // The Run's results screen follows the Final Blow Shot (see the loop), then the Lobby.
+        runResult = {
+          victory: e.winner === myTeam,
+          cleared: run.cleared,
+          floors: run.floors,
+          seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
+          seed: runSeed(match.config.arena),
+        };
+        resultText = `${runResult.victory ? 'Victory' : 'Defeat'} · ${run.cleared} / ${run.floors} Floors cleared · ${runTime(runResult.seconds)} · Run seed ${runResult.seed}`;
       } else if (e.type === 'MatchEnd') {
         const verdict = e.winner === myTeam ? 'Victory' : 'Defeat';
         const score = `${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
@@ -539,12 +563,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const arena = (s && nextMatchArena(s, played ?? undefined)) ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
     let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!] };
     let me = 0;
-    let chosen: (string | undefined)[] = [];
+    let seated: { lineup: Lineup; bodies: readonly string[] } | null = null;
     if (s) {
       const { lineup, weapons: picks, bodies: playerBodies, members } = lobbyLineup(s);
-      chosen = fighterBodies(lineup, playerBodies);
+      seated = { lineup, bodies: playerBodies };
       const player = members.indexOf(lobby!.me ?? -1);
-      if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena });
+      const format = s.settings.format === 'Gauntlet' ? ({ format: 'Gauntlet' } as const) : {};
+      if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena, ...format });
       me = player >= 0 ? playerFighter(lineup, player as PlayerNumber) : -1;
     }
     const key = JSON.stringify(options);
@@ -556,7 +581,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // Not a fieldable Lineup (yet): keep the last scene.
       }
     }
-    return { match: preview, me, bodies: chosen };
+    // A Run's Floor 1 enemies wear their own Bodies.
+    return { match: preview, me, bodies: seated ? fighterBodies(tuning, seated.lineup, seated.bodies, preview) : [] };
   }
 
   // --- The loop ---
@@ -606,6 +632,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const notice = driver?.takeNotice?.();
     if (notice) hud.announce(notice, 3);
     if (!driver) accumulator = 0;
+    if (runResult && !inShot) {
+      hud.showResults(runResult);
+      runResult = null;
+      resultAt = now + RUN_RESULT_SECONDS * 1000;
+    }
     if (resultAt !== null && now >= resultAt && !inShot) {
       resultAt = null;
       const l = lobby;
@@ -625,7 +656,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
       if (inShot && !shot) endShot();
       renderer.setPlayer(me, menu.body);
-      renderer.setChosenBodies(fighterBodies(driver.lineup, bodies));
+      renderer.setChosenBodies(fighterBodies(tuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
           audio.onMatchTick(m);
@@ -679,14 +710,22 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   return game;
 }
 
-/** Each Fighter's chosen Body: its Player's (index = Player number), none for an AI. */
-function fighterBodies(lineup: Lineup | null, bodies: readonly string[] | null): (string | undefined)[] {
-  return (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
+/**
+ * Each Fighter's chosen Body: its Player's (index = Player number), none for an AI. In a Run, each Team 1 slot wears its
+ * Floor's enemy's Body when Tuning Data names one (a `"random"` one picked from the Run seed, `floorRoster`; the boss's wraith).
+ */
+function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readonly string[] | null, match: MatchState): (string | undefined)[] {
+  const roster = match.run ? floorRoster(tuning, match.config, match.run.floor, BODY_MODELS) : [];
+  let enemy = 0;
+  return (lineup ?? []).map((slot) => {
+    if (match.run && slot.team === 1) return roster[enemy++]?.body;
+    return slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined;
+  });
 }
 
-/** Where the living Fighters are, on average (the Arena centre if none). */
+/** Where the Fighters still in the Duel are, on average (the Arena centre if none): neither fallen nor Benched. */
 function fightCentre(a: SimState, b: SimState, alpha: number): CameraTarget {
-  const living = b.fighters.flatMap((f, i) => (f.death ? [] : [lerpPosition(a, b, i, alpha)]));
+  const living = b.fighters.flatMap((f, i) => (inDuel(f) ? [lerpPosition(a, b, i, alpha)] : []));
   if (living.length === 0) return { x: 0, z: 0 };
   const mean = (k: 'x' | 'y' | 'z') => living.reduce((s, p) => s + (p[k] ?? 0), 0) / living.length;
   return { x: mean('x'), y: mean('y'), z: mean('z') };
