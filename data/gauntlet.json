@@ -1,0 +1,15 @@
+{
+  "interFloorSeconds": 5,
+  "heal": 0.3,
+  "revive": 0.4,
+  "perPlayerHp": 0.5,
+  "floors": [
+    { "enemies": [{ "difficulty": "Easy", "weapon": "random", "body": "random" }] },
+    { "enemies": [{ "difficulty": "Easy", "weapon": "random" }, { "difficulty": "Easy", "weapon": "random" }] },
+    { "enemies": [{ "difficulty": "Normal", "weapon": "random" }, { "difficulty": "Easy", "weapon": "random" }] },
+    { "enemies": [{ "difficulty": "Normal", "weapon": "random" }, { "difficulty": "Normal", "weapon": "random" }] },
+    { "enemies": [{ "difficulty": "Hard", "weapon": "random" }, { "difficulty": "Normal", "weapon": "random" }] },
+    { "enemies": [{ "difficulty": "Normal", "weapon": "random" }, { "difficulty": "Normal", "weapon": "random" }, { "difficulty": "Normal", "weapon": "random" }] },
+    { "boss": true, "enemies": [{ "difficulty": "Hard", "weapon": "Sledge Hammer", "body": "wraith", "hpScale": 3 }, { "difficulty": "Normal", "weapon": "Arming Sword" }] }
+  ]
+}

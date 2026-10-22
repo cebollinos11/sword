@@ -102,6 +102,7 @@ import {
   deadlyGround,
   findPath,
   groundBelow,
+  inDuel,
   JITTER_POS,
   JUMP_HOLDS,
   jumpArc,
@@ -147,6 +148,7 @@ interface Sighting {
   readonly hp: number;
   readonly weapon: string;
   readonly team: number;
+  /** Out of the Duel (`inDuel`): fallen, or a Benched slot. */
   readonly fallen: boolean;
   /** Which way its body faces. */
   readonly facing: number;
@@ -580,7 +582,7 @@ class AiController implements Controller {
         hp: o.hp,
         weapon: o.weapon,
         team: o.team,
-        fallen: o.death !== undefined,
+        fallen: !inDuel(o),
         facing: o.facing,
         moving,
         attackStart,
@@ -812,7 +814,7 @@ class AiController implements Controller {
     if (hurt && this.chance(caution)) {
       this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
     } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
-      const max = this.tuning.fighter.maxHp;
+      const max = self.maxHp;
       const ahead = (self.hp - target.hp) / max;
       const press = Math.min(1, Math.max(0, pressure * (0.7 + ahead * 1.5)));
       const back = caution * (self.hp < 0.35 * max ? 0.45 : 0.08);

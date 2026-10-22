@@ -8,7 +8,7 @@ import { flyBody, landing, settleGround, takeOff } from './air';
 import { resolveBodies } from './collision';
 import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
-import { DUEL_FIGHTING, updateDuel } from './duel';
+import { DUEL_FIGHTING, inDuel, updateDuel } from './duel';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { initialGait, updateGait } from './gait';
@@ -84,6 +84,7 @@ export function createInitialState(
         crouch: 0,
         team: teams[i] ?? defaultTeam(i),
         hp: tuning.fighter.maxHp,
+        maxHp: tuning.fighter.maxHp,
         weapon,
         action: IDLE_ACTION,
         motion: IDLE_MOTION,
@@ -269,7 +270,7 @@ function settleBodies(
   fighting: boolean,
   emit: (e: SimEvent) => void,
 ): FighterState[] {
-  const living = fighters.flatMap((f, i) => (f.death ? [] : [i]));
+  const living = fighters.flatMap((f, i) => (inDuel(f) ? [i] : []));
   const resolved = resolveBodies(
     living.map((i) => fighters[i]!),
     arena,
@@ -277,7 +278,7 @@ function settleBodies(
   );
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
-    if (f.death) return f;
+    if (!inDuel(f)) return f;
     const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
     const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, tuning, emit) : grounded;
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
@@ -325,7 +326,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (f.death ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
+    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
     tuning,
     arena,
     fighting,
@@ -351,15 +352,15 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const daggers = [...flying, ...thrown];
   if (fighting)
     fighters = fighters.map((f) => {
-      const cause = f.death || f.air ? null : deadlyGround(arena, f.position.x, f.position.z, f.y);
+      const cause = !inDuel(f) || f.air ? null : deadlyGround(arena, f.position.x, f.position.z, f.y);
       return cause ? { ...f, hp: 0, death: { tick, cause, blow: null } } : f;
     });
-  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || f.death ? f : { ...f, death: felled(events, i, fighters, tick, tuning) }));
+  if (fighting) fighters = fighters.map((f, i) => (f.hp > 0 || !inDuel(f) ? f : { ...f, death: felled(events, i, fighters, tick, tuning) }));
   fighters.forEach((f, i) => {
     if (f.death?.tick === tick) emit({ type: 'Death', fighter: i, cause: f.death.cause });
   });
   const duel = updateDuel(state.duel, fighters, tick, emit);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.floor === undefined ? {} : { floor: state.floor }) };
 }

@@ -218,11 +218,11 @@ _Avoid_: Knockback
 ## Match
 
 **Duel**:
-One round between two Teams, ending when the last Fighter of a Team falls; the other Team wins it.
+One round between two Teams, ending when the last Fighter of a Team falls; the other Team wins it. In a Run, each Duel is a Floor.
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell. In a Run, a fallen Team 0 Fighter sits out the rest of its Floor and comes back on the next.
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -238,7 +238,23 @@ A short jolt of the player's own camera (third-person, or the orbit camera once 
 _Avoid_: Screen shake, hit shake
 
 **Match**:
-A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team.
+A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team. In the Gauntlet Format, a Match is a Run instead.
+
+**Format**:
+How a Match is played, a Lobby setting: Duels (best-of-N, as it always was) or Gauntlet (a Run). Not the Match Mode, which says which Controllers fight.
+_Avoid_: Mode (that is the Match Mode), game type
+
+**Run**:
+A Match in the Gauntlet Format: Team 0 (one to three Fighters, the Players and any AI allies) fights through a series of Floors, from Floor 1 until it is wiped out on one (a Defeat; a Floor drawn counts as lost) or clears the last, the boss (a Victory). Its Fighters are fixed for the whole Run, and so is the number of humans it started with, which scales every enemy's max HP (`gauntlet.perPlayerHp`, so an AI Takeover never changes a Floor). A Run is a pure function of its options, the Lineup and Tuning Data (`data/gauntlet.json`): every peer builds each Floor itself. There is no Rematch.
+_Avoid_: Gauntlet (for one playthrough), campaign, dungeon
+
+**Floor**:
+One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it, each with its difficulty, Weapon and max HP. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
+_Avoid_: Level, stage, room (Room is the online connection), wave
+
+**Benched**:
+A Team 1 slot a Floor has no enemy for (a Run always holds three): out of that Floor's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
+_Avoid_: Empty, disabled, dead (it never fell)
 
 **Rematch**:
 A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends; on a Random Map it is fought on the next seed's Generated Arena. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.

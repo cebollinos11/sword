@@ -17,7 +17,9 @@ import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
+import gauntletJson from '../../data/gauntlet.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
+import { parseGauntlet, type GauntletTuning } from './gauntlet';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -27,6 +29,7 @@ import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningD
 export { TuningDataError } from './validate';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
+export { MAX_FLOOR_ENEMIES, parseGauntlet, RANDOM_PICK, type GauntletEnemy, type GauntletFloor, type GauntletTuning } from './gauntlet';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -330,6 +333,8 @@ export interface TuningData {
   readonly dagger: DaggerTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
+  /** A Gauntlet Run's Floors, and how HP carries between them. */
+  readonly gauntlet: GauntletTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
@@ -572,6 +577,7 @@ export function parseTuningData(raw: unknown): TuningData {
     if (Object.keys(own).length > 0) motionOverrides[weapon] = own;
   }
   checkIdleLinks({ weapons, motions, motionOverrides });
+  const ai = parseAi(root.ai);
 
   return {
     fighter: {
@@ -626,8 +632,9 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
+    gauntlet: parseGauntlet(root.gauntlet, Object.keys(weapons), Object.keys(ai.difficulties)),
     skeleton,
-    ai: parseAi(root.ai),
+    ai,
     gait: parseGait(root.gait),
     camera: {
       back: finiteNumber(cam, 'back', 'camera'),
@@ -719,6 +726,7 @@ export function loadTuningData(): TuningData {
     dagger: daggerJson,
     block: blockJson,
     match: matchJson,
+    gauntlet: gauntletJson,
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,

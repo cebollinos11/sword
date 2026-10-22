@@ -180,6 +180,8 @@ export interface FighterState {
   /** Its team (0 or 1), fixed for the Match. Teammates' blades Stagger but never wound each other. */
   readonly team: number;
   readonly hp: number;
+  /** Its max HP: `fighter.maxHp`, or in a Gauntlet Run an enemy's scaled one (docs/plans/gauntlet.md). HP never rises above it. */
+  readonly maxHp: number;
   /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
   readonly weapon: string;
   readonly action: Action;
@@ -206,6 +208,11 @@ export interface FighterState {
   readonly blockImpact?: BlockImpact;
   /** Present once the Fighter has fallen (its HP reached zero). It is no longer simulated, hits and is hit by nothing, and no longer blocks bodies: its state stays as it was on that Tick. */
   readonly death?: Death;
+  /**
+   * Present on an enemy slot a Gauntlet Floor leaves empty (Benched), set only when the Floor starts: 0 HP and no `death`, standing at its
+   * slot's spawn, out of the Duel (`inDuel`): not stepped, hits and is hit by nothing, blocks no bodies, never a target, not counted by the Duel's end.
+   */
+  readonly benched?: true;
 }
 
 /**
@@ -314,6 +321,8 @@ export interface SimState {
   /** Throwing Daggers in flight, in the order they were thrown. */
   readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
+  /** In a Gauntlet Run, the Floor this Duel is (1-based), so a Controller, which sees only SimState, can tell Floors apart; absent otherwise. */
+  readonly floor?: number;
   /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
   readonly events: readonly SimEvent[];
 }

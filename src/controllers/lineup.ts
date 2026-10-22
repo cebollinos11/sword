@@ -6,10 +6,11 @@
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
  */
-import { checkTeams, type MatchOptions } from '../sim';
+import { checkTeams, type MatchFormat, type MatchOptions } from '../sim';
 import { defaultWeaponName, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
+import { createFloorAi } from './floorAi';
 
 /** The most human Players a Match fields (online: the host and three guests). */
 export const MAX_PLAYERS = 4;
@@ -60,10 +61,14 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number)
   }
 }
 
-/** The Match options for a Lineup: its teams, and each Fighter's Weapon (Player p's from `playerWeapons[p]`). */
+/**
+ * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`), and for a
+ * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies), so every peer building the Match
+ * from the same Lineup gets the same number. Duels never read it, and keep the default.
+ */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  return { ...options, teams: lineup.map((s) => s.team), weapons };
+  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: lineupPlayers(lineup) } : {}) };
 }
 
 /** How many human Players the Lineup fields. */
@@ -71,7 +76,14 @@ export function lineupPlayers(lineup: Lineup): number {
   return lineup.filter((s) => s.pilot.kind === 'Player').length;
 }
 
-/** A fresh AI Controller for each AI slot; null for each Player's slot. */
-export function lineupAis(tuning: TuningData, lineup: Lineup): (Controller | null)[] {
-  return lineup.map((s) => (s.pilot.kind === 'AI' ? createAiController(tuning, s.pilot.difficulty) : null));
+/**
+ * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Floor AI
+ * instead (its Floors decide its difficulty), counting Team 1's slots from 0 in Fighter order.
+ */
+export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels'): (Controller | null)[] {
+  let slot = 0;
+  return lineup.map((s) => {
+    if (format === 'Gauntlet' && s.team === 1) return createFloorAi(tuning, slot++);
+    return s.pilot.kind === 'AI' ? createAiController(tuning, s.pilot.difficulty) : null;
+  });
 }

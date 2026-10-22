@@ -26,6 +26,7 @@ import type { TuningData } from '../tuning';
 import { attackTimings, roughlyFaces } from './actions';
 import { staggerFighter } from './combat';
 import { secondsToTicks } from './constants';
+import { inDuel } from './duel';
 import type { Emit } from './events';
 import { mirrorDirection } from './intent';
 import type { Action, FighterState } from './state';
@@ -57,10 +58,10 @@ export function resolveChambers(
   const out = next.slice();
   next.forEach((chamberer, c) => {
     const before = prev[c];
-    if (!before || chamberer.death || !startedAttack(before.action, chamberer.action) || chamberer.action.kind !== 'Attack') return;
+    if (!before || !inDuel(chamberer) || !startedAttack(before.action, chamberer.action) || chamberer.action.kind !== 'Attack') return;
     const direction = chamberer.action.direction;
     next.forEach((attacker, a) => {
-      if (a === c || attacker.death || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
+      if (a === c || !inDuel(attacker) || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
       if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker, tuning)) return;
       emit({ type: 'Chamber', chamberer: c, attacker: a, direction: attacker.action.direction });
       if (out[a]!.action.kind !== 'Stagger') out[a] = staggerFighter(out[a]!, a, 'Chambered', tuning, emit);

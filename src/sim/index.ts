@@ -128,6 +128,7 @@ export {
   type Track,
 } from './script';
 export { hashState, hashValue } from './hash';
+export { inDuel } from './duel';
 export type { Vec3 } from './vec';
 export type { BladeTransform, JointName, KickLeg, Placement, SkeletonPose } from './skeleton';
 export { BONES, JOINT_NAMES, kickLegOf } from './skeleton';
@@ -138,9 +139,11 @@ export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
 export { snapshot, restore } from './snapshot';
 export {
+  checkRunTeams,
   checkTeams,
   createMatch,
   duelsToWin,
+  MATCH_FORMATS,
   MAX_TEAM_SIZE,
   teamMembers,
   stepMatch,
@@ -148,7 +151,11 @@ export {
   type MatchConfig,
   type MatchEndEvent,
   type MatchEvent,
+  type MatchFormat,
   type MatchOptions,
   type MatchState,
   type MatchStatus,
+  type RunEndEvent,
+  type RunState,
 } from './match';
+export { enemyMaxHp, floorRoster, runPick, runSeed, type FloorEnemy } from './gauntlet';

@@ -43,9 +43,12 @@ export type ReplaySetup =
       readonly seed: number;
       /**
        * Replays saved before teams lack `spacing` and `teams` (one Fighter a side, Tuning Data spacing), and those
-       * saved before Arenas lack `arena` (they were fought in the flat `circle`). A replay is one Match: no rematches.
+       * saved before Arenas lack `arena` (they were fought in the flat `circle`), and those saved before the Gauntlet lack
+       * `format` and `humans` (Duels, one human). A replay is one Match: no rematches.
        */
-      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams' | 'rematchTicks' | 'arena'> & {
+      readonly config: Omit<MatchConfig, 'weapons' | 'spacing' | 'teams' | 'rematchTicks' | 'arena' | 'format' | 'humans'> & {
+        readonly format?: MatchConfig['format'];
+        readonly humans?: number;
         readonly arena?: string;
         readonly weapons?: readonly string[];
         readonly spacing?: number;
@@ -136,8 +139,10 @@ export function recordingSandbox<S extends object>(sandbox: Sandbox<S>): Recordi
 export function replaySetup(initial: RunState): ReplaySetup {
   if (initial.tick !== 0) throw new RangeError(`A replay starts at Tick 0, not ${initial.tick}`);
   if (isMatch(initial)) {
-    const { rematchTicks: _oneMatch, ...config } = initial.config;
-    return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...config, weapons: [...config.weapons], teams: [...config.teams] } };
+    const { rematchTicks: _oneMatch, format, humans, ...config } = initial.config;
+    // A Duels replay is written as it was before the Gauntlet (Duels never reads `humans`); a Run's names its format and humans.
+    const run = format === 'Duels' ? {} : { format, humans };
+    return { kind: 'Match', seed: initial.duel.rng.seed, config: { ...config, weapons: [...config.weapons], teams: [...config.teams], ...run } };
   }
   return {
     kind: 'Duel',
@@ -411,6 +416,8 @@ function parseSetup(raw: unknown): ReplaySetup {
         ...(c.spacing === undefined ? {} : { spacing: num(c.spacing, 'setup.config.spacing') }),
         ...teamList(c.teams, 'setup.config.teams'),
         arena: c.arena === undefined ? 'circle' : typeof c.arena === 'string' ? c.arena : fail('setup.config.arena', 'must be an Arena name'),
+        ...(c.format === undefined ? {} : { format: c.format === 'Duels' || c.format === 'Gauntlet' ? c.format : fail('setup.config.format', 'must be "Duels" or "Gauntlet"') }),
+        ...(c.humans === undefined ? {} : { humans: int(c.humans, 'setup.config.humans', 0) }),
       },
     };
   }

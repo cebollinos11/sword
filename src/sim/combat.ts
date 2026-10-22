@@ -16,6 +16,7 @@
 import { isHeavyBlow, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
+import { inDuel } from './duel';
 import { LODGE_TICKS } from './actions/attack';
 import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
@@ -115,14 +116,14 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   const contacts: Contact[] = [];
   next.forEach((attacker, i) => {
     const before = prev[i];
-    if (before && !attacker.death && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
-    if (!before || attacker.death || !attackSweepLive(before.action, attacker.action)) return;
+    if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
+    if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
     const direction = attacker.action.direction;
     const weapon = weaponByName(tuning, attacker.weapon);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
-      if (j === i || defender.death) return;
+      if (j === i || !inDuel(defender)) return;
       const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       // Whichever the sweep reaches first lands: a Blocking blade stops the Attack where the blades meet.
@@ -148,7 +149,7 @@ function findKickContacts(before: FighterState, kicker: FighterState, i: number,
   const samples = bladeSamples(length(sub(kicker.kickLeg.toe, kicker.kickLeg.knee)));
   let best: { contact: KickContact; travelled: number } | null = null;
   next.forEach((defender, j) => {
-    if (j === i || defender.death) return;
+    if (j === i || !inDuel(defender)) return;
     const zones = hitZoneCapsules(fighterPose(defender, tuning), tuning).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
     const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples);
     if (!c) return;
@@ -174,7 +175,7 @@ export interface DaggerContact {
  * ignores Weapons. Hit Zones are padded by `dagger.radius`.
  */
 export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: readonly FighterState[], tuning: TuningData): DaggerContact[] {
-  const zones = fighters.map((f) => (f.death || f.hp <= 0 ? null : hitZoneCapsules(fighterPose(f, tuning), tuning)));
+  const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : hitZoneCapsules(fighterPose(f, tuning), tuning)));
   const out: DaggerContact[] = [];
   sweeps.forEach((sweep, k) => {
     let best: { s: number; depth: number; contact: DaggerContact } | null = null;
