@@ -49,14 +49,14 @@ User decisions:
 
 **Styles:** Tuning Data `ai.styles` in `data/ai.json`. Each Style holds multipliers on the difficulty's chances plus values for new knobs. A starting set:
 - **Balanced**: no change; this is the default.
-- **Brute**: more aggression, pressure and Chains; fewer Feints; less caution.
-- **Fencer**: a counter-puncher with more footwork, punish, Chambers and `whiffCheck`, and less aggression.
-- **Trickster**: more Feints, Kicks, jumping Attacks and Throws.
-- **Guardian**: more caution, Ducks, Chambers and `holdBreak`; less pressure.
+- **Aggressive**: more aggression, pressure and Chains; fewer Feints; less caution.
+- **Counter**: waits for your move and punishes it, with more footwork, punish, Chambers and `whiffCheck`, and less aggression.
+- **Tricky**: more Feints, Kicks, jumping Attacks and Throws.
+- **Defensive**: more caution, Ducks, Chambers and `holdBreak`; less pressure.
 
 Merge the Style into the Skill in `skillOf`, clamping chances to 0..1. Pass it as `createAiController(tuning, difficulty, style?)`.
 
-**New tiers:** add `Squire`, `Knight` and `Champion` to `ai.difficulties`, based on Easy/Normal/Hard with every new knob on. These names are placeholders; rename them freely.
+**New tiers:** add `Beginner`, `Skilled` and `Expert` to `ai.difficulties`, the new counterparts of Easy, Normal and Hard: the same strength ladder, with every new knob on.
 
 **Wiring the Style through:**
 - `Pilot` AI in `src/controllers/lineup.ts` gains an optional `style` (absent means Balanced). `lineupAis` passes it on. `validateLineup` rejects an unknown Style.
@@ -66,7 +66,7 @@ Merge the Style into the Skill in `skillOf`, clamping chances to 0..1. Pass it a
 - Gauntlet (`src/tuning/gauntlet.ts`, `data/gauntlet.json`): an optional `style` per enemy, "random" allowed. Moving the Gauntlet floors to the new tiers is a data change, proposed at the end of Stage 2.
 - Tuning validation and the hash (`src/tuning/hash.ts`) cover `ai.styles`.
 
-**Tests:** the golden test; one test per knob (a low-pitched Left hits a Squire that would have Ducked, but not a Knight; a held Wind-up no longer pins it; a target stepping out makes it hold or Feint instead of whiffing; a hammer doesn't punish a short Recovery); `save()`/`load()` round-trips; Lineup, lobby and Gauntlet validation with Styles.
+**Tests:** the golden test; one test per knob (a low-pitched Left hits an Easy AI that Ducks it, while a Beginner reads the look and Blocks it; a held Wind-up no longer pins it; a target stepping out makes it hold or Feint instead of whiffing; a hammer doesn't punish a short Recovery); `save()`/`load()` round-trips; Lineup, lobby and Gauntlet validation with Styles.
 
 ## Stage 2: Team coordination (`teamwork` knob)
 It coordinates by observation only, reading allies' seen positions and Actions, so there is no shared memory and both peers stay in sync.
