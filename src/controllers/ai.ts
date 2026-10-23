@@ -1248,19 +1248,23 @@ class AiController implements Controller {
   }
 
   /**
-   * Whether an ally (where it is by now, carrying on as seen) stands where its blade would sweep in `direction` (any
-   * Direction: the narrowest, an Overhead's): within LINE_MARGIN beyond `myReach`, and LINE_WIDE (a Left or Right,
-   * LINE_CLOSE for an ally within CROWD) or LINE_NARROW (an Overhead or a Thrust) of the line `toward` its target.
+   * Whether an ally (where it is by now, carrying on as seen, or where it was seen: it may have stopped or turned back
+   * since) stands where its blade would sweep in `direction` (any Direction: the narrowest, an Overhead's): within
+   * LINE_MARGIN beyond `myReach`, and LINE_WIDE (a Left or Right, LINE_CLOSE for an ally within CROWD) or LINE_NARROW
+   * (an Overhead or a Thrust, LINE_WIDE for an ally within CROWD: that close, one step puts it in the blade's way) of
+   * the line `toward` its target.
    */
   private allyInLine(self: FighterState, team: TeamView, toward: Vec2, myReach: number, direction?: Direction): boolean {
-    const lead = this.reactionTicks;
     const sweeps = direction === 'Left' || direction === 'Right';
-    return team.allies.some(({ o }) => {
-      const x = o.position.x + o.velocity.x * lead - self.position.x;
-      const z = o.position.z + o.velocity.z * lead - self.position.z;
+    const inLine = (x: number, z: number) => {
       const d = Math.hypot(x, z);
-      const cos = Math.cos(!sweeps ? LINE_NARROW : d < CROWD ? LINE_CLOSE : LINE_WIDE);
+      const cos = Math.cos(d < CROWD ? (sweeps ? LINE_CLOSE : LINE_WIDE) : sweeps ? LINE_WIDE : LINE_NARROW);
       return d <= myReach + LINE_MARGIN && (d < 1e-6 || (x * toward.x + z * toward.z) / d > cos);
+    };
+    return team.allies.some(({ o }) => {
+      const x = o.position.x - self.position.x;
+      const z = o.position.z - self.position.z;
+      return inLine(x + o.velocity.x * this.reactionTicks, z + o.velocity.z * this.reactionTicks) || inLine(x, z);
     });
   }
 
@@ -2028,8 +2032,11 @@ class AiController implements Controller {
       case 'Chamber': {
         if (state.tick < plan.pressAt) return own.kind === 'Idle' ? base : { ...base, block: true, direction: meets };
         if (state.tick === plan.pressAt && (own.kind === 'Idle' || (own.kind === 'Fall' && self.air?.jumped))) return { ...base, attack: true, direction: meets };
-        // Pressed: let its Attack run until it can see whether the Chamber took; still threatened after that, Block (a Block Feint).
-        if (own.kind === 'Attack' && state.tick <= plan.pressAt + this.reactionTicks + 2) return base;
+        // Pressed: let its Attack run until it can see whether it met the Release, then on while that Release lasts (the
+        // Chamber lands only when the blades meet) and once it has (the attacker Staggers, Chambered): its counter swings.
+        // Still threatened by a Wind-up held past the press, Block (a Block Feint).
+        const took = seen.action.kind === 'Stagger' && seen.action.cause === 'Chambered';
+        if (own.kind === 'Attack' && (state.tick <= plan.pressAt + this.reactionTicks + 2 || atk.phase === 'Release' || took)) return base;
         plan = this.defencePlan = { ...plan, kind: 'Block', direction: meets };
         break;
       }

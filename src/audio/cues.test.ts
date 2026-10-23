@@ -69,7 +69,7 @@ describe('soundCues', () => {
     const point = { x: 0, y: 1, z: 0 };
     expect(
       soundCues([
-        { type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Left' },
+        { type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Left', point },
         { type: 'Feint', fighter: 0, from: 'Left', into: { kind: 'Block', direction: 'Left' } },
         { type: 'KickLanded', attacker: 0, defender: 1, outcome: 'Knockdown', zone: 'torso', point, damage: 5 },
         { type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, heavy: false, damage: 6 },

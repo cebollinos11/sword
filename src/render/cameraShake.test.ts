@@ -40,6 +40,18 @@ describe('shakeFor', () => {
     expect(shakeFor([kick('Shove')], 1)).toEqual([]);
   });
 
+  it('a Chamber shakes both Fighters lightly, the one Chambered more than the chamberer, and nobody else', () => {
+    const chamber: SimEvent = { type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', point };
+    const [chambered, chamberer, bystander] = shakesOf([chamber]);
+    expect(chambered).toEqual([expect.any(Number)]);
+    expect(chamberer).toEqual([expect.any(Number)]);
+    expect(chambered![0]!).toBeGreaterThan(chamberer![0]!);
+    expect(chamberer![0]!).toBeGreaterThan(0);
+    expect(bystander).toEqual([]);
+    const hitTaken = shakeFor(runDuel(tuning, { distance: 1.2, a: attack('Overhead'), b: [] }).states.flatMap((s) => s.events), 1)[0]!;
+    expect(chambered![0]!).toBeLessThan(hitTaken);
+  });
+
   it('a Landing shakes only when it hurts, and only the one landing', () => {
     const land = (damage: number): SimEvent => ({ type: 'Land', fighter: 1, height: 4, damage });
     expect(shakeFor([land(12)], 1)[0]!).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { attack, attackTimings, hold, mirrorDirection, runDuel, TICK_RATE, wait, type Direction, type HitEvent, type ScriptRun } from './index';
+import { attack, attackTimings, hold, mirrorDirection, runDuel, TICK_RATE, wait, type ChamberEvent, type Direction, type HitEvent, type ScriptRun } from './index';
 
 const tuning = loadTuningData();
 
@@ -23,6 +23,18 @@ const windowTicks = (t: TuningData) => Math.round(t.chamber.windowSeconds * TICK
 
 const counter = (pressTick: number, direction: Direction = 'Overhead') => [...wait(pressTick - 1), ...attack(direction)];
 
+/** The Tick Fighter 0's `direction` Attack (pressed on Tick 1) lands on an idle Fighter 1 `d` metres ahead. */
+const landsAt = (direction: Direction = 'Overhead', d = 1.3) => hitsOf(runDuel(tuning, { placements: placements(d), a: attack(direction), b: wait(1) }))[0]!.tick;
+
+/** The single Chamber of `run` (Fighter 1 chambering Fighter 0's `direction` Attack), landing between `press` and `landsAt(direction)`. */
+function chamberLanded(run: ScriptRun, press: number, direction: Direction = 'Overhead') {
+  expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction, point: expect.any(Object), tick: expect.any(Number) }]);
+  const { tick } = eventsOf(run, 'Chamber')[0]!;
+  expect(tick).toBeGreaterThanOrEqual(press);
+  expect(tick).toBeLessThanOrEqual(landsAt(direction));
+  return tick;
+}
+
 describe('Chamber', () => {
   it('sanity: the incoming Overhead enters Release on releaseStart', () => {
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: wait(1) });
@@ -34,10 +46,10 @@ describe('Chamber', () => {
   it("pressing attack in the incoming Attack's Direction on the first Tick of its Release chambers it: the incoming Attack is cancelled (its attacker Staggers, cause Chambered), and the chamberer's own Attack continues", () => {
     const r = releaseStart(tuning);
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: counter(r) });
-    expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', tick: r }]);
-    expect(run.states[r]!.fighters[0]!.action).toEqual({ kind: 'Stagger', cause: 'Chambered' });
-    expect(run.states[r]!.fighters[1]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead', phase: 'Wind-up' });
-    expect(eventsOf(run, 'Stagger')).toContainEqual({ type: 'Stagger', fighter: 0, cause: 'Chambered', tick: r });
+    const at = chamberLanded(run, r);
+    expect(run.states[at]!.fighters[0]!.action).toEqual({ kind: 'Stagger', cause: 'Chambered' });
+    expect(run.states[at]!.fighters[1]!.action).toMatchObject({ kind: 'Attack', direction: 'Overhead' });
+    expect(eventsOf(run, 'Stagger')).toContainEqual({ type: 'Stagger', fighter: 0, cause: 'Chambered', tick: at });
     // The chambered Attack never lands; the chamberer's own Attack goes on to Release.
     expect(hitsOf(run).filter((h) => h.attacker === 0)).toEqual([]);
     expect(run.final.fighters[1]!.hp).toBe(100);
@@ -49,7 +61,7 @@ describe('Chamber', () => {
     const r = releaseStart(tuning);
     const last = r + windowTicks(tuning) - 1;
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: counter(last) });
-    expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', tick: last }]);
+    chamberLanded(run, last);
     expect(run.final.fighters[1]!.hp).toBe(100);
   });
 
@@ -81,7 +93,7 @@ describe('Chamber', () => {
     const b = [...wait(r - 6), ...hold(5, { attack: true, direction: 'Left' }), ...hold(1, { attack: true, direction: 'Overhead' })];
     const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b });
     expect(eventsOf(run, 'Feint')).toHaveLength(1);
-    expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', tick: r }]);
+    chamberLanded(run, r);
     expect(run.final.fighters[1]!.hp).toBe(100);
   });
 
@@ -97,7 +109,7 @@ describe('Chamber', () => {
     for (const direction of ['Overhead', 'Left', 'Right', 'Thrust'] as const) {
       const r = releaseStart(tuning, direction);
       const run = runDuel(tuning, { placements: placements(1.3), a: attack(direction), b: counter(r, mirrorDirection(direction)) });
-      expect(eventsOf(run, 'Chamber')).toEqual([{ type: 'Chamber', chamberer: 1, attacker: 0, direction, tick: r }]);
+      chamberLanded(run, r, direction);
     }
   });
 
@@ -105,6 +117,36 @@ describe('Chamber', () => {
     const run = runDuel(tuning, { placements: placements(1.3, 0), a: attack('Overhead'), b: counter(releaseStart(tuning)) });
     expect(eventsOf(run, 'Chamber')).toEqual([]);
     expect(run.final.fighters[1]!.hp).toBeLessThan(100);
+  });
+
+  it('a Chamber lands when the blades meet, not on the press: until then the incoming Attack is only marked, then it Staggers where its Blade Sweep reached the chamberer', () => {
+    const r = releaseStart(tuning);
+    const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b: counter(r) });
+    const at = chamberLanded(run, r);
+    expect(at).toBeGreaterThan(r);
+    expect(run.states[r]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', phase: 'Release', chamberedBy: [1] });
+    expect(run.states[at - 1]!.fighters[0]!.action).toMatchObject({ kind: 'Attack', phase: 'Release', chamberedBy: [1] });
+    // The meeting point is at the chamberer, not halfway between the two Fighters.
+    expect((eventsOf(run, 'Chamber')[0] as ChamberEvent).point.z).toBeGreaterThan(0.65);
+  });
+
+  it('out of reach there is no Chamber, however far: the incoming Attack whiffs and plays out, and the chamberer swings on', () => {
+    for (const d of [4, 10, 30]) {
+      const run = runDuel(tuning, { placements: placements(d), a: attack('Overhead'), b: counter(releaseStart(tuning)) });
+      expect(eventsOf(run, 'Chamber'), `${d} m`).toEqual([]);
+      expect(eventsOf(run, 'Stagger'), `${d} m`).toEqual([]);
+      expect(run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 0 && e.phase === 'Recovery'), `${d} m`).toHaveLength(1);
+      expect(run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Release'), `${d} m`).toHaveLength(1);
+    }
+  });
+
+  it('a pending Chamber is dropped when the chamberer Feints into another Direction before the blades meet: the incoming Attack lands', () => {
+    const r = releaseStart(tuning);
+    const b = [...wait(r - 1), ...hold(2, { attack: true, direction: 'Overhead' }), ...hold(20, { attack: true, direction: 'Left' })];
+    const run = runDuel(tuning, { placements: placements(1.3), a: attack('Overhead'), b });
+    expect(r + 2).toBeLessThan(landsAt());
+    expect(eventsOf(run, 'Chamber')).toEqual([]);
+    expect(hitsOf(run).filter((h) => h.attacker === 0)).toHaveLength(1);
   });
 
   it('the Chamber window comes from Tuning Data (chamber.windowSeconds, seconds)', () => {

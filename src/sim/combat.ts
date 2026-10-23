@@ -5,12 +5,13 @@
  *      is tested against every other Fighter's Hit Zones, and against its
  *      whole Weapon (pommel or butt to tip) when it Blocks that Attack by rule,
  *      so a Block lands where the blades meet rather than when the Attack
- *      reaches the body. A Hit behind the attacker's Head deals less damage.
+ *      reaches the body; likewise against a Fighter with a pending Chamber of
+ *      it (`src/sim/chamber.ts`), which lands there as the Chamber. A Hit behind the attacker's Head deals less damage.
  *      An Arena Wall (a pillar, a wall, a rail) the sweep reaches first stops
  *      it there: nothing behind the Wall is hit.
  *   2. resolveContacts: every contact is resolved against the same
  *      pre-resolution state, so two Attacks landing on one Tick both count.
- *   3. resolveContact: a Block, a hit that Staggers the victim (or, in the air or
+ *   3. resolveContact: a Block, a Chamber (the attacker Staggers, cause Chambered), a hit that Staggers the victim (or, in the air or
  *      from a Heavy Blow, knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
 import { isHeavyBlow, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
@@ -18,6 +19,7 @@ import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { inDuel } from './duel';
 import { LODGE_TICKS } from './actions/attack';
+import { chamberHolds } from './chamber';
 import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown, roughlyFaces, stagger, startBlockImpact } from './actions';
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
@@ -33,8 +35,9 @@ import { lerp, length, normalize, scale, sub, type Vec3 } from './vec';
 
 /**
  * A live Blade Sweep touching another Fighter this Tick: a Hit Zone, or (only
- * when the Attack is Blocked by rule) the defender's blade. `blocked` is the
- * Block rule's verdict (ADR 0002); the geometry only decides when it lands.
+ * when the Attack is Blocked by rule, or Chambered by that Fighter) the defender's blade.
+ * `blocked` is the Block rule's verdict (ADR 0002), `chambered` the Chamber rule's;
+ * the geometry only decides when it lands.
  */
 export type BladeContact = {
   readonly attacker: number;
@@ -44,7 +47,11 @@ export type BladeContact = {
   readonly bladeSpeed: number;
   /** Whether the contact point is on the attacker's Head (see `onHead`). */
   readonly onHead: boolean;
-} & ({ readonly blocked: true } | { readonly blocked: false; readonly zone: HitZone });
+} & (
+  | { readonly blocked: true; readonly chambered?: undefined }
+  | { readonly blocked: false; readonly chambered: true }
+  | { readonly blocked: false; readonly chambered?: undefined; readonly zone: HitZone }
+);
 
 /**
  * A Kick's leg sweep touching another Fighter's Hit Zone this Tick (ADR 0007). It ignores Blocks and
@@ -70,7 +77,7 @@ export interface WallContact {
 export type Contact = BladeContact | KickContact | WallContact;
 
 /**
- * The capsule a Blocking defender's Weapon presents to the Blade Sweep: all of it, from the pommel or
+ * The capsule a Blocking (or Chambering) defender's Weapon presents to the Blade Sweep: all of it, from the pommel or
  * butt (`gripLength` behind the main hand) to the tip, so a blow can meet a shaft between the hands
  * (radius: Tuning Data `block.bladeRadius`).
  */
@@ -118,7 +125,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const before = prev[i];
     if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
     if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
-    const direction = attacker.action.direction;
+    const { direction, chamberedBy } = attacker.action;
     const weapon = weaponByName(tuning, attacker.weapon);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
@@ -126,11 +133,17 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       if (j === i || !inDuel(defender)) return;
       const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
-      // Whichever the sweep reaches first lands: a Blocking blade stops the Attack where the blades meet.
-      const c = sweepContact(before.blade, attacker.blade, blocked ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
+      const chambered = !blocked && (chamberedBy?.includes(j) ?? false) && chamberHolds(defender, direction);
+      // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
+      const c = sweepContact(before.blade, attacker.blade, blocked || chambered ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
       if (!c) return;
       const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed, onHead: onHead(weapon, c.along) };
-      found.push({ s: c.s, contact: blocked ? { ...at, blocked } : { ...at, blocked, zone: (c.capsule as HitCapsule).zone } });
+      const contact: BladeContact = blocked
+        ? { ...at, blocked }
+        : chambered
+          ? { ...at, blocked, chambered }
+          : { ...at, blocked, zone: (c.capsule as HitCapsule).zone };
+      found.push({ s: c.s, contact });
     });
     // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
     const wall = wallContact(before.blade, attacker.blade, arena, samples);
@@ -325,7 +338,8 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
 }
 
 /**
- * One contact. Blocked (by rule, ADR 0002): no damage, the attacker recoils
+ * One contact. Chambered (`src/sim/chamber.ts`): no damage, the attacker Staggers (cause Chambered), and the
+ * chamberer's Attack carries on. Blocked (by rule, ADR 0002): no damage, the attacker recoils
  * into Stagger and the defender's sword hand absorbs the blow (Block Impact); a Heavy Blow also pushes the defender
  * back (its Weapon's `heavyBlow.blockSlide`), the Block holding. Otherwise a hit: the defender takes damage and Staggers,
  * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
@@ -339,6 +353,12 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   if (action.landed) return;
   const weapon = weaponByName(tuning, attacker.weapon);
   const { dx, dz } = awayFrom(attacker, defender);
+  if (c.chambered) {
+    emit({ type: 'Chamber', chamberer: c.defender, attacker: c.attacker, direction: c.direction, point: c.point });
+    // A Trade may have Staggered the attacker already this Tick; leave that be.
+    if (out[c.attacker]!.action.kind !== 'Stagger') out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Chambered', tuning, emit);
+    return;
+  }
   if (c.blocked) {
     const heavy = isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
     emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed, heavy });

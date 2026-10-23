@@ -34,6 +34,11 @@ export interface AttackAction {
    * playback meanwhile shows the next Attack's Motion. `direction` is the Direction it was held in.
    */
   readonly chain?: AttackChain;
+  /**
+   * Fighters that pressed a Chamber against this Attack inside its Chamber window, in the order they did: each
+   * Chamber lands only if the Blade Sweep then reaches that Fighter's Weapon or body (see `src/sim/chamber.ts`).
+   */
+  readonly chamberedBy?: readonly number[];
 }
 
 /** A Chain: attack held during Recovery (see AttackAction.chain). */

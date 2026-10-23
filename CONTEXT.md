@@ -190,7 +190,7 @@ _Avoid_: Knockback, pushback
 Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
 
 **Chamber**:
-Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. The incoming Attack is cancelled (its attacker Staggers) and the chamberer's own Attack continues.
+Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. That only makes the Chamber pending: it lands where the blades meet, when the incoming Blade Sweep reaches the chamberer's Weapon (or, failing that, its body) while the chamberer is still in that Attack (ADR 0018). The incoming Attack is then cancelled (its attacker Staggers) and the chamberer's own Attack continues. An Attack that reaches nothing (the chamberer out of its reach) is no Chamber: it whiffs.
 
 **Blade Sweep**:
 The volume the Weapon's blade traces between ticks; whatever it intersects is hit, unless a Wall stops it first. Hits are physical, never abstract.

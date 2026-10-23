@@ -1,6 +1,6 @@
 /**
  * Camera Shake: the third-person camera jolts when the player's Fighter is hit, lands a Hit,
- * is kicked down or lands hard. Like impact effects, it lives outside the Simulation and only
+ * Chambers or is Chambered, is kicked down or lands hard. Like impact effects, it lives outside the Simulation and only
  * listens to its events (ADR 0001). Which events shake is pure, and the shake's wobble is a
  * fixed sum of sines rather than random, so the same events always shake the same way.
  */
@@ -17,6 +17,9 @@ const HEAVY_DEALT = 0.5;
 /** ...for being knocked down by a Kick, and for a Landing that hurts. */
 const KNOCKED_DOWN = 0.6;
 const HURT_LANDING = 0.6;
+/** ...for having an Attack Chambered, and (lighter) for Chambering one. */
+const CHAMBERED = 0.4;
+const CHAMBERING = 0.25;
 /** How fast the shake dies away: per second, so a full shake lasts this many times less than a second. */
 const DECAY = 1.6;
 /** At full shake (and strength 1): the camera's sway sideways and up (m) and its roll (radians). */
@@ -29,6 +32,8 @@ export function shakeFor(events: readonly SimEvent[], me: number): number[] {
   for (const e of events) {
     if (e.type === 'Hit' && e.defender === me) impulses.push(e.heavy ? HEAVY_TAKEN : HIT_TAKEN);
     else if (e.type === 'Hit' && e.attacker === me) impulses.push(e.heavy ? HEAVY_DEALT : HIT_DEALT);
+    else if (e.type === 'Chamber' && e.attacker === me) impulses.push(CHAMBERED);
+    else if (e.type === 'Chamber' && e.chamberer === me) impulses.push(CHAMBERING);
     else if (e.type === 'KickLanded' && e.defender === me && e.outcome === 'Knockdown') impulses.push(KNOCKED_DOWN);
     else if (e.type === 'Land' && e.fighter === me && e.damage > 0) impulses.push(HURT_LANDING);
   }
