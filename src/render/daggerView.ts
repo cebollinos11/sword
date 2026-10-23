@@ -25,6 +25,11 @@ const WALL_BOUNCE = 0.35;
 /** Dagger dimensions (m): blade, then handle. */
 const BLADE = 0.22;
 const HANDLE = 0.1;
+/**
+ * Where a dagger's centre of mass sits (m along its blade from where blade meets handle): its steel blade outweighs the wooden
+ * handle. A dagger in flight turns about this point, as a thrown one does.
+ */
+export const CENTRE_OF_MASS = 0.05;
 
 /** Where a dagger that Hit a Fighter sits on it, in the Fighter's own frame (x right of its facing, z ahead), so it moves and turns with the body. */
 export interface Embed {
@@ -110,6 +115,11 @@ export function deflectVelocity(incoming: Vec3, random: () => number): Vec3 {
   const side = (random() * 2 - 1) * DEFLECT_SIDE;
   const up = DEFLECT_UP[0] + (DEFLECT_UP[1] - DEFLECT_UP[0]) * random();
   return { x: bx * back + bz * side, y: up, z: bz * back - bx * side };
+}
+
+/** Place a dagger mesh, already turned, so its centre of mass is at `centre`. */
+export function placeByCentre(mesh: THREE.Object3D, centre: { x: number; y: number; z: number }): void {
+  mesh.position.set(0, 0, -CENTRE_OF_MASS).applyQuaternion(mesh.quaternion).add(new THREE.Vector3(centre.x, centre.y, centre.z));
 }
 
 /** The ribbon edge of a dagger mesh: from where its blade meets the handle out to its tip. */
@@ -205,9 +215,10 @@ export class DaggerViews {
       }
       const from = before.get(k)?.position ?? d.position;
       const a = before.has(k) ? alpha : 1;
-      mesh.position.set(from.x + (d.position.x - from.x) * a, from.y + (d.position.y - from.y) * a, from.z + (d.position.z - from.z) * a);
       mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(d.velocity.x, d.velocity.y, d.velocity.z).normalize());
       mesh.quaternion.multiply(spin.setFromAxisAngle(SIDE, spinAngle(d.ticks, a - 1)));
+      // The Simulation's dagger is a point: its centre of mass, which the blade spins about.
+      placeByCentre(mesh, { x: from.x + (d.position.x - from.x) * a, y: from.y + (d.position.y - from.y) * a, z: from.z + (d.position.z - from.z) * a });
       let trail = this.trails.get(k);
       if (!trail) {
         trail = new Ribbon(this.trailMaterial, TRAIL_STYLE);
@@ -294,8 +305,8 @@ export class DaggerViews {
     const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
     if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0);
     const turns = DEFLECT_SPIN[0] + (DEFLECT_SPIN[1] - DEFLECT_SPIN[0]) * Math.random();
-    mesh.position.set(point.x, point.y, point.z);
     mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(incoming.x, incoming.y, incoming.z).normalize());
+    placeByCentre(mesh, point);
     const trail = new Ribbon(this.trailMaterial, TRAIL_STYLE);
     this.root.add(mesh, trail.mesh);
     this.deflected.push({
@@ -333,8 +344,8 @@ export class DaggerViews {
         // Landed: it lies flat on the floor, then fades like a stuck one.
         const lying = new THREE.Vector3(f.velocity.x, 0, f.velocity.z);
         if (lying.lengthSq() < 1e-6) lying.set(1, 0, 0);
-        f.mesh.position.set(next.x, ground.y + 0.015, next.z);
         f.mesh.quaternion.setFromUnitVectors(FORWARD, lying.normalize());
+        placeByCentre(f.mesh, { x: next.x, y: ground.y + 0.015, z: next.z });
         f.trail.update(null, this.clock);
         this.stuck.push({ mesh: f.mesh, left: STUCK_SECONDS });
         this.fading.push(f.trail);
@@ -343,7 +354,7 @@ export class DaggerViews {
         continue;
       }
       f.position.copy(next);
-      f.mesh.position.copy(next);
+      placeByCentre(f.mesh, next);
       f.trail.update(daggerEdge(f.mesh), this.clock);
     }
     for (let i = this.fading.length - 1; i >= 0; i--) {

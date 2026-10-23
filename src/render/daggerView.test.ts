@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { arenaOf, createInitialState, duelPlacements, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState, type Vec3 } from '../sim';
 import { loadTuningData } from '../tuning';
-import { DaggerViews, deflectVelocity, embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
+import { CENTRE_OF_MASS, DaggerViews, deflectVelocity, placeByCentre, embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
 
 const tuning = loadTuningData();
 
@@ -36,6 +36,19 @@ describe('a dagger in flight', () => {
     const perSecond = Math.round(1 / TICK_SECONDS);
     expect(spinAngle(perSecond) - spinAngle(0)).toBeCloseTo(2 * Math.PI * SPIN_TURNS_PER_SECOND, 9);
     expect(spinAngle(3, 0.5)).toBeCloseTo((spinAngle(3) + spinAngle(4)) / 2, 9);
+  });
+});
+
+describe('a spinning dagger', () => {
+  it('turns about its centre of mass, which stays where it is put', () => {
+    const centre = { x: 1, y: 2, z: 3 };
+    for (const angle of [0, 1, 2.5, 4]) {
+      const mesh = new THREE.Object3D();
+      mesh.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), angle);
+      placeByCentre(mesh, centre);
+      const at = new THREE.Vector3(0, 0, CENTRE_OF_MASS).applyMatrix4((mesh.updateMatrix(), mesh.matrix));
+      expect(at.distanceTo(new THREE.Vector3(centre.x, centre.y, centre.z))).toBeCloseTo(0, 9);
+    }
   });
 });
 
