@@ -82,6 +82,10 @@ export interface Placement {
 
 const TOE_LENGTH = 0.14;
 
+/** Which way the sword arm's elbow bends with a two-handed Weapon (Fighter-local, before the spine turns it); the off arm's is its mirror. */
+export const TWO_HANDED_POLE: Vec3 = { x: 1, y: -0.5, z: 0.3 };
+const mirrorX = (v: Vec3): Vec3 => ({ x: -v.x, y: v.y, z: v.z });
+
 /**
  * Two-bone IK. Returns [middle joint, end joint]. The end reaches `target`
  * when it is within reach; otherwise the chain points straight at it. The
@@ -192,8 +196,11 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
       leftShoulder: add(chest, spine(vec3(-halfShoulder, 0, 0), twist)),
     };
   };
-  const rightPole = spine(vec3(0.6, -1, -0.4));
-  const leftPole = spine(vec3(-0.6, -1, -0.4));
+  // Elbows bend down and back, out of the way of a one-handed sword; both hands on a two-handed grip in front of the body
+  // bend them down and out instead, so the forearms reach round the body to the grip rather than through it.
+  const twoHanded = weapon.grip === 'twoHanded';
+  const rightPole = spine(twoHanded ? TWO_HANDED_POLE : vec3(0.6, -1, -0.4));
+  const leftPole = spine(twoHanded ? mirrorX(TWO_HANDED_POLE) : vec3(-0.6, -1, -0.4));
   // Aiming up/down swings hands and Weapon about the chest (rotateX is positive downward).
   const aimDeg = -((gait.aim ?? 0) * 180) / Math.PI;
   const aimPivot = add(targets.hip, vec3(0, s.spine, 0));

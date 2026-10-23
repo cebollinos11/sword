@@ -14,25 +14,117 @@
       "rightFoot": "idle"
     },
     {
-      "time": 0.15,
-      "ease": "easeOut",
+      "time": 0.017,
+      "ease": "linear",
       "rightHand": {
         "position": {
-          "x": -0.095,
-          "y": 1.361,
-          "z": 0.515
+          "x": 0.102,
+          "y": 1.229,
+          "z": 0.627
         },
         "rotation": {
-          "x": -44.6,
-          "y": -39.3,
-          "z": -60.1
+          "x": -29.3,
+          "y": 21.4,
+          "z": -11.1
         }
       },
       "leftHand": {
         "position": {
-          "x": 0.175,
-          "y": 0.939,
-          "z": 0.185
+          "x": -0.089,
+          "y": 0.936,
+          "z": 0.14
+        }
+      }
+    },
+    {
+      "time": 0.033,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.059,
+          "y": 1.312,
+          "z": 0.594
+        },
+        "rotation": {
+          "x": -40.3,
+          "y": 11.3,
+          "z": -21.6
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.03,
+          "y": 0.924,
+          "z": 0.145
+        }
+      }
+    },
+    {
+      "time": 0.05,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.008,
+          "y": 1.403,
+          "z": 0.561
+        },
+        "rotation": {
+          "x": -51.7,
+          "y": -1.9,
+          "z": -30.5
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.02,
+          "y": 0.932,
+          "z": 0.189
+        }
+      }
+    },
+    {
+      "time": 0.067,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": -0.044,
+          "y": 1.494,
+          "z": 0.528
+        },
+        "rotation": {
+          "x": -63.1,
+          "y": -15.1,
+          "z": -39.4
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.027,
+          "y": 0.959,
+          "z": 0.266
+        }
+      }
+    },
+    {
+      "time": 0.15,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": -0.12,
+          "y": 1.586,
+          "z": 0.471
+        },
+        "rotation": {
+          "x": -51.9,
+          "y": -47,
+          "z": -49.9
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.15,
+          "y": 1.114,
+          "z": 0.219
         }
       },
       "torso": {

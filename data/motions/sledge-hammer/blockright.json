@@ -14,12 +14,104 @@
       "rightFoot": "idle"
     },
     {
+      "time": 0.033,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.137,
+          "y": 1.355,
+          "z": 0.465
+        },
+        "rotation": {
+          "x": -51.3,
+          "y": -4.8,
+          "z": 22.6
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.159,
+          "y": 1.035,
+          "z": 0.21
+        }
+      }
+    },
+    {
+      "time": 0.05,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.165,
+          "y": 1.381,
+          "z": 0.451
+        },
+        "rotation": {
+          "x": -57.5,
+          "y": 3.1,
+          "z": 28.8
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.153,
+          "y": 1.035,
+          "z": 0.231
+        }
+      }
+    },
+    {
+      "time": 0.067,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.186,
+          "y": 1.4,
+          "z": 0.439
+        },
+        "rotation": {
+          "x": -62.2,
+          "y": 10,
+          "z": 34
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.153,
+          "y": 1.037,
+          "z": 0.251
+        }
+      }
+    },
+    {
+      "time": 0.083,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.206,
+          "y": 1.417,
+          "z": 0.427
+        },
+        "rotation": {
+          "x": -66.6,
+          "y": 16.5,
+          "z": 39
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.16,
+          "y": 1.041,
+          "z": 0.271
+        }
+      }
+    },
+    {
       "time": 0.15,
       "ease": "easeOut",
       "rightHand": {
         "position": {
           "x": 0.251,
-          "y": 1.398,
+          "y": 1.448,
           "z": 0.392
         },
         "rotation": {
@@ -31,7 +123,7 @@
       "leftHand": {
         "position": {
           "x": 0.189,
-          "y": 1.002,
+          "y": 1.052,
           "z": 0.308
         }
       },

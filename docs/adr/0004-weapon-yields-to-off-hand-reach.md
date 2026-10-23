@@ -22,3 +22,4 @@ This runs in the simulation, so the pulled-in Weapon is the one that sweeps, Blo
 - A Motion authored for one hand plays with a two-handed Weapon, but the Weapon may be pulled in, shortening its reach. Weapon-specific Motion overrides are how a Weapon gets Motions suited to it.
 - The pull changes Blade Sweeps, so it is covered by the Tuning Data hash (Weapons and Motion overrides) and state checksums like everything else in the Skeleton solve.
 - One-handed Weapons are unaffected: the off hand follows its Pose Keys as before.
+- With both hands on a grip in front of the body, the elbows bend down and out (`TWO_HANDED_POLE`) rather than down and back as for a one-handed Weapon, so the forearms reach round the body to the grip instead of through it. Like the pull, this is part of the Skeleton solve, so it moves the arms' Hit Zones with what is drawn.

@@ -117,7 +117,7 @@
         "position": {
           "x": 0.003,
           "y": 1.313,
-          "z": 0.52
+          "z": 0.57
         },
         "rotation": {
           "x": 5.7,
@@ -129,7 +129,7 @@
         "position": {
           "x": -0.003,
           "y": 1.327,
-          "z": 0.38
+          "z": 0.43
         }
       },
       "torso": {
@@ -209,8 +209,54 @@
       }
     },
     {
+      "time": 0.95,
+      "ease": "easeIn",
+      "rightHand": {
+        "position": {
+          "x": 0.185,
+          "y": 1.03,
+          "z": 0.346
+        },
+        "rotation": {
+          "x": -14,
+          "y": 39.5,
+          "z": 31.1
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.099,
+          "y": 0.996,
+          "z": 0.241
+        }
+      }
+    },
+    {
+      "time": 0.983,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.161,
+          "y": 1.041,
+          "z": 0.353
+        },
+        "rotation": {
+          "x": -18.7,
+          "y": 29.2,
+          "z": 23.8
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.096,
+          "y": 0.996,
+          "z": 0.237
+        }
+      }
+    },
+    {
       "time": 1.1,
-      "ease": "easeInOut",
+      "ease": "easeOut",
       "rightHand": "idle",
       "leftHand": "idle",
       "torso": "idle",

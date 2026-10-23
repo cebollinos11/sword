@@ -14,25 +14,71 @@
       "rightFoot": "idle"
     },
     {
-      "time": 0.12,
-      "ease": "easeOut",
+      "time": 0.05,
+      "ease": "linear",
       "rightHand": {
         "position": {
-          "x": 0.262,
-          "y": 1.578,
-          "z": 0.293
+          "x": 0.227,
+          "y": 1.386,
+          "z": 0.444
         },
         "rotation": {
-          "x": -68.2,
-          "y": 33.7,
-          "z": -35.7
+          "x": -45.4,
+          "y": 52,
+          "z": -37.5
         }
       },
       "leftHand": {
         "position": {
-          "x": 0.138,
-          "y": 1.022,
-          "z": 0.107
+          "x": -0.105,
+          "y": 0.959,
+          "z": 0.185
+        }
+      }
+    },
+    {
+      "time": 0.067,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.254,
+          "y": 1.47,
+          "z": 0.37
+        },
+        "rotation": {
+          "x": -54.9,
+          "y": 58.8,
+          "z": -50.3
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.041,
+          "y": 0.979,
+          "z": 0.191
+        }
+      }
+    },
+    {
+      "time": 0.12,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": 0.307,
+          "y": 1.539,
+          "z": 0.294
+        },
+        "rotation": {
+          "x": -61.7,
+          "y": 48.6,
+          "z": -52.2
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.093,
+          "y": 1.011,
+          "z": 0.106
         }
       },
       "torso": {
@@ -46,8 +92,54 @@
       }
     },
     {
+      "time": 0.2,
+      "ease": "easeIn",
+      "rightHand": {
+        "position": {
+          "x": 0.307,
+          "y": 1.527,
+          "z": 0.362
+        },
+        "rotation": {
+          "x": -59.7,
+          "y": 54.5,
+          "z": -52.8
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.06,
+          "y": 1.009,
+          "z": 0.186
+        }
+      }
+    },
+    {
+      "time": 0.25,
+      "ease": "linear",
+      "rightHand": {
+        "position": {
+          "x": 0.271,
+          "y": 1.466,
+          "z": 0.378
+        },
+        "rotation": {
+          "x": -55.4,
+          "y": 60.8,
+          "z": -51.3
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.027,
+          "y": 0.972,
+          "z": 0.212
+        }
+      }
+    },
+    {
       "time": 0.5,
-      "ease": "easeInOut",
+      "ease": "easeOut",
       "rightHand": "idle",
       "leftHand": "idle",
       "torso": "idle",
