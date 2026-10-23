@@ -6,7 +6,7 @@
   "speed": 20,
   "gripLength": 0.8,
   "offHandGrip": {
-    "along": 0.6,
+    "along": 0.45,
     "around": 0,
     "radial": 0
   },

@@ -109,47 +109,53 @@ const halberd = {
     {
       name: 'Idle', duration: 2, loop: true,
       keys: [
-        { t: 0, c: [0.07, 1.05, 0.37], d: [0.2, 0.3, 0.93], e: [0, -1, 0], torso: [-25, 8], hip: [0, 0.88, 0.04], ...FEET },
-        { t: 1, c: [0.07, 1.035, 0.365], d: [0.2, 0.28, 0.94], hip: [0, 0.865, 0.04] },
-        { t: 2, c: [0.07, 1.05, 0.37], d: [0.2, 0.3, 0.93], hip: [0, 0.88, 0.04] },
+        // The rear hand rests at the front of the left hip; from there, in reach of the front hand, the shaft points
+        // forward and a little right, the head at chest height.
+        { t: 0, rear: [-0.18, 1.0, 0.16], d: [0.4, 0.35, 0.85], e: [0, -1, 0], torso: [-25, 8], hip: [0, 0.88, 0.04], ...FEET },
+        { t: 1, rear: [-0.18, 0.99, 0.155], d: [0.4, 0.33, 0.86], hip: [0, 0.865, 0.04] },
+        { t: 2, rear: [-0.18, 1.0, 0.16], d: [0.4, 0.35, 0.85], hip: [0, 0.88, 0.04] },
       ],
     },
     {
       name: 'Overhead', duration: 1.1, markers: { windUpEnd: 0.35, releaseEnd: 0.6 },
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-        { t: 0.35, ease: 'easeOut', c: [0.02, 1.6, 0.13], d: [0, 0.82, -0.57], e: [0, 1, 0.5], torso: [-5, -8], hip: [0, 0.91, -0.04] },
-        { t: 0.48, ease: 'easeIn', path: 'arc', c: [0.03, 1.12, 0.42], d: [0, 0.15, 0.99], torso: [-12, 15], hip: [0, 0.86, 0.08] },
-        { t: 0.6, ease: 'easeOut', path: 'arc', c: [0.02, 0.98, 0.4], d: [0, -0.35, 0.94], torso: [-15, 22], hip: [0, 0.83, 0.1] },
-        { t: 0.75, ease: 'easeOut', c: [0.0, 0.95, 0.35], d: [-0.05, -0.45, 0.89], torso: [-18, 24], hip: [0, 0.82, 0.1] },
+        // Raised past the right side of the head, the rear hand at the front of the left chest, then chopped down the middle.
+        { t: 0.35, ease: 'easeOut', rear: [-0.15, 1.15, 0.3], d: [0.45, 0.85, -0.3], e: [0, 1, 0.5], torso: [10, -8], hip: [0, 0.91, -0.04] },
+        { t: 0.48, ease: 'easeIn', path: 'arc', rear: [-0.1, 1.1, 0.27], d: [0.2, 0.2, 0.96], torso: [-12, 15], hip: [0, 0.86, 0.08] },
+        { t: 0.6, ease: 'easeOut', path: 'arc', rear: [-0.06, 1.15, 0.27], d: [0.05, -0.4, 0.92], torso: [-15, 22], hip: [0, 0.83, 0.1] },
+        { t: 0.75, ease: 'easeOut', rear: [-0.04, 1.15, 0.25], d: [0, -0.55, 0.84], torso: [-18, 24], hip: [0, 0.82, 0.1] },
         { t: 1.1, ease: 'easeInOut', idle: UPPER },
       ],
     },
     {
+      // From the right: the rear hand stays at the front of the left hip as the pivot; the front hand lifts the head over
+      // the right shoulder, swings it out to the right and through the middle, finishing forward and low. (Swinging on round
+      // to the left would cross the arms: the front hand cannot reach past the middle with the rear hand on the left.)
       name: 'Right', duration: 1.1, markers: { windUpEnd: 0.35, releaseEnd: 0.6 },
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-        { t: 0.17, ease: 'easeIn', c: [0.12, 1.3, 0.3], d: [0.35, 0.85, 0.1], e: [0.6, 0, -0.8], torso: [10, 2] },
-        { t: 0.35, ease: 'easeOut', c: [0.07, 1.2, 0.3], d: [0.45, 0.4, -0.8], e: [0.8, -0.3, 0.3], near: { x: -30, y: 150 }, torso: [40, -5], hip: [0.03, 0.9, -0.04] },
-        { t: 0.42, ease: 'easeIn', path: 'arc', c: [0.2, 1.3, 0.33], d: [0.95, 0.2, 0.25], e: [0.3, 0, 1], torso: [25, 5], hip: [0.02, 0.89, 0.02] },
-        { t: 0.5, ease: 'linear', path: 'arc', c: [0.06, 1.2, 0.38], d: [0.1, 0, 1], e: [-1, -0.2, 0], torso: [0, 10], hip: [0, 0.87, 0.06] },
-        { t: 0.6, ease: 'easeOut', path: 'arc', c: [0.04, 1.04, 0.38], d: [-0.7, -0.2, 0.68], e: [-0.4, -0.3, -0.9], torso: [-35, 14], hip: [-0.02, 0.85, 0.07] },
-        { t: 0.75, ease: 'easeOut', path: 'arc', c: [-0.04, 1.02, 0.35], d: [-0.85, -0.3, 0.3], e: [-0.2, -0.3, -1], torso: [-45, 16], hip: [-0.03, 0.84, 0.05] },
-        // Recovering, the shaft is lifted in front so the rear hand comes back round the body to the guard, not through it.
-        { t: 0.9, ease: 'easeInOut', c: [0.04, 1.26, 0.45], d: [-0.12, 0.5, 0.86], e: [-1, 0, 0], torso: [-30, 12] },
+        { t: 0.17, ease: 'easeIn', rear: [-0.12, 1.08, 0.22], d: [0.45, 0.85, 0.2], e: [0.6, 0, -0.8], torso: [10, 2] },
+        { t: 0.35, ease: 'easeOut', rear: [0.0, 1.12, 0.33], d: [0.5, 0.55, -0.67], e: [0.8, -0.3, 0.3], near: { x: -30, y: 150 }, torso: [40, -5], hip: [0.03, 0.9, -0.04] },
+        { t: 0.42, ease: 'easeIn', path: 'arc', rear: [-0.05, 1.12, 0.3], d: [0.95, 0.25, 0.2], e: [0.3, 0, 1], torso: [25, 5], hip: [0.02, 0.89, 0.02] },
+        { t: 0.5, ease: 'linear', path: 'arc', rear: [-0.12, 1.06, 0.27], d: [0.35, 0.05, 0.94], e: [-1, -0.2, 0], torso: [-5, 15], hip: [0, 0.87, 0.08] },
+        { t: 0.6, ease: 'easeOut', path: 'arc', rear: [-0.06, 1.13, 0.26], d: [-0.1, -0.45, 0.89], e: [-0.4, -0.6, -0.6], torso: [-30, 18], hip: [-0.02, 0.85, 0.1] },
+        { t: 0.75, ease: 'easeOut', rear: [-0.03, 1.14, 0.25], d: [-0.15, -0.55, 0.82], e: [-0.4, -0.6, -0.6], torso: [-30, 20], hip: [-0.02, 0.84, 0.1] },
         { t: 1.1, ease: 'easeInOut', idle: UPPER },
       ],
     },
     {
+      // From the left, a backhand: the right arm comes across the chest to the left shoulder, the left hand below it on the
+      // same side, then the front hand sweeps through the middle to finish on the right, the rear hand following across.
       name: 'Left', duration: 1.1, markers: { windUpEnd: 0.35, releaseEnd: 0.6 },
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-{ t: 0.17, ease: 'easeIn', rear: [0.08, 1.1, 0.32], d: [-0.2, 0.9, 0.1], e: [-0.6, 0, -0.8], torso: [-30, 2] },
-        { t: 0.35, ease: 'easeOut', rear: [0.1, 1.18, 0.32], d: [-0.45, 0.55, -0.7], e: [-0.8, -0.3, 0.3], near: { x: -30, y: -150 }, torso: [-40, -5], hip: [-0.03, 0.9, -0.04] },
-        { t: 0.42, ease: 'easeIn', path: 'arc', rear: [0.1, 1.16, 0.36], d: [-0.6, 0.45, 0.65], e: [-0.3, 0, 1], torso: [-40, 5], hip: [-0.02, 0.89, 0.02] },
-        { t: 0.5, ease: 'linear', path: 'arc', rear: [-0.2, 1.12, 0.28], d: [0.55, 0.05, 0.83], e: [1, -0.2, 0], torso: [-10, 15], hip: [0, 0.87, 0.08] },
-        { t: 0.6, ease: 'easeOut', path: 'arc', rear: [-0.22, 1.08, 0.24], d: [0.85, -0.15, 0.5], e: [0.4, -0.3, -0.9], torso: [15, 14], hip: [0.02, 0.85, 0.07] },
-        { t: 0.75, ease: 'easeOut', path: 'arc', rear: [-0.2, 1.05, 0.2], d: [0.95, -0.25, 0.15], e: [0.2, -0.3, -1], torso: [25, 16], hip: [0.03, 0.84, 0.05] },
+        { t: 0.17, ease: 'easeIn', rear: [-0.16, 1.05, 0.28], d: [-0.1, 0.95, 0.1], e: [-0.6, 0, -0.8], torso: [-25, 2] },
+        { t: 0.35, ease: 'easeOut', rear: [-0.15, 1.05, 0.3], d: [-0.2, 0.85, -0.45], e: [-0.8, -0.3, 0.3], near: { x: -30, y: -150 }, torso: [-45, -5], hip: [-0.03, 0.9, -0.04] },
+        { t: 0.42, ease: 'easeIn', path: 'arc', rear: [-0.1, 1.08, 0.3], d: [-0.25, 0.6, 0.76], e: [-0.3, 0, 1], torso: [-35, 8], hip: [-0.02, 0.89, 0.02] },
+        { t: 0.5, ease: 'linear', path: 'arc', rear: [-0.1, 1.05, 0.28], d: [0.25, 0.05, 0.97], e: [1, -0.2, 0], torso: [-5, 15], hip: [0, 0.87, 0.08] },
+        { t: 0.6, ease: 'easeOut', path: 'arc', rear: [-0.05, 1.05, 0.25], d: [0.55, -0.25, 0.8], e: [0.4, -0.3, -0.9], torso: [20, 15], hip: [0.02, 0.85, 0.07] },
+        { t: 0.75, ease: 'easeOut', path: 'arc', rear: [0.0, 1.05, 0.22], d: [0.75, -0.35, 0.55], e: [0.2, -0.3, -1], torso: [30, 16], hip: [0.03, 0.84, 0.05] },
         { t: 1.1, ease: 'easeInOut', idle: UPPER },
       ],
     },
@@ -174,21 +180,21 @@ const halberd = {
       name: 'BlockRight', duration: 0.15,
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-        { t: 0.15, ease: 'easeOut', c: [0.2, 1.3, 0.36], d: [0.2, 0.95, 0.25], e: [1, 0, 0], torso: [15, 0], hip: [0, 0.88, 0] },
+        { t: 0.15, ease: 'easeOut', rear: [-0.1, 1.0, 0.3], d: [0.45, 0.85, 0.2], e: [1, 0, 0], torso: [15, 0], hip: [0, 0.88, 0] },
       ],
     },
     {
       name: 'BlockLeft', duration: 0.15,
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-        { t: 0.15, ease: 'easeOut', c: [-0.16, 1.3, 0.36], d: [-0.2, 0.95, 0.25], e: [-1, 0, 0], torso: [-20, 0], hip: [0, 0.88, 0] },
+        { t: 0.15, ease: 'easeOut', rear: [-0.12, 1.02, 0.32], d: [-0.25, 0.9, 0.3], e: [-1, 0, 0], torso: [-20, 0], hip: [0, 0.88, 0] },
       ],
     },
     {
       name: 'BlockThrust', duration: 0.15,
       keys: [
         { t: 0, ease: 'linear', idle: ALL },
-        { t: 0.15, ease: 'easeOut', c: [0.04, 1.25, 0.42], d: [-0.45, 0.7, 0.55], e: [-1, 0, 0], torso: [-5, 5], hip: [0, 0.88, 0] },
+        { t: 0.15, ease: 'easeOut', rear: [-0.15, 1.02, 0.32], d: [0.35, 0.6, 0.72], e: [-1, 0, 0], torso: [-10, 5], hip: [0, 0.88, 0] },
       ],
     },
   ],
@@ -210,11 +216,14 @@ Object.assign(key('Overhead', 0.6), { c: [0.02, 1.1, 0.48], d: [0, -0.35, 0.94],
 Object.assign(key('Overhead', 0.75), { c: [0.0, 0.92, 0.4], d: [-0.1, -0.75, 0.65], torso: [-8, 30], hip: [0, 0.8, 0.1] });
 // Side swings: chambered further round, the head trailing low behind the shoulder.
 Object.assign(key('Right', 0.35), { c: [0.26, 1.42, -0.02], d: [0.45, 0.3, -0.85], torso: [50, -5] });
-Object.assign(key('Left', 0.35), { c: [-0.2, 1.42, 0.02], d: [-0.45, 0.3, -0.85], torso: [-50, -5] });
+// The backhand chamber: the left hand stays low on the left, the right comes across to take the head back over the left
+// shoulder (with the hands this far apart, anything else crosses the forearms).
+Object.assign(key('Left', 0.17), { c: undefined, rear: [-0.15, 1.05, 0.28], d: [-0.1, 0.95, 0.1] });
+Object.assign(key('Left', 0.35), { c: undefined, rear: [-0.18, 1.1, 0.25], d: [-0.1, 0.85, -0.5], torso: [-50, -5] });
 Object.assign(key('Right', 0.75), { c: [-0.12, 0.97, 0.28], d: [-0.7, -0.6, -0.1] });
 Object.assign(key('BlockRight', 0.15), { c: [0.22, 1.2, 0.35] });
-Object.assign(key('Right', 0.42), { c: [0.25, 1.38, 0.4], d: [0.75, 0.25, -0.45] });
-Object.assign(key('Left', 0.42), { c: [-0.15, 1.38, 0.4], d: [-0.75, 0.25, -0.45] });
+Object.assign(key('Right', 0.42), { c: [0.25, 1.38, 0.4], d: [0.45, 0.3, -0.84] });
+Object.assign(key('Left', 0.42), { c: undefined, rear: [-0.15, 1.12, 0.35], d: [-0.3, 0.55, -0.75] });
 // Through the middle of a swing or thrust the long handle runs across the body, its butt passing the side of the torso.
 Object.assign(key('Right', 0.5), { c: [0.12, 1.2, 0.48], d: [-0.35, -0.1, 0.93] });
 Object.assign(key('Left', 0.5), { c: [0.0, 1.2, 0.48], d: [0.35, -0.1, 0.93] });
@@ -225,7 +234,6 @@ for (const side of ['Right', 'Left']) {
   const keys = hm[side].keys;
   keys.splice(keys.length - 1, 0, { t: 0.92, ease: 'easeInOut', c: [0.04, 1.2, 0.42], d: [side === 'Right' ? -0.25 : 0.25, 0.7, 0.67], e: [side === 'Right' ? -1 : 1, 0, 0] });
 }
-Object.assign(key('Left', 0.17), { c: [-0.12, 1.32, 0.28] });
 Object.assign(key('Left', 0.75), { c: [0.24, 0.95, 0.24], d: [0.7, -0.6, -0.1] });
 
 export const CHOREO = { Longsword: longsword, Halberd: halberd, 'Sledge Hammer': hammer };
