@@ -42,6 +42,11 @@ export class SimAudio {
     this.play([...own.filter((c) => c.sound !== 'MatchEnd'), ...cues, ...won]);
   }
 
+  /** Plays a sound that comes from outside the Simulation's events (e.g. a Renderer-only effect), unless muted. */
+  playCue(cue: SoundCue): void {
+    this.play([cue]);
+  }
+
   /** The loop jumped to `tick`; Ticks after it will sound. */
   seek(tick: number): void {
     this.lastTick = tick;

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { createInitialState, duelPlacements, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState } from '../sim';
+import { arenaOf, createInitialState, duelPlacements, fighterPose, IDLE_INTENT, step, TICK_SECONDS, type SimState, type Vec3 } from '../sim';
 import { loadTuningData } from '../tuning';
-import { DaggerViews, embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
+import { DaggerViews, deflectVelocity, embedAt, embedPosition, heldDagger, holdsDagger, SPIN_TURNS_PER_SECOND, spinAngle } from './daggerView';
 
 const tuning = loadTuningData();
 
@@ -63,5 +63,35 @@ describe('the dagger views', () => {
     views.update(start, s, 1, 0, s.fighters.map((f) => fighterPose(f, tuning)));
     // Back to Tick 0, as a Restart does.
     expect(() => views.update(start, start, 1, 0, start.fighters.map((f) => fighterPose(f, tuning)))).not.toThrow();
+  });
+});
+
+describe('a Blocked dagger', () => {
+  it('flies off back the way it came and up, to either side', () => {
+    const incoming = { x: 3, y: -0.5, z: 17 };
+    const sides = new Set<number>();
+    for (let k = 0; k < 50; k++) {
+      let seed = k + 1;
+      const random = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+      const v = deflectVelocity(incoming, random);
+      expect(v.y).toBeGreaterThan(0);
+      expect(v.x * incoming.x + v.z * incoming.z).toBeLessThan(0);
+      sides.add(Math.sign(v.x * incoming.z - v.z * incoming.x));
+    }
+    expect(sides).toEqual(new Set([-1, 1]));
+  });
+
+  it('trails, tumbles away and lands with a clatter', () => {
+    const start = createInitialState(tuning, 1, duelPlacements(3));
+    const views = new DaggerViews(new THREE.Scene());
+    const landed: Vec3[] = [];
+    views.onClatter = (p) => landed.push(p);
+    const point = { x: 0, y: 1.2, z: 0 };
+    const blocked: SimState = { ...start, tick: 1, events: [{ type: 'DaggerBlocked', thrower: 0, defender: 1, point }] };
+    const arena = arenaOf(tuning, start.arena);
+    views.update(start, blocked, 1, 0, [], arena);
+    for (let k = 0; k < 60 && landed.length === 0; k++) views.update(blocked, blocked, 1, 1 / 30, [], arena);
+    expect(landed).toHaveLength(1);
+    expect(landed[0]!.y).toBeLessThan(point.y);
   });
 });

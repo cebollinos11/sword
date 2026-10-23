@@ -166,7 +166,10 @@ describe('Dagger sounds', () => {
     expect(soundCues([{ type: 'DaggerHit', thrower: 0, defender: 1, zone: 'torso', point, damage: 5 }])).toEqual([
       { sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Dagger' },
     ]);
-    expect(soundCues([{ type: 'DaggerBlocked', thrower: 0, defender: 1, point }])).toEqual([{ sound: 'Clink', defender: 1 }]);
+    expect(soundCues([{ type: 'DaggerBlocked', thrower: 0, defender: 1, point }])).toEqual([
+      { sound: 'Clink', defender: 1 },
+      { sound: 'Ricochet', defender: 1 },
+    ]);
     expect(soundCues([{ type: 'DaggerStuck', point, direction: { x: 0, y: 0, z: 1 } }])).toEqual([{ sound: 'Thunk', point, surface: 'stone' }]);
   });
 

@@ -4,7 +4,7 @@
  * Simulation; which Ticks trail is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
-import type { BladeTransform, SimState } from '../sim';
+import type { BladeTransform, SimState, Vec3 } from '../sim';
 
 /** How long a sample stays on screen, seconds (of effect time, so slow-motion stretches it). */
 const LIFE = 0.16;
@@ -28,35 +28,62 @@ export function trailing(prev: Pick<SimState, 'fighters'>, curr: Pick<SimState, 
 
 interface Sample {
   readonly at: number;
-  /** Samples of one swing join up; a new swing starts a new stroke. */
+  /** Samples of one stroke join up; a new stroke starts apart. */
   readonly stroke: number;
   readonly inner: THREE.Vector3;
   readonly tip: THREE.Vector3;
 }
 
-/** One Fighter's ribbon. */
-class Trail {
+/** How a Ribbon looks: how long a sample lasts (s of effect time) and the newest sample's opacity at each edge. */
+export interface RibbonStyle {
+  readonly life: number;
+  readonly tipAlpha: number;
+  readonly innerAlpha: number;
+  readonly colour: THREE.Color;
+}
+
+/** A blade's ribbon as a swing leaves it. */
+const SWING_STYLE: RibbonStyle = { life: LIFE, tipAlpha: TIP_ALPHA, innerAlpha: INNER_ALPHA, colour: COLOUR };
+
+/** The vertex-coloured, see-through material every Ribbon is drawn with. */
+export const ribbonMaterial = (): THREE.MeshBasicMaterial =>
+  new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+
+/**
+ * A fading ribbon swept by a moving edge (inner point to tip): each `update` while live adds the edge where it is now, and
+ * samples older than the style's life drop off. Used for swing trails and for flying Throwing Daggers.
+ */
+export class Ribbon {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   private samples: Sample[] = [];
   private stroke = 0;
   private wasLive = false;
 
-  constructor(material: THREE.MeshBasicMaterial) {
+  constructor(
+    material: THREE.MeshBasicMaterial,
+    private readonly style: RibbonStyle = SWING_STYLE,
+  ) {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
     this.mesh.frustumCulled = false;
   }
 
-  update(blade: BladeTransform, live: boolean, clock: number): void {
+  /** Whether nothing is left to draw. */
+  get empty(): boolean {
+    return this.samples.length === 0;
+  }
+
+  /** `edge` is where the edge is now, or null when it leaves no trail (the old samples still fade). */
+  update(edge: { inner: Vec3; tip: Vec3 } | null, clock: number): void {
+    const live = edge !== null;
     if (live && !this.wasLive) this.stroke++;
     this.wasLive = live;
     const last = this.samples[this.samples.length - 1];
-    if (live && !(last && last.stroke === this.stroke && last.at === clock)) {
-      const hilt = new THREE.Vector3(blade.hilt.x, blade.hilt.y, blade.hilt.z);
-      const tip = new THREE.Vector3(blade.tip.x, blade.tip.y, blade.tip.z);
-      this.samples.push({ at: clock, stroke: this.stroke, inner: hilt.lerp(tip, INNER), tip });
+    if (edge && !(last && last.stroke === this.stroke && last.at === clock)) {
+      const { inner, tip } = edge;
+      this.samples.push({ at: clock, stroke: this.stroke, inner: new THREE.Vector3(inner.x, inner.y, inner.z), tip: new THREE.Vector3(tip.x, tip.y, tip.z) });
     }
     if (this.samples.length === 0 && !this.mesh.visible) return;
-    this.samples = this.samples.filter((s) => clock - s.at < LIFE);
+    this.samples = this.samples.filter((s) => clock - s.at < this.style.life);
     this.rebuild(clock);
   }
 
@@ -66,14 +93,19 @@ class Trail {
     this.rebuild(0);
   }
 
+  dispose(): void {
+    this.mesh.geometry.dispose();
+  }
+
   private rebuild(clock: number): void {
+    const { life, tipAlpha, innerAlpha, colour } = this.style;
     const pos: number[] = [];
     const col: number[] = [];
     const index: number[] = [];
     this.samples.forEach((s, k) => {
-      const fade = 1 - (clock - s.at) / LIFE;
+      const fade = 1 - (clock - s.at) / life;
       pos.push(s.inner.x, s.inner.y, s.inner.z, s.tip.x, s.tip.y, s.tip.z);
-      col.push(COLOUR.r, COLOUR.g, COLOUR.b, INNER_ALPHA * fade, COLOUR.r, COLOUR.g, COLOUR.b, TIP_ALPHA * fade * fade);
+      col.push(colour.r, colour.g, colour.b, innerAlpha * fade, colour.r, colour.g, colour.b, tipAlpha * fade * fade);
       if (k > 0 && this.samples[k - 1]!.stroke === s.stroke) {
         const a = (k - 1) * 2;
         index.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
@@ -90,13 +122,8 @@ class Trail {
 /** Every Fighter's swing trail in a scene. Call `update` before each draw with the drawn blades and the effect time that passed. */
 export class SwingTrails {
   private readonly root = new THREE.Group();
-  private readonly trails: Trail[] = [];
-  private readonly material = new THREE.MeshBasicMaterial({
-    vertexColors: true,
-    transparent: true,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-  });
+  private readonly trails: Ribbon[] = [];
+  private readonly material = ribbonMaterial();
   /** Effect time, seconds. */
   private clock = 0;
 
@@ -114,11 +141,13 @@ export class SwingTrails {
         return;
       }
       if (!trail) {
-        trail = new Trail(this.material);
+        trail = new Ribbon(this.material);
         this.trails[i] = trail;
         this.root.add(trail.mesh);
       }
-      trail.update(blade, trailing(prev, curr, i), this.clock);
+      const { hilt, tip } = blade;
+      const inner = { x: hilt.x + (tip.x - hilt.x) * INNER, y: hilt.y + (tip.y - hilt.y) * INNER, z: hilt.z + (tip.z - hilt.z) * INNER };
+      trail.update(trailing(prev, curr, i) ? { inner, tip } : null, this.clock);
     });
     // A smaller Match than the last one: the missing Fighters leave no trail.
     for (let i = blades.length; i < this.trails.length; i++) this.trails[i]!.clear();

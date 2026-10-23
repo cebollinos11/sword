@@ -5,7 +5,7 @@
 import { SimAudio } from './listener';
 import { WebAudioPlayer } from './synth';
 
-export { matchCues, soundCues, type SoundCue, type Surface } from './cues';
+export { arenaSurface, matchCues, soundCues, type SoundCue, type Surface } from './cues';
 export { SimAudio, type SoundPlayer } from './listener';
 export { WebAudioPlayer } from './synth';
 

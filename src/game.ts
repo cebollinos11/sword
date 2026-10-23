@@ -4,7 +4,7 @@ import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
-import { createBrowserAudio } from './audio';
+import { arenaSurface, createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
@@ -113,6 +113,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const arenaWorld = createArenaWorlds(tuning);
   const renderer = new Renderer(container, tuning, arenaWorld);
   const audio = createBrowserAudio();
+  renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena) });
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
   const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;

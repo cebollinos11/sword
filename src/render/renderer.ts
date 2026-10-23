@@ -1,6 +1,6 @@
 import type * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
-import { arenaOf, type Layout, type SimState } from '../sim';
+import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
@@ -31,6 +31,8 @@ export class Renderer {
   /** The Bodies the other players chose, by Fighter (undefined: none, so a random one). */
   private others: readonly (string | undefined)[] = [];
   private lastDraw = performance.now();
+  /** The Arena last drawn. */
+  private arena = '';
   /** Hit and Block bursts: the game loop feeds it each new Tick's events, like audio. */
   readonly impacts: ImpactEffects;
   private readonly daggers: DaggerViews;
@@ -51,6 +53,14 @@ export class Renderer {
     this.daggers = new DaggerViews(this.stage.scene);
     this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
+  }
+
+  /**
+   * Called when a Blocked Throwing Dagger, flying off, lands at `point` on Arena `arena` (render-only, so its clatter comes from
+   * here, not the Simulation's events).
+   */
+  set onDaggerClatter(play: ((point: Vec3, arena: string) => void) | null) {
+    this.daggers.onClatter = play && ((point) => play(point, this.arena));
   }
 
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
@@ -102,6 +112,7 @@ export class Renderer {
    */
   render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
     const world = this.world(curr.arena);
+    this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
     const colours = fighterColours(curr.fighters.map((f) => f.team));
     const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning)));
@@ -128,10 +139,11 @@ export class Renderer {
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
-    this.shadows.update(poses, arenaOf(world.tuning, curr.arena));
+    const arena = arenaOf(world.tuning, curr.arena);
+    this.shadows.update(poses, arena);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
-    this.daggers.update(prev, curr, alpha, seconds, poses);
+    this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.update(seconds);
     this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
     this.lastDraw = now;

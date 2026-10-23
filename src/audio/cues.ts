@@ -122,6 +122,19 @@ export interface ClinkCue {
   readonly defender: number;
 }
 
+/** A Blocked dagger tumbling away: a fading, fluttering whirr of a spinning blade. */
+export interface RicochetCue {
+  readonly sound: 'Ricochet';
+  readonly defender: number;
+}
+
+/** A Blocked dagger landed on the floor at `point`: a light clatter of steel. Render-only (the Simulation has dropped it), so the Renderer sends it. */
+export interface ClatterCue {
+  readonly sound: 'Clatter';
+  readonly point: Vec3;
+  readonly surface: Surface;
+}
+
 /** A thrown dagger stuck in a Wall or the floor at `point`: a short thunk. */
 export interface ThunkCue {
   readonly sound: 'Thunk';
@@ -170,6 +183,8 @@ export type SoundCue =
   | SheatheCue
   | DrawCue
   | ClinkCue
+  | RicochetCue
+  | ClatterCue
   | ThunkCue
   | WallStrikeCue
   | DuelStartCue
@@ -267,7 +282,7 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Dagger' });
         break;
       case 'DaggerBlocked':
-        cues.push({ sound: 'Clink', defender: e.defender });
+        cues.push({ sound: 'Clink', defender: e.defender }, { sound: 'Ricochet', defender: e.defender });
         break;
       case 'DaggerStuck':
         cues.push({ sound: 'Thunk', point: e.point, surface });

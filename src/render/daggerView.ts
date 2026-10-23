@@ -1,9 +1,26 @@
 import * as THREE from 'three';
-import { TICK_SECONDS, type DaggerState, type FighterState, type SimState, type SkeletonPose, type Vec3 } from '../sim';
+import { groundBelow, TICK_SECONDS, wallCrossing, type DaggerState, type FighterState, type SimState, type SkeletonPose, type Vec3 } from '../sim';
+import type { ArenaGeometry } from '../tuning';
 import { bladeSteel } from './steel';
+import { Ribbon, ribbonMaterial, type RibbonStyle } from './swingTrail';
 
 /** How long (s) a dagger that stuck in a Wall or the floor stays drawn there. Render-only: the Simulation has already dropped it. */
 export const STUCK_SECONDS = 2;
+
+/** The ribbon a dagger in flight leaves, swept by its spinning blade: longer-lived than a swing's, as a dagger is small and fast. */
+const TRAIL_STYLE: RibbonStyle = { life: 0.22, tipAlpha: 0.6, innerAlpha: 0.2, colour: new THREE.Color(0xf4f8ff) };
+
+/** A Blocked dagger flies off (render-only, the Simulation has already dropped it): this fast back, sideways and up (m/s, min and max). */
+const DEFLECT_BACK = [1.5, 3.5] as const;
+const DEFLECT_SIDE = 3.5;
+const DEFLECT_UP = [3, 5.5] as const;
+/** How fast (turns per second, min and max) a Blocked dagger tumbles as it flies off. */
+const DEFLECT_SPIN = [3, 6] as const;
+const GRAVITY = 9.8;
+/** How long (s) a Blocked dagger may fly before it is dropped, if it never lands (over an Abyss). */
+const DEFLECT_MAX_SECONDS = 3;
+/** How much of its speed a Blocked dagger keeps, bounced back off a Wall. */
+const WALL_BOUNCE = 0.35;
 
 /** Dagger dimensions (m): blade, then handle. */
 const BLADE = 0.22;
@@ -79,13 +96,50 @@ function daggerMesh(shared: { blade: THREE.BufferGeometry; handle: THREE.BufferG
   return g;
 }
 
+/**
+ * The velocity a dagger Blocked while flying at `incoming` flies off with: knocked back the way it came, up, and randomly to one side
+ * (`random` gives numbers in [0, 1)). Render-only, so it need not match between peers.
+ */
+export function deflectVelocity(incoming: Vec3, random: () => number): Vec3 {
+  const flat = Math.hypot(incoming.x, incoming.z);
+  const angle = random() * 2 * Math.PI;
+  // Back along where it came from; any way at all for a dagger that fell straight down.
+  const bx = flat > 1e-6 ? -incoming.x / flat : Math.sin(angle);
+  const bz = flat > 1e-6 ? -incoming.z / flat : Math.cos(angle);
+  const back = DEFLECT_BACK[0] + (DEFLECT_BACK[1] - DEFLECT_BACK[0]) * random();
+  const side = (random() * 2 - 1) * DEFLECT_SIDE;
+  const up = DEFLECT_UP[0] + (DEFLECT_UP[1] - DEFLECT_UP[0]) * random();
+  return { x: bx * back + bz * side, y: up, z: bz * back - bx * side };
+}
+
+/** The ribbon edge of a dagger mesh: from where its blade meets the handle out to its tip. */
+function daggerEdge(mesh: THREE.Object3D): { inner: Vec3; tip: Vec3 } {
+  const tip = new THREE.Vector3(0, 0, BLADE).applyQuaternion(mesh.quaternion).add(mesh.position);
+  return { inner: mesh.position.clone(), tip };
+}
+
+/** A Blocked dagger tumbling away under gravity until it lands (then it lies there for `STUCK_SECONDS`). */
+interface Deflected {
+  readonly mesh: THREE.Group;
+  readonly trail: Ribbon;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  readonly axis: THREE.Vector3;
+  /** Radians per second about `axis`. */
+  readonly spin: number;
+  /** Seconds since it was Blocked. */
+  age: number;
+}
+
 /** Which dagger it is across Ticks: no two share an owner and a throw start. */
 const key = (d: DaggerState): string => `${d.owner}:${d.thrownAt}`;
 
 /**
  * Draws the Throwing Daggers: one held by its point in the left hand of each Fighter winding up a Throw, so its opponent can see it
  * coming; those in flight as small blades along their velocity, spinning end over end and interpolated between Ticks like the
- * Fighters; and each one that stuck at its `DaggerStuck` point for `STUCK_SECONDS`. It only reads the Simulation.
+ * Fighters, each leaving a fading trail like a swing's; each one that stuck at its `DaggerStuck` point for `STUCK_SECONDS`; and each
+ * one Blocked tumbling away from its `DaggerBlocked` point, trailing, until it lands and lies there for `STUCK_SECONDS`. It only
+ * reads the Simulation.
  */
 export class DaggerViews {
   private readonly root = new THREE.Group();
@@ -97,6 +151,16 @@ export class DaggerViews {
     wood: new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true }),
   };
   private readonly flying = new Map<string, THREE.Group>();
+  /** Each dagger's trail, by its key: a dagger that stops flying leaves its trail to fade, then it goes. */
+  private readonly trails = new Map<string, Ribbon>();
+  private readonly trailMaterial = ribbonMaterial();
+  private readonly deflected: Deflected[] = [];
+  /** Trails of Blocked daggers that have landed, fading out. */
+  private readonly fading: Ribbon[] = [];
+  /** Effect time, seconds, for the trails. */
+  private clock = 0;
+  /** Called when a Blocked dagger lands, with where, for its clatter. */
+  onClatter: ((point: Vec3) => void) | null = null;
   private readonly stuck: { mesh: THREE.Group; left: number }[] = [];
   /** Daggers sticking out of a Fighter for as long as its Slow lasts (render-only, from `DaggerHit` and `slow`). */
   private readonly embedded: { embed: Embed; mesh: THREE.Group }[] = [];
@@ -111,14 +175,19 @@ export class DaggerViews {
   /**
    * Draw the daggers between Tick `prev` and Tick `curr` (`alpha` in [0, 1]); `seconds` is the time since the last draw, for the stuck
    * ones' fade. `poses` are the Fighters' poses as drawn this frame, for the daggers in their hands (none for a Fighter not drawn).
+   * `arena` is what a Blocked dagger flies off into: it lands on its Walk Surfaces and bounces off its Walls (without one, it falls
+   * until it is dropped).
    */
-  update(prev: SimState, curr: SimState, alpha: number, seconds: number, poses: readonly (SkeletonPose | undefined)[]): void {
+  update(prev: SimState, curr: SimState, alpha: number, seconds: number, poses: readonly (SkeletonPose | undefined)[], arena?: ArenaGeometry): void {
+    const dt = Math.min(0.1, Math.max(0, seconds));
+    this.clock += dt;
     if (curr.tick < this.lastTick) this.clear();
     if (curr.tick !== this.lastTick) {
       // Each new Tick's `DaggerStuck` events plant a dagger once, however many frames draw that Tick.
       if (curr.tick > this.lastTick) for (const e of curr.events) {
         if (e.type === 'DaggerStuck') this.plant(e.point, e.direction);
         else if (e.type === 'DaggerHit') this.embed(embedAt(e.defender, e.point, curr.fighters[e.defender]!));
+        else if (e.type === 'DaggerBlocked') this.deflect(e.point, this.incoming(prev, curr, e.thrower, e.defender));
       }
       this.lastTick = curr.tick;
     }
@@ -139,12 +208,27 @@ export class DaggerViews {
       mesh.position.set(from.x + (d.position.x - from.x) * a, from.y + (d.position.y - from.y) * a, from.z + (d.position.z - from.z) * a);
       mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(d.velocity.x, d.velocity.y, d.velocity.z).normalize());
       mesh.quaternion.multiply(spin.setFromAxisAngle(SIDE, spinAngle(d.ticks, a - 1)));
+      let trail = this.trails.get(k);
+      if (!trail) {
+        trail = new Ribbon(this.trailMaterial, TRAIL_STYLE);
+        this.trails.set(k, trail);
+        this.root.add(trail.mesh);
+      }
+      trail.update(daggerEdge(mesh), this.clock);
     }
     for (const [k, mesh] of this.flying) {
       if (seen.has(k)) continue;
       this.root.remove(mesh);
       this.flying.delete(k);
     }
+    for (const [k, trail] of this.trails) {
+      if (seen.has(k)) continue;
+      trail.update(null, this.clock);
+      if (!trail.empty) continue;
+      this.dropTrail(trail);
+      this.trails.delete(k);
+    }
+    this.flyDeflected(dt, arena);
 
     for (let i = 0; i < Math.max(this.held.length, curr.fighters.length); i++) {
       const f = curr.fighters[i];
@@ -194,6 +278,88 @@ export class DaggerViews {
     }
   }
 
+  /** The velocity `thrower`'s dagger had when `defender` Blocked it: from its last Tick in flight, or else straight from thrower to defender. */
+  private incoming(prev: SimState, curr: SimState, thrower: number, defender: number): Vec3 {
+    const flying = prev.daggers.filter((d) => d.owner === thrower && !curr.daggers.some((c) => key(c) === key(d)));
+    const d = flying[flying.length - 1];
+    if (d) return d.velocity;
+    const from = curr.fighters[thrower]?.position;
+    const to = curr.fighters[defender]?.position;
+    return from && to ? { x: to.x - from.x, y: 0, z: to.z - from.z } : { x: 0, y: 0, z: 1 };
+  }
+
+  private deflect(point: Vec3, incoming: Vec3): void {
+    const mesh = daggerMesh(this.shared);
+    const velocity = deflectVelocity(incoming, Math.random);
+    const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5);
+    if (axis.lengthSq() < 1e-6) axis.set(1, 0, 0);
+    const turns = DEFLECT_SPIN[0] + (DEFLECT_SPIN[1] - DEFLECT_SPIN[0]) * Math.random();
+    mesh.position.set(point.x, point.y, point.z);
+    mesh.quaternion.setFromUnitVectors(FORWARD, new THREE.Vector3(incoming.x, incoming.y, incoming.z).normalize());
+    const trail = new Ribbon(this.trailMaterial, TRAIL_STYLE);
+    this.root.add(mesh, trail.mesh);
+    this.deflected.push({
+      mesh,
+      trail,
+      position: new THREE.Vector3(point.x, point.y, point.z),
+      velocity: new THREE.Vector3(velocity.x, velocity.y, velocity.z),
+      axis: axis.normalize(),
+      spin: 2 * Math.PI * turns * (Math.random() < 0.5 ? -1 : 1),
+      age: 0,
+    });
+  }
+
+  /** Move each Blocked dagger on by `dt` seconds: it tumbles, falls, bounces off Walls, and lies down where it lands. */
+  private flyDeflected(dt: number, arena: ArenaGeometry | undefined): void {
+    for (let i = this.deflected.length - 1; i >= 0; i--) {
+      const f = this.deflected[i]!;
+      f.age += dt;
+      if (f.age > DEFLECT_MAX_SECONDS) {
+        this.root.remove(f.mesh);
+        this.dropTrail(f.trail);
+        this.deflected.splice(i, 1);
+        continue;
+      }
+      f.velocity.y -= GRAVITY * dt;
+      const next = f.position.clone().addScaledVector(f.velocity, dt);
+      if (arena && wallCrossing(f.position, next, arena)) {
+        // Knocked back off the Wall, where it was.
+        f.velocity.set(-f.velocity.x * WALL_BOUNCE, f.velocity.y, -f.velocity.z * WALL_BOUNCE);
+        next.copy(f.position);
+      }
+      const ground = arena ? groundBelow(arena, next.x, next.z, f.position.y) : null;
+      f.mesh.quaternion.premultiply(spin.setFromAxisAngle(f.axis, f.spin * dt));
+      if (ground && next.y <= ground.y && f.velocity.y < 0) {
+        // Landed: it lies flat on the floor, then fades like a stuck one.
+        const lying = new THREE.Vector3(f.velocity.x, 0, f.velocity.z);
+        if (lying.lengthSq() < 1e-6) lying.set(1, 0, 0);
+        f.mesh.position.set(next.x, ground.y + 0.015, next.z);
+        f.mesh.quaternion.setFromUnitVectors(FORWARD, lying.normalize());
+        f.trail.update(null, this.clock);
+        this.stuck.push({ mesh: f.mesh, left: STUCK_SECONDS });
+        this.fading.push(f.trail);
+        this.deflected.splice(i, 1);
+        this.onClatter?.({ x: next.x, y: ground.y, z: next.z });
+        continue;
+      }
+      f.position.copy(next);
+      f.mesh.position.copy(next);
+      f.trail.update(daggerEdge(f.mesh), this.clock);
+    }
+    for (let i = this.fading.length - 1; i >= 0; i--) {
+      const trail = this.fading[i]!;
+      trail.update(null, this.clock);
+      if (!trail.empty) continue;
+      this.dropTrail(trail);
+      this.fading.splice(i, 1);
+    }
+  }
+
+  private dropTrail(trail: Ribbon): void {
+    this.root.remove(trail.mesh);
+    trail.dispose();
+  }
+
   private plant(point: { x: number; y: number; z: number }, direction: { x: number; y: number; z: number }): void {
     const mesh = daggerMesh(this.shared);
     const dir = new THREE.Vector3(direction.x, direction.y, direction.z).normalize();
@@ -215,6 +381,13 @@ export class DaggerViews {
     for (const mesh of this.flying.values()) this.root.remove(mesh);
     this.flying.clear();
     for (const s of this.stuck.splice(0)) this.root.remove(s.mesh);
+    for (const trail of this.trails.values()) this.dropTrail(trail);
+    this.trails.clear();
+    for (const f of this.deflected.splice(0)) {
+      this.root.remove(f.mesh);
+      this.dropTrail(f.trail);
+    }
+    for (const trail of this.fading.splice(0)) this.dropTrail(trail);
     // Sparse: only Fighters that have held a dagger have one.
     for (const mesh of this.held) if (mesh) mesh.visible = false;
   }

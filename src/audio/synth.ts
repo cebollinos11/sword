@@ -9,7 +9,7 @@
  *  - Feint, Kick, Jump: a flick, a snap and a push of air;
  *  - Knockdown, BodyFall, Land: bodies and feet on the Arena's floor (wood, stone, metal, snow);
  *  - Death: a deep, final boom and a body falling; a hiss in Lava; a splash in Water;
- *  - Throw, Clink, Thunk: a spinning dagger, a dagger turned aside, a dagger stuck;
+ *  - Throw, Clink, Ricochet, Clatter, Thunk: a spinning dagger, a dagger turned aside and whirring away, landing on the floor, a dagger stuck;
  *  - Sheathe, Draw: steel sliding into its slot and seating, and sliding out brighter with a ring;
  *  - WallStrike: a blade knocking on a Wall and ringing;
  *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
@@ -21,6 +21,7 @@ import type { Direction } from '../sim';
 import type {
   BlockCue,
   BodyFallCue,
+  ClatterCue,
   DeathCue,
   DrawCue,
   DuelStartCue,
@@ -172,6 +173,10 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.draw(cue);
       case 'Clink':
         return this.clink();
+      case 'Ricochet':
+        return this.ricochet();
+      case 'Clatter':
+        return this.clatter(cue);
       case 'Thunk':
         return this.thunk(cue);
       case 'WallStrike':
@@ -588,6 +593,31 @@ export class WebAudioPlayer implements SoundPlayer {
     const out = this.bus(0.3, 0.6);
     this.hiss(out, { filter: 'highpass', freq: 5000, q: 0.7, dur: 0.025, peak: 0.6, attack: 0.001 });
     this.ring(out, { base: 2100 * vary(0.06), partials: STEEL.slice(0, 3), peak: 0.15, decay: 0.35 });
+  }
+
+  private ricochet(): void {
+    const pan = Math.random() < 0.5 ? -0.5 : 0.5;
+    const out = this.bus(0.35, 0.8, [0, pan], 0.6);
+    // The spinning blade whirring off, falling in pitch as it goes, and a thin whine of steel set ringing by the Block.
+    this.hiss(out, { filter: 'bandpass', freq: 3200 * vary(0.1), to: 1300, q: 5, at: 0.02, dur: 0.6, peak: 0.4, attack: 0.03, flutter: 18 * vary(0.2) });
+    this.tone(out, { freq: 3400 * vary(0.06), to: 2300, at: 0.01, dur: 0.45, peak: 0.05 });
+  }
+
+  private clatter(cue: ClatterCue): void {
+    const out = this.bus(0.2, 0.55);
+    if (cue.surface === 'snow') {
+      this.hiss(out, { filter: 'lowpass', freq: 1100, q: 0.7, dur: 0.08, peak: 0.4, attack: 0.003 });
+      return;
+    }
+    // Two or three quick bounces, each a tick of steel on the floor, then a short ring.
+    const bounces = 2 + Math.floor(Math.random() * 2);
+    let at = 0;
+    for (let i = 0; i < bounces; i++) {
+      const level = 1 - i * 0.35;
+      this.hiss(out, { filter: 'bandpass', freq: 3800 * vary(0.15), q: 2, at, dur: 0.02, peak: 0.5 * level, attack: 0.001 });
+      this.ring(out, { base: 1900 * vary(0.08), partials: STEEL.slice(0, 2), at, peak: 0.06 * level, decay: 0.18 });
+      at += 0.07 * (1 - i * 0.3) * vary(0.2);
+    }
   }
 
   private thunk(cue: ThunkCue): void {
