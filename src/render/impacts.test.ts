@@ -28,6 +28,16 @@ describe('impactBursts', () => {
   });
 });
 
+describe('impactBursts for a Chamber', () => {
+  const point = { x: 0.1, y: 1.4, z: 0.6 };
+  const fighters = createInitialState(tuning, 1, duelPlacements(1.3)).fighters;
+
+  it('a Chamber bursts at full strength where the blades met', () => {
+    const bursts = impactBursts({ fighters, events: [{ type: 'Chamber', chamberer: 1, attacker: 0, direction: 'Overhead', point }] }, tuning);
+    expect(bursts).toEqual([{ kind: 'Chamber', point, strength: 1 }]);
+  });
+});
+
 describe('impactBursts for daggers', () => {
   const point = { x: 0.2, y: 1.1, z: 3 };
   const fighters = createInitialState(tuning, 1, duelPlacements(3)).fighters;

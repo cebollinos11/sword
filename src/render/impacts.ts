@@ -1,6 +1,6 @@
 /**
- * Placeholder impact effects: a burst where a Hit connects, or a Block or a Wall
- * stops a blow. Like audio, they live outside the Simulation and only listen to its
+ * Placeholder impact effects: a burst where a Hit connects, a Block or a Wall
+ * stops a blow, or a Chamber turns one. Like audio, they live outside the Simulation and only listen to its
  * events (ADR 0001); which burst each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
@@ -9,7 +9,7 @@ import { weaponByName, type TuningData } from '../tuning';
 
 /** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
-  readonly kind: 'Hit' | 'Heavy' | 'Block';
+  readonly kind: 'Hit' | 'Heavy' | 'Block' | 'Chamber';
   readonly point: Vec3;
   readonly strength: number;
 }
@@ -18,6 +18,8 @@ export interface ImpactBurst {
 const DAGGER_FULL_DAMAGE = 15;
 /** A Blocked dagger sparks lightly. */
 const DAGGER_BLOCK_STRENGTH = 0.4;
+/** A Chamber carries no Blade Speed: it always bursts at full strength. */
+const CHAMBER_STRENGTH = 1;
 
 /** The bursts triggered by one Tick's events, in event order (strength: Blade Speed over the attacker's Weapon's reference speed). */
 export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning: TuningData): ImpactBurst[] {
@@ -29,6 +31,10 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     }
     if (e.type === 'DaggerBlocked') {
       bursts.push({ kind: 'Block', point: e.point, strength: DAGGER_BLOCK_STRENGTH });
+      continue;
+    }
+    if (e.type === 'Chamber') {
+      bursts.push({ kind: 'Chamber', point: e.point, strength: CHAMBER_STRENGTH });
       continue;
     }
     if (e.type !== 'Hit' && e.type !== 'Block' && e.type !== 'WallStrike') continue;
@@ -92,6 +98,18 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
     gravity: 4,
     flashRadius: 0.22,
     flashLife: 0.09,
+  },
+  // Steel sliding along steel: more and longer streaks than a Block, flung harder, cold blue-white, under a wide flash.
+  Chamber: {
+    colours: [0xffffff, 0xd8ecff, 0x9cc8ff, 0xfff2a0],
+    flashColour: 0xe0f0ff,
+    count: 26,
+    speed: 6,
+    size: [0.014, 0.16],
+    life: 0.38,
+    gravity: 3,
+    flashRadius: 0.4,
+    flashLife: 0.14,
   },
 };
 
