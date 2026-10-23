@@ -130,7 +130,7 @@ export class FighterView {
     for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
     for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
     this.head.position.set(p.head.x, p.head.y, p.head.z);
-    this.model?.rig.pose(p);
+    this.model?.rig.pose(p, pose.blade);
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';

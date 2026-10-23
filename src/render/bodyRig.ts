@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { JointName, Vec3 } from '../sim';
+import type { BladeTransform, JointName, Vec3 } from '../sim';
 import type { SkeletonTuning } from '../tuning';
 
 /**
@@ -37,6 +37,12 @@ export interface BoneFrame {
 
 /** Toe reach in front of the ankle, as in src/sim/skeleton.ts. */
 const TOE_LENGTH = 0.14;
+
+/** How far (m) the middle of the hand is from the wrist, along it: where the models' mitt hands close on a grip. */
+const FIST = 0.03;
+/** A hand within this far (m) of the Weapon's axis has hold of it; it closes on it fully within GRIP_FULL. */
+const GRIP_REACH = 0.05;
+const GRIP_FULL = 0.01;
 
 /**
  * The Skeleton in the models' rest pose: legs straight, arms straight out to
@@ -85,11 +91,33 @@ function frame(along: THREE.Vector3, toward: THREE.Vector3): THREE.Quaternion {
 }
 
 /**
+ * How a hand holding the Weapon is turned and placed: the Skeleton's hand joint is where the grip passes, so the fist
+ * (not the wrist) goes there, its fingers wrapped round the grip square to the Weapon and its thumb toward the tip.
+ * Null when the hand is not on the Weapon (a Throw's off hand, a sheathed Weapon) or it runs along the forearm.
+ */
+function gripFrame(side: 'L' | 'R', elbow: Vec3, hand: Vec3, blade: BladeTransform): { frame: BoneFrame; hold: number } | null {
+  const axis = between(blade.hilt, blade.tip).normalize();
+  const fromHilt = between(blade.hilt, hand);
+  const offAxis = fromHilt.clone().addScaledVector(axis, -fromHilt.dot(axis)).length();
+  const hold = THREE.MathUtils.clamp((GRIP_REACH - offAxis) / (GRIP_REACH - GRIP_FULL), 0, 1);
+  if (hold === 0) return null;
+  const forearm = between(elbow, hand).normalize();
+  const fingers = forearm.clone().addScaledVector(axis, -forearm.dot(axis));
+  if (fingers.lengthSq() < 1e-6) return null;
+  fingers.normalize();
+  // The models' hands, palm down with arms out (their rest pose), have the thumb along the bone frame's +y on the right
+  // and -y on the left (see boneFrames' rest roll), so that axis is turned to point up the Weapon.
+  const rotation = frame(fingers, side === 'R' ? axis : axis.clone().negate());
+  return { frame: { origin: vec(hand).addScaledVector(fingers, -FIST), rotation }, hold };
+}
+
+/**
  * Every bone's frame for a solved Skeleton. Arms and legs take their roll from
  * the plane the IK bends them in (the same poles as src/sim/skeleton.ts), so a
- * straight limb keeps a steady roll; the hands follow the forearms.
+ * straight limb keeps a steady roll; the hands follow the forearms, except one
+ * holding `blade`, which grips it.
  */
-export function boneFrames(j: Joints): Record<BodyBone, BoneFrame> {
+export function boneFrames(j: Joints, blade?: BladeTransform): Record<BodyBone, BoneFrame> {
   const hipsLeft = between(j.rightHip, j.leftHip);
   const shoulderLeft = between(j.rightShoulder, j.leftShoulder).normalize();
   const spineUp = between(j.pelvis, j.chest).normalize();
@@ -115,6 +143,12 @@ export function boneFrames(j: Joints): Record<BodyBone, BoneFrame> {
     frames[`upperArm_${s}`] = { origin: vec(shoulder), rotation: frame(between(shoulder, elbow), hinge) };
     frames[`forearm_${s}`] = { origin: vec(elbow), rotation: forearm };
     frames[`hand_${s}`] = { origin: vec(hand), rotation: forearm.clone() };
+    const grip = blade && gripFrame(s, elbow, hand, blade);
+    if (grip) {
+      const f = frames[`hand_${s}`];
+      f.origin.lerp(grip.frame.origin, grip.hold);
+      f.rotation.slerp(grip.frame.rotation, grip.hold);
+    }
 
     const hip = j[`${side}Hip`];
     const knee = j[`${side}Knee`];
@@ -157,9 +191,9 @@ export class BodyRig {
     });
   }
 
-  /** Put every bone where the solved Skeleton's joints are. */
-  pose(joints: Joints): void {
-    const frames = boneFrames(joints);
+  /** Put every bone where the solved Skeleton's joints are, the hands on `blade` gripping it. */
+  pose(joints: Joints, blade?: BladeTransform): void {
+    const frames = boneFrames(joints, blade);
     this.model.updateMatrixWorld(true);
     for (const { name, bone, turn } of this.bones) {
       const f = frames[name];
