@@ -1,0 +1,49 @@
+{
+  "name": "BlockLeft",
+  "duration": 0.15,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.15,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": -0.231,
+          "y": 1.398,
+          "z": 0.392
+        },
+        "rotation": {
+          "x": -75.3,
+          "y": -36.9,
+          "z": -54
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.169,
+          "y": 1.002,
+          "z": 0.308
+        }
+      },
+      "torso": {
+        "twist": -20,
+        "lean": 0
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.88,
+        "z": 0
+      }
+    }
+  ]
+}

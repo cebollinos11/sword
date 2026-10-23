@@ -1,0 +1,220 @@
+{
+  "name": "Left",
+  "duration": 1.1,
+  "loop": false,
+  "markers": {
+    "windUpEnd": 0.35,
+    "releaseEnd": 0.6
+  },
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.17,
+      "ease": "easeIn",
+      "rightHand": {
+        "position": {
+          "x": -0.085,
+          "y": 1.591,
+          "z": 0.332
+        },
+        "rotation": {
+          "x": -76,
+          "y": -63.4,
+          "z": -80
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.045,
+          "y": 1.009,
+          "z": 0.268
+        }
+      },
+      "torso": {
+        "twist": -30,
+        "lean": 2
+      }
+    },
+    {
+      "time": 0.35,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": -0.185,
+          "y": 1.47,
+          "z": -0.19
+        },
+        "rotation": {
+          "x": -23.5,
+          "y": -150.6,
+          "z": 68.8
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.085,
+          "y": 1.23,
+          "z": 0.29
+        }
+      },
+      "torso": {
+        "twist": -45,
+        "lean": -5
+      },
+      "hip": {
+        "x": -0.03,
+        "y": 0.9,
+        "z": -0.04
+      }
+    },
+    {
+      "time": 0.42,
+      "ease": "easeIn",
+      "path": "arc",
+      "rightHand": {
+        "position": {
+          "x": -0.384,
+          "y": 1.36,
+          "z": 0.405
+        },
+        "rotation": {
+          "x": -11.5,
+          "y": -75.3,
+          "z": 83
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.184,
+          "y": 1.24,
+          "z": 0.255
+        }
+      },
+      "torso": {
+        "twist": -30,
+        "lean": 5
+      },
+      "hip": {
+        "x": -0.02,
+        "y": 0.89,
+        "z": 0.02
+      }
+    },
+    {
+      "time": 0.5,
+      "ease": "linear",
+      "path": "arc",
+      "rightHand": {
+        "position": {
+          "x": 0.105,
+          "y": 1.2,
+          "z": 0.677
+        },
+        "rotation": {
+          "x": 0,
+          "y": 8.5,
+          "z": 78.6
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.015,
+          "y": 1.2,
+          "z": 0.083
+        }
+      },
+      "torso": {
+        "twist": -10,
+        "lean": 10
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.87,
+        "z": 0.06
+      }
+    },
+    {
+      "time": 0.6,
+      "ease": "easeOut",
+      "path": "arc",
+      "rightHand": {
+        "position": {
+          "x": 0.346,
+          "y": 0.98,
+          "z": 0.487
+        },
+        "rotation": {
+          "x": 11.6,
+          "y": 50.4,
+          "z": 69.9
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.106,
+          "y": 1.1,
+          "z": 0.113
+        }
+      },
+      "torso": {
+        "twist": 15,
+        "lean": 14
+      },
+      "hip": {
+        "x": 0.02,
+        "y": 0.85,
+        "z": 0.07
+      }
+    },
+    {
+      "time": 0.75,
+      "ease": "easeOut",
+      "path": "arc",
+      "rightHand": {
+        "position": {
+          "x": 0.395,
+          "y": 0.908,
+          "z": 0.296
+        },
+        "rotation": {
+          "x": 17.8,
+          "y": 74.5,
+          "z": 73.1
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.155,
+          "y": 1.092,
+          "z": 0.144
+        }
+      },
+      "torso": {
+        "twist": 25,
+        "lean": 16
+      },
+      "hip": {
+        "x": 0.03,
+        "y": 0.84,
+        "z": 0.05
+      }
+    },
+    {
+      "time": 1.1,
+      "ease": "easeInOut",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle"
+    }
+  ]
+}

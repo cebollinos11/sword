@@ -1,0 +1,57 @@
+{
+  "name": "Recoil",
+  "duration": 0.49,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.07,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": 0.178,
+          "y": 1.322,
+          "z": 0.206
+        },
+        "rotation": {
+          "x": -63.2,
+          "y": 35.5,
+          "z": -38.7
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.142,
+          "y": 1.198,
+          "z": 0.154
+        }
+      },
+      "torso": {
+        "twist": 6,
+        "lean": -8
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.9,
+        "z": -0.04
+      }
+    },
+    {
+      "time": 0.25,
+      "ease": "easeInOut",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle"
+    }
+  ]
+}

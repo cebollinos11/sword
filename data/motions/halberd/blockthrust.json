@@ -1,0 +1,49 @@
+{
+  "name": "BlockThrust",
+  "duration": 0.15,
+  "loop": false,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.15,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": -0.095,
+          "y": 1.361,
+          "z": 0.515
+        },
+        "rotation": {
+          "x": -44.6,
+          "y": -39.3,
+          "z": -60.1
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": 0.175,
+          "y": 0.939,
+          "z": 0.185
+        }
+      },
+      "torso": {
+        "twist": -5,
+        "lean": 5
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.88,
+        "z": 0
+      }
+    }
+  ]
+}
