@@ -33,6 +33,8 @@ the sides, the ends or a gangway, the ground is far enough down that the fall
 kills (a Death by Fall). A locomotive pulls ahead: a held Jump from the
 flatcar's deck clears the bulkhead and the gap onto its roof, and it takes
 another jump to come back. The props on the flatcar have flat tops to stand on.
+The wagons are S times the first train's width and length; heights, the gaps
+between the wagons, the gangways and the props keep their size.
 
 The model has four parts:
   - Train:       the train, the guideway beams and the ground: still.
@@ -57,39 +59,43 @@ OUT_BLEND = os.path.join(REPO, 'art', 'train.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'arenas', 'train.glb')
 OUT_JSON = os.path.join(REPO, 'data', 'arenas', 'train.json')
 
-HW = 1.7  # every wagon's half width, to the bevels' lower lip
-TOP_HW = 1.2  # the flat middle of every roof; the bevels run from here out to HW
+S = 3.0  # the wagons' scale from above (width and length); heights, gaps and props keep their size
+HW = 1.7 * S  # every wagon's half width, to the bevels' lower lip
+TOP_HW = HW - 0.5  # the flat middle of every roof; the bevels run from here out to HW
 BEVEL = 0.4  # how far the bevels fall from the roof to their lip (about 39 degrees)
 PLANK = 0.45  # the half width of the gangways across the gaps
-BOX_A = (0.45, 10.45)  # the front freight car's z span (Team 0 starts on it)
-BOX_B = (-10.45, -0.45)  # the rear freight car's (Team 1)
-FLAT = (11.35, 20.35)  # the flatcar, ahead of freight car A
-PASS = (-23.35, -11.35)  # the passenger car, behind freight car B
-LOCO = (22.85, 38.0)  # the locomotive: a 2.5 m gap ahead, its roof reached by a held Jump from the flatcar
+GAP = 0.9  # the gap between two wagons, a gangway across it
+BOX_A = (GAP / 2, GAP / 2 + 10.0 * S)  # the front freight car's z span (Team 0 starts on it)
+BOX_B = (-BOX_A[1], -BOX_A[0])  # the rear freight car's (Team 1)
+FLAT = (BOX_A[1] + GAP, BOX_A[1] + GAP + 9.0 * S)  # the flatcar, ahead of freight car A
+PASS = (BOX_B[0] - GAP - 12.0 * S, BOX_B[0] - GAP)  # the passenger car, behind freight car B
+LOCO = (FLAT[1] + 2.5, FLAT[1] + 2.5 + 15.15 * S)  # the locomotive: a 2.5 m gap ahead, its roof reached by a held Jump from the flatcar
 FLAT_Y = -1.2  # the flatcar's deck: a drop that does not hurt (fall.safeHeight is 1.6), a climb back by its sloping end
-FLAT_RAMP = (11.35, 13.35, -0.4)  # the flatcar's sloping rear deck: z from, z to, height at its rear
+FLAT_RAMP = (FLAT[0], FLAT[0] + 2.0, -0.4)  # the flatcar's sloping rear deck: z from, z to, height at its rear
 PASS_Y = 0.6  # the passenger car's roof
-PASS_RAMP = (-11.35, -12.35, 0.3)  # its sloping front end: z from, z to, height at the front
-CLERESTORY = (0.5, -14.0, -21.5, 0.9)  # the raised sensor spine down its roof: half width, z from, z to, height
+PASS_RAMP = (PASS[1], PASS[1] - 1.0, 0.3)  # its sloping front end: z from, z to, height at the front
+CLERESTORY = (0.5 * S, PASS[1] - 2.65 * S, PASS[1] - 10.15 * S, 0.9)  # the raised sensor spine down its roof: half width, z from, z to, height
 LOCO_Y = 0.5  # the locomotive's roof
-LOCO_NOSE = LOCO[1] - 6.0  # where its nose starts: the roof is flat to here, the nose beyond slopes away
+NOSE = 6.0 * S  # the locomotive's nose's length
+LOCO_NOSE = LOCO[1] - NOSE  # where its nose starts: the roof is flat to here, the nose beyond slopes away
 GROUND = -8.0  # the ground: a fall to it kills from anywhere (100 HP, 22 per metre past 1.6)
+GROUND_R = 320.0  # the drawn ground's radius: past the camera's far plane from anywhere on the train
 BODY_BOTTOM = -3.0  # the wagons' undersides
 POD = (-3.75, -3.3)  # the maglev pods under them
-BEAM_X = (0.95, 1.35)  # the guideway's twin beams, inner and outer x
+BEAM_X = (0.95 * S, 1.35 * S)  # the guideway's twin beams, inner and outer x
 BEAM_Y = (-4.9, -3.88)
 NEAR_TILE = 240.0  # the scrolled wasteland tile's length (m)
 FAR_TILE = 480.0
-SKY_R = 170.0  # inside the camera's far plane (200) from anywhere on the train
+SKY_R = 170.0  # inside the camera's far plane (200): the game keeps the sky round the camera (src/render/stage.ts)
 SUN_DIR = Vector((0.18, 0.08, -1.0)).normalized()  # towards the sun: low, behind the train
 
-VENTS = [(0.75, 5.2), (-0.75, 8.4), (-0.75, -5.2), (0.75, -8.4)]  # roof heat sinks (x, z): Walls
-LOCO_VENTS = [(x, LOCO[0] + dz) for dz in (2.0, 4.0) for x in (-0.7, 0.7)]  # the locomotive's
-HATCHES = [(-0.6, 6.6), (0.6, 1.6), (0.6, -6.6), (-0.6, -1.6)]
-CRATE_STACK = (0.75, 15.0)  # on the flatcar: a container with a smaller one on it
-BARRELS = (-0.8, 17.1)  # waste drums
-CELL = (0.7, 18.7)  # a glowing power cell
-BULKHEAD_Z = 20.2  # the flatcar's front bulkhead (its front face)
+VENTS = [(x * S, z * S) for x, z in ((0.75, 5.2), (-0.75, 8.4), (-0.75, -5.2), (0.75, -8.4))]  # roof heat sinks (x, z): Walls
+LOCO_VENTS = [(x, LOCO[0] + dz) for dz in (2.0 * S, 4.0 * S) for x in (-0.7 * S, 0.7 * S)]  # the locomotive's
+HATCHES = [(x * S, z * S) for x, z in ((-0.6, 6.6), (0.6, 1.6), (0.6, -6.6), (-0.6, -1.6))]
+CRATE_STACK = (0.75 * S, FLAT[0] + 3.65 * S)  # on the flatcar: a container with a smaller one on it
+BARRELS = (-0.8 * S, FLAT[0] + 5.75 * S)  # waste drums
+CELL = (0.7 * S, FLAT[0] + 7.35 * S)  # a glowing power cell
+BULKHEAD_Z = FLAT[1] - 0.15  # the flatcar's front bulkhead (its front face)
 
 rng = random.Random(29)
 
@@ -320,7 +326,7 @@ floor('pass_right', cw, TOP_HW, cz0, cz1, PASS_Y)
 bevels('pass_mid', cz0, cz1, PASS_Y)
 roof('pass_back', cz1, PASS[0], PASS_Y)
 roof('loco', LOCO[0], LOCO_NOSE, LOCO_Y)  # the nose beyond stays open: walking off it is a Death by Fall
-floor('ground', -60.0, 60.0, -80.0, 80.0, GROUND)
+floor('ground', -60.0, 60.0, PASS[0] - 60.0, LOCO[1] + 60.0, GROUND)
 
 
 def wall(id, a, b, bottom, top):
@@ -360,9 +366,9 @@ for k, (x, z) in enumerate(LOCO_VENTS):
 wall('bulkhead', (-HW, BULKHEAD_Z), (HW, BULKHEAD_Z), FLAT_Y - 0.5, 0.3)
 
 # The two teams face each other across the gangway between the freight cars.
-for slot, x in enumerate((0.0, 0.9, -0.9)):
-    SPAWNS.append((0, slot, (x, 0.0, 2.6), math.pi))
-    SPAWNS.append((1, slot, (-x, 0.0, -2.6), 0.0))
+for slot, x in enumerate((0.0, 0.9 * S, -0.9 * S)):
+    SPAWNS.append((0, slot, (x, 0.0, 2.6 * S), math.pi))
+    SPAWNS.append((1, slot, (-x, 0.0, -2.6 * S), 0.0))
 
 # ---------------------------------------------------------------- the train
 
@@ -430,14 +436,14 @@ def end_lights(z, top, d):
     """Running lights on a wagon's end: a cyan bar under each bevel, hazard chevrons below."""
     za, zb = sorted((z, z + d * 0.03))
     for s in (-1, 1):
-        G.box((s * 1.25 - 0.25, top - 0.75, za), (s * 1.25 + 0.25, top - 0.65, zb), 'Neon')
-        G.box((s * 1.05 - 0.15, -2.6, za), (s * 1.05 + 0.15, -1.6, zb), 'Hazard')
+        G.box((s * (HW - 0.45) - 0.25, top - 0.75, za), (s * (HW - 0.45) + 0.25, top - 0.65, zb), 'Neon')
+        G.box((s * (HW - 0.65) - 0.15, -2.6, za), (s * (HW - 0.65) + 0.15, -1.6, zb), 'Hazard')
     G.box((-0.5, -2.7, za), (0.5, top - 0.9, zb), 'HullDark')
 
 
 def underframe(z0, z1):
     """The maglev pods under a wagon, glowing where they ride the beams."""
-    for zc in (z0 + 1.6, z1 - 1.6):
+    for zc in (z0 + 1.6, (z0 + z1) / 2, z1 - 1.6):
         G.box((-HW + 0.3, POD[0], zc - 1.0), (HW - 0.3, BODY_BOTTOM, zc + 1.0), 'HullDark', skip=('+y',))
         for s in (-1, 1):
             G.box((BEAM_X[0] if s > 0 else -BEAM_X[1], POD[0] - 0.04, zc - 0.9), (BEAM_X[1] if s > 0 else -BEAM_X[0], POD[0], zc + 0.9), 'Neon', skip=('+y',))
@@ -461,8 +467,7 @@ def freight(z0, z1, vents, hatches):
     """An armoured freight car: gunmetal plating, a sealed cargo door each side."""
     hull([(z0, z1, 0.0, 0.0)], ('Hull', 'HullMid'), ('HullMid', 'Hull'))
     G.box((-0.3, 0.0, z0 + 0.15), (0.3, 0.02, z1 - 0.15), 'Grate', skip=('-y',))
-    zm = (z0 + z1) / 2
-    for s in (-1, 1):
+    for s, zm in [(s, z0 + (z1 - z0) * (k + 0.5) / S) for s in (-1, 1) for k in range(int(S))]:
         sx = lambda y: side_x(y, 0.0, s)
         G.face([(sx(-2.3), -2.3, zm - 1.5), (sx(-2.3), -2.3, zm + 1.5), (sx(-0.6), -0.6, zm + 1.5), (sx(-0.6), -0.6, zm - 1.5)], 'Black', (s, 0, 0))
         q = lambda y: side_x(y, 0.0, s) + s * 0.01
@@ -490,7 +495,7 @@ def flatcar():
         G.box((-TOP_HW + 0.1, y, z - 0.04), (TOP_HW - 0.1, y + 0.025, z + 0.04), 'Hazard', skip=('-y',))
     # The power cells that run the train, glowing through the hull's sides.
     for s in (-1, 1):
-        for k in range(6):
+        for k in range(19):
             z = rz1 + 0.6 + k * 1.15
             q = lambda y: side_x(y, FLAT_Y, s) + s * 0.01
             G.face([(q(-2.3), -2.3, z), (q(-2.3), -2.3, z + 0.7), (q(-1.7), -1.7, z + 0.7), (q(-1.7), -1.7, z)], 'NeonOrange' if k % 3 == 1 else 'Neon', (s, 0, 0))
@@ -498,8 +503,8 @@ def flatcar():
     underframe(z0, z1)
     # The front bulkhead: a blast plate, a red light bar along its top.
     G.box((-HW, FLAT_Y - BEVEL, BULKHEAD_Z), (HW, 0.3, z1), 'HullMid', skip=('-y',))
-    for k in range(4):
-        x = -1.5 + k * 0.9
+    for k in range(int(2 * HW / 0.9) - 1):
+        x = -HW + 0.25 + k * 0.9
         G.box((x, FLAT_Y, BULKHEAD_Z - 0.02), (x + 0.4, -0.2, BULKHEAD_Z), 'Hazard', skip=('-y', '+z'))
     G.box((-HW + 0.1, 0.12, BULKHEAD_Z - 0.03), (HW - 0.1, 0.22, BULKHEAD_Z), 'NeonRed', skip=('+z',))
     G.box((-HW, 0.3, BULKHEAD_Z - 0.04), (HW, 0.36, z1 + 0.02), 'Black', skip=('-y',))
@@ -539,7 +544,7 @@ def cargo():
         a = angle(k, 4) + 0.4
         G.strut((x + 0.4 * math.cos(a), FLAT_Y + 0.25, z + 0.4 * math.sin(a)), (x + 0.4 * math.cos(a), FLAT_Y + 1.2, z + 0.4 * math.sin(a)), 0.07, 'HullDark')
     # Scrap by the bulkhead.
-    for sx, sz in ((-1.0, 19.6), (-0.55, 19.75)):
+    for sx, sz in ((-1.0 * S, BULKHEAD_Z - 0.6), (-0.55 * S, BULKHEAD_Z - 0.45)):
         lumps(G, sx, FLAT_Y + 0.1, sz, 0.28, 0.32, ('Rust', 'HullMid'), n=6, top=0.7)
 
 
@@ -552,8 +557,8 @@ def passenger():
         q = lambda y: side_x(y, PASS_Y, s) + s * 0.01
         G.face([(q(-1.6), -1.6, z0 + 0.4), (q(-1.6), -1.6, z1 - 0.4), (q(-0.55), -0.55, z1 - 0.4), (q(-0.55), -0.55, z0 + 0.4)], 'Glass', (s, 0, 0))
         q = lambda y: side_x(y, PASS_Y, s) + s * 0.02
-        for k in range(8):
-            zc = z0 + 1.1 + k * (z1 - z0 - 2.2) / 7
+        for k in range(24):
+            zc = z0 + 1.1 + k * (z1 - z0 - 2.2) / 23
             G.face([(q(-1.45), -1.45, zc - 0.45), (q(-1.45), -1.45, zc + 0.45), (q(-0.7), -0.7, zc + 0.45), (q(-0.7), -0.7, zc - 0.45)], 'Window', (s, 0, 0))
         G.face([(q(-1.9), -1.9, z0 + 0.4), (q(-1.9), -1.9, z1 - 0.4), (q(-1.8), -1.8, z1 - 0.4), (q(-1.8), -1.8, z0 + 0.4)], 'NeonRed', (s, 0, 0))
     end_lights(z1, fy, 1)
@@ -562,7 +567,7 @@ def passenger():
     G.box((-0.5, -2.7, za), (0.5, -0.4, zb), 'HullDark')
     G.box((-0.35, -1.5, za - 0.005), (0.35, -0.8, zb), 'Window')
     for s in (-1, 1):
-        G.box((s * 1.2 - 0.25, -0.5, za), (s * 1.2 + 0.25, -0.3, zb), 'NeonRed')
+        G.box((s * (HW - 0.5) - 0.25, -0.5, za), (s * (HW - 0.5) + 0.25, -0.3, zb), 'NeonRed')
     # The sensor spine, raised a step off the roof, with a lit slit down each side and domes on top.
     cw, cz0, cz1, cy = CLERESTORY
     G.box((-cw, PASS_Y, cz1), (cw, cy, cz0), 'HullDark', skip=('-y', '+y'))
@@ -573,7 +578,7 @@ def passenger():
     for s in (-1, 1):
         xa, xb = sorted((s * cw, s * (cw + 0.02)))
         G.box((xa, PASS_Y + 0.12, cz1 + 0.2), (xb, PASS_Y + 0.18, cz0 - 0.2), 'Neon', skip=('-y', '+y'))
-    for z in (cz1 + 0.8, cz0 - 0.8):
+    for z in (cz1 + 0.8, (cz0 + cz1) / 2, cz0 - 0.8):
         pipe(G, (0, cy, z), (0, cy + 0.12, z), 0.22, 'Chrome', sides=8, r1=0.12, caps=True, cap_mat='NeonRed')
     underframe(z0, z1)
 
@@ -605,7 +610,7 @@ def locomotive():
     for s in (-1, 1):
         q = lambda y: side_x(y, LOCO_Y, s) + s * 0.01
         G.face([(q(-1.0), -1.0, n0 - 2.6), (q(-1.0), -1.0, n0 - 0.2), (q(-0.25), -0.25, n0 - 0.2), (q(-0.25), -0.25, n0 - 2.6)], 'Window', (s, 0, 0))
-        for k in range(4):
+        for k in range(12):
             z = z0 + 0.8 + k * 0.9
             q = lambda y: side_x(y, LOCO_Y, s) + s * 0.01
             G.face([(q(-2.2), -2.2, z), (q(-2.2), -2.2, z + 0.5), (q(-1.4), -1.4, z + 0.5), (q(-1.4), -1.4, z)], 'NeonOrange', (s, 0, 0))
@@ -614,7 +619,7 @@ def locomotive():
     for i in range(6):
         t = i / 5
         sx, sy = 1 - 0.55 * t, 1 - 0.6 * t ** 1.4
-        stations.append([Vector((x * sx, BODY_BOTTOM + (y - BODY_BOTTOM) * sy, n0 + 6.0 * t ** 0.9)) for x, y in section(LOCO_Y)])
+        stations.append([Vector((x * sx, BODY_BOTTOM + (y - BODY_BOTTOM) * sy, n0 + NOSE * t ** 0.9)) for x, y in section(LOCO_Y)])
     centre = lambda st: sum(st, Vector()) / len(st)
     for i in range(5):
         a, b = stations[i], stations[i + 1]
@@ -639,8 +644,8 @@ def locomotive():
     G.face(tip, 'HullDark', (0, 0, 1))
     tc = centre(tip)
     for s in (-1, 1):
-        G.box((tc.x + s * 0.45 - 0.18, tc.y - 0.05, tc.z), (tc.x + s * 0.45 + 0.18, tc.y + 0.15, tc.z + 0.03), 'Lamp')
-    G.box((tc.x - 0.6, tc.y - 0.45, tc.z), (tc.x + 0.6, tc.y - 0.38, tc.z + 0.03), 'Neon')
+        G.box((tc.x + s * 0.45 * S - 0.18, tc.y - 0.05, tc.z), (tc.x + s * 0.45 * S + 0.18, tc.y + 0.15, tc.z + 0.03), 'Lamp')
+    G.box((tc.x - 0.6 * S, tc.y - 0.45, tc.z), (tc.x + 0.6 * S, tc.y - 0.38, tc.z + 0.03), 'Neon')
     # A fin down its back, heat sinks, and the reactor's glow under the roof.
     G.box((-0.06, LOCO_Y, z0 + 0.5), (0.06, LOCO_Y + 0.5, n0 - 0.5), 'HullDark', skip=('-y',))
     G.box((-0.07, LOCO_Y + 0.42, z0 + 0.5), (0.07, LOCO_Y + 0.5, n0 - 0.5), 'NeonRed', skip=('-y',))
@@ -657,7 +662,7 @@ def guideway():
         xa, xb = sorted((s * BEAM_X[0], s * (BEAM_X[0] + 0.08)))
         G.box((xa, BEAM_Y[1], -200.0), (xb, BEAM_Y[1] + 0.03, 200.0), 'Neon', skip=('-y', '-z', '+z'))
     n = 36
-    disc = [(SKY_R * math.cos(angle(k, n)), GROUND, SKY_R * math.sin(angle(k, n))) for k in range(n)]
+    disc = [(GROUND_R * math.cos(angle(k, n)), GROUND, GROUND_R * math.sin(angle(k, n))) for k in range(n)]
     for k in range(n):
         G.face([(0, GROUND, 0), disc[k], disc[(k + 1) % n]], 'Ash', (0, 1, 0))
 
@@ -670,7 +675,9 @@ def near_z(margin=3.0):
 
 
 def off_track(lo, hi):
-    return rng.choice((-1, 1)) * rng.uniform(lo, hi)
+    """An x beside the track: lo to hi out from the first, narrower train's side (so clear of this one's)."""
+    out = HW - 1.7
+    return rng.choice((-1, 1)) * rng.uniform(lo + out, hi + out)
 
 
 def pylons():
@@ -678,7 +685,7 @@ def pylons():
     for k in range(int(NEAR_TILE / 24)):
         z = 12.0 + k * 24.0
         NEAR.box((-0.55, GROUND - 0.1, z - 0.55), (0.55, BEAM_Y[0] - 0.4, z + 0.55), 'Concrete' if k % 3 else 'ConcreteDark', skip=('-y',))
-        NEAR.box((-1.6, BEAM_Y[0] - 0.4, z - 0.7), (1.6, BEAM_Y[0], z + 0.7), 'ConcreteDark', skip=('+y',))
+        NEAR.box((-BEAM_X[1] - 0.25, BEAM_Y[0] - 0.4, z - 0.7), (BEAM_X[1] + 0.25, BEAM_Y[0], z + 0.7), 'ConcreteDark', skip=('+y',))
         NEAR.box((-0.6, GROUND - 0.1, z - 0.6), (0.6, GROUND + 0.8, z + 0.6), 'Rust', skip=('-y',))
         NEAR.box((-0.57, -6.0, z - 0.57), (0.57, -5.9, z + 0.57), 'NeonRed' if k % 4 == 0 else 'Neon', skip=('-y', '+y'))
         if k % 3 == 1:  # a chunk knocked out, rebar showing

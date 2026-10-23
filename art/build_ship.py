@@ -25,7 +25,8 @@ between the mainmast and a raised quarterdeck (y QD) at the stern where the
 wheel stands, reached by a stair on each side. The bulwarks stand RAIL above
 the deck: too high to walk over, low enough to jump over. A plank juts out over
 the sea from the port side. Off the plank or over the rail is the sea, and the
-sea drowns. Under 10 000 triangles.
+sea drowns. The layout from above is S times the first ship's; heights,
+the rail, the stairs' rise and the props keep their size. Under 10 000 triangles.
 """
 import json
 import math
@@ -43,32 +44,34 @@ OUT_BLEND = os.path.join(REPO, 'art', 'ship.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'arenas', 'ship.glb')
 OUT_JSON = os.path.join(REPO, 'data', 'arenas', 'ship.json')
 
+S = 3.0  # the layout's scale from above (x, z); heights and props keep their size
+MH = 2.0  # the rigging's scale: masts and sails tall enough for the wider deck
 QD = 1.5  # the quarterdeck's height (a drop no worse than the fall's safe height)
-QD_FRONT = -5.0  # where the quarterdeck starts (z); it runs aft to the stern
-STAIR_FOOT = -2.0  # where the stairs meet the main deck (z)
-STAIR_IN = 1.8  # the stairs run between |x| STAIR_IN and the bulwark
+QD_FRONT = -5.0 * S  # where the quarterdeck starts (z); it runs aft to the stern
+STAIR_FOOT = -2.0 * S  # where the stairs meet the main deck (z)
+STAIR_IN = 1.8 * S  # the stairs run between |x| STAIR_IN and the bulwark
 RAIL = 0.75  # bulwark height over the deck: a Jump (peak ~0.82) clears it, a walk does not
 WATER = -2.5  # the sea's drawn surface
 SINK = 0.12  # the sea's Walk Surface lies this far under it, so the drowned float half under
-STERN = -11.5  # the inner face of the stern bulwark
-SEA_R = 110.0  # the drawn sea's radius (lost in the haze long before)
-SEA_SIM = 25.0  # the sea's Walk Surface's half size
-PLANK_Z = (0.1, 0.9)  # the plank's sides (z), on the port side
-PLANK_END = -6.2  # how far out it reaches (x)
-PLANK_GAP = (0.0, 1.0)  # the gap in the port bulwark it goes through (z)
+STERN = -11.5 * S  # the inner face of the stern bulwark
+SEA_R = 220.0  # the drawn sea's radius (lost in the haze long before)
+SEA_SIM = 25.0 * S  # the sea's Walk Surface's half size
+PLANK_Z = (1.1, 1.9)  # the plank's sides (z), on the port side
+PLANK_END = -12.2  # how far out it reaches (x): about 3 m past the hull
+PLANK_GAP = (1.0, 2.0)  # the gap in the port bulwark it goes through (z)
 
 # The bulwark's inner face (the deck's edge) on the starboard side, stern to bow tip: (z, half width).
-INNER = [(STERN, 2.6), (-9.5, 3.0), (4.0, 3.0), (6.5, 2.6), (8.5, 1.8), (10.0, 0.8), (10.8, 0.0)]
+INNER = [(STERN, 2.6 * S), (-9.5 * S, 3.0 * S), (4.0 * S, 3.0 * S), (6.5 * S, 2.6 * S), (8.5 * S, 1.8 * S), (10.0 * S, 0.8 * S), (10.8 * S, 0.0)]
 THICK = 0.25  # bulwark thickness
 
-MAINMAST = (0.0, 5.0)
-FOREMAST = (0.0, 8.3)
-MIZZEN = (0.0, -10.0)
-WHEEL_Z = -7.5
-CANNONS = [(1, -0.6), (1, 1.6), (-1, -0.6), (-1, 1.6)]  # (side, z): +1 starboard, -1 port
-BARRELS = [(1.95, 6.0), (1.55, 6.6), (2.25, 6.55)]
-CRATES = [(-1.95, 6.1, 0.5), (-1.55, 6.75, 0.35)]  # (x, z, half size)
-CHEST = (1.7, -10.4)
+MAINMAST = (0.0, 5.0 * S)
+FOREMAST = (0.0, 8.3 * S)
+MIZZEN = (0.0, -10.0 * S)
+WHEEL_Z = -7.5 * S
+CANNONS = [(side, z) for side in (1, -1) for z in (-3.6, 4.8, 9.6)]  # (side, z): +1 starboard, -1 port
+BARRELS = [(5.75, 18.3), (5.35, 18.9), (6.05, 18.85)]  # a cluster ahead of the mainmast, starboard
+CRATES = [(-5.65, 18.4, 0.5), (-5.25, 19.05, 0.35)]  # (x, z, half size): a pair, port
+CHEST = (1.7 * S, -10.4 * S)
 
 rng = random.Random(7)
 
@@ -271,7 +274,8 @@ for side, name in ((1, 'starboard'), (-1, 'port')):
     pts = [(xi, 0.0, STAIR_FOOT), (xo, 0.0, STAIR_FOOT), (xo, QD, QD_FRONT), (xi, QD, QD_FRONT)]
     WALK.append((f'stair_{name}', pts if side < 0 else list(reversed(pts)), False))
 WALK.append(('quarterdeck', [(r4(x), QD, r4(z)) for x, z in outline(STERN, QD_FRONT)], False))
-WALK.append(('plank', [(-half_width(0.5), 0.04, PLANK_Z[0]), (PLANK_END, 0.04, PLANK_Z[0]), (PLANK_END, 0.04, PLANK_Z[1]), (-half_width(0.5), 0.04, PLANK_Z[1])], False))
+PLANK_MID = (PLANK_Z[0] + PLANK_Z[1]) / 2
+WALK.append(('plank', [(-half_width(PLANK_MID), 0.04, PLANK_Z[0]), (PLANK_END, 0.04, PLANK_Z[0]), (PLANK_END, 0.04, PLANK_Z[1]), (-half_width(PLANK_MID), 0.04, PLANK_Z[1])], False))
 s = SEA_SIM
 WALK.append(('sea', [(-s, WATER - SINK, -s), (s, WATER - SINK, -s), (s, WATER - SINK, s), (-s, WATER - SINK, s)], True))
 
@@ -296,25 +300,26 @@ def lid(id, corners, y):
 # The bulwarks. Over the main deck from -0.5 (so a body is never under one) to RAIL; beside the stairs, stepped up with them; round the quarterdeck from 1.0.
 for side, name in ((1, 's'), (-1, 'p')):
     pt = lambda z: (side * half_width(z), z)
-    wall(f'qd_{name}0', pt(STERN), pt(-9.5), 1.0, QD + RAIL)
-    wall(f'qd_{name}1', pt(-9.5), pt(QD_FRONT), 1.0, QD + RAIL)
-    for k, (z0, z1) in enumerate(((QD_FRONT, -4.0), (-4.0, -3.0), (-3.0, STAIR_FOOT))):
+    wall(f'qd_{name}0', pt(STERN), pt(INNER[1][0]), 1.0, QD + RAIL)
+    wall(f'qd_{name}1', pt(INNER[1][0]), pt(QD_FRONT), 1.0, QD + RAIL)
+    third = (STAIR_FOOT - QD_FRONT) / 3
+    for k, (z0, z1) in enumerate(((QD_FRONT, QD_FRONT + third), (QD_FRONT + third, QD_FRONT + 2 * third), (QD_FRONT + 2 * third, STAIR_FOOT))):
         wall(f'stair_{name}{k}', pt(z0), pt(z1), 1.0 if k < 2 else 0.0, rail_top(z0) + 0.001)
-    runs = [(STAIR_FOOT, 4.0)]
+    runs = [(STAIR_FOOT, INNER[2][0])]
     if side < 0:
-        runs = [(STAIR_FOOT, PLANK_GAP[0]), (PLANK_GAP[1], 4.0)]
+        runs = [(STAIR_FOOT, PLANK_GAP[0]), (PLANK_GAP[1], INNER[2][0])]
     for k, (z0, z1) in enumerate(runs):
         wall(f'waist_{name}{k}', pt(z0), pt(z1), -0.5, RAIL)
-    bow = [z for z, _ in INNER if z >= 4.0]
+    bow = [z for z, _ in INNER if z >= INNER[2][0]]
     for k, (z0, z1) in enumerate(zip(bow, bow[1:])):
         wall(f'bow_{name}{k}', pt(z0), pt(z1), -0.5, RAIL)
 wall('stern', (half_width(STERN), STERN), (-half_width(STERN), STERN), 1.0, QD + RAIL)
 wall('qd_rail', (-STAIR_IN, QD_FRONT), (STAIR_IN, QD_FRONT), 1.0, QD + RAIL)
 
 # What stands on deck. The masts are tall Walls, so the camera stops short of them; the rest it looks over.
-square('mainmast', *MAINMAST, 0.32, 0.32, 0.0, 19.5)
-square('foremast', *FOREMAST, 0.26, 0.26, 0.0, 16.5)
-square('mizzen', *MIZZEN, 0.24, 0.24, QD, QD + 12.5)
+square('mainmast', *MAINMAST, 0.48, 0.48, 0.0, 19.5 * MH)
+square('foremast', *FOREMAST, 0.39, 0.39, 0.0, 16.5 * MH)
+square('mizzen', *MIZZEN, 0.36, 0.36, QD, QD + 12.5 * MH)
 square('wheel', 0.0, WHEEL_Z, 0.82, 0.16, QD, QD + 1.4)
 square('chest', *CHEST, 0.45, 0.3, QD, QD + 0.7)
 for k, (side, z) in enumerate(CANNONS):
@@ -327,9 +332,9 @@ for k, (x, z, h) in enumerate(CRATES):
     lid(f'crate{k}', square(f'crate{k}', x, z, h, h, 0.0, 2 * h), 2 * h)
 
 # The two teams face each other along the waist, between the stairs and the mainmast.
-for slot, x in enumerate((0.0, 1.4, -1.4)):
-    SPAWNS.append((0, slot, (x, 0.0, 2.2), math.pi))
-    SPAWNS.append((1, slot, (-x, 0.0, -2.2), 0.0))
+for slot, x in enumerate((0.0, 1.4 * S, -1.4 * S)):
+    SPAWNS.append((0, slot, (x, 0.0, 2.2 * S), math.pi))
+    SPAWNS.append((1, slot, (-x, 0.0, -2.2 * S), 0.0))
 
 # ---------------------------------------------------------------- the look
 
@@ -349,8 +354,8 @@ def deck_planks(z0, z1, y, width=0.34):
 
 def hull():
     """The hull: lofted between stations along the ship, closed by a stem at the bow and a transom at the stern."""
-    zs = [STERN, -10.5, -9.5, -8, -6.5, -5, -4, -3, -2, -0.5, 1, 2.5, 4, 5.25, 6.5, 7.5, 8.5, 9.25, 10, 10.5]
-    stem_z = INNER[-1][0] + 0.35
+    zs = [STERN] + [z * S for z in (-10.5, -9.5, -8, -6.5, -5, -4, -3, -2, -0.5, 1, 2.5, 4, 5.25, 6.5, 7.5, 8.5, 9.25, 10, 10.5)]
+    stem_z = INNER[-1][0] + 0.35 * S
     outer = lambda z: half_width(z) + THICK
 
     def taper(y):
@@ -389,13 +394,13 @@ def hull():
     top = QD + RAIL
     G.face([(w * taper(WATER - 0.3), WATER - 0.3, zt), (-w * taper(WATER - 0.3), WATER - 0.3, zt), (-w * taper(-0.8), -0.8, zt), (w * taper(-0.8), -0.8, zt)], 'HullDark', (0, 0, -1))
     G.face([(w, -0.8, zt), (-w, -0.8, zt), (-w, top, zt), (w, top, zt)], 'Hull', (0, 0, -1))
-    for k in range(5):
-        x = -1.9 + k * 0.95
+    for k in range(9):
+        x = -6.0 + k * 1.5
         G.face([(x - 0.3, 0.3, zt - 0.01), (x + 0.3, 0.3, zt - 0.01), (x + 0.3, 1.0, zt - 0.01), (x - 0.3, 1.0, zt - 0.01)], 'Window', (0, 0, -1))
-    G.obox((0, -0.25, zt - 0.03), (2.3, 0.18, 0.03), 0, 'Stripe')
+    G.obox((0, -0.25, zt - 0.03), (6.9, 0.18, 0.03), 0, 'Stripe')
     G.obox((0, top + 0.06, zt + 0.1), (w + 0.05, 0.06, 0.16), 0, 'Wood')
     # Stern lanterns.
-    for x in (-2.0, 0.0, 2.0):
+    for x in (-6.0, 0.0, 6.0):
         pipe(G, (x, top, zt - 0.1), (x, top + 0.3, zt - 0.1), 0.04, 'Iron', sides=4)
         G.box((x - 0.14, top + 0.3, zt - 0.24), (x + 0.14, top + 0.75, zt + 0.04), 'Lamp')
         G.box((x - 0.17, top + 0.75, zt - 0.27), (x + 0.17, top + 0.82, zt + 0.07), 'Iron')
@@ -426,8 +431,8 @@ def hull():
     G.face([(w, QD + RAIL, STERN), (-w, QD + RAIL, STERN), (-outer(STERN), QD + RAIL, STERN - 0.2), (outer(STERN), QD + RAIL, STERN - 0.2)], 'WoodDark', (0, 1, 0))
     # Stanchions on the bulwarks' inner faces.
     for side in (1, -1):
-        z = -9.0
-        while z < 9.6:
+        z = -9.0 * S
+        while z < 9.6 * S:
             if not (side < 0 and PLANK_GAP[0] - 0.1 < z < PLANK_GAP[1] + 0.1):
                 x = side * (half_width(z) - 0.04)
                 base = QD if z < QD_FRONT else 0.0
@@ -450,19 +455,20 @@ def decks():
     G.face([(-STAIR_IN, 0, z), (STAIR_IN, 0, z), (STAIR_IN, QD, z), (-STAIR_IN, QD, z)], 'Wood', (0, 0, 1))
     G.face([(-0.45, 0, z + 0.01), (0.45, 0, z + 0.01), (0.45, 1.25, z + 0.01), (-0.45, 1.25, z + 0.01)], 'WoodDark', (0, 0, 1))
     G.box((0.25, 0.6, z), (0.32, 0.67, z + 0.05), 'Gold')
-    for x in (-1.15, 1.15):
+    for x in (-3.6, -1.5, 1.5, 3.6):
         G.face([(x - 0.28, 0.55, z + 0.01), (x + 0.28, 0.55, z + 0.01), (x + 0.28, 1.05, z + 0.01), (x - 0.28, 1.05, z + 0.01)], 'Window', (0, 0, 1))
     G.box((-STAIR_IN, QD - 0.14, z), (STAIR_IN, QD, z + 0.05), 'Stripe', skip=('-z',))
     # The rail along its front: balusters under a top rail.
     G.box((-STAIR_IN, QD + RAIL - 0.08, z - 0.06), (STAIR_IN, QD + RAIL, z + 0.06), 'WoodDark')
     G.box((-STAIR_IN, QD, z - 0.05), (STAIR_IN, QD + 0.08, z + 0.05), 'WoodDark', skip=('-y',))
-    for k in range(13):
-        x = -STAIR_IN + 0.05 + k * (2 * STAIR_IN - 0.1) / 12
+    for k in range(37):
+        x = -STAIR_IN + 0.05 + k * (2 * STAIR_IN - 0.1) / 36
         G.box((x - 0.04, QD + 0.08, z - 0.04), (x + 0.04, QD + RAIL - 0.08, z + 0.04), 'Wood', skip=('-y', '+y'))
     # A hatch grating amidships, and ring bolts.
-    G.box((-0.9, 0.0, -0.3), (0.9, 0.06, 1.3), 'WoodDark', skip=('-y',))
-    for k in range(5):
-        G.box((-0.82 + k * 0.36, 0.06, -0.22), (-0.68 + k * 0.36, 0.065, 1.22), 'Port', skip=('-y',))
+    for hz in (0.7, 9.7):
+        G.box((-0.9, 0.0, hz - 0.8), (0.9, 0.06, hz + 0.8), 'WoodDark', skip=('-y',))
+        for k in range(5):
+            G.box((-0.82 + k * 0.36, 0.06, hz - 0.72), (-0.68 + k * 0.36, 0.065, hz + 0.72), 'Port', skip=('-y',))
 
 
 def stairs():
@@ -483,14 +489,14 @@ def stairs():
 
 
 def plank():
-    x0 = -half_width(0.5) - 0.3
+    x0 = -half_width(PLANK_MID) - 0.3
     G.box((PLANK_END, -0.02, PLANK_Z[0]), (x0, 0.04, PLANK_Z[1]), 'Deck')
     for k in range(1, 4):
         z = PLANK_Z[0] + k * (PLANK_Z[1] - PLANK_Z[0]) / 4
         G.box((PLANK_END + 0.02, 0.04, z - 0.005), (x0, 0.042, z + 0.005), 'WoodDark', skip=('-y',))
     # Lashed to two cleats on deck.
     for z in (PLANK_Z[0] - 0.08, PLANK_Z[1] + 0.08):
-        G.box((-half_width(0.5) + 0.2, 0.0, z - 0.06), (-half_width(0.5) + 0.5, 0.14, z + 0.06), 'Iron', skip=('-y',))
+        G.box((-half_width(PLANK_MID) + 0.2, 0.0, z - 0.06), (-half_width(PLANK_MID) + 0.5, 0.14, z + 0.06), 'Iron', skip=('-y',))
 
 
 def cannon(side, z):
@@ -512,7 +518,7 @@ def cannon(side, z):
 def gunports():
     """The lower gun deck's ports along both sides, each with a muzzle."""
     for side in (1, -1):
-        for z in (-8.0, -6.0, -3.5, -1.0, 1.5, 3.5):
+        for z in [-24.0 + 2.5 * k for k in range(15)]:
             x = side * (half_width(z) + THICK + 0.005)
             G.face([(x, -1.05, z - 0.3), (x, -1.05, z + 0.3), (x, -0.45, z + 0.3), (x, -0.45, z - 0.3)], 'Port', (side, 0, 0))
             G.face([(x, -0.42, z - 0.34), (x, -0.42, z + 0.34), (x + side * 0.02, -0.2, z + 0.34), (x + side * 0.02, -0.2, z - 0.34)], 'Wale', (side, 0.5, 0))
@@ -528,7 +534,7 @@ def cargo():
         G.obox((x, h, z), (h, h, h), 0.15, 'Wood', skip=('-y',))
         G.obox((x, 2 * h + 0.005, z), (h * 0.95, 0.005, h * 0.2), 0.15, 'WoodDark', skip=('-y',))
     # A coil of rope by the mainmast and the treasure chest on the quarterdeck.
-    pipe(G, (-1.0, 0.0, 4.2), (-1.0, 0.12, 4.2), 0.35, 'Rope', sides=10, caps=True)
+    pipe(G, (-1.0, 0.0, MAINMAST[1] - 0.8), (-1.0, 0.12, MAINMAST[1] - 0.8), 0.35, 'Rope', sides=10, caps=True)
     x, z = CHEST
     G.box((x - 0.42, QD, z - 0.27), (x + 0.42, QD + 0.42, z + 0.27), 'WoodDark', skip=('-y',))
     G.box((x - 0.43, QD + 0.42, z - 0.28), (x + 0.43, QD + 0.62, z + 0.28), 'Wood', skip=('-y',))
@@ -584,58 +590,60 @@ def mast(base, foot_y, height, r, yards):
     top_y = foot_y + height * 0.55
     pipe(RIGGING, (x, foot_y, z), (x, top_y + 0.4, z), r, 'Wood', sides=10, r1=r * 0.85)
     pipe(RIGGING, (x, top_y, z), (x, foot_y + height, z), r * 0.65, 'Wood', sides=8, r1=r * 0.35, caps=True)
-    RIGGING.box((x - 0.8, top_y - 0.08, z - 0.7), (x + 0.8, top_y + 0.05, z + 0.7), 'WoodDark')
+    RIGGING.box((x - 0.8 * S, top_y - 0.12, z - 0.7 * S), (x + 0.8 * S, top_y + 0.05, z + 0.7 * S), 'WoodDark')
     for y, half, drop in yards:
-        pipe(RIGGING, (x - half, y, z + r + 0.1), (x + half, y, z + r + 0.1), 0.09, 'WoodDark', sides=6, caps=True)
-        sail(RIGGING, y - 0.1, y - drop, half - 0.15, half + 0.15 if drop > 4 else half - 0.05, z + r + 0.18, 0.9)
+        pipe(RIGGING, (x - half, y, z + r + 0.1), (x + half, y, z + r + 0.1), 0.18, 'WoodDark', sides=6, caps=True)
+        sail(RIGGING, y - 0.2, y - drop, half - 0.3, half + 0.3 if drop > 4 * MH else half - 0.1, z + r + 0.3, 0.9 * S)
     return top_y
 
 
 def rigging():
-    main_top = mast(MAINMAST, 0.0, 19.5, 0.3, [(9.0, 4.3, 4.6), (15.0, 3.3, 4.2)])
-    fore_top = mast(FOREMAST, 0.0, 16.5, 0.25, [(8.2, 3.5, 3.8), (13.2, 2.7, 3.6)])
-    mizzen_top = mast(MIZZEN, QD, 12.5, 0.22, [(QD + 9.8, 2.4, 3.0)])
+    main_top = mast(MAINMAST, 0.0, 19.5 * MH, 0.45, [(9.0 * MH, 4.3 * S, 4.6 * MH), (15.0 * MH, 3.3 * S, 4.2 * MH)])
+    fore_top = mast(FOREMAST, 0.0, 16.5 * MH, 0.38, [(8.2 * MH, 3.5 * S, 3.8 * MH), (13.2 * MH, 2.7 * S, 3.6 * MH)])
+    mizzen_top = mast(MIZZEN, QD, 12.5 * MH, 0.33, [(QD + 9.8 * MH, 2.4 * S, 3.0 * MH)])
     # The spanker: a fore-and-aft sail between the mizzen and its boom over the stern.
     mx, mz = MIZZEN
-    boom_y, gaff_y = QD + 3.4, QD + 7.8
-    pipe(RIGGING, (mx, boom_y, mz - 0.2), (mx, boom_y, STERN - 2.6), 0.07, 'WoodDark', sides=6, caps=True)
-    pipe(RIGGING, (mx, gaff_y, mz - 0.2), (mx, gaff_y + 1.0, STERN - 1.6), 0.06, 'WoodDark', sides=6, caps=True)
-    RIGGING.both([(mx + 0.02, boom_y + 0.1, mz - 0.3), (mx + 0.02, gaff_y - 0.1, mz - 0.3), (mx + 0.25, gaff_y + 0.6, (mz + STERN) / 2 - 0.6), (mx + 0.02, gaff_y + 0.85, STERN - 1.5), (mx + 0.02, boom_y + 0.1, STERN - 2.5)], 'Sail', 'SailBack')
+    boom_y, gaff_y = QD + 3.4, QD + 7.8 * MH
+    pipe(RIGGING, (mx, boom_y, mz - 0.3), (mx, boom_y, STERN - 2.6 * S), 0.12, 'WoodDark', sides=6, caps=True)
+    pipe(RIGGING, (mx, gaff_y, mz - 0.3), (mx, gaff_y + 1.0 * MH, STERN - 1.6 * S), 0.1, 'WoodDark', sides=6, caps=True)
+    RIGGING.both([(mx + 0.02, boom_y + 0.1, mz - 0.4), (mx + 0.02, gaff_y - 0.1, mz - 0.4), (mx + 0.6, gaff_y + 0.6 * MH, (mz + STERN) / 2 - 0.6 * S), (mx + 0.02, gaff_y + 0.85 * MH, STERN - 1.5 * S), (mx + 0.02, boom_y + 0.1, STERN - 2.5 * S)], 'Sail', 'SailBack')
     # Bowsprit and the jib.
     stem = INNER[-1][0]
-    tip = (0, 4.2, stem + 6.0)
-    pipe(RIGGING, (0, 0.6, stem - 1.5), tip, 0.2, 'Wood', sides=8, r1=0.09, caps=True)
-    RIGGING.both([(0, 13.5, FOREMAST[1] + 0.35), (0, 4.5, stem + 5.6), (0.6, 3.6, stem + 1.4)], 'Sail', 'SailBack')
+    tip = (0, 4.2 * MH, stem + 6.0 * S)
+    pipe(RIGGING, (0, 0.6, stem - 1.5 * S), tip, 0.35, 'Wood', sides=8, r1=0.15, caps=True)
+    RIGGING.both([(0, 13.5 * MH, FOREMAST[1] + 0.5), (0, 4.5 * MH, stem + 5.6 * S), (0.6 * S, 3.6 * MH, stem + 1.4 * S)], 'Sail', 'SailBack')
     # Stays fore and aft, and the shrouds down to the channels on each side.
-    RIGGING.strut((0, fore_top + 6.5, FOREMAST[1]), tip, 0.04, 'Rope')
-    RIGGING.strut((0, main_top + 7.5, MAINMAST[1]), (0, fore_top + 1.0, FOREMAST[1]), 0.04, 'Rope')
-    RIGGING.strut((0, main_top, MAINMAST[1]), (0, 0.9, FOREMAST[1] + 0.2), 0.04, 'Rope')
-    RIGGING.strut((0, mizzen_top + 4.0, MIZZEN[1]), (0, main_top + 2.0, MAINMAST[1]), 0.04, 'Rope')
+    RIGGING.strut((0, fore_top + 6.5 * MH, FOREMAST[1]), tip, 0.06, 'Rope')
+    RIGGING.strut((0, main_top + 7.5 * MH, MAINMAST[1]), (0, fore_top + 1.0 * MH, FOREMAST[1]), 0.06, 'Rope')
+    RIGGING.strut((0, main_top, MAINMAST[1]), (0, 0.9, FOREMAST[1] + 0.3), 0.06, 'Rope')
+    RIGGING.strut((0, mizzen_top + 4.0 * MH, MIZZEN[1]), (0, main_top + 2.0 * MH, MAINMAST[1]), 0.06, 'Rope')
     for (mx, mz), top, foot, count in ((MAINMAST, main_top, 0.0, 4), (FOREMAST, fore_top, 0.0, 3), (MIZZEN, mizzen_top, QD, 3)):
         for side in (1, -1):
             for k in range(count):
-                z = mz - 0.4 - 0.55 * k
+                z = mz - 1.2 - 1.65 * k
                 x = side * (half_width(z) + THICK + 0.1)
-                RIGGING.strut((mx + side * 0.6, top, mz), (x, rail_top(z) - 0.05, z), 0.04, 'Rope')
-            z0, z1 = mz - 0.4 - 0.55 * (count - 1) - 0.1, mz - 0.3
-            G.box((side * (half_width(mz - 0.8) + THICK), rail_top(mz) - 0.3, z0), (side * (half_width(mz - 0.8) + THICK + 0.15), rail_top(mz) - 0.18, z1), 'WoodDark')
-    # The Jolly Roger at the main truck, streaming forward.
-    fy, fz = MAINMAST[1] + 0.12, 19.5 - 0.9
-    pipe(RIGGING, (0, 19.5, MAINMAST[1]), (0, 20.3, MAINMAST[1]), 0.04, 'Wood', sides=4)
-    flag = [(0, fz, fy), (0, fz, fy + 2.0), (0, fz + 1.1, fy + 2.0), (0, fz + 1.1, fy)]
+                RIGGING.strut((mx + side * 0.6 * S, top, mz), (x, rail_top(z) - 0.05, z), 0.06, 'Rope')
+            z0, z1 = mz - 1.2 - 1.65 * (count - 1) - 0.3, mz - 0.9
+            G.box((side * (half_width(mz - 2.4) + THICK), rail_top(mz) - 0.3, z0), (side * (half_width(mz - 2.4) + THICK + 0.15), rail_top(mz) - 0.18, z1), 'WoodDark')
+    # The Jolly Roger at the main truck, streaming forward (drawn at FS times its first size).
+    truck = 19.5 * MH
+    FS = MH
+    fy, fz = MAINMAST[1] + 0.12, truck - 0.9 * FS
+    pipe(RIGGING, (0, truck, MAINMAST[1]), (0, truck + 0.8 * FS, MAINMAST[1]), 0.06, 'Wood', sides=4)
+    flag = [(0, fz, fy), (0, fz, fy + 2.0 * FS), (0, fz + 1.1 * FS, fy + 2.0 * FS), (0, fz + 1.1 * FS, fy)]
     RIGGING.both([(x, y, z) for x, y, z in flag], 'Black', 'Black')
     for s in (1, -1):
-        cx, cy, cz = s * 0.012, fz + 0.65, fy + 1.0
-        skull = [(cx, cy + 0.22 * math.sin(angle(k, 8)), cz + 0.2 * math.cos(angle(k, 8))) for k in range(8)]
+        cx, cy, cz = s * 0.012, fz + 0.65 * FS, fy + 1.0 * FS
+        skull = [(cx, cy + 0.22 * FS * math.sin(angle(k, 8)), cz + 0.2 * FS * math.cos(angle(k, 8))) for k in range(8)]
         RIGGING.face(skull, 'Bone', (s, 0, 0))
-        jaw = [(cx, cy - 0.3, cz - 0.11), (cx, cy - 0.3, cz + 0.11), (cx, cy - 0.12, cz + 0.13), (cx, cy - 0.12, cz - 0.13)]
+        jaw = [(cx, cy - 0.3 * FS, cz - 0.11 * FS), (cx, cy - 0.3 * FS, cz + 0.11 * FS), (cx, cy - 0.12 * FS, cz + 0.13 * FS), (cx, cy - 0.12 * FS, cz - 0.13 * FS)]
         RIGGING.face(jaw, 'Bone', (s, 0, 0))
-        for dz in (-0.08, 0.08):
-            RIGGING.face([(cx + s * 0.004, cy - 0.02, cz + dz - 0.05), (cx + s * 0.004, cy - 0.02, cz + dz + 0.05), (cx + s * 0.004, cy + 0.07, cz + dz + 0.05), (cx + s * 0.004, cy + 0.07, cz + dz - 0.05)], 'Black', (s, 0, 0))
+        for dz in (-0.08 * FS, 0.08 * FS):
+            RIGGING.face([(cx + s * 0.004, cy - 0.02 * FS, cz + dz - 0.05 * FS), (cx + s * 0.004, cy - 0.02 * FS, cz + dz + 0.05 * FS), (cx + s * 0.004, cy + 0.07 * FS, cz + dz + 0.05 * FS), (cx + s * 0.004, cy + 0.07 * FS, cz + dz - 0.05 * FS)], 'Black', (s, 0, 0))
         for d in (1, -1):
-            a = (cx, cy - 0.45, cz - 0.42 * d)
-            b = (cx, cy - 0.75, cz + 0.42 * d)
-            n = Vector((0, 0.84 * d, 0.3)).normalized() * 0.05  # across the bone
+            a = (cx, cy - 0.45 * FS, cz - 0.42 * FS * d)
+            b = (cx, cy - 0.75 * FS, cz + 0.42 * FS * d)
+            n = Vector((0, 0.84 * d, 0.3)).normalized() * 0.05 * FS  # across the bone
             RIGGING.face([Vector(a) + n, Vector(b) + n, Vector(b) - n, Vector(a) - n], 'Bone', (s, 0, 0))
 
 
@@ -646,11 +654,11 @@ def sea():
         G.face([(0, WATER, 0), fan[k], fan[(k + 1) % n]], 'Sea', (0, 1, 0))
     # Wave crests: lighter slivers scattered round the ship.
     placed = 0
-    while placed < 90:
-        r = rng.uniform(5.0, 45.0)
+    while placed < 200:
+        r = rng.uniform(5.0 * S, 45.0 * S)
         a = rng.uniform(0, 2 * math.pi)
         cx, cz = r * math.cos(a), r * math.sin(a)
-        if abs(cx) < 4.2 and -13 < cz < 12:
+        if abs(cx) < 4.2 * S and -13 * S < cz < 12 * S:
             continue
         L, W = rng.uniform(0.8, 2.6), rng.uniform(0.12, 0.3)
         spin = rng.uniform(-0.3, 0.3)
@@ -659,19 +667,19 @@ def sea():
         G.face(pts, 'SeaLight' if placed % 5 else 'Foam', (0, 1, 0))
         placed += 1
     # Foam round the hull at the waterline, and a wake astern.
-    zs = [STERN - 0.2] + [z for z in range(-10, 11)] + [10.5]
-    hw = lambda z: (half_width(z) + THICK) * 0.95 if z < 10.5 else 0.6
+    zs = [STERN - 0.2] + [z * S for z in range(-10, 11)] + [10.5 * S]
+    hw = lambda z: (half_width(z) + THICK) * 0.95 if z < 10.5 * S else 0.6 * S
     for side in (1, -1):
         for za, zb in zip(zs, zs[1:]):
-            spread = lambda z: 0.25 + 0.5 * max(0.0, (z - 6) / 5)
+            spread = lambda z: 0.25 * S + 0.5 * S * max(0.0, (z - 6 * S) / (5 * S))
             G.face([(side * hw(za), WATER + 0.02, za), (side * (hw(za) + spread(za)), WATER + 0.02, za), (side * (hw(zb) + spread(zb)), WATER + 0.02, zb), (side * hw(zb), WATER + 0.02, zb)], 'Foam', (0, 1, 0))
-    G.face([(-0.6, WATER + 0.02, 11.4), (0.6, WATER + 0.02, 11.4), (0, WATER + 0.02, 12.6)], 'Foam', (0, 1, 0))
+    G.face([(-0.6 * S, WATER + 0.02, 11.4 * S), (0.6 * S, WATER + 0.02, 11.4 * S), (0, WATER + 0.02, 12.6 * S)], 'Foam', (0, 1, 0))
     w = half_width(STERN)
-    G.face([(-w, WATER + 0.02, STERN - 0.2), (w, WATER + 0.02, STERN - 0.2), (w + 2.5, WATER + 0.02, STERN - 16), (-w - 2.5, WATER + 0.02, STERN - 16)], 'SeaLight', (0, 1, 0))
+    G.face([(-w, WATER + 0.02, STERN - 0.2), (w, WATER + 0.02, STERN - 0.2), (w + 2.5 * S, WATER + 0.02, STERN - 16 * S), (-w - 2.5 * S, WATER + 0.02, STERN - 16 * S)], 'SeaLight', (0, 1, 0))
     for k in range(6):
-        z = STERN - 1.5 - k * 2.4
-        x = (k % 2 - 0.5) * 1.6
-        G.face([(x - 0.5, WATER + 0.03, z), (x + 0.5, WATER + 0.03, z), (x + 0.2, WATER + 0.03, z - 1.6)], 'Foam', (0, 1, 0))
+        z = STERN - 1.5 * S - k * 2.4 * S
+        x = (k % 2 - 0.5) * 1.6 * S
+        G.face([(x - 0.5 * S, WATER + 0.03, z), (x + 0.5 * S, WATER + 0.03, z), (x + 0.2 * S, WATER + 0.03, z - 1.6 * S)], 'Foam', (0, 1, 0))
 
 
 def island(cx, cz, r, h):
@@ -697,9 +705,9 @@ def build_look():
     wheel()
     rigging()
     sea()
-    island(-62.0, 44.0, 9.0, 5.0)
-    island(70.0, -26.0, 6.0, 3.5)
-    island(48.0, 70.0, 4.0, 2.5)
+    island(-124.0, 88.0, 18.0, 10.0)
+    island(140.0, -52.0, 12.0, 7.0)
+    island(96.0, 140.0, 8.0, 5.0)
 
 
 # ---------------------------------------------------------------- Blender objects

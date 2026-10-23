@@ -48,6 +48,8 @@ interface ArenaLook {
   readonly unfogged?: readonly string[];
   /** The world sliding past a still Arena (a moving train's surroundings). */
   readonly scroll?: ScrollLook;
+  /** Parts of the model (by node name) kept centred on the camera from above, so they surround it wherever it goes (a sky dome). */
+  readonly centred?: readonly string[];
 }
 
 /**
@@ -114,7 +116,7 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
       directional(0xb8c6cf, 0.25, -6, 5, 8),
     ],
     background: 0xa7b0b4,
-    fog: { color: 0xa7b0b4, near: 2, far: 22 },
+    fog: { color: 0xa7b0b4, near: 4, far: 45 },
     lamps: [],
   },
   // A cold mountain top in a snowstorm: dim sun through the cloud, blue sky light, mist that swallows the far peaks, snow driving east.
@@ -126,7 +128,7 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
       directional(0x9fbcff, 0.3, -7, 6, -8),
     ],
     background: 0xc3cfdb,
-    fog: { color: 0xc3cfdb, near: 0, far: 22 },
+    fog: { color: 0xc3cfdb, near: 0, far: 45 },
     lamps: [],
     snow: { count: 8000, box: [32, 18, 32], fall: 1.1, size: 0.055, wind: [0.9, 0.25], color: 0xf6f9ff, opacity: 0.9 },
   },
@@ -142,6 +144,7 @@ const ARENA_LOOKS: Readonly<Record<string, ArenaLook>> = {
     fog: { color: 0xa87650, near: 18, far: 210 },
     lamps: [],
     unfogged: ['Train_Sky'],
+    centred: ['Train_Sky'],
     scroll: {
       speed: 15,
       bands: [
@@ -185,7 +188,7 @@ export class Stage {
   private setting: THREE.Object3D;
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
-  private animate: ((seconds: number) => void) | undefined;
+  private animate: ((seconds: number, camera: THREE.Camera) => void) | undefined;
   private pixelRatio: number;
   /** Drawn at PlayStation resolution (see setPs1). */
   private ps1 = false;
@@ -287,7 +290,7 @@ export class Stage {
   }
 
   draw(): void {
-    this.animate?.(performance.now() / 1000);
+    this.animate?.(performance.now() / 1000, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.adapt();
   }
@@ -340,8 +343,8 @@ interface Setting {
   readonly fog: THREE.Fog;
   /** Resolves when the model is in (modelled Arenas only). */
   readonly loaded?: Promise<void>;
-  /** Moves its moving parts to the time given (s). */
-  readonly animate?: (seconds: number) => void;
+  /** Moves its moving parts to the time given (s), and keeps those that follow it round the camera. */
+  readonly animate?: (seconds: number, camera: THREE.Camera) => void;
   /** Draws the model see-through, or solid; applied to the model when it loads too (modelled Arenas only). */
   readonly seeThrough?: (on: boolean) => void;
 }
@@ -415,6 +418,7 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   if (look.sky) root.add(sky(look.sky));
   if (look.snow) root.add(snowfall(look.snow));
   let bands: ScrollBand[] = [];
+  let centred: THREE.Object3D[] = [];
   // The model is shared by every Match in its Arena, so the see-through setting is applied to it whenever it is shown.
   let clear = false;
   let shown: THREE.Object3D | undefined;
@@ -423,6 +427,7 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
       for (const node of look.unfogged ?? []) model.getObjectByName(node)?.traverse(unfog);
       if (look.windows) glaze(model, look.windows);
       if (look.scroll) bands = scrolling(model, look.scroll);
+      centred = (look.centred ?? []).flatMap((node) => model.getObjectByName(node) ?? []);
       // Shown only if this Arena is still the one drawn once it has loaded.
       if (current()) {
         shown = model;
@@ -432,11 +437,16 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
     })
     .catch((e: unknown) => console.error(`Arena model "${name}" failed to load`, e));
   const speed = look.scroll?.speed ?? 0;
-  const animate = look.scroll
-    ? (seconds: number) => {
-        for (const b of bands) b.group.position.z = -((seconds * speed * b.parallax) % b.length);
-      }
-    : undefined;
+  const animate =
+    look.scroll || look.centred
+      ? (seconds: number, camera: THREE.Camera) => {
+          for (const b of bands) b.group.position.z = -((seconds * speed * b.parallax) % b.length);
+          for (const o of centred) {
+            o.position.set(camera.position.x, o.position.y, camera.position.z);
+            o.updateMatrix();
+          }
+        }
+      : undefined;
   const see = (on: boolean) => {
     clear = on;
     if (shown) seeThrough(shown, on);

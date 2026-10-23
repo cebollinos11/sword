@@ -645,7 +645,7 @@ describe('AI Controller: jump Links', { timeout: 60_000 }, () => {
     runControllers(repo, standoff(arena, me, it, seed), [createAiController(repo, difficulty), scriptedController(wait(1))], TICK_RATE * seconds);
 
   it('a Normal AI on the summit plateau Jumps onto the containers to reach an enemy standing on them', () => {
-    const run = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 15);
+    const run = chase('Normal', 'summit', [0, 2, -24], [9, 2.5, -14.1], 15);
     const on = run.states.findIndex((s) => surfaceOf('summit', s.fighters[0]!) === 'WALK_containers_top');
     expect(on, 'it never got onto the containers').toBeGreaterThan(0);
     expect(run.events.some((e) => e.type === 'Jump' && e.fighter === 0)).toBe(true);
@@ -699,18 +699,18 @@ describe('AI Controller: jump Links', { timeout: 60_000 }, () => {
   });
 
   it('without `jumpNav` (the plain AI) it takes no jump Links', () => {
-    const run = runControllers(repo, standoff('summit', [0, 2, -8], [3, 2.5, -4.1]), [createAiController(repo, { reactionTime: 0.2, mistakeRate: 0, feintRate: 0 }), scriptedController(wait(1))], TICK_RATE * 10);
+    const run = runControllers(repo, standoff('summit', [0, 2, -24], [9, 2.5, -14.1]), [createAiController(repo, { reactionTime: 0.2, mistakeRate: 0, feintRate: 0 }), scriptedController(wait(1))], TICK_RATE * 10);
     expect(run.events.some((e) => e.type === 'Jump' && e.fighter === 0)).toBe(false);
   });
 
   it('is deterministic: the same seed gives the same Ticks', () => {
-    const a = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 8, 5);
-    const b = chase('Normal', 'summit', [0, 2, -8], [3, 2.5, -4.1], 8, 5);
+    const a = chase('Normal', 'summit', [0, 2, -24], [9, 2.5, -14.1], 8, 5);
+    const b = chase('Normal', 'summit', [0, 2, -24], [9, 2.5, -14.1], 8, 5);
     expect(a.states.map((s) => hashValue(s))).toEqual(b.states.map((s) => hashValue(s)));
   });
 
   it('keeps its jump in its memory: restored mid-run-up, it decides exactly as it would have', () => {
-    const initial = standoff('summit', [0, 2, -8], [3, 2.5, -4.1]);
+    const initial = standoff('summit', [0, 2, -24], [9, 2.5, -14.1]);
     const ai = createAiController(repo, 'Normal');
     // Run a Tick at a time until it is lining up a jump Link.
     let s = initial;
@@ -823,7 +823,7 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
   it("never Jumps off the ship's rail into the sea", () => {
     let jumps = 0;
     for (const seed of [1, 2, 3]) {
-      const r = soak('ship', [[2.4, 0, 3], [2.4, 0, 5.2]], seed);
+      const r = soak('ship', [[8.4, 0, 12], [8.4, 0, 14.2]], seed);
       jumps += r.jumps;
       expect(r.deaths, `seed ${seed}`).toEqual([]);
     }
@@ -866,7 +866,7 @@ describe('AI Controller: every Jump it makes is checked', { timeout: 120_000 }, 
   it("never Jumps off the train's nose or sides", () => {
     let jumps = 0;
     for (const seed of [1, 2, 3]) {
-      const r = soak('train', [[0.5, 0.5, 26.5], [0.5, 0.5, 31.3]], seed);
+      const r = soak('train', [[0.5, 0.5, 84.6], [0.5, 0.5, 87.4]], seed);
       jumps += r.jumps;
       expect(r.deaths, `seed ${seed}`).toEqual([]);
     }

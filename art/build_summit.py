@@ -27,7 +27,9 @@ face is a ledge to jump down from. Crags close the west, the back and the
 summit's rear; the whole east side is a cliff edge, with a narrow rock tongue
 (the overlook) jutting out over it. Below the cliff, under a sea of cloud, is a
 valley floor far enough down that the fall kills (a Death by Fall). Debris from
-the ship lies on both levels. Under 10 000 triangles.
+the ship lies on both levels. The layout from above is S times the first
+summit's; heights and the wreck and its debris keep their size. Under 10 000
+triangles.
 """
 import json
 import math
@@ -45,40 +47,48 @@ OUT_BLEND = os.path.join(REPO, 'art', 'summit.blend')
 OUT_GLB = os.path.join(REPO, 'public', 'models', 'arenas', 'summit.glb')
 OUT_JSON = os.path.join(REPO, 'data', 'arenas', 'summit.json')
 
+S = 3.0  # the layout's scale from above (x, z); heights and the props keep their size
 HIGH = 2.0  # the summit plateau's height: a walk off it stings (fall.safeHeight is 1.6), a jump off it hurts more
-RAMP_X = (-7.0, -4.5)  # the ramp runs up along the west crag between these
-RAMP_Z = (-1.5, -5.0)  # from the shelf (y 0) to the plateau's front (y HIGH)
+RAMP_X = (-7.0 * S, -4.5 * S)  # the ramp runs up along the west crag between these
+RAMP_Z = (-1.5 * S, -5.0 * S)  # from the shelf (y 0) to the plateau's front (y HIGH)
 CLOUD = -12.0  # the cloud sea's top, hiding the drop
 VALLEY = -30.0  # the valley floor's Walk Surface: a fall to it kills from anywhere
-VALLEY_SIM = 45.0  # its half size
+VALLEY_SIM = 45.0 * S  # its half size
 SKY_R = 200.0  # the drawn cloud sea's radius (lost in the haze long before)
 
+
+def scaled(pts):
+    """Points from above, (x, z, ...), at the layout's scale (anything after x, z kept)."""
+    return [(p[0] * S, p[1] * S, *p[2:]) for p in pts]
+
+
 # The floors from above, (x, z). Each is convex.
-SHELF = [(-7.0, -1.5), (6.3, -1.5), (6.6, 1.0), (6.6, 2.2), (6.2, 4.6), (5.4, 7.0), (-7.0, 7.0)]
-NOOK = [(-4.5, -5.0), (5.6, -5.0), (6.3, -1.5), (-4.5, -1.5)]
-OVERLOOK = [(6.6, 1.0), (9.0, 1.15), (9.3, 1.65), (9.0, 2.05), (6.6, 2.2)]
-UPPER = [(-7.0, -12.0), (1.5, -12.0), (4.6, -10.8), (5.6, -8.0), (5.6, -5.0), (-7.0, -5.0)]
+SHELF = scaled([(-7.0, -1.5), (6.3, -1.5), (6.6, 1.0), (6.6, 2.2), (6.2, 4.6), (5.4, 7.0), (-7.0, 7.0)])
+NOOK = scaled([(-4.5, -5.0), (5.6, -5.0), (6.3, -1.5), (-4.5, -1.5)])
+OVERLOOK = scaled([(6.6, 1.0), (9.0, 1.15), (9.3, 1.65), (9.0, 2.05), (6.6, 2.2)])
+UPPER = scaled([(-7.0, -12.0), (1.5, -12.0), (4.6, -10.8), (5.6, -8.0), (5.6, -5.0), (-7.0, -5.0)])
 
 # The crags, one run from the summit's rear round the west and along the back: (x, z).
-CRAG = [(4.6, -10.8), (1.5, -12.0), (-7.0, -12.0), (-7.0, 7.0), (5.4, 7.0)]
-CRAG_INSIDE = (5.0, 0.0)  # a point the crags and ridges face (their inner face): the shelf by the cliff
+CRAG = scaled([(4.6, -10.8), (1.5, -12.0), (-7.0, -12.0), (-7.0, 7.0), (5.4, 7.0)])
+CRAG_INSIDE = (5.0 * S, 0.0)  # a point the crags and ridges face (their inner face): the shelf by the cliff
 # Past each end the crag runs on as a ridge falling away beside the cliff, into the cloud: (x, z, foot height).
-RIDGE_FRONT = [(15.0, -20.0, -20.0), (10.0, -16.0, -12.0), (7.6, -12.6, -4.0)]
-RIDGE_BACK = [(8.6, 8.6, -4.0), (11.5, 12.5, -12.0), (15.0, 18.0, -20.0)]
-# The cliff's rim, the summit's rear crag to the back crag: (x, z, top). The overlook juts from (6.6, 1.0..2.2).
-RIM = [(4.6, -10.8, HIGH), (5.6, -8.0, HIGH), (5.6, -5.0, HIGH), (5.6, -5.0, 0.0), (6.3, -1.5, 0.0), (6.6, 1.0, 0.0),
-       (6.6, 2.2, 0.0), (6.2, 4.6, 0.0), (5.4, 7.0, 0.0)]
+RIDGE_FRONT = scaled([(15.0, -20.0, -20.0), (10.0, -16.0, -12.0), (7.6, -12.6, -4.0)])
+RIDGE_BACK = scaled([(8.6, 8.6, -4.0), (11.5, 12.5, -12.0), (15.0, 18.0, -20.0)])
+# The cliff's rim, the summit's rear crag to the back crag: (x, z, top). The overlook juts from the shelf's edge.
+RIM = scaled([(4.6, -10.8, HIGH), (5.6, -8.0, HIGH), (5.6, -5.0, HIGH), (5.6, -5.0, 0.0), (6.3, -1.5, 0.0), (6.6, 1.0, 0.0),
+              (6.6, 2.2, 0.0), (6.2, 4.6, 0.0), (5.4, 7.0, 0.0)])
+SEAM = (5.6 * S, -5.0 * S)  # where the plateau's and the shelf's cliffs meet
 
-HULL = ((-1.8, -10.1), 0.18)  # the wrecked starship's hull on the plateau: centre (x, z), yaw
+HULL = ((-1.8 * S, -10.1 * S), 0.18)  # the wrecked starship's hull on the plateau: centre (x, z), yaw
 HULL_TOP = 3.45  # the drawn hull's spine (3.3 to 3.5 along it, measured): its Walls' top and its lid
-NACELLE = ((-5.4, 3.7), 0.25)  # its engine, thrown onto the shelf: centre, yaw (its axis along local z)
+NACELLE = ((-5.4 * S, 3.7 * S), 0.25)  # its engine, thrown onto the shelf: centre, yaw (its axis along local z)
 NACELLE_TOP = 1.3  # the drawn nacelle's top (1.05 to 1.37 along it, measured): its Walls' top and its lid
-CONTAINERS = ((3.0, -4.1), 0.12)  # two cargo containers, one on the other, under the plateau's face
-DISH = (3.8, 5.6)  # a fallen comms dish, lying face-up
+CONTAINERS = ((3.0 * S, -5.0 * S + 0.9), 0.12)  # two cargo containers, one on the other, under the plateau's face
+DISH = (3.8 * S, 5.6 * S)  # a fallen comms dish, lying face-up
 DISH_R = 1.1  # the octagon round its rim (radius 1.05), from above
 DISH_RIM = 1.1  # its rim's height (1.0 to 1.2, tilted): its Walls' top and its lid
-PYLON = (3.9, -6.3)  # a beacon pylon the crew planted on the plateau
-CRATES = [(-3.4, -4.3, 0.4, 0.3), (-2.6, 6.3, 0.45, -0.2)]  # (x, z, half size, yaw)
+PYLON = (3.9 * S, -6.3 * S)  # a beacon pylon the crew planted on the plateau
+CRATES = [(-3.4 * S, -5.0 * S + 0.7, 0.4, 0.3), (-2.6 * S, 7.0 * S - 0.7, 0.45, -0.2)]  # (x, z, half size, yaw): one by the plateau's face, one by the back crag
 
 rng = random.Random(11)
 
@@ -295,9 +305,9 @@ for k, (x, z, h, yaw) in enumerate(CRATES):
     lid(f'crate{k}', rect(f'crate{k}', x, z, h, h, yaw, -0.5, 2 * h), 2 * h)
 
 # The two teams face each other across the shelf, the summit's face behind one of them.
-for slot, x in enumerate((0.0, 1.4, -1.4)):
-    SPAWNS.append((0, slot, (x, 0.0, 3.4), math.pi))
-    SPAWNS.append((1, slot, (-x, 0.0, -1.0), 0.0))
+for slot, x in enumerate((0.0, 1.4 * S, -1.4 * S)):
+    SPAWNS.append((0, slot, (x, 0.0, 3.4 * S), math.pi))
+    SPAWNS.append((1, slot, (-x, 0.0, -1.0 * S), 0.0))
 
 # ---------------------------------------------------------------- the look
 
@@ -310,11 +320,11 @@ def floors():
     # Wind-packed hollows, ice and the odd bare rock, scattered over the floors.
     polys = [(SHELF, 0.0), (NOOK, 0.0), (UPPER, HIGH)]
     made = 0
-    while made < 34:
+    while made < 34 * S:
         poly, y = polys[rng.choice((0, 0, 0, 1, 2, 2))]
         xs, zs = [p[0] for p in poly], [p[1] for p in poly]
         x, z = rng.uniform(min(xs), max(xs)), rng.uniform(min(zs), max(zs))
-        r = rng.uniform(0.35, 1.3)
+        r = rng.uniform(0.35, 1.3) * S ** 0.5
         n = 7
         a0 = rng.uniform(0, math.pi)
         blob = [(x + r * rng.uniform(0.6, 1.0) * math.cos(a0 + angle(k, n)), z + r * rng.uniform(0.6, 1.0) * math.sin(a0 + angle(k, n))) for k in range(n)]
@@ -327,8 +337,8 @@ def floors():
     x0, x1 = RAMP_X
     z0, z1 = RAMP_Z
     G.face([(x0 + 0.7, 0.004, z0), (x1 - 0.6, 0.004, z0), (x1 - 0.6, HIGH + 0.004, z1), (x0 + 0.7, HIGH + 0.004, z1)], 'SnowShade', (0, 1, 0))
-    for k in range(1, 6):
-        z = z0 + (z1 - z0) * k / 6
+    for k in range(1, 18):
+        z = z0 + (z1 - z0) * k / 18
         y = floor_y(x0 + 1, z) + 0.006
         G.face([(x0 + 0.8, y, z - 0.06), (x1 - 0.7, y, z - 0.06), (x1 - 0.7, y, z + 0.06), (x0 + 0.8, y, z + 0.06)], 'Ice', (0, 1, 0))
     # The ramp's open side above the nook, and its snow lip.
@@ -391,7 +401,7 @@ def cliff():
     """The east side: the rim's edge, a snow cornice and the rock dropping away under it into the cloud."""
     cols = []
     for x, z, top in RIM:
-        seam = (x, z) == (5.6, -5.0)  # the plateau's and the shelf's cliffs share this column: keep it straight
+        seam = (x, z) == SEAM  # the plateau's and the shelf's cliffs share this column: keep it straight
         local = random.Random(f'{x:.2f},{z:.2f}')
         prof = [(0.0, top), (0.0 if seam else rng.uniform(0.05, 0.15), top - 0.25), (0.0 if seam else rng.uniform(-0.4, 0.0), top - 1.5)]
         prof += [(local.uniform(-1.0, -0.2), -2.5), (local.uniform(-1.6, -0.4), -6.0), (local.uniform(-2.6, -0.6), -10.5), (local.uniform(-3.2, -1.2), CLOUD - 6)]
@@ -413,8 +423,9 @@ def cliff():
                 G.face(tri, mat, tuple(n + Vector((0, 0.2 if j == 0 else 0, 0))))
     # The plateau's face over the nook: rock from the shelf up to a snow cornice, over the whole width.
     z = RAMP_Z[1]
-    xs = [RAMP_X[1] + k * (5.6 - RAMP_X[1]) / 9 for k in range(10)]
-    face = [[Vector((x, 0.0, z)), Vector((x, 0.9, z - (0 if k in (0, 9) else rng.uniform(0.0, 0.3)))), Vector((x, HIGH - 0.15, z)), Vector((x, HIGH, z + 0.14))] for k, x in enumerate(xs)]
+    cols = 28
+    xs = [RAMP_X[1] + k * (SEAM[0] - RAMP_X[1]) / (cols - 1) for k in range(cols)]
+    face = [[Vector((x, 0.0, z)), Vector((x, 0.9, z - (0 if k in (0, cols - 1) else rng.uniform(0.0, 0.3)))), Vector((x, HIGH - 0.15, z)), Vector((x, HIGH, z + 0.14))] for k, x in enumerate(xs)]
     for a, b in zip(face, face[1:]):
         for j in range(3):
             mat = 'Snow' if j == 2 else ('Rock', 'RockDark', 'RockLight')[rng.randrange(3)]
@@ -422,19 +433,21 @@ def cliff():
                 G.face(tri, mat, (0, 0.3 if j == 2 else 0, 1))
     # The overlook: a tongue of rock out over the drop, its sides tapering back into the cliff.
     ox = OVERLOOK[0][0]
-    keel = lambda p, t: Vector((ox + (p[0] - ox) * t, -1.9 * (1 - t) - 0.2 - 1.6 * t * (1 - t), p[1] + (1.6 - p[1]) * (1 - t) * 0.5))
+    oz0, oz1 = OVERLOOK[0][1], OVERLOOK[-1][1]  # where it meets the cliff
+    om = (oz0 + oz1) / 2
+    keel = lambda p, t: Vector((ox + (p[0] - ox) * t, -1.9 * (1 - t) - 0.2 - 1.6 * t * (1 - t), p[1] + (om - p[1]) * (1 - t) * 0.5))
     for i in range(len(OVERLOOK) - 1):
         p, q = OVERLOOK[i], OVERLOOK[i + 1]
         top_p, top_q = Vector((p[0], 0.0, p[1])), Vector((q[0], 0.0, q[1]))
         lip_p, lip_q = Vector((p[0], -0.25, p[1])), Vector((q[0], -0.25, q[1]))
-        out = Vector(((p[0] + q[0]) / 2 - ox, 0, (p[1] + q[1]) / 2 - 1.6))
+        out = Vector(((p[0] + q[0]) / 2 - ox, 0, (p[1] + q[1]) / 2 - om))
         G.face([top_p, top_q, lip_q, lip_p], 'Snow', tuple(out))
         G.face([lip_p, lip_q, keel(q, 0.25), keel(p, 0.25)], ('Rock', 'RockDark')[i % 2], tuple(out + Vector((0, -0.5, 0))))
     # Its underside, closing onto the cliff.
     under = [keel(p, 0.25) for p in OVERLOOK[1:-1]]
-    G.face([Vector((ox, -2.1, 1.0)), *under, Vector((ox, -2.1, 2.2))], 'RockDark', (0.3, -1, 0))
-    G.face([Vector((ox, -0.25, 1.0)), keel(OVERLOOK[1], 0.25), Vector((ox, -2.1, 1.0))], 'Rock', (0, 0, -1))
-    G.face([Vector((ox, -0.25, 2.2)), Vector((ox, -2.1, 2.2)), keel(OVERLOOK[-2], 0.25)], 'Rock', (0, 0, 1))
+    G.face([Vector((ox, -2.1, oz0)), *under, Vector((ox, -2.1, oz1))], 'RockDark', (0.3, -1, 0))
+    G.face([Vector((ox, -0.25, oz0)), keel(OVERLOOK[1], 0.25), Vector((ox, -2.1, oz0))], 'Rock', (0, 0, -1))
+    G.face([Vector((ox, -0.25, oz1)), Vector((ox, -2.1, oz1)), keel(OVERLOOK[-2], 0.25)], 'Rock', (0, 0, 1))
 
 
 def hull():
@@ -499,9 +512,9 @@ def hull():
     G.strut(m @ Vector((-1.2, 2.3, -0.2)), m @ Vector((-0.4, 2.7, -0.6)), 0.05, 'HullDark')
     # The skid: a scorched furrow from the cliff's edge, where it came over, to the torn tail.
     tail = m @ Vector((3.6, 0, 0))
-    G.face([(5.55, HIGH + 0.006, -8.4), (5.55, HIGH + 0.006, -6.6), (tail.x + 0.2, HIGH + 0.006, tail.z + 1.0), (tail.x - 0.4, HIGH + 0.006, tail.z - 0.6)], 'Scorch', (0, 1, 0))
-    for k in range(6):
-        px, pz = rng.uniform(3.0, 5.2), rng.uniform(-9.2, -6.2)
+    G.face([(SEAM[0] - 0.05, HIGH + 0.006, -8.4 * S), (SEAM[0] - 0.05, HIGH + 0.006, -6.6 * S), (tail.x + 0.2, HIGH + 0.006, tail.z + 1.0), (tail.x - 0.4, HIGH + 0.006, tail.z - 0.6)], 'Scorch', (0, 1, 0))
+    for k in range(18):
+        px, pz = rng.uniform(tail.x + 0.5, SEAM[0] - 0.4), rng.uniform(-9.2 * S, -6.2 * S)
         r = rng.uniform(0.15, 0.4)
         G.face([(px + r * math.cos(angle(i, 5)), HIGH + 0.008, pz + r * math.sin(angle(i, 5))) for i in range(5)], 'Scorch', (0, 1, 0))
 
@@ -588,8 +601,9 @@ def pylon():
 def plates():
     """Hull plates thrown from the wreck, sticking up out of the snow along the crags and the summit."""
     spots = [(-6.2, -0.3), (-6.3, 5.8), (-1.0, 6.5), (1.9, 6.4), (4.6, 6.3), (-5.6, -6.2), (-3.5, -6.0), (-0.3, -7.4),
-             (2.9, -7.6), (4.7, -9.6), (-6.2, -11.0), (0.6, -11.5), (4.8, -0.6), (5.3, 3.6), (-2.0, -4.6)]
-    for k, (x, z) in enumerate(spots):
+             (2.9, -7.6), (4.7, -9.6), (-6.2, -11.0), (0.6, -11.5), (4.8, -0.6), (5.3, 3.6), (-2.0, -4.6),
+             (-3.6, 2.0), (1.2, 4.0), (3.4, 1.5), (-0.8, 0.8), (-4.8, -9.0), (0.5, -9.0), (2.5, -10.2), (-5.4, -3.0)]
+    for k, (x, z) in enumerate(scaled(spots)):
         y = floor_y(x, z)
         m = placed(x, y + 0.04, z, rng.uniform(0, math.pi), roll=rng.uniform(0.4, 0.9), pitch=rng.uniform(-0.2, 0.2))
         w, d = rng.uniform(0.25, 0.5), rng.uniform(0.15, 0.3)
@@ -598,8 +612,8 @@ def plates():
 
 def far_peaks():
     """Other summits round the horizon, rising from the cloud."""
-    peaks = [(0.3, 95, 22, 30), (0.9, 130, 34, 40), (1.6, 80, 14, 22), (2.2, 115, 28, 36), (2.8, 150, 40, 48), (3.4, 90, 18, 26),
-             (4.0, 125, 30, 38), (4.6, 70, 12, 20), (5.1, 140, 36, 44), (5.7, 100, 24, 30), (6.1, 160, 30, 50)]
+    peaks = [(0.3, 125, 22, 30), (0.9, 150, 34, 40), (1.6, 110, 14, 22), (2.2, 140, 28, 36), (2.8, 170, 40, 48), (3.4, 120, 18, 26),
+             (4.0, 150, 30, 38), (4.6, 105, 12, 20), (5.1, 160, 36, 44), (5.7, 130, 24, 30), (6.1, 175, 30, 50)]
     for a, dist, h, r in peaks:
         cx, cz = dist * math.cos(a), dist * math.sin(a)
         n = 7
@@ -623,7 +637,7 @@ def clouds():
     # Billows on the cloud sea.
     made = 0
     while made < 46:
-        r = rng.uniform(12.0, 130.0)
+        r = rng.uniform(12.0 * S, 130.0)
         a = rng.uniform(0, 2 * math.pi)
         cx, cz = r * math.cos(a), r * math.sin(a)
         size = rng.uniform(2.5, 8.0)
@@ -639,7 +653,7 @@ def clouds():
         made += 1
     # The valley floor far below, for whoever goes over the edge.
     n = 12
-    floor = [(60 * math.cos(angle(k, n)), VALLEY, 60 * math.sin(angle(k, n))) for k in range(n)]
+    floor = [(60 * S * math.cos(angle(k, n)), VALLEY, 60 * S * math.sin(angle(k, n))) for k in range(n)]
     SKY.face(floor, 'Valley', (0, 1, 0))
 
 

@@ -54,19 +54,19 @@ The spots only a Jump gets to. Each prop is a lid: a Walk Surface over its Walls
 **The AI follows onto every one of them.** The navmesh has a jump Link onto each (and back, where dropping off is deadly): found by running Jumps through the Simulation's own flight (`jumpArc`) and kept only if the Jump still lands there when taken off 0.2 m off, held a Tick shorter or longer, or aimed 5° off. A Normal AI follows jump Links held up to 20 Ticks, so it follows onto all but the full Jumps (the locomotive's roof and the chamber's catwalks); a Hard one onto all; an Easy one only taps. Each is checked in `src/sim/jumpLinks.test.ts` (a jump Link) and `src/controllers/ai.test.ts` (an AI follows an enemy onto it). The `?dev=1` collider view draws every jump Link's arc, cyan for a tap to magenta for a full Jump.
 
 - **Summit** (`summit.test.ts`; shelf y 0, plateau y 2)
-  - the hull, 3.45: a held (0.25 s) Jump from the plateau at (-1.8, -7.0), along −z
-  - the containers, 2.5: a tap from the plateau at (3.0, -5.6), along +z
-  - the nacelle, 1.3: held 0.25 s from the shelf at (-3.5, 3.7), along −x
-  - the dish (lying face-up), 1.1: held 0.25 s from the shelf at (3.8, 4.0), along +z
-  - the crate by the back crag, 0.9: a tap from the shelf at (-2.6, 5.2), along +z
-  - the crate in the nook, 0.8: a tap from the shelf at (-3.4, -3.2), along −z
+  - the hull, 3.45: a held (0.25 s) Jump from the plateau at (-5.4, -27.2), along −z
+  - the containers, 2.5: a tap from the plateau at (9.0, -15.6), along +z
+  - the nacelle, 1.3: held 0.25 s from the shelf at (-14.3, 11.1), along −x
+  - the dish (lying face-up), 1.1: held 0.25 s from the shelf at (11.4, 15.2), along +z
+  - the crate by the back crag, 0.9: a tap from the shelf at (-7.8, 19.2), along +z
+  - the crate in the nook, 0.8: a tap from the shelf at (-10.2, -13.2), along −z
 - **Train** (`train.test.ts`; flatcar deck y −1.2)
-  - the locomotive's roof, 0.5: a full Jump from the deck at (-0.6, 19.0), along +z over the bulkhead and the 2.5 m gap. A full Jump back along −z lands on the deck. Its nose and sides are a Death by Fall.
-  - the crate stack, 0.6: held 0.25 s from the deck at (0.75, 13.6), along +z
-  - the power cell, 0.25: held 0.25 s from the deck at (0.7, 16.8), along +z
-  - the waste drums, −0.3: a tap from the deck at (-0.8, 15.9), along +z
+  - the locomotive's roof, 0.5: a full Jump from the deck at (-2.1, 57.0), along +z over the bulkhead and the 2.5 m gap. A full Jump back along −z lands on the deck. Its nose and sides are a Death by Fall.
+  - the crate stack, 0.6: held 0.25 s from the deck at (2.25, 40.9), along +z
+  - the power cell, 0.25: held 0.25 s from the deck at (2.1, 51.5), along +z
+  - the waste drums, −0.3: a tap from the deck at (-2.4, 47.4), along +z
 - **Ship** (`water.test.ts`; main deck y 0)
-  - the big crate, 1.0: a tap from the deck at (-1.95, 4.9), along +z. The small crate (0.7) beside it is a step down. Walking off the big crate's outboard side carries you over the bulwark into the sea, as a tap over the rail does.
+  - the big crate, 1.0: a tap from the deck at (-5.65, 17.2), along +z. The small crate (0.7) beside it is a step down. Walking off the big crate's outboard side carries you over the bulwark into the sea, as a tap over the rail does.
 - **Library** (`library.test.ts`; ground floor y 0)
   - the two reading tables, 0.8 (the tabletop; the 3.2 × 1.7 lid covers the chairs too): a tap from the floor at (-5, 8.6), along +z
   - Not the bridge or the mezzanines from below: their undersides stop the Jump (a floor overhead caps it, above). From the floor beside them a Jump held about 0.4 s does get up onto them, where no rail stands: the ramps also get there, so these are shortcut jump Links (ADR 0013), which every AI takes when they save walking.

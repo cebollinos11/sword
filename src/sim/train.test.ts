@@ -34,7 +34,7 @@ describe('The wasteland train Arena', () => {
   });
 
   it('a Fighter who walks off the side falls to the ground and dies of it', () => {
-    const m = walkFor(matchAt(1, 6), { x: 1, z: 0 }, 60 * 4);
+    const m = walkFor(matchAt(3, 18), { x: 1, z: 0 }, 60 * 4);
     const f = m.duel.fighters[0]!;
     expect(f.death?.cause).toBe('Fall');
     expect(f.y).toBeCloseTo(-8);
@@ -42,7 +42,7 @@ describe('The wasteland train Arena', () => {
   });
 
   it('a Fighter who walks off the flatcar falls to its death too', () => {
-    const f = walkFor(matchAt(1, 16, -1.2), { x: 1, z: 0 }, 60 * 4).duel.fighters[0]!;
+    const f = walkFor(matchAt(1, 37, -1.2), { x: 1, z: 0 }, 60 * 4).duel.fighters[0]!;
     expect(f.death?.cause).toBe('Fall');
   });
 
@@ -54,15 +54,15 @@ describe('The wasteland train Arena', () => {
   });
 
   it('a Fighter steps down onto a roof bevel, lower towards the lip', () => {
-    const f = walkFor(matchAt(1.0, 6), { x: 1, z: 0 }, 9).duel.fighters[0]!;
+    const f = walkFor(matchAt(4.4, 18), { x: 1, z: 0 }, 9).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
-    expect(f.position.x).toBeGreaterThan(1.2);
+    expect(f.position.x).toBeGreaterThan(4.6);
     expect(f.y).toBeLessThan(0);
     expect(f.y).toBeGreaterThan(-0.4);
   });
 
   it('a Fighter walks back up off a bevel onto the roof', () => {
-    const f = walkFor(matchAt(1.5, 6, -0.24), { x: -1, z: 0 }, 60).duel.fighters[0]!;
+    const f = walkFor(matchAt(4.9, 18, -0.24), { x: -1, z: 0 }, 60).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBe(0);
   });
@@ -73,7 +73,7 @@ describe('The wasteland train Arena', () => {
   });
 
   it('a Fighter walks down onto the flatcar unhurt, and back up', () => {
-    let m = walkFor(matchAt(-0.1, 9), { x: 0, z: 1 }, 60 * 3);
+    let m = walkFor(matchAt(-0.1, 29), { x: 0, z: 1 }, 60 * 3);
     let f = m.duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBeCloseTo(-1.2);
@@ -81,25 +81,25 @@ describe('The wasteland train Arena', () => {
     m = walkFor(m, { x: 0, z: -1 }, 60 * 3);
     f = m.duel.fighters[0]!;
     expect(f.y).toBe(0);
-    expect(f.position.z).toBeLessThan(10.45);
+    expect(f.position.z).toBeLessThan(30.45);
   });
 
   it('a Fighter walks up onto the passenger car and its clerestory', () => {
-    let f = walkFor(matchAt(0, -8), { x: 0, z: -1 }, 60 * 3).duel.fighters[0]!;
+    let f = walkFor(matchAt(0, -28), { x: 0, z: -1 }, 60 * 5).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBeCloseTo(0.9);
-    f = walkFor(matchAt(-1, -16, 0.6), { x: 1, z: 0 }, 30).duel.fighters[0]!;
+    f = walkFor(matchAt(-2, -45, 0.6), { x: 1, z: 0 }, 30).duel.fighters[0]!;
     expect(f.y).toBeCloseTo(0.9);
   });
 
   it('the bulkhead stops a Fighter at the flatcar front', () => {
-    const f = walkFor(matchAt(-1, 19, -1.2), { x: 0, z: 1 }, 60 * 2).duel.fighters[0]!;
+    const f = walkFor(matchAt(-1, 57, -1.2), { x: 0, z: 1 }, 60 * 2).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
-    expect(f.position.z).toBeLessThan(20.2);
+    expect(f.position.z).toBeLessThan(58.2);
   });
 
   it('gives the AI a path from end to end, and none down to the ground', () => {
-    const path = findPath(train, tuning, { x: 0, z: 18, y: -1.2 }, { x: 0, z: -22, y: 0.6 });
+    const path = findPath(train, tuning, { x: 0, z: 45, y: -1.2 }, { x: 0, z: -65, y: 0.6 });
     expect(path).not.toBeNull();
     const ground = train.walk.findIndex((s) => s.id === 'WALK_ground');
     expect(navMesh(train, tuning).links.filter((l) => l.to === ground)).toEqual([]);
@@ -149,9 +149,9 @@ function farCorner(id: string, x: number, z: number): Move {
 
 describe('The flatcar cargo and the locomotive can be jumped onto and walked on', () => {
   const tops = [
-    { name: 'the crate stack, from the deck with a held Jump', top: 'WALK_crates_top', y: 0.6, from: [0.75, -1.2, 13.6], move: { x: 0, z: 1 }, hold: 15, off: { x: -1, z: 0 } },
-    { name: 'the power cell, from the deck with a held Jump', top: 'WALK_cell_top', y: 0.25, from: [0.7, -1.2, 16.8], move: { x: 0, z: 1 }, hold: 15, off: { x: -1, z: 0 } },
-    { name: 'the waste drums, from the deck with a tap', top: 'WALK_barrels_top', y: -0.3, from: [-0.8, -1.2, 15.9], move: { x: 0, z: 1 }, hold: 0, off: { x: 1, z: 0 } },
+    { name: 'the crate stack, from the deck with a held Jump', top: 'WALK_crates_top', y: 0.6, from: [2.25, -1.2, 40.9], move: { x: 0, z: 1 }, hold: 15, off: { x: -1, z: 0 } },
+    { name: 'the power cell, from the deck with a held Jump', top: 'WALK_cell_top', y: 0.25, from: [2.1, -1.2, 51.5], move: { x: 0, z: 1 }, hold: 15, off: { x: -1, z: 0 } },
+    { name: 'the waste drums, from the deck with a tap', top: 'WALK_barrels_top', y: -0.3, from: [-2.4, -1.2, 47.4], move: { x: 0, z: 1 }, hold: 0, off: { x: 1, z: 0 } },
   ] as const;
 
   for (const { name, top, y, from, move, hold, off } of tops) {
@@ -194,7 +194,7 @@ describe('The flatcar cargo and the locomotive can be jumped onto and walked on'
 
   describe('the locomotive, from the deck over the bulkhead with a held Jump', () => {
     // Beside the fin, so the Fighter can walk forward up there.
-    const landed = jumpFrom([-0.6, -1.2, 19.0], { x: 0, z: 1 }, 30);
+    const landed = jumpFrom([-2.1, -1.2, 57.0], { x: 0, z: 1 }, 30);
 
     it('the Jump ends standing on its roof', () => {
       const f = landed.fighters[0]!;
@@ -206,14 +206,14 @@ describe('The flatcar cargo and the locomotive can be jumped onto and walked on'
 
     it('walking forward beside the fin keeps the Fighter on the roof, up to a heat sink', () => {
       const f = landed.fighters[0]!;
-      const states = walkAlong(landed, { x: 0, z: 1 }, 60 * 2);
+      const states = walkAlong(landed, { x: 0, z: 1 }, 60 * 3);
       for (const s of states) {
         expect(s.fighters[0]!.y).toBeCloseTo(0.5, 6);
         expect(standingOn(s)).toBe('WALK_loco');
       }
       const end = states.at(-1)!.fighters[0]!.position;
       expect(end.z).toBeGreaterThan(f.position.z + 1);
-      expect(end.z).toBeLessThan(24.57 - tuning.fighter.radius + 1e-6);
+      expect(end.z).toBeLessThan(66.57 - tuning.fighter.radius + 1e-6);
     });
 
     it('a held Jump back clears the gap onto the flatcar', () => {

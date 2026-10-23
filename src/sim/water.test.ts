@@ -33,28 +33,28 @@ describe('The pirate ship Arena', () => {
   });
 
   it('a Fighter who walks to the end of the plank and off it drowns', () => {
-    const m = walkFor(matchAt(-2, 0.5), { x: -1, z: 0 }, 60 * 5);
+    const m = walkFor(matchAt(-6, 1.5), { x: -1, z: 0 }, 60 * 6);
     const f = m.duel.fighters[0]!;
     expect(f.death?.cause).toBe('Water');
-    expect(f.position.x).toBeLessThan(-6.2);
+    expect(f.position.x).toBeLessThan(-12.2);
     expect(m.duel.duel).toMatchObject({ status: 'Over', winner: 1 });
   });
 
   it('the rail stops a Fighter walking into it', () => {
-    const f = walkFor(matchAt(2, -1), { x: 1, z: 0 }, 60 * 2).duel.fighters[0]!;
+    const f = walkFor(matchAt(6, -2), { x: 1, z: 0 }, 60 * 2).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBe(0);
-    expect(f.position.x).toBeLessThan(3);
+    expect(f.position.x).toBeLessThan(9);
   });
 
   it('a Fighter who takes a running jump over the rail drowns', () => {
-    const f = walkFor(matchAt(1.4, -1), { x: 1, z: 0 }, 60 * 5, true).duel.fighters[0]!;
+    const f = walkFor(matchAt(7.4, -2), { x: 1, z: 0 }, 60 * 5, true).duel.fighters[0]!;
     expect(f.death?.cause).toBe('Water');
-    expect(f.position.x).toBeGreaterThan(3);
+    expect(f.position.x).toBeGreaterThan(9);
   });
 
   it('a Fighter walks up the stairs onto the quarterdeck', () => {
-    const f = walkFor(matchAt(2.4, -1.5), { x: 0, z: -1 }, 60 * 3).duel.fighters[0]!;
+    const f = walkFor(matchAt(7.2, -5.5), { x: 0, z: -1 }, 60 * 5).duel.fighters[0]!;
     expect(f.death).toBeUndefined();
     expect(f.y).toBeCloseTo(1.5);
   });
@@ -98,7 +98,7 @@ function walkAlong(s: SimState, move: Move, ticks: number): SimState[] {
 }
 
 describe('The crates on deck can be jumped onto and walked on', () => {
-  const landed = jumpFrom([-1.95, 0, 4.9], { x: 0, z: 1 }, 0);
+  const landed = jumpFrom([-5.65, 0, 17.2], { x: 0, z: 1 }, 0);
 
   it('a tap from the deck ends standing on the big crate', () => {
     const f = landed.fighters[0]!;
@@ -120,7 +120,7 @@ describe('The crates on deck can be jumped onto and walked on', () => {
 
   it('walking on steps down onto the small crate', () => {
     const f = landed.fighters[0]!;
-    const [dx, dz] = [-1.55 - f.position.x, 6.85 - f.position.z];
+    const [dx, dz] = [-5.25 - f.position.x, 19.15 - f.position.z];
     const d = Math.hypot(dx, dz);
     const s = walkAlong(walkAlong(landed, { x: dx / d, z: dz / d }, Math.round((d / tuning.fighter.walkSpeed) * 60)).at(-1)!, { x: 0, z: 0 }, 30).at(-1)!;
     expect(s.fighters[0]!.death).toBeUndefined();
