@@ -235,7 +235,8 @@ function isAction(v: unknown): boolean {
         isDirection(v.direction) &&
         PHASE_SET.has(v.phase as string) &&
         isBool(v.landed) &&
-        (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick)))
+        (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick))) &&
+        (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isPlayer))
       );
     case 'Block':
       return isDirection(v.direction);

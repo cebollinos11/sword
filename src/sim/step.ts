@@ -312,7 +312,7 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
  * Advance the Simulation by exactly one Tick. Pure: never mutates `state`.
  * `intents[i]` drives `state.fighters[i]`; a missing Intent means Idle.
  *
- * Order within a Tick: Actions and movement → Chambers → Blade Sweeps against Hit Zones
+ * Order within a Tick: Actions and movement → Chambers pressed (pending) → Blade Sweeps (a pending Chamber lands where the blades meet) against Hit Zones
  * → damage → Deaths (a Fighter standing on lava, water or an abyss dies of it, whatever its HP) → Duel end. A Fighter falls (Death) on the Tick its HP reaches zero, even with
  * its team still fighting. Once the Duel is over, Intents are ignored and no
  * more hits land (a Match, #14, starts the next Duel).
@@ -336,7 +336,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const flight = advanceDaggers(state.daggers, arena, tuning, emit);
   const thrown = events.flatMap((e) => (e.type === 'DaggerThrown' ? [launchDagger(fighters[e.thrower]!, e.thrower, tuning)] : []));
   let flying = flight.daggers;
-  if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning, emit);
+  if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning);
   if (fighting) fighters = resolveContacts(fighters, findContacts(state.fighters, fighters, arena, tuning), intents, tuning, emit);
   if (fighting) {
     // Daggers land after blade and Kick contacts, against the post-contact Fighters; one that hit or was Blocked is spent.

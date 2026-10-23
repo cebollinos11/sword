@@ -122,14 +122,16 @@ export interface WallStrikeEvent {
 
 /**
  * `chamberer` countered `attacker`'s Attack (in `direction`) by attacking into it, in the
- * mirrored Direction, inside the Chamber window: the incoming Attack is cancelled (`attacker` Staggers, cause Chambered)
- * and the chamberer's own Attack continues.
+ * mirrored Direction, inside the Chamber window, and the Attack's Blade Sweep then reached it: the incoming Attack is
+ * cancelled (`attacker` Staggers, cause Chambered) and the chamberer's own Attack continues.
  */
 export interface ChamberEvent {
   readonly type: 'Chamber';
   readonly chamberer: number;
   readonly attacker: number;
   readonly direction: Direction;
+  /** World-space point where the Blade Sweep reached the chamberer (its Weapon, or its body). */
+  readonly point: Vec3;
 }
 
 /** A Fighter's Action was interrupted by a Stagger (hit, or its Attack was Blocked). */

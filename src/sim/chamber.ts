@@ -1,7 +1,8 @@
 /**
  * Chambers: countering an incoming Attack by attacking into it at the
- * right moment. Decided by rule, like a Block (ADR 0002), once per Tick after
- * every Fighter's Action has advanced and before Blade Sweeps are tested.
+ * right moment. The rule decides whether, the blades decide when (as for a
+ * Block, ADR 0002): judged once per Tick after every Fighter's Action has
+ * advanced and before Blade Sweeps are tested.
  *
  * Fighter C chambers Fighter A's Attack on a Tick when ALL of these hold:
  *   1. C started an Attack this Tick: its Action is an Attack in Wind-up and
@@ -16,20 +17,25 @@
  *      (even held) and Recovery never count.
  *   4. C roughly faces A (the same facing rule as a Block).
  *
- * Outcome: A's Attack is cancelled: A Staggers with cause `Chambered` (so its
- * Blade Sweep is no longer live and cannot land this Tick or later). C's own
- * Attack carries on unchanged through Wind-up, Release and Recovery. Events:
- * `Chamber{chamberer: C, attacker: A, direction}` (A's Direction), then `Stagger{fighter: A}`.
+ * That only makes the Chamber pending: C joins A's Attack's `chamberedBy`,
+ * and nothing happens yet. It lands when A's Blade Sweep reaches C's Weapon
+ * (or, failing that, C's Hit Zones), whichever first, on this Tick or a later
+ * one, while C is still in its Attack in that mirrored Direction
+ * (`chamberHolds`; see `findContacts`). An Attack that reaches nothing (C out
+ * of its reach) is no Chamber: it plays out as a whiff.
+ *
+ * Outcome, on contact: A's Attack is cancelled: A Staggers with cause `Chambered`
+ * (so its Blade Sweep is no longer live). C's own Attack carries on unchanged through
+ * Wind-up, Release and Recovery. Events: `Chamber{chamberer: C, attacker: A, direction, point}`
+ * (A's Direction, where the blades met), then `Stagger{fighter: A}`.
  * All Chambers of a Tick are judged against the same pre-resolution state.
  */
 import type { TuningData } from '../tuning';
 import { attackTimings, roughlyFaces } from './actions';
-import { staggerFighter } from './combat';
 import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
-import type { Emit } from './events';
-import { mirrorDirection } from './intent';
-import type { Action, FighterState } from './state';
+import { mirrorDirection, type Direction } from './intent';
+import type { Action, AttackAction, FighterState } from './state';
 
 /** The Chamber window (Tuning Data `chamber.windowSeconds`, seconds) in Ticks. */
 export const chamberWindowTicks = (tuning: TuningData): number => secondsToTicks(tuning.chamber.windowSeconds);
@@ -48,13 +54,16 @@ function chamberable(f: FighterState, tuning: TuningData): boolean {
   return sinceRelease >= 1 && sinceRelease <= chamberWindowTicks(tuning);
 }
 
-/** Apply this Tick's Chambers to the freshly advanced Fighters (`prev` = last Tick's). */
-export function resolveChambers(
-  prev: readonly FighterState[],
-  next: readonly FighterState[],
-  tuning: TuningData,
-  emit: Emit,
-): FighterState[] {
+/**
+ * Whether `chamberer`'s pending Chamber of an Attack in `direction` still holds: it is in the Duel and still in
+ * its Attack, in the mirrored Direction (a Stagger, or a Feint into another Direction, drops it).
+ */
+export function chamberHolds(chamberer: FighterState, direction: Direction): boolean {
+  return inDuel(chamberer) && chamberer.action.kind === 'Attack' && chamberer.action.direction === mirrorDirection(direction);
+}
+
+/** Mark this Tick's Chambers on the freshly advanced Fighters (`prev` = last Tick's): each pending until the blades meet. */
+export function resolveChambers(prev: readonly FighterState[], next: readonly FighterState[], tuning: TuningData): FighterState[] {
   const out = next.slice();
   next.forEach((chamberer, c) => {
     const before = prev[c];
@@ -63,8 +72,9 @@ export function resolveChambers(
     next.forEach((attacker, a) => {
       if (a === c || !inDuel(attacker) || attacker.action.kind !== 'Attack' || attacker.action.direction !== mirrorDirection(direction)) return;
       if (!chamberable(attacker, tuning) || !roughlyFaces(chamberer, attacker, tuning)) return;
-      emit({ type: 'Chamber', chamberer: c, attacker: a, direction: attacker.action.direction });
-      if (out[a]!.action.kind !== 'Stagger') out[a] = staggerFighter(out[a]!, a, 'Chambered', tuning, emit);
+      const action = out[a]!.action as AttackAction;
+      if (action.chamberedBy?.includes(c)) return;
+      out[a] = { ...out[a]!, action: { ...action, chamberedBy: [...(action.chamberedBy ?? []), c] } };
     });
   });
   return out;
