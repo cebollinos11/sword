@@ -81,6 +81,6 @@ export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimi
 export { THROW_MOTION, throwTimings, type ThrowTimings } from './throw';
 export { offHandFree, sheatheMotionName, sheatheTimings, type SheatheKind, type SheatheTimings } from './sheathe';
 export { fall, FALL_ACTION, FALL_MOTION } from './fall';
-export { GET_UP_MOTION, knockdown, KNOCKDOWN_MOTION } from './knockdown';
+export { GET_UP_MOTION, GUARD_FROM_GET_UP, knockdown, KNOCKDOWN_MOTION } from './knockdown';
 export { LAND_MOTION, RECOIL_MOTION, STAGGER_MOTION, stagger, staggerMotionName } from './stagger';
 export type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';

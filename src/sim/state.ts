@@ -116,7 +116,7 @@ export type KnockdownPhase = 'Falling' | 'Down' | 'Rising';
 
 /**
  * A Knockdown: the Fighter falls flat on its back, lies for `kick.knockdownTicks` and gets up. It can
- * guard throughout but cannot turn, move, Attack, Kick or Jump, and it can be hit normally (ADR 0007).
+ * guard only from halfway through the Get-up, and cannot turn, move, Attack, Kick or Jump, and it can be hit normally (ADR 0007).
  */
 export interface KnockdownAction {
   readonly kind: 'Knockdown';

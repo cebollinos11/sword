@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, weaponMotion, type TuningData } from '../tuning';
 import { footPose } from './gait';
 import { fighterPose } from './pose';
-import { createInitialState, GET_UP_MOTION, hashValue, hitZoneCapsules, IDLE_INTENT, KNOCKDOWN_MOTION, secondsToTicks, step, type FighterState, type Intent, type KnockdownAction, type SimState } from './index';
+import { createInitialState, GET_UP_MOTION, GUARD_FROM_GET_UP, hashValue, hitZoneCapsules, IDLE_INTENT, KNOCKDOWN_MOTION, secondsToTicks, step, type FighterState, type Intent, type KnockdownAction, type SimState } from './index';
 
 const tuning: TuningData = loadTuningData();
 const { kick } = tuning;
@@ -159,40 +159,37 @@ describe('Knockdown', () => {
     expect(s.fighters[1]!.action.kind).toBe('Knockdown');
   });
 
-  it('a downed guard Blocks a matching Attack, and the lying Fighter keeps its body down', () => {
-    const lying = until(knockedDown(), 'Down');
-    const victim = lying.fighters[1]!;
-    let s = attackerAt(lying, swingFrom(fighterPose(victim, tuning)));
-    s = tick(s, { ...SWING, attack: true }, { block: true, direction: 'Overhead' });
-    expect(down(s.fighters[1]!).guard).toBe('Overhead');
-    let blocked = false;
-    for (let i = 0; i < 90 && !blocked; i++) {
-      s = tick(s, { ...SWING, attack: false }, { block: true, direction: 'Overhead' });
-      blocked = s.events.some((e) => e.type === 'Block' && e.defender === 1);
-      expect(s.events.some((e) => e.type === 'Hit' && e.defender === 1)).toBe(false);
-    }
-    expect(blocked).toBe(true);
-    expect(s.fighters[1]!.hp).toBe(victim.hp);
-    expect(s.fighters[0]!.action).toMatchObject({ kind: 'Stagger', cause: 'Blocked' });
-    expect(s.fighters[1]!.action.kind).toBe('Knockdown');
-    expect(s.fighters[1]!.blockImpact).toBeDefined();
-  });
-
-  it('a guard in the wrong Direction does not Block', () => {
+  it('a Fighter lying down holds no guard: a matching Attack Hits however block is held', () => {
     const lying = until(knockedDown(), 'Down');
     let s = attackerAt(lying, swingFrom(fighterPose(lying.fighters[1]!, tuning)));
-    s = tick(s, { ...SWING, attack: true }, { block: true, direction: 'Left' });
+    s = tick(s, { ...SWING, attack: true }, { block: true, direction: 'Overhead' });
+    expect(down(s.fighters[1]!).guard).toBeNull();
     let hit = false;
     for (let i = 0; i < 90 && !hit; i++) {
-      s = tick(s, { ...SWING, attack: false }, { block: true, direction: 'Left' });
+      s = tick(s, { ...SWING, attack: false }, { block: true, direction: 'Overhead' });
       hit = s.events.some((e) => e.type === 'Hit' && e.defender === 1);
       expect(s.events.some((e) => e.type === 'Block')).toBe(false);
     }
     expect(hit).toBe(true);
   });
 
+  it('holds no guard while falling, lying or in the first half of the Get-up, and guards from halfway up', () => {
+    const held = { block: true, direction: 'Left' } as const;
+    let s = knockedDown();
+    const half = ticksOf(GET_UP_MOTION) * GUARD_FROM_GET_UP;
+    for (let i = 0; i < 400; i++) {
+      s = tick(s, {}, held);
+      const f = s.fighters[1]!;
+      if (f.action.kind !== 'Knockdown') break;
+      const guarding = f.action.phase === 'Rising' && f.motion.tick >= half;
+      expect(f.action.guard, `${f.action.phase} at Motion Tick ${f.motion.tick}`).toBe(guarding ? 'Left' : null);
+    }
+    expect(s.fighters[1]!.action.kind).not.toBe('Knockdown');
+  });
+
   it('the guard follows the held block button, and lets go with it', () => {
-    let s = until(knockedDown(), 'Down');
+    let s = until(knockedDown(), 'Rising');
+    while (s.fighters[1]!.motion.tick < ticksOf(GET_UP_MOTION) * GUARD_FROM_GET_UP) s = tick(s);
     s = tick(s, {}, { block: true, direction: 'Thrust' });
     expect(down(s.fighters[1]!).guard).toBe('Thrust');
     s = tick(s, {}, { block: true, direction: 'Left' });
