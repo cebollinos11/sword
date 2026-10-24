@@ -152,7 +152,7 @@ _Avoid_: Strike, boot
 The outcome of a Kick on a Fighter who gave no movement input on the contact Tick (Idle, Attacking and Blocking all count), or who is already in Knockdown: 1 damage and a short Slide. It does not interrupt the victim's Action.
 
 **Throwing Dagger**:
-A small blade each Fighter carries 3 of per Duel (no pickups; a thrown one is gone), thrown with the off (left) hand by a Throw. Once thrown it is a simulated projectile with its own flight, so it can be Blocked, can Stagger, wound and Slow what it hits, and can fell a Fighter (ADR 0008). It passes through its thrower and the thrower's teammates.
+A small blade each Fighter carries 3 of per Duel (no pickups; a thrown one is gone), thrown with the off (left) hand by a Throw. Once thrown it is a simulated projectile with its own flight, so it can be Blocked, can Stagger, wound and Slow what it hits, and can fell a Fighter (ADR 0008). It passes through its thrower and the thrower's teammates. In flight it homes a little: it turns toward the nearest enemy within 25° of its heading and 20 m, by at most 60° a second, so a near miss becomes a Hit but a Fighter beside or behind it is never chased.
 _Avoid_: Knife, projectile, shuriken
 
 **Throw**:

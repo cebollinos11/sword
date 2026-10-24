@@ -333,7 +333,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     emit,
   );
   // Daggers already in flight move first; one thrown this Tick leaves the solved left hand and first moves next Tick.
-  const flight = advanceDaggers(state.daggers, arena, tuning, emit);
+  const flight = advanceDaggers(state.daggers, fighters, arena, tuning, emit);
   const thrown = events.flatMap((e) => (e.type === 'DaggerThrown' ? [launchDagger(fighters[e.thrower]!, e.thrower, tuning)] : []));
   let flying = flight.daggers;
   if (fighting) fighters = resolveChambers(state.fighters, fighters, tuning);
