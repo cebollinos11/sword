@@ -1,0 +1,134 @@
+{
+  "name": "Overhead",
+  "duration": 1.1,
+  "loop": false,
+  "markers": {
+    "windUpEnd": 0.35,
+    "releaseEnd": 0.6
+  },
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "linear",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.35,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": 0.12,
+          "y": 1.75,
+          "z": -0.05
+        },
+        "rotation": {
+          "x": -150,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.25,
+          "y": 1,
+          "z": 0.15
+        }
+      },
+      "torso": {
+        "twist": 47,
+        "lean": -8.5
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.93,
+        "z": -0.03
+      }
+    },
+    {
+      "time": 0.6,
+      "ease": "easeIn",
+      "path": "arc",
+      "rightHand": {
+        "position": {
+          "x": -0.155,
+          "y": 1,
+          "z": 0.55
+        },
+        "rotation": {
+          "x": 29,
+          "y": 14,
+          "z": 7
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.28,
+          "y": 0.85,
+          "z": -0.05
+        }
+      },
+      "torso": {
+        "twist": -37.9,
+        "lean": 17
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.86,
+        "z": 0.08
+      }
+    },
+    {
+      "time": 0.68,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": -0.15395866666666666,
+          "y": 1.0001466666666667,
+          "z": 0.5492666666666667
+        },
+        "rotation": {
+          "x": 47.784106666666666,
+          "y": 17.181866666666664,
+          "z": 8.793493333333334
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.27991200000000005,
+          "y": 0.8501466666666666,
+          "z": -0.04970666666666667
+        }
+      },
+      "torso": {
+        "twist": -26.788826666666665,
+        "lean": 22.6
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.8601759999999999,
+        "z": 0.07976533333333334
+      },
+      "leftFoot": {
+        "x": -0.12,
+        "z": 0.12
+      },
+      "rightFoot": {
+        "x": 0.14,
+        "z": -0.12
+      }
+    },
+    {
+      "time": 1.1,
+      "ease": "easeInOut",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle"
+    }
+  ]
+}
