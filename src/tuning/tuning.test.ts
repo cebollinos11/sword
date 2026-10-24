@@ -16,7 +16,7 @@ function goodRaw() {
     },
     chamber: { windowSeconds: 0.15 },
     kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
-    dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
+    dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, homingCone: 25, homingRange: 20, homingTurn: 60, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     gauntlet: { interFloorSeconds: 5, heal: 0.3, revive: 0.4, perPlayerHp: 0.5, floors: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] },
@@ -104,7 +104,7 @@ describe('Tuning Data', () => {
 
   it('loads the Dagger Tuning Data and its Throw Motion, and rejects bad Dagger data', () => {
     const t = loadTuningData();
-    expect(t.dagger).toEqual({ count: 3, speed: 18, gravity: 9.8, loft: 4, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.05, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 });
+    expect(t.dagger).toEqual({ count: 3, speed: 18, gravity: 9.8, loft: 4, homingCone: 25, homingRange: 20, homingTurn: 60, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.05, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 });
     expect(t.motions.Throw!.markers.windUpEnd).toBeLessThan(t.motions.Throw!.markers.releaseEnd!);
     const good = goodRaw();
     expect(() => parseTuningData({ ...good, dagger: undefined })).toThrow(/dagger/);

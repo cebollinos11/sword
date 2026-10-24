@@ -1,6 +1,6 @@
 /**
  * The Throwing Dagger in flight (ADR 0008): launched from the thrower's left hand, it flies an arc under gravity, one
- * semi-implicit Euler step per Tick, and stops at a Wall, a Walk Surface or after `dagger.maxTicks`. Pure functions of
+ * semi-implicit Euler step per Tick, turning a little toward an enemy ahead of it (Homing), and stops at a Wall, a Walk Surface or after `dagger.maxTicks`. Pure functions of
  * their inputs, so both peers (and a Rollback re-simulation) see the same dagger.
  */
 import type { ArenaGeometry, TuningData } from '../tuning';
@@ -8,8 +8,9 @@ import { groundBelow, surfaceHeight, surfacesAt, wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import type { Emit } from './events';
 import { fighterPose } from './pose';
+import { inDuel } from './duel';
 import type { DaggerState, FighterState } from './state';
-import { add, length, normalize, scale, sub, type Vec3 } from './vec';
+import { add, dot, length, normalize, scale, sub, type Vec3 } from './vec';
 
 /** A dagger's path samples are at most this far apart (m), so a thin Wall or a Walk Surface edge is never stepped over. */
 const SAMPLE_SPACING = 0.1;
@@ -27,17 +28,17 @@ export interface DaggerSweep {
 }
 
 /**
- * The dagger Fighter `index` throws now: at its solved left hand, aimed along its `facing` and `pitch` plus
+ * The dagger Fighter `index` throws now, on Tick `tick`: at its solved left hand, aimed along its `facing` and `pitch` plus
  * `dagger.loft`. The thrower's own velocity is not added.
  */
-export function launchDagger(f: FighterState, index: number, tuning: TuningData): DaggerState {
+export function launchDagger(f: FighterState, index: number, tick: number, tuning: TuningData): DaggerState {
   const elevation = f.pitch + tuning.dagger.loft * DEG;
   const speed = tuning.dagger.speed;
   const horizontal = Math.cos(elevation) * speed;
   return {
     owner: index,
     team: f.team,
-    thrownAt: f.action.kind === 'Throw' ? f.action.startTick : 0,
+    thrownAt: tick,
     position: fighterPose(f, tuning).joints.leftHand,
     velocity: { x: Math.sin(f.facing) * horizontal, y: Math.sin(elevation) * speed, z: Math.cos(f.facing) * horizontal },
     ticks: 0,
@@ -68,9 +69,45 @@ function groundCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry, tuning: TuningDa
   return null;
 }
 
-/** Fly the dagger one Tick: gravity, then a move, swept in short samples; the result is the sweep, and `ended` with it if it stuck or ran out. */
-function fly(d: DaggerState, arena: ArenaGeometry, tuning: TuningData, emit: Emit): { next: DaggerState; sweep: DaggerSweep } {
-  const velocity = { x: d.velocity.x, y: d.velocity.y - tuning.dagger.gravity * TICK_SECONDS, z: d.velocity.z };
+/** Where a Homing dagger aims on a Fighter: its chest, this share of its standing height above its feet. */
+const AIM_HEIGHT = 0.6;
+
+/**
+ * Homing: the velocity turned toward the nearest living enemy that lies within `dagger.homingCone` of the dagger's
+ * heading and `dagger.homingRange` of it, by at most `dagger.homingTurn` degrees a second, at the same speed. A dagger
+ * with no such enemy flies on unchanged, so it never turns hard onto a Fighter beside or behind it.
+ */
+function home(d: DaggerState, velocity: Vec3, fighters: readonly FighterState[], tuning: TuningData): Vec3 {
+  const { homingCone, homingRange, homingTurn } = tuning.dagger;
+  const speed = length(velocity);
+  if (homingTurn <= 0 || speed === 0) return velocity;
+  const heading = scale(velocity, 1 / speed);
+  const cosCone = Math.cos(homingCone * DEG);
+  let best: { distance: number; toward: Vec3 } | null = null;
+  fighters.forEach((f, j) => {
+    if (!inDuel(f) || f.hp <= 0 || f.team === d.team || j === d.owner) return;
+    const offset = sub({ x: f.position.x, y: f.y + tuning.fighter.height * AIM_HEIGHT, z: f.position.z }, d.position);
+    const distance = length(offset);
+    if (distance === 0 || distance > homingRange) return;
+    const toward = scale(offset, 1 / distance);
+    if (dot(heading, toward) < cosCone) return;
+    if (!best || distance < best.distance) best = { distance, toward };
+  });
+  const found = best as { toward: Vec3 } | null;
+  if (!found) return velocity;
+  const cos = Math.min(1, dot(heading, found.toward));
+  const angle = Math.acos(cos);
+  const turn = homingTurn * DEG * TICK_SECONDS;
+  if (angle <= turn) return scale(found.toward, speed);
+  // Rotate the heading toward the target by `turn`, in the plane the two share.
+  const side = normalize(sub(found.toward, scale(heading, cos)));
+  return scale(add(scale(heading, Math.cos(turn)), scale(side, Math.sin(turn))), speed);
+}
+
+/** Fly the dagger one Tick: Homing, gravity, then a move, swept in short samples; the result is the sweep, and `ended` with it if it stuck or ran out. */
+function fly(d: DaggerState, fighters: readonly FighterState[], arena: ArenaGeometry, tuning: TuningData, emit: Emit): { next: DaggerState; sweep: DaggerSweep } {
+  const homed = home(d, d.velocity, fighters, tuning);
+  const velocity = { x: homed.x, y: homed.y - tuning.dagger.gravity * TICK_SECONDS, z: homed.z };
   const target = add(d.position, scale(velocity, TICK_SECONDS));
   const samples = Math.max(1, Math.ceil(length(sub(target, d.position)) / SAMPLE_SPACING));
   let prev = d.position;
@@ -89,11 +126,17 @@ function fly(d: DaggerState, arena: ArenaGeometry, tuning: TuningData, emit: Emi
 }
 
 /**
- * Advance every dagger in flight by one Tick, in order: the survivors, and every dagger's sweep (the segment it
+ * Advance every dagger in flight by one Tick, in order, each Homing on `fighters`: the survivors, and every dagger's sweep (the segment it
  * covered, cut short where it stuck) for the Fighters' contacts. A dagger that stuck emits `DaggerStuck`; one
  * that ran out of Ticks just drops out.
  */
-export function advanceDaggers(daggers: readonly DaggerState[], arena: ArenaGeometry, tuning: TuningData, emit: Emit): { daggers: DaggerState[]; sweeps: DaggerSweep[] } {
-  const flown = daggers.map((d) => fly(d, arena, tuning, emit));
+export function advanceDaggers(
+  daggers: readonly DaggerState[],
+  fighters: readonly FighterState[],
+  arena: ArenaGeometry,
+  tuning: TuningData,
+  emit: Emit,
+): { daggers: DaggerState[]; sweeps: DaggerSweep[] } {
+  const flown = daggers.map((d) => fly(d, fighters, arena, tuning, emit));
   return { daggers: flown.filter((f) => !f.sweep.ended).map((f) => f.next), sweeps: flown.map((f) => f.sweep) };
 }

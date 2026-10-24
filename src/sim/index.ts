@@ -87,6 +87,7 @@ export {
   blocksAttack,
   FALL_MOTION,
   GET_UP_MOTION,
+  GUARD_FROM_GET_UP,
   KICK_MOTION,
   KNOCKDOWN_MOTION,
   kickTimings,

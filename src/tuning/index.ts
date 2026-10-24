@@ -138,6 +138,12 @@ export interface DaggerTuning {
   readonly gravity: number;
   /** Upward loft (degrees) added to the thrower's aim. */
   readonly loft: number;
+  /** Homing: a dagger only turns toward an enemy within this angle (degrees) of its heading... */
+  readonly homingCone: number;
+  /** ...and this distance (m) of it... */
+  readonly homingRange: number;
+  /** ...and by at most this many degrees a second. 0 = it never homes. */
+  readonly homingTurn: number;
   /** Padding (m) around a dagger's path when it is swept against Hit Zones. */
   readonly radius: number;
   /** Ticks in flight before a dagger drops out of the Simulation. */
@@ -521,6 +527,9 @@ function parseDagger(raw: unknown): DaggerTuning {
     speed: positiveNumber(d, 'speed', 'dagger'),
     gravity: finiteNumber(d, 'gravity', 'dagger'),
     loft: finiteNumber(d, 'loft', 'dagger'),
+    homingCone: finiteNumber(d, 'homingCone', 'dagger'),
+    homingRange: finiteNumber(d, 'homingRange', 'dagger'),
+    homingTurn: finiteNumber(d, 'homingTurn', 'dagger'),
     radius: positiveNumber(d, 'radius', 'dagger'),
     maxTicks: wholeTicks(d, 'maxTicks', 'dagger'),
     damage: finiteNumber(d, 'damage', 'dagger'),

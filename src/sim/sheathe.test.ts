@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseArena, type TuningData } from '../tuning';
+import { loadTuningData, parseArena, weaponMotion, type TuningData } from '../tuning';
 import {
   arenaOf,
   createInitialState,
   createMatch,
   duelPlacements,
+  GET_UP_MOTION,
+  GUARD_FROM_GET_UP,
   hashState,
   IDLE_INTENT,
   jumpArc,
   offHandFree,
   restore,
+  secondsToTicks,
   sheatheTimings,
   SHEATHED_IDLE_MOTION,
   snapshot,
@@ -237,7 +240,9 @@ describe('Sheathe and Draw', () => {
 
   it('a Knockdown while Sheathed holds no guard, however block is held', () => {
     const sheathed = toggle(fresh()).end;
-    const down: SimState = { ...sheathed, fighters: [{ ...me(sheathed), action: { kind: 'Knockdown', phase: 'Falling', ticks: 0, guard: null }, motion: { name: 'Knockdown', tick: 0 } }] };
+    // Halfway through the Get-up, where a drawn Fighter can guard.
+    const halfUp = Math.ceil(secondsToTicks(weaponMotion(tuning, SWORD, GET_UP_MOTION)!.duration) * GUARD_FROM_GET_UP);
+    const down: SimState = { ...sheathed, fighters: [{ ...me(sheathed), action: { kind: 'Knockdown', phase: 'Rising', ticks: 0, guard: null }, motion: { name: GET_UP_MOTION, tick: halfUp } }] };
     const s = ticks(down, 5, { block: true, direction: 'Left' });
     const a = me(s).action;
     expect(a.kind === 'Knockdown' && a.guard).toBeNull();

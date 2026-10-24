@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type ArenaGeometry } from '../tuning';
 import { knockdown } from './actions';
-import { createInitialState, fighterPose, hashState, hitZoneCapsules, IDLE_INTENT, step, TICK_SECONDS, type DaggerState, type Intent, type Placement, type SimState } from './index';
+import { createInitialState, fighterPose, hashState, hitZoneCapsules, IDLE_INTENT, step, throwTimings, TICK_SECONDS, type DaggerState, type Intent, type Placement, type SimState } from './index';
 import type { SimEvent } from './events';
 
 const base = loadTuningData();
@@ -177,11 +177,13 @@ describe('Dagger Hit', () => {
 });
 
 describe('Dagger Block', () => {
-  // The victim at 6 m faces the thrower and raises a Block `lead` Ticks after the thrower pressed throw (negative: before).
-  const facingThrower = (lead: number) => (_s: SimState, n: number): Record<number, Partial<Intent>> => ({ 1: { block: n >= lead, face: Math.PI } });
+  // `throwToContact`'s Tick (counted from the throw press) on which the dagger leaves the hand.
+  const release = throwTimings(tuning, Object.keys(tuning.weapons)[0]!).windUpEnd + 1;
+  // The victim at 6 m faces the thrower and raises a Block `lead` Ticks after the dagger left the hand (negative: before).
+  const facingThrower = (lead: number) => (_s: SimState, n: number): Record<number, Partial<Intent>> => ({ 1: { block: n >= release + lead, face: Math.PI } });
 
-  it('Blocks a dagger when the Block was raised after the throw began and the Fighter faces the thrower', () => {
-    for (const lead of [0, 5, 12]) {
+  it('Blocks a dagger when the Block was raised on or after it left the hand and the Fighter faces the thrower', () => {
+    for (const lead of [0, 3, 8]) {
       const { at, events } = throwToContact(lineup([6], [0, 1], Math.PI), facingThrower(lead));
       expect(events.some((e) => e.type === 'DaggerBlocked' && e.thrower === 0 && e.defender === 1)).toBe(true);
       expect(events.some((e) => e.type === 'DaggerHit')).toBe(false);
@@ -201,6 +203,14 @@ describe('Dagger Block', () => {
     expect(impact.strength).toBeLessThan(0.5);
   });
 
+  it('does not stop a dagger when the Block was raised during the Wind-up, before it left the hand', () => {
+    for (const lead of [-1, -10, -release]) {
+      const { events } = throwToContact(lineup([6], [0, 1], Math.PI), facingThrower(lead));
+      expect(events.some((e) => e.type === 'DaggerBlocked')).toBe(false);
+      expect(events.find((e) => e.type === 'DaggerHit')).toMatchObject({ defender: 1 });
+    }
+  });
+
   it('does not stop a dagger when the Block was already held before the throw', () => {
     // Block held from Tick -3: the Block is older than the throw's Wind-up.
     let s = lineup([6], [0, 1], Math.PI);
@@ -211,10 +221,8 @@ describe('Dagger Block', () => {
   });
 
   it('counts a Block let go and raised again from the moment it was raised again', () => {
-    let s = lineup([6], [0, 1], Math.PI);
-    for (let n = 0; n < 3; n++) s = tick(s, { 1: { block: true, face: Math.PI } });
-    s = tick(s, { 1: { block: false, face: Math.PI } });
-    const { events } = throwToContact(s, () => ({ 1: { block: true, face: Math.PI } }));
+    // Raised early in the Wind-up, let go on the Tick the dagger leaves the hand, raised again on the next.
+    const { events } = throwToContact(lineup([6], [0, 1], Math.PI), (_s, n) => ({ 1: { block: n !== release, face: Math.PI } }));
     expect(events.some((e) => e.type === 'DaggerBlocked')).toBe(true);
   });
 
