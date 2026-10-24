@@ -50,7 +50,7 @@ describe('Dagger flight', () => {
     expect(d).toMatchObject({ owner: 0, team: 0, ticks: 0 });
     const f = s.fighters[0]!;
     expect(f.action.kind === 'Throw' && f.action.phase).toBe('Release');
-    expect(d.thrownAt).toBe(f.action.kind === 'Throw' ? f.action.startTick : -1);
+    expect(d.thrownAt).toBe(s.tick);
     expect(d.position).toEqual(fighterPose(f, tuning).joints.leftHand);
     const next = tick(s);
     expect(next.daggers[0]!.ticks).toBe(1);

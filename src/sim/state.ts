@@ -91,7 +91,7 @@ export interface KickAction {
 export interface ThrowAction {
   readonly kind: 'Throw';
   readonly phase: AttackPhase;
-  /** The Tick (`SimState.tick`) on which this Throw's Wind-up started: a Block only stops its dagger if it was raised on or after it. */
+  /** The Tick (`SimState.tick`) on which this Throw's Wind-up started (identifies one Throw). */
   readonly startTick: number;
   /** Ticks the Wind-up has been held at its held pose so far; absent until it is held. */
   readonly held?: number;
@@ -269,7 +269,7 @@ export interface DaggerState {
   readonly owner: number;
   /** The thrower's team (it passes through the thrower's teammates). */
   readonly team: number;
-  /** The Tick (`SimState.tick`) its throw's Wind-up started: a Block only stops it if it was raised on or after it. */
+  /** The Tick (`SimState.tick`) it left the hand (the first Tick of its Throw's Release): a Block only stops it if it was raised on or after it. */
   readonly thrownAt: number;
   /** Where it is. */
   readonly position: Vec3;

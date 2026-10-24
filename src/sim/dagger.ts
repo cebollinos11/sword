@@ -28,17 +28,17 @@ export interface DaggerSweep {
 }
 
 /**
- * The dagger Fighter `index` throws now: at its solved left hand, aimed along its `facing` and `pitch` plus
+ * The dagger Fighter `index` throws now, on Tick `tick`: at its solved left hand, aimed along its `facing` and `pitch` plus
  * `dagger.loft`. The thrower's own velocity is not added.
  */
-export function launchDagger(f: FighterState, index: number, tuning: TuningData): DaggerState {
+export function launchDagger(f: FighterState, index: number, tick: number, tuning: TuningData): DaggerState {
   const elevation = f.pitch + tuning.dagger.loft * DEG;
   const speed = tuning.dagger.speed;
   const horizontal = Math.cos(elevation) * speed;
   return {
     owner: index,
     team: f.team,
-    thrownAt: f.action.kind === 'Throw' ? f.action.startTick : 0,
+    thrownAt: tick,
     position: fighterPose(f, tuning).joints.leftHand,
     velocity: { x: Math.sin(f.facing) * horizontal, y: Math.sin(elevation) * speed, z: Math.cos(f.facing) * horizontal },
     ticks: 0,

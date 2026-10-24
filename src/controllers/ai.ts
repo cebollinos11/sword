@@ -214,7 +214,7 @@ interface Sighting {
 /** An enemy throw the AI means to Block (`react`) or let be, rolled once per throw. */
 interface ThrowPlan {
   readonly thrower: number;
-  /** The enemy Throw's `startTick`, which is also its dagger's `thrownAt`. */
+  /** The enemy Throw's `startTick` (identifies one Throw; its dagger's `thrownAt` is on or after it). */
   readonly startTick: number;
   readonly react: boolean;
 }
@@ -1817,8 +1817,8 @@ class AiController implements Controller {
 
   /**
    * An enemy Throw aimed at it, or its dagger still on its way: turn to the thrower and Block. Whether it
-   * does is rolled once per throw (`mistakeRate` says no). A Block already up from before the throw began does
-   * not stop the dagger, so it lets that go for a Tick and raises it again. Null when there is nothing to Block.
+   * does is rolled once per throw (`mistakeRate` says no). A Block already up from before the dagger left the hand does
+   * not stop it, so once the dagger is out it lets that go for a Tick and raises it again. Null when there is nothing to Block.
    */
   private dodgeThrow(state: SimState, self: FighterState, enemies: readonly Enemy[], aimAt: (o: Sighting, flat: number) => Intent): Intent | null {
     const { throwRange } = this.tuning.ai;
@@ -1829,15 +1829,16 @@ class AiController implements Controller {
     }
     const plan = this.throwPlan;
     if (!plan?.react) return null;
-    const onItsWay = state.daggers.some(
-      (d) => d.owner === plan.thrower && d.thrownAt === plan.startTick && (self.position.x - d.position.x) * d.velocity.x + (self.position.z - d.position.z) * d.velocity.z > 0,
+    const coming = state.daggers.find(
+      (d) => d.owner === plan.thrower && d.thrownAt >= plan.startTick && (self.position.x - d.position.x) * d.velocity.x + (self.position.z - d.position.z) * d.velocity.z > 0,
     );
+    const onItsWay = coming !== undefined;
     const aimedNow = aimed !== undefined && aimed.i === plan.thrower && aimedThrow?.startTick === plan.startTick;
     const thrower = enemies.find((e) => e.i === plan.thrower);
     if (!thrower || !(onItsWay || aimedNow)) return null;
     const own = self.action;
     const base = aimAt(thrower.o, thrower.flat);
-    if (own.kind === 'Block' && state.tick - own.age < plan.startTick) return base;
+    if (own.kind === 'Block' && coming && state.tick - own.age < coming.thrownAt) return base;
     return { ...base, block: true, direction: own.kind === 'Block' ? own.direction : 'Overhead' };
   }
 

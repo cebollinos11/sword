@@ -213,7 +213,7 @@ export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: rea
 /**
  * Apply this Tick's dagger contacts, all judged against the pre-resolution `fighters` (who was Blocking). Blocked by
  * rule (ADR 0008): the defender is in a Block, roughly faces the thrower, and raised that Block on or after the Tick the
- * throw's Wind-up started (`tick - age >= thrownAt`); nothing else happens but a light Block Impact. Otherwise a Hit:
+ * dagger left the hand (`tick - age >= thrownAt`); nothing else happens but a light Block Impact. Otherwise a Hit:
  * damage x Hit Zone multiplier, a Stagger (not for a Fighter lying in Knockdown; in the air, a Knockdown and a push along the
  * dagger's flight instead: `hitInAir`) and the Slow, restarted if it was already on.
  * Returns the Fighters and the sweeps whose dagger is spent.
