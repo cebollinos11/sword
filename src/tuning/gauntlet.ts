@@ -89,3 +89,52 @@ export function parseGauntlet(raw: unknown, weapons: readonly string[], difficul
     floors,
   };
 }
+
+/**
+ * A Run's difficulty knobs, picked in the Lobby (the host's, sent to every guest with the Lobby): each one absent keeps
+ * Tuning Data as it is. `applyRunKnobs` folds them into the Gauntlet before the Run starts, so the Simulation, the
+ * Floor AIs and the Tuning Data hash every peer compares all see the same Floors.
+ */
+export interface RunKnobs {
+  /**
+   * Steps every enemy's difficulty this many places along the Run's difficulty ladder (the difficulties its Floors name,
+   * in the order they first appear: Beginner, Skilled, Expert), held at either end. Negative is easier.
+   */
+  readonly difficulty?: number;
+  /** Multiplies every enemy's max HP. */
+  readonly enemyHp?: number;
+  /** At most this many enemies a Floor (1 to MAX_FLOOR_ENEMIES): those listed first stay, the boss among them. */
+  readonly maxEnemies?: number;
+  /** Replaces `heal`: the share of max HP a surviving Fighter gets back between Floors. */
+  readonly heal?: number;
+  /** Replaces `perPlayerHp`: how much each human beyond the first adds to every enemy's max HP multiplier. */
+  readonly perPlayerHp?: number;
+}
+
+/** The difficulties the Run's Floors name, easiest first (the order they first appear in). */
+export function runDifficultyLadder(g: GauntletTuning): string[] {
+  return [...new Set(g.floors.flatMap((f) => f.enemies.map((e) => e.difficulty)))];
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** The Gauntlet with `knobs` applied; `g` itself when none change anything. Out-of-range values are held to their range. */
+export function applyRunKnobs(g: GauntletTuning, knobs: RunKnobs | undefined): GauntletTuning {
+  if (!knobs) return g;
+  const { difficulty = 0, enemyHp = 1, maxEnemies = MAX_FLOOR_ENEMIES, heal = g.heal, perPlayerHp = g.perPlayerHp } = knobs;
+  const steps = Math.round(difficulty);
+  const keep = clamp(Math.round(maxEnemies), 1, MAX_FLOOR_ENEMIES);
+  const hp = enemyHp > 0 ? enemyHp : 1;
+  if (steps === 0 && hp === 1 && keep === MAX_FLOOR_ENEMIES && heal === g.heal && perPlayerHp === g.perPlayerHp) return g;
+  const ladder = runDifficultyLadder(g);
+  const shift = (d: string) => ladder[clamp(ladder.indexOf(d) + steps, 0, ladder.length - 1)]!;
+  return {
+    ...g,
+    heal: clamp(heal, 0, 1),
+    perPlayerHp: Math.max(0, perPlayerHp),
+    floors: g.floors.map((f) => ({
+      ...f,
+      enemies: f.enemies.slice(0, keep).map((e) => ({ ...e, difficulty: shift(e.difficulty), hpScale: e.hpScale * hp })),
+    })),
+  };
+}

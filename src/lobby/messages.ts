@@ -39,6 +39,14 @@ function isSeatRef(v: unknown): v is SeatRef {
   return isObject(v) && isCount(v.team) && v.team < TEAM_COUNT && isCount(v.index) && v.index < MAX_TEAM_SIZE;
 }
 
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const RUN_KNOBS: ReadonlySet<string> = new Set(['difficulty', 'enemyHp', 'maxEnemies', 'heal', 'perPlayerHp']);
+
+/** A Run's knobs: numbers, each optional; `applyRunKnobs` holds each to its range. */
+function isRunKnobs(v: unknown): boolean {
+  return isObject(v) && Object.entries(v).every(([k, x]) => RUN_KNOBS.has(k) && isNum(x));
+}
+
 function isSeat(v: unknown): boolean {
   if (!isObject(v)) return false;
   switch (v.kind) {
@@ -67,6 +75,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     settings.bestOf > 0 &&
     // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
     isFormatOnMap(settings.format, settings.arena) &&
+    (settings.run === undefined || isRunKnobs(settings.run)) &&
     Array.isArray(members) &&
     members.length >= 1 &&
     members.length <= MAX_PLAYERS &&

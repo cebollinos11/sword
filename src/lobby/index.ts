@@ -15,6 +15,7 @@ export {
   moveMember,
   newLobby,
   nextMatchArena,
+  runTuning,
   seatAt,
   seatOf,
   setFormat,

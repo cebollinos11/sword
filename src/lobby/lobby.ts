@@ -20,6 +20,7 @@
  */
 import { MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
+import { applyRunKnobs, type RunKnobs, type TuningData } from '../tuning';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -53,6 +54,8 @@ export interface LobbySettings {
   readonly bestOf: number;
   /** Duels (absent: the default) or Gauntlet: a Run, on the Random Map, Team 1 the Floors' enemies. */
   readonly format?: MatchFormat;
+  /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
+  readonly run?: RunKnobs;
 }
 
 export interface LobbyState {
@@ -132,6 +135,16 @@ export function seatOf(state: LobbyState, member: number): SeatRef | null {
 
 export function member(state: LobbyState, id: number): Member | undefined {
   return state.members.find((m) => m.id === id);
+}
+
+/**
+ * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Run with knobs, its Gauntlet
+ * with them folded in (`applyRunKnobs`). Every peer builds it from the Lobby, so their Tuning Data hashes still agree.
+ */
+export function runTuning(tuning: TuningData, settings: LobbySettings): TuningData {
+  if (settings.format !== 'Gauntlet') return tuning;
+  const gauntlet = applyRunKnobs(tuning.gauntlet, settings.run);
+  return gauntlet === tuning.gauntlet ? tuning : { ...tuning, gauntlet };
 }
 
 /** The Lobby plays a Gauntlet Run (not Duels). */

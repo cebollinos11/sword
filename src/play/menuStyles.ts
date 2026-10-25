@@ -108,6 +108,10 @@ export const MENU_CSS = `
 .body-name { font-size: 0.85rem; }
 .lb-row { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0.5rem 0; }
 .lb-row .field-label, .lb-row .lb-label { min-width: 4rem; }
+.lb-knob { flex-direction: column; align-items: flex-start; gap: 0.35rem; margin: 0.65rem 0; }
+.lb-knob .segmented { flex-wrap: wrap; }
+.lb-reset { margin-top: 0.3rem; padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); font-size: 0.82rem; }
+.lb-reset:hover { color: inherit; border-color: var(--gold); }
 
 /* How to play */
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem 1.1rem; margin: 0 0 1rem; align-items: baseline; }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, tuningDataHash } from '../tuning';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch } from '../controllers';
 import { createMatch, floorRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
 import { playerVsAi } from '../play/driver';
@@ -11,6 +11,7 @@ import {
   moveMember,
   newLobby,
   nextMatchArena,
+  runTuning,
   seatOf,
   setFormat,
   setSeat,
@@ -21,6 +22,7 @@ import {
   type LobbyState,
   type NewLobbyOptions,
 } from './lobby';
+import { parseLobbyMessage } from './messages';
 
 const tuning = loadTuningData();
 const weapon = Object.keys(tuning.weapons)[0]!;
@@ -149,5 +151,29 @@ describe('the Gauntlet Lineup', () => {
     for (let i = 2; i <= MAX_TEAM_SIZE; i++) {
       if (start.duel.fighters[i]!.benched) expect(now.duel.fighters[i]!.position).toEqual(start.duel.fighters[i]!.position);
     }
+  });
+});
+
+describe('Gauntlet Lobby: Run knobs', () => {
+  it('a Run with knobs plays the knobbed Gauntlet (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
+    let s = gauntlet(newLobby(options(false)));
+    expect(runTuning(tuning, s.settings)).toBe(tuning);
+    s = updateSettings(s, { run: { maxEnemies: 1, enemyHp: 0.5 } });
+    const t = runTuning(tuning, s.settings);
+    expect(t.gauntlet.floors.every((f) => f.enemies.length === 1)).toBe(true);
+    expect(tuningDataHash(t)).not.toBe(tuningDataHash(tuning));
+    expect(runTuning(tuning, { ...s.settings, format: 'Duels' })).toBe(tuning);
+    // Floor 1 lists more than one enemy; with one a Floor, only the first stands.
+    const { lineup, weapons } = lobbyLineup(s);
+    const match = createMatch(t, lineupMatch(t, lineup, weapons, { bestOf: 1, arena: s.settings.arena, format: 'Gauntlet' }));
+    expect(match.duel.fighters.filter((f) => f.team === 1 && !f.benched).map((f) => f.maxHp)).toEqual([tuning.fighter.maxHp * 0.5]);
+  });
+
+  it('a lobby message carries the knobs, and refuses ones that are not numbers or not knobs', () => {
+    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, heal: 0.6 } });
+    const m = { type: 'lobby', state, you: 0, ack: 0 } as const;
+    expect(parseLobbyMessage(m)).toEqual(m);
+    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { heal: Infinity }])
+      expect(parseLobbyMessage({ ...m, state: { ...state, settings: { ...state.settings, run } } })).toBeNull();
   });
 });

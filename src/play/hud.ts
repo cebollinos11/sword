@@ -14,6 +14,8 @@ export interface HudView {
   readonly ping?: number | null;
   /** Each Player's name (index = Player number), from the Lobby. */
   readonly names?: readonly string[] | null;
+  /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
+  readonly tuning?: TuningData;
 }
 
 /** What the results screen shows at a Run's end. */
@@ -81,6 +83,8 @@ export class Hud {
   private slowTag: HTMLElement | null = null;
   /** What the bars were built for; they are rebuilt when it changes. */
   private built = '';
+  /** The Tuning Data the Match is played with (`HudView.tuning`), for the labels; null: the HUD's own. */
+  private matchTuning: TuningData | null = null;
   private bannerUntil = 0;
 
   /** `onMenu`: the player clicked the menu button (the in-game menu; Esc does the same). */
@@ -170,6 +174,7 @@ export class Hud {
   }
 
   update(match: MatchState, view: HudView): void {
+    this.matchTuning = view.tuning ?? null;
     const teams = match.config.teams;
     const me = view.localFighter;
     const myTeam = teams[me] ?? 0;
@@ -239,7 +244,7 @@ export class Hud {
       if (fighter === me) box.classList.add('hud-you');
       const name = document.createElement('div');
       name.className = 'hud-label';
-      name.textContent = label(match, this.tuning, lineup, fighter, me, names);
+      name.textContent = label(match, this.matchTuning ?? this.tuning, lineup, fighter, me, names);
       const bar = document.createElement('div');
       bar.className = 'hud-bar';
       const fill = document.createElement('div');

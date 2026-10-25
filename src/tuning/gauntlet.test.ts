@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_TEAM_SIZE } from '../sim';
-import { loadTuningData, MAX_FLOOR_ENEMIES, parseGauntlet, tuningDataHash, type TuningData } from './index';
+import { applyRunKnobs, loadTuningData, MAX_FLOOR_ENEMIES, parseGauntlet, runDifficultyLadder, tuningDataHash, type TuningData } from './index';
 
 const tuning = loadTuningData();
 const WEAPONS = Object.keys(tuning.weapons);
@@ -55,5 +55,36 @@ describe('Gauntlet Tuning Data (data/gauntlet.json)', () => {
     expect(changed({ ...g, floors: g.floors.slice(1) })).not.toBe(base);
     const [first, ...rest] = g.floors;
     expect(changed({ ...g, floors: [{ ...first!, enemies: [{ ...first!.enemies[0]!, difficulty: 'Hard' }] }, ...rest] })).not.toBe(base);
+  });
+});
+
+describe('Run knobs (applyRunKnobs)', () => {
+  const g = tuning.gauntlet;
+
+  it('none, or every knob at its standard, leave the Gauntlet as it is', () => {
+    expect(applyRunKnobs(g, undefined)).toBe(g);
+    expect(applyRunKnobs(g, {})).toBe(g);
+    expect(applyRunKnobs(g, { difficulty: 0, enemyHp: 1, maxEnemies: MAX_FLOOR_ENEMIES, heal: g.heal, perPlayerHp: g.perPlayerHp })).toBe(g);
+  });
+
+  it('steps each enemy along the ladder its Floors name, held at either end', () => {
+    expect(runDifficultyLadder(g)).toEqual(['Beginner', 'Skilled', 'Expert']);
+    const difficulties = (k: Parameters<typeof applyRunKnobs>[1]) => applyRunKnobs(g, k).floors.map((f) => f.enemies.map((e) => e.difficulty));
+    expect(difficulties({ difficulty: -1 })[4]).toEqual(['Skilled', 'Beginner', 'Beginner']);
+    expect(difficulties({ difficulty: -2 }).flat().every((d) => d === 'Beginner')).toBe(true);
+    expect(difficulties({ difficulty: 1 })[0]).toEqual(['Skilled', 'Skilled']);
+    expect(difficulties({ difficulty: 5 })[0]).toEqual(['Expert', 'Expert']);
+  });
+
+  it('scales every enemy HP, keeps the first enemies of a Floor (the boss among them), and replaces heal and co-op scaling', () => {
+    const k = applyRunKnobs(g, { enemyHp: 0.5, maxEnemies: 1, heal: 1, perPlayerHp: 0 });
+    expect(k.floors.every((f) => f.enemies.length === 1)).toBe(true);
+    expect(k.floors[6]!.enemies[0]).toMatchObject({ weapon: 'Sledge Hammer', hpScale: 1.5 });
+    expect(k.floors[6]!.boss).toBe(true);
+    expect([k.heal, k.perPlayerHp, k.revive]).toEqual([1, 0, g.revive]);
+    // Out of range is held to range; the result still parses as Tuning Data.
+    const wild = applyRunKnobs(g, { maxEnemies: 9, heal: 3, perPlayerHp: -1, enemyHp: -2 });
+    expect([wild.heal, wild.perPlayerHp, wild.floors[5]!.enemies.length, wild.floors[0]!.enemies[0]!.hpScale]).toEqual([1, 0, MAX_FLOOR_ENEMIES, 1]);
+    expect(parse(k)).toEqual(k);
   });
 });

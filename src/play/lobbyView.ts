@@ -8,7 +8,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type MatchFormat } from '../sim';
-import { DEFAULT_STYLE, RANDOM_PICK, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, MAX_FLOOR_ENEMIES, RANDOM_PICK, runDifficultyLadder, type RunKnobs, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -161,7 +161,7 @@ export interface LobbyViewContext {
 export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
   const state = ctx.lobby.state!;
   const left = h('div', 'lb-main', null, teamsBlock(ctx, state));
-  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), weaponBlock(ctx, state));
+  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isGauntlet(state) ? knobsBlock(ctx, state) : null, weaponBlock(ctx, state));
   return h('div', 'lb-body', null, left, right);
 }
 
@@ -379,6 +379,69 @@ function seedInput(ctx: LobbyViewContext, seed: number): HTMLInputElement {
     else input.value = String(seed);
   });
   return input;
+}
+
+// --- Run difficulty ---
+
+type KnobKey = keyof RunKnobs;
+
+/** One Run knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
+interface KnobRow {
+  readonly key: KnobKey;
+  readonly label: string;
+  readonly standard: number;
+  readonly choices: readonly (readonly [number, string])[];
+}
+
+const percent = (v: number) => `${Math.round(v * 100)}%`;
+
+/** The choices for a share, with Tuning Data's own value among them. */
+function shares(values: readonly number[], standard: number, text: (v: number) => string): [number, string][] {
+  return [...new Set([...values, standard])].sort((a, b) => a - b).map((v) => [v, text(v)]);
+}
+
+/** The Run knobs the Lobby offers, each with Tuning Data's value as its standard choice. */
+export function knobRows(tuning: TuningData): KnobRow[] {
+  const { heal, perPlayerHp } = tuning.gauntlet;
+  return [
+    { key: 'difficulty', label: 'Enemy skill', standard: 0, choices: [[-2, 'Easiest'], [-1, 'Easier'], [0, 'Standard'], [1, 'Harder']] },
+    { key: 'enemyHp', label: 'Enemy HP', standard: 1, choices: [[0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×'], [2, '2×']] },
+    { key: 'maxEnemies', label: 'Enemies a Floor', standard: MAX_FLOOR_ENEMIES, choices: Array.from({ length: MAX_FLOOR_ENEMIES }, (_, i) => [i + 1, i === 0 ? '1' : `Up to ${i + 1}`] as const) },
+    { key: 'heal', label: 'Heal between Floors', standard: heal, choices: shares([0, 0.3, 0.6, 1], heal, (v) => (v === 0 ? 'None' : v === 1 ? 'Full' : percent(v))) },
+    { key: 'perPlayerHp', label: 'Enemy HP per extra player', standard: perPlayerHp, choices: shares([0, 0.25, 0.5, 1], perPlayerHp, (v) => `+${percent(v)}`) },
+  ];
+}
+
+/** `knobs` with `key` set to `value`, or dropped when that is its standard (absent knobs leave Tuning Data as it is). */
+export function withKnob(knobs: RunKnobs | undefined, row: KnobRow, value: number): RunKnobs {
+  const { [row.key]: _old, ...rest } = knobs ?? {};
+  return value === row.standard ? rest : { ...rest, [row.key]: value };
+}
+
+/** A Run's difficulty knobs (Gauntlet only): the host sets them, everyone sees them. */
+function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+  const editable = ctx.lobby.isHost;
+  const knobs = state.settings.run;
+  const rows = knobRows(ctx.tuning).map((row) => {
+    const current = knobs?.[row.key] ?? row.standard;
+    const group = h('div', 'segmented');
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', row.label);
+    for (const [value, text] of row.choices) {
+      const b = button('', text, () => ctx.lobby.edit((s) => updateSettings(s, { run: withKnob(s.settings.run, row, value) })));
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(value === current));
+      if (value === row.standard) b.title = 'Standard';
+      b.disabled = !editable;
+      group.append(b);
+    }
+    return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
+  });
+  const ladder = runDifficultyLadder(ctx.tuning.gauntlet).join(' → ');
+  const changed = knobs !== undefined && Object.keys(knobs).length > 0;
+  const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { run: {} }))) : null;
+  const note = h('p', 'lb-note', `Enemy skill steps every enemy along ${ladder}. ${editable ? '' : 'The host sets these.'}`);
+  return section('Run difficulty', ...rows, note, reset);
 }
 
 // --- Your Weapon ---

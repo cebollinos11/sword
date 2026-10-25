@@ -1,5 +1,5 @@
 import { ARENA_SEED_RANGE, createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
-import type { TuningData } from './tuning';
+import type { RunKnobs, TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
@@ -16,7 +16,7 @@ import { MatchAnnouncer } from './play/announcer';
 import { FinalBlowShot } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
-import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
+import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
   BrokerUrlError,
   createRollbackSession,
@@ -52,6 +52,7 @@ const CLOSE_UP_TURN = 0.38;
 const WEAPON_STORAGE_KEY = 'sword.weapon';
 const ARENA_STORAGE_KEY = 'sword.arena';
 const FORMAT_STORAGE_KEY = 'sword.format';
+const RUN_KNOBS_STORAGE_KEY = 'sword.runKnobs';
 const ROOM_ROUTE = '#/room/';
 
 /** What the loop needs to know to present a Match: the driver (which also says who the local player is). */
@@ -86,6 +87,18 @@ function store(key: string, value: string): void {
     localStorage.setItem(key, value);
   } catch {
     // Storage unavailable: the choice just isn't remembered.
+  }
+}
+
+/** The Run knobs picked last (each a number; `applyRunKnobs` holds them to their ranges), or null for none. */
+function storedKnobs(): RunKnobs | null {
+  try {
+    const raw: unknown = JSON.parse(stored(RUN_KNOBS_STORAGE_KEY) ?? 'null');
+    if (typeof raw !== 'object' || raw === null) return null;
+    const knobs = Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)));
+    return Object.keys(knobs).length > 0 ? knobs : null;
+  } catch {
+    return null;
   }
 }
 
@@ -132,6 +145,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const savedWeapon = stored(WEAPON_STORAGE_KEY);
   const savedArena = stored(ARENA_STORAGE_KEY);
   const savedFormat = stored(FORMAT_STORAGE_KEY);
+  const savedKnobs = storedKnobs();
 
   let driver: MatchDriver | null = null;
   let names: readonly string[] | null = null;
@@ -223,7 +237,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
-    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}) };
+    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
     return { host: { name: menu.name, weapon, body: menu.body }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
@@ -284,6 +298,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) {
       store(ARENA_STORAGE_KEY, s.settings.arena);
       store(FORMAT_STORAGE_KEY, s.settings.format ?? 'Duels');
+      store(RUN_KNOBS_STORAGE_KEY, JSON.stringify(s.settings.run ?? {}));
     }
   }
 
@@ -319,7 +334,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const arena = s.matchArena ?? s.settings.arena;
     const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
-    matchTuning = arenaWorld(arena).tuning;
+    matchTuning = runTuning(arenaWorld(arena).tuning, s.settings);
     warmed = null;
     setPlayed(arena);
     if (members.length <= 1) {
@@ -587,10 +602,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena, ...format });
       me = player >= 0 ? playerFighter(lineup, player as PlayerNumber) : -1;
     }
-    const key = JSON.stringify(options);
+    const key = JSON.stringify([options, s?.settings.run]);
     if (key !== previewKey) {
       try {
-        preview = createMatch(arenaWorld(arena).tuning, options);
+        preview = createMatch(s ? runTuning(arenaWorld(arena).tuning, s.settings) : arenaWorld(arena).tuning, options);
         previewKey = key;
       } catch {
         // Not a fieldable Lineup (yet): keep the last scene.
@@ -676,7 +691,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
       if (inShot && !shot) endShot();
       renderer.setPlayer(me, menu.body);
-      renderer.setChosenBodies(fighterBodies(tuning, driver.lineup, bodies, curr));
+      renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
           audio.onMatchTick(m);
@@ -695,7 +710,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names });
+      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning });
     } else {
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;

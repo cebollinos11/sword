@@ -29,7 +29,17 @@ import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningD
 export { TuningDataError } from './validate';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
-export { MAX_FLOOR_ENEMIES, parseGauntlet, RANDOM_PICK, type GauntletEnemy, type GauntletFloor, type GauntletTuning } from './gauntlet';
+export {
+  applyRunKnobs,
+  MAX_FLOOR_ENEMIES,
+  parseGauntlet,
+  RANDOM_PICK,
+  runDifficultyLadder,
+  type GauntletEnemy,
+  type GauntletFloor,
+  type GauntletTuning,
+  type RunKnobs,
+} from './gauntlet';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
