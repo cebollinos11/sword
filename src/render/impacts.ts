@@ -1,7 +1,7 @@
 /**
  * Placeholder impact effects: a burst where a Hit connects, a Block or a Wall
- * stops a blow, or a Chamber turns one. Like audio, they live outside the Simulation and only listen to its
- * events (ADR 0001); which burst each event makes is pure, so it is tested headlessly.
+ * stops a blow, or a Chamber turns one, and puffs of floor dust when a Fighter jumps, lands, hits the floor or is pushed. Like audio, they live outside the Simulation and only listen to its
+ * events (ADR 0001); which burst or puff each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
 import type { SimState, Vec3 } from '../sim';
@@ -44,6 +44,48 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     bursts.push({ kind, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
+}
+
+/** A puff of floor dust kicked up at a Fighter's feet. `strength` is 0..1: how big and how many. */
+export interface DustPuff {
+  readonly kind: 'Jump' | 'Land' | 'Down' | 'Shove' | 'Scuff';
+  readonly point: Vec3;
+  readonly strength: number;
+}
+
+/** A Land from a drop of this height (m) or more kicks up a full puff. */
+const DUST_FULL_DROP = 2.5;
+/** A Slide scuffs the floor every this many Ticks. */
+const SCUFF_EVERY = 3;
+
+/** The dust puffs triggered by one Tick: a Jump, a Landing, a Fighter hitting the floor, a Shove or Knockdown, and a Slide's scuffing. */
+export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighters'>): DustPuff[] {
+  const puffs: DustPuff[] = [];
+  const feet = (i: number): Vec3 | null => {
+    const f = duel.fighters[i];
+    return f ? { x: f.position.x, y: f.y, z: f.position.z } : null;
+  };
+  for (const e of duel.events) {
+    if (e.type === 'Jump') {
+      const point = feet(e.fighter);
+      if (point) puffs.push({ kind: 'Jump', point, strength: 0.4 });
+    } else if (e.type === 'Land') {
+      const point = feet(e.fighter);
+      if (point) puffs.push({ kind: 'Land', point, strength: Math.min(1, 0.3 + e.height / DUST_FULL_DROP) });
+    } else if (e.type === 'KnockdownPhase' && e.phase === 'Down') {
+      const point = feet(e.fighter);
+      if (point) puffs.push({ kind: 'Down', point, strength: 1 });
+    } else if (e.type === 'KickLanded') {
+      const point = feet(e.defender);
+      if (point) puffs.push({ kind: 'Shove', point, strength: 0.6 });
+    }
+  }
+  if (tick % SCUFF_EVERY === 0) {
+    for (const f of duel.fighters) {
+      if (f.slide && !f.air && !f.death && !f.benched) puffs.push({ kind: 'Scuff', point: { x: f.position.x, y: f.y, z: f.position.z }, strength: 0.35 });
+    }
+  }
+  return puffs;
 }
 
 interface Look {
@@ -113,6 +155,17 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
   },
 };
 
+/** Dust is soft grey-tan puffs: they drift out along the floor, swell and fade. */
+const DUST_COLOURS = [0xcdbb9c, 0xb8aa92, 0xa89f90];
+
+const DUST_LOOKS: Record<DustPuff['kind'], { count: number; speed: number; radius: number; life: number }> = {
+  Jump: { count: 5, speed: 0.9, radius: 0.16, life: 0.5 },
+  Land: { count: 9, speed: 1.6, radius: 0.22, life: 0.65 },
+  Down: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
+  Shove: { count: 7, speed: 1.4, radius: 0.2, life: 0.6 },
+  Scuff: { count: 2, speed: 0.6, radius: 0.13, life: 0.45 },
+};
+
 interface Particle {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>;
   readonly velocity: THREE.Vector3;
@@ -121,6 +174,8 @@ interface Particle {
   gravity: number;
   /** A flash grows instead of flying; null for a particle. */
   flashRadius: number | null;
+  /** A dust puff swells to this radius and slows as it drifts; null otherwise. */
+  puffRadius: number | null;
 }
 
 const FORWARD = new THREE.Vector3(0, 0, 1);
@@ -151,6 +206,7 @@ export class ImpactEffects {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
+    for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
 
   /** The loop jumped to `tick`: clear what is flying; Ticks after it will burst. */
@@ -176,6 +232,13 @@ export class ImpactEffects {
         p.mesh.material.opacity = 1 - t;
         continue;
       }
+      if (p.puffRadius !== null) {
+        p.velocity.multiplyScalar(Math.max(0, 1 - 3 * dt));
+        p.mesh.position.addScaledVector(p.velocity, dt);
+        p.mesh.scale.setScalar(p.puffRadius * (0.35 + 0.65 * Math.sqrt(t)));
+        p.mesh.material.opacity = 0.55 * (1 - t) * (1 - t);
+        continue;
+      }
       p.velocity.y -= p.gravity * dt;
       p.mesh.position.addScaledVector(p.velocity, dt);
       if (p.velocity.lengthSq() > 1e-6) p.mesh.quaternion.setFromUnitVectors(FORWARD, p.velocity.clone().normalize());
@@ -197,12 +260,27 @@ export class ImpactEffects {
     }
   }
 
+  private puff({ kind, point, strength }: DustPuff): void {
+    const look = DUST_LOOKS[kind];
+    const count = Math.max(1, Math.round(look.count * (0.5 + 0.5 * strength)));
+    for (let k = 0; k < count; k++) {
+      const colour = DUST_COLOURS[Math.floor(Math.random() * DUST_COLOURS.length)]!;
+      const angle = Math.random() * Math.PI * 2;
+      const at = new THREE.Vector3(point.x + Math.cos(angle) * 0.15, point.y + 0.04, point.z + Math.sin(angle) * 0.15);
+      const p = this.spawn(this.sphere, colour, at, look.life * (0.7 + 0.3 * Math.random()), 0);
+      const speed = look.speed * strength * (0.4 + 0.6 * Math.random());
+      p.velocity.set(Math.cos(angle) * speed, 0.25 + 0.35 * Math.random(), Math.sin(angle) * speed);
+      p.puffRadius = look.radius * (0.6 + 0.4 * strength) * (0.7 + 0.5 * Math.random());
+      p.mesh.scale.setScalar(p.puffRadius * 0.35);
+    }
+  }
+
   private spawn(geometry: THREE.BufferGeometry, colour: number, at: THREE.Vector3, life: number, gravity: number): Particle {
     const material = new THREE.MeshBasicMaterial({ color: colour, transparent: true, depthWrite: false });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.copy(at);
     this.root.add(mesh);
-    const p: Particle = { mesh, velocity: new THREE.Vector3(), born: this.clock, life, gravity, flashRadius: null };
+    const p: Particle = { mesh, velocity: new THREE.Vector3(), born: this.clock, life, gravity, flashRadius: null, puffRadius: null };
     this.live.push(p);
     return p;
   }
