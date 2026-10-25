@@ -9,7 +9,7 @@ import { lineupAis, type Lineup } from './lineup';
 const tuning = loadTuningData();
 /** The Run's first Arena. */
 const ARENA = 'gen:greybox:77';
-const LINEUP: Lineup = [0, 0, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
+const LINEUP: Lineup = [0, 0, 1, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
 
 /**
  * The Duel states a Run's Controllers are asked on, Tick by Tick: `before` Ticks of Floor 1, then every enemy felled,

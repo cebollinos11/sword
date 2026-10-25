@@ -87,8 +87,10 @@
     {"team": 0, "slot": 0, "position": [-4.75, 0.0, 0.0], "facing": 1.570796},
     {"team": 0, "slot": 1, "position": [-4.3372, 0.0, -1.9369], "facing": 1.570796},
     {"team": 0, "slot": 2, "position": [-4.3372, 0.0, 1.9369], "facing": 1.570796},
+    {"team": 0, "slot": 3, "position": [-5.75, 0.0, 0.0], "facing": 1.570796},
     {"team": 1, "slot": 0, "position": [4.75, 0.0, 0.0], "facing": -1.570796},
     {"team": 1, "slot": 1, "position": [4.3372, 0.0, 1.9369], "facing": -1.570796},
-    {"team": 1, "slot": 2, "position": [4.3372, 0.0, -1.9369], "facing": -1.570796}
+    {"team": 1, "slot": 2, "position": [4.3372, 0.0, -1.9369], "facing": -1.570796},
+    {"team": 1, "slot": 3, "position": [5.75, 0.0, 0.0], "facing": -1.570796}
   ]
 }

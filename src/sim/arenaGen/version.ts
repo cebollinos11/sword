@@ -7,4 +7,4 @@
  * next (`nextArenaSeed`: it picks the name a Rematch builds).
  * (A Kit file needs no bump: the Kits are hashed themselves.) Depends on nothing, so Tuning Data may import it.
  */
-export const GENERATOR_VERSION = 1;
+export const GENERATOR_VERSION = 2;

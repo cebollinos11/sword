@@ -4,11 +4,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { TICK_RATE } from '../sim';
+import { MAX_TEAM_SIZE, TICK_RATE } from '../sim';
 import { FLOOR_DIFFICULTY } from '../controllers';
 import { createMemoryTransportPair } from '../net';
 import { formatRefusal, offeredFormats, randomBlurb, shownTeams, waitingTag } from '../play/lobbyView';
-import { formatProblem, join, lobbyLineup, newLobby, seatOf, setFormat, startMatch, type LobbySettings, type LobbyState, type NewLobbyOptions } from './lobby';
+import { join, lobbyLineup, newLobby, seatOf, setFormat, startMatch, type LobbySettings, type LobbyState, type NewLobbyOptions } from './lobby';
 import { parseLobbyMessage } from './messages';
 import { GuestLobby, HostLobby } from './sync';
 
@@ -52,28 +52,29 @@ function room(settings: LobbySettings) {
 }
 
 describe('a Gauntlet Room', () => {
-  it('a new Room in Gauntlet opens two Open Seats beside the host, and guests join only there', () => {
+  it('a new Room in Gauntlet opens three Open Seats beside the host, and guests join only there', () => {
     let s = newLobby(options({ arena: RUN, bestOf: 3, format: 'Gauntlet' }));
-    expect(s.teams[0]).toEqual([{ kind: 'Player', member: 0 }, { kind: 'Open' }, { kind: 'Open' }]);
-    s = join(s, guest(1))!;
-    s = join(s, guest(2))!;
-    expect([seatOf(s, 1), seatOf(s, 2)]).toEqual([
+    expect(s.teams[0]).toEqual([{ kind: 'Player', member: 0 }, { kind: 'Open' }, { kind: 'Open' }, { kind: 'Open' }]);
+    expect(s.teams[1]!.every((x) => x.kind === 'Closed')).toBe(true);
+    for (let id = 1; id <= 3; id++) s = join(s, guest(id))!;
+    expect([seatOf(s, 1), seatOf(s, 2), seatOf(s, 3)]).toEqual([
       { team: 0, index: 1 },
       { team: 0, index: 2 },
+      { team: 0, index: 3 },
     ]);
-    // Team 1's Open Seat (kept for Duels) takes nobody in a Gauntlet: a fourth is turned away.
-    expect(join(s, guest(3))).toBeNull();
+    // The Room is full: a fifth is turned away.
+    expect(join(s, guest(4))).toBeNull();
     const { lineup, members } = lobbyLineup(s);
-    expect(members).toEqual([0, 1, 2]);
-    expect(lineup.map((x) => (x.pilot.kind === 'Player' ? `P${x.pilot.player}` : x.pilot.difficulty))).toEqual(['P0', 'P1', 'P2', FLOOR_DIFFICULTY, FLOOR_DIFFICULTY, FLOOR_DIFFICULTY]);
+    expect(members).toEqual([0, 1, 2, 3]);
+    expect(lineup.map((x) => (x.pilot.kind === 'Player' ? `P${x.pilot.player}` : x.pilot.difficulty))).toEqual(['P0', 'P1', 'P2', 'P3', ...Array<string>(MAX_TEAM_SIZE).fill(FLOOR_DIFFICULTY)]);
     // A new Room in Duels is as before.
     expect(newLobby(options({ arena: 'library', bestOf: 3 })).teams).toEqual([
-      [{ kind: 'Player', member: 0 }, { kind: 'Open' }, { kind: 'Closed' }],
-      [{ kind: 'Open' }, { kind: 'Open' }, { kind: 'Closed' }],
+      [{ kind: 'Player', member: 0 }, { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }],
+      [{ kind: 'Open' }, { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }],
     ]);
   });
 
-  it('switching a Room of three to Gauntlet moves every Player to Team 0; four are refused, with the reason shown', () => {
+  it('switching a Room of three or four to Gauntlet moves every Player to Team 0', () => {
     let s = newLobby(options({ arena: 'library', bestOf: 3 }));
     s = join(s, guest(1))!; // opposite the host
     s = join(s, guest(2))!; // opposite too
@@ -85,12 +86,12 @@ describe('a Gauntlet Room', () => {
     expect(shownTeams(g)).toEqual([0]);
     expect(randomBlurb(g, null, true)).toBe('Run seed 777 · pick again to reroll');
 
-    // A fourth Player: Team 0 holds three, so the switch is refused, and the Lobby says why.
+    // A fourth Player: Team 0 holds four, so all of them move there.
     s = join(s, guest(3))!;
     expect(s.members).toHaveLength(4);
-    expect(setFormat(s, 'Gauntlet', FRESH)).toBe(s);
-    expect(formatRefusal(s, true)).toBe(formatProblem(s, 'Gauntlet'));
-    expect(formatRefusal(s, true)).toMatch(/at most 3 players, all on Team 0; this Lobby has 4/);
+    expect(formatRefusal(s, true)).toBeNull();
+    const four = setFormat(s, 'Gauntlet', FRESH);
+    for (const id of [0, 1, 2, 3]) expect(seatOf(four, id)?.team).toBe(0);
     expect(offeredFormats(true)).toContain('Gauntlet');
   });
 
@@ -124,14 +125,16 @@ describe('a Gauntlet Room', () => {
     expect(seatOf(r.host.state, bo.me!)?.team).toBe(0);
   });
 
-  it('a new Gauntlet Room fills its two Seats beside the host over the link, and turns a fourth player away', () => {
+  it('a new Gauntlet Room fills its three Seats beside the host over the link, and turns a fifth player away', () => {
     const r = room({ arena: RUN, bestOf: 3, format: 'Gauntlet' });
-    const gs = [r.connect('Bo'), r.connect('Cy'), r.connect('Di')];
+    const gs = [r.connect('Bo'), r.connect('Cy'), r.connect('Di'), r.connect('Ed')];
     r.run(3000);
-    expect(r.host.state.members.map((m) => m.name)).toEqual(['Ana', 'Bo', 'Cy']);
-    expect(gs.slice(0, 2).every((g) => g.status === 'Open' && seatOf(g.state!, g.me!)?.team === 0)).toBe(true);
-    expect(gs[2]!.status).toBe('Closed');
-    expect(gs[2]!.failure).toMatch(/full/);
+    // Whichever arrives last (latency and jitter decide) is turned away.
+    expect(r.host.state.members).toHaveLength(4);
+    const [late, ...seated] = [...gs].sort((a, b) => Number(a.status === 'Open') - Number(b.status === 'Open'));
+    expect(seated.every((g) => g.status === 'Open' && seatOf(g.state!, g.me!)?.team === 0)).toBe(true);
+    expect(late!.status).toBe('Closed');
+    expect(late!.failure).toMatch(/full/);
   });
 });
 

@@ -9,7 +9,7 @@ import { array, nonNegativeNumber, nonEmptyString, positiveNumber, record, Tunin
 export const RANDOM_PICK = 'random';
 
 /** The most enemies a Floor lists: one per Team 1 slot (MAX_TEAM_SIZE in `src/sim/match.ts`). */
-export const MAX_FLOOR_ENEMIES = 3;
+export const MAX_FLOOR_ENEMIES = 4;
 
 /** One enemy of a Floor, in Team 1 slot order. */
 export interface GauntletEnemy {
@@ -23,6 +23,8 @@ export interface GauntletEnemy {
   readonly style?: string;
   /** Its max HP as a multiple of `fighter.maxHp`, before scaling with the number of humans. */
   readonly hpScale: number;
+  /** It fights only when Team 0 fields at least this many Fighters (1 to MAX_FLOOR_ENEMIES); absent: always. Its slot is Benched otherwise. */
+  readonly minTeam?: number;
 }
 
 export interface GauntletFloor {
@@ -69,7 +71,10 @@ export function parseGauntlet(raw: unknown, weapons: readonly string[], difficul
       const style = e.style === undefined ? undefined : nonEmptyString(e, 'style', at);
       if (style !== undefined && style !== RANDOM_PICK && !styles.includes(style)) throw new TuningDataError(`${at}.style: unknown AI Style "${style}" (have: ${styles.join(', ')}, or "${RANDOM_PICK}")`);
       const hpScale = e.hpScale === undefined ? 1 : positiveNumber(e, 'hpScale', at);
-      return { difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), hpScale };
+      const minTeam = e.minTeam === undefined ? undefined : positiveNumber(e, 'minTeam', at);
+      if (minTeam !== undefined && (!Number.isInteger(minTeam) || minTeam > MAX_FLOOR_ENEMIES))
+        throw new TuningDataError(`${at}.minTeam must be a whole number from 1 to ${MAX_FLOOR_ENEMIES}, got ${minTeam}`);
+      return { difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), hpScale, ...(minTeam === undefined ? {} : { minTeam }) };
     });
     if (enemies.length < 1 || enemies.length > MAX_FLOOR_ENEMIES)
       throw new TuningDataError(`${where}.enemies must list 1 to ${MAX_FLOOR_ENEMIES} enemies, got ${enemies.length}`);

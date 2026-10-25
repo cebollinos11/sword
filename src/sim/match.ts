@@ -32,14 +32,14 @@ import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
 
 /** The most Fighters a team may field. */
-export const MAX_TEAM_SIZE = 3;
+export const MAX_TEAM_SIZE = 4;
 
 /** How a Match is played: Duels (best-of-N, the default) or Gauntlet (a Run of Floors). */
 export type MatchFormat = 'Duels' | 'Gauntlet';
 export const MATCH_FORMATS: readonly MatchFormat[] = ['Duels', 'Gauntlet'];
 
 export interface MatchConfig {
-  /** Duels (default) or Gauntlet: a Run, where `bestOf` is ignored and `teams` is Team 0's 1 to 3 Fighters followed by MAX_TEAM_SIZE Team 1 slots. */
+  /** Duels (default) or Gauntlet: a Run, where `bestOf` is ignored and `teams` is Team 0's 1 to MAX_TEAM_SIZE Fighters followed by MAX_TEAM_SIZE Team 1 slots. */
   readonly format: MatchFormat;
   /** N: the Match is best of this many Duels. A positive integer. */
   readonly bestOf: number;

@@ -160,7 +160,7 @@ describe('Peer message validation: team battles', () => {
     const player = { team: 0, pilot: { kind: 'Player', player: 0 } };
     for (const lineup of [
       [player],
-      Array(7).fill(player),
+      Array(9).fill(player),
       [player, { team: 2, pilot: { kind: 'Player', player: 1 } }],
       [player, { team: 1, pilot: { kind: 'Player', player: 4 } }],
       [player, { team: 1, pilot: { kind: 'AI' } }],

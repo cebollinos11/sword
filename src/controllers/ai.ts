@@ -97,7 +97,7 @@
  *  - Teamwork (`teamwork`), by what it sees of its allies as it sees everyone, Reaction Time ago (their place, how
  *    they move and their Action; never their plans), so the team shares no memory and every peer agrees:
  *    - Flank slots (rolled as it picks its circling side): the team on its target (each ally seen nearer it than
- *      any other enemy), ranked by Fighter index, takes slots around it (FLANKS: two at ±70°, three at 0° and ±115°
+ *      any other enemy), ranked by Fighter index, takes slots around it (FLANKS: two at ±70°, three at 0° and ±115°, four at ±45° and ±135°
  *      of their mean bearing), and it circles to its own instead of at random; it steers clear of any ally within CROWD.
  *    - Turns (rolled once per Attack of its own): it starts no Attack from its spacing while an ally on its target is
  *      seen swinging, and otherwise only in its own turn window (TURN_TICKS, by rank), pressing as often there as the
@@ -476,7 +476,7 @@ const WALKING_AFTER = 0.3;
 const BACKING_OUT = 0.1;
 
 /** Flank slots (radians, around the target from the mean bearing of the team on it), by how many share it, in Fighter-index order. */
-const FLANKS: Readonly<Record<number, readonly number[]>> = { 2: [-70 * DEG, 70 * DEG], 3: [0, -115 * DEG, 115 * DEG] };
+const FLANKS: Readonly<Record<number, readonly number[]>> = { 2: [-70 * DEG, 70 * DEG], 3: [0, -115 * DEG, 115 * DEG], 4: [-45 * DEG, 45 * DEG, -135 * DEG, 135 * DEG] };
 /** It steers away from an ally closer than this (m). */
 const CROWD = 1.0;
 /**

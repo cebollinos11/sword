@@ -80,10 +80,10 @@ describe('assembleArena', () => {
     }
   });
 
-  it('gives each Team three spawns on safe ground, the two Teams far apart', () => {
+  it('gives each Team four spawns on safe ground, the two Teams far apart', () => {
     for (const seed of seeds) {
       const arena = assembleArena(GREYBOX_KIT, generateLayout(GREYBOX_KIT, seed, DEFAULT_GEN_PARAMS), 'gen');
-      for (const team of [0, 1]) expect(arena.spawns.filter((s) => s.team === team).map((s) => s.slot)).toEqual([0, 1, 2]);
+      for (const team of [0, 1]) expect(arena.spawns.filter((s) => s.team === team).map((s) => s.slot)).toEqual([0, 1, 2, 3]);
       for (const s of arena.spawns) {
         const g = groundBelow(arena, s.position.x, s.position.z, s.position.y + 0.01)!;
         expect(g.y).toBeCloseTo(s.position.y, 9);
@@ -107,7 +107,7 @@ const floor = (id: string, x0: number, x1: number, y = 0) => ({
 });
 const abyss = { ...floor('abyss', -30, 30, -8), abyss: true };
 const spawn = (team: number, slot: number, x: number, z: number): SpawnPoint => ({ team, slot, position: { x, y: 0, z }, facing: 0 });
-const lineUp = (team: number, x: number) => [0, 1, 2].map((slot) => spawn(team, slot, x, (slot - 1) * 2));
+const lineUp = (team: number, x: number) => [0, 1, 2, 3].map((slot) => spawn(team, slot, x, ((slot - 1.5) * 4) / 3));
 
 describe('judgeArena', () => {
   it('passes a plain floor with the Teams across it, and reports its stats', () => {

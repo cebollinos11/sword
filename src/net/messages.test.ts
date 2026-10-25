@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, stepMatch, throwTimings, type MatchState } from '../sim';
+import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, throwTimings, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage } from './messages';
 
@@ -363,7 +363,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
   const lineup: Lineup = [
     { team: 0, pilot: { kind: 'Player', player: 0 } },
     { team: 0, pilot: { kind: 'Player', player: 1 } },
-    ...Array.from({ length: 3 }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
+    ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
   ];
   const hello = (match: unknown) => ({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match, lineup, weapons: ['Halberd', 'Halberd'], player: 1 });
 
@@ -378,6 +378,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
   it("accepts a Run's start message: the Format and its humans in the Match options", () => {
     for (const match of [
       { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 2 },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 4 },
       { bestOf: 1, arena: RUN, format: 'Gauntlet' },
       { bestOf: 3, arena: 'library', format: 'Duels' },
       { bestOf: 3, arena: 'library' },
@@ -395,7 +396,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
       { bestOf: 1, format: 'Gauntlet' },
       { bestOf: 1, arena: 'gen:greybox:x', format: 'Gauntlet' },
       { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 0 },
-      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 4 },
+      { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 5 },
       { bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 1.5 },
     ]) {
       expect(parseNetMessage(hello(match)), JSON.stringify(match)).toBeNull();

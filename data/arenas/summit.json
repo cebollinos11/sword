@@ -56,8 +56,10 @@
     {"team": 0, "slot": 0, "position": [0.0, 0.0, 3.4], "facing": 3.141593},
     {"team": 0, "slot": 1, "position": [1.4, 0.0, 3.4], "facing": 3.141593},
     {"team": 0, "slot": 2, "position": [-1.4, 0.0, 3.4], "facing": 3.141593},
+    {"team": 0, "slot": 3, "position": [0.0, 0.0, 4.4], "facing": 3.141593},
     {"team": 1, "slot": 0, "position": [0.0, 0.0, -1.0], "facing": 0.0},
     {"team": 1, "slot": 1, "position": [-1.4, 0.0, -1.0], "facing": 0.0},
-    {"team": 1, "slot": 2, "position": [1.4, 0.0, -1.0], "facing": 0.0}
+    {"team": 1, "slot": 2, "position": [1.4, 0.0, -1.0], "facing": 0.0},
+    {"team": 1, "slot": 3, "position": [0.0, 0.0, -2.0], "facing": 0.0}
   ]
 }

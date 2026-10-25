@@ -6,7 +6,7 @@ import { inDuel, updateDuel, DUEL_FIGHTING } from './duel';
 import { enemyMaxHp, floorRoster, runSeed } from './gauntlet';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
-import { createMatch, stepMatch, type MatchEvent, type MatchOptions, type MatchState } from './match';
+import { createMatch, MAX_TEAM_SIZE, stepMatch, type MatchEvent, type MatchOptions, type MatchState } from './match';
 import { attack, hold, runScript, type Track } from './script';
 import type { FighterState, SimState } from './state';
 import { createInitialState, duelPlacements, step } from './step';
@@ -17,9 +17,9 @@ const ARENA = 'gen:greybox:4242';
 const { heal, revive } = tuning.gauntlet;
 const MAX = tuning.fighter.maxHp;
 
-/** A Run: Team 0's `own` Fighters, then the three Team 1 slots, on ARENA, with a short pause between Floors. */
+/** A Run: Team 0's `own` Fighters, then the MAX_TEAM_SIZE Team 1 slots, on ARENA, with a short pause between Floors. */
 const run = (options: Partial<MatchOptions> = {}, own = 2): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [...Array<number>(own).fill(0), 1, 1, 1], interDuelTicks: 10, ...options });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [...Array<number>(own).fill(0), ...Array<number>(MAX_TEAM_SIZE).fill(1)], interDuelTicks: 10, ...options });
 
 /** The Match with each Fighter's HP set by `hp(f, i)` (0 fells it on the next Tick). */
 const withHp = (m: MatchState, hp: (f: FighterState, i: number) => number): MatchState => ({
@@ -47,7 +47,7 @@ function clearFloor(m: MatchState, own: (f: FighterState, i: number) => number =
 }
 
 describe('Gauntlet Run: deterministic', { timeout: 60_000 }, () => {
-  const lineup: Lineup = [0, 0, 0, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
+  const lineup: Lineup = [0, 0, 0, 1, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
   const play = () => runMatch(tuning, run({ seed: 3, arena: 'gen:greybox:1', interDuelTicks: undefined }, 3), lineupAis(tuning, lineup, 'Gauntlet') as Controller[], 2000);
 
   it('gives the same hash at every Tick from the same options, across a Floor change', () => {
@@ -81,7 +81,7 @@ describe('Gauntlet Run: deterministic', { timeout: 60_000 }, () => {
     const styled: TuningData = { ...tuning, gauntlet: { ...tuning.gauntlet, floors: [{ boss: false, enemies: [{ difficulty: 'Easy', weapon: 'random', hpScale: 1, style: 'random' }, { difficulty: 'Easy', weapon: 'random', hpScale: 1, style: 'Tricky' }, { difficulty: 'Easy', weapon: 'random', hpScale: 1 }] }] } };
     const roster = (seed: number) => floorRoster(styled, { arena: `gen:greybox:${seed}`, humans: 1 }, 1);
     expect(roster(7)).toEqual(roster(7));
-    expect(roster(7).map((e) => e?.style)).toEqual([expect.any(String), 'Tricky', undefined]);
+    expect(roster(7).map((e) => e?.style)).toEqual([expect.any(String), 'Tricky', undefined, undefined]);
     const picks = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((seed) => roster(seed)[0]!.style));
     expect(picks.size).toBeGreaterThan(1);
     for (const p of picks) expect(Object.keys(tuning.ai.styles)).toContain(p);
@@ -124,9 +124,9 @@ describe('Gauntlet Run: Floor change', { timeout: 30_000 }, () => {
     expect(b!.death).toBeUndefined();
     expect([a!.daggers, b!.daggers]).toEqual([tuning.dagger.count, tuning.dagger.count]);
     expect([a!.sheathed, b!.sheathed]).toEqual([false, false]);
-    // Floor 2 lists two enemies: the third slot is Benched.
+    // Floor 2 lists two enemies, and a third only for a Team 0 of four: the last two slots are Benched.
     const roster = floorRoster(tuning, next.config, 2);
-    expect(enemies.map((f) => f.benched === true)).toEqual([false, false, true]);
+    expect(enemies.map((f) => f.benched === true)).toEqual([false, false, true, true]);
     expect(enemies.slice(0, 2).map((f) => [f.weapon, f.hp, f.maxHp])).toEqual(roster.slice(0, 2).map((e) => [e!.weapon, e!.maxHp, e!.maxHp]));
     // The generator carries on: the next Floor is not a replay of the last one's draws.
     expect(next.duel.rng).not.toEqual(createMatch(tuning, { bestOf: 1, seed: 7 }).duel.rng);
@@ -180,38 +180,39 @@ describe('Gauntlet Run: the end', { timeout: 60_000 }, () => {
 
 describe('Gauntlet Run: enemy HP scales with the number of humans', () => {
   const { perPlayerHp } = tuning.gauntlet;
-  const player = (player: 0 | 1 | 2) => ({ team: 0, pilot: { kind: 'Player', player } }) as const;
+  const player = (player: 0 | 1 | 2 | 3) => ({ team: 0, pilot: { kind: 'Player', player } }) as const;
   const ally = { team: 0, pilot: { kind: 'AI', difficulty: 'Hard' } } as const;
   const enemy = { team: 1, pilot: { kind: 'AI', difficulty: 'Normal' } } as const;
-  const runOf = (lineup: Lineup) => createMatch(tuning, lineupMatch(tuning, lineup, ['Arming Sword', 'Arming Sword', 'Arming Sword'], { format: 'Gauntlet', bestOf: 1, arena: ARENA }));
+  const runOf = (lineup: Lineup) => createMatch(tuning, lineupMatch(tuning, lineup, ['Arming Sword', 'Arming Sword', 'Arming Sword', 'Arming Sword'], { format: 'Gauntlet', bestOf: 1, arena: ARENA }));
 
   it.each([
-    [1, [player(0), ally, ally]],
-    [2, [player(0), player(1), ally]],
-    [3, [player(0), player(1), player(2)]],
+    [1, [player(0), ally, ally, ally]],
+    [2, [player(0), player(1), ally, ally]],
+    [3, [player(0), player(1), player(2), ally]],
+    [4, [player(0), player(1), player(2), player(3)]],
   ] as const)('with %i human(s), each enemy has maxHp × hpScale × (1 + perPlayerHp × (humans − 1))', (humans, own) => {
-    const m = runOf([...own, enemy, enemy, enemy]);
+    const m = runOf([...own, enemy, enemy, enemy, enemy]);
     expect(m.config.humans).toBe(humans);
     const scale = 1 + perPlayerHp * (humans - 1);
-    const e = m.duel.fighters[3]!;
+    const e = m.duel.fighters[4]!;
     expect([e.maxHp, e.hp]).toEqual([MAX * scale, MAX * scale]);
     // Team 0 is never scaled.
-    expect(m.duel.fighters.slice(0, 3).map((f) => f.maxHp)).toEqual([MAX, MAX, MAX]);
+    expect(m.duel.fighters.slice(0, 4).map((f) => f.maxHp)).toEqual([MAX, MAX, MAX, MAX]);
     // The boss's hpScale multiplies with it.
     expect(floorRoster(tuning, m.config, 7)[0]!.maxHp).toBe(MAX * 3 * scale);
     expect(enemyMaxHp(tuning, 3, humans)).toBe(MAX * 3 * scale);
   });
 
   it('AI allies do not change it', () => {
-    const solo = runOf([player(0), enemy, enemy, enemy]);
-    const withAllies = runOf([player(0), ally, ally, enemy, enemy, enemy]);
+    const solo = runOf([player(0), enemy, enemy, enemy, enemy]);
+    const withAllies = runOf([player(0), ally, ally, enemy, enemy, enemy, enemy]);
     expect(withAllies.config.humans).toBe(1);
     expect(withAllies.duel.fighters[3]!.maxHp).toBe(solo.duel.fighters[1]!.maxHp);
     expect(solo.duel.fighters[1]!.maxHp).toBe(MAX);
   });
 
   it('is fixed for the Run: Floor 2 still scales with the humans the Run started with', () => {
-    const m = clearFloor(runOf([player(0), player(1), enemy, enemy, enemy]));
+    const m = clearFloor(runOf([player(0), player(1), enemy, enemy, enemy, enemy]));
     expect(m.duel.fighters[2]!.maxHp).toBe(MAX * (1 + perPlayerHp));
   });
 
@@ -219,8 +220,8 @@ describe('Gauntlet Run: enemy HP scales with the number of humans', () => {
     expect(() => run({ humans: 0 })).toThrow(/humans/);
     expect(() => run({ humans: 3 })).toThrow(/humans/);
     expect(() => run({ rematchTicks: 100 })).toThrow(/Rematch/);
-    expect(() => run({ teams: [0, 1, 1] })).toThrow(/Team 1 slots/);
-    expect(() => run({ teams: [0, 1, 0, 1, 1] })).toThrow(/Team 1 slots/);
+    expect(() => run({ teams: [0, 1, 1, 1] })).toThrow(/Team 1 slots/);
+    expect(() => run({ teams: [0, 1, 0, 1, 1, 1] })).toThrow(/Team 1 slots/);
   });
 });
 

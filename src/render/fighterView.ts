@@ -10,8 +10,8 @@ export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
 /** Each team's colours: red for team 0, blue for team 1, a different shade for each teammate (the first is FIGHTER_COLOURS'). */
 export const TEAM_COLOURS: readonly (readonly number[])[] = [
-  [0xc0392b, 0xe67e5c, 0x7b241c],
-  [0x2e86c1, 0x76c3ee, 0x1b4f72],
+  [0xc0392b, 0xe67e5c, 0x7b241c, 0xd35400],
+  [0x2e86c1, 0x76c3ee, 0x1b4f72, 0x16a085],
 ];
 
 /** The colour of a team's `k`-th Fighter (in Fighter order). */

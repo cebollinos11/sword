@@ -45,17 +45,24 @@ export function enemyMaxHp(tuning: TuningData, hpScale: number, humans: number):
 /**
  * Floor `floor`'s (1-based) enemy for each Team 1 slot, in slot order (MAX_FLOOR_ENEMIES of them), or null for a slot
  * the Floor leaves empty (Benched). A `"random"` Weapon is picked from the roster, a `"random"` Style from `ai.styles`, and
- * a `"random"` Body from `bodies` when given, by `runPick` on the Run seed (`config.arena`, the first Floor's Arena). Throws on a Floor the Run lacks.
+ * a `"random"` Body from `bodies` when given, by `runPick` on the Run seed (`config.arena`, the first Floor's Arena). An enemy
+ * with a `minTeam` larger than Team 0 (`config.teams`; absent: as large as it gets) leaves its slot empty. Throws on a Floor the Run lacks.
  */
-export function floorRoster(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'humans'>, floor: number, bodies?: readonly string[]): (FloorEnemy | null)[] {
+export function floorRoster(
+  tuning: TuningData,
+  config: Pick<MatchConfig, 'arena' | 'humans'> & Partial<Pick<MatchConfig, 'teams'>>,
+  floor: number,
+  bodies?: readonly string[],
+): (FloorEnemy | null)[] {
   const listed = tuning.gauntlet.floors[floor - 1];
   if (!listed) throw new RangeError(`A Run has Floors 1 to ${tuning.gauntlet.floors.length}, not ${floor}`);
   const seed = runSeed(config.arena);
   const weapons = Object.keys(tuning.weapons);
   const styles = Object.keys(tuning.ai.styles);
+  const own = config.teams ? config.teams.filter((t) => t === 0).length : MAX_FLOOR_ENEMIES;
   return Array.from({ length: MAX_FLOOR_ENEMIES }, (_, slot) => {
     const e = listed.enemies[slot];
-    if (!e) return null;
+    if (!e || (e.minTeam ?? 0) > own) return null;
     const weapon = e.weapon === RANDOM_PICK ? weapons[runPick(seed, floor, slot, 0, weapons.length)]! : e.weapon;
     const body = e.body === RANDOM_PICK && bodies && bodies.length > 0 ? bodies[runPick(seed, floor, slot, 1, bodies.length)]! : e.body;
     const style = e.style === RANDOM_PICK ? styles[runPick(seed, floor, slot, 2, styles.length)]! : e.style;

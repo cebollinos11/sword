@@ -22,12 +22,13 @@ describe('Gauntlet Tuning Data (data/gauntlet.json)', () => {
     expect(MAX_FLOOR_ENEMIES).toBe(MAX_TEAM_SIZE);
   });
 
-  it('rejects an unknown difficulty or Weapon, 0 or more than 3 enemies, no Floors, and bad numbers', () => {
+  it('rejects an unknown difficulty or Weapon, 0 or more than 4 enemies, no Floors, and bad numbers', () => {
     const floor = (enemies: unknown[]) => ({ ...raw(), floors: [{ enemies }] });
     expect(() => parse(floor([{ difficulty: 'Legendary', weapon: 'random' }]))).toThrow(/floors\[0\]\.enemies\[0\]\.difficulty/);
     expect(() => parse(floor([{ difficulty: 'Easy', weapon: 'Spoon' }]))).toThrow(/floors\[0\]\.enemies\[0\]\.weapon/);
-    expect(() => parse(floor([]))).toThrow(/1 to 3 enemies/);
-    expect(() => parse(floor(Array(4).fill({ difficulty: 'Easy', weapon: 'random' })))).toThrow(/1 to 3 enemies/);
+    expect(() => parse(floor([]))).toThrow(/1 to 4 enemies/);
+    expect(() => parse(floor(Array(5).fill({ difficulty: 'Easy', weapon: 'random' })))).toThrow(/1 to 4 enemies/);
+    for (const minTeam of [0, 1.5, 5]) expect(() => parse(floor([{ difficulty: 'Easy', weapon: 'random', minTeam }]))).toThrow(/minTeam/);
     expect(() => parse(floor([{ difficulty: 'Easy', weapon: 'random', hpScale: 0 }]))).toThrow(/hpScale/);
     expect(() => parse({ ...raw(), floors: [] })).toThrow(/at least one Floor/);
     expect(() => parse({ ...raw(), perPlayerHp: -0.1 })).toThrow(/perPlayerHp/);

@@ -187,7 +187,7 @@ function expectChecksums(name: string, peer: Peer, expected: ReadonlyMap<number,
 const enemyHp = (m: MatchState) => m.duel.fighters.flatMap((f) => (f.team === 1 ? [f.benched ? null : f.maxHp] : []));
 
 describe('a Gauntlet Run online', () => {
-  for (const players of [2, 3]) {
+  for (const players of [2, 3, 4]) {
     it(`${players} Players with one-hit enemies play Floors 1 to 3: every checksum on every peer equals the Run stepped offline, and each peer built each Floor itself`, () => {
       const r = startRun({ players });
       // Into Floor 3, and a while on into it, every peer having confirmed that far.
@@ -218,10 +218,10 @@ describe('a Gauntlet Run online', () => {
   }
 
   it('every peer gives the enemies the same HP, scaled by the humans the start message carries', () => {
-    for (const players of [2, 3]) {
+    for (const players of [2, 3, 4]) {
       const r = startRun({ players });
       r.until(() => r.peers.every((p) => p.session.status === 'Running'), undefined, 200);
-      const floor1 = floorRoster(r.host.tuning, { arena: NAME, humans: players }, 1).map((e) => e && enemyMaxHp(r.host.tuning, 0.01, players));
+      const floor1 = floorRoster(r.host.tuning, r.host.session.state!.config, 1).map((e) => e && enemyMaxHp(r.host.tuning, 0.01, players));
       for (const p of r.peers) {
         expect(p.session.state!.config.humans).toBe(players);
         expect(enemyHp(p.session.state!)).toEqual(floor1);
@@ -282,7 +282,7 @@ describe('a Gauntlet Run online', () => {
       const s = p.session.state!;
       expect(s.run!.floor).toBe(3);
       expect(s.config.humans).toBe(3);
-      expect(enemyHp(s)).toEqual(floorRoster(p.tuning, { arena: NAME, humans: 3 }, 3).map((e) => e && enemyMaxHp(p.tuning, 0.01, 3)));
+      expect(enemyHp(s)).toEqual(floorRoster(p.tuning, s.config, 3).map((e) => e && enemyMaxHp(p.tuning, 0.01, 3)));
       expect(enemyHp(s).filter((hp) => hp !== null).length).toBeGreaterThan(0);
     }
   }, 240_000);

@@ -98,14 +98,14 @@ const CLOSED: Seat = { kind: 'Closed' };
 
 /**
  * A fresh Lobby: the host on team 0; online, Open Seats for three guests (Open Seats field nobody), offline an AI on
- * team 1. An online Gauntlet opens two Seats beside the host instead (a Run's Players all fight on Team 0) and one
- * opposite, hidden until the Lobby switches to Duels.
+ * team 1. An online Gauntlet opens every other Seat beside the host instead (a Run's Players all fight on Team 0), and
+ * none opposite.
  */
 export function newLobby(o: NewLobbyOptions): LobbyState {
   const row = (...first: Seat[]) => [...first, ...Array.from({ length: MAX_TEAM_SIZE - first.length }, () => CLOSED)];
   const host: Seat = { kind: 'Player', member: 0 };
   const gauntlet = o.settings.format === 'Gauntlet';
-  const online = gauntlet ? [row(host, OPEN, OPEN), row(OPEN)] : [row(host, OPEN), row(OPEN, OPEN)];
+  const online = gauntlet ? [row(host, ...Array.from({ length: MAX_TEAM_SIZE - 1 }, () => OPEN)), row()] : [row(host, OPEN), row(OPEN, OPEN)];
   return {
     settings: o.settings,
     members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, body: o.host.body, ready: true }],

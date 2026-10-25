@@ -4,12 +4,12 @@
   "revive": 0.4,
   "perPlayerHp": 0.5,
   "floors": [
-    { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random", "body": "random" }] },
-    { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }] },
-    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }] },
-    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }] },
-    { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }] },
-    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }] },
-    { "boss": true, "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "Sledge Hammer", "body": "wraith", "hpScale": 3 }, { "difficulty": "Skilled", "style": "random", "weapon": "Arming Sword" }] }
+    { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random", "body": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] },
+    { "boss": true, "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "Sledge Hammer", "body": "wraith", "hpScale": 3 }, { "difficulty": "Skilled", "style": "random", "weapon": "Arming Sword" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
   ]
 }

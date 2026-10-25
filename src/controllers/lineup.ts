@@ -53,7 +53,7 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
 
 /**
  * Throws unless the Lineup is playable with `players` human Players: valid teams
- * (1 to 3 Fighters a side), each Player driving exactly one Fighter, and every
+ * (1 to MAX_TEAM_SIZE Fighters a side), each Player driving exactly one Fighter, and every
  * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
  * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them).
  */

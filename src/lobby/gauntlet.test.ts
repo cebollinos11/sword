@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch } from '../controllers';
-import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
+import { createMatch, floorRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
 import { playerVsAi } from '../play/driver';
 import {
   formatProblem,
@@ -78,21 +78,23 @@ describe('Gauntlet Lobby: Players only on Team 0', () => {
     expect(moveMember(s, 0, { team: 1, index: 0 })).toBe(s);
     s = join(s, guest(1))!;
     expect(seatOf(s, 1)).toEqual({ team: 0, index: 1 });
-    // The switch moved an Open Seat from Team 1 beside the host (Stage 4), so a second guest joins there too.
+    // The switch moved Team 1's Open Seats beside the host (Stage 4), so the second and third guests join there too.
     s = join(s, guest(2))!;
     expect(seatOf(s, 2)).toEqual({ team: 0, index: 2 });
-    // Team 0's Open Seats are taken: the Team 1 one left does not count.
-    expect(s.teams[1]!.some((x) => x.kind === 'Open')).toBe(true);
-    expect(join(s, guest(3))).toBeNull();
+    s = join(s, guest(3))!;
+    expect(seatOf(s, 3)).toEqual({ team: 0, index: 3 });
+    // The Room is full, and Team 1 kept no Open Seat.
+    expect(s.teams[1]!.some((x) => x.kind === 'Open')).toBe(false);
+    expect(join(s, guest(4))).toBeNull();
   });
 
-  it('cannot switch to Gauntlet with more Players than Team 0 holds, and says why', () => {
+  it('can switch to Gauntlet with a full Room: Team 0 holds every Player', () => {
     let s = newLobby(options(true));
-    s = setSeat(s, { team: 0, index: 2 }, { kind: 'Open' });
-    s = setSeat(s, { team: 1, index: 2 }, { kind: 'Open' });
     for (let id = 1; id <= 3; id++) s = join(s, guest(id))!;
-    expect(formatProblem(s, 'Gauntlet')).toMatch(/at most 3 players/);
-    expect(gauntlet(s)).toBe(s);
+    expect(formatProblem(s, 'Gauntlet')).toBeNull();
+    s = gauntlet(s);
+    for (const id of [0, 1, 2, 3]) expect(seatOf(s, id)?.team).toBe(0);
+    expect(teamSize(s, 0)).toBe(MAX_TEAM_SIZE);
     expect(formatProblem(s, 'Duels')).toBeNull();
   });
 });
@@ -122,7 +124,8 @@ describe('the Gauntlet Lineup', () => {
     expect(m.run).toMatchObject({ floor: 1, floors: tuning.gauntlet.floors.length });
     expect(m.config.humans).toBe(1);
     const benched = m.duel.fighters.map((f) => Boolean(f.benched));
-    expect(benched).toEqual([false, ...Array.from({ length: MAX_TEAM_SIZE }, (_, k) => k >= tuning.gauntlet.floors[0]!.enemies.length)]);
+    expect(benched).toEqual([false, ...floorRoster(tuning, m.config, 1).map((e) => e === null)]);
+    expect(benched.filter((b) => !b)).toHaveLength(1 + tuning.gauntlet.floors[0]!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((ai) => ai !== null)).toBe(true);

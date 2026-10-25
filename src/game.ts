@@ -219,7 +219,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet (a new Room in it opens two Seats beside the host) on its Random Map, or a fresh one.
+    // The Format picked last: a Gauntlet (a new Room in it opens every Seat beside the host) on its Random Map, or a fresh one.
     const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;

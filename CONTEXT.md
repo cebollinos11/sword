@@ -17,7 +17,7 @@ A human taking part in a Match: Player 1 (in Player vs AI, or the host online) o
 _Avoid_: User; and Player for the Fighter itself
 
 **Team**:
-One of the two sides of a Match (team 0, team 1), each fielding 1 to 3 Fighters. Teammates' blades Stagger each other but deal no damage.
+One of the two sides of a Match (team 0, team 1), each fielding 1 to 4 Fighters. Teammates' blades Stagger each other but deal no damage.
 _Avoid_: Side (in code), faction, squad
 
 **Lineup**:
@@ -249,11 +249,11 @@ How a Match is played, a Lobby setting: Duels (best-of-N, as it always was) or G
 _Avoid_: Mode (that is the Match Mode), game type
 
 **Run**:
-A Match in the Gauntlet Format: Team 0 (one to three Fighters, the Players and any AI allies) fights through a series of Floors, from Floor 1 until it is wiped out on one (a Defeat; a Floor drawn counts as lost) or clears the last, the boss (a Victory). Its Fighters are fixed for the whole Run, and so is the number of humans it started with, which scales every enemy's max HP (`gauntlet.perPlayerHp`, so an AI Takeover never changes a Floor). A Run is a pure function of its options, the Lineup and Tuning Data (`data/gauntlet.json`): every peer builds each Floor itself. There is no Rematch.
+A Match in the Gauntlet Format: Team 0 (one to four Fighters, the Players and any AI allies) fights through a series of Floors, from Floor 1 until it is wiped out on one (a Defeat; a Floor drawn counts as lost) or clears the last, the boss (a Victory). Its Fighters are fixed for the whole Run, and so is the number of humans it started with, which scales every enemy's max HP (`gauntlet.perPlayerHp`, so an AI Takeover never changes a Floor). A Run is a pure function of its options, the Lineup and Tuning Data (`data/gauntlet.json`): every peer builds each Floor itself. There is no Rematch.
 _Avoid_: Gauntlet (for one playthrough), campaign, dungeon
 
 **Floor**:
-One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it, each with its difficulty, Style, Weapon and max HP. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
+One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it (up to four), each with its difficulty, Style, Weapon and max HP; an enemy may be listed only for a Team 0 of at least so many Fighters (`minTeam`), its slot Benched otherwise. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
 _Avoid_: Level, stage, room (Room is the online connection), wave
 
 **Benched**:
@@ -327,7 +327,7 @@ Who is in a Room (or a Skirmish) and where they sit, plus the Match settings (Ma
 _Avoid_: Room (the connection), Lineup (what a start reads off it)
 
 **Seat**:
-A place on a Team in the Lobby (three a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty, Style and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
+A place on a Team in the Lobby (four a Team): Open (a Player may take it), Closed (shown as Empty), an AI (difficulty, Style and Weapon), or a Player. Moving to another Seat swaps with whatever is there. The Lineup reads the Seats Team by Team.
 _Avoid_: Slot (that is the Lineup's)
 
 **Skirmish**:

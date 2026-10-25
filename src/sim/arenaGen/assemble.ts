@@ -18,7 +18,7 @@ const ABYSS_DEPTH = 8;
 const TEAMMATE_SIDE = 1;
 const TEAMMATE_BACK = 0.5;
 /** Fighters per Team that get a spawn. */
-export const SPAWNS_PER_TEAM = 3;
+export const SPAWNS_PER_TEAM = 4;
 
 export function assembleArena(kit: Kit, layout: Layout, name: string): ArenaGeometry {
   const { cols, rows } = layout;
@@ -127,11 +127,11 @@ export function assembleArena(kit: Kit, layout: Layout, name: string): ArenaGeom
 }
 
 /**
- * Three spawns per Team, all in one whole flat cell: the two cells furthest apart across the grid that walking joins
+ * Four spawns per Team, all in one whole flat cell: the two cells furthest apart across the grid that walking joins
  * (a ledge can part cells far apart by walking that stand close), then furthest by walking; ties: the lowest cells.
  * Cells whose eight neighbours are all solid ground (no gap, no edge of the footprint) are taken if there are two.
  * Slot 0 stands in the cell's middle, slots 1 and 2 a TEAMMATE_SIDE to its right and left and TEAMMATE_BACK behind,
- * all facing the other Team's cell along the nearer axis (quarter turns only).
+ * slot 3 twice TEAMMATE_BACK straight behind slot 0, all facing the other Team's cell along the nearer axis (quarter turns only).
  */
 function spawns(kit: Kit, layout: Layout, tile: readonly (number | null)[], x0: number, z0: number): SpawnPoint[] {
   const { cols, rows } = layout;
@@ -171,6 +171,7 @@ function spawns(kit: Kit, layout: Layout, tile: readonly (number | null)[], x0: 
       [0, 0],
       [TEAMMATE_SIDE, -TEAMMATE_BACK],
       [-TEAMMATE_SIDE, -TEAMMATE_BACK],
+      [0, -2 * TEAMMATE_BACK],
     ];
     return offsets.slice(0, SPAWNS_PER_TEAM).map(([side, ahead], slot) => ({
       team,

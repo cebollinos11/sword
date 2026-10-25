@@ -37,7 +37,7 @@ describe('the Arena worlds across a Run’s Floor change', () => {
   const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
   /** A Run on `gen:greybox:12`, Team 0 one Fighter, a short pause between Floors. */
   const start = (matchTuning: typeof tuning) =>
-    createMatch(matchTuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1], interDuelTicks: 5 });
+    createMatch(matchTuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1], interDuelTicks: 5 });
   /** Fell every enemy and step until the Floor is cleared (the pause before the next has begun, or the Run is won). */
   function clear(m: MatchState, matchTuning: typeof tuning): MatchState {
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };

@@ -371,7 +371,7 @@ export class Menu {
       'nav',
       'title-nav',
       null,
-      this.navItem('Skirmish', 'You and AI Fighters, up to 3 a side', () => this.handlers.onSkirmish(), 'primary'),
+      this.navItem('Skirmish', 'You and AI Fighters, up to 4 a side', () => this.handlers.onSkirmish(), 'primary'),
       this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
