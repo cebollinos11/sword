@@ -227,7 +227,7 @@ function describeMatch(m: MatchState, live: boolean): string {
 }
 
 const TRAIL_TICKS = 45;
-const ZONE_COLOURS: Record<HitZone, number> = { head: 0xffd60a, torso: 0x30d158, limbs: 0x64d2ff };
+const ZONE_COLOURS: Record<HitZone, number> = { head: 0xffd60a, torso: 0x30d158, limbs: 0x64d2ff, legs: 0xbf5af2 };
 
 /** Is the Blade Sweep from Tick t-1 to Tick t live? (Release, entering or leaving it.) */
 function sweepLive(run: SandboxRun, fighter: number, t: number): boolean {
@@ -658,7 +658,7 @@ saved ${file} (${result})`),
       views[i]!.update(drawnPose(from, to, i, alpha, tuning), weaponByName(tuning, f.weapon));
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;
-      if (ui.hitZones && !f.death) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning));
+      if (ui.hitZones && !f.death) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning, f.action.kind === 'Knockdown' ? tuning.fighter.lyingHitFactor : 1));
       trails[i]!.root.visible = ui.bladeSweep;
       if (ui.bladeSweep) {
         // The trail stays within the current Duel (a new Duel restarts its Tick at 0).

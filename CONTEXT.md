@@ -125,7 +125,7 @@ _Avoid_: Stun, flinch, hitstun
 Both Fighters' Attacks landing on the same Tick; both take damage.
 
 **Hit Zone**:
-A coarse region of the Skeleton (head, torso, limbs) with its own damage multiplier.
+A coarse region of the Skeleton (head, torso, limbs (arms), legs (thigh, shin and foot, thicker than the arms)) with its own damage multiplier and radius. A Fighter in Knockdown has them `fighter.lyingHitFactor` times as thick to blades and Throwing Daggers, as a body lying flat is a low target.
 _Avoid_: Hitbox, body part
 
 **Direction**:

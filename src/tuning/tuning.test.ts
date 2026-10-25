@@ -4,7 +4,7 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
   return {
-    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6 },
+    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6, lyingHitFactor: 2 },
     arena: { match: 'flat', editor: 'flat' },
     arenas: [{ name: 'flat', radius: 8, walk: [{ id: 'WALK_floor', points: [[-8, 0, -8], [8, 0, -8], [8, 0, 8], [-8, 0, 8]] }] }],
     fall: { gravity: 14, jumpSpeed: 4.8, jumpBoost: 20, jumpBoostDelay: 0.12, jumpBoostTime: 0.35, airControl: 4, fallDelay: 0.2, safeHeight: 1.6, damagePerMetre: 22, knockdownDamageFactor: 2, stepUp: 0.35, snapDown: 0.4 },
@@ -13,6 +13,7 @@ function goodRaw() {
       head: { multiplier: 1.5, radius: 0.11 },
       torso: { multiplier: 1, radius: 0.15 },
       limbs: { multiplier: 0.6, radius: 0.06 },
+      legs: { multiplier: 0.6, radius: 0.09 },
     },
     chamber: { windowSeconds: 0.15 },
     kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },

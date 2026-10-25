@@ -100,6 +100,11 @@ export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZon
   return weapon.damage * (bladeSpeed / weapon.speed) * tuning.hitZones[zone].multiplier * (head ? 1 : weapon.shaftDamage);
 }
 
+/** The Hit Zone capsules a blade or dagger meets on `f`: a Fighter in Knockdown lies flat, so its zones are `fighter.lyingHitFactor` times as thick. */
+function bodyCapsules(f: FighterState, tuning: TuningData): HitCapsule[] {
+  return hitZoneCapsules(fighterPose(f, tuning), tuning, f.action.kind === 'Knockdown' ? tuning.fighter.lyingHitFactor : 1);
+}
+
 /**
  * The first point the Blade Sweep from `from` to `to` meets an Arena Wall, or null: a blade already through a
  * Wall at last Tick's pose meets it at once (s = 0, no room to swing); otherwise the earliest crossing of any
@@ -131,7 +136,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
       if (j === i || !inDuel(defender)) return;
-      const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
+      const zones: Capsule[] = bodyCapsules(defender, tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       const chambered = !blocked && (chamberedBy?.includes(j) ?? false) && chamberHolds(defender, direction);
       // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
@@ -188,7 +193,7 @@ export interface DaggerContact {
  * ignores Weapons. Hit Zones are padded by `dagger.radius`.
  */
 export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: readonly FighterState[], tuning: TuningData): DaggerContact[] {
-  const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : hitZoneCapsules(fighterPose(f, tuning), tuning)));
+  const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : bodyCapsules(f, tuning)));
   const out: DaggerContact[] = [];
   sweeps.forEach((sweep, k) => {
     let best: { s: number; depth: number; contact: DaggerContact } | null = null;

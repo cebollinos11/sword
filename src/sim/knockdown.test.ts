@@ -239,3 +239,13 @@ describe('Knockdown', () => {
     expect(hashValue(go())).toBe(hashValue(go()));
   });
 });
+
+describe('Knockdown Hit Zones', () => {
+  it('are lying thicker to a blade (fighter.lyingHitFactor) but not standing', () => {
+    const lying = until(knockedDown(), 'Down').fighters[1]!;
+    const pose = fighterPose(lying, tuning);
+    const thick = hitZoneCapsules(pose, tuning, tuning.fighter.lyingHitFactor);
+    expect(tuning.fighter.lyingHitFactor).toBeGreaterThan(1);
+    expect(Math.max(...thick.map((c) => Math.max(c.a.y, c.b.y) + c.radius))).toBeGreaterThan(0.4);
+  });
+});

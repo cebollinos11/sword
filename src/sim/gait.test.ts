@@ -338,19 +338,19 @@ describe('Gait and Hit Zones', () => {
     // Fighter 1 walks into the Thrust and is hit on the leg it is stepping with.
     const run = runDuel(lowThrust, { distance: 2, a: [...wait(2), ...attack('Thrust')], b: walk(60, { x: 0, z: -0.5 }), ticks: 60 });
     const hit = run.events.find((e): e is HitEvent & { tick: number } => e.type === 'Hit')!;
-    expect(hit).toMatchObject({ defender: 1, zone: 'limbs' });
+    expect(hit).toMatchObject({ defender: 1, zone: 'legs' });
 
     const defender = run.states[hit.tick]!.fighters[1]!;
     const drawn = fighterPose(defender, lowThrust);
     const motionOnly = playbackPose(lowThrust, defender.motion, defender);
     const leg = (pose: typeof drawn) => Math.min(segmentDistance(hit.point, pose.joints.leftHip, pose.joints.leftKnee), segmentDistance(hit.point, pose.joints.leftKnee, pose.joints.leftAnkle));
-    const radius = lowThrust.hitZones.limbs.radius;
+    const radius = lowThrust.hitZones.legs.radius;
     expect(lifted(drawn.joints.leftAnkle)).toBe(true); // mid-step
     expect(leg(drawn)).toBeLessThanOrEqual(radius + 1e-9);
     expect(leg(motionOnly)).toBeGreaterThan(radius);
     // And the Hit Zone capsules the Editor overlays are those same drawn legs.
-    const capsules = hitZoneCapsules(drawn, lowThrust).filter((c) => c.zone === 'limbs');
-    expect(capsules).toContainEqual({ zone: 'limbs', a: drawn.joints.leftKnee, b: drawn.joints.leftAnkle, radius });
+    const capsules = hitZoneCapsules(drawn, lowThrust).filter((c) => c.zone === 'legs');
+    expect(capsules).toContainEqual({ zone: 'legs', a: drawn.joints.leftKnee, b: drawn.joints.leftAnkle, radius });
   });
 });
 

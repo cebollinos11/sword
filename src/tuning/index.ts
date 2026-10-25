@@ -62,6 +62,8 @@ export interface FighterTuning {
   readonly turnSpeed: number;
   /** Seconds over which the pose crossfades whenever the Motion changes (e.g. Block → Idle), so poses never snap. */
   readonly motionBlend: number;
+  /** How much larger (a multiplier) the Hit Zones of a Fighter in Knockdown are to a blade or dagger, so a flat body is not a sliver to hit. 1 = as they are standing. */
+  readonly lyingHitFactor: number;
   /** How far (degrees) a Fighter may look up or down from level (Intent `pitch`). */
   readonly lookPitchMax: number;
   /** The share of its look pitch a Fighter leans its torso by (0 = upright; 1 = as far as it looks). */
@@ -238,7 +240,7 @@ export interface MatchTuning {
   readonly lineSpacing: number;
 }
 
-export const HIT_ZONES = ['head', 'torso', 'limbs'] as const;
+export const HIT_ZONES = ['head', 'torso', 'limbs', 'legs'] as const;
 export type HitZone = (typeof HIT_ZONES)[number];
 
 export interface HitZoneTuning {
@@ -685,6 +687,7 @@ export function parseTuningData(raw: unknown): TuningData {
       crouchSpeed: positiveNumber(f, 'crouchSpeed', 'fighter'),
       crouchWalkFactor: positiveNumber(f, 'crouchWalkFactor', 'fighter'),
       sheathedWalkFactor: positiveNumber(f, 'sheathedWalkFactor', 'fighter'),
+      lyingHitFactor: positiveNumber(f, 'lyingHitFactor', 'fighter'),
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,

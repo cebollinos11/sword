@@ -20,10 +20,14 @@ export const HIT_ZONE_BONES: Readonly<Record<HitZone, readonly (readonly [JointN
     ['leftElbow', 'leftHand'],
     ['rightShoulder', 'rightElbow'],
     ['rightElbow', 'rightHand'],
+  ],
+  legs: [
     ['leftHip', 'leftKnee'],
     ['leftKnee', 'leftAnkle'],
+    ['leftAnkle', 'leftToe'],
     ['rightHip', 'rightKnee'],
     ['rightKnee', 'rightAnkle'],
+    ['rightAnkle', 'rightToe'],
   ],
 };
 
@@ -35,11 +39,11 @@ export interface HitCapsule {
   readonly radius: number;
 }
 
-/** The Hit Zone capsules of a solved Skeleton, in world space. */
-export function hitZoneCapsules(pose: SkeletonPose, tuning: TuningData): HitCapsule[] {
+/** The Hit Zone capsules of a solved Skeleton, in world space, their radii scaled by `radiusFactor`. */
+export function hitZoneCapsules(pose: SkeletonPose, tuning: TuningData, radiusFactor = 1): HitCapsule[] {
   const out: HitCapsule[] = [];
   for (const zone of Object.keys(HIT_ZONE_BONES) as HitZone[]) {
-    const radius = tuning.hitZones[zone].radius;
+    const radius = tuning.hitZones[zone].radius * radiusFactor;
     for (const [a, b] of HIT_ZONE_BONES[zone]) out.push({ zone, a: pose.joints[a], b: pose.joints[b], radius });
   }
   return out;

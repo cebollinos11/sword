@@ -115,6 +115,7 @@ describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () =
       head: { multiplier: 2, radius: 0.12 },
       torso: { multiplier: 1, radius: 0.16 },
       limbs: { multiplier: 0.4, radius: 0.06 },
+      legs: { multiplier: 0.6, radius: 0.09 },
     });
   });
 
