@@ -26,6 +26,14 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
         /* no pointer lock */
       }
     }
+    // Keyboard Lock (which keeps Ctrl+W from closing the tab) only works in fullscreen, and only where it exists.
+    if ('keyboard' in navigator && !document.fullscreenElement) {
+      try {
+        void Promise.resolve(document.documentElement.requestFullscreen({ navigationUI: 'hide' })).catch(() => undefined);
+      } catch {
+        /* no fullscreen */
+      }
+    }
     const b = button(e.button);
     if (b) local.buttonDown(b);
     e.preventDefault();
@@ -46,7 +54,7 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
   const onKeyUp = (e: KeyboardEvent) => local.keyUp(e.code);
   const onBlur = () => local.releaseAll();
   // Ctrl+W (closing the tab) cannot be cancelled from a key handler. In fullscreen Chromium lets the page take the
-  // keys with Keyboard Lock; elsewhere, closing mid-Match at least asks first.
+  // keys with Keyboard Lock (the first click goes fullscreen for it); elsewhere, closing mid-Match at least asks first.
   const onBeforeUnload = (e: BeforeUnloadEvent) => {
     if (!binding.enabled) return;
     e.preventDefault();
@@ -55,7 +63,8 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
   const syncKeyboardLock = () => {
     const keyboard = (navigator as Navigator & { keyboard?: { lock(codes?: string[]): Promise<void>; unlock(): void } }).keyboard;
     if (!keyboard) return;
-    if (document.fullscreenElement) void keyboard.lock(['ControlLeft', 'KeyW']).catch(() => undefined);
+    // Every key: with Ctrl held, A S D F E R Q would also be browser shortcuts (Ctrl+F finds, Ctrl+R reloads).
+    if (document.fullscreenElement) void keyboard.lock().catch(() => undefined);
     else keyboard.unlock();
   };
   const onContextMenu = (e: Event) => e.preventDefault();
