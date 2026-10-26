@@ -15,8 +15,11 @@ const KICK_KEY = 'KeyF';
 /** The key that Sheathes the Weapon, or Draws it when Sheathed. */
 const SHEATHE_KEY = 'KeyR';
 
-/** The key held to crouch (not Ctrl: browsers keep Ctrl+W, which would close the tab). */
-const CROUCH_KEY = 'KeyC';
+/**
+ * The keys held to crouch. Left Ctrl is safe to use because the page asks the browser to hand over Ctrl+W
+ * (Keyboard Lock in fullscreen, an installed app) and, failing that, confirms before the tab closes (`bindLocalInput`).
+ */
+const CROUCH_KEYS: readonly string[] = ['KeyC', 'ControlLeft'];
 
 /** Mouse travel (px) that counts as a Direction gesture; smaller movements add up until they reach it. */
 export const GESTURE_PX = 6;
@@ -162,7 +165,7 @@ export class LocalController implements Controller {
     if (move) this.moving[move] = true;
     else if (code === FEINT_KEY) this.feint();
     else if (code === JUMP_KEY) this.buttonDown('jump');
-    else if (code === CROUCH_KEY) this.buttonDown('crouch');
+    else if (CROUCH_KEYS.includes(code)) this.buttonDown('crouch');
     else if (code === KICK_KEY) this.buttonDown('kick');
     else if (code === THROW_KEY) this.buttonDown('throw');
     else if (code === SHEATHE_KEY) this.buttonDown('sheathe');
@@ -172,7 +175,7 @@ export class LocalController implements Controller {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = false;
     else if (code === JUMP_KEY) this.buttonUp('jump');
-    else if (code === CROUCH_KEY) this.buttonUp('crouch');
+    else if (CROUCH_KEYS.includes(code)) this.buttonUp('crouch');
     else if (code === KICK_KEY) this.buttonUp('kick');
     else if (code === THROW_KEY) this.buttonUp('throw');
     else if (code === SHEATHE_KEY) this.buttonUp('sheathe');

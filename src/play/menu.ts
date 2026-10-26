@@ -113,7 +113,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Right mouse', 'Block in the Direction you last moved'],
   ['W A S D', 'Walk'],
   ['Space', 'Jump'],
-  ['C (hold)', 'Crouch'],
+  ['C or Left Ctrl (hold)', 'Crouch'],
   ['F', 'Kick'],
   ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
   ['R', 'Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again'],
