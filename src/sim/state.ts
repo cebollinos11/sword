@@ -4,6 +4,7 @@ import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
+import type { Size } from '../tuning';
 import type { Vec3 } from './vec';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
@@ -189,6 +190,8 @@ export interface FighterState {
   readonly maxHp: number;
   /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
   readonly weapon: string;
+  /** How tall and thick it is, fixed for the Match; absent for the standard body (Tuning Data `sizedTuning` scales everything it affects). */
+  readonly size?: Size;
   readonly action: Action;
   /** The Motion animating the current Action and its playhead. */
   readonly motion: MotionPlayback;

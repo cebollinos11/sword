@@ -3,6 +3,7 @@
  * carries from one Floor to the next (docs/plans/gauntlet.md). Every peer builds each Floor from this, the Run's
  * options and the Lineup, so peers with different Floors refuse each other at connect.
  */
+import { clampSize, MAX_SIZE, MIN_SIZE, type Size } from './size';
 import { array, nonNegativeNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
 
 /** A Weapon, Body or AI Style written `"random"` is picked by a pure hash of the Run seed, the Floor and the slot. */
@@ -25,6 +26,8 @@ export interface GauntletEnemy {
   readonly hpScale: number;
   /** It fights only when Team 0 fields at least this many Fighters (1 to MAX_FLOOR_ENEMIES); absent: always. Its slot is Benched otherwise. */
   readonly minTeam?: number;
+  /** Its Size (`{ height, thick }`, each MIN_SIZE to MAX_SIZE); absent: the standard body. */
+  readonly size?: Size;
 }
 
 export interface GauntletFloor {
@@ -53,6 +56,16 @@ function share(obj: Record<string, unknown>, key: string, where: string, min: 'z
   return v;
 }
 
+function parseEnemySize(raw: unknown, at: string): Size {
+  const o = record(raw, at);
+  const part = (key: 'height' | 'thick'): number => {
+    const v = o[key] === undefined ? 1 : positiveNumber(o, key, at);
+    if (v < MIN_SIZE || v > MAX_SIZE) throw new TuningDataError(`${at}.${key} must be from ${MIN_SIZE} to ${MAX_SIZE}, got ${v}`);
+    return v;
+  };
+  return clampSize({ height: part('height'), thick: part('thick') });
+}
+
 /** Validate the raw Gauntlet against the Weapon roster and the AI difficulties and Styles. Accepts its own output. */
 export function parseGauntlet(raw: unknown, weapons: readonly string[], difficulties: readonly string[], styles: readonly string[]): GauntletTuning {
   const g = record(raw, 'gauntlet');
@@ -74,7 +87,8 @@ export function parseGauntlet(raw: unknown, weapons: readonly string[], difficul
       const minTeam = e.minTeam === undefined ? undefined : positiveNumber(e, 'minTeam', at);
       if (minTeam !== undefined && (!Number.isInteger(minTeam) || minTeam > MAX_FLOOR_ENEMIES))
         throw new TuningDataError(`${at}.minTeam must be a whole number from 1 to ${MAX_FLOOR_ENEMIES}, got ${minTeam}`);
-      return { difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), hpScale, ...(minTeam === undefined ? {} : { minTeam }) };
+      const size = e.size === undefined ? undefined : parseEnemySize(e.size, `${at}.size`);
+      return { difficulty, weapon, ...(size === undefined ? {} : { size }), ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), hpScale, ...(minTeam === undefined ? {} : { minTeam }) };
     });
     if (enemies.length < 1 || enemies.length > MAX_FLOOR_ENEMIES)
       throw new TuningDataError(`${where}.enemies must list 1 to ${MAX_FLOOR_ENEMIES} enemies, got ${enemies.length}`);

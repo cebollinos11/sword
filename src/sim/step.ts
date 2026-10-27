@@ -1,4 +1,4 @@
-import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
+import { defaultWeaponName, sizedTuning, storedSize, weaponByName, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
@@ -66,6 +66,7 @@ export function createInitialState(
   weapons: readonly string[] = [],
   teams: readonly number[] = [],
   arena: string = tuning.arena.editor,
+  sizes: readonly (Size | undefined)[] = [],
 ): SimState {
   const geometry = arenaOf(tuning, arena);
   return {
@@ -76,6 +77,8 @@ export function createInitialState(
       // A placement stands on the ground under it, within a step of where it is placed.
       const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
       const weapon = weaponByName(tuning, weapons[i] ?? defaultWeaponName(tuning)).name;
+      const size = storedSize(sizes[i]);
+      const sized = sizedTuning(tuning, size);
       return {
         position: { x: position.x, z: position.z },
         y,
@@ -86,12 +89,13 @@ export function createInitialState(
         hp: tuning.fighter.maxHp,
         maxHp: tuning.fighter.maxHp,
         weapon,
+        ...(size && { size }),
         action: IDLE_ACTION,
         motion: IDLE_MOTION,
-        ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
+        ...bladeAndLeg(motionPose(sized, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
         daggers: tuning.dagger.count,
         sheathed: false,
-        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
+        gait: initialGait(sized, weapon, IDLE_MOTION, { position, facing, y }),
       };
     }),
     daggers: [],
@@ -279,9 +283,10 @@ function settleBodies(
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (!inDuel(f)) return f;
-    const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
-    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, tuning, emit) : grounded;
-    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
+    const own = sizedTuning(tuning, f.size);
+    const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, own);
+    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
+    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, own, arena, emit) };
     return { ...settled, ...bladeAndLeg(fighterPose(settled, tuning)) };
   });
 }
@@ -326,7 +331,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
+    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, sizedTuning(tuning, f.size), emit))),
     tuning,
     arena,
     fighting,

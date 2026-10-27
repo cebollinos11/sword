@@ -7,7 +7,7 @@
  * guest and both peers build the same Match and the same AI Controllers.
  */
 import { checkRunTeams, checkTeams, runPick, type MatchFormat, type MatchOptions } from '../sim';
-import { DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type TuningData } from '../tuning';
+import { clampSize, DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type Size, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 import { createFloorAi } from './floorAi';
@@ -36,6 +36,8 @@ export interface LineupSlot {
   readonly pilot: Pilot;
   /** An AI's Weapon (a Tuning Data Weapon name; default: the default Weapon). Ignored for a Player, who picks their own. */
   readonly weapon?: string;
+  /** Its Fighter's Size (default: the standard body). A Player's is the one they picked; an AI's is set in its slot. */
+  readonly size?: Size;
 }
 
 export type Lineup = readonly LineupSlot[];
@@ -73,6 +75,7 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
     if (driving !== wanted) throw new RangeError(`Player ${p} must drive ${wanted} Fighter${wanted === 1 ? '' : 's'}, drives ${driving}`);
   }
   for (const s of lineup) {
+    if (s.size !== undefined && (clampSize(s.size).height !== s.size.height || clampSize(s.size).thick !== s.size.thick)) throw new RangeError('A Size is 0.5 to 1.5 in steps of 0.05');
     if (floors(s)) continue;
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
     if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);
@@ -81,13 +84,13 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
 }
 
 /**
- * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`), and for a
+ * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`) and Size, and for a
  * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies), so every peer building the Match
  * from the same Lineup gets the same number. Duels never read it, and keep the default.
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: lineupPlayers(lineup) } : {}) };
+  return { ...options, teams: lineup.map((s) => s.team), weapons, sizes: lineup.map((s) => s.size), ...(options.format === 'Gauntlet' ? { humans: lineupPlayers(lineup) } : {}) };
 }
 
 /** How many human Players the Lineup fields. */

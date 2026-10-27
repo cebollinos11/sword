@@ -27,6 +27,7 @@ import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
 import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
+export { clampSize, isSize, isStandardSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, sizedTuning, STANDARD_SIZE, storedSize, type Size } from './size';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export {
@@ -422,6 +423,11 @@ export interface TuningData {
    * the default of the same name. Look Motions up with `weaponMotion`.
    */
   readonly motionOverrides: Readonly<Record<string, Readonly<Record<string, Motion>>>>;
+  /**
+   * Set only on the Tuning Data of a Fighter that is not the standard Size (`sizedTuning`): its Size, and the standard Skeleton the
+   * Motions are authored for, which their targets are scaled from. Never in a loaded file, and not hashed.
+   */
+  readonly size?: { readonly height: number; readonly thick: number; readonly skeleton: SkeletonTuning };
 }
 
 /** The default Weapon: the first in the roster. */

@@ -20,7 +20,7 @@
  */
 import { MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
-import { applyRunKnobs, type RunKnobs, type TuningData } from '../tuning';
+import { applyRunKnobs, storedSize, type RunKnobs, type Size, type TuningData } from '../tuning';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -35,6 +35,8 @@ export interface Member {
   readonly weapon: string;
   /** The Body they are drawn as (render-only; a name the renderer does not know is drawn as a random one). */
   readonly body: string;
+  /** How tall and thick they are (absent: the standard body). */
+  readonly size?: Size;
   /** Ready to start (guests; the host starts when everyone is). */
   readonly ready: boolean;
 }
@@ -43,7 +45,7 @@ export type Seat =
   | { readonly kind: 'Open' }
   | { readonly kind: 'Closed' }
   | { readonly kind: 'Player'; readonly member: number }
-  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string };
+  | { readonly kind: 'AI'; readonly difficulty: string; readonly weapon: string; readonly style?: string; readonly size?: Size };
 
 export type SeatKind = Seat['kind'];
 
@@ -89,7 +91,7 @@ export interface LobbyLineup {
 }
 
 export interface NewLobbyOptions {
-  readonly host: { readonly name: string; readonly weapon: string; readonly body: string };
+  readonly host: { readonly name: string; readonly weapon: string; readonly body: string; readonly size?: Size };
   readonly settings: LobbySettings;
   /** Online: Open Seats for three guests (one beside the host, two opposite; in a Gauntlet two beside the host); offline this AI opposite. */
   readonly online: boolean;
@@ -111,7 +113,7 @@ export function newLobby(o: NewLobbyOptions): LobbyState {
   const online = gauntlet ? [row(host, ...Array.from({ length: MAX_TEAM_SIZE - 1 }, () => OPEN)), row()] : [row(host, OPEN), row(OPEN, OPEN)];
   return {
     settings: o.settings,
-    members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, body: o.host.body, ready: true }],
+    members: [{ id: 0, name: o.host.name, weapon: o.host.weapon, body: o.host.body, ...(o.host.size && { size: o.host.size }), ready: true }],
     teams: o.online ? online : [row(host), row({ kind: 'AI', ...o.ai })],
     generation: 0,
     playing: false,
@@ -222,11 +224,15 @@ export function leave(state: LobbyState, id: number): LobbyState {
   return at ? withSeat(left, at, OPEN) : left;
 }
 
+const sameSize = (a: Size | undefined, b: Size | undefined): boolean => (a?.height ?? 1) === (b?.height ?? 1) && (a?.thick ?? 1) === (b?.thick ?? 1);
+
 export function updateMember(state: LobbyState, id: number, patch: Partial<Omit<Member, 'id'>>): LobbyState {
   const old = member(state, id);
   if (!old) return state;
-  const fresh = { ...old, ...patch };
-  if (fresh.name === old.name && fresh.weapon === old.weapon && fresh.body === old.body && fresh.ready === old.ready) return state;
+  const { size, ...merged } = { ...old, ...patch };
+  const kept = storedSize(size);
+  const fresh: Member = kept ? { ...merged, size: kept } : merged;
+  if (fresh.name === old.name && fresh.weapon === old.weapon && fresh.body === old.body && sameSize(fresh.size, old.size) && fresh.ready === old.ready) return state;
   return { ...state, members: state.members.map((m) => (m.id === id ? fresh : m)) };
 }
 
@@ -284,6 +290,12 @@ export function nextMatchArena(state: LobbyState, played?: string): string {
   return state.matchArena === null ? state.settings.arena : nextArenaName(played ?? state.matchArena);
 }
 
+/** `{ size }` of Member `id`, or nothing for the standard body. */
+const memberSize = (state: LobbyState, id: number): { size?: Size } => {
+  const size = member(state, id)?.size;
+  return size ? { size } : {};
+};
+
 /** Who fights, read off the Seats team by team (Open and Closed Seats field nobody); in a Gauntlet Team 0's, then MAX_TEAM_SIZE Floor slots. */
 export function lobbyLineup(state: LobbyState): LobbyLineup {
   const gauntlet = isGauntlet(state);
@@ -296,8 +308,8 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
       return;
     }
     for (const s of row) {
-      if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) } });
-      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon });
+      if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) });
+      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon, ...(s.size && { size: s.size }) });
     }
   });
   return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };

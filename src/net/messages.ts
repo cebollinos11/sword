@@ -1,5 +1,6 @@
 import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
+import { isSize } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
 export const PROTOCOL_VERSION = 19;
@@ -191,7 +192,7 @@ export function isFormatOnMap(format: unknown, arena: unknown): boolean {
 
 /** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
-  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon))) return false;
+  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size))) return false;
   const p = v.pilot;
   return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)));
 }
@@ -313,6 +314,7 @@ function isFighter(v: unknown): boolean {
     v.daggers >= 0 &&
     isBool(v.sheathed) &&
     isString(v.weapon) &&
+    (v.size === undefined || isSize(v.size)) &&
     isAction(v.action) &&
     isObject(v.motion) &&
     isString(v.motion.name) &&
@@ -382,6 +384,7 @@ function isMatchState(v: unknown): v is MatchState {
     config.interDuelTicks >= 1 &&
     (config.rematchTicks === null || (isInt(config.rematchTicks) && config.rematchTicks >= 1)) &&
     isWeapons(config.weapons) &&
+    (config.sizes === undefined || (isArrayOf(config.sizes, isSize) && (config.sizes as unknown[]).length === (config.teams as unknown[]).length)) &&
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isInt(v.matchNumber) &&
     v.matchNumber >= 1 &&

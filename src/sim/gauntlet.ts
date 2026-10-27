@@ -4,7 +4,7 @@
  * number of humans, so every peer builds the same Floor with nothing sent.
  */
 import { hashValue } from '../hash';
-import { MAX_FLOOR_ENEMIES, RANDOM_PICK, type TuningData } from '../tuning';
+import { MAX_FLOOR_ENEMIES, RANDOM_PICK, type Size, type TuningData } from '../tuning';
 import { parseGeneratedName } from './arenaGen/named';
 import type { MatchConfig } from './match';
 
@@ -17,6 +17,8 @@ export interface FloorEnemy {
   /** Its AI Style (Tuning Data `ai.styles`), or absent (the default Style). The Simulation never reads it. */
   readonly style?: string;
   readonly maxHp: number;
+  /** Its Size, or absent for the standard body. */
+  readonly size?: Size;
 }
 
 /** The Run seed: the seed of the Run's first Arena when it is a Generated Arena (the Lobby's Random Map), else a hash of its name. */
@@ -66,6 +68,6 @@ export function floorRoster(
     const weapon = e.weapon === RANDOM_PICK ? weapons[runPick(seed, floor, slot, 0, weapons.length)]! : e.weapon;
     const body = e.body === RANDOM_PICK && bodies && bodies.length > 0 ? bodies[runPick(seed, floor, slot, 1, bodies.length)]! : e.body;
     const style = e.style === RANDOM_PICK ? styles[runPick(seed, floor, slot, 2, styles.length)]! : e.style;
-    return { difficulty: e.difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), maxHp: enemyMaxHp(tuning, e.hpScale, config.humans) };
+    return { difficulty: e.difficulty, weapon, ...(body === undefined ? {} : { body }), ...(style === undefined ? {} : { style }), ...(e.size === undefined ? {} : { size: e.size }), maxHp: enemyMaxHp(tuning, e.hpScale, config.humans) };
   });
 }

@@ -32,6 +32,10 @@ _Avoid_: Rig, armature, model
 How a Fighter is drawn: the bare Skeleton from primitives, or a skinned model (female, monk, prince, brawler, librarian, duelist, snake, wraith, asturian) whose bones are placed on the Skeleton's joints every frame. Each player picks theirs in the menu, and online the Lobby tells every peer what each Member picked; the AIs wear random ones. Render-only: it never changes what the Skeleton does, and it is not part of the Match.
 _Avoid_: Skin, character model, avatar
 
+**Size**:
+How tall and thick a Fighter is: a height and a thickness, each a multiple of the standard body from 0.5 to 1.5 in steps of 0.05 (1 is standard). Height stretches the Skeleton's bones, the Weapon (its length, grip and head) and the Fighter's collision height; thickness widens the body, its Hit Zones and its collision radius. A Motion's targets are scaled to fit, so a taller Fighter reaches further and a wider one is easier to hit and takes more room. Stats (max HP, walk speed, Jump, damage, Block rules) do not change. Part of the Match, fixed for it and kept across Duels: a Player picks theirs in the menu, the host sets an AI Seat's, a Gauntlet Floor's enemy names its own (Tuning Data `gauntlet.floors[].enemies[].size`), and online the Lobby tells every peer. Absent from a Fighter that is the standard body. Ceilings and Walls judge the real, scaled height; the AI's navmesh is still built for the standard body.
+_Avoid_: Scale, build (in code), stature
+
 **Intent**:
 What a Controller asks its Fighter to do on a given Tick (move, aim Direction, attack, block). The only thing that crosses the Controller–Fighter boundary, and the only thing sent between peers.
 _Avoid_: Command, input (when meaning the abstract request)

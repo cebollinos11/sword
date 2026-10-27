@@ -1,7 +1,7 @@
 import type * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
 import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
-import { weaponByName, type TuningData } from '../tuning';
+import { sizedTuning, weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
@@ -135,7 +135,7 @@ export class Renderer {
         this.stage.scene.add(slot.view.root);
       }
       slot.view.root.visible = true;
-      slot.view.update(pose, weaponByName(this.tuning, f.weapon));
+      slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
