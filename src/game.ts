@@ -1,9 +1,9 @@
 import { ARENA_SEED_RANGE, createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
-import type { RunKnobs, TuningData } from './tuning';
+import { storedSize, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
-import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
+import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
@@ -70,6 +70,12 @@ export interface Game {
 }
 
 /** Seeds a fresh Match (outside the Simulation, so Math.random is fine). */
+/** `{ size }` for a Member's wishes when the menu's Build is not the standard body. */
+function sizeOf(menu: { readonly size: Size }): { size?: Size } {
+  const size = storedSize(menu.size);
+  return size ? { size } : {};
+}
+
 function randomSeed(): number {
   return (Math.random() * 0x7fffffff) | 0;
 }
@@ -187,7 +193,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
-      skirmish ??= new HostLobby(tuning, lobbyOptions(false));
+      if (skirmish) skirmish.setMine({ name: menu.name, body: menu.body, size: storedSize(menu.size) });
+      else skirmish = new HostLobby(tuning, lobbyOptions(false));
       adopt(skirmish);
       menu.showLobby(skirmish);
     },
@@ -238,7 +245,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
-    return { host: { name: menu.name, weapon, body: menu.body }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
+    return { host: { name: menu.name, weapon, body: menu.body, ...sizeOf(menu) }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
   // --- Lobby and Room ---
@@ -415,7 +422,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         if (attempt !== pending) return transport.close();
         attempt = null;
         const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
-        adopt(new GuestLobby(transport, tuning, { name: menu.name, weapon, body: menu.body }));
+        adopt(new GuestLobby(transport, tuning, { name: menu.name, weapon, body: menu.body, ...sizeOf(menu) }));
         menu.showConnecting('Joining Room', 'Connected. Waiting for the host’s Lobby…', code);
       },
       (e) => failed(pending, e),
@@ -591,7 +598,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const s = lobby?.state;
     // The next Match's Arena (built now, so the Fight that starts it does not wait for it).
     const arena = (s && nextMatchArena(s, played ?? undefined)) ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
-    let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!] };
+    let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!], sizes: [menu.size] };
     let me = 0;
     let seated: { lineup: Lineup; bodies: readonly string[] } | null = null;
     if (s) {
@@ -704,7 +711,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
         if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
           placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
-        else placeThirdPersonCamera(renderer.camera, tuning.camera, lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
+        else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
         renderer.render(before, curr.duel, alpha);

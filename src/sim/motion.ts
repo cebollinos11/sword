@@ -163,7 +163,27 @@ export function channelValue<C extends keyof PoseTargets>(targets: PoseTargets, 
 export function motionTargets(tuning: TuningData, weapon: string, name: string, tick: number): PoseTargets {
   const motion = weaponMotion(tuning, weapon, name);
   if (!motion) throw new Error(`Unknown Motion "${name}"`);
-  return sampleMotion(motion, motionTime(motion, tick, motionTempo(tuning, weapon, name)), tuning.skeleton, guardKey(tuning, weapon));
+  const { size } = tuning;
+  // Motions are authored for the standard body: sample them on it, then fit the targets to a Fighter of another Size.
+  const targets = sampleMotion(motion, motionTime(motion, tick, motionTempo(tuning, weapon, name)), size ? size.skeleton : tuning.skeleton, guardKey(tuning, weapon));
+  return size ? scaleTargets(targets, size.height, size.thick) : targets;
+}
+
+/** `targets` fitted to a body `height` times as tall and `thick` times as wide: heights and depths scale with the height, sideways reach with the thickness. */
+export function scaleTargets(targets: PoseTargets, height: number, thick: number): PoseTargets {
+  const at = (v: Vec3): Vec3 => vec3(v.x * thick, v.y * height, v.z * height);
+  const foot = (f: FootPlant): FootPlant => ({ x: f.x * thick, z: f.z * height });
+  const { kickFoot, body } = targets;
+  return {
+    rightHand: { ...targets.rightHand, position: at(targets.rightHand.position) },
+    leftHand: { ...targets.leftHand, position: at(targets.leftHand.position) },
+    torso: targets.torso,
+    hip: at(targets.hip),
+    leftFoot: foot(targets.leftFoot),
+    rightFoot: foot(targets.rightFoot),
+    ...(kickFoot && { kickFoot: at(kickFoot) }),
+    ...(body && { body: { ...body, drop: body.drop * height, ...(body.pivot !== undefined && { pivot: body.pivot * height }) } }),
+  };
 }
 
 /** The upper body: the channels a held Motion can freeze (the torso and both hands). */

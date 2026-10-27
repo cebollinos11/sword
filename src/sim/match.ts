@@ -19,7 +19,7 @@
  * so a whole Match hashes (`hashValue`) and snapshots (`snapshot`) exactly
  * for Rollback.
  */
-import { defaultWeaponName, weaponByName, type TuningData } from '../tuning';
+import { defaultWeaponName, isStandardSize, storedSize, weaponByName, type Size, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
@@ -53,6 +53,8 @@ export interface MatchConfig {
   readonly weapons: readonly string[];
   /** Each Fighter's team (0 or 1); its length is the number of Fighters. */
   readonly teams: readonly number[];
+  /** Each Fighter's Size (clamped to the allowed range), kept across Duels; absent when every Fighter is the standard body. A Run's enemies take their Floor's Size instead. */
+  readonly sizes?: readonly Size[];
   /** Ticks after the Match ends before a fresh Match (same config, score 0–0) starts, or null for none (the default). */
   readonly rematchTicks: number | null;
   /**
@@ -68,7 +70,9 @@ export interface MatchConfig {
   readonly humans: number;
 }
 
-export interface MatchOptions extends Partial<MatchConfig> {
+export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
+  /** Each Fighter's Size (default: the standard body). */
+  readonly sizes?: readonly (Size | undefined)[];
   readonly bestOf: number;
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
@@ -176,7 +180,7 @@ function startPlacements(tuning: TuningData, config: MatchConfig, arena: string)
 }
 
 function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, seed: number): SimState {
-  return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena);
+  return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena, config.sizes);
 }
 
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
@@ -194,7 +198,8 @@ function floorDuel(tuning: TuningData, config: MatchConfig, floor: number, previ
   let slot = 0;
   const enemies = config.teams.map((team) => (team === 1 ? roster[slot++] ?? null : null));
   const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? w);
-  const base = createInitialState(tuning, 0, startPlacements(tuning, config, arena), weapons, config.teams, arena);
+  const sizes = config.teams.map((_, i) => enemies[i]?.size ?? config.sizes?.[i]);
+  const base = createInitialState(tuning, 0, startPlacements(tuning, config, arena), weapons, config.teams, arena, sizes);
   const { heal, revive } = tuning.gauntlet;
   const fighters = base.fighters.map((f, i) => {
     if (f.team === 1) {
@@ -206,6 +211,12 @@ function floorDuel(tuning: TuningData, config: MatchConfig, floor: number, previ
     return { ...f, hp: inDuel(before) ? Math.min(f.maxHp, before.hp + heal * f.maxHp) : revive * f.maxHp };
   });
   return { ...base, rng, fighters, floor };
+}
+
+/** `{ sizes }` for the Fighters' Sizes (clamped; a missing one is the standard body), or nothing when all are standard (so a standard Match's config is unchanged). */
+function sizesOf(count: number, given: readonly (Size | undefined)[] | undefined): { sizes?: Size[] } {
+  const sizes = Array.from({ length: count }, (_, i) => storedSize(given?.[i]) ?? { height: 1, thick: 1 });
+  return sizes.every((s) => isStandardSize(s)) ? {} : { sizes };
 }
 
 /** A Match at Tick 0: Duel 1 (or a Run's Floor 1) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
@@ -224,6 +235,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     interDuelTicks: options.interDuelTicks ?? secondsToTicks(gauntlet ? tuning.gauntlet.interFloorSeconds : tuning.match.interDuelSeconds),
     weapons: teams.map((_, i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
     teams: [...teams],
+    ...sizesOf(teams.length, options.sizes),
     rematchTicks: options.rematchTicks ?? null,
     arena: arenaOf(tuning, options.arena ?? tuning.arena.match).name,
     humans: options.humans ?? 1,

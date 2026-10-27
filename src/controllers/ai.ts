@@ -176,7 +176,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -194,6 +194,8 @@ interface Sighting {
   readonly airborne: boolean;
   readonly hp: number;
   readonly weapon: string;
+  /** Its Size, when it is not the standard body. */
+  readonly size?: Size;
   readonly team: number;
   /** Out of the Duel (`inDuel`): fallen, or a Benched slot. */
   readonly fallen: boolean;
@@ -846,6 +848,7 @@ class AiController implements Controller {
         airborne: o.air !== undefined,
         hp: o.hp,
         weapon: o.weapon,
+        ...(o.size && { size: o.size }),
         team: o.team,
         fallen: !inDuel(o),
         facing: o.facing,
@@ -860,10 +863,10 @@ class AiController implements Controller {
     if (this.seen.length > this.reactionTicks + this.jitterTicks + 1) this.seen.shift();
   }
 
-  /** How far (m) a Fighter with `weapon` reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one. */
-  private reach(weapon: string): number {
+  /** How far (m) a Fighter reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one, and in proportion to its height. */
+  private reach(f: { readonly weapon: string; readonly size?: Size | undefined }): number {
     const { attackRange } = this.tuning.ai;
-    return attackRange + weaponByName(this.tuning, weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length;
+    return (attackRange + weaponByName(this.tuning, f.weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length) * (f.size?.height ?? 1);
   }
 
   /**
@@ -894,7 +897,7 @@ class AiController implements Controller {
     const v = this.view;
     if (!v || self.air || intent.block || !(this.attackPlan?.team ?? this.turn)) return intent;
     const holding = this.lineHold >= 0;
-    const reach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0) + (holding ? LINE_SLACK : 0);
+    const reach = this.reach(self) + (a.direction === 'Thrust' ? THRUST_REACH : 0) + (holding ? LINE_SLACK : 0);
     if (!this.allyInLine(self, v.team, v.toward, reach, a.direction)) return intent;
     if (!holding) this.lineHold = tick + LINE_HOLD;
     return tick < this.lineHold ? { ...intent, attack: true, direction: a.direction } : { ...intent, attack: false, block: true, direction: a.direction };
@@ -1012,7 +1015,7 @@ class AiController implements Controller {
 
     // An enemy on lower ground in reach of a jumping Attack: leap down at it.
     const below = target.y < self.y - LEVEL && (target.action.kind === 'Idle' || target.action.kind === 'Block');
-    if (below && !this.jumpRun && dist <= this.reach(self.weapon) + this.leapRange() && this.chance(this.skill.jumpAttackRate)) {
+    if (below && !this.jumpRun && dist <= this.reach(self) + this.leapRange() && this.chance(this.skill.jumpAttackRate)) {
       const leap = this.leap(state, self, target, dist, toward, base);
       if (leap) return leap;
     }
@@ -1034,8 +1037,8 @@ class AiController implements Controller {
 
     if (this.toss(state, self, target, dist, toward)) return { ...base, ...this.throwAim(self, target, dist), throw: true };
 
-    const myReach = this.reach(self.weapon);
-    const theirReach = this.reach(target.weapon);
+    const myReach = this.reach(self);
+    const theirReach = this.reach(target);
     const turn = this.turnOf(state.tick, self, team, toward, myReach);
     // Taking turns, it presses as often in its own window as the team would between them.
     const turns = this.turn === true && team !== null ? team.on.length : 1;
@@ -1238,7 +1241,7 @@ class AiController implements Controller {
   /** Played as one of a team with an ally beside its line (where a Left or Right would sweep), it cuts along the line (an Overhead or a Thrust), not across it. */
   private narrowLine(self: FighterState): boolean {
     const v = this.view;
-    return this.turn === true && v !== null && this.allyInLine(self, v.team, v.toward, this.reach(self.weapon), 'Left');
+    return this.turn === true && v !== null && this.allyInLine(self, v.team, v.toward, this.reach(self), 'Left');
   }
 
   /** Whether it plays its next Attack as one of a team: rolled at `teamwork` (once, kept in `turn` until it starts one). Only asked with allies standing. */
@@ -1335,7 +1338,7 @@ class AiController implements Controller {
    */
   private landsInTime(self: FighterState, target: Sighting, dist: number, direction: Direction): boolean {
     const { windUpEnd } = attackTimings(this.tuning, self.weapon, direction);
-    const walk = Math.ceil(Math.max(0, dist - this.reach(self.weapon)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
+    const walk = Math.ceil(Math.max(0, dist - this.reach(self)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
     return Math.max(windUpEnd, walk) <= this.openingLeft(target);
   }
 
@@ -1405,8 +1408,8 @@ class AiController implements Controller {
   /** Where it pitches its look: at the chest of `o` (lower when it crouches, the floor when it lies in a Knockdown), so its blows reach it. */
   private aim(self: FighterState, o: Sighting, flat: number): number {
     const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
-    const theirs = o.action.kind === 'Knockdown' ? LYING_AIM : AIM_HEIGHT * (1 - crouchDrop * o.crouch);
-    const mine = AIM_HEIGHT * (1 - crouchDrop * self.crouch);
+    const theirs = o.action.kind === 'Knockdown' ? LYING_AIM * (o.size?.height ?? 1) : AIM_HEIGHT * (o.size?.height ?? 1) * (1 - crouchDrop * o.crouch);
+    const mine = AIM_HEIGHT * (self.size?.height ?? 1) * (1 - crouchDrop * self.crouch);
     return Math.atan2(o.y + theirs - (self.y + mine), Math.max(flat, 0.5));
   }
 
@@ -1558,7 +1561,7 @@ class AiController implements Controller {
     const face = Math.atan2(lands.x - self.position.x, lands.z - self.position.z);
     const toward = { x: Math.sin(face), z: Math.cos(face) };
     const flat = Math.hypot(lands.x - self.position.x, lands.z - self.position.z);
-    const stand = this.reach(self.weapon) - LANDING_INSIDE;
+    const stand = this.reach(self) - LANDING_INSIDE;
     const spot = { x: lands.x - toward.x * stand, z: lands.z - toward.z * stand };
     const walk = Math.hypot(spot.x - self.position.x, spot.z - self.position.z) / (walkSpeed * TICK_SECONDS);
     if (state.tick < pressAt && walk > landTick - state.tick) return null;
@@ -1636,7 +1639,7 @@ class AiController implements Controller {
    */
   private leap(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent | null {
     const arena = arenaOf(this.tuning, state.arena);
-    const reach = this.reach(self.weapon);
+    const reach = this.reach(self);
     const { windUpEnd: windUp, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Overhead');
     const release = releaseEnd - windUp;
     for (const hold of this.leapHolds()) {
@@ -1674,7 +1677,7 @@ class AiController implements Controller {
    */
   private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
     if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
-    const reachOf = (o: Sighting) => this.reach(o.weapon) + THRUST_REACH;
+    const reachOf = (o: Sighting) => this.reach(o) + THRUST_REACH;
     // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
     const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
     const coming = fresh.fighters.some(
@@ -1772,7 +1775,7 @@ class AiController implements Controller {
   private toss(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2): boolean {
     const { throwRange } = this.tuning.ai;
     const { throwRate, mistakeRate } = this.skill;
-    if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self.weapon) || dist > throwRange) return false;
+    if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self) || dist > throwRange) return false;
     const walkingAway = (target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
     if (walkingAway < FLEEING || !this.clearLine(state, self, target)) return false;
     if (!this.chance(throwRate * (1 - mistakeRate))) return false;
@@ -1811,7 +1814,7 @@ class AiController implements Controller {
     const flat = Math.max(Math.hypot(x - hx, z - hz), 0.5);
     const flight = flat / speed;
     const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
-    const rise = target.y + AIM_HEIGHT * (1 - crouchDrop * target.crouch) - (self.y + HAND_HEIGHT) + 0.5 * gravity * flight * flight;
+    const rise = target.y + AIM_HEIGHT * (target.size?.height ?? 1) * (1 - crouchDrop * target.crouch) - (self.y + HAND_HEIGHT * (self.size?.height ?? 1)) + 0.5 * gravity * flight * flight;
     return { face: Math.atan2(x - hx, z - hz) + this.aimError, pitch: Math.atan2(rise, flat) - loft * DEG };
   }
 
@@ -1879,7 +1882,7 @@ class AiController implements Controller {
       const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
       if (high.length > 0) options = high;
     }
-    if (options.includes('Thrust') && dist > this.reach(self.weapon) - 0.1 && this.random() < 0.6) return 'Thrust';
+    if (options.includes('Thrust') && dist > this.reach(self) - 0.1 && this.random() < 0.6) return 'Thrust';
     return this.pick(options);
   }
 
@@ -1923,7 +1926,7 @@ class AiController implements Controller {
     const tick = state.tick;
     let plan = this.attackPlan;
     if (plan && plan.direction !== a.direction && !plan.chain) plan = this.attackPlan = { ...plan, direction: a.direction };
-    const myReach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
+    const myReach = this.reach(self) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
     const closeIn = dist > Math.max(1.0, this.tuning.ai.retreatRange + 0.1) ? toward : ZERO;
     const inLine = plan?.team === true && team !== null && this.allyInLine(self, team, toward, myReach);
     if (a.phase === 'Wind-up') {
@@ -1955,14 +1958,14 @@ class AiController implements Controller {
         plan = this.attackPlan = { ...plan, chainRolled: true, chain };
       }
       const myTurn = !plan.team || team === null || (team.on.length < 2 && !inLine);
-      if (plan.chain && myTurn && dist <= this.reach(self.weapon) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
+      if (plan.chain && myTurn && dist <= this.reach(self) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
         this.attackPlan = { ...plan, chainHeld: true };
         return { ...base, attack: true, direction: plan.chain, move: this.safeMove(state, self, closeIn) };
       }
       this.attackPlan = { ...plan, chainHeld: false };
     }
     // Not Chaining: step back out of a counter, if it is cautious.
-    if (this.skill.caution > 0 && (this.tactic.mode !== 'Pressure' || !a.landed) && dist < this.reach(target.weapon) + 0.2) {
+    if (this.skill.caution > 0 && (this.tactic.mode !== 'Pressure' || !a.landed) && dist < this.reach(target) + 0.2) {
       return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
     }
     return base;
@@ -2011,7 +2014,7 @@ class AiController implements Controller {
     if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
       // Played as one of a team, it swings into no Attack (a Chamber, an Outpace) with an ally in its swing line.
       const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
-      const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self.weapon), 'Left');
+      const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
@@ -2071,7 +2074,7 @@ class AiController implements Controller {
     if (this.skill.holdBreak <= 0 || self.air) return null;
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     let plan = this.defencePlan!;
-    const theirReach = this.reach(seen.weapon) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
+    const theirReach = this.reach(seen) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
     if (atk.phase === 'Release') return plan.holdBreak?.go && flat > theirReach + 0.1 ? base : null;
     const { windUpEnd } = attackTimings(this.tuning, seen.weapon, atk.direction);
     const held = state.tick - this.reactionTicks - plan.attackStart - windUpEnd;
@@ -2118,7 +2121,7 @@ class AiController implements Controller {
     const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
-    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self.weapon)) {
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self)) {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
     }

@@ -14,7 +14,7 @@
  *   3. resolveContact: a Block, a Chamber (the attacker Staggers, cause Chambered), a hit that Staggers the victim (or, in the air or
  *      from a Heavy Blow, knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
-import { isHeavyBlow, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { isHeavyBlow, sizedTuning, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { inDuel } from './duel';
@@ -84,7 +84,7 @@ export type Contact = BladeContact | KickContact | WallContact;
 function weaponCapsule(f: FighterState, tuning: TuningData): Capsule {
   const { hilt, tip } = f.blade;
   const axis = normalize(sub(tip, hilt));
-  return { a: sub(hilt, scale(axis, weaponByName(tuning, f.weapon).gripLength)), b: tip, radius: tuning.block.bladeRadius };
+  return { a: sub(hilt, scale(axis, weaponByName(sizedTuning(tuning, f.size), f.weapon).gripLength)), b: tip, radius: tuning.block.bladeRadius };
 }
 
 /** Whether a point `along` the blade (0 at the main hand, 1 at the tip) lies on the Weapon's Head (within `head` of the tip). */
@@ -102,7 +102,8 @@ export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZon
 
 /** The Hit Zone capsules a blade or dagger meets on `f`: a Fighter in Knockdown lies flat, so its zones are `fighter.lyingHitFactor` times as thick. */
 function bodyCapsules(f: FighterState, tuning: TuningData): HitCapsule[] {
-  return hitZoneCapsules(fighterPose(f, tuning), tuning, f.action.kind === 'Knockdown' ? tuning.fighter.lyingHitFactor : 1);
+  const own = sizedTuning(tuning, f.size);
+  return hitZoneCapsules(fighterPose(f, tuning), own, f.action.kind === 'Knockdown' ? own.fighter.lyingHitFactor : 1);
 }
 
 /**
@@ -131,7 +132,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
     if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
     const { direction, chamberedBy } = attacker.action;
-    const weapon = weaponByName(tuning, attacker.weapon);
+    const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
@@ -168,7 +169,7 @@ function findKickContacts(before: FighterState, kicker: FighterState, i: number,
   let best: { contact: KickContact; travelled: number } | null = null;
   next.forEach((defender, j) => {
     if (j === i || !inDuel(defender)) return;
-    const zones = hitZoneCapsules(fighterPose(defender, tuning), tuning).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
+    const zones = hitZoneCapsules(fighterPose(defender, tuning), sizedTuning(tuning, defender.size)).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
     const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples);
     if (!c) return;
     const travelled = length(sub(c.point, before.kickLeg.toe));
@@ -280,7 +281,8 @@ export function resolveContacts(
  * Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). `from` (a blade Hit
  * only) is the side the blow came from, from the Fighter's own view.
  */
-export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit, from?: Direction): FighterState {
+export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, standard: TuningData, emit: Emit, from?: Direction): FighterState {
+  const tuning = sizedTuning(standard, f.size);
   // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
   const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
   const { action, motion } = stagger(tuning, f.weapon, cause, hold, from);
@@ -293,7 +295,8 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
  * Knock a Fighter down (ADR 0007): a Knockdown interrupts its Action, its Block Impact is dropped, a Jump's boost
  * left is lost, and its pose is re-solved lying.
  */
-function knockDown(f: FighterState, tuning: TuningData): FighterState {
+function knockDown(f: FighterState, standard: TuningData): FighterState {
+  const tuning = sizedTuning(standard, f.size);
   const { blockImpact: _impact, air, ...rest } = f;
   const { action, motion } = knockdown();
   let flight: Airborne | undefined;
@@ -356,7 +359,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
   if (action.landed) return;
-  const weapon = weaponByName(tuning, attacker.weapon);
+  const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
   const { dx, dz } = awayFrom(attacker, defender);
   if (c.chambered) {
     emit({ type: 'Chamber', chamberer: c.defender, attacker: c.attacker, direction: c.direction, point: c.point });

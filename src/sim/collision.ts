@@ -1,4 +1,4 @@
-import type { ArenaGeometry, TuningData } from '../tuning';
+import { sizedTuning, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import { pushOutOfWalls } from './arena';
 import type { Vec2 } from './state';
 
@@ -20,10 +20,12 @@ const EPS = 1e-9;
 export interface Body {
   readonly position: Vec2;
   readonly y: number;
+  /** Its Size, when it is not the standard body: its capsule is that much wider and taller. */
+  readonly size?: Size;
 }
 
 /** Pull a position back inside a circular boundary of `radius` so the whole capsule stays inside it. */
-export function clampToArena(p: Vec2, radius: number, tuning: TuningData): Vec2 {
+export function clampToArena(p: Vec2, radius: number, tuning: Pick<TuningData, 'fighter'>): Vec2 {
   const maxR = radius - tuning.fighter.radius;
   const r = Math.hypot(p.x, p.z);
   if (r <= maxR) return p;
@@ -38,26 +40,27 @@ export function clampToArena(p: Vec2, radius: number, tuning: TuningData): Vec2 
  * other one takes the whole push. Pure and deterministic: same input, same output.
  */
 export function resolveBodies(bodies: readonly Body[], arena: ArenaGeometry, tuning: TuningData): Vec2[] {
-  const minGap = 2 * tuning.fighter.radius;
-  const { height } = tuning.fighter;
+  const own = bodies.map((b) => sizedTuning(tuning, b.size));
   const bound = arena.radius;
-  const maxR = bound === undefined ? Infinity : bound - tuning.fighter.radius;
-  const contain = (p: Vec2, y: number): Vec2 => {
-    const walled = arena.walls.length > 0 ? pushOutOfWalls(p, y, arena, tuning) : p;
-    return bound === undefined ? walled : clampToArena(walled, bound, tuning);
+  const maxRs = own.map((t) => (bound === undefined ? Infinity : bound - t.fighter.radius));
+  const contain = (p: Vec2, y: number, i: number): Vec2 => {
+    const walled = arena.walls.length > 0 ? pushOutOfWalls(p, y, arena, own[i]!) : p;
+    return bound === undefined ? walled : clampToArena(walled, bound, own[i]!);
   };
-  const out = bodies.map((b) => contain(b.position, b.y));
+  const out = bodies.map((b, i) => contain(b.position, b.y, i));
   for (let pass = 0; pass < PASSES; pass++) {
     let moved = false;
     for (let i = 0; i < out.length; i++) {
       for (let j = i + 1; j < out.length; j++) {
         // Bodies at different heights (one on a gallery above the other) pass over each other.
-        if (Math.abs(bodies[i]!.y - bodies[j]!.y) >= height) continue;
+        // Two bodies pass over each other unless the lower one reaches the higher one's feet.
+        if (Math.abs(bodies[i]!.y - bodies[j]!.y) >= (bodies[i]!.y < bodies[j]!.y ? own[i]! : own[j]!).fighter.height) continue;
         const a = out[i]!;
         const b = out[j]!;
         let dx = b.x - a.x;
         let dz = b.z - a.z;
         let d = Math.hypot(dx, dz);
+        const minGap = own[i]!.fighter.radius + own[j]!.fighter.radius;
         if (d >= minGap) continue;
         if (d === 0) {
           // Exactly on top of each other: split along x, lower index to -x.
@@ -69,12 +72,12 @@ export function resolveBodies(bodies: readonly Body[], arena: ArenaGeometry, tun
         }
         const overlap = minGap - d;
         // Pinned: at the edge and the push for it points outward.
-        const pinnedA = Math.hypot(a.x, a.z) >= maxR - EPS && -dx * a.x - dz * a.z > 0;
-        const pinnedB = Math.hypot(b.x, b.z) >= maxR - EPS && dx * b.x + dz * b.z > 0;
+        const pinnedA = Math.hypot(a.x, a.z) >= maxRs[i]! - EPS && -dx * a.x - dz * a.z > 0;
+        const pinnedB = Math.hypot(b.x, b.z) >= maxRs[j]! - EPS && dx * b.x + dz * b.z > 0;
         const shareA = pinnedA === pinnedB ? 0.5 : pinnedA ? 0 : 1;
         const shareB = 1 - shareA;
-        out[i] = contain({ x: a.x - dx * overlap * shareA, z: a.z - dz * overlap * shareA }, bodies[i]!.y);
-        out[j] = contain({ x: b.x + dx * overlap * shareB, z: b.z + dz * overlap * shareB }, bodies[j]!.y);
+        out[i] = contain({ x: a.x - dx * overlap * shareA, z: a.z - dz * overlap * shareA }, bodies[i]!.y, i);
+        out[j] = contain({ x: b.x + dx * overlap * shareB, z: b.z + dz * overlap * shareB }, bodies[j]!.y, j);
         moved = true;
       }
     }

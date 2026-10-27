@@ -3,7 +3,7 @@
  * semi-implicit Euler step per Tick, turning a little toward an enemy ahead of it (Homing), and stops at a Wall, a Walk Surface or after `dagger.maxTicks`. Pure functions of
  * their inputs, so both peers (and a Rollback re-simulation) see the same dagger.
  */
-import type { ArenaGeometry, TuningData } from '../tuning';
+import { sizedTuning, type ArenaGeometry, type TuningData } from '../tuning';
 import { groundBelow, surfaceHeight, surfacesAt, wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import type { Emit } from './events';
@@ -86,7 +86,7 @@ function home(d: DaggerState, velocity: Vec3, fighters: readonly FighterState[],
   let best: { distance: number; toward: Vec3 } | null = null;
   fighters.forEach((f, j) => {
     if (!inDuel(f) || f.hp <= 0 || f.team === d.team || j === d.owner) return;
-    const offset = sub({ x: f.position.x, y: f.y + tuning.fighter.height * AIM_HEIGHT, z: f.position.z }, d.position);
+    const offset = sub({ x: f.position.x, y: f.y + sizedTuning(tuning, f.size).fighter.height * AIM_HEIGHT, z: f.position.z }, d.position);
     const distance = length(offset);
     if (distance === 0 || distance > homingRange) return;
     const toward = scale(offset, 1 / distance);

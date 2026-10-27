@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
-import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
+import { sizedTuning, weaponByName, type Size, type TuningData, type WeaponTuning } from '../tuning';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
@@ -26,6 +26,9 @@ export function fighterColours(teams: readonly number[]): number[] {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const STANDARD: Size = { height: 1, thick: 1 };
+/** Radius (m) of a joint's sphere on the bare Skeleton. */
+const JOINT_RADIUS = 0.055;
 
 /** Bone thickness (radius, metres) by bone; anything unlisted is a limb. */
 function boneRadius(a: JointName, b: JointName): number {
@@ -50,6 +53,7 @@ export class FighterView {
   private readonly bones: { mesh: THREE.Mesh; a: JointName; b: JointName }[] = [];
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
+  private readonly headRadius: number;
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
@@ -72,12 +76,13 @@ export class FighterView {
     for (const name of JOINT_NAMES) {
       if (name === 'head' || name === 'chest' || name === 'pelvis') continue;
       const mesh = new THREE.Mesh(sphere, body);
-      mesh.scale.setScalar(0.055);
+      mesh.scale.setScalar(JOINT_RADIUS);
       this.joints.set(name, mesh);
       this.skeleton.add(mesh);
     }
     this.head = new THREE.Mesh(sphere, body);
-    this.head.scale.setScalar(tuning.skeleton.headRadius);
+    this.headRadius = tuning.skeleton.headRadius;
+    this.head.scale.setScalar(this.headRadius);
     this.skeleton.add(this.head);
     this.root.add(this.skeleton);
     if (wears !== 'skeleton') {
@@ -124,13 +129,20 @@ export class FighterView {
     if (this.model) this.model.root.visible = on;
   }
 
-  /** Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data). */
-  update(pose: SkeletonPose, weapon: WeaponTuning): void {
+  /**
+   * Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data, at the Fighter's Size when it has one), in a body
+   * `size` tall and thick (default: the standard body): limbs, joints and the head are drawn that much thicker.
+   */
+  update(pose: SkeletonPose, weapon: WeaponTuning, size: Size = STANDARD): void {
     const p = pose.joints;
-    for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
-    for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
+    for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], (mesh.userData.radius as number) * size.thick);
+    for (const [name, mesh] of this.joints) {
+      mesh.position.set(p[name].x, p[name].y, p[name].z);
+      mesh.scale.setScalar(JOINT_RADIUS * size.thick);
+    }
     this.head.position.set(p.head.x, p.head.y, p.head.z);
-    this.model?.rig.pose(p);
+    this.head.scale.setScalar(this.headRadius * size.height);
+    this.model?.rig.pose(p, size);
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
@@ -253,10 +265,11 @@ export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonP
  */
 export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData): SkeletonPose {
   const f = to.fighters[i]!;
-  const weapon = weaponByName(tuning, f.weapon);
+  const sized = sizedTuning(tuning, f.size);
+  const weapon = weaponByName(sized, f.weapon);
   if (f.death) {
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
-    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, tuning, arenaOf(tuning, to.arena), f.sheathed);
+    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed);
   }
   const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
   return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;

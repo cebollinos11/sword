@@ -8,7 +8,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type MatchFormat } from '../sim';
-import { DEFAULT_STYLE, MAX_FLOOR_ENEMIES, RANDOM_PICK, runDifficultyLadder, type RunKnobs, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, MAX_FLOOR_ENEMIES, RANDOM_PICK, runDifficultyLadder, storedSize, type RunKnobs, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -230,7 +230,7 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
     if (mine) tags.append(h('span', 'tag tag-you', 'You'));
     if (seat.member === 0 && lobby.online) tags.append(h('span', 'tag tag-host', 'Host'));
     const waiting = state.playing && !state.inMatch.includes(seat.member);
-    const info = h('div', 'seat-info', null, h('div', 'seat-title', null, h('span', 'seat-name', name), tags), h('div', 'seat-sub', m ? m.weapon : ''));
+    const info = h('div', 'seat-info', null, h('div', 'seat-title', null, h('span', 'seat-name', name), tags), h('div', 'seat-sub', m ? `${m.weapon}${sizeTag(m.size)}` : ''));
     row.append(avatar(name.slice(0, 1).toUpperCase(), colour), info);
     if (lobby.online && !ctx.inGame && seat.member !== 0) {
       row.append(h('span', `seat-ready ${m?.ready ? 'is-ready' : ''}`, m?.ready ? 'Ready' : 'Not ready'));
@@ -242,7 +242,7 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
     row.append(avatar('AI', colour));
     const info = h('div', 'seat-info');
     if (host) {
-      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat)));
+      info.append(h('div', 'seat-title', null, h('span', 'seat-name', 'AI')), h('div', 'seat-controls', null, kindSelect(ctx, state, at, seat), styleSelect(ctx, at, seat), weaponSelect(ctx, at, seat), sizeSelect(ctx, at, seat)));
     } else {
       info.append(h('div', 'seat-title', null, h('span', 'seat-name', `${seat.difficulty} AI`)), h('div', 'seat-sub', `${styleLabel(seat.style)} · ${seat.weapon}`));
     }
@@ -274,14 +274,40 @@ function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat:
   const value = seat.kind === 'AI' ? `AI:${seat.difficulty}` : seat.kind;
   const weapon = seat.kind === 'AI' ? seat.weapon : Object.keys(ctx.tuning.weapons)[0]!;
   const style = seat.kind === 'AI' && seat.style !== undefined ? { style: seat.style } : {};
+  const size = seat.kind === 'AI' && seat.size !== undefined ? { size: seat.size } : {};
   return select('Seat', options, value, (v) => {
-    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style } : { kind: v as 'Open' | 'Closed' };
+    const next: Exclude<Seat, { kind: 'Player' }> = v.startsWith('AI:') ? { kind: 'AI', difficulty: v.slice(3), weapon, ...style, ...size } : { kind: v as 'Open' | 'Closed' };
     ctx.lobby.edit((s) => setSeat(s, at, next));
   });
 }
 
 /** An AI Seat's Style, as shown: the default when it names none, "Random" for one picked from the Match seed. */
 const styleLabel = (style: string | undefined): string => (style === undefined ? DEFAULT_STYLE : style === RANDOM_PICK ? 'Random' : style);
+
+/** Named builds an AI Seat offers (any other Size, such as a Member's own, shows as Custom). */
+const SIZE_PRESETS: readonly (readonly [string, Size])[] = [
+  ['Standard', { height: 1, thick: 1 }],
+  ['Small', { height: 0.75, thick: 0.9 }],
+  ['Chubby midget', { height: 0.6, thick: 1.2 }],
+  ['Slender', { height: 1.4, thick: 0.9 }],
+  ['Giant', { height: 1.4, thick: 1.4 }],
+];
+
+const sizeKey = (s: Size | undefined): string => `${s?.height ?? 1},${s?.thick ?? 1}`;
+
+/** A seat's build as a suffix for its subtitle: nothing for the standard body. */
+const sizeTag = (s: Size | undefined): string => (storedSize(s) ? ` · ×${s!.height} tall, ×${s!.thick} thick` : '');
+
+/** Host: an AI Seat's build (height and thickness). */
+function sizeSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>): HTMLSelectElement {
+  const options: [string, string][] = SIZE_PRESETS.map(([name, size]) => [sizeKey(size), name]);
+  if (!SIZE_PRESETS.some(([, size]) => sizeKey(size) === sizeKey(seat.size))) options.push([sizeKey(seat.size), `Custom ×${seat.size!.height} / ×${seat.size!.thick}`]);
+  return select('AI build', options, sizeKey(seat.size), (v) => {
+    const { size: _old, ...rest } = seat;
+    const size = SIZE_PRESETS.find(([, p]) => sizeKey(p) === v)?.[1];
+    ctx.lobby.edit((s) => setSeat(s, at, size && storedSize(size) ? { ...rest, size } : rest));
+  });
+}
 
 /** Host: an AI Seat's Style (how it fights), or Random (picked from each Match's seed, the same on every peer). */
 function styleSelect(ctx: LobbyViewContext, at: SeatRef, seat: Extract<Seat, { kind: 'AI' }>): HTMLSelectElement {
