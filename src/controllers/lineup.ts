@@ -75,7 +75,7 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
     if (driving !== wanted) throw new RangeError(`Player ${p} must drive ${wanted} Fighter${wanted === 1 ? '' : 's'}, drives ${driving}`);
   }
   for (const s of lineup) {
-    if (s.size !== undefined && (clampSize(s.size).height !== s.size.height || clampSize(s.size).thick !== s.size.thick)) throw new RangeError('A Size is 0.5 to 1.5 in steps of 0.05');
+    if (s.size !== undefined && (clampSize(s.size).height !== s.size.height || clampSize(s.size).thick !== s.size.thick)) throw new RangeError('A Size is 0.6 to 1.4 in steps of 0.05');
     if (floors(s)) continue;
     if (s.pilot.kind === 'AI' && !tuning.ai.difficulties[s.pilot.difficulty]) throw new RangeError(`Unknown AI difficulty "${s.pilot.difficulty}"`);
     if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);

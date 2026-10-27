@@ -102,7 +102,7 @@ describe('Body rig', () => {
     expect(moved.distanceTo(v(expected))).toBeLessThan(1e-6);
   });
 
-  it.each([{ height: 1.5, thick: 0.6 }, { height: 0.5, thick: 1.4 }])('keeps every bone on its joints once a body of %o is stretched and the scene updates', (size) => {
+  it.each([{ height: 1.4, thick: 0.6 }, { height: 0.6, thick: 1.4 }])('keeps every bone on its joints once a body of %o is stretched and the scene updates', (size) => {
     const fighter = { ...createInitialState(tuning, 1, duelPlacements(2)).fighters[0]!, size };
     const joints = fighterPose(fighter, tuning).joints;
     const root = model();

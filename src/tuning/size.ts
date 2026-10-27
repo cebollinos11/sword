@@ -10,8 +10,8 @@ export interface Size {
   readonly thick: number;
 }
 
-export const MIN_SIZE = 0.5;
-export const MAX_SIZE = 1.5;
+export const MIN_SIZE = 0.6;
+export const MAX_SIZE = 1.4;
 /** Sizes are multiples of this, so they cross the wire and hash exactly. */
 export const SIZE_STEP = 0.05;
 
@@ -34,6 +34,9 @@ export const storedSize = (s: Size | undefined): Size | undefined => {
   const c = clampSize(s);
   return isStandardSize(c) ? undefined : c;
 };
+
+/** How much of a thickness change the collision radius takes (the Hit Zones take all of it), so a thick Fighter is not held out of its own Weapon's reach. */
+const COLLIDER_THICK_SHARE = 0.5;
 
 const cache = new WeakMap<TuningData, Map<string, TuningData>>();
 
@@ -85,7 +88,7 @@ function build(tuning: TuningData, h: number, t: number): TuningData {
       upperArm: s.upperArm * h,
       forearm: s.forearm * h,
     },
-    fighter: { ...f, radius: f.radius * t, height: f.height * h, crouchDepth: f.crouchDepth * h, lookHipShift: f.lookHipShift * h },
+    fighter: { ...f, radius: f.radius * (1 + (t - 1) * COLLIDER_THICK_SHARE), height: f.height * h, crouchDepth: f.crouchDepth * h, lookHipShift: f.lookHipShift * h },
     weapons,
     hitZones,
   };

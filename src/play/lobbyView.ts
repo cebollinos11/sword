@@ -288,9 +288,9 @@ const styleLabel = (style: string | undefined): string => (style === undefined ?
 const SIZE_PRESETS: readonly (readonly [string, Size])[] = [
   ['Standard', { height: 1, thick: 1 }],
   ['Small', { height: 0.75, thick: 0.9 }],
-  ['Chubby midget', { height: 0.5, thick: 1.2 }],
-  ['Slender', { height: 1.5, thick: 0.9 }],
-  ['Giant', { height: 1.5, thick: 1.5 }],
+  ['Chubby midget', { height: 0.6, thick: 1.2 }],
+  ['Slender', { height: 1.4, thick: 0.9 }],
+  ['Giant', { height: 1.4, thick: 1.4 }],
 ];
 
 const sizeKey = (s: Size | undefined): string => `${s?.height ?? 1},${s?.thick ?? 1}`;

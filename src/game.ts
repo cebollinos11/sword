@@ -193,7 +193,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
-      skirmish ??= new HostLobby(tuning, lobbyOptions(false));
+      if (skirmish) skirmish.setMine({ name: menu.name, body: menu.body, size: storedSize(menu.size) });
+      else skirmish = new HostLobby(tuning, lobbyOptions(false));
       adopt(skirmish);
       menu.showLobby(skirmish);
     },
