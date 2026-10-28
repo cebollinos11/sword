@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, createMatch, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
@@ -17,7 +17,7 @@ import { runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
-import { FinalBlowShot } from './play/finalBlow';
+import { FinalBlowShot, shotIntent } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
@@ -539,12 +539,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     openPause();
   });
 
-  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. */
-  function endShot(): void {
+  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. `rest`: a Hall's Ticks the replay never reached, which sound now. */
+  function endShot(rest: readonly MatchState[] = []): void {
     if (!inShot) return;
     inShot = false;
     hud.cinematic(false);
     audio.setSpeed(1);
+    for (const m of rest) audio.onMatchTick(m);
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
     shake.seek(curr.tick);
@@ -667,7 +668,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;
-      const { advanced } = d.tick(local.sample());
+      // A Hall's Final Blow Shot holds the Player (sampled all the same, so a press during it is spent).
+      const { advanced } = d.tick(shotIntent(finalBlow, local.sample()));
       if (d.failure) {
         matchFailed(d.failure);
         break;
@@ -676,7 +678,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
       curr = d.state;
-      if (finalBlow.record(curr, local.yaw) && !inShot) {
+      if (finalBlow.record(curr, local.yaw, doorTicksNeeded(matchTuning)) && !inShot) {
         // The last Fighter of a Team fell: cut to the Final Blow Shot, which replays from a moment before.
         inShot = true;
         hud.cinematic(true);
@@ -726,7 +728,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const me = driver.localFighter;
       const yaw = local.yaw;
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
-      if (inShot && !shot) endShot();
+      if (inShot && !shot) endShot(finalBlow.takeRest());
       renderer.setPlayer(me, menu.body);
       renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
