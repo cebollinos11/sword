@@ -124,6 +124,22 @@ describe('Ally AI', { timeout: 120_000 }, () => {
     expect(states.find((s) => s.events.some((e) => e.type === 'DoorTaken'))!.events).toContainEqual(expect.objectContaining({ type: 'DoorTaken', exit: 0 }));
   });
 
+  it('two allies face to face on a ramp get past each other to the Door (the soak\'s seed 6, after Floor 2\'s Boss)', () => {
+    // A party of AIs, as the soak plays it: Fighter 0 stands for the Player (it counts at a Door), driven by an Ally AI.
+    const lineup: Lineup = [ALLY, ALLY, ALLY, ...ENEMIES];
+    const arena = 'gen:greybox:6';
+    const start = cleared(
+      createMatch(base, { format: 'Gauntlet', bestOf: 1, seed: 6, arena, teams: lineup.map((s) => s.team), start: { floor: 2, row: 4 } }),
+      base,
+    );
+    expect(start.arena).toBe('gen:greybox:449527:d2');
+    // Where they stood stuck: Fighter 0 on the ramp, Fighter 2 at its top edge, just above and ahead of it.
+    let m = placed(placed(start, 0, { x: -2.253, y: 2.617, z: -3.735 }), 2, { x: -2.122, y: 3, z: -4.534 });
+    m = placed(m, 1, spot(m, 0));
+    const states = play(m, lineup, new Map(), WALK_TICKS, lineupAis(base, lineup, 'Gauntlet', { arena }), base);
+    expect(states.some((s) => s.events.some((e) => e.type === 'DoorTaken'))).toBe(true);
+  });
+
   it('fights as its own AI while the Hall is Fighting', () => {
     const lineup = [PLAYER(0), ALLY, ...ENEMIES];
     const states = play(match(lineup, 'gen:greybox:77'), lineup, new Map(), 200);

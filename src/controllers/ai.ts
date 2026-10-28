@@ -2212,16 +2212,20 @@ class RuleAi implements AiController {
 export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2): boolean {
   if (dir.x === 0 && dir.z === 0) return true;
   const { stepUp } = tuning.fall;
-  const solid = (x: number, z: number) => {
-    const g = groundBelow(arena, x, z, y + stepUp);
-    return g !== null && y - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
+  // Each look ahead is measured from the ground of the one before (the first from its feet), so walking down a slope
+  // (a ramp) is a run of small steps down, not one drop off a ledge.
+  const solid = (x: number, z: number, from: number) => {
+    const g = groundBelow(arena, x, z, from + stepUp);
+    return g !== null && from - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
   };
+  let from = y;
   for (const k of [0.5, 1]) {
     const x = at.x + dir.x * SAFETY_PROBE * k;
     const z = at.z + dir.z * SAFETY_PROBE * k;
-    const g = solid(x, z);
+    const g = solid(x, z, from);
     if (!g || blockedAt(arena, x, z, g.y, tuning)) return false;
-    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN)) return false;
+    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN, from)) return false;
+    from = g.y;
   }
   return true;
 }
