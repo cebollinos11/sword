@@ -25,8 +25,8 @@ export type PlayerNumber = 0 | 1 | 2 | 3;
 export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string };
 
 /**
- * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Floor decides who stands in the slot (its
- * Floor AI plays the Floor's difficulty for it, Tuning Data `gauntlet.floors`).
+ * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Hall decides who stands in the slot (its
+ * Floor AI plays the Hall's Encounter's difficulty for it, Tuning Data `dungeon.floors`).
  */
 export const FLOOR_DIFFICULTY = 'Floor';
 
@@ -82,12 +82,14 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
 
 /**
  * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`), and for a
- * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies), so every peer building the Match
- * from the same Lineup gets the same number. Duels never read it, and keep the default.
+ * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies) and which Fighters they drive
+ * (`players`, whose standing counts at a Door), so every peer building the Match from the same Lineup gets the same.
+ * Duels never read them, and keep the defaults.
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: lineupPlayers(lineup) } : {}) };
+  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
+  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: players.length, players } : {}) };
 }
 
 /** How many human Players the Lineup fields. */

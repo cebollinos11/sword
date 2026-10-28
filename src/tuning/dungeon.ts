@@ -4,8 +4,10 @@
  * Halls (docs/plans/dungeon.md). Every peer builds each Floor's graph from this and the Run seed (`floorGraph`), so peers
  * with different Dungeons refuse each other at connect.
  */
-import { RANDOM_PICK, type RunKnobs } from './gauntlet';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
+
+/** A Weapon, Body or AI Style written `"random"` is picked by a pure hash of the Run seed, the Hall and the slot. */
+export const RANDOM_PICK = 'random';
 
 /** The most enemies an Encounter lists: one per Team 1 slot (MAX_TEAM_SIZE in `src/sim/match.ts`). */
 export const MAX_ENCOUNTER_ENEMIES = 4;
@@ -179,11 +181,32 @@ export function dungeonDifficultyLadder(d: DungeonTuning): string[] {
   return [...new Set(d.floors.flatMap((f) => floorEncounters(f).flatMap((e) => e.enemies.map((x) => x.difficulty))))];
 }
 
+/**
+ * A Run's difficulty knobs, picked in the Lobby (the host's, sent to every guest with the Lobby): each one absent keeps
+ * Tuning Data as it is. `applyDungeonKnobs` folds them into the Dungeon before the Run starts, so the Simulation, the
+ * enemy AIs and the Tuning Data hash every peer compares all see the same Encounters.
+ */
+export interface RunKnobs {
+  /**
+   * Steps every enemy's difficulty this many places along the Dungeon's difficulty ladder (the difficulties its
+   * Encounters name, in the order they first appear: Beginner, Skilled, Expert), held at either end. Negative is easier.
+   */
+  readonly difficulty?: number;
+  /** Multiplies every enemy's max HP. */
+  readonly enemyHp?: number;
+  /** At most this many enemies an Encounter (1 to MAX_ENCOUNTER_ENEMIES): those listed first stay, a Boss among them. */
+  readonly maxEnemies?: number;
+  /** Replaces `restHeal`: the share of max HP a Rest Hall's fire gives back. */
+  readonly heal?: number;
+  /** Replaces `perPlayerHp`: how much each human beyond the first adds to every enemy's max HP multiplier. */
+  readonly perPlayerHp?: number;
+}
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
- * The Dungeon with the Lobby's Run knobs applied to every Encounter (as `applyRunKnobs` does to v1 Floors); `d` itself
- * when none change anything. `heal` replaces `restHeal`, the Dungeon's heal. Out-of-range values are held to their range.
+ * The Dungeon with the Lobby's Run knobs applied to every Encounter; `d` itself when none change anything. `heal`
+ * replaces `restHeal`, the Dungeon's heal. Out-of-range values are held to their range.
  */
 export function applyDungeonKnobs(d: DungeonTuning, knobs: RunKnobs | undefined): DungeonTuning {
   if (!knobs) return d;

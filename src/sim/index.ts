@@ -33,6 +33,8 @@ export type {
   KnockdownPhase,
   MotionPlayback,
   SimState,
+  SimHall,
+  HallPhase,
   SheatheAction,
   Slide,
   Slow,
@@ -44,7 +46,7 @@ export type {
 export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
-export { arenaOf, blockedAt, deadlyGround, groundBelow, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
+export { arenaOf, blockedAt, deadlyGround, groundBelow, insideZone, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
 export {
   assembleArena,
@@ -143,12 +145,20 @@ export {
   checkRunTeams,
   checkTeams,
   createMatch,
+  doorTicksNeeded,
   duelsToWin,
+  hallBehind,
+  hallDuel,
   MATCH_FORMATS,
   MAX_TEAM_SIZE,
+  runCleared,
+  runHall,
+  takenExit,
   teamMembers,
   stepMatch,
+  type DoorTakenEvent,
   type DuelStartEvent,
+  type HallClearedEvent,
   type MatchConfig,
   type MatchEndEvent,
   type MatchEvent,
@@ -156,7 +166,25 @@ export {
   type MatchOptions,
   type MatchState,
   type MatchStatus,
+  type RestedEvent,
   type RunEndEvent,
   type RunState,
 } from './match';
-export { enemyMaxHp, floorRoster, runPick, runSeed, type FloorEnemy } from './gauntlet';
+export { FLOOR_ROWS, floorGraph, hallEncounter, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
+export {
+  atRestFire,
+  doorCounters,
+  enemyMaxHp,
+  exitDoor,
+  hallKey,
+  hallOf,
+  hallRoster,
+  inExitZone,
+  REST_FIRE_RADIUS,
+  restFire,
+  runKit,
+  runPlayers,
+  ZONE_HEIGHT,
+  type HallEnemy,
+  type HallRef,
+} from './hall';

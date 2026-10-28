@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, tuningDataHash } from '../tuning';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch } from '../controllers';
-import { createMatch, floorRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
+import { createMatch, hallOf, hallRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
 import { playerVsAi } from '../play/driver';
 import {
   formatProblem,
@@ -123,11 +123,13 @@ describe('the Gauntlet Lineup', () => {
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).not.toThrow();
     expect(() => checkLineup(tuning, lineup, 1)).toThrow();
     const m = createMatch(tuning, lineupMatch(tuning, lineup, weapons, { format: 'Gauntlet', bestOf: 1, arena: FRESH }));
-    expect(m.run).toMatchObject({ floor: 1, floors: tuning.gauntlet.floors.length });
+    expect(m.run).toMatchObject({ floor: 1, floors: tuning.dungeon.floors.length, row: 0, hall: 0 });
     expect(m.config.humans).toBe(1);
+    expect(m.config.players).toEqual([0]);
+    const first = { floor: 1, row: 0, index: 0 };
     const benched = m.duel.fighters.map((f) => Boolean(f.benched));
-    expect(benched).toEqual([false, ...floorRoster(tuning, m.config, 1).map((e) => e === null)]);
-    expect(benched.filter((b) => !b)).toHaveLength(1 + tuning.gauntlet.floors[0]!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
+    expect(benched).toEqual([false, ...hallRoster(tuning, m.config, first).map((e) => e === null)]);
+    expect(benched.filter((b) => !b)).toHaveLength(1 + hallOf(tuning, FRESH, first).encounter!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((ai) => ai !== null)).toBe(true);
@@ -155,15 +157,15 @@ describe('the Gauntlet Lineup', () => {
 });
 
 describe('Gauntlet Lobby: Run knobs', () => {
-  it('a Run with knobs plays the knobbed Gauntlet (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
+  it('a Run with knobs plays the knobbed Dungeon (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
     let s = gauntlet(newLobby(options(false)));
     expect(runTuning(tuning, s.settings)).toBe(tuning);
     s = updateSettings(s, { run: { maxEnemies: 1, enemyHp: 0.5 } });
     const t = runTuning(tuning, s.settings);
-    expect(t.gauntlet.floors.every((f) => f.enemies.length === 1)).toBe(true);
+    expect(t.dungeon.floors.every((f) => [...f.encounters.Fight, ...f.encounters.Elite, f.boss].every((e) => e.enemies.length === 1))).toBe(true);
     expect(tuningDataHash(t)).not.toBe(tuningDataHash(tuning));
     expect(runTuning(tuning, { ...s.settings, format: 'Duels' })).toBe(tuning);
-    // Floor 1 lists more than one enemy; with one a Floor, only the first stands.
+    // Encounters list more than one enemy; with one a Hall, only the first stands.
     const { lineup, weapons } = lobbyLineup(s);
     const match = createMatch(t, lineupMatch(t, lineup, weapons, { bestOf: 1, arena: s.settings.arena, format: 'Gauntlet' }));
     expect(match.duel.fighters.filter((f) => f.team === 1 && !f.benched).map((f) => f.maxHp)).toEqual([tuning.fighter.maxHp * 0.5]);

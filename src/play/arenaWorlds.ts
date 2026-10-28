@@ -1,4 +1,4 @@
-import { arenaOf, navMesh, nextArenaName, withGeneratedArena, type Layout, type MatchState } from '../sim';
+import { arenaOf, hallBehind, hallOf, navMesh, nextArenaName, takenExit, withGeneratedArena, type Layout, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 
 /** Random Maps built lately, kept so a restart or the scene behind the menus does not generate them again. */
@@ -30,12 +30,16 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
 }
 
 /**
- * The Arena the game should build ahead for this Match state, or null for none: in a Run, the next Floor's once the
- * Floor is cleared with Floors left (during the pause before the next, `nextDuelTick`); in Duels, the Rematch's while
- * the result shows (none without a Rematch, or when it is the same hand-made Arena).
+ * The Arena the game should build ahead for this Match state, or null for none: in a Run, the next Hall's once the party
+ * has taken a Door (during the fade before it, `nextDuelTick`; `tuning` the Match's); in Duels, the Rematch's while the
+ * result shows (none without a Rematch, or when it is the same hand-made Arena).
  */
-export function arenaToWarm(match: MatchState): string | null {
-  if (match.run) return match.nextDuelTick !== null ? nextArenaName(match.arena) : null;
+export function arenaToWarm(match: MatchState, tuning: TuningData): string | null {
+  if (match.run) {
+    const exit = match.nextDuelTick !== null ? takenExit(match.run, tuning) : null;
+    const next = exit === null ? null : hallBehind(tuning, match.config, match.run, exit);
+    return next ? hallOf(tuning, match.config.arena, next).arena : null;
+  }
   if (match.status.status !== 'Over' || match.config.rematchTicks === null) return null;
   const next = nextArenaName(match.arena);
   return next === match.arena ? null : next;

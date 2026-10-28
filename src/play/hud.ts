@@ -1,4 +1,4 @@
-import type { MatchState } from '../sim';
+import { hallRoster, runHall, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
@@ -39,14 +39,13 @@ export function floorBanner(floor: number, floors: number, seed: number): string
   return `${floor === floors ? 'Boss · ' : ''}Floor ${floor} / ${floors} · seed ${seed}`;
 }
 
-/** A Fighter's short HUD label: "You", the other human Player by name, an AI by difficulty, or a Run's enemy by its Floor's difficulty ("Boss" for the boss). */
+/** A Fighter's short HUD label: "You", the other human Player by name, an AI by difficulty, or a Run's enemy by its Hall's Encounter's difficulty ("Boss" for a Boss). */
 function label(match: MatchState, tuning: TuningData, lineup: Lineup | null, fighter: number, me: number, names: readonly string[] | null | undefined): string {
   if (fighter === me) return 'You';
-  const floor = match.run && match.config.teams[fighter] === 1 ? tuning.gauntlet.floors[match.run.floor - 1] : undefined;
-  if (floor) {
+  if (match.run && match.config.teams[fighter] === 1) {
     const slot = match.config.teams.slice(0, fighter).filter((t) => t === 1).length;
-    const enemy = floor.enemies[slot];
-    return floor.boss && slot === 0 ? 'Boss' : enemy ? `${enemy.difficulty} AI` : '';
+    const enemy = hallRoster(tuning, match.config, runHall(match.run))[slot];
+    return match.duel.hall?.kind === 'Boss' && slot === 0 ? 'Boss' : enemy ? `${enemy.difficulty} AI` : '';
   }
   const pilot = lineup?.[fighter]?.pilot;
   if (!pilot) return '';
@@ -178,9 +177,9 @@ export class Hud {
     const teams = match.config.teams;
     const me = view.localFighter;
     const myTeam = teams[me] ?? 0;
-    // A Run's Floor changes who stands in Team 1's slots (and which are Benched): new bars and labels.
+    // A Run's Hall changes who stands in Team 1's slots (and which are Benched): new bars and labels.
     const benched = match.duel.fighters.map((f) => Boolean(f.benched));
-    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run?.floor ?? 0, benched]);
+    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched]);
     if (key !== this.built) this.build(match, me, myTeam, view.lineup, view.names, key);
 
     for (const bar of this.bars) {

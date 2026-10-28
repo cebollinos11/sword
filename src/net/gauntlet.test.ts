@@ -1,16 +1,18 @@
 /**
- * A Gauntlet Run online (docs/plans/gauntlet.md, Stage 4): two or three Players on Team 0 against the Floors, over the
- * memory transport with latency and jitter, as `randomMap.test.ts` plays a Random Map. Nothing new crosses the wire
- * during play: every peer builds each Floor (its Arena, its enemies and their scaled HP) from the Run's options, the
- * Lineup and Tuning Data, and warms the next Floor's Arena itself.
+ * A Gauntlet Run online (docs/plans/gauntlet.md, Stage 4; a Dungeon Run since docs/plans/dungeon.md): two to four
+ * Players on Team 0 through a Floor's Halls, over the memory transport with latency and jitter, as `randomMap.test.ts`
+ * plays a Random Map. Nothing new crosses the wire during play: every peer builds each Hall (its Arena, its enemies and
+ * their scaled HP) from the Run's options, the Lineup and Tuning Data, and warms the next Hall's Arena itself.
  *
  * The Players fight on a Hard AI autopilot, each on its own peer's (possibly predicted) state: what they send is
- * ordinary Intents, recorded as sent, so the Run can be stepped offline with the very same Intents.
+ * ordinary Intents, recorded as sent, so the Run can be stepped offline with the very same Intents. Until the Hall AI
+ * walks a party to a Door, every peer's Tick function (and the offline one) puts a cleared Hall's living Players in its
+ * first exit's zone (`walkOn`): a pure function of the state, so it rolls back and agrees like the rest.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash, type TuningData } from '../tuning';
+import { loadTuningData, tuningDataHash, type DungeonEncounter, type TuningData } from '../tuning';
 import { createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, lineupPlayers, type Controller, type Lineup, type PlayerNumber } from '../controllers';
-import { arenaOf, createMatch, enemyMaxHp, floorRoster, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, nextArenaName, stepMatch, TICK_RATE, withGeneratedArena, type Intent, type MatchOptions, type MatchState } from '../sim';
+import { arenaOf, createMatch, enemyMaxHp, exitDoor, hallOf, hallRoster, hashValue, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, runCleared, runHall, runPlayers, stepMatch, TICK_RATE, withGeneratedArena, type Intent, type MatchOptions, type MatchState } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { GuestLobby, HostLobby } from '../lobby';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -18,19 +20,40 @@ import { CHECKSUM_INTERVAL, createRollbackSession, TAKEOVER_DIFFICULTY, type Rol
 import { parseNetMessage, PROTOCOL_VERSION, type HelloMessage } from './messages';
 
 const NAME = 'gen:greybox:4242';
-const FLOORS = [NAME, nextArenaName(NAME), nextArenaName(nextArenaName(NAME))];
+/** The first three Halls' Arenas, taking each Hall's first exit (all three Fights for this Run seed). */
+const HALLS = [0, 1, 2].reduce<{ index: number; arenas: string[] }>(
+  (at, row) => {
+    const hall = hallOf(loadTuningData(), NAME, { floor: 1, row, index: at.index });
+    return { index: hall.exits[0]!, arenas: [...at.arenas, hall.arena] };
+  },
+  { index: 0, arenas: [] },
+).arenas;
 const TICK_MS = 1000 / TICK_RATE;
 const MATCH: MatchOptions = { bestOf: 1, arena: NAME, seed: 9, format: 'Gauntlet' };
 const NET: MemoryTransportOptions = { latencyMs: 40, jitterMs: 20 };
 const WEAPON = 'Arming Sword';
 
-/** One-hit enemies: any blow that lands fells them, so a Floor is soon cleared. */
+/** One-hit enemies: any blow that lands fells them, so a Hall is soon cleared. */
 function oneHit(t: TuningData): TuningData {
-  const floors = t.gauntlet.floors.map((f) => ({ ...f, enemies: f.enemies.map((e) => ({ ...e, hpScale: 0.01 })) }));
-  return { ...t, gauntlet: { ...t.gauntlet, floors } };
+  const weak = (e: DungeonEncounter): DungeonEncounter => ({ enemies: e.enemies.map((x) => ({ ...x, hpScale: 0.01 })) });
+  const floors = t.dungeon.floors.map((f) => ({ ...f, encounters: { Fight: f.encounters.Fight.map(weak), Elite: f.encounters.Elite.map(weak) }, boss: weak(f.boss) }));
+  return { ...t, dungeon: { ...t.dungeon, floors } };
 }
 
-/** Each peer loads its own Tuning Data and builds Floor 1's Arena from the name, as the game does. */
+/** The Tick function of every peer and of the offline Run: a cleared Hall's living Players are put in its first exit's zone, then `stepMatch`. */
+const walkOn: typeof stepMatch = (m, intents, t) => {
+  if (m.run?.phase !== 'Cleared') return stepMatch(m, intents, t);
+  const zone = arenaOf(t, m.arena).doors[exitDoor(0)]!.zone;
+  const c = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
+  const players = runPlayers(m.config);
+  const fighters = m.duel.fighters.map((f, i) => (players.includes(i) && inDuel(f) ? { ...f, position: { x: c.x + 0.5 * ((i % 2) - 0.5), z: c.z + 0.5 * ((i >> 1) - 0.5) }, y: zone[0]!.y } : f));
+  return stepMatch({ ...m, duel: { ...m.duel, fighters } }, intents, t);
+};
+
+/** The Halls entered so far (1 the first). */
+const hallsIn = (m: MatchState | null | undefined): number => m?.run?.path.length ?? 0;
+
+/** Each peer loads its own Tuning Data and builds the Run's first Arena from the name, as the game does. */
 const peerTuning = (tune: (t: TuningData) => TuningData = oneHit): TuningData => withGeneratedArena(tune(loadTuningData()), NAME).tuning;
 
 /** The host and `players - 1` guests on Team 0, then the MAX_TEAM_SIZE Floor slots: the Lineup a Gauntlet Lobby builds. */
@@ -51,9 +74,9 @@ interface Peer {
   readonly events: SessionEvent[];
   /** The checksum this peer recorded for each confirmed checksum Tick (the latest, after any resync). */
   readonly sums: Map<number, string>;
-  /** The autopilot, fresh for each Floor. */
+  /** The autopilot, fresh for each Hall. */
   pilot: { duel: number; ai: Controller } | null;
-  /** This peer builds the next Floor ahead (the game always does; a test may hold it back). */
+  /** This peer builds the next Hall ahead (the game always does; a test may hold it back). */
   warm: boolean;
   gone: boolean;
 }
@@ -69,7 +92,7 @@ interface RunOptions {
   readonly intent?: (peer: number, state: MatchState, tick: number) => Intent | null;
 }
 
-/** The autopilot's Intent: a Hard AI fighting for the local Fighter while a Floor is on; idle in the pause between Floors. */
+/** The autopilot's Intent: a Hard AI fighting for the local Fighter while a Hall is on; idle in the fade between Halls. */
 function autopilot(peer: Peer): Intent {
   const { session } = peer;
   const state = session.state;
@@ -82,8 +105,8 @@ function startRun(o: RunOptions) {
   const lineup = runLineup(o.players);
   const pairs: MemoryTransportPair[] = Array.from({ length: o.players - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
   const tunings = Array.from({ length: o.players }, (_, k) => o.tuning?.(k) ?? peerTuning());
-  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: o.step?.(0) });
-  const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: o.step?.(i + 1) }));
+  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: o.step?.(0) ?? walkOn });
+  const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: o.step?.(i + 1) ?? walkOn }));
   const peers: Peer[] = [host, ...guests].map((session, k) => {
     const peer: Peer = {
       session,
@@ -113,8 +136,8 @@ function startRun(o: RunOptions) {
       const r = session.tick(intent);
       if (r.advanced) peer.sent.set(session.currentTick, intent);
       each?.(peer, k, before, r.rolledBack);
-      // The game builds the next Floor's Arena ahead, on every peer (`warmNextArena`).
-      const next = session.state && arenaToWarm(session.state);
+      // The game builds the next Hall's Arena ahead, on every peer (`warmNextArena`).
+      const next = session.state && arenaToWarm(session.state, peer.tuning);
       if (next && peer.warm && !peer.warmed.has(next)) {
         warmArena(peer.worlds, peer.tuning, next);
         peer.warmed.add(next);
@@ -142,15 +165,14 @@ interface Takeover {
 
 /**
  * The Run stepped offline with the Intents the Players sent and fresh AI Controllers (a Floor AI on each Team 1 slot,
- * a Normal AI for a Player who left): its hash at every checksum Tick up to `upTo`, and where each Floor began and its
- * pause.
+ * a Normal AI for a Player who left): its hash at every checksum Tick up to `upTo`, and where each Hall began and was cleared.
  */
 function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = []) {
   const ais = lineupAis(tuning, lineup, 'Gauntlet', MATCH);
   const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: createAiController(tuning, TAKEOVER_DIFFICULTY) }]));
   let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
   const hashes = new Map<number, string>();
-  /** Per Floor: the Tick it was cleared (its pause began) and the Tick the next began. */
+  /** Per Hall (1 the first entered): the Tick it was cleared and the Tick it began. */
   const clearedAt = new Map<number, number>();
   const startedAt = new Map<number, number>([[1, 0]]);
   for (let t = 1; t <= upTo; t++) {
@@ -162,9 +184,9 @@ function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upT
       return peers[p]!.sent.get(t) ?? IDLE_INTENT;
     });
     const before = m;
-    m = stepMatch(m, intents, tuning);
-    if (before.nextDuelTick === null && m.nextDuelTick !== null) clearedAt.set(m.run!.floor, t);
-    if (m.run!.floor !== before.run!.floor) startedAt.set(m.run!.floor, t);
+    m = walkOn(m, intents, tuning);
+    if (before.run!.phase === 'Fighting' && m.run!.phase !== 'Fighting') clearedAt.set(hallsIn(m), t);
+    if (hallsIn(m) !== hallsIn(before)) startedAt.set(hallsIn(m), t);
     if (t % CHECKSUM_INTERVAL === 0) hashes.set(t, hashValue(m));
   }
   return { hashes, clearedAt, startedAt, state: m };
@@ -183,37 +205,38 @@ function expectChecksums(name: string, peer: Peer, expected: ReadonlyMap<number,
   return checked;
 }
 
-/** The enemies on the current Floor: each Team 1 slot's max HP, null for a Benched one. */
+/** The enemies in the current Hall: each Team 1 slot's max HP, null for a Benched one. */
 const enemyHp = (m: MatchState) => m.duel.fighters.flatMap((f) => (f.team === 1 ? [f.benched ? null : f.maxHp] : []));
 
 describe('a Gauntlet Run online', () => {
   for (const players of [2, 3, 4]) {
-    it(`${players} Players with one-hit enemies play Floors 1 to 3: every checksum on every peer equals the Run stepped offline, and each peer built each Floor itself`, () => {
+    it(`${players} Players with one-hit enemies play Halls 1 to 3: every checksum on every peer equals the Run stepped offline, and each peer built each Hall itself`, () => {
       const r = startRun({ players });
-      // Into Floor 3, and a while on into it, every peer having confirmed that far.
-      let floor3: number | null = null;
-      r.until(() => floor3 !== null && r.confirmed() >= floor3 + 300, (peer) => {
-        if (floor3 === null && peer === r.host && peer.session.state?.run?.floor === 3) floor3 = peer.session.currentTick;
+      // Into Hall 3, and a while on into it, every peer having confirmed that far.
+      let hall3: number | null = null;
+      r.until(() => hall3 !== null && r.confirmed() >= hall3 + 300, (peer) => {
+        if (hall3 === null && peer === r.host && hallsIn(peer.session.state) === 3) hall3 = peer.session.currentTick;
       });
-      expect(floor3, 'reached Floor 3').not.toBeNull();
+      expect(hall3, 'reached Hall 3').not.toBeNull();
       for (const p of r.peers) expect(p.session.status).toBe('Running');
 
       const upTo = r.confirmed();
       const expected = offline(peerTuning(), r.lineup, r.peers, upTo);
-      expect(expected.state.run).toMatchObject({ floor: 3, cleared: 2 });
+      expect(expected.state.run).toMatchObject({ floor: 1, row: 2 });
+      expect(runCleared(expected.state.run!).halls).toBeGreaterThanOrEqual(2);
       expect(expected.state.status.status).toBe('InProgress');
       r.peers.forEach((p, k) => expect(expectChecksums(k === 0 ? 'host' : `guest ${k}`, p, expected.hashes), `peer ${k}`).toBeGreaterThan(20));
       for (const p of r.peers) expect(p.events.filter((e) => e.type === 'Desync')).toEqual([]);
 
-      // Each Floor on its own Arena, the next seed each time, which every peer built for itself: different objects, equal hashes.
-      for (const p of r.peers) expect(p.session.state).toMatchObject({ arena: FLOORS[2], run: { floor: 3 }, config: { arena: NAME, humans: players } });
-      for (const name of FLOORS) {
+      // Each Hall on its own Arena, which every peer built for itself: different objects, equal hashes.
+      for (const p of r.peers) expect(p.session.state).toMatchObject({ arena: HALLS[2], run: { row: 2 }, config: { arena: NAME, humans: players } });
+      for (const name of HALLS) {
         const built = r.peers.map((p) => arenaOf(p.tuning, name));
         expect(new Set(built).size).toBe(players);
         expect(new Set(built.map((a) => hashValue(a))).size).toBe(1);
       }
-      // ...and each built Floors 2 and 3 ahead, in the pause before them (none of it on the wire).
-      for (const p of r.peers) expect([...p.warmed]).toEqual(FLOORS.slice(1));
+      // ...and each built Halls 2 and 3 ahead, in the fade before them (none of it on the wire).
+      for (const p of r.peers) expect([...p.warmed]).toEqual(HALLS.slice(1));
     }, 240_000);
   }
 
@@ -221,12 +244,12 @@ describe('a Gauntlet Run online', () => {
     for (const players of [2, 3, 4]) {
       const r = startRun({ players });
       r.until(() => r.peers.every((p) => p.session.status === 'Running'), undefined, 200);
-      const floor1 = floorRoster(r.host.tuning, r.host.session.state!.config, 1).map((e) => e && enemyMaxHp(r.host.tuning, 0.01, players));
+      const hall1 = hallRoster(r.host.tuning, r.host.session.state!.config, { floor: 1, row: 0, index: 0 }).map((e) => e && enemyMaxHp(r.host.tuning, 0.01, players, 0));
       for (const p of r.peers) {
         expect(p.session.state!.config.humans).toBe(players);
-        expect(enemyHp(p.session.state!)).toEqual(floor1);
+        expect(enemyHp(p.session.state!)).toEqual(hall1);
       }
-      expect(floor1[0]).toBeCloseTo(r.host.tuning.fighter.maxHp * 0.01 * (1 + r.host.tuning.gauntlet.perPlayerHp * (players - 1)));
+      expect(hall1[0]).toBeCloseTo(r.host.tuning.fighter.maxHp * 0.01 * (1 + r.host.tuning.dungeon.perPlayerHp * (players - 1)));
     }
 
     // The host's start message: the Run's Format and its humans in the Match options (weapons and teams stay out).
@@ -249,23 +272,23 @@ describe('a Gauntlet Run online', () => {
     expect(lineupPlayers(heard[0]!.lineup!)).toBe(2);
   });
 
-  it('a guest leaving on Floor 2 is taken over by a Normal AI on every peer; the Run goes on in step, and Floor 3 keeps the starting humans’ enemy HP', () => {
+  it('a guest leaving in Hall 2 is taken over by a Normal AI on every peer; the Run goes on in step, and Hall 3 keeps the starting humans’ enemy HP', () => {
     const r = startRun({ players: 3 });
     const leaver = r.guests[1]!; // Player 2
-    let floor3: number | null = null;
-    r.until(() => floor3 !== null && r.confirmed() >= floor3 + 300, (peer) => {
+    let hall3: number | null = null;
+    r.until(() => hall3 !== null && r.confirmed() >= hall3 + 300, (peer) => {
       const s = r.host.session.state;
-      // Some way into Floor 2, the guest closes its tab.
-      if (!leaver.gone && s?.run?.floor === 2 && s.nextDuelTick === null && s.duel.tick > 90) {
+      // Some way into Hall 2, the guest closes its tab.
+      if (!leaver.gone && hallsIn(s) === 2 && s!.run!.phase === 'Fighting' && s!.duel.tick > 30) {
         leaver.session.close();
         leaver.gone = true;
       }
-      if (floor3 === null && peer === r.host && s?.run?.floor === 3) floor3 = s.tick;
+      if (hall3 === null && peer === r.host && hallsIn(s) === 3) hall3 = s!.tick;
     });
     expect(leaver.gone).toBe(true);
-    expect(floor3, 'reached Floor 3').not.toBeNull();
+    expect(hall3, 'reached Hall 3').not.toBeNull();
 
-    // Every peer still playing hears of it, with the same takeover Tick, on Floor 2.
+    // Every peer still playing hears of it, with the same takeover Tick, in Hall 2.
     const left = r.host.events.find((e) => e.type === 'PlayerLeft');
     expect(left).toMatchObject({ type: 'PlayerLeft', player: 2 });
     expect(r.guests[0]!.events).toContainEqual(left);
@@ -278,34 +301,33 @@ describe('a Gauntlet Run online', () => {
     for (const [k, p] of [r.host, r.guests[0]!].entries()) {
       expect(expectChecksums(`peer ${k}`, p, expected.hashes)).toBeGreaterThan(20);
       expect(p.events.filter((e) => e.type === 'Desync')).toEqual([]);
-      // The Run was started by three humans, and its Floors stay scaled for three.
+      // The Run was started by three humans, and its Halls stay scaled for three.
       const s = p.session.state!;
-      expect(s.run!.floor).toBe(3);
+      expect(s.run!.row).toBe(2);
       expect(s.config.humans).toBe(3);
-      expect(enemyHp(s)).toEqual(floorRoster(p.tuning, s.config, 3).map((e) => e && enemyMaxHp(p.tuning, 0.01, 3)));
+      expect(enemyHp(s)).toEqual(hallRoster(p.tuning, s.config, runHall(s.run!)).map((e) => e && enemyMaxHp(p.tuning, 0.01, 3, 2)));
       expect(enemyHp(s).filter((hp) => hp !== null).length).toBeGreaterThan(0);
     }
   }, 240_000);
 
-  it('a guest forced to resync in the pause between Floors, before it built the next Floor, catches up with no Desync after', () => {
-    const interDuel = (m: MatchState) => m.config.interDuelTicks;
-    // On the guest only: every time it simulates the first Tick of Floor 1's pause, Fighter 0 drifts 5 cm.
+  it('a guest forced to resync while the first Hall stands cleared, before it built the next Hall, catches up with no Desync after', () => {
+    // On the guest only: every time it simulates the Tick the first Hall is cleared on, Fighter 0's HP drifts by 1.
     const drift: typeof stepMatch = (m, intents, t) => {
-      const next = stepMatch(m, intents, t);
-      if (next.run?.floor !== 1 || next.nextDuelTick === null || next.tick !== next.nextDuelTick - interDuel(next) + 1) return next;
-      const fighters = next.duel.fighters.map((f, j) => (j === 0 ? { ...f, position: { x: f.position.x + 0.05, z: f.position.z } } : f));
+      const next = walkOn(m, intents, t);
+      if (hallsIn(next) !== 1 || m.run?.phase !== 'Fighting' || next.run?.phase !== 'Cleared') return next;
+      const fighters = next.duel.fighters.map((f, j) => (j === 0 ? { ...f, hp: f.hp - 1 } : f));
       return { ...next, duel: { ...next.duel, fighters } };
     };
     const r = startRun({ players: 2, step: (k) => (k === 1 ? drift : undefined) });
     const guest = r.guests[0]!;
-    // This guest never builds a Floor ahead: the Floor change Tick builds it (slow, but the same Arena).
+    // This guest never builds a Hall ahead: the Hall change Tick builds it (slow, but the same Arena).
     guest.warm = false;
-    let floor2: number | null = null;
-    r.until(() => floor2 !== null && r.confirmed() >= floor2 + 300, () => {
+    let hall2: number | null = null;
+    r.until(() => hall2 !== null && r.confirmed() >= hall2 + 300, () => {
       const s = r.host.session.state;
-      if (floor2 === null && s?.run?.floor === 2) floor2 = s.tick;
+      if (hall2 === null && hallsIn(s) === 2) hall2 = s!.tick;
     });
-    expect(floor2, 'reached Floor 2').not.toBeNull();
+    expect(hall2, 'reached Hall 2').not.toBeNull();
 
     const expected = offline(peerTuning(), r.lineup, r.peers, r.confirmed());
     const [cleared, next] = [expected.clearedAt.get(1)!, expected.startedAt.get(2)!];
@@ -313,7 +335,7 @@ describe('a Gauntlet Run online', () => {
     const resynced = guest.events.find((e) => e.type === 'Resynced');
     expect(desync, 'the drift was caught').toBeDefined();
     expect(resynced).toBeDefined();
-    // Both inside the pause: after Floor 1 was cleared, before Floor 2 began.
+    // Both while the first Hall stood cleared: after it was cleared, before Hall 2 began.
     for (const e of [desync!, resynced!] as { tick: number }[]) {
       expect(e.tick).toBeGreaterThan(cleared);
       expect(e.tick).toBeLessThan(next);
@@ -325,45 +347,45 @@ describe('a Gauntlet Run online', () => {
     const after = (resynced as { tick: number }).tick;
     expect(expectChecksums('host', r.host, expected.hashes)).toBeGreaterThan(10);
     expect(expectChecksums('guest', guest, expected.hashes, after)).toBeGreaterThan(10);
-    // ...through the Floor change, on an Arena the guest built itself.
-    expect(expectChecksums('guest on Floor 2', guest, expected.hashes, next)).toBeGreaterThan(5);
-    expect(guest.session.state!.arena).toBe(FLOORS[1]);
-    expect(arenaOf(guest.tuning, FLOORS[1]!)).not.toBe(arenaOf(r.host.tuning, FLOORS[1]!));
-    expect(hashValue(arenaOf(guest.tuning, FLOORS[1]!))).toBe(hashValue(arenaOf(r.host.tuning, FLOORS[1]!)));
+    // ...through the Hall change, on an Arena the guest built itself.
+    expect(expectChecksums('guest in Hall 2', guest, expected.hashes, next)).toBeGreaterThan(5);
+    expect(guest.session.state!.arena).toBe(HALLS[1]);
+    expect(arenaOf(guest.tuning, HALLS[1]!)).not.toBe(arenaOf(r.host.tuning, HALLS[1]!));
+    expect(hashValue(arenaOf(guest.tuning, HALLS[1]!))).toBe(hashValue(arenaOf(r.host.tuning, HALLS[1]!)));
   }, 240_000);
 
-  it('a Rollback across a Floor change (a late Intent from the Tick before it) re-simulates to the same state', () => {
-    // The guest's Intent for the last Tick of the pause differs from the idle one the host predicts, and arrives a few Ticks late.
+  it('a Rollback across a Hall change (a late Intent from the Tick before it) re-simulates to the same state', () => {
+    // The guest's Intent for the last Tick of the fade differs from the idle one the host predicts, and arrives a few Ticks late.
     const LATE: Intent = { ...IDLE_INTENT, move: { x: 1, z: 0 }, attack: true, face: 1 };
     const r = startRun({
       players: 2,
       net: { latencyMs: 100, jitterMs: 20 },
-      intent: (k, s, tick) => (k === 1 && s.run?.floor === 1 && s.nextDuelTick !== null && tick === s.nextDuelTick - 1 ? LATE : null),
+      intent: (k, s, tick) => (k === 1 && hallsIn(s) === 1 && s.nextDuelTick !== null && tick === s.nextDuelTick - 1 ? LATE : null),
     });
-    let floor2: number | null = null;
+    let hall2: number | null = null;
     /** Host Rollbacks: [first re-simulated Tick, last]. */
     const rollbacks: [number, number][] = [];
-    r.until(() => floor2 !== null && r.confirmed() >= floor2 + 300, (peer, _k, before, rolledBack) => {
+    r.until(() => hall2 !== null && r.confirmed() >= hall2 + 300, (peer, _k, before, rolledBack) => {
       const s = r.host.session.state;
       if (peer === r.host && rolledBack > 0) rollbacks.push([before - rolledBack + 1, before]);
-      if (floor2 === null && s?.run?.floor === 2) floor2 = s.tick;
+      if (hall2 === null && hallsIn(s) === 2) hall2 = s!.tick;
     });
-    expect(floor2, 'reached Floor 2').not.toBeNull();
+    expect(hall2, 'reached Hall 2').not.toBeNull();
 
     const expected = offline(peerTuning(), r.lineup, r.peers, r.confirmed());
     const t = expected.startedAt.get(2)!;
     expect(r.guests[0]!.sent.get(t - 1)).toEqual(LATE);
-    // The host rolled back from the Tick before the Floor change to past it: re-simulating the change itself.
+    // The host rolled back from the Tick before the Hall change to past it: re-simulating the change itself.
     expect(rollbacks.some(([from, to]) => from <= t - 1 && to >= t)).toBe(true);
     for (const [k, p] of r.peers.entries()) {
       expect(expectChecksums(`peer ${k}`, p, expected.hashes)).toBeGreaterThan(10);
-      expect(expectChecksums(`peer ${k} on Floor 2`, p, expected.hashes, t)).toBeGreaterThan(5);
+      expect(expectChecksums(`peer ${k} in Hall 2`, p, expected.hashes, t)).toBeGreaterThan(5);
       expect(p.events.filter((e) => e.type === 'Desync')).toEqual([]);
     }
   }, 240_000);
 
-  it('a guest with a different gauntlet.json is refused at connect', () => {
-    const otherFloors = (t: TuningData) => ({ ...oneHit(t), gauntlet: { ...oneHit(t).gauntlet, heal: 0.25 } });
+  it('a guest with a different dungeon.json is refused at connect', () => {
+    const otherFloors = (t: TuningData) => ({ ...oneHit(t), dungeon: { ...oneHit(t).dungeon, restHeal: 0.25 } });
     const r = startRun({ players: 2, tuning: (k) => (k === 1 ? peerTuning(otherFloors) : peerTuning()) });
     r.until(() => r.guests[0]!.session.status === 'Refused', undefined, 60);
     expect(r.guests[0]!.session.status).toBe('Refused');

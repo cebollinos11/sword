@@ -1,14 +1,17 @@
 import { it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { lineupAis, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { arenaOf } from './arena';
 import { inDuel } from './duel';
-import { createMatch, type MatchState } from './match';
+import { exitDoor } from './hall';
+import { createMatch, runCleared, type MatchState } from './match';
 
 /**
- * The Gauntlet's soak (docs/plans/gauntlet.md, Stage 1): three Hard AI allies against the Floors, one Run on each of
- * seeds 1-50 (`gen:greybox:<seed>`), headless. Skipped in the normal suite; run
+ * The Gauntlet's soak (docs/plans/gauntlet.md, Stage 1; a Dungeon Run since docs/plans/dungeon.md): three Hard AI allies
+ * against the Halls, one Run on each of seeds 1-50 (`gen:greybox:<seed>`), headless. Until the AI allies walk to a Door
+ * themselves (the Hall AI), each cleared Hall's party is put in its first exit's zone. Skipped in the normal suite; run
  *   SOAK_GAUNTLET=1 npx vitest run src/sim/gauntlet.soak.test.ts --silent=false
- * SOAK_FROM / SOAK_TO pick the seeds.
+ * SOAK_FROM / SOAK_TO pick the seeds. "Floor" below is one Hall's fight.
  */
 const tuning = loadTuningData();
 /** The longest a Floor may run (Ticks): three minutes. One that runs longer hangs, and its Run is stopped there. */
@@ -17,7 +20,7 @@ const FLOOR_CAP = 180 * 60;
 const NEAR = 8;
 
 /** Three Hard allies on Team 0, the three Floor AI slots on Team 1 (their pilots are ignored: the Floors decide). */
-const LINEUP: Lineup = [0, 0, 0, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
+const LINEUP: Lineup = [0, 0, 0, 1, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
 
 interface Floor {
   readonly ticks: number;
@@ -38,11 +41,18 @@ interface Run {
 }
 
 function soak(seed: number): Run {
-  const controllers = lineupAis(tuning, LINEUP, 'Gauntlet') as Controller[];
-  let m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed, arena: `gen:greybox:${seed}`, teams: LINEUP.map((s) => s.team) });
+  const arena = `gen:greybox:${seed}`;
+  const controllers = lineupAis(tuning, LINEUP, 'Gauntlet', { arena }) as Controller[];
+  let m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed, arena, teams: LINEUP.map((s) => s.team) });
   const floors: Floor[] = [];
   let contact = -1;
   for (;;) {
+    if (m.run!.phase === 'Cleared') {
+      const zone = arenaOf(tuning, m.arena).doors[exitDoor(0)]!.zone;
+      const c = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
+      m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (f.team === 0 && inDuel(f) ? { ...f, position: { x: c.x + 0.6 * (i - 1), z: c.z }, y: zone[0]!.y } : f)) } };
+    }
+    const fighting = m.run!.phase === 'Fighting';
     m = stepMatchWith(m, controllers, tuning);
     const { duel } = m;
     if (contact < 0 && duel.duel.status === 'Fighting') {
@@ -50,17 +60,17 @@ function soak(seed: number): Run {
       const them = duel.fighters.filter((f) => f.team === 1 && inDuel(f));
       if (own.some((a) => them.some((b) => Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z) <= NEAR))) contact = duel.tick;
     }
-    const ended = duel.events.some((e) => e.type === 'DuelEnd');
-    const hang = duel.duel.status === 'Fighting' && duel.tick >= FLOOR_CAP;
+    const ended = fighting && (m.run!.phase !== 'Fighting' || m.status.status === 'Over');
+    const hang = fighting && !ended && duel.tick >= FLOOR_CAP;
     if (ended || hang) {
-      const winner = hang ? 'hang' : duel.duel.status === 'Over' ? duel.duel.winner : null;
+      const winner = hang ? 'hang' : m.run!.phase !== 'Fighting' ? 0 : 1;
       floors.push({ ticks: duel.tick, contact: contact < 0 ? duel.tick : contact, winner, hp: duel.fighters.filter((f) => f.team === 0).map((f) => (inDuel(f) ? f.hp : 0)) });
       contact = -1;
     }
     if (hang || m.status.status === 'Over') break;
   }
   const { status } = m;
-  return { seed, ended: status.status === 'Over', won: status.status === 'Over' && status.winner === 0, cleared: m.run!.cleared, floors, ticks: m.tick };
+  return { seed, ended: status.status === 'Over', won: status.status === 'Over' && status.winner === 0, cleared: runCleared(m.run!).halls, floors, ticks: m.tick };
 }
 
 it.skipIf(!process.env.SOAK_GAUNTLET)('soak: three Hard allies against the Gauntlet', () => {
@@ -80,7 +90,7 @@ it.skipIf(!process.env.SOAK_GAUNTLET)('soak: three Hard allies against the Gaunt
         .map((f, k) => `${k + 1}: ${s(f.ticks)} (${s(f.contact)}) [${f.hp.map((h) => Math.round(h)).join('/')}]${f.winner === 'hang' ? ' HANG' : f.winner === null ? ' DRAW' : ''}`)
         .join('; ')} |`,
     );
-  const total = tuning.gauntlet.floors.length;
+  const total = tuning.dungeon.floors.length * 5;
   const reached = Array.from({ length: total }, (_, k) => runs.filter((r) => r.floors.length > k).length);
   const floorTicks = Array.from({ length: total }, (_, k) => runs.flatMap((r) => (r.floors[k] ? [r.floors[k]!.ticks] : [])));
   const contacts = runs.flatMap((r) => r.floors.map((f) => f.contact));

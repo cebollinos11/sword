@@ -13,7 +13,7 @@
  *     judges by the jump Links alone.
  */
 import type { ArenaDoor, ArenaGeometry, TuningData, WalkSurface } from '../../tuning';
-import { blockedAt, deadly, groundBelow, wallCrossing } from '../arena';
+import { blockedAt, deadly, groundBelow, insideZone, wallCrossing } from '../arena';
 import { corners, findPath, navMesh, navPolygon, type NavPoint } from '../nav';
 import { SPAWNS_PER_TEAM } from './assemble';
 
@@ -160,19 +160,6 @@ function zoneDeadly(arena: ArenaGeometry, tuning: TuningData, door: ArenaDoor): 
   return false;
 }
 
-/** Whether (x, z) is inside (or on the edge of) the convex polygon `zone`, from above. */
-function insideZone(zone: ArenaDoor['zone'], x: number, z: number): boolean {
-  let sign = 0;
-  for (let i = 0; i < zone.length; i++) {
-    const a = zone[i]!;
-    const b = zone[(i + 1) % zone.length]!;
-    const cross = Math.sign((b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x));
-    if (cross === 0) continue;
-    if (sign !== 0 && cross !== sign) return false;
-    sign = cross;
-  }
-  return true;
-}
 
 /** Twice the area (m²) of a Walk Surface seen from above. */
 const area2 = (s: WalkSurface) => Math.abs(s.points.reduce((sum, p, i) => sum + p.x * s.points[(i + 1) % s.points.length]!.z - s.points[(i + 1) % s.points.length]!.x * p.z, 0));

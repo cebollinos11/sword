@@ -3,9 +3,27 @@
  * from Tuning Data (`dungeon`) and the Run seed whenever it is needed, like a Generated Arena from its name. Never stored
  * in `MatchState`, so nothing about it is hashed or rolled back: every peer builds the same graph with nothing sent.
  */
+import { hashValue } from './hash';
 import type { DungeonEncounter, DungeonFloor, DungeonTuning, HallKind, PooledHallKind, WeightedHallKind } from '../tuning';
-import { ARENA_SEED_RANGE } from './arenaGen/named';
-import { runPick } from './gauntlet';
+import { ARENA_SEED_RANGE, parseGeneratedName } from './arenaGen/named';
+
+/** The Run seed: the seed of the Run's first Arena when it is a Generated Arena (the Lobby's Random Map), else a hash of its name. */
+export function runSeed(arena: string): number {
+  return parseGeneratedName(arena)?.seed ?? parseInt(hashValue(arena), 16);
+}
+
+/** murmur3's 32-bit finaliser: spreads nearby inputs over the whole range. */
+function mix32(h: number): number {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** A pure pick of one of `count` choices for (Run seed, Floor, slot); `salt` keeps independent picks for the same slot apart. */
+export function runPick(seed: number, floor: number, slot: number, salt: number, count: number): number {
+  const h = mix32(mix32(mix32(seed ^ Math.imul(floor, 0x9e3779b9)) ^ Math.imul(slot + 1, 0x85ebca6b)) ^ Math.imul(salt + 1, 0xc2b2ae35));
+  return h % count;
+}
 
 /** One node of a Floor graph. */
 export interface Hall {
@@ -35,7 +53,8 @@ const SALT = { kind: 10, rest: 11, exitCount: 12, exit: 13, joinFrom: 14, encoun
 const EXIT_COUNTS = [1, 2, 2, 2, 3] as const;
 
 /** A Hall's slot for `runPick`: unique per (row, index) within a Floor (rows are at most 3 wide). */
-const slot = (row: number, index: number) => row * 4 + index;
+export const hallSlot = (row: number, index: number) => row * 4 + index;
+const slot = hallSlot;
 
 /** A pure pick of a kind out of `kinds` by their `weights` (the first with weight left over wins; all-zero: the first). */
 function weightedKind(weights: Readonly<Record<WeightedHallKind, number>>, kinds: readonly WeightedHallKind[], seed: number, floor: number, at: number): WeightedHallKind {
@@ -50,14 +69,18 @@ function weightedKind(weights: Readonly<Record<WeightedHallKind, number>>, kinds
   return kinds[0]!;
 }
 
-/** The kinds of a Floor's rows: row 1 a Fight; rows 2 to 4 by weight (no Elite in row 2, one Rest placed in row 4); the Boss. */
+/**
+ * The kinds of a Floor's rows: row 1 a Fight; rows 2 to 4 by weight (no Elite in row 2, one Rest placed in row 4); the Boss.
+ * A row 4 of one Hall (only a hand-built Dungeon has one, never data/dungeon.json's) holds no Rest, so a straight Floor of
+ * Fights can rebuild a v1 Run.
+ */
 function floorKinds(f: DungeonFloor, seed: number, floor: number): HallKind[][] {
   const widths = [1, ...f.rows, 1];
   return widths.map((width, row): HallKind[] => {
     if (row === 0) return ['Fight'];
     if (row === FLOOR_ROWS - 1) return ['Boss'];
     const kinds: readonly WeightedHallKind[] = row === 1 ? ['Fight', 'Treasure'] : ['Fight', 'Elite', 'Treasure'];
-    const rest = row === FLOOR_ROWS - 2 ? runPick(seed, floor, row, SALT.rest, width) : -1;
+    const rest = row === FLOOR_ROWS - 2 && width > 1 ? runPick(seed, floor, row, SALT.rest, width) : -1;
     return Array.from({ length: width }, (_, i) => (i === rest ? 'Rest' : weightedKind(f.weights, kinds, seed, floor, slot(row, i))));
   });
 }

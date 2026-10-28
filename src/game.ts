@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, createMatch, floorRoster, inDuel, isArenaName, parseGeneratedName, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import type { RunKnobs, TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
@@ -90,7 +90,7 @@ function store(key: string, value: string): void {
   }
 }
 
-/** The Run knobs picked last (each a number; `applyRunKnobs` holds them to their ranges), or null for none. */
+/** The Run knobs picked last (each a number; `applyDungeonKnobs` holds them to their ranges), or null for none. */
 function storedKnobs(): RunKnobs | null {
   try {
     const raw: unknown = JSON.parse(stored(RUN_KNOBS_STORAGE_KEY) ?? 'null');
@@ -311,12 +311,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   /**
    * Build the next Arena ahead (`arenaToWarm`), with its navmesh for the Match's Tuning Data: an online Match's Rematch's
-   * while the result shows, or a Run's next Floor's in the pause after a Floor is cleared, so the Tick that moves onto it
+   * while the result shows, or a Run's next Hall's in the fade after its Door is taken, so the Tick that moves onto it
    * (and any Rollback re-simulating it) only reads the cache. Building takes a few hundred ms, so a Run's waits for the
-   * Final Blow Shot to end (the Floor then stands still and the stall does not show), unless the next Floor is close.
+   * Final Blow Shot to end, unless the next Hall is close.
    */
   function warmNextArena(match: MatchState): void {
-    const next = arenaToWarm(match);
+    const next = arenaToWarm(match, matchTuning);
     if (next === null || next === warmed) return;
     if (match.run && inShot && match.nextDuelTick !== null && match.nextDuelTick - match.tick > secondsToTicks(WARM_LEAD_SECONDS)) return;
     warmed = next;
@@ -561,12 +561,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // The Run's results screen follows the Final Blow Shot (see the loop), then the Lobby.
         runResult = {
           victory: e.winner === myTeam,
-          cleared: run.cleared,
+          cleared: runCleared(run).floors,
           floors: run.floors,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
         };
-        resultText = `${runResult.victory ? 'Victory' : 'Defeat'} · ${run.cleared} / ${run.floors} Floors cleared · ${runTime(runResult.seconds)} · Run seed ${runResult.seed}`;
+        resultText = `${runResult.victory ? 'Victory' : 'Defeat'} · ${runResult.cleared} / ${run.floors} Floors cleared · ${runTime(runResult.seconds)} · Run seed ${runResult.seed}`;
       } else if (e.type === 'MatchEnd') {
         const verdict = e.winner === myTeam ? 'Victory' : 'Defeat';
         const score = `${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
@@ -747,10 +747,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
 /**
  * Each Fighter's chosen Body: its Player's (index = Player number), none for an AI. In a Run, each Team 1 slot wears its
- * Floor's enemy's Body when Tuning Data names one (a `"random"` one picked from the Run seed, `floorRoster`; the boss's wraith).
+ * Hall's enemy's Body when Tuning Data names one (a `"random"` one picked from the Run seed, `hallRoster`; the last Boss's wraith).
  */
 function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readonly string[] | null, match: MatchState): (string | undefined)[] {
-  const roster = match.run ? floorRoster(tuning, match.config, match.run.floor, BODY_MODELS) : [];
+  const roster = match.run ? hallRoster(tuning, match.config, runHall(match.run), BODY_MODELS) : [];
   let enemy = 0;
   return (lineup ?? []).map((slot) => {
     if (match.run && slot.team === 1) return roster[enemy++]?.body;

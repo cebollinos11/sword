@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { arenaOf, createMatch, floorRoster, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
+import { arenaOf, createMatch, hallOf, hallRoster, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
 import { hashValue } from '../hash';
 import { runMatch, type Controller } from './controller';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from './lineup';
@@ -33,7 +33,7 @@ describe('Four a side', () => {
     expect(hashValue(play().final)).toBe(hashValue(one.final));
   });
 
-  it('a Gauntlet with four humans on Team 0 meets the Floor enemies listed for a full team', () => {
+  it('a Gauntlet with four humans on Team 0 meets the Hall enemies listed for a full team', () => {
     const arena = 'gen:greybox:4242';
     const lineup: Lineup = [
       ...([0, 1, 2, 3] as const).map((player) => ({ team: 0, pilot: { kind: 'Player', player } }) as const),
@@ -43,11 +43,13 @@ describe('Four a side', () => {
     const weapon = Object.keys(tuning.weapons)[0]!;
     const m = createMatch(tuning, lineupMatch(tuning, lineup, Array<string>(4).fill(weapon), { format: 'Gauntlet', bestOf: 1, arena }));
     expect(m.config.humans).toBe(4);
+    expect(m.config.players).toEqual([0, 1, 2, 3]);
     const enemies = m.duel.fighters.slice(4);
-    const listed = tuning.gauntlet.floors[0]!.enemies;
+    const first = { floor: 1, row: 0, index: 0 };
+    const listed = hallOf(tuning, arena, first).encounter!.enemies;
     expect(enemies.filter((f) => !f.benched)).toHaveLength(listed.length);
     // A smaller Team 0 leaves the full-team enemies' slots Benched.
-    const solo = floorRoster(tuning, { ...m.config, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] }, 1);
+    const solo = hallRoster(tuning, { ...m.config, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] }, first);
     expect(solo.filter((e) => e !== null)).toHaveLength(listed.filter((e) => (e.minTeam ?? 0) <= 1).length);
   });
 });

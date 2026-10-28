@@ -20,7 +20,6 @@ function goodRaw() {
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, homingCone: 25, homingRange: 20, homingTurn: 60, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
-    gauntlet: { interFloorSeconds: 5, heal: 0.3, revive: 0.4, perPlayerHp: 0.5, floors: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] },
     dungeon: {
       doorSeconds: 1.5,
       hallFadeSeconds: 1,

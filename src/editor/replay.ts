@@ -418,6 +418,9 @@ function parseSetup(raw: unknown): ReplaySetup {
         arena: c.arena === undefined ? 'circle' : typeof c.arena === 'string' ? c.arena : fail('setup.config.arena', 'must be an Arena name'),
         ...(c.format === undefined ? {} : { format: c.format === 'Duels' || c.format === 'Gauntlet' ? c.format : fail('setup.config.format', 'must be "Duels" or "Gauntlet"') }),
         ...(c.humans === undefined ? {} : { humans: int(c.humans, 'setup.config.humans', 0) }),
+        ...(c.players === undefined
+          ? {}
+          : { players: Array.isArray(c.players) ? c.players.map((p, i) => int(p, `setup.config.players[${i}]`, 0)) : fail('setup.config.players', 'must be a list of Fighters') }),
       },
     };
   }
