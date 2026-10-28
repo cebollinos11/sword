@@ -5,11 +5,12 @@ import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
+import { InventoryScreen } from './play/inventoryScreen';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { visiblePickups } from './play/loot';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
@@ -138,6 +139,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     },
   };
   const hud = new Hud(container, tuning, () => openPause());
+  /** The inventory screen (`I`, or its touch button): render only, its clicks become the Local Controller's `equip` and `drop`. */
+  const inventoryScreen = new InventoryScreen((ref, action) => local.inventoryClick(ref, action), () => toggleInventory());
+  hud.root.append(inventoryScreen.root);
 
   const weapons = Object.keys(tuning.weapons);
   const arenas = pickableArenas(tuning);
@@ -442,6 +446,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       finalBlow.stop();
       resultAt = null;
       runResult = null;
+      inventoryScreen.open = false;
       hud.show();
       const start = d.state;
       // An online Match has no state until the peers connect; its first state then sounds.
@@ -468,6 +473,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     runResult = null;
     endShot();
     finalBlow.stop();
+    inventoryScreen.open = false;
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -485,6 +491,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   function openPause(): void {
     if (!driver || menu.paused) return;
+    inventoryScreen.open = false;
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -495,6 +502,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (!driver) return;
     menu.hide();
     input.enabled = true;
+    lockPointer();
+  }
+
+  function lockPointer(): void {
     // On touch devices a pointer lock (Android Chrome grants one) sends every touch to the canvas, past the touch controls.
     if (touchInput) return;
     try {
@@ -504,9 +515,26 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
   }
 
+  /**
+   * Open or close the inventory screen. Open, it frees the mouse and takes the Controller's input (as the menu does) but the Simulation runs
+   * on; closed, the input and the pointer lock come back. The number keys and X still work while it is open (they go to the Controller here).
+   */
+  function toggleInventory(): void {
+    if (!driver || menu.visible) return;
+    const opening = !inventoryScreen.open;
+    inventoryScreen.open = opening;
+    input.enabled = !opening;
+    if (opening) {
+      local.releaseAll();
+      if (document.pointerLockElement) document.exitPointerLock();
+    } else lockPointer();
+  }
+
   addEventListener('keydown', (e) => {
-    if (e.code === INVENTORY_LIST_KEY && !e.repeat && driver && !menu.visible) hud.toggleInventory();
+    if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
+    else if (inventoryScreen.open && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
     if (e.code !== 'Escape' || e.repeat) return;
+    if (inventoryScreen.open) return toggleInventory();
     if (performance.now() - pausedAt < 400) return;
     if (driver && !menu.visible) openPause();
     else if (menu.visible) menu.back();
@@ -727,6 +755,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
+      inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {
       renderer.setPickups([]);
       const { match, me, bodies: chosen } = previewMatch();

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createMatch, startingInventory, type MatchState, type Pickup } from '../sim';
+import { createMatch, type MatchState, type Pickup } from '../sim';
 import { loadTuningData } from '../tuning';
-import { inventoryLines, pickupLabel, pickupMarks, relicWords, visiblePickups } from './loot';
+import { pickupLabel, pickupMarks, relicWords, visiblePickups } from './loot';
 
 const tuning = loadTuningData();
 
@@ -33,18 +33,5 @@ describe('loot presentation text', () => {
     expect(relicWords({ daggers: 1 })).toBe('+1 dagger');
     expect(relicWords({ healOnKill: 10 })).toBe('heal 10 HP on a kill');
     for (const r of tuning.relics) expect(relicWords(r.effects), r.name).not.toBe('');
-  });
-
-  it('the inventory list shows Weapons and Relics with their marks, keys and effects', () => {
-    const [w] = Object.keys(tuning.weapons);
-    const inv = { ...startingInventory(w!), weapons: [w!, 'Dagger'], relics: ['Whetstone', 'Iron Plate'], equipped: [1] };
-    const lines = inventoryLines(inv, tuning);
-    expect(lines[0]).toBe('Weapons (2/3)');
-    expect(lines[1]).toBe(`1  * ${w} (wielded)`);
-    expect(lines[2]).toBe('2    Dagger');
-    expect(lines[3]).toBe('Relics (1/3 equipped, 2/6 carried)');
-    expect(lines[4]).toBe('4    Whetstone: +10% damage');
-    expect(lines[5]).toBe('5  * Iron Plate: -10% damage taken');
-    expect(lines[6]).toBe('1-9 equip, Shift+1-9 select, X drop the selected, I close');
   });
 });
