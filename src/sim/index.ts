@@ -8,7 +8,7 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
-export { foldMods, MODS_KEYS, NO_MODS, type Mods } from './mods';
+export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent } from './intent';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';

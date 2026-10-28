@@ -24,6 +24,7 @@ import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
+import { modsOf } from './mods';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
@@ -216,6 +217,16 @@ export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: rea
 }
 
 /**
+ * `out[killer]` heals by its `mods.healOnKill` (never above its max HP) when a Hit took `victim` from above zero HP to zero: only the Hit
+ * that causes the Death heals, and a killer already at zero HP (or one who is not in the Duel) does not come back.
+ */
+function healOnKill(out: FighterState[], killer: number, hpBefore: number, hpAfter: number): void {
+  const k = out[killer]!;
+  const heal = modsOf(k).healOnKill;
+  if (heal > 0 && hpBefore > 0 && hpAfter <= 0 && k.hp > 0) out[killer] = { ...k, hp: Math.min(k.maxHp, k.hp + heal) };
+}
+
+/**
  * Apply this Tick's dagger contacts, all judged against the pre-resolution `fighters` (who was Blocking). Blocked by
  * rule (ADR 0008): the defender is in a Block, roughly faces the thrower, and raised that Block on or after the Tick the
  * dagger left the hand (`tick - age >= thrownAt`); nothing else happens but a light Block Impact. Otherwise a Hit:
@@ -245,10 +256,11 @@ export function resolveDaggers(
       out[c.defender] = { ...out[c.defender]!, blockImpact: { ...impact, strength: impact.strength * tuning.dagger.blockImpact } };
       continue;
     }
-    const damage = tuning.dagger.damage * tuning.hitZones[c.zone].multiplier;
+    const damage = tuning.dagger.damage * tuning.hitZones[c.zone].multiplier * modsOf(thrower).daggerDamage * modsOf(defender).damageTaken;
     emit({ type: 'DaggerHit', thrower: d.owner, defender: c.defender, zone: c.zone, point: c.point, damage });
     const hurt = out[c.defender]!;
     const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
+    healOnKill(out, d.owner, hurt.hp, wounded.hp);
     out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
   }
   return { fighters: out, spent };
@@ -349,7 +361,8 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
  * back (its Weapon's `heavyBlow.blockSlide`), the Block holding. Otherwise a hit: the defender takes damage and Staggers,
  * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
  * wherever it is and pushes it away (`heavyBlow.knockdownSlide`).
- * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow).
+ * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow). The damage is scaled by the Fighters'
+ * `mods` (`src/sim/mods.ts`, which writes down the order and that nothing is rounded), and a Hit that fells its victim heals its attacker (`healOnKill`).
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
@@ -373,8 +386,10 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
     out[c.defender] = heavy ? push(guarded, dx, dz, weapon.heavyBlow.blockSlide, weapon.heavyBlow.blockSlideTicks) : guarded;
     return;
   }
-  const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weapon, c.zone, c.bladeSpeed, c.onHead);
-  const heavy = damage > 0 && isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
+  const blow = attacker.team === defender.team ? 0 : hitDamage(tuning, weapon, c.zone, c.bladeSpeed, c.onHead);
+  const heavy = blow > 0 && isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
+  const { damage: dealt, heavyDamage } = modsOf(attacker);
+  const damage = blow * dealt * (heavy ? heavyDamage : 1) * modsOf(defender).damageTaken;
   const current = out[c.attacker]!;
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
   if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
@@ -382,6 +397,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   if (heavy) {
     out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, tuning);
     return;
@@ -420,7 +436,7 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   // An enemy in the air is knocked down whatever it does; a defender already in Knockdown is only Shoved: nobody is knocked down twice.
   const knocked = (mx !== 0 || mz !== 0 || (defender.air !== undefined && attacker.team !== defender.team)) && defender.action.kind !== 'Knockdown';
   const { kick } = tuning;
-  const damage = attacker.team === defender.team ? 0 : knocked ? kick.knockdownDamage : kick.shoveDamage;
+  const damage = attacker.team === defender.team ? 0 : (knocked ? kick.knockdownDamage * modsOf(attacker).kickDamage : kick.shoveDamage) * modsOf(defender).damageTaken;
   const distance = knocked ? kick.knockdownSlide : kick.shoveSlide;
   const ticks = knocked ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
 
@@ -428,6 +444,7 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   const hurt = out[c.defender]!;
   const pushed = push(hurt, dx, dz, distance, ticks);
   const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
+  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
   if (!knocked) {

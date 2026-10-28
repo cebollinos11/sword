@@ -1,4 +1,4 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
@@ -330,9 +330,13 @@ function isFighter(v: unknown): boolean {
     isFoot(v.gait.right) &&
     (v.death === undefined || isDeath(v.death)) &&
     (v.maxHp === undefined || (isNum(v.maxHp) && v.maxHp > 0)) &&
+    (v.mods === undefined || isMods(v.mods)) &&
     (v.benched === undefined || v.benched === true)
   );
 }
+
+/** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
+const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
 
 const isEvent = (v: unknown): boolean => isObject(v) && isString(v.type);
 /** A winner is a team. */

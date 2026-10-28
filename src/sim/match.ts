@@ -31,6 +31,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
+import { modsOf, NO_MODS, setMods } from './mods';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -256,14 +257,19 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
   const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? w);
   const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena);
   const { revive } = tuning.dungeon;
+  // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): Team 0 keeps the Mods it had in the Hall
+  // before (the inventory's equip recomputes them mid-Hall, and this carries them on), Team 1's are an Elite's Relics' (none yet).
   const fighters = base.fighters.map((f, i) => {
     if (f.team === 1) {
       const enemy = enemies[i];
-      return enemy ? { ...f, hp: enemy.maxHp, maxHp: enemy.maxHp } : { ...f, hp: 0, benched: true as const };
+      if (!enemy) return { ...f, hp: 0, benched: true as const };
+      const armed = setMods(f, NO_MODS, enemy.maxHp);
+      return { ...armed, hp: armed.maxHp };
     }
     const before = previous?.fighters[i];
-    if (!before || healed) return f;
-    return { ...f, hp: inDuel(before) ? Math.min(f.maxHp, before.hp) : revive * f.maxHp };
+    const armed = setMods(f, before ? modsOf(before) : NO_MODS, tuning.fighter.maxHp);
+    if (!before || healed) return { ...armed, hp: armed.maxHp };
+    return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
   });
   return { ...base, rng, fighters, hall: { ...at, kind: hall.kind, phase: 'Fighting' } };
 }
@@ -473,6 +479,8 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     // The Encounter has fallen (or there was none): the Hall is Cleared, and its Duel goes on.
     next = { ...next, phase: 'Cleared' };
     score = score.map((s, i) => (i === 0 ? s + 1 : s));
+    // A Clear heals each living Team 0 Fighter by its `mods.healOnClear` of its max HP, never above it.
+    duel = { ...duel, fighters: duel.fighters.map((f) => (f.team === 0 && inDuel(f) && f.hp > 0 && modsOf(f).healOnClear > 0 ? { ...f, hp: Math.min(f.maxHp, f.hp + modsOf(f).healOnClear * f.maxHp) } : f)) };
     events.push({ type: 'HallCleared', floor: next.floor, row: next.row, index: next.hall, kind: duel.hall!.kind });
     if (next.row === FLOOR_ROWS - 1 && next.floor === next.floors) {
       // The last Boss fell: the Run is won, and its Duel ends as a Duel's end would leave it.

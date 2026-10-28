@@ -9,6 +9,7 @@ import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
 import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
 import { attack, hold, runScript, type Track } from './script';
+import { NO_MODS, setMods, type Mods } from './mods';
 import { restore, snapshot } from './snapshot';
 import type { FighterState, SimState } from './state';
 import { createInitialState, duelPlacements, step } from './step';
@@ -515,5 +516,71 @@ describe('Duels are untouched', () => {
     // A Hall AI's memory names the Hall it last saw; an ordinary AI's does not.
     expect(duels[1]!.save!()).not.toHaveProperty('hall');
     expect(gauntlet[1]!.save!()).toHaveProperty('hall', '');
+  });
+});
+
+describe('Dungeon Run: Mods at a Hall\'s start and on a clear', () => {
+  const mods = (m: Partial<Mods>): Mods => ({ ...NO_MODS, ...m });
+  /** The Match with Fighter `i` given `m` (base max HP `fighter.maxHp`), as an equip would. */
+  const armed = (m: MatchState, i: number, given: Partial<Mods>): MatchState => ({
+    ...m,
+    duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? setMods(f, mods(given), MAX) : f)) },
+  });
+
+  it('a Hall starts each Fighter with the Mods it had, its max HP recomputed from them, and a fallen one back at `revive` of that max HP', () => {
+    const m = armed(armed(run(), 0, { maxHp: 0.2, daggers: 1, damage: 1.3 }), 1, { maxHp: 0.5 });
+    const next = advance(m, 0, [0], (_, i) => (i === 0 ? 50 : 0)).m;
+    const [a, b] = next.duel.fighters;
+    expect(a).toMatchObject({ maxHp: MAX * 1.2, hp: 50, daggers: tuning.dagger.count + 1 });
+    expect(a!.mods).toEqual(mods({ maxHp: 0.2, daggers: 1, damage: 1.3 }));
+    expect(b!.maxHp).toBe(MAX * 1.5);
+    expect(b!.hp).toBe(revive * MAX * 1.5);
+    // Fighters nobody gave Mods carry none, and enemies are what their Encounter says.
+    expect(next.duel.fighters.filter((f) => f.team === 1 && !f.benched).every((f) => !('mods' in f))).toBe(true);
+  });
+
+  it('an unequipped max HP shrinks the max HP, and HP above it with it, at the next Hall\'s start', () => {
+    let m = armed(run({}, 1), 0, { maxHp: 0.5 });
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: MAX * 1.5 } : f)) } };
+    const off = armed(m, 0, {});
+    expect(off.duel.fighters[0]).toMatchObject({ maxHp: MAX, hp: MAX });
+    expect('mods' in off.duel.fighters[0]!).toBe(false);
+    expect(advance(off, 0, [0], (f) => f.hp).m.duel.fighters[0]).toMatchObject({ maxHp: MAX, hp: MAX });
+  });
+
+  it('after a Boss every Fighter is at full HP of its Mods\' max HP, a fallen one too', () => {
+    const m = armed(run({ start: { floor: 1, row: 4 } }), 0, { maxHp: 0.2 });
+    expect(m.duel.hall).toMatchObject({ row: 4, kind: 'Boss' });
+    const next = advance(m, 0, [0], (_, i) => (i === 0 ? 30 : 0)).m;
+    expect(next.duel.hall).toMatchObject({ floor: 2, row: 0 });
+    expect(next.duel.fighters[0]).toMatchObject({ maxHp: MAX * 1.2, hp: MAX * 1.2 });
+    expect(next.duel.fighters[1]).toMatchObject({ maxHp: MAX, hp: MAX });
+  });
+
+  it('a Clear heals each living Team 0 Fighter by healOnClear of its max HP, never above it, and nobody else', () => {
+    let m = armed(armed(armed(run({}, 3), 0, { healOnClear: 0.15 }), 1, { healOnClear: 0.5, maxHp: 0.2 }), 2, { healOnClear: 0.5 });
+    m = withHp(m, (_, i) => [40, 100, 0, 0, 0, 0][i] ?? 0);
+    const cleared = clear(m, (_, i) => [40, 100, 0][i]!);
+    expect(cleared.events).toContainEqual({ type: 'HallCleared', floor: 1, row: 0, index: 0, kind: 'Fight' });
+    const hps = cleared.m.duel.fighters.slice(0, 3).map((f) => f.hp);
+    // 40 + 15 % of 100; 100 + 50 % of 120 capped at 120; a Fighter that fell stays down.
+    expect(hps[0]).toBeCloseTo(40 + 0.15 * MAX, 9);
+    expect(hps[1]).toBe(MAX * 1.2);
+    expect(hps[2]).toBe(0);
+    expect(cleared.m.duel.fighters[2]!.death).toBeDefined();
+    // It heals once: the next Tick of the Cleared Hall changes nothing.
+    expect(stepMatch(cleared.m, idle(cleared.m), tuning).duel.fighters[0]!.hp).toBeCloseTo(40 + 0.15 * MAX, 9);
+    // With no Mods a Clear heals nothing.
+    expect(clear(run({}, 1), () => 40).m.duel.fighters[0]!.hp).toBe(40);
+  });
+
+  it('a Treasure or Rest Hall is cleared at once and heals the same', () => {
+    const graph = floorGraph(tuning.dungeon, runSeed(ARENA), 1, 'greybox');
+    const restAt = graph[3]!.findIndex((h) => h.kind === 'Rest');
+    let m = armed(run({ humans: 1, players: [0] }, 1), 0, { healOnClear: 0.1 });
+    for (const exit of routeTo(graph, 3, restAt)) m = advance(m, exit, [0], (f) => Math.min(f.hp, 30)).m;
+    expect(m.duel.hall).toMatchObject({ kind: 'Rest' });
+    const hurt = withHp(m, () => 30);
+    expect(stepMatch(hurt, idle(hurt), tuning).duel.fighters[0]!.hp).toBeCloseTo(30 + 0.1 * MAX, 9);
   });
 });

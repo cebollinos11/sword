@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, throwTimings, type MatchState } from '../sim';
+import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, stepMatch, throwTimings, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage } from './messages';
 
@@ -442,6 +442,10 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
       fighters({ maxHp: 0 }),
       fighters({ maxHp: 'lots' }),
       fighters({ benched: false }),
+      fighters({ mods: { damage: 1.1 } }),
+      fighters({ mods: { ...NO_MODS, damage: Number.NaN } }),
+      fighters({ mods: { ...NO_MODS, maxHp: -1 } }),
+      fighters({ mods: 1.1 }),
     ];
     for (const bad of broken) expect(parseNetMessage(resync(bad, ai)), JSON.stringify(bad).slice(0, 100)).toBeNull();
     for (const bad of [{ hall: 1, memory: null }, { hall: '0:0:0', memory: null }, { hall: '1:0:0', memory: { lastTick: 'x' } }, { hall: '1:0:0' }]) {
@@ -451,6 +455,13 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     const duels = matchState();
     expect(parseNetMessage(resync({ ...duels, run: state.run }))).toBeNull();
     expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, hall: state.duel.hall } }))).toBeNull();
+  });
+
+  it('accepts a Fighter with Mods, and one without', () => {
+    const state = matchState();
+    const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: { ...NO_MODS, damage: 1.1, daggers: 1 } } : f)) } };
+    expect(parseNetMessage(resync(armed))).not.toBeNull();
+    expect(parseNetMessage(resync(state))).not.toBeNull();
   });
 
   it('accepts a Duels state with the new fields absent, as before', () => {
