@@ -12,6 +12,7 @@ import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './dev
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { visiblePickups } from './play/loot';
+import { mapKeyAction } from './play/floorMap';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -137,7 +138,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.enabled = on;
     },
   };
-  const hud = new Hud(container, tuning, () => openPause());
+  const hud = new Hud(container, tuning, () => openPause(), () => toggleMap());
 
   const weapons = Object.keys(tuning.weapons);
   const arenas = pickableArenas(tuning);
@@ -483,8 +484,21 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.showLobby(l, invite, text);
   }
 
+  /** The Floor map (`M`, or its touch button) over a live Run, which keeps simulating; the mouse is freed while it is open and taken again on close, as the menu does. */
+  function toggleMap(): void {
+    if (!driver || menu.visible) return;
+    if (hud.map.open) {
+      hud.setMapOpen(false);
+      if (!touchInput) resume();
+    } else if (curr.run) {
+      hud.setMapOpen(true);
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+  }
+
   function openPause(): void {
     if (!driver || menu.paused) return;
+    hud.setMapOpen(false);
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -506,6 +520,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   addEventListener('keydown', (e) => {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat && driver && !menu.visible) hud.toggleInventory();
+    const mapAction = mapKeyAction(e.code, hud.map.open);
+    if (mapAction && !e.repeat) {
+      if (mapAction === 'toggle') toggleMap();
+      else if (!menu.visible) toggleMap();
+      if (e.code === 'Escape') return;
+    }
     if (e.code !== 'Escape' || e.repeat) return;
     if (performance.now() - pausedAt < 400) return;
     if (driver && !menu.visible) openPause();
@@ -513,7 +533,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   });
   document.addEventListener('pointerlockchange', () => {
     // Esc frees the mouse first (and some browsers swallow that Esc): freeing it in a Match opens the menu.
-    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled) return;
+    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled || hud.map.open) return;
     pausedAt = performance.now();
     openPause();
   });

@@ -2,7 +2,8 @@
  * The Floor map screen's layout and key (docs/plans/dungeon.md, Stage 3): pure and render only. It reads the Floor graph
  * (`floorGraph`) and the Run's path and builds positions and marks; `floorMapView.ts` draws them.
  */
-import { FLOOR_ROWS, type FloorGraph, type HallKind, type HallRef } from '../sim';
+import { FLOOR_ROWS, type FloorGraph, type HallRef } from '../sim';
+import type { HallKind } from '../tuning';
 
 /** The key that shows or hides the map, by `KeyboardEvent.code`. */
 export const MAP_KEY = 'KeyM';

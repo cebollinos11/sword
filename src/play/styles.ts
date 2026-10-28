@@ -1,3 +1,4 @@
+import { FLOOR_MAP_CSS } from './floorMapView';
 import { MENU_CSS } from './menuStyles';
 
 const CSS = `
@@ -103,6 +104,6 @@ export function ensurePlayStyles(): void {
   if (injected) return;
   injected = true;
   const style = document.createElement('style');
-  style.textContent = CSS + MENU_CSS;
+  style.textContent = CSS + MENU_CSS + FLOOR_MAP_CSS;
   document.head.append(style);
 }
