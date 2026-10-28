@@ -100,12 +100,9 @@ function pickSeed(): number {
   return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
-/**
- * The Formats the Lobby offers: both in a Skirmish; online only Duels, until the Dungeon's online co-op
- * (docs/plans/dungeon.md, Stage 4: a Run online is co-op, every Player on Team 0).
- */
-export function offeredFormats(online: boolean): readonly MatchFormat[] {
-  return online ? ['Duels'] : MATCH_FORMATS;
+/** The Formats the Lobby offers: both, in a Skirmish and online (a Run online is co-op, every Player on Team 0). */
+export function offeredFormats(_online: boolean): readonly MatchFormat[] {
+  return MATCH_FORMATS;
 }
 
 /** Why a Format the Lobby offers cannot be picked now (shown under the toggle), or null: e.g. a Gauntlet with four Players. */

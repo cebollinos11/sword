@@ -246,8 +246,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet on its Random Map, or a fresh one; a Skirmish only until the Dungeon's online co-op (Stage 4).
-    const gauntlet = savedFormat === 'Gauntlet' && !online && Object.keys(tuning.kits).length > 0;
+    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, in a Skirmish and in a Room.
+    const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
