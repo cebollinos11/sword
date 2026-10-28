@@ -90,6 +90,8 @@ export class FinalBlowShot {
   private last: ShotFrame | null = null;
   /** The Hall's Ticks after the last the replay reached, once a Hall's shot has ended (`takeRest`). */
   private rest: MatchState[] = [];
+  /** A Hall's shot has ended and its Ticks are not taken yet: `record` goes on adding the Hall's new Ticks to `rest`. */
+  private collecting = false;
 
   constructor(private readonly setup: CameraTuning) {}
 
@@ -119,12 +121,17 @@ export class FinalBlowShot {
       this.duelKey = key;
       this.history.clear();
       this.playing = null;
+      this.collecting = false;
     }
     this.history.set(match.tick, match);
+    // The loop runs on after a cut inside `record` until its next `frame` sees the shot over: those Ticks are due as well (once each, if a Rollback re-runs one).
+    // (Their impacts and shake are not replayed, only their sounds.)
+    if (this.collecting) this.rest = [...this.rest.filter((m) => m.tick < match.tick), match];
     const end = ending(match);
     // A Rollback undid the Duel's end (or the Hall's clear): so does the shot.
     if (!end && this.playing) {
       this.playing = null;
+      this.collecting = false;
       this.rest = [];
       this.shot = '';
     }
@@ -177,6 +184,7 @@ export class FinalBlowShot {
   takeRest(): MatchState[] {
     const rest = this.rest;
     this.rest = [];
+    this.collecting = false;
     return rest;
   }
 
@@ -184,6 +192,7 @@ export class FinalBlowShot {
   stop(): void {
     this.playing = null;
     this.rest = [];
+    this.collecting = false;
     this.history.clear();
     this.duelKey = '';
     this.shot = '';
@@ -218,6 +227,7 @@ export class FinalBlowShot {
     this.playing = null;
     this.rest = [];
     if (p.what !== 'Cleared') return;
+    this.collecting = true;
     const newest = Math.max(...this.history.keys());
     for (let tick = p.reached + 1; tick <= newest; tick++) {
       const m = this.history.get(tick);

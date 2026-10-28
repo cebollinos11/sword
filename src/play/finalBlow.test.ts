@@ -242,6 +242,37 @@ describe('Final Blow Shot in a Hall: the Player is held', () => {
     expect(shot.record({ ...gathering, tick: gathering.tick + 1 }, 0, needed)).toBe(false);
   });
 
+  it('sounds the Ticks that run between a Door cut inside record() and the frame that notices the shot ended', () => {
+    const needed = doorTicksNeeded(base);
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    const shot = new FinalBlowShot(camera);
+    const heard: number[] = [];
+    const step = (s: MatchState) => stepMatch(s, s.duel.fighters.map(() => IDLE_INTENT), base);
+    while (m.run!.phase !== 'Cleared') shot.record((m = step(m)), 0, needed);
+    for (let i = 0; i < 20; i++) {
+      shot.record((m = step(m)), 0, needed);
+      for (const r of shot.frame(1 / TICK_RATE)?.reached ?? []) heard.push(r.tick);
+    }
+    expect(heard.length).toBeGreaterThan(0);
+    // The door cut ends the shot inside record(); the loop runs three more Ticks before the render step's frame() returns null.
+    let s = { ...m, tick: m.tick + 1, run: { ...m.run!, doorTicks: [doorCutTicks(needed), 0] } };
+    const cutAt = s.tick;
+    expect(shot.record(s, 0, needed)).toBe(false);
+    for (let i = 0; i < 3; i++) shot.record((s = { ...step(s), run: s.run! }), 0, needed);
+    expect(shot.frame(1 / TICK_RATE)).toBeNull();
+    const rest = shot.takeRest().map((r) => r.tick);
+    // Exactly once, in order, from after the last Tick the replay reached to the newest Tick run.
+    expect(rest[0]).toBe(heard.at(-1)! + 1);
+    expect(rest.at(-1)).toBe(s.tick);
+    expect(s.tick).toBeGreaterThan(cutAt);
+    for (let i = 1; i < rest.length; i++) expect(rest[i]).toBe(rest[i - 1]! + 1);
+    expect(shot.takeRest()).toEqual([]);
+    // Nothing is collected once taken.
+    shot.record(step(s), 0, needed);
+    expect(shot.takeRest()).toEqual([]);
+  });
+
   it('leaves a Duel’s end outside a Run as it was: the Player is not held, nothing is left over', () => {
     const shot = new FinalBlowShot(camera);
     const intent: Intent = { ...IDLE_INTENT, attack: true };
