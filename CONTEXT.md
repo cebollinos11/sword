@@ -93,7 +93,7 @@ Rewinding the simulation to an earlier Tick when a remote peer's real Intent dif
 One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on every peer: ADR 0005), exchanges Intents (a guest with the host only; the host relays each guest's to the others: ADR 0010), predicts and corrects the other Players' Fighters' Intents by Rollback, and compares state checksums with the host's. Not the Room (which only gets the peers connected).
 
 **AI Takeover**:
-A guest leaving mid-Match (its link closed, it went silent, or it was refused): from the Tick after the last of its Intents the host holds, an AI Controller (Normal) drives its Fighter on every peer, and the Match goes on (ADR 0010). The host announces the Tick; the others roll back to it. The guest stays out of the Match until the next start.
+A guest leaving mid-Match (its link closed, it went silent, or it was refused): from the Tick after the last of its Intents the host holds, an AI Controller (Normal; in a Run an Ally AI, so it walks with the other Players to a Door) drives its Fighter on every peer, and the Match goes on (ADR 0010). The host announces the Tick; the others roll back to it. The guest stays out of the Match until the next start.
 _Avoid_: Bot fill, substitute
 _Avoid_: Session (on its own), netcode, connection
 
