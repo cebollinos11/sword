@@ -39,7 +39,7 @@ export interface PlayerVsAiOptions extends MatchOptions {
 
 /**
  * A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other (in a
- * Gauntlet, a Floor AI each Team 1 slot). Throws on an invalid Lineup.
+ * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
   const { lineup, weapon, ...matchOptions } = options;

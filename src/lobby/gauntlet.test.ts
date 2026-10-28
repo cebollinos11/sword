@@ -118,7 +118,7 @@ describe('the Gauntlet Lineup', () => {
     expect(startProblem(s, false)).toBeNull();
   });
 
-  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run with a Floor AI on every Team 1 slot', () => {
+  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run with a Hall AI on every Team 1 slot', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).not.toThrow();
     expect(() => checkLineup(tuning, lineup, 1)).toThrow();
@@ -140,7 +140,7 @@ describe('the Gauntlet Lineup', () => {
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).toThrow();
   });
 
-  it('the Skirmish driver plays it as a Run: Floor AIs move the enemies, Benched slots stay put', () => {
+  it('the Skirmish driver plays it as a Run: Hall AIs move the enemies, Benched slots stay put', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3 });
     const start = d.state!;
