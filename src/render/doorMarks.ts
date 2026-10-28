@@ -95,6 +95,8 @@ class TextSprite {
 
 /** One exit Door's mark in the scene. */
 interface Mark {
+  /** The exit it marks (`DoorMarkView.exit`): not its place in `marks`, as an exit with no Door in the Arena has none. */
+  readonly exit: number;
   readonly gate: DoorGate;
   readonly text: TextSprite;
   readonly icon: THREE.Sprite;
@@ -116,12 +118,12 @@ export class DoorMarks {
   update(arena: ArenaGeometry, hall: SimHall | undefined, views: readonly DoorMarkView[]): void {
     const key = hall ? `${arena.name}|${hall.floor}.${hall.row}.${hall.index}|${views.map((v) => `${v.exit}${v.icon}${v.label}`).join()}` : '';
     if (key !== this.key) this.build(arena, key, views);
-    this.marks.forEach((mark, i) => {
-      const view = views[i];
-      if (!view) return;
+    for (const mark of this.marks) {
+      const view = views.find((v) => v.exit === mark.exit);
+      if (!view) continue;
       mark.gate.setOpen(view.gate === 'open');
       mark.text.set([view.label, view.count].filter(Boolean).join(' · '));
-    });
+    }
   }
 
   private build(arena: ArenaGeometry, key: string, views: readonly DoorMarkView[]): void {
@@ -151,7 +153,7 @@ export class DoorMarks {
       group.add(icon, text.sprite);
       const gate = this.makeGate(door);
       this.root.add(gate.object, group);
-      this.marks.push({ gate, text, icon });
+      this.marks.push({ exit: view.exit, gate, text, icon });
     }
   }
 }

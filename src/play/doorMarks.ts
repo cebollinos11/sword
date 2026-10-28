@@ -3,12 +3,14 @@ import type { HallKind, TuningData } from '../tuning';
 
 /** What lies behind one exit Door: its Hall's kind, and on a Boss's Door the Floor it leads to. */
 export interface DoorExit {
+  /** The exit's number (0-based, as `Hall.exits`; Arena Door `exit + 1`): the exits listed may skip some. */
+  readonly exit: number;
   readonly kind: HallKind;
   /** The next Floor, when the Door leads to one; absent within a Floor. */
   readonly floor?: number;
 }
 
-/** Who stands at the exit Doors: per exit how many of those who count are in its zone, and how many count. */
+/** Who stands at the exit Doors: per exit (indexed by exit number) how many of those who count are in its zone, and how many count. */
 export interface DoorPlayers {
   readonly gathered: readonly number[];
   readonly party: number;
@@ -32,10 +34,10 @@ export interface DoorMarkView {
 export function doorMarkView(hall: SimHall | undefined, exits: readonly DoorExit[], players: DoorPlayers): DoorMarkView[] {
   if (!hall) return [];
   const gate = hall.phase === 'Fighting' ? 'closed' : 'open';
-  return exits.map((to, exit) => {
-    const gathered = players.gathered[exit] ?? 0;
+  return exits.map((to) => {
+    const gathered = players.gathered[to.exit] ?? 0;
     return {
-      exit,
+      exit: to.exit,
       icon: to.kind,
       label: to.floor === undefined ? '' : `Floor ${to.floor}`,
       count: gathered > 0 ? `${gathered} / ${players.party}` : '',
@@ -56,8 +58,8 @@ export function doorRun(match: MatchState, tuning: TuningData): { exits: DoorExi
   hallOf(tuning, match.config.arena, runHall(run)).exits.forEach((_, exit) => {
     const to = hallBehind(tuning, match.config, run, exit);
     if (!to) return;
-    exits.push({ kind: hallOf(tuning, match.config.arena, to).kind, ...(to.floor > run.floor ? { floor: to.floor } : {}) });
-    gathered.push(counting.filter((i) => inExitZone(arena, exit, fighters[i]!)).length);
+    exits.push({ exit, kind: hallOf(tuning, match.config.arena, to).kind, ...(to.floor > run.floor ? { floor: to.floor } : {}) });
+    gathered[exit] = counting.filter((i) => inExitZone(arena, exit, fighters[i]!)).length;
   });
   return { exits, players: { gathered, party: counting.length } };
 }
