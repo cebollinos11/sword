@@ -20,9 +20,9 @@ export interface HudView {
   readonly names?: readonly string[] | null;
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
   readonly tuning?: TuningData;
-  /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the Door labels. */
   /** The id of the one pickup whose name shows (`pickupViews`); null: none; absent: every pickup's. */
   readonly labelled?: number | null;
+  /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the pickup labels. */
   readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
 
