@@ -3,7 +3,7 @@ import { loadTuningData, parseArena, type ArenaGeometry } from '../../tuning';
 import { deadly, groundBelow } from '../arena';
 import { hashValue } from '../hash';
 import { cellGraph, distances, owners } from './grid';
-import { DEFAULT_GEN_PARAMS, generateArena, generateLayout, GREYBOX_KIT, judgeArena, type Layout } from './index';
+import { DEFAULT_GEN_PARAMS, generateArena, generateLayout, GREYBOX_KIT, judgeArena, type GeneratedArena, type Layout } from './index';
 
 /**
  * Hall Arenas (docs/plans/dungeon.md, "Hall Arenas: Doors in the generator"): `gen:<kit>:<seed>:d<n>` places n Doors
@@ -133,6 +133,36 @@ describe('Hall Arenas: every :d1 to :d4 name passes the judge', () => {
         expect(parseArena(JSON.parse(JSON.stringify(arena)), arena.name)).toStrictEqual(arena);
       }
     }, 120_000);
+});
+
+describe('a Hall Arena whose first Layouts all fail', () => {
+  // Seed 10's first Layout has no room on its edge for any Door; a budget of one attempt runs out on it.
+  const doorsOf = (built: GeneratedArena) => [built.arena.doors.length, built.layout.placements.filter((p) => p.piece === 'door').length];
+
+  it('searches further attempt seeds until one passes, so it still has all its Doors', () => {
+    expect(doorCells(generateLayout(GREYBOX_KIT, 10, { ...DEFAULT_GEN_PARAMS, doors: 1 }))).toHaveLength(0);
+    const built = generateArena(GREYBOX_KIT, 10, { ...DEFAULT_GEN_PARAMS, doors: 1 }, tuning, 1);
+    expect(built.report.reasons).toEqual([]);
+    expect(doorsOf(built)).toEqual([1, 1]);
+    expect(built.attempts).toBeGreaterThan(1);
+    expect(generateArena(GREYBOX_KIT, 10, { ...DEFAULT_GEN_PARAMS, doors: 1 }, tuning, 1)).toEqual(built);
+  });
+
+  it('when no Layout passes at all, ends on one with all its Doors (Door 0 holding Team 0\'s spawns)', () => {
+    // No Layout has 200% open floor, so the judge turns every one down.
+    const params = { ...DEFAULT_GEN_PARAMS, doors: 3, minOpenFloor: 2 };
+    const built = generateArena(GREYBOX_KIT, 10, params, tuning, 1);
+    expect(built.report.ok).toBe(false);
+    expect(doorsOf(built)).toEqual([3, 3]);
+    expect(built.arena.spawns.filter((s) => s.team === 0)).toStrictEqual(built.arena.doors[0]!.spawns);
+    expect(generateArena(GREYBOX_KIT, 10, params, tuning, 1)).toEqual(built);
+  });
+
+  it('leaves a name without :d as it was: its best failing Layout once the attempts run out', () => {
+    const built = generateArena(GREYBOX_KIT, 10, { ...DEFAULT_GEN_PARAMS, minOpenFloor: 2 }, tuning, 1);
+    expect(built.attempts).toBe(1);
+    expect(built.layout).toEqual(generateLayout(GREYBOX_KIT, 10, DEFAULT_GEN_PARAMS));
+  });
 });
 
 describe('the judge on Doors', () => {
