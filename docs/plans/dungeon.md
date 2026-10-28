@@ -13,7 +13,12 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
 - **Every choice is made by walking, never by menu.** Doors, loot and Rest spots are places in a Hall that the Simulation checks, not prompts. A cleared Hall opens its doors, each marked with the kind of Hall behind it; the party leaves through one when every living Player has stood in its zone for a moment (about 1.5 s, Tuning Data), and the AI allies follow. Choices follow from positions, which follow from Intents (ADR 0001), so they roll back and resync like everything else, and a Run still puts nothing new on the wire during play. A menu vote was weighed and turned down: each pick would be a new reliable message with its own Rollback handling, plus tie and no-vote rules. Cost: the Hall generator must place doors on an Arena's edge (a Generated Arena is open to the Abyss all round today) and the Arena data needs door zones.
 - **Each Player gets their own loot.** A pickup is per Player: each Player sees and takes their own copy, so co-op never races for it. What a copy holds is a pure hash of (Run seed, Hall, Player), so every peer agrees.
 - **Loot is Weapons and Relics; no Gold (so no Shop Halls in v1).** A Weapon found is a Weapon of the roster exactly as tuned: no variants, no affixes, nothing that changes its Motion or Tempo. A **Relic** is a passive modifier from a list in Tuning Data, applied in the Simulation. Gold, Shops, consumables and armour are Later. This changes the Weapon rule (today chosen before the Match and kept across Duels): in a Run, the Weapon a Fighter holds can change between Halls.
-- **Players have an inventory: they can equip and drop items.** (Details: Open questions.)
+- **Players have an inventory: they can equip and drop items.**
+  - **Only while no enemy is alive in the Hall** (a cleared Hall, a Treasure or Rest Hall). In a fight a Fighter plays with what it has equipped; a Weapon swap is never a combat move (no swap Motion; Sheathe and Draw stay what they are).
+  - **It holds 1 equipped Weapon and 2 carried, 3 equipped Relics and 3 carried** (Tuning Data). Only equipped Relics take effect, so the slots are the build.
+  - **Equip and drop travel as Intent fields** (`equip`, `drop`, by slot), simulated and rolled back like any key; the inventory screen is render only. Nothing new on the wire but the Intent's shape (`PROTOCOL_VERSION` + 1).
+  - **A dropped item lies in the Hall as a shared pickup** any Player may take: the one exception to loot per Player, and how a Player hands a teammate a Weapon. It is gone when the party leaves the Hall.
+  - **AI allies get no loot** and keep what they started with; nothing has to teach the AI an inventory.
 
 ## Glossary (proposed, for `CONTEXT.md` in Stage 1)
 - **Dungeon**: the seeded map a Run walks: its Floors, each a graph of Halls. A pure function of the Run seed and Tuning Data, so every peer builds the same one.
@@ -21,4 +26,3 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
 - **Hall**: one node of a Floor, fought or visited on its own Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Boss). A Hall with enemies is one Duel. _Avoid_: room (the online connection), chamber (a combat term), cell (the generator's grid), node.
 
 ## Open questions
-- Inventory: what it holds, when it can be used, how its actions travel, and whether a dropped item is a gift to teammates.
