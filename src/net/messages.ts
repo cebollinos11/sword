@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -197,8 +197,14 @@ function isLineupSlot(v: unknown): boolean {
 }
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
+/** The most slots an inventory has on the wire (`dungeon.inventory` allows 99 of each kind); whether a slot holds an item is for the Simulation to say. */
+const MAX_INVENTORY_SLOTS = 99;
+const isSlot = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_INVENTORY_SLOTS;
+/** An inventory item named by kind and slot (Intent `equip` and `drop`). */
+const isInventoryRef = (v: unknown): boolean => isObject(v) && (v.kind === 'weapon' || v.kind === 'relic') && isSlot(v.slot);
+
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
@@ -330,7 +336,26 @@ function isFighter(v: unknown): boolean {
     isFoot(v.gait.right) &&
     (v.death === undefined || isDeath(v.death)) &&
     (v.maxHp === undefined || (isNum(v.maxHp) && v.maxHp > 0)) &&
+    (v.mods === undefined || isMods(v.mods)) &&
+    (v.inventory === undefined || isInventory(v.inventory)) &&
     (v.benched === undefined || v.benched === true)
+  );
+}
+
+/** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
+const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
+
+/** An inventory: a Weapon or more and its wielded index, the Relics and the equipped ones' slots (ascending, distinct, each holding one). Whether the names exist is for Tuning Data to say. */
+function isInventory(v: unknown): boolean {
+  if (!isObject(v) || !isArrayOf(v.weapons, isString) || !isArrayOf(v.relics, isString) || !isInt(v.weapon) || !isArrayOf(v.equipped, isInt)) return false;
+  const [weapons, relics, equipped] = [v.weapons as string[], v.relics as string[], v.equipped as number[]];
+  return (
+    weapons.length >= 1 &&
+    weapons.length <= MAX_INVENTORY_SLOTS &&
+    relics.length <= MAX_INVENTORY_SLOTS &&
+    v.weapon >= 0 &&
+    v.weapon < weapons.length &&
+    equipped.every((s, k) => s >= 0 && s < relics.length && (k === 0 || s > equipped[k - 1]!))
   );
 }
 
@@ -371,9 +396,28 @@ const isHallRef = (v: unknown): boolean => isObject(v) && isInt(v.floor) && v.fl
 /** A Run's Duel's Hall: where it is, its kind and its phase. */
 const isSimHall = (v: unknown): boolean => isHallRef(v) && HALL_KINDS.has((v as Obj).kind) && HALL_PHASES.has((v as Obj).phase);
 
+/** The most pickups a Hall's list may hold (taken ones stay in it): a resync from a peer asking for more is refused. */
+const MAX_PICKUPS = 256;
+
+/** An item lying in a Hall: its place in the list (checked by the Run), a Weapon or Relic name, an owner Fighter or none (shared), where, and whether taken. */
+function isPickup(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    isInt(v.id) &&
+    v.id >= 0 &&
+    (v.owner === null || (isInt(v.owner) && v.owner >= 0 && v.owner < MAX_TEAM_SIZE)) &&
+    (v.kind === 'weapon' || v.kind === 'relic') &&
+    isString(v.item) &&
+    isVec3(v.at) &&
+    typeof v.taken === 'boolean' &&
+    (v.group === undefined || (isInt(v.group) && v.group >= 0)) &&
+    (v.by === undefined || (isInt(v.by) && v.by >= 0 && v.by < MAX_TEAM_SIZE))
+  );
+}
+
 /**
  * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
- * Door count per exit, the Player Fighters rested, and the Tick it started on.
+ * Door count per exit, the Player Fighters rested, the pickups lying in it, and the Tick it started on.
  */
 function isRun(v: unknown): boolean {
   if (!isObject(v) || !isInt(v.floors) || v.floors < 1 || !isArrayOf(v.path, isHallRef) || (v.path as unknown[]).length < 1) return false;
@@ -389,6 +433,9 @@ function isRun(v: unknown): boolean {
     isArrayOf(v.doorTicks, isTick) &&
     (v.doorTicks as unknown[]).length <= MAX_HALL_EXITS &&
     isArrayOf(v.rested, (i) => isInt(i) && i >= 0 && i < MAX_TEAM_SIZE * 2) &&
+    isArrayOf(v.pickups, isPickup) &&
+    (v.pickups as unknown[]).length <= MAX_PICKUPS &&
+    (v.pickups as Obj[]).every((p, k) => p.id === k && (p.group === undefined || (p.group as number) <= k)) &&
     isTick(v.startTick)
   );
 }

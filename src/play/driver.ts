@@ -7,7 +7,7 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
-import { checkLineup, createAutopilot, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -37,6 +37,8 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly weapon: string;
   /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored. */
   readonly autopilot?: readonly number[];
+  /** Dev mode only (`devAutopilotLoot`): the autopilot also picks up and equips its loot, and with 'drop' drops one item and takes it again. */
+  readonly autopilotLoot?: AutopilotLoot | null;
 }
 
 /**
@@ -44,14 +46,15 @@ export interface PlayerVsAiOptions extends MatchOptions {
  * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { lineup, weapon, autopilot, ...matchOptions } = options;
+  const { lineup, weapon, autopilot, autopilotLoot, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const local: Controller = autopilot ? createAutopilot(tuning, 'Hard', autopilot) : { intent: () => pending! };
+  const pilot = autopilot ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;
+  const local: Controller = pilot ?? { intent: () => pending! };
   const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,
@@ -61,6 +64,7 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
     },
     tick(localIntent) {
       pending = localIntent;
+      pilot?.watch(match);
       match = stepMatchWith(match, controllers, tuning);
       return { advanced: true };
     },

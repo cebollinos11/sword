@@ -18,6 +18,7 @@ import gaitJson from '../../data/gait.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
+import relicsJson from '../../data/relics.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 export {
   applyDungeonKnobs,
@@ -25,6 +26,7 @@ export {
   floorEncounters,
   MAX_ENCOUNTER_ENEMIES,
   MAX_ENEMY_RELICS,
+  MAX_LOOT_SPOTS,
   parseDungeon,
   parseRunKnobs,
   POOLED_HALL_KINDS,
@@ -32,6 +34,7 @@ export {
   RUN_KNOB_KEYS,
   WEIGHTED_HALL_KINDS,
   type DungeonEncounter,
+  type DungeonLoot,
   type DungeonEnemy,
   type DungeonFloor,
   type DungeonTuning,
@@ -41,6 +44,7 @@ export {
   type WeightedHallKind,
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
+import { parseRelics, type RelicTuning } from './relics';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -50,6 +54,8 @@ import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningD
 export { TuningDataError } from './validate';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
+export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
+export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -419,6 +425,8 @@ export interface TuningData {
   readonly match: MatchTuning;
   /** A Dungeon Run's Floors (each a graph of Halls, rebuilt from the Run seed), their Encounters, and how HP carries between Halls. */
   readonly dungeon: DungeonTuning;
+  /** Every Relic, in file order (data/relics.json); an Encounter's enemies name theirs. */
+  readonly relics: readonly RelicTuning[];
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
@@ -619,6 +627,7 @@ function parseAi(raw: unknown): AiTuning {
 export function parseTuningData(raw: unknown): TuningData {
   const root = record(raw, 'tuning');
   const f = record(root.fighter, 'fighter');
+  const relics = parseRelics(root.relics);
   const arenas: Record<string, ArenaGeometry> = {};
   (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
     const arena = parseArena(raw, `arenas[${i}]`);
@@ -736,7 +745,8 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
-    dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles)),
+    dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
+    relics,
     skeleton,
     ai,
     gait: parseGait(root.gait),
@@ -831,6 +841,7 @@ export function loadTuningData(): TuningData {
     block: blockJson,
     match: matchJson,
     dungeon: dungeonJson,
+    relics: relicsJson,
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,

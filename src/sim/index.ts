@@ -8,8 +8,10 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
+export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
-export type { Direction, Intent } from './intent';
+export type { Direction, Intent, InventoryRef } from './intent';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -159,6 +161,10 @@ export {
   type DoorTakenEvent,
   type DuelStartEvent,
   type HallClearedEvent,
+  type DroppedItem,
+  type ItemDroppedEvent,
+  type ItemTakenEvent,
+  placeDrop,
   type MatchConfig,
   type MatchEndEvent,
   type MatchEvent,
@@ -170,6 +176,7 @@ export {
   type RunEndEvent,
   type RunState,
 } from './match';
+export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {
   atRestFire,

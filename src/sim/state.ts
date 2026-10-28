@@ -3,6 +3,8 @@ import type { SimEvent } from './events';
 import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
+import type { Inventory } from './inventory';
+import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
 import type { Vec3 } from './vec';
@@ -188,6 +190,18 @@ export interface FighterState {
   readonly hp: number;
   /** Its max HP: `fighter.maxHp`, or in a Gauntlet Run an enemy's scaled one (docs/plans/gauntlet.md). HP never rises above it. */
   readonly maxHp: number;
+  /**
+   * Its equipped Relics folded into one record (`foldMods`): every Hit, Throwing Dagger, Kick, Block Impact, heal and its max HP read the
+   * Fighter's own. Absent while they are `NO_MODS` (see `modsOf`), set only by `setMods`, at a Hall's start or on an equip.
+   */
+  readonly mods?: Mods;
+  /**
+   * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
+   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Hall starts and
+   * changed by the Intent's `equip` and `drop` in a Cleared Hall (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
+   * `weapon`, and `mods` is the fold of its equipped Relics.
+   */
+  readonly inventory?: Inventory;
   /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
   readonly weapon: string;
   readonly action: Action;

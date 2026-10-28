@@ -12,6 +12,7 @@ import { arenaOf, exitDoor, inDuel, inExitZone, type Intent, type SimState } fro
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
 import type { Controller } from './controller';
+import { exitDoorSpawn } from './doorSpot';
 
 /** How near (m, across the ground) an Ally AI following a Player stops. */
 export const FOLLOW_DISTANCE = 1.5;
@@ -46,8 +47,7 @@ class AllyAi implements Controller {
       const { spawns } = arena.doors[exitDoor(door)]!;
       const taken = (p: { x: number; z: number }) =>
         state.fighters.some((f, i) => i !== fighter && inDuel(f) && Math.hypot(f.position.x - p.x, f.position.z - p.z) < 2 * this.tuning.fighter.radius);
-      const slot = state.fighters.slice(0, fighter).filter((f) => f.team === self.team).length;
-      const own = spawns.find((s) => s.slot === slot) ?? spawns[0]!;
+      const own = exitDoorSpawn(arena, door, state, fighter);
       const free = spawns
         .filter((s) => !taken(s.position))
         .map((s) => ({ s, d: Math.hypot(s.position.x - self.position.x, s.position.z - self.position.z) }))

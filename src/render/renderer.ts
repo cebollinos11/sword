@@ -6,6 +6,7 @@ import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
 import { HallMarks } from './hallMarks';
+import { PickupMarks, type PickupPoint } from './pickupMarks';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
@@ -40,6 +41,8 @@ export class Renderer {
   private readonly shadows = new BlobShadows();
   private readonly trails: SwingTrails;
   private readonly hallMarks = new HallMarks();
+  private readonly pickupMarks = new PickupMarks();
+  private pickups: readonly PickupPoint[] = [];
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -58,6 +61,7 @@ export class Renderer {
     this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
     this.stage.scene.add(this.hallMarks.root);
+    this.stage.scene.add(this.pickupMarks.root);
   }
 
   /**
@@ -96,6 +100,11 @@ export class Renderer {
   /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
   setColliders(on: boolean): void {
     this.stage.setColliders(on);
+  }
+
+  /** The pickups the local Player sees, to draw as markers from the next frame on (none: none drawn). */
+  setPickups(points: readonly PickupPoint[]): void {
+    this.pickups = points;
   }
 
   /** Keeps the camera inside the Arena last drawn. */
@@ -160,6 +169,7 @@ export class Renderer {
     this.shadows.update(poses, arena);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
+    this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.update(seconds);
     this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);

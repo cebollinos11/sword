@@ -38,6 +38,17 @@ export function devRunStart(search: string = location.search, hash: string = loc
 }
 
 /**
+ * Dev mode only: `relics=a,b,c` (names as in `data/relics.json`, with or without `floor`/`row`) starts every Player's Fighter with those
+ * Relics, equipped in order and the rest carried (`MatchOptions.relics`). The option to add to a Run's: none without `dev=1`
+ * or a `relics`. The sim throws on an unknown name.
+ */
+export function devRunRelics(search: string = location.search, hash: string = location.hash): { relics?: string[] } {
+  if (!devMode(search, hash)) return {};
+  const raw = query(search, hash).get('relics');
+  return raw === null || raw === '' ? {} : { relics: raw.split(',').map((n) => n.trim()) };
+}
+
+/**
  * Dev mode only: `autopilot=D1,D2,...` puts the local Player's Fighter in a Skirmish Run on an AI that takes Door Dr
  * (from 1) out of each cleared Hall of row r (the list's last for later rows), src/controllers/autopilot.ts. For checking
  * a Run in a browser that cannot be played by hand (headless). Returns the exits (from 0), or null.
@@ -47,4 +58,15 @@ export function devAutopilot(search: string = location.search, hash: string = lo
   const raw = query(search, hash).get('autopilot');
   if (raw === null || !/^[1-9]\d*(,[1-9]\d*)*$/.test(raw)) return null;
   return raw.split(',').map((d) => Number(d) - 1);
+}
+
+/**
+ * Dev mode only, with `autopilot`: `loot=1` makes the autopilot walk onto the loot lying in a cleared Hall (its drops, a Treasure Hall's first
+ * pedestal, a beaten Elite's Relic) and equip what it takes, `loot=drop` also drops one item once and takes it up again, so the dev check
+ * shows every part of the loot. Returns the mode, or null (the autopilot leaves loot lying).
+ */
+export function devAutopilotLoot(search: string = location.search, hash: string = location.hash): 'take' | 'drop' | null {
+  if (!devMode(search, hash)) return null;
+  const raw = query(search, hash).get('loot');
+  return raw === '1' ? 'take' : raw === 'drop' ? 'drop' : null;
 }

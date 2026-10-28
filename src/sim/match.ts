@@ -31,6 +31,9 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
+import { holdInventory, relicMods, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
+import { modsOf, NO_MODS, setMods } from './mods';
+import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -89,6 +92,11 @@ export interface MatchOptions extends Partial<MatchConfig> {
    * Encounter and depth-scaled enemies. A Duels Match refuses it.
    */
   readonly start?: RunStart;
+  /**
+   * Dev mode only (`devRunRelics`): the Relics (Tuning Data names) every Player's Fighter starts the Run holding, equipped in order
+   * up to `dungeon.inventory.equippedRelics`, the rest carried. An unknown name, or more than `dungeon.inventory.relics`, throws.
+   */
+  readonly relics?: readonly string[];
 }
 
 /** `winner` is a team (0 or 1). */
@@ -142,8 +150,35 @@ export interface RestedEvent {
   readonly healed: number;
 }
 
+/** Player Fighter `fighter` dropped `item` (a Weapon or Relic name) from its inventory, at `at`: its feet. */
+export interface ItemDroppedEvent extends DroppedItem {
+  readonly type: 'ItemDropped';
+}
+
+/** Player Fighter `fighter` took up pickup `id` (of `run.pickups`): the Weapon or Relic `item` is in its inventory now. */
+export interface ItemTakenEvent extends Dropped {
+  readonly type: 'ItemTaken';
+  readonly fighter: number;
+  readonly id: number;
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent;
+
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+export interface DroppedItem extends Dropped {
+  readonly fighter: number;
+  readonly at: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall) becomes something in the
+ * world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `run.pickups`, which the dropper cannot take back until it
+ * has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
+ */
+export function placeDrop(run: RunState, drop: DroppedItem): RunState {
+  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
+}
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
 export interface RunState {
@@ -167,6 +202,8 @@ export interface RunState {
   readonly doorTicks: readonly number[];
   /** The Player Fighters that took this Hall's Rest fire (ascending; a Rest Hall heals each Player once). */
   readonly rested: readonly number[];
+  /** The items lying in this Hall (`src/sim/pickups.ts`): its drops once cleared, a Treasure Hall's pedestals, dropped items. Empty again in each new Hall. */
+  readonly pickups: readonly Pickup[];
   /** The Match Tick the Run started on. */
   readonly startTick: number;
 }
@@ -238,6 +275,15 @@ function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, see
   return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena);
 }
 
+/** `inv` holding `relics`, the first `equippedRelics` of them equipped. Throws on a name Tuning Data lacks or more than `dungeon.inventory.relics`. */
+function withRelics(inv: Inventory, relics: readonly string[], tuning: TuningData): Inventory {
+  const sizes = tuning.dungeon.inventory;
+  if (relics.length > sizes.relics) throw new RangeError(`A Fighter carries at most ${sizes.relics} Relics, got ${relics.length}`);
+  for (const name of relics)
+    if (!tuning.relics.some((r) => r.name === name)) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return { ...inv, relics: [...relics], equipped: relics.slice(0, sizes.equippedRelics).map((_, k) => k) };
+}
+
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
   return { ...initialDuel(tuning, config, arena, 0), rng };
 }
@@ -246,30 +292,44 @@ function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: 
  * A Run's Duel in Hall `at` (`hall` its node of the Floor graph), on the Hall's Arena, replacing `freshDuel`: every Fighter
  * at the Arena's spawns (Team 0 at its entrance Door's), drawn, daggers refilled. Team 0 keeps its HP from `previous` (the
  * Hall before; null for the Run's first: full HP), a fallen one back at `dungeon.revive` of its max HP, and all of it at
- * full HP after a Boss (`healed`). Each Team 1 slot holds the Hall's Encounter's enemy for it, with its Weapon and scaled
+ * full HP after a Boss (`healed`). `relics` (dev mode, a Run's first Hall) are the ones a Player's first inventory holds. Each Team 1 slot holds the Hall's Encounter's enemy for it, with its Weapon and scaled
  * max HP (`hallRoster`), or is Benched when there is none for it (every slot of a Treasure or Rest Hall).
  */
-export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, hall: Hall, previous: SimState | null, healed: boolean, rng: SimState['rng']): SimState {
+export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, hall: Hall, previous: SimState | null, healed: boolean, rng: SimState['rng'], relics: readonly string[] = []): SimState {
   const roster = hallRoster(tuning, config, at);
   let slot = 0;
   const enemies = config.teams.map((team) => (team === 1 ? roster[slot++] ?? null : null));
-  const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? w);
+  // A Player's Fighter holds an inventory, carried from the Hall before (its first: just the Weapon the Lineup chose): it wields the
+  // Weapon its inventory says, and the Match's Weapons are read no further. Every other Fighter holds nothing.
+  const players = runPlayers(config);
+  const inventories = config.teams.map((team, i) => {
+    if (team !== 0) return undefined;
+    const held = previous?.fighters[i]?.inventory;
+    return held ?? (players.includes(i) ? withRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
+  });
+  const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? (inventories[i] ? wieldedWeapon(inventories[i]!) : w));
   const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena);
   const { revive } = tuning.dungeon;
+  // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): a Player's are its equipped Relics' (`holdInventory`:
+  // an equip recomputes them mid-Hall, and this carries them on), an AI ally's none, Team 1's the Relics its Encounter lists, folded (an Elite's).
   const fighters = base.fighters.map((f, i) => {
     if (f.team === 1) {
       const enemy = enemies[i];
-      return enemy ? { ...f, hp: enemy.maxHp, maxHp: enemy.maxHp } : { ...f, hp: 0, benched: true as const };
+      if (!enemy) return { ...f, hp: 0, benched: true as const };
+      const armed = setMods(f, relicMods(tuning, enemy.relics ?? []), enemy.maxHp);
+      return { ...armed, hp: armed.maxHp };
     }
     const before = previous?.fighters[i];
-    if (!before || healed) return f;
-    return { ...f, hp: inDuel(before) ? Math.min(f.maxHp, before.hp) : revive * f.maxHp };
+    const inventory = inventories[i];
+    const armed = inventory ? holdInventory(f, inventory, tuning) : setMods(f, NO_MODS, tuning.fighter.maxHp);
+    if (!before || healed) return { ...armed, hp: armed.maxHp };
+    return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
   });
   return { ...base, rng, fighters, hall: { ...at, kind: hall.kind, phase: 'Fighting' } };
 }
 
 /** The Run on entering Hall `at` (`hall` its node), `path` the Halls entered before it. */
-function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hall: Hall, path: readonly HallRef[]): RunState {
+function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hall: Hall, path: readonly HallRef[], pickups: readonly Pickup[]): RunState {
   return {
     floor: at.floor,
     floors: run.floors,
@@ -279,6 +339,7 @@ function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hal
     phase: 'Fighting',
     doorTicks: hall.exits.map(() => 0),
     rested: [],
+    pickups,
     startTick: run.startTick,
   };
 }
@@ -357,11 +418,12 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
   const seed = options.seed ?? 1;
   if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
+  if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
   // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.
   const path: readonly HallRef[] = gauntlet ? (options.start ? runPathTo(tuning, config.arena, options.start) : [{ floor: 1, row: 0, index: 0 }]) : [];
   const first = path[path.length - 1];
   const hall = first ? hallOf(tuning, config.arena, first) : null;
-  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed)) : initialDuel(tuning, config, config.arena, seed);
+  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed), options.relics) : initialDuel(tuning, config, config.arena, seed);
   const duelNumber = Math.max(1, path.length);
   return {
     config,
@@ -374,7 +436,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     nextDuelTick: null,
     status: { status: 'InProgress' },
     events: [{ type: 'DuelStart', duelNumber }],
-    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1)) : null,
+    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1), startPickups(tuning, config, first, hall)) : null,
   };
 }
 
@@ -451,7 +513,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     const duel = hallDuel(tuning, config, at, hall, match.duel, at.floor > run.floor, match.duel.rng);
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path) };
+    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path, startPickups(tuning, config, at, hall)) };
   }
 
   let duel = step(match.duel, intents, tuning);
@@ -473,11 +535,39 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     // The Encounter has fallen (or there was none): the Hall is Cleared, and its Duel goes on.
     next = { ...next, phase: 'Cleared' };
     score = score.map((s, i) => (i === 0 ? s + 1 : s));
+    // A Clear heals each living Team 0 Fighter by its `mods.healOnClear` of its max HP, never above it.
+    duel = { ...duel, fighters: duel.fighters.map((f) => (f.team === 0 && inDuel(f) && f.hp > 0 && modsOf(f).healOnClear > 0 ? { ...f, hp: Math.min(f.maxHp, f.hp + modsOf(f).healOnClear * f.maxHp) } : f)) };
     events.push({ type: 'HallCleared', floor: next.floor, row: next.row, index: next.hall, kind: duel.hall!.kind });
+    // Its drops (`hallDrops`: each Player's own) lie on Team 1's spawn cell; an Elite's carried Relics join them there.
+    next = { ...next, pickups: [...next.pickups, ...hallDrops(tuning, config, runHall(next), hallOf(tuning, config.arena, runHall(next)), next.pickups.length)] };
     if (next.row === FLOOR_ROWS - 1 && next.floor === next.floors) {
       // The last Boss fell: the Run is won, and its Duel ends as a Duel's end would leave it.
       duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
       end(0);
+    }
+  }
+
+  if (next.phase === 'Cleared' && status.status === 'InProgress') {
+    // Only with no enemy alive may a Player's Fighter change what it holds (its Intent's `equip`, then `drop`; refused mid-Action).
+    // Whatever it drops is the pickups' (`placeDrop`). Then each Player's Fighter standing on a pickup it may take takes it (`takePickups`).
+    duel = {
+      ...duel,
+      fighters: duel.fighters.map((f, i) => {
+        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop)) return f;
+        const used = useInventory(f, intents[i]!, tuning);
+        if (used.dropped) {
+          const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
+          next = placeDrop(next, drop);
+          events.push({ type: 'ItemDropped', ...drop });
+        }
+        return used.fighter;
+      }),
+    };
+    const took = takePickups(next.pickups, duel.fighters, config, tuning);
+    if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
+      next = { ...next, pickups: took.pickups };
+      duel = { ...duel, fighters: took.fighters };
+      for (const t of took.taken) events.push({ type: 'ItemTaken', ...t });
     }
   }
 

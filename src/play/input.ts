@@ -49,7 +49,7 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
     if (!binding.enabled || e.repeat) return;
     // Space would scroll the page (or press a focused button).
     if (e.code === 'Space') e.preventDefault();
-    local.keyDown(e.code);
+    local.keyDown(e.code, e.shiftKey);
   };
   const onKeyUp = (e: KeyboardEvent) => local.keyUp(e.code);
   const onBlur = () => local.releaseAll();

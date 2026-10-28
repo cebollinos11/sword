@@ -1,0 +1,14 @@
+[
+  { "name": "Whetstone", "icon": "whetstone", "effects": { "damage": 1.1 } },
+  { "name": "Heavy Gauntlet", "icon": "gauntlet", "effects": { "heavyDamage": 1.3 } },
+  { "name": "Iron Plate", "icon": "plate", "effects": { "damageTaken": 0.9 } },
+  { "name": "Buckler Rim", "icon": "buckler", "effects": { "blockImpactTaken": 0.7 } },
+  { "name": "Vital Charm", "icon": "charm", "effects": { "maxHp": 0.2 } },
+  { "name": "Dagger Bandolier", "icon": "bandolier", "effects": { "daggers": 1 } },
+  { "name": "Honed Daggers", "icon": "dagger", "effects": { "daggerDamage": 1.4 } },
+  { "name": "Steel Boots", "icon": "boots", "effects": { "kickDamage": 1.5 } },
+  { "name": "Bloodthirst Fang", "icon": "fang", "effects": { "healOnKill": 10 } },
+  { "name": "Victory Wreath", "icon": "wreath", "effects": { "healOnClear": 0.15 } },
+  { "name": "Glass Cannon", "icon": "cannon", "effects": { "damage": 1.3, "damageTaken": 1.25 } },
+  { "name": "Berserker Mask", "icon": "mask", "effects": { "heavyDamage": 1.2, "damageTaken": 1.1 } }
+]

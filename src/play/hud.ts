@@ -3,6 +3,7 @@ import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
 import { doorwayMiddle } from '../render/doorway';
+import { inventoryLines, pickupMarks } from './loot';
 import { ensurePlayStyles } from './styles';
 
 /** What the HUD needs to know about whose eyes it shows the Match through. */
@@ -165,6 +166,10 @@ export class Hud {
   /** A Run's Door labels (one element per exit, reused) and the black of the fade between Halls. */
   private readonly doorLayer = document.createElement('div');
   private doorTags: HTMLElement[] = [];
+  /** A Run's pickup labels (one element per pickup seen, reused) and the inventory list (`I`). */
+  private readonly pickupLayer = document.createElement('div');
+  private pickupTags: HTMLElement[] = [];
+  private readonly inventory = document.createElement('pre');
   private readonly fade = document.createElement('div');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
@@ -205,10 +210,13 @@ export class Hud {
     this.results.className = 'hud-results';
     this.results.hidden = true;
     this.doorLayer.className = 'hud-doors';
+    this.pickupLayer.className = 'hud-doors';
+    this.inventory.className = 'hud-inventory';
+    this.inventory.hidden = true;
     this.fade.className = 'hud-fade';
     // The fade between Halls goes over the Door labels, the letterbox, the HP bars and the crosshair (the next Hall's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.doorLayer, ...bars, this.top, this.stats, this.crosshair, this.fade, this.banner, this.menu, this.results);
+    this.root.append(this.doorLayer, this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.inventory, this.fade, this.banner, this.menu, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -217,6 +225,11 @@ export class Hud {
     this.built = '';
     this.results.hidden = true;
     this.root.hidden = false;
+  }
+
+  /** Show the inventory list, or hide it (the `I` key). It lists the local Player's Weapons and Relics and is render only. */
+  toggleInventory(): void {
+    this.inventory.hidden = !this.inventory.hidden;
   }
 
   hide(): void {
@@ -289,6 +302,7 @@ export class Hud {
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
     this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
     this.updateDoors(match, view);
+    this.updatePickups(match, view);
     this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
     const now = performance.now();
@@ -322,6 +336,28 @@ export class Hud {
       tag.classList.toggle('open', mark.open);
       tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
     });
+  }
+
+  /** A Run's labels over the pickups the local Player sees, and the inventory list while it is shown. */
+  private updatePickups(match: MatchState, view: HudView): void {
+    const marks = view.project && match.status.status !== 'Over' ? pickupMarks(match, view.localFighter) : [];
+    while (this.pickupTags.length < marks.length) {
+      const tag = document.createElement('div');
+      tag.className = 'hud-door hud-pickup';
+      this.pickupLayer.append(tag);
+      this.pickupTags.push(tag);
+    }
+    this.pickupTags.forEach((tag, i) => {
+      const mark = marks[i];
+      const at = mark && view.project!(mark.at);
+      tag.hidden = !at;
+      if (!mark || !at) return;
+      if (tag.textContent !== mark.text) tag.textContent = mark.text;
+      tag.classList.toggle('relic', mark.kind === 'relic');
+      tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
+    });
+    const inv = match.duel.fighters[view.localFighter]?.inventory;
+    if (!this.inventory.hidden) this.inventory.textContent = inv ? inventoryLines(inv, this.matchTuning ?? this.tuning).join('\n') : 'No inventory outside a Run';
   }
 
   /** The local Player's row under their HP bar: a small icon per dagger and a tag shown while a dagger Hit slows them. */

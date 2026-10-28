@@ -57,6 +57,11 @@ const CSS = `
   font-weight: 700; background: #0008; border: 1px solid #fff4; text-shadow: 0 1px 2px #000a; opacity: 0.55; }
 .hud-door.open { opacity: 1; border-color: #ffd56acc; }
 .hud-door[hidden] { display: none; }
+.hud-pickup { opacity: 1; border-color: #9fd0ffcc; }
+.hud-pickup.relic { border-color: #ffb0f0cc; }
+.hud-inventory { position: absolute; left: 0.8rem; bottom: 0.8rem; margin: 0; padding: 0.5rem 0.7rem; border-radius: 6px; font: 0.8rem/1.35 ui-monospace, monospace;
+  background: #000a; border: 1px solid #fff4; color: #fff; white-space: pre-wrap; max-width: 28rem; }
+.hud-inventory[hidden] { display: none; }
 .touch { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   font-family: system-ui, sans-serif; color: #fff; --pad: clamp(84px, 24vmin, 132px); --edge: max(18px, env(safe-area-inset-right));
   --base: max(18px, env(safe-area-inset-bottom)); }
