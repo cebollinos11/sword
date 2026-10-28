@@ -7,7 +7,7 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
-import { checkLineup, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createAutopilot, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -35,6 +35,8 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly lineup: Lineup;
   /** The player's Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
+  /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored. */
+  readonly autopilot?: readonly number[];
 }
 
 /**
@@ -42,14 +44,14 @@ export interface PlayerVsAiOptions extends MatchOptions {
  * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { lineup, weapon, ...matchOptions } = options;
+  const { lineup, weapon, autopilot, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const local: Controller = { intent: () => pending! };
+  const local: Controller = autopilot ? createAutopilot(tuning, 'Hard', autopilot) : { intent: () => pending! };
   const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devMode, devRunStart } from './devMode';
+import { devAutopilot, devMode, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -37,5 +37,20 @@ describe('devRunStart: a Run starts at a chosen Floor and row only in dev mode',
     const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1] };
     expect(createMatch(tuning, { ...options, ...devRunStart('?floor=2&row=5', '') })).toEqual(createMatch(tuning, options));
     expect(createMatch(tuning, { ...options, ...devRunStart('?dev=1&floor=2&row=5', '') }).run).toMatchObject({ floor: 2, row: 4 });
+  });
+});
+
+describe('devAutopilot: the Player Seat on an AI, only in dev mode', () => {
+  it('reads the Door to take in each row (from 1) into exits (from 0)', () => {
+    expect(devAutopilot('?dev=1&autopilot=1', '')).toEqual([0]);
+    expect(devAutopilot('?dev=1&autopilot=2,1,3', '')).toEqual([1, 0, 2]);
+    expect(devAutopilot('', '#/play?dev=1&autopilot=2')).toEqual([1]);
+  });
+
+  it('is ignored outside dev mode, without the parameter, or with anything but Doors from 1', () => {
+    expect(devAutopilot('?autopilot=1', '')).toBeNull();
+    expect(devAutopilot('?dev=1', '')).toBeNull();
+    expect(devAutopilot('?dev=1&autopilot=0', '')).toBeNull();
+    expect(devAutopilot('?dev=1&autopilot=yes', '')).toBeNull();
   });
 });

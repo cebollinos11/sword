@@ -13,6 +13,7 @@ export {
 } from './controller';
 export { aiDifficulty, aiStyle, createAiController, type AiController } from './ai';
 export { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
+export { createAutopilot } from './autopilot';
 export { createHallAi } from './hallAi';
 export { createTestOpponent, dummyController, isTestOpponent, runnerController, TEST_OPPONENTS, wallController, type TestOpponent } from './testOpponents';
 export { FACE_STEPS, FEINT_KEY, GESTURE_PX, gestureDirection, LocalController, LOOK_RADIANS_PER_PX, type LocalButton } from './local';

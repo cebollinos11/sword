@@ -37,3 +37,15 @@ export function devRunStart(search: string = location.search, hash: string = loc
   const hall = count(params, 'hall');
   return { start: { floor, row, ...(hall === null ? {} : { index: hall - 1 }) } };
 }
+
+/**
+ * Dev mode only: `autopilot=D1,D2,...` puts the local Player's Fighter in a Skirmish Run on an AI that takes Door Dr
+ * (from 1) out of each cleared Hall of row r (the list's last for later rows), src/controllers/autopilot.ts. For checking
+ * a Run in a browser that cannot be played by hand (headless). Returns the exits (from 0), or null.
+ */
+export function devAutopilot(search: string = location.search, hash: string = location.hash): number[] | null {
+  if (!devMode(search, hash)) return null;
+  const raw = query(search, hash).get('autopilot');
+  if (raw === null || !/^[1-9]\d*(,[1-9]\d*)*$/.test(raw)) return null;
+  return raw.split(',').map((d) => Number(d) - 1);
+}

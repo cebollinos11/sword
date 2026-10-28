@@ -154,6 +154,19 @@ describe('the Gauntlet Lineup', () => {
       if (start.duel.fighters[i]!.benched) expect(now.duel.fighters[i]!.position).toEqual(start.duel.fighters[i]!.position);
     }
   });
+
+  it('with the dev autopilot the Player’s Fighter moves on its own (the local Intents idle)', () => {
+    const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
+    const run = (autopilot?: number[]) => {
+      const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3, ...(autopilot ? { autopilot } : {}) });
+      const start = d.state!.duel.fighters[d.localFighter]!.position;
+      for (let t = 0; t < 120; t++) d.tick(IDLE_INTENT);
+      const now = d.state!.duel.fighters[d.localFighter]!.position;
+      return Math.hypot(now.x - start.x, now.z - start.z);
+    };
+    expect(run()).toBeLessThan(0.01);
+    expect(run([0])).toBeGreaterThan(0.5);
+  });
 });
 
 describe('Gauntlet Lobby: Run knobs', () => {

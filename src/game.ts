@@ -8,7 +8,7 @@ import { arenaSurface, createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
-import { devRunStart } from './devMode';
+import { devAutopilot, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
@@ -342,7 +342,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
       // In dev mode a Run may start deeper in (`?dev=1&floor=F&row=R`), for tuning: only a Run stepped here, never an online one.
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? devRunStart() : {}) });
+      // ...and the player's Fighter may be on an AI (`?dev=1&autopilot=1,2`), to check a Run in a headless browser.
+      const autopilot = match.format ? devAutopilot() : null;
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? devRunStart() : {}), ...(autopilot ? { autopilot } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
