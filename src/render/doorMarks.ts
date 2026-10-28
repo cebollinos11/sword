@@ -9,11 +9,11 @@ import type { ArenaDoor, ArenaGeometry } from '../tuning';
 const GATE_HEIGHT = 2.4;
 const GATE_COLOR = 0x4a4d55;
 /** The icon's centre and size over the doorway's ground, and the text's centre and size under it (m). */
-const ICON_AT = 3.35;
-const ICON_SIZE = 0.9;
-const TEXT_AT = 2.68;
-const TEXT_WIDTH = 1.6;
-const TEXT_HEIGHT = 0.4;
+const ICON_AT = 3.0;
+const ICON_SIZE = 0.7;
+const TEXT_AT = 2.55;
+const TEXT_WIDTH = 1.44;
+const TEXT_HEIGHT = 0.36;
 /** The marks stand this far (m) in front of the Wall, into the Hall. */
 const INSET = 0.15;
 const ICON_PX = 64;
