@@ -1342,9 +1342,9 @@ describe('Dungeon Run: an AI Takeover of a Player', { timeout: 60_000 }, () => {
     expect({ ...g, run: runRest, duel: { ...g.duel, hall: hallRest } }).toEqual(m);
   });
 
-  it('refuses a Fighter that is not a Player of the Run, and does nothing in Duels', () => {
+  it('leaves a Fighter that is not a Player of the Run as it was (a session mid-Rollback must not throw), and does nothing in Duels', () => {
     const m = run(two, 3);
-    for (const bad of [2, 3, -1, 1.5]) expect(() => takeOverFighter(m, bad)).toThrow(RangeError);
+    for (const bad of [2, 3, -1, 1.5]) expect(takeOverFighter(m, bad), String(bad)).toBe(m);
     const duels = createMatch(tuning, { bestOf: 3, seed: 1, arena: ARENA });
     expect(takeOverFighter(duels, 0)).toBe(duels);
   });

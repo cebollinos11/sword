@@ -219,13 +219,12 @@ export interface RunState {
  * Tick, before that Tick's Intents). From now on the Fighter is an AI ally of the Run (`RunState.away`, mirrored on its Duel's Hall): it
  * counts at no Door, takes no pickup and no Rest fire, and keeps its inventory and Mods, and revives in the next Hall like any Team 0
  * Fighter. `config.humans` stays (enemy HP is fixed for the Run). Its own pickups already lying in the Hall simply lie untaken. Idempotent;
- * not a Run: unchanged; throws on a Fighter that is not one of the Run's Players (`config.players`). Pure.
+ * not a Run, or not one of the Run's Players (`config.players`): unchanged (the session calls this inside its Rollback loops, where a throw would leave it half-simulated). Pure.
  */
 export function takeOverFighter(match: MatchState, fighter: number): MatchState {
   const { run } = match;
   if (!run) return match;
-  if (!runPlayers(match.config).includes(fighter)) throw new RangeError(`Fighter ${fighter} is not a Player of this Run (players [${runPlayers(match.config).join(', ')}])`);
-  if (run.away?.includes(fighter)) return match;
+  if (!runPlayers(match.config).includes(fighter) || run.away?.includes(fighter)) return match;
   const away = [...(run.away ?? []), fighter].sort((a, b) => a - b);
   return { ...match, run: { ...run, away }, duel: { ...match.duel, hall: { ...match.duel.hall!, away } } };
 }
