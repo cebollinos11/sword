@@ -3,7 +3,8 @@
  * Hall is Fighting it is that slot's ordinary AI. Once the Hall is cleared it walks to the exit Door with the most
  * living Players standing in its zone (ties to the lowest exit), else follows the nearest living Player, so the party
  * can leave together. With no Player alive it makes for the first exit (the AI allies then decide the Door,
- * `doorCounters`). It never counts towards a Door while a Player lives.
+ * `doorCounters`). It never counts towards a Door while a Player lives. A Player an AI Takeover has taken (`SimHall.away`)
+ * is no Player to it: not followed, not a Door to gather at.
  *
  * It decides from the state alone, and walks with its AI's own navmesh routing (`AiController.walkTo`), so its memory
  * is its AI's memory and Rollback needs nothing more.
@@ -23,7 +24,7 @@ class AllyAi implements Controller {
   constructor(
     private readonly tuning: TuningData,
     private readonly ai: AiController,
-    /** The Fighters the human Players drive. */
+    /** The Fighters the human Players drive (less, at a Tick, those the state says are away). */
     private readonly players: readonly number[],
   ) {}
 
@@ -33,7 +34,9 @@ class AllyAi implements Controller {
     const arena = arenaOf(this.tuning, state.arena);
     // A Hall's Arena has a Door for its entrance and one for each of its exits.
     const exits = Math.max(0, arena.doors.length - 1);
-    const living = this.players.filter((i) => state.fighters[i] !== undefined && inDuel(state.fighters[i]!));
+    // The Players still in the Run: one an AI has taken over (`SimHall.away`, read off the state so it rolls back) is an ally like any other.
+    const away = state.hall.away ?? [];
+    const living = this.players.filter((i) => !away.includes(i) && state.fighters[i] !== undefined && inDuel(state.fighters[i]!));
     let door = -1;
     let most = 0;
     for (let exit = 0; exit < exits; exit++) {

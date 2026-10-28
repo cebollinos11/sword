@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, stepMatch, throwTimings, type MatchState } from '../sim';
+import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, stepMatch, takeOverFighter, throwTimings, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
@@ -426,6 +426,29 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(m)).toEqual(m);
   });
 
+  it('carries an AI Takeover through a resync: the Run\'s away, mirrored on its Hall', () => {
+    const { state, ai } = runResync();
+    expect('away' in state.run!).toBe(false);
+    const gone = takeOverFighter(state, 1);
+    const m = resync(gone, ai);
+    expect(parseNetMessage(m)).toEqual(m);
+    const both = resync(takeOverFighter(gone, 0), ai);
+    expect(parseNetMessage(both)).toEqual(both);
+  });
+
+  it('refuses a malformed away: not a list, empty, repeated, descending, not a Player of the Run, or not mirrored on the Hall', () => {
+    const { state, ai } = runResync();
+    const gone = takeOverFighter(state, 1);
+    const withAway = (away: unknown) => ({ ...gone, run: { ...gone.run, away }, duel: { ...gone.duel, hall: { ...gone.duel.hall, away } } }) as unknown as MatchState;
+    for (const away of [1, '1', null, [], [1, 1], [1, 0], [2], [-1], [1.5], ['1'], [0, 1, 2]]) {
+      expect(parseNetMessage(resync(withAway(away), ai)), JSON.stringify(away)).toBeNull();
+    }
+    // The Run and its Hall must agree, both ways.
+    expect(parseNetMessage(resync({ ...gone, duel: { ...gone.duel, hall: state.duel.hall } }, ai))).toBeNull();
+    expect(parseNetMessage(resync({ ...state, duel: { ...state.duel, hall: gone.duel.hall } }, ai))).toBeNull();
+    expect(parseNetMessage(resync({ ...gone, duel: { ...gone.duel, hall: { ...gone.duel.hall, away: [0] } } }, ai))).toBeNull();
+  });
+
   it('refuses a malformed Run, Hall, max HP, Benched flag or Hall AI memory', () => {
     const { state, ai } = runResync();
     const pickup = { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at: { x: 1, y: 0, z: 2 }, taken: false };
@@ -504,8 +527,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(resync(stocked))).toEqual(resync(stocked));
   });
 
-  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 21', () => {
-    expect(PROTOCOL_VERSION).toBe(21);
+  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 22', () => {
+    expect(PROTOCOL_VERSION).toBe(22);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);

@@ -12,11 +12,12 @@ import {
   restFire,
   secondsToTicks,
   stepMatch,
+  takeOverFighter,
   type Intent,
   type MatchState,
 } from '../sim';
 import { createAiController } from './ai';
-import { FOLLOW_DISTANCE } from './allyAi';
+import { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
 import type { Controller } from './controller';
 import { lineupAis, type Lineup, type LineupSlot } from './lineup';
 
@@ -24,7 +25,7 @@ const base = loadTuningData();
 /** Doors that are never taken, so the party can be watched standing at one. */
 const tuning: TuningData = { ...base, dungeon: { ...base.dungeon, doorSeconds: 1000 } };
 const ENEMIES: LineupSlot[] = Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: 'Floor' } }));
-const PLAYER = (player: 0 | 1): LineupSlot => ({ team: 0, pilot: { kind: 'Player', player } });
+const PLAYER = (player: 0 | 1 | 2): LineupSlot => ({ team: 0, pilot: { kind: 'Player', player } });
 const ALLY: LineupSlot = { team: 0, pilot: { kind: 'AI', difficulty: 'Hard' } };
 /** How long an ally may take to cross a Hall to a Door. */
 const WALK_TICKS = secondsToTicks(20);
@@ -143,6 +144,48 @@ describe('Ally AI', { timeout: 120_000 }, () => {
     m = placed(m, other, spot(m, 0));
     const states = play(m, lineup, new Map(), WALK_TICKS, lineupAis(base, lineup, 'Gauntlet', { arena }), base);
     expect(states.some((s) => s.events.some((e) => e.type === 'DoorTaken'))).toBe(true);
+  });
+
+  it('does not walk to a taken-over Fighter as a Player: it goes where the Player still in the Run stands', () => {
+    const lineup = [PLAYER(0), PLAYER(1), ALLY, ...ENEMIES];
+    const start = cleared(match(lineup, 'gen:greybox:4242'));
+    const arena = arenaOf(tuning, start.arena);
+    const last = arena.doors.length - 2;
+    expect(last).toBeGreaterThan(0);
+    // Fighter 0 stands at the last exit, Fighter 1 at exit 0: a tie, which goes to exit 0 while both are Players...
+    const hold = new Map([[0, spot(start, last)], [1, spot(start, 0)]]);
+    expect(inExitZone(arena, 0, play(start, lineup, hold, WALK_TICKS).at(-1)!.duel.fighters[2]!)).toBe(true);
+    // ...and to the last once Fighter 1 has been taken over (it reads that from the state).
+    const gone = takeOverFighter(start, 1);
+    const end = play(gone, lineup, hold, WALK_TICKS).at(-1)!;
+    expect(inExitZone(arena, last, end.duel.fighters[2]!)).toBe(true);
+    expect(inExitZone(arena, 0, end.duel.fighters[2]!)).toBe(false);
+  });
+
+  it('follows the Player still in the Run, and gathers at no Door for a taken-over Fighter standing at one', () => {
+    const lineup = [PLAYER(0), PLAYER(1), ALLY, ...ENEMIES];
+    const start = takeOverFighter(cleared(match(lineup, 'gen:greybox:4242')), 1);
+    const arena = arenaOf(tuning, start.arena);
+    const at = spot(start, null);
+    // Fighter 1 (taken over) stands in exit 0's zone, Fighter 0 (the Player) at the fire, at no Door.
+    const end = play(start, lineup, new Map([[0, at], [1, spot(start, 0)]]), WALK_TICKS).at(-1)!;
+    const ally = end.duel.fighters[2]!;
+    expect(inExitZone(arena, 0, ally)).toBe(false);
+    expect(Math.hypot(ally.position.x - at.x, ally.position.z - at.z)).toBeLessThan(FOLLOW_DISTANCE + 0.5);
+  });
+
+  it("a taken-over Fighter's own Ally AI, and the others, treat every taken-over Fighter as an ally", () => {
+    const lineup = [PLAYER(0), PLAYER(1), PLAYER(2), ...ENEMIES];
+    const start = cleared(match(lineup, 'gen:greybox:4242'));
+    const arena = arenaOf(tuning, start.arena);
+    const last = arena.doors.length - 2;
+    expect(last).toBeGreaterThan(0);
+    // Fighters 1 and 2 are taken over (Controllers started as the session starts them: walking with the Players still playing); Fighter 0 stays.
+    const gone = takeOverFighter(takeOverFighter(start, 1), 2);
+    const controllers = [null, createAllyAi(tuning, 'Normal', 'Balanced', [0, 2]), createAllyAi(tuning, 'Normal', 'Balanced', [0, 1])] as (Controller | null)[];
+    const hold = new Map([[0, spot(start, last)]]);
+    const end = play(gone, lineup, hold, WALK_TICKS, controllers).at(-1)!;
+    for (const i of [1, 2]) expect(inExitZone(arena, last, end.duel.fighters[i]!), `Fighter ${i}`).toBe(true);
   });
 
   it('fights as its own AI while the Hall is Fighting', () => {

@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -436,15 +436,23 @@ function isRun(v: unknown): boolean {
     isArrayOf(v.pickups, isPickup) &&
     (v.pickups as unknown[]).length <= MAX_PICKUPS &&
     (v.pickups as Obj[]).every((p, k) => p.id === k && (p.group === undefined || (p.group as number) <= k)) &&
-    isTick(v.startTick)
+    isTick(v.startTick) &&
+    (v.away === undefined || isAway(v.away))
   );
 }
+
+/** A Run's `away`, the Player Fighters an AI Takeover has taken: at least one, distinct, ascending (absent while nobody has left). */
+const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).length > 0 && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 /** A Run's Player Fighters: distinct Fighter indices, ascending. */
 const isPlayers = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 /** A Run's Duel names the Run's current Hall and phase. */
-const isRunHall = (hall: unknown, run: Obj): boolean => isObject(hall) && hall.floor === run.floor && hall.row === run.row && hall.index === run.hall && hall.phase === run.phase;
+const isRunHall = (hall: unknown, run: Obj): boolean =>
+  isObject(hall) && hall.floor === run.floor && hall.row === run.row && hall.index === run.hall && hall.phase === run.phase && JSON.stringify(hall.away) === JSON.stringify(run.away);
+
+/** Each Fighter a Run has away is one of its Players (`config.players`). */
+const isAwayPlayers = (run: Obj, config: Obj): boolean => run.away === undefined || (run.away as number[]).every((i) => runPlayers(config as never).includes(i));
 
 function isMatchState(v: unknown): v is MatchState {
   if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
@@ -479,7 +487,7 @@ function isMatchState(v: unknown): v is MatchState {
     (config.humans === undefined || isHumans(config.humans)) &&
     (config.players === undefined || isPlayers(config.players)) &&
     // A Run, and only a Run, carries its progress, and each of its Duels names its Hall.
-    (config.format === 'Gauntlet' ? isRun(v.run) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
+    (config.format === 'Gauntlet' ? isRun(v.run) && isRunHall((v.duel as Obj).hall, v.run as Obj) && isAwayPlayers(v.run as Obj, config) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
   );
 }
 

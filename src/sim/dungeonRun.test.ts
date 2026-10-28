@@ -4,10 +4,10 @@ import { createAiController, lineupAis, lineupMatch, type Controller, type Lineu
 import { arenaOf } from './arena';
 import { floorGraph, runSeed, type FloorGraph } from './dungeon';
 import { inDuel, updateDuel, DUEL_FIGHTING } from './duel';
-import { atRestFire, enemyMaxHp, exitDoor, hallOf, hallRoster, inExitZone, restFire, standsWithin, ZONE_HEIGHT } from './hall';
+import { atRestFire, doorCounters, enemyMaxHp, exitDoor, hallOf, hallRoster, inExitZone, presentPlayers, restFire, standsWithin, ZONE_HEIGHT } from './hall';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
-import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
+import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMatch, takenExit, takeOverFighter, type MatchEvent, type MatchOptions, type MatchState } from './match';
 import { attack, hold, runScript, type Track } from './script';
 import { holdInventory, type Inventory } from './inventory';
 import { hallDrops, pickupVisibleTo, startPickups } from './pickups';
@@ -1307,5 +1307,222 @@ describe('Dungeon Run: Elite enemies carry Relics', { timeout: 60_000 }, () => {
     const live = cleared(e, m);
     expect(hashValue(cleared(e, restore(snapshot(m))))).toBe(hashValue(live));
     expect(hashValue(restore(snapshot(live)))).toBe(hashValue(live));
+  });
+});
+
+describe('Dungeon Run: an AI Takeover of a Player', { timeout: 60_000 }, () => {
+  const two = { humans: 2, players: [0, 1] };
+  const W1 = Object.keys(tuning.weapons)[1]!;
+  const stocked = (m: MatchState, i: number): MatchState => ({
+    ...m,
+    duel: {
+      ...m.duel,
+      fighters: m.duel.fighters.map((f, k) =>
+        k === i ? holdInventory(f, { ...f.inventory!, weapons: [...f.inventory!.weapons, W1], relics: ['Vital Charm', 'Whetstone'], equipped: [0, 1] }, tuning) : f,
+      ),
+    },
+  });
+  /** A cleared first Hall of a two-Player Run (plus an AI ally), Fighter 1 equipped and taken over. */
+  const gone = (): MatchState => takeOverFighter(clear(stocked(run(two, 3), 1)).m, 1);
+
+  it('marks the Fighter away in the Run and on its Hall, which are absent while nobody has left', () => {
+    const m = run(two, 3);
+    expect('away' in m.run!).toBe(false);
+    expect('away' in m.duel.hall!).toBe(false);
+    const g = takeOverFighter(m, 1);
+    expect(g.run!.away).toEqual([1]);
+    expect(g.duel.hall!.away).toEqual([1]);
+    expect(takeOverFighter(g, 1)).toEqual(g);
+    expect(takeOverFighter(takeOverFighter(m, 1), 0).run!.away).toEqual([0, 1]);
+    // Order does not matter.
+    expect(takeOverFighter(takeOverFighter(m, 0), 1)).toEqual(takeOverFighter(takeOverFighter(m, 1), 0));
+    // Nothing else moves.
+    const { away: _run, ...runRest } = g.run!;
+    const { away: _hall, ...hallRest } = g.duel.hall!;
+    expect({ ...g, run: runRest, duel: { ...g.duel, hall: hallRest } }).toEqual(m);
+  });
+
+  it('refuses a Fighter that is not a Player of the Run, and does nothing in Duels', () => {
+    const m = run(two, 3);
+    for (const bad of [2, 3, -1, 1.5]) expect(() => takeOverFighter(m, bad)).toThrow(RangeError);
+    const duels = createMatch(tuning, { bestOf: 3, seed: 1, arena: ARENA });
+    expect(takeOverFighter(duels, 0)).toBe(duels);
+  });
+
+  it('presentPlayers is runPlayers less the Fighters away', () => {
+    const config = run({ humans: 3, players: [0, 1, 2] }, 4).config;
+    expect(presentPlayers(config)).toEqual([0, 1, 2]);
+    expect(presentPlayers(config, [])).toEqual([0, 1, 2]);
+    expect(presentPlayers(config, [1])).toEqual([0, 2]);
+    expect(presentPlayers(config, [0, 1, 2])).toEqual([]);
+  });
+
+  it('the Door is taken when only the remaining Player stands in its zone; before the Takeover it is not', () => {
+    const cleared = clear(run(two, 3)).m;
+    const before = holdAt(cleared, allAt([0], 0), NEED + 5).m;
+    expect(before.run!.phase).toBe('Cleared');
+    expect(before.run!.doorTicks[0]).toBe(0);
+    const after = holdAt(takeOverFighter(cleared, 1), allAt([0], 0), NEED);
+    expect(after.m.run!.phase).toBe('Leaving');
+    expect(after.events.some((e) => e.type === 'DoorTaken')).toBe(true);
+    // The taken-over Fighter standing there alone is an AI ally: it takes nothing.
+    expect(holdAt(takeOverFighter(cleared, 1), new Map([[0, null], [1, 0]]), NEED + 5).m.run!.phase).toBe('Cleared');
+  });
+
+  it("the count's denominator drops: doorCounters counts the Players still in", () => {
+    const m = gone();
+    expect(doorCounters(m.config, m.duel.fighters)).toEqual([0, 1]);
+    expect(doorCounters(m.config, m.duel.fighters, m.run!.away)).toEqual([0]);
+  });
+
+  it('with no Player left in, the living AI allies count, the taken-over Fighters among them', () => {
+    const m = takeOverFighter(takeOverFighter(clear(run(two, 3)).m, 1), 0);
+    expect(doorCounters(m.config, m.duel.fighters, m.run!.away)).toEqual([0, 1, 2]);
+    expect(holdAt(m, allAt([0, 1, 2], 0), NEED).m.run!.phase).toBe('Leaving');
+    expect(holdAt(m, allAt([0, 1], 0), NEED + 5).m.run!.phase).toBe('Cleared');
+    // A fallen Player in, the others away: the living ones lead.
+    const fell = takeOverFighter(clear(run(two, 3), (f, i) => (i === 0 ? 0 : f.hp)).m, 1);
+    expect(doorCounters(fell.config, fell.duel.fighters, fell.run!.away)).toEqual([1, 2]);
+  });
+
+  it('the taken-over Fighter takes no pickup: its own lies untaken, and a shared one too', () => {
+    let m = takeOverFighter(clear(run(two, 3)).m, 1);
+    expect(m.run!.pickups.map((p) => p.owner)).toEqual([0, 1]);
+    const own = m.run!.pickups.find((p) => p.owner === 1)!;
+    m = placed(m, 1, own.at);
+    m = stepMatch(m, idle(m), tuning);
+    expect(m.events.filter((e) => e.type === 'ItemTaken')).toEqual([]);
+    expect(m.run!.pickups.find((p) => p.id === own.id)!.taken).toBe(false);
+    const shared = { ...m, run: { ...m.run!, pickups: [...m.run!.pickups, { id: 2, owner: null, kind: 'weapon' as const, item: W1, at: own.at, taken: false }] } };
+    const next = stepMatch(shared, idle(shared), tuning);
+    expect(next.events.filter((e) => e.type === 'ItemTaken')).toEqual([]);
+    // The Player still takes its own.
+    const mine = stepMatch(placed(next, 0, m.run!.pickups.find((p) => p.owner === 0)!.at), idle(next), tuning);
+    const takers = mine.events.filter((e) => e.type === 'ItemTaken').map((e) => (e as { fighter: number }).fighter);
+    expect(takers.length).toBeGreaterThan(0);
+    expect(takers.every((i) => i === 0)).toBe(true);
+  });
+
+  it('a Hall cleared after the Takeover drops nothing for it, and a Treasure Hall sets no pedestals for it', () => {
+    const fought = takeOverFighter(run(two, 3), 1);
+    expect(clear(fought).m.run!.pickups.map((p) => p.owner)).toEqual([0]);
+    const graph = floorGraph(tuning.dungeon, runSeed(ARENA), 1, 'greybox');
+    const found = graph.flatMap((halls, row) => halls.flatMap((h, index) => (h.kind === 'Treasure' ? [{ row, index }] : [])))[0];
+    expect(found).toBeDefined();
+    // Walked into after the Takeover, the Hall's pedestals are the Player's only.
+    let t = takeOverFighter(run(two, 3), 1);
+    for (const exit of routeTo(graph, found!.row, found!.index)) t = advance(t, exit, [0]).m;
+    expect(t.duel.hall).toMatchObject({ kind: 'Treasure' });
+    expect(t.run!.pickups.length).toBeGreaterThan(0);
+    expect(new Set(t.run!.pickups.map((p) => p.owner))).toEqual(new Set([0]));
+  });
+
+  it('takes no Rest fire: the Player heals, the taken-over Fighter does not', () => {
+    const graph = floorGraph(tuning.dungeon, runSeed(ARENA), 1, 'greybox');
+    const restAt = graph[3]!.findIndex((h) => h.kind === 'Rest');
+    let m = run({ ...two, start: { floor: 1, row: 3, index: restAt } }, 3);
+    m = takeOverFighter(withHp(m, () => 40), 1);
+    const fire = holdAt(stepMatch(m, idle(m), tuning), allAt([0, 1, 2], null), 30);
+    expect(fire.events.filter((e) => e.type === 'Rested').map((e) => (e as { fighter: number }).fighter)).toEqual([0]);
+    expect(fire.m.duel.fighters.slice(0, 3).map((f) => f.hp)).toEqual([40 + restHeal * MAX, 40, 40]);
+    expect(fire.m.run!.rested).toEqual([0]);
+  });
+
+  it('keeps its Inventory and Mods across the Takeover and into the next Hall, and nothing drops', () => {
+    const before = clear(stocked(run(two, 3), 1)).m;
+    const held = before.duel.fighters[1]!;
+    expect(held.inventory!.relics).toEqual(['Vital Charm', 'Whetstone']);
+    expect(held.mods).not.toEqual(NO_MODS);
+    const m = takeOverFighter(before, 1);
+    expect(m.duel.fighters[1]).toEqual(held);
+    expect(m.run!.pickups.filter((p) => p.owner === null)).toEqual([]);
+    const next = advance(m, 0, [0]).m;
+    expect(next.duel.fighters[1]!.inventory).toEqual(held.inventory);
+    expect(next.duel.fighters[1]!.mods).toEqual(held.mods);
+    expect(next.duel.fighters[1]!.maxHp).toBe(held.maxHp);
+  });
+
+  it('stays away in the next Hall, and for the rest of the Run, in the Run and on the Hall', () => {
+    const next = advance(gone(), 0, [0]).m;
+    expect(next.duelNumber).toBe(2);
+    expect(next.run!.away).toEqual([1]);
+    expect(next.duel.hall!.away).toEqual([1]);
+    // Its Door does not wait on it there either.
+    expect(holdAt(clear(next).m, allAt([0], 0), NEED).m.run!.phase).toBe('Leaving');
+  });
+
+  it('revives in the next Hall like any Team 0 Fighter, with its Inventory', () => {
+    const m = takeOverFighter(clear(stocked(run(two, 3), 1), (f, i) => (i === 1 ? 0 : f.hp)).m, 1);
+    expect(m.duel.fighters[1]!.death).toBeDefined();
+    const next = advance(m, 0, [0]).m;
+    const f = next.duel.fighters[1]!;
+    expect(f.death).toBeUndefined();
+    expect(f.hp).toBe(revive * f.maxHp);
+    expect(f.team).toBe(0);
+    expect(f.inventory!.relics).toEqual(['Vital Charm', 'Whetstone']);
+  });
+
+  it("leaves config.humans, and so the enemies' HP, as it was", () => {
+    const m = gone();
+    expect(m.config.humans).toBe(2);
+    expect(m.config.players).toEqual([0, 1]);
+    const next = advance(m, 0, [0]).m;
+    const roster = hallRoster(tuning, next.config, runHall(next.run!));
+    for (const [k, e] of roster.entries()) if (e) expect(next.duel.fighters[3 + k]!.maxHp).toBe(e.maxHp);
+  });
+
+  it('a Run without a Takeover is as it was: no away anywhere in a Run played through a Hall change', () => {
+    const next = advance(run(two, 3), 0).m;
+    expect('away' in next.run!).toBe(false);
+    expect('away' in next.duel.hall!).toBe(false);
+  });
+
+  /** The script's own doing at Tick `k`: the Hall cleared at 100, then the Player held at exit 0. */
+  const prep = (m: MatchState, k: number): MatchState => {
+    if (k === 100) m = withHp(m, (f) => (f.team === 1 ? 0 : f.hp));
+    return m.run!.phase === 'Cleared' ? placed(m, 0, spots(m, 0)[0]!) : m;
+  };
+
+  /** A scripted Run (AI Intents for everyone, the Hall cleared at Tick 100, the Player at exit 0), Fighter 1 taken over before Tick `at`. */
+  function play(at: number): { states: MatchState[]; intents: Intent[][] } {
+    const lineup: Lineup = [0, 0, 0, 1, 1, 1, 1].map((team) => ({ team, pilot: team === 0 ? { kind: 'AI', difficulty: 'Hard' } : { kind: 'AI', difficulty: 'Floor' } }));
+    const ais = lineupAis(tuning, lineup, 'Gauntlet', { arena: ARENA }) as Controller[];
+    let m = run(two, 3);
+    const states = [m];
+    const intents: Intent[][] = [];
+    for (let k = 0; k < 400; k++) {
+      if (k === at) m = takeOverFighter(m, 1);
+      m = prep(m, k);
+      const now = m;
+      const these = now.duel.fighters.map((_, i) => ais[i]!.intent(now.duel, i));
+      intents.push(these);
+      m = stepMatch(m, these, tuning);
+      states.push(m);
+    }
+    return { states, intents };
+  }
+
+  it('is deterministic: the same Intents and Takeover Tick give the same hash at every Tick', () => {
+    const one = play(50);
+    const again = play(50);
+    expect(one.states.map((m) => hashValue(m))).toEqual(again.states.map((m) => hashValue(m)));
+    expect(one.states.at(-1)!.run!.away).toEqual([1]);
+  });
+
+  it('a Rollback across the Takeover Tick re-simulates to the same state', () => {
+    const { states, intents } = play(150);
+    // A snapshot from before the Takeover, then it re-applied at the same Tick (as a Rollback session does) with the same Intents.
+    for (const back of [140, 149]) {
+      let m = restore(snapshot(states[back]!));
+      for (let k = back; k < 400; k++) {
+        if (k === 150) m = takeOverFighter(m, 1);
+        m = stepMatch(prep(m, k), intents[k]!, tuning);
+        expect(hashValue(m)).toBe(hashValue(states[k + 1]!));
+      }
+    }
+    // A snapshot from after it already carries the field.
+    const after = restore(snapshot(states[200]!));
+    expect(after.run!.away).toEqual([1]);
+    expect(after.duel.hall!.away).toEqual([1]);
   });
 });
