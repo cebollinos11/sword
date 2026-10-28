@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (`docs/plans/dungeon.md`)
+Accepted (`docs/plans/dungeon.md`). Stage 1 built the Doors, the Hall Arenas and the Rest fire as decided here (Stage 1, Result); loot, equip and drop come with Stage 2.
 
 ## Context
 
@@ -21,13 +21,13 @@ How a Hall joins the next:
 
 ## Decision
 
-Every choice in a Dungeon is simulated: a Door is taken when every living Player has stood in its zone for a moment once the Hall is cleared; an item is taken by walking onto it (each Player's own copy, a pure hash of Run seed, Hall and Player); equip and drop are Intent fields, allowed only while no enemy in the Hall is alive. The map and inventory screens are render only.
+Every choice in a Dungeon is simulated: a Door is taken when every living Player has stood in its zone for a moment once the Hall is cleared (when no Player lives, the living AI allies count instead, so a party of AI allies can still leave); an item is taken by walking onto it (each Player's own copy, a pure hash of Run seed, Hall and Player); equip and drop are Intent fields, allowed only while no enemy in the Hall is alive. The map and inventory screens are render only.
 
 Each Hall is its own Generated Arena on the usual footprint, whose name carries its Door count (`gen:<kit>:<seed>:d<n>`, a `GENERATOR_VERSION` bump), with Doors as Kit Pieces on its edge. Walls never change during play; a closed Door is only drawn closed.
 
 ## Consequences
 
-- A Run still puts nothing new on the wire during play but the Intent's new fields (`PROTOCOL_VERSION` + 1); choices roll back, resync and checksum like positions do.
-- A choice takes a moment of walking, not a click: the party is seen gathering at a Door. A Player who wanders keeps the others waiting; the HUD shows who is at the Door.
+- A Run still puts nothing new on the wire during play but the Intent's new fields (`PROTOCOL_VERSION` + 1, with Stage 2's equip and drop; Stage 1 adds none, and its new Tuning Data changes the hash peers compare at connect); choices roll back, resync and checksum like positions do.
+- A choice takes a moment of walking, not a click: the party is seen gathering at a Door. A Player who wanders keeps the others waiting; the HUD shows how many of them stand at each Door ("2 / 3").
 - Every Hall fight stays one Duel of at most four enemies on a navmesh within budget, so the Simulation, the AI and Benched slots work unchanged. One continuous Arena is Later, and would start from this graph.
-- The judge (ADR 0014) gains a rule: every Door reaches every spawn by walking and dropping alone.
+- The judge (ADR 0014) gains a rule: a Hall Arena has the Doors its name asks for, every Door's zone and spawns reach every enemy spawn by walking and dropping alone, and no Door zone stands over deadly ground.

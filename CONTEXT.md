@@ -40,7 +40,7 @@ _Avoid_: Command, input (when meaning the abstract request)
 The delay before an AI Controller may act on what it sees of the other Fighters. Together with mistake rate and how much of its repertoire it uses (circling and spacing, pressure, disengaging, punishing openings, punishing a Sheathed enemy (one Sheathed, Sheathing or Drawing cannot Block, so it closes in and swings without Feints), Chains, jumping Attacks, Crouching under swings, Chambers, following jump Links up to a hold (and shortcut ones at any hold), meeting an enemy's Landing, Jumping away from an enemy), it defines AI difficulty (Tuning Data `ai.difficulties`): Easy, Normal or Hard, or their newer counterparts Beginner, Skilled and Expert, the same strength ladder with the exploit fixes on (it reads a low swing's look and Blocks rather than Duck it, breaks a held Wind-up rather than turtle, holds or Feints rather than swing at a target backing out of reach, and punishes only an opening its own Wind-up Releases inside) and teamwork (it flanks an enemy its allies share, takes turns with them, swings at a back turned on an ally, never swings through an ally, and spreads out over the enemies), and with a human feel (it swings on a rhythm rather than a coin flip, now and then notices an Attack a little late, makes human mistakes: a late Block, or one beside the right Direction, varies its spacing and pauses, and hops out of a pincer or round to its flank when the walk is blocked), each a little more often up the ladder. A late notice is only ever later than its Reaction Time, never sooner. Easy, Normal and Hard stay exactly as they were until they are phased out. An AI never Sheathes; taking over a Sheathed Fighter, it Draws once an enemy is near. With several enemies, the AI fights the nearest (or, playing as a team, the one its allies leave free) and defends against the nearest enemy Attack that can reach it. It plays as a team by what it sees of its allies, as of everyone, Reaction Time ago: AIs share no plans. Every Jump it makes is checked against the Simulation's own arc first: it never Jumps where a slightly-off version of the Jump would land somewhere deadly or hurt it.
 
 **Style**:
-How an AI fights, chosen apart from its difficulty (which says how well): Balanced (the default, which changes nothing), Aggressive, Counter, Tricky or Defensive, or Random (picked from the Match seed, or in a Run from the Run seed, so every peer picks the same). Tuning Data `ai.styles`: a multiplier on each of the difficulty's chances it names, never its Reaction Time or mistake rate. A Lobby AI Seat and a Floor's enemy each name one.
+How an AI fights, chosen apart from its difficulty (which says how well): Balanced (the default, which changes nothing), Aggressive, Counter, Tricky or Defensive, or Random (picked from the Match seed, or in a Run from the Run seed, so every peer picks the same). Tuning Data `ai.styles`: a multiplier on each of the difficulty's chances it names, never its Reaction Time or mistake rate. A Lobby AI Seat and an Encounter's enemy each name one.
 _Avoid_: Personality, behaviour (for the setting), AI type
 
 ## Motion
@@ -222,11 +222,11 @@ _Avoid_: Knockback
 ## Match
 
 **Duel**:
-One round between two Teams, ending when the last Fighter of a Team falls; the other Team wins it. In a Run, each Duel is a Floor.
+One round between two Teams, ending when the last Fighter of a Team falls; the other Team wins it. In a Run, each Duel is a Hall's, and it goes on once the Hall is Cleared (its enemies fallen, the party walking to a Door): it ends only when Team 0 is wiped out, or when the last Floor's Boss falls.
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell. In a Run, a fallen Team 0 Fighter sits out the rest of its Floor and comes back on the next.
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell. In a Run, a fallen Team 0 Fighter sits out the rest of its Hall and is back on the next Hall at `dungeon.revive` of its max HP (at full HP when that Hall is the next Floor's entrance).
 _Avoid_: KO, kill
 
 **Death Ragdoll**:
@@ -234,7 +234,7 @@ A fallen Fighter's body going limp and dropping to the floor, knocked away by th
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:
-When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome.
+When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome. In a Run it plays when a Hall is Cleared, on the last enemy to fall, while the Hall's Duel goes on (none for a Treasure or Rest Hall, which have no enemies).
 _Avoid_: Kill cam
 
 **Camera Shake**:
@@ -249,15 +249,30 @@ How a Match is played, a Lobby setting: Duels (best-of-N, as it always was) or G
 _Avoid_: Mode (that is the Match Mode), game type
 
 **Run**:
-A Match in the Gauntlet Format: Team 0 (one to four Fighters, the Players and any AI allies) fights through a series of Floors, from Floor 1 until it is wiped out on one (a Defeat; a Floor drawn counts as lost) or clears the last, the boss (a Victory). Its Fighters are fixed for the whole Run, and so is the number of humans it started with, which scales every enemy's max HP (`gauntlet.perPlayerHp`, so an AI Takeover never changes a Floor). A Run is a pure function of its options, the Lineup and Tuning Data (`data/gauntlet.json`): every peer builds each Floor itself. There is no Rematch.
-_Avoid_: Gauntlet (for one playthrough), campaign, dungeon
+A Match in the Gauntlet Format: Team 0 (one to four Fighters, the Players and any AI allies) walks a Dungeon Hall by Hall, from Floor 1's entrance, until it is wiped out (a Defeat, in any Hall and any phase; a draw counts as lost) or beats the last Floor's Boss (a Victory). HP carries from Hall to Hall as it is: it heals only at a Rest Hall's fire and in full after each Boss. Its Fighters are fixed for the whole Run, and so is the number of humans it started with, which scales every enemy's max HP (`dungeon.perPlayerHp`, so an AI Takeover never changes a Hall). Only the Players' Fighters count at a Door and take a Rest Hall's fire; once a Hall is Cleared the AI allies walk to the exit Door with the most living Players in its zone, else follow the nearest Player. A Run is a pure function of its options, the Lineup and Tuning Data (`data/dungeon.json`): every peer builds each Hall itself. There is no Rematch: a results screen shows the Floors and Halls cleared. The Lobby offers it in a Skirmish only for now.
+_Avoid_: Gauntlet (for one playthrough), campaign
+
+**Dungeon**:
+The seeded map a Run walks: its Floors (three, Tuning Data `data/dungeon.json`), each a graph of Halls. A pure function of the Run seed and Tuning Data (`floorGraph`), rebuilt whenever it is needed and never stored, so every peer builds the same one with nothing sent.
 
 **Floor**:
-One Duel of a Run, fought on its own Generated Arena (Floor 1 on the Run's first Arena, whose seed is the Run seed; each next Floor on the next seed) against the enemies Tuning Data lists for it (up to four), each with its difficulty, Style, Weapon and max HP; an enemy may be listed only for a Team 0 of at least so many Fighters (`minTeam`), its slot Benched otherwise. Team 0 starts it with the HP it ended the last one with plus a heal (`gauntlet.heal`, up to its max), a teammate who fell on the last comes back at `gauntlet.revive` of its max HP, and every Fighter has its Throwing Daggers back. Team 0 clearing it moves the Run on, after a pause (`gauntlet.interFloorSeconds`), to the next.
-_Avoid_: Level, stage, room (Room is the online connection), wave
+One depth of a Dungeon: a layered graph of Halls in five rows, from one entrance Fight Hall through three rows of 2 or 3 Halls each (their widths Tuning Data) to one Boss Hall. Each Hall has 1 to 3 exit Doors to Halls of the next row; paths may cross and every Hall is reachable, so a Run walks five of a Floor's Halls. The kinds of rows 2 to 4 are picked by the Floor's weights (Fight, Elite, Treasure; never an Elite in row 2), and row 4 always holds one Rest Hall. The Boss Hall's exit leads to the next Floor's entrance; beating the last Floor's Boss wins the Run. Later Floors' Encounters are harder.
+_Avoid_: Level, act, stage, room (Room is the online connection)
+
+**Hall**:
+One node of a Floor, fought or visited on its own Generated Arena (with Doors), with a kind: Fight, Elite, Treasure, Rest or Boss. A Hall with enemies is one Duel: Team 0 starts at its entrance Door, every Fighter drawn with its Throwing Daggers back, and Team 1's slots hold its Encounter's enemies (Benched otherwise), each enemy's max HP also scaled by the Hall's row (`dungeon.depthHp`, so the Halls before the Boss are the hardest). Team 1's AIs take their difficulty and Style from the Encounter. Once no Team 1 Fighter is left in its Duel the Hall is Cleared (at once for a Treasure or Rest Hall, which have no Encounter), its Duel goes on and its exit Doors open; once the party takes one, a short fade (`dungeon.hallFadeSeconds`) and the Hall behind it starts. A Rest Hall's fire burns at the middle of its Arena's Team 1 spawns: each Player's Fighter that stands at it heals `dungeon.restHeal` of its max HP, once in that Hall. A Treasure Hall holds nothing yet.
+_Avoid_: Room (the online connection), chamber (a combat term), cell (the generator's grid), node
+
+**Door**:
+A Piece of the Kit on a Hall's edge, at ground level: a doorway in a Wall with a zone on the ground before it. Nobody walks through it. Door 0 is the entrance: Team 0 starts at its four spawns, and it leads nowhere. Every other Door is an exit Door, labelled with the Hall behind it (its kind, or the next Floor after a Boss): once the Hall is Cleared, every living Player's Fighter standing in its zone for `dungeon.doorSeconds` takes the party to that Hall (one stepping out starts the count again; a fallen Player need not stand there, and the AI allies count only once no Player lives). A choice made by walking, so it rolls back like any position (ADR 0019).
+_Avoid_: portal, gate
+
+**Encounter**:
+One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may list Relics, which nothing reads yet.
+_Avoid_: Wave, squad, spawn group
 
 **Benched**:
-A Team 1 slot a Floor has no enemy for (a Run always holds three): out of that Floor's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
+A Team 1 slot a Hall has no enemy for (its Encounter lists fewer than four, or an enemy's `minTeam` is not met; every slot of a Treasure or Rest Hall): out of that Hall's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
 _Avoid_: Empty, disabled, dead (it never fell)
 
 **Rematch**:
@@ -289,7 +304,7 @@ _Avoid_: Void, kill zone, pit
 A vertical stretch of an Arena (a bookcase, a pillar, a balustrade) that no Fighter passes where its height overlaps theirs. A Blade Sweep that reaches one before any Fighter stops there (a Wall Strike): nothing behind it is hit, and the attacker recoils (Stagger, Blocked). A blade already through a Wall when its Release begins strikes it at once: there is no room to swing.
 
 **Generated Arena**:
-An Arena built at run time from a Kit, a seed and generator settings, rather than read from `data/arenas/`: a Layout assembled into ordinary Walk Surfaces, Walls and spawns, with an Abyss under it all, and judged with the real navmesh (every spawn reaches every enemy spawn by walking and dropping alone, no deadly ground near a spawn), rerolled until it passes (ADR 0014). Its name records how it was made (`gen:greybox:1234`), so the same name always builds the same Arena. To the Simulation, the AI and the camera it is just another Arena. The Lobby's **Random** Map is one: the host picks the first Match's seed, the Map setting carries the name, each new Match (and Rematch) moves on to the next seed by a fixed step while every Duel of a Match keeps its Arena, and every peer builds the Arena from the name alone (with the default generator settings); the generator's version is part of the Tuning Data hash.
+An Arena built at run time from a Kit, a seed and generator settings, rather than read from `data/arenas/`: a Layout assembled into ordinary Walk Surfaces, Walls and spawns, with an Abyss under it all, and judged with the real navmesh (every spawn reaches every enemy spawn by walking and dropping alone, no deadly ground near a spawn), rerolled until it passes (ADR 0014). Its name records how it was made (`gen:greybox:1234`), so the same name always builds the same Arena. To the Simulation, the AI and the camera it is just another Arena. The Lobby's **Random** Map is one: the host picks the first Match's seed, the Map setting carries the name, each new Match (and Rematch) moves on to the next seed by a fixed step while every Duel of a Match keeps its Arena, and every peer builds the Arena from the name alone (with the default generator settings); the generator's version is part of the Tuning Data hash. A Hall's Arena also names its Doors (`gen:greybox:1234:d3`: 1 to 4 Doors, the entrance and its exits), placed on edge cells at ground level: Team 0's spawns are the entrance Door's, Team 1's in the cell furthest from it by walking, and the judge also requires every Door's zone and spawns to reach every enemy spawn by walking and dropping alone, with no zone over deadly ground. A name without `:d` builds the Arena it always did.
 _Avoid_: Random map, procedural level (for the data)
 
 **Kit**:
@@ -297,7 +312,7 @@ A set of Pieces sharing one grid size and set of floor heights, with one look (a
 _Avoid_: Tileset, theme (for the data)
 
 **Piece**:
-One placeable part of a Kit (a floor, a ramp, a crate, a pillar, a rail, a bridge, a void with no floor): its look plus its own Walk Surfaces and Walls, its connectors (where walking crosses its sides, and at what height) and its skirts (how high its ground stands along each side, so a Wall goes under a floor that stands above its neighbour), all relative to its grid cells. Placed on whole cells, turned by quarter turns only.
+One placeable part of a Kit (a floor, a ramp, a crate, a pillar, a rail, a bridge, a void with no floor, a Door): its look plus its own Walk Surfaces and Walls, its connectors (where walking crosses its sides, and at what height) and its skirts (how high its ground stands along each side, so a Wall goes under a floor that stands above its neighbour), all relative to its grid cells. Placed on whole cells, turned by quarter turns only.
 _Avoid_: Tile, prefab, module
 
 **Layout**:
