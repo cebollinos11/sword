@@ -10,6 +10,7 @@ import { IDLE_INTENT, type Intent } from './intent';
 import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
 import { attack, hold, runScript, type Track } from './script';
 import { holdInventory, type Inventory } from './inventory';
+import { hallDrops, pickupVisibleTo, startPickups } from './pickups';
 import { NO_MODS, type Mods } from './mods';
 import { restore, snapshot } from './snapshot';
 import type { FighterState, SimState } from './state';
@@ -109,7 +110,7 @@ describe('Dungeon Run: the first Hall', () => {
   it('starts in Floor 1\'s entrance Fight Hall, on its Arena, Team 0 at Door 0\'s spawns and Team 1 from its Encounter', () => {
     const m = run();
     const graph = floorGraph(tuning.dungeon, 4242, 1, 'greybox');
-    expect(m.run).toEqual({ floor: 1, floors: 3, row: 0, hall: 0, path: [{ floor: 1, row: 0, index: 0 }], phase: 'Fighting', doorTicks: graph[0]![0]!.exits.map(() => 0), rested: [], startTick: 0 });
+    expect(m.run).toEqual({ floor: 1, floors: 3, row: 0, hall: 0, path: [{ floor: 1, row: 0, index: 0 }], phase: 'Fighting', doorTicks: graph[0]![0]!.exits.map(() => 0), rested: [], pickups: [], startTick: 0 });
     expect(m.arena).toBe(graph[0]![0]!.arena);
     expect(m.duel.arena).toBe(m.arena);
     expect(m.config.arena).toBe(ARENA);
@@ -746,9 +747,10 @@ describe('Dungeon Run: the inventory, and equip and drop as Intent fields', () =
     const wielded = act(act(m, { equip: { kind: 'weapon', slot: 2 } }), { drop: { kind: 'weapon', slot: 0 } });
     expect(wielded.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'weapon', item: W0, at });
     expect(me(wielded)).toMatchObject({ weapon: W2, inventory: { weapons: [W1, W2], weapon: 1 } });
-    // `placeDrop` is the seam the pickups fill: until then the Run is as it was.
-    expect(placeDrop(m.run!, { fighter: 0, kind: 'relic', item: 'Whetstone', at })).toBe(m.run);
-    expect(dropped.run).toEqual(m.run);
+    // `placeDrop` is the seam: a shared pickup at the feet (the Hall's own drop is pickup 0), which `by` bars the dropper from taking back at once.
+    const shared = { id: m.run!.pickups.length, owner: null, kind: 'relic', item: 'Whetstone', at, taken: false, by: 0 };
+    expect(placeDrop(m.run!, { fighter: 0, kind: 'relic', item: 'Whetstone', at })).toEqual({ ...m.run, pickups: [...m.run!.pickups, shared] });
+    expect(dropped.run).toEqual({ ...m.run, pickups: [...m.run!.pickups, shared] });
   });
 
   it('an equip and a drop in one Intent: the equip first', () => {
@@ -796,5 +798,356 @@ describe('Dungeon Run: the inventory, and equip and drop as Intent fields', () =
     expect(me(restore(snap)).inventory).toEqual(me(early).inventory);
     expect(hashValue(play(restore(snap), 2, 12))).toBe(hashValue(live));
     expect(hashValue(live)).not.toBe(hashValue(play(restore(snap), 2, 3)));
+  });
+});
+
+describe('Dungeon Run: pickups', () => {
+  const [W0, W1] = Object.keys(tuning.weapons) as [string, string];
+  const two = { humans: 2, players: [0, 1] };
+  const pickupsOf = (m: MatchState) => m.run!.pickups;
+  const takenEvents = (m: MatchState) => m.events.filter((e) => e.type === 'ItemTaken');
+  const takers = (m: MatchState) => takenEvents(m).map((e) => (e as { fighter: number }).fighter);
+  const inv = (m: MatchState, i: number) => m.duel.fighters[i]!.inventory!;
+  /** `m` with Fighter `i` standing on pickup `id`. */
+  const onPickup = (m: MatchState, i: number, id: number): MatchState => placed(m, i, pickupsOf(m)[id]!.at);
+  /** `m` with Fighter `i` far from every pickup (at Door 0's zone). */
+  const away = (m: MatchState, i: number): MatchState => placed(m, i, spots(m, 0)[i]!);
+  const tick = (m: MatchState): MatchState => stepMatch(m, idle(m), tuning);
+  const stocked = (m: MatchState, i: number, patch: Partial<Inventory>): MatchState => ({
+    ...m,
+    duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? { ...f, inventory: { ...f.inventory!, ...patch } } : f)) },
+  });
+  /** `m` with pickup `id` made into `patch`. */
+  const edited = (m: MatchState, id: number, patch: object): MatchState => ({ ...m, run: { ...m.run!, pickups: pickupsOf(m).map((p) => (p.id === id ? { ...p, ...patch } : p)) } });
+  /** The Run's first Hall with every enemy fallen, the Players at the Door. */
+  const cleared = (own = 2, options: Partial<MatchOptions> = two): MatchState => {
+    let m = clear(run(options, own)).m;
+    for (let i = 0; i < Math.min(own, 2); i++) m = away(m, i);
+    return m;
+  };
+  /** A Run starting in the first Hall of kind `kind` found in the Floor graphs (Floors in order). */
+  const startIn = (kind: 'Treasure' | 'Boss', options: Partial<MatchOptions> = two, own = 2): MatchState => {
+    for (let floor = 1; floor <= tuning.dungeon.floors.length; floor++) {
+      const graph = floorGraph(tuning.dungeon, runSeed(options.arena ?? ARENA), floor, 'greybox');
+      for (const [row, halls] of graph.entries()) {
+        const index = halls.findIndex((h) => h.kind === kind);
+        if (index >= 0) return run({ ...options, start: { floor, row, index } }, own);
+      }
+    }
+    throw new Error(`no ${kind} Hall`);
+  };
+  /** A Run starting at the Boss of Floor `floor`. */
+  const bossOf = (floor: number, options: Partial<MatchOptions> = two, own = 2): MatchState => run({ ...options, start: { floor, row: 4 } }, own);
+
+  it('a cleared Fight Hall drops one item per Player, each its own, on Team 1\'s spawn cell; nothing before it is cleared', () => {
+    const m = run(two);
+    expect(pickupsOf(m)).toEqual([]);
+    expect(pickupsOf(tick(m))).toEqual([]);
+    const c = clear(m).m;
+    const spawns = arenaOf(tuning, c.arena).spawns.filter((s) => s.team === 1).map((s) => s.position);
+    expect(pickupsOf(c)).toHaveLength(2);
+    for (const [i, p] of pickupsOf(c).entries()) {
+      expect(p).toMatchObject({ id: i, owner: i, taken: false });
+      expect(['weapon', 'relic']).toContain(p.kind);
+      expect(p.kind === 'weapon' ? Object.keys(tuning.weapons) : tuning.relics.map((r) => r.name)).toContain(p.item);
+      expect(spawns).toContainEqual(p.at);
+    }
+    // Only on the Tick the Hall is cleared: later Ticks add nothing.
+    expect(pickupsOf(tick(away(away(c, 0), 1)))).toEqual(pickupsOf(c));
+    expect(c.events.map((e) => e.type)).toContain('HallCleared');
+  });
+
+  it('a Boss Hall drops two items per Player, on two different spots', () => {
+    const m = clear(bossOf(1, { humans: 3, players: [0, 1, 2] }, 3)).m;
+    const mine = pickupsOf(m).filter((p) => p.owner === 1);
+    expect(pickupsOf(m)).toHaveLength(6);
+    expect(mine).toHaveLength(2);
+    expect(mine[0]!.at).not.toEqual(mine[1]!.at);
+    expect(mine.every((p) => !p.taken)).toBe(true);
+  });
+
+  it('a Run seed gives the same pickups every time, another seed others; mostly Relics, sometimes a Weapon', () => {
+    const items = (arena: string): string[] =>
+      [1, 2, 3].flatMap((floor) => pickupsOf(clear(bossOf(floor, { ...two, arena })).m).map((p) => `${p.owner}:${p.kind}:${p.item}`));
+    expect(items(ARENA)).toEqual(items(ARENA));
+    const seeds = [100, 101, 102, 103, 104, 105, 200, 201, 202, 203, 204, 205];
+    const all = seeds.map((seed) => items(`gen:greybox:${seed}`));
+    expect(new Set([...all.map((a) => a.join()), items(ARENA).join()]).size).toBeGreaterThan(8);
+    const kinds = all.flat().map((s) => s.split(':')[1]);
+    expect(kinds.filter((k) => k === 'relic').length).toBeGreaterThan(kinds.filter((k) => k === 'weapon').length);
+    expect(kinds).toContain('weapon');
+    // A Player's two drops from one Boss are different items.
+    for (const a of all) expect(new Set(a.slice(0, 4)).size).toBe(4);
+  });
+
+  it('a replay of the clear and the take hashes the same', () => {
+    const play = (m: MatchState): MatchState => tick(onPickup(tick(m), 0, 0));
+    const c = cleared();
+    expect(hashValue(play(c))).toBe(hashValue(play(c)));
+  });
+
+  it('an owned pickup is taken only by its owner: standing on it, the item joins its inventory, and the event says who', () => {
+    const c = cleared();
+    const p = pickupsOf(c)[0]!;
+    expect(p.owner).toBe(0);
+    const list = (m: MatchState) => (p.kind === 'weapon' ? inv(m, 0).weapons : inv(m, 0).relics);
+    // Player 1 on Player 0's pickup (Player 1's own lies on the same spot, so it takes that, and only that).
+    const wrong = tick(onPickup(c, 1, 0));
+    expect(pickupsOf(wrong).map((q) => q.taken)).toEqual([false, true]);
+    expect(takenEvents(wrong)).toEqual([{ type: 'ItemTaken', fighter: 1, id: 1, kind: pickupsOf(c)[1]!.kind, item: pickupsOf(c)[1]!.item }]);
+    // With no pickup of its own there, Player 1 takes nothing at all.
+    const alone = { ...c, run: { ...c.run!, pickups: [pickupsOf(c)[0]!] } };
+    expect(takenEvents(tick(onPickup(alone, 1, 0)))).toEqual([]);
+    expect(inv(tick(onPickup(alone, 1, 0)), 1)).toEqual(inv(c, 1));
+    // Player 0 on it: taken.
+    const right = tick(onPickup(wrong, 0, 0));
+    expect(pickupsOf(right)[0]!.taken).toBe(true);
+    expect(takenEvents(right)).toEqual([{ type: 'ItemTaken', fighter: 0, id: 0, kind: p.kind, item: p.item }]);
+    expect(list(right)).toEqual([...list(c), p.item]);
+    // Taking equips and wields nothing.
+    expect(inv(right, 0)).toMatchObject({ weapon: 0, equipped: [] });
+    // Taken, it is not taken again.
+    expect(takenEvents(tick(onPickup(right, 0, 0)))).toEqual([]);
+    expect(list(tick(onPickup(right, 0, 0)))).toEqual(list(right));
+  });
+
+  it('only standing on it takes it: near it, and above it, do not', () => {
+    const c = cleared();
+    const { at } = pickupsOf(c)[0]!;
+    expect(takenEvents(tick(placed(c, 0, { x: at.x + 0.4, y: at.y, z: at.z })))).toHaveLength(1);
+    expect(takenEvents(tick(placed(c, 0, { x: at.x + 0.6, y: at.y, z: at.z })))).toEqual([]);
+    expect(takenEvents(tick(placed(c, 0, { x: at.x, y: at.y + 3, z: at.z })))).toEqual([]);
+  });
+
+  it('is taken in a Cleared Hall only: not while an enemy lives, not once the party is Leaving', () => {
+    const c = cleared();
+    const fighting = { ...run(two), run: { ...run(two).run!, pickups: [pickupsOf(c)[0]!] } };
+    expect(fighting.run!.phase).toBe('Fighting');
+    expect(takenEvents(tick(onPickup(fighting, 0, 0)))).toEqual([]);
+    const leaving = holdAt(c, allAt([0, 1], 0), NEED).m;
+    expect(leaving.run!.phase).toBe('Leaving');
+    expect(takenEvents(tick(onPickup(leaving, 0, 0)))).toEqual([]);
+  });
+
+  it('a fallen Player takes nothing', () => {
+    const c = cleared();
+    const fell = stepMatch(withHp(c, (f, i) => (i === 0 ? 0 : f.hp)), idle(c), tuning);
+    expect(fell.duel.fighters[0]!.death).toBeDefined();
+    expect(takenEvents(tick(onPickup(fell, 0, 0)))).toEqual([]);
+  });
+
+  it('a shared drop is taken by any Player, but its dropper only after stepping off it', () => {
+    let m = away(stocked(cleared(), 0, { weapons: [W0, W1], relics: ['Whetstone'], weapon: 0, equipped: [] }), 0);
+    const feet = { x: m.duel.fighters[0]!.position.x, y: m.duel.fighters[0]!.y, z: m.duel.fighters[0]!.position.z };
+    // The Player drops its carried Weapon at its feet.
+    m = stepMatch(m, idle(m).map((i, k) => (k === 0 ? { ...i, drop: { kind: 'weapon', slot: 1 } } : i)), tuning);
+    const id = pickupsOf(m).findIndex((p) => p.owner === null);
+    expect(pickupsOf(m)[id]).toEqual({ id, owner: null, kind: 'weapon', item: W1, at: feet, taken: false, by: 0 });
+    expect(inv(m, 0).weapons).toEqual([W0]);
+    // Standing on it, the dropper does not take it back, Tick after Tick.
+    for (let k = 0; k < 3; k++) m = tick(m);
+    expect(pickupsOf(m)[id]!.taken).toBe(false);
+    expect(inv(m, 0).weapons).toEqual([W0]);
+    // Player 1 takes it, as any Player may.
+    const taken = tick(onPickup(m, 1, id));
+    expect(takenEvents(taken)).toEqual([{ type: 'ItemTaken', fighter: 1, id, kind: 'weapon', item: W1 }]);
+    expect(inv(taken, 1).weapons).toEqual([...inv(m, 1).weapons, W1]);
+    // Otherwise the dropper steps off it (its `by` is spent), and takes it back by stepping on again.
+    const off = tick(placed(m, 0, { x: feet.x + 2, y: feet.y, z: feet.z }));
+    expect(pickupsOf(off)[id]).not.toHaveProperty('by');
+    expect(inv(tick(placed(off, 0, feet)), 0).weapons).toEqual([W0, W1]);
+  });
+
+  it('two Players on one shared pickup: the lower Fighter takes it; its dropper never, while on it', () => {
+    const m = cleared();
+    const shared = { ...m, run: { ...m.run!, pickups: [{ id: 0, owner: null, kind: 'weapon' as const, item: W1, at: pickupsOf(m)[0]!.at, taken: false }] } };
+    expect(takers(tick(onPickup(onPickup(shared, 1, 0), 0, 0)))).toEqual([0]);
+    const dropped = edited(shared, 0, { by: 0 });
+    expect(takers(tick(onPickup(onPickup(dropped, 1, 0), 0, 0)))).toEqual([1]);
+  });
+
+  it('a full inventory leaves the pickup lying, and it is taken once there is room', () => {
+    // Player 0's pickup 0 a Weapon, and its three Weapon slots full.
+    const m = stocked(edited(cleared(), 0, { kind: 'weapon', item: W1 }), 0, { weapons: [W0, W0, W0], weapon: 0 });
+    const full = tick(onPickup(m, 0, 0));
+    expect(pickupsOf(full)[0]!.taken).toBe(false);
+    expect(takenEvents(full)).toEqual([]);
+    expect(inv(full, 0).weapons).toEqual([W0, W0, W0]);
+    // The two lists are full separately: a Relic still fits.
+    expect(inv(tick(onPickup(edited(m, 0, { kind: 'relic', item: 'Whetstone' }), 0, 0)), 0).relics).toEqual(['Whetstone']);
+    // Room made by a drop (the dropped Weapon lies 0.5 m or more from the pickup), then back on the pickup.
+    const room = stepMatch(away(full, 0), idle(full).map((i, k) => (k === 0 ? { ...i, drop: { kind: 'weapon', slot: 2 } } : i)), tuning);
+    const taken = tick(onPickup(room, 0, 0));
+    expect(pickupsOf(taken)[0]!.taken).toBe(true);
+    expect(inv(taken, 0).weapons).toEqual([W0, W0, W1]);
+    // Relics: a full list refuses one too.
+    const six = Array.from({ length: tuning.dungeon.inventory.relics }, () => 'Whetstone');
+    const stuffed = stocked(edited(m, 0, { kind: 'relic', item: 'Iron Plate' }), 0, { relics: six });
+    expect(pickupsOf(tick(onPickup(stuffed, 0, 0)))[0]!.taken).toBe(false);
+  });
+
+  it('an AI ally standing on any pickup takes nothing, owned or shared, even one that holds an inventory', () => {
+    // Fighter 0 is the only Player; Fighter 1 is an AI ally, which holds no inventory.
+    const c = cleared(2, { humans: 1, players: [0] });
+    expect(pickupsOf(c).map((p) => p.owner)).toEqual([0]);
+    expect(c.duel.fighters[1]!.inventory).toBeUndefined();
+    const shared = { ...c, run: { ...c.run!, pickups: [...pickupsOf(c), { id: 1, owner: null, kind: 'weapon' as const, item: W1, at: pickupsOf(c)[0]!.at, taken: false }] } };
+    for (const id of [0, 1]) {
+      const next = tick(onPickup(shared, 1, id));
+      expect(takenEvents(next)).toEqual([]);
+      expect(pickupsOf(next).every((p) => !p.taken)).toBe(true);
+    }
+    // Even with an inventory in its hands (it never has one), it is not a Player.
+    const armed = { ...shared, duel: { ...shared.duel, fighters: shared.duel.fighters.map((f, i) => (i === 1 ? { ...f, inventory: { weapons: [W0], relics: [], weapon: 0, equipped: [] } } : f)) } };
+    const next = tick(onPickup(armed, 1, 1));
+    expect(takenEvents(next)).toEqual([]);
+    expect(next.duel.fighters[1]!.inventory!.weapons).toEqual([W0]);
+  });
+
+  it('the Ally AI decides from the Duel, which holds no pickups: lying or not, the same Intent', () => {
+    const lineup: Lineup = [0, 0, 1, 1, 1, 1].map((team, i) => ({ team, pilot: team === 0 && i === 0 ? { kind: 'Player', player: 1 } : { kind: 'AI', difficulty: team === 0 ? 'Hard' : 'Floor' } }));
+    const ais = lineupAis(tuning, lineup, 'Gauntlet', { arena: ARENA }) as (Controller | null)[];
+    const c = cleared(2, { humans: 1, players: [0] });
+    const bare = { ...c, run: { ...c.run!, pickups: [] } };
+    expect(pickupsOf(c).length).toBeGreaterThan(0);
+    expect(JSON.stringify(c.duel)).not.toContain('pickups');
+    expect(ais[1]!.intent(c.duel, 1)).toEqual(ais[1]!.intent(bare.duel, 1));
+  });
+
+  it('a Treasure Hall has three pedestals per Player from its first Tick, one group each, on three different spots', () => {
+    const m = startIn('Treasure');
+    expect(m.duel.hall).toMatchObject({ kind: 'Treasure', phase: 'Fighting' });
+    expect(pickupsOf(m)).toHaveLength(6);
+    for (const player of [0, 1]) {
+      const mine = pickupsOf(m).filter((p) => p.owner === player);
+      expect(mine.map((p) => p.group)).toEqual([mine[0]!.id, mine[0]!.id, mine[0]!.id]);
+      expect(new Set(mine.map((p) => `${p.at.x},${p.at.z}`)).size).toBe(3);
+      expect(new Set(mine.map((p) => `${p.kind}:${p.item}`)).size).toBe(3);
+    }
+    // Both Players' copies lie on the same three spots.
+    expect(pickupsOf(m).filter((p) => p.owner === 0).map((p) => p.at)).toEqual(pickupsOf(m).filter((p) => p.owner === 1).map((p) => p.at));
+    // The Hall clears at once and drops nothing more.
+    const next = tick(m);
+    expect(next.run!.phase).toBe('Cleared');
+    expect(pickupsOf(next)).toEqual(pickupsOf(m));
+  });
+
+  it('a Treasure Hall gives each Player one of three: taking one closes the other two, for that Player only', () => {
+    let m = tick(startIn('Treasure'));
+    const [a, b] = pickupsOf(m).filter((p) => p.owner === 0);
+    const before = inv(m, 0);
+    m = tick(onPickup(m, 0, b!.id));
+    expect(takenEvents(m)).toEqual([{ type: 'ItemTaken', fighter: 0, id: b!.id, kind: b!.kind, item: b!.item }]);
+    expect(pickupsOf(m).filter((p) => p.owner === 0).map((p) => p.taken)).toEqual([true, true, true]);
+    expect(pickupsOf(m).filter((p) => p.owner === 1).map((p) => p.taken)).toEqual([false, false, false]);
+    // Standing on another of the three takes nothing more.
+    const again = tick(onPickup(m, 0, a!.id));
+    expect(takenEvents(again)).toEqual([]);
+    const count = (i: Inventory) => i.weapons.length + i.relics.length;
+    expect(count(inv(again, 0))).toBe(count(before) + 1);
+    // Player 1 still has its three, and takes one of them.
+    const mineToo = pickupsOf(again).find((p) => p.owner === 1)!;
+    const second = tick(onPickup(again, 1, mineToo.id));
+    expect(takenEvents(second)).toHaveLength(1);
+    expect(pickupsOf(second).filter((p) => p.owner === 1).every((p) => p.taken)).toBe(true);
+  });
+
+  it('a Treasure Hall with a full inventory leaves all three lying', () => {
+    let m = tick(startIn('Treasure'));
+    m = stocked(m, 0, { weapons: [W0, W0, W0], relics: Array.from({ length: tuning.dungeon.inventory.relics }, () => 'Whetstone') });
+    for (const p of pickupsOf(m).filter((q) => q.owner === 0)) {
+      const next = tick(onPickup(m, 0, p.id));
+      expect(takenEvents(next)).toEqual([]);
+      expect(pickupsOf(next).filter((q) => q.owner === 0).map((q) => q.taken)).toEqual([false, false, false]);
+    }
+  });
+
+  it('pickups are gone after a Hall change; the next Hall has its own (a Treasure Hall its pedestals, any other none)', () => {
+    const c = cleared();
+    expect(pickupsOf(c).length).toBeGreaterThan(0);
+    const next = advance(c, 0).m;
+    expect(next.duelNumber).toBe(c.duelNumber + 1);
+    expect(pickupsOf(next).every((p) => next.duel.hall!.kind === 'Treasure' && p.group !== undefined && p.owner !== null && !p.taken)).toBe(true);
+    expect(pickupsOf(next).length).toBe(next.duel.hall!.kind === 'Treasure' ? 6 : 0);
+    // The Treasure Hall's own pedestals do not follow the party out, taken or not; ids start from 0 again.
+    const treasure = tick(startIn('Treasure'));
+    const out = advance(treasure, 0).m;
+    expect(pickupsOf(out).every((p) => out.duel.hall!.kind === 'Treasure' && p.group !== undefined)).toBe(true);
+    expect(pickupsOf(out)).not.toEqual(pickupsOf(treasure));
+    // A drop left lying goes with the Hall: dropped here, never in the next.
+    const dropped = stepMatch(away(stocked(c, 0, { weapons: [W0, W1], weapon: 0 }), 0), idle(c).map((i, k) => (k === 0 ? { ...i, drop: { kind: 'weapon', slot: 1 } } : i)), tuning);
+    expect(pickupsOf(dropped).some((p) => p.owner === null)).toBe(true);
+    expect(pickupsOf(advance(dropped, 0).m).some((p) => p.owner === null)).toBe(false);
+  });
+
+  it('what a Player took stays in its inventory across a Hall change', () => {
+    const took = tick(onPickup(cleared(), 0, 0));
+    const item = pickupsOf(took)[0]!;
+    expect(inv(took, 0)[item.kind === 'weapon' ? 'weapons' : 'relics']).toContain(item.item);
+    const next = advance(away(took, 0), 0).m;
+    expect(next.duel.fighters[0]!.inventory).toEqual(inv(took, 0));
+  });
+
+  it('Rollback over a pickup re-simulates to the same state', () => {
+    const base = cleared();
+    const { at } = pickupsOf(base)[0]!;
+    // Player 0 walks onto its pickup (a placement at Tick 4), takes it, drops a Weapon at Tick 7 (refused if it holds one only), steps off at Tick 9.
+    const script = (m: MatchState, t: number): MatchState => (t === 4 ? placed(m, 0, at) : t === 9 ? away(m, 0) : m);
+    const play = (from: MatchState, t0: number, to: number): MatchState => {
+      let m = from;
+      for (let t = t0; t < to; t++) m = stepMatch(script(m, t), idle(m).map((i, k) => (k === 0 && t === 7 ? { ...i, drop: { kind: 'relic', slot: 0 } } : i)), tuning);
+      return m;
+    };
+    const early = play(base, 0, 3);
+    const snap = snapshot(early);
+    const live = play(early, 3, 14);
+    expect(pickupsOf(live)[0]!.taken).toBe(true);
+    expect(hashValue(restore(snap))).toBe(hashValue(early));
+    expect(hashValue(play(restore(snap), 3, 14))).toBe(hashValue(live));
+    expect(hashValue(live)).not.toBe(hashValue(play(restore(snap), 3, 4)));
+    // A snapshot taken after the take re-simulates to the same state too.
+    const mid = play(base, 0, 6);
+    expect(pickupsOf(mid)[0]!.taken).toBe(true);
+    expect(hashValue(play(restore(snapshot(mid)), 6, 14))).toBe(hashValue(live));
+  });
+
+  it('an Elite Hall drops its tuned count per Player (none as tuned: its Relics are a later ticket\'s), a Rest Hall nothing', () => {
+    // The first Run seed whose Floors hold an Elite Hall, and the Rest Hall of the same Run.
+    const where = (kind: string, arena: string) => {
+      for (let floor = 1; floor <= 3; floor++) {
+        const graph = floorGraph(tuning.dungeon, runSeed(arena), floor, 'greybox');
+        for (const [row, halls] of graph.entries()) {
+          const index = halls.findIndex((h) => h.kind === kind);
+          if (index >= 0) return { at: { floor, row, index }, hall: halls[index]! };
+        }
+      }
+      return null;
+    };
+    const arena = Array.from({ length: 50 }, (_, k) => `gen:greybox:${4242 + k}`).find((a) => where('Elite', a))!;
+    const config = { ...run(two).config, arena };
+    const elite = where('Elite', arena)!;
+    expect(hallDrops(tuning, config, elite.at, elite.hall, 0)).toEqual([]);
+    const generous: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, drops: { Fight: 1, Elite: 2, Boss: 2 } } } };
+    const drops = hallDrops(generous, config, elite.at, elite.hall, 0);
+    expect(drops.map((p) => [p.id, p.owner])).toEqual([[0, 0], [1, 0], [2, 1], [3, 1]]);
+    expect(hallDrops(generous, config, elite.at, elite.hall, 5).map((p) => p.id)).toEqual([5, 6, 7, 8]);
+    const rest = where('Rest', arena)!;
+    expect(hallDrops(generous, config, rest.at, rest.hall, 0)).toEqual([]);
+    expect(startPickups(generous, config, rest.at, rest.hall)).toEqual([]);
+  });
+
+  it('pickupVisibleTo: a Player sees its own and the shared ones, not another\'s, and nothing taken', () => {
+    const p = (owner: number | null, taken = false) => ({ owner, taken });
+    expect(pickupVisibleTo(p(0), 0)).toBe(true);
+    expect(pickupVisibleTo(p(0), 1)).toBe(false);
+    expect(pickupVisibleTo(p(null), 1)).toBe(true);
+    expect(pickupVisibleTo(p(null, true), 1)).toBe(false);
+    expect(pickupVisibleTo(p(0, true), 0)).toBe(false);
+  });
+
+  it('Duels are untouched: no Run, no pickups', () => {
+    const duels = createMatch(tuning, { bestOf: 3, seed: 1 });
+    expect(duels.run).toBeNull();
+    expect(JSON.stringify(duels)).not.toContain('pickups');
   });
 });

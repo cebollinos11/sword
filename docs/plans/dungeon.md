@@ -96,7 +96,7 @@ What it cannot do, and the Dungeon needs:
 - `FighterState` gains `inventory: { weapons: string[], relics: string[], weapon: index, equipped: index[] }` (Team 0 Players only; empty otherwise) and `mods`: its equipped Relics folded into one record (`maxHp`, `damage`, `heavyDamage`, `damageTaken`, `blockImpactTaken`, `daggers`, `daggerDamage`, `kickDamage`, `healOnKill`, `healOnClear`), recomputed at each Hall's start and on each equip. Every place that reads those numbers reads the Fighter's own: the Hit in `combat.ts`, a Throwing Dagger's damage and count, a Kick's knockdown damage, a Block Impact. Team 1's `mods` come from an Elite Encounter's Relics.
 - `weapon` stays a `FighterState` field, now changed by an equip; nothing reads the Match's Weapons after a Hall starts. A Weapon swap only in a cleared Hall, so never mid-Action.
 - `MatchState.run.pickups`: this Hall's items `{ id, owner: player | null, item, at, taken }`. Fight, Elite and Boss Halls drop theirs at `HallCleared`; a Treasure Hall's three pedestals per Player stand from its start (taking one marks the other two taken). What each holds is `runPick(Run seed, Floor, row, Hall, Player, …)`. A dropped item is a pickup with `owner: null`. Cleared at each Hall change.
-- A Fighter takes a pickup it owns (or a shared one) by standing on it with room in its inventory; a full inventory leaves it lying.
+- A Fighter takes a pickup it owns (or a shared one) by standing on it with room in its inventory; a full inventory leaves it lying. Built (`src/sim/pickups.ts`): a pickup is `{ id, owner, kind, item, at, taken }` plus `group` (a Treasure Hall's three pedestals of one Player) and `by` (a drop's dropper, who may not take it back until it steps off); `at` is one of Team 1's four spawns (ground the judge guarantees), `PICKUP_RADIUS` 0.5 m; only `runPlayers`' Fighters take, in a Cleared Hall, lower Fighter first on a shared one; `pickupVisibleTo` is the rule presentation draws by; an `ItemTaken` event.
 - **Intent:** `equip?: { kind: 'weapon' | 'relic', slot }` and `drop?: { kind, slot }`, acted on only in a `Cleared` Hall (or one with no Encounter). `isIntent` (`src/net/messages.ts`) checks them; `PROTOCOL_VERSION` 21.
 - `data/relics.json` (`src/tuning/relics.ts`, hashed): each Relic's name, icon and effects; the parser checks every effect is in the vocabulary.
 
@@ -110,6 +110,7 @@ What it cannot do, and the Dungeon needs:
   "perPlayerHp": 0.5,
   "depthHp": 0.1,
   "inventory": { "weapons": 3, "relics": 6, "equippedRelics": 3 },
+  "loot": { "weights": { "Relic": 4, "Weapon": 1 }, "drops": { "Fight": 1, "Elite": 0, "Boss": 2 }, "pedestals": 3 },
   "floors": [
     {
       "rows": [2, 3, 2],

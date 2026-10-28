@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -163,6 +163,7 @@ export {
   type HallClearedEvent,
   type DroppedItem,
   type ItemDroppedEvent,
+  type ItemTakenEvent,
   placeDrop,
   type MatchConfig,
   type MatchEndEvent,
@@ -175,6 +176,7 @@ export {
   type RunEndEvent,
   type RunState,
 } from './match';
+export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {
   atRestFire,

@@ -396,9 +396,28 @@ const isHallRef = (v: unknown): boolean => isObject(v) && isInt(v.floor) && v.fl
 /** A Run's Duel's Hall: where it is, its kind and its phase. */
 const isSimHall = (v: unknown): boolean => isHallRef(v) && HALL_KINDS.has((v as Obj).kind) && HALL_PHASES.has((v as Obj).phase);
 
+/** The most pickups a Hall's list may hold (taken ones stay in it): a resync from a peer asking for more is refused. */
+const MAX_PICKUPS = 256;
+
+/** An item lying in a Hall: its place in the list (checked by the Run), a Weapon or Relic name, an owner Fighter or none (shared), where, and whether taken. */
+function isPickup(v: unknown): boolean {
+  return (
+    isObject(v) &&
+    isInt(v.id) &&
+    v.id >= 0 &&
+    (v.owner === null || (isInt(v.owner) && v.owner >= 0 && v.owner < MAX_TEAM_SIZE)) &&
+    (v.kind === 'weapon' || v.kind === 'relic') &&
+    isString(v.item) &&
+    isVec3(v.at) &&
+    typeof v.taken === 'boolean' &&
+    (v.group === undefined || (isInt(v.group) && v.group >= 0)) &&
+    (v.by === undefined || (isInt(v.by) && v.by >= 0 && v.by < MAX_TEAM_SIZE))
+  );
+}
+
 /**
  * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
- * Door count per exit, the Player Fighters rested, and the Tick it started on.
+ * Door count per exit, the Player Fighters rested, the pickups lying in it, and the Tick it started on.
  */
 function isRun(v: unknown): boolean {
   if (!isObject(v) || !isInt(v.floors) || v.floors < 1 || !isArrayOf(v.path, isHallRef) || (v.path as unknown[]).length < 1) return false;
@@ -414,6 +433,9 @@ function isRun(v: unknown): boolean {
     isArrayOf(v.doorTicks, isTick) &&
     (v.doorTicks as unknown[]).length <= MAX_HALL_EXITS &&
     isArrayOf(v.rested, (i) => isInt(i) && i >= 0 && i < MAX_TEAM_SIZE * 2) &&
+    isArrayOf(v.pickups, isPickup) &&
+    (v.pickups as unknown[]).length <= MAX_PICKUPS &&
+    (v.pickups as Obj[]).every((p, k) => p.id === k && (p.group === undefined || (p.group as number) <= k)) &&
     isTick(v.startTick)
   );
 }

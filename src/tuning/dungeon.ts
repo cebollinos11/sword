@@ -57,6 +57,19 @@ export interface DungeonFloor {
   readonly boss: DungeonEncounter;
 }
 
+/** The most items a Hall drops, or a Treasure Hall puts on pedestals, for one Player: they stand on Team 1's four spawns, one each. */
+export const MAX_LOOT_SPOTS = 4;
+
+/** What a Hall's loot is (docs/plans/dungeon.md, "Loot sources"). */
+export interface DungeonLoot {
+  /** Relative weights of what an item is: a Relic (the usual) or a Weapon. Not both 0. */
+  readonly weights: { readonly Relic: number; readonly Weapon: number };
+  /** Items a cleared Hall of that kind drops for each Player (0 to MAX_LOOT_SPOTS). An Elite's carried Relics come on top of its count. */
+  readonly drops: { readonly Fight: number; readonly Elite: number; readonly Boss: number };
+  /** Pedestals each Player has in a Treasure Hall (1 to MAX_LOOT_SPOTS): they take one of them. */
+  readonly pedestals: number;
+}
+
 export interface DungeonTuning {
   /** Seconds every living Player must stand in a Door's zone, once the Hall is cleared, to take it. */
   readonly doorSeconds: number;
@@ -72,6 +85,8 @@ export interface DungeonTuning {
   readonly depthHp: number;
   /** Inventory sizes: Weapons held, Relics held and how many of those are equipped (Stage 2). */
   readonly inventory: { readonly weapons: number; readonly relics: number; readonly equippedRelics: number };
+  /** What Halls drop and Treasure Halls offer (Stage 2). */
+  readonly loot: DungeonLoot;
   /** The Run's Floors in order; clearing the last Floor's Boss wins the Run. */
   readonly floors: readonly DungeonFloor[];
 }
@@ -165,6 +180,11 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
 
   const inv = record(d.inventory, 'dungeon.inventory');
   const relics = wholeNumber(inv, 'relics', 'dungeon.inventory', 0, 99);
+  const loot = record(d.loot, 'dungeon.loot');
+  const lootWeights = record(loot.weights, 'dungeon.loot.weights');
+  const lootDrops = record(loot.drops, 'dungeon.loot.drops');
+  const weights = { Relic: nonNegativeNumber(lootWeights, 'Relic', 'dungeon.loot.weights'), Weapon: nonNegativeNumber(lootWeights, 'Weapon', 'dungeon.loot.weights') };
+  if (weights.Relic + weights.Weapon <= 0) throw new TuningDataError('dungeon.loot.weights must give Relic or Weapon a weight above 0');
   return {
     doorSeconds: positiveNumber(d, 'doorSeconds', 'dungeon'),
     hallFadeSeconds: nonNegativeNumber(d, 'hallFadeSeconds', 'dungeon'),
@@ -176,6 +196,15 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
       weapons: wholeNumber(inv, 'weapons', 'dungeon.inventory', 1, 99),
       relics,
       equippedRelics: wholeNumber(inv, 'equippedRelics', 'dungeon.inventory', 0, relics),
+    },
+    loot: {
+      weights,
+      drops: {
+        Fight: wholeNumber(lootDrops, 'Fight', 'dungeon.loot.drops', 0, MAX_LOOT_SPOTS),
+        Elite: wholeNumber(lootDrops, 'Elite', 'dungeon.loot.drops', 0, MAX_LOOT_SPOTS),
+        Boss: wholeNumber(lootDrops, 'Boss', 'dungeon.loot.drops', 0, MAX_LOOT_SPOTS),
+      },
+      pedestals: wholeNumber(loot, 'pedestals', 'dungeon.loot', 1, MAX_LOOT_SPOTS),
     },
     floors,
   };

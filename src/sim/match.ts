@@ -33,6 +33,7 @@ import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { holdInventory, startingInventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
+import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -149,8 +150,15 @@ export interface ItemDroppedEvent extends DroppedItem {
   readonly type: 'ItemDropped';
 }
 
+/** Player Fighter `fighter` took up pickup `id` (of `run.pickups`): the Weapon or Relic `item` is in its inventory now. */
+export interface ItemTakenEvent extends Dropped {
+  readonly type: 'ItemTaken';
+  readonly fighter: number;
+  readonly id: number;
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent;
 
 /** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
 export interface DroppedItem extends Dropped {
@@ -160,11 +168,11 @@ export interface DroppedItem extends Dropped {
 
 /**
  * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall) becomes something in the
- * world. The pickups ticket fills it: a shared pickup (`owner: null`) at `drop.at` in `run.pickups`. Until then the drop only leaves the
- * inventory (and is reported as an `ItemDropped` event), and the Run comes back as it was. Pure.
+ * world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `run.pickups`, which the dropper cannot take back until it
+ * has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
  */
-export function placeDrop(run: RunState, _drop: DroppedItem): RunState {
-  return run;
+export function placeDrop(run: RunState, drop: DroppedItem): RunState {
+  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
 }
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
@@ -189,6 +197,8 @@ export interface RunState {
   readonly doorTicks: readonly number[];
   /** The Player Fighters that took this Hall's Rest fire (ascending; a Rest Hall heals each Player once). */
   readonly rested: readonly number[];
+  /** The items lying in this Hall (`src/sim/pickups.ts`): its drops once cleared, a Treasure Hall's pedestals, dropped items. Empty again in each new Hall. */
+  readonly pickups: readonly Pickup[];
   /** The Match Tick the Run started on. */
   readonly startTick: number;
 }
@@ -305,7 +315,7 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
 }
 
 /** The Run on entering Hall `at` (`hall` its node), `path` the Halls entered before it. */
-function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hall: Hall, path: readonly HallRef[]): RunState {
+function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hall: Hall, path: readonly HallRef[], pickups: readonly Pickup[]): RunState {
   return {
     floor: at.floor,
     floors: run.floors,
@@ -315,6 +325,7 @@ function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hal
     phase: 'Fighting',
     doorTicks: hall.exits.map(() => 0),
     rested: [],
+    pickups,
     startTick: run.startTick,
   };
 }
@@ -410,7 +421,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     nextDuelTick: null,
     status: { status: 'InProgress' },
     events: [{ type: 'DuelStart', duelNumber }],
-    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1)) : null,
+    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1), startPickups(tuning, config, first, hall)) : null,
   };
 }
 
@@ -487,7 +498,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     const duel = hallDuel(tuning, config, at, hall, match.duel, at.floor > run.floor, match.duel.rng);
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path) };
+    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path, startPickups(tuning, config, at, hall)) };
   }
 
   let duel = step(match.duel, intents, tuning);
@@ -512,6 +523,8 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     // A Clear heals each living Team 0 Fighter by its `mods.healOnClear` of its max HP, never above it.
     duel = { ...duel, fighters: duel.fighters.map((f) => (f.team === 0 && inDuel(f) && f.hp > 0 && modsOf(f).healOnClear > 0 ? { ...f, hp: Math.min(f.maxHp, f.hp + modsOf(f).healOnClear * f.maxHp) } : f)) };
     events.push({ type: 'HallCleared', floor: next.floor, row: next.row, index: next.hall, kind: duel.hall!.kind });
+    // Its drops (`hallDrops`: each Player's own) lie on Team 1's spawn cell; an Elite's carried Relics join them there.
+    next = { ...next, pickups: [...next.pickups, ...hallDrops(tuning, config, runHall(next), hallOf(tuning, config.arena, runHall(next)), next.pickups.length)] };
     if (next.row === FLOOR_ROWS - 1 && next.floor === next.floors) {
       // The last Boss fell: the Run is won, and its Duel ends as a Duel's end would leave it.
       duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
@@ -521,7 +534,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
 
   if (next.phase === 'Cleared' && status.status === 'InProgress') {
     // Only with no enemy alive may a Player's Fighter change what it holds (its Intent's `equip`, then `drop`; refused mid-Action).
-    // Whatever it drops is the pickups' (`placeDrop`).
+    // Whatever it drops is the pickups' (`placeDrop`). Then each Player's Fighter standing on a pickup it may take takes it (`takePickups`).
     duel = {
       ...duel,
       fighters: duel.fighters.map((f, i) => {
@@ -535,6 +548,12 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
         return used.fighter;
       }),
     };
+    const took = takePickups(next.pickups, duel.fighters, config, tuning);
+    if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
+      next = { ...next, pickups: took.pickups };
+      duel = { ...duel, fighters: took.fighters };
+      for (const t of took.taken) events.push({ type: 'ItemTaken', ...t });
+    }
   }
 
   if (next.phase !== 'Fighting' && status.status === 'InProgress') {

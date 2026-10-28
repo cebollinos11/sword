@@ -28,6 +28,7 @@ function goodRaw() {
       perPlayerHp: 0.5,
       depthHp: 0.1,
       inventory: { weapons: 3, relics: 6, equippedRelics: 3 },
+      loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3 },
       floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
     },
     relics: [],

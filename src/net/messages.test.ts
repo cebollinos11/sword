@@ -414,8 +414,21 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(m)).toEqual(m);
   });
 
+  it('carries a Run\'s pickups through a resync: owned, shared, a pedestal group and a dropper', () => {
+    const { state, ai } = runResync();
+    const at = { x: 1, y: 0, z: 2 };
+    const pickups = [
+      { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at, taken: false, group: 0 },
+      { id: 1, owner: 1, kind: 'weapon', item: 'Halberd', at, taken: true, group: 0 },
+      { id: 2, owner: null, kind: 'weapon', item: 'Halberd', at, taken: false, by: 0 },
+    ];
+    const m = resync({ ...state, run: { ...state.run, pickups } }, ai);
+    expect(parseNetMessage(m)).toEqual(m);
+  });
+
   it('refuses a malformed Run, Hall, max HP, Benched flag or Hall AI memory', () => {
     const { state, ai } = runResync();
+    const pickup = { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at: { x: 1, y: 0, z: 2 }, taken: false };
     const fighters = (patch: object) => ({ ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 4 ? { ...f, ...patch } : f)) } });
     const broken: unknown[] = [
       { ...state, run: null },
@@ -430,6 +443,18 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
       { ...state, run: { ...state.run, doorTicks: [0, 0, 0, 0] } },
       { ...state, run: { ...state.run, rested: ['me'] } },
       { ...state, run: { ...state.run, startTick: 'then' } },
+      { ...state, run: { ...state.run, pickups: 'loot' } },
+      { ...state, run: { ...state.run, pickups: undefined } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, id: 1 }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, owner: 9 }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, owner: undefined }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, kind: 'gold' }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, item: 7 }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, at: { x: 0, y: 0 } }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, taken: 'no' }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, group: 2 }] } },
+      { ...state, run: { ...state.run, pickups: [{ ...pickup, by: -1 }] } },
+      { ...state, run: { ...state.run, pickups: Array.from({ length: 300 }, (_, id) => ({ ...pickup, id })) } },
       { ...state, duel: { ...state.duel, hall: { ...state.duel.hall, row: 1 } } },
       { ...state, duel: { ...state.duel, hall: { ...state.duel.hall, phase: 'Cleared' } } },
       { ...state, duel: { ...state.duel, hall: { ...state.duel.hall, kind: 'Shop' } } },

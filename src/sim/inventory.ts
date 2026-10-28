@@ -95,6 +95,16 @@ export interface Dropped {
 }
 
 /**
+ * The inventory after taking `item` up (a pickup), or null when it is full: `sizes.weapons` Weapons held (the wielded one counts) or
+ * `sizes.relics` Relics, equipped or carried. A new item goes last, so no slot moves; nothing is equipped or wielded by being taken, so
+ * the Fighter's Mods and Weapon stay as they were. Pure.
+ */
+export function addItem(inv: Inventory, item: Dropped, sizes: TuningData['dungeon']['inventory']): Inventory | null {
+  if (item.kind === 'weapon') return inv.weapons.length < sizes.weapons ? { ...inv, weapons: [...inv.weapons, item.item] } : null;
+  return inv.relics.length < sizes.relics ? { ...inv, relics: [...inv.relics, item.item] } : null;
+}
+
+/**
  * Act on a Fighter's Intent `equip` then `drop`: the Fighter after them (the same Fighter when both are absent or refused) and what
  * it dropped, if anything. Refused when `canChangeInventory` says no, or the item or slot is not there.
  */

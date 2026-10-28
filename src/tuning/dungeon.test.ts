@@ -31,6 +31,7 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(d.floors[2]!.boss.enemies[0]).toEqual({ difficulty: 'Expert', style: 'random', weapon: 'Sledge Hammer', body: 'wraith', hpScale: 3 });
     expect([d.doorSeconds, d.hallFadeSeconds, d.revive, d.restHeal, d.perPlayerHp, d.depthHp]).toEqual([1.5, 1, 0.25, 0.5, 0.5, 0.1]);
     expect(d.inventory).toEqual({ weapons: 3, relics: 6, equippedRelics: 3 });
+    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3 });
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
     expect(parse(d)).toEqual(d);
     expect(MAX_ENCOUNTER_ENEMIES).toBe(MAX_TEAM_SIZE);
@@ -100,6 +101,20 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(() => parse({ ...raw(), inventory: { weapons: 0, relics: 6, equippedRelics: 3 } })).toThrow(/inventory\.weapons/);
     expect(() => parse({ ...raw(), inventory: { weapons: 3, relics: 2, equippedRelics: 3 } })).toThrow(/equippedRelics/);
     expect(() => parse({ ...raw(), inventory: { weapons: 3, relics: 6.5, equippedRelics: 3 } })).toThrow(/inventory\.relics/);
+  });
+
+  it('refuses a missing or bad loot: weights, drops per kind and pedestals', () => {
+    const loot = (patch: object) => ({ ...raw(), loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, ...patch } });
+    expect(() => parse({ ...raw(), loot: undefined })).toThrow(/dungeon\.loot/);
+    expect(() => parse(loot({ weights: { Relic: 0, Weapon: 0 } }))).toThrow(/weights/);
+    expect(() => parse(loot({ weights: { Relic: -1, Weapon: 1 } }))).toThrow(/weights\.Relic/);
+    expect(() => parse(loot({ weights: { Relic: 1 } }))).toThrow(/weights\.Weapon/);
+    expect(parse(loot({ weights: { Relic: 0, Weapon: 2 } })).loot.weights).toEqual({ Relic: 0, Weapon: 2 });
+    expect(() => parse(loot({ drops: { Fight: 5, Elite: 0, Boss: 2 } }))).toThrow(/drops\.Fight/);
+    expect(() => parse(loot({ drops: { Fight: 1, Elite: 0.5, Boss: 2 } }))).toThrow(/drops\.Elite/);
+    expect(() => parse(loot({ drops: { Fight: 1, Elite: 0 } }))).toThrow(/drops\.Boss/);
+    expect(() => parse(loot({ pedestals: 0 }))).toThrow(/pedestals/);
+    expect(() => parse(loot({ pedestals: 5 }))).toThrow(/pedestals/);
   });
 
   it('is in the Tuning Data hash: any change to it changes the hash', () => {
