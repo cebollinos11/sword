@@ -74,6 +74,19 @@ export interface Intent {
    * drawn and a Draw if it is Sheathed: a committed Action (it can still walk, turn and crouch). Held down, it does not repeat.
    */
   readonly sheathe?: boolean;
+  /**
+   * Equip the inventory item in this slot (absent = nothing). A Weapon becomes the one wielded; a Relic is equipped, or unequipped when it already is.
+   * Acted on only in a Cleared Hall, by a Player's Fighter that is Idle on the ground: refused otherwise (`stepMatch`, `src/sim/inventory.ts`).
+   */
+  readonly equip?: InventoryRef;
+  /** Drop the inventory item in this slot (absent = nothing): it leaves the inventory for a shared pickup at the Fighter's feet. Same conditions as `equip`; the equipped Weapon cannot be dropped. */
+  readonly drop?: InventoryRef;
+}
+
+/** An item of the Player's inventory, named by kind and slot (its index in `Inventory.weapons` or `Inventory.relics`). */
+export interface InventoryRef {
+  readonly kind: 'weapon' | 'relic';
+  readonly slot: number;
 }
 
 export const IDLE_INTENT: Intent = Object.freeze({

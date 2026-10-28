@@ -10,7 +10,8 @@
  */
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
-export type { Direction, Intent } from './intent';
+export type { Direction, Intent, InventoryRef } from './intent';
+export { canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -160,6 +161,9 @@ export {
   type DoorTakenEvent,
   type DuelStartEvent,
   type HallClearedEvent,
+  type DroppedItem,
+  type ItemDroppedEvent,
+  placeDrop,
   type MatchConfig,
   type MatchEndEvent,
   type MatchEvent,

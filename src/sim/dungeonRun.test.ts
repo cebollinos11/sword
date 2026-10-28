@@ -7,9 +7,10 @@ import { inDuel, updateDuel, DUEL_FIGHTING } from './duel';
 import { atRestFire, enemyMaxHp, exitDoor, hallOf, hallRoster, inExitZone, restFire } from './hall';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
-import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
+import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
 import { attack, hold, runScript, type Track } from './script';
-import { NO_MODS, setMods, type Mods } from './mods';
+import { holdInventory, type Inventory } from './inventory';
+import { NO_MODS, type Mods } from './mods';
 import { restore, snapshot } from './snapshot';
 import type { FighterState, SimState } from './state';
 import { createInitialState, duelPlacements, step } from './step';
@@ -521,35 +522,48 @@ describe('Duels are untouched', () => {
 
 describe('Dungeon Run: Mods at a Hall\'s start and on a clear', () => {
   const mods = (m: Partial<Mods>): Mods => ({ ...NO_MODS, ...m });
-  /** The Match with Fighter `i` given `m` (base max HP `fighter.maxHp`), as an equip would. */
-  const armed = (m: MatchState, i: number, given: Partial<Mods>): MatchState => ({
+  /** Two Players, so Fighter 1 holds an inventory too. */
+  const two = (options: Partial<MatchOptions> = {}, own = 2): MatchState => run({ humans: 2, players: [0, 1], ...options }, own);
+  /** The Match with Player `i` carrying exactly these Relics (names), all equipped, as equips would have left it. */
+  const armed = (m: MatchState, i: number, relics: readonly string[]): MatchState => ({
     ...m,
-    duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? setMods(f, mods(given), MAX) : f)) },
+    duel: {
+      ...m.duel,
+      fighters: m.duel.fighters.map((f, k) => (k === i ? holdInventory(f, { ...f.inventory!, relics, equipped: relics.map((_, s) => s) }, tuning) : f)),
+    },
   });
 
-  it('a Hall starts each Fighter with the Mods it had, its max HP recomputed from them, and a fallen one back at `revive` of that max HP', () => {
-    const m = armed(armed(run(), 0, { maxHp: 0.2, daggers: 1, damage: 1.3 }), 1, { maxHp: 0.5 });
+  it('a Hall starts each Player with the Mods of the Relics it has equipped, its max HP recomputed from them, and a fallen one back at `revive` of that max HP', () => {
+    const m = armed(armed(two(), 0, ['Vital Charm', 'Dagger Bandolier', 'Whetstone']), 1, ['Vital Charm']);
     const next = advance(m, 0, [0], (_, i) => (i === 0 ? 50 : 0)).m;
     const [a, b] = next.duel.fighters;
     expect(a).toMatchObject({ maxHp: MAX * 1.2, hp: 50, daggers: tuning.dagger.count + 1 });
-    expect(a!.mods).toEqual(mods({ maxHp: 0.2, daggers: 1, damage: 1.3 }));
-    expect(b!.maxHp).toBe(MAX * 1.5);
-    expect(b!.hp).toBe(revive * MAX * 1.5);
-    // Fighters nobody gave Mods carry none, and enemies are what their Encounter says.
+    expect(a!.mods).toEqual(mods({ maxHp: 0.2, daggers: 1, damage: 1.1 }));
+    expect(b!.maxHp).toBe(MAX * 1.2);
+    expect(b!.hp).toBe(revive * MAX * 1.2);
+    // Fighters nobody gave Relics carry no Mods, and enemies are what their Encounter says.
     expect(next.duel.fighters.filter((f) => f.team === 1 && !f.benched).every((f) => !('mods' in f))).toBe(true);
   });
 
+  it('an AI ally holds no inventory and no Mods, whatever it had', () => {
+    const m = run({}, 3);
+    expect(m.duel.fighters[1]).toMatchObject({ team: 0 });
+    expect(m.duel.fighters.filter((f) => 'inventory' in f).map((f) => m.duel.fighters.indexOf(f))).toEqual([0]);
+    const next = advance(m, 0, [0], (_, i) => (i === 0 ? 50 : 100)).m;
+    expect(next.duel.fighters.filter((f) => f.team === 0 && ('inventory' in f || 'mods' in f)).length).toBe(1);
+  });
+
   it('an unequipped max HP shrinks the max HP, and HP above it with it, at the next Hall\'s start', () => {
-    let m = armed(run({}, 1), 0, { maxHp: 0.5 });
-    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: MAX * 1.5 } : f)) } };
-    const off = armed(m, 0, {});
+    let m = armed(run({}, 1), 0, ['Vital Charm']);
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: MAX * 1.2 } : f)) } };
+    const off = armed(m, 0, []);
     expect(off.duel.fighters[0]).toMatchObject({ maxHp: MAX, hp: MAX });
     expect('mods' in off.duel.fighters[0]!).toBe(false);
     expect(advance(off, 0, [0], (f) => f.hp).m.duel.fighters[0]).toMatchObject({ maxHp: MAX, hp: MAX });
   });
 
   it('after a Boss every Fighter is at full HP of its Mods\' max HP, a fallen one too', () => {
-    const m = armed(run({ start: { floor: 1, row: 4 } }), 0, { maxHp: 0.2 });
+    const m = armed(run({ start: { floor: 1, row: 4 } }), 0, ['Vital Charm']);
     expect(m.duel.hall).toMatchObject({ row: 4, kind: 'Boss' });
     const next = advance(m, 0, [0], (_, i) => (i === 0 ? 30 : 0)).m;
     expect(next.duel.hall).toMatchObject({ floor: 2, row: 0 });
@@ -558,12 +572,12 @@ describe('Dungeon Run: Mods at a Hall\'s start and on a clear', () => {
   });
 
   it('a Clear heals each living Team 0 Fighter by healOnClear of its max HP, never above it, and nobody else', () => {
-    let m = armed(armed(armed(run({}, 3), 0, { healOnClear: 0.15 }), 1, { healOnClear: 0.5, maxHp: 0.2 }), 2, { healOnClear: 0.5 });
-    m = withHp(m, (_, i) => [40, 100, 0, 0, 0, 0][i] ?? 0);
-    const cleared = clear(m, (_, i) => [40, 100, 0][i]!);
+    let m = armed(armed(two({}, 3), 0, ['Victory Wreath']), 1, ['Victory Wreath', 'Vital Charm']);
+    m = withHp(m, (_, i) => [40, 110, 0, 0, 0, 0][i] ?? 0);
+    const cleared = clear(m, (_, i) => [40, 110, 0][i]!);
     expect(cleared.events).toContainEqual({ type: 'HallCleared', floor: 1, row: 0, index: 0, kind: 'Fight' });
     const hps = cleared.m.duel.fighters.slice(0, 3).map((f) => f.hp);
-    // 40 + 15 % of 100; 100 + 50 % of 120 capped at 120; a Fighter that fell stays down.
+    // 40 + 15 % of 100; 110 + 15 % of 120 capped at 120; an AI ally that fell stays down.
     expect(hps[0]).toBeCloseTo(40 + 0.15 * MAX, 9);
     expect(hps[1]).toBe(MAX * 1.2);
     expect(hps[2]).toBe(0);
@@ -577,10 +591,210 @@ describe('Dungeon Run: Mods at a Hall\'s start and on a clear', () => {
   it('a Treasure or Rest Hall is cleared at once and heals the same', () => {
     const graph = floorGraph(tuning.dungeon, runSeed(ARENA), 1, 'greybox');
     const restAt = graph[3]!.findIndex((h) => h.kind === 'Rest');
-    let m = armed(run({ humans: 1, players: [0] }, 1), 0, { healOnClear: 0.1 });
+    let m = armed(run({ humans: 1, players: [0] }, 1), 0, ['Victory Wreath']);
     for (const exit of routeTo(graph, 3, restAt)) m = advance(m, exit, [0], (f) => Math.min(f.hp, 30)).m;
     expect(m.duel.hall).toMatchObject({ kind: 'Rest' });
     const hurt = withHp(m, () => 30);
-    expect(stepMatch(hurt, idle(hurt), tuning).duel.fighters[0]!.hp).toBeCloseTo(30 + 0.1 * MAX, 9);
+    expect(stepMatch(hurt, idle(hurt), tuning).duel.fighters[0]!.hp).toBeCloseTo(30 + 0.15 * MAX, 9);
+  });
+});
+
+describe('Dungeon Run: the inventory, and equip and drop as Intent fields', () => {
+  const [W0, W1, W2] = Object.keys(tuning.weapons) as [string, string, string];
+  /** The Match with Player `i` holding `inv` (its Weapon wielded, its equipped Relics' Mods folded), as a Hall would have left it. */
+  const stocked = (m: MatchState, i: number, inv: Partial<Inventory>): MatchState => ({
+    ...m,
+    duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? holdInventory(f, { ...f.inventory!, ...inv }, tuning) : f)) },
+  });
+  /** A Cleared Hall with Player 0 holding three Weapons (the first wielded) and these Relics, none equipped. */
+  const loaded = (relics: readonly string[] = ['Whetstone', 'Vital Charm', 'Iron Plate', 'Dagger Bandolier']): MatchState =>
+    clear(stocked(run({}, 1), 0, { weapons: [W0, W1, W2], relics, weapon: 0, equipped: [] })).m;
+  /** One Tick of `m` with Fighter 0's Intent given `intent` (everybody else idle). */
+  const act = (m: MatchState, intent: Partial<Intent>): MatchState => stepMatch(m, idle(m).map((i, k) => (k === 0 ? { ...i, ...intent } : i)), tuning);
+  const me = (m: MatchState): FighterState => m.duel.fighters[0]!;
+  const dropsOf = (m: MatchState) => m.events.filter((e) => e.type === 'ItemDropped');
+
+  it('a Player starts with the Weapon the Lineup chose and nothing else; AI allies, enemies and every Duel hold nothing', () => {
+    const m = run({ weapons: [W1, W2] }, 2);
+    expect(me(m).inventory).toEqual({ weapons: [W1], relics: [], weapon: 0, equipped: [] });
+    expect(me(m).weapon).toBe(W1);
+    expect(m.duel.fighters.slice(1).every((f) => !('inventory' in f) && !('mods' in f))).toBe(true);
+    const duels = createMatch(tuning, { bestOf: 3, seed: 1 });
+    expect(JSON.stringify(duels.duel.fighters)).not.toContain('inventory');
+  });
+
+  it('is refused while an enemy lives: nothing changes, and nothing is dropped', () => {
+    const m = stocked(run({}, 1), 0, { weapons: [W0, W1], relics: ['Whetstone'], weapon: 0, equipped: [] });
+    expect(m.run!.phase).toBe('Fighting');
+    for (const intent of [{ equip: { kind: 'weapon', slot: 1 } }, { equip: { kind: 'relic', slot: 0 } }, { drop: { kind: 'weapon', slot: 1 } }, { drop: { kind: 'relic', slot: 0 } }] as const) {
+      const next = act(m, intent);
+      expect(next.run!.phase).toBe('Fighting');
+      expect(me(next).inventory).toEqual(me(m).inventory);
+      expect(me(next).weapon).toBe(W0);
+      expect(dropsOf(next)).toEqual([]);
+    }
+  });
+
+  it('is refused mid-Action, in the air, once the party is Leaving, and for a fallen Fighter', () => {
+    const m = loaded();
+    // Mid-Action: a Kick winding up.
+    const kicking = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === 0 ? { ...f, action: { kind: 'Kick', phase: 'Wind-up', landed: false } as const } : f)) } };
+    expect(me(act(kicking, { equip: { kind: 'weapon', slot: 1 } })).weapon).toBe(W0);
+    expect(me(act(kicking, { equip: { kind: 'relic', slot: 0 } })).inventory!.equipped).toEqual([]);
+    expect(dropsOf(act(kicking, { drop: { kind: 'relic', slot: 0 } }))).toEqual([]);
+    expect(me(act(kicking, { drop: { kind: 'relic', slot: 0 } })).inventory!.relics).toHaveLength(4);
+    // In the air.
+    const jumping = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === 0 ? { ...f, air: { vx: 0, vz: 0, vy: 1, peakY: f.y, ticks: 1, jumped: true } } : f)) } };
+    expect(me(act(jumping, { equip: { kind: 'relic', slot: 0 } })).inventory!.equipped).toEqual([]);
+    // Leaving: the Door was taken.
+    const leaving = holdAt(m, allAt([0], 0), NEED).m;
+    expect(leaving.run!.phase).toBe('Leaving');
+    expect(me(act(leaving, { equip: { kind: 'weapon', slot: 1 } })).weapon).toBe(W0);
+    // Fallen: it keeps what it held, and cannot change it.
+    const fell = stepMatch(withHp(m, (f, i) => (i === 0 ? 0 : f.hp)), idle(m), tuning);
+    expect(me(fell).death).toBeDefined();
+    expect(me(act(fell, { equip: { kind: 'weapon', slot: 1 } })).weapon).toBe(W0);
+    expect(me(fell).inventory).toEqual(me(m).inventory);
+  });
+
+  it('a Cleared Hall takes an equip on the Tick it is cleared, and a Hall with no Encounter on its first', () => {
+    const m = stocked(run({}, 1), 0, { weapons: [W0, W1], relics: [], weapon: 0, equipped: [] });
+    const fell = stepMatch(withHp(m, (f) => (f.team === 1 ? 0 : f.hp)), idle(m).map((i, k) => (k === 0 ? { ...i, equip: { kind: 'weapon', slot: 1 } } : i)), tuning);
+    expect(fell.run!.phase).toBe('Cleared');
+    expect(me(fell)).toMatchObject({ weapon: W1, inventory: { weapon: 1 } });
+    const graph = floorGraph(tuning.dungeon, runSeed(ARENA), 1, 'greybox');
+    const restAt = graph[3]!.findIndex((h) => h.kind === 'Rest');
+    let r = run({ humans: 1, players: [0] }, 1);
+    for (const exit of routeTo(graph, 3, restAt)) r = advance(r, exit).m;
+    expect(r.duel.hall).toMatchObject({ kind: 'Rest', phase: 'Fighting' });
+    const swapped = act(stocked(r, 0, { weapons: [W0, W1], weapon: 0 }), { equip: { kind: 'weapon', slot: 1 } });
+    expect(me(swapped).weapon).toBe(W1);
+  });
+
+  it('equipping a Relic changes its number, and unequipping restores it', () => {
+    let m = loaded();
+    const before = me(m);
+    expect('mods' in before).toBe(false);
+    m = act(m, { equip: { kind: 'relic', slot: 0 } });
+    expect(me(m).inventory!.equipped).toEqual([0]);
+    expect(me(m).mods).toEqual({ ...NO_MODS, damage: 1.1 });
+    m = act(m, { equip: { kind: 'relic', slot: 1 } });
+    expect(me(m)).toMatchObject({ maxHp: MAX * 1.2, hp: before.hp });
+    m = act(m, { equip: { kind: 'relic', slot: 3 } });
+    expect(me(m).mods).toEqual({ ...NO_MODS, damage: 1.1, maxHp: 0.2, daggers: 1 });
+    expect(me(m).daggers).toBe(tuning.dagger.count + 1);
+    // Three are equipped, and the Iron Plate in slot 2 does not fit.
+    expect(me(act(m, { equip: { kind: 'relic', slot: 2 } })).inventory!.equipped).toEqual([0, 1, 3]);
+    // Taking each off restores what it changed, and with none equipped Mods are absent again.
+    for (const slot of [0, 1, 3]) m = act(m, { equip: { kind: 'relic', slot } });
+    expect(me(m).inventory!.equipped).toEqual([]);
+    expect('mods' in me(m)).toBe(false);
+    expect(me(m)).toMatchObject({ maxHp: MAX, hp: before.hp, daggers: tuning.dagger.count });
+  });
+
+  it('refuses a slot with no item, a Weapon already wielded, and a malformed slot', () => {
+    const m = loaded();
+    for (const intent of [
+      { equip: { kind: 'relic', slot: 4 } },
+      { equip: { kind: 'relic', slot: -1 } },
+      { equip: { kind: 'relic', slot: 0.5 } },
+      { equip: { kind: 'weapon', slot: 3 } },
+      { equip: { kind: 'weapon', slot: 0 } },
+      { drop: { kind: 'weapon', slot: 0 } },
+      { drop: { kind: 'weapon', slot: 3 } },
+      { drop: { kind: 'relic', slot: 9 } },
+    ] as const) {
+      const next = act(m, intent);
+      expect(me(next).inventory, JSON.stringify(intent)).toEqual(me(m).inventory);
+      expect(me(next).weapon).toBe(W0);
+      expect(dropsOf(next)).toEqual([]);
+    }
+  });
+
+  it("a Weapon swap in a Cleared Hall: the next Hall's Duel uses the new Weapon, and the inventory comes along", () => {
+    let m = loaded();
+    const tip = me(m).blade.tip;
+    m = act(m, { equip: { kind: 'weapon', slot: 2 } });
+    expect(me(m)).toMatchObject({ weapon: W2, inventory: { weapon: 2 } });
+    // The pose follows the Weapon at once.
+    expect(me(m).blade.tip).not.toEqual(tip);
+    const next = advance(m, 0).m;
+    expect(next.duelNumber).toBe(m.duelNumber + 1);
+    expect(me(next)).toMatchObject({ weapon: W2, inventory: { weapons: [W0, W1, W2], weapon: 2 } });
+  });
+
+  it('a Relic equipped carries its Mods into the next Hall, derived again from the inventory', () => {
+    const next = advance(act(loaded(), { equip: { kind: 'relic', slot: 1 } }), 0).m;
+    expect(me(next)).toMatchObject({ maxHp: MAX * 1.2, inventory: { equipped: [1] }, mods: { maxHp: 0.2 } });
+    expect(me(next).hp).toBe(MAX);
+  });
+
+  it('a drop removes the item, reports it where the Fighter stands, and hands it to the one seam', () => {
+    const m = act(loaded(), { equip: { kind: 'relic', slot: 1 } });
+    const at = { x: me(m).position.x, y: me(m).y, z: me(m).position.z };
+    // Dropping the Whetstone in slot 0 closes the slots up: the equipped Vital Charm is slot 0 now.
+    const dropped = act(m, { drop: { kind: 'relic', slot: 0 } });
+    expect(dropped.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'relic', item: 'Whetstone', at });
+    expect(me(dropped).inventory).toEqual({ weapons: [W0, W1, W2], relics: ['Vital Charm', 'Iron Plate', 'Dagger Bandolier'], weapon: 0, equipped: [0] });
+    expect(me(dropped).maxHp).toBe(MAX * 1.2);
+    // Dropping an equipped Relic takes it off.
+    const off = act(dropped, { drop: { kind: 'relic', slot: 0 } });
+    expect(off.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'relic', item: 'Vital Charm', at });
+    expect(me(off)).toMatchObject({ maxHp: MAX, inventory: { equipped: [] } });
+    expect('mods' in me(off)).toBe(false);
+    // A carried Weapon below the wielded one closes up, and the wielded one stays wielded.
+    const wielded = act(act(m, { equip: { kind: 'weapon', slot: 2 } }), { drop: { kind: 'weapon', slot: 0 } });
+    expect(wielded.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'weapon', item: W0, at });
+    expect(me(wielded)).toMatchObject({ weapon: W2, inventory: { weapons: [W1, W2], weapon: 1 } });
+    // `placeDrop` is the seam the pickups fill: until then the Run is as it was.
+    expect(placeDrop(m.run!, { fighter: 0, kind: 'relic', item: 'Whetstone', at })).toBe(m.run);
+    expect(dropped.run).toEqual(m.run);
+  });
+
+  it('an equip and a drop in one Intent: the equip first', () => {
+    const next = act(loaded(), { equip: { kind: 'relic', slot: 0 }, drop: { kind: 'relic', slot: 0 } });
+    expect(me(next).inventory).toMatchObject({ relics: ['Vital Charm', 'Iron Plate', 'Dagger Bandolier'], equipped: [] });
+    expect('mods' in me(next)).toBe(false);
+  });
+
+  it('a Fighter that falls keeps its inventory, and has it back, revived, in the next Hall', () => {
+    let m = stocked(run({ humans: 2, players: [0, 1] }, 2), 1, { weapons: [W0, W2], relics: ['Vital Charm'], weapon: 1, equipped: [0] });
+    expect(m.duel.fighters[1]).toMatchObject({ weapon: W2, maxHp: MAX * 1.2 });
+    m = clear(m, (f, i) => (i === 1 ? 0 : f.hp)).m;
+    const fallen = m.duel.fighters[1]!;
+    expect(fallen.death).toBeDefined();
+    expect(fallen.inventory).toEqual({ weapons: [W0, W2], relics: ['Vital Charm'], weapon: 1, equipped: [0] });
+    const next = advance(m, 0, [0]).m;
+    expect(next.duel.fighters[1]).toMatchObject({
+      weapon: W2,
+      maxHp: MAX * 1.2,
+      hp: revive * MAX * 1.2,
+      inventory: { weapons: [W0, W2], relics: ['Vital Charm'], weapon: 1, equipped: [0] },
+    });
+    expect(next.duel.fighters[1]!.death).toBeUndefined();
+  });
+
+  it('Rollback over an equip re-simulates to the same state', () => {
+    const base = loaded();
+    const script = (t: number): Intent[] =>
+      idle(base).map((i, k) => {
+        if (k !== 0) return i;
+        if (t === 3) return { ...i, equip: { kind: 'relic', slot: 1 } };
+        if (t === 6) return { ...i, equip: { kind: 'weapon', slot: 1 } };
+        return t === 8 ? { ...i, drop: { kind: 'relic', slot: 0 } } : i;
+      });
+    const play = (from: MatchState, t0: number, to: number): MatchState => {
+      let m = from;
+      for (let t = t0; t < to; t++) m = stepMatch(m, script(t), tuning);
+      return m;
+    };
+    const early = play(base, 0, 2);
+    const snap = snapshot(early);
+    const live = play(early, 2, 12);
+    expect(me(live).inventory).toEqual({ weapons: [W0, W1, W2], relics: ['Vital Charm', 'Iron Plate', 'Dagger Bandolier'], weapon: 1, equipped: [0] });
+    // The snapshot is independent of everything simulated after it, and re-simulating from it gives the same state bit for bit.
+    expect(me(restore(snap)).inventory).toEqual(me(early).inventory);
+    expect(hashValue(play(restore(snap), 2, 12))).toBe(hashValue(live));
+    expect(hashValue(live)).not.toBe(hashValue(play(restore(snap), 2, 3)));
   });
 });

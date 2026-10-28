@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, NO_MODS, stepMatch, throwTimings, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
-import { parseNetMessage } from './messages';
+import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
 
@@ -446,6 +446,14 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
       fighters({ mods: { ...NO_MODS, damage: Number.NaN } }),
       fighters({ mods: { ...NO_MODS, maxHp: -1 } }),
       fighters({ mods: 1.1 }),
+      fighters({ inventory: 1 }),
+      fighters({ inventory: { weapons: [], relics: [], weapon: 0, equipped: [] } }),
+      fighters({ inventory: { weapons: ['Halberd'], relics: [], weapon: 1, equipped: [] } }),
+      fighters({ inventory: { weapons: ['Halberd'], relics: ['Whetstone'], weapon: 0, equipped: [1] } }),
+      fighters({ inventory: { weapons: ['Halberd'], relics: ['Whetstone', 'Iron Plate'], weapon: 0, equipped: [1, 0] } }),
+      fighters({ inventory: { weapons: ['Halberd'], relics: ['Whetstone'], weapon: 0, equipped: [0, 0] } }),
+      fighters({ inventory: { weapons: ['Halberd', 7], relics: [], weapon: 0, equipped: [] } }),
+      fighters({ inventory: { weapons: ['Halberd'], relics: [], equipped: [] } }),
     ];
     for (const bad of broken) expect(parseNetMessage(resync(bad, ai)), JSON.stringify(bad).slice(0, 100)).toBeNull();
     for (const bad of [{ hall: 1, memory: null }, { hall: '0:0:0', memory: null }, { hall: '1:0:0', memory: { lastTick: 'x' } }, { hall: '1:0:0' }]) {
@@ -462,6 +470,37 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     const armed = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, mods: { ...NO_MODS, damage: 1.1, daggers: 1 } } : f)) } };
     expect(parseNetMessage(resync(armed))).not.toBeNull();
     expect(parseNetMessage(resync(state))).not.toBeNull();
+  });
+
+  it('accepts a Fighter with an inventory, and refuses a malformed one', () => {
+    const state = matchState();
+    const inventory = { weapons: ['Halberd', 'Longsword'], relics: ['Whetstone', 'Iron Plate', 'Vital Charm'], weapon: 1, equipped: [0, 2] };
+    const stocked = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, inventory } : f)) } };
+    expect(parseNetMessage(resync(stocked))).toEqual(resync(stocked));
+  });
+
+  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 21', () => {
+    expect(PROTOCOL_VERSION).toBe(21);
+    for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }]) {
+      const m = intents([{ ...IDLE_INTENT, ...extra }]);
+      expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
+    }
+    for (const bad of [
+      { equip: 'sword' },
+      { equip: null },
+      { equip: { kind: 'sword', slot: 0 } },
+      { equip: { kind: 'weapon' } },
+      { equip: { kind: 'weapon', slot: -1 } },
+      { equip: { kind: 'weapon', slot: 1.5 } },
+      { equip: { kind: 'weapon', slot: 'a' } },
+      { equip: { kind: 'weapon', slot: 99 } },
+      { equip: { kind: 'weapon', slot: Number.NaN } },
+      { drop: true },
+      { drop: { kind: 'relic', slot: null } },
+      { drop: [] },
+    ]) {
+      expect(parseNetMessage(intents([{ ...IDLE_INTENT, ...bad }])), JSON.stringify(bad)).toBeNull();
+    }
   });
 
   it('accepts a Duels state with the new fields absent, as before', () => {

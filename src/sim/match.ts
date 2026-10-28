@@ -31,6 +31,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
+import { holdInventory, startingInventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
@@ -143,8 +144,28 @@ export interface RestedEvent {
   readonly healed: number;
 }
 
+/** Player Fighter `fighter` dropped `item` (a Weapon or Relic name) from its inventory, at `at`: its feet. */
+export interface ItemDroppedEvent extends DroppedItem {
+  readonly type: 'ItemDropped';
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent;
+
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+export interface DroppedItem extends Dropped {
+  readonly fighter: number;
+  readonly at: { readonly x: number; readonly y: number; readonly z: number };
+}
+
+/**
+ * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall) becomes something in the
+ * world. The pickups ticket fills it: a shared pickup (`owner: null`) at `drop.at` in `run.pickups`. Until then the drop only leaves the
+ * inventory (and is reported as an `ItemDropped` event), and the Run comes back as it was. Pure.
+ */
+export function placeDrop(run: RunState, _drop: DroppedItem): RunState {
+  return run;
+}
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
 export interface RunState {
@@ -254,11 +275,19 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
   const roster = hallRoster(tuning, config, at);
   let slot = 0;
   const enemies = config.teams.map((team) => (team === 1 ? roster[slot++] ?? null : null));
-  const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? w);
+  // A Player's Fighter holds an inventory, carried from the Hall before (its first: just the Weapon the Lineup chose): it wields the
+  // Weapon its inventory says, and the Match's Weapons are read no further. Every other Fighter holds nothing.
+  const players = runPlayers(config);
+  const inventories = config.teams.map((team, i) => {
+    if (team !== 0) return undefined;
+    const held = previous?.fighters[i]?.inventory;
+    return held ?? (players.includes(i) ? startingInventory(config.weapons[i]!) : undefined);
+  });
+  const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? (inventories[i] ? wieldedWeapon(inventories[i]!) : w));
   const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena);
   const { revive } = tuning.dungeon;
-  // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): Team 0 keeps the Mods it had in the Hall
-  // before (the inventory's equip recomputes them mid-Hall, and this carries them on), Team 1's are an Elite's Relics' (none yet).
+  // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): a Player's are its equipped Relics' (`holdInventory`:
+  // an equip recomputes them mid-Hall, and this carries them on), an AI ally's none, Team 1's an Elite's Relics' (none yet).
   const fighters = base.fighters.map((f, i) => {
     if (f.team === 1) {
       const enemy = enemies[i];
@@ -267,7 +296,8 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
       return { ...armed, hp: armed.maxHp };
     }
     const before = previous?.fighters[i];
-    const armed = setMods(f, before ? modsOf(before) : NO_MODS, tuning.fighter.maxHp);
+    const inventory = inventories[i];
+    const armed = inventory ? holdInventory(f, inventory, tuning) : setMods(f, NO_MODS, tuning.fighter.maxHp);
     if (!before || healed) return { ...armed, hp: armed.maxHp };
     return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
   });
@@ -487,6 +517,24 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
       duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
       end(0);
     }
+  }
+
+  if (next.phase === 'Cleared' && status.status === 'InProgress') {
+    // Only with no enemy alive may a Player's Fighter change what it holds (its Intent's `equip`, then `drop`; refused mid-Action).
+    // Whatever it drops is the pickups' (`placeDrop`).
+    duel = {
+      ...duel,
+      fighters: duel.fighters.map((f, i) => {
+        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop)) return f;
+        const used = useInventory(f, intents[i]!, tuning);
+        if (used.dropped) {
+          const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
+          next = placeDrop(next, drop);
+          events.push({ type: 'ItemDropped', ...drop });
+        }
+        return used.fighter;
+      }),
+    };
   }
 
   if (next.phase !== 'Fighting' && status.status === 'InProgress') {

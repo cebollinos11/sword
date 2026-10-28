@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, M
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -197,8 +197,14 @@ function isLineupSlot(v: unknown): boolean {
 }
 const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 
+/** The most slots an inventory has on the wire (`dungeon.inventory` allows 99 of each kind); whether a slot holds an item is for the Simulation to say. */
+const MAX_INVENTORY_SLOTS = 99;
+const isSlot = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_INVENTORY_SLOTS;
+/** An inventory item named by kind and slot (Intent `equip` and `drop`). */
+const isInventoryRef = (v: unknown): boolean => isObject(v) && (v.kind === 'weapon' || v.kind === 'relic') && isSlot(v.slot);
+
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
@@ -331,12 +337,27 @@ function isFighter(v: unknown): boolean {
     (v.death === undefined || isDeath(v.death)) &&
     (v.maxHp === undefined || (isNum(v.maxHp) && v.maxHp > 0)) &&
     (v.mods === undefined || isMods(v.mods)) &&
+    (v.inventory === undefined || isInventory(v.inventory)) &&
     (v.benched === undefined || v.benched === true)
   );
 }
 
 /** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
 const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
+
+/** An inventory: a Weapon or more and its wielded index, the Relics and the equipped ones' slots (ascending, distinct, each holding one). Whether the names exist is for Tuning Data to say. */
+function isInventory(v: unknown): boolean {
+  if (!isObject(v) || !isArrayOf(v.weapons, isString) || !isArrayOf(v.relics, isString) || !isInt(v.weapon) || !isArrayOf(v.equipped, isInt)) return false;
+  const [weapons, relics, equipped] = [v.weapons as string[], v.relics as string[], v.equipped as number[]];
+  return (
+    weapons.length >= 1 &&
+    weapons.length <= MAX_INVENTORY_SLOTS &&
+    relics.length <= MAX_INVENTORY_SLOTS &&
+    v.weapon >= 0 &&
+    v.weapon < weapons.length &&
+    equipped.every((s, k) => s >= 0 && s < relics.length && (k === 0 || s > equipped[k - 1]!))
+  );
+}
 
 const isEvent = (v: unknown): boolean => isObject(v) && isString(v.type);
 /** A winner is a team. */
