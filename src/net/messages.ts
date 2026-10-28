@@ -72,7 +72,7 @@ export interface ResyncRequestMessage {
 
 /**
  * Host → guest: the host's confirmed Match state at `tick` and its AI Controllers' memory then (one
- * entry per Fighter, null where no AI drives it yet; a Floor AI's on a Run's Team 1 slots), plus the other Players' Intents up to `tick`
+ * entry per Fighter, null where no AI drives it yet; a Hall AI's on a Run's Team 1 slots), plus the other Players' Intents up to `tick`
  * that the guest may not have yet.
  */
 export interface ResyncMessage {
@@ -507,10 +507,10 @@ function isAiMemory(v: unknown): boolean {
 }
 
 /**
- * A Floor AI's memory (a Run's Team 1 slot, `src/controllers/floorAi.ts`): the Hall it last saw (`floor:row:index`, ''
+ * A Hall AI's memory (a Run's Team 1 slot, `src/controllers/hallAi.ts`): the Hall it last saw (`floor:row:index`, ''
  * for none yet) and that Hall's AI's memory (null in a Hall with no enemy for its slot).
  */
-export function isFloorAiMemory(v: unknown): boolean {
+export function isHallAiMemory(v: unknown): boolean {
   return isObject(v) && isString(v.hall) && (v.hall === '' || /^[1-9]\d*:[0-4]:[0-2]$/.test(v.hall)) && (v.memory === null || isAiMemory(v.memory));
 }
-const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isFloorAiMemory(v));
+const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v));

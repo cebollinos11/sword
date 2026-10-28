@@ -19,7 +19,7 @@ const FLOOR_CAP = 180 * 60;
 /** Fighters of the two Teams further apart than this (m, from above) are not fighting yet. */
 const NEAR = 8;
 
-/** Three Hard allies on Team 0, the three Floor AI slots on Team 1 (their pilots are ignored: the Floors decide). */
+/** Three Hard allies on Team 0, the three Hall AI slots on Team 1 (their pilots are ignored: the Floors decide). */
 const LINEUP: Lineup = [0, 0, 0, 1, 1, 1, 1].map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Hard' } }));
 
 interface Floor {

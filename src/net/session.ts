@@ -61,7 +61,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { isFloorAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isHallAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -409,7 +409,7 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot), a random Style picked from `match`'s seed. */
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Hall AI on each Team 1 slot), a random Style picked from `match`'s seed. */
   private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
     this.players = lineupPlayers(lineup);
@@ -792,8 +792,8 @@ class Session implements RollbackSession, PeerIntentSource {
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
-      // A Run's Team 1 slots hold Floor AIs, every other AI an ordinary one: each takes only its own kind of memory.
-      if (m !== null && isFloorAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
+      // A Run's Team 1 slots hold Hall AIs, every other AI an ordinary one: each takes only its own kind of memory.
+      if (m !== null && isHallAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
       if (this.aiDrives(i, tick)) return m !== null;
       return m === null || (p >= 0 && this.takeover[p] != null);
     };

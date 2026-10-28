@@ -503,7 +503,7 @@ describe('Duels are untouched', () => {
     expect('hall' in after.duel).toBe(false);
   });
 
-  it('lineupAis gives Team 1 ordinary AIs in Duels and Floor AIs in a Gauntlet', () => {
+  it('lineupAis gives Team 1 ordinary AIs in Duels and Hall AIs in a Gauntlet', () => {
     const lineup: Lineup = [
       { team: 0, pilot: { kind: 'Player', player: 0 } },
       { team: 1, pilot: { kind: 'AI', difficulty: 'Hard' } },
@@ -512,7 +512,7 @@ describe('Duels are untouched', () => {
     const gauntlet = lineupAis(tuning, lineup, 'Gauntlet');
     expect(duels[0]).toBeNull();
     expect(gauntlet[0]).toBeNull();
-    // A Floor AI's memory names the Hall it last saw; an ordinary AI's does not.
+    // A Hall AI's memory names the Hall it last saw; an ordinary AI's does not.
     expect(duels[1]!.save!()).not.toHaveProperty('hall');
     expect(gauntlet[1]!.save!()).toHaveProperty('hall', '');
   });

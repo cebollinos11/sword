@@ -367,7 +367,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
   ];
   const hello = (match: unknown) => ({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match, lineup, weapons: ['Halberd', 'Halberd'], player: 1 });
 
-  /** A real Run 40 Ticks in, with its Floor AIs' memory, as the host would send it in a resync. */
+  /** A real Run 40 Ticks in, with its Hall AIs' memory, as the host would send it in a resync. */
   function runResync(): { state: MatchState; ai: unknown[] } {
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
     let m = createMatch(tuning, lineupMatch(tuning, lineup, ['Halberd', 'Halberd'], { bestOf: 1, arena: RUN, seed: 3, format: 'Gauntlet' }));
@@ -403,7 +403,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     }
   });
 
-  it("carries a Run through a resync: its progress, the Hall, each Fighter's max HP and Benched slots, and the Floor AIs' memory", () => {
+  it("carries a Run through a resync: its progress, the Hall, each Fighter's max HP and Benched slots, and the Hall AIs' memory", () => {
     const { state, ai } = runResync();
     expect(state.run).toMatchObject({ floor: 1, floors: tuning.dungeon.floors.length, row: 0, hall: 0 });
     expect(state.duel.hall).toMatchObject({ floor: 1, row: 0, index: 0 });
@@ -414,7 +414,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(m)).toEqual(m);
   });
 
-  it('refuses a malformed Run, Hall, max HP, Benched flag or Floor AI memory', () => {
+  it('refuses a malformed Run, Hall, max HP, Benched flag or Hall AI memory', () => {
     const { state, ai } = runResync();
     const fighters = (patch: object) => ({ ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 4 ? { ...f, ...patch } : f)) } });
     const broken: unknown[] = [

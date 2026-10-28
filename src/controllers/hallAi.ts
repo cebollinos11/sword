@@ -1,22 +1,22 @@
 /**
- * The Floor AI: the Controller of one Team 1 slot of a Gauntlet Run (docs/plans/dungeon.md). The slot keeps it for the
+ * The Hall AI: the Controller of one Team 1 slot of a Gauntlet Run (docs/plans/dungeon.md). The slot keeps it for the
  * whole Run, while each Hall decides who stands there: it reads the Hall from `state.hall`, plays its Encounter's
  * difficulty and Style for its slot (Tuning Data `dungeon.floors`, a `"random"` Style picked from the Run seed by
  * `hallRoster`), and starts that Hall's AI from fresh memory whenever the Hall changes. A slot the Hall leaves empty is
- * Benched, and its Floor AI asks for nothing. (A stopgap until the Hall AI.)
+ * Benched, and its Hall AI asks for nothing. The Run's Team 0 AI slots get Ally AIs instead (`allyAi.ts`).
  */
 import { hallKey, hallRoster, IDLE_INTENT, type HallRef, type Intent, type SimState } from '../sim';
 import { DEFAULT_STYLE, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 
-/** A Floor AI's memory: the Hall it last saw (`hallKey`, '' before its first) and that Hall's AI's memory (null when the slot has no enemy). */
-interface FloorAiMemory {
+/** A Hall AI's memory: the Hall it last saw (`hallKey`, '' before its first) and that Hall's AI's memory (null when the slot has no enemy). */
+interface HallAiMemory {
   readonly hall: string;
   readonly memory: unknown;
 }
 
-class FloorAi implements Controller {
+class HallAi implements Controller {
   /** One AI Controller per difficulty and Style, made on first use, with the memory it was made with. */
   private readonly ais = new Map<string, { readonly ai: Controller; readonly fresh: unknown }>();
   private hall = '';
@@ -62,12 +62,12 @@ class FloorAi implements Controller {
     return this.current.intent(state, fighter);
   }
 
-  save(): FloorAiMemory {
+  save(): HallAiMemory {
     return { hall: this.hall, memory: this.current?.save?.() ?? null };
   }
 
   load(saved: unknown): void {
-    const { hall, memory } = saved as FloorAiMemory;
+    const { hall, memory } = saved as HallAiMemory;
     this.hall = hall;
     const [floor, row, index] = hall.split(':').map(Number);
     this.current = hall === '' ? null : this.aiFor({ floor: floor!, row: row!, index: index! });
@@ -75,7 +75,7 @@ class FloorAi implements Controller {
   }
 }
 
-/** A Floor AI for Team 1 slot `slot` (0-based) of a Gauntlet Run whose first Arena is `arena` (default `arena.match`, as `createMatch`'s). */
-export function createFloorAi(tuning: TuningData, slot: number, arena: string = tuning.arena.match): Controller {
-  return new FloorAi(tuning, slot, arena);
+/** A Hall AI for Team 1 slot `slot` (0-based) of a Gauntlet Run whose first Arena is `arena` (default `arena.match`, as `createMatch`'s). */
+export function createHallAi(tuning: TuningData, slot: number, arena: string = tuning.arena.match): Controller {
+  return new HallAi(tuning, slot, arena);
 }

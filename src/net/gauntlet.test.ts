@@ -164,7 +164,7 @@ interface Takeover {
 }
 
 /**
- * The Run stepped offline with the Intents the Players sent and fresh AI Controllers (a Floor AI on each Team 1 slot,
+ * The Run stepped offline with the Intents the Players sent and fresh AI Controllers (a Hall AI on each Team 1 slot,
  * a Normal AI for a Player who left): its hash at every checksum Tick up to `upTo`, and where each Hall began and was cleared.
  */
 function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = []) {
