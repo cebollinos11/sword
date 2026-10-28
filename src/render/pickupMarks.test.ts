@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
+import { describe, expect, it, vi } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
@@ -18,5 +19,31 @@ describe('the pickup marks', () => {
     expect(a!.visible).toBe(true);
     expect(b!.visible).toBe(false);
     marks.dispose();
+  });
+
+  it('free the pooled Weapon models too when disposed, each geometry and material once', () => {
+    const disposed = new Map<object, number>();
+    const spy = (proto: { dispose(): void }) =>
+      vi.spyOn(proto, 'dispose').mockImplementation(function (this: object) {
+        disposed.set(this, (disposed.get(this) ?? 0) + 1);
+      });
+    const spies = [spy(THREE.BufferGeometry.prototype), spy(THREE.Material.prototype)];
+    try {
+      const marks = new PickupMarks(tuning);
+      const names = Object.keys(tuning.weapons);
+      marks.update(names.slice(0, 2).map((weapon, i) => view(i, { kind: 'weapon', weapon })), 0.1);
+      const owned = new Set<object>();
+      marks.root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        // (A sprite's geometry is three.js's own, shared.)
+        if (m.geometry && !(o instanceof THREE.Sprite)) owned.add(m.geometry);
+        for (const material of [m.material].flat()) if (material) owned.add(material);
+      });
+      marks.dispose();
+      expect(owned.size).toBeGreaterThan(10);
+      for (const thing of owned) expect(disposed.get(thing), thing.constructor.name).toBe(1);
+    } finally {
+      for (const s of spies) s.mockRestore();
+    }
   });
 });

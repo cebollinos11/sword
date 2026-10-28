@@ -42,7 +42,7 @@ function lyingPose(length: number): SkeletonPose {
  * simply gone. The turn follows the frames drawn, never the Simulation.
  *
  * `kit` is the seam for a Kit's pedestal (#62): a node it returns is cloned in place of the fallback cylinder. The marks dispose only
- * what they made (their pedestal, base and sprite materials); the Weapon meshes are the `FighterView`'s, and the icon textures are
+ * what they made (their pedestal, base and sprite materials, and their pooled Weapon `FighterView`s); the icon textures are
  * `iconTexture`'s cache.
  */
 export class PickupMarks {
@@ -127,5 +127,6 @@ export class PickupMarks {
     this.pedestalMaterial.dispose();
     this.baseMaterial.dispose();
     for (const m of this.spriteMaterials) m.dispose();
+    for (const slot of this.slots) slot.weapon?.view.dispose();
   }
 }
