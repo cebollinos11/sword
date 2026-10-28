@@ -206,7 +206,9 @@ export class Hud {
     this.results.hidden = true;
     this.doorLayer.className = 'hud-doors';
     this.fade.className = 'hud-fade';
-    this.root.append(this.fade, this.doorLayer, ...bars, this.top, this.banner, this.stats, this.crosshair, this.menu, this.results);
+    // The fade between Halls goes over the Door labels, the letterbox, the HP bars and the crosshair (the next Hall's
+    // banner, the menu button and the results screen stay over it).
+    this.root.append(this.doorLayer, ...bars, this.top, this.stats, this.crosshair, this.fade, this.banner, this.menu, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
