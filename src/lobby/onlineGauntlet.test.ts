@@ -4,10 +4,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, tuningDataHash } from '../tuning';
-import { MAX_TEAM_SIZE, TICK_RATE } from '../sim';
+import { MATCH_FORMATS, MAX_TEAM_SIZE, TICK_RATE } from '../sim';
 import { FLOOR_DIFFICULTY } from '../controllers';
 import { createMemoryTransportPair } from '../net';
-import { formatRefusal, offeredFormats, randomBlurb, shownTeams, waitingTag } from '../play/lobbyView';
+import { formatRefusal, randomBlurb, shownTeams, waitingTag } from '../play/lobbyView';
 import { join, lobbyLineup, newLobby, runTuning, seatOf, setFormat, startMatch, type LobbySettings, type LobbyState, type NewLobbyOptions } from './lobby';
 import { parseLobbyMessage } from './messages';
 import { GuestLobby, HostLobby } from './sync';
@@ -79,7 +79,7 @@ describe('a Gauntlet Room', () => {
     s = join(s, guest(1))!; // opposite the host
     s = join(s, guest(2))!; // opposite too
     expect([seatOf(s, 1)?.team, seatOf(s, 2)?.team]).toEqual([1, 1]);
-    expect(formatRefusal(s, true)).toBeNull();
+    expect(formatRefusal(s)).toBeNull();
     const g = setFormat(s, 'Gauntlet', FRESH);
     expect(g.settings).toEqual({ arena: FRESH, bestOf: 3, format: 'Gauntlet' });
     for (const id of [0, 1, 2]) expect(seatOf(g, id)?.team).toBe(0);
@@ -89,11 +89,11 @@ describe('a Gauntlet Room', () => {
     // A fourth Player: Team 0 holds four, so all of them move there.
     s = join(s, guest(3))!;
     expect(s.members).toHaveLength(4);
-    expect(formatRefusal(s, true)).toBeNull();
+    expect(formatRefusal(s)).toBeNull();
     const four = setFormat(s, 'Gauntlet', FRESH);
     for (const id of [0, 1, 2, 3]) expect(seatOf(four, id)?.team).toBe(0);
     // The Lobby view offers it online, as in a Skirmish.
-    expect(offeredFormats(true)).toContain('Gauntlet');
+    expect(MATCH_FORMATS).toContain('Gauntlet');
   });
 
   it('a guest who joins mid-Run waits for the next Run', () => {

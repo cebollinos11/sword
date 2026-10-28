@@ -7,7 +7,7 @@
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type MatchFormat } from '../sim';
+import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
 import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type RunKnobs, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
@@ -100,14 +100,9 @@ function pickSeed(): number {
   return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
-/** The Formats the Lobby offers: both, in a Skirmish and online (a Run online is co-op, every Player on Team 0). */
-export function offeredFormats(_online: boolean): readonly MatchFormat[] {
-  return MATCH_FORMATS;
-}
-
-/** Why a Format the Lobby offers cannot be picked now (shown under the toggle), or null: e.g. a Gauntlet with four Players. */
-export function formatRefusal(state: LobbyState, online: boolean): string | null {
-  for (const f of offeredFormats(online)) {
+/** Why a Format the Lobby offers (`MATCH_FORMATS`, in a Skirmish and online alike: a Run online is co-op, every Player on Team 0) cannot be picked now (shown under the toggle), or null: e.g. a Gauntlet with four Players. */
+export function formatRefusal(state: LobbyState): string | null {
+  for (const f of MATCH_FORMATS) {
     const problem = formatProblem(state, f);
     if (problem) return problem;
   }
@@ -342,7 +337,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 
 /** The Format toggle (Duels or Gauntlet), when the Lobby offers more than one. */
 function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
-  const formats = offeredFormats(ctx.lobby.online);
+  const formats = MATCH_FORMATS;
   if (formats.length < 2) return null;
   const current = state.settings.format ?? 'Duels';
   const group = h('div', 'segmented');
@@ -357,7 +352,7 @@ function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean):
     if (problem) b.title = problem;
     group.append(b);
   }
-  const refusal = editable ? formatRefusal(state, ctx.lobby.online) : null;
+  const refusal = editable ? formatRefusal(state) : null;
   const row = h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
   return refusal ? h('div', '', null, row, h('p', 'lb-note', refusal)) : row;
 }
