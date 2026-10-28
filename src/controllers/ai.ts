@@ -925,8 +925,9 @@ class RuleAi implements AiController {
   }
 
   /**
-   * `move` turned aside (about 50°, away from it, onto safe ground) when the nearest other Fighter in the Duel on its
-   * level stands in its way: ahead along `move`, within WAY_AHEAD and less than two Fighters wide off its line. Else `move`.
+   * `move` turned aside (about 50°, away from it, else towards it, onto safe ground) when the nearest other Fighter in the
+   * Duel on its level stands in its way: ahead along `move`, within WAY_AHEAD and less than two Fighters wide off its line.
+   * Else (or with no safe side) `move`.
    */
   private sidestep(state: SimState, self: FighterState, fighter: number, move: Vec2): Vec2 {
     if (move.x === 0 && move.z === 0) return move;
@@ -942,9 +943,12 @@ class RuleAi implements AiController {
       if (ahead > 0 && ahead < wide + WAY_AHEAD && Math.abs(off) < wide && ahead < nearest) [nearest, across] = [ahead, off];
     }
     if (nearest === Infinity) return move;
-    // Perpendicular to `move`, away from the side the Fighter in the way stands on (one way for a head-on one).
+    // Perpendicular to `move`, away from the side the Fighter in the way stands on (one way for a head-on one); that side
+    // onto a ledge (the edge of a ramp), the other side; both, `move` itself, pushing past along its own route. Never a
+    // wider turn: on a narrow ramp the only safe ones point back, and two Fighters there swapped ends every Tick.
     const side = across >= 0 ? 1 : -1;
-    return this.safeMove(state, self, unit({ x: move.x + side * move.z * 1.2, z: move.z - side * move.x * 1.2 }));
+    const aside = (k: number) => unit({ x: move.x + k * move.z * 1.2, z: move.z - k * move.x * 1.2 });
+    return [aside(side), aside(-side)].find((m) => this.safe(state, self, m)) ?? move;
   }
 
   /**

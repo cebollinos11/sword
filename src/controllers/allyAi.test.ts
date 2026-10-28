@@ -124,18 +124,23 @@ describe('Ally AI', { timeout: 120_000 }, () => {
     expect(states.find((s) => s.events.some((e) => e.type === 'DoorTaken'))!.events).toContainEqual(expect.objectContaining({ type: 'DoorTaken', exit: 0 }));
   });
 
-  it('two allies face to face on a ramp get past each other to the Door (the soak\'s seed 6, after Floor 2\'s Boss)', () => {
+  // Where two allies stood stuck on a ramp in the soak, the other one already at the Door: [what, seed, start Hall, its
+  // Arena, the two allies' spots]. Seed 6, after Floor 2's Boss: Fighter 0 on the ramp, Fighter 2 at its top edge, just
+  // above and ahead of it. Seed 10, Floor 1's Rest Hall: Fighter 1 a step above Fighter 0 on a ramp, both on the way down.
+  const RAMPS = [
+    ['face to face', 6, { floor: 2, row: 4 }, 'gen:greybox:449527:d2', [0, { x: -2.253, y: 2.617, z: -3.735 }], [2, { x: -2.122, y: 3, z: -4.534 }]],
+    ['one behind the other', 10, { floor: 1, row: 3, index: 0 }, 'gen:greybox:560098:d2', [0, { x: 1.13, y: 3.95, z: 5.6 }], [1, { x: 0.94, y: 4.31, z: 4.88 }]],
+  ] as const;
+
+  it.each(RAMPS)('two allies %s on a ramp get down it to the Door (the soak\'s seed %i)', (_, seed, at, hallArena, [a, pa], [b, pb]) => {
     // A party of AIs, as the soak plays it: Fighter 0 stands for the Player (it counts at a Door), driven by an Ally AI.
     const lineup: Lineup = [ALLY, ALLY, ALLY, ...ENEMIES];
-    const arena = 'gen:greybox:6';
-    const start = cleared(
-      createMatch(base, { format: 'Gauntlet', bestOf: 1, seed: 6, arena, teams: lineup.map((s) => s.team), start: { floor: 2, row: 4 } }),
-      base,
-    );
-    expect(start.arena).toBe('gen:greybox:449527:d2');
-    // Where they stood stuck: Fighter 0 on the ramp, Fighter 2 at its top edge, just above and ahead of it.
-    let m = placed(placed(start, 0, { x: -2.253, y: 2.617, z: -3.735 }), 2, { x: -2.122, y: 3, z: -4.534 });
-    m = placed(m, 1, spot(m, 0));
+    const arena = `gen:greybox:${seed}`;
+    const start = cleared(createMatch(base, { format: 'Gauntlet', bestOf: 1, seed, arena, teams: lineup.map((s) => s.team), start: at }), base);
+    expect(start.arena).toBe(hallArena);
+    let m = placed(placed(start, a, pa), b, pb);
+    const other = [0, 1, 2].find((i) => i !== a && i !== b)!;
+    m = placed(m, other, spot(m, 0));
     const states = play(m, lineup, new Map(), WALK_TICKS, lineupAis(base, lineup, 'Gauntlet', { arena }), base);
     expect(states.some((s) => s.events.some((e) => e.type === 'DoorTaken'))).toBe(true);
   });
