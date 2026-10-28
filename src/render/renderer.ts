@@ -5,7 +5,9 @@ import { weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
+import { DoorMarks } from './doorMarks';
 import { HallMarks } from './hallMarks';
+import type { DoorMarkView } from '../play/doorMarks';
 import { PickupMarks, type PickupPoint } from './pickupMarks';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
@@ -41,6 +43,8 @@ export class Renderer {
   private readonly shadows = new BlobShadows();
   private readonly trails: SwingTrails;
   private readonly hallMarks = new HallMarks();
+  private readonly doorMarks = new DoorMarks();
+  private doors: readonly DoorMarkView[] = [];
   private readonly pickupMarks = new PickupMarks();
   private pickups: readonly PickupPoint[] = [];
   /** Scratch for `toScreen`. */
@@ -61,6 +65,7 @@ export class Renderer {
     this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
     this.stage.scene.add(this.hallMarks.root);
+    this.stage.scene.add(this.doorMarks.root);
     this.stage.scene.add(this.pickupMarks.root);
   }
 
@@ -105,6 +110,11 @@ export class Renderer {
   /** The pickups the local Player sees, to draw as markers from the next frame on (none: none drawn). */
   setPickups(points: readonly PickupPoint[]): void {
     this.pickups = points;
+  }
+
+  /** The exit Doors' marks (icon, gate, count) to draw from the next frame on (none: none drawn). */
+  setDoors(views: readonly DoorMarkView[]): void {
+    this.doors = views;
   }
 
   /** Keeps the camera inside the Arena last drawn. */
@@ -166,6 +176,7 @@ export class Renderer {
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const arena = arenaOf(world.tuning, curr.arena);
     this.hallMarks.update(arena, curr.hall);
+    this.doorMarks.update(arena, curr.hall, this.doors);
     this.shadows.update(poses, arena);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;

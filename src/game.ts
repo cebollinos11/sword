@@ -11,6 +11,7 @@ import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
+import { doorMarkView, doorRun } from './play/doorMarks';
 import { visiblePickups } from './play/loot';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
@@ -707,6 +708,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (inShot && !shot) endShot();
       renderer.setPlayer(me, menu.body);
       renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
+      const doorRunNow = doorRun(curr, matchTuning);
+      renderer.setDoors(doorRunNow ? doorMarkView(curr.duel.hall, doorRunNow.exits, doorRunNow.players) : []);
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
@@ -729,6 +732,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
     } else {
       renderer.setPickups([]);
+      renderer.setDoors([]);
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;
       const mine = duel.fighters[me];
