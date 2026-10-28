@@ -2,7 +2,7 @@
  * The Floor map screen's layout and key (docs/plans/dungeon.md, Stage 3): pure and render only. It reads the Floor graph
  * (`floorGraph`) and the Run's path and builds positions and marks; `floorMapView.ts` draws them.
  */
-import { FLOOR_ROWS, type FloorGraph, type HallRef } from '../sim';
+import type { FloorGraph, HallRef } from '../sim';
 import type { HallKind } from '../tuning';
 
 /** The key that shows or hides the map, by `KeyboardEvent.code`. */
@@ -63,7 +63,7 @@ export function floorMapLayout(graph: FloorGraph, path: readonly HallRef[], at: 
   while (open.length) {
     const k = open.pop()!;
     const row = Math.floor(k / MAX_ROW);
-    if (row >= FLOOR_ROWS - 1) continue;
+    if (row >= graph.length - 1) continue;
     for (const j of graph[row]?.[k % MAX_ROW]?.exits ?? []) {
       const next = key(row + 1, j);
       if (!reachable.has(next)) {
@@ -82,7 +82,7 @@ export function floorMapLayout(graph: FloorGraph, path: readonly HallRef[], at: 
         index,
         kind: hall.kind,
         x: 0.5 + (index - (halls.length - 1) / 2) * SPREAD,
-        y: 1 - row / (graph.length - 1),
+        y: graph.length > 1 ? 1 - row / (graph.length - 1) : 0.5,
         visited: visited.has(k),
         current: row === at.row && index === at.index,
         reachable: reachable.has(k),

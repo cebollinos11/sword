@@ -51,6 +51,19 @@ describe('floorMapLayout', () => {
     expect(walked.map((e) => [e.from.row, e.from.index, e.to.row, e.to.index])).toEqual([[0, 0, 1, second.index]]);
   });
 
+  it('lays out a graph of one row (or two) without dividing by zero, by the graph’s own rows', () => {
+    const hall = (kind: 'Boss' | 'Fight', exits: number[] = []) => ({ ...graph(1)[0]![0]!, kind, exits });
+    const one = floorMapLayout([[hall('Boss')]], [at], at);
+    expect(one.nodes).toHaveLength(1);
+    expect(Number.isFinite(one.nodes[0]!.y) && one.nodes[0]!.y >= 0 && one.nodes[0]!.y <= 1).toBe(true);
+    expect(one.nodes[0]).toMatchObject({ x: 0.5, current: true });
+    expect(one.edges).toEqual([]);
+    const two = floorMapLayout([[hall('Fight', [0])], [hall('Boss')]], [at], at);
+    expect(two.nodes.map((n) => n.y)).toEqual([1, 0]);
+    expect(two.nodes.map((n) => n.reachable)).toEqual([false, true]);
+    expect(two.edges).toHaveLength(1);
+  });
+
   it('ignores path entries of other Floors', () => {
     const here = { floor: 2, row: 0, index: 0 };
     const layout = floorMapLayout(graph(9, 2), [at, here], here);
