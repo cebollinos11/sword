@@ -27,7 +27,7 @@ Each Hall is its own Generated Arena on the usual footprint, whose name carries 
 
 ## Consequences
 
-- A Run still puts nothing new on the wire during play but the Intent's new fields (`PROTOCOL_VERSION` + 1, with Stage 2's equip and drop; Stage 1 adds none, and its new Tuning Data changes the hash peers compare at connect); choices roll back, resync and checksum like positions do.
+- A Run still puts nothing new on the wire during play but the Intent's new fields (Stage 2's equip and drop, `PROTOCOL_VERSION` + 1); choices roll back, resync and checksum like positions do. Stage 1 sends no new message, but the resync's Match state took a new shape (the Run's `RunState`, `SimState.hall`, the Hall AIs' memory, `config.players`), so `PROTOCOL_VERSION` went up then too (19 → 20), as well as the Tuning Data hash peers compare at connect.
 - A choice takes a moment of walking, not a click: the party is seen gathering at a Door. A Player who wanders keeps the others waiting; the HUD shows how many of them stand at each Door ("2 / 3").
 - Every Hall fight stays one Duel of at most four enemies on a navmesh within budget, so the Simulation, the AI and Benched slots work unchanged. One continuous Arena is Later, and would start from this graph.
 - The judge (ADR 0014) gains a rule: a Hall Arena has the Doors its name asks for, every Door's zone and spawns reach every enemy spawn by walking and dropping alone, and no Door zone stands over deadly ground.

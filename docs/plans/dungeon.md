@@ -97,7 +97,7 @@ What it cannot do, and the Dungeon needs:
 - `weapon` stays a `FighterState` field, now changed by an equip; nothing reads the Match's Weapons after a Hall starts. A Weapon swap only in a cleared Hall, so never mid-Action.
 - `MatchState.run.pickups`: this Hall's items `{ id, owner: player | null, item, at, taken }`. Fight, Elite and Boss Halls drop theirs at `HallCleared`; a Treasure Hall's three pedestals per Player stand from its start (taking one marks the other two taken). What each holds is `runPick(Run seed, Floor, row, Hall, Player, …)`. A dropped item is a pickup with `owner: null`. Cleared at each Hall change.
 - A Fighter takes a pickup it owns (or a shared one) by standing on it with room in its inventory; a full inventory leaves it lying.
-- **Intent:** `equip?: { kind: 'weapon' | 'relic', slot }` and `drop?: { kind, slot }`, acted on only in a `Cleared` Hall (or one with no Encounter). `isIntent` (`src/net/messages.ts`) checks them; `PROTOCOL_VERSION` 20.
+- **Intent:** `equip?: { kind: 'weapon' | 'relic', slot }` and `drop?: { kind, slot }`, acted on only in a `Cleared` Hall (or one with no Encounter). `isIntent` (`src/net/messages.ts`) checks them; `PROTOCOL_VERSION` 21.
 - `data/relics.json` (`src/tuning/relics.ts`, hashed): each Relic's name, icon and effects; the parser checks every effect is in the vocabulary.
 
 ### Tuning Data: `data/dungeon.json` (replaces `data/gauntlet.json`)
@@ -162,7 +162,7 @@ Commits (on the integration branch from `7145646`): 3476fee (`data/dungeon.json`
   - During a Hall's Final Blow Shot (3 s) the Run keeps running and the Player's input still drives the Fighter, unseen; v1 paused between Duels. Harmless with the enemies down.
   - The Ally AI walks by where Players and allies are now, not as seen Reaction Time ago: the fairness rule is about enemies.
   - Dev start is local only (Skirmish), and starts Team 0 at full HP.
-  - `PROTOCOL_VERSION` stays 19: the new Tuning Data changes `tuningDataHash`, so old and new peers refuse each other at connect anyway.
+  - `PROTOCOL_VERSION` 19 → 20 (a review fix): the new Tuning Data already changes `tuningDataHash`, but the wire format changed too (a resync's `MatchState` carries `run` as `RunState`, `SimState.hall`, the Hall AIs' `{ hall, memory }`, `config.players`), and the version's own rule bumps it whenever it does.
 - **v1 replaced:** `data/gauntlet.json`, `src/tuning/gauntlet.ts`, `src/sim/gauntlet.ts` and their tests are gone (`src/sim/dungeonRun.test.ts` replaces `src/sim/gauntlet.test.ts`, keeping its Benched and Duels-untouched tests). The online Run's net code and tests (`src/net/gauntlet.test.ts`) were moved to Halls and still pass, with a Tick wrapper standing the Players in exit 0's zone, though the Lobby no longer offers it.
 - **Tests:** `src/sim/dungeon.test.ts` and `src/tuning/dungeon.test.ts` (graph shape over a seed soak, weights, Encounter repeats, Arena names; the parser), `src/sim/arenaGen/doors.test.ts` (Door placement, every `:d1` to `:d4` seed of a soak passing the judge, the judge's Door rules, the navmesh budget, a name without `:d` unchanged), `src/sim/dungeonRun.test.ts` (every Hall flow, end, determinism and Rollback-across-a-Hall-change test the plan lists; Door zones; Benched; Duels untouched), `src/sim/devStart.test.ts`, `src/controllers/allyAi.test.ts`, `hallAi.test.ts` and `autopilot.test.ts`, and the presentation's pure parts (`src/play/hud.test.ts`, `announcer.test.ts`, `finalBlow.test.ts`, `arenaWorlds.test.ts`, `lobbyView.test.ts`, `src/render/doorway.test.ts`). Some Hall flow tests, and the soak (`src/sim/gauntlet.soak.test.ts`, updated but not run for this Result), stand the party in a Door zone directly rather than walking it there. `npm test`: 1347 passed, 4 skipped (113 files passed, 4 skipped); `npx tsc --noEmit` green.
 - **Checked in `npm run dev`:** Playwright in headless Chromium with SwiftShader at 640 × 400 (2 to 17 fps; the Simulation ran at a quarter to full real time), with a temporary, uncommitted hook to read the Match state, and the Player's Fighter on the dev autopilot in every Run. Run seed 4242 throughout; no console errors in any Run.
@@ -179,7 +179,7 @@ Commits (on the integration branch from `7145646`): 3476fee (`data/dungeon.json`
 ## Stage 2: loot, Relics and the inventory
 - `data/relics.json` and its parser; `FighterState.inventory` and `mods`; every read of damage, daggers, Kick damage and Block Impact through the Fighter's `mods`; `healOnKill`, `healOnClear`.
 - Pickups: Fight, Elite and Boss drops, Treasure pedestals (one of three per Player), shared drops; taking by standing on it.
-- Intent `equip`/`drop`, `isIntent`, `PROTOCOL_VERSION` 20; the Local Controller's inventory keys (placeholder: number keys equip, a key drops) acting only in a cleared Hall.
+- Intent `equip`/`drop`, `isIntent`, `PROTOCOL_VERSION` 21; the Local Controller's inventory keys (placeholder: number keys equip, a key drops) acting only in a cleared Hall.
 - Elite Encounters' Relics on Team 1, dropping one when beaten.
 - Placeholder presentation: a pickup drawn only for its owner (shared ones for everyone), as a floating label; a text list of the inventory on a key.
 - `CONTEXT.md`: Relic, Inventory; Weapon (in a Run it changes by equipping) and Fighter updated.
