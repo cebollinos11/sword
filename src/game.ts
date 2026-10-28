@@ -1,5 +1,6 @@
 import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
+import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
@@ -13,8 +14,9 @@ import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { doorMarkView, doorRun } from './play/doorMarks';
-import { visiblePickups } from './play/loot';
 import { mapKeyAction } from './play/floorMap';
+import { pickupViews, type PickupView } from './render/pickupView';
+import { fireState } from './render/restFire';
 import { runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
@@ -35,6 +37,9 @@ import {
   type BrokerOptions,
   type HostedRoom,
 } from './net';
+
+/** Scratch for the camera's direction each frame. */
+const cameraDir = new Vector3();
 
 /** Never simulate more than this many Ticks in one rendered frame (e.g. after a background tab). */
 const MAX_TICKS_PER_FRAME = 8;
@@ -761,7 +766,17 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
       if (inShot && !shot) endShot(finalBlow.takeRest());
       renderer.setPlayer(me, menu.body);
-      renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
+      // The camera as last placed: a frame behind is fine for choosing what to label.
+      const mine = curr.duel.fighters[me];
+      const pickups: PickupView[] = mine
+        ? pickupViews(curr.run?.pickups ?? [], me, {
+            at: renderer.camera.position,
+            dir: renderer.camera.getWorldDirection(cameraDir),
+            near: { x: mine.position.x, y: mine.y, z: mine.position.z },
+          })
+        : [];
+      renderer.setPickups(pickups);
+      renderer.setFire(fireState(curr.run?.rested ?? [], me));
       const doorRunNow = doorRun(curr, matchTuning);
       renderer.setDoors(doorRunNow ? doorMarkView(curr.duel.hall, doorRunNow.exits, doorRunNow.players) : []);
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
@@ -783,7 +798,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
+      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), labelled: pickups.find((v) => v.label)?.id ?? null });
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {
       renderer.setPickups([]);
