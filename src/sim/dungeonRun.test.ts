@@ -11,7 +11,7 @@ import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMa
 import { attack, hold, runScript, type Track } from './script';
 import { holdInventory, type Inventory } from './inventory';
 import { hallDrops, pickupVisibleTo, startPickups } from './pickups';
-import { NO_MODS, type Mods } from './mods';
+import { modsOf, NO_MODS, type Mods } from './mods';
 import { restore, snapshot } from './snapshot';
 import type { FighterState, SimState } from './state';
 import { createInitialState, duelPlacements, step } from './step';
@@ -1111,7 +1111,7 @@ describe('Dungeon Run: pickups', () => {
     expect(hashValue(play(restore(snapshot(mid)), 6, 14))).toBe(hashValue(live));
   });
 
-  it('an Elite Hall drops its tuned count per Player (none as tuned: its Relics are a later ticket\'s), a Rest Hall nothing', () => {
+  it('an Elite Hall drops its tuned count per Player plus the Relic its Encounter carries, a Rest Hall nothing', () => {
     // The first Run seed whose Floors hold an Elite Hall, and the Rest Hall of the same Run.
     const where = (kind: string, arena: string) => {
       for (let floor = 1; floor <= 3; floor++) {
@@ -1126,11 +1126,11 @@ describe('Dungeon Run: pickups', () => {
     const arena = Array.from({ length: 50 }, (_, k) => `gen:greybox:${4242 + k}`).find((a) => where('Elite', a))!;
     const config = { ...run(two).config, arena };
     const elite = where('Elite', arena)!;
-    expect(hallDrops(tuning, config, elite.at, elite.hall, 0)).toEqual([]);
+    expect(hallDrops(tuning, config, elite.at, elite.hall, 0).map((p) => p.owner)).toEqual([0, 0, 1, 1]);
     const generous: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, drops: { Fight: 1, Elite: 2, Boss: 2 } } } };
     const drops = hallDrops(generous, config, elite.at, elite.hall, 0);
-    expect(drops.map((p) => [p.id, p.owner])).toEqual([[0, 0], [1, 0], [2, 1], [3, 1]]);
-    expect(hallDrops(generous, config, elite.at, elite.hall, 5).map((p) => p.id)).toEqual([5, 6, 7, 8]);
+    expect(drops.map((p) => [p.id, p.owner])).toEqual([[0, 0], [1, 0], [2, 0], [3, 1], [4, 1], [5, 1]]);
+    expect(hallDrops(generous, config, elite.at, elite.hall, 5).map((p) => p.id)).toEqual([5, 6, 7, 8, 9, 10]);
     const rest = where('Rest', arena)!;
     expect(hallDrops(generous, config, rest.at, rest.hall, 0)).toEqual([]);
     expect(startPickups(generous, config, rest.at, rest.hall)).toEqual([]);
@@ -1149,5 +1149,112 @@ describe('Dungeon Run: pickups', () => {
     const duels = createMatch(tuning, { bestOf: 3, seed: 1 });
     expect(duels.run).toBeNull();
     expect(JSON.stringify(duels)).not.toContain('pickups');
+  });
+});
+
+describe('Dungeon Run: Elite enemies carry Relics', { timeout: 60_000 }, () => {
+  const foe = (relics?: readonly string[], minTeam?: number) => ({
+    difficulty: 'Beginner',
+    weapon: 'Arming Sword',
+    hpScale: 1,
+    ...(relics ? { relics } : {}),
+    ...(minTeam ? { minTeam } : {}),
+  });
+  /** A Dungeon whose Elite Hall's Encounter is `enemies`, and the first Elite Hall of Run ARENA's Floor 1. */
+  function elites(enemies: DungeonEncounter['enemies'], drops = tuning.dungeon.loot.drops.Elite) {
+    const fight: DungeonEncounter = { enemies: [foe()] };
+    const floor = { rows: [3, 3, 3], weights: { Fight: 1, Elite: 1, Treasure: 0 }, encounters: { Fight: [fight], Elite: [{ enemies }] }, boss: fight };
+    const t: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, drops: { ...tuning.dungeon.loot.drops, Elite: drops } }, floors: [floor, floor, floor] } };
+    const graph = floorGraph(t.dungeon, runSeed(ARENA), 1, 'greybox');
+    for (const [row, halls] of graph.entries()) {
+      const index = halls.findIndex((h) => h.kind === 'Elite');
+      if (index >= 0) return { t, at: { floor: 1, row, index }, hall: halls[index]! };
+    }
+    throw new Error('no Elite Hall');
+  }
+  type Elites = ReturnType<typeof elites>;
+  /** The Run, started in that Elite Hall with two Players and `own` Fighters on Team 0. */
+  const inElite = (e: Elites, own = 2): MatchState => run({ humans: 2, players: [0, 1], start: { floor: e.at.floor, row: e.at.row, index: e.at.index } }, own, e.t);
+  const cleared = (e: Elites, m: MatchState): MatchState => {
+    const next = stepMatch(withHp(m, (f) => (f.team === 1 ? 0 : f.hp)), idle(m), e.t);
+    expect(next.events).toContainEqual({ type: 'HallCleared', floor: 1, row: e.at.row, index: e.at.index, kind: 'Elite' });
+    return next;
+  };
+
+  it('an Elite starts its Hall with the Mods of its Relics folded and its max HP from them; an enemy with none, and a Hall with none, are as before', () => {
+    const e = elites([foe(['Heavy Gauntlet', 'Vital Charm']), foe(), foe(['Glass Cannon', 'Glass Cannon'])]);
+    const m = inElite(e, 3);
+    const [a, b, c] = m.duel.fighters.slice(3);
+    const hp = enemyMaxHp(e.t, 1, 2, e.at.row);
+    expect(a!.mods).toEqual({ ...NO_MODS, heavyDamage: 1.3, maxHp: 0.2 });
+    expect([a!.maxHp, a!.hp]).toEqual([hp * 1.2, hp * 1.2]);
+    expect(a!.inventory).toBeUndefined();
+    expect(b!.mods).toBeUndefined();
+    expect([b!.maxHp, b!.hp]).toEqual([hp, hp]);
+    expect(c!.mods).toEqual({ ...NO_MODS, damage: 1.3 * 1.3, damageTaken: 1.25 * 1.25 });
+    // The same Encounter without Relics holds the very same Fighters but for those.
+    const bare = inElite(elites([foe(), foe(), foe()]), 3);
+    expect(bare.duel.fighters.slice(3, 6).every((f) => !('mods' in f) && f.maxHp === hp)).toBe(true);
+    expect(m.duel.fighters.slice(0, 3)).toEqual(bare.duel.fighters.slice(0, 3));
+  });
+
+  it('an Elite\'s Mods change its numbers: it deals more, or takes less', () => {
+    const e = elites([foe(['Glass Cannon']), foe(['Iron Plate'])]);
+    const f = inElite(e).duel.fighters.slice(2);
+    expect(modsOf(f[0]!).damage).toBeGreaterThan(1);
+    expect(modsOf(f[0]!).damageTaken).toBeGreaterThan(1);
+    expect(modsOf(f[1]!).damage).toBe(1);
+    expect(modsOf(f[1]!).damageTaken).toBeLessThan(1);
+  });
+
+  it('a beaten Elite Hall drops, for each Player, the Relic an Elite carried plus the tuned count more, its own to that Player, on Team 1\'s spawns', () => {
+    const e = elites([foe(), foe(['Honed Daggers', 'Steel Boots'])]);
+    const m = cleared(e, inElite(e));
+    const drops = m.run!.pickups;
+    expect(drops.map((p) => p.owner)).toEqual([0, 0, 1, 1]);
+    expect(drops[0]).toMatchObject({ id: 0, kind: 'relic', item: 'Honed Daggers', owner: 0, taken: false });
+    expect(drops[2]).toMatchObject({ id: 2, kind: 'relic', item: 'Honed Daggers', owner: 1, taken: false });
+    // The carried Relic is not picked again for the same Player while others remain.
+    for (const k of [1, 3]) expect([drops[k]!.kind, drops[k]!.item]).not.toEqual(['relic', 'Honed Daggers']);
+    const spots = arenaOf(e.t, m.arena).spawns.filter((s) => s.team === 1).sort((x, y) => x.slot - y.slot);
+    expect(drops.map((p) => [p.at.x, p.at.z])).toEqual([0, 1, 0, 1].map((k) => [spots[k]!.position.x, spots[k]!.position.z]));
+    // With no extra item tuned, the Relic is all there is.
+    const lone = elites([foe(['Whetstone'])], 0);
+    expect(cleared(lone, inElite(lone)).run!.pickups.map((p) => [p.owner, p.item])).toEqual([[0, 'Whetstone'], [1, 'Whetstone']]);
+  });
+
+  it('with several Elites carrying Relics, the lowest slot\'s first Relic drops; a Benched or Relic-less enemy does not count', () => {
+    const several = elites([foe(), foe(['Iron Plate', 'Whetstone']), foe(['Vital Charm'])], 0);
+    expect(cleared(several, inElite(several, 3)).run!.pickups.map((p) => p.item)).toEqual(['Iron Plate', 'Iron Plate']);
+    // The enemy in slot 0 sits out a party of two, so the next one in line carries the Relic that drops.
+    const benched = elites([foe(['Buckler Rim'], 3), foe(['Victory Wreath']), foe(['Vital Charm'])], 0);
+    expect(cleared(benched, inElite(benched, 2)).run!.pickups.map((p) => p.item)).toEqual(['Victory Wreath', 'Victory Wreath']);
+    expect(cleared(benched, inElite(benched, 3)).run!.pickups.map((p) => p.item)).toEqual(['Buckler Rim', 'Buckler Rim']);
+  });
+
+  it('the drops are the same for the same seed; an Elite Hall with no Relics drops only its tuned count', () => {
+    const e = elites([foe(['Whetstone']), foe()]);
+    const a = cleared(e, inElite(e)).run!.pickups;
+    expect(a).toHaveLength(4);
+    expect(cleared(e, inElite(e)).run!.pickups).toEqual(a);
+    expect(hallDrops(e.t, inElite(e).config, e.at, e.hall, 0)).toEqual(a);
+    const bare = elites([foe(), foe()]);
+    expect(cleared(bare, inElite(bare)).run!.pickups.map((p) => p.owner)).toEqual([0, 1]);
+  });
+
+  it('a Player takes the dropped Relic by standing on it, as any pickup', () => {
+    const e = elites([foe(['Whetstone'])], 0);
+    const m = cleared(e, inElite(e));
+    const mine = m.run!.pickups.find((p) => p.owner === 0)!;
+    const took = stepMatch(placed(m, 0, mine.at), idle(m), e.t);
+    expect(took.duel.fighters[0]!.inventory!.relics).toEqual(['Whetstone']);
+  });
+
+  it('Rollback over an Elite Hall\'s clear re-simulates to the same state', () => {
+    const e = elites([foe(['Whetstone']), foe()]);
+    const m = inElite(e);
+    const live = cleared(e, m);
+    expect(hashValue(cleared(e, restore(snapshot(m))))).toBe(hashValue(live));
+    expect(hashValue(restore(snapshot(live)))).toBe(hashValue(live));
   });
 });

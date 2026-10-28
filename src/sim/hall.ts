@@ -26,6 +26,8 @@ export interface HallEnemy {
   readonly body?: string;
   /** Its AI Style (Tuning Data `ai.styles`), or absent (the default Style). The Simulation never reads it. */
   readonly style?: string;
+  /** The Relics it carries (Tuning Data names, as its Encounter lists them), or absent (none). Its Mods are theirs folded; an Elite Hall drops one. */
+  readonly relics?: readonly string[];
   readonly maxHp: number;
 }
 
@@ -126,6 +128,7 @@ export function hallRoster(
       weapon,
       ...(body === undefined ? {} : { body }),
       ...(style === undefined ? {} : { style }),
+      ...(e.relics === undefined ? {} : { relics: e.relics }),
       maxHp: enemyMaxHp(tuning, e.hpScale, config.humans, at.row),
     };
   });
