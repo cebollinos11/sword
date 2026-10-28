@@ -34,6 +34,8 @@ interface Playing {
 
 /** What ended a Duel's fight: the Duel Tick of the blow, and the Team the fallen Fighter was on (null: either, a draw). */
 interface Ending {
+  /** What ended: the Duel over, or (in a Run, the Duel going on) the Hall cleared. Each plays its own shot. */
+  readonly what: 'Over' | 'Cleared';
   readonly tick: number;
   readonly team: number | null;
 }
@@ -44,10 +46,10 @@ interface Ending {
  */
 function ending(match: MatchState): Ending | null {
   const duel = match.duel.duel;
-  if (duel.status === 'Over') return { tick: duel.tick, team: duel.winner === null ? null : 1 - duel.winner };
+  if (duel.status === 'Over') return { what: 'Over', tick: duel.tick, team: duel.winner === null ? null : 1 - duel.winner };
   if (!match.run || match.run.phase === 'Fighting') return null;
   const deaths = match.duel.fighters.flatMap((f) => (f.team === 1 && f.death ? [f.death.tick] : []));
-  return deaths.length > 0 ? { tick: Math.max(...deaths), team: 1 } : null;
+  return deaths.length > 0 ? { what: 'Cleared', tick: Math.max(...deaths), team: 1 } : null;
 }
 
 /**
@@ -65,7 +67,7 @@ export class FinalBlowShot {
   /** Recent Match states of the current Duel, by Match Tick. */
   private readonly history = new Map<number, MatchState>();
   private duelKey = '';
-  /** The Duels (by key) whose shot has started, so each plays once. */
+  /** The endings (by Duel key and what ended) whose shot has started, so each plays once: a Hall's clear and a later wipe in it are two. */
   private shot = '';
   private playing: Playing | null = null;
   private last: ShotFrame | null = null;
@@ -100,8 +102,8 @@ export class FinalBlowShot {
       this.playing = null;
       this.shot = '';
     }
-    if (end && this.shot !== key) {
-      this.shot = key;
+    if (end && this.shot !== `${key}:${end.what}`) {
+      this.shot = `${key}:${end.what}`;
       this.begin(match, end, viewYaw);
     }
     this.prune();
