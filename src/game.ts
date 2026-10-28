@@ -6,7 +6,7 @@ import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createAutopilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
@@ -18,7 +18,7 @@ import { doorMarkView, doorRun } from './play/doorMarks';
 import { mapKeyAction } from './play/floorMap';
 import { pickupViews, type PickupView } from './render/pickupView';
 import { fireState } from './render/restFire';
-import { runBuilds } from './play/runBuilds';
+import { playerName, runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -373,7 +373,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (!transport) return;
       session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon });
     }
-    game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames, bodies: playerBodies });
+    // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run.
+    const doors = match.format ? devAutopilot() : null;
+    const pilot = doors ? createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot()) : undefined;
+    game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 
   /** The broker options, or undefined (after showing why) if the URL is unusable. */
@@ -651,7 +654,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           halls: cleared.halls,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
-          builds: runBuilds(match),
+          builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
         };
         resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd') {

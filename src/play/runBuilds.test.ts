@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, MAX_TEAM_SIZE, modsOf, type MatchState } from '../sim';
-import { daggerCapacity, runBuilds } from './runBuilds';
+import type { Lineup } from '../controllers';
+import { daggerCapacity, playerName, runBuilds } from './runBuilds';
 
 const tuning = loadTuningData();
 const start = (humans = 2): MatchState => createMatch(tuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, humans, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
@@ -17,9 +18,9 @@ describe('runBuilds', () => {
     let m = start();
     const w = m.duel.fighters[0]!.inventory!.weapons[0]!;
     m = holding(m, 0, { weapons: [w, 'Spear'], relics: [a, b], weapon: 1, equipped: [0] });
-    expect(runBuilds(m)).toEqual([
-      { fighter: 0, weapon: 'Spear', equipped: [a], carried: [b] },
-      { fighter: 1, weapon: m.duel.fighters[1]!.inventory!.weapons[0], equipped: [], carried: [] },
+    expect(runBuilds(m, (f) => `#${f}`)).toEqual([
+      { fighter: 0, name: '#0', weapon: 'Spear', equipped: [a], carried: [b] },
+      { fighter: 1, name: '#1', weapon: m.duel.fighters[1]!.inventory!.weapons[0], equipped: [], carried: [] },
     ]);
   });
 
@@ -34,5 +35,32 @@ describe('daggerCapacity', () => {
     expect(daggerCapacity(tuning, f)).toBe(tuning.dagger.count);
     const bandolier = tuning.relics.find((r) => r.effects.daggers)!;
     expect(daggerCapacity(tuning, { mods: { ...modsOf(f), daggers: bandolier.effects.daggers! } })).toBe(tuning.dagger.count + bandolier.effects.daggers!);
+  });
+});
+
+describe('every Player’s build, named, on every peer', () => {
+  const lineup: Lineup = [
+    { team: 0, pilot: { kind: 'Player', player: 1 } },
+    { team: 0, pilot: { kind: 'Player', player: 0 } },
+    ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'Ai', difficulty: 'normal' } }) as unknown as Lineup[number]),
+  ];
+
+  it('names a Fighter by the Lobby’s name of its Player, following the Lineup and not the position', () => {
+    const names = ['Ana', 'Ben'];
+    expect(playerName(lineup, names, 0)).toBe('Ben');
+    expect(playerName(lineup, names, 1)).toBe('Ana');
+    expect(playerName(lineup, [], 1)).toBe('Player 1');
+    expect(playerName(null, names, 1)).toBe('Ben');
+    expect(playerName(null, [], 1)).toBe('Player 2');
+  });
+
+  it('gives two Players both builds with their names, whichever is the local one', () => {
+    const [a, b] = [tuning.relics[0]!.name, tuning.relics[1]!.name];
+    let m = start();
+    const w = m.duel.fighters[1]!.inventory!.weapons[0]!;
+    m = holding(m, 1, { weapons: [w], relics: [a, b], weapon: 0, equipped: [1] });
+    const builds = runBuilds(m, (f) => playerName(lineup, ['Ana', 'Ben'], f));
+    expect(builds.map((x) => [x.fighter, x.name])).toEqual([[0, 'Ben'], [1, 'Ana']]);
+    expect(builds[1]).toMatchObject({ weapon: w, equipped: [b], carried: [a] });
   });
 });

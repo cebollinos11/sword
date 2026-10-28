@@ -253,12 +253,12 @@ export class Hud {
       return el;
     };
     const relic = (name: string, small = false) => item(relicIcon(tuning.relics.find((x) => x.name === name)?.icon ?? ''), name, small);
-    return builds.map((b, i) => {
+    return builds.map((b) => {
       const box = document.createElement('div');
       box.className = 'hud-build';
       const who = document.createElement('div');
       who.className = 'hud-build-who';
-      who.textContent = builds.length > 1 ? `Player ${i + 1}` : 'Build';
+      who.textContent = builds.length > 1 ? b.name : 'Build';
       const row = document.createElement('div');
       row.className = 'hud-build-row';
       row.append(item(weaponIcon(b.weapon), b.weapon), ...b.equipped.map((n) => relic(n)));
