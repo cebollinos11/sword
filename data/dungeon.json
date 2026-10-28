@@ -1,0 +1,57 @@
+{
+  "doorSeconds": 1.5,
+  "hallFadeSeconds": 1,
+  "revive": 0.25,
+  "restHeal": 0.5,
+  "perPlayerHp": 0.5,
+  "depthHp": 0.1,
+  "inventory": { "weapons": 3, "relics": 6, "equippedRelics": 3 },
+  "floors": [
+    {
+      "rows": [2, 3, 2],
+      "weights": { "Fight": 6, "Elite": 1, "Treasure": 1 },
+      "encounters": {
+        "Fight": [
+          { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random", "body": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] },
+          { "enemies": [{ "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 4 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
+        ],
+        "Elite": [
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": 1, "hpScale": 1.5 }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
+        ]
+      },
+      "boss": { "enemies": [{ "difficulty": "Skilled", "style": "Aggressive", "weapon": "Sledge Hammer", "hpScale": 2.5 }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
+    },
+    {
+      "rows": [3, 2, 3],
+      "weights": { "Fight": 6, "Elite": 2, "Treasure": 1 },
+      "encounters": {
+        "Fight": [
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 4 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
+        ],
+        "Elite": [
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": 1, "hpScale": 1.5 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": 2, "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] }
+        ]
+      },
+      "boss": { "enemies": [{ "difficulty": "Expert", "style": "Counter", "weapon": "Arming Sword", "hpScale": 2.5 }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
+    },
+    {
+      "rows": [3, 3, 3],
+      "weights": { "Fight": 5, "Elite": 2, "Treasure": 1 },
+      "encounters": {
+        "Fight": [
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] },
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random" }, { "difficulty": "Expert", "style": "random", "weapon": "random", "minTeam": 3 }] }
+        ],
+        "Elite": [
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": 2, "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
+        ]
+      },
+      "boss": { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "Sledge Hammer", "body": "wraith", "hpScale": 3 }, { "difficulty": "Skilled", "style": "random", "weapon": "Arming Sword" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
+    }
+  ]
+}

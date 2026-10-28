@@ -18,8 +18,27 @@ import gaitJson from '../../data/gait.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import gauntletJson from '../../data/gauntlet.json';
+import dungeonJson from '../../data/dungeon.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 import { parseGauntlet, RANDOM_PICK, type GauntletTuning } from './gauntlet';
+export {
+  applyDungeonKnobs,
+  dungeonDifficultyLadder,
+  floorEncounters,
+  MAX_ENCOUNTER_ENEMIES,
+  MAX_ENEMY_RELICS,
+  parseDungeon,
+  POOLED_HALL_KINDS,
+  WEIGHTED_HALL_KINDS,
+  type DungeonEncounter,
+  type DungeonEnemy,
+  type DungeonFloor,
+  type DungeonTuning,
+  type HallKind,
+  type PooledHallKind,
+  type WeightedHallKind,
+} from './dungeon';
+import { parseDungeon, type DungeonTuning } from './dungeon';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -409,6 +428,8 @@ export interface TuningData {
   readonly match: MatchTuning;
   /** A Gauntlet Run's Floors, and how HP carries between them. */
   readonly gauntlet: GauntletTuning;
+  /** A Dungeon Run's Floors (each a graph of Halls, rebuilt from the Run seed), their Encounters, and how HP carries between Halls. */
+  readonly dungeon: DungeonTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
@@ -727,6 +748,7 @@ export function parseTuningData(raw: unknown): TuningData {
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
     gauntlet: parseGauntlet(root.gauntlet, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles)),
+    dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles)),
     skeleton,
     ai,
     gait: parseGait(root.gait),
@@ -821,6 +843,7 @@ export function loadTuningData(): TuningData {
     block: blockJson,
     match: matchJson,
     gauntlet: gauntletJson,
+    dungeon: dungeonJson,
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,
