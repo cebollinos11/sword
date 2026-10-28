@@ -64,6 +64,8 @@ function carryPresses(dropped: Intent | null, next: Intent): Intent {
 export function playerVsPlayer(session: RollbackSession, names: readonly string[] = [], autopilot?: Autopilot): PlayerVsPlayerDriver {
   let failure: string | null = null;
   let dropped: Intent | null = null;
+  // The autopilot is asked once per Tick of the state: while the session waits or stalls on the same one, its Intent is reused (its memory follows the Simulation).
+  let lastPilot: { tick: number; intent: Intent } | null = null;
   const notices: string[] = [];
   session.onEvent((e: SessionEvent) => {
     if (failure) return;
@@ -100,8 +102,11 @@ export function playerVsPlayer(session: RollbackSession, names: readonly string[
       let localIntent = piloted;
       const state = session.state;
       if (autopilot && state && session.localFighter >= 0 && state.status.status !== 'Over') {
-        autopilot.watch(state);
-        localIntent = autopilot.intent(state.duel, session.localFighter);
+        if (lastPilot?.tick !== state.tick) {
+          autopilot.watch(state);
+          lastPilot = { tick: state.tick, intent: autopilot.intent(state.duel, session.localFighter) };
+        }
+        localIntent = lastPilot.intent;
       }
       const running = session.status === 'Running';
       const intent = carryPresses(running ? dropped : null, localIntent);

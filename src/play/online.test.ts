@@ -245,6 +245,27 @@ describe('Player vs Player Match driver with the dev autopilot', () => {
     expect(pilot.watched).toEqual([host.state!.tick - 1]);
   });
 
+  it('is asked once per new Tick: while the session stalls on the same state, its Intent is reused and its memory does not move', () => {
+    // 400 ms one way: the host runs into the Rollback window and stalls, its state not advancing.
+    const pair = createMemoryTransportPair({ latencyMs: 400 });
+    const pilot = attacker();
+    const host = playerVsPlayer(createRollbackSession({ role: 'host', transport: pair.a, tuning, match: { bestOf: 3, seed: 5 } }), [], pilot);
+    const guest = playerVsPlayer(createRollbackSession({ role: 'guest', transport: pair.b, tuning }));
+    let stalledFrames = 0;
+    for (let i = 0; i < 150; i++) {
+      pair.advance(TICK_MS);
+      const { advanced } = host.tick(forward);
+      guest.tick(IDLE_INTENT);
+      if (!advanced) stalledFrames++;
+    }
+    expect(stalledFrames).toBeGreaterThan(5);
+    // Each Tick of the state it was asked about, and watched, once, in order, however many frames the session spent on it.
+    const ticks = pilot.calls.map((c) => c.tick);
+    expect(ticks.length).toBeGreaterThan(20);
+    expect(ticks).toEqual([...new Set(ticks)]);
+    expect(pilot.watched).toEqual([...new Set(pilot.watched)]);
+  });
+
   it('is not asked, and the local Intent goes through, without one', () => {
     const r = room();
     runUntilConnected(r);
