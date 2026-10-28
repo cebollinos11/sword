@@ -170,7 +170,7 @@ export {
   type RunEndEvent,
   type RunState,
 } from './match';
-export { FLOOR_ROWS, floorGraph, hallEncounter, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
+export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {
   atRestFire,
   doorCounters,

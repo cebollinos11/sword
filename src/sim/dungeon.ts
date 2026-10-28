@@ -174,11 +174,3 @@ function buildFloorGraph(dungeon: DungeonTuning, runSeed: number, floor: number,
     }),
   );
 }
-
-/** The Encounter of Hall `index` of row `row` (0-based, row 0 the entrance) on Floor `floor`: as `floorGraph` gives it. */
-export function hallEncounter(dungeon: DungeonTuning, runSeed: number, floor: number, row: number, index: number): DungeonEncounter | null {
-  const f = dungeonFloor(dungeon, floor);
-  const hall = floorEncountersByHall(f, floorKinds(f, runSeed, floor), runSeed, floor)[row]?.[index];
-  if (hall === undefined) throw new RangeError(`Floor ${floor} has no Hall ${index} in row ${row}`);
-  return hall;
-}

@@ -6,7 +6,7 @@
 import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type ArenaGeometry, type ArenaPoint, type TuningData } from '../tuning';
 import { insideZone } from './arena';
 import { parseGeneratedName } from './arenaGen/named';
-import { FLOOR_ROWS, floorGraph, hallEncounter, hallSlot, runPick, runSeed, type Hall } from './dungeon';
+import { FLOOR_ROWS, floorGraph, hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -97,7 +97,7 @@ export function enemyMaxHp(tuning: TuningData, hpScale: number, humans: number, 
 }
 
 /**
- * Hall `at`'s enemy for each Team 1 slot, in slot order (MAX_ENCOUNTER_ENEMIES of them), from its Encounter (`hallEncounter`),
+ * Hall `at`'s enemy for each Team 1 slot, in slot order (MAX_ENCOUNTER_ENEMIES of them), from its Encounter (`hallOf`'s),
  * or null for a slot it leaves empty (Benched; every slot of a Treasure or Rest Hall). A `"random"` Weapon is picked from the
  * roster, a `"random"` Style from `ai.styles`, and a `"random"` Body from `bodies` when given, by `runPick` on the Run seed
  * (`config.arena`, the Run's first Arena), the Hall and the slot. An enemy with a `minTeam` larger than Team 0
@@ -110,7 +110,7 @@ export function hallRoster(
   bodies?: readonly string[],
 ): (HallEnemy | null)[] {
   const seed = runSeed(config.arena);
-  const encounter = hallEncounter(tuning.dungeon, seed, at.floor, at.row, at.index);
+  const { encounter } = hallOf(tuning, config.arena, at);
   const weapons = Object.keys(tuning.weapons);
   const styles = Object.keys(tuning.ai.styles);
   const own = config.teams ? config.teams.filter((t) => t === 0).length : MAX_ENCOUNTER_ENEMIES;

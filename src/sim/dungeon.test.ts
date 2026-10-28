@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseDungeon, type DungeonTuning } from '../tuning';
+import { loadTuningData, MAX_ENCOUNTER_ENEMIES, parseDungeon, type DungeonTuning } from '../tuning';
 import { ARENA_SEED_RANGE } from './arenaGen/named';
-import { floorGraph, hallEncounter, type FloorGraph } from './dungeon';
+import { floorGraph, runSeed, type FloorGraph } from './dungeon';
+import { hallRoster } from './hall';
 
 const tuning = loadTuningData();
 const dungeon = tuning.dungeon;
@@ -134,7 +135,22 @@ describe('floorGraph: a Floor of Halls from the Run seed', () => {
           const most = Math.max(0, ...pools[kind].map((_, i) => picked.filter((p) => p === i).length));
           expect(most).toBe(Math.ceil(picked.length / pools[kind].length));
         }
-        graph.forEach((row, r) => row.forEach((hall, i) => expect(hallEncounter(dungeon, seed, floor, r, i)).toBe(hall.encounter)));
+      }
+  });
+
+  it('is where a Hall’s roster comes from: hallRoster fills each Team 1 slot from the graph’s Encounter for that Hall', () => {
+    for (const seed of [1, 42, 4242])
+      for (let floor = 1; floor <= dungeon.floors.length; floor++) {
+        const arena = `gen:${KIT}:${seed}`;
+        const graph = floorGraph(dungeon, runSeed(arena), floor, KIT);
+        graph.forEach((row, r) =>
+          row.forEach((hall, i) => {
+            const roster = hallRoster(tuning, { arena, humans: 1 }, { floor, row: r, index: i });
+            const expected = Array.from({ length: MAX_ENCOUNTER_ENEMIES }, (_, k) => hall.encounter?.enemies[k]?.difficulty ?? null);
+            expect(roster.map((e) => e?.difficulty ?? null)).toEqual(expected);
+          }),
+        );
+        expect(() => hallRoster(tuning, { arena, humans: 1 }, { floor, row: 1, index: 3 })).toThrow(RangeError);
       }
   });
 
