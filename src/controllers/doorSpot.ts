@@ -4,7 +4,7 @@
  * is inside boxes the last one out. So each Fighter walks on to a spot of its own (its rank among its team's Fighters), the four spots two
  * columns along the zone's sides with a lane between them, so the others pass the entrance and the lane.
  */
-import { exitDoor, inDuel, inExitZone, type SimState } from '../sim';
+import { exitDoor, inDuel, inExitZone, insideZone, type SimState } from '../sim';
 import type { ArenaGeometry } from '../tuning';
 
 /** A spot on the ground. */
@@ -22,13 +22,17 @@ const SPOTS = 4;
 const EDGE_GAP = 0.02;
 /** How much (m) clear a spot's body leaves the zone's near and far edges. */
 const ROW_GAP = 0.2;
+/** How many steps a spot that falls outside the zone is pulled in towards its middle (the last one is the middle itself). */
+const PULL_STEPS = 20;
 /** How near (m) to its spot a Fighter shoves on past the others, rather than stepping round each (`AiController.walkTo`). */
 const SHOVE_RANGE = 5;
 
 /**
  * The four spots of exit `exit` (0-based, as `Hall.exits`) of `arena`, for Fighters of body radius `radius`, by slot: two by two, a
  * column along each side of its zone and a lane between them up the middle that a fifth body can pass along, the nearer pair (to the
- * Hall, left then right) first. Each is inside the zone.
+ * Hall, left then right) first. Each is inside the zone, its body too if the zone has room for one: the extents along the Door's
+ * facing do not promise it (a zone narrower than a Fighter, or not aligned with the Door), so a spot outside is pulled in towards the
+ * zone's middle (a convex polygon's mean corner is inside it) until its body is clear. A spot outside could never count at the Door.
  */
 export function exitDoorSpots(arena: ArenaGeometry, exit: number, radius: number): readonly DoorSpot[] {
   const { zone, facing } = arena.doors[exitDoor(exit)]!;
@@ -37,9 +41,16 @@ export function exitDoorSpots(arena: ArenaGeometry, exit: number, radius: number
   const out = { x: Math.sin(facing), z: Math.cos(facing) };
   const right = { x: out.z, z: -out.x };
   const reach = (axis: { x: number; z: number }) => Math.max(...zone.map((p) => Math.abs((p.x - centre.x) * axis.x + (p.z - centre.z) * axis.z)));
-  const across = reach(right) - radius - EDGE_GAP;
-  const ahead = reach(out) - radius - ROW_GAP;
-  const at = (across: number, ahead: number): DoorSpot => ({ x: centre.x + right.x * across + out.x * ahead, y: zone[0]?.y ?? 0, z: centre.z + right.z * across + out.z * ahead });
+  const across = Math.max(0, reach(right) - radius - EDGE_GAP);
+  const ahead = Math.max(0, reach(out) - radius - ROW_GAP);
+  const point = (across: number, ahead: number) => ({ x: centre.x + right.x * across + out.x * ahead, z: centre.z + right.z * across + out.z * ahead });
+  const bodyInside = (c: { x: number; z: number }) => [[0, 0], [radius, 0], [-radius, 0], [0, radius], [0, -radius]].every(([dx, dz]) => insideZone(zone, c.x + dx!, c.z + dz!));
+  const at = (across: number, ahead: number): DoorSpot => {
+    // The spot itself, or the nearest one to it on the line to the middle whose body is inside.
+    let c = point(across, ahead);
+    for (let k = 1; k <= PULL_STEPS && !bodyInside(c); k++) c = point((across * (PULL_STEPS - k)) / PULL_STEPS, (ahead * (PULL_STEPS - k)) / PULL_STEPS);
+    return { ...c, y: zone[0]?.y ?? 0 };
+  };
   return [at(-across, ahead), at(across, ahead), at(-across, -ahead), at(across, -ahead)];
 }
 

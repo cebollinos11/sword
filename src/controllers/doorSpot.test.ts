@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { arenaOf, createMatch, exitDoor, inExitZone, withGeneratedArena } from '../sim';
+import { arenaOf, createMatch, exitDoor, inExitZone, insideZone, withGeneratedArena } from '../sim';
+import type { ArenaGeometry } from '../tuning';
 import { exitDoorSpot, exitDoorSpots, exitDoorWalk, SPOT_ARRIVED } from './doorSpot';
 
 const tuning = loadTuningData();
@@ -8,6 +9,14 @@ const RADIUS = tuning.fighter.radius;
 
 /** The Hall Arenas of a few seeds, each with 1 to 3 exits (`gen:greybox:<seed>:d<exits + 1>`). */
 const ARENAS = [1, 2, 3, 4, 5, 6].flatMap((seed) => [2, 3, 4].map((d) => `gen:greybox:${seed}:d${d}`));
+/** A soak of Hall Arenas: every Door of seeds 1 to 60, 1 to 3 exits each. */
+const SOAK = Array.from({ length: 60 }, (_, k) => k + 1).flatMap((seed) => [2, 3, 4].map((d) => `gen:greybox:${seed}:d${d}`));
+
+/** A Hall Arena stub with an entrance and one exit Door whose zone is the polygon `corners` (at the ground), facing `facing`. */
+function stub(corners: readonly [number, number][], facing = 0): ArenaGeometry {
+  const door = { zone: corners.map(([x, z]) => ({ x, y: 0, z })), facing, spawns: [] };
+  return { name: 'stub', walk: [], walls: [], spawns: [], doors: [{ ...door, zone: [] }, door] };
+}
 
 describe('exit door spots', () => {
   it('are four, each inside the zone with its body clear of the others', () => {
@@ -22,6 +31,45 @@ describe('exit door spots', () => {
         }
       }
     }
+  });
+
+  it('lie inside the zone of every Door of a soak of Hall Arenas (seeds 1 to 60), or no Fighter standing at one could ever count', () => {
+    let spots = 0;
+    for (const name of SOAK) {
+      const arena = arenaOf(withGeneratedArena(tuning, name).tuning, name);
+      for (let exit = 0; exit < arena.doors.length - 1; exit++)
+        for (const [i, a] of exitDoorSpots(arena, exit, RADIUS).entries()) {
+          spots++;
+          expect(inExitZone(arena, exit, { position: { x: a.x, z: a.z }, y: a.y }), `${name} exit ${exit} spot ${i}`).toBe(true);
+        }
+    }
+    expect(spots).toBeGreaterThan(1000);
+  });
+
+  it('stay inside a zone that is not aligned with its Door (a diamond: its corners are outside the box of its extents)', () => {
+    // A square rotated 45 degrees to the Door's facing, 1.5 m from its middle to each corner.
+    const arena = stub([[0, 1.5], [1.5, 0], [0, -1.5], [-1.5, 0]]);
+    const spots = exitDoorSpots(arena, 0, RADIUS);
+    expect(spots).toHaveLength(4);
+    for (const [i, a] of spots.entries()) {
+      for (const [dx, dz] of [[0, 0], [RADIUS, 0], [-RADIUS, 0], [0, RADIUS], [0, -RADIUS]] as const)
+        expect(insideZone(arena.doors[1]!.zone, a.x + dx, a.z + dz), `spot ${i} body (${dx}, ${dz})`).toBe(true);
+    }
+  });
+
+  it('keep the nearer pair first and left before right in a zone narrower than a Fighter (no swapped columns), inside it', () => {
+    // 0.5 m across, 3 m deep, the Door facing +z: right is +x.
+    const arena = stub([[-0.25, -1.5], [-0.25, 1.5], [0.25, 1.5], [0.25, -1.5]]);
+    const [nearLeft, nearRight, farLeft, farRight] = exitDoorSpots(arena, 0, RADIUS);
+    for (const a of [nearLeft!, nearRight!, farLeft!, farRight!]) expect(insideZone(arena.doors[1]!.zone, a.x, a.z)).toBe(true);
+    expect(nearLeft!.x).toBeLessThanOrEqual(nearRight!.x);
+    expect(farLeft!.x).toBeLessThanOrEqual(farRight!.x);
+    expect(nearLeft!.z).toBeGreaterThanOrEqual(farLeft!.z);
+    // And a zone shallower than a Fighter swaps no rows.
+    const flat = stub([[-1.5, -0.2], [-1.5, 0.2], [1.5, 0.2], [1.5, -0.2]]);
+    const [n1, , f1] = exitDoorSpots(flat, 0, RADIUS);
+    expect(n1!.z).toBeGreaterThanOrEqual(f1!.z);
+    for (const a of exitDoorSpots(flat, 0, RADIUS)) expect(insideZone(flat.doors[1]!.zone, a.x, a.z)).toBe(true);
   });
 
   it('leave a lane up the middle of the zone, wide enough to pass the spots on either side (so the last one in is not boxed out)', () => {
