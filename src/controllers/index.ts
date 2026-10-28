@@ -33,4 +33,4 @@ export {
   type Pilot,
   type PlayerNumber,
 } from './lineup';
-export { DROP_KEY, EQUIP_KEYS, INVENTORY_LIST_KEY, inventoryKey, type InventoryKey } from './inventoryKeys';
+export { DROP_KEY, EQUIP_KEYS, INVENTORY_LIST_KEY, inventoryClick, inventoryKey, type InventoryClickAction, type InventoryKey } from './inventoryKeys';

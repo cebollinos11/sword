@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { DROP_KEY, EQUIP_KEYS, INVENTORY_LIST_KEY, inventoryKey } from './inventoryKeys';
+import { DROP_KEY, EQUIP_KEYS, INVENTORY_LIST_KEY, inventoryClick, inventoryKey } from './inventoryKeys';
 import { LocalController } from './local';
 
 describe('inventory keys', () => {
@@ -56,5 +56,36 @@ describe('inventory keys', () => {
     const intent = local.sample();
     expect(intent.drop).toEqual({ kind: 'weapon', slot: 0 });
     expect(intent.equip).toBeUndefined();
+  });
+
+  it('a click on an item asks what the key for it would: equip selects the item, drop ends the selection', () => {
+    const ref = { kind: 'relic', slot: 4 } as const;
+    expect(inventoryClick(ref, 'equip')).toEqual(inventoryKey('Digit8', null));
+    expect(inventoryClick(ref, 'drop')).toEqual(inventoryKey(DROP_KEY, ref));
+  });
+
+  it("the Local Controller sends a click's equip and drop on one Tick each, however many frames come between Ticks", () => {
+    const local = new LocalController();
+    local.inventoryClick({ kind: 'weapon', slot: 2 }, 'equip');
+    expect(local.sample().equip).toEqual({ kind: 'weapon', slot: 2 });
+    expect(local.sample().equip).toBeUndefined();
+    local.inventoryClick({ kind: 'relic', slot: 3 }, 'drop');
+    const intent = local.sample();
+    expect(intent.drop).toEqual({ kind: 'relic', slot: 3 });
+    expect(intent.equip).toBeUndefined();
+    expect(local.sample().drop).toBeUndefined();
+    // Two clicks inside one Tick (a double click on a slow frame): the Simulation gets one equip, the later.
+    local.inventoryClick({ kind: 'relic', slot: 0 }, 'equip');
+    local.inventoryClick({ kind: 'relic', slot: 1 }, 'equip');
+    expect(local.sample().equip).toEqual({ kind: 'relic', slot: 1 });
+    expect(local.sample().equip).toBeUndefined();
+  });
+
+  it('a click selects the item like its key does, so X drops the item last clicked', () => {
+    const local = new LocalController();
+    local.inventoryClick({ kind: 'relic', slot: 2 }, 'equip');
+    local.sample();
+    local.keyDown('KeyX');
+    expect(local.sample().drop).toEqual({ kind: 'relic', slot: 2 });
   });
 });
