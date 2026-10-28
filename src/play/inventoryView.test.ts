@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canChangeInventory, createMatch, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, stepMatch, type FighterState, type HallPhase, type Inventory, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
-import { inventoryHoldsInput, inventoryLock, inventoryView, type ItemView } from './inventoryView';
+import { inventoryHoldsInput, inventoryLock, inventoryView, inventoryViewKey, type ItemView } from './inventoryView';
 
 const tuning = loadTuningData();
 const [W0, W1, W2] = Object.keys(tuning.weapons) as [string, string, string];
@@ -180,5 +180,33 @@ describe('whether the open screen takes the Controller’s input', () => {
     for (const phase of [undefined, 'Fighting', 'Cleared', 'Leaving'] as const) {
       if (inventoryLock(fighter(), phase) === 'Enemies remain') expect(inventoryHoldsInput(phase)).toBe(false);
     }
+  });
+});
+
+describe('the key that says when to redraw', () => {
+  const view = (f: FighterState, phase: HallPhase | undefined = 'Cleared') => inventoryView(f, tuning, phase);
+
+  it('is the same for the same view, and differs outside a Run', () => {
+    expect(inventoryViewKey(view(fighter()))).toBe(inventoryViewKey(view(fighter())));
+    expect(inventoryViewKey(null)).not.toBe(inventoryViewKey(view(fighter())));
+    // Never the empty string the screen starts from (`shown`), or a closed-then-opened screen outside a Run would stay blank.
+    expect(inventoryViewKey(null)).not.toBe('');
+  });
+
+  it('changes with the items, the marks, the availability and its reason, and the numbers', () => {
+    const key = inventoryViewKey(view(fighter()));
+    expect(inventoryViewKey(view(fighter({ weapons: [W0, W2] })))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter({ weapon: 1 })))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter({ equipped: [0] })))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter({ relics: ['Whetstone'], equipped: [] })))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter(), 'Fighting'))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter(), 'Leaving'))).not.toBe(inventoryViewKey(view(fighter(), 'Fighting')));
+    expect(inventoryViewKey(view({ ...fighter(), daggers: 1 }))).not.toBe(key);
+  });
+
+  it('leaves out the icons’ SVG text', () => {
+    const v = view(fighter())!;
+    const plain = { ...v, weapons: v.weapons.map((s) => (s.item ? { ...s, item: { ...s.item, icon: '<svg>other</svg>' } } : s)) };
+    expect(inventoryViewKey(plain)).toBe(inventoryViewKey(v));
   });
 });

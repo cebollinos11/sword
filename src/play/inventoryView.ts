@@ -121,3 +121,15 @@ export function inventoryView(
     lock,
   };
 }
+
+const actionKey = (a: ActionView | null): string => (a ? `${a.label}|${a.available ? 1 : 0}|${a.reason ?? ''}` : '-');
+
+/**
+ * A cheap string that differs whenever what the screen draws does, for redrawing only on change: the names, marks, actions with their
+ * availability and reasons, and the numbers. Not the icons (inline SVGs, fixed by the name) nor the effects in words (fixed by the name).
+ */
+export function inventoryViewKey(view: InventoryView | null): string {
+  if (!view) return 'none';
+  const slot = (s: SlotView) => (s.item ? `${s.item.name}|${s.item.marked ? 1 : 0}|${actionKey(s.item.equip)}|${actionKey(s.item.drop)}` : '_');
+  return [view.lock ?? '', view.relicsEquipped, view.numbers.map((n) => `${n.label}=${n.value}`).join(), view.weapons.map(slot).join(), view.relics.map(slot).join()].join('\n');
+}

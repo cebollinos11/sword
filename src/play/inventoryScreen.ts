@@ -9,7 +9,7 @@
  */
 import type { FighterState, HallPhase, InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
-import { inventoryView, type ActionView, type InventoryView, type ItemView, type SlotView } from './inventoryView';
+import { inventoryView, inventoryViewKey, type ActionView, type InventoryView, type ItemView, type SlotView } from './inventoryView';
 
 export type InventoryScreenAction = 'equip' | 'drop';
 
@@ -99,7 +99,7 @@ export class InventoryScreen {
   update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>, phase: HallPhase | undefined): void {
     if (!this.isOpen) return;
     const view = inventoryView(fighter, tuning, phase);
-    const key = JSON.stringify(view);
+    const key = inventoryViewKey(view);
     if (key === this.shown) return;
     this.shown = key;
     this.panel.replaceChildren(...this.build(view));
