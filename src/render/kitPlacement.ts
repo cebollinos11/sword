@@ -9,6 +9,13 @@ import { turnPoint, type Kit, type Layout } from '../sim';
 /** A support column (one cell, one level tall, its top at its origin) stacked under every cell of a solid Piece above level 0. */
 export const SUPPORT_NODE = 'TRIM_support';
 
+/**
+ * A node to draw in place of one the Kit model does not have yet: the door Piece was added to the greybox Kit file
+ * by hand (no Blender to hand), so until art/build_kit_greybox.py is re-run its model has no `PIECE_door`, and a
+ * door is drawn as a rail (a floor walled along the same side), not as a hole.
+ */
+export const STAND_IN_NODES: Readonly<Record<string, string>> = { PIECE_door: 'PIECE_rail' };
+
 /** One part of the Kit model to draw: its node, and its 4 × 4 matrix (column-major, as THREE.Matrix4.elements) from Piece-local to world. */
 export interface KitPlacement {
   readonly node: string;

@@ -32,8 +32,28 @@ interface Playing {
   seconds: number;
 }
 
+/** What ended a Duel's fight: the Duel Tick of the blow, and the Team the fallen Fighter was on (null: either, a draw). */
+interface Ending {
+  /** What ended: the Duel over, or (in a Run, the Duel going on) the Hall cleared. Each plays its own shot. */
+  readonly what: 'Over' | 'Cleared';
+  readonly tick: number;
+  readonly team: number | null;
+}
+
 /**
- * The Final Blow Shot: when the last Fighter of a Team falls, the view cuts to
+ * What the Match state shows ended, or null: the Duel over, or a Run's Hall cleared by felling its Encounter (its Duel
+ * goes on, the party walking to a Door), the last enemy to fall framed. A Hall with no Encounter (Treasure, Rest) has none.
+ */
+function ending(match: MatchState): Ending | null {
+  const duel = match.duel.duel;
+  if (duel.status === 'Over') return { what: 'Over', tick: duel.tick, team: duel.winner === null ? null : 1 - duel.winner };
+  if (!match.run || match.run.phase === 'Fighting') return null;
+  const deaths = match.duel.fighters.flatMap((f) => (f.team === 1 && f.death ? [f.death.tick] : []));
+  return deaths.length > 0 ? { what: 'Cleared', tick: Math.max(...deaths), team: 1 } : null;
+}
+
+/**
+ * The Final Blow Shot: when the last Fighter of a Team falls (in a Run, the last enemy of a Hall), the view cuts to
  * a camera orbiting the fallen Fighter, a moment before the blow, and plays the
  * blow and the fall at `finalBlowSpeed` while the camera spins slowly. Render
  * only: it replays Match states the game loop recorded, while the Match runs on
@@ -47,7 +67,7 @@ export class FinalBlowShot {
   /** Recent Match states of the current Duel, by Match Tick. */
   private readonly history = new Map<number, MatchState>();
   private duelKey = '';
-  /** The Duels (by key) whose shot has started, so each plays once. */
+  /** The endings (by Duel key and what ended) whose shot has started, so each plays once: a Hall's clear and a later wipe in it are two. */
   private shot = '';
   private playing: Playing | null = null;
   private last: ShotFrame | null = null;
@@ -64,7 +84,7 @@ export class FinalBlowShot {
   }
 
   /**
-   * Record the Match state of a new Tick. If it is the first to show its Duel over,
+   * Record the Match state of a new Tick. If it is the first to show its Duel over (or a Run's Hall cleared),
    * the shot starts, framed from the side of the line from killer to victim nearest `viewYaw`.
    * Returns whether a shot is playing.
    */
@@ -76,15 +96,15 @@ export class FinalBlowShot {
       this.playing = null;
     }
     this.history.set(match.tick, match);
-    const duel = match.duel.duel;
-    // A Rollback undid the Duel's end: so does the shot.
-    if (duel.status === 'Fighting' && this.playing) {
+    const end = ending(match);
+    // A Rollback undid the Duel's end (or the Hall's clear): so does the shot.
+    if (!end && this.playing) {
       this.playing = null;
       this.shot = '';
     }
-    if (duel.status === 'Over' && this.shot !== key) {
-      this.shot = key;
-      this.begin(match, duel.tick, viewYaw);
+    if (end && this.shot !== `${key}:${end.what}`) {
+      this.shot = `${key}:${end.what}`;
+      this.begin(match, end, viewYaw);
     }
     this.prune();
     return this.active;
@@ -131,13 +151,15 @@ export class FinalBlowShot {
     this.shot = '';
   }
 
-  private begin(match: MatchState, overDuelTick: number, viewYaw: number): void {
+  private begin(match: MatchState, end: Ending, viewYaw: number): void {
+    const overDuelTick = end.tick;
     const over = match.tick - (match.duel.tick - overDuelTick);
     const recorded = Math.min(...this.history.keys());
     const start = Math.max(recorded, over - Math.round(this.setup.finalBlowLead * TICK_RATE));
-    const end = over + Math.round(this.setup.finalBlowTail * TICK_RATE);
+    const last = over + Math.round(this.setup.finalBlowTail * TICK_RATE);
     const at = this.history.get(over) ?? match;
-    const victim = at.duel.fighters.find((f) => f.death?.tick === overDuelTick) ?? at.duel.fighters.find((f) => f.death);
+    const fallen = at.duel.fighters.filter((f) => f.death && (end.team === null || f.team === end.team));
+    const victim = fallen.find((f) => f.death?.tick === overDuelTick) ?? fallen[0];
     if (!victim) return;
     const v = { x: victim.position.x, z: victim.position.z };
     const from = victim.death?.blow?.from;
@@ -147,7 +169,7 @@ export class FinalBlowShot {
     const line = both ? Math.atan2(v.x - from.x, v.z - from.z) : victim.facing;
     const sides = [line + Math.PI / 2, line - Math.PI / 2];
     const yaw = sides.reduce((a, b) => (angleBetween(b, viewYaw) < angleBetween(a, viewYaw) ? b : a));
-    this.playing = { start, end, tick: start, reached: start, centre, yaw, seconds: 0 };
+    this.playing = { start, end: last, tick: start, reached: start, centre, yaw, seconds: 0 };
     this.last = null;
   }
 

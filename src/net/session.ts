@@ -48,10 +48,11 @@
  */
 import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
-import { defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
 import {
   checkLineup,
   createAiController,
+  createAllyAi,
   createRemoteController,
   lineupAis,
   lineupMatch,
@@ -61,7 +62,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { isFloorAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isHallAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -72,6 +73,19 @@ export const CHECKSUM_INTERVAL = 30;
 export const DEFAULT_TIMEOUT_TICKS = 300;
 /** The AI difficulty that takes over the Fighter of a Player who left (the first difficulty if Tuning Data has none of that name). */
 export const TAKEOVER_DIFFICULTY = 'Normal';
+/**
+ * The AI Controller that takes over Fighter `fighter` of a Player who left, at TAKEOVER_DIFFICULTY. In a Run it is an
+ * Ally AI (walking to the Door the other Players stand at once a Hall is cleared): the Fighter stays one of the Run's
+ * Players (`config.players`), so the Doors wait on it, and a plain AI would never walk there.
+ */
+export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchFormat, fighter: number): Controller {
+  const difficulties = Object.keys(tuning.ai.difficulties);
+  const difficulty = difficulties.includes(TAKEOVER_DIFFICULTY) ? TAKEOVER_DIFFICULTY : difficulties[0]!;
+  if (format !== 'Gauntlet') return createAiController(tuning, difficulty);
+  // It walks with the Players still playing (not with itself): the Lineup's Player slots but its own.
+  const others = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && i !== fighter ? [i] : []));
+  return createAllyAi(tuning, difficulty, DEFAULT_STYLE, others);
+}
 /** Time sync: the lead (in Ticks) is averaged over this many Intents messages. */
 const LEAD_SAMPLES = 32;
 /** Time sync: wait a Tick when the averaged lead over a peer is at least this many Ticks... */
@@ -223,6 +237,8 @@ class Session implements RollbackSession, PeerIntentSource {
   /** Each Player's Fighter, and each Fighter's Player (-1 for an AI of the Lineup). */
   private fighterOf: number[] = [];
   private playerOf: number[] = [];
+  /** The Match's Format (from the Lineup's setting up): a Run's takeover is an Ally AI. */
+  private format: MatchFormat = 'Duels';
   /** An AI Controller per AI Fighter, the Lineup's and those driving a Player who left (null for the Players' Fighters). */
   private ais: (Controller | null)[] = [];
   /** Per Player: the Tick from which the AI drives their Fighter, because they left (null while they play). */
@@ -409,9 +425,10 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot), a random Style picked from `match`'s seed. */
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Hall AI on each Team 1 slot), a random Style picked from `match`'s seed. */
   private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
+    this.format = format;
     this.players = lineupPlayers(lineup);
     this.playerOf = lineup.map((s) => (s.pilot.kind === 'Player' ? s.pilot.player : -1));
     this.fighterOf = Array.from({ length: this.players }, (_, p) => this.playerOf.indexOf(p));
@@ -454,7 +471,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.drop(link.peer, this.status === 'Running' ? this.confirmed[link.peer]! + 1 : 1);
   }
 
-  /** Player p left: the AI drives their Fighter from Tick `from` on (in a Run, an ordinary AI on their Team 0 slot for the rest of it; `config.humans` stays). */
+  /** Player p left: the AI drives their Fighter from Tick `from` on (`takeoverAi`: in a Run, an Ally AI on their Team 0 slot for the rest of it; `config.humans` stays). */
   private drop(p: number, from: number): void {
     if (p === this.localPlayer) return this.disconnect('Dropped');
     if (p < 0 || p >= this.players || this.takeover[p] != null) return;
@@ -462,8 +479,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (this.state && from <= this.confirmedTick) return;
     this.takeover[p] = from;
     const fighter = this.fighterOf[p]!;
-    const difficulties = Object.keys(this.tuning.ai.difficulties);
-    const ai = createAiController(this.tuning, difficulties.includes(TAKEOVER_DIFFICULTY) ? TAKEOVER_DIFFICULTY : difficulties[0]!);
+    const ai = takeoverAi(this.tuning, this.lineup!, this.format, fighter);
     this.ais[fighter] = ai;
     this.takeoverMemory[fighter] = ai.save?.() ?? null;
     if (this.state && from <= this.currentTick) this.rollbackFrom = Math.min(this.rollbackFrom ?? from, from);
@@ -792,8 +808,8 @@ class Session implements RollbackSession, PeerIntentSource {
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
-      // A Run's Team 1 slots hold Floor AIs, every other AI an ordinary one: each takes only its own kind of memory.
-      if (m !== null && isFloorAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
+      // A Run's Team 1 slots hold Hall AIs, every other AI an ordinary one: each takes only its own kind of memory.
+      if (m !== null && isHallAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
       if (this.aiDrives(i, tick)) return m !== null;
       return m === null || (p >= 0 && this.takeover[p] != null);
     };

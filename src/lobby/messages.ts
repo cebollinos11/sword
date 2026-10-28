@@ -4,6 +4,7 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
+import { RUN_KNOB_KEYS } from '../tuning';
 import { isFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
@@ -40,9 +41,9 @@ function isSeatRef(v: unknown): v is SeatRef {
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const RUN_KNOBS: ReadonlySet<string> = new Set(['difficulty', 'enemyHp', 'maxEnemies', 'heal', 'perPlayerHp']);
+const RUN_KNOBS: ReadonlySet<string> = new Set(RUN_KNOB_KEYS);
 
-/** A Run's knobs: numbers, each optional; `applyRunKnobs` holds each to its range. */
+/** A Run's knobs: numbers, each optional; `applyDungeonKnobs` holds each to its range. */
 function isRunKnobs(v: unknown): boolean {
   return isObject(v) && Object.entries(v).every(([k, x]) => RUN_KNOBS.has(k) && isNum(x));
 }

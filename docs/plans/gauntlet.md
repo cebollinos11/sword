@@ -2,6 +2,8 @@
 
 > Status: Stage 1 done (the Run in the Simulation, no UI: Stage 1, Result). Stage 2 done (a Run in Skirmish, offline: Stage 2, Result). Stage 3 skipped for now: `gauntlet.json` is untuned, as Stage 1 wrote it. Stage 4 done (online co-op: Stage 4, Result). **Version 1: stopped here to get player feedback** (see "Version 1" below); Stage 3 and Stage 5 wait on it. The Decisions below were confirmed as proposed before Stage 1. Builds on the Generated Arenas (`docs/plans/generated-arenas.md`, Stages 1–6 done).
 
+> **Replaced:** the Dungeon (`docs/plans/dungeon.md`, Stage 1) replaced this v1 Run. A Floor is now one depth of Halls, not one Duel; `data/gauntlet.json`, `src/tuning/gauntlet.ts`, `src/sim/gauntlet.ts`, `floorDuel`, `floorRoster` and the Floor AI are gone (now `data/dungeon.json`, `hallDuel`, `hallRoster`, the Hall AI). The Gauntlet is offered offline only until the Dungeon's Stage 4. This plan is kept as history.
+
 ## Context
 You, alone or with up to two other humans online, fight through a series of enemy groups. Clear one and you move on to the next, on a new Generated Arena, until your Team is wiped out or you beat the final boss.
 

@@ -1,3 +1,4 @@
+import type { HallKind } from '../tuning';
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
@@ -314,6 +315,22 @@ export type DuelState =
   | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };
 
 /**
+ * A Hall's phase: `Fighting` while any Team 1 Fighter is in the Duel, `Cleared` once none is (at once for a Hall with no
+ * Encounter), the party free to walk to a Door; `Leaving` once it has taken one, during the fade to the next Hall.
+ */
+export type HallPhase = 'Fighting' | 'Cleared' | 'Leaving';
+
+/** Which Hall of a Dungeon Run a Duel is fought in (`SimState.hall`): Floor (1-based), row and index in it (0-based). */
+export interface SimHall {
+  readonly floor: number;
+  /** 0 the entrance, 4 the Boss. */
+  readonly row: number;
+  readonly index: number;
+  readonly kind: HallKind;
+  readonly phase: HallPhase;
+}
+
+/**
  * The complete Simulation state. Plain, JSON-like data only: everything that
  * influences the next Tick lives here so snapshot/restore and hashing are exact.
  */
@@ -326,8 +343,12 @@ export interface SimState {
   /** Throwing Daggers in flight, in the order they were thrown. */
   readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
-  /** In a Gauntlet Run, the Floor this Duel is (1-based), so a Controller, which sees only SimState, can tell Floors apart; absent otherwise. */
-  readonly floor?: number;
+  /**
+   * In a Gauntlet Run, the Hall this Duel is fought in and its phase (mirroring `MatchState.run`), so a Controller, which
+   * sees only SimState, can tell Halls apart and see one is cleared; absent otherwise. While present, the Duel ends only
+   * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
+   */
+  readonly hall?: SimHall;
   /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
   readonly events: readonly SimEvent[];
 }

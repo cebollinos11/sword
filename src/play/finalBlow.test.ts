@@ -94,6 +94,72 @@ describe('Final Blow Shot', () => {
     expect(starts).toBe(duelEnds(states).length);
   });
 
+  it('plays on a Run’s Hall cleared (its Duel goes on), framing the last enemy to fall, once; a Rollback that undoes the clear cuts it', () => {
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    const idle = () => m.duel.fighters.map(() => IDLE_INTENT);
+    const states: MatchState[] = [];
+    for (let t = 0; t < 30; t++) states.push((m = stepMatch(m, idle(), base)));
+    // Fell every enemy at once: the Hall is Cleared on the next Tick.
+    const fighting = m;
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    for (let t = 0; t < 10 * TICK_RATE; t++) states.push((m = stepMatch(m, idle(), base)));
+    const cleared = states.find((s) => s.run!.phase === 'Cleared')!;
+    expect(cleared.duel.duel.status).toBe('Fighting');
+
+    const shot = new FinalBlowShot(camera);
+    let starts = 0;
+    let was = false;
+    for (const s of states) {
+      const now = shot.record(s, 0);
+      if (s.tick < cleared.tick) expect(now).toBe(false);
+      if (now && !was) {
+        starts++;
+        expect(s.tick).toBe(cleared.tick);
+        expect(shot.startTick).toBe(cleared.tick - Math.round(camera.finalBlowLead * TICK_RATE));
+        const victim = cleared.duel.fighters.find((f) => f.team === 1 && !f.benched)!;
+        const frame = shot.frame(0)!;
+        expect(Math.hypot(frame.centre.x - victim.position.x, frame.centre.z - victim.position.z)).toBeLessThan(2);
+      }
+      shot.frame(1 / TICK_RATE);
+      was = shot.active;
+    }
+    expect(starts).toBe(1);
+    expect(shot.active).toBe(false);
+
+    // A Rollback back to before the clear: the shot stops, and plays again when the clear comes back.
+    const again = new FinalBlowShot(camera);
+    for (const s of states.slice(0, 31)) again.record(s, 0);
+    expect(again.record(cleared, 0)).toBe(true);
+    expect(again.record({ ...fighting, tick: cleared.tick + 1 }, 0)).toBe(false);
+    expect(again.record({ ...cleared, tick: cleared.tick + 2 }, 0)).toBe(true);
+  });
+
+  it('plays again for a Team 0 wipe later in a Hall whose clear already had its shot', () => {
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    const idle = () => m.duel.fighters.map(() => IDLE_INTENT);
+    const states: MatchState[] = [];
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    for (let t = 0; t < 6 * TICK_RATE; t++) states.push((m = stepMatch(m, idle(), base)));
+    expect(m.run!.phase).toBe('Cleared');
+    // The party falls (into lava, say) on the way to a Door: the Run is lost.
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 0 ? { ...f, hp: 0 } : f)) } };
+    for (let t = 0; t < 2 * TICK_RATE; t++) states.push((m = stepMatch(m, idle(), base)));
+    const wiped = states.find((s) => s.duel.duel.status === 'Over')!;
+    // Every Fighter has fallen by now (a draw): Defeat all the same.
+    expect(wiped.duelNumber).toBe(states[0]!.duelNumber);
+
+    const shot = new FinalBlowShot(camera);
+    const starts: number[] = [];
+    let was = false;
+    for (const s of states) {
+      const now = shot.record(s, 0);
+      if (now && !was) starts.push(s.tick);
+      shot.frame(1 / TICK_RATE);
+      was = shot.active;
+    }
+    expect(starts).toEqual([states.find((s) => s.run!.phase === 'Cleared')!.tick, wiped.tick]);
+  });
+
   it('fits in the pause between Duels, so the next Duel never cuts it short', () => {
     const wall = (base.camera.finalBlowLead + base.camera.finalBlowTail) / base.camera.finalBlowSpeed;
     expect(wall).toBeLessThanOrEqual(base.match.interDuelSeconds);

@@ -2,8 +2,9 @@
  * The layout generator: (Kit, seed, params) → Layout. It fills the whole grid freely (no symmetry, nothing
  * checks fairness), raises a few plateaus, gives every raised level a ramp onto it so walking reaches it (or
  * flattens it), adds ramps until walking joins every floor (voiding what none can join), then knocks out voids
- * (keeping every floor walkable from every other), bridges some of them, and scatters cover and rails.
- * Seeded only through ../rng, every choice made in cell order.
+ * (keeping every floor walkable from every other), bridges some of them, and scatters cover and rails. A Hall Arena's
+ * Doors (`doors`) go on edge cells at ground level once the floors are joined, before the voids, so nothing is knocked out
+ * round them. Seeded only through ../rng, every choice made in cell order.
  */
 import { createRng, nextFloat, type RngState } from '../rng';
 import type { Kit, PieceId, Side } from './kit';
@@ -21,6 +22,8 @@ export interface GenParams {
   readonly coverDensity: number;
   /** The least share (0–1) of the footprint that must be open floor at the lowest fighting level (the judge's rule). */
   readonly minOpenFloor: number;
+  /** A Hall Arena's Doors (0, or missing: none, and the Layout is a Random Map's as before Doors). */
+  readonly doors?: number;
 }
 
 export const DEFAULT_GEN_PARAMS: GenParams = { cols: 7, rows: 7, levels: 3, voidDensity: 0.12, coverDensity: 0.08, minOpenFloor: 0.25 };
@@ -55,8 +58,10 @@ interface Cell {
   turn: number;
   /** For the cells of a two-cell ramp: the cell its PlacedPiece starts at. */
   anchor: number;
-  /** Kept a plain floor: the cell walking onto a ramp starts from, or the one it leads onto. */
+  /** Kept a plain floor: the cell walking onto a ramp starts from, or the one it leads onto (or kept round a Door). */
   keep: boolean;
+  /** A door's index among the Doors (Door 0 the entrance). */
+  door?: number;
 }
 
 /** The Layout `seed` gives on `kit` with `params`: the same seed and params always give the same Layout. */
@@ -148,6 +153,8 @@ export function generateLayout(kit: Kit, seed: number, params: GenParams): Layou
   const lowest = Math.min(...cells.filter((c) => c.piece !== 'void').map((c) => c.level));
   for (const cell of cells) if (cell.piece !== 'void') cell.level -= lowest;
 
+  if (params.doors) placeDoors(cells, cols, rows, params.doors, draw);
+
   // Voids, wherever one leaves every floor still walkable from every other.
   for (let k = 0; k < cells.length; k++) {
     const roll = draw();
@@ -190,6 +197,63 @@ export function generateLayout(kit: Kit, seed: number, params: GenParams): Layou
   return layout();
 }
 
+/**
+ * A Hall Arena's Doors, Door 0 first: each a `door` on an edge cell (not a corner) at ground level, its Wall along the
+ * footprint's edge. Door 0's cell is picked by the seed; each next one is the cell furthest round the edge from the
+ * Doors already placed (ties: the first, clockwise from the -x, -z corner). A Door's spawns stand within DEADLY_RADIUS of
+ * the cells either side of it, so those must be ground-level floors and become rails along the edge, and the three cells
+ * inward of them must be ground; all six are kept (no void, no cover). Fewer Doors than asked when the edge has no room
+ * (the judge then turns the Layout down).
+ */
+function placeDoors(cells: Cell[], cols: number, rows: number, doors: number, draw: Draw): void {
+  // The edge, clockwise from the -x, -z corner: each cell with the side that faces out (the one its Wall stands on).
+  const edge: { cell: number; out: Side }[] = [];
+  for (let c = 0; c < cols - 1; c++) edge.push({ cell: c, out: 0 });
+  for (let r = 0; r < rows - 1; r++) edge.push({ cell: r * cols + cols - 1, out: 1 });
+  for (let c = cols - 1; c > 0; c--) edge.push({ cell: (rows - 1) * cols + c, out: 2 });
+  for (let r = rows - 1; r > 0; r--) edge.push({ cell: r * cols, out: 3 });
+  const at = (k: number) => cells[k]!;
+  const step = (k: number, side: number) => {
+    const [dc, dr] = SIDE_STEP[side]!;
+    const c = (k % cols) + dc;
+    const r = Math.floor(k / cols) + dr;
+    return c < 0 || c >= cols || r < 0 || r >= rows ? -1 : r * cols + c;
+  };
+  /** The cells either side of edge cell `k` along the edge, and the three inward of them and it; null at a corner. */
+  const around = ({ cell, out }: { cell: number; out: Side }) => {
+    const sides = [step(cell, (out + 1) % 4), step(cell, (out + 3) % 4)];
+    const inward = [cell, ...sides].map((k) => (k < 0 ? -1 : step(k, (out + 2) % 4)));
+    return sides.includes(-1) || inward.includes(-1) ? null : { sides, inward };
+  };
+  const ground = (k: number) => at(k).level === 0 && at(k).piece === 'floor';
+  const fits = (e: (typeof edge)[number]) => {
+    const near = around(e);
+    if (!near || !ground(e.cell)) return false;
+    // A side already a rail along this edge (the next Door's but one) can stand for both.
+    if (!near.sides.every((k) => ground(k) || (at(k).piece === 'rail' && at(k).level === 0 && at(k).turn === e.out))) return false;
+    return near.inward.every((k) => at(k).piece !== 'void' && at(k).piece !== 'bridge' && at(k).piece !== 'door');
+  };
+  const placed: number[] = [];
+  for (let n = 0; n < doors; n++) {
+    const open = edge.map((_, i) => i).filter((i) => fits(edge[i]!));
+    if (!open.length) return;
+    let i: number;
+    if (n === 0) i = open[pick(draw, open.length)]!;
+    else {
+      /** How far round the edge (in cells, either way) edge cell `i` is from the nearest Door placed. */
+      const gap = (i: number) => Math.min(...placed.map((j) => Math.min(Math.abs(i - j), edge.length - Math.abs(i - j))));
+      i = open.reduce((best, k) => (gap(k) > gap(best) ? k : best));
+    }
+    placed.push(i);
+    const e = edge[i]!;
+    const near = around(e)!;
+    // The door and the rails rise their Wall along -z (side 0) unturned.
+    Object.assign(at(e.cell), { piece: 'door', turn: e.out, keep: true, door: n });
+    for (const k of near.sides) Object.assign(at(k), { piece: 'rail', turn: e.out, keep: true });
+    for (const k of near.inward) at(k).keep = true;
+  }
+}
+
 /** The regions (cells joined across sides, each ascending, in order of their first cell) of the cells `inside` lets in. */
 function regions(count: number, inside: (k: number) => boolean, neighbour: (k: number, side: number) => number): number[][] {
   const seen = new Uint8Array(count);
@@ -212,7 +276,8 @@ function toLayout(kit: Kit, cols: number, rows: number, cells: readonly Cell[]):
   const placements: PlacedPiece[] = [];
   cells.forEach((cell, k) => {
     if (cell.anchor !== k) return;
-    placements.push({ piece: cell.piece, col: k % cols, row: Math.floor(k / cols), level: cell.level, turn: cell.turn });
+    const placed: PlacedPiece = { piece: cell.piece, col: k % cols, row: Math.floor(k / cols), level: cell.level, turn: cell.turn };
+    placements.push(cell.door === undefined ? placed : { ...placed, door: cell.door });
   });
   return { kit: kit.name, cols, rows, placements };
 }

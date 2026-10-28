@@ -394,6 +394,29 @@ describe('AI Controller: a step is safe', () => {
     // Clear of the corner, the same heading is safe.
     expect(stepIsSafe(corner, repo, { x: 0.3, z: 0.1 }, 0, heading(0.04, -1))).toBe(true);
   });
+
+  // A platform 3 m up (z < 0), a ramp down from its edge (half a metre down a metre), and beside both a floor 0.5 m below.
+  const ramp = parseArena(
+    {
+      name: 'ramp',
+      walk: [
+        { id: 'WALK_top', points: [[-1.5, 3, -4], [1.5, 3, -4], [1.5, 3, 0], [-1.5, 3, 0]] },
+        { id: 'WALK_ramp', points: [[-1.5, 3, 0], [1.5, 3, 0], [1.5, 0, 6], [-1.5, 0, 6]] },
+        { id: 'WALK_ledge', points: [[1.5, 2.5, -4], [4, 2.5, -4], [4, 2.5, 0], [1.5, 2.5, 0]] },
+        { id: 'WALK_abyss', abyss: true, points: [[-10, -8, -10], [10, -8, -10], [10, -8, 10], [-10, -8, 10]] },
+      ],
+      walls: [],
+    },
+    'ramp',
+  );
+
+  it('is, walking down a ramp (the soak\'s seed 6: two Ally AIs on a ramp\'s top edge could not step aside down it)', () => {
+    expect(stepIsSafe(ramp, repo, { x: 0, z: -0.1 }, 3, heading(0, 1))).toBe(true);
+    expect(stepIsSafe(ramp, repo, { x: 0, z: 2 }, 2, heading(0, 1))).toBe(true);
+    expect(stepIsSafe(ramp, repo, { x: 0.5, z: 2 }, 2, heading(-1, 1))).toBe(true);
+    // ...but not off the platform's side, down the 0.5 m ledge.
+    expect(stepIsSafe(ramp, repo, { x: 1.2, z: -2 }, 3, heading(1, 0))).toBe(false);
+  });
 });
 
 describe('AI Controller: Kick', () => {

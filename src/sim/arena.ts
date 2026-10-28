@@ -299,3 +299,17 @@ function pushOut(p: Vec2, y: number, arena: ArenaGeometry, tuning: TuningData, w
   }
   return { at: { x, z }, moved };
 }
+
+/** Whether (x, z) is inside (or on the edge of) the convex polygon `zone`, from above. */
+export function insideZone(zone: readonly { readonly x: number; readonly z: number }[], x: number, z: number): boolean {
+  let sign = 0;
+  for (let i = 0; i < zone.length; i++) {
+    const a = zone[i]!;
+    const b = zone[(i + 1) % zone.length]!;
+    const cross = Math.sign((b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x));
+    if (cross === 0) continue;
+    if (sign !== 0 && cross !== sign) return false;
+    sign = cross;
+  }
+  return true;
+}

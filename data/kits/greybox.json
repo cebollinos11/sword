@@ -135,6 +135,27 @@
       "walls": [],
       "connectors": [],
       "skirts": []
+    },
+    "door": {
+      "id": "door", "cols": 1, "rows": 1, "solid": true,
+      "walk": [
+        {"points": [[0, 0, 0], [3, 0, 0], [3, 0, 3], [0, 0, 3]], "tile": true}
+      ],
+      "walls": [
+        {"a": [0, 0], "b": [3, 0], "bottom": 0, "top": 4}
+      ],
+      "connectors": [
+        {"col": 0, "row": 0, "side": 1, "y": 0},
+        {"col": 0, "row": 0, "side": 2, "y": 0},
+        {"col": 0, "row": 0, "side": 3, "y": 0}
+      ],
+      "skirts": [
+        {"col": 0, "row": 0, "side": 0, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 1, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 2, "min": 0, "max": 0},
+        {"col": 0, "row": 0, "side": 3, "min": 0, "max": 0}
+      ],
+      "zone": [[0.25, 0], [2.75, 0], [2.75, 2.5], [0.25, 2.5]]
     }
   }
 }

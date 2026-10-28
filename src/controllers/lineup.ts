@@ -9,8 +9,9 @@
 import { checkRunTeams, checkTeams, runPick, type MatchFormat, type MatchOptions } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type TuningData } from '../tuning';
 import { createAiController } from './ai';
+import { createAllyAi } from './allyAi';
 import type { Controller } from './controller';
-import { createFloorAi } from './floorAi';
+import { createHallAi } from './hallAi';
 
 /** The most human Players a Match fields (online: the host and three guests). */
 export const MAX_PLAYERS = 4;
@@ -25,8 +26,8 @@ export type PlayerNumber = 0 | 1 | 2 | 3;
 export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string };
 
 /**
- * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Floor decides who stands in the slot (its
- * Floor AI plays the Floor's difficulty for it, Tuning Data `gauntlet.floors`).
+ * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Hall decides who stands in the slot (its
+ * Hall AI plays the Hall's Encounter's difficulty for it, Tuning Data `dungeon.floors`).
  */
 export const FLOOR_DIFFICULTY = 'Floor';
 
@@ -82,12 +83,14 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
 
 /**
  * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`), and for a
- * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies), so every peer building the Match
- * from the same Lineup gets the same number. Duels never read it, and keep the default.
+ * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies) and which Fighters they drive
+ * (`players`, whose standing counts at a Door), so every peer building the Match from the same Lineup gets the same.
+ * Duels never read them, and keep the defaults.
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: lineupPlayers(lineup) } : {}) };
+  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
+  return { ...options, teams: lineup.map((s) => s.team), weapons, ...(options.format === 'Gauntlet' ? { humans: players.length, players } : {}) };
 }
 
 /** How many human Players the Lineup fields. */
@@ -106,14 +109,18 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
 }
 
 /**
- * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Floor AI
- * instead (its Floors decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order. `match` is the
- * Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
+ * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Hall AI
+ * instead (its Halls decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order, and each Team 0 AI
+ * an Ally AI (its own AI, walking with the Players once a Hall is cleared). `match` is the Match's options: its seed picks
+ * each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
  */
 export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
   let slot = 0;
+  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
   return lineup.map((s, i) => {
-    if (format === 'Gauntlet' && s.team === 1) return createFloorAi(tuning, slot++, match.arena);
-    return s.pilot.kind === 'AI' ? createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i)) : null;
+    if (format === 'Gauntlet' && s.team === 1) return createHallAi(tuning, slot++, match.arena);
+    if (s.pilot.kind !== 'AI') return null;
+    const style = lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i);
+    return format === 'Gauntlet' ? createAllyAi(tuning, s.pilot.difficulty, style, players) : createAiController(tuning, s.pilot.difficulty, style);
   });
 }

@@ -701,7 +701,26 @@ interface Enemy {
   readonly near: boolean;
 }
 
-class AiController implements Controller {
+/** How far (m) past touching a Fighter ahead stands in its way, walking to a spot (`sidestep`). */
+const WAY_AHEAD = 0.6;
+/** How much room (m) it leaves passing a Fighter, walking to a spot (`sidestep`). */
+const WAY_CLEAR = 0.15;
+
+/** Where it walks to (`approach`): an enemy as seen, or a spot on the ground (`walkTo`). */
+type Waypoint = Pick<Sighting, 'position' | 'y' | 'airborne'>;
+
+/** The AI Controller: a Controller with memory that can also just walk somewhere (`walkTo`, for the Ally AI). */
+export interface AiController extends Controller {
+  save(): unknown;
+  load(saved: unknown): void;
+  /**
+   * Instead of `intent`: walk to `to` (a spot on the ground) the way it closes on an enemy, along the navmesh and
+   * through its jump Links, looking where it walks, and stand once within `stop` m of it across the ground, on its level.
+   */
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number): Intent;
+}
+
+class RuleAi implements AiController {
   private readonly reactionTicks: number;
   /** The most Ticks late it may notice an Attack (`reactionJitter`): half its Reaction Time, at most JITTER_MAX, or 0 without the knob. */
   private readonly jitterTicks: number;
@@ -878,6 +897,58 @@ class AiController implements Controller {
     this.observe(state);
     const self = state.fighters[fighter]!;
     return this.flying(state, self, this.holdingJump(state.tick, self, this.keepClear(state.tick, self, this.decide(state, fighter))));
+  }
+
+  /**
+   * Instead of `intent` (the Ally AI in a cleared Hall): walk to `to` the way it closes on an enemy, and stand once
+   * within `stop` m of it. A Fighter standing in its way on its level it steps round (`sidestep`). It keeps watching (so
+   * its memory stays as `intent` would keep it) but plans no fight.
+   */
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number): Intent {
+    this.rng = tickRng(state, fighter);
+    this.view = null;
+    this.observe(state);
+    this.defencePlan = null;
+    this.feintPlan = null;
+    this.attackPlan = null;
+    this.throwPlan = null;
+    this.focus = null;
+    const self = state.fighters[fighter]!;
+    const there = Math.hypot(to.x - self.position.x, to.z - self.position.z) <= stop && Math.abs(to.y - self.y) < LEVEL;
+    if (there && !this.jumpRun) {
+      this.route = null;
+      return this.flying(state, self, IDLE_INTENT);
+    }
+    const way = this.approach(state, self, { position: { x: to.x, z: to.z }, y: to.y, airborne: false });
+    const move = this.jumpRun ? way.move : this.sidestep(state, self, fighter, way.move);
+    return this.flying(state, self, { ...IDLE_INTENT, ...way, move, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
+  }
+
+  /**
+   * `move` turned aside (about 50°, away from it, else towards it, onto safe ground) when the nearest other Fighter in the
+   * Duel on its level stands in its way: ahead along `move`, within WAY_AHEAD and less than two Fighters wide off its line.
+   * Else (or with no safe side) `move`.
+   */
+  private sidestep(state: SimState, self: FighterState, fighter: number, move: Vec2): Vec2 {
+    if (move.x === 0 && move.z === 0) return move;
+    const wide = 2 * this.tuning.fighter.radius + WAY_CLEAR;
+    let nearest = Infinity;
+    let across = 0;
+    for (let i = 0; i < state.fighters.length; i++) {
+      const o = state.fighters[i]!;
+      if (i === fighter || !inDuel(o) || Math.abs(o.y - self.y) >= LEVEL) continue;
+      const d = { x: o.position.x - self.position.x, z: o.position.z - self.position.z };
+      const ahead = d.x * move.x + d.z * move.z;
+      const off = move.x * d.z - move.z * d.x;
+      if (ahead > 0 && ahead < wide + WAY_AHEAD && Math.abs(off) < wide && ahead < nearest) [nearest, across] = [ahead, off];
+    }
+    if (nearest === Infinity) return move;
+    // Perpendicular to `move`, away from the side the Fighter in the way stands on (one way for a head-on one); that side
+    // onto a ledge (the edge of a ramp), the other side; both, `move` itself, pushing past along its own route. Never a
+    // wider turn: on a narrow ramp the only safe ones point back, and two Fighters there swapped ends every Tick.
+    const side = across >= 0 ? 1 : -1;
+    const aside = (k: number) => unit({ x: move.x + k * move.z * 1.2, z: move.z - k * move.x * 1.2 });
+    return [aside(side), aside(-side)].find((m) => this.safe(state, self, m)) ?? move;
   }
 
   /**
@@ -1415,7 +1486,7 @@ class AiController implements Controller {
    * null when they share a Walk Surface, either is off the navmesh, it is in the air, or there is no way. It follows jump
    * Links held no longer than its `jumpNav` (none while Slowed, as a Slowed Jump falls short), except one it just gave up on.
    */
-  private routeTo(state: SimState, self: FighterState, target: Sighting): readonly number[] | null {
+  private routeTo(state: SimState, self: FighterState, target: Waypoint): readonly number[] | null {
     const arena = arenaOf(this.tuning, state.arena);
     const me = { x: self.position.x, z: self.position.z, y: self.y };
     const it = { x: target.position.x, z: target.position.z, y: target.y };
@@ -1436,7 +1507,7 @@ class AiController implements Controller {
   }
 
   /** Whether the next Link of its route to `target` is a jump Link. */
-  private jumpFirst(state: SimState, self: FighterState, target: Sighting): boolean {
+  private jumpFirst(state: SimState, self: FighterState, target: Waypoint): boolean {
     const first = this.routeTo(state, self, target)?.[0];
     return first !== undefined && navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[first]!.kind === 'jump';
   }
@@ -1446,7 +1517,7 @@ class AiController implements Controller {
    * else towards the next corner of its route there, or through the jump Link its route takes next (`takeJump`); with
    * no way there, as near as it safely can.
    */
-  private approach(state: SimState, self: FighterState, target: Sighting): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
+  private approach(state: SimState, self: FighterState, target: Waypoint): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
     const arena = arenaOf(this.tuning, state.arena);
     const run = this.jumpRun;
     if (run?.escape && run.stage !== 'Fly') return this.takeJump(state, self, run.link, navMesh(arena, this.tuning).links[run.link] as JumpLink);
@@ -2145,21 +2216,25 @@ class AiController implements Controller {
 export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2): boolean {
   if (dir.x === 0 && dir.z === 0) return true;
   const { stepUp } = tuning.fall;
-  const solid = (x: number, z: number) => {
-    const g = groundBelow(arena, x, z, y + stepUp);
-    return g !== null && y - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
+  // Each look ahead is measured from the ground of the one before (the first from its feet), so walking down a slope
+  // (a ramp) is a run of small steps down, not one drop off a ledge.
+  const solid = (x: number, z: number, from: number) => {
+    const g = groundBelow(arena, x, z, from + stepUp);
+    return g !== null && from - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
   };
+  let from = y;
   for (const k of [0.5, 1]) {
     const x = at.x + dir.x * SAFETY_PROBE * k;
     const z = at.z + dir.z * SAFETY_PROBE * k;
-    const g = solid(x, z);
+    const g = solid(x, z, from);
     if (!g || blockedAt(arena, x, z, g.y, tuning)) return false;
-    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN)) return false;
+    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN, from)) return false;
+    from = g.y;
   }
   return true;
 }
 
 /** A rule-based AI Controller with the given difficulty, playing `style` (a Style from `tuning.ai.styles`, or explicit multipliers; default DEFAULT_STYLE). */
-export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): Controller {
-  return new AiController(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
+export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): AiController {
+  return new RuleAi(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
 }

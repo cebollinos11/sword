@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -72,7 +72,7 @@ export interface ResyncRequestMessage {
 
 /**
  * Host → guest: the host's confirmed Match state at `tick` and its AI Controllers' memory then (one
- * entry per Fighter, null where no AI drives it yet; a Floor AI's on a Run's Team 1 slots), plus the other Players' Intents up to `tick`
+ * entry per Fighter, null where no AI drives it yet; a Hall AI's on a Run's Team 1 slots), plus the other Players' Intents up to `tick`
  * that the guest may not have yet.
  */
 export interface ResyncMessage {
@@ -360,14 +360,44 @@ function isSimState(v: unknown): boolean {
     isArrayOf(v.daggers, isDagger) &&
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent) &&
-    (v.floor === undefined || (isInt(v.floor) && v.floor >= 1))
+    (v.hall === undefined || isSimHall(v.hall))
   );
 }
 
-/** A Run's progress: the Floor fought (1 to `floors`), Floors cleared (0 to `floors`), and the Tick it started on. */
+const HALL_KINDS: ReadonlySet<unknown> = new Set(['Fight', 'Elite', 'Treasure', 'Rest', 'Boss']);
+const HALL_PHASES: ReadonlySet<unknown> = new Set(['Fighting', 'Cleared', 'Leaving']);
+/** A Hall of a Dungeon: a Floor from 1, a row 0 to FLOOR_ROWS − 1, an index 0 to 2. */
+const isHallRef = (v: unknown): boolean => isObject(v) && isInt(v.floor) && v.floor >= 1 && isInt(v.row) && v.row >= 0 && v.row < FLOOR_ROWS && isInt(v.index) && v.index >= 0 && v.index < MAX_HALL_EXITS;
+/** A Run's Duel's Hall: where it is, its kind and its phase. */
+const isSimHall = (v: unknown): boolean => isHallRef(v) && HALL_KINDS.has((v as Obj).kind) && HALL_PHASES.has((v as Obj).phase);
+
+/**
+ * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
+ * Door count per exit, the Player Fighters rested, and the Tick it started on.
+ */
 function isRun(v: unknown): boolean {
-  return isObject(v) && isInt(v.floors) && v.floors >= 1 && isInt(v.floor) && v.floor >= 1 && v.floor <= v.floors && isInt(v.cleared) && v.cleared >= 0 && v.cleared <= v.floors && isTick(v.startTick);
+  if (!isObject(v) || !isInt(v.floors) || v.floors < 1 || !isArrayOf(v.path, isHallRef) || (v.path as unknown[]).length < 1) return false;
+  const here = { floor: v.floor, row: v.row, index: v.hall };
+  const last = (v.path as Obj[])[(v.path as unknown[]).length - 1]!;
+  return (
+    isHallRef(here) &&
+    (v.floor as number) <= v.floors &&
+    last.floor === here.floor &&
+    last.row === here.row &&
+    last.index === here.index &&
+    HALL_PHASES.has(v.phase) &&
+    isArrayOf(v.doorTicks, isTick) &&
+    (v.doorTicks as unknown[]).length <= MAX_HALL_EXITS &&
+    isArrayOf(v.rested, (i) => isInt(i) && i >= 0 && i < MAX_TEAM_SIZE * 2) &&
+    isTick(v.startTick)
+  );
 }
+
+/** A Run's Player Fighters: distinct Fighter indices, ascending. */
+const isPlayers = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
+
+/** A Run's Duel names the Run's current Hall and phase. */
+const isRunHall = (hall: unknown, run: Obj): boolean => isObject(hall) && hall.floor === run.floor && hall.row === run.row && hall.index === run.hall && hall.phase === run.phase;
 
 function isMatchState(v: unknown): v is MatchState {
   if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
@@ -400,10 +430,9 @@ function isMatchState(v: unknown): v is MatchState {
     isFormatOnMap(config.format, config.arena) &&
     isFormatOnMap(config.format, v.arena) &&
     (config.humans === undefined || isHumans(config.humans)) &&
-    // A Run, and only a Run, carries its progress, and each of its Duels names its Floor.
-    (config.format === 'Gauntlet'
-      ? isRun(v.run) && (v.duel as Obj).floor === (v.run as Obj).floor && config.rematchTicks === null
-      : (v.run === undefined || v.run === null) && (v.duel as Obj).floor === undefined)
+    (config.players === undefined || isPlayers(config.players)) &&
+    // A Run, and only a Run, carries its progress, and each of its Duels names its Hall.
+    (config.format === 'Gauntlet' ? isRun(v.run) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
   );
 }
 
@@ -478,10 +507,10 @@ function isAiMemory(v: unknown): boolean {
 }
 
 /**
- * A Floor AI's memory (a Run's Team 1 slot, `src/controllers/floorAi.ts`): the Floor it last saw (-1 for none yet) and
- * that Floor's AI's memory (null on a Floor with no enemy for its slot).
+ * A Hall AI's memory (a Run's Team 1 slot, `src/controllers/hallAi.ts`): the Hall it last saw (`floor:row:index`, ''
+ * for none yet) and that Hall's AI's memory (null in a Hall with no enemy for its slot).
  */
-export function isFloorAiMemory(v: unknown): boolean {
-  return isObject(v) && isInt(v.floor) && (v.floor === -1 || v.floor >= 1) && (v.memory === null || isAiMemory(v.memory));
+export function isHallAiMemory(v: unknown): boolean {
+  return isObject(v) && isString(v.hall) && (v.hall === '' || /^[1-9]\d*:[0-4]:[0-2]$/.test(v.hall)) && (v.memory === null || isAiMemory(v.memory));
 }
-const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isFloorAiMemory(v));
+const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v));

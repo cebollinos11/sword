@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, tuningDataHash } from '../tuning';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch } from '../controllers';
-import { createMatch, floorRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
+import { createMatch, hallOf, hallRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
 import { playerVsAi } from '../play/driver';
 import {
   formatProblem,
@@ -118,16 +118,18 @@ describe('the Gauntlet Lineup', () => {
     expect(startProblem(s, false)).toBeNull();
   });
 
-  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run with a Floor AI on every Team 1 slot', () => {
+  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run with a Hall AI on every Team 1 slot', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).not.toThrow();
     expect(() => checkLineup(tuning, lineup, 1)).toThrow();
     const m = createMatch(tuning, lineupMatch(tuning, lineup, weapons, { format: 'Gauntlet', bestOf: 1, arena: FRESH }));
-    expect(m.run).toMatchObject({ floor: 1, floors: tuning.gauntlet.floors.length });
+    expect(m.run).toMatchObject({ floor: 1, floors: tuning.dungeon.floors.length, row: 0, hall: 0 });
     expect(m.config.humans).toBe(1);
+    expect(m.config.players).toEqual([0]);
+    const first = { floor: 1, row: 0, index: 0 };
     const benched = m.duel.fighters.map((f) => Boolean(f.benched));
-    expect(benched).toEqual([false, ...floorRoster(tuning, m.config, 1).map((e) => e === null)]);
-    expect(benched.filter((b) => !b)).toHaveLength(1 + tuning.gauntlet.floors[0]!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
+    expect(benched).toEqual([false, ...hallRoster(tuning, m.config, first).map((e) => e === null)]);
+    expect(benched.filter((b) => !b)).toHaveLength(1 + hallOf(tuning, FRESH, first).encounter!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((ai) => ai !== null)).toBe(true);
@@ -138,7 +140,7 @@ describe('the Gauntlet Lineup', () => {
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).toThrow();
   });
 
-  it('the Skirmish driver plays it as a Run: Floor AIs move the enemies, Benched slots stay put', () => {
+  it('the Skirmish driver plays it as a Run: Hall AIs move the enemies, Benched slots stay put', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3 });
     const start = d.state!;
@@ -152,28 +154,41 @@ describe('the Gauntlet Lineup', () => {
       if (start.duel.fighters[i]!.benched) expect(now.duel.fighters[i]!.position).toEqual(start.duel.fighters[i]!.position);
     }
   });
+
+  it('with the dev autopilot the Player’s Fighter moves on its own (the local Intents idle)', () => {
+    const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
+    const run = (autopilot?: number[]) => {
+      const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3, ...(autopilot ? { autopilot } : {}) });
+      const start = d.state!.duel.fighters[d.localFighter]!.position;
+      for (let t = 0; t < 120; t++) d.tick(IDLE_INTENT);
+      const now = d.state!.duel.fighters[d.localFighter]!.position;
+      return Math.hypot(now.x - start.x, now.z - start.z);
+    };
+    expect(run()).toBeLessThan(0.01);
+    expect(run([0])).toBeGreaterThan(0.5);
+  });
 });
 
 describe('Gauntlet Lobby: Run knobs', () => {
-  it('a Run with knobs plays the knobbed Gauntlet (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
+  it('a Run with knobs plays the knobbed Dungeon (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
     let s = gauntlet(newLobby(options(false)));
     expect(runTuning(tuning, s.settings)).toBe(tuning);
     s = updateSettings(s, { run: { maxEnemies: 1, enemyHp: 0.5 } });
     const t = runTuning(tuning, s.settings);
-    expect(t.gauntlet.floors.every((f) => f.enemies.length === 1)).toBe(true);
+    expect(t.dungeon.floors.every((f) => [...f.encounters.Fight, ...f.encounters.Elite, f.boss].every((e) => e.enemies.length === 1))).toBe(true);
     expect(tuningDataHash(t)).not.toBe(tuningDataHash(tuning));
     expect(runTuning(tuning, { ...s.settings, format: 'Duels' })).toBe(tuning);
-    // Floor 1 lists more than one enemy; with one a Floor, only the first stands.
+    // Encounters list more than one enemy; with one a Hall, only the first stands.
     const { lineup, weapons } = lobbyLineup(s);
     const match = createMatch(t, lineupMatch(t, lineup, weapons, { bestOf: 1, arena: s.settings.arena, format: 'Gauntlet' }));
     expect(match.duel.fighters.filter((f) => f.team === 1 && !f.benched).map((f) => f.maxHp)).toEqual([tuning.fighter.maxHp * 0.5]);
   });
 
   it('a lobby message carries the knobs, and refuses ones that are not numbers or not knobs', () => {
-    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, heal: 0.6 } });
+    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, rest: 0.6 } });
     const m = { type: 'lobby', state, you: 0, ack: 0 } as const;
     expect(parseLobbyMessage(m)).toEqual(m);
-    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { heal: Infinity }])
+    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { rest: Infinity }, { heal: 0.6 }])
       expect(parseLobbyMessage({ ...m, state: { ...state, settings: { ...state.settings, run } } })).toBeNull();
   });
 });
