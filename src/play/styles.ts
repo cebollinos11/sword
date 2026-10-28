@@ -31,12 +31,20 @@ const CSS = `
 .hud-banner.visible { opacity: 1; }
 .hud-results { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 16rem; padding: 1.2rem 1.6rem;
   background: #000b; border: 1px solid #fff4; border-radius: 12px; text-align: center; text-shadow: 0 1px 2px #000a; }
+.hud-results { max-height: 90vh; max-width: 92vw; overflow-y: auto; box-sizing: border-box; }
 .hud-results[hidden] { display: none; }
 .hud-results-title { font-size: 2.4rem; font-weight: 800; margin-bottom: 0.6rem; }
 .hud-results-title.victory { color: #ffd56a; }
 .hud-results-title.defeat { color: #ff7a6a; }
 .hud-results-row { display: flex; justify-content: space-between; gap: 2rem; font-size: 1rem; padding: 0.15rem 0; }
 .hud-results-row b { font-variant-numeric: tabular-nums; }
+.hud-build { margin-top: 0.7rem; padding-top: 0.5rem; border-top: 1px solid #fff3; }
+.hud-build-who { font-size: 0.8rem; opacity: 0.7; }
+.hud-build-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.2rem 0.8rem; margin-top: 0.2rem; }
+.hud-build-item { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.95rem; }
+.hud-build-item i { display: inline-block; width: 1.6rem; height: 1.6rem; }
+.hud-build-item.carried { font-size: 0.75rem; opacity: 0.75; }
+.hud-build-item.carried i { width: 1.1rem; height: 1.1rem; }
 .hud-results-note { margin: 0.8rem 0 0; font-size: 0.9rem; opacity: 0.85; max-width: 18rem; }
 .hud-menu { pointer-events: auto; position: absolute; left: 50%; bottom: max(0.8rem, env(safe-area-inset-bottom)); transform: translateX(-50%);
   width: 2.4rem; height: 2.4rem; border-radius: 50%; font-size: 1.1rem; color: #fff; background: #0007; border: 1px solid #fff6; cursor: pointer; opacity: 0.75; }
