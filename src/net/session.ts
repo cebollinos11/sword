@@ -46,7 +46,7 @@
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
-import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
+import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch, takeOverFighter } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
 import {
@@ -75,8 +75,8 @@ export const DEFAULT_TIMEOUT_TICKS = 300;
 export const TAKEOVER_DIFFICULTY = 'Normal';
 /**
  * The AI Controller that takes over Fighter `fighter` of a Player who left, at TAKEOVER_DIFFICULTY. In a Run it is an
- * Ally AI (walking to the Door the other Players stand at once a Hall is cleared): the Fighter stays one of the Run's
- * Players (`config.players`), so the Doors wait on it, and a plain AI would never walk there.
+ * Ally AI (it follows the party and walks to the Door the other Players stand at once a Hall is cleared). The Simulation
+ * knows the Fighter has left (`takeOverFighter`, applied at the takeover Tick), so the Doors do not wait on its walk.
  */
 export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchFormat, fighter: number): Controller {
   const difficulties = Object.keys(tuning.ai.difficulties);
@@ -471,7 +471,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.drop(link.peer, this.status === 'Running' ? this.confirmed[link.peer]! + 1 : 1);
   }
 
-  /** Player p left: the AI drives their Fighter from Tick `from` on (`takeoverAi`: in a Run, an Ally AI on their Team 0 slot for the rest of it; `config.humans` stays). */
+  /** Player p left: the AI drives their Fighter from Tick `from` on (`takeoverAi`: in a Run, an Ally AI on their Team 0 slot for the rest of it, the Fighter marked away in the Run from `from`; `config.humans` stays). */
   private drop(p: number, from: number): void {
     if (p === this.localPlayer) return this.disconnect('Dropped');
     if (p < 0 || p >= this.players || this.takeover[p] != null) return;
@@ -536,8 +536,11 @@ class Session implements RollbackSession, PeerIntentSource {
   // --- Simulation ---
 
   private simulateNext(): void {
-    const prev = this.state!;
-    const t = prev.tick + 1;
+    const t = this.state!.tick + 1;
+    // A takeover Tick marks the Fighter away in the Run on every peer (`takeOverFighter`: idempotent, so a Rollback past it, or a resync
+    // that already carries it, applies it again harmlessly), before this Tick's Intents, which the Controllers read it from.
+    let prev = this.state!;
+    for (let p = 0; p < this.players; p++) if (this.takeover[p] === t && this.fighterOf[p]! >= 0) prev = takeOverFighter(prev, this.fighterOf[p]!);
     const intents = this.playerOf.map((p, i) => {
       if (this.aiDrives(i, t)) {
         // A takeover starts every peer's AI from the same fresh memory, whatever it did in Ticks since re-simulated.

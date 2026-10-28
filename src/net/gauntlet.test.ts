@@ -12,7 +12,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, tuningDataHash, type DungeonEncounter, type TuningData } from '../tuning';
 import { createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, lineupPlayers, type Controller, type Lineup, type PlayerNumber } from '../controllers';
-import { arenaOf, createMatch, enemyMaxHp, exitDoor, hallOf, hallRoster, hashValue, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, runCleared, runHall, runPlayers, stepMatch, TICK_RATE, withGeneratedArena, type Intent, type MatchOptions, type MatchState } from '../sim';
+import { arenaOf, createMatch, enemyMaxHp, exitDoor, hallOf, hallRoster, hashValue, IDLE_INTENT, inDuel, inExitZone, MAX_TEAM_SIZE, presentPlayers, runCleared, runHall, runPlayers, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type MatchOptions, type MatchState } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { GuestLobby, HostLobby } from '../lobby';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -45,7 +45,7 @@ const walkOn: typeof stepMatch = (m, intents, t) => {
   if (m.run?.phase !== 'Cleared') return stepMatch(m, intents, t);
   const zone = arenaOf(t, m.arena).doors[exitDoor(0)]!.zone;
   const c = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
-  const players = runPlayers(m.config);
+  const players = presentPlayers(m.config, m.run.away);
   const fighters = m.duel.fighters.map((f, i) => (players.includes(i) && inDuel(f) ? { ...f, position: { x: c.x + 0.5 * ((i % 2) - 0.5), z: c.z + 0.5 * ((i >> 1) - 0.5) }, y: zone[0]!.y } : f));
   return stepMatch({ ...m, duel: { ...m.duel, fighters } }, intents, t);
 };
@@ -176,6 +176,8 @@ function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upT
   const clearedAt = new Map<number, number>();
   const startedAt = new Map<number, number>([[1, 0]]);
   for (let t = 1; t <= upTo; t++) {
+    // The Takeover Tick: the Fighter is marked away before that Tick's Intents, as the Rollback session does on every peer.
+    for (const [p, d] of taken) if (t === d.from) m = takeOverFighter(m, lineup.findIndex((s) => s.pilot.kind === 'Player' && s.pilot.player === p));
     const intents = lineup.map((slot, i) => {
       if (slot.pilot.kind !== 'Player') return (ais[i] as Controller).intent(m.duel, i);
       const p = slot.pilot.player;
@@ -444,27 +446,38 @@ function rewriteProtocol(m: unknown, protocol: number): unknown {
 }
 
 describe('the AI taking over a Player who left a Run', () => {
-  it('walks the Fighter to the Door the other Player stands at, so the Cleared Hall is left (the Doors wait on every Player)', () => {
+  it('leaves the Cleared Hall with the taken-over Fighter anywhere: the Doors no longer wait on it', () => {
     const tuning = peerTuning();
     const lineup = runLineup(2);
-    let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
-    expect(runPlayers(m.config)).toEqual([0, 1]);
-    const ais = lineupAis(tuning, lineup, 'Gauntlet', MATCH);
-    // Player 1 left: the takeover drives Fighter 1. Every enemy is felled, so the Hall is Cleared.
+    const start = (() => {
+      const m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
+      expect(runPlayers(m.config)).toEqual([0, 1]);
+      // Every enemy is felled, so the Hall is Cleared.
+      return { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };
+    })();
+    const arena = arenaOf(tuning, start.arena);
+    const zone = arena.doors[exitDoor(0)]!.zone;
+    const door = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
+    // Player 0 stands in exit 0's zone throughout; Fighter 1 stands where Team 1 started, at no Door.
+    const away = arena.spawns.find((sp) => sp.team === 1)!.position;
+    const wait = Math.ceil(tuning.dungeon.doorSeconds * TICK_RATE) + 10;
+    const hold = (m0: MatchState): MatchState => {
+      let m = m0;
+      for (let t = 0; t < wait && !m.events.some((e) => e.type === 'DoorTaken'); t++) {
+        m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, position: door, y: zone[0]!.y } : i === 1 ? { ...f, position: { x: away.x, z: away.z }, y: away.y } : f)) } };
+        m = stepMatch(m, lineup.map(() => IDLE_INTENT), tuning);
+      }
+      return m;
+    };
+    expect(arena.doors.slice(1).some((_, exit) => inExitZone(arena, exit, { position: { x: away.x, z: away.z }, y: away.y }))).toBe(false);
+    // While Player 1 is a Player, the Doors wait on it...
+    expect(hold(start).run!.phase).toBe('Cleared');
+    // ...and once the AI has taken it over, they do not: the Run leaves through exit 0.
+    const left = hold(takeOverFighter(start, 1));
+    expect(left.run!.phase).toBe('Leaving');
+    expect(left.events).toContainEqual(expect.objectContaining({ type: 'DoorTaken', exit: 0 }));
+    // Its Ally AI still follows the party (it reads the state, where the other Player is), and nothing about it holds the Run.
     const taken = takeoverAi(tuning, lineup, 'Gauntlet', 1);
-    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };
-    const zone = arenaOf(tuning, m.arena).doors[exitDoor(0)]!.zone;
-    const at = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
-    let left = false;
-    for (let t = 0; t < 30 * TICK_RATE && !left; t++) {
-      // Player 0 stands in exit 0's zone throughout.
-      m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, position: at, y: zone[0]!.y } : f)) } };
-      const intents = lineup.map((_, i) => (i === 0 ? IDLE_INTENT : i === 1 ? taken.intent(m.duel, i) : (ais[i] as Controller).intent(m.duel, i)));
-      m = stepMatch(m, intents, tuning);
-      left = m.events.some((e) => e.type === 'DoorTaken');
-    }
-    expect(left, 'the Run left the Hall').toBe(true);
-    expect(m.run!.phase).toBe('Leaving');
-    expect(m.events).toContainEqual(expect.objectContaining({ type: 'DoorTaken', exit: 0 }));
+    expect(() => taken.intent(left.duel, 1)).not.toThrow();
   }, 60_000);
 });
