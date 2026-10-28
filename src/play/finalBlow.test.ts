@@ -168,8 +168,8 @@ describe('Final Blow Shot', () => {
 
 describe('Final Blow Shot in a Hall: the Player is held', () => {
   /** A Hall whose enemies fall on the first Tick, run on past its shot with `wish` as the Player's (Team 0 slot 0) Intent, filtered by the shot as the game loop does. */
-  function hall(wish: Intent, seconds = 6) {
-    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+  function hall(wish: Intent, seconds = 6, local = 0) {
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, humans: local + 1, teams: local === 0 ? [0, 1, 1, 1, 1] : [0, 0, 1, 1, 1, 1] });
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
     const shot = new FinalBlowShot(camera);
     const states: MatchState[] = [];
@@ -183,7 +183,7 @@ describe('Final Blow Shot in a Hall: the Player is held', () => {
     for (let t = 0; t < seconds * TICK_RATE; t++) {
       const intent = shotIntent(shot, wish);
       sent.push(intent);
-      m = stepMatch(m, m.duel.fighters.map((_, i) => (i === 0 ? intent : IDLE_INTENT)), base);
+      m = stepMatch(m, m.duel.fighters.map((_, i) => (i === local ? intent : IDLE_INTENT)), base);
       states.push(m);
       shot.record(m, 0, doorTicksNeeded(base));
       for (const r of shot.frame(1 / TICK_RATE)?.reached ?? []) reached.push(r.tick);
@@ -202,6 +202,17 @@ describe('Final Blow Shot in a Hall: the Player is held', () => {
     // The held Ticks are one run, from the clear; the Player's wish follows once the shot is over.
     expect(sent.lastIndexOf(IDLE_INTENT) - sent.indexOf(IDLE_INTENT) + 1).toBe(held);
     expect(sent.at(-1)).toBe(wish);
+  });
+
+  it('holds the local Player when it is Fighter 1, whose Intent the session sends like any other', () => {
+    const { sent, states } = hall(wish, 6, 1);
+    expect(sent.filter((i) => i === IDLE_INTENT).length).toBeGreaterThan(0);
+    expect(sent.at(-1)).toBe(wish);
+    // Held, Fighter 1 stays where it stood; once released it walks.
+    const lastHeld = sent.lastIndexOf(IDLE_INTENT);
+    const start = states[0]!.duel.fighters[1]!.position;
+    expect(states[lastHeld]!.duel.fighters[1]!.position).toEqual(start);
+    expect(states.at(-1)!.duel.fighters[1]!.position).not.toEqual(start);
   });
 
   it('keeps the Player where it stood while held: the Simulation sees the same as from a Player who does nothing', () => {

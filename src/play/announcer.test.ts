@@ -123,3 +123,21 @@ describe('Run announcements', () => {
     expect(new MatchAnnouncer().update(rested, 1).some((x) => x.type === 'Rested')).toBe(false);
   });
 });
+
+describe('Rested and Fell are for the watched Fighter only', () => {
+  const run = (): MatchState => createMatch(tuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, humans: 2, teams: [0, 0, 1, 1, 1, 1] });
+  const kinds = (m: MatchState, me: number) => new MatchAnnouncer().update(m, me).map((e) => e.type);
+
+  it('announces Rested on the peer whose Player rested, not the other', () => {
+    const m = { ...run(), run: { ...run().run!, rested: [1] } };
+    expect(kinds(m, 1)).toContain('Rested');
+    expect(kinds(m, 0)).not.toContain('Rested');
+  });
+
+  it('announces Fell for the local Fighter only', () => {
+    const m = run();
+    const fallen = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 1 ? { ...f, hp: 0, death: { tick: 1 } as never } : f)) } };
+    expect(kinds(fallen, 1)).toContain('Fell');
+    expect(kinds(fallen, 0)).not.toContain('Fell');
+  });
+});

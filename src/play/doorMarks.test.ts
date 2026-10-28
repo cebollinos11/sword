@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { arenaOf, createMatch, exitDoor, hallBehind, hallOf, inDuel, IDLE_INTENT, MAX_TEAM_SIZE, runHall, stepMatch, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
-import { doorMarkView, doorRun } from './doorMarks';
+import { doorMarkView, doorParty, doorRun } from './doorMarks';
 
 describe('doorMarkView', () => {
   const exits = [{ exit: 0, kind: 'Elite' as const }, { exit: 1, kind: 'Fight' as const, floor: 2 }];
@@ -66,5 +66,34 @@ describe('doorRun', () => {
 
   it('is none in a Duel', () => {
     expect(doorRun(createMatch(tuning, { format: 'Duels', arena: ARENA, bestOf: 1, humans: 1, teams: [0, 1] }), tuning)).toBeNull();
+  });
+});
+
+describe('the Door count with two Players', () => {
+  const tuning = loadTuningData();
+  const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
+  const run = () => {
+    const m = createMatch(tuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, humans: 2, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+    return stepMatch({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } }, idle(m), tuning);
+  };
+  const inZone = (m: MatchState, i: number, exit: number): MatchState => {
+    const zone = arenaOf(tuning, m.arena).doors[exitDoor(exit)]!.zone;
+    const at = { x: zone.reduce((s, p) => s + p.x, 0) / zone.length, z: zone.reduce((s, p) => s + p.z, 0) / zone.length };
+    return { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? { ...f, position: at, y: zone[0]!.y } : f)) } };
+  };
+  const count = (m: MatchState) => {
+    const d = doorRun(m, tuning)!;
+    return doorMarkView(m.duel.hall, d.exits, d.players).find((v) => v.exit === 1)!.count;
+  };
+
+  it('names who counts through one function: the Run’s Players still in the Duel', () => {
+    expect(doorParty(run())).toEqual([0, 1]);
+  });
+
+  it('reads "1 / 2" with only Fighter 1 (the second Player) in the zone, then "2 / 2"', () => {
+    let m = inZone(run(), 1, 1);
+    expect(count(m)).toBe('1 / 2');
+    m = inZone(m, 0, 1);
+    expect(count(m)).toBe('2 / 2');
   });
 });
