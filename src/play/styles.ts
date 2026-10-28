@@ -27,7 +27,7 @@ const CSS = `
 .hud-slow { margin-left: 0.5rem; font-size: 0.7rem; font-weight: 700; color: #ffb060; text-shadow: 0 1px 2px #000a; opacity: 0; transition: opacity 150ms; }
 .hud-slow.visible { opacity: 1; }
 .hud-centre { text-align: center; text-shadow: 0 1px 3px #000a; min-width: 7rem; }
-.hud-score { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hud-score { font-size: clamp(1rem, 4.6vw, 1.8rem); white-space: nowrap; font-weight: 700; font-variant-numeric: tabular-nums; }
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }
