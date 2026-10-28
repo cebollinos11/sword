@@ -1,7 +1,8 @@
-import { hallRoster, runHall, type MatchState } from '../sim';
+import { arenaOf, doorCounters, exitDoor, FLOOR_ROWS, hallBehind, hallOf, hallRoster, inExitZone, runHall, secondsToTicks, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
+import { doorwayMiddle } from '../render/doorway';
 import { ensurePlayStyles } from './styles';
 
 /** What the HUD needs to know about whose eyes it shows the Match through. */
@@ -16,13 +17,18 @@ export interface HudView {
   readonly names?: readonly string[] | null;
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
   readonly tuning?: TuningData;
+  /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the Door labels. */
+  readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
 
 /** What the results screen shows at a Run's end. */
 export interface RunResult {
   readonly victory: boolean;
+  /** Floors cleared (their Boss beaten). */
   readonly cleared: number;
   readonly floors: number;
+  /** Halls cleared, Bosses included. */
+  readonly halls: number;
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
   readonly seconds: number;
   readonly seed: number;
@@ -34,9 +40,79 @@ export function runTime(seconds: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-/** The Floor banner of a Run: `Floor 3 / 7 · seed N`, and `Boss` on the last. */
-export function floorBanner(floor: number, floors: number, seed: number): string {
-  return `${floor === floors ? 'Boss · ' : ''}Floor ${floor} / ${floors} · seed ${seed}`;
+/** Where a Run's party stands, for the HUD: its Floor (1-based) and the Hall's row (0-based, FLOOR_ROWS − 1 the Boss). */
+export interface HallAt {
+  readonly floor: number;
+  readonly row: number;
+}
+
+/** A Hall's banner as the party enters it: `Floor 2 · Hall 3 / 5 · seed N` (Hall counted by row), the Boss's `Boss · Floor 2 / 3`. */
+export function hallBanner(at: HallAt, floors: number, seed: number): string {
+  return at.row === FLOOR_ROWS - 1 ? `Boss · Floor ${at.floor} / ${floors}` : `${hallScore(at, floors)} · seed ${seed}`;
+}
+
+/** Where the party stands, under the top of the screen: `Floor 2 · Hall 3 / 5`, the Boss's `Boss · Floor 2 / 3`. */
+export function hallScore(at: HallAt, floors: number): string {
+  return at.row === FLOOR_ROWS - 1 ? `Boss · Floor ${at.floor} / ${floors}` : `Floor ${at.floor} · Hall ${at.row + 1} / ${FLOOR_ROWS}`;
+}
+
+/** An exit Door's label: the kind of Hall behind it, and while the party gathers in its zone how many of those who count stand there (`2 / 3`). */
+export function doorLabel(kind: string, gathered: number, party: number): string {
+  return gathered > 0 ? `${kind} · ${gathered} / ${party}` : kind;
+}
+
+/** A Run's end in one line (the Lobby's note after it): verdict, Floors and Halls cleared, time and seed. */
+export function runResultLine(r: RunResult): string {
+  const halls = `${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`;
+  return `${r.victory ? 'Victory' : 'Defeat'} · ${r.cleared} / ${r.floors} Floors · ${halls} · ${runTime(r.seconds)} · Run seed ${r.seed}`;
+}
+
+/** How high over a Door zone's ground (m) its label floats: above the doorway. */
+const DOOR_LABEL_HEIGHT = 2.7;
+
+/** An exit Door's label: where it floats (over the doorway), its text, and whether the Door is open (the Hall Cleared). */
+export interface DoorMark {
+  /** The exit (0-based, as `Hall.exits`; Arena Door `exit + 1`). */
+  readonly exit: number;
+  readonly at: { readonly x: number; readonly y: number; readonly z: number };
+  readonly text: string;
+  readonly open: boolean;
+}
+
+/**
+ * The labels over a Run's current Hall's exit Doors: each names the Hall behind it (a Boss Hall's, the next Floor), and once
+ * the Hall is Cleared counts the party gathering in its zone (`doorCounters`, as the Simulation counts). None in Duels.
+ */
+export function doorMarks(match: MatchState, tuning: TuningData): DoorMark[] {
+  const run = match.run;
+  if (!run || match.status.status === 'Over') return [];
+  const arena = arenaOf(tuning, match.duel.arena);
+  const fighters = match.duel.fighters;
+  const open = run.phase !== 'Fighting';
+  const counting = open ? doorCounters(match.config, fighters) : [];
+  return hallOf(tuning, match.config.arena, runHall(run)).exits.flatMap((_, exit): DoorMark[] => {
+    const door = arena.doors[exitDoor(exit)];
+    const to = hallBehind(tuning, match.config, run, exit);
+    if (!door || !to) return [];
+    const kind = to.floor > run.floor ? `Floor ${to.floor}` : hallOf(tuning, match.config.arena, to).kind;
+    const gathered = counting.filter((i) => inExitZone(arena, exit, fighters[i]!)).length;
+    // Over the doorway (the Wall its zone stands before).
+    const middle = doorwayMiddle(door);
+    const at = { x: middle.x, y: middle.y + DOOR_LABEL_HEIGHT, z: middle.z };
+    return [{ exit, at, text: doorLabel(kind, gathered, counting.length), open }];
+  });
+}
+
+/**
+ * How dark the screen is for the fade between Halls, 0 to 1: rising over `dungeon.hallFadeSeconds` once a Door is taken
+ * (fully dark on the fade's last Tick), then falling over as long as the next Hall starts. 0 in Duels and a Run's first Hall.
+ */
+export function hallFade(match: MatchState, tuning: TuningData): number {
+  if (!match.run) return 0;
+  const ticks = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+  if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (ticks - (match.nextDuelTick - match.tick) + 1) / ticks));
+  if (match.duelNumber === 1) return 0;
+  return Math.max(0, 1 - match.duel.tick / ticks);
 }
 
 /** A Fighter's short HUD label: "You", the other human Player by name, an AI by difficulty, or a Run's enemy by its Hall's Encounter's difficulty ("Boss" for a Boss). */
@@ -60,8 +136,9 @@ const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')
  * (Directions are read from poses). Your team stands on the left (you first),
  * the enemy team on the right, each bar in its Fighter's colour with a short
  * label, filled to its own max HP; the score reads your team's Duels first (in a
- * Run, the Floor). A Benched Fighter has no bar. A short transient banner
- * announces Duels (or Floors) and the Match result; a Run ends on a results screen.
+ * Run, the Floor and Hall). A Benched Fighter has no bar. A short transient banner
+ * announces Duels (or Halls) and the Match result; a Run ends on a results screen.
+ * In a Run, a label floats over each exit Door, and the screen fades to black between Halls.
  */
 export class Hud {
   readonly root = document.createElement('div');
@@ -76,6 +153,10 @@ export class Hud {
   private readonly crosshair = document.createElement('div');
   private readonly menu = document.createElement('button');
   private readonly results = document.createElement('div');
+  /** A Run's Door labels (one element per exit, reused) and the black of the fade between Halls. */
+  private readonly doorLayer = document.createElement('div');
+  private doorTags: HTMLElement[] = [];
+  private readonly fade = document.createElement('div');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
@@ -114,7 +195,9 @@ export class Hud {
     bars.forEach((bar, i) => (bar.className = `hud-letterbox hud-letterbox-${i}`));
     this.results.className = 'hud-results';
     this.results.hidden = true;
-    this.root.append(...bars, this.top, this.banner, this.stats, this.crosshair, this.menu, this.results);
+    this.doorLayer.className = 'hud-doors';
+    this.fade.className = 'hud-fade';
+    this.root.append(this.fade, this.doorLayer, ...bars, this.top, this.banner, this.stats, this.crosshair, this.menu, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -131,7 +214,7 @@ export class Hud {
   }
 
   /**
-   * The results screen at a Run's end: Victory or Defeat, Floors cleared, the Run time and the Run seed (to replay or
+   * The results screen at a Run's end: Victory or Defeat, Floors and Halls cleared, the Run time and the Run seed (to replay or
    * share). `note`: what comes next, online (the host's Restart or the Lobby), under it.
    */
   showResults(r: RunResult, note?: string): void {
@@ -148,7 +231,7 @@ export class Hud {
     const title = document.createElement('div');
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
-    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Halls cleared', String(r.halls)), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -193,7 +276,9 @@ export class Hud {
     const mine = match.duel.fighters[me];
     this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
-    this.score.textContent = match.run ? `Floor ${match.run.floor} / ${match.run.floors}` : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.updateDoors(match, view);
+    this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
     const now = performance.now();
     if (now - this.statsAt >= 500) {
@@ -206,6 +291,26 @@ export class Hud {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;
     }
+  }
+
+  /** A Run's labels over its exit Doors, where the camera sees them (placeholder for Stage 3's Door marks). */
+  private updateDoors(match: MatchState, view: HudView): void {
+    const marks = view.project ? doorMarks(match, this.matchTuning ?? this.tuning) : [];
+    while (this.doorTags.length < marks.length) {
+      const tag = document.createElement('div');
+      tag.className = 'hud-door';
+      this.doorLayer.append(tag);
+      this.doorTags.push(tag);
+    }
+    this.doorTags.forEach((tag, i) => {
+      const mark = marks[i];
+      const at = mark && view.project!(mark.at);
+      tag.hidden = !at;
+      if (!mark || !at) return;
+      if (tag.textContent !== mark.text) tag.textContent = mark.text;
+      tag.classList.toggle('open', mark.open);
+      tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
+    });
   }
 
   /** The local Player's row under their HP bar: a small icon per dagger and a tag shown while a dagger Hit slows them. */

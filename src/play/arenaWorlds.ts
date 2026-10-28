@@ -1,8 +1,13 @@
-import { arenaOf, hallBehind, hallOf, navMesh, nextArenaName, takenExit, withGeneratedArena, type Layout, type MatchState } from '../sim';
+import { arenaOf, hallBehind, hallOf, navMesh, nextArenaName, runHall, secondsToTicks, takenExit, withGeneratedArena, type Layout, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 
-/** Random Maps built lately, kept so a restart or the scene behind the menus does not generate them again. */
-const KEPT_WORLDS = 4;
+/**
+ * Random Maps built lately (most recently used kept), so a restart or the scene behind the menus does not generate them
+ * again: a Run's Hall and its up to three exits warmed ahead fit, as in the Simulation's own cache of Generated Arenas.
+ */
+const KEPT_WORLDS = 8;
+/** A Run's exit Halls wait for the Final Blow Shot to end, unless the next Hall starts within this (seconds). */
+export const WARM_LEAD_SECONDS = 1.5;
 
 /** The Tuning Data a Match on an Arena is played with, and a Random Map's Layout (to draw it from its Kit's model). */
 export interface ArenaWorld {
@@ -20,11 +25,14 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
   const worlds = new Map<string, ArenaWorld>();
   return (name) => {
     let world = worlds.get(name);
-    if (!world) {
+    if (world) {
+      // Used again: kept the longest (the Hall drawn every frame is never dropped for the exits warmed after it).
+      worlds.delete(name);
+    } else {
       world = withGeneratedArena(tuning, name);
-      worlds.set(name, world);
-      if (worlds.size > KEPT_WORLDS) worlds.delete(worlds.keys().next().value!);
+      if (worlds.size >= KEPT_WORLDS) worlds.delete(worlds.keys().next().value!);
     }
+    worlds.set(name, world);
     return world;
   };
 }
@@ -43,6 +51,34 @@ export function arenaToWarm(match: MatchState, tuning: TuningData): string | nul
   if (match.status.status !== 'Over' || match.config.rematchTicks === null) return null;
   const next = nextArenaName(match.arena);
   return next === match.arena ? null : next;
+}
+
+/**
+ * Every Arena the game should build ahead for this Match state: in a Run, once the Hall is Cleared, every exit's Hall's
+ * (Hall.exits order; while Leaving the taken Door's first), so the Hall change only reads the caches whichever Door the
+ * party takes; in Duels, `arenaToWarm`'s. Empty while a Hall is fought, and once the Run is over.
+ */
+export function arenasToWarm(match: MatchState, tuning: TuningData): string[] {
+  const run = match.run;
+  if (!run) {
+    const next = arenaToWarm(match, tuning);
+    return next === null ? [] : [next];
+  }
+  if (run.phase === 'Fighting' || match.status.status === 'Over') return [];
+  const exits = hallOf(tuning, match.config.arena, runHall(run)).exits.map((_, exit) => exit);
+  const taken = takenExit(run, tuning);
+  const order = taken === null ? exits : [taken, ...exits.filter((e) => e !== taken)];
+  return order.map((exit) => hallOf(tuning, match.config.arena, hallBehind(tuning, match.config, run, exit)!).arena);
+}
+
+/**
+ * Whether building ahead waits for now: a Run's exits wait for the Final Blow Shot (`shotPlaying`) to end, as v1 did
+ * (building takes a few hundred ms, which the slowed replay would show), unless the next Hall starts within
+ * WARM_LEAD_SECONDS. A Door is taken no sooner than `doorSeconds` after the party starts gathering, which covers it.
+ */
+export function warmingWaits(match: MatchState, shotPlaying: boolean): boolean {
+  if (!match.run || !shotPlaying) return false;
+  return match.nextDuelTick === null || match.nextDuelTick - match.tick > secondsToTicks(WARM_LEAD_SECONDS);
 }
 
 /**

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { isArenaName, withGeneratedArena } from '../sim';
 import { newLobby, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, mapSeed, offeredFormats, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
+import { arenaLabel, dungeonCard, mapSeed, offeredFormats, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -26,9 +26,18 @@ describe('the Lobby view in Gauntlet', () => {
   const skirmish = (arena: string): LobbyState =>
     newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena, bestOf: 3 }, online: false, ai: { difficulty: 'Normal', weapon } });
 
-  it('offers the Format toggle in a Skirmish and online (online co-op, docs/plans/gauntlet.md Stage 4)', () => {
+  it('offers the Format toggle in a Skirmish only: online stays Duels until the Dungeon\'s co-op (docs/plans/dungeon.md Stage 4)', () => {
     expect(offeredFormats(false)).toEqual(['Duels', 'Gauntlet']);
-    expect(offeredFormats(true)).toEqual(['Duels', 'Gauntlet']);
+    expect(offeredFormats(true)).toEqual(['Duels']);
+  });
+
+  it('describes the Dungeon on the Floors card: its Floors of Halls, the Doors and the Boss', () => {
+    expect(tuning.dungeon.floors).toHaveLength(3);
+    const card = dungeonCard(tuning);
+    expect(card.count).toBe('3 Floors of Halls');
+    expect(card.note).toMatch(/^A Dungeon of 3 Floors, each a map of Halls from an entrance to a Boss\. /);
+    expect(card.note).toContain('stand at a Door together');
+    expect(dungeonCard({ dungeon: { ...tuning.dungeon, floors: tuning.dungeon.floors.slice(0, 1) } }).count).toBe('1 Floor of Halls');
   });
 
   it('in Duels shows both teams, every Map, Best of N and the next seed', () => {

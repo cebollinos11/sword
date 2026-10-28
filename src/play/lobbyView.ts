@@ -100,9 +100,12 @@ function pickSeed(): number {
   return Math.floor(Math.random() * ARENA_SEED_RANGE);
 }
 
-/** The Formats the Lobby offers: both, in a Skirmish and online (a Run online is co-op: every Player on Team 0). */
-export function offeredFormats(_online: boolean): readonly MatchFormat[] {
-  return MATCH_FORMATS;
+/**
+ * The Formats the Lobby offers: both in a Skirmish; online only Duels, until the Dungeon's online co-op
+ * (docs/plans/dungeon.md, Stage 4: a Run online is co-op, every Player on Team 0).
+ */
+export function offeredFormats(online: boolean): readonly MatchFormat[] {
+  return online ? ['Duels'] : MATCH_FORMATS;
 }
 
 /** Why a Format the Lobby offers cannot be picked now (shown under the toggle), or null: e.g. a Gauntlet with four Players. */
@@ -197,15 +200,24 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   return card;
 }
 
-/** In a Gauntlet, Team 1's place: the Floors the Run fights through. */
+/** What the Gauntlet's Floors card says: how big the Dungeon is, and how a Run walks it. */
+export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly count: string; readonly note: string } {
+  const floors = tuning.dungeon.floors.length;
+  return {
+    count: `${floors} ${floors === 1 ? 'Floor' : 'Floors'} of Halls`,
+    note:
+      `A Dungeon of ${floors} ${floors === 1 ? 'Floor' : 'Floors'}, each a map of Halls from an entrance to a Boss. ` +
+      `Clear a Hall, then stand at a Door together to go on: each Door names the Hall behind it (a Fight, an Elite, a Treasure or a Rest). ` +
+      `Beat a Floor's Boss to go down. HP carries over; a Rest Hall's fire heals, and fallen allies return in the next Hall.`,
+  };
+}
+
+/** In a Gauntlet, Team 1's place: the Dungeon the Run walks. */
 function floorsCard(ctx: LobbyViewContext): HTMLElement {
   const card = h('div', 'lb-team lb-team-1');
   card.style.setProperty('--team', hex(teamColour(1, 0)));
-  const floors = ctx.tuning.dungeon.floors.length;
-  card.append(
-    h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', `${floors} ${floors === 1 ? 'Floor' : 'Floors'}`)),
-    h('p', 'lb-note', `Each Floor is a map of Halls: clear a Hall, then stand at a Door together to choose the next. Beat each Floor's Boss to go down. HP carries over; fallen allies return in the next Hall.`),
-  );
+  const { count, note } = dungeonCard(ctx.tuning);
+  card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
   return card;
 }
 

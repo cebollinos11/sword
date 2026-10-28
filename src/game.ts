@@ -6,12 +6,12 @@ import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
 import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
-import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
+import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
-import { floorBanner, Hud, runTime, type RunResult } from './play/hud';
+import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { FinalBlowShot } from './play/finalBlow';
@@ -37,8 +37,8 @@ const MAX_TICKS_PER_FRAME = 8;
 const RESULT_SECONDS = 2.5;
 /** How long a Run's results screen stays up, after its Final Blow Shot, before the Lobby returns (seconds, cosmetic). */
 const RUN_RESULT_SECONDS = 6;
-/** A Run's next Floor is built ahead at the latest this long before it starts (seconds), even while the Final Blow Shot plays. */
-const WARM_LEAD_SECONDS = 1.5;
+/** A Run's exit Halls are built one at a time this far apart (ms), so no one frame takes all of them. */
+const WARM_STAGGER_MS = 120;
 /** Online: how long after a Match ends a fresh one starts (part of the Match options, so both peers agree). */
 const REMATCH_SECONDS = 5;
 /** How often the Lobby gets its heartbeats and timeouts (ms). */
@@ -175,9 +175,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let playing = 0;
   /** The Arena of the Match played last in this Lobby (online a Rematch moves it on), or null: a Random Map's next Match follows on from it. */
   let played: string | null = null;
-  /** The Tuning Data the Match is played with, and the Arena last built ahead for it (a Rematch's or the next Floor's). */
+  /** The Tuning Data the Match is played with, and the Arenas built ahead for it (a Rematch's, or a Run's exit Halls'). */
   let matchTuning = tuning;
-  let warmed: string | null = null;
+  let warmed = new Set<string>();
   /** The Skirmish setup, kept for the next Skirmish. */
   let skirmish: HostLobby | null = null;
   let room: HostedRoom | null = null;
@@ -234,8 +234,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet (a new Room in it opens every Seat beside the host) on its Random Map, or a fresh one.
-    const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
+    // The Format picked last: a Gauntlet on its Random Map, or a fresh one; a Skirmish only until the Dungeon's online co-op (Stage 4).
+    const gauntlet = savedFormat === 'Gauntlet' && !online && Object.keys(tuning.kits).length > 0;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
@@ -311,19 +311,20 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Build the next Arena ahead (`arenaToWarm`), with its navmesh for the Match's Tuning Data: an online Match's Rematch's
-   * while the result shows, or a Run's next Hall's in the fade after its Door is taken, so the Tick that moves onto it
-   * (and any Rollback re-simulating it) only reads the cache. Building takes a few hundred ms, so a Run's waits for the
-   * Final Blow Shot to end, unless the next Hall is close.
+   * Build the next Arenas ahead (`arenasToWarm`), with their navmeshes for the Match's Tuning Data: an online Match's
+   * Rematch's while the result shows, or every exit Hall's once a Run's Hall is Cleared, so the Tick that moves onto
+   * one (and any Rollback re-simulating it) only reads the cache whichever Door the party takes. Building takes a few
+   * hundred ms each, so a Run's waits for the Final Blow Shot to end, unless the next Hall is close (`warmingWaits`).
    */
   function warmNextArena(match: MatchState): void {
-    const next = arenaToWarm(match, matchTuning);
-    if (next === null || next === warmed) return;
-    if (match.run && inShot && match.nextDuelTick !== null && match.nextDuelTick - match.tick > secondsToTicks(WARM_LEAD_SECONDS)) return;
-    warmed = next;
+    const next = arenasToWarm(match, matchTuning).filter((name) => !warmed.has(name));
+    if (next.length === 0 || warmingWaits(match, inShot)) return;
     const t = matchTuning;
-    // After this frame, so the result (or the new Floor) is on screen first.
-    setTimeout(() => warmArena(arenaWorld, t, next), 0);
+    // After this frame, so the result (or the cleared Hall) is on screen first; one at a time, the taken Door's first.
+    next.forEach((name, k) => {
+      warmed.add(name);
+      setTimeout(() => warmArena(arenaWorld, t, name), k * WARM_STAGGER_MS);
+    });
   }
 
   /** Start Match `s.generation`: against the AI locally, or through a Rollback session with the other players (the host links to every guest; a guest to the host). */
@@ -336,7 +337,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
     matchTuning = runTuning(arenaWorld(arena).tuning, s.settings);
-    warmed = null;
+    warmed = new Set();
     setPlayed(arena);
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
@@ -543,13 +544,21 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const run = match.run;
     for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
-        // A Run's Floor lost or its last cleared ends the Run: the results screen says so.
-        if (run && (e.winner !== 0 || run.floor === run.floors)) continue;
-        hud.announce(run ? 'Floor cleared' : e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
+        // A Run's Duel ends only with the Run (a wipe, or the last Boss): the results screen says so.
+        if (run) continue;
+        hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
+      } else if (e.type === 'HallCleared') {
+        // A Hall with no Encounter (Treasure, Rest) is open from the start: its banner said what it is. The last Boss ends the Run.
+        if (match.status.status === 'Over' || e.kind === 'Treasure' || e.kind === 'Rest') continue;
+        hud.announce('Hall cleared', 2);
+      } else if (e.type === 'Rested') {
+        hud.announce('Rested', 1.5);
       } else if (e.type === 'DuelStart') {
         const seed = parseGeneratedName(match.arena)?.seed;
         if (run) {
-          hud.announce(floorBanner(run.floor, run.floors, runSeed(match.config.arena)), 2.5);
+          const kind = match.duel.hall?.kind;
+          const banner = hallBanner(run, run.floors, runSeed(match.config.arena));
+          hud.announce(kind === 'Treasure' || kind === 'Rest' ? `${kind} · ${banner}` : banner, 2.5);
           aimAtDuelStart(match);
           continue;
         }
@@ -561,14 +570,16 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         hud.announce('You fell', 1.5);
       } else if (e.type === 'MatchEnd' && run && match.status.status === 'Over') {
         // The Run's results screen follows the Final Blow Shot (see the loop), then the Lobby.
+        const cleared = runCleared(run);
         runResult = {
           victory: e.winner === myTeam,
-          cleared: runCleared(run).floors,
+          cleared: cleared.floors,
           floors: run.floors,
+          halls: cleared.halls,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
         };
-        resultText = `${runResult.victory ? 'Victory' : 'Defeat'} · ${runResult.cleared} / ${run.floors} Floors cleared · ${runTime(runResult.seconds)} · Run seed ${runResult.seed}`;
+        resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd') {
         const verdict = e.winner === myTeam ? 'Victory' : 'Defeat';
         const score = `${match.score[myTeam]} – ${match.score[1 - myTeam]}`;
@@ -613,7 +624,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // Not a fieldable Lineup (yet): keep the last scene.
       }
     }
-    // A Run's Floor 1 enemies wear their own Bodies.
+    // A Run's first Hall's enemies wear their own Bodies.
     return { match: preview, me, bodies: seated ? fighterBodies(tuning, seated.lineup, seated.bodies, preview) : [] };
   }
 
@@ -712,7 +723,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning });
+      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
     } else {
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { arenaOf, createMatch, DEFAULT_GEN_PARAMS, exitDoor, generateArena, GREYBOX_KIT, hallBehind, hallOf, IDLE_INTENT, inDuel, navMesh, parseGeneratedName, stepMatch, type MatchState } from '../sim';
-import { arenaToWarm, createArenaWorlds, warmArena } from './arenaWorlds';
+import { arenasToWarm, arenaToWarm, createArenaWorlds, warmArena, warmingWaits } from './arenaWorlds';
 
 describe('the Arena the Renderer draws, by the Match state’s Arena name', () => {
   const tuning = loadTuningData();
@@ -37,12 +37,16 @@ describe('the Arena worlds across a Run’s Hall change', () => {
   const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
   /** A Run on `gen:greybox:12`, Team 0 one Fighter. */
   const start = (matchTuning: typeof tuning) => createMatch(matchTuning, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
-  /** Fell every enemy, then stand Fighter 0 in exit 0's zone until the party takes it (the fade has begun). */
-  function takeDoor(m: MatchState, matchTuning: typeof tuning): MatchState {
+  /** Fell every enemy and step once: the Hall is Cleared. */
+  function clear(m: MatchState, matchTuning: typeof tuning): MatchState {
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };
-    m = stepMatch(m, idle(m), matchTuning);
+    return stepMatch(m, idle(m), matchTuning);
+  }
+  /** Clear the Hall if need be, then stand Fighter 0 in exit `exit`'s zone until the party takes it (the fade has begun). */
+  function takeDoor(m: MatchState, matchTuning: typeof tuning, exit = 0): MatchState {
+    if (m.run!.phase === 'Fighting') m = clear(m, matchTuning);
     expect(arenaToWarm(m, matchTuning)).toBeNull();
-    const zone = arenaOf(matchTuning, m.arena).doors[exitDoor(0)]!.zone;
+    const zone = arenaOf(matchTuning, m.arena).doors[exitDoor(exit)]!.zone;
     const at = { x: zone.reduce((s, p) => s + p.x, 0) / zone.length, z: zone.reduce((s, p) => s + p.z, 0) / zone.length };
     while (m.run!.phase === 'Cleared') {
       m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, position: at, y: zone[0]!.y } : f)) } };
@@ -87,12 +91,58 @@ describe('the Arena worlds across a Run’s Hall change', () => {
     expect(arenaToWarm(m, matchTuning)).toBeNull();
   });
 
+  it('once the Hall is Cleared and the Final Blow Shot is over, warms every exit; the Hall change reads them whichever Door is taken', () => {
+    const exits = hallOf(tuning, 'gen:greybox:12', { floor: 1, row: 0, index: 0 }).exits;
+    expect(exits.length).toBeGreaterThan(1);
+    for (const exit of exits.keys()) {
+      const world = createArenaWorlds(tuning);
+      const matchTuning = world('gen:greybox:12').tuning;
+      let m = start(matchTuning);
+      // Nothing while the Hall is fought.
+      expect(arenasToWarm(m, matchTuning)).toEqual([]);
+      m = clear(m, matchTuning);
+      expect(m.run!.phase).toBe('Cleared');
+      const names = exits.map((_, k) => hallOf(matchTuning, 'gen:greybox:12', hallBehind(matchTuning, m.config, m.run!, k)!).arena);
+      expect(new Set(names).size).toBe(exits.length);
+      expect(arenasToWarm(m, matchTuning)).toEqual(names);
+      // The game waits for the Final Blow Shot, and builds as soon as it is over.
+      expect(warmingWaits(m, true)).toBe(true);
+      expect(warmingWaits(m, false)).toBe(false);
+      for (const name of arenasToWarm(m, matchTuning)) warmArena(world, matchTuning, name);
+      const ahead = names.map((name) => ({ arena: arenaOf(matchTuning, name), world: world(name) }));
+      const meshes = ahead.map((a) => navMesh(a.arena, matchTuning));
+
+      m = takeDoor(m, matchTuning, exit);
+      expect(m.run!.phase).toBe('Leaving');
+      // While Leaving, the taken Door's Hall comes first.
+      expect(arenasToWarm(m, matchTuning)[0]).toBe(names[exit]);
+      while (m.duelNumber === 1) m = stepMatch(m, idle(m), matchTuning);
+      expect(m.arena).toBe(names[exit]);
+      expect(arenaOf(matchTuning, m.duel.arena)).toBe(ahead[exit]!.arena);
+      expect(navMesh(arenaOf(matchTuning, m.duel.arena), matchTuning)).toBe(meshes[exit]);
+      expect(world(m.duel.arena)).toBe(ahead[exit]!.world);
+      // The new Hall is fought: nothing more to build until it is cleared.
+      expect(arenasToWarm(m, matchTuning)).toEqual([]);
+    }
+  });
+
+  it('keeps the Hall being drawn while its exits are warmed after it', () => {
+    const world = createArenaWorlds(tuning);
+    const hall = world('gen:greybox:7:d4');
+    for (let seed = 100; seed < 112; seed++) {
+      world(`gen:greybox:${seed}:d2`);
+      // The Renderer asks for the Hall it draws every frame.
+      expect(world('gen:greybox:7:d4')).toBe(hall);
+    }
+  });
+
   it('warms nothing once the Run is over', () => {
     const matchTuning = createArenaWorlds(tuning)('gen:greybox:12').tuning;
     let m = start(matchTuning);
     m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 0 ? { ...f, hp: 0 } : f)) } };
     while (m.status.status === 'InProgress') m = stepMatch(m, idle(m), matchTuning);
     expect(arenaToWarm(m, matchTuning)).toBeNull();
+    expect(arenasToWarm(m, matchTuning)).toEqual([]);
   });
 
   it('in Duels warms only a Rematch’s next Random Map, while the result shows', () => {
