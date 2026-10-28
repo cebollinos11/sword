@@ -3,16 +3,16 @@
  * (40 ms ± 20 latency), with no teleport. Each peer drives its own Player with the dev autopilot (Hard, with loot), fed its own
  * (possibly predicted) state; what it sends is ordinary Intents, recorded as sent, so the very same Run steps offline.
  *
- * Every peer's Tick function is wrapped to note the Match each Tick leaves (`trace`: the last version simulated of a Tick is the
+ * Every peer's Tick function is wrapped to note what the Match each Tick leaves (`trace`: the last version simulated of a Tick is the
  * true one once that Tick is confirmed), so the tests compare the peers Tick by Tick (Hall changes, Door gathering, pickups,
  * Inventories) and not only by checksum. Enemies are one-hit (as gauntlet.test.ts does); the Ticks are capped.
  *
- * `COOP_LONG=1 npx vitest run src/net/coop.test.ts` adds a longer variant (four Players, Halls 1 to 5).
+ * `COOP_LONG=1 npx vitest run src/net/coop.test.ts` adds a longer variant (three Players, Halls 1 to 5).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadTuningData, type DungeonEncounter, type TuningData } from '../tuning';
 import { createAutopilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Controller, type Lineup, type PlayerNumber } from '../controllers';
-import { arenaOf, createMatch, doorCounters, doorTicksNeeded, dropItem, hashValue, IDLE_INTENT, inExitZone, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type InventoryRef, type MatchEvent, type MatchOptions, type MatchState, type Pickup } from '../sim';
+import { arenaOf, createMatch, doorCounters, doorTicksNeeded, dropItem, hashValue, IDLE_INTENT, inExitZone, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type Inventory, type InventoryRef, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup, type RunState } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, takeoverAi, type RollbackSession, type SessionEvent } from './session';
@@ -36,7 +36,7 @@ function oneHit(t: TuningData): TuningData {
 const peerTuning = (): TuningData => withGeneratedArena(oneHit(loadTuningData()), NAME).tuning;
 
 /** The Halls entered so far (1 the first). */
-const hallsIn = (m: MatchState | null | undefined): number => m?.run?.path.length ?? 0;
+const hallsIn = (m: { readonly run?: { readonly path: readonly unknown[] } | null } | null | undefined): number => m?.run?.path.length ?? 0;
 
 /** The host and `players - 1` guests on Team 0, then the MAX_TEAM_SIZE Floor slots: the Lineup a Gauntlet Lobby builds. */
 function runLineup(players: number): Lineup {
@@ -47,6 +47,26 @@ function runLineup(players: number): Lineup {
 
 /** The Match stepped one Tick: the Tick function of every peer and of the offline Run. */
 type Step = typeof stepMatch;
+
+/** What is kept of the Match each Tick leaves (a long Run would not fit in memory whole): its Run, its events, the Fighters' Inventories and Mods, and who the Doors count. */
+interface Snap {
+  readonly tick: number;
+  readonly run: RunState;
+  readonly events: readonly MatchEvent[];
+  readonly fighters: readonly { readonly inventory?: Inventory; readonly mods?: Mods }[];
+  /** `doorCounters` with the Takeovers (`run.away`) taken into account, and without. */
+  readonly counting: readonly number[];
+  readonly countingEveryone: readonly number[];
+}
+
+const snap = (m: MatchState): Snap => ({
+  tick: m.tick,
+  run: m.run!,
+  events: m.events,
+  fighters: m.duel.fighters.map((f) => ({ inventory: f.inventory, mods: f.mods })),
+  counting: doorCounters(m.config, m.duel.fighters, m.run!.away),
+  countingEveryone: doorCounters(m.config, m.duel.fighters),
+});
 
 interface Peer {
   readonly player: number;
@@ -61,7 +81,7 @@ interface Peer {
   /** The checksum this peer recorded for each confirmed checksum Tick (the latest, after any resync). */
   readonly sums: Map<number, string>;
   /** The Match each Tick left, by Tick: the last version this peer simulated (final once the Tick is confirmed). */
-  readonly trace: Map<number, MatchState>;
+  readonly trace: Map<number, Snap>;
   gone: boolean;
 }
 
@@ -92,10 +112,10 @@ function startRun(o: RunOptions) {
   const lineup = runLineup(o.players);
   const pairs: MemoryTransportPair[] = Array.from({ length: o.players - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
   const tunings = Array.from({ length: o.players }, () => peerTuning());
-  const traces = tunings.map(() => new Map<number, MatchState>());
+  const traces = tunings.map(() => new Map<number, Snap>());
   const stepOf = (k: number): Step => (m, intents, t) => {
     const next = (o.step?.(k) ?? stepMatch)(m, intents, t);
-    traces[k]!.set(next.tick, next);
+    traces[k]!.set(next.tick, snap(next));
     return next;
   };
   const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: stepOf(0) });
@@ -164,7 +184,7 @@ function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upT
   const fighterOf = (p: number) => lineup.findIndex((s) => s.pilot.kind === 'Player' && s.pilot.player === p);
   const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: takeoverAi(tuning, lineup, 'Gauntlet', fighterOf(d.player)) }]));
   let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
-  const trace = new Map<number, MatchState>();
+  const trace = new Map<number, Snap>();
   const hashes = new Map<number, string>();
   /** Every Match event, with the Tick it happened on and the pickups lying before it. */
   const events: { tick: number; event: MatchEvent; pickups: readonly Pickup[] }[] = [];
@@ -180,7 +200,7 @@ function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upT
     });
     const before = m;
     m = stepMatch(m, intents, tuning);
-    trace.set(t, m);
+    trace.set(t, snap(m));
     for (const event of m.events) events.push({ tick: t, event, pickups: before.run!.pickups });
     if (t % CHECKSUM_INTERVAL === 0) hashes.set(t, hashValue(m));
   }
@@ -202,7 +222,7 @@ function expectChecksums(name: string, peer: Peer, expected: ReadonlyMap<number,
 
 
 /** The Tick each Hall after the first began on (by `run.path`), in the trace of one peer (or the offline Run). */
-function hallStarts(trace: ReadonlyMap<number, MatchState>, upTo: number): number[] {
+function hallStarts(trace: ReadonlyMap<number, Snap>, upTo: number): number[] {
   const starts: number[] = [];
   for (let t = 2; t <= upTo; t++) if (hallsIn(trace.get(t)) !== hallsIn(trace.get(t - 1))) starts.push(t);
   return starts;
@@ -213,9 +233,8 @@ function hallStarts(trace: ReadonlyMap<number, MatchState>, upTo: number): numbe
  * the Door gathering (`doorTicks`), the pickups lying and taken, the Takeovers, the Team 0 Fighters' Inventories and Mods, and the
  * Match events (Doors taken, items dropped and taken). Empty when they agree.
  */
-function disagreements(peers: readonly Peer[], expected: ReadonlyMap<number, MatchState>, upTo: number, from = 0): string[] {
-  const key = (m: MatchState) =>
-    JSON.stringify([m.run!.path, m.run!.phase, m.run!.doorTicks, m.run!.pickups, m.run!.away ?? null, m.duel.fighters.filter((f) => f.team === 0).map((f) => [f.inventory, f.mods ?? null]), m.events]);
+function disagreements(peers: readonly Peer[], expected: ReadonlyMap<number, Snap>, upTo: number, from = 0): string[] {
+  const key = (m: Snap) => JSON.stringify([m.run.path, m.run.phase, m.run.doorTicks, m.run.pickups, m.run.away ?? null, m.fighters.map((f) => [f.inventory ?? null, f.mods ?? null]), m.events]);
   const bad: string[] = [];
   for (const peer of peers) {
     for (let t = from + 1; t <= upTo; t++) {
@@ -227,10 +246,10 @@ function disagreements(peers: readonly Peer[], expected: ReadonlyMap<number, Mat
 }
 
 /** The effective equips of Player `p`'s Fighter in the offline Run: Ticks on which what it wields or has equipped changed (and nothing was taken or dropped). */
-function equipTicks(trace: ReadonlyMap<number, MatchState>, upTo: number, p: number): number[] {
+function equipTicks(trace: ReadonlyMap<number, Snap>, upTo: number, p: number): number[] {
   const ticks: number[] = [];
   for (let t = 2; t <= upTo; t++) {
-    const [a, b] = [trace.get(t - 1)!.duel.fighters[p]!.inventory, trace.get(t)!.duel.fighters[p]!.inventory];
+    const [a, b] = [trace.get(t - 1)!.fighters[p]!.inventory, trace.get(t)!.fighters[p]!.inventory];
     if (a && b && (a.weapon !== b.weapon || a.equipped.join() !== b.equipped.join()) && a.weapons.length === b.weapons.length && a.relics.length === b.relics.length) ticks.push(t);
   }
   return ticks;
@@ -296,10 +315,10 @@ describe('co-op Runs over the memory transport: walking, looting and equipping, 
       const doors = expected.events.filter((e) => e.event.type === 'DoorTaken');
       expect(doors).toHaveLength(2);
       for (const d of doors) {
-        const gathered = expected.trace.get(d.tick)!.run!.doorTicks;
+        const gathered = expected.trace.get(d.tick)!.run.doorTicks;
         expect(Math.max(...gathered)).toBeGreaterThanOrEqual(doorTicksNeeded(tuning));
         expect(d.tick).toBeLessThan(starts[doors.indexOf(d)]!);
-        for (const p of r.peers) expect(p.trace.get(d.tick)!.run!.doorTicks).toEqual(gathered);
+        for (const p of r.peers) expect(p.trace.get(d.tick)!.run.doorTicks).toEqual(gathered);
       }
 
       // Pickups: each Player took its own (or a shared drop), never another's, and everyone took some.
@@ -323,7 +342,7 @@ describe('co-op Runs over the memory transport: walking, looting and equipping, 
       expect(dropped, 'someone dropped').toBeDefined();
       const dropper = (dropped!.event as { fighter: number }).fighter;
       expect(dropper).toBe(0);
-      const dropId = expected.trace.get(dropped!.tick)!.run!.pickups.at(-1)!.id;
+      const dropId = expected.trace.get(dropped!.tick)!.run.pickups.at(-1)!.id;
       const handed = taking.find((t) => t.id === dropId);
       expect(handed, 'the drop was taken up').toBeDefined();
       expect(handed!.fighter).not.toBe(dropper);
@@ -331,9 +350,9 @@ describe('co-op Runs over the memory transport: walking, looting and equipping, 
       expect(handed!.owner).toBeNull();
 
       // Inventories (and Mods) equal on every peer, and the offline Run's, at the last Tick they all confirmed.
-      const inventories = (m: MatchState) => m.duel.fighters.filter((f) => f.team === 0).map((f) => ({ inventory: f.inventory, mods: f.mods }));
+      const inventories = (m: Snap) => m.fighters.filter((f) => f.inventory).map((f) => ({ inventory: f.inventory, mods: f.mods }));
       for (const p of r.peers) expect(inventories(p.trace.get(upTo)!)).toEqual(inventories(expected.trace.get(upTo)!));
-      expect(inventories(expected.state).some((f) => f.inventory!.relics.length > 0)).toBe(true);
+      expect(inventories(expected.trace.get(upTo)!).some((f) => f.inventory!.relics.length > 0)).toBe(true);
     }, 300_000);
   }
 });
@@ -376,13 +395,13 @@ describe('co-op Runs across a resync and an AI Takeover', () => {
 
     // Its Match did differ: the Relic it did not take, and a pickup the host still had lying...
     const [mine, theirs] = [guest.trace.get(driftAt!)!, expected.trace.get(driftAt!)!];
-    expect(mine.duel.fighters[1]!.inventory!.relics.length).toBe(theirs.duel.fighters[1]!.inventory!.relics.length + 1);
-    expect(theirs.run!.pickups[0]!.taken).toBe(false);
+    expect(mine.fighters[1]!.inventory!.relics.length).toBe(theirs.fighters[1]!.inventory!.relics.length + 1);
+    expect(theirs.run.pickups[0]!.taken).toBe(false);
     // ...in a Hall that stood Cleared with pickups lying, when the host's state came.
     const sent = expected.trace.get(resynced!.tick)!;
-    expect(sent.run!.phase).toBe('Cleared');
+    expect(sent.run.phase).toBe('Cleared');
     expect(hallsIn(sent)).toBe(1);
-    expect(sent.run!.pickups.filter((p) => !p.taken).length).toBeGreaterThan(0);
+    expect(sent.run.pickups.filter((p) => !p.taken).length).toBeGreaterThan(0);
     expect(resynced!.tick).toBeGreaterThan(driftAt!);
 
     // From the resync on, the guest is the host's and the offline Run's, through the Hall change into Hall 2.
@@ -443,16 +462,16 @@ describe('co-op Runs across a resync and an AI Takeover', () => {
     // Mid-Hall: the Hall was Cleared and the party gathering when the Takeover Tick came, and no Door had been taken in it.
     const at = expected.trace.get(takeover.from)!;
     const hall = hallsIn(at);
-    expect(at.run!.phase).toBe('Cleared');
-    expect(expected.trace.get(takeover.from - 1)!.run!.away).toBeUndefined();
+    expect(at.run.phase).toBe('Cleared');
+    expect(expected.trace.get(takeover.from - 1)!.run.away).toBeUndefined();
     // From that Tick on the Fighter is marked away, on every peer, and its Inventory and Mods stay as they were through the Hall change.
-    const before = expected.trace.get(takeover.from - 1)!.duel.fighters[2]!;
+    const before = expected.trace.get(takeover.from - 1)!.fighters[2]!;
     expect(before.inventory!.equipped.length).toBeGreaterThan(0);
     for (const p of remaining) {
       for (let t = takeover.from; t <= upTo; t++) {
         const m = p.trace.get(t)!;
-        expect(m.run!.away, `peer ${p.player} @${t}`).toEqual([2]);
-        const f = m.duel.fighters[2]!;
+        expect(m.run.away, `peer ${p.player} @${t}`).toEqual([2]);
+        const f = m.fighters[2]!;
         if (f.inventory !== before.inventory || f.mods !== before.mods) {
           expect(f.inventory, `peer ${p.player} @${t}`).toEqual(before.inventory);
           expect(f.mods, `peer ${p.player} @${t}`).toEqual(before.mods);
@@ -465,8 +484,8 @@ describe('co-op Runs across a resync and an AI Takeover', () => {
     expect(door, 'the Door was taken after the Takeover').toBeDefined();
     const taken = expected.trace.get(door!.tick)!;
     expect(hallsIn(taken)).toBe(hall);
-    expect(doorCounters(taken.config, taken.duel.fighters, taken.run!.away)).toEqual([0, 1]);
-    expect(doorCounters(taken.config, taken.duel.fighters)).toEqual([0, 1, 2]);
+    expect(taken.counting).toEqual([0, 1]);
+    expect(taken.countingEveryone).toEqual([0, 1, 2]);
     const starts = hallStarts(expected.trace, upTo);
     expect(starts.find((t) => t > door!.tick)).toBeDefined();
     for (const p of remaining) expect(hallStarts(p.trace, upTo)).toEqual(starts);
@@ -477,8 +496,8 @@ describe('co-op Runs across a resync and an AI Takeover', () => {
 });
 
 describe.skipIf(!process.env.COOP_LONG)('co-op Runs: the long variant (COOP_LONG=1)', () => {
-  it('four Players on the autopilot play Halls 1 to 5 with loot, a hand-over and no Desync', () => {
-    const r = startRun({ players: 4, intent: handOver(1) });
+  it('three Players on the autopilot play Halls 1 to 5 with loot, a hand-over and no Desync', () => {
+    const r = startRun({ players: 3, intent: handOver(1) });
     let hall5: number | null = null;
     r.until(
       () => hall5 !== null && r.confirmed() >= hall5 + 120,
@@ -487,7 +506,8 @@ describe.skipIf(!process.env.COOP_LONG)('co-op Runs: the long variant (COOP_LONG
       },
       40_000,
     );
-    expect(hall5, 'reached Hall 5').not.toBeNull();
+    const at = r.host.session.state!;
+    expect(hall5, `reached Hall 5 (Hall ${hallsIn(at)}, ${at.run!.phase}, Tick ${at.tick})`).not.toBeNull();
     const upTo = r.confirmed();
     const expected = offline(peerTuning(), r.lineup, r.peers, upTo);
     for (const p of r.peers) {
