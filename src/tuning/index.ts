@@ -40,7 +40,7 @@ export {
   type GauntletTuning,
   type RunKnobs,
 } from './gauntlet';
-export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
+export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';

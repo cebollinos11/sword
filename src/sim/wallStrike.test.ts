@@ -9,6 +9,7 @@ const flat: ArenaGeometry = {
   walk: [{ id: 'floor', points: [corner(-20, -20), corner(-20, 20), corner(20, 20), corner(20, -20)] }],
   walls: [],
   spawns: [],
+  doors: [],
 };
 
 /** Fighter 0 at the origin facing +z swings an Overhead at Fighter 1, 1.3 m ahead (in range), with `walls` in the Arena. */

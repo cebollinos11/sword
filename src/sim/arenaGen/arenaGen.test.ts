@@ -111,7 +111,7 @@ const lineUp = (team: number, x: number) => [0, 1, 2, 3].map((slot) => spawn(tea
 
 describe('judgeArena', () => {
   it('passes a plain floor with the Teams across it, and reports its stats', () => {
-    const arena: ArenaGeometry = { name: 'plain', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)] };
+    const arena: ArenaGeometry = { name: 'plain', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)], doors: [] };
     const { ok, reasons, stats } = judgeArena(arena, tuning, { now: () => performance.now() });
     expect(reasons).toEqual([]);
     expect(ok).toBe(true);
@@ -124,7 +124,7 @@ describe('judgeArena', () => {
 
   it('fails Teams that only a Jump joins, and spawns by deadly ground', () => {
     // Two floors 2 m apart across the Abyss: a Jump gets over, walking never does.
-    const arena: ArenaGeometry = { name: 'gap', walk: [floor('a', -12, -1), floor('b', 1, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 2)] };
+    const arena: ArenaGeometry = { name: 'gap', walk: [floor('a', -12, -1), floor('b', 1, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 2)], doors: [] };
     const { ok, reasons } = judgeArena(arena, tuning);
     expect(ok).toBe(false);
     expect(reasons.some((r) => /reach/.test(r))).toBe(true);
@@ -136,14 +136,14 @@ describe('judgeArena', () => {
   });
 
   it('fails too little open floor at the lowest level, and too few spawns', () => {
-    const arena: ArenaGeometry = { name: 'thin', walk: [floor('a', -12, -10), floor('b', -10, 12, 3), abyss], walls: [], spawns: lineUp(0, -6).map((s) => ({ ...s, position: { ...s.position, y: 3 } })) };
+    const arena: ArenaGeometry = { name: 'thin', walk: [floor('a', -12, -10), floor('b', -10, 12, 3), abyss], walls: [], spawns: lineUp(0, -6).map((s) => ({ ...s, position: { ...s.position, y: 3 } })), doors: [] };
     const { reasons } = judgeArena(arena, tuning, { minOpenFloor: 0.5 });
     expect(reasons.some((r) => /open floor/.test(r))).toBe(true);
     expect(reasons.some((r) => /team 1.*spawns/.test(r))).toBe(true);
   });
 
   it('fails a navmesh that builds too slowly', () => {
-    const arena: ArenaGeometry = { name: 'slow', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)] };
+    const arena: ArenaGeometry = { name: 'slow', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)], doors: [] };
     let t = 0;
     const { reasons, stats } = judgeArena(arena, tuning, { now: () => (t += 300) });
     expect(stats.buildMs).toBe(300);

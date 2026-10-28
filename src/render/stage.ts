@@ -5,7 +5,7 @@ import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { abyss, greybox, isGreybox } from './greybox';
-import { kitPlacements, type KitPlacement } from './kitPlacement';
+import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
 
@@ -473,7 +473,7 @@ function kitInstances(model: THREE.Object3D, placements: readonly KitPlacement[]
     byNode.set(p.node, list);
   }
   for (const [node, matrices] of byNode) {
-    const template = model.getObjectByName(node);
+    const template = model.getObjectByName(node) ?? (STAND_IN_NODES[node] ? model.getObjectByName(STAND_IN_NODES[node]) : undefined);
     if (!template) {
       console.error(`Kit model has no node "${node}"`);
       continue;

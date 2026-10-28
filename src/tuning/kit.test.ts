@@ -19,6 +19,14 @@ describe('Kits as Tuning Data (data/kits/<name>.json)', () => {
     expect(GREYBOX_KIT).toStrictEqual(HAND_WRITTEN_GREYBOX_KIT);
   });
 
+  it('has a door: a floor walled along its -z side, open on the other three, with a zone on the ground before the Wall', () => {
+    const door = GREYBOX_KIT.pieces.door;
+    expect(door.walls).toEqual([{ a: [0, 0], b: [3, 0], bottom: 0, top: 4 }]);
+    expect(door.connectors.map((c) => c.side)).toEqual([1, 2, 3]);
+    expect(door.zone!.every(([x, z]) => x >= 0 && x <= 3 && z >= 0 && z <= 3)).toBe(true);
+    expect(door.solid).toBe(true);
+  });
+
   it('parses parsed Kits again (Tuning Data round trip)', () => {
     expect(parseKit(JSON.parse(JSON.stringify(GREYBOX_KIT)), 'again')).toStrictEqual(GREYBOX_KIT);
   });
@@ -73,6 +81,13 @@ describe('Kits as Tuning Data (data/kits/<name>.json)', () => {
       rejects((k) => (k.pieces.ramp.connectors[1].row = 2), /connectors\[1\]\.row/);
       rejects((k) => (k.pieces.floor.connectors[0].side = 4), /side must be 0, 1, 2 or 3/);
       rejects((k) => (k.pieces.ramp.skirts[1].max = -1), /max must be at least its min/);
+    });
+
+    it('a door with no zone, a zone out of its footprint or not convex, or a zone on another Piece', () => {
+      rejects((k) => delete k.pieces.door.zone, /kit\.pieces\.door\.zone/);
+      rejects((k) => (k.pieces.door.zone[1] = [3.5, 0]), /outside the Piece's footprint/);
+      rejects((k) => (k.pieces.door.zone = [[0, 0], [3, 0], [1, 1], [0, 3]]), /not convex/);
+      rejects((k) => (k.pieces.floor.zone = k.pieces.door.zone), /kit\.pieces\.floor\.zone: only a door has a zone/);
     });
   });
 });
