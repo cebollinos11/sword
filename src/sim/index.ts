@@ -183,8 +183,10 @@ export {
   REST_FIRE_RADIUS,
   restFire,
   runKit,
+  runPathTo,
   runPlayers,
   ZONE_HEIGHT,
   type HallEnemy,
   type HallRef,
+  type RunStart,
 } from './hall';
