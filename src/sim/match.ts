@@ -31,7 +31,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
-import { holdInventory, startingInventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
+import { holdInventory, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
 import { createRng } from './rng';
@@ -92,6 +92,11 @@ export interface MatchOptions extends Partial<MatchConfig> {
    * Encounter and depth-scaled enemies. A Duels Match refuses it.
    */
   readonly start?: RunStart;
+  /**
+   * Dev mode only (`devRunRelics`): the Relics (Tuning Data names) every Player's Fighter starts the Run holding, equipped in order
+   * up to `dungeon.inventory.equippedRelics`, the rest carried. An unknown name, or more than `dungeon.inventory.relics`, throws.
+   */
+  readonly relics?: readonly string[];
 }
 
 /** `winner` is a team (0 or 1). */
@@ -270,6 +275,15 @@ function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, see
   return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena);
 }
 
+/** `inv` holding `relics`, the first `equippedRelics` of them equipped. Throws on a name Tuning Data lacks or more than `dungeon.inventory.relics`. */
+function withRelics(inv: Inventory, relics: readonly string[], tuning: TuningData): Inventory {
+  const sizes = tuning.dungeon.inventory;
+  if (relics.length > sizes.relics) throw new RangeError(`A Fighter carries at most ${sizes.relics} Relics, got ${relics.length}`);
+  for (const name of relics)
+    if (!tuning.relics.some((r) => r.name === name)) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return { ...inv, relics: [...relics], equipped: relics.slice(0, sizes.equippedRelics).map((_, k) => k) };
+}
+
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
   return { ...initialDuel(tuning, config, arena, 0), rng };
 }
@@ -278,10 +292,10 @@ function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: 
  * A Run's Duel in Hall `at` (`hall` its node of the Floor graph), on the Hall's Arena, replacing `freshDuel`: every Fighter
  * at the Arena's spawns (Team 0 at its entrance Door's), drawn, daggers refilled. Team 0 keeps its HP from `previous` (the
  * Hall before; null for the Run's first: full HP), a fallen one back at `dungeon.revive` of its max HP, and all of it at
- * full HP after a Boss (`healed`). Each Team 1 slot holds the Hall's Encounter's enemy for it, with its Weapon and scaled
+ * full HP after a Boss (`healed`). `relics` (dev mode, a Run's first Hall) are the ones a Player's first inventory holds. Each Team 1 slot holds the Hall's Encounter's enemy for it, with its Weapon and scaled
  * max HP (`hallRoster`), or is Benched when there is none for it (every slot of a Treasure or Rest Hall).
  */
-export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, hall: Hall, previous: SimState | null, healed: boolean, rng: SimState['rng']): SimState {
+export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, hall: Hall, previous: SimState | null, healed: boolean, rng: SimState['rng'], relics: readonly string[] = []): SimState {
   const roster = hallRoster(tuning, config, at);
   let slot = 0;
   const enemies = config.teams.map((team) => (team === 1 ? roster[slot++] ?? null : null));
@@ -291,7 +305,7 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
   const inventories = config.teams.map((team, i) => {
     if (team !== 0) return undefined;
     const held = previous?.fighters[i]?.inventory;
-    return held ?? (players.includes(i) ? startingInventory(config.weapons[i]!) : undefined);
+    return held ?? (players.includes(i) ? withRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
   });
   const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? (inventories[i] ? wieldedWeapon(inventories[i]!) : w));
   const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena);
@@ -404,11 +418,12 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
   const seed = options.seed ?? 1;
   if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
+  if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
   // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.
   const path: readonly HallRef[] = gauntlet ? (options.start ? runPathTo(tuning, config.arena, options.start) : [{ floor: 1, row: 0, index: 0 }]) : [];
   const first = path[path.length - 1];
   const hall = first ? hallOf(tuning, config.arena, first) : null;
-  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed)) : initialDuel(tuning, config, config.arena, seed);
+  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed), options.relics) : initialDuel(tuning, config, config.arena, seed);
   const duelNumber = Math.max(1, path.length);
   return {
     config,

@@ -38,6 +38,17 @@ export function devRunStart(search: string = location.search, hash: string = loc
 }
 
 /**
+ * Dev mode only: `relics=a,b,c` (names as in `data/relics.json`, with or without `floor`/`row`) starts every Player's Fighter with those
+ * Relics, equipped in order and the rest carried (`MatchOptions.relics`). The option to add to a Run's: none without `dev=1`
+ * or a `relics`. The sim throws on an unknown name.
+ */
+export function devRunRelics(search: string = location.search, hash: string = location.hash): { relics?: string[] } {
+  if (!devMode(search, hash)) return {};
+  const raw = query(search, hash).get('relics');
+  return raw === null || raw === '' ? {} : { relics: raw.split(',').map((n) => n.trim()) };
+}
+
+/**
  * Dev mode only: `autopilot=D1,D2,...` puts the local Player's Fighter in a Skirmish Run on an AI that takes Door Dr
  * (from 1) out of each cleared Hall of row r (the list's last for later rows), src/controllers/autopilot.ts. For checking
  * a Run in a browser that cannot be played by hand (headless). Returns the exits (from 0), or null.
