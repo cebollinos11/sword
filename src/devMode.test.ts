@@ -14,6 +14,9 @@ describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads it after the route too (#/editor/sandbox?dev=1)', () => {
     expect(devMode('', '#/editor/sandbox?dev=1')).toBe(true);
     expect(devMode('', '#/editor/sandbox')).toBe(false);
+    // As every other dev option is read: after the route wins.
+    expect(devMode('?dev=1', '#/editor/sandbox?dev=0')).toBe(false);
+    expect(devMode('?dev=0', '#/editor/sandbox?dev=1')).toBe(true);
   });
 });
 

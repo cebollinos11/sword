@@ -9,11 +9,10 @@ function query(search: string, hash: string): URLSearchParams {
 
 /**
  * Developer options (the Editor link, the collider view, the Arena Lab, a deeper Run start) are only offered with `dev=1`
- * in the URL's query, before the route (`?dev=1#/...`) or after it (`#/editor/sandbox?dev=1`).
+ * in the URL's query, before the route (`?dev=1#/...`) or after it (`#/editor/sandbox?dev=1`; there it wins, as `query` reads it).
  */
 export function devMode(search: string = location.search, hash: string = location.hash): boolean {
-  const query = hash.includes('?') ? hash.slice(hash.indexOf('?')) : '';
-  return new URLSearchParams(search).get('dev') === '1' || new URLSearchParams(query).get('dev') === '1';
+  return query(search, hash).get('dev') === '1';
 }
 
 /** A query parameter that is a positive integer, else null. */
