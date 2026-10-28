@@ -7,6 +7,7 @@ import { canChangeInventory, inDuel, modsOf, type FighterState, type HallPhase, 
 import type { TuningData } from '../tuning';
 import { relicIcon, weaponIcon } from './icons';
 import { relicWords } from './loot';
+import { daggerCapacity } from './runBuilds';
 
 /** One action on an item: its label, whether the Simulation would act on it now, and the reason when it would not. */
 export interface ActionView {
@@ -106,7 +107,7 @@ export function inventoryView(
       { label: 'Damage', value: factor(mods.damage) },
       { label: 'Damage taken', value: factor(mods.damageTaken) },
       { label: 'Max HP', value: String(Math.round(fighter.maxHp)) },
-      { label: 'Daggers', value: `${fighter.daggers} / ${tuning.dagger.count + mods.daggers}` },
+      { label: 'Daggers', value: `${fighter.daggers} / ${daggerCapacity(tuning, fighter)}` },
     ],
     lock,
   };
