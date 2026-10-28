@@ -8,12 +8,13 @@ import { hallIcon } from './icons';
 import { floorMapLayout } from './floorMap';
 
 export const FLOOR_MAP_CSS = `
+/* z-index: over the HUD's buttons (menu, map, Items), so a tap anywhere closes it. The board's margin keeps the nodes off the title and hint. */
 .floor-map { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem;
-  background: #000b; color: #fff; pointer-events: auto; }
+  background: #000d; color: #fff; pointer-events: auto; z-index: 5; }
 .floor-map[hidden] { display: none; }
 .floor-map-title { font-size: 1.1rem; font-weight: 700; text-shadow: 0 1px 2px #000a; }
 .floor-map-title span { opacity: 0.7; font-weight: 400; margin-left: 0.6rem; }
-.floor-map-board { position: relative; width: min(22rem, 86vw); height: min(30rem, 62vh); }
+.floor-map-board { position: relative; width: min(22rem, 86vw); height: min(30rem, 50vh); margin: 1.8rem 0; }
 .floor-map-edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
 .floor-map-edges line { stroke: #fff4; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .floor-map-edges line.visited { stroke: #ffd56a; stroke-width: 4; }
