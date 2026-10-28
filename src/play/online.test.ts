@@ -207,3 +207,49 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
 // Keep the shared interface honest: a Player vs Player driver is a MatchDriver.
 const _typeCheck: (d: ReturnType<typeof playerVsPlayer>) => MatchDriver = (d) => d;
 void _typeCheck;
+
+describe('Player vs Player Match driver with the dev autopilot', () => {
+  /** A Controller that records what it is asked, and always presses attack. */
+  const attacker = () => {
+    const calls: { tick: number; fighter: number }[] = [];
+    const watched: number[] = [];
+    return {
+      calls,
+      watched,
+      watch: (m: MatchState) => void watched.push(m.tick),
+      intent: (s: { tick: number }, fighter: number): Intent => {
+        calls.push({ tick: s.tick, fighter });
+        return { ...IDLE_INTENT, attack: true };
+      },
+    };
+  };
+
+  it('sends the autopilot\'s Intent for the local Fighter, fed the session state, instead of the Local Controller\'s', () => {
+    const pair = createMemoryTransportPair();
+    const pilot = attacker();
+    const host = playerVsPlayer(createRollbackSession({ role: 'host', transport: pair.a, tuning, match: { bestOf: 3, seed: 5 } }), [], pilot);
+    const guest = playerVsPlayer(createRollbackSession({ role: 'guest', transport: pair.b, tuning }));
+    for (let i = 0; i < 60 && !(host.state && guest.state); i++) {
+      pair.advance(TICK_MS);
+      host.tick(forward);
+      guest.tick(IDLE_INTENT);
+    }
+    pilot.calls.length = 0;
+    pilot.watched.length = 0;
+    pair.advance(TICK_MS);
+    const real = host.localFighter;
+    const before = host.state!.duel.tick;
+    host.tick(forward);
+    // Not asked before the Match exists; once it does, asked for the local Fighter with the state about to be stepped.
+    expect(pilot.calls).toEqual([{ tick: before, fighter: real }]);
+    expect(pilot.watched).toEqual([host.state!.tick - 1]);
+  });
+
+  it('is not asked, and the local Intent goes through, without one', () => {
+    const r = room();
+    runUntilConnected(r);
+    const z0 = r.host.state!.duel.fighters[r.host.localFighter]!.position.z;
+    for (let i = 0; i < 20; i++) r.tick(forward);
+    expect(r.host.state!.duel.fighters[r.host.localFighter]!.position.z).not.toBe(z0);
+  });
+});

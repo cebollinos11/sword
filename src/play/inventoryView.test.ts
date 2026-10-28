@@ -210,3 +210,16 @@ describe('the key that says when to redraw', () => {
     expect(inventoryViewKey(plain)).toBe(inventoryViewKey(v));
   });
 });
+
+describe('the inventory view for the second Player (Fighter 1)', () => {
+  it('shows Fighter 1’s own Inventory, not Fighter 0’s', () => {
+    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', humans: 2, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+    const [f0, f1] = m.duel.fighters as [FighterState, FighterState];
+    const second = holdInventory(f1, { ...f1.inventory!, weapons: [W2], relics: ['Iron Plate'], weapon: 0, equipped: [0] }, tuning);
+    const v = inventoryView(second, tuning, 'Cleared')!;
+    expect(v.weapons[0]!.item!.name).toBe(W2);
+    expect(v.relics[0]!.item).toMatchObject({ name: 'Iron Plate', marked: true });
+    expect(v.lock).toBeNull();
+    expect(inventoryView(f0, tuning, 'Cleared')!.relics[0]!.item).toBeNull();
+  });
+});

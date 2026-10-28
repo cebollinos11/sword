@@ -6,7 +6,7 @@ import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createAutopilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
@@ -18,7 +18,7 @@ import { doorMarkView, doorRun } from './play/doorMarks';
 import { mapKeyAction } from './play/floorMap';
 import { pickupViews, type PickupView } from './render/pickupView';
 import { fireState } from './render/restFire';
-import { runBuilds } from './play/runBuilds';
+import { playerName, runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -246,8 +246,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet on its Random Map, or a fresh one; a Skirmish only until the Dungeon's online co-op (Stage 4).
-    const gauntlet = savedFormat === 'Gauntlet' && !online && Object.keys(tuning.kits).length > 0;
+    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, in a Skirmish and in a Room.
+    const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
@@ -373,7 +373,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (!transport) return;
       session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon });
     }
-    game.play({ driver: playerVsPlayer(session, playerNames), names: playerNames, bodies: playerBodies });
+    // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run.
+    const doors = match.format ? devAutopilot() : null;
+    const pilot = doors ? createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot()) : undefined;
+    game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 
   /** The broker options, or undefined (after showing why) if the URL is unusable. */
@@ -651,7 +654,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           halls: cleared.halls,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
-          builds: runBuilds(match),
+          builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
         };
         resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd') {
