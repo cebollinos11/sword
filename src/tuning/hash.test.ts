@@ -68,6 +68,40 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(faster)).not.toBe(base);
   });
 
+  it('covers the Dungeon (dungeon.json): its Doors, an Encounter, a Boss, the loot and the inventory sizes', () => {
+    const base = tuningDataHash(tuning);
+    const d = tuning.dungeon;
+    const [first, ...rest] = d.floors;
+    const fight = first!.encounters.Fight;
+    const enemy = fight[0]!.enemies[0]!;
+    const encounter = { ...first!, encounters: { ...first!.encounters, Fight: [{ enemies: [{ ...enemy, hpScale: enemy.hpScale + 0.1 }, ...fight[0]!.enemies.slice(1)] }, ...fight.slice(1)] } };
+    for (const [name, dungeon] of Object.entries({
+      doorSeconds: { ...d, doorSeconds: d.doorSeconds + 0.1 },
+      hallFadeSeconds: { ...d, hallFadeSeconds: d.hallFadeSeconds + 0.1 },
+      encounter: { ...d, floors: [encounter, ...rest] },
+      boss: { ...d, floors: [{ ...first!, boss: { enemies: [{ ...first!.boss.enemies[0]!, hpScale: first!.boss.enemies[0]!.hpScale + 0.1 }] } }, ...rest] },
+      loot: { ...d, loot: { ...d.loot, pedestals: d.loot.pedestals === 1 ? 2 : 1 } },
+      inventory: { ...d, inventory: { ...d.inventory, relics: d.inventory.relics + 1 } },
+      revive: { ...d, revive: d.revive + 0.05 },
+    })) expect(tuningDataHash({ ...tuning, dungeon }), name).not.toBe(base);
+    expect(tuningDataHash({ ...tuning, dungeon: { ...d } })).toBe(base);
+  });
+
+  it('covers the Relics (relics.json): an effect, a name, a new Relic, and their order', () => {
+    const base = tuningDataHash(tuning);
+    const [first, ...rest] = tuning.relics;
+    const key = Object.keys(first!.effects)[0] as keyof NonNullable<typeof first>['effects'];
+    const changed: Record<string, TuningData['relics']> = {
+      effect: [{ ...first!, effects: { ...first!.effects, [key]: first!.effects[key]! + 0.1 } }, ...rest],
+      name: [{ ...first!, name: `${first!.name} II` }, ...rest],
+      added: [...tuning.relics, { ...first!, name: 'Extra' }],
+      removed: rest,
+      reordered: [...rest, first!],
+    };
+    for (const [name, relics] of Object.entries(changed)) expect(tuningDataHash({ ...tuning, relics }), name).not.toBe(base);
+    expect(tuningDataHash({ ...tuning, relics: [...tuning.relics] })).toBe(base);
+  });
+
   it('changes with GENERATOR_VERSION, so peers whose generators could build different Layouts refuse each other', () => {
     expect(tuningDataHash(tuning, GENERATOR_VERSION)).toBe(tuningDataHash(tuning));
     expect(tuningDataHash(tuning, GENERATOR_VERSION + 1)).not.toBe(tuningDataHash(tuning));
