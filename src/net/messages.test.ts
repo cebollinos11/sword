@@ -760,18 +760,17 @@ describe('Peer message validation: resync of real Dungeon Run states (Stage 4 au
     refused({ ...rest, run: { ...rest.run, rested: [...rest.run!.rested, 2] } }, 'a Fighter that is not a Player rested');
   });
 
-  it('refuses Door counts that no Hall can have: by its row and Floor, and any while Fighting', () => {
+  it('refuses Door counts that no Hall can have: a non-Boss Hall without Doors, more than MAX_HALL_EXITS, and any while Fighting', () => {
     const mid = labelled('fight, cleared with drops');
     expect(mid.run!.doorTicks.length).toBeGreaterThanOrEqual(1);
     refused({ ...mid, run: { ...mid.run, doorTicks: [] } }, 'a Hall with Doors and no counts');
+    refused({ ...mid, run: { ...mid.run, doorTicks: [0, 0, 0, 0] } }, 'more Doors than a Hall can have');
+    // How many exits a Boss has is Tuning Data's to say (a Floor boundary, or the Run's end): any count up to the cap is a Boss's.
     const boss = labelled('boss, start');
-    expect(boss.run!.floor).toBeLessThan(boss.run!.floors);
-    expect(boss.run!.doorTicks).toHaveLength(1);
-    refused({ ...boss, run: { ...boss.run, doorTicks: [0, 0] } }, 'a Boss with two Doors');
-    refused({ ...boss, run: { ...boss.run, doorTicks: [] } }, 'a Boss with a Floor below it and no Door');
     const last = labelled('last boss, start');
-    expect(last.run!.doorTicks).toEqual([]);
-    refused({ ...last, run: { ...last.run, doorTicks: [0] } }, "the last Floor's Boss with a Door");
+    for (const [state, doorTicks] of [[boss, [0, 0]], [boss, []], [last, [0]], [last, [0, 0, 0]]] as const)
+      expect(parseNetMessage(resync({ ...state, run: { ...state.run!, doorTicks } })), `a Boss with ${doorTicks.length} Doors`).not.toBeNull();
+    refused({ ...boss, run: { ...boss.run, doorTicks: [0, 0, 0, 0] } }, 'a Boss with more Doors than a Hall can have');
     expect(boss.run!.phase).toBe('Fighting');
     refused({ ...boss, run: { ...boss.run, doorTicks: [3] } }, 'a count while Fighting');
   });

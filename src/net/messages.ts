@@ -430,7 +430,7 @@ function isPickupOf(p: Obj, all: readonly Obj[], players: readonly number[]): bo
  * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
  * Door count per exit, the Player Fighters rested, the pickups lying in it, and the Tick it started on. `players` are the Run's
  * Player Fighters (`config.players`): the ones that rest, own pickups and drop. How many exits a Hall has is Tuning Data's to say,
- * but a Hall's row and Floor bound the Door counts: a Boss leads on to the next Floor, or nowhere after the last.
+ * but a Hall's row bounds the Door counts: a Boss may have none (the Run's end), any other Hall has at least one.
  */
 function isRun(v: unknown, players: readonly number[]): boolean {
   if (!isObject(v) || !isInt(v.floors) || v.floors < 1 || !isArrayOf(v.path, isHallRef) || (v.path as unknown[]).length < 1) return false;
@@ -445,7 +445,7 @@ function isRun(v: unknown, players: readonly number[]): boolean {
     HALL_PHASES.has(v.phase) &&
     isArrayOf(v.doorTicks, isTick) &&
     (v.doorTicks as unknown[]).length <= MAX_HALL_EXITS &&
-    (here.row === FLOOR_ROWS - 1 ? (v.doorTicks as unknown[]).length === ((v.floor as number) < v.floors ? 1 : 0) : (v.doorTicks as unknown[]).length >= 1) &&
+    (here.row === FLOOR_ROWS - 1 || (v.doorTicks as unknown[]).length >= 1) &&
     (v.phase !== 'Fighting' || (v.doorTicks as number[]).every((t) => t === 0)) &&
     isArrayOf(v.rested, (i) => isInt(i) && players.includes(i)) &&
     isArrayOf(v.pickups, isPickup) &&
