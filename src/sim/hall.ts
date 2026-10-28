@@ -155,10 +155,17 @@ export function doorCounters(config: Pick<MatchConfig, 'teams' | 'humans' | 'pla
 /** How far above a zone's ground (m) a Fighter still stands in it: a hop inside the zone does not step out of it. */
 export const ZONE_HEIGHT = 2;
 
+/** Whether height `y` is within a zone's window over `ground`: 0.5 m under it (a step down) to ZONE_HEIGHT over it. */
+const inZoneHeight = (ground: number, y: number): boolean => y > ground - 0.5 && y < ground + ZONE_HEIGHT;
+
 /** Whether a Fighter at (position, y) stands in `zone` (a convex polygon on the ground): inside it from above, within ZONE_HEIGHT over it. */
 function standsIn(zone: readonly ArenaPoint[], f: Pick<FighterState, 'position' | 'y'>): boolean {
-  const ground = zone[0]?.y ?? 0;
-  return f.y > ground - 0.5 && f.y < ground + ZONE_HEIGHT && insideZone(zone, f.position.x, f.position.z);
+  return inZoneHeight(zone[0]?.y ?? 0, f.y) && insideZone(zone, f.position.x, f.position.z);
+}
+
+/** Whether a Fighter stands at `at` (a spot on the ground): within `radius` across the ground, within ZONE_HEIGHT over it. A Rest fire and a pickup are such spots. */
+export function standsWithin(at: ArenaPoint, radius: number, f: Pick<FighterState, 'position' | 'y'>): boolean {
+  return inZoneHeight(at.y, f.y) && Math.hypot(f.position.x - at.x, f.position.z - at.z) <= radius;
 }
 
 /** The Arena Door of a Hall's exit `exit` (0-based, as `Hall.exits`): exit k is Door k + 1, Door 0 being the entrance. */
@@ -187,6 +194,5 @@ export function restFire(arena: ArenaGeometry): ArenaPoint {
 
 /** Whether the Fighter stands at the Rest Hall Arena's fire: within REST_FIRE_RADIUS across the ground, within ZONE_HEIGHT over it. */
 export function atRestFire(arena: ArenaGeometry, f: Pick<FighterState, 'position' | 'y'>): boolean {
-  const fire = restFire(arena);
-  return f.y > fire.y - 0.5 && f.y < fire.y + ZONE_HEIGHT && Math.hypot(f.position.x - fire.x, f.position.z - fire.z) <= REST_FIRE_RADIUS;
+  return standsWithin(restFire(arena), REST_FIRE_RADIUS, f);
 }

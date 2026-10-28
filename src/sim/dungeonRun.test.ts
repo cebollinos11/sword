@@ -4,7 +4,7 @@ import { createAiController, lineupAis, lineupMatch, type Controller, type Lineu
 import { arenaOf } from './arena';
 import { floorGraph, runSeed, type FloorGraph } from './dungeon';
 import { inDuel, updateDuel, DUEL_FIGHTING } from './duel';
-import { atRestFire, enemyMaxHp, exitDoor, hallOf, hallRoster, inExitZone, restFire } from './hall';
+import { atRestFire, enemyMaxHp, exitDoor, hallOf, hallRoster, inExitZone, restFire, standsWithin, ZONE_HEIGHT } from './hall';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
 import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, placeDrop, runHall, stepMatch, takenExit, type MatchEvent, type MatchOptions, type MatchState } from './match';
@@ -384,6 +384,22 @@ describe('Dungeon Run: deterministic, and Rollback across a Hall change', { time
         expect(hashValue(m)).toBe(hashValue(states[k + 1]!));
       }
     }
+  });
+});
+
+describe('Dungeon Run: standing within a radius of a spot', () => {
+  const at = { x: 1, y: 2, z: 3 };
+  const on = (dx: number, dy: number, dz = 0) => ({ position: { x: at.x + dx, z: at.z + dz }, y: at.y + dy });
+
+  it('is within the radius across the ground and from a step under it to ZONE_HEIGHT over it', () => {
+    expect(standsWithin(at, 1.5, on(0, 0))).toBe(true);
+    expect(standsWithin(at, 1.5, on(1.5, 0))).toBe(true);
+    expect(standsWithin(at, 1.5, on(1.6, 0))).toBe(false);
+    expect(standsWithin(at, 1.5, on(1, 0, 1))).toBe(true);
+    expect(standsWithin(at, 1.5, on(0, -0.4))).toBe(true);
+    expect(standsWithin(at, 1.5, on(0, -0.5))).toBe(false);
+    expect(standsWithin(at, 1.5, on(0, ZONE_HEIGHT - 0.01))).toBe(true);
+    expect(standsWithin(at, 1.5, on(0, ZONE_HEIGHT))).toBe(false);
   });
 });
 

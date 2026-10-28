@@ -10,7 +10,7 @@ import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { hallRoster, restFire, runPlayers, ZONE_HEIGHT, type HallRef } from './hall';
+import { hallRoster, restFire, runPlayers, standsWithin, type HallRef } from './hall';
 import { addItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -47,9 +47,7 @@ const SALT = { kind: 50, relic: 51, weapon: 52 } as const;
 export const pickupVisibleTo = (p: Pick<Pickup, 'owner' | 'taken'>, player: number): boolean => !p.taken && (p.owner === null || p.owner === player);
 
 /** Whether a Fighter stands on `at`: within PICKUP_RADIUS across the ground, within ZONE_HEIGHT over it. */
-function standsOn(at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolean {
-  return f.y > at.y - 0.5 && f.y < at.y + ZONE_HEIGHT && Math.hypot(f.position.x - at.x, f.position.z - at.z) <= PICKUP_RADIUS;
-}
+const standsOn = (at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolean => standsWithin(at, PICKUP_RADIUS, f);
 
 /** The ground a Hall's own pickups lie on: Team 1's spawns in slot order (a Hall Arena has four), else the Rest fire's spot. */
 function pickupSpots(tuning: TuningData, hall: Hall): PickupAt[] {
