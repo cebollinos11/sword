@@ -1,6 +1,6 @@
 # Dungeon: the Gauntlet's next version, a seeded map of rooms
 
-> Status: design in progress (grilling). Nothing built. Builds on the Gauntlet v1 (`docs/plans/gauntlet.md`, Stages 1, 2 and 4 done) and the Generated Arenas (`docs/plans/generated-arenas.md`).
+> Status: designed (decisions confirmed one by one), nothing built. Stages 1 to 5 below, solo first; stop after Stage 5 for player feedback. Builds on the Gauntlet v1 (`docs/plans/gauntlet.md`, Stages 1, 2 and 4 done) and the Generated Arenas (`docs/plans/generated-arenas.md`).
 
 ## Context
 The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Generated Arena, against the enemies `data/gauntlet.json` lists. We want a dungeon crawler, solo or co-op: a randomly generated dungeon with rooms, enemies and loot, instead of separate duels.
@@ -50,12 +50,132 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
 - **Starting deeper in (a Floor, a row, a set of Relics) is dev mode only** (`devMode.ts`): essential for tuning the three Bosses, never a way to skip a Run. This settles the v1 open question.
 - **Unchanged from v1:** the Lobby requires a Random Map and its seed is the Run seed; Team 0 holds 1 to 4 Fighters, empty Seats may be AI allies; no Rematch, a results screen at Run end; a guest who leaves is taken over by an AI, the host leaving ends the Run.
 
-## Glossary (proposed, for `CONTEXT.md` in Stage 1)
+## Glossary (proposed, for `CONTEXT.md` in Stages 1 and 2)
 - **Dungeon**: the seeded map a Run walks: its Floors, each a graph of Halls. A pure function of the Run seed and Tuning Data, so every peer builds the same one.
 - **Floor**: one depth of a Dungeon: a branching graph of Halls from an entrance to a Boss Hall. _Avoid_: level, act, stage.
 - **Door**: a Piece on a Hall's edge: a doorway in a Wall with a door zone before it, marked with the kind of Hall behind it. Every living Player standing in its zone, once the Hall is cleared, takes the party to that Hall. _Avoid_: exit, portal, gate.
 - **Encounter**: one hand-written group of 1 to 4 enemies (each with difficulty, Style, Weapon, HP scale), in a Floor's pool for a Hall kind; the seed picks which one a Hall holds. _Avoid_: wave, squad, spawn group.
+- **Inventory**: the Weapons and Relics a Player's Fighter holds, equipped or carried; changed only while no enemy in the Hall is alive. _Avoid_: bag, loadout.
 - **Relic**: a passive modifier a Player finds and equips: a list of effects from a fixed vocabulary, applied to its Fighter's own numbers. Tuning Data. _Avoid_: perk, buff, boon, item (an item is a Weapon or a Relic).
 - **Hall**: one node of a Floor, fought or visited on its own Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Boss). A Hall with enemies is one Duel. _Avoid_: room (the online connection), chamber (a combat term), cell (the generator's grid), node.
 
+## How it fits the existing code
+
+What the v1 Run already gives us (`docs/plans/gauntlet.md`, Results): a Run inside `MatchState` (`run: RunState`), stepped by the Gauntlet branch of `stepMatch` (`src/sim/match.ts`); Benched Team 1 slots and `inDuel`; per-Fighter `maxHp`; Floor AIs that pick their difficulty from the Floor (`src/controllers/floorAi.ts`); a Run seed from the Random Map's name (`runSeed`, `runPick` in `src/sim/gauntlet.ts`); Run knobs from the Lobby (`applyRunKnobs`); the next Arena warmed after the Final Blow Shot (`warmArena`, `src/play/arenaWorlds.ts`); the Floor banner, per-Fighter bars and results screen (`src/play/hud.ts`).
+
+What it cannot do, and the Dungeon needs:
+- **A Duel ends when a Team is wiped out.** A Hall's Duel must go on after its Encounter falls (the party walks to a Door, takes loot), and a Hall with no Encounter (Treasure, Rest) has no one to beat.
+- **The next Arena is known in advance** (`nextArenaName`). Now it hangs on the Door the party takes.
+- **A Generated Arena has no Doors**, its name carries no settings, and its Team 0 spawn is wherever the generator put it.
+- **A Fighter's Weapon is fixed for the Match**, and its numbers (damage, daggers, damage taken) are everyone's Tuning Data.
+- **An Intent has no inventory actions.**
+
+### The Run inside `MatchState`
+- `RunState` becomes `{ floor, floors, row, hall, path, phase, doorTicks, startTick }`: where the party is (Floor, row, the Hall's index in its row), the Halls it has visited (for the map and results), `phase` (`Fighting` or `Cleared`), and how long the party has stood at each Door. Hashed and snapshotted as today.
+- **The Floor graph is never stored**: `floorGraph(dungeon, runSeed, floor)` (`src/sim/dungeon.ts`, pure) rebuilds it from the seed whenever it is needed, like a Generated Arena from its name. Each Hall: its kind, its exits (indices into the next row), its Arena name (`gen:<kit>:<seed>:d<n>`, the seed a `runPick` of (Run seed, Floor, row, Hall), `n` its exits plus the entrance) and its Encounter (`hallEncounter`, a pick from the Floor's pool for its kind).
+- `stepMatch`, Dungeon branch, replacing the v1 Floor branch:
+  - **Fighting → Cleared** when Team 1 has no Fighter `inDuel` (at once for a Treasure or Rest Hall). The Duel does not end: Team 0 walks on. A `HallCleared` event (the Final Blow Shot plays on it, as at a Duel's end).
+  - **Cleared:** each Tick, for each exit Door, if every living Player's Fighter stands in its zone, its `doorTicks` counts up, else back to 0. At `dungeon.doorSeconds` the party leaves: after a short fade (`dungeon.hallFadeSeconds`) the next Duel is `hallDuel(...)` on that Hall's Arena. Leaving the Boss Hall goes to row 1 of the next Floor; leaving the last Boss is a Victory.
+  - **A wipe of Team 0** in any phase is a Defeat (`RunEnd`, Halls and Floors cleared).
+- `hallDuel` replaces `floorDuel`: Team 0 at the entrance Door's spawns with the HP it had (a fallen Fighter at `dungeon.revive` of its max HP, a full heal after a Boss), Team 1 from the Hall's Encounter (Benched otherwise), max HP scaled by the humans and by the Hall's row (`dungeon.depthHp`).
+- `SimState.floor` becomes `SimState.hall: { floor, row, index, kind, phase }`, so a Controller can tell Halls apart and see that a Hall is cleared.
+
+### Hall Arenas: Doors in the generator
+- **Name:** `gen:<kit>:<seed>:d<n>` (`parseGeneratedName` gains `doors`; a name without `:d` is a Random Map as today, no Doors). `GENERATOR_VERSION` 3.
+- **Kit:** a `door` Piece in `greybox` (`art/build_kit_greybox.py`, `data/kits/greybox.json`): one edge cell, a Wall with a doorway along its outer side, a `DOOR_*` helper for the zone.
+- **Layout:** `generateLayout` places `n` Doors on edge cells at ground level, spread round the footprint (Door 0, the entrance, first), each on a cell walking joins.
+- **Assembly:** `ArenaGeometry` gains `doors: { zone: polygon, facing, spawns }[]`. Team 0's spawns are Door 0's (its four spawns in front of it); Team 1's are the cell furthest from Door 0 by walking. Door 0 has no exit zone.
+- **Judge:** every Door's zone and spawns reach every enemy spawn by walking and dropping alone; Door zones are never deadly ground.
+- **Warming:** once a Hall is cleared and its Final Blow Shot is over, the game warms every exit's Arena (two or three; the cache keeps eight), so the Hall change only reads the cache whichever Door the party takes. A Door is taken no sooner than `doorSeconds` after the party starts gathering, which covers a late warm on a slow device as the v1 pause did.
+
+### AI in a Hall
+- **Floor AI → Hall AI:** an enemy slot's Controller reads `state.hall` and takes its difficulty and Style from the Hall's Encounter, starting fresh memory whenever the Hall changes (as v1 does per Floor). Benched: `IDLE_INTENT`.
+- **AI allies in a cleared Hall** walk to the Door with the most living Players in its zone (ties to the lowest index), else follow the nearest Player. They never count towards a Door, and never take loot.
+
+### Loot and the inventory (Stage 2)
+- `FighterState` gains `inventory: { weapons: string[], relics: string[], weapon: index, equipped: index[] }` (Team 0 Players only; empty otherwise) and `mods`: its equipped Relics folded into one record (`maxHp`, `damage`, `heavyDamage`, `damageTaken`, `blockImpactTaken`, `daggers`, `daggerDamage`, `kickDamage`, `healOnKill`, `healOnClear`), recomputed at each Hall's start and on each equip. Every place that reads those numbers reads the Fighter's own: the Hit in `combat.ts`, a Throwing Dagger's damage and count, a Kick's knockdown damage, a Block Impact. Team 1's `mods` come from an Elite Encounter's Relics.
+- `weapon` stays a `FighterState` field, now changed by an equip; nothing reads the Match's Weapons after a Hall starts. A Weapon swap only in a cleared Hall, so never mid-Action.
+- `MatchState.run.pickups`: this Hall's items `{ id, owner: player | null, item, at, taken }`. Fight, Elite and Boss Halls drop theirs at `HallCleared`; a Treasure Hall's three pedestals per Player stand from its start (taking one marks the other two taken). What each holds is `runPick(Run seed, Floor, row, Hall, Player, …)`. A dropped item is a pickup with `owner: null`. Cleared at each Hall change.
+- A Fighter takes a pickup it owns (or a shared one) by standing on it with room in its inventory; a full inventory leaves it lying.
+- **Intent:** `equip?: { kind: 'weapon' | 'relic', slot }` and `drop?: { kind, slot }`, acted on only in a `Cleared` Hall (or one with no Encounter). `isIntent` (`src/net/messages.ts`) checks them; `PROTOCOL_VERSION` 20.
+- `data/relics.json` (`src/tuning/relics.ts`, hashed): each Relic's name, icon and effects; the parser checks every effect is in the vocabulary.
+
+### Tuning Data: `data/dungeon.json` (replaces `data/gauntlet.json`)
+```json
+{
+  "doorSeconds": 1.5,
+  "hallFadeSeconds": 1,
+  "revive": 0.25,
+  "restHeal": 0.5,
+  "perPlayerHp": 0.5,
+  "depthHp": 0.1,
+  "inventory": { "weapons": 3, "relics": 6, "equippedRelics": 3 },
+  "floors": [
+    {
+      "rows": [2, 3, 2],
+      "weights": { "Fight": 6, "Elite": 1, "Treasure": 1 },
+      "encounters": {
+        "Fight": [{ "enemies": [{ "difficulty": "Easy", "weapon": "random" }] }],
+        "Elite": [{ "enemies": [{ "difficulty": "Normal", "weapon": "random", "relics": 1 }] }]
+      },
+      "boss": { "enemies": [{ "difficulty": "Hard", "weapon": "Sledge Hammer", "hpScale": 2.5 }] }
+    }
+  ]
+}
+```
+`rows` are the widths of rows 2 to 4 (row 1 and the Boss are one Hall each); Elites never in row 2; row 4 always holds one Rest Hall. Run knobs (`applyRunKnobs`) work on Encounters as they did on Floors. Numbers are starting points, tuned in Stage 5.
+
+## Stage 1: Halls and Floors in the Simulation, solo, no loot
+- `data/dungeon.json` and its parser (`src/tuning/dungeon.ts`) replace `gauntlet.json`; `floorGraph`, `hallEncounter`, the new `RunState`, `SimState.hall`, `hallDuel`, the Dungeon branch of `stepMatch`, `HallCleared`; v1's `floorRoster`/`floorDuel` go.
+- The generator's Doors: the `door` Piece, `:d<n>` names, Door placement, `ArenaGeometry.doors`, the judge's rule, `GENERATOR_VERSION` 3.
+- Rest Halls: a fire zone in the middle; a Player's Fighter standing in it once heals `restHeal` (per Player, once). Treasure Halls stand empty until Stage 2.
+- Hall AIs; AI allies walking to the Door.
+- Skirmish (offline only): the Gauntlet Format plays a Dungeon. Placeholder presentation: a text label over each Door (the kind behind it, and "2 / 3" while the party gathers), the banner "Floor 2 · Hall 3 / 5 · seed N", the Final Blow Shot on each clear, warming every exit.
+- Dev mode: start at a Floor and row (`devMode.ts`).
+- `CONTEXT.md`: Dungeon, Floor (new meaning), Hall, Door, Encounter; Run, Duel, Death, Benched and Generated Arena updated; Floor's _Avoid_ "room" kept, Run's "dungeon" removed. ADR 0019 Accepted.
+- **Tests:**
+  - A Run is deterministic: equal `hashValue` every Tick for the same Intents; a Run seed gives the same Floor graphs, Hall Arenas and Encounters every time.
+  - `floorGraph`: 5 rows, widths from Tuning Data, every Hall reachable, 1 to 3 exits each, one Rest in row 4, no Elite in row 2.
+  - Generator: every `:d<n>` seed in a soak passes the judge; Door 0 holds Team 0's spawns; Doors on the edge at ground level; a name without `:d` builds exactly the Arena it does today.
+  - Hall flow: a cleared Hall stays in play; the party standing at a Door for `doorSeconds` moves on (one Player out of the zone resets it; an AI ally never counts; a fallen Player does not have to stand there); Boss → next Floor's row 1 with a full heal; last Boss → Victory; Team 0 wiped → Defeat; a fallen teammate back next Hall at 25%; a Rest heals each Player once.
+  - Rollback across a Hall change re-simulates to the same state.
+- **Check in `npm run dev`:** Skirmish → Gauntlet → a full Floor solo and with two AI allies, choosing different Doors on two Runs of the same seed; a death and a revive; a Rest Hall.
+
+## Stage 2: loot, Relics and the inventory
+- `data/relics.json` and its parser; `FighterState.inventory` and `mods`; every read of damage, daggers, Kick damage and Block Impact through the Fighter's `mods`; `healOnKill`, `healOnClear`.
+- Pickups: Fight, Elite and Boss drops, Treasure pedestals (one of three per Player), shared drops; taking by standing on it.
+- Intent `equip`/`drop`, `isIntent`, `PROTOCOL_VERSION` 20; the Local Controller's inventory keys (placeholder: number keys equip, a key drops) acting only in a cleared Hall.
+- Elite Encounters' Relics on Team 1, dropping one when beaten.
+- Placeholder presentation: a pickup drawn only for its owner (shared ones for everyone), as a floating label; a text list of the inventory on a key.
+- `CONTEXT.md`: Relic, Inventory; Weapon (in a Run it changes by equipping) and Fighter updated.
+- **Tests:** each effect changes exactly its number and stacks as said (multipliers multiply, additions add); equip and drop refused while an enemy lives; a pickup taken only by its owner, a shared one by anyone, a full inventory leaves it; a Treasure Hall gives each Player one of three; pickups are the same for the same seed; Rollback over a pickup and an equip; an Elite's Relic dropped.
+
+## Stage 3: presentation
+- The map screen (render only, any time, on a key): the Floor graph, Hall kinds as icons, the path taken, where the party stands.
+- The inventory screen (render only): slots, equipped marks, each Relic's icon and effects in words; equips and drops made from it become the Intent fields.
+- Door marks (an icon above each Door for the kind behind it; a gate drawn closed until the Hall is cleared; "2 / 3" while gathering), pedestals, the Rest fire, pickups drawn as the Weapon or a Relic's icon.
+- Results screen: Victory or Defeat, Floors and Halls cleared, time, Run seed, and each Player's build.
+- Art: the `door`, pedestal and fire pieces in Blender, with the Kit.
+
+## Stage 4: online co-op
+- Gauntlet offered online again (as v1 Stage 4): Team 0 up to four Players.
+- A pickup is drawn only for its owner on every peer; the Simulation already has it for everyone.
+- Message validators for the new `MatchState` (`run`'s new fields, pickups, inventories, `mods`) on a resync, and the Intent fields; `tuningDataHash` covers `dungeon.json` and `relics.json`.
+- **Tests:** a two- and a four-Player Run over the loopback transport with latency: Hall changes, Door gathering, pickups and equips all agree (checksums), across a resync; an AI Takeover mid-Hall (the taken-over Fighter keeps its inventory and stops counting at Doors).
+- **Check:** a Floor with two browsers online.
+
+## Stage 5: tuning
+- The Encounter pools for three Floors, the three Bosses, the first ~15 Relics, `depthHp`, `revive`, `restHeal`, using the dev-mode start; the Run lasts about 20 to 30 minutes.
+
+## Version 1: stop after Stage 5 and get player feedback
+Things to learn: is a Run's length and difficulty right, solo and in co-op? Do routes feel like choices? Which Relics are taken and which never? Is walking to a Door clear, or does the party wait on someone? Do players miss Gold and Shops?
+
+## Later
+- Gold and Shop Halls; consumables (a use Intent); armour.
+- A bigger Boss Arena, and Kits themed per Floor.
+- Weapons beyond the four.
+- One continuous Arena for a Floor (ADR 0019 says what it costs).
+- Fog of war, if the full map makes routes too easy to plan.
+
 ## Open questions
+- None open. Each Decision above was confirmed one by one; numbers are starting points for Stage 5.
