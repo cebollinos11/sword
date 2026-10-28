@@ -132,23 +132,47 @@ function dungeonFloor(dungeon: DungeonTuning, floor: number): DungeonFloor {
   return f;
 }
 
+/** How many Floor graphs one Dungeon keeps built (a Run reads its current Floor's, and the next one's past a Boss). */
+const KEPT_GRAPHS = 8;
+/** Built Floor graphs, per Dungeon (by object), by `seed:floor:kit`, most recently used last. */
+const graphs = new WeakMap<DungeonTuning, Map<string, FloorGraph>>();
+
 /**
  * Floor `floor`'s (1-based) graph of Halls for the Run seed: kinds, exits, Arena names and Encounters, all pure picks of
  * (Run seed, Floor, row, Hall). Hall Arenas are Generated Arenas of `kit` (the Run's first Arena's). Throws on a Floor the
- * Dungeon lacks.
+ * Dungeon lacks. Read many times a Tick and a frame (Doors, rosters, labels), so it is built once and then reused while it
+ * stays among the last few built for its Dungeon: being pure, a rebuilt one is equal. It is frozen; never change it.
  */
 export function floorGraph(dungeon: DungeonTuning, runSeed: number, floor: number, kit: string): FloorGraph {
+  let kept = graphs.get(dungeon);
+  if (!kept) graphs.set(dungeon, (kept = new Map()));
+  const key = `${runSeed}:${floor}:${kit}`;
+  let graph = kept.get(key);
+  if (graph) kept.delete(key);
+  else {
+    graph = buildFloorGraph(dungeon, runSeed, floor, kit);
+    if (kept.size >= KEPT_GRAPHS) kept.delete(kept.keys().next().value!);
+  }
+  kept.set(key, graph);
+  return graph;
+}
+
+function buildFloorGraph(dungeon: DungeonTuning, runSeed: number, floor: number, kit: string): FloorGraph {
   const f = dungeonFloor(dungeon, floor);
   const kinds = floorKinds(f, runSeed, floor);
   const encounters = floorEncountersByHall(f, kinds, runSeed, floor);
-  return kinds.map((row, r) => {
-    const last = r === FLOOR_ROWS - 1;
-    const exits = last ? [floor < dungeon.floors.length ? [0] : []] : rowExits(runSeed, floor, r, row.length, kinds[r + 1]!.length);
-    return row.map((kind, i): Hall => {
-      const seed = runPick(runSeed, floor, slot(r, i), SALT.arena, ARENA_SEED_RANGE);
-      return { kind, exits: exits[i]!, arena: `gen:${kit}:${seed}:d${exits[i]!.length + 1}`, encounter: encounters[r]![i]! };
-    });
-  });
+  return Object.freeze(
+    kinds.map((row, r) => {
+      const last = r === FLOOR_ROWS - 1;
+      const exits = last ? [floor < dungeon.floors.length ? [0] : []] : rowExits(runSeed, floor, r, row.length, kinds[r + 1]!.length);
+      return Object.freeze(
+        row.map((kind, i): Hall => {
+          const seed = runPick(runSeed, floor, slot(r, i), SALT.arena, ARENA_SEED_RANGE);
+          return Object.freeze({ kind, exits: Object.freeze(exits[i]!), arena: `gen:${kit}:${seed}:d${exits[i]!.length + 1}`, encounter: encounters[r]![i]! });
+        }),
+      );
+    }),
+  );
 }
 
 /** The Encounter of Hall `index` of row `row` (0-based, row 0 the entrance) on Floor `floor`: as `floorGraph` gives it. */

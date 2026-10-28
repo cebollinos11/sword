@@ -75,6 +75,22 @@ describe('floorGraph: a Floor of Halls from the Run seed', () => {
     expect(floorGraph(dungeon, 1234, 1, KIT)).not.toEqual(floorGraph(dungeon, 1234, 2, KIT));
   });
 
+  it('is built once per (Dungeon, seed, Floor, Kit) and then reused, frozen; a copy of the Dungeon builds an equal graph', () => {
+    const graph = floorGraph(dungeon, 1234, 1, KIT);
+    expect(floorGraph(dungeon, 1234, 1, KIT)).toBe(graph);
+    expect(floorGraph(dungeon, 1234, 2, KIT)).not.toBe(graph);
+    expect(floorGraph(dungeon, 1235, 1, KIT)).not.toBe(graph);
+    expect(floorGraph(dungeon, 1234, 1, 'stone')).not.toBe(graph);
+    expect(Object.isFrozen(graph) && graph.every((row) => Object.isFrozen(row) && row.every((h) => Object.isFrozen(h) && Object.isFrozen(h.exits)))).toBe(true);
+    const copy = JSON.parse(JSON.stringify(dungeon)) as typeof dungeon;
+    const rebuilt = floorGraph(copy, 1234, 1, KIT);
+    expect(rebuilt).not.toBe(graph);
+    expect(rebuilt).toEqual(graph);
+    // However many other graphs were built in between, the same one comes back equal.
+    for (let s = 0; s < 100; s++) floorGraph(dungeon, s, 1, KIT);
+    expect(floorGraph(dungeon, 1234, 1, KIT)).toEqual(rebuilt);
+  });
+
   it('has 5 rows with the Tuning Data widths, kinds by row, and every Hall reachable', () => {
     for (let floor = 1; floor <= dungeon.floors.length; floor++) checkGraph(dungeon, floorGraph(dungeon, 77, floor, KIT), floor);
   });
