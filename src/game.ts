@@ -13,6 +13,7 @@ import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { visiblePickups } from './play/loot';
 import { mapKeyAction } from './play/floorMap';
+import { runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -600,6 +601,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           halls: cleared.halls,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
+          builds: runBuilds(match),
         };
         resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd') {

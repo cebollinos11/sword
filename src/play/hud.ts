@@ -5,6 +5,8 @@ import { fighterColours } from '../render/fighterView';
 import { doorwayMiddle } from '../render/doorway';
 import { FloorMapView } from './floorMapView';
 import { inventoryLines, pickupMarks } from './loot';
+import { relicIcon, weaponIcon } from './icons';
+import { daggerCapacity, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
 
 /** What the HUD needs to know about whose eyes it shows the Match through. */
@@ -34,6 +36,8 @@ export interface RunResult {
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
   readonly seconds: number;
   readonly seed: number;
+  /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
+  readonly builds?: readonly RunBuild[];
 }
 
 /** m:ss. */
@@ -176,7 +180,7 @@ export class Hud {
   private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
-  /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
+  /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
   private slowTag: HTMLElement | null = null;
   /** What the bars were built for; they are rebuilt when it changes. */
@@ -277,6 +281,7 @@ export class Hud {
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Halls cleared', String(r.halls)), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -286,6 +291,38 @@ export class Hud {
     this.banner.classList.remove('visible');
     this.bannerUntil = 0;
     this.results.hidden = false;
+  }
+
+  /** The results screen's builds: per Player the Weapon wielded and the Relics equipped (icon and name), the Relics carried smaller. */
+  private buildRows(builds: readonly RunBuild[]): HTMLElement[] {
+    const tuning = this.matchTuning ?? this.tuning;
+    const item = (svg: string, name: string, small = false) => {
+      const el = document.createElement('span');
+      el.className = `hud-build-item${small ? ' carried' : ''}`;
+      const icon = document.createElement('i');
+      icon.innerHTML = svg;
+      el.append(icon, name);
+      return el;
+    };
+    const relic = (name: string, small = false) => item(relicIcon(tuning.relics.find((x) => x.name === name)?.icon ?? ''), name, small);
+    return builds.map((b, i) => {
+      const box = document.createElement('div');
+      box.className = 'hud-build';
+      const who = document.createElement('div');
+      who.className = 'hud-build-who';
+      who.textContent = builds.length > 1 ? `Player ${i + 1}` : 'Build';
+      const row = document.createElement('div');
+      row.className = 'hud-build-row';
+      row.append(item(weaponIcon(b.weapon), b.weapon), ...b.equipped.map((n) => relic(n)));
+      box.append(who, row);
+      if (b.carried.length) {
+        const carried = document.createElement('div');
+        carried.className = 'hud-build-row';
+        carried.append(...b.carried.map((n) => relic(n, true)));
+        box.append(carried);
+      }
+      return box;
+    });
   }
 
   /** Letterbox the view and hide the bars and crosshair (the Final Blow Shot), or show them again. */
@@ -307,7 +344,7 @@ export class Hud {
     const myTeam = teams[me] ?? 0;
     // A Run's Hall changes who stands in Team 1's slots (and which are Benched): new bars and labels.
     const benched = match.duel.fighters.map((f) => Boolean(f.benched));
-    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched]);
+    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched, daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])]);
     if (key !== this.built) this.build(match, me, myTeam, view.lineup, view.names, key);
 
     for (const bar of this.bars) {
@@ -384,10 +421,10 @@ export class Hud {
   }
 
   /** The local Player's row under their HP bar: a small icon per dagger and a tag shown while a dagger Hit slows them. */
-  private buildDaggers(): HTMLElement {
+  private buildDaggers(count: number): HTMLElement {
     const row = document.createElement('div');
     row.className = 'hud-daggers';
-    for (let i = 0; i < this.tuning.dagger.count; i++) {
+    for (let i = 0; i < count; i++) {
       const icon = document.createElement('span');
       icon.className = 'hud-dagger';
       this.daggerIcons.push(icon);
@@ -428,7 +465,7 @@ export class Hud {
       value.className = 'hud-hp';
       bar.append(fill, value);
       box.append(name, bar);
-      if (fighter === me) box.append(this.buildDaggers());
+      if (fighter === me) box.append(this.buildDaggers(daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])));
       return { fighter, box, fill, value };
     });
     this.sides.forEach((side, s) => side.replaceChildren(...this.bars.filter((b) => (teams[b.fighter] === myTeam) === (s === 0)).map((b) => b.box)));
