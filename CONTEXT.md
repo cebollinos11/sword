@@ -5,7 +5,7 @@ A web-based 3D melee duelling game with Mount & Blade–style directional attack
 ## Participants
 
 **Fighter**:
-A combatant in a Duel: its body (Skeleton + Weapon) and its combat state (HP, current Action). Its Weapon is chosen before the Match and kept across Duels.
+A combatant in a Duel: its body (Skeleton + Weapon) and its combat state (HP, current Action). Its Weapon is chosen before the Match and kept across Duels; in a Run it changes only by equipping another from its Inventory. In a Run it also carries its own `mods` (its equipped Relics folded into one record), which every combat number it deals or takes is read through: the Hit's damage, its Throwing Daggers' count and damage, a Kick's knockdown damage, a Block Impact, its max HP, what it heals on a kill and on a clear. A Player's Fighter holds an Inventory; an Elite enemy's `mods` come from the Relics its Encounter names.
 _Avoid_: Player, character, unit
 
 **Controller**:
@@ -200,7 +200,7 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. No shields.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. No shields. In a Run a Player's Fighter may carry several (its Inventory) and wields one: it changes by equipping, only in a Cleared Hall and never mid-Action, so a Weapon is never swapped in a fight.
 
 **Weapon roster**:
 Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
@@ -260,7 +260,7 @@ One depth of a Dungeon: a layered graph of Halls in five rows, from one entrance
 _Avoid_: Level, act, stage, room (Room is the online connection)
 
 **Hall**:
-One node of a Floor, fought or visited on its own Generated Arena (with Doors), with a kind: Fight, Elite, Treasure, Rest or Boss. A Hall with enemies is one Duel: Team 0 starts at its entrance Door, every Fighter drawn with its Throwing Daggers back, and Team 1's slots hold its Encounter's enemies (Benched otherwise), each enemy's max HP also scaled by the Hall's row (`dungeon.depthHp`, so the Halls before the Boss are the hardest). Team 1's AIs take their difficulty and Style from the Encounter. Once no Team 1 Fighter is left in its Duel the Hall is Cleared (at once for a Treasure or Rest Hall, which have no Encounter), its Duel goes on and its exit Doors open; once the party takes one, a short fade (`dungeon.hallFadeSeconds`) and the Hall behind it starts. A Rest Hall's fire burns at the middle of its Arena's Team 1 spawns: each Player's Fighter that stands at it heals `dungeon.restHeal` of its max HP, once in that Hall. A Treasure Hall holds nothing yet.
+One node of a Floor, fought or visited on its own Generated Arena (with Doors), with a kind: Fight, Elite, Treasure, Rest or Boss. A Hall with enemies is one Duel: Team 0 starts at its entrance Door, every Fighter drawn with its Throwing Daggers back, and Team 1's slots hold its Encounter's enemies (Benched otherwise), each enemy's max HP also scaled by the Hall's row (`dungeon.depthHp`, so the Halls before the Boss are the hardest). Team 1's AIs take their difficulty and Style from the Encounter. Once no Team 1 Fighter is left in its Duel the Hall is Cleared (at once for a Treasure or Rest Hall, which have no Encounter), its Duel goes on and its exit Doors open; once the party takes one, a short fade (`dungeon.hallFadeSeconds`) and the Hall behind it starts. A Rest Hall's fire burns at the middle of its Arena's Team 1 spawns: each Player's Fighter that stands at it heals `dungeon.restHeal` of its max HP, once in that Hall. A Treasure Hall stands its pedestals from the start (below). A Fight, Elite or Boss Hall drops loot for each Player once Cleared (`loot.drops`: one item in a Fight Hall, one in an Elite Hall besides the Relic its Elite carried, two in a Boss Hall); a Hall's pickups lie on Team 1's spawn cells and are gone when the party leaves.
 _Avoid_: Room (the online connection), chamber (a combat term), cell (the generator's grid), node
 
 **Door**:
@@ -268,8 +268,16 @@ A Piece of the Kit on a Hall's edge, at ground level: a doorway in a Wall with a
 _Avoid_: portal, gate
 
 **Encounter**:
-One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may name Relics (from `data/relics.json`), which nothing reads yet.
+One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may name Relics (from `data/relics.json`, 1 or 2): it starts its Hall with their `mods` (max HP and Throwing Daggers follow), and the first Relic of the lowest-slot Elite that fights and names any is what the Hall drops for each Player, ahead of the Elite's `loot.drops` picks.
 _Avoid_: Wave, squad, spawn group
+
+**Relic**:
+A passive modifier a Player finds and equips, one of Tuning Data's (`data/relics.json`: a name, an icon and effects from a fixed vocabulary: `damage`, `heavyDamage`, `damageTaken`, `blockImpactTaken`, `daggerDamage`, `kickDamage` as factors, `maxHp` and `healOnClear` as shares, `daggers` and `healOnKill` as counts). An equipped Relic's effects fold into its Fighter's `mods` (`foldMods`: factors multiply, the rest add), recomputed at each Hall's start and on each equip; a Relic changes only its own Fighter's numbers. An Elite enemy wears the Relics its Encounter names. An item is a Weapon or a Relic.
+_Avoid_: Perk, buff, boon
+
+**Inventory**:
+What a Player's Fighter holds in a Run: up to `dungeon.inventory.weapons` Weapons (one wielded, and a Fighter always keeps one) and `relics` Relics (at most `equippedRelics` equipped, the rest carried). It starts as the Weapon the Lineup chose. Items come from pickups lying in a Hall: a Fight, Elite or Boss Hall's drops for each Player (a pure pick of Run seed, Floor, Hall and Player, weighted by `loot.weights`), a Treasure Hall's `loot.pedestals` for each Player (one of three: taking one closes the other two for that Player), and an item a Player dropped, which any Player may take. A Player sees and takes its own pickups and the shared ones by standing on them, with room to hold them; a dropper may not take its drop back until it steps off. AI allies take nothing. It changes through the Intent's `equip` and `drop`, only in a Cleared Hall (or one with no Encounter) and only while the Fighter is Idle, on the ground and alive, so it rolls back like a position. The Local Controller's number keys equip (1 to 3 the Weapons, 4 to 9 the Relics), X drops the last one picked and I shows the list.
+_Avoid_: Bag, loadout
 
 **Benched**:
 A Team 1 slot a Hall has no enemy for (its Encounter lists fewer than four, or an enemy's `minTeam` is not met; every slot of a Treasure or Rest Hall): out of that Hall's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
