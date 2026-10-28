@@ -82,3 +82,21 @@ export function pickupViews(pickups: readonly Pickup[], viewer: number, eye: Pic
   }
   return views.map((v, i) => (v.label === (i === best) ? v : { ...v, label: i === best }));
 }
+
+/** How far over the ground (m) a pickup's label floats. */
+export const LABEL_HEIGHT = 1.0;
+
+/** One pickup's floating label for the HUD: where (a little over its ground) and what it says. */
+export interface PickupLabel {
+  readonly id: number;
+  readonly at: PickupAt;
+  readonly text: string;
+  readonly kind: 'weapon' | 'relic';
+}
+
+/** The labels to draw: the item name over each view that is shown and labelled (`pickupViews` allows one), so the 3D mark and the label agree. */
+export function pickupLabels(views: readonly PickupView[]): PickupLabel[] {
+  return views
+    .filter((v) => v.shown && v.label)
+    .map((v) => ({ id: v.id, at: { x: v.at.x, y: v.at.y + LABEL_HEIGHT, z: v.at.z }, text: v.form.kind === 'weapon' ? v.form.weapon : v.form.relic, kind: v.form.kind }));
+}

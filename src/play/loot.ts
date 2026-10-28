@@ -1,15 +1,8 @@
 /**
- * Placeholder presentation of loot (docs/plans/dungeon.md, Stage 2; Stage 3 brings the art): the text a pickup's label and the inventory screen
- * show. Everything here is pure and render only: it reads the Match, never changes it.
+ * Placeholder presentation of loot (docs/plans/dungeon.md, Stage 2; Stage 3 brings the art): the text the inventory screen shows for a
+ * Relic. Everything here is pure and render only.
  */
-import { pickupVisibleTo, type MatchState, type Pickup, type PickupAt } from '../sim';
 import type { RelicEffect, RelicEffects } from '../tuning';
-
-/** A pickup's floating label: the item's name. */
-export const pickupLabel = (p: Pick<Pickup, 'item'>): string => p.item;
-
-/** The pickups the Player Fighter `fighter` sees, as the Simulation lets it take them (`pickupVisibleTo`): its own and shared ones, not taken. */
-export const visiblePickups = (match: MatchState, fighter: number): Pickup[] => (match.run?.pickups ?? []).filter((p) => pickupVisibleTo(p, fighter));
 
 const percent = (factor: number): string => `${Math.round(Math.abs(factor - 1) * 100)}%`;
 const signed = (factor: number): string => `${factor >= 1 ? '+' : '-'}${percent(factor)}`;
@@ -35,18 +28,3 @@ export function relicWords(effects: RelicEffects): string {
     .map((k) => WORDS[k](effects[k]!))
     .join(', ');
 }
-
-/** One pickup's floating label: where (a little over its ground) and what it says. */
-export interface PickupMark {
-  readonly id: number;
-  readonly at: PickupAt;
-  readonly text: string;
-  readonly kind: Pickup['kind'];
-}
-
-/** How far over the ground (m) a pickup's label floats. */
-export const PICKUP_LABEL_HEIGHT = 1.0;
-
-/** The labels over the pickups `fighter` sees, in id order. */
-export const pickupMarks = (match: MatchState, fighter: number): PickupMark[] =>
-  visiblePickups(match, fighter).map((p) => ({ id: p.id, at: { x: p.at.x, y: p.at.y + PICKUP_LABEL_HEIGHT, z: p.at.z }, text: pickupLabel(p), kind: p.kind }));

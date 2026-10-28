@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Pickup } from '../sim';
-import { AIM_RANGE, LABEL_RANGE, pickupView, pickupViews, type PickupEye } from './pickupView';
+import { AIM_RANGE, LABEL_HEIGHT, LABEL_RANGE, pickupLabels, pickupView, pickupViews, type PickupEye } from './pickupView';
 
 const pickup = (id: number, x: number, over: Partial<Pickup> = {}): Pickup => ({ id, owner: 0, kind: 'relic', item: 'Whetstone', at: { x, y: 0, z: 0 }, taken: false, ...over });
 
@@ -61,5 +61,22 @@ describe('the Treasure labels', () => {
   it('skip pickups the viewer does not see', () => {
     const mixed = [pickup(0, 0, { owner: 1 }), pickup(1, 0.5, { owner: 0 })];
     expect(labelled(pickupViews(mixed, 0, eye(0)))).toEqual([1]);
+  });
+});
+
+describe('the labels the HUD draws', () => {
+  it('are the labelled views’ item names, a little over their ground, so the HUD and the 3D marks never disagree', () => {
+    const items = [pickup(0, 0, { item: 'Iron Plate' }), pickup(1, 1.12, { kind: 'weapon', item: 'Arming Sword' }), pickup(2, 2.24, { owner: 1 })];
+    const views = pickupViews(items, 0, eye(1.12, { dir: { x: 0, y: -0.2, z: 1 } }));
+    const labels = pickupLabels(views);
+    expect(labels.map((l) => l.id)).toEqual(views.filter((v) => v.label).map((v) => v.id));
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toEqual({ id: 1, at: { x: 1.12, y: LABEL_HEIGHT, z: 0 }, text: 'Arming Sword', kind: 'weapon' });
+  });
+
+  it('are none for a view that is hidden or unlabelled', () => {
+    expect(pickupLabels([{ ...pickupView(pickup(0, 0), 0, eye(0)), shown: false }])).toEqual([]);
+    expect(pickupLabels([{ ...pickupView(pickup(0, 0), 0, eye(0)), label: false }])).toEqual([]);
+    expect(pickupLabels([])).toEqual([]);
   });
 });

@@ -811,7 +811,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), labelled: pickups.find((v) => v.label)?.id ?? null });
+      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
       syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {

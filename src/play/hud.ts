@@ -2,8 +2,8 @@ import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
+import { pickupLabels, type PickupView } from '../render/pickupView';
 import { FloorMapView } from './floorMapView';
-import { pickupMarks } from './loot';
 import { relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
@@ -20,8 +20,8 @@ export interface HudView {
   readonly names?: readonly string[] | null;
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
   readonly tuning?: TuningData;
-  /** The id of the one pickup whose name shows (`pickupViews`); null: none; absent: every pickup's. */
-  readonly labelled?: number | null;
+  /** How the pickups are drawn this frame (`pickupViews`): the one labelled shows its name. Absent: none. */
+  readonly pickups?: readonly PickupView[];
   /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the pickup labels. */
   readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
@@ -327,7 +327,7 @@ export class Hud {
 
   /** A Run's labels over the pickups the local Player sees. */
   private updatePickups(match: MatchState, view: HudView): void {
-    const marks = view.project && match.status.status !== 'Over' ? pickupMarks(match, view.localFighter).filter((m) => view.labelled === undefined || m.id === view.labelled) : [];
+    const marks = view.project && match.status.status !== 'Over' ? pickupLabels(view.pickups ?? []) : [];
     while (this.pickupTags.length < marks.length) {
       const tag = document.createElement('div');
       tag.className = 'hud-door hud-pickup';
