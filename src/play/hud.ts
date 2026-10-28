@@ -19,6 +19,8 @@ export interface HudView {
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
   readonly tuning?: TuningData;
   /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the Door labels. */
+  /** The id of the one pickup whose name shows (`pickupViews`); null: none; absent: every pickup's. */
+  readonly labelled?: number | null;
   readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
 
@@ -340,7 +342,7 @@ export class Hud {
 
   /** A Run's labels over the pickups the local Player sees, and the inventory list while it is shown. */
   private updatePickups(match: MatchState, view: HudView): void {
-    const marks = view.project && match.status.status !== 'Over' ? pickupMarks(match, view.localFighter) : [];
+    const marks = view.project && match.status.status !== 'Over' ? pickupMarks(match, view.localFighter).filter((m) => view.labelled === undefined || m.id === view.labelled) : [];
     while (this.pickupTags.length < marks.length) {
       const tag = document.createElement('div');
       tag.className = 'hud-door hud-pickup';
