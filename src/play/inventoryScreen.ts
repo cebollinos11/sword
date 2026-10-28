@@ -15,7 +15,7 @@ export type InventoryScreenAction = 'equip' | 'drop';
 
 /** The screen's styles (added with the HUD's, `ensurePlayStyles`). */
 export const INVENTORY_CSS = `
-.inv-toggle { display: none; pointer-events: auto; position: absolute; left: calc(50% + 1.6rem); bottom: max(0.8rem, env(safe-area-inset-bottom));
+.inv-toggle { display: none; pointer-events: auto; position: absolute; right: calc(50% + 1.6rem); bottom: max(0.8rem, env(safe-area-inset-bottom));
   height: 2.4rem; padding: 0 0.8rem; border-radius: 1.2rem; font: 700 0.8rem system-ui, sans-serif; color: #fff; background: #0007; border: 1px solid #fff6; cursor: pointer; opacity: 0.75; }
 @media (pointer: coarse) { .inv-toggle { display: block; } }
 .inv-screen { position: absolute; inset: 0; pointer-events: auto; display: flex; align-items: center; justify-content: center; background: #000a; }

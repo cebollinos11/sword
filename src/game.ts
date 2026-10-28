@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, createMatch, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
@@ -13,11 +13,12 @@ import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { visiblePickups } from './play/loot';
+import { mapKeyAction } from './play/floorMap';
 import { runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
-import { FinalBlowShot } from './play/finalBlow';
+import { FinalBlowShot, shotIntent } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
@@ -139,7 +140,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.enabled = on;
     },
   };
-  const hud = new Hud(container, tuning, () => openPause());
+  const hud = new Hud(container, tuning, () => openPause(), () => toggleMap());
   /** The inventory screen (`I`, or its touch button): render only, its clicks become the Local Controller's `equip` and `drop`. */
   const inventoryScreen = new InventoryScreen((ref, action) => local.inventoryClick(ref, action), () => toggleInventory());
   hud.root.append(inventoryScreen.root);
@@ -490,9 +491,23 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.showLobby(l, invite, text);
   }
 
+  /** The Floor map (`M`, or its touch button) over a live Run, which keeps simulating; the mouse is freed while it is open and taken again on close, as the menu does. */
+  function toggleMap(): void {
+    if (!driver || menu.visible) return;
+    if (hud.map.open) {
+      hud.setMapOpen(false);
+      if (!touchInput) resume();
+    } else if (curr.run) {
+      if (inventoryScreen.open) toggleInventory();
+      hud.setMapOpen(true);
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+  }
+
   function openPause(): void {
     if (!driver || menu.paused) return;
     inventoryScreen.open = false;
+    hud.setMapOpen(false);
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -523,6 +538,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function toggleInventory(): void {
     if (!driver || menu.visible) return;
     const opening = !inventoryScreen.open;
+    if (opening) hud.setMapOpen(false);
     inventoryScreen.open = opening;
     input.enabled = !opening;
     if (opening) {
@@ -534,6 +550,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   addEventListener('keydown', (e) => {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
     else if (inventoryScreen.open && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
+    const mapAction = mapKeyAction(e.code, hud.map.open);
+    if (mapAction && !e.repeat) {
+      if (mapAction === 'toggle') toggleMap();
+      else if (!menu.visible) toggleMap();
+      if (e.code === 'Escape') return;
+    }
     if (e.code !== 'Escape' || e.repeat) return;
     if (inventoryScreen.open) return toggleInventory();
     if (performance.now() - pausedAt < 400) return;
@@ -542,17 +564,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   });
   document.addEventListener('pointerlockchange', () => {
     // Esc frees the mouse first (and some browsers swallow that Esc): freeing it in a Match opens the menu.
-    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled) return;
+    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled || hud.map.open) return;
     pausedAt = performance.now();
     openPause();
   });
 
-  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. */
-  function endShot(): void {
+  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. `rest`: a Hall's Ticks the replay never reached, which sound now. */
+  function endShot(rest: readonly MatchState[] = []): void {
     if (!inShot) return;
     inShot = false;
     hud.cinematic(false);
     audio.setSpeed(1);
+    for (const m of rest) audio.onMatchTick(m);
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
     shake.seek(curr.tick);
@@ -675,7 +698,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;
-      const { advanced } = d.tick(local.sample());
+      // A Hall's Final Blow Shot holds the Player (sampled all the same, so a press during it is spent).
+      const { advanced } = d.tick(shotIntent(finalBlow, local.sample()));
       if (d.failure) {
         matchFailed(d.failure);
         break;
@@ -684,7 +708,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
       curr = d.state;
-      if (finalBlow.record(curr, local.yaw) && !inShot) {
+      if (finalBlow.record(curr, local.yaw, doorTicksNeeded(matchTuning)) && !inShot) {
         // The last Fighter of a Team fell: cut to the Final Blow Shot, which replays from a moment before.
         inShot = true;
         hud.cinematic(true);
@@ -734,7 +758,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const me = driver.localFighter;
       const yaw = local.yaw;
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
-      if (inShot && !shot) endShot();
+      if (inShot && !shot) endShot(finalBlow.takeRest());
       renderer.setPlayer(me, menu.body);
       renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
