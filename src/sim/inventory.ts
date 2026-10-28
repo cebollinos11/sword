@@ -28,17 +28,19 @@ export const startingInventory = (weapon: string): Inventory => ({ weapons: [wea
 /** The name of the Weapon the inventory has wielded. */
 export const wieldedWeapon = (inv: Inventory): string => inv.weapons[inv.weapon]!;
 
-/** The Mods of an inventory: its equipped Relics folded (`foldMods`) in `equipped` order. Throws on a Relic Tuning Data lacks. */
-export function inventoryMods(tuning: Pick<TuningData, 'relics'>, inv: Inventory): Mods {
+/** The Mods of the Relics named, folded (`foldMods`) in order. Throws on a Relic Tuning Data lacks. */
+export function relicMods(tuning: Pick<TuningData, 'relics'>, names: readonly string[]): Mods {
   return foldMods(
-    inv.equipped.map((slot) => {
-      const name = inv.relics[slot]!;
+    names.map((name) => {
       const relic = tuning.relics.find((r) => r.name === name);
       if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
       return relic;
     }),
   );
 }
+
+/** The Mods of an inventory: its equipped Relics folded (`foldMods`) in `equipped` order. Throws on a Relic Tuning Data lacks. */
+export const inventoryMods = (tuning: Pick<TuningData, 'relics'>, inv: Inventory): Mods => relicMods(tuning, inv.equipped.map((slot) => inv.relics[slot]!));
 
 /** A slot of `list`: a whole number inside it. */
 const inside = (slot: number, list: readonly unknown[]): boolean => Number.isInteger(slot) && slot >= 0 && slot < list.length;

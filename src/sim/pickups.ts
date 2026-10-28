@@ -10,7 +10,7 @@ import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { restFire, runPlayers, ZONE_HEIGHT, type HallRef } from './hall';
+import { hallRoster, restFire, runPlayers, ZONE_HEIGHT, type HallRef } from './hall';
 import { addItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -76,18 +76,24 @@ function pickItem(tuning: TuningData, seed: number, at: HallRef, player: number,
   return { kind, item: from[runPick(seed, at.floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
 }
 
-/** The Relics an Elite Hall's Encounter carried, dropped on top of `loot.drops.Elite`. Elite Relics come in a later ticket: none yet. */
-const carriedRelics = (_hall: Hall): readonly string[] => [];
+/**
+ * The Relic an Elite Hall's Encounter carried, dropped on top of `loot.drops.Elite`: the first Relic of the lowest-slot enemy that fights
+ * (`hallRoster`) and carries any, so with several carriers the pick is the same on every peer. None when no enemy carries one.
+ */
+function carriedRelics(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans'>, at: HallRef): readonly string[] {
+  const carrier = hallRoster(tuning, config, at).find((e) => e?.relics !== undefined);
+  return carrier ? [carrier.relics![0]!] : [];
+}
 
 /**
  * What a Hall drops for each Player when it is cleared (`HallCleared`), to append to the Hall's pickups from `firstId`: for each Player of
  * `runPlayers(config)`, ascending, `loot.drops` of the Hall's kind items (none for a Treasure or Rest Hall), each its own (`owner` the Player)
- * on Team 1's spawn k (wrapping), a Player's items different where they can be. THE place an Elite's own Relics join the drops: its
- * `carriedRelics` go first for each Player, ahead of the picked ones.
+ * on Team 1's spawn k (wrapping), a Player's items different where they can be. An Elite Hall also drops, for each Player, the Relic an Elite
+ * carried (`carriedRelics`) ahead of the picked ones: its count is `loot.drops.Elite` plus that one.
  */
 export function hallDrops(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, firstId: number): Pickup[] {
   const count = hall.kind === 'Fight' || hall.kind === 'Elite' || hall.kind === 'Boss' ? tuning.dungeon.loot.drops[hall.kind] : 0;
-  const carried = hall.kind === 'Elite' ? carriedRelics(hall) : [];
+  const carried = hall.kind === 'Elite' ? carriedRelics(tuning, config, at) : [];
   if (count + carried.length === 0) return [];
   const seed = runSeed(config.arena);
   const spots = pickupSpots(tuning, hall);

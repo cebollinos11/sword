@@ -31,7 +31,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
-import { holdInventory, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
+import { holdInventory, relicMods, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
 import { createRng } from './rng';
@@ -311,12 +311,12 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
   const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena);
   const { revive } = tuning.dungeon;
   // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): a Player's are its equipped Relics' (`holdInventory`:
-  // an equip recomputes them mid-Hall, and this carries them on), an AI ally's none, Team 1's an Elite's Relics' (none yet).
+  // an equip recomputes them mid-Hall, and this carries them on), an AI ally's none, Team 1's the Relics its Encounter lists, folded (an Elite's).
   const fighters = base.fighters.map((f, i) => {
     if (f.team === 1) {
       const enemy = enemies[i];
       if (!enemy) return { ...f, hp: 0, benched: true as const };
-      const armed = setMods(f, NO_MODS, enemy.maxHp);
+      const armed = setMods(f, relicMods(tuning, enemy.relics ?? []), enemy.maxHp);
       return { ...armed, hp: armed.maxHp };
     }
     const before = previous?.fighters[i];
