@@ -92,7 +92,8 @@ describe('a Gauntlet Room', () => {
     expect(formatRefusal(s, true)).toBeNull();
     const four = setFormat(s, 'Gauntlet', FRESH);
     for (const id of [0, 1, 2, 3]) expect(seatOf(four, id)?.team).toBe(0);
-    expect(offeredFormats(true)).toContain('Gauntlet');
+    // The Lobby supports it, but the Lobby view offers it online again only with the Dungeon's co-op (docs/plans/dungeon.md Stage 4).
+    expect(offeredFormats(true)).not.toContain('Gauntlet');
   });
 
   it('a guest who joins mid-Run waits for the next Run', () => {

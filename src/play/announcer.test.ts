@@ -88,3 +88,38 @@ describe('Rematch announcements', () => {
     expect(announce(states)).toEqual([...once, ...once]);
   });
 });
+
+describe('Run announcements', () => {
+  const plain = loadTuningData();
+  /** A Run on gen:greybox:12, Team 0 one Fighter; its first Hall cleared on Tick 1, then 30 Ticks walked on. */
+  function clearFirstHall(): MatchState[] {
+    let m = createMatch(plain, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    const states = [m];
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    for (let t = 0; t < 30; t++) states.push((m = stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), plain)));
+    return states;
+  }
+
+  it('announces a Hall cleared once (its Duel goes on, so no Duel end), even when the Tick it happened on is skipped', () => {
+    const states = clearFirstHall();
+    expect(states.at(-1)!.run!.phase).toBe('Cleared');
+    expect(states.at(-1)!.duel.duel.status).toBe('Fighting');
+    const kind = states.at(-1)!.duel.hall!.kind;
+    const expected = [
+      { type: 'DuelStart', duelNumber: 1 },
+      { type: 'HallCleared', duelNumber: 1, kind },
+    ];
+    expect(announce(states)).toEqual(expected);
+    expect(announce(states.filter((_, i) => i === 0 || i % 7 === 3))).toEqual(expected);
+  });
+
+  it('announces the watched Fighter taking a Rest Hall’s fire, once', () => {
+    const m = clearFirstHall().at(-1)!;
+    const rested: MatchState = { ...m, run: { ...m.run!, rested: [0] } };
+    const announcer = new MatchAnnouncer();
+    announcer.update(m, 0);
+    expect(announcer.update(rested, 0)).toEqual([{ type: 'Rested', duelNumber: 1 }]);
+    expect(announcer.update(rested, 0)).toEqual([]);
+    expect(new MatchAnnouncer().update(rested, 1).some((x) => x.type === 'Rested')).toBe(false);
+  });
+});

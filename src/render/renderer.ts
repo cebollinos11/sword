@@ -1,10 +1,11 @@
-import type * as THREE from 'three';
+import * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
 import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
+import { HallMarks } from './hallMarks';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
@@ -17,8 +18,8 @@ export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readon
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
  * solved Skeletons between the previous and current Tick (or draws a fallen
  * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
- * Team 1 slot its Floor leaves empty) is not drawn at all: no model, no shadow,
- * no dagger in hand, no trail.
+ * Team 1 slot its Hall leaves empty) is not drawn at all: no model, no shadow,
+ * no dagger in hand, no trail. A Run's Hall also draws its Doors and Rest fire (`HallMarks`).
  */
 export class Renderer {
   private readonly stage: Stage;
@@ -38,6 +39,9 @@ export class Renderer {
   private readonly daggers: DaggerViews;
   private readonly shadows = new BlobShadows();
   private readonly trails: SwingTrails;
+  private readonly hallMarks = new HallMarks();
+  /** Scratch for `toScreen`. */
+  private readonly projected = new THREE.Vector3();
 
   /**
    * `world` gives, for each Arena name a Match is played on, the Tuning Data holding it and its Layout (a Random Map's
@@ -53,6 +57,18 @@ export class Renderer {
     this.daggers = new DaggerViews(this.stage.scene);
     this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
+    this.stage.scene.add(this.hallMarks.root);
+  }
+
+  /**
+   * Where the point (Arena metres) was drawn on screen in the last frame, in CSS px from the canvas's top left, or null
+   * when it is behind the camera (or off to the side by more than the screen): for labels the HUD floats over the Arena.
+   */
+  toScreen(p: { readonly x: number; readonly y: number; readonly z: number }): { x: number; y: number } | null {
+    const v = this.projected.set(p.x, p.y, p.z).project(this.stage.camera);
+    if (v.z > 1 || Math.abs(v.x) > 1.2 || Math.abs(v.y) > 1.2) return null;
+    const rect = this.stage.canvas.getBoundingClientRect();
+    return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
   }
 
   /**
@@ -140,6 +156,7 @@ export class Renderer {
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const arena = arenaOf(world.tuning, curr.arena);
+    this.hallMarks.update(arena, curr.hall);
     this.shadows.update(poses, arena);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
