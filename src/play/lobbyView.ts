@@ -419,7 +419,7 @@ export function knobRows(tuning: TuningData): KnobRow[] {
     { key: 'difficulty', label: 'Enemy skill', standard: 0, choices: [[-2, 'Easiest'], [-1, 'Easier'], [0, 'Standard'], [1, 'Harder']] },
     { key: 'enemyHp', label: 'Enemy HP', standard: 1, choices: [[0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×'], [2, '2×']] },
     { key: 'maxEnemies', label: 'Enemies a Hall', standard: MAX_ENCOUNTER_ENEMIES, choices: Array.from({ length: MAX_ENCOUNTER_ENEMIES }, (_, i) => [i + 1, i === 0 ? '1' : `Up to ${i + 1}`] as const) },
-    { key: 'heal', label: 'Rest Hall heal', standard: heal, choices: shares([0, 0.3, 0.6, 1], heal, (v) => (v === 0 ? 'None' : v === 1 ? 'Full' : percent(v))) },
+    { key: 'rest', label: 'Rest Hall heal', standard: heal, choices: shares([0, 0.3, 0.6, 1], heal, (v) => (v === 0 ? 'None' : v === 1 ? 'Full' : percent(v))) },
     { key: 'perPlayerHp', label: 'Enemy HP per extra player', standard: perPlayerHp, choices: shares([0, 0.25, 0.5, 1], perPlayerHp, (v) => `+${percent(v)}`) },
   ];
 }

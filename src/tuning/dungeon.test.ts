@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_TEAM_SIZE } from '../sim';
-import { applyDungeonKnobs, dungeonDifficultyLadder, loadTuningData, MAX_ENCOUNTER_ENEMIES, parseDungeon, tuningDataHash, type TuningData } from './index';
+import { applyDungeonKnobs, dungeonDifficultyLadder, loadTuningData, MAX_ENCOUNTER_ENEMIES, parseDungeon, parseRunKnobs, tuningDataHash, type TuningData } from './index';
 
 const tuning = loadTuningData();
 const WEAPONS = Object.keys(tuning.weapons);
@@ -128,11 +128,18 @@ describe('Run knobs on a Dungeon (applyDungeonKnobs)', () => {
   });
 
   it('scales every enemy HP, keeps the first maxEnemies of each Encounter, and replaces restHeal and perPlayerHp', () => {
-    const g = applyDungeonKnobs(d, { enemyHp: 2, maxEnemies: 1, heal: 0.2, perPlayerHp: 0.25 });
+    const g = applyDungeonKnobs(d, { enemyHp: 2, maxEnemies: 1, rest: 0.2, perPlayerHp: 0.25 });
     expect(everyEnemy(g).map((e) => e.hpScale)).toEqual(applyDungeonKnobs(d, { maxEnemies: 1 }).floors.flatMap((f) => [...f.encounters.Fight, ...f.encounters.Elite, f.boss].map((e) => e.enemies[0]!.hpScale * 2)));
     for (const f of g.floors) for (const e of [...f.encounters.Fight, ...f.encounters.Elite, f.boss]) expect(e.enemies.length).toBe(1);
     expect(g.floors[2]!.boss.enemies[0]!.body).toBe('wraith');
     expect([g.restHeal, g.perPlayerHp]).toEqual([0.2, 0.25]);
-    expect(applyDungeonKnobs(d, { maxEnemies: 9, heal: 3 }).restHeal).toBe(1);
+    expect(applyDungeonKnobs(d, { maxEnemies: 9, rest: 3 }).restHeal).toBe(1);
+  });
+
+  it('reads stored knobs keeping only today\'s keys: v1\'s `heal` (a heal between Floors) never sets the Rest Hall heal', () => {
+    expect(parseRunKnobs({ heal: 0, rest: 0.3, difficulty: -1, junk: 2, enemyHp: 'x', maxEnemies: Infinity })).toEqual({ rest: 0.3, difficulty: -1 });
+    expect(parseRunKnobs({ heal: 0 })).toBeNull();
+    for (const raw of [null, 3, 'rest', [0.5]]) expect(parseRunKnobs(raw)).toBeNull();
+    expect(applyDungeonKnobs(d, parseRunKnobs({ heal: 0 }) ?? undefined).restHeal).toBe(d.restHeal);
   });
 });

@@ -1,5 +1,5 @@
 import { ARENA_SEED_RANGE, createMatch, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
-import type { RunKnobs, TuningData } from './tuning';
+import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
@@ -94,10 +94,8 @@ function store(key: string, value: string): void {
 /** The Run knobs picked last (each a number; `applyDungeonKnobs` holds them to their ranges), or null for none. */
 function storedKnobs(): RunKnobs | null {
   try {
-    const raw: unknown = JSON.parse(stored(RUN_KNOBS_STORAGE_KEY) ?? 'null');
-    if (typeof raw !== 'object' || raw === null) return null;
-    const knobs = Object.fromEntries(Object.entries(raw).filter(([, v]) => typeof v === 'number' && Number.isFinite(v)));
-    return Object.keys(knobs).length > 0 ? knobs : null;
+    // Only today's knobs: a stale key (v1's `heal`) is dropped, as the Lobby message would refuse it.
+    return parseRunKnobs(JSON.parse(stored(RUN_KNOBS_STORAGE_KEY) ?? 'null'));
   } catch {
     return null;
   }

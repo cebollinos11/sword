@@ -196,31 +196,46 @@ export interface RunKnobs {
   readonly enemyHp?: number;
   /** At most this many enemies an Encounter (1 to MAX_ENCOUNTER_ENEMIES): those listed first stay, a Boss among them. */
   readonly maxEnemies?: number;
-  /** Replaces `restHeal`: the share of max HP a Rest Hall's fire gives back. */
-  readonly heal?: number;
+  /**
+   * Replaces `restHeal`: the share of max HP a Rest Hall's fire gives back. Not called `heal`, v1's heal between Floors:
+   * a `heal` remembered from a v1 Lobby (0 there meant no heal between Floors) is dropped, not taken for the Rest's.
+   */
+  readonly rest?: number;
   /** Replaces `perPlayerHp`: how much each human beyond the first adds to every enemy's max HP multiplier. */
   readonly perPlayerHp?: number;
+}
+
+/** Every Run knob's key. */
+export const RUN_KNOB_KEYS: readonly (keyof RunKnobs)[] = ['difficulty', 'enemyHp', 'maxEnemies', 'rest', 'perPlayerHp'];
+
+/** Run knobs read back from storage: each of RUN_KNOB_KEYS that is a finite number (any other key dropped), or null for none. */
+export function parseRunKnobs(raw: unknown): RunKnobs | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const knobs = Object.fromEntries(
+    Object.entries(raw).filter(([k, v]) => (RUN_KNOB_KEYS as readonly string[]).includes(k) && typeof v === 'number' && Number.isFinite(v)),
+  ) as RunKnobs;
+  return Object.keys(knobs).length > 0 ? knobs : null;
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 /**
- * The Dungeon with the Lobby's Run knobs applied to every Encounter; `d` itself when none change anything. `heal`
+ * The Dungeon with the Lobby's Run knobs applied to every Encounter; `d` itself when none change anything. `rest`
  * replaces `restHeal`, the Dungeon's heal. Out-of-range values are held to their range.
  */
 export function applyDungeonKnobs(d: DungeonTuning, knobs: RunKnobs | undefined): DungeonTuning {
   if (!knobs) return d;
-  const { difficulty = 0, enemyHp = 1, maxEnemies = MAX_ENCOUNTER_ENEMIES, heal = d.restHeal, perPlayerHp = d.perPlayerHp } = knobs;
+  const { difficulty = 0, enemyHp = 1, maxEnemies = MAX_ENCOUNTER_ENEMIES, rest = d.restHeal, perPlayerHp = d.perPlayerHp } = knobs;
   const steps = Math.round(difficulty);
   const keep = clamp(Math.round(maxEnemies), 1, MAX_ENCOUNTER_ENEMIES);
   const hp = enemyHp > 0 ? enemyHp : 1;
-  if (steps === 0 && hp === 1 && keep === MAX_ENCOUNTER_ENEMIES && heal === d.restHeal && perPlayerHp === d.perPlayerHp) return d;
+  if (steps === 0 && hp === 1 && keep === MAX_ENCOUNTER_ENEMIES && rest === d.restHeal && perPlayerHp === d.perPlayerHp) return d;
   const ladder = dungeonDifficultyLadder(d);
   const shift = (x: string) => ladder[clamp(ladder.indexOf(x) + steps, 0, ladder.length - 1)]!;
   const knob = (e: DungeonEncounter): DungeonEncounter => ({ enemies: e.enemies.slice(0, keep).map((x) => ({ ...x, difficulty: shift(x.difficulty), hpScale: x.hpScale * hp })) });
   return {
     ...d,
-    restHeal: clamp(heal, 0, 1),
+    restHeal: clamp(rest, 0, 1),
     perPlayerHp: Math.max(0, perPlayerHp),
     floors: d.floors.map((f) => ({ ...f, encounters: { Fight: f.encounters.Fight.map(knob), Elite: f.encounters.Elite.map(knob) }, boss: knob(f.boss) })),
   };

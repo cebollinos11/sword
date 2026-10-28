@@ -185,10 +185,10 @@ describe('Gauntlet Lobby: Run knobs', () => {
   });
 
   it('a lobby message carries the knobs, and refuses ones that are not numbers or not knobs', () => {
-    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, heal: 0.6 } });
+    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, rest: 0.6 } });
     const m = { type: 'lobby', state, you: 0, ack: 0 } as const;
     expect(parseLobbyMessage(m)).toEqual(m);
-    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { heal: Infinity }])
+    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { rest: Infinity }, { heal: 0.6 }])
       expect(parseLobbyMessage({ ...m, state: { ...state, settings: { ...state.settings, run } } })).toBeNull();
   });
 });
