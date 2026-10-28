@@ -92,7 +92,7 @@ function quantiseYaw(yaw: number): number {
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
  *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
- *   The number keys equip an inventory item and X drops the one picked last, once each (`inventoryKeys.ts`).
+ *   The number keys equip an inventory item (with Shift only select it) and X drops the one selected last, once each (`inventoryKeys.ts`).
  */
 export class LocalController implements Controller {
   private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
@@ -165,8 +165,8 @@ export class LocalController implements Controller {
     this.held[button] = false;
   }
 
-  /** A key went down (`KeyboardEvent.code`). Unknown keys are ignored. */
-  keyDown(code: string): void {
+  /** A key went down (`KeyboardEvent.code`, `shift` its Shift state: Shift and a number key selects an inventory item without equipping it). Unknown keys are ignored. */
+  keyDown(code: string, shift = false): void {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = true;
     else if (code === FEINT_KEY) this.feint();
@@ -175,12 +175,12 @@ export class LocalController implements Controller {
     else if (code === KICK_KEY) this.buttonDown('kick');
     else if (code === THROW_KEY) this.buttonDown('throw');
     else if (code === SHEATHE_KEY) this.buttonDown('sheathe');
-    else this.inventoryKey(code);
+    else this.inventoryKey(code, shift);
   }
 
-  /** A number key equips and selects an item, the drop key drops the selected one (one Intent, however long it is held). */
-  private inventoryKey(code: string): void {
-    const key = inventoryKey(code, this.selected);
+  /** A number key equips and selects an item (with Shift only selects), the drop key drops the selected one (one Intent, however long it is held). */
+  private inventoryKey(code: string, shift: boolean): void {
+    const key = inventoryKey(code, this.selected, shift);
     if (!key) return;
     this.selected = key.selected;
     if (key.equip) this.equipAsked = key.equip;

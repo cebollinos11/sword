@@ -45,5 +45,6 @@ describe('loot presentation text', () => {
     expect(lines[3]).toBe('Relics (1/3 equipped, 2/6 carried)');
     expect(lines[4]).toBe('4    Whetstone: +10% damage');
     expect(lines[5]).toBe('5  * Iron Plate: -10% damage taken');
+    expect(lines[6]).toBe('1-9 equip, Shift+1-9 select, X drop the selected, I close');
   });
 });

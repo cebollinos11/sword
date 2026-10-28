@@ -50,7 +50,7 @@ export function inventoryLines(inv: Inventory, tuning: Pick<TuningData, 'relics'
     const effects = tuning.relics.find((r) => r.name === name)?.effects;
     lines.push(`${slot + 4}  ${on ? '*' : ' '} ${name}${effects ? `: ${relicWords(effects)}` : ''}`);
   });
-  lines.push('1-9 equip, X drop the last picked, I close');
+  lines.push('1-9 equip, Shift+1-9 select, X drop the selected, I close');
   return lines;
 }
 

@@ -9,6 +9,12 @@ describe('inventory keys', () => {
     expect(inventoryKey('Digit9', null)).toEqual({ equip: { kind: 'relic', slot: 5 }, selected: { kind: 'relic', slot: 5 } });
   });
 
+  it('a number key held with Shift selects the slot without equipping it', () => {
+    expect(inventoryKey('Digit1', null, true)).toEqual({ selected: { kind: 'weapon', slot: 0 } });
+    expect(inventoryKey('Digit9', { kind: 'weapon', slot: 0 }, true)).toEqual({ selected: { kind: 'relic', slot: 5 } });
+    expect(inventoryKey(DROP_KEY, null, true)).toEqual({ selected: null });
+  });
+
   it('the drop key drops the selected item and ends the selection, or does nothing with none', () => {
     const sel = { kind: 'relic', slot: 2 } as const;
     expect(inventoryKey(DROP_KEY, sel)).toEqual({ drop: sel, selected: null });
@@ -40,5 +46,15 @@ describe('inventory keys', () => {
     local.keyDown('Digit1');
     local.releaseAll();
     expect(local.sample().equip).toBeUndefined();
+  });
+
+  it('the Local Controller drops a carried Weapon: Shift and a number select it, X drops it, nothing is equipped', () => {
+    const local = new LocalController();
+    local.keyDown('Digit1', true);
+    expect(local.sample().equip).toBeUndefined();
+    local.keyDown('KeyX');
+    const intent = local.sample();
+    expect(intent.drop).toEqual({ kind: 'weapon', slot: 0 });
+    expect(intent.equip).toBeUndefined();
   });
 });
