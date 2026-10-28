@@ -16,7 +16,7 @@ import { arenaOf, createMatch, enemyMaxHp, exitDoor, hallOf, hallRoster, hashVal
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { GuestLobby, HostLobby } from '../lobby';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
-import { CHECKSUM_INTERVAL, createRollbackSession, TAKEOVER_DIFFICULTY, type RollbackSession, type SessionEvent } from './session';
+import { CHECKSUM_INTERVAL, createRollbackSession, takeoverAi, type RollbackSession, type SessionEvent } from './session';
 import { parseNetMessage, PROTOCOL_VERSION, type HelloMessage } from './messages';
 
 const NAME = 'gen:greybox:4242';
@@ -165,11 +165,11 @@ interface Takeover {
 
 /**
  * The Run stepped offline with the Intents the Players sent and fresh AI Controllers (a Hall AI on each Team 1 slot,
- * a Normal AI for a Player who left): its hash at every checksum Tick up to `upTo`, and where each Hall began and was cleared.
+ * the takeover's Ally AI for a Player who left): its hash at every checksum Tick up to `upTo`, and where each Hall began and was cleared.
  */
 function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = []) {
   const ais = lineupAis(tuning, lineup, 'Gauntlet', MATCH);
-  const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: createAiController(tuning, TAKEOVER_DIFFICULTY) }]));
+  const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: takeoverAi(tuning, lineup, 'Gauntlet', lineup.findIndex((s) => s.pilot.kind === 'Player' && s.pilot.player === d.player)) }]));
   let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
   const hashes = new Map<number, string>();
   /** Per Hall (1 the first entered): the Tick it was cleared and the Tick it began. */
@@ -272,7 +272,7 @@ describe('a Gauntlet Run online', () => {
     expect(lineupPlayers(heard[0]!.lineup!)).toBe(2);
   });
 
-  it('a guest leaving in Hall 2 is taken over by a Normal AI on every peer; the Run goes on in step, and Hall 3 keeps the starting humans’ enemy HP', () => {
+  it('a guest leaving in Hall 2 is taken over by a Normal Ally AI on every peer; the Run goes on in step, and Hall 3 keeps the starting humans’ enemy HP', () => {
     const r = startRun({ players: 3 });
     const leaver = r.guests[1]!; // Player 2
     let hall3: number | null = null;
@@ -442,3 +442,29 @@ function rewriteProtocol(m: unknown, protocol: number): unknown {
   };
   return walk(m);
 }
+
+describe('the AI taking over a Player who left a Run', () => {
+  it('walks the Fighter to the Door the other Player stands at, so the Cleared Hall is left (the Doors wait on every Player)', () => {
+    const tuning = peerTuning();
+    const lineup = runLineup(2);
+    let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
+    expect(runPlayers(m.config)).toEqual([0, 1]);
+    const ais = lineupAis(tuning, lineup, 'Gauntlet', MATCH);
+    // Player 1 left: the takeover drives Fighter 1. Every enemy is felled, so the Hall is Cleared.
+    const taken = takeoverAi(tuning, lineup, 'Gauntlet', 1);
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 && inDuel(f) ? { ...f, hp: 0 } : f)) } };
+    const zone = arenaOf(tuning, m.arena).doors[exitDoor(0)]!.zone;
+    const at = { x: zone.reduce((a, p) => a + p.x, 0) / zone.length, z: zone.reduce((a, p) => a + p.z, 0) / zone.length };
+    let left = false;
+    for (let t = 0; t < 30 * TICK_RATE && !left; t++) {
+      // Player 0 stands in exit 0's zone throughout.
+      m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, position: at, y: zone[0]!.y } : f)) } };
+      const intents = lineup.map((_, i) => (i === 0 ? IDLE_INTENT : i === 1 ? taken.intent(m.duel, i) : (ais[i] as Controller).intent(m.duel, i)));
+      m = stepMatch(m, intents, tuning);
+      left = m.events.some((e) => e.type === 'DoorTaken');
+    }
+    expect(left, 'the Run left the Hall').toBe(true);
+    expect(m.run!.phase).toBe('Leaving');
+    expect(m.events).toContainEqual(expect.objectContaining({ type: 'DoorTaken', exit: 0 }));
+  }, 60_000);
+});
