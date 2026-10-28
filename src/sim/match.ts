@@ -30,7 +30,7 @@ import { arenaOf } from './arena';
 import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPlayers, type HallRef } from './hall';
+import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -83,6 +83,12 @@ export interface MatchOptions extends Partial<MatchConfig> {
   readonly bestOf: number;
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
+  /**
+   * Dev mode only (`devRunStart`, never offered otherwise): a Run starts in this Hall instead of its first, as if the
+   * party had walked there along `runPathTo`'s route at full HP (its path, Halls cleared and entered), with that Hall's
+   * Encounter and depth-scaled enemies. A Duels Match refuses it.
+   */
+  readonly start?: RunStart;
 }
 
 /** `winner` is a team (0 or 1). */
@@ -350,21 +356,25 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (config.rematchTicks !== null && (!Number.isInteger(config.rematchTicks) || config.rematchTicks < 1))
     throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
   const seed = options.seed ?? 1;
-  const first: HallRef = { floor: 1, row: 0, index: 0 };
-  const hall = gauntlet ? hallOf(tuning, config.arena, first) : null;
-  const duel = hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed)) : initialDuel(tuning, config, config.arena, seed);
+  if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
+  // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.
+  const path: readonly HallRef[] = gauntlet ? (options.start ? runPathTo(tuning, config.arena, options.start) : [{ floor: 1, row: 0, index: 0 }]) : [];
+  const first = path[path.length - 1];
+  const hall = first ? hallOf(tuning, config.arena, first) : null;
+  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed)) : initialDuel(tuning, config, config.arena, seed);
+  const duelNumber = Math.max(1, path.length);
   return {
     config,
     matchNumber: 1,
     arena: duel.arena,
     tick: 0,
-    duelNumber: 1,
-    score: [0, 0],
+    duelNumber,
+    score: [duelNumber - 1, 0],
     duel,
     nextDuelTick: null,
     status: { status: 'InProgress' },
-    events: [{ type: 'DuelStart', duelNumber: 1 }],
-    run: hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, []) : null,
+    events: [{ type: 'DuelStart', duelNumber }],
+    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1)) : null,
   };
 }
 

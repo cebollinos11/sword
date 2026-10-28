@@ -6,7 +6,7 @@
 import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type ArenaGeometry, type ArenaPoint, type TuningData } from '../tuning';
 import { insideZone } from './arena';
 import { parseGeneratedName } from './arenaGen/named';
-import { floorGraph, hallEncounter, hallSlot, runPick, runSeed, type Hall } from './dungeon';
+import { FLOOR_ROWS, floorGraph, hallEncounter, hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -45,6 +45,46 @@ export function hallOf(tuning: TuningData, arena: string, at: HallRef): Hall {
   const hall = floorGraph(tuning.dungeon, runSeed(arena), at.floor, runKit(tuning, arena))[at.row]?.[at.index];
   if (!hall) throw new RangeError(`Floor ${at.floor} has no Hall ${at.index} in row ${at.row}`);
   return hall;
+}
+
+/**
+ * Where a dev-mode Run starts (`MatchOptions.start`, docs/plans/dungeon.md): a Floor (1-based) and a row (0-based, as
+ * HallRef), and the Hall's index in the row, or absent for the Hall the lowest-index exits lead to.
+ */
+export interface RunStart {
+  readonly floor: number;
+  readonly row: number;
+  readonly index?: number;
+}
+
+/**
+ * The Halls a Run walks from its first to `start`, both included: each Floor before `start`'s through every row's
+ * lowest-index exit (a Boss's leads to the next Floor's entrance), then within `start`'s Floor the route that takes the
+ * lowest-index exit it can and still reaches the Hall asked for. Throws on a Hall the Dungeon lacks.
+ */
+export function runPathTo(tuning: TuningData, arena: string, start: RunStart): HallRef[] {
+  const { floor, row, index } = start;
+  const floors = tuning.dungeon.floors.length;
+  if (!Number.isInteger(floor) || floor < 1 || floor > floors) throw new RangeError(`A Run's Floors are 1 to ${floors}, got ${floor}`);
+  if (!Number.isInteger(row) || row < 0 || row >= FLOOR_ROWS) throw new RangeError(`A Floor's rows are 0 to ${FLOOR_ROWS - 1}, got ${row}`);
+  const graph = (f: number) => floorGraph(tuning.dungeon, runSeed(arena), f, runKit(tuning, arena));
+  const path: HallRef[] = [];
+  for (let f = 1; f < floor; f++) {
+    const g = graph(f);
+    for (let r = 0, i = 0; r < FLOOR_ROWS; i = g[r]![i]!.exits[0] ?? 0, r++) path.push({ floor: f, row: r, index: i });
+  }
+  const g = graph(floor);
+  const route = (r: number, i: number): number[] | null => {
+    if (r === row) return index === undefined || i === index ? [i] : null;
+    for (const j of g[r]![i]!.exits) {
+      const rest = route(r + 1, j);
+      if (rest) return [i, ...rest];
+    }
+    return null;
+  };
+  const found = route(0, 0);
+  if (!found) throw new RangeError(`Floor ${floor} has no Hall ${index} in row ${row}`);
+  return [...path, ...found.map((i, r) => ({ floor, row: r, index: i }))];
 }
 
 /**
