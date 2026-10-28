@@ -37,8 +37,8 @@ export interface DungeonEnemy {
   readonly hpScale: number;
   /** It fights only when Team 0 fields at least this many Fighters (1 to MAX_ENCOUNTER_ENEMIES); absent: always. Benched otherwise. */
   readonly minTeam?: number;
-  /** How many Relics it carries (1 to MAX_ENEMY_RELICS; an Elite's); absent: none. Read from Stage 2. */
-  readonly relics?: number;
+  /** The Relics it carries, by name (data/relics.json; 1 to MAX_ENEMY_RELICS, one may repeat; an Elite's); absent: none. */
+  readonly relics?: readonly string[];
 }
 
 /** One hand-written group of 1 to MAX_ENCOUNTER_ENEMIES enemies; Team 1 slots past the last are Benched. */
@@ -93,8 +93,18 @@ function onlyKinds(obj: Record<string, unknown>, kinds: readonly string[], where
   for (const key of Object.keys(obj)) if (!kinds.includes(key)) throw new TuningDataError(`${where}: unknown Hall kind "${key}" (have: ${kinds.join(', ')})`);
 }
 
-/** Validate the raw Dungeon against the Weapon roster and the AI difficulties and Styles. Accepts its own output. */
-export function parseDungeon(raw: unknown, weapons: readonly string[], difficulties: readonly string[], styles: readonly string[]): DungeonTuning {
+/** An enemy's Relics: 1 to MAX_ENEMY_RELICS names, each a Relic that exists. */
+function enemyRelics(raw: unknown, where: string, relicNames: readonly string[]): string[] {
+  const list = array(raw, where);
+  if (list.length < 1 || list.length > MAX_ENEMY_RELICS) throw new TuningDataError(`${where} must list 1 to ${MAX_ENEMY_RELICS} Relics, got ${list.length}`);
+  return list.map((name, k) => {
+    if (typeof name !== 'string' || !relicNames.includes(name)) throw new TuningDataError(`${where}[${k}]: unknown Relic ${JSON.stringify(name)} (have: ${relicNames.join(', ')})`);
+    return name;
+  });
+}
+
+/** Validate the raw Dungeon against the Weapon roster, the AI difficulties and Styles and the Relics. Accepts its own output. */
+export function parseDungeon(raw: unknown, weapons: readonly string[], difficulties: readonly string[], styles: readonly string[], relicNames: readonly string[]): DungeonTuning {
   const d = record(raw, 'dungeon');
   const encounter = (rawEncounter: unknown, where: string): DungeonEncounter => {
     const enemies = array(record(rawEncounter, where).enemies, `${where}.enemies`).map((rawEnemy, k): DungeonEnemy => {
@@ -109,7 +119,7 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
       if (style !== undefined && style !== RANDOM_PICK && !styles.includes(style)) throw new TuningDataError(`${at}.style: unknown AI Style "${style}" (have: ${styles.join(', ')}, or "${RANDOM_PICK}")`);
       const hpScale = e.hpScale === undefined ? 1 : positiveNumber(e, 'hpScale', at);
       const minTeam = e.minTeam === undefined ? undefined : wholeNumber(e, 'minTeam', at, 1, MAX_ENCOUNTER_ENEMIES);
-      const relics = e.relics === undefined ? undefined : wholeNumber(e, 'relics', at, 1, MAX_ENEMY_RELICS);
+      const relics = e.relics === undefined ? undefined : enemyRelics(e.relics, `${at}.relics`, relicNames);
       return {
         difficulty,
         weapon,

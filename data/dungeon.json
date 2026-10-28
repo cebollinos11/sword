@@ -17,7 +17,7 @@
           { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
         ],
         "Elite": [
-          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": 1, "hpScale": 1.5 }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": ["Whetstone"], "hpScale": 1.5 }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
         ]
       },
       "boss": { "enemies": [{ "difficulty": "Skilled", "style": "Aggressive", "weapon": "Sledge Hammer", "hpScale": 2.5 }, { "difficulty": "Beginner", "style": "random", "weapon": "random", "minTeam": 3 }] }
@@ -32,8 +32,8 @@
           { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
         ],
         "Elite": [
-          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": 1, "hpScale": 1.5 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] },
-          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": 2, "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] }
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": ["Whetstone"], "hpScale": 1.5 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] },
+          { "enemies": [{ "difficulty": "Skilled", "style": "random", "weapon": "random", "relics": ["Heavy Gauntlet", "Glass Cannon"], "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 3 }] }
         ]
       },
       "boss": { "enemies": [{ "difficulty": "Expert", "style": "Counter", "weapon": "Arming Sword", "hpScale": 2.5 }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
@@ -48,7 +48,7 @@
           { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random" }, { "difficulty": "Expert", "style": "random", "weapon": "random", "minTeam": 3 }] }
         ],
         "Elite": [
-          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": 2, "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
+          { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "random", "relics": ["Heavy Gauntlet", "Glass Cannon"], "hpScale": 2 }, { "difficulty": "Skilled", "style": "random", "weapon": "random" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }
         ]
       },
       "boss": { "enemies": [{ "difficulty": "Expert", "style": "random", "weapon": "Sledge Hammer", "body": "wraith", "hpScale": 3 }, { "difficulty": "Skilled", "style": "random", "weapon": "Arming Sword" }, { "difficulty": "Skilled", "style": "random", "weapon": "random", "minTeam": 4 }] }

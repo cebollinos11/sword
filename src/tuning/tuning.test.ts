@@ -30,6 +30,7 @@ function goodRaw() {
       inventory: { weapons: 3, relics: 6, equippedRelics: 3 },
       floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
     },
+    relics: [],
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5, finalBlowLead: 0.35, finalBlowTail: 0.55, finalBlowSpeed: 0.3, finalBlowDistance: 3.4, finalBlowHeight: 1.6, finalBlowSpin: 0.35, shake: 1 },
     skeleton: {
@@ -92,6 +93,10 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: 0 } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: undefined } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
+    const floor = good.dungeon.floors[0]!;
+    const named = { ...good.dungeon, floors: [{ ...floor, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random', relics: ['Whetstone'] }] } }] };
+    expect(() => parseTuningData({ ...good, dungeon: named })).toThrow(/unknown Relic "Whetstone"/);
+    expect(parseTuningData({ ...good, dungeon: named, relics: [{ name: 'Whetstone', icon: 'whetstone', effects: { damage: 1.1 } }] }).dungeon.floors[0]!.boss.enemies[0]!.relics).toEqual(['Whetstone']);
     const sword = good.weapons[0]!;
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, length: 0 }] })).toThrow(/^weapons\/Sword\.length/);
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, speed: undefined }] })).toThrow(/^weapons\/Sword\.speed/);

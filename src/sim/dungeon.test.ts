@@ -117,6 +117,7 @@ describe('floorGraph: a Floor of Halls from the Run seed', () => {
       Object.keys(tuning.weapons),
       Object.keys(tuning.ai.difficulties),
       Object.keys(tuning.ai.styles),
+      tuning.relics.map((r) => r.name),
     );
     for (let seed = 0; seed < 50; seed++) {
       const kinds = floorGraph(only, seed, 1, KIT).flat().map((h) => h.kind);

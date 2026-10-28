@@ -268,7 +268,7 @@ A Piece of the Kit on a Hall's edge, at ground level: a doorway in a Wall with a
 _Avoid_: portal, gate
 
 **Encounter**:
-One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may list Relics, which nothing reads yet.
+One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may name Relics (from `data/relics.json`), which nothing reads yet.
 _Avoid_: Wave, squad, spawn group
 
 **Benched**:

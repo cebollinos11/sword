@@ -8,7 +8,8 @@ const DIFFICULTIES = Object.keys(tuning.ai.difficulties);
 const STYLES = Object.keys(tuning.ai.styles);
 type RawFloor = Record<string, unknown> & { encounters: Record<string, unknown>; weights: Record<string, unknown> };
 const raw = () => JSON.parse(JSON.stringify(tuning.dungeon)) as Record<string, unknown> & { floors: RawFloor[]; inventory: Record<string, unknown> };
-const parse = (d: unknown) => parseDungeon(d, WEAPONS, DIFFICULTIES, STYLES);
+const RELICS = tuning.relics.map((r) => r.name);
+const parse = (d: unknown) => parseDungeon(d, WEAPONS, DIFFICULTIES, STYLES, RELICS);
 /** The repo's Dungeon with its first Floor changed by `patch`. */
 const withFloor = (patch: Record<string, unknown>) => {
   const d = raw();
@@ -58,8 +59,12 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(() => parse(fight(Array(5).fill(easy())))).toThrow(/1 to 4 enemies/);
     for (const minTeam of [0, 1.5, 5]) expect(() => parse(fight([easy({ minTeam })]))).toThrow(/minTeam/);
     expect(() => parse(fight([easy({ hpScale: 0 })]))).toThrow(/hpScale/);
-    for (const relics of [0, 1.5, 3]) expect(() => parse(fight([easy({ relics })]))).toThrow(/relics/);
-    expect(parse(fight([easy({ relics: 2 })])).floors[0]!.encounters.Fight[0]!.enemies[0]!.relics).toBe(2);
+    for (const relics of [[], 2, 'Whetstone', ['Whetstone', 'Whetstone', 'Whetstone'], [7]]) expect(() => parse(fight([easy({ relics })]))).toThrow(/relics/);
+    expect(parse(fight([easy({ relics: ['Whetstone', 'Whetstone'] })])).floors[0]!.encounters.Fight[0]!.enemies[0]!.relics).toEqual(['Whetstone', 'Whetstone']);
+  });
+
+  it('refuses an Encounter naming a Relic that does not exist', () => {
+    expect(() => parse(fight([easy({ relics: ['Excalibur'] })]))).toThrow(/unknown Relic "Excalibur"/);
   });
 
   it('refuses an unknown Hall kind, in the weights or the pools', () => {
