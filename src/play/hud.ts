@@ -3,6 +3,7 @@ import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
 import { doorwayMiddle } from '../render/doorway';
+import { FloorMapView } from './floorMapView';
 import { inventoryLines, pickupMarks } from './loot';
 import { relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
@@ -174,6 +175,9 @@ export class Hud {
   private readonly pickupLayer = document.createElement('div');
   private pickupTags: HTMLElement[] = [];
   private readonly inventory = document.createElement('pre');
+  /** The Floor map screen (`M`, or the map button on touch) and that button. */
+  readonly map = new FloorMapView();
+  private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
@@ -190,6 +194,7 @@ export class Hud {
     container: HTMLElement,
     private readonly tuning: TuningData,
     onMenu: () => void,
+    onMap: () => void = () => undefined,
   ) {
     ensurePlayStyles();
     this.root.className = 'hud';
@@ -203,6 +208,15 @@ export class Hud {
     this.menu.title = 'Menu (Esc)';
     this.menu.setAttribute('aria-label', 'Menu');
     this.menu.addEventListener('click', onMenu);
+    this.mapButton.type = 'button';
+    this.mapButton.id = 'hud-map-button';
+    this.mapButton.className = 'hud-map';
+    this.mapButton.textContent = '🗺';
+    this.mapButton.title = 'Floor map (M)';
+    this.mapButton.setAttribute('aria-label', 'Floor map');
+    this.mapButton.hidden = true;
+    this.mapButton.addEventListener('click', onMap);
+    this.map.onClose = onMap;
     centre.append(this.score);
     this.sides.forEach((side, i) => (side.className = `hud-team hud-side-${i}`));
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
@@ -220,7 +234,7 @@ export class Hud {
     this.fade.className = 'hud-fade';
     // The fade between Halls goes over the Door labels, the letterbox, the HP bars and the crosshair (the next Hall's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.doorLayer, this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.inventory, this.fade, this.banner, this.menu, this.results);
+    this.root.append(this.doorLayer, this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.inventory, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -236,7 +250,14 @@ export class Hud {
     this.inventory.hidden = !this.inventory.hidden;
   }
 
+  /** Show the Floor map, or hide it; it shows only in a Run. Returns whether it is open. */
+  setMapOpen(open: boolean): boolean {
+    this.map.setOpen(open);
+    return this.map.open;
+  }
+
   hide(): void {
+    this.map.setOpen(false);
     this.root.hidden = true;
     this.results.hidden = true;
   }
@@ -339,6 +360,8 @@ export class Hud {
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
     this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
     this.updateDoors(match, view);
+    this.mapButton.hidden = !match.run;
+    this.map.update(match, this.matchTuning ?? this.tuning);
     this.updatePickups(match, view);
     this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
