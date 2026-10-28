@@ -1,15 +1,8 @@
 /**
- * Placeholder presentation of loot (docs/plans/dungeon.md, Stage 2; Stage 3 brings the art): the text a pickup's label and the inventory list
- * show. Everything here is pure and render only: it reads the Match, never changes it.
+ * Placeholder presentation of loot (docs/plans/dungeon.md, Stage 2; Stage 3 brings the art): the text the inventory screen shows for a
+ * Relic. Everything here is pure and render only.
  */
-import { pickupVisibleTo, type Inventory, type MatchState, type Pickup, type PickupAt } from '../sim';
-import type { RelicEffect, RelicEffects, TuningData } from '../tuning';
-
-/** A pickup's floating label: the item's name. */
-export const pickupLabel = (p: Pick<Pickup, 'item'>): string => p.item;
-
-/** The pickups the Player Fighter `fighter` sees, as the Simulation lets it take them (`pickupVisibleTo`): its own and shared ones, not taken. */
-export const visiblePickups = (match: MatchState, fighter: number): Pickup[] => (match.run?.pickups ?? []).filter((p) => pickupVisibleTo(p, fighter));
+import type { RelicEffect, RelicEffects } from '../tuning';
 
 const percent = (factor: number): string => `${Math.round(Math.abs(factor - 1) * 100)}%`;
 const signed = (factor: number): string => `${factor >= 1 ? '+' : '-'}${percent(factor)}`;
@@ -35,36 +28,3 @@ export function relicWords(effects: RelicEffects): string {
     .map((k) => WORDS[k](effects[k]!))
     .join(', ');
 }
-
-/**
- * The inventory list's lines: a heading per kind, then each item with the key that equips it, its mark (`*` the Weapon wielded or Relic
- * equipped) and, for a Relic, what it does. The empty slots are not listed.
- */
-export function inventoryLines(inv: Inventory, tuning: Pick<TuningData, 'relics' | 'dungeon'>): string[] {
-  const sizes = tuning.dungeon.inventory;
-  const lines = [`Weapons (${inv.weapons.length}/${sizes.weapons})`];
-  inv.weapons.forEach((name, slot) => lines.push(`${slot + 1}  ${slot === inv.weapon ? '*' : ' '} ${name}${slot === inv.weapon ? ' (wielded)' : ''}`));
-  lines.push(`Relics (${inv.equipped.length}/${sizes.equippedRelics} equipped, ${inv.relics.length}/${sizes.relics} carried)`);
-  inv.relics.forEach((name, slot) => {
-    const on = inv.equipped.includes(slot);
-    const effects = tuning.relics.find((r) => r.name === name)?.effects;
-    lines.push(`${slot + 4}  ${on ? '*' : ' '} ${name}${effects ? `: ${relicWords(effects)}` : ''}`);
-  });
-  lines.push('1-9 equip, Shift+1-9 select, X drop the selected, I close');
-  return lines;
-}
-
-/** One pickup's floating label: where (a little over its ground) and what it says. */
-export interface PickupMark {
-  readonly id: number;
-  readonly at: PickupAt;
-  readonly text: string;
-  readonly kind: Pickup['kind'];
-}
-
-/** How far over the ground (m) a pickup's label floats. */
-export const PICKUP_LABEL_HEIGHT = 1.0;
-
-/** The labels over the pickups `fighter` sees, in id order. */
-export const pickupMarks = (match: MatchState, fighter: number): PickupMark[] =>
-  visiblePickups(match, fighter).map((p) => ({ id: p.id, at: { x: p.at.x, y: p.at.y + PICKUP_LABEL_HEIGHT, z: p.at.z }, text: pickupLabel(p), kind: p.kind }));

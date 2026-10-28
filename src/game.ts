@@ -1,21 +1,28 @@
-import { ARENA_SEED_RANGE, createMatch, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
+import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
+import { InventoryScreen } from './play/inventoryScreen';
+import { inventoryHoldsInput } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
-import { visiblePickups } from './play/loot';
+import { doorMarkView, doorRun } from './play/doorMarks';
+import { mapKeyAction } from './play/floorMap';
+import { pickupViews, type PickupView } from './render/pickupView';
+import { fireState } from './render/restFire';
+import { runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
-import { FinalBlowShot } from './play/finalBlow';
+import { FinalBlowShot, shotIntent } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
@@ -31,6 +38,9 @@ import {
   type BrokerOptions,
   type HostedRoom,
 } from './net';
+
+/** Scratch for the camera's direction each frame. */
+const cameraDir = new Vector3();
 
 /** Never simulate more than this many Ticks in one rendered frame (e.g. after a background tab). */
 const MAX_TICKS_PER_FRAME = 8;
@@ -137,7 +147,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.enabled = on;
     },
   };
-  const hud = new Hud(container, tuning, () => openPause());
+  const hud = new Hud(container, tuning, () => openPause(), () => toggleMap());
+  /** The inventory screen (`I`, or its touch button): render only, its clicks become the Local Controller's `equip` and `drop`. */
+  const inventoryScreen = new InventoryScreen((ref, action) => local.inventoryClick(ref, action), () => toggleInventory());
+  hud.root.append(inventoryScreen.root);
 
   const weapons = Object.keys(tuning.weapons);
   const arenas = pickableArenas(tuning);
@@ -442,6 +455,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       finalBlow.stop();
       resultAt = null;
       runResult = null;
+      inventoryScreen.open = false;
       hud.show();
       const start = d.state;
       // An online Match has no state until the peers connect; its first state then sounds.
@@ -468,6 +482,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     runResult = null;
     endShot();
     finalBlow.stop();
+    inventoryScreen.open = false;
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -483,8 +498,23 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     menu.showLobby(l, invite, text);
   }
 
+  /** The Floor map (`M`, or its touch button) over a live Run, which keeps simulating; the mouse is freed while it is open and taken again on close, as the menu does. */
+  function toggleMap(): void {
+    if (!driver || menu.visible) return;
+    if (hud.map.open) {
+      hud.setMapOpen(false);
+      if (!touchInput) resume();
+    } else if (curr.run) {
+      if (inventoryScreen.open) toggleInventory();
+      hud.setMapOpen(true);
+      if (document.pointerLockElement) document.exitPointerLock();
+    }
+  }
+
   function openPause(): void {
     if (!driver || menu.paused) return;
+    inventoryScreen.open = false;
+    hud.setMapOpen(false);
     input.enabled = false;
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
@@ -495,6 +525,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (!driver) return;
     menu.hide();
     input.enabled = true;
+    lockPointer();
+  }
+
+  function lockPointer(): void {
     // On touch devices a pointer lock (Android Chrome grants one) sends every touch to the canvas, past the touch controls.
     if (touchInput) return;
     try {
@@ -504,26 +538,63 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
   }
 
+  /**
+   * Open or close the inventory screen. Open, it frees the mouse and, once the Hall is not being fought (`inventoryHoldsInput`), takes the
+   * Controller's input (as the menu does); in a fight the Fighter keeps its keys. The Simulation runs on; closed, the input and the pointer lock
+   * come back. The number keys and X still work while it is open (they go to the Controller here, or through the input if it is still on).
+   */
+  function toggleInventory(): void {
+    if (!driver || menu.visible) return;
+    const opening = !inventoryScreen.open;
+    if (opening) hud.setMapOpen(false);
+    inventoryScreen.open = opening;
+    if (opening) {
+      syncInventoryInput();
+      if (document.pointerLockElement) document.exitPointerLock();
+    } else {
+      input.enabled = true;
+      lockPointer();
+    }
+  }
+
+  /** While the screen is open, the input follows the Hall: held in a cleared Hall, the Fighter's own again when the next fight begins. */
+  function syncInventoryInput(): void {
+    if (!inventoryScreen.open || menu.visible) return;
+    const hold = inventoryHoldsInput(curr.run?.phase);
+    if (hold !== mouseInput.enabled) return;
+    input.enabled = !hold;
+    if (hold) local.releaseAll();
+  }
+
   addEventListener('keydown', (e) => {
-    if (e.code === INVENTORY_LIST_KEY && !e.repeat && driver && !menu.visible) hud.toggleInventory();
+    if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
+    else if (inventoryScreen.open && !mouseInput.enabled && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
+    const mapAction = mapKeyAction(e.code, hud.map.open);
+    if (mapAction && !e.repeat) {
+      if (mapAction === 'toggle') toggleMap();
+      else if (!menu.visible) toggleMap();
+      if (e.code === 'Escape') return;
+    }
     if (e.code !== 'Escape' || e.repeat) return;
+    if (inventoryScreen.open) return toggleInventory();
     if (performance.now() - pausedAt < 400) return;
     if (driver && !menu.visible) openPause();
     else if (menu.visible) menu.back();
   });
   document.addEventListener('pointerlockchange', () => {
     // Esc frees the mouse first (and some browsers swallow that Esc): freeing it in a Match opens the menu.
-    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled) return;
+    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled || hud.map.open || inventoryScreen.open) return;
     pausedAt = performance.now();
     openPause();
   });
 
-  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. */
-  function endShot(): void {
+  /** The Final Blow Shot ended (or was cut): back to the live Match's sounds and sparks. `rest`: a Hall's Ticks the replay never reached, which sound now. */
+  function endShot(rest: readonly MatchState[] = []): void {
     if (!inShot) return;
     inShot = false;
     hud.cinematic(false);
     audio.setSpeed(1);
+    for (const m of rest) audio.onMatchTick(m);
     audio.seek(curr.tick);
     renderer.impacts.seek(curr.tick);
     shake.seek(curr.tick);
@@ -580,6 +651,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           halls: cleared.halls,
           seconds: (match.status.tick - run.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
+          builds: runBuilds(match),
         };
         resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd') {
@@ -645,7 +717,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;
-      const { advanced } = d.tick(local.sample());
+      // A Hall's Final Blow Shot holds the Player (sampled all the same, so a press during it is spent).
+      const { advanced } = d.tick(shotIntent(finalBlow, local.sample()));
       if (d.failure) {
         matchFailed(d.failure);
         break;
@@ -654,7 +727,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
       curr = d.state;
-      if (finalBlow.record(curr, local.yaw) && !inShot) {
+      if (finalBlow.record(curr, local.yaw, doorTicksNeeded(matchTuning)) && !inShot) {
         // The last Fighter of a Team fell: cut to the Final Blow Shot, which replays from a moment before.
         inShot = true;
         hud.cinematic(true);
@@ -704,9 +777,21 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const me = driver.localFighter;
       const yaw = local.yaw;
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
-      if (inShot && !shot) endShot();
+      if (inShot && !shot) endShot(finalBlow.takeRest());
       renderer.setPlayer(me, menu.body);
-      renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
+      // The camera as last placed: a frame behind is fine for choosing what to label.
+      const mine = curr.duel.fighters[me];
+      const pickups: PickupView[] = mine
+        ? pickupViews(curr.run?.pickups ?? [], me, {
+            at: renderer.camera.position,
+            dir: renderer.camera.getWorldDirection(cameraDir),
+            near: { x: mine.position.x, y: mine.y, z: mine.position.z },
+          })
+        : [];
+      renderer.setPickups(pickups);
+      renderer.setFire(fireState(curr.run?.rested ?? [], me));
+      const doorRunNow = doorRun(curr, matchTuning);
+      renderer.setDoors(doorRunNow ? doorMarkView(curr.duel.hall, doorRunNow.exits, doorRunNow.players) : []);
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
@@ -726,9 +811,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
+      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
+      syncInventoryInput();
+      inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {
       renderer.setPickups([]);
+      renderer.setDoors([]);
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;
       const mine = duel.fighters[me];

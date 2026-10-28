@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createMatch, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
+import { createMatch, doorTicksNeeded, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { FinalBlowShot } from './finalBlow';
+import { doorCutTicks, FinalBlowShot, shotIntent } from './finalBlow';
 
 const base = loadTuningData();
 // One Overhead decides a Duel (see the Match tests).
@@ -163,5 +163,125 @@ describe('Final Blow Shot', () => {
   it('fits in the pause between Duels, so the next Duel never cuts it short', () => {
     const wall = (base.camera.finalBlowLead + base.camera.finalBlowTail) / base.camera.finalBlowSpeed;
     expect(wall).toBeLessThanOrEqual(base.match.interDuelSeconds);
+  });
+});
+
+describe('Final Blow Shot in a Hall: the Player is held', () => {
+  /** A Hall whose enemies fall on the first Tick, run on past its shot with `wish` as the Player's (Team 0 slot 0) Intent, filtered by the shot as the game loop does. */
+  function hall(wish: Intent, seconds = 6) {
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    const shot = new FinalBlowShot(camera);
+    const states: MatchState[] = [];
+    const sent: Intent[] = [];
+    const reached: number[] = [];
+    const rest: number[] = [];
+    // The Tick the Hall is Cleared on, the Player's wish not yet in play: the shot starts with it.
+    m = stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), base);
+    shot.record(m, 0, doorTicksNeeded(base));
+    expect(shot.holdsInput).toBe(true);
+    for (let t = 0; t < seconds * TICK_RATE; t++) {
+      const intent = shotIntent(shot, wish);
+      sent.push(intent);
+      m = stepMatch(m, m.duel.fighters.map((_, i) => (i === 0 ? intent : IDLE_INTENT)), base);
+      states.push(m);
+      shot.record(m, 0, doorTicksNeeded(base));
+      for (const r of shot.frame(1 / TICK_RATE)?.reached ?? []) reached.push(r.tick);
+      if (!shot.active) for (const r of shot.takeRest()) rest.push(r.tick);
+    }
+    return { states, sent, reached, rest, shot };
+  }
+
+  const wish: Intent = { ...IDLE_INTENT, move: { x: 0, z: 1 }, attack: true, jump: true };
+
+  it('sends no movement or action Intent while a Hall’s shot plays, and the Player’s own again after it', () => {
+    const { sent } = hall(wish);
+    const held = sent.filter((i) => i === IDLE_INTENT).length;
+    expect(held).toBeGreaterThan(0);
+    expect(sent.filter((i) => i === wish)).toHaveLength(sent.length - held);
+    // The held Ticks are one run, from the clear; the Player's wish follows once the shot is over.
+    expect(sent.lastIndexOf(IDLE_INTENT) - sent.indexOf(IDLE_INTENT) + 1).toBe(held);
+    expect(sent.at(-1)).toBe(wish);
+  });
+
+  it('keeps the Player where it stood while held: the Simulation sees the same as from a Player who does nothing', () => {
+    const still = hall(IDLE_INTENT);
+    const walking = hall(wish);
+    const lastHeld = walking.sent.lastIndexOf(IDLE_INTENT);
+    expect(lastHeld).toBeGreaterThan(0);
+    for (let i = 0; i <= lastHeld; i++) expect(walking.states[i]!.duel.fighters[0]).toEqual(still.states[i]!.duel.fighters[0]);
+  });
+
+  it('lets no Tick of the running Hall go unheard: the shot’s replay and what follows it cover them all', () => {
+    const { reached, rest, shot, states } = hall(IDLE_INTENT);
+    const heard = [...reached, ...rest];
+    // Every Tick from the shot's start to the newest the shot saw is handed out once, in order.
+    for (let i = 1; i < heard.length; i++) expect(heard[i]).toBe(heard[i - 1]! + 1);
+    // Past the replay's end: the Ticks it never reached are in the rest.
+    expect(rest.length).toBeGreaterThan(0);
+    expect(heard.at(-1)).toBeLessThanOrEqual(states.at(-1)!.tick);
+    expect(heard.at(-1)).toBeGreaterThan(reached.at(-1)!);
+    expect(shot.takeRest()).toEqual([]);
+  });
+
+  it('ends before a Door can be taken while it plays, leaving the Player a moment to step out', () => {
+    const needed = doorTicksNeeded(base);
+    expect(doorCutTicks(needed)).toBeLessThan(needed);
+    expect(doorCutTicks(1)).toBe(1);
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    const shot = new FinalBlowShot(camera);
+    let s = m;
+    while (s.run!.phase !== 'Cleared') shot.record((s = stepMatch(s, s.duel.fighters.map(() => IDLE_INTENT), base)), 0, needed);
+    expect(shot.active).toBe(true);
+    // The party has stood in a Door's zone for most of the time it needs: the shot is cut, once.
+    const gathering = { ...s, tick: s.tick + 1, run: { ...s.run!, doorTicks: [doorCutTicks(needed), 0] } };
+    expect(shot.record(gathering, 0, needed)).toBe(false);
+    expect(shot.holdsInput).toBe(false);
+    expect(shot.frame(1 / TICK_RATE)).toBeNull();
+    expect(shot.record({ ...gathering, tick: gathering.tick + 1 }, 0, needed)).toBe(false);
+  });
+
+  it('sounds the Ticks that run between a Door cut inside record() and the frame that notices the shot ended', () => {
+    const needed = doorTicksNeeded(base);
+    let m = createMatch(base, { format: 'Gauntlet', arena: 'gen:greybox:12', bestOf: 1, teams: [0, 1, 1, 1, 1] });
+    m = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f) => (f.team === 1 ? { ...f, hp: 0 } : f)) } };
+    const shot = new FinalBlowShot(camera);
+    const heard: number[] = [];
+    const step = (s: MatchState) => stepMatch(s, s.duel.fighters.map(() => IDLE_INTENT), base);
+    while (m.run!.phase !== 'Cleared') shot.record((m = step(m)), 0, needed);
+    for (let i = 0; i < 20; i++) {
+      shot.record((m = step(m)), 0, needed);
+      for (const r of shot.frame(1 / TICK_RATE)?.reached ?? []) heard.push(r.tick);
+    }
+    expect(heard.length).toBeGreaterThan(0);
+    // The door cut ends the shot inside record(); the loop runs three more Ticks before the render step's frame() returns null.
+    let s = { ...m, tick: m.tick + 1, run: { ...m.run!, doorTicks: [doorCutTicks(needed), 0] } };
+    const cutAt = s.tick;
+    expect(shot.record(s, 0, needed)).toBe(false);
+    for (let i = 0; i < 3; i++) shot.record((s = { ...step(s), run: s.run! }), 0, needed);
+    expect(shot.frame(1 / TICK_RATE)).toBeNull();
+    const rest = shot.takeRest().map((r) => r.tick);
+    // Exactly once, in order, from after the last Tick the replay reached to the newest Tick run.
+    expect(rest[0]).toBe(heard.at(-1)! + 1);
+    expect(rest.at(-1)).toBe(s.tick);
+    expect(s.tick).toBeGreaterThan(cutAt);
+    for (let i = 1; i < rest.length; i++) expect(rest[i]).toBe(rest[i - 1]! + 1);
+    expect(shot.takeRest()).toEqual([]);
+    // Nothing is collected once taken.
+    shot.record(step(s), 0, needed);
+    expect(shot.takeRest()).toEqual([]);
+  });
+
+  it('leaves a Duel’s end outside a Run as it was: the Player is not held, nothing is left over', () => {
+    const shot = new FinalBlowShot(camera);
+    const intent: Intent = { ...IDLE_INTENT, attack: true };
+    for (const s of playMatch()) {
+      shot.record(s, 0, doorTicksNeeded(tuning));
+      expect(shot.holdsInput).toBe(false);
+      expect(shotIntent(shot, intent)).toBe(intent);
+      shot.frame(1 / TICK_RATE);
+      expect(shot.takeRest()).toEqual([]);
+    }
   });
 });

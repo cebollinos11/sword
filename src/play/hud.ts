@@ -1,9 +1,11 @@
-import { arenaOf, doorCounters, exitDoor, FLOOR_ROWS, hallBehind, hallOf, hallRoster, inExitZone, runHall, secondsToTicks, type MatchState } from '../sim';
+import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
-import { doorwayMiddle } from '../render/doorway';
-import { inventoryLines, pickupMarks } from './loot';
+import { pickupLabels, type PickupView } from '../render/pickupView';
+import { FloorMapView } from './floorMapView';
+import { relicIcon, weaponIcon } from './icons';
+import { daggerCapacity, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
 
 /** What the HUD needs to know about whose eyes it shows the Match through. */
@@ -18,7 +20,9 @@ export interface HudView {
   readonly names?: readonly string[] | null;
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
   readonly tuning?: TuningData;
-  /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the Door labels. */
+  /** How the pickups are drawn this frame (`pickupViews`): the one labelled shows its name. Absent: none. */
+  readonly pickups?: readonly PickupView[];
+  /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the pickup labels. */
   readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
 
@@ -33,6 +37,8 @@ export interface RunResult {
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
   readonly seconds: number;
   readonly seed: number;
+  /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
+  readonly builds?: readonly RunBuild[];
 }
 
 /** m:ss. */
@@ -57,11 +63,6 @@ export function hallScore(at: HallAt, floors: number): string {
   return at.row === FLOOR_ROWS - 1 ? `Boss · Floor ${at.floor} / ${floors}` : `Floor ${at.floor} · Hall ${at.row + 1} / ${FLOOR_ROWS}`;
 }
 
-/** An exit Door's label: the kind of Hall behind it, and while the party gathers in its zone how many of those who count stand there (`2 / 3`). */
-export function doorLabel(kind: string, gathered: number, party: number): string {
-  return gathered > 0 ? `${kind} · ${gathered} / ${party}` : kind;
-}
-
 /**
  * The HP a bar shows: rounded up, so a Fighter still standing never reads 0. Rounded to a millionth first, so a max HP
  * scaled by depth (100 × 1.1 = 110.00000000000001) reads 110, not 111.
@@ -74,42 +75,6 @@ export function hpText(hp: number): string {
 export function runResultLine(r: RunResult): string {
   const halls = `${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`;
   return `${r.victory ? 'Victory' : 'Defeat'} · ${r.cleared} / ${r.floors} Floors · ${halls} · ${runTime(r.seconds)} · Run seed ${r.seed}`;
-}
-
-/** How high over a Door zone's ground (m) its label floats: above the doorway. */
-const DOOR_LABEL_HEIGHT = 2.7;
-
-/** An exit Door's label: where it floats (over the doorway), its text, and whether the Door is open (the Hall Cleared). */
-export interface DoorMark {
-  /** The exit (0-based, as `Hall.exits`; Arena Door `exit + 1`). */
-  readonly exit: number;
-  readonly at: { readonly x: number; readonly y: number; readonly z: number };
-  readonly text: string;
-  readonly open: boolean;
-}
-
-/**
- * The labels over a Run's current Hall's exit Doors: each names the Hall behind it (a Boss Hall's, the next Floor), and once
- * the Hall is Cleared counts the party gathering in its zone (`doorCounters`, as the Simulation counts). None in Duels.
- */
-export function doorMarks(match: MatchState, tuning: TuningData): DoorMark[] {
-  const run = match.run;
-  if (!run || match.status.status === 'Over') return [];
-  const arena = arenaOf(tuning, match.duel.arena);
-  const fighters = match.duel.fighters;
-  const open = run.phase !== 'Fighting';
-  const counting = open ? doorCounters(match.config, fighters) : [];
-  return hallOf(tuning, match.config.arena, runHall(run)).exits.flatMap((_, exit): DoorMark[] => {
-    const door = arena.doors[exitDoor(exit)];
-    const to = hallBehind(tuning, match.config, run, exit);
-    if (!door || !to) return [];
-    const kind = to.floor > run.floor ? `Floor ${to.floor}` : hallOf(tuning, match.config.arena, to).kind;
-    const gathered = counting.filter((i) => inExitZone(arena, exit, fighters[i]!)).length;
-    // Over the doorway (the Wall its zone stands before).
-    const middle = doorwayMiddle(door);
-    const at = { x: middle.x, y: middle.y + DOOR_LABEL_HEIGHT, z: middle.z };
-    return [{ exit, at, text: doorLabel(kind, gathered, counting.length), open }];
-  });
 }
 
 /**
@@ -163,16 +128,15 @@ export class Hud {
   private readonly crosshair = document.createElement('div');
   private readonly menu = document.createElement('button');
   private readonly results = document.createElement('div');
-  /** A Run's Door labels (one element per exit, reused) and the black of the fade between Halls. */
-  private readonly doorLayer = document.createElement('div');
-  private doorTags: HTMLElement[] = [];
-  /** A Run's pickup labels (one element per pickup seen, reused) and the inventory list (`I`). */
+  /** A Run's pickup labels (one element per pickup seen, reused). */
   private readonly pickupLayer = document.createElement('div');
   private pickupTags: HTMLElement[] = [];
-  private readonly inventory = document.createElement('pre');
+  /** The Floor map screen (`M`, or the map button on touch) and that button. */
+  readonly map = new FloorMapView();
+  private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
-  /** The local Player's dagger icons (one per dagger a Duel starts with) and Slow tag; empty/null until built. */
+  /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
   private slowTag: HTMLElement | null = null;
   /** What the bars were built for; they are rebuilt when it changes. */
@@ -186,6 +150,7 @@ export class Hud {
     container: HTMLElement,
     private readonly tuning: TuningData,
     onMenu: () => void,
+    onMap: () => void = () => undefined,
   ) {
     ensurePlayStyles();
     this.root.className = 'hud';
@@ -199,6 +164,15 @@ export class Hud {
     this.menu.title = 'Menu (Esc)';
     this.menu.setAttribute('aria-label', 'Menu');
     this.menu.addEventListener('click', onMenu);
+    this.mapButton.type = 'button';
+    this.mapButton.id = 'hud-map-button';
+    this.mapButton.className = 'hud-map';
+    this.mapButton.textContent = '🗺';
+    this.mapButton.title = 'Floor map (M)';
+    this.mapButton.setAttribute('aria-label', 'Floor map');
+    this.mapButton.hidden = true;
+    this.mapButton.addEventListener('click', onMap);
+    this.map.onClose = onMap;
     centre.append(this.score);
     this.sides.forEach((side, i) => (side.className = `hud-team hud-side-${i}`));
     this.top.append(this.sides[0]!, centre, this.sides[1]!);
@@ -209,14 +183,11 @@ export class Hud {
     bars.forEach((bar, i) => (bar.className = `hud-letterbox hud-letterbox-${i}`));
     this.results.className = 'hud-results';
     this.results.hidden = true;
-    this.doorLayer.className = 'hud-doors';
     this.pickupLayer.className = 'hud-doors';
-    this.inventory.className = 'hud-inventory';
-    this.inventory.hidden = true;
     this.fade.className = 'hud-fade';
-    // The fade between Halls goes over the Door labels, the letterbox, the HP bars and the crosshair (the next Hall's
+    // The fade between Halls goes over the letterbox, the HP bars and the crosshair (the next Hall's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.doorLayer, this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.inventory, this.fade, this.banner, this.menu, this.results);
+    this.root.append(this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -227,12 +198,14 @@ export class Hud {
     this.root.hidden = false;
   }
 
-  /** Show the inventory list, or hide it (the `I` key). It lists the local Player's Weapons and Relics and is render only. */
-  toggleInventory(): void {
-    this.inventory.hidden = !this.inventory.hidden;
+  /** Show the Floor map, or hide it; it shows only in a Run. Returns whether it is open. */
+  setMapOpen(open: boolean): boolean {
+    this.map.setOpen(open);
+    return this.map.open;
   }
 
   hide(): void {
+    this.map.setOpen(false);
     this.root.hidden = true;
     this.results.hidden = true;
   }
@@ -256,6 +229,7 @@ export class Hud {
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Halls cleared', String(r.halls)), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -265,6 +239,38 @@ export class Hud {
     this.banner.classList.remove('visible');
     this.bannerUntil = 0;
     this.results.hidden = false;
+  }
+
+  /** The results screen's builds: per Player the Weapon wielded and the Relics equipped (icon and name), the Relics carried smaller. */
+  private buildRows(builds: readonly RunBuild[]): HTMLElement[] {
+    const tuning = this.matchTuning ?? this.tuning;
+    const item = (svg: string, name: string, small = false) => {
+      const el = document.createElement('span');
+      el.className = `hud-build-item${small ? ' carried' : ''}`;
+      const icon = document.createElement('i');
+      icon.innerHTML = svg;
+      el.append(icon, name);
+      return el;
+    };
+    const relic = (name: string, small = false) => item(relicIcon(tuning.relics.find((x) => x.name === name)?.icon ?? ''), name, small);
+    return builds.map((b, i) => {
+      const box = document.createElement('div');
+      box.className = 'hud-build';
+      const who = document.createElement('div');
+      who.className = 'hud-build-who';
+      who.textContent = builds.length > 1 ? `Player ${i + 1}` : 'Build';
+      const row = document.createElement('div');
+      row.className = 'hud-build-row';
+      row.append(item(weaponIcon(b.weapon), b.weapon), ...b.equipped.map((n) => relic(n)));
+      box.append(who, row);
+      if (b.carried.length) {
+        const carried = document.createElement('div');
+        carried.className = 'hud-build-row';
+        carried.append(...b.carried.map((n) => relic(n, true)));
+        box.append(carried);
+      }
+      return box;
+    });
   }
 
   /** Letterbox the view and hide the bars and crosshair (the Final Blow Shot), or show them again. */
@@ -286,7 +292,7 @@ export class Hud {
     const myTeam = teams[me] ?? 0;
     // A Run's Hall changes who stands in Team 1's slots (and which are Benched): new bars and labels.
     const benched = match.duel.fighters.map((f) => Boolean(f.benched));
-    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched]);
+    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched, daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])]);
     if (key !== this.built) this.build(match, me, myTeam, view.lineup, view.names, key);
 
     for (const bar of this.bars) {
@@ -301,7 +307,8 @@ export class Hud {
     this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
     this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
-    this.updateDoors(match, view);
+    this.mapButton.hidden = !match.run;
+    this.map.update(match, this.matchTuning ?? this.tuning);
     this.updatePickups(match, view);
     this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
@@ -318,29 +325,9 @@ export class Hud {
     }
   }
 
-  /** A Run's labels over its exit Doors, where the camera sees them (placeholder for Stage 3's Door marks). */
-  private updateDoors(match: MatchState, view: HudView): void {
-    const marks = view.project ? doorMarks(match, this.matchTuning ?? this.tuning) : [];
-    while (this.doorTags.length < marks.length) {
-      const tag = document.createElement('div');
-      tag.className = 'hud-door';
-      this.doorLayer.append(tag);
-      this.doorTags.push(tag);
-    }
-    this.doorTags.forEach((tag, i) => {
-      const mark = marks[i];
-      const at = mark && view.project!(mark.at);
-      tag.hidden = !at;
-      if (!mark || !at) return;
-      if (tag.textContent !== mark.text) tag.textContent = mark.text;
-      tag.classList.toggle('open', mark.open);
-      tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
-    });
-  }
-
-  /** A Run's labels over the pickups the local Player sees, and the inventory list while it is shown. */
+  /** A Run's labels over the pickups the local Player sees. */
   private updatePickups(match: MatchState, view: HudView): void {
-    const marks = view.project && match.status.status !== 'Over' ? pickupMarks(match, view.localFighter) : [];
+    const marks = view.project && match.status.status !== 'Over' ? pickupLabels(view.pickups ?? []) : [];
     while (this.pickupTags.length < marks.length) {
       const tag = document.createElement('div');
       tag.className = 'hud-door hud-pickup';
@@ -356,15 +343,13 @@ export class Hud {
       tag.classList.toggle('relic', mark.kind === 'relic');
       tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
     });
-    const inv = match.duel.fighters[view.localFighter]?.inventory;
-    if (!this.inventory.hidden) this.inventory.textContent = inv ? inventoryLines(inv, this.matchTuning ?? this.tuning).join('\n') : 'No inventory outside a Run';
   }
 
   /** The local Player's row under their HP bar: a small icon per dagger and a tag shown while a dagger Hit slows them. */
-  private buildDaggers(): HTMLElement {
+  private buildDaggers(count: number): HTMLElement {
     const row = document.createElement('div');
     row.className = 'hud-daggers';
-    for (let i = 0; i < this.tuning.dagger.count; i++) {
+    for (let i = 0; i < count; i++) {
       const icon = document.createElement('span');
       icon.className = 'hud-dagger';
       this.daggerIcons.push(icon);
@@ -405,7 +390,7 @@ export class Hud {
       value.className = 'hud-hp';
       bar.append(fill, value);
       box.append(name, bar);
-      if (fighter === me) box.append(this.buildDaggers());
+      if (fighter === me) box.append(this.buildDaggers(daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])));
       return { fighter, box, fill, value };
     });
     this.sides.forEach((side, s) => side.replaceChildren(...this.bars.filter((b) => (teams[b.fighter] === myTeam) === (s === 0)).map((b) => b.box)));

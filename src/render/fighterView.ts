@@ -53,6 +53,9 @@ export class FighterView {
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  /** The geometries and materials the primitives share (made in the constructor). */
+  private readonly owned: { dispose(): void }[] = [];
+  private disposed = false;
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
@@ -62,6 +65,8 @@ export class FighterView {
     const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8);
     const sphere = new THREE.SphereGeometry(1, 10, 8);
     const box = new THREE.BoxGeometry(1, 1, 1);
+    const cone = new THREE.ConeGeometry(1, 1, 8);
+    this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone);
 
     for (const [a, b] of BONES) {
       const mesh = new THREE.Mesh(cylinder, body);
@@ -84,6 +89,7 @@ export class FighterView {
       // Until it loads (or if it cannot), the Fighter is drawn as its Skeleton.
       loadBodyModel(wears, colour, tuning.skeleton).then(
         (model) => {
+          if (this.disposed) return;
           this.model = model;
           this.skeleton.visible = false;
           this.root.add(model.root);
@@ -105,7 +111,7 @@ export class FighterView {
       shaft: new THREE.Mesh(cylinder, wood),
       axe: new THREE.Mesh(box, steel),
       hook: new THREE.Mesh(box, steel),
-      spike: new THREE.Mesh(new THREE.ConeGeometry(1, 1, 8), steel),
+      spike: new THREE.Mesh(cone, steel),
     };
     this.polearm.group.add(this.polearm.shaft, this.polearm.axe, this.polearm.hook, this.polearm.spike);
     this.hammer = {
@@ -116,6 +122,15 @@ export class FighterView {
     };
     this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
     this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
+  }
+
+  /** Free what this view made: the primitives' geometries and materials, and a loaded model's own materials (its geometry and textures are the shared template's). */
+  dispose(): void {
+    this.disposed = true;
+    for (const o of this.owned) o.dispose();
+    this.model?.root.traverse((o) => {
+      if (o instanceof THREE.SkinnedMesh) (o.material as THREE.Material).dispose();
+    });
   }
 
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
