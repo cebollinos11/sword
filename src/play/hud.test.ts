@@ -86,6 +86,11 @@ describe('the Doors’ labels and the fade between Halls', () => {
     expect(hallFade(m, tuning)).toBe(0);
     // A Run's first Hall and Duels never fade.
     expect(hallFade(start(), tuning)).toBe(0);
+    // ...nor does a dev start deeper in (its first Hall is not Hall 1).
+    const deeper = createMatch(tuning, { format: 'Gauntlet', arena: ARENA, bestOf: 1, humans: 2, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)], start: { floor: 1, row: 2 } });
+    expect(deeper.duelNumber).toBeGreaterThan(1);
+    expect(hallFade(deeper, tuning)).toBe(0);
+    expect(hallFade(stepMatch(deeper, idle(deeper), tuning), tuning)).toBe(0);
     expect(hallFade(createMatch(tuning, { arena: 'library', bestOf: 3 }), tuning)).toBe(0);
   });
 });

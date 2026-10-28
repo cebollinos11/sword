@@ -113,13 +113,14 @@ export function doorMarks(match: MatchState, tuning: TuningData): DoorMark[] {
 
 /**
  * How dark the screen is for the fade between Halls, 0 to 1: rising over `dungeon.hallFadeSeconds` once a Door is taken
- * (fully dark on the fade's last Tick), then falling over as long as the next Hall starts. 0 in Duels and a Run's first Hall.
+ * (fully dark on the fade's last Tick), then falling over as long as the next Hall starts. 0 in Duels and in the Hall a Run starts in.
  */
 export function hallFade(match: MatchState, tuning: TuningData): number {
   if (!match.run) return 0;
   const ticks = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
   if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (ticks - (match.nextDuelTick - match.tick) + 1) / ticks));
-  if (match.duelNumber === 1) return 0;
+  // The Run's first Hall (Hall 1, or a dev start's deeper one) began on the Run's start Tick: no fade before it.
+  if (match.tick - match.duel.tick <= match.run.startTick) return 0;
   return Math.max(0, 1 - match.duel.tick / ticks);
 }
 
