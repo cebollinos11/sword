@@ -234,7 +234,7 @@ A fallen Fighter's body going limp and dropping to the floor, knocked away by th
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:
-When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome. In a Run it plays when a Hall is Cleared, on the last enemy to fall, while the Hall's Duel goes on (none for a Treasure or Rest Hall, which have no enemies).
+When the last Fighter of a Team falls, the view cuts to a camera close to the fallen Fighter (and its killer, if near) that replays the Duel from a moment before the blow (`camera.finalBlowLead`) to a moment after (`camera.finalBlowTail`) in slow motion (`camera.finalBlowSpeed`), spinning slowly around it, letterboxed. Render only: it replays Ticks the game already showed while the Match runs on into the pause before the next Duel (`match.interDuelSeconds`, long enough to hold it), and never changes an outcome. In a Run it plays when a Hall is Cleared, on the last enemy to fall, while the Hall's Duel goes on (none for a Treasure or Rest Hall, which have no enemies). While a Hall's shot plays the local Player's Controller sends `IDLE_INTENT` (the Hall runs on, the Player stands still), and the shot is cut a moment before a Door could be taken.
 _Avoid_: Kill cam
 
 **Camera Shake**:
