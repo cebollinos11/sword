@@ -7,7 +7,7 @@
  * true one once that Tick is confirmed), so the tests compare the peers Tick by Tick (Hall changes, Door gathering, pickups,
  * Inventories) and not only by checksum. Enemies are one-hit (as gauntlet.test.ts does); the Ticks are capped.
  *
- * `COOP_LONG=1 npx vitest run src/net/coop.test.ts` adds a longer variant (three Players, Halls 1 to 5).
+ * `COOP_LONG=1 npx vitest run src/net/coop.test.ts` adds a longer variant (four Players, Halls 1 to 5).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadTuningData, type DungeonEncounter, type TuningData } from '../tuning';
@@ -496,8 +496,8 @@ describe('co-op Runs across a resync and an AI Takeover', () => {
 });
 
 describe.skipIf(!process.env.COOP_LONG)('co-op Runs: the long variant (COOP_LONG=1)', () => {
-  it('three Players on the autopilot play Halls 1 to 5 with loot, a hand-over and no Desync', () => {
-    const r = startRun({ players: 3, intent: handOver(1) });
+  it('four Players on the autopilot play Halls 1 to 5 with loot, a hand-over and no Desync', () => {
+    const r = startRun({ players: 4, intent: handOver(1) });
     let hall5: number | null = null;
     r.until(
       () => hall5 !== null && r.confirmed() >= hall5 + 120,

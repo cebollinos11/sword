@@ -19,7 +19,6 @@ import {
   hallKey,
   IDLE_INTENT,
   inDuel,
-  inExitZone,
   PICKUP_RADIUS,
   pickupVisibleTo,
   restFire,
@@ -32,7 +31,7 @@ import {
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
 import type { Controller } from './controller';
-import { exitDoorSpawn } from './doorSpot';
+import { exitDoorWalk } from './doorSpot';
 
 /** What the autopilot does with loot: 'take' walks onto it and equips it, 'drop' also drops one item once and takes it again. */
 export type AutopilotLoot = 'take' | 'drop';
@@ -149,8 +148,9 @@ class DevAutopilot implements Autopilot {
     const exits = arena.doors.length - 1;
     if (exits <= 0) return this.ai.walkTo(state, fighter, { x: self.position.x, y: self.y, z: self.position.z }, Infinity);
     const exit = Math.min(this.doors[hall.row] ?? this.doors.at(-1) ?? 0, exits - 1);
-    const spot = exitDoorSpawn(arena, exit, state, fighter).position;
-    return this.ai.walkTo(state, fighter, spot, inExitZone(arena, exit, self) ? Infinity : 0);
+    // On into the zone, to its own spot there (the others pass it by), not stopping at the zone's near edge where the last one in is boxed out.
+    const { to, stop, shove } = exitDoorWalk(arena, exit, state, fighter, this.tuning.fighter.radius);
+    return this.ai.walkTo(state, fighter, to, stop, shove);
   }
 
   save(): unknown {

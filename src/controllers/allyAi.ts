@@ -9,16 +9,14 @@
  * It decides from the state alone, and walks with its AI's own navmesh routing (`AiController.walkTo`), so its memory
  * is its AI's memory and Rollback needs nothing more.
  */
-import { arenaOf, exitDoor, inDuel, inExitZone, type Intent, type SimState } from '../sim';
+import { arenaOf, inDuel, inExitZone, type Intent, type SimState } from '../sim';
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
 import type { Controller } from './controller';
-import { exitDoorSpawn } from './doorSpot';
+import { exitDoorWalk } from './doorSpot';
 
 /** How near (m, across the ground) an Ally AI following a Player stops. */
 export const FOLLOW_DISTANCE = 1.5;
-/** How near (m, across the ground) to its spot in a Door's zone an Ally AI stops, once inside the zone. */
-const DOOR_ARRIVED = 0.3;
 
 class AllyAi implements Controller {
   constructor(
@@ -45,20 +43,10 @@ class AllyAi implements Controller {
     }
     if (door < 0 && living.length === 0 && exits > 0) door = 0;
     if (door >= 0) {
-      // A spot in the zone (one of Team 0's spawns there), so the party stands side by side: its own slot's, unless
-      // another Fighter stands on it, then the free one nearest it (ties to the lowest slot).
-      const { spawns } = arena.doors[exitDoor(door)]!;
-      const taken = (p: { x: number; z: number }) =>
-        state.fighters.some((f, i) => i !== fighter && inDuel(f) && Math.hypot(f.position.x - p.x, f.position.z - p.z) < 2 * this.tuning.fighter.radius);
-      const own = exitDoorSpawn(arena, door, state, fighter);
-      const free = spawns
-        .filter((s) => !taken(s.position))
-        .map((s) => ({ s, d: Math.hypot(s.position.x - self.position.x, s.position.z - self.position.z) }))
-        .sort((a, b) => a.d - b.d || a.s.slot - b.s.slot);
-      const spot = (taken(own.position) && free[0] ? free[0].s : own).position;
-      // In the zone it stands at its spot, or anywhere once every spot it could take is taken (the zone is crowded).
-      const stop = !inExitZone(arena, door, self) ? 0 : taken(spot) ? Infinity : DOOR_ARRIVED;
-      return this.ai.walkTo(state, fighter, spot, stop);
+      // On into the zone, to its own spot there (one of the four in doorSpot.ts, or the free one nearest it if a Fighter stands on it), so the
+      // party leaves the zone's entrance and its lane clear for whoever comes in last; and, in the zone, anywhere once it is crowded.
+      const { to, stop, shove } = exitDoorWalk(arena, door, state, fighter, this.tuning.fighter.radius);
+      return this.ai.walkTo(state, fighter, to, stop, shove);
     }
     const nearest = living
       .map((i) => {

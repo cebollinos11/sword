@@ -715,9 +715,10 @@ export interface AiController extends Controller {
   load(saved: unknown): void;
   /**
    * Instead of `intent`: walk to `to` (a spot on the ground) the way it closes on an enemy, along the navmesh and
-   * through its jump Links, looking where it walks, and stand once within `stop` m of it across the ground, on its level.
+   * through its jump Links, looking where it walks, and stand once within `stop` m of it across the ground, on its level. It steps
+   * round a Fighter in its way, unless `shove`: then it walks on and the bodies push past each other.
    */
-  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number): Intent;
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number, shove?: boolean): Intent;
 }
 
 class RuleAi implements AiController {
@@ -901,10 +902,10 @@ class RuleAi implements AiController {
 
   /**
    * Instead of `intent` (the Ally AI in a cleared Hall): walk to `to` the way it closes on an enemy, and stand once
-   * within `stop` m of it. A Fighter standing in its way on its level it steps round (`sidestep`). It keeps watching (so
-   * its memory stays as `intent` would keep it) but plans no fight.
+   * within `stop` m of it. A Fighter standing in its way on its level it steps round (`sidestep`), unless `shove`. It keeps
+   * watching (so its memory stays as `intent` would keep it) but plans no fight.
    */
-  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number): Intent {
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number, shove = false): Intent {
     this.rng = tickRng(state, fighter);
     this.view = null;
     this.observe(state);
@@ -920,7 +921,7 @@ class RuleAi implements AiController {
       return this.flying(state, self, IDLE_INTENT);
     }
     const way = this.approach(state, self, { position: { x: to.x, z: to.z }, y: to.y, airborne: false });
-    const move = this.jumpRun ? way.move : this.sidestep(state, self, fighter, way.move);
+    const move = this.jumpRun || shove ? way.move : this.sidestep(state, self, fighter, way.move);
     return this.flying(state, self, { ...IDLE_INTENT, ...way, move, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
   }
 
