@@ -59,3 +59,14 @@ export function devAutopilot(search: string = location.search, hash: string = lo
   if (raw === null || !/^[1-9]\d*(,[1-9]\d*)*$/.test(raw)) return null;
   return raw.split(',').map((d) => Number(d) - 1);
 }
+
+/**
+ * Dev mode only, with `autopilot`: `loot=1` makes the autopilot walk onto the loot lying in a cleared Hall (its drops, a Treasure Hall's first
+ * pedestal, a beaten Elite's Relic) and equip what it takes, `loot=drop` also drops one item once and takes it up again, so the dev check
+ * shows every part of the loot. Returns the mode, or null (the autopilot leaves loot lying).
+ */
+export function devAutopilotLoot(search: string = location.search, hash: string = location.hash): 'take' | 'drop' | null {
+  if (!devMode(search, hash)) return null;
+  const raw = query(search, hash).get('loot');
+  return raw === '1' ? 'take' : raw === 'drop' ? 'drop' : null;
+}

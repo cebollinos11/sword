@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devMode, devRunRelics, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -86,5 +86,18 @@ describe('devAutopilot: the Player Seat on an AI, only in dev mode', () => {
     expect(devAutopilot('?dev=1', '')).toBeNull();
     expect(devAutopilot('?dev=1&autopilot=0', '')).toBeNull();
     expect(devAutopilot('?dev=1&autopilot=yes', '')).toBeNull();
+  });
+});
+
+describe('devAutopilotLoot: the autopilot takes its loot, only in dev mode', () => {
+  it('reads loot=1 and loot=drop', () => {
+    expect(devAutopilotLoot('?dev=1&autopilot=1&loot=1', '')).toBe('take');
+    expect(devAutopilotLoot('?dev=1&autopilot=1&loot=drop', '')).toBe('drop');
+  });
+
+  it('is off without dev=1 or a known value', () => {
+    expect(devAutopilotLoot('?autopilot=1&loot=1', '')).toBeNull();
+    expect(devAutopilotLoot('?dev=1&autopilot=1', '')).toBeNull();
+    expect(devAutopilotLoot('?dev=1&loot=2', '')).toBeNull();
   });
 });

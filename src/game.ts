@@ -5,12 +5,13 @@ import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerVsAi, type MatchDriver } from './play/driver';
-import { devAutopilot, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { bindTouchInput, isTouchDevice } from './play/touch';
+import { visiblePickups } from './play/loot';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
@@ -342,7 +343,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // In dev mode a Run may start deeper in (`?dev=1&floor=F&row=R`), for tuning: only a Run stepped here, never an online one.
       // ...and the player's Fighter may be on an AI (`?dev=1&autopilot=1,2`), to check a Run in a headless browser.
       const autopilot = match.format ? devAutopilot() : null;
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...devRunStart(), ...devRunRelics() } : {}), ...(autopilot ? { autopilot } : {}) });
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...devRunStart(), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
@@ -504,6 +505,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   addEventListener('keydown', (e) => {
+    if (e.code === INVENTORY_LIST_KEY && !e.repeat && driver && !menu.visible) hud.toggleInventory();
     if (e.code !== 'Escape' || e.repeat) return;
     if (performance.now() - pausedAt < 400) return;
     if (driver && !menu.visible) openPause();
@@ -704,6 +706,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
       if (inShot && !shot) endShot();
       renderer.setPlayer(me, menu.body);
+      renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
@@ -725,6 +728,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p) });
     } else {
+      renderer.setPickups([]);
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;
       const mine = duel.fighters[me];
