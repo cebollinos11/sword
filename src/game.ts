@@ -12,6 +12,7 @@ import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './dev
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { bindTouchInput, isTouchDevice } from './play/touch';
+import { doorMarkView, doorRun } from './play/doorMarks';
 import { visiblePickups } from './play/loot';
 import { mapKeyAction } from './play/floorMap';
 import { runBuilds } from './play/runBuilds';
@@ -761,6 +762,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (inShot && !shot) endShot(finalBlow.takeRest());
       renderer.setPlayer(me, menu.body);
       renderer.setPickups(visiblePickups(curr, me).map((p) => ({ ...p.at, kind: p.kind })));
+      const doorRunNow = doorRun(curr, matchTuning);
+      renderer.setDoors(doorRunNow ? doorMarkView(curr.duel.hall, doorRunNow.exits, doorRunNow.players) : []);
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
       if (shot) {
         for (const m of shot.reached) {
@@ -784,6 +787,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {
       renderer.setPickups([]);
+      renderer.setDoors([]);
       const { match, me, bodies: chosen } = previewMatch();
       const duel = match.duel;
       const mine = duel.fighters[me];

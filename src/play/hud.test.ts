@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { arenaOf, createMatch, exitDoor, hallBehind, hallOf, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
-import { doorLabel, doorMarks, hallBanner, hallFade, hallScore, hpText, runResultLine, runTime } from './hud';
+import { arenaOf, createMatch, exitDoor, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
+import { hallBanner, hallFade, hallScore, hpText, runResultLine, runTime } from './hud';
 
 describe('the Run’s HUD text', () => {
   it('names the Floor, the Hall’s row of five and the Run seed; the Boss Hall by its Floor', () => {
@@ -10,12 +10,6 @@ describe('the Run’s HUD text', () => {
     expect(hallBanner({ floor: 2, row: 4 }, 3, 4242)).toBe('Boss · Floor 2 / 3');
     expect(hallScore({ floor: 2, row: 2 }, 3)).toBe('Floor 2 · Hall 3 / 5');
     expect(hallScore({ floor: 3, row: 4 }, 3)).toBe('Boss · Floor 3 / 3');
-  });
-
-  it('labels a Door with the kind of Hall behind it, and how many of the party stand in it while it gathers', () => {
-    expect(doorLabel('Elite', 0, 3)).toBe('Elite');
-    expect(doorLabel('Rest', 2, 3)).toBe('Rest · 2 / 3');
-    expect(doorLabel('Fight', 1, 1)).toBe('Fight · 1 / 1');
   });
 
   it('sums a Run up in one line: the verdict, Floors and Halls cleared, the time and the seed', () => {
@@ -30,7 +24,7 @@ describe('the Run’s HUD text', () => {
   });
 });
 
-describe('the Doors’ labels and the fade between Halls', () => {
+describe('the fade between Halls', () => {
   const tuning = loadTuningData();
   const ARENA = 'gen:greybox:12';
   const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
@@ -42,29 +36,6 @@ describe('the Doors’ labels and the fade between Halls', () => {
     const at = { x: zone.reduce((s, p) => s + p.x, 0) / zone.length, z: zone.reduce((s, p) => s + p.z, 0) / zone.length };
     return { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? { ...f, position: at, y: zone[0]!.y } : f)) } };
   };
-
-  it('marks every exit Door with the kind behind it, over its doorway, open once the Hall is Cleared, counting the party in it', () => {
-    let m = start();
-    const hall = hallOf(tuning, ARENA, { floor: 1, row: 0, index: 0 });
-    const kinds = hall.exits.map((_, k) => hallOf(tuning, ARENA, hallBehind(tuning, m.config, m.run!, k)!).kind);
-    const marks = doorMarks(m, tuning);
-    expect(marks.map((d) => [d.exit, d.text, d.open])).toEqual(kinds.map((kind, k) => [k, kind, false]));
-    // Over the doorway: above the zone's ground, nearer the Arena's edge than the zone's middle.
-    const doors = arenaOf(tuning, m.arena).doors;
-    for (const d of marks) {
-      const zone = doors[exitDoor(d.exit)]!.zone;
-      expect(d.at.y).toBeGreaterThan(zone[0]!.y + 2);
-      const c = { x: zone.reduce((s, p) => s + p.x, 0) / zone.length, z: zone.reduce((s, p) => s + p.z, 0) / zone.length };
-      expect(Math.hypot(d.at.x, d.at.z)).toBeGreaterThan(Math.hypot(c.x, c.z));
-    }
-
-    m = cleared(m);
-    expect(doorMarks(m, tuning).every((d) => d.open)).toBe(true);
-    m = inZone(m, 0, 1);
-    expect(doorMarks(m, tuning).map((d) => d.text)).toEqual(kinds.map((kind, k) => (k === 1 ? `${kind} · 1 / 2` : kind)));
-    m = inZone(m, 1, 1);
-    expect(doorMarks(m, tuning)[1]!.text).toBe(`${kinds[1]} · 2 / 2`);
-  });
 
   it('fades out over the fade once a Door is taken, and back in as the next Hall starts', () => {
     let m = cleared(start());
