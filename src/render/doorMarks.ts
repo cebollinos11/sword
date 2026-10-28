@@ -7,7 +7,13 @@ import type { ArenaDoor, ArenaGeometry } from '../tuning';
 
 /** A doorway's height (m): the frame's posts (hallMarks.ts); the gate hangs from the lintel down to the ground. */
 const GATE_HEIGHT = 2.4;
-const GATE_COLOR = 0x4a4d55;
+/** Warm, light iron: it reads against the Arenas' dark blue-grey Walls (a dark gate vanished into them). */
+const GATE_COLOR = 0xc2a266;
+const GATE_GLOW = 0x35280f;
+/** The bars' thickness (m) and their spacing at most, and the rails across them (their heights over the doorway's ground, m). */
+const BAR = 0.07;
+const BAR_SPACING = 0.28;
+const RAILS = [0.15, 1.2, 2.25] as const;
 /** The icon's centre and size over the doorway's ground, and the text's centre and size under it (m). */
 const ICON_AT = 3.0;
 const ICON_SIZE = 0.7;
@@ -33,22 +39,33 @@ export interface DoorGate {
 
 export type GateFactory = (door: ArenaDoor) => DoorGate;
 
-/** The greybox gate: a dark slab across the doorway, hanging from the lintel; open, it is drawn drawn up into it. */
+/** The greybox gate: iron bars across the doorway, hanging from the lintel; open, it is drawn drawn up into it. */
 export const fallbackGate: GateFactory = (door) => {
   const [a, b] = doorway(door);
   const width = Math.hypot(b.x - a.x, b.z - a.z);
-  const geometry = new THREE.BoxGeometry(0.08, GATE_HEIGHT, width);
-  const material = new THREE.MeshStandardMaterial({ color: GATE_COLOR, roughness: 0.8 });
-  const slab = new THREE.Mesh(geometry, material);
-  slab.position.y = -GATE_HEIGHT / 2;
+  const bar = new THREE.BoxGeometry(BAR, GATE_HEIGHT, BAR);
+  const rail = new THREE.BoxGeometry(BAR * 1.3, BAR, width);
+  const material = new THREE.MeshStandardMaterial({ color: GATE_COLOR, emissive: GATE_GLOW, roughness: 0.45, metalness: 0.6 });
+  const bars = new THREE.Group();
+  const count = Math.max(2, Math.ceil(width / BAR_SPACING));
+  for (let i = 0; i <= count; i++) {
+    const post = new THREE.Mesh(bar, material);
+    post.position.set(0, -GATE_HEIGHT / 2, -width / 2 + (i * width) / count);
+    bars.add(post);
+  }
+  for (const y of RAILS) {
+    const cross = new THREE.Mesh(rail, material);
+    cross.position.y = y - GATE_HEIGHT;
+    bars.add(cross);
+  }
   const object = new THREE.Group();
   object.position.set((a.x + b.x) / 2, a.y + GATE_HEIGHT, (a.z + b.z) / 2);
   object.rotation.y = Math.atan2(b.x - a.x, b.z - a.z);
-  object.add(slab);
+  object.add(bars);
   return {
     object,
     setOpen: (open) => object.scale.setY(open ? 0.05 : 1),
-    dispose: () => (geometry.dispose(), material.dispose()),
+    dispose: () => (bar.dispose(), rail.dispose(), material.dispose()),
   };
 };
 

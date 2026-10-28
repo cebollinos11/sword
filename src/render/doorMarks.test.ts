@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { arenaOf } from '../sim';
 import { loadTuningData } from '../tuning';
 import type { DoorMarkView } from '../play/doorMarks';
-import { DoorMarks, type DoorGate } from './doorMarks';
+import { DoorMarks, fallbackGate, type DoorGate } from './doorMarks';
 
 describe('DoorMarks', () => {
   const tuning = loadTuningData();
@@ -67,5 +67,24 @@ describe('DoorMarks', () => {
     const watched = watch(marksOf.root);
     marksOf.update(arena, hall(0, 'Cleared'), marks({ gate: 'open', count: '2 / 2' }));
     expect(watched.disposed()).toBe(0);
+  });
+
+  it('draws the fallback gate in a light, warm iron the dark Walls do not hide, and frees all of it', () => {
+    const gate = fallbackGate(arena.doors[1]!);
+    const watched = watch(gate.object);
+    const colours: THREE.Color[] = [];
+    gate.object.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.material) colours.push((m.material as THREE.MeshStandardMaterial).color);
+    });
+    expect(colours.length).toBeGreaterThan(3);
+    for (const c of colours) {
+      const hsl = { h: 0, s: 0, l: 0 };
+      c.getHSL(hsl, THREE.SRGBColorSpace);
+      expect(hsl.l).toBeGreaterThan(0.5);
+      expect(c.r).toBeGreaterThan(c.b);
+    }
+    gate.dispose();
+    expect(watched.disposed()).toBe(watched.made);
   });
 });
