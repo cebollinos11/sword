@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devMode, devRunStart } from './devMode';
+import { devAutopilot, devMode, devRunRelics, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -40,6 +40,37 @@ describe('devRunStart: a Run starts at a chosen Floor and row only in dev mode',
     const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1] };
     expect(createMatch(tuning, { ...options, ...devRunStart('?floor=2&row=5', '') })).toEqual(createMatch(tuning, options));
     expect(createMatch(tuning, { ...options, ...devRunStart('?dev=1&floor=2&row=5', '') }).run).toMatchObject({ floor: 2, row: 4 });
+  });
+});
+
+describe('devRunRelics: a Run starts holding chosen Relics only in dev mode', () => {
+  const tuning = loadTuningData();
+  const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1] };
+  const names = tuning.relics.slice(0, 5).map((r) => r.name);
+
+  it('reads the names, in order', () => {
+    expect(devRunRelics('?dev=1&relics=Whetstone,Iron%20Plate', '')).toEqual({ relics: ['Whetstone', 'Iron Plate'] });
+    expect(devRunRelics('?relics=Whetstone', '#/play?dev=1')).toEqual({ relics: ['Whetstone'] });
+    expect(devRunRelics('?dev=1', '')).toEqual({});
+  });
+
+  it('is ignored without dev=1', () => {
+    expect(devRunRelics('?relics=Whetstone', '')).toEqual({});
+    expect(createMatch(tuning, { ...options, ...devRunRelics('?relics=Whetstone', '') })).toEqual(createMatch(tuning, options));
+  });
+
+  it('gives each Player the inventory and the matching mods', () => {
+    const f = createMatch(tuning, { ...options, ...devRunStart('?dev=1&floor=2&row=3', ''), relics: names }).duel.fighters[0]!;
+    const { equippedRelics } = tuning.dungeon.inventory;
+    expect(f.inventory!.relics).toEqual(names);
+    expect(f.inventory!.equipped).toEqual(names.slice(0, equippedRelics).map((_, k) => k));
+    const plain = createMatch(tuning, options).duel.fighters[0]!;
+    expect(f.mods).not.toEqual(plain.mods);
+    expect(f.mods).toEqual(createMatch(tuning, { ...options, relics: names.slice(0, equippedRelics) }).duel.fighters[0]!.mods);
+  });
+
+  it('throws on an unknown Relic', () => {
+    expect(() => createMatch(tuning, { ...options, relics: ['Nope'] })).toThrow(/Unknown Relic "Nope"/);
   });
 });
 
