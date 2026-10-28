@@ -44,6 +44,24 @@ export const INVENTORY_CSS = `
 .inv-numbers { display: flex; flex-wrap: wrap; gap: 0.4rem 1.2rem; margin-top: 0.8rem; padding-top: 0.6rem; border-top: 1px solid #fff3; }
 .inv-number b { margin-left: 0.3rem; font-variant-numeric: tabular-nums; }
 .inv-help { margin: 0.6rem 0 0; font-size: 0.75rem; opacity: 0.6; }
+.inv-panel { overscroll-behavior: contain; touch-action: pan-y; }
+/* A landscape phone is about 390 px high: a denser panel that fits (three columns, no help line), and it still scrolls if it must. */
+@media (max-height: 480px) {
+  .inv-panel { max-height: 100dvh; padding: 0.4rem 0.7rem; font-size: 0.8rem; line-height: 1.2; }
+  .inv-title { font-size: 1rem; }
+  .inv-close { min-width: 2rem; height: 2rem; }
+  .inv-status { min-height: 0; margin: 0.1rem 0; }
+  .inv-status:empty { display: none; }
+  .inv-section { margin: 0.3rem 0 0.2rem; font-size: 0.7rem; }
+  .inv-grid { grid-template-columns: repeat(3, 1fr); gap: 0.3rem; }
+  .inv-slot { min-height: 2.6rem; }
+  .inv-equip { gap: 0.35rem; padding: 0.2rem 0.35rem; }
+  .inv-icon { width: 1.8rem; height: 1.8rem; }
+  .inv-words, .inv-note, .inv-mark { font-size: 0.68rem; }
+  .inv-drop { width: 2.8rem; font-size: 0.68rem; }
+  .inv-numbers { margin-top: 0.4rem; padding-top: 0.3rem; gap: 0.2rem 1rem; }
+  .inv-help { display: none; }
+}
 `;
 
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, className: string, text?: string): HTMLElementTagNameMap[K] => {
