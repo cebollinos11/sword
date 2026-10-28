@@ -187,6 +187,14 @@ function sameIntent(a: Intent, b: Intent): boolean {
   return a === b || hashValue(a) === hashValue(b);
 }
 
+/**
+ * The Intent as the peers will read it off the wire. JSON has no negative zero, and the Simulation keeps some of what an Intent says (a
+ * facing, bit-exact in the checksum), so a `-0` a Controller sent (a stick at rest, an AI's `atan2`) must play as `0` on this peer too.
+ */
+function wireIntent(intent: Intent): Intent {
+  return JSON.parse(JSON.stringify(intent)) as Intent;
+}
+
 /** Drop every entry of a per-Tick map whose Tick matches. */
 function pruneTicks(map: Map<number, unknown>, drop: (tick: number) => boolean): void {
   for (const t of map.keys()) if (drop(t)) map.delete(t);
@@ -269,6 +277,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly confirmed: number[] = [];
   /** Earliest Tick simulated with a wrong prediction (or before a takeover), pending Rollback. */
   private rollbackFrom: number | null = null;
+  /** Ticks re-simulated ahead of this Tick's own Rollback, to answer a resync request (see `sendResync`). */
+  private rolledEarly = 0;
   /** The Tick being simulated right now, if any (what the Remote Controller is asked about). */
   private simulating: number | null = null;
   private readonly hashes = new Map<number, string>();
@@ -402,7 +412,8 @@ class Session implements RollbackSession, PeerIntentSource {
     if (--this.helloCountdown <= 0) this.sendHellos();
     if (this.status !== 'Running') return NOTHING;
 
-    const rolledBack = this.rollback();
+    const rolledBack = this.rollback() + this.rolledEarly;
+    this.rolledEarly = 0;
     const next = this.currentTick + 1;
     const stalled = next - this.othersConfirmed() > ROLLBACK_WINDOW;
     const waited = !stalled && this.shouldWait();
@@ -411,7 +422,7 @@ class Session implements RollbackSession, PeerIntentSource {
     } else if (waited) {
       this.stats.waits++;
     } else {
-      this.intents[this.localPlayer]!.set(next, localIntent);
+      this.intents[this.localPlayer]!.set(next, wireIntent(localIntent));
       this.simulateNext();
     }
     this.recordConfirmed();
@@ -789,6 +800,8 @@ class Session implements RollbackSession, PeerIntentSource {
 
   /** Host: send a guest the confirmed state, plus the other Players' Intents it may still lack up to it. */
   private sendResync(link: Link): void {
+    // Intents taken in this same Tick may have contradicted a prediction at or before the confirmed Tick: roll back first, so the state sent is the true one.
+    this.rolledEarly += this.rollback();
     const tick = this.confirmedTick;
     const streams: IntentStream[] = [];
     for (let p = 0; p < this.players; p++) if (p !== link.peer) streams.push(this.stream(p, link.acks[p]! + 1, Math.min(tick, this.have(p))));
