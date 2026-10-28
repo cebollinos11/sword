@@ -61,6 +61,15 @@ export function inventoryLock(f: FighterState, phase: HallPhase | undefined): st
   return canChangeInventory(f) ? null : 'Not now';
 }
 
+/**
+ * Whether the open screen takes over the Local Controller's input (and lets go of its held keys), as the menu does: only once the Hall is
+ * not being fought. In a fight (a Hall `Fighting`, or a Duel) the screen is a read-only view and the Fighter keeps its keys: the Simulation
+ * runs on, and opening the screen must never leave a Fighter defenceless.
+ */
+export function inventoryHoldsInput(phase: HallPhase | undefined): boolean {
+  return phase === 'Cleared' || phase === 'Leaving';
+}
+
 /** A factor as `×1.1` (trailing zeros dropped). */
 const factor = (n: number): string => `×${Number(n.toFixed(2))}`;
 

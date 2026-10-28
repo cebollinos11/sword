@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canChangeInventory, createMatch, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, stepMatch, type FighterState, type HallPhase, type Inventory, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
-import { inventoryLock, inventoryView, type ItemView } from './inventoryView';
+import { inventoryHoldsInput, inventoryLock, inventoryView, type ItemView } from './inventoryView';
 
 const tuning = loadTuningData();
 const [W0, W1, W2] = Object.keys(tuning.weapons) as [string, string, string];
@@ -163,6 +163,22 @@ describe('what the view offers is what the Simulation acts on', () => {
       expect(send(m, { equip: v.relics[0]!.ref }).inventory!.equipped).toEqual(cleared ? [0] : []);
       expect(send(m, { equip: v.weapons[1]!.ref }).inventory!.weapon).toBe(cleared ? 1 : 0);
       expect(send(m, { drop: v.relics[1]!.ref }).inventory!.relics).toEqual(cleared ? ['Whetstone'] : ['Whetstone', 'Iron Plate']);
+    }
+  });
+});
+
+describe('whether the open screen takes the Controller’s input', () => {
+  it('leaves a Fighter in a fight its keys, and takes them once the Hall is Cleared or being left', () => {
+    expect(inventoryHoldsInput('Fighting')).toBe(false);
+    // A Duel (no Run) is a fight too.
+    expect(inventoryHoldsInput(undefined)).toBe(false);
+    expect(inventoryHoldsInput('Cleared')).toBe(true);
+    expect(inventoryHoldsInput('Leaving')).toBe(true);
+  });
+
+  it('never holds the Fighter in a phase where the Simulation would refuse for enemies remaining', () => {
+    for (const phase of [undefined, 'Fighting', 'Cleared', 'Leaving'] as const) {
+      if (inventoryLock(fighter(), phase) === 'Enemies remain') expect(inventoryHoldsInput(phase)).toBe(false);
     }
   });
 });

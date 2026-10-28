@@ -12,6 +12,7 @@ import { playerVsAi, type MatchDriver } from './play/driver';
 import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
+import { inventoryHoldsInput } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { doorMarkView, doorRun } from './play/doorMarks';
 import { mapKeyAction } from './play/floorMap';
@@ -538,24 +539,36 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Open or close the inventory screen. Open, it frees the mouse and takes the Controller's input (as the menu does) but the Simulation runs
-   * on; closed, the input and the pointer lock come back. The number keys and X still work while it is open (they go to the Controller here).
+   * Open or close the inventory screen. Open, it frees the mouse and, once the Hall is not being fought (`inventoryHoldsInput`), takes the
+   * Controller's input (as the menu does); in a fight the Fighter keeps its keys. The Simulation runs on; closed, the input and the pointer lock
+   * come back. The number keys and X still work while it is open (they go to the Controller here, or through the input if it is still on).
    */
   function toggleInventory(): void {
     if (!driver || menu.visible) return;
     const opening = !inventoryScreen.open;
     if (opening) hud.setMapOpen(false);
     inventoryScreen.open = opening;
-    input.enabled = !opening;
     if (opening) {
-      local.releaseAll();
+      syncInventoryInput();
       if (document.pointerLockElement) document.exitPointerLock();
-    } else lockPointer();
+    } else {
+      input.enabled = true;
+      lockPointer();
+    }
+  }
+
+  /** While the screen is open, the input follows the Hall: held in a cleared Hall, the Fighter's own again when the next fight begins. */
+  function syncInventoryInput(): void {
+    if (!inventoryScreen.open || menu.visible) return;
+    const hold = inventoryHoldsInput(curr.run?.phase);
+    if (hold !== mouseInput.enabled) return;
+    input.enabled = !hold;
+    if (hold) local.releaseAll();
   }
 
   addEventListener('keydown', (e) => {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
-    else if (inventoryScreen.open && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
+    else if (inventoryScreen.open && !mouseInput.enabled && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
     const mapAction = mapKeyAction(e.code, hud.map.open);
     if (mapAction && !e.repeat) {
       if (mapAction === 'toggle') toggleMap();
@@ -570,7 +583,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   });
   document.addEventListener('pointerlockchange', () => {
     // Esc frees the mouse first (and some browsers swallow that Esc): freeing it in a Match opens the menu.
-    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled || hud.map.open) return;
+    if (document.pointerLockElement || !driver || menu.visible || !mouseInput.enabled || hud.map.open || inventoryScreen.open) return;
     pausedAt = performance.now();
     openPause();
   });
@@ -799,6 +812,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), labelled: pickups.find((v) => v.label)?.id ?? null });
+      syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {
       renderer.setPickups([]);
