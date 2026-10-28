@@ -1223,6 +1223,41 @@ describe('Dungeon Run: Elite enemies carry Relics', { timeout: 60_000 }, () => {
     expect(modsOf(f[1]!).damageTaken).toBeLessThan(1);
   });
 
+  /**
+   * The Hit `attacker` lands on `defender` (fighters of the Elite Hall's Duel, set 1.3 m apart in the open facing each other: the Elite's spawn
+   * and a spot just beyond it), simulated: its damage and the defender's HP lost. The others stand where they started, far off.
+   */
+  function swing(e: Elites, attacker: number, defender: number) {
+    const m = inElite(e);
+    const from = m.duel.fighters[attacker]!;
+    const to = { x: from.position.x, z: from.position.z + 1.3 };
+    const fighters = m.duel.fighters.map((f, i) =>
+      i === attacker ? { ...f, facing: 0 } : i === defender ? { ...f, position: to, y: from.y, facing: Math.PI } : f,
+    );
+    const tracks: Track[] = fighters.map((_, i) => (i === attacker ? attack('Overhead') : []));
+    const run = runScript(e.t, { ...m.duel, fighters }, tracks, 150);
+    const hits = run.events.filter((ev) => ev.type === 'Hit' && ev.attacker === attacker && ev.defender === defender);
+    expect(hits).toHaveLength(1);
+    return { damage: (hits[0] as Extract<SimEvent, { type: 'Hit' }>).damage, lost: fighters[defender]!.hp - run.final.fighters[defender]!.hp };
+  }
+
+  it('an Elite\'s Relics change a Hit it lands and a Hit it takes, simulated', () => {
+    const bare = elites([foe(), foe()]);
+    const armed = elites([foe(['Glass Cannon']), foe(['Iron Plate'])]);
+    const [elite, other] = [2, 3];
+    // Dealt: the Elite's Hit on a Player is stronger with a Glass Cannon (+30% damage) than the same Elite without.
+    const dealt = swing(armed, elite, 0);
+    const plain = swing(bare, elite, 0);
+    expect(dealt.damage).toBeGreaterThan(plain.damage);
+    expect(dealt.damage).toBeCloseTo(plain.damage * 1.3, 5);
+    expect(dealt.lost).toBeGreaterThan(plain.lost);
+    // Taken: a Player's Hit on an Elite in Iron Plate (-10% damage taken) hurts it less than on one without.
+    const guarded = swing(armed, 0, other);
+    const unguarded = swing(bare, 0, other);
+    expect(guarded.lost).toBeLessThan(unguarded.lost);
+    expect(guarded.lost).toBeCloseTo(unguarded.lost * 0.9, 5);
+  });
+
   it('a beaten Elite Hall drops, for each Player, the Relic an Elite carried plus the tuned count more, its own to that Player, on Team 1\'s spawns', () => {
     const e = elites([foe(), foe(['Honed Daggers', 'Steel Boots'])]);
     const m = cleared(e, inElite(e));
