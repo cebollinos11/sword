@@ -35,10 +35,12 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
   - **A fallen teammate comes back in the next Hall at 25% of max HP**, not the next Floor: in co-op, waiting a Floor would be minutes. It watches with the orbit camera until then.
   - **A fallen Fighter keeps its inventory:** nothing drops, no corpse-run.
   - **A wipe ends the Run** (a Defeat, as in v1). No saving mid-Run.
+- **A Hall's enemies come from hand-written Encounters, picked by seed.** An **Encounter** is one group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon (or `random`), HP scale and `minTeam`, as a v1 Floor's list is. Each Floor has a pool of Encounters per Hall kind (Fight, Elite), harder deeper in the Dungeon; an Elite Encounter gives an enemy one or two Relics. Each Floor has its own Boss Encounter (three bosses, the wraith the last). A pure hash of (Run seed, Floor, Hall) picks a Hall's Encounter, avoiding repeats within a Floor where it can. Enemy max HP scales with the humans, as in v1 (`perPlayerHp`), and a little with the Hall's depth within its Floor, so the Halls just before the Boss are the hardest. Fully random groups are Later: varied, but hard to balance.
 
 ## Glossary (proposed, for `CONTEXT.md` in Stage 1)
 - **Dungeon**: the seeded map a Run walks: its Floors, each a graph of Halls. A pure function of the Run seed and Tuning Data, so every peer builds the same one.
 - **Floor**: one depth of a Dungeon: a branching graph of Halls from an entrance to a Boss Hall. _Avoid_: level, act, stage.
+- **Encounter**: one hand-written group of 1 to 4 enemies (each with difficulty, Style, Weapon, HP scale), in a Floor's pool for a Hall kind; the seed picks which one a Hall holds. _Avoid_: wave, squad, spawn group.
 - **Relic**: a passive modifier a Player finds and equips: a list of effects from a fixed vocabulary, applied to its Fighter's own numbers. Tuning Data. _Avoid_: perk, buff, boon, item (an item is a Weapon or a Relic).
 - **Hall**: one node of a Floor, fought or visited on its own Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Boss). A Hall with enemies is one Duel. _Avoid_: room (the online connection), chamber (a combat term), cell (the generator's grid), node.
 
