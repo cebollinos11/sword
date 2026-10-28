@@ -8,6 +8,12 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
 ## Decisions
 - **Rooms are separate Arenas joined by doors, not one continuous Arena.** Each room is its own small Generated Arena; the dungeon is a seeded map of rooms (a graph), not one big mesh. A fight in a room stays one Duel: at most four enemies (MAX_TEAM_SIZE), a navmesh within ADR 0014's budget, ending when a Team is wiped out. One continuous Arena with many rooms (enemies waking as you near, many asleep Fighters outside the Simulation, a navmesh per room) was weighed and left for Later: it breaks the four-slot Team 1, the 7 × 7 footprint and the 40 jump Link budget at once, and the room map can grow into it.
 - **It is the Gauntlet's next version, not a new Format.** The Gauntlet Format stays; its Run becomes a walk through a dungeon. A v1 Run is the special case of a dungeon with one straight path.
+- **Two levels: Dungeon → Floor → Hall.** A Run walks a **Dungeon**: a few Floors (3 to start, Tuning Data), each harder than the last. A **Floor** is a small branching graph of Halls (about 6 to 10), from an entrance to a Boss Hall; clearing the boss takes the Run down to the next Floor. A **Hall** is one node: one Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Shop, Boss). Clearing a Hall opens its doors to the next ones, with a choice of route at most of them. A v1 Run is one Floor of seven Fight Halls in a line.
+  - Names: **Dungeon** comes off the Run's _Avoid_ list. **Floor** changes meaning, from one Duel to one depth of Halls. **Hall**, because Room is the online connection, Chamber a combat term, Cell the generator's grid. As with the Gauntlet, `CONTEXT.md` changes with the code that makes it true (Stage 1), not before; until then it describes the v1 Run.
+
+## Glossary (proposed, for `CONTEXT.md` in Stage 1)
+- **Dungeon**: the seeded map a Run walks: its Floors, each a graph of Halls. A pure function of the Run seed and Tuning Data, so every peer builds the same one.
+- **Floor**: one depth of a Dungeon: a branching graph of Halls from an entrance to a Boss Hall. _Avoid_: level, act, stage.
+- **Hall**: one node of a Floor, fought or visited on its own Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Shop, Boss). A Hall with enemies is one Duel. _Avoid_: room (the online connection), chamber (a combat term), cell (the generator's grid), node.
 
 ## Open questions
-- Names: the dungeon, one room of it, and whether Floor survives (Room is the online connection; Chamber is a combat term).
