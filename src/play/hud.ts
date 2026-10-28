@@ -61,6 +61,14 @@ export function doorLabel(kind: string, gathered: number, party: number): string
   return gathered > 0 ? `${kind} · ${gathered} / ${party}` : kind;
 }
 
+/**
+ * The HP a bar shows: rounded up, so a Fighter still standing never reads 0. Rounded to a millionth first, so a max HP
+ * scaled by depth (100 × 1.1 = 110.00000000000001) reads 110, not 111.
+ */
+export function hpText(hp: number): string {
+  return String(Math.ceil(Math.round(Math.max(0, hp) * 1e6) / 1e6));
+}
+
 /** A Run's end in one line (the Lobby's note after it): verdict, Floors and Halls cleared, time and seed. */
 export function runResultLine(r: RunResult): string {
   const halls = `${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`;
@@ -270,7 +278,7 @@ export class Hud {
       const hp = Math.max(0, f?.hp ?? 0);
       const max = f?.maxHp ?? this.tuning.fighter.maxHp;
       bar.fill.style.width = `${Math.min(100, (100 * hp) / max)}%`;
-      bar.value.textContent = String(Math.ceil(hp));
+      bar.value.textContent = hpText(hp);
       bar.box.classList.toggle('fallen', Boolean(f?.death));
     }
     const mine = match.duel.fighters[me];

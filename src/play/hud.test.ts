@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { arenaOf, createMatch, exitDoor, hallBehind, hallOf, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
-import { doorLabel, doorMarks, hallBanner, hallFade, hallScore, runResultLine, runTime } from './hud';
+import { doorLabel, doorMarks, hallBanner, hallFade, hallScore, hpText, runResultLine, runTime } from './hud';
 
 describe('the Run’s HUD text', () => {
   it('names the Floor, the Hall’s row of five and the Run seed; the Boss Hall by its Floor', () => {
@@ -87,5 +87,21 @@ describe('the Doors’ labels and the fade between Halls', () => {
     // A Run's first Hall and Duels never fade.
     expect(hallFade(start(), tuning)).toBe(0);
     expect(hallFade(createMatch(tuning, { arena: 'library', bestOf: 3 }), tuning)).toBe(0);
+  });
+});
+
+describe('the HP shown on a bar', () => {
+  it('rounds up a part HP, so a Fighter alive never shows 0', () => {
+    expect(hpText(42.3)).toBe('43');
+    expect(hpText(0.2)).toBe('1');
+    expect(hpText(0)).toBe('0');
+    expect(hpText(-5)).toBe('0');
+  });
+
+  it('a depth-scaled max HP shows as itself, not one over (100 × 1.1 is 110.00000000000001)', () => {
+    const tuning = loadTuningData();
+    const hp = tuning.fighter.maxHp * (1 + tuning.dungeon.depthHp * 1);
+    expect(hp).not.toBe(110);
+    expect(hpText(hp)).toBe('110');
   });
 });
