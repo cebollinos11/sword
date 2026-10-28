@@ -19,10 +19,27 @@ The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Gene
   - **Equip and drop travel as Intent fields** (`equip`, `drop`, by slot), simulated and rolled back like any key; the inventory screen is render only. Nothing new on the wire but the Intent's shape (`PROTOCOL_VERSION` + 1).
   - **A dropped item lies in the Hall as a shared pickup** any Player may take: the one exception to loot per Player, and how a Player hands a teammate a Weapon. It is gone when the party leaves the Hall.
   - **AI allies get no loot** and keep what they started with; nothing has to teach the AI an inventory.
+- **A Relic is pure data: a name, an icon and a list of effects from a fixed vocabulary** the Simulation implements, so new Relics are Tuning Data, not code. A Fighter's equipped Relics are applied to its own numbers at each Hall's start and on each equip, and the result is kept in `FighterState` (hashed, rolled back). The v1 vocabulary:
+  - `maxHp` +% (the Fighter's own max HP, already per Fighter since the Gauntlet)
+  - `damage` × (its Weapon's blade damage), `heavyDamage` × (Heavy Blows only)
+  - `damageTaken` × (Hits it takes), `blockImpactTaken` × (Block Impact it takes)
+  - `daggers` + n (`dagger.count`), `daggerDamage` × (`dagger.damage`)
+  - `kickDamage` × (`kick.knockdownDamage`)
+  - `healOnKill` + HP (its Hit causes a Death), `healOnClear` + % (a Hall is cleared)
+  - **No Motion, Tempo or walk speed effects**, as for Weapons: how a Fighter moves stays readable, and the AI's Reaction Time stays fair.
+  - Multipliers multiply, additions add; the same Relic may be equipped twice.
+  - **Enemies can carry Relics.** An Elite is an ordinary enemy with one or two; beating it drops one.
+- **Four Weapons are enough for now.** Growing the roster (each needs a model and Motion tuning) is not part of this plan; a Run's variety comes from its Relics.
+- **HP is the resource a Run manages.**
+  - **No heal between Halls:** HP carries as it is. Healing comes from Rest Halls (+50% of max HP, Tuning Data, taken per Player by walking to the fire), from Relics, and from a full heal after each Floor's Boss.
+  - **A fallen teammate comes back in the next Hall at 25% of max HP**, not the next Floor: in co-op, waiting a Floor would be minutes. It watches with the orbit camera until then.
+  - **A fallen Fighter keeps its inventory:** nothing drops, no corpse-run.
+  - **A wipe ends the Run** (a Defeat, as in v1). No saving mid-Run.
 
 ## Glossary (proposed, for `CONTEXT.md` in Stage 1)
 - **Dungeon**: the seeded map a Run walks: its Floors, each a graph of Halls. A pure function of the Run seed and Tuning Data, so every peer builds the same one.
 - **Floor**: one depth of a Dungeon: a branching graph of Halls from an entrance to a Boss Hall. _Avoid_: level, act, stage.
+- **Relic**: a passive modifier a Player finds and equips: a list of effects from a fixed vocabulary, applied to its Fighter's own numbers. Tuning Data. _Avoid_: perk, buff, boon, item (an item is a Weapon or a Relic).
 - **Hall**: one node of a Floor, fought or visited on its own Generated Arena, with a kind (Fight, Elite, Treasure, Rest, Boss). A Hall with enemies is one Duel. _Avoid_: room (the online connection), chamber (a combat term), cell (the generator's grid), node.
 
 ## Open questions
