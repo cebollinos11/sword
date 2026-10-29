@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregate, formatAggregate, groupHalls, median, percentile, type HallRecord, type RunRecord } from './tuneReport';
+import { aggregate, formatAggregate, formatHangs, groupHalls, median, percentile, type HallRecord, type RunRecord } from './tuneReport';
 
 const hall = (o: Partial<HallRecord> & Pick<HallRecord, 'floor' | 'row' | 'kind'>): HallRecord => ({
   index: 0,
@@ -17,6 +17,8 @@ const hall = (o: Partial<HallRecord> & Pick<HallRecord, 'floor' | 'row' | 'kind'
   deaths: 0,
   revives: 0,
   restHeal: 0,
+  enemyHpLeft: 0,
+  alive: 1,
   ...o,
 });
 
@@ -84,14 +86,14 @@ describe('aggregate', () => {
       hall({ floor: 2, row: 0, kind: 'Fight', hpLeave: 0.7 }),
       hall({ floor: 2, row: 4, kind: 'Boss', hpOut: 0.3, hpLeave: null, walkTicks: null }),
     ],
-    loot: { 'relic:Whetstone': { offered: 2, taken: 1, equipped: 1, dropped: 0 } },
+    loot: { 'relic:Whetstone': { offered: 2, taken: 1, equipped: 1, dropped: 0, pedestal: 0, pedestalTaken: 0 } },
   });
   const lostF1 = run({
     seed: 2,
     ticks: 1 * 3600,
     endHall: '1.4.0 Boss',
     halls: [hall({ floor: 1, row: 0, kind: 'Fight', hpLeave: 0.7 }), hall({ floor: 1, row: 4, kind: 'Boss', outcome: 'wiped', hpOut: 0, hpLeave: null, walkTicks: null, deaths: 1 })],
-    loot: { 'relic:Whetstone': { offered: 1, taken: 1, equipped: 0, dropped: 1 }, 'weapon:Halberd': { offered: 1, taken: 0, equipped: 0, dropped: 0 } },
+    loot: { 'relic:Whetstone': { offered: 4, taken: 2, equipped: 0, dropped: 1, pedestal: 3, pedestalTaken: 1 }, 'weapon:Halberd': { offered: 1, taken: 0, equipped: 0, dropped: 0, pedestal: 0, pedestalTaken: 0 } },
   });
   const hung = run({ seed: 3, result: 'hang', ticks: 2 * 3600, halls: [hall({ floor: 1, row: 0, kind: 'Fight', outcome: 'hang', hpLeave: null, walkTicks: null })] });
   const a = aggregate([won, lostF1, hung]);
@@ -133,8 +135,10 @@ describe('aggregate', () => {
 
   it('sums the loot over Runs and rates it by what was offered', () => {
     const whetstone = a.items.find((i) => i.key === 'relic:Whetstone')!;
-    expect([whetstone.offered, whetstone.taken, whetstone.equipped, whetstone.dropped]).toEqual([3, 2, 1, 1]);
+    expect([whetstone.offered, whetstone.taken, whetstone.equipped, whetstone.dropped, whetstone.pedestal, whetstone.pedestalTaken]).toEqual([6, 3, 1, 1, 3, 1]);
+    // Off the pedestals: 3 lay there and 2 were taken. On them: 3 laid, 1 picked.
     expect(whetstone.takenRate).toBeCloseTo(2 / 3);
+    expect(whetstone.pedestalPickRate).toBeCloseTo(1 / 3);
     expect(whetstone.equippedRate).toBeCloseTo(1 / 3);
     expect(a.items.find((i) => i.key === 'weapon:Halberd')!.takenRate).toBe(0);
   });
@@ -142,8 +146,48 @@ describe('aggregate', () => {
   it('formats a table with the headline and the loot', () => {
     const text = formatAggregate(a).join('\n');
     expect(text).toContain('won 1 (33%)');
-    expect(text).toContain('| relic:Whetstone | 3 | 2 | 67% | 1 | 33% | 1 |');
+    expect(text).toContain('| relic:Whetstone | 3 | 2 | 67% | 3 | 1 | 33% | 1 | 33% | 1 |');
     expect(text).toContain('| 1 Boss |');
+  });
+
+  it('leaves Rest and Treasure Halls out of the row tables, and keys Encounters by Floor, kind and index', () => {
+    const q = aggregate([
+      run({
+        seed: 4,
+        halls: [
+          hall({ floor: 1, row: 1, kind: 'Fight', encounter: 2 }),
+          hall({ floor: 1, row: 2, kind: 'Fight', encounter: 2, hpLeave: 0.4 }),
+          hall({ floor: 1, row: 3, kind: 'Rest', restHeal: 0.3 }),
+          hall({ floor: 1, row: 2, kind: 'Treasure' }),
+        ],
+      }),
+    ]);
+    expect(Object.keys(q.byRow)).toEqual(['1', '2']);
+    expect(q.byRow['2']!.fought).toBe(1);
+    expect(Object.keys(q.byFloorRow)).toEqual(['1.1', '1.2']);
+    expect(q.byKind.Rest!.meanRestHeal).toBe(0.3);
+    expect(q.byEncounter['1 Fight#2']!.fought).toBe(2);
+    expect(Object.keys(q.byEncounter)).toEqual(['1 Fight#2']);
+  });
+
+  it('takes the HP walked into the fatal Hall, apart from the HP carried', () => {
+    expect(a.fatalHpIn).toBe(1);
+    const f = aggregate([
+      run({ seed: 5, halls: [hall({ floor: 1, row: 0, kind: 'Fight', hpLeave: 0.9 }), hall({ floor: 1, row: 1, kind: 'Fight', outcome: 'wiped', hpIn: 0.5, hpOut: 0, hpLeave: null })] }),
+      run({ seed: 6, halls: [hall({ floor: 1, row: 0, kind: 'Fight', outcome: 'wiped', hpIn: 0.3, hpLeave: null })] }),
+      run({ seed: 7, result: 'won', halls: [hall({ floor: 1, row: 0, kind: 'Fight', hpIn: 0.9 })] }),
+    ]);
+    expect(f.fatalHpIn).toBeCloseTo(0.4);
+    expect(f.floors[0]!.medianHpLeave).toBeCloseTo(0.85);
+  });
+
+  it('lists the hangs with the enemy HP left and the Players standing', () => {
+    const text = formatHangs([
+      run({ seed: 9, result: 'hang', halls: [hall({ floor: 1, row: 4, kind: 'Boss', outcome: 'hang', fightTicks: 36000, enemyHpLeft: 0.02, alive: 3, hpLeave: null, walkTicks: null })] }),
+      run({ seed: 10, result: 'hang', halls: [hall({ floor: 1, row: 3, kind: 'Rest', walkHang: true, walkTicks: 3600, alive: 2 })] }),
+    ]).join('\n');
+    expect(text).toContain('| 9 | 1.4.0 Boss | fight | 600.0 | 2% | 3 |');
+    expect(text).toContain('| 10 | 1.3.0 Rest | walk | 60.0 | - | 2 |');
   });
 
   it('copes with no Runs', () => {

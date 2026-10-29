@@ -38,14 +38,23 @@ export interface HallRecord {
   readonly revives: number;
   /** Rest heal taken, as a fraction of Team 0's summed max HP. */
   readonly restHeal: number;
+  /** The enemies' summed HP left as a fraction of their summed max HP when the Hall ended: 0 for a Clear, the rest at a wipe or a fight cap (tells a stall from a slow win). */
+  readonly enemyHpLeft: number;
+  /** Team 0 Fighters standing when the Hall ended (at a fight cap or a wipe). */
+  readonly alive: number;
 }
 
 /** What happened to one item name in one Run: `kind:name` keys (`relic:Whetstone`, `weapon:Sledge Hammer`). */
 export interface ItemCount {
+  /** Copies that lay in a Hall for a Player (each Player's copy counts), a Treasure Hall's pedestals included. */
   offered: number;
   taken: number;
   equipped: number;
   dropped: number;
+  /** Of `offered`, the copies that lay on a Treasure Hall's pedestals (a Player may take one of its three, which closes the rest). */
+  pedestal: number;
+  /** Of `taken`, the ones taken off a pedestal. */
+  pedestalTaken: number;
 }
 
 /** A Player's final inventory. */
@@ -159,9 +168,11 @@ export interface FloorStats {
 
 export interface ItemStats extends ItemCount {
   readonly key: string;
-  /** taken / offered. */
+  /** Taken / offered for the copies off the pedestals (a Hall's drops, an Elite's carried Relic): the rate a Player takes what simply lies there. */
   readonly takenRate: number;
-  /** equipped / offered. */
+  /** Pedestal copies picked / pedestal copies offered. Three lie on a Player's pedestals and one is taken, so an even pick is 33%. */
+  readonly pedestalPickRate: number;
+  /** equipped / taken. */
   readonly equippedRate: number;
 }
 
@@ -177,15 +188,17 @@ export interface Aggregate {
   readonly runSeconds: { readonly median: number; readonly p10: number; readonly p90: number; readonly min: number; readonly max: number };
   /** Run time of the Runs that were won (same fields; NaN with none). */
   readonly wonSeconds: { readonly median: number; readonly p10: number; readonly p90: number; readonly min: number; readonly max: number };
+  /** Median HP fraction at the start of the Hall each lost or hung Run ended in: what the party walked into its end with (HP carried excludes that Hall). */
+  readonly fatalHpIn: number;
   readonly floors: readonly FloorStats[];
   readonly byKind: Readonly<Record<string, HallGroup>>;
-  /** By row (0-based), over all Floors. */
+  /** By row (0-based), over all Floors; Halls fought only (Rest and Treasure are cleared on arrival: see `byKind`). */
   readonly byRow: Readonly<Record<string, HallGroup>>;
-  /** By `floor.row`. */
+  /** By `floor.row`; Halls fought only. */
   readonly byFloorRow: Readonly<Record<string, HallGroup>>;
   /** By `floor kind`: each Floor's Fights, Elites and so on, and `floor Boss` each Boss on its own. */
   readonly byFloorKind: Readonly<Record<string, HallGroup>>;
-  /** By `floor.row.index kind#encounter`: one Encounter in one place (Fight and Elite Halls). */
+  /** By `floor kind#encounter`: one Encounter of a Floor's pool, over every row it was met in (Fight and Elite Halls; the Boss's is `floor Boss#0`). */
   readonly byEncounter: Readonly<Record<string, HallGroup>>;
   readonly items: readonly ItemStats[];
   readonly hangs: { readonly fights: number; readonly walks: number };
@@ -221,14 +234,17 @@ export function aggregate(runs: readonly RunRecord[], tickRate = 60): Aggregate 
       endedHere: runs.filter((r) => (r.result === 'lost' || r.result === 'hang') && r.halls.at(-1)?.floor === floor).length,
     };
   });
+  const fought = halls.filter((h) => h.enemies > 0);
   const items = new Map<string, ItemCount>();
   for (const r of runs)
     for (const [k, c] of Object.entries(r.loot)) {
-      const t = items.get(k) ?? items.set(k, { offered: 0, taken: 0, equipped: 0, dropped: 0 }).get(k)!;
+      const t = items.get(k) ?? items.set(k, { offered: 0, taken: 0, equipped: 0, dropped: 0, pedestal: 0, pedestalTaken: 0 }).get(k)!;
       t.offered += c.offered;
       t.taken += c.taken;
       t.equipped += c.equipped;
       t.dropped += c.dropped;
+      t.pedestal += c.pedestal;
+      t.pedestalTaken += c.pedestalTaken;
     }
   const won = runs.filter((r) => r.result === 'won');
   return {
@@ -241,15 +257,22 @@ export function aggregate(runs: readonly RunRecord[], tickRate = 60): Aggregate 
     medianHallsCleared: median(runs.map((r) => r.hallsCleared)),
     runSeconds: spread(runs.map((r) => r.ticks / tickRate)),
     wonSeconds: spread(won.map((r) => r.ticks / tickRate)),
+    fatalHpIn: median(runs.flatMap((r) => (r.result === 'lost' || r.result === 'hang') && r.halls.length > 0 ? [r.halls.at(-1)!.hpIn] : [])),
     floors,
     byKind: groupBy(halls, (h) => h.kind),
-    byRow: groupBy(halls, (h) => String(h.row)),
-    byFloorRow: groupBy(halls, (h) => `${h.floor}.${h.row}`),
+    byRow: groupBy(fought, (h) => String(h.row)),
+    byFloorRow: groupBy(fought, (h) => `${h.floor}.${h.row}`),
     byFloorKind: groupBy(halls, (h) => `${h.floor} ${h.kind}`),
-    byEncounter: groupBy(halls, (h) => (h.encounter === null ? null : `${h.floor}.${h.row} ${h.kind}#${h.encounter}`)),
+    byEncounter: groupBy(halls, (h) => (h.encounter === null ? null : `${h.floor} ${h.kind}#${h.encounter}`)),
     items: [...items]
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, c]) => ({ key, ...c, takenRate: c.offered === 0 ? NaN : c.taken / c.offered, equippedRate: c.offered === 0 ? NaN : c.equipped / c.offered })),
+      .map(([key, c]) => ({
+        key,
+        ...c,
+        takenRate: c.offered === c.pedestal ? NaN : (c.taken - c.pedestalTaken) / (c.offered - c.pedestal),
+        pedestalPickRate: c.pedestal === 0 ? NaN : c.pedestalTaken / c.pedestal,
+        equippedRate: c.taken === 0 ? NaN : c.equipped / c.taken,
+      })),
     hangs: { fights: halls.filter((h) => h.outcome === 'hang').length, walks: halls.filter((h) => h.walkHang).length },
     wallSeconds: runs.reduce((a, r) => a + r.wallMs, 0) / 1000,
   };
@@ -259,9 +282,9 @@ const pct = (x: number): string => (Number.isNaN(x) ? '-' : `${Math.round(x * 10
 const num = (x: number, digits = 1): string => (Number.isNaN(x) ? '-' : x.toFixed(digits));
 
 function groupRows(label: string, groups: Readonly<Record<string, HallGroup>>): string[] {
-  const out = [`| ${label} | fought | cleared | win | HP in | HP carried | fight s | contact s | walk s | enemy HP | deaths | revives |`, '|---|---|---|---|---|---|---|---|---|---|---|---|'];
+  const out = [`| ${label} | fought | cleared | win | HP in | HP carried | fight s | contact s | walk s | enemy HP | deaths | revives | rest heal |`, '|---|---|---|---|---|---|---|---|---|---|---|---|---|'];
   for (const [k, g] of Object.entries(groups))
-    out.push(`| ${k} | ${g.fought} | ${g.cleared} | ${pct(g.winRate)} | ${pct(g.medianHpIn)} | ${pct(g.medianHpLeave)} | ${num(g.medianFightSeconds)} | ${num(g.medianContactSeconds)} | ${num(g.medianWalkSeconds)} | ${num(g.medianEnemyMaxHp, 0)} | ${g.deaths} | ${g.revives} |`);
+    out.push(`| ${k} | ${g.fought} | ${g.cleared} | ${pct(g.winRate)} | ${pct(g.medianHpIn)} | ${pct(g.medianHpLeave)} | ${num(g.medianFightSeconds)} | ${num(g.medianContactSeconds)} | ${num(g.medianWalkSeconds)} | ${num(g.medianEnemyMaxHp, 0)} | ${g.deaths} | ${g.revives} | ${pct(g.meanRestHeal)} |`);
   return out;
 }
 
@@ -270,11 +293,12 @@ export function formatHeadline(a: Aggregate): string[] {
   const t = a.runSeconds;
   const out = [
     `Runs ${a.runs}: **won ${a.won} (${pct(a.winRate)})**, lost ${a.lost}, hung ${a.hung}, stopped ${a.stopped}; median Halls cleared ${num(a.medianHallsCleared)}; ` +
-      `Run time median ${num(t.median / 60)} min (p10 ${num(t.p10 / 60)}, p90 ${num(t.p90 / 60)}, ${num(t.min / 60)} to ${num(t.max / 60)})` +
-      (a.won > 0 ? `; won Runs median ${num(a.wonSeconds.median / 60)} min` : '') +
+      `Run time over all ${a.runs} Runs, lost ones included: median ${num(t.median / 60)} min (p10 ${num(t.p10 / 60)}, p90 ${num(t.p90 / 60)}, ${num(t.min / 60)} to ${num(t.max / 60)})` +
+      (a.won > 0 ? `; won Runs only: median ${num(a.wonSeconds.median / 60)} min (${num(a.wonSeconds.min / 60)} to ${num(a.wonSeconds.max / 60)})` : '; no Run won, so no full-Run time') +
+      `; median HP at the start of the Hall each lost Run ended in ${pct(a.fatalHpIn)} (the HP carried below leaves that Hall out)` +
       `; hangs: ${a.hangs.fights} fight, ${a.hangs.walks} walk`,
     '',
-    '| Floor | entered | Boss cleared | win | HP carried (median) | HP when Boss fell | Runs ended here |',
+    '| Floor | entered | Boss cleared | win | HP carried (median, cleared Halls, Doors only) | HP when Boss fell | Runs ended here |',
     '|---|---|---|---|---|---|---|',
     ...a.floors.map((f) => `| ${f.floor} | ${f.entered} | ${f.bossCleared} | ${pct(f.winRate)} | ${pct(f.medianHpLeave)} | ${pct(f.medianHpAtBossClear)} | ${f.endedHere} |`),
   ];
@@ -283,18 +307,32 @@ export function formatHeadline(a: Aggregate): string[] {
 
 /** The full report of one aggregate, as markdown: headline, Halls by kind, row, Floor and Boss, loot. */
 export function formatAggregate(a: Aggregate): string[] {
-  const loot = ['| item | offered | taken | taken % | equipped | equipped % | dropped |', '|---|---|---|---|---|---|---|'];
-  for (const i of a.items) loot.push(`| ${i.key} | ${i.offered} | ${i.taken} | ${pct(i.takenRate)} | ${i.equipped} | ${pct(i.equippedRate)} | ${i.dropped} |`);
+  const loot = [
+    'Loot: "floor offers" are copies lying in a Hall for a Player outside pedestals (a drop, an Elite\'s Relic); a Treasure Hall\'s pedestals (three per Player, one may be taken) are counted apart, so an even pick is 33%. Equipped % is of taken.',
+    '',
+    '| item | floor offers | taken | taken % | pedestal offers | picked | picked % | equipped | equipped % | dropped |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const i of a.items)
+    loot.push(`| ${i.key} | ${i.offered - i.pedestal} | ${i.taken - i.pedestalTaken} | ${pct(i.takenRate)} | ${i.pedestal} | ${i.pedestalTaken} | ${pct(i.pedestalPickRate)} | ${i.equipped} | ${pct(i.equippedRate)} | ${i.dropped} |`);
   return [
     ...formatHeadline(a),
     '',
+    'Hall kinds (a Rest or Treasure Hall is cleared on arrival, so its win and fight time are trivial; read its HP in, HP carried and rest heal):',
+    '',
     ...groupRows('Hall kind', a.byKind),
+    '',
+    'By row and by Floor.row: Halls fought only (Rest and Treasure left out).',
     '',
     ...groupRows('Row (0 entrance, 4 Boss)', a.byRow),
     '',
     ...groupRows('Floor.row', a.byFloorRow),
     '',
     ...groupRows('Floor kind (Bosses each)', a.byFloorKind),
+    '',
+    'By Encounter (index in the Floor’s pool for the kind; rows differ in depth HP, see the enemy HP column):',
+    '',
+    ...groupRows('Floor kind#Encounter', a.byEncounter),
     '',
     ...loot,
   ];
@@ -324,7 +362,18 @@ export function formatHalls(runs: readonly RunRecord[], tickRate = 60): string[]
   for (const r of runs)
     for (const h of r.halls)
       out.push(
-        `| ${r.seed} | ${hallLabel(h)} | ${h.encounter ?? '-'} | ${h.enemies} | ${num(h.enemyMaxHp, 0)} | ${num(h.fightTicks / tickRate)} | ${num(h.contactTicks / tickRate)} | ${h.walkTicks === null ? '-' : num(h.walkTicks / tickRate)}${h.walkHang ? ' HANG' : ''} | ${pct(h.hpIn)} | ${pct(h.hpOut)} | ${h.hpLeave === null ? '-' : pct(h.hpLeave)} | ${h.deaths} | ${h.revives} | ${pct(h.restHeal)} | ${h.outcome} |`,
+        `| ${r.seed} | ${hallLabel(h)} | ${h.encounter ?? '-'} | ${h.enemies} | ${num(h.enemyMaxHp, 0)} | ${num(h.fightTicks / tickRate)} | ${num(h.contactTicks / tickRate)} | ${h.walkTicks === null ? '-' : num(h.walkTicks / tickRate)}${h.walkHang ? ' HANG' : ''} | ${pct(h.hpIn)} | ${pct(h.hpOut)} | ${h.hpLeave === null ? '-' : pct(h.hpLeave)} | ${h.deaths} | ${h.revives} | ${pct(h.restHeal)} | ${h.outcome}${h.outcome === 'cleared' ? '' : ` (enemies ${pct(h.enemyHpLeft)} left, ${h.alive} standing)`} |`,
       );
+  return out;
+}
+
+/** The Halls a cap ended: fight caps with the enemy HP left and the Players standing (a stall and a slow win look different), walk caps with the time walked. */
+export function formatHangs(runs: readonly RunRecord[], tickRate = 60): string[] {
+  const out = ['| seed | Hall | cap | time s (lower bound) | enemy HP left | Players standing |', '|---|---|---|---|---|---|'];
+  for (const r of runs)
+    for (const h of r.halls) {
+      if (h.outcome === 'hang') out.push(`| ${r.seed} | ${hallLabel(h)} | fight | ${num(h.fightTicks / tickRate)} | ${pct(h.enemyHpLeft)} | ${h.alive} |`);
+      else if (h.walkHang) out.push(`| ${r.seed} | ${hallLabel(h)} | walk | ${num((h.walkTicks ?? 0) / tickRate)} | - | ${h.alive} |`);
+    }
   return out;
 }

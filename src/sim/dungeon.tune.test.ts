@@ -6,7 +6,7 @@ import { loadTuningData, type TuningData } from '../tuning';
 import { createAutopilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, stepMatchWith, type Autopilot, type AutopilotLoot, type Controller, type Lineup, type PlayerNumber } from '../controllers';
 import { inDuel } from './duel';
 import { hallOf, hallRoster, runKit, type HallRef } from './hall';
-import { runPick } from './dungeon';
+import { hallSlot, runPick } from './dungeon';
 import { wieldedWeapon, type Inventory } from './inventory';
 import { createMatch, type MatchState } from './match';
 import type { RunStart } from './hall';
@@ -15,6 +15,7 @@ import {
   formatAggregate,
   formatBuilds,
   formatHalls,
+  formatHangs,
   formatRuns,
   hallLabel,
   type Aggregate,
@@ -44,8 +45,8 @@ import {
  *   TUNE_DIFFICULTY         the Players' autopilot difficulty (Tuning Data `ai.difficulties`), default REFERENCE_DIFFICULTY;
  *                           "Expert,Hard" reports both on the same seeds
  *   TUNE_WEAPON             the Players' starting Weapon, default Arming Sword
- *   TUNE_ROUTE              "seeded" (default): the Door list [row 1..5] is a pure pick of (seed, row), so Runs take varied routes, the same
- *                           ones at every difficulty and party size; "first": always the lowest-index exit; or "2,1,3,1,1": that Door list
+ *   TUNE_ROUTE              "seeded" (default): the exit out of every Hall is a pure pick of (seed, Floor, row, index), uniform over that Hall's exits, so Runs
+ *                           take varied routes, the same ones at every difficulty and party size; "first": always the lowest-index exit; or "2,1,3,1,1": that Door list
  *                           (1-based, the autopilot's own: Door d out of every Hall of row r, the last for later rows; a Hall with fewer exits takes its last)
  *   TUNE_LOOT               "take" (default), "drop" (also drops one item once and takes it up again) or "none" (the autopilot leaves loot lying)
  *   TUNE_FLOOR/ROW/HALL     a dev start (the URL's `floor`, `row`, `hall`: 1-based, ROW 5 the Boss, default row 1), through
@@ -53,6 +54,9 @@ import {
  *   TUNE_RELICS             "Whetstone,Iron Plate": every Player starts with these Relics (MatchOptions.relics), equipped in order
  *   TUNE_UNTIL              "run" (default), "floor" (stop when the start Floor's Boss falls) or "hall" (when the start Hall is cleared)
  *   TUNE_MAX_TICKS          stop a Run at this Match Tick (result "stopped")
+ *   TUNE_FIGHT_CAP          seconds a Hall's fight may run before it is a "hang", default 600 (a 4-Player Floor 3 Boss has 1050 HP and fights for minutes; a
+ *                           true stall is still caught). A hang reports the enemy HP left and the Players standing, so a stall and a slow win differ
+ *   TUNE_WALK_CAP           seconds a cleared Hall's party may take to reach a Door, default 60 (a walk hang)
  *   TUNE_OUT                the JSON report's path, default <tmpdir>/dungeon-tune.json (never commit it)
  *   TUNE_MERGE              "a.json,b.json": do not play; report the groups of these files together (to split a long run over processes;
  *                           TUNE_DIFFICULTY then keeps only those difficulties)
@@ -65,7 +69,8 @@ import {
  * equipped, while an equip slot is free (3), else the newest Weapon if that is not the one wielded. It never unequips, never swaps a
  * Relic for a better one and never picks by value: the first Relic it takes is worn. A Relic is OFFERED when it lies in the Hall for a
  * Player (each Player's copies count), TAKEN when an ItemTaken event names it, EQUIPPED when it newly appears among a Player's equipped
- * Relics (a Weapon: when it newly becomes the wielded one), DROPPED on an ItemDropped event. Taken can exceed offered under TUNE_LOOT=drop
+ * Relics (a Weapon: when its wielded slot changes without a drop, so a second copy of the wielded Weapon counts), DROPPED on an ItemDropped event.
+ * A Treasure Hall's pedestals (three per Player, taking one closes the rest) are counted apart from other offers, since an even pick is 1 in 3. Taken can exceed offered under TUNE_LOOT=drop
  * (a drop is taken up again).
  *
  * Other definitions. HP fractions are Team 0's summed HP over its summed max HP (a fallen Fighter counts 0, allies included). HP in: at
@@ -77,14 +82,14 @@ import {
 /**
  * The reference autopilot, standing in for "a competent human": Expert, the top of the strength ladder (Tuning Data `ai.difficulties`,
  * with the exploit fixes and the teamwork on), looting with the rule above, on the seeded route. Calibrated on seeds 1-10 against what is known:
- * Hard alone loses Floor 1 (1 of 10 solo Runs clears it), and Expert is no better solo (0 of 10) but the better of the two in a party
- * (2 Players: 7/10 and 7/10; 4 Players: 5/10 and 5/10 clear Floor 1; Normal and Skilled clear less). Reports ship Expert and Hard on the same seeds to
- * show how sensitive the numbers are. It is a yardstick the tuning tickets move numbers against, not proof that a human wins that often.
+ * Hard alone loses Floor 1 (see docs/plans/dungeon.md). CALIBRATION_NOTE below says how the pick was made, from the numbers. Reports ship the
+ * reference and the second difficulty on the same seeds to show how sensitive the numbers are. It is a yardstick the tuning tickets move
+ * numbers against, not proof that a human wins that often.
  */
 const REFERENCE_DIFFICULTY = 'Expert';
-/** The longest a Hall's fight may run (Ticks): three minutes, as the soak's. One that runs longer hangs, and its Run is stopped there. */
-const FLOOR_CAP = 180 * 60;
-/** The longest a cleared Hall's party may take to walk to a Door and take it (Ticks): a minute, as the soak's. Longer, it hangs. */
+/** The longest a Hall's fight may run by default (Ticks): ten minutes. The soak's three minutes cut off Boss fights a party was winning (875 HP at 4 Players). One that runs longer hangs, and its Run is stopped there. */
+const FIGHT_CAP = 600 * 60;
+/** The longest a cleared Hall's party may take to walk to a Door and take it by default (Ticks): a minute, as the soak's. Longer, it hangs. */
 const WALK_CAP = 60 * 60;
 /** Fighters of the two Teams further apart than this (m, from above) are not fighting yet. */
 const NEAR = 8;
@@ -103,11 +108,14 @@ export interface HarnessConfig {
   readonly relics?: readonly string[];
   readonly until: 'run' | 'floor' | 'hall';
   readonly maxTicks?: number;
+  /** Fight and walk caps (Ticks); default FIGHT_CAP and WALK_CAP. */
+  readonly fightCap?: number;
+  readonly walkCap?: number;
 }
 
 const DOOR_SALT = 77;
-/** The Door list (0-based, one per row) the seeded route gives a Run: a pure pick of (seed, row) among three, the autopilot clamping to a Hall's own exits. */
-export const seededDoors = (seed: number): number[] => Array.from({ length: 5 }, (_, row) => runPick(seed, 0, row, DOOR_SALT, 3));
+/** The exit (0-based) the seeded route takes out of Hall (floor, row, index): a pure pick of (seed, floor, row, index), uniform over the Hall's `exits` exits. */
+export const seededExit = (seed: number, floor: number, row: number, index: number, exits: number): number => runPick(seed, floor, hallSlot(row, index), DOOR_SALT, Math.max(1, exits));
 
 const frac = (m: MatchState): number => {
   const own = m.duel.fighters.filter((f) => f.team === 0);
@@ -139,15 +147,19 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
   const lineup = lineupFor(cfg);
   const options = { ...lineupMatch(tuning, lineup, Array(cfg.players).fill(cfg.weapon), { bestOf: 1, seed, arena, format: 'Gauntlet' }), ...(cfg.start && { start: cfg.start }), ...(cfg.relics && { relics: cfg.relics }) };
   let m: MatchState = createMatch(tuning, options);
-  const doors = cfg.route === 'seeded' ? seededDoors(seed) : cfg.route;
+  // The autopilot reads `doors[row]` when it leaves a Hall. A seeded route rewrites that row's entry as each Hall begins (a pick per Hall, no autopilot change).
+  const doors: number[] = cfg.route === 'seeded' ? [0, 0, 0, 0, 0] : [...cfg.route];
+  const fightCap = cfg.fightCap ?? FIGHT_CAP;
+  const walkCap = cfg.walkCap ?? WALK_CAP;
   const pilots: Autopilot[] = Array.from({ length: cfg.players }, () => createAutopilot(tuning, cfg.difficulty, doors, cfg.loot));
   const controllers = lineupAis(tuning, lineup, 'Gauntlet', { arena, seed }).map((c, i) => c ?? pilots[i]!) as Controller[];
 
   const halls: Building[] = [];
   const loot: Record<string, ItemCount> = {};
-  const count = (k: string): ItemCount => (loot[k] ??= { offered: 0, taken: 0, equipped: 0, dropped: 0 });
+  const count = (k: string): ItemCount => (loot[k] ??= { offered: 0, taken: 0, equipped: 0, dropped: 0, pedestal: 0, pedestalTaken: 0 });
   let pathLen = 0;
   let seenPickups = 0;
+  let enemyMax = 0;
   let result: RunResult | null = null;
   const startFloor = m.run!.floor;
   const heldBefore = new Map<number, Inventory | undefined>();
@@ -159,6 +171,8 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
     const pool = hall.kind === 'Fight' || hall.kind === 'Elite' ? tuning.dungeon.floors[ref.floor - 1]!.encounters[hall.kind] : null;
     const encounter = hall.kind === 'Boss' ? 0 : pool && hall.encounter ? pool.indexOf(hall.encounter) : null;
     const revives = now.duel.fighters.filter((f, i) => f.team === 0 && !inDuel(prev.duel.fighters[i]!) && inDuel(f)).length;
+    if (cfg.route === 'seeded') doors[ref.row] = seededExit(seed, ref.floor, ref.row, ref.index, hall.exits.length);
+    enemyMax = roster.reduce((a, e) => a + e!.maxHp, 0);
     halls.push({
       ...ref,
       kind: hall.kind,
@@ -176,6 +190,8 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
       deaths: 0,
       revives: prev === now ? 0 : revives,
       restHeal: 0,
+      enemyHpLeft: 0,
+      alive: 0,
       clearedAt: null,
       contacted: false,
     });
@@ -192,7 +208,15 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
       seen.push(name);
       if (seen.filter((n) => n === name).length > prev.filter((n) => n === name).length) count(key('relic', name)).equipped++;
     }
-    if (before && wieldedWeapon(after) !== wieldedWeapon(before)) count(key('weapon', wieldedWeapon(after))).equipped++;
+    // A Weapon is equipped when the wielded slot changes while the Weapons did not shrink (a drop closes slots up), so a second copy of the wielded one counts.
+    if (before && after.weapon !== before.weapon && after.weapons.length >= before.weapons.length) count(key('weapon', wieldedWeapon(after))).equipped++;
+  };
+
+  /** Notes how a Hall stands as it ends (a Clear, a wipe or a cap): the enemies' HP left and the Team 0 Fighters standing. */
+  const standing = (cur: Building, now: MatchState): void => {
+    const foes = now.duel.fighters.filter((f) => f.team === 1 && inDuel(f)).reduce((a, f) => a + f.hp, 0);
+    cur.enemyHpLeft = enemyMax === 0 ? 0 : Math.min(1, foes / enemyMax);
+    cur.alive = now.duel.fighters.filter((f) => f.team === 0 && inDuel(f)).length;
   };
 
   begin(m, m);
@@ -211,7 +235,11 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
     // Loot: what lies there, what was taken and dropped, what is equipped.
     for (; seenPickups < run.pickups.length; seenPickups++) {
       const p = run.pickups[seenPickups]!;
-      if (p.by === undefined) count(key(p.kind, p.item)).offered++;
+      if (p.by === undefined) {
+        const c = count(key(p.kind, p.item));
+        c.offered++;
+        if (p.group !== undefined) c.pedestal++;
+      }
     }
     for (let i = 0; i < cfg.players; i++) {
       const inv = m.duel.fighters[i]!.inventory;
@@ -219,7 +247,11 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
       heldBefore.set(i, inv);
     }
     for (const e of m.events) {
-      if (e.type === 'ItemTaken') count(key(e.kind, e.item)).taken++;
+      if (e.type === 'ItemTaken') {
+        const c = count(key(e.kind, e.item));
+        c.taken++;
+        if (run.pickups[e.id]?.group !== undefined) c.pedestalTaken++;
+      }
       else if (e.type === 'ItemDropped') count(key(e.kind, e.item)).dropped++;
       else if (e.type === 'Rested') cur.restHeal += e.healed / teamMax(m);
     }
@@ -240,6 +272,7 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
         cur.fightTicks = cur.kind === 'Treasure' || cur.kind === 'Rest' ? 0 : m.duel.tick;
         if (!cur.contacted) cur.contactTicks = cur.fightTicks;
         cur.hpOut = frac(m);
+        standing(cur, m);
         if (cfg.until === 'hall' || (cfg.until === 'floor' && cur.kind === 'Boss' && cur.floor === startFloor)) result = 'stopped';
       } else if (e.type === 'DoorTaken') {
         cur.walkTicks = m.tick - cur.clearedAt!;
@@ -253,20 +286,22 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
             cur.fightTicks = m.duel.tick;
             if (!cur.contacted) cur.contactTicks = cur.fightTicks;
             cur.hpOut = 0;
+            standing(cur, m);
           }
         }
       }
     }
     if (result === null) {
-      if (cur.outcome === 'open' && m.duel.tick >= FLOOR_CAP) {
+      if (cur.outcome === 'open' && m.duel.tick >= fightCap) {
         cur.outcome = 'hang';
         cur.fightTicks = m.duel.tick;
         if (!cur.contacted) cur.contactTicks = cur.fightTicks;
         cur.hpOut = frac(m);
+        standing(cur, m);
         result = 'hang';
-      } else if (cur.clearedAt !== null && cur.walkTicks === null && m.tick - cur.clearedAt >= WALK_CAP) {
+      } else if (cur.clearedAt !== null && cur.walkTicks === null && m.tick - cur.clearedAt >= walkCap) {
         cur.walkHang = true;
-        cur.walkTicks = WALK_CAP;
+        cur.walkTicks = walkCap;
         result = 'hang';
       } else if (cfg.maxTicks !== undefined && m.tick >= cfg.maxTicks) result = 'stopped';
     }
@@ -291,7 +326,8 @@ export function playRun(tuning: TuningData, seed: number, cfg: HarnessConfig): R
     hallsCleared: records.filter((h) => h.outcome === 'cleared').length,
     ticks: m.tick,
     seconds: m.tick / TICK_RATE,
-    route: m.run!.path.map((ref) => hallLabel({ ...ref, kind: hallOf(tuning, arena, ref).kind })),
+    // The Halls entered, not `run.path` (which, for a dev start, also lists the Halls the route would have crossed to get there).
+    route: halls.map(hallLabel),
     halls: records,
     loot,
     builds,
@@ -315,15 +351,15 @@ export function summaryTable(groups: readonly Group[]): string[] {
   const floors = Math.max(1, ...groups.map((g) => aggregate(g.runs).floors.length));
   const pct = (x: number) => (Number.isNaN(x) ? '-' : `${Math.round(x * 100)}%`);
   const out = [
-    `| autopilot | party | Runs | won | ${Array.from({ length: floors }, (_, k) => `F${k + 1} cleared`).join(' | ')} | HP carried by Floor (median) | Run min (median, p10-p90) | wall s/Run |`,
-    `|---|---|---|---|${Array.from({ length: floors }, () => '---|').join('')}---|---|---|`,
+    `| autopilot | party | Runs | won | ${Array.from({ length: floors }, (_, k) => `F${k + 1} cleared`).join(' | ')} | HP carried by Floor (median; cleared Halls only) | HP in the fatal Hall (median) | Run min, all Runs (median, p10-p90) | Run min, won Runs | hangs (fight/walk) | wall s/Run |`,
+    `|---|---|---|---|${Array.from({ length: floors }, () => '---|').join('')}---|---|---|---|---|---|`,
   ];
   for (const g of groups) {
     const a = aggregate(g.runs);
     const party = `${g.players}P${g.allies > 0 ? `+${g.allies}AI` : ''}`;
     const t = a.runSeconds;
     out.push(
-      `| ${g.difficulty} | ${party} | ${a.runs} | ${a.won} (${pct(a.winRate)}) | ${Array.from({ length: floors }, (_, k) => (a.floors[k] ? `${a.floors[k]!.bossCleared}/${a.floors[k]!.entered}` : '-')).join(' | ')} | ${a.floors.map((f) => pct(f.medianHpLeave)).join(' / ')} | ${(t.median / 60).toFixed(1)} (${(t.p10 / 60).toFixed(1)}-${(t.p90 / 60).toFixed(1)}) | ${(a.wallSeconds / Math.max(1, a.runs)).toFixed(0)} |`,
+      `| ${g.difficulty} | ${party} | ${a.runs} | ${a.won} (${pct(a.winRate)}) | ${Array.from({ length: floors }, (_, k) => (a.floors[k] ? `${a.floors[k]!.bossCleared}/${a.floors[k]!.entered}` : '-')).join(' | ')} | ${a.floors.map((f) => pct(f.medianHpLeave)).join(' / ')} | ${pct(a.fatalHpIn)} | ${(t.median / 60).toFixed(1)} (${(t.p10 / 60).toFixed(1)}-${(t.p90 / 60).toFixed(1)}) | ${a.won > 0 ? (a.wonSeconds.median / 60).toFixed(1) : '-'} | ${a.hangs.fights}/${a.hangs.walks} | ${(a.wallSeconds / Math.max(1, a.runs)).toFixed(0)} |`,
     );
   }
   return out;
@@ -338,6 +374,7 @@ export function renderReport(groups: readonly Group[], tables: readonly string[]
   for (const g of groups) {
     const a: Aggregate = aggregate(g.runs);
     out.push('', `## ${g.difficulty} autopilot, ${g.players} Player${g.players > 1 ? 's' : ''}${g.allies ? ` + ${g.allies} AI ally` : ''}, seeds ${Math.min(...g.runs.map((r) => r.seed))}-${Math.max(...g.runs.map((r) => r.seed))}`, '', ...formatAggregate(a));
+    if (a.hangs.fights + a.hangs.walks > 0) out.push('', 'Hangs (a cap ended the Run; an enemy HP left near 0 with the party standing is a slow win cut off, not a stall):', '', ...formatHangs(g.runs));
     if (tables.includes('runs')) out.push('', ...formatRuns(g.runs));
     if (tables.includes('builds')) out.push('', ...formatBuilds(g.runs));
     if (tables.includes('halls')) out.push('', ...formatHalls(g.runs));
@@ -383,7 +420,11 @@ describe('tuning harness', () => {
         const hall = int(env.TUNE_HALL);
         const route = env.TUNE_ROUTE ?? 'seeded';
         const lootMode = env.TUNE_LOOT ?? 'take';
+        const fightCap = int(env.TUNE_FIGHT_CAP);
+        const walkCap = int(env.TUNE_WALK_CAP);
         const base = {
+          ...(fightCap === undefined ? {} : { fightCap: fightCap * TICK_RATE }),
+          ...(walkCap === undefined ? {} : { walkCap: walkCap * TICK_RATE }),
           allyDifficulty: env.TUNE_ALLY_DIFFICULTY ?? 'Hard',
           weapon: env.TUNE_WEAPON ?? 'Arming Sword',
           route: route === 'seeded' ? ('seeded' as const) : route === 'first' ? [0] : route.split(',').map((d) => Number(d) - 1),
@@ -417,7 +458,7 @@ describe('tuning harness', () => {
 
   // A short run, so the harness does not rot: a few Halls from Floor 1's entrance, capped in Ticks, and the same twice.
   it('plays a short capped Run and measures its Halls', () => {
-    const cfg: HarnessConfig = { players: 2, allies: 0, allyDifficulty: 'Hard', difficulty: 'Expert', weapon: 'Arming Sword', route: 'seeded', loot: 'take', until: 'run', maxTicks: 3 * 60 * 60 };
+    const cfg: HarnessConfig = { players: 2, allies: 0, allyDifficulty: 'Hard', difficulty: 'Expert', weapon: 'Arming Sword', route: 'seeded', loot: 'take', until: 'run', maxTicks: 100 * 60 };
     const run = playRun(tuning, 1, cfg);
     expect(run.result).toBe('stopped');
     expect(run.ticks).toBe(cfg.maxTicks);
@@ -432,6 +473,18 @@ describe('tuning harness', () => {
     expect(run.builds).toHaveLength(2);
     // Enemy HP is scaled by the 2 humans: the entrance's unscaled enemy max HP is fighter.maxHp × hpScale × (1 + perPlayerHp).
     expect(first.enemyMaxHp).toBeCloseTo(tuning.fighter.maxHp * (1 + tuning.dungeon.perPlayerHp) * Math.max(...tuning.dungeon.floors[0]!.encounters.Fight[first.encounter!]!.enemies.map((e) => e.hpScale)), 6);
+    // Every measure is a sane fraction or count, and the route lists the Halls entered (the last may be open).
+    for (const h of run.halls) {
+      for (const x of [h.hpIn, h.hpOut, h.enemyHpLeft]) expect(x >= 0 && x <= 1).toBe(true);
+      if (h.hpLeave !== null) expect(h.hpLeave >= 0 && h.hpLeave <= 1).toBe(true);
+      expect(h.deaths).toBeGreaterThanOrEqual(0);
+      expect(h.restHeal).toBeGreaterThanOrEqual(0);
+      expect(h.alive).toBeLessThanOrEqual(2);
+      if (h.outcome === 'cleared') expect(h.enemyHpLeft).toBe(0);
+    }
+    expect(run.route.length).toBeGreaterThanOrEqual(run.halls.length);
+    expect(run.route.length).toBeLessThanOrEqual(run.halls.length + 1);
+    run.halls.forEach((h, i) => expect(run.route[i]).toBe(hallLabel(h)));
     const again = playRun(tuning, 1, cfg);
     expect({ ...again, wallMs: 0 }).toEqual({ ...run, wallMs: 0 });
   });
@@ -443,5 +496,57 @@ describe('tuning harness', () => {
     expect(run.halls.every((h) => h.kind === 'Boss')).toBe(true);
     expect(run.builds[0]!.equipped).toEqual(['Whetstone']);
     expect(runKit(tuning, 'gen:greybox:2')).toBe('greybox');
+  });
+
+  const solo: HarnessConfig = { players: 1, allies: 0, allyDifficulty: 'Hard', difficulty: 'Expert', weapon: 'Arming Sword', route: 'seeded', loot: 'take', until: 'run' };
+
+  it('measures a wipe: the Hall it ended in, the deaths, the enemies left and nobody standing', () => {
+    // Seed 4, one Expert Player: it falls to Floor 1's first Fight, two of its three enemies still up.
+    const run = playRun(tuning, 4, solo);
+    expect(run.result).toBe('lost');
+    expect(run.endHall).toBe('1.0.0 Fight');
+    expect(run.hallsCleared).toBe(0);
+    const hall = run.halls.at(-1)!;
+    expect(hall.outcome).toBe('wiped');
+    expect(hall.deaths).toBe(1);
+    expect(hall.hpOut).toBe(0);
+    expect(hall.alive).toBe(0);
+    expect(hall.enemyHpLeft).toBeGreaterThan(0);
+    expect(hall.contactTicks).toBeLessThanOrEqual(hall.fightTicks);
+    expect(run.route).toEqual(['1.0.0 Fight']);
+  });
+
+  it('reports a fight cap as a hang with the enemy HP left and the Player standing', () => {
+    const run = playRun(tuning, 4, { ...solo, fightCap: 10 * TICK_RATE });
+    expect(run.result).toBe('hang');
+    const hall = run.halls.at(-1)!;
+    expect(hall.outcome).toBe('hang');
+    expect(hall.fightTicks).toBe(10 * TICK_RATE);
+    expect(hall.alive).toBe(1);
+    expect(hall.enemyHpLeft).toBeGreaterThan(0.5);
+  });
+
+  it('reports a walk cap as a hang in the Hall being left', () => {
+    const run = playRun(tuning, 1, { ...solo, difficulty: 'Expert', walkCap: 1 });
+    expect(run.result).toBe('hang');
+    expect(run.halls.at(-1)!.walkHang).toBe(true);
+    expect(run.halls.at(-1)!.outcome).toBe('cleared');
+  });
+
+  it('picks the seeded exit per Hall, uniform over its exits, the same every time', () => {
+    const picks = new Set<number>();
+    for (let floor = 1; floor <= 3; floor++) for (let row = 0; row < 4; row++) for (let index = 0; index < 3; index++) {
+      const e = seededExit(7, floor, row, index, 3);
+      expect(e).toBe(seededExit(7, floor, row, index, 3));
+      expect(e >= 0 && e < 3).toBe(true);
+      picks.add(e);
+      expect(seededExit(7, floor, row, index, 1)).toBe(0);
+    }
+    expect(picks.size).toBe(3);
+  });
+
+  it('lists only the Halls played for a dev start', () => {
+    const run = playRun(tuning, 3, { ...solo, start: { floor: 2, row: 4 }, until: 'hall', maxTicks: 30 * TICK_RATE });
+    expect(run.route).toEqual(['2.4.0 Boss']);
   });
 });
