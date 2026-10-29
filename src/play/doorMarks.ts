@@ -46,13 +46,20 @@ export function doorMarkView(hall: SimHall | undefined, exits: readonly DoorExit
   });
 }
 
+/**
+ * The Fighters the Door count is out of: the Run's Players still in the Duel, the same on every peer (it reads the Match, never who is
+ * local). The one place the presentation says who counts: the Simulation's own rule (`doorCounters`), with the Fighters an AI Takeover has
+ * taken (`run.away`) dropped out of the count and its denominator.
+ */
+export const doorParty = (match: MatchState): number[] => doorCounters(match.config, match.duel.fighters, match.run?.away);
+
 /** What `doorMarkView` needs, read off a Match: none in Duels and once the Match is over. */
 export function doorRun(match: MatchState, tuning: TuningData): { exits: DoorExit[]; players: DoorPlayers } | null {
   const run = match.run;
   if (!run || match.status.status === 'Over') return null;
   const arena = arenaOf(tuning, match.duel.arena);
   const fighters = match.duel.fighters;
-  const counting = run.phase !== 'Fighting' ? doorCounters(match.config, fighters) : [];
+  const counting = run.phase !== 'Fighting' ? doorParty(match) : [];
   const exits: DoorExit[] = [];
   const gathered: number[] = [];
   hallOf(tuning, match.config.arena, runHall(run)).exits.forEach((_, exit) => {

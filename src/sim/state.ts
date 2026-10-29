@@ -342,6 +342,11 @@ export interface SimHall {
   readonly index: number;
   readonly kind: HallKind;
   readonly phase: HallPhase;
+  /**
+   * The Player Fighters an AI Takeover has taken (ascending), as the Run's `away`, mirrored here so a Controller reads it off the
+   * state (and so it rolls back). Absent while nobody has left, so a Run without a Takeover hashes as it always did.
+   */
+  readonly away?: readonly number[];
 }
 
 /**

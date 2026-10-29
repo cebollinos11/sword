@@ -30,7 +30,7 @@ import { arenaOf } from './arena';
 import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
+import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { holdInventory, relicMods, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
@@ -206,6 +206,27 @@ export interface RunState {
   readonly pickups: readonly Pickup[];
   /** The Match Tick the Run started on. */
   readonly startTick: number;
+  /**
+   * The Player Fighters an AI Takeover has taken (ascending; `takeOverFighter`): from then on an AI ally of the Run, so it counts at no Door,
+   * takes no pickup and no Rest fire (`presentPlayers`), and keeps its inventory and Mods. Absent while nobody has left, so a Run without
+   * a Takeover hashes as it always did. Mirrored on `SimHall.away` for the Controllers.
+   */
+  readonly away?: readonly number[];
+}
+
+/**
+ * THE Takeover seam: an AI has taken over Player Fighter `fighter` of a Run (the Rollback session applies it on every peer at the Takeover
+ * Tick, before that Tick's Intents). From now on the Fighter is an AI ally of the Run (`RunState.away`, mirrored on its Duel's Hall): it
+ * counts at no Door, takes no pickup and no Rest fire, and keeps its inventory and Mods, and revives in the next Hall like any Team 0
+ * Fighter. `config.humans` stays (enemy HP is fixed for the Run). Its own pickups already lying in the Hall simply lie untaken. Idempotent;
+ * not a Run, or not one of the Run's Players (`config.players`): unchanged (the session calls this inside its Rollback loops, where a throw would leave it half-simulated). Pure.
+ */
+export function takeOverFighter(match: MatchState, fighter: number): MatchState {
+  const { run } = match;
+  if (!run) return match;
+  if (!runPlayers(match.config).includes(fighter) || run.away?.includes(fighter)) return match;
+  const away = [...(run.away ?? []), fighter].sort((a, b) => a - b);
+  return { ...match, run: { ...run, away }, duel: { ...match.duel, hall: { ...match.duel.hall!, away } } };
 }
 
 export interface MatchState {
@@ -325,11 +346,13 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
     if (!before || healed) return { ...armed, hp: armed.maxHp };
     return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
   });
-  return { ...base, rng, fighters, hall: { ...at, kind: hall.kind, phase: 'Fighting' } };
+  // The Players an AI has taken over stay so for the rest of the Run.
+  const away = previous?.hall?.away;
+  return { ...base, rng, fighters, hall: { ...at, kind: hall.kind, phase: 'Fighting', ...(away === undefined ? {} : { away }) } };
 }
 
 /** The Run on entering Hall `at` (`hall` its node), `path` the Halls entered before it. */
-function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hall: Hall, path: readonly HallRef[], pickups: readonly Pickup[]): RunState {
+function enterHall(run: Pick<RunState, 'floors' | 'startTick' | 'away'>, at: HallRef, hall: Hall, path: readonly HallRef[], pickups: readonly Pickup[]): RunState {
   return {
     floor: at.floor,
     floors: run.floors,
@@ -341,6 +364,7 @@ function enterHall(run: Pick<RunState, 'floors' | 'startTick'>, at: HallRef, hal
     rested: [],
     pickups,
     startTick: run.startTick,
+    ...(run.away === undefined ? {} : { away: run.away }),
   };
 }
 
@@ -513,7 +537,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     const duel = hallDuel(tuning, config, at, hall, match.duel, at.floor > run.floor, match.duel.rng);
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path, startPickups(tuning, config, at, hall)) };
+    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path, startPickups(tuning, config, at, hall, run.away)) };
   }
 
   let duel = step(match.duel, intents, tuning);
@@ -539,7 +563,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     duel = { ...duel, fighters: duel.fighters.map((f) => (f.team === 0 && inDuel(f) && f.hp > 0 && modsOf(f).healOnClear > 0 ? { ...f, hp: Math.min(f.maxHp, f.hp + modsOf(f).healOnClear * f.maxHp) } : f)) };
     events.push({ type: 'HallCleared', floor: next.floor, row: next.row, index: next.hall, kind: duel.hall!.kind });
     // Its drops (`hallDrops`: each Player's own) lie on Team 1's spawn cell; an Elite's carried Relics join them there.
-    next = { ...next, pickups: [...next.pickups, ...hallDrops(tuning, config, runHall(next), hallOf(tuning, config.arena, runHall(next)), next.pickups.length)] };
+    next = { ...next, pickups: [...next.pickups, ...hallDrops(tuning, config, runHall(next), hallOf(tuning, config.arena, runHall(next)), next.pickups.length, next.away)] };
     if (next.row === FLOOR_ROWS - 1 && next.floor === next.floors) {
       // The last Boss fell: the Run is won, and its Duel ends as a Duel's end would leave it.
       duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
@@ -563,7 +587,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
         return used.fighter;
       }),
     };
-    const took = takePickups(next.pickups, duel.fighters, config, tuning);
+    const took = takePickups(next.pickups, duel.fighters, config, tuning, next.away);
     if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
       next = { ...next, pickups: took.pickups };
       duel = { ...duel, fighters: took.fighters };
@@ -576,7 +600,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     if (duel.hall!.kind === 'Rest') {
       // Each Player's Fighter standing at the fire heals once in this Hall.
       const rested = next.rested;
-      const healing = runPlayers(config).filter((i) => !rested.includes(i) && inDuel(duel.fighters[i]!) && atRestFire(arena, duel.fighters[i]!));
+      const healing = presentPlayers(config, next.away).filter((i) => !rested.includes(i) && inDuel(duel.fighters[i]!) && atRestFire(arena, duel.fighters[i]!));
       if (healing.length > 0) {
         const fighters = duel.fighters.map((f, i): FighterState => {
           if (!healing.includes(i)) return f;
@@ -590,7 +614,7 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     }
     if (next.phase === 'Cleared') {
       // Each exit Door counts while every Fighter whose standing counts is in its zone; the first to doorSeconds is taken.
-      const counting = doorCounters(config, duel.fighters);
+      const counting = doorCounters(config, duel.fighters, next.away);
       const fighters = duel.fighters;
       const doorTicks = next.doorTicks.map((t, exit) => (counting.length > 0 && counting.every((i) => inExitZone(arena, exit, fighters[i]!)) ? t + 1 : 0));
       next = { ...next, doorTicks };

@@ -1,8 +1,8 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, type Intent, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 /** The most Fighters a Match fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -416,10 +416,23 @@ function isPickup(v: unknown): boolean {
 }
 
 /**
- * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
- * Door count per exit, the Player Fighters rested, the pickups lying in it, and the Tick it started on.
+ * Whether pickup `p` fits the Run: an owned one belongs to a Player Fighter and may be a pedestal (its `group` the first of its
+ * owner's, itself in that group); a shared one lies where a Player dropped it (`by` a Player Fighter) and is no pedestal.
  */
-function isRun(v: unknown): boolean {
+function isPickupOf(p: Obj, all: readonly Obj[], players: readonly number[]): boolean {
+  if (p.owner === null) return p.group === undefined && (p.by === undefined || players.includes(p.by as number));
+  if (!players.includes(p.owner as number) || p.by !== undefined) return false;
+  const first = p.group === undefined ? undefined : all[p.group as number];
+  return p.group === undefined || (first !== undefined && first.group === p.group && first.owner === p.owner && (p.group as number) <= (p.id as number));
+}
+
+/**
+ * A Run's progress: the current Hall (on Floor 1 to `floors`), the Halls entered (the current one last), its phase, one
+ * Door count per exit, the Player Fighters rested, the pickups lying in it, and the Tick it started on. `players` are the Run's
+ * Player Fighters (`config.players`): the ones that rest, own pickups and drop. How many exits a Hall has is Tuning Data's to say,
+ * but a Hall's row bounds the Door counts: a Boss may have none (the Run's end), any other Hall has at least one.
+ */
+function isRun(v: unknown, players: readonly number[]): boolean {
   if (!isObject(v) || !isInt(v.floors) || v.floors < 1 || !isArrayOf(v.path, isHallRef) || (v.path as unknown[]).length < 1) return false;
   const here = { floor: v.floor, row: v.row, index: v.hall };
   const last = (v.path as Obj[])[(v.path as unknown[]).length - 1]!;
@@ -432,19 +445,26 @@ function isRun(v: unknown): boolean {
     HALL_PHASES.has(v.phase) &&
     isArrayOf(v.doorTicks, isTick) &&
     (v.doorTicks as unknown[]).length <= MAX_HALL_EXITS &&
-    isArrayOf(v.rested, (i) => isInt(i) && i >= 0 && i < MAX_TEAM_SIZE * 2) &&
+    (here.row === FLOOR_ROWS - 1 || (v.doorTicks as unknown[]).length >= 1) &&
+    (v.phase !== 'Fighting' || (v.doorTicks as number[]).every((t) => t === 0)) &&
+    isArrayOf(v.rested, (i) => isInt(i) && players.includes(i)) &&
     isArrayOf(v.pickups, isPickup) &&
     (v.pickups as unknown[]).length <= MAX_PICKUPS &&
-    (v.pickups as Obj[]).every((p, k) => p.id === k && (p.group === undefined || (p.group as number) <= k)) &&
-    isTick(v.startTick)
+    (v.pickups as Obj[]).every((p, k, all) => p.id === k && isPickupOf(p, all, players)) &&
+    isTick(v.startTick) &&
+    (v.away === undefined || (isAway(v.away) && (v.away as number[]).every((i) => players.includes(i))))
   );
 }
+
+/** A Run's `away`, the Player Fighters an AI Takeover has taken (each one of `players`, checked by `isRun`): at least one, distinct, ascending (absent while nobody has left). */
+const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).length > 0 && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 /** A Run's Player Fighters: distinct Fighter indices, ascending. */
 const isPlayers = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
 
 /** A Run's Duel names the Run's current Hall and phase. */
-const isRunHall = (hall: unknown, run: Obj): boolean => isObject(hall) && hall.floor === run.floor && hall.row === run.row && hall.index === run.hall && hall.phase === run.phase;
+const isRunHall = (hall: unknown, run: Obj): boolean =>
+  isObject(hall) && hall.floor === run.floor && hall.row === run.row && hall.index === run.hall && hall.phase === run.phase && JSON.stringify(hall.away) === JSON.stringify(run.away);
 
 function isMatchState(v: unknown): v is MatchState {
   if (!isObject(v) || !isObject(v.config) || !isObject(v.status)) return false;
@@ -477,9 +497,10 @@ function isMatchState(v: unknown): v is MatchState {
     isFormatOnMap(config.format, config.arena) &&
     isFormatOnMap(config.format, v.arena) &&
     (config.humans === undefined || isHumans(config.humans)) &&
-    (config.players === undefined || isPlayers(config.players)) &&
+    (config.players === undefined || (isPlayers(config.players) && (config.players as number[]).every((p) => (config.teams as number[])[p] === 0))) &&
     // A Run, and only a Run, carries its progress, and each of its Duels names its Hall.
-    (config.format === 'Gauntlet' ? isRun(v.run) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
+    (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
+    (config.format === 'Gauntlet' ? isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
   );
 }
 

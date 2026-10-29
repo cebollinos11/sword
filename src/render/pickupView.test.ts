@@ -80,3 +80,24 @@ describe('the labels the HUD draws', () => {
     expect(pickupLabels([])).toEqual([]);
   });
 });
+
+describe('each peer draws its own Player’s pickups', () => {
+  // A Treasure Hall's three pedestals per Player (owner = its Fighter), plus a shared drop.
+  const hall = [0, 1].flatMap((owner) => [0, 1, 2].map((i) => pickup(owner * 3 + i, (i - 1) * 1.12, { group: 0, owner })));
+  const shared = pickup(9, 0, { owner: null, kind: 'weapon', item: 'Spear' });
+  const ids = (views: ReturnType<typeof pickupViews>, key: 'shown' | 'label') => views.filter((v) => v[key]).map((v) => v.id);
+
+  it('shows Fighter 1 its own three and the shared one, never Fighter 0’s', () => {
+    expect(ids(pickupViews([...hall, shared], 1, eye(0)), 'shown')).toEqual([3, 4, 5, 9]);
+    expect(ids(pickupViews([...hall, shared], 0, eye(0)), 'shown')).toEqual([0, 1, 2, 9]);
+  });
+
+  it('labels only the viewer’s own, and reads "taken" per owner', () => {
+    const taken = hall.map((p) => (p.id === 4 ? { ...p, taken: true } : p));
+    const one = ids(pickupViews(taken, 1, eye(0)), 'label');
+    expect(one.length).toBeGreaterThan(0);
+    expect(one.every((id) => id >= 3 && id !== 4)).toBe(true);
+    // Fighter 0's copy of the same pedestal is still there for Fighter 0.
+    expect(ids(pickupViews(taken, 0, eye(0)), 'shown')).toEqual([0, 1, 2]);
+  });
+});

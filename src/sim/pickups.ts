@@ -10,7 +10,7 @@ import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { hallRoster, restFire, runPlayers, standsWithin, type HallRef } from './hall';
+import { hallRoster, presentPlayers, restFire, standsWithin, type HallRef } from './hall';
 import { addItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -85,18 +85,18 @@ function carriedRelics(tuning: TuningData, config: Pick<MatchConfig, 'arena' | '
 
 /**
  * What a Hall drops for each Player when it is cleared (`HallCleared`), to append to the Hall's pickups from `firstId`: for each Player of
- * `runPlayers(config)`, ascending, `loot.drops` of the Hall's kind items (none for a Treasure or Rest Hall), each its own (`owner` the Player)
+ * `presentPlayers(config, away)`, ascending, `loot.drops` of the Hall's kind items (none for a Treasure or Rest Hall), each its own (`owner` the Player)
  * on Team 1's spawn k (wrapping), a Player's items different where they can be. An Elite Hall also drops, for each Player, the Relic an Elite
  * carried (`carriedRelics`) ahead of the picked ones: its count is `loot.drops.Elite` plus that one.
  */
-export function hallDrops(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, firstId: number): Pickup[] {
+export function hallDrops(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, firstId: number, away?: readonly number[]): Pickup[] {
   const count = hall.kind === 'Fight' || hall.kind === 'Elite' || hall.kind === 'Boss' ? tuning.dungeon.loot.drops[hall.kind] : 0;
   const carried = hall.kind === 'Elite' ? carriedRelics(tuning, config, at) : [];
   if (count + carried.length === 0) return [];
   const seed = runSeed(config.arena);
   const spots = pickupSpots(tuning, hall);
   const pickups: Pickup[] = [];
-  for (const player of runPlayers(config)) {
+  for (const player of presentPlayers(config, away)) {
     const items: Dropped[] = carried.map((item) => ({ kind: 'relic', item }));
     for (let k = 0; k < count; k++) items.push(pickItem(tuning, seed, at, player, k, items));
     for (const [k, item] of items.entries()) pickups.push({ id: firstId + pickups.length, owner: player, ...item, at: spots[k % spots.length]!, taken: false });
@@ -109,12 +109,12 @@ export function hallDrops(tuning: TuningData, config: Pick<MatchConfig, 'arena' 
  * leaves empty) in slot order, each Player's own copies on the same ground (a Player sees only theirs: `pickupVisibleTo`), different items
  * where they can be, all of a Player's in one `group`: taking one closes the others, for that Player only. No other Hall has any.
  */
-export function startPickups(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall): Pickup[] {
+export function startPickups(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, away?: readonly number[]): Pickup[] {
   if (hall.kind !== 'Treasure') return [];
   const seed = runSeed(config.arena);
   const spots = pickupSpots(tuning, hall);
   const pickups: Pickup[] = [];
-  for (const player of runPlayers(config)) {
+  for (const player of presentPlayers(config, away)) {
     const first = pickups.length;
     const items: Dropped[] = [];
     for (let k = 0; k < tuning.dungeon.loot.pedestals; k++) items.push(pickItem(tuning, seed, at, player, k, items));
@@ -143,7 +143,7 @@ export interface Taken extends Dropped {
 const withoutBy = ({ by: _by, ...p }: Pickup): Pickup => p;
 
 /**
- * One Tick of taking: a Player's Fighter (`runPlayers`, never an AI ally, which holds no inventory either) that is alive and standing on a
+ * One Tick of taking: a Player's Fighter (`presentPlayers` less those `away`, never an AI ally or a taken-over Fighter, which keeps its inventory but takes no more) that is alive and standing on a
  * pickup it owns or a shared one takes it if it has room (`addItem`): the item joins its inventory, the pickup (and its `group`) is `taken`. Pickups
  * are visited by `id`, the Players ascending, so two on one shared pickup go to the lower Fighter; a full inventory leaves it lying. A dropper's
  * `by` ends once it stands off its drop. Pure; the same pickups and Fighters when nothing happens.
@@ -153,9 +153,10 @@ export function takePickups(
   fighters: readonly FighterState[],
   config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>,
   tuning: TuningData,
+  away?: readonly number[],
 ): { readonly pickups: readonly Pickup[]; readonly fighters: readonly FighterState[]; readonly taken: readonly Taken[] } {
   if (pickups.length === 0) return { pickups, fighters, taken: [] };
-  const players = runPlayers(config).filter((i) => fighters[i]?.inventory !== undefined && inDuel(fighters[i]!) && fighters[i]!.hp > 0);
+  const players = presentPlayers(config, away).filter((i) => fighters[i]?.inventory !== undefined && inDuel(fighters[i]!) && fighters[i]!.hp > 0);
   let held = fighters;
   let next = pickups.map((p) => (p.by !== undefined && !(fighters[p.by] && standsOn(p.at, fighters[p.by]!)) ? withoutBy(p) : p));
   const taken: Taken[] = [];

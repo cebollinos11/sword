@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { isArenaName, withGeneratedArena } from '../sim';
+import { isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
 import { newLobby, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, dungeonCard, mapSeed, offeredFormats, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
+import { arenaLabel, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -26,9 +26,23 @@ describe('the Lobby view in Gauntlet', () => {
   const skirmish = (arena: string): LobbyState =>
     newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena, bestOf: 3 }, online: false, ai: { difficulty: 'Normal', weapon } });
 
-  it('offers the Format toggle in a Skirmish only: online stays Duels until the Dungeon\'s co-op (docs/plans/dungeon.md Stage 4)', () => {
-    expect(offeredFormats(false)).toEqual(['Duels', 'Gauntlet']);
-    expect(offeredFormats(true)).toEqual(['Duels']);
+  it('offers the Format toggle in a Skirmish and online (a Run online is co-op, every Player on Team 0)', () => {
+    expect(MATCH_FORMATS).toEqual(['Duels', 'Gauntlet']);
+    // Neither a Skirmish nor an online Lobby of one Player refuses either of them.
+    expect(formatRefusal(skirmish('library'))).toBeNull();
+  });
+
+  it('online, a Lobby with more Players than Team 0 holds refuses the Gauntlet, with the existing text', () => {
+    const online = newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena: 'library', bestOf: 3 }, online: true, ai: { difficulty: 'Normal', weapon } });
+    expect(formatRefusal(online)).toBeNull();
+    const seat = (member: number) => ({ kind: 'Player' as const, member });
+    const five: LobbyState = {
+      ...online,
+      members: [0, 1, 2, 3, 4].map((id) => ({ id, name: `P${id}`, weapon, body: 'monk', ready: false })),
+      teams: [[seat(0), seat(1), seat(2), seat(3)], [seat(4), { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }]],
+    };
+    expect(formatRefusal(five)).toBe(`A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has 5.`);
+    expect(setFormat(five, 'Gauntlet', 'gen:greybox:5')).toBe(five);
   });
 
   it('describes the Dungeon on the Floors card: its Floors of Halls, the Doors and the Boss', () => {

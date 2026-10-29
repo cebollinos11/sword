@@ -136,18 +136,29 @@ export function hallRoster(
 
 /**
  * The Fighters the human Players drive in a Run (`config.players`; absent, as for a Match made before it existed: the
- * first `humans` Fighters of Team 0). Only they count at a Door and take a Rest Hall's fire; AI allies never do.
+ * first `humans` Fighters of Team 0), fixed for the Run: those who started as Players. Who still counts as one at a Tick is
+ * `presentPlayers`. Only they count at a Door and take a Rest Hall's fire; AI allies never do.
  */
 export function runPlayers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>): readonly number[] {
   return config.players ?? config.teams.flatMap((t, i) => (t === 0 ? [i] : [])).slice(0, config.humans);
 }
 
 /**
- * The Fighters whose standing decides a Door: every living Player's (a fallen Player need not stand there), and only
- * when no Player lives, the living AI allies (else a party of AI allies could never leave a Hall).
+ * THE source of truth for who counts as the Run's Players at a Tick: `runPlayers(config)` less the Fighters an AI Takeover has taken
+ * (`away`: `RunState.away`, mirrored on `SimHall.away` for a Controller; absent while nobody has left). A taken-over Fighter is an AI
+ * ally from then on: Doors, pickups, the Rest fire and the Ally AI all read this, never `runPlayers` alone. Ascending.
  */
-export function doorCounters(config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, fighters: readonly FighterState[]): number[] {
-  const players = runPlayers(config).filter((i) => fighters[i] && inDuel(fighters[i]));
+export function presentPlayers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, away?: readonly number[]): readonly number[] {
+  const players = runPlayers(config);
+  return away === undefined || away.length === 0 ? players : players.filter((i) => !away.includes(i));
+}
+
+/**
+ * The Fighters whose standing decides a Door: every living present Player's (`presentPlayers`; a fallen Player need not stand there),
+ * and only when no such Player lives, the living AI allies, a taken-over Fighter among them (else a party of AI allies could never leave a Hall).
+ */
+export function doorCounters(config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, fighters: readonly FighterState[], away?: readonly number[]): number[] {
+  const players = presentPlayers(config, away).filter((i) => fighters[i] && inDuel(fighters[i]));
   if (players.length > 0) return players;
   return fighters.flatMap((f, i) => (f.team === 0 && inDuel(f) ? [i] : []));
 }

@@ -184,6 +184,18 @@ describe('Gauntlet Lobby: Run knobs', () => {
     expect(match.duel.fighters.filter((f) => f.team === 1 && !f.benched).map((f) => f.maxHp)).toEqual([tuning.fighter.maxHp * 0.5]);
   });
 
+  it('peers on the same knobs hash the same Tuning Data (the session hashes `runTuning`), peers on other knobs do not', () => {
+    const settings = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: 1, rest: 0.6 } }).settings;
+    // The guest gets the host's settings over the wire, and loads its own Tuning Data.
+    const received = parseLobbyMessage(JSON.parse(JSON.stringify({ type: 'lobby', state: updateSettings(gauntlet(newLobby(options(true))), { run: settings.run }), you: 0, ack: 0 })));
+    expect(received).not.toBeNull();
+    const host = runTuning(loadTuningData(), settings);
+    const guest = runTuning(loadTuningData(), (received as { state: LobbyState }).state.settings);
+    expect(tuningDataHash(guest)).toBe(tuningDataHash(host));
+    expect(tuningDataHash(host)).not.toBe(tuningDataHash(loadTuningData()));
+    expect(tuningDataHash(runTuning(loadTuningData(), { ...settings, run: { difficulty: 1, rest: 0.5 } }))).not.toBe(tuningDataHash(host));
+  });
+
   it('a lobby message carries the knobs, and refuses ones that are not numbers or not knobs', () => {
     const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, rest: 0.6 } });
     const m = { type: 'lobby', state, you: 0, ack: 0 } as const;
