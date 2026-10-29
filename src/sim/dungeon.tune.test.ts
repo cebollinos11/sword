@@ -87,6 +87,14 @@ import {
  * numbers against, not proof that a human wins that often.
  */
 const REFERENCE_DIFFICULTY = 'Expert';
+/**
+ * How the reference was picked, from the numbers (seeds 1 to 20, the seeded route, the ten-minute fight cap; Floor 1's Boss cleared out of 20 Runs):
+ *   Hard   solo 1, 2 Players 10, 4 Players 14        Expert   solo 1, 2 Players 10, 4 Players 10
+ * "Hard alone loses Floor 1" holds (1 of 20). The two cannot be told apart at 1 and 2 Players (Expert clears a little more Halls, within noise: +0.45 and +0.8
+ * Halls a Run, standard error 0.4 and 0.6); at 4 Players Hard is the better (6.7 Halls a Run against 4.7). So Expert is not the stronger by outcome, and neither
+ * is the clear stand-in. Expert is kept as the reference because its settings are the closer to a person's (same 0.16 s Reaction Time and mistake rate as Hard,
+ * with reaction jitter, human mistakes, rhythm and teamwork on), and Hard is always reported beside it, so a ticket sees how far a number moves between them.
+ */
 /** The longest a Hall's fight may run by default (Ticks): ten minutes. The soak's three minutes cut off Boss fights a party was winning (875 HP at 4 Players). One that runs longer hangs, and its Run is stopped there. */
 const FIGHT_CAP = 600 * 60;
 /** The longest a cleared Hall's party may take to walk to a Door and take it by default (Ticks): a minute, as the soak's. Longer, it hangs. */
