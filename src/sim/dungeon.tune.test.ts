@@ -77,12 +77,12 @@ import {
  * the Hall's start (fallen Fighters revived at `revive`). HP out: when the Hall clears (after a Clear heal). HP carried: when the Door is
  * taken (after a Rest and pickups). Deaths: Team 0 Fighters that fell in the Hall. Revives: Fighters down when the Hall before ended and standing
  * on entering this one (so a Boss's full heal counts). Fight time: Hall start to Clear. Time to contact: until a Team 0 and a Team 1 Fighter first
- * came within 8 m. Walk time: Clear to Door taken (looting included), capped at a minute (a hang). A Hall that runs past three minutes hangs.
+ * came within 8 m. Walk time: Clear to Door taken (looting included), capped at a minute (a hang). A Hall whose fight runs past the fight cap (`TUNE_FIGHT_CAP`, default 600 s) hangs.
  */
 /**
- * The reference autopilot, standing in for "a competent human": Expert, the top of the strength ladder (Tuning Data `ai.difficulties`,
- * with the exploit fixes and the teamwork on), looting with the rule above, on the seeded route. Calibrated on seeds 1-10 against what is known:
- * Hard alone loses Floor 1 (see docs/plans/dungeon.md). CALIBRATION_NOTE below says how the pick was made, from the numbers. Reports ship the
+ * The reference autopilot, standing in for "a competent human": Expert, the top of the ladder in Tuning Data `ai.difficulties` (with the exploit fixes
+ * and the teamwork on), looting with the rule above, on the seeded route. Calibrated on seeds 1-20 against what is known:
+ * Hard alone loses Floor 1 (see docs/plans/dungeon.md). The comment below says how the pick was made, from the numbers. Reports ship the
  * reference and the second difficulty on the same seeds to show how sensitive the numbers are. It is a yardstick the tuning tickets move
  * numbers against, not proof that a human wins that often.
  */
@@ -94,6 +94,8 @@ const REFERENCE_DIFFICULTY = 'Expert';
  * Halls a Run, standard error 0.4 and 0.6); at 4 Players Hard is the better (6.7 Halls a Run against 4.7). So Expert is not the stronger by outcome, and neither
  * is the clear stand-in. Expert is kept as the reference because its settings are the closer to a person's (same 0.16 s Reaction Time and mistake rate as Hard,
  * with reaction jitter, human mistakes, rhythm and teamwork on), and Hard is always reported beside it, so a ticket sees how far a number moves between them.
+ * CAVEAT: at 4 Players Expert is about 3 standard errors weaker than Hard (-2.05 Halls a Run, standard error 0.64), so a 4-Player number measured against
+ * Expert is measured against the weaker of the two there.
  */
 /** The longest a Hall's fight may run by default (Ticks): ten minutes. The soak's three minutes cut off Boss fights a party was winning (875 HP at 4 Players). One that runs longer hangs, and its Run is stopped there. */
 const FIGHT_CAP = 600 * 60;
@@ -551,6 +553,12 @@ describe('tuning harness', () => {
       expect(seededExit(7, floor, row, index, 1)).toBe(0);
     }
     expect(picks.size).toBe(3);
+    // Roughly uniform: over 20 seeds of 3 Floors, 4 rows and 3 indices (720 picks) each exit count's picks land within a quarter of an even share.
+    for (const exits of [2, 3]) {
+      const tally = Array<number>(exits).fill(0);
+      for (let seed = 1; seed <= 20; seed++) for (let floor = 1; floor <= 3; floor++) for (let row = 0; row < 4; row++) for (let index = 0; index < 3; index++) tally[seededExit(seed, floor, row, index, exits)]!++;
+      for (const n of tally) expect(Math.abs(n / 720 - 1 / exits)).toBeLessThan(0.25 / exits);
+    }
   });
 
   it('lists only the Halls played for a dev start', () => {
