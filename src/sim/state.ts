@@ -7,6 +7,7 @@ import type { Inventory } from './inventory';
 import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
+import type { CrowdState } from './crowd';
 import type { Vec3 } from './vec';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
@@ -368,6 +369,11 @@ export interface SimState {
    * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
    */
   readonly hall?: SimHall;
+  /**
+   * In a Battle (docs/plans/big-battle.md), its Soldiers: the Crowd, stepped by `stepMatch` after the Fighters (`stepCrowd`);
+   * absent otherwise, so a Duel's state hashes as it always did. `step` carries it through unchanged.
+   */
+  readonly crowd?: CrowdState;
   /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
   readonly events: readonly SimEvent[];
 }

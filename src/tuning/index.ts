@@ -19,6 +19,7 @@ import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
 import relicsJson from '../../data/relics.json';
+import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 export {
   applyDungeonKnobs,
@@ -45,6 +46,7 @@ export {
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { parseRelics, type RelicTuning } from './relics';
+import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -56,6 +58,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
+export { parseBattle, type BattleTuning, type BattlefieldTuning, type CrowdTuning, type DeployTuning, type RoutTuning } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -427,6 +430,8 @@ export interface TuningData {
   readonly dungeon: DungeonTuning;
   /** Every Relic, in file order (data/relics.json); an Encounter's enemies name theirs. */
   readonly relics: readonly RelicTuning[];
+  /** A Battle's armies, Battlefield, Crowd and Rout (data/battle.json): docs/plans/big-battle.md. */
+  readonly battle: BattleTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
@@ -747,6 +752,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
+    battle: parseBattle(root.battle),
     skeleton,
     ai,
     gait: parseGait(root.gait),
@@ -842,6 +848,7 @@ export function loadTuningData(): TuningData {
     match: matchJson,
     dungeon: dungeonJson,
     relics: relicsJson,
+    battle: battleJson,
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,

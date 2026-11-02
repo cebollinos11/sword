@@ -199,3 +199,6 @@ export {
   type HallRef,
   type RunStart,
 } from './hall';
+export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
+export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield } from './battlefield';
+export { createCrowd, crowdAlive, crowdDue, routs, stepCrowd, type CrowdState, type Rout } from './crowd';

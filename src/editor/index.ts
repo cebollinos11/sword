@@ -63,6 +63,11 @@ export function startEditor(container: HTMLElement, loaded: TuningData): void {
     void import('./bench').then((m) => m.startBench(container, loaded));
     return;
   }
+  // Dev server only: the Battle debug view (docs/plans/big-battle.md Stage 1), an AI-vs-AI war, left out of the build.
+  if (import.meta.env.DEV && location.hash.startsWith('#/editor/battle')) {
+    void import('./battleView').then((m) => m.startBattleView(container, loaded));
+    return;
+  }
   if (location.hash.startsWith('#/editor/sandbox')) {
     startSandbox(container, loaded);
     return;

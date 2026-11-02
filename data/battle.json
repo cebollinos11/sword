@@ -1,0 +1,30 @@
+{
+  "armySize": 200,
+  "field": {
+    "size": 200,
+    "cell": 5,
+    "hillHeight": 2.5,
+    "hillLength": 70
+  },
+  "deploy": {
+    "front": 40,
+    "perRank": 20,
+    "file": 1.5,
+    "rank": 1.5
+  },
+  "crowd": {
+    "stagger": 6,
+    "walkSpeed": 2.5,
+    "hp": 100,
+    "damage": [8, 20],
+    "hitChance": 0.2,
+    "engageReach": 1.6,
+    "separation": 0.9,
+    "sight": 12,
+    "flowCell": 4
+  },
+  "rout": {
+    "threshold": 0.2,
+    "seconds": 5
+  }
+}

@@ -362,5 +362,5 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const duel = updateDuel(state.duel, fighters, tick, emit, state.hall !== undefined);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.hall === undefined ? {} : { hall: state.hall }) };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.hall === undefined ? {} : { hall: state.hall }), ...(state.crowd === undefined ? {} : { crowd: state.crowd }) };
 }

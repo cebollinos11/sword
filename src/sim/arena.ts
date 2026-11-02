@@ -6,6 +6,7 @@
  */
 import { surfacePlane, type ArenaGeometry, type TuningData, type WalkSurface, type WallSegment } from '../tuning';
 import { generatedArena, isArenaName } from './arenaGen/named';
+import { battlefieldOf } from './battlefield';
 import type { Vec2 } from './state';
 import type { Vec3 } from './vec';
 
@@ -92,10 +93,14 @@ function indexOf(arena: ArenaGeometry): ArenaIndex {
 
 /**
  * The Arena named `name` in Tuning Data, or the Generated Arena a `gen:<kit>:<seed>` name builds from Tuning Data's Kit
- * (built once and reused, `generatedArena`: a Rematch's next Random Map, Stage 6). Throws on an unknown name.
+ * (built once and reused, `generatedArena`: a Rematch's next Random Map, Stage 6), or the Battlefield a `battle:<seed>`
+ * name builds from Tuning Data `battle.field` (`battlefieldOf`). Throws on an unknown name.
  */
 export function arenaOf(tuning: Pick<TuningData, 'arenas'>, name: string): ArenaGeometry {
-  const arena = tuning.arenas[name] ?? ('kits' in tuning && isArenaName(tuning as TuningData, name) ? generatedArena(tuning as TuningData, name)?.arena : undefined);
+  const arena =
+    tuning.arenas[name] ??
+    ('kits' in tuning && isArenaName(tuning as TuningData, name) ? generatedArena(tuning as TuningData, name)?.arena : undefined) ??
+    ('battle' in tuning ? battlefieldOf((tuning as TuningData).battle, name)?.arena : undefined);
   if (!arena) throw new Error(`Unknown Arena "${name}" (have: ${Object.keys(tuning.arenas).join(', ')})`);
   return arena;
 }

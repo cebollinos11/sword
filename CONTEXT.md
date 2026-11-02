@@ -245,7 +245,7 @@ _Avoid_: Screen shake, hit shake
 A best-of-N sequence of Duels between two Teams; the score counts Duels won per Team. In the Gauntlet Format, a Match is a Run instead.
 
 **Format**:
-How a Match is played, a Lobby setting: Duels (best-of-N, as it always was) or Gauntlet (a Run). Not the Match Mode, which says which Controllers fight.
+How a Match is played, a Lobby setting: Duels (best-of-N, as it always was) or Gauntlet (a Run). A third, Battle, is not in the Lobby yet (built offline only, `docs/plans/big-battle.md`). Not the Match Mode, which says which Controllers fight.
 _Avoid_: Mode (that is the Match Mode), game type
 
 **Run**:
@@ -288,6 +288,22 @@ What a Player's Fighter carries at the end of a Run, listed on the results scree
 **Benched**:
 A Team 1 slot a Hall has no enemy for (its Encounter lists fewer than four, or an enemy's `minTeam` is not met; every slot of a Treasure or Rest Hall): out of that Hall's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
 _Avoid_: Empty, disabled, dead (it never fell)
+
+**Battle**:
+A Match in the Battle Format: two armies of `battle.armySize` Soldiers each (Tuning Data `data/battle.json`) deployed in ranks facing each other on a Battlefield, ending in a Rout; the Team that did not rout wins. Its Fighters are only the Players' (none in an AI-vs-AI war); the Crowd ignores them for now. The Battlefield is its Arena, built from its name alone (`battle:<seed>`): an open square field of gentle hills, a heightfield whose grid cells are two flat triangles each (its Walk Surfaces), with no Walls, Kit, Jump Links or Abyss. There is no Rematch. Built offline only, not yet offered in the Lobby (ADR 0020).
+_Avoid_: War, siege, skirmish (that is the Lobby's offline mode)
+
+**Soldier**:
+A member of a Battle's army that is not a full Fighter: plain data in the Crowd (position, heading, velocity, HP in a Fighter's units, Team, the enemy Soldier it is engaged with), fighting other Soldiers by rule and standing on the Battlefield's ground. It has no Skeleton and no Blade Sweep, and never damages a Fighter. At 0 HP it dies and stops counting.
+_Avoid_: Unit, NPC, Fighter (for a Soldier)
+
+**Crowd**:
+All of a Battle's Soldiers (`SimState.crowd`, struct-of-arrays) and the low-rate step that moves and fights them, inside the Tick after the Fighters. Each Soldier steps once every `battle.crowd.stagger` Ticks, 1/stagger of them each Tick, each on the same Tick as its opposite number in the other army. A step pushes it apart from neighbours closer than `separation`, then: an enemy within `engageReach` is engaged (it stands and rolls its blows from the Crowd's own seeded generator; a Tick's blows land together after its steps), one within `sight` is walked at, and with none in sight it follows its Team's flow field toward the enemy army. Hashed, snapshotted and rolled back like the rest of the state (ADR 0020).
+_Avoid_: Horde, mob
+
+**Rout**:
+A Team breaking once its living Soldiers fall below `battle.rout.threshold` of the army (the one with fewer left, if both fall on one Tick): its Soldiers stop fighting and flee toward their own edge of the field, and `battle.rout.seconds` later the Battle ends with the other Team's win. There is no hunt for the last stragglers.
+_Avoid_: Retreat, surrender
 
 **Rematch**:
 A fresh Match (same options, score 0–0) that starts on its own a few seconds after a Match ends; on a Random Map it is fought on the next seed's Generated Arena. Online play always rematches, so the Players stay in the Match until the host restarts it or ends it from the in-game menu (or someone leaves); a Skirmish goes back to its Lobby instead.

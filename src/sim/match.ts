@@ -18,6 +18,10 @@
  * the Hall behind it starts. The Run ends when Team 0 is wiped out or the last
  * Floor's Boss falls.
  *
+ * In Battle format (docs/plans/big-battle.md) the Match is one Battle: two armies of Soldiers (the Crowd, `SimState.crowd`)
+ * on a Battlefield (`battle:<seed>`), stepped after its Fighters (`stepBattle`), until a Team routs and the other wins.
+ * `teams` are only its Fighters (the Players'; none for an AI-vs-AI war), and `bestOf` is ignored.
+ *
  * Like SimState, MatchState is plain JSON-like data and `stepMatch` is pure,
  * so a whole Match hashes (`hashValue`) and snapshots (`snapshot`) exactly
  * for Rollback.
@@ -37,13 +41,19 @@ import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
+import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
+import { battleArenaName, parseBattleName } from './battlefield';
+import { createCrowd } from './crowd';
 
 /** The most Fighters a team may field. */
 export const MAX_TEAM_SIZE = 4;
 
-/** How a Match is played: Duels (best-of-N, the default) or Gauntlet (a Run through a Dungeon). */
-export type MatchFormat = 'Duels' | 'Gauntlet';
+/** How a Match is played: Duels (best-of-N, the default), Gauntlet (a Run through a Dungeon) or Battle (two armies, docs/plans/big-battle.md). */
+export type MatchFormat = 'Duels' | 'Gauntlet' | 'Battle';
+/** The Formats the Lobby offers, and the only ones online play accepts. A Battle is offline only for now (Stage 1). */
 export const MATCH_FORMATS: readonly MatchFormat[] = ['Duels', 'Gauntlet'];
+/** Every Format `createMatch` builds. */
+const ALL_FORMATS: readonly MatchFormat[] = [...MATCH_FORMATS, 'Battle'];
 
 export interface MatchConfig {
   /** Duels (default) or Gauntlet: a Run, where `bestOf` is ignored and `teams` is Team 0's 1 to MAX_TEAM_SIZE Fighters followed by MAX_TEAM_SIZE Team 1 slots. */
@@ -163,7 +173,7 @@ export interface ItemTakenEvent extends Dropped {
 }
 
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | RoutEvent | BattleEndEvent;
 
 /** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
 export interface DroppedItem extends Dropped {
@@ -407,7 +417,8 @@ function runArena(tuning: TuningData, name: string): string {
 /** A Match at Tick 0: Duel 1 (or a Run's first Hall) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
   const format = options.format ?? 'Duels';
-  if (!MATCH_FORMATS.includes(format)) throw new RangeError(`format must be one of ${MATCH_FORMATS.join(', ')}, got ${String(format)}`);
+  if (!ALL_FORMATS.includes(format)) throw new RangeError(`format must be one of ${ALL_FORMATS.join(', ')}, got ${String(format)}`);
+  if (format === 'Battle') return createBattle(tuning, options);
   const gauntlet = format === 'Gauntlet';
   const teams = options.teams ?? [0, 1];
   if (gauntlet) checkRunTeams(teams);
@@ -464,6 +475,36 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   };
 }
 
+/**
+ * A Battle at Tick 0: both armies deployed (`createCrowd`) on Battlefield `options.arena` (default `battle:<seed>`), its
+ * Fighters (`teams`: 0 to MAX_TEAM_SIZE a Team, default none) at their Team's spawns behind its army. Throws on a bad lineup,
+ * an Arena that is not a Battlefield, or a Rematch (a Battle has none).
+ */
+function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
+  const teams = options.teams ?? [];
+  if (!teams.every((t) => t === 0 || t === 1)) throw new RangeError(`Every Fighter's team must be 0 or 1, got [${teams.join(', ')}]`);
+  for (const t of [0, 1]) if (teams.filter((team) => team === t).length > MAX_TEAM_SIZE) throw new RangeError(`A Battle fields at most ${MAX_TEAM_SIZE} Fighters on Team ${t}`);
+  if (options.rematchTicks != null) throw new RangeError('A Battle has no Rematch: rematchTicks must be null');
+  if (options.start || options.relics?.length) throw new RangeError('Only a Run has a start Hall or Relics');
+  const seed = options.seed ?? 1;
+  const arena = options.arena ?? battleArenaName(seed);
+  if (parseBattleName(arena) === null) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed>), got "${arena}"`);
+  const config: MatchConfig = {
+    format: 'Battle',
+    bestOf: options.bestOf,
+    distance: options.distance ?? tuning.match.duelDistance,
+    spacing: options.spacing ?? tuning.match.lineSpacing,
+    interDuelTicks: options.interDuelTicks ?? secondsToTicks(tuning.match.interDuelSeconds),
+    weapons: teams.map((_, i) => weaponByName(tuning, options.weapons?.[i] ?? defaultWeaponName(tuning)).name),
+    teams: [...teams],
+    rematchTicks: null,
+    arena,
+    humans: options.humans ?? teams.length,
+  };
+  const duel = { ...initialDuel(tuning, config, arena, seed), crowd: createCrowd(tuning.battle, seed) };
+  return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }], run: null };
+}
+
 /** The Fighters on `team`, by index. */
 export function teamMembers(match: MatchState, team: number): number[] {
   return match.config.teams.flatMap((t, i) => (t === team ? [i] : []));
@@ -479,6 +520,7 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
 
   const { status: over, config } = match;
   if (match.run && over.status === 'InProgress') return stepRun(match, match.run, intents, tuning, tick);
+  if (config.format === 'Battle' && over.status === 'InProgress') return stepBattle(match, intents, tuning, tick);
 
   if (over.status === 'Over' && config.rematchTicks !== null && tick >= over.tick + config.rematchTicks) {
     // A fresh Match: Duel 1, score 0–0, the generator carried on so it isn't a replay of the last one, on the next
