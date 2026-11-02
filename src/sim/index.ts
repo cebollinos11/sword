@@ -37,6 +37,7 @@ export type {
   SimState,
   SimHall,
   HallPhase,
+  SoldierBinding,
   SheatheAction,
   Slide,
   Slow,
@@ -82,7 +83,7 @@ export {
 export { corners, DROP_DAMAGE_LIMIT, findPath, JUMP_HOLDS, navMesh, navPolygon, steer, type DropLink, type JumpLink, type NavLink, type NavMesh, type NavPoint, type PathOptions, type WalkLink } from './nav';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
-export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, step, teamPlacements } from './step';
+export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, standingFighter, step, teamPlacements } from './step';
 export {
   attackMotionName,
   attackTimings,
@@ -201,4 +202,5 @@ export {
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield } from './battlefield';
-export { createCrowd, crowdAlive, crowdDue, routs, stepCrowd, type CrowdState, type Rout } from './crowd';
+export { createCrowd, crowdAlive, crowdDue, routs, stepCrowd, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { isBound, stepBubbles, unboundSlot } from './bubble';

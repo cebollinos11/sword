@@ -48,7 +48,8 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
 
 /** A puff of floor dust kicked up at a Fighter's feet. `strength` is 0..1: how big and how many. */
 export interface DustPuff {
-  readonly kind: 'Jump' | 'Land' | 'Down' | 'Shove' | 'Scuff';
+  /** `Swap`: a Battle's Soldier swapping between its impostor and its full model (Promotion, Demotion), raised by the game, not from events. */
+  readonly kind: 'Jump' | 'Land' | 'Down' | 'Shove' | 'Scuff' | 'Swap';
   readonly point: Vec3;
   readonly strength: number;
 }
@@ -164,6 +165,7 @@ const DUST_LOOKS: Record<DustPuff['kind'], { count: number; speed: number; radiu
   Down: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Shove: { count: 7, speed: 1.4, radius: 0.2, life: 0.6 },
   Scuff: { count: 2, speed: 0.6, radius: 0.13, life: 0.45 },
+  Swap: { count: 10, speed: 1.1, radius: 0.32, life: 0.75 },
 };
 
 interface Particle {
@@ -258,6 +260,11 @@ export class ImpactEffects {
       p.velocity.randomDirection().multiplyScalar(look.speed * strength * (0.4 + 0.6 * Math.random()));
       p.mesh.scale.set(look.size[0], look.size[0], look.size[1]);
     }
+  }
+
+  /** Raise a dust puff now (one no Tick's events report, e.g. a Battle's swap). */
+  dust(puff: DustPuff): void {
+    this.puff(puff);
   }
 
   private puff({ kind, point, strength }: DustPuff): void {

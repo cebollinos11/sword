@@ -6,13 +6,16 @@
  * frame its state shows (`soldierFrame`), and glides between its Crowd steps (`soldierAt`).
  *
  * It only reads the Crowd. What the Crowd does not hold (when a Soldier was struck or fell) the view notes itself, as it
- * sees each Soldier's HP drop or its life end; a view that starts mid-battle shows the already fallen at rest.
+ * sees each Soldier's HP drop or its life end; a view that starts mid-battle shows the already fallen at rest. A promoted
+ * Soldier (Stage 3) is drawn as its full Fighter instead: its impostor fades out, dithered (`dither.ts`), as the model fades
+ * in (`BubbleSwap`), and what happens to it meanwhile is the model's to show, so it lies at rest if it comes back fallen.
  */
 import * as THREE from 'three';
 import { battlefieldHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { atlasCell, directionCell, soldierAt, soldierFrame, yawTo, type AtlasLayout, type ClipSeconds } from './impostor';
 import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
+import { BAYER_GLSL } from './dither';
 
 /** A Soldier's shadow: its radius (m), how dark (0 to 1), and how far above the ground it lies (m). */
 const SHADOW_RADIUS = 0.42;
@@ -22,8 +25,10 @@ const SHADOW_LIFT = 0.03;
 const vertexShader = /* glsl */ `
   attribute vec3 aFeet;
   attribute vec2 aCell;
+  attribute float aFade;
   uniform vec2 uCellSize;
   varying vec2 vUv;
+  varying float vFade;
   #include <fog_pars_vertex>
   void main() {
     // Turned about the vertical to face the camera.
@@ -32,6 +37,7 @@ const vertexShader = /* glsl */ `
     vec2 f = d > 1e-4 ? toCamera / d : vec2(0.0, 1.0);
     vec3 world = aFeet + vec3(f.y, 0.0, -f.x) * position.x + vec3(0.0, position.y, 0.0);
     vUv = aCell + uv * uCellSize;
+    vFade = aFade;
     vec4 mvPosition = viewMatrix * vec4(world, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
@@ -43,8 +49,12 @@ const fragmentShader = /* glsl */ `
   uniform sampler2D uMask;
   uniform vec3 uTint;
   varying vec2 vUv;
+  varying float vFade;
+  ${BAYER_GLSL}
   #include <fog_pars_fragment>
   void main() {
+    // Dithered out while its full model is drawn instead (the pixels the model keeps, the impostor drops).
+    if (vFade < 1.0 && bayer4(gl_FragCoord.xy) < 1.0 - vFade) discard;
     vec4 colour = texture2D(uAtlas, vUv);
     if (colour.a < 0.5) discard;
     float team = texture2D(uMask, vUv).r;
@@ -59,6 +69,7 @@ class TeamImpostors {
   readonly mesh: THREE.Mesh;
   readonly feet: THREE.InstancedBufferAttribute;
   readonly cell: THREE.InstancedBufferAttribute;
+  readonly fade: THREE.InstancedBufferAttribute;
 
   constructor(atlas: ImpostorAtlas, count: number, tint: number) {
     const quad = new THREE.PlaneGeometry(CELL_METRES, CELL_METRES).translate(0, CELL_METRES / 2 - FEET_METRES, 0);
@@ -70,6 +81,8 @@ class TeamImpostors {
     this.cell = new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aFeet', this.feet);
     geometry.setAttribute('aCell', this.cell);
+    this.fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aFade', this.fade);
     geometry.instanceCount = count;
     const uniforms = THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
@@ -149,9 +162,10 @@ export class CrowdView {
 
   /**
    * Draw `crowd` (the Crowd of Tick `tick`) a share `alpha` of the way to the next Tick, on the ground `hf`, as `camera`
-   * sees it. A Tick earlier than the last one drawn (a restart) forgets what the view had seen.
+   * sees it, each Soldier's impostor showing its share of `fades` (0 to 1, from `BubbleSwap`; by default all of it unless
+   * it is promoted). A Tick earlier than the last one drawn (a restart) forgets what the view had seen.
    */
-  update(crowd: CrowdState, tick: number, alpha: number, hf: Heightfield, camera: THREE.Camera): void {
+  update(crowd: CrowdState, tick: number, alpha: number, hf: Heightfield, camera: THREE.Camera, fades?: Float32Array): void {
     const n = crowd.x.length;
     const { stagger } = this.battle.crowd;
     const army = this.battle.armySize;
@@ -163,6 +177,8 @@ export class CrowdView {
     for (let i = 0; i < n; i++) {
       const team = this.teams[crowd.team[i]!]!;
       const k = i % army;
+      const fade = fades ? fades[i]! : crowd.slot[i]! >= 0 ? 0 : 1;
+      team.fade.setX(k, fade);
       soldierAt(crowd, i, tick, tick + alpha, stagger, army, at);
       const [x, z] = at;
       const y = battlefieldHeight(hf, x, z);
@@ -189,12 +205,14 @@ export class CrowdView {
       normal.set(battlefieldHeight(hf, x - e, z) - battlefieldHeight(hf, x + e, z), 2 * e, battlefieldHeight(hf, x, z - e) - battlefieldHeight(hf, x, z + e)).normalize();
       tilt.setFromUnitVectors(UP, normal);
       place.set(x, y, z).addScaledVector(normal, SHADOW_LIFT);
-      size.setScalar(2 * SHADOW_RADIUS * (alive ? 1 : 1.3));
+      // A full model draws its own shadow: the impostor's goes with it.
+      size.setScalar(2 * SHADOW_RADIUS * (alive ? 1 : 1.3) * (fade > 0.5 ? 1 : 0));
       this.shadows.setMatrixAt(i, matrix.compose(place, tilt, size));
     }
     for (const t of this.teams) {
       t.feet.needsUpdate = true;
       t.cell.needsUpdate = true;
+      t.fade.needsUpdate = true;
     }
     this.shadows.instanceMatrix.needsUpdate = true;
   }
@@ -209,8 +227,10 @@ export class CrowdView {
       this.diedAt = new Float64Array(n).fill(Number.NaN);
     } else if (tick !== this.lastTick) {
       for (let i = 0; i < n; i++) {
-        if (crowd.hp[i]! < this.seenHp[i]!) this.hitAt[i] = now;
-        if (!crowd.alive[i] && this.seenAlive[i]) this.diedAt[i] = now;
+        // A promoted Soldier's blows and fall are its full model's to show.
+        const promoted = crowd.slot[i]! >= 0;
+        if (crowd.hp[i]! < this.seenHp[i]! && !promoted) this.hitAt[i] = now;
+        if (!crowd.alive[i] && this.seenAlive[i] && !promoted) this.diedAt[i] = now;
         this.seenHp[i] = crowd.hp[i]!;
         this.seenAlive[i] = crowd.alive[i]!;
       }

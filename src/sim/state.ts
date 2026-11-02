@@ -234,6 +234,20 @@ export interface FighterState {
    * slot's spawn, out of the Duel (`inDuel`): not stepped, hits and is hit by nothing, blocks no bodies, never a target, not counted by the Duel's end.
    */
   readonly benched?: true;
+  /**
+   * In a Battle, present on a Fighter Pool slot bound to a Soldier (docs/plans/big-battle.md, Stage 3): the Soldier it was promoted
+   * from (its index in the Crowd) and the Tick of its Promotion. Absent on a Player's Fighter, on an unbound slot (which is Benched),
+   * and in every Duel and Run, so their state hashes as it always did.
+   */
+  readonly soldier?: SoldierBinding;
+}
+
+/** A Fighter Pool slot's Soldier (`FighterState.soldier`). */
+export interface SoldierBinding {
+  /** The Soldier's index in the Crowd. */
+  readonly index: number;
+  /** The Tick (`SimState.tick`) of its Promotion: the first Tick it was stepped as a full Fighter. */
+  readonly since: number;
 }
 
 /**

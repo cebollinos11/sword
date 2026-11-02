@@ -31,5 +31,13 @@
     "body": "female",
     "weapon": "Arming Sword",
     "colours": ["#c0392b", "#2e86c1"]
+  },
+  "bubble": {
+    "poolSize": 16,
+    "promote": 10,
+    "demote": 16,
+    "minPromotedSeconds": 1,
+    "corpseSeconds": 3,
+    "hold": 3
   }
 }

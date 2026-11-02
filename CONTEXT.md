@@ -286,20 +286,32 @@ The screen on `M` (a touch button on phones), open at any time in a Run, even mi
 What a Player's Fighter carries at the end of a Run, listed on the results screen with each item's icon and name: the wielded Weapon and the equipped Relics, the carried ones smaller.
 
 **Benched**:
-A Team 1 slot a Hall has no enemy for (its Encounter lists fewer than four, or an enemy's `minTeam` is not met; every slot of a Treasure or Rest Hall): out of that Hall's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
+A Team 1 slot a Hall has no enemy for (its Encounter lists fewer than four, or an enemy's `minTeam` is not met; every slot of a Treasure or Rest Hall), or a Battle's Fighter Pool slot bound to no Soldier: out of that Hall's Duel. It has 0 HP but no Death, stands at its spawn, is not simulated, hits and is hit by nothing, blocks no bodies, is no AI's target, and counts for neither Team when the Duel ends.
 _Avoid_: Empty, disabled, dead (it never fell)
 
 **Battle**:
-A Match in the Battle Format: two armies of `battle.armySize` Soldiers each (Tuning Data `data/battle.json`) deployed in ranks facing each other on a Battlefield, ending in a Rout; the Team that did not rout wins. Its Fighters are only the Players' (none in an AI-vs-AI war); the Crowd ignores them for now. The Battlefield is its Arena, built from its name alone (`battle:<seed>`): an open square field of gentle hills, a heightfield whose grid cells are two flat triangles each (its Walk Surfaces), with no Walls, Kit, Jump Links or Abyss. There is no Rematch. Built offline only, not yet offered in the Lobby (ADR 0020).
+A Match in the Battle Format: two armies of `battle.armySize` Soldiers each (Tuning Data `data/battle.json`) deployed in ranks facing each other on a Battlefield, ending in a Rout; the Team that did not rout wins. Its Fighters are its Fighter Pool: the Players' (none in an AI-vs-AI war), then slots its Bubbles bind to Soldiers. Its Duel never ends by its Fighters, only with the Battle. The Battlefield is its Arena, built from its name alone (`battle:<seed>`): an open square field of gentle hills, a heightfield whose grid cells are two flat triangles each (its Walk Surfaces), with no Walls, Kit, Jump Links or Abyss. There is no Rematch. Built offline only, not yet offered in the Lobby (ADR 0020).
 _Avoid_: War, siege, skirmish (that is the Lobby's offline mode)
 
 **Soldier**:
-A member of a Battle's army that is not a full Fighter: plain data in the Crowd (position, heading, velocity, HP in a Fighter's units, Team, the enemy Soldier it is engaged with), fighting other Soldiers by rule and standing on the Battlefield's ground. It has no Skeleton and no Blade Sweep, and never damages a Fighter. At 0 HP it dies and stops counting. It is drawn as an impostor: a billboard of the Battle's generic soldier (Tuning Data `battle.soldier`, one Body and Weapon for both armies, in its Team's colour), baked from that soldier's own Motions when the Battle is drawn.
+A member of a Battle's army that is not a full Fighter: plain data in the Crowd (position, heading, velocity, HP in a Fighter's units, Team, the enemy Soldier it is engaged with), fighting other Soldiers by rule and standing on the Battlefield's ground. It has no Skeleton and no Blade Sweep, and never targets or damages a full Fighter: it holds outside sword reach of an enemy one (`battle.bubble.hold`). Near a Player it may be promoted to a full Fighter (Promotion), and while promoted it is out of the Crowd. At 0 HP it dies and stops counting. It is drawn as an impostor: a billboard of the Battle's generic soldier (Tuning Data `battle.soldier`, one Body and Weapon for both armies, in its Team's colour), baked from that soldier's own Motions when the Battle is drawn.
 _Avoid_: Unit, NPC, Fighter (for a Soldier)
 
 **Crowd**:
 All of a Battle's Soldiers (`SimState.crowd`, struct-of-arrays) and the low-rate step that moves and fights them, inside the Tick after the Fighters. Each Soldier steps once every `battle.crowd.stagger` Ticks, 1/stagger of them each Tick, each on the same Tick as its opposite number in the other army. A step pushes it apart from neighbours closer than `separation`, then: an enemy within `engageReach` is engaged (it stands and rolls its blows from the Crowd's own seeded generator; a Tick's blows land together after its steps), one within `sight` is walked at, and with none in sight it follows its Team's flow field toward the enemy army. Hashed, snapshotted and rolled back like the rest of the state (ADR 0020).
 _Avoid_: Horde, mob
+
+**Bubble**:
+The region round a Player's Fighter in a Battle where Soldiers become full Fighters: an enemy Soldier within `battle.bubble.promote` of it is promoted while the Fighter Pool has a free slot, nearest first; a promoted Fighter further than `battle.bubble.demote` from every Player's Fighter is demoted. It is decided from Simulation positions only, never the camera, so every peer agrees. It moves with the Player; a Player who has fallen has none. Allies and the Attack Slots come in Stage 4 of `docs/plans/big-battle.md`.
+_Avoid_: LOD zone, radius
+
+**Promotion / Demotion**:
+A Soldier becoming a full Fighter in a Fighter Pool slot, and back: a Simulation step at the start of a Battle's Tick, rolled back like any other (ADR 0020). Promoted, it stands at guard where the Soldier stood, facing its heading, with its Team and HP, the generic soldier's Weapon, and a fresh Beginner AI started on its first Tick (the slot's Pool AI). It demotes only Idle on the ground (standing or walking, never mid-Attack, Block, Stagger, Knockdown or Fall) and no sooner than `battle.bubble.minPromotedSeconds` after its Promotion, writing its position, heading and HP back to its Soldier. One that falls kills its Soldier where it fell, and `battle.bubble.corpseSeconds` later its slot frees, the Soldier lying in the Crowd. Drawn as a short dithered crossfade between the impostor and the full model, with a dust puff.
+_Avoid_: Spawn, despawn, LOD switch
+
+**Fighter Pool**:
+A Battle's full Fighters (`SimState.fighters`): a fixed `battle.bubble.poolSize` slots, so the state's shape never changes. The Players' Fighters hold the first, for good; every other slot is Benched while unbound, or bound to the Soldier it was promoted from (`FighterState.soldier`). MAX_TEAM_SIZE limits only the Players.
+_Avoid_: Active list
 
 **Rout**:
 A Team breaking once its living Soldiers fall below `battle.rout.threshold` of the army (the one with fewer left, if both fall on one Tick): its Soldiers stop fighting and flee toward their own edge of the field, and `battle.rout.seconds` later the Battle ends with the other Team's win. There is no hunt for the last stragglers.

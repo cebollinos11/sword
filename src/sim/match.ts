@@ -44,6 +44,7 @@ import { createInitialState, step, teamPlacements } from './step';
 import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 import { battleArenaName, parseBattleName } from './battlefield';
 import { createCrowd } from './crowd';
+import { unboundSlot } from './bubble';
 
 /** The most Fighters a team may field. */
 export const MAX_TEAM_SIZE = 4;
@@ -477,7 +478,9 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
 
 /**
  * A Battle at Tick 0: both armies deployed (`createCrowd`) on Battlefield `options.arena` (default `battle:<seed>`), its
- * Fighters (`teams`: 0 to MAX_TEAM_SIZE a Team, default none) at their Team's spawns behind its army. Throws on a bad lineup,
+ * Players' Fighters (`teams`: 0 to MAX_TEAM_SIZE a Team, default none) at their Team's spawns behind its army, then the rest
+ * of the Fighter Pool (`battle.bubble.poolSize` slots in all) unbound. `teams` (and `weapons`) name only the Players' Fighters:
+ * `checkTeams` and its MAX_TEAM_SIZE a side never apply to the Pool. Throws on a bad lineup, more Players than the Pool holds,
  * an Arena that is not a Battlefield, or a Rematch (a Battle has none).
  */
 function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
@@ -501,7 +504,11 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
     arena,
     humans: options.humans ?? teams.length,
   };
-  const duel = { ...initialDuel(tuning, config, arena, seed), crowd: createCrowd(tuning.battle, seed) };
+  const { poolSize } = tuning.battle.bubble;
+  if (teams.length > poolSize) throw new RangeError(`A Battle's Fighter Pool holds ${poolSize} Fighters, got ${teams.length} Players`);
+  const players = initialDuel(tuning, config, arena, seed);
+  const unbound = unboundSlot(tuning, arena);
+  const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: createCrowd(tuning.battle, seed) };
   return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }], run: null };
 }
 

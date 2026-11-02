@@ -32,10 +32,19 @@ describe('Battle Tuning Data (data/battle.json)', () => {
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, body: '' } })).toThrow(/battle\.soldier\.body/);
   });
 
+  it('sets the Bubble: a Pool of 16, promote at 10 m and demote beyond 16 m, holding outside sword reach', () => {
+    const b = tuning.battle;
+    expect(b.bubble).toEqual({ poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 });
+    expect(() => parseBattle({ ...b, bubble: { ...b.bubble, demote: 10 } })).toThrow(/battle\.bubble\.demote \(10\) must be more than/);
+    expect(() => parseBattle({ ...b, bubble: { ...b.bubble, hold: 12 } })).toThrow(/battle\.bubble\.hold/);
+    expect(() => parseBattle({ ...b, bubble: { ...b.bubble, poolSize: 1.5 } })).toThrow(/battle\.bubble\.poolSize must be a whole number/);
+    expect(() => parseBattle({ ...b, bubble: undefined })).toThrow(/battle\.bubble/);
+  });
+
   it('is part of the Tuning Data hash', () => {
     const base = tuningDataHash(tuning);
     const b = tuning.battle;
-    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }])
+    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }])
       expect(tuningDataHash({ ...tuning, battle })).not.toBe(base);
   });
 });

@@ -27,6 +27,8 @@ import { createRng, nextFloat } from './rng';
 const tuning = loadTuningData();
 /** Two small armies that meet within a few seconds: fast enough to fight many Battles in a test. */
 const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+/** The same with a Fighter Pool only big enough for one Player: nothing promotes, so the Crowd fights alone (no AI drives a promoted Fighter here). */
+const unpooled: TuningData = { ...small, battle: { ...small.battle, bubble: { ...small.battle.bubble, poolSize: 1 } } };
 
 const battle = (t: TuningData, seed: number, teams: number[] = []) => createMatch(t, { format: 'Battle', bestOf: 1, seed, teams });
 
@@ -62,10 +64,12 @@ describe('the Battle Format', () => {
     expect(m.config.format).toBe('Battle');
     expect(m.arena).toBe('battle:7');
     expect(crowdAlive(m.duel.crowd!)).toEqual([tuning.battle.armySize, tuning.battle.armySize]);
-    expect(m.duel.fighters).toHaveLength(1);
+    // The Player's Fighter, then the rest of the Fighter Pool, unbound (Benched).
+    expect(m.duel.fighters).toHaveLength(tuning.battle.bubble.poolSize);
+    expect(m.duel.fighters.slice(1).every((f) => f.benched && f.soldier === undefined)).toBe(true);
     const spawn = arenaOf(tuning, m.arena).spawns.find((s) => s.team === 0 && s.slot === 0)!;
     expect(m.duel.fighters[0]!.position).toEqual({ x: spawn.position.x, z: spawn.position.z });
-    expect(battle(tuning, 7).duel.fighters).toHaveLength(0);
+    expect(battle(tuning, 7).duel.fighters.every((f) => f.benched)).toBe(true);
     expect(() => createMatch(tuning, { format: 'Battle', bestOf: 1, arena: 'circle' })).toThrow(/Battlefield/);
     expect(() => createMatch(tuning, { format: 'Battle', bestOf: 1, rematchTicks: 60 })).toThrow(/Rematch/);
     expect(() => createMatch(tuning, { format: 'Battle', bestOf: 1, teams: [0, 0, 0, 0, 0] })).toThrow(/at most/);
@@ -91,18 +95,18 @@ describe('the Battle Format', () => {
   });
 
   it('continues identically from a snapshot taken mid-battle, and a Rollback across the Rout re-simulates to the same state', () => {
-    const full = toEnd(battle(small, 5, [1]), small);
+    const full = toEnd(battle(unpooled, 5, [1]), unpooled);
     const routTick = full.duel.crowd!.rout!.tick;
     // Mid-battle, with Soldiers already fallen.
-    const mid = run(battle(small, 5, [1]), routTick - 120, small);
-    expect(crowdAlive(mid.duel.crowd!).some((n) => n < small.battle.armySize)).toBe(true);
+    const mid = run(battle(unpooled, 5, [1]), routTick - 120, unpooled);
+    expect(crowdAlive(mid.duel.crowd!).some((n) => n < unpooled.battle.armySize)).toBe(true);
     const snap = snapshot(mid);
-    const straight = run(mid, 240, small);
-    const again = run(restore(snap), 240, small);
+    const straight = run(mid, 240, unpooled);
+    const again = run(restore(snap), 240, unpooled);
     expect(straight.duel.crowd!.rout).not.toBeNull();
     expect(hashValue(again)).toBe(hashValue(straight));
     // The snapshot stays reusable, and a Rollback to it lands on the same final state too.
-    expect(hashValue(toEnd(restore(snap), small))).toBe(hashValue(full));
+    expect(hashValue(toEnd(restore(snap), unpooled))).toBe(hashValue(full));
   });
 
   it('routs a Team once it falls below the threshold, and ends with the other Team’s win after the rout duration', () => {

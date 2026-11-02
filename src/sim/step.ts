@@ -72,31 +72,37 @@ export function createInitialState(
     tick: 0,
     arena,
     rng: createRng(seed),
-    fighters: placements.map(({ position, facing, y: placedY = 0 }, i) => {
-      // A placement stands on the ground under it, within a step of where it is placed.
-      const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
-      const weapon = weaponByName(tuning, weapons[i] ?? defaultWeaponName(tuning)).name;
-      return {
-        position: { x: position.x, z: position.z },
-        y,
-        facing,
-        pitch: 0,
-        crouch: 0,
-        team: teams[i] ?? defaultTeam(i),
-        hp: tuning.fighter.maxHp,
-        maxHp: tuning.fighter.maxHp,
-        weapon,
-        action: IDLE_ACTION,
-        motion: IDLE_MOTION,
-        ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
-        daggers: tuning.dagger.count,
-        sheathed: false,
-        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
-      };
-    }),
+    fighters: placements.map((placement, i) => standingFighter(tuning, geometry, placement, weapons[i] ?? defaultWeaponName(tuning), teams[i] ?? defaultTeam(i))),
     daggers: [],
     duel: DUEL_FIGHTING,
     events: [],
+  };
+}
+
+/**
+ * A Fighter at the start of a Duel: Idle at guard, full HP, standing on the ground under `placement` (within a step of its
+ * height), wielding `weapon` (a Weapon name; throws on an unknown one) on `team`. A Battle's Promotion makes its Fighters here too.
+ */
+export function standingFighter(tuning: TuningData, geometry: ArenaGeometry, { position, facing, y: placedY = 0 }: Placement, weaponName: string, team: number): FighterState {
+  // A placement stands on the ground under it, within a step of where it is placed.
+  const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
+  const weapon = weaponByName(tuning, weaponName).name;
+  return {
+    position: { x: position.x, z: position.z },
+    y,
+    facing,
+    pitch: 0,
+    crouch: 0,
+    team,
+    hp: tuning.fighter.maxHp,
+    maxHp: tuning.fighter.maxHp,
+    weapon,
+    action: IDLE_ACTION,
+    motion: IDLE_MOTION,
+    ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
+    daggers: tuning.dagger.count,
+    sheathed: false,
+    gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
   };
 }
 
@@ -359,7 +365,8 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   fighters.forEach((f, i) => {
     if (f.death?.tick === tick) emit({ type: 'Death', fighter: i, cause: f.death.cause });
   });
-  const duel = updateDuel(state.duel, fighters, tick, emit, state.hall !== undefined);
+  // A Battle's Duel never ends by its Fighters: the Battle ends by a Rout (`stepBattle`).
+  const duel = state.crowd ? state.duel : updateDuel(state.duel, fighters, tick, emit, state.hall !== undefined);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
   return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.hall === undefined ? {} : { hall: state.hall }), ...(state.crowd === undefined ? {} : { crowd: state.crowd }) };

@@ -344,6 +344,12 @@ export class Menu {
     return this.navItem('Battle (dev)', 'Watch 200 v 200 Soldiers fight it out', () => (location.hash = '#/battle/1?dev=1'));
   }
 
+  /** Plays a Battle (docs/plans/big-battle.md, Stage 3): your Fighter among the armies, Soldiers near you promoted to full Fighters. Null without ?dev=1. */
+  private battlePlayItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    return this.navItem('Battle, playing (dev)', 'Walk into 200 v 200 and fight whoever comes near', () => (location.hash = '#/battle/1/play?dev=1'));
+  }
+
   /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
@@ -383,6 +389,7 @@ export class Menu {
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
       this.battleItem(),
+      this.battlePlayItem(),
       this.ps1Item(),
       this.colliderItem(),
       editor,

@@ -847,7 +847,9 @@ class RuleAi implements AiController {
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
     const fighters = state.fighters.map((o, i): Sighting => {
-      const before = prev?.fighters[i];
+      // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
+      const last = prev?.fighters[i];
+      const before = last?.fallen && inDuel(o) ? undefined : last;
       // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
       const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
       const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
@@ -1487,8 +1489,14 @@ class RuleAi implements AiController {
    * Its route to `target` (Links, from where it stands), re-planned when either changes surface or every REPATH_TICKS;
    * null when they share a Walk Surface, either is off the navmesh, it is in the air, or there is no way. It follows jump
    * Links held no longer than its `jumpNav` (none while Slowed, as a Slowed Jump falls short), except one it just gave up on.
+   * A Battle's open field (it has a Crowd) has no Walls, ledges or Links: it walks straight there, and never builds a navmesh
+   * for the field's thousands of Walk Surfaces.
    */
   private routeTo(state: SimState, self: FighterState, target: Waypoint): readonly number[] | null {
+    if (state.crowd) {
+      this.route = null;
+      return null;
+    }
     const arena = arenaOf(this.tuning, state.arena);
     const me = { x: self.position.x, z: self.position.z, y: self.y };
     const it = { x: target.position.x, z: target.position.z, y: target.y };
@@ -1587,6 +1595,8 @@ class RuleAi implements AiController {
    * target than it stands and heading away from it. The nearest takeoff; ties go to the lower id.
    */
   private escapeLink(state: SimState, self: FighterState, target: Sighting): number | null {
+    // A Battle's open field has no Links (`routeTo`).
+    if (state.crowd) return null;
     const arena = arenaOf(this.tuning, state.arena);
     const mesh = navMesh(arena, this.tuning);
     const from = navPolygon(arena, this.tuning, { x: self.position.x, z: self.position.z, y: self.y });

@@ -64,6 +64,25 @@ export interface SoldierTuning {
   readonly colours: readonly [number, number];
 }
 
+/**
+ * The Bubble round each Player's Fighter (docs/plans/big-battle.md, Stage 3): where Soldiers promote to full Fighters in
+ * the Fighter Pool, and when they demote back to the Crowd.
+ */
+export interface BubbleTuning {
+  /** Slots in a Battle's Fighter Pool, the Players' Fighters' included (a whole number). */
+  readonly poolSize: number;
+  /** A living Soldier this close (m, across the ground) to a Player's Fighter promotes, nearest first, while a slot is free. */
+  readonly promote: number;
+  /** A promoted Fighter further than this (m) from every Player's Fighter demotes, when its Action allows. More than `promote`. */
+  readonly demote: number;
+  /** A promoted Fighter never demotes sooner than this after its Promotion (s). */
+  readonly minPromotedSeconds: number;
+  /** A promoted Fighter that falls keeps its slot this long (s), so its Death Ragdoll plays, before it goes back to the Crowd as a fallen Soldier. */
+  readonly corpseSeconds: number;
+  /** A Soldier never steps closer than this (m) to an enemy full Fighter: it holds outside sword reach. */
+  readonly hold: number;
+}
+
 export interface BattleTuning {
   /** Soldiers in each army (a whole number, at least 1). */
   readonly armySize: number;
@@ -72,6 +91,7 @@ export interface BattleTuning {
   readonly crowd: CrowdTuning;
   readonly rout: RoutTuning;
   readonly soldier: SoldierTuning;
+  readonly bubble: BubbleTuning;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -101,6 +121,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   const c = record(b.crowd, 'battle.crowd');
   const r = record(b.rout, 'battle.rout');
   const s = record(b.soldier, 'battle.soldier');
+  const u = record(b.bubble, 'battle.bubble');
   const field: BattlefieldTuning = {
     size: positiveNumber(f, 'size', 'battle.field'),
     cell: positiveNumber(f, 'cell', 'battle.field'),
@@ -136,6 +157,16 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`battle.soldier.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
   const colours = array(s.colours, 'battle.soldier.colours');
   if (colours.length !== 2) throw new TuningDataError(`battle.soldier.colours must be [Team 0, Team 1], got ${JSON.stringify(s.colours)}`);
+  const bubble: BubbleTuning = {
+    poolSize: wholeNumber(u, 'poolSize', 'battle.bubble'),
+    promote: positiveNumber(u, 'promote', 'battle.bubble'),
+    demote: positiveNumber(u, 'demote', 'battle.bubble'),
+    minPromotedSeconds: nonNegativeNumber(u, 'minPromotedSeconds', 'battle.bubble'),
+    corpseSeconds: nonNegativeNumber(u, 'corpseSeconds', 'battle.bubble'),
+    hold: positiveNumber(u, 'hold', 'battle.bubble'),
+  };
+  if (bubble.demote <= bubble.promote) throw new TuningDataError(`battle.bubble.demote (${bubble.demote}) must be more than battle.bubble.promote (${bubble.promote})`);
+  if (bubble.hold >= bubble.promote) throw new TuningDataError(`battle.bubble.hold (${bubble.hold}) must be less than battle.bubble.promote (${bubble.promote})`);
   return {
     armySize,
     field,
@@ -147,5 +178,6 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
       weapon,
       colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
     },
+    bubble,
   };
 }

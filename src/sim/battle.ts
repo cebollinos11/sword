@@ -1,11 +1,14 @@
 /**
- * The Battle Format (docs/plans/big-battle.md, Stage 1): two armies of Soldiers on a Battlefield (`battle:<seed>`),
- * the Crowd stepped after the Fighters each Tick, ending in a Rout. The Match's Fighters (the Players', none for an
- * AI-vs-AI war) stand at their Team's spawn behind its army; in this Stage the Crowd ignores them and they it.
+ * The Battle Format (docs/plans/big-battle.md): two armies of Soldiers on a Battlefield (`battle:<seed>`), ending in a
+ * Rout. Its Fighters are a fixed Fighter Pool: the Players' (none for an AI-vs-AI war), at their Team's spawn behind its
+ * army, then slots the Bubbles bind to Soldiers near them (`stepBubbles`). Each Tick: the Bubbles, the Fighters, then
+ * the Crowd, which keeps out of the full Fighters' reach and never fights them.
  */
 import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
-import { crowdAlive, stepCrowd } from './crowd';
+import { stepBubbles } from './bubble';
+import { crowdAlive, stepCrowd, type CrowdFighter } from './crowd';
+import { inDuel } from './duel';
 import type { Intent } from './intent';
 import type { MatchEvent, MatchState } from './match';
 import { step } from './step';
@@ -27,15 +30,17 @@ export interface BattleEndEvent {
 export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.battle.rout.seconds));
 
 /**
- * One Tick of a Battle in progress (the Battle branch of `stepMatch`): the Fighters' Duel stepped (it carries the Crowd
- * through), then the Crowd; a new Rout is reported, and `routTicks` after it the Battle is over, won by the other Team
- * (the Duel ends with it, as a Run's last Boss ends its Hall's).
+ * One Tick of a Battle in progress (the Battle branch of `stepMatch`): the Bubbles promote and demote (`stepBubbles`, the
+ * Players' Fighters being the Match's `teams`), the Fighters' Duel is stepped (it carries the Crowd through), then the
+ * Crowd; a new Rout is reported, and `routTicks` after it the Battle is over, won by the other Team (the Duel ends with
+ * it, as a Run's last Boss ends its Hall's).
  */
 export function stepBattle(match: MatchState, intents: readonly Intent[], tuning: TuningData, tick: number): MatchState {
   const events: MatchEvent[] = [];
-  let duel = step(match.duel, intents, tuning);
+  let duel = step(stepBubbles(match.duel, match.config.teams.length, match.duel.tick + 1, tuning), intents, tuning);
   const before = duel.crowd!;
-  const crowd = stepCrowd(before, duel.tick, tuning.battle);
+  const fighters: CrowdFighter[] = duel.fighters.flatMap((f) => (inDuel(f) ? [{ x: f.position.x, z: f.position.z, team: f.team }] : []));
+  const crowd = stepCrowd(before, duel.tick, tuning.battle, fighters);
   duel = { ...duel, crowd };
   if (!before.rout && crowd.rout) events.push({ type: 'Rout', team: crowd.rout.team });
   let { status, score } = match;

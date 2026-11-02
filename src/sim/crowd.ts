@@ -47,6 +47,12 @@ export interface CrowdState {
   readonly engage: readonly number[];
   /** 1 while living, 0 once dead. */
   readonly alive: readonly number[];
+  /**
+   * The Fighter Pool slot it is promoted into (docs/plans/big-battle.md, Stage 3), or -1 while it is in the Crowd. A promoted Soldier
+   * leaves the Crowd step: it does not step, is not seen or struck by other Soldiers, and its other entries keep what they held at its
+   * Promotion until its Demotion writes them back (`alive` and `hp` drop to 0 at once if its Fighter falls).
+   */
+  readonly slot: readonly number[];
   /** The Crowd's own seeded generator, apart from the Duel's (`SimState.rng`), so the Crowd never shifts the Fighters' draws. */
   readonly rng: RngState;
   /** The Team that routed, once one has; null until then. */
@@ -95,6 +101,7 @@ export function createCrowd(battle: BattleTuning, seed: number): CrowdState {
     target: new Array<number>(n).fill(-1),
     engage: zeros(),
     alive: new Array<number>(n).fill(1),
+    slot: new Array<number>(n).fill(-1),
     rng: createRng(seed ^ 0x5bd1e995),
     rout: null,
   };
@@ -150,14 +157,18 @@ function flowIndex(v: number, cell: number, side: number): number {
 /** The flow grid's cells along each side: even, enough to cover the field. */
 const flowSideOf = (battle: BattleTuning): number => 2 * Math.ceil(battle.field.size / 2 / battle.crowd.flowCell);
 
-function fillGrid(grid: Grid, x: readonly number[], z: readonly number[], alive: readonly number[], half: number): void {
+/** Whether Soldier `i` is in the Crowd's fight: living, and not promoted to a full Fighter. */
+const inCrowd = (crowd: Pick<CrowdState, 'alive' | 'slot'>, i: number): boolean => crowd.alive[i] === 1 && crowd.slot[i]! < 0;
+
+function fillGrid(grid: Grid, crowd: CrowdState, half: number): void {
+  const { x, z } = crowd;
   const { start, items, cell, side } = grid;
   start.fill(0);
   const at = (i: number) => cellIndex(z[i]!, half, cell, side) * side + cellIndex(x[i]!, half, cell, side);
-  for (let i = 0; i < alive.length; i++) if (alive[i]) start[at(i) + 1]!++;
+  for (let i = 0; i < x.length; i++) if (inCrowd(crowd, i)) start[at(i) + 1]!++;
   for (let c = 1; c < start.length; c++) start[c]! += start[c - 1]!;
   const fill = start.slice(0, -1);
-  for (let i = 0; i < alive.length; i++) if (alive[i]) items[fill[at(i)]!++] = i;
+  for (let i = 0; i < x.length; i++) if (inCrowd(crowd, i)) items[fill[at(i)]!++] = i;
 }
 
 /** Team `own`'s flow field into `field`: BFS distance (in flow cells) from every cell holding a living enemy (-1: unreached). */
@@ -169,7 +180,7 @@ function fillFlow(field: Int32Array, side: number, own: number, crowd: CrowdStat
   let head = 0;
   let tail = 0;
   for (let i = 0; i < crowd.alive.length; i++) {
-    if (!crowd.alive[i] || crowd.team[i] === own) continue;
+    if (!inCrowd(crowd, i) || crowd.team[i] === own) continue;
     const c = flowIndex(crowd.z[i]!, flowCell, side) * side + flowIndex(crowd.x[i]!, flowCell, side);
     if (field[c] === -1) {
       field[c] = 0;
@@ -203,12 +214,21 @@ function flowDirection(field: Int32Array, side: number, x: number, z: number, ba
   return len > 0 ? [fx / len, fz / len] : [0, 0];
 }
 
+/** A full Fighter as the Crowd sees it (`stepCrowd`): where it stands and its Team. A Soldier never fights one, only keeps out of its reach. */
+export interface CrowdFighter {
+  readonly x: number;
+  readonly z: number;
+  readonly team: number;
+}
+
 /**
  * The Crowd one Tick on: the Soldiers due on `tick` (`crowdDue`) step, the Tick's blows land, and a Team below the Rout
  * threshold routs (the one with fewer left when both are; the generator picks on a tie). A Crowd that has routed only
- * steps on (the routed Team fleeing). Pure.
+ * steps on (the routed Team fleeing). A promoted Soldier (`slot`) neither steps nor is seen by the others. No step ends
+ * within `bubble.hold` of an enemy in `fighters` (the full Fighters in play): a Soldier holds outside its sword reach,
+ * and one already inside steps back out to it. Pure.
  */
-export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning): CrowdState {
+export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning, fighters: readonly CrowdFighter[] = []): CrowdState {
   const p = battle.crowd;
   const n = crowd.x.length;
   const half = battle.field.size / 2;
@@ -224,7 +244,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning)
   const heading = crowd.heading.slice();
   const target = crowd.target.slice();
   const engage = crowd.engage.slice();
-  const { team, alive } = crowd;
+  const { team, alive, slot } = crowd;
+  const hold = battle.bubble.hold;
   let rng = crowd.rng;
   const draw = () => {
     const [v, next] = nextFloat(rng);
@@ -233,7 +254,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning)
   };
 
   const grid = gridFor(battle, n);
-  fillGrid(grid, crowd.x, crowd.z, alive, half);
+  fillGrid(grid, crowd, half);
   const reach = Math.ceil(p.sight / grid.cell);
   const flowSide = flowSideOf(battle);
   if (!flowScratch || flowScratch[0].length !== flowSide * flowSide) flowScratch = [new Int32Array(flowSide * flowSide), new Int32Array(flowSide * flowSide)];
@@ -249,7 +270,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning)
     const k = (due % Math.ceil(army / p.stagger)) * p.stagger + (tick % p.stagger);
     if (k >= army) continue;
     const i = (due < Math.ceil(army / p.stagger) ? 0 : army) + k;
-    if (!alive[i]) continue;
+    if (!inCrowd(crowd, i)) continue;
     const xi = x[i]!;
     const zi = z[i]!;
     const own = team[i]!;
@@ -353,8 +374,25 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning)
     }
     const push = Math.hypot(sx, sz);
     const cap = push > p.separation / 2 ? p.separation / 2 / push : 1;
-    const nx = Math.min(edge, Math.max(-edge, xi + wx * stride + sx * cap));
-    const nz = Math.min(edge, Math.max(-edge, zi + wz * stride + sz * cap));
+    let nx = xi + wx * stride + sx * cap;
+    let nz = zi + wz * stride + sz * cap;
+    // Out of every enemy full Fighter's reach: put back on the edge of its hold, away from it.
+    for (const f of fighters) {
+      if (f.team === own) continue;
+      const ox = nx - f.x;
+      const oz = nz - f.z;
+      const d = Math.hypot(ox, oz);
+      if (d >= hold) continue;
+      if (d > 1e-9) {
+        nx = f.x + (ox / d) * hold;
+        nz = f.z + (oz / d) * hold;
+      } else {
+        // Exactly on it: back the way its own army stands.
+        nz = f.z + (own === 0 ? -hold : hold);
+      }
+    }
+    nx = Math.min(edge, Math.max(-edge, nx));
+    nz = Math.min(edge, Math.max(-edge, nz));
     vx[i] = (nx - xi) / dt;
     vz[i] = (nz - zi) / dt;
     x[i] = nx;
@@ -394,5 +432,5 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning)
     }
   }
 
-  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, rng, rout };
+  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, rng, rout };
 }

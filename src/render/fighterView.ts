@@ -5,6 +5,7 @@ import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyMod
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
+import { setDitherFade } from './dither';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
@@ -140,6 +141,12 @@ export class FighterView {
   set bodyVisible(on: boolean) {
     this.skeleton.visible = on && !this.model;
     if (this.model) this.model.root.visible = on;
+  }
+
+  /** How much of it shows, 0 (none) to 1 (all): between them it is dithered (`dither.ts`), crossfading with a Soldier's impostor. */
+  setFade(fade: number): void {
+    if (fade >= 1 && this.root.userData.fade === undefined) return;
+    setDitherFade(this.root, fade);
   }
 
   /** Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data). */

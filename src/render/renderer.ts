@@ -12,6 +12,7 @@ import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
 import type { FireState } from './restFire';
 import { drawnPose, fighterColours, FighterView } from './fighterView';
+import type { SkeletonPose } from '../sim';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
@@ -25,6 +26,9 @@ export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readon
  * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
  * Team 1 slot its Hall leaves empty) is not drawn at all: no model, no shadow,
  * no dagger in hand, no trail. A Run's Hall also draws its Doors and Rest fire (`HallMarks`).
+ *
+ * In a Battle (docs/plans/big-battle.md) every Fighter wears its Team's soldier colour (`battle.soldier.colours`), and a
+ * Fighter Pool slot can be faded (`setFades`): a slot just freed keeps drawing the pose it last showed while it fades out.
  */
 export class Renderer {
   private readonly stage: Stage;
@@ -50,6 +54,10 @@ export class Renderer {
   private readonly pickupMarks: PickupMarks;
   private pickups: readonly PickupView[] = [];
   private fire: FireState = 'lit';
+  /** Each Fighter's share of its model to show (`setFades`); null: all of every one. */
+  private fades: ((fighter: number) => number) | null = null;
+  /** The pose each Fighter was last drawn in, held for a slot fading out once it is no longer drawn. */
+  private readonly lastPoses: (SkeletonPose | undefined)[] = [];
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -99,6 +107,24 @@ export class Renderer {
 
   get canvas(): HTMLCanvasElement {
     return this.stage.canvas;
+  }
+
+  /** The WebGL renderer drawing it (e.g. to bake a Battle's impostor atlas with). */
+  get gl(): THREE.WebGLRenderer {
+    return this.stage.renderer;
+  }
+
+  /** The scene, for a view drawn alongside the Fighters (a Battle's Crowd). */
+  get scene(): THREE.Scene {
+    return this.stage.scene;
+  }
+
+  /**
+   * From the next frame on, how much of each Fighter's model shows (0 to 1, dithered between), or null for all of each.
+   * A Benched Fighter with a share above 0 is drawn in the pose it last showed (a Battle's slot fading out after its Demotion).
+   */
+  setFades(fades: ((fighter: number) => number) | null): void {
+    this.fades = fades;
   }
 
   /** Draw at PlayStation resolution (the screen's aspect ratio kept), or the usual one. */
@@ -158,12 +184,14 @@ export class Renderer {
     const world = this.world(curr.arena);
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
-    const colours = fighterColours(curr.fighters.map((f) => f.team));
+    const colours = curr.crowd ? curr.fighters.map((f) => world.tuning.battle.soldier.colours[f.team] ?? 0xffffff) : fighterColours(curr.fighters.map((f) => f.team));
     const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning)));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
-      const pose = poses[i];
-      if (!pose) {
+      const fade = this.fades ? this.fades(i) : 1;
+      const pose = poses[i] ?? (fade > 0 ? this.lastPoses[i] : undefined);
+      if (poses[i]) this.lastPoses[i] = poses[i];
+      if (!pose || fade <= 0) {
         if (slot) slot.view.root.visible = false;
         return;
       }
@@ -171,7 +199,8 @@ export class Renderer {
       const picked = i === this.player.fighter ? this.player.body : other !== undefined && isBody(other) ? other : undefined;
       const chosen = picked !== undefined;
       const body = this.forced ?? picked ?? (slot && !slot.chosen ? slot.body : randomBody());
-      if (!slot || slot.colour !== colours[i] || slot.body !== body) {
+      // A slot fading out keeps the view it was drawn with.
+      if (!slot || (poses[i] && (slot.colour !== colours[i] || slot.body !== body))) {
         // First sight of this Fighter, a new Match put another team in its slot, or it changed Body.
         if (slot) this.stage.scene.remove(slot.view.root);
         slot = { view: new FighterView(colours[i]!, this.tuning, body), colour: colours[i]!, body, chosen };
@@ -179,6 +208,7 @@ export class Renderer {
         this.stage.scene.add(slot.view.root);
       }
       slot.view.root.visible = true;
+      slot.view.setFade(fade);
       slot.view.update(pose, weaponByName(this.tuning, f.weapon));
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
