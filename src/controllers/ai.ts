@@ -125,6 +125,9 @@
  *    near, and a Block it means raises once the Draw is done. An enemy it sees
  *    Sheathed, Sheathing or Drawing cannot Block (`defenceless`): rolled once at
  *    `punish`, it skips spacing and Feints and closes in to swing.
+ *  - In a Battle, as a promoted Soldier (`FighterState.soldier.role`): holding an Attack Slot it chases without giving
+ *    up (never Disengages); Waiting (no Attack Slot) it fights only promoted allies, never a Player, and with none on it
+ *    walks to its spot on the waiting ring (`waitAtRing`) and stands there facing the Player.
  *
  * A Style (Tuning Data `ai.styles`) scales its difficulty's chances (`skillOf`); the default Style changes nothing.
  *
@@ -539,6 +542,8 @@ const BESIDE: Readonly<Record<Direction, readonly Direction[]>> = { Overhead: ['
  * every ally, and it takes off with no enemy Attack or Kick seen coming within reach and HOP_THREAT more.
  */
 const PINCER = 120 * DEG;
+/** How near (m) its spot on a Battle's waiting ring a Waiting Fighter stands still (`waitAtRing`). */
+const RING_ARRIVE = 0.3;
 const HOP_SLOT = 20 * DEG;
 const ALLY_AHEAD = 1.5;
 const ALLY_ASIDE = 0.8;
@@ -1008,16 +1013,18 @@ class RuleAi implements AiController {
     if (!seen) return IDLE_INTENT;
 
     const self = state.fighters[fighter]!;
+    // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, never a Player).
+    const role = state.crowd ? self.soldier?.role : undefined;
     const enemies = seen.fighters
       .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
       .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
-      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team)
+      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || state.fighters[i]!.soldier !== undefined))
       .sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
       this.forget();
       this.focus = null;
-      return IDLE_INTENT;
+      return role === 'Waiting' ? this.waitAtRing(state, self) : IDLE_INTENT;
     }
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
@@ -1026,7 +1033,7 @@ class RuleAi implements AiController {
     const allies: Ally[] = this.skill.teamwork > 0 ? seen.fighters.map((o, i) => ({ o, i })).filter(({ o, i }) => i !== fighter && !o.fallen && o.team === self.team) : [];
     const focused = this.chooseFocus(state, self, fighter, enemies, reach, allies);
 
-    this.think(state.tick, self, focused.o);
+    this.think(state.tick, self, focused.o, role === 'Attack');
     const team = allies.length > 0 ? this.teamView(self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
@@ -1343,13 +1350,14 @@ class RuleAi implements AiController {
     });
   }
 
-  private think(tick: number, self: FighterState, target: Sighting): void {
+  /** With `chase` (a Battle's Fighter holding an Attack Slot) it never Disengages: it keeps after its target. */
+  private think(tick: number, self: FighterState, target: Sighting, chase = false): void {
     const { caution, pressure, footwork } = this.skill;
     const hurt = this.lastHp >= 0 && self.hp < this.lastHp;
     this.lastHp = self.hp;
     // Just hit, or in its own Recovery: shaken, it lapses more readily for a while.
     if (this.skill.humanMistakes > 0 && (hurt || (self.action.kind === 'Attack' && self.action.phase === 'Recovery'))) this.shaken = tick + LAPSE_TICKS;
-    if (hurt && this.chance(caution)) {
+    if (hurt && !chase && this.chance(caution)) {
       this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
     } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
       const max = self.maxHp;
@@ -1357,7 +1365,7 @@ class RuleAi implements AiController {
       const press = Math.min(1, Math.max(0, pressure * (0.7 + ahead * 1.5)));
       const back = caution * (self.hp < 0.35 * max ? 0.45 : 0.08);
       const r = this.random();
-      const mode: Mode = r < press ? 'Pressure' : r < press + back ? 'Disengage' : 'Neutral';
+      const mode: Mode = r < press ? 'Pressure' : r < press + back && !chase ? 'Disengage' : 'Neutral';
       this.tactic = { mode, until: tick + 60 + Math.floor(this.random() * 120) };
     }
     if (footwork > 0 && tick >= this.strafe.until) {
@@ -1366,6 +1374,27 @@ class RuleAi implements AiController {
       const flank = this.chance(this.skill.teamwork);
       this.strafe = { sign, until, flank, ...this.idleLife(tick), hop: this.chance(this.skill.jumpStep) };
     }
+  }
+
+  /**
+   * A Battle's Waiting Fighter (no Attack Slot) with no promoted ally to fight: it walks to its spot on the waiting ring
+   * round the nearest enemy Player's Fighter (`battle.ring.radius` out, on its own bearing from it), facing it, and stands
+   * there until it is given a slot or demotes.
+   */
+  private waitAtRing(state: SimState, self: FighterState): Intent {
+    let player: FighterState | null = null;
+    let near = Infinity;
+    for (const o of state.fighters) {
+      if (!inDuel(o) || o.team === self.team || o.soldier) continue;
+      const d = Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z);
+      if (d < near) [player, near] = [o, d];
+    }
+    if (!player) return IDLE_INTENT;
+    const from = near > 1e-6 ? { x: (self.position.x - player.position.x) / near, z: (self.position.z - player.position.z) / near } : { x: 0, z: -1 };
+    const { radius } = this.tuning.battle.ring;
+    const to = { x: player.position.x + from.x * radius - self.position.x, z: player.position.z + from.z * radius - self.position.z };
+    const face = Math.atan2(player.position.x - self.position.x, player.position.z - self.position.z);
+    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? unit(to) : ZERO };
   }
 
   /** Idle life for its next while of circling (`idleLife`, rolled with the side): a spacing of its own, maybe no circling, maybe a short pause first. */

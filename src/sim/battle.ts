@@ -26,6 +26,9 @@ export interface BattleEndEvent {
   readonly alive: readonly number[];
 }
 
+/** Less than this (m) moved over a Tick is standing, to the Crowd (`CrowdFighter`). */
+const TRAVEL_EPSILON = 1e-4;
+
 /** Ticks a routed Team flees before the Battle ends (`battle.rout.seconds`, at least 1). */
 export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.battle.rout.seconds));
 
@@ -37,9 +40,22 @@ export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTi
  */
 export function stepBattle(match: MatchState, intents: readonly Intent[], tuning: TuningData, tick: number): MatchState {
   const events: MatchEvent[] = [];
-  let duel = step(stepBubbles(match.duel, match.config.teams.length, match.duel.tick + 1, tuning), intents, tuning);
+  const players = match.config.teams.length;
+  const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning);
+  let duel = step(bubbled, intents, tuning);
   const before = duel.crowd!;
-  const fighters: CrowdFighter[] = duel.fighters.flatMap((f) => (inDuel(f) ? [{ x: f.position.x, z: f.position.z, team: f.team }] : []));
+  // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead.
+  const fighters: CrowdFighter[] = duel.fighters.flatMap((f, k) => {
+    if (!inDuel(f)) return [];
+    const was = bubbled.fighters[k]!.position;
+    const ox = f.position.x - was.x;
+    const oz = f.position.z - was.z;
+    const d = Math.hypot(ox, oz);
+    const moving = d > TRAVEL_EPSILON;
+    const dx = moving ? ox / d : 0;
+    const dz = moving ? oz / d : 0;
+    return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
+  });
   const crowd = stepCrowd(before, duel.tick, tuning.battle, fighters);
   duel = { ...duel, crowd };
   if (!before.rout && crowd.rout) events.push({ type: 'Rout', team: crowd.rout.team });

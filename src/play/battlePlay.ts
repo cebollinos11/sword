@@ -6,7 +6,7 @@
  * title screen with `?dev=1`): no HUD, Lobby or result screen yet (Stage 5), just a panel with the Player's HP, the armies,
  * the Pool and the frame's cost. Esc frees the mouse; a click takes it again.
  */
-import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState } from '../sim';
+import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState, type SoldierRole } from '../sim';
 import { defaultWeaponName, type TuningData } from '../tuning';
 import { LocalController, poolControllers, type Controller } from '../controllers';
 import { blobTexture } from '../render/blobShadow';
@@ -29,6 +29,18 @@ function stats(ms: readonly number[]): { mean: number; p99: number } {
   const sorted = [...ms].sort((a, b) => a - b);
   return { mean: ms.reduce((s, v) => s + v, 0) / ms.length, p99: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))]! };
 }
+
+/** The promoted Fighters still standing by what they hold in their Bubble (Attack Slots, Waiting, allies). */
+function roles(duel: SimState): Record<SoldierRole, number> {
+  const out: Record<SoldierRole, number> = { Attack: 0, Waiting: 0, Ally: 0 };
+  for (const f of duel.fighters) if (f.soldier && inDuel(f)) out[f.soldier.role]++;
+  return out;
+}
+
+const rolesText = (duel: SimState): string => {
+  const r = roles(duel);
+  return `${r.Attack} attacking, ${r.Waiting} waiting, ${r.Ally} allies`;
+};
 
 function storedBody(): string {
   try {
@@ -114,6 +126,8 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     const tickCost: number[] = [];
     const frameCost: number[] = [];
     const bound: number[] = [];
+    const most = { Attack: 0, Waiting: 0, Ally: 0 };
+    let hurt = 0;
     for (let k = 0; k < count && match.status.status === 'InProgress'; k++) {
       const t0 = performance.now();
       const me = match.duel.fighters[0]!;
@@ -129,8 +143,11 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
       tickCost.push(t1 - t0);
       frameCost.push(performance.now() - t1);
       bound.push(match.duel.fighters.filter((f) => f.soldier).length);
+      const r = roles(match.duel);
+      for (const k of ['Attack', 'Waiting', 'Ally'] as const) most[k] = Math.max(most[k], r[k]);
+      hurt += Math.max(0, prev.fighters[0]!.hp - match.duel.fighters[0]!.hp);
     }
-    return { tick: stats(tickCost), frame: stats(frameCost), bound: { mean: bound.reduce((s, v) => s + v, 0) / (bound.length || 1), max: Math.max(0, ...bound) }, calls: renderer.gl.info.render.calls, at: match.duel.fighters[0]!.position, tickNo: match.tick };
+    return { tick: stats(tickCost), frame: stats(frameCost), bound: { mean: bound.reduce((s, v) => s + v, 0) / (bound.length || 1), max: Math.max(0, ...bound), ...most }, hurt, hp: match.duel.fighters[0]!.hp, roles: roles(match.duel), calls: renderer.gl.info.render.calls, at: match.duel.fighters[0]!.position, tickNo: match.tick };
   };
   // Likewise: step on `seconds` of Battle time at once with the Player standing.
   (window as unknown as { battleSeek: (seconds: number) => unknown }).battleSeek = (seconds: number) => {
@@ -168,7 +185,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     panel.textContent =
       `${match.arena}  ${(match.duel.tick * TICK_SECONDS).toFixed(1)} s   ${inDuel(me) ? `HP ${me.hp.toFixed(0)} / ${me.maxHp}` : 'You fell'}\n` +
       `Team 0 (red)  ${a} / ${tuning.battle.armySize}\nTeam 1 (blue) ${b} / ${tuning.battle.armySize}${over}\n` +
-      `Pool ${bound.length + 1} / ${match.duel.fighters.length} bound (${bound.filter((f) => f.death).length} fallen)\n` +
+      `Pool ${bound.length + 1} / ${match.duel.fighters.length} bound (${bound.filter((f) => f.death).length} fallen): ${rolesText(match.duel)}\n` +
       `tick ${recent(tickMs).mean.toFixed(2)} ms (p99 ${recent(tickMs).p99.toFixed(1)}), render ${recent(cpu).mean.toFixed(2)} ms, frame ${recent(intervals).mean.toFixed(1)} ms, ${r.calls} draws\n` +
       `click: take the mouse · Esc: free it`;
     requestAnimationFrame(frame);

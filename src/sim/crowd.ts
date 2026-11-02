@@ -14,6 +14,11 @@
  *  - none in sight: it walks down its Team's flow field (a BFS over a coarse grid from every cell holding a living
  *    enemy), rebuilt from the Tick's positions whenever a Soldier needs it (scratch, so it is never state);
  *  - while its Team routs, it flees toward its own edge of the field and strikes no one.
+ * Round each Player's Fighter (Stage 4), its waiting enemies (in the Crowd, within `bubble.promote`, not engaged last step)
+ * steer to the waiting ring (`ringSpots`): spots `ring.spacing` apart on rings from `ring.radius` out, the ones ahead of the
+ * Player (its way of travel) filled first, so the ring closes in front of them. No step ends within `bubble.hold` of an enemy
+ * full Fighter, and a Soldier in a moving Team-mate full Fighter's path (`ring.pathAhead` ahead, `ring.pathWidth` aside)
+ * steps out of it. Steering only, never collision.
  * A Team routs once its living Soldiers fall below `rout.threshold` of the army. Pure: never mutates its input.
  */
 import type { BattleTuning } from '../tuning';
@@ -214,19 +219,99 @@ function flowDirection(field: Int32Array, side: number, x: number, z: number, ba
   return len > 0 ? [fx / len, fz / len] : [0, 0];
 }
 
-/** A full Fighter as the Crowd sees it (`stepCrowd`): where it stands and its Team. A Soldier never fights one, only keeps out of its reach. */
+/**
+ * A full Fighter as the Crowd sees it (`stepCrowd`): where it stands, its Team, and its way of travel. A Soldier never fights
+ * one: an enemy keeps out of its reach, a Team-mate out of its path.
+ */
 export interface CrowdFighter {
   readonly x: number;
   readonly z: number;
   readonly team: number;
+  /** Its way of travel this Tick, a unit vector; 0, 0 (or absent) standing. */
+  readonly dx?: number;
+  readonly dz?: number;
+  /** Present on a Player's Fighter, the centre of a Bubble: the yaw its waiting ring closes toward (its way of travel, or its facing standing). */
+  readonly ahead?: number;
+}
+
+/**
+ * The waiting ring's spots round a Player's Fighter at (x, z), as many as `count`, in the order they fill: on rings from
+ * `ring.radius` out, `ring.spacing` apart (between spots and between rings), each ring's spot straight `ahead` first, then
+ * alternately to its right and left, then the next ring out. As flat x, z pairs.
+ */
+export function ringSpots(battle: BattleTuning, x: number, z: number, ahead: number, count: number): number[] {
+  const { radius, spacing } = battle.ring;
+  const out: number[] = [];
+  for (let r = radius; out.length < 2 * count; r += spacing) {
+    const n = Math.max(1, Math.floor((2 * Math.PI * r) / spacing));
+    const step = (2 * Math.PI) / n;
+    for (let j = 0; j < n && out.length < 2 * count; j++) {
+      const a = ahead + (j % 2 === 1 ? (j + 1) / 2 : -j / 2) * step;
+      out.push(x + Math.sin(a) * r, z + Math.cos(a) * r);
+    }
+  }
+  return out;
+}
+
+/** The furthest round its Player (radians) a waiting Soldier heads for at once: a spot further round it walks to round them. */
+const RING_DETOUR = Math.PI / 4;
+
+/** Each Soldier's waiting-ring spot this Tick (x, z) and the `fighters` entry it rings (-1 for none): scratch, never state. */
+let spotScratch = new Float64Array(0);
+let ringOf = new Int32Array(0);
+
+/**
+ * Hands out the waiting ring's spots round each Player's Fighter in `fighters` (those with `ahead`, in order) to its waiting
+ * enemies: Soldiers in the Crowd, living, of a Team that has not routed, not engaged on their last step, within
+ * `bubble.promote` of it and not given a spot by an earlier one. Each spot in fill order (`ringSpots`) goes to the nearest
+ * waiting enemy not yet given one (the lower index on a tie). Whether any Soldier has a spot.
+ */
+function fillRings(crowd: CrowdState, battle: BattleTuning, fighters: readonly CrowdFighter[]): boolean {
+  const n = crowd.x.length;
+  if (ringOf.length < n) {
+    spotScratch = new Float64Array(2 * n);
+    ringOf = new Int32Array(n);
+  }
+  ringOf.fill(-1, 0, n);
+  let any = false;
+  const reach2 = battle.bubble.promote ** 2;
+  fighters.forEach((f, b) => {
+    if (f.ahead === undefined) return;
+    const waiting: number[] = [];
+    for (let i = 0; i < n; i++) {
+      if (!inCrowd(crowd, i) || crowd.team[i] === f.team || crowd.rout?.team === crowd.team[i] || crowd.target[i]! >= 0 || ringOf[i]! >= 0) continue;
+      if ((crowd.x[i]! - f.x) ** 2 + (crowd.z[i]! - f.z) ** 2 <= reach2) waiting.push(i);
+    }
+    if (waiting.length === 0) return;
+    any = true;
+    const spots = ringSpots(battle, f.x, f.z, f.ahead, waiting.length);
+    for (let p = 0; p < waiting.length; p++) {
+      const sx = spots[2 * p]!;
+      const sz = spots[2 * p + 1]!;
+      let best = -1;
+      let bestD = Infinity;
+      for (const i of waiting) {
+        if (ringOf[i]! >= 0) continue;
+        const d = (crowd.x[i]! - sx) ** 2 + (crowd.z[i]! - sz) ** 2;
+        if (d < bestD) [best, bestD] = [i, d];
+      }
+      ringOf[best] = b;
+      spotScratch[2 * best] = sx;
+      spotScratch[2 * best + 1] = sz;
+    }
+  });
+  return any;
 }
 
 /**
  * The Crowd one Tick on: the Soldiers due on `tick` (`crowdDue`) step, the Tick's blows land, and a Team below the Rout
  * threshold routs (the one with fewer left when both are; the generator picks on a tie). A Crowd that has routed only
- * steps on (the routed Team fleeing). A promoted Soldier (`slot`) neither steps nor is seen by the others. No step ends
- * within `bubble.hold` of an enemy in `fighters` (the full Fighters in play): a Soldier holds outside its sword reach,
- * and one already inside steps back out to it. Pure.
+ * steps on (the routed Team fleeing). A promoted Soldier (`slot`) neither steps nor is seen by the others. Round each
+ * Player's Fighter in `fighters` (the full Fighters in play), its waiting enemies steer to their spots on the waiting ring
+ * (`fillRings`), facing it, unless an enemy Soldier is in reach. No step ends within `bubble.hold` of an enemy in
+ * `fighters`: a Soldier holds outside its sword reach, and one already inside steps back out to it. Before that, a step
+ * that ends in a moving Team-mate's path (`ring.pathAhead` ahead of it, `ring.pathWidth` either side of its line) is moved
+ * aside, by at most a stride, out of it. Pure.
  */
 export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning, fighters: readonly CrowdFighter[] = []): CrowdState {
   const p = battle.crowd;
@@ -246,6 +331,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const engage = crowd.engage.slice();
   const { team, alive, slot } = crowd;
   const hold = battle.bubble.hold;
+  const { pathAhead, pathWidth } = battle.ring;
+  const ringed = fighters.length > 0 && fillRings(crowd, battle, fighters);
   let rng = crowd.rng;
   const draw = () => {
     const [v, next] = nextFloat(rng);
@@ -326,7 +413,33 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     let wx = 0;
     let wz = 0;
     let face: number | null = null;
-    if (fleeing) {
+    const ring = ringed && !fleeing && ringOf[i]! >= 0 && !(best >= 0 && bestD <= p.engageReach * p.engageReach) ? fighters[ringOf[i]!]! : null;
+    if (ring) {
+      // Waiting for an Attack Slot: walk to its spot on the ring, arriving there, facing the Player's Fighter. A spot more
+      // than RING_DETOUR round the Player from where it stands it walks to round them (toward a point that far round, at
+      // the spot's distance), never across their reach.
+      target[i] = -1;
+      engage[i] = 0;
+      let sx = spotScratch[2 * i]!;
+      let sz = spotScratch[2 * i + 1]!;
+      const bearing = Math.atan2(xi - ring.x, zi - ring.z);
+      const turn = Math.atan2(Math.sin(Math.atan2(sx - ring.x, sz - ring.z) - bearing), Math.cos(Math.atan2(sx - ring.x, sz - ring.z) - bearing));
+      if (Math.abs(turn) > RING_DETOUR) {
+        const a = bearing + Math.sign(turn) * RING_DETOUR;
+        const r = Math.hypot(sx - ring.x, sz - ring.z);
+        sx = ring.x + Math.sin(a) * r;
+        sz = ring.z + Math.cos(a) * r;
+      }
+      const ox = sx - xi;
+      const oz = sz - zi;
+      const d = Math.hypot(ox, oz);
+      if (d > 1e-9) {
+        const pace = Math.min(1, d / stride);
+        wx = (ox / d) * pace;
+        wz = (oz / d) * pace;
+      }
+      face = Math.atan2(ring.x - xi, ring.z - zi);
+    } else if (fleeing) {
       wz = own === 0 ? -1 : 1;
       target[i] = -1;
       engage[i] = 0;
@@ -376,6 +489,22 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     const cap = push > p.separation / 2 ? p.separation / 2 / push : 1;
     let nx = xi + wx * stride + sx * cap;
     let nz = zi + wz * stride + sz * cap;
+    // Out of every moving Team-mate full Fighter's path: aside from its line, by at most a stride.
+    for (const f of fighters) {
+      const fx = f.dx ?? 0;
+      const fz = f.dz ?? 0;
+      if (f.team !== own || (fx === 0 && fz === 0)) continue;
+      const ox = nx - f.x;
+      const oz = nz - f.z;
+      const ahead = ox * fx + oz * fz;
+      const off = fx * oz - fz * ox;
+      if (ahead <= -pathWidth || ahead >= pathAhead || Math.abs(off) >= pathWidth) continue;
+      // Away from the line on its own side (exactly on it: an even index to one side, an odd to the other).
+      const side = off > 0 || (off === 0 && i % 2 === 0) ? 1 : -1;
+      const by = Math.min(stride, pathWidth - Math.abs(off));
+      nx -= fz * side * by;
+      nz += fx * side * by;
+    }
     // Out of every enemy full Fighter's reach: put back on the edge of its hold, away from it.
     for (const f of fighters) {
       if (f.team === own) continue;

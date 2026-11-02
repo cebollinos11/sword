@@ -66,7 +66,7 @@ describe('the Fighter Pool and the Bubble', () => {
     const start = lonePromotion();
     let m = stepMatch(start, [IDLE_INTENT], small);
     const f = m.duel.fighters[1]!;
-    expect(f.soldier).toEqual({ index: LONE, since: 1 });
+    expect(f.soldier).toEqual({ index: LONE, since: 1, role: 'Attack' });
     expect(f.benched).toBeUndefined();
     expect(f.position).toEqual({ x: 60, z: 5 });
     // Standing on the hillside, wherever the ground is.
@@ -168,16 +168,17 @@ describe('the Fighter Pool and the Bubble', () => {
   });
 
   it('fills the free slots nearest first, and never binds more than the Pool', () => {
-    // The Player amid the enemy army: far more than 15 Soldiers within 10 m.
+    // The Player amid the enemy army: far more than 15 Soldiers within 10 m. Attack Slots past the Pool's size (Stage 4 caps them at 4).
+    const open: TuningData = { ...small, battle: { ...small.battle, slots: { ...small.battle.slots, enemies: 20, allies: 0 } } };
     let m = playerAt(battle(), 0, 12);
-    m = stepMatch(m, [IDLE_INTENT], small);
+    m = stepMatch(m, [IDLE_INTENT], open);
     const bound = m.duel.fighters.flatMap((f) => (f.soldier ? [f.soldier.index] : []));
     expect(bound).toHaveLength(bubble.poolSize - 1);
     const c = m.duel.crowd!;
     const dist = (s: number) => Math.hypot(c.x[s]! - 0, c.z[s]! - 12);
     const furthestBound = Math.max(...bound.map(dist));
     for (let s = army; s < 2 * army; s++) if (!bound.includes(s) && c.alive[s] && dist(s) <= bubble.promote) expect(dist(s)).toBeGreaterThanOrEqual(furthestBound);
-    // Only enemies of the Player promote (allies are Stage 4).
+    // Only enemies of the Player promote here: no ally stands within 10 m.
     expect(bound.every((s) => c.team[s] === 1)).toBe(true);
   });
 });

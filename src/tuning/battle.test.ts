@@ -41,10 +41,23 @@ describe('Battle Tuning Data (data/battle.json)', () => {
     expect(() => parseBattle({ ...b, bubble: undefined })).toThrow(/battle\.bubble/);
   });
 
+  it('sets the Attack Slots (4 enemies, 3 allies) and the waiting ring just outside sword reach', () => {
+    const b = tuning.battle;
+    expect(b.slots).toEqual({ enemies: 4, allies: 3, engaged: 2.5 });
+    expect(b.ring).toEqual({ radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8 });
+    expect(parseBattle({ ...b, slots: { ...b.slots, allies: 0 } }).slots.allies).toBe(0);
+    expect(() => parseBattle({ ...b, slots: { ...b.slots, enemies: 0 } })).toThrow(/battle\.slots\.enemies/);
+    expect(() => parseBattle({ ...b, slots: { ...b.slots, allies: 1.5 } })).toThrow(/battle\.slots\.allies must be a whole number/);
+    expect(() => parseBattle({ ...b, slots: { ...b.slots, enemies: 10, allies: 6 } })).toThrow(/must leave room in the Pool/);
+    expect(() => parseBattle({ ...b, ring: { ...b.ring, radius: 2 } })).toThrow(/battle\.ring\.radius \(2\) must be at least battle\.bubble\.hold/);
+    expect(() => parseBattle({ ...b, ring: { ...b.ring, radius: 10 } })).toThrow(/battle\.ring\.radius/);
+    expect(() => parseBattle({ ...b, ring: undefined })).toThrow(/battle\.ring/);
+  });
+
   it('is part of the Tuning Data hash', () => {
     const base = tuningDataHash(tuning);
     const b = tuning.battle;
-    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }])
+    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, ring: { ...b.ring, radius: 4 } }])
       expect(tuningDataHash({ ...tuning, battle })).not.toBe(base);
   });
 });

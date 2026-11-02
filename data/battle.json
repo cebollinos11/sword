@@ -39,5 +39,16 @@
     "minPromotedSeconds": 1,
     "corpseSeconds": 3,
     "hold": 3
+  },
+  "slots": {
+    "enemies": 4,
+    "allies": 3,
+    "engaged": 2.5
+  },
+  "ring": {
+    "radius": 3.5,
+    "spacing": 1.2,
+    "pathAhead": 3,
+    "pathWidth": 0.8
   }
 }

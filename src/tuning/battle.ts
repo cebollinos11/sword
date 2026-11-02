@@ -83,6 +83,34 @@ export interface BubbleTuning {
   readonly hold: number;
 }
 
+/**
+ * The Attack Slots and ally slots of each Bubble (docs/plans/big-battle.md, Stage 4): how many of a Player's enemies fight
+ * them as full Fighters at once, and how many of their allies are promoted to fight beside them.
+ */
+export interface SlotsTuning {
+  /** A Bubble's Attack Slots: at most this many promoted enemies fight its Player at once (a whole number, at least 1). */
+  readonly enemies: number;
+  /** A Bubble's ally slots: at most this many allied Soldiers promote, while an enemy holds an Attack Slot (a whole number, 0 or more). */
+  readonly allies: number;
+  /** A slot-holding enemy with a promoted ally this close (m), nearer it than any Player, may be engaged by that ally (one enemy to an ally) and lets its Attack Slot go. */
+  readonly engaged: number;
+}
+
+/**
+ * The waiting ring (docs/plans/big-battle.md, Stage 4): where a Bubble's waiting enemies stand, and how Soldiers keep out of
+ * a full Fighter's way. Steering only, never collision.
+ */
+export interface RingTuning {
+  /** The first ring's radius round a Player's Fighter (m): just outside sword reach, at least `bubble.hold`, less than `bubble.promote`. */
+  readonly radius: number;
+  /** Between neighbouring spots on a ring, and between one ring and the next out (m). */
+  readonly spacing: number;
+  /** A Soldier stands in a moving full Fighter's path when it is less than this (m) ahead of it... */
+  readonly pathAhead: number;
+  /** ...and less than this (m) to either side of its line: then, if they are on one Team, it steps aside. */
+  readonly pathWidth: number;
+}
+
 export interface BattleTuning {
   /** Soldiers in each army (a whole number, at least 1). */
   readonly armySize: number;
@@ -92,6 +120,8 @@ export interface BattleTuning {
   readonly rout: RoutTuning;
   readonly soldier: SoldierTuning;
   readonly bubble: BubbleTuning;
+  readonly slots: SlotsTuning;
+  readonly ring: RingTuning;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -122,6 +152,8 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   const r = record(b.rout, 'battle.rout');
   const s = record(b.soldier, 'battle.soldier');
   const u = record(b.bubble, 'battle.bubble');
+  const sl = record(b.slots, 'battle.slots');
+  const rg = record(b.ring, 'battle.ring');
   const field: BattlefieldTuning = {
     size: positiveNumber(f, 'size', 'battle.field'),
     cell: positiveNumber(f, 'cell', 'battle.field'),
@@ -167,6 +199,17 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   };
   if (bubble.demote <= bubble.promote) throw new TuningDataError(`battle.bubble.demote (${bubble.demote}) must be more than battle.bubble.promote (${bubble.promote})`);
   if (bubble.hold >= bubble.promote) throw new TuningDataError(`battle.bubble.hold (${bubble.hold}) must be less than battle.bubble.promote (${bubble.promote})`);
+  const allies = nonNegativeNumber(sl, 'allies', 'battle.slots');
+  if (!Number.isInteger(allies)) throw new TuningDataError(`battle.slots.allies must be a whole number, got ${allies}`);
+  const slots: SlotsTuning = { enemies: wholeNumber(sl, 'enemies', 'battle.slots'), allies, engaged: positiveNumber(sl, 'engaged', 'battle.slots') };
+  if (slots.enemies + slots.allies >= bubble.poolSize) throw new TuningDataError(`battle.slots: ${slots.enemies} enemies and ${slots.allies} allies must leave room in the Pool of ${bubble.poolSize} for the Player`);
+  const ring: RingTuning = {
+    radius: positiveNumber(rg, 'radius', 'battle.ring'),
+    spacing: positiveNumber(rg, 'spacing', 'battle.ring'),
+    pathAhead: positiveNumber(rg, 'pathAhead', 'battle.ring'),
+    pathWidth: positiveNumber(rg, 'pathWidth', 'battle.ring'),
+  };
+  if (ring.radius < bubble.hold || ring.radius >= bubble.promote) throw new TuningDataError(`battle.ring.radius (${ring.radius}) must be at least battle.bubble.hold (${bubble.hold}) and less than battle.bubble.promote (${bubble.promote})`);
   return {
     armySize,
     field,
@@ -179,5 +222,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
       colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
     },
     bubble,
+    slots,
+    ring,
   };
 }

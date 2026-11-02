@@ -248,7 +248,17 @@ export interface SoldierBinding {
   readonly index: number;
   /** The Tick (`SimState.tick`) of its Promotion: the first Tick it was stepped as a full Fighter. */
   readonly since: number;
+  /** What it holds in its Bubble (docs/plans/big-battle.md, Stage 4; `SoldierRole`). */
+  readonly role: SoldierRole;
 }
+
+/**
+ * A promoted Fighter's place in its Bubble: `Attack`, an enemy of the Bubble's Player holding one of its Attack Slots (it
+ * fights the Player and their allies); `Ally`, an ally of the Player holding an ally slot (it fights the Bubble's enemies);
+ * `Waiting`, an enemy holding no Attack Slot (it lost its slot to a promoted ally engaging it): it fights only promoted
+ * allies, never a Player, and with none on it waits at the ring until it takes a free slot again or demotes.
+ */
+export type SoldierRole = 'Attack' | 'Ally' | 'Waiting';
 
 /**
  * How a Fighter fell. The Simulation only records it; the Death Ragdoll is

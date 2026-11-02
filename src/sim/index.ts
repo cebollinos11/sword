@@ -38,6 +38,7 @@ export type {
   SimHall,
   HallPhase,
   SoldierBinding,
+  SoldierRole,
   SheatheAction,
   Slide,
   Slow,
@@ -202,5 +203,5 @@ export {
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield } from './battlefield';
-export { createCrowd, crowdAlive, crowdDue, routs, stepCrowd, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { createCrowd, crowdAlive, crowdDue, ringSpots, routs, stepCrowd, type CrowdFighter, type CrowdState, type Rout } from './crowd';
 export { isBound, stepBubbles, unboundSlot } from './bubble';

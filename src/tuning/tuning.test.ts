@@ -40,6 +40,8 @@ function goodRaw() {
       rout: { threshold: 0.2, seconds: 5 },
       soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'] },
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },
+      slots: { enemies: 4, allies: 3, engaged: 2.5 },
+      ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8 },
     },
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5, finalBlowLead: 0.35, finalBlowTail: 0.55, finalBlowSpeed: 0.3, finalBlowDistance: 3.4, finalBlowHeight: 1.6, finalBlowSpin: 0.35, shake: 1 },
