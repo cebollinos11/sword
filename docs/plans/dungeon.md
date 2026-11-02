@@ -1,6 +1,6 @@
 # Dungeon: the Gauntlet's next version, a seeded map of rooms
 
-> Status: Stages 1 to 4 done (Halls and Floors in the Simulation; loot, Relics and the inventory; the presentation: map, inventory screen, Door marks, pickups, pedestals, Rest fire and the results build; then online co-op: the Gauntlet offered online, an AI Takeover as a Simulation step, protocol 22, loopback tests, the online dev autopilot; each Stage's Result), playable in Skirmish offline and online with up to four Players. The art ticket (#62: the `door`, pedestal and fire pieces in Blender) is still open: the Renderer draws stand-ins through seams until it lands. Stage 5 (tuning) is next. The Decisions were confirmed one by one before Stage 1. Stages 1 to 5 below, solo first; stop after Stage 5 for player feedback. Builds on the Gauntlet v1 (`docs/plans/gauntlet.md`, Stages 1, 2 and 4 done) and the Generated Arenas (`docs/plans/generated-arenas.md`).
+> Status: Stages 1 to 4 done (Halls and Floors in the Simulation; loot, Relics and the inventory; the presentation: map, inventory screen, Door marks, pickups, pedestals, Rest fire and the results build; then online co-op: the Gauntlet offered online, an AI Takeover as a Simulation step, protocol 22, loopback tests, the online dev autopilot; each Stage's Result), playable in Skirmish offline and online with up to four Players. The art ticket (#62: the `door`, pedestal and fire pieces in Blender) is still open: the Renderer draws stand-ins through seams until it lands. **Stage 5 (tuning) will not be done** (decided 2026-11-02): Stage 4 is where the Dungeon stops, and its numbers stay as Stage 1 wrote them. Its spec and tickets (#75 to #82) were closed as not planned. The Decisions were confirmed one by one before Stage 1. Stages 1 to 5 below, solo first. Builds on the Gauntlet v1 (`docs/plans/gauntlet.md`, Stages 1, 2 and 4 done) and the Generated Arenas (`docs/plans/generated-arenas.md`).
 
 ## Context
 The Gauntlet v1 Run is a straight line of Floors: one Duel each, on its own Generated Arena, against the enemies `data/gauntlet.json` lists. We want a dungeon crawler, solo or co-op: a randomly generated dungeon with rooms, enemies and loot, instead of separate duels.
@@ -310,10 +310,12 @@ Render only: nothing in `src/sim` reads it, no `hashValue`, snapshot or Intent c
   - **PeerJS join error (repeatable, not fixed):** one "PeerJS: Could not connect to peer <id>" on the host at the guest's join (about +30 s) in every two-peer run, and three with four peers, one per guest, as in the first run; the guests connect straight after and no game state is affected. Probably a race on join; its cause is not investigated.
   - **Not checked:** a Weapon pickup drawn as a model, owner-only (only Relic icons were seen); Hall 1's pickups by screenshot; Escape to close the inventory, the inventory screen in a Treasure or Elite Hall, and equips by clicks on it online; anything beyond Floor 1 Hall 5; a four-peer Takeover; the PeerJS join error's cause. These are unit- or loopback-tested only, or not at all.
 
-## Stage 5: tuning
+## Stage 5: tuning (will not be done)
+> Dropped on 2026-11-02: we are happy with the Dungeon as Stage 4 left it. The spec #75 and its tickets #76 to #82 are closed as not planned; they stay on GitHub as a record of what tuning would have involved, should it ever come back.
+
 - The Encounter pools for three Floors, the three Bosses, the first ~15 Relics, `depthHp`, `revive`, `restHeal`, using the dev-mode start; the Run lasts about 20 to 30 minutes.
 
-## Version 1: stop after Stage 5 and get player feedback
+## Version 1: stop after Stage 4 and get player feedback
 Things to learn: is a Run's length and difficulty right, solo and in co-op? Do routes feel like choices? Which Relics are taken and which never? Is walking to a Door clear, or does the party wait on someone? Do players miss Gold and Shops?
 
 ## Later
