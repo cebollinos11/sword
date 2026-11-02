@@ -3,7 +3,7 @@
  * and terrain, where the armies deploy, how the Crowd steps, moves and fights, and when a Team routs. Distances in metres,
  * speeds in m/s, HP in a Fighter's units, times in seconds.
  */
-import { array, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
+import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export interface BattlefieldTuning {
   /** The side of the square field (m), centred on the origin. */
@@ -54,6 +54,16 @@ export interface RoutTuning {
   readonly seconds: number;
 }
 
+/** The generic soldier both armies field: one Body and Weapon, told apart by each Team's colour. */
+export interface SoldierTuning {
+  /** The Body model a Soldier is drawn as (a name from the Body roster, `src/render/bodyModel.ts`). Render-only. */
+  readonly body: string;
+  /** The Weapon it wields (a name from the Weapon roster). */
+  readonly weapon: string;
+  /** Each Team's colour (0xRRGGBB), on the Body's team-coloured part: [Team 0, Team 1]. Render-only. */
+  readonly colours: readonly [number, number];
+}
+
 export interface BattleTuning {
   /** Soldiers in each army (a whole number, at least 1). */
   readonly armySize: number;
@@ -61,6 +71,7 @@ export interface BattleTuning {
   readonly deploy: DeployTuning;
   readonly crowd: CrowdTuning;
   readonly rout: RoutTuning;
+  readonly soldier: SoldierTuning;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -75,13 +86,21 @@ function share(obj: Record<string, unknown>, key: string, where: string): number
   return v;
 }
 
-/** Validate the raw Battle Tuning Data. Accepts its own output. */
-export function parseBattle(raw: unknown): BattleTuning {
+/** A colour written "#rrggbb" (or already a number, as parsed), as 0xRRGGBB. */
+function colour(v: unknown, where: string): number {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff) return v;
+  if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return parseInt(v.slice(1), 16);
+  throw new TuningDataError(`${where} must be a colour "#rrggbb", got ${JSON.stringify(v)}`);
+}
+
+/** Validate the raw Battle Tuning Data (with the Weapon roster's names, to check the soldier's Weapon, when given). Accepts its own output. */
+export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTuning {
   const b = record(raw, 'battle');
   const f = record(b.field, 'battle.field');
   const d = record(b.deploy, 'battle.deploy');
   const c = record(b.crowd, 'battle.crowd');
   const r = record(b.rout, 'battle.rout');
+  const s = record(b.soldier, 'battle.soldier');
   const field: BattlefieldTuning = {
     size: positiveNumber(f, 'size', 'battle.field'),
     cell: positiveNumber(f, 'cell', 'battle.field'),
@@ -113,11 +132,20 @@ export function parseBattle(raw: unknown): BattleTuning {
   const depth = deploy.front + (Math.ceil(armySize / deploy.perRank) - 1) * deploy.rank;
   const width = (Math.min(armySize, deploy.perRank) - 1) * deploy.file;
   if (depth >= field.size / 2 || width >= field.size) throw new TuningDataError(`battle.deploy: an army of ${armySize} (${width} m wide, its last rank ${depth} m out) must fit inside the ${field.size} m field`);
+  const weapon = nonEmptyString(s, 'weapon', 'battle.soldier');
+  if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`battle.soldier.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
+  const colours = array(s.colours, 'battle.soldier.colours');
+  if (colours.length !== 2) throw new TuningDataError(`battle.soldier.colours must be [Team 0, Team 1], got ${JSON.stringify(s.colours)}`);
   return {
     armySize,
     field,
     deploy,
     crowd,
     rout: { threshold: share(r, 'threshold', 'battle.rout'), seconds: positiveNumber(r, 'seconds', 'battle.rout') },
+    soldier: {
+      body: nonEmptyString(s, 'body', 'battle.soldier'),
+      weapon,
+      colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
+    },
   };
 }

@@ -58,7 +58,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { parseBattle, type BattleTuning, type BattlefieldTuning, type CrowdTuning, type DeployTuning, type RoutTuning } from './battle';
+export { parseBattle, type BattleTuning, type BattlefieldTuning, type CrowdTuning, type DeployTuning, type RoutTuning, type SoldierTuning } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -752,7 +752,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
-    battle: parseBattle(root.battle),
+    battle: parseBattle(root.battle, Object.keys(weapons)),
     skeleton,
     ai,
     gait: parseGait(root.gait),

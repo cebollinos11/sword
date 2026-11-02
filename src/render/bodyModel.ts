@@ -82,6 +82,7 @@ export async function loadBodyModel(body: BodyModelName, colour: number, skeleto
     o.frustumCulled = false;
     const from = o.material as THREE.MeshStandardMaterial;
     o.material = new THREE.MeshLambertMaterial({
+      name: from.name,
       color: from.name.endsWith('_Skirt') ? colour : from.color,
       map: from.map,
       side: from.side,

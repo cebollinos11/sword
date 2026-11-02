@@ -294,7 +294,7 @@ A Match in the Battle Format: two armies of `battle.armySize` Soldiers each (Tun
 _Avoid_: War, siege, skirmish (that is the Lobby's offline mode)
 
 **Soldier**:
-A member of a Battle's army that is not a full Fighter: plain data in the Crowd (position, heading, velocity, HP in a Fighter's units, Team, the enemy Soldier it is engaged with), fighting other Soldiers by rule and standing on the Battlefield's ground. It has no Skeleton and no Blade Sweep, and never damages a Fighter. At 0 HP it dies and stops counting.
+A member of a Battle's army that is not a full Fighter: plain data in the Crowd (position, heading, velocity, HP in a Fighter's units, Team, the enemy Soldier it is engaged with), fighting other Soldiers by rule and standing on the Battlefield's ground. It has no Skeleton and no Blade Sweep, and never damages a Fighter. At 0 HP it dies and stops counting. It is drawn as an impostor: a billboard of the Battle's generic soldier (Tuning Data `battle.soldier`, one Body and Weapon for both armies, in its Team's colour), baked from that soldier's own Motions when the Battle is drawn.
 _Avoid_: Unit, NPC, Fighter (for a Soldier)
 
 **Crowd**:

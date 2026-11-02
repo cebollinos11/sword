@@ -56,6 +56,8 @@ export class FighterView {
   /** The geometries and materials the primitives share (made in the constructor). */
   private readonly owned: { dispose(): void }[] = [];
   private disposed = false;
+  /** Resolves once its Body is drawn as it will stay: its model in (or failed to load), or at once for the bare Skeleton. */
+  readonly ready: Promise<void>;
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
@@ -85,9 +87,10 @@ export class FighterView {
     this.head.scale.setScalar(tuning.skeleton.headRadius);
     this.skeleton.add(this.head);
     this.root.add(this.skeleton);
+    this.ready = Promise.resolve();
     if (wears !== 'skeleton') {
       // Until it loads (or if it cannot), the Fighter is drawn as its Skeleton.
-      loadBodyModel(wears, colour, tuning.skeleton).then(
+      this.ready = loadBodyModel(wears, colour, tuning.skeleton).then(
         (model) => {
           if (this.disposed) return;
           this.model = model;

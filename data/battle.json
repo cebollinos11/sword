@@ -26,5 +26,10 @@
   "rout": {
     "threshold": 0.2,
     "seconds": 5
+  },
+  "soldier": {
+    "body": "female",
+    "weapon": "Arming Sword",
+    "colours": ["#c0392b", "#2e86c1"]
   }
 }

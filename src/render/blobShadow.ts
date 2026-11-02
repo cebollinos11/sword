@@ -41,7 +41,7 @@ export function blobPlacement(pose: SkeletonPose, arena: ArenaGeometry): BlobPla
 }
 
 /** A soft dark disc: black, opaque in the middle, fading to clear at the rim. */
-function blobTexture(): THREE.Texture {
+export function blobTexture(): THREE.Texture {
   const size = 64;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;

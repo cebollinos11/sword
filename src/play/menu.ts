@@ -337,6 +337,13 @@ export class Menu {
     return b;
   }
 
+  /** Watches an AI-vs-AI Battle (docs/plans/big-battle.md, Stage 2) until the Lobby offers it. Null without ?dev=1. */
+  private battleItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    // A hash change reloads the page into the Battle (main.ts).
+    return this.navItem('Battle (dev)', 'Watch 200 v 200 Soldiers fight it out', () => (location.hash = '#/battle/1?dev=1'));
+  }
+
   /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
@@ -375,6 +382,7 @@ export class Menu {
       this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
+      this.battleItem(),
       this.ps1Item(),
       this.colliderItem(),
       editor,

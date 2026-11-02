@@ -1,6 +1,6 @@
 # Big Battle: 200 v 200 on an open field, with the duel's combat where the Players are
 
-> Status: Stage 1 done (2026-11-02). Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`. Next: Stage 2.
+> Status: Stage 2 done (2026-11-02). Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`. Next: Stage 3.
 
 ## Context
 Every Match today is a Duel: at most four Fighters a Team (`MAX_TEAM_SIZE`), each a full Fighter with a Skeleton, Pose-Key IK, a Blade Sweep and an AI Controller run on every peer, all in a 60 Hz deterministic Simulation that rolls back up to 15 Ticks (ADR 0001, 0005, 0010). We want a Mount & Blade–style battle: 200 soldiers a side, up to four human Players, the rest AI. The Players get the full combat against whoever is near them, while the rest of the battle is a cheap simulation drawn as impostor sprites. A Player can fight some soldiers, break away, move and engage others, and soldiers convert between low and high detail as they come near or move away.
@@ -173,6 +173,58 @@ The war looks like a war: terrain, impostors, team colours.
 - **Spectator camera** for an AI-vs-AI Battle, and a dev-only Skirmish entry to start one.
 - **Tests**: the direction-cell and animation-frame choice (pure functions); the atlas layout; the render-side interpolation. Render frame time with 400 impostors stays inside the Stage 0 budget.
 - **Check in `npm run dev`**: a full war from the spectator camera at the target frame rate; impostors face the right way while walking, fighting and dying.
+
+### Result
+Done 2026-11-02. A Battle is drawn as it will be played: `#/battle/<seed>?dev=1` (or **Battle (dev)** on the title screen with `?dev=1`) shows an AI-vs-AI war on the Battlefield's terrain under the sky, every Soldier an impostor in its Team's colour, from a spectator camera. Nothing under `src/sim` changed: seeds 1, 2 and 3 still end on Ticks 2086, 2089 and 2081 with the same winners as at Stage 1, and the Crowd gained no state.
+
+- **The generic soldier** (`data/battle.json` `soldier`, `SoldierTuning`, in `tuningDataHash`): `body` `female` (the Warrior), `weapon` `Arming Sword` (checked against the Weapon roster), `colours` `#c0392b` and `#2e86c1` (the Duel's Team red and blue).
+- **Clips from the Simulation** (`src/render/soldierClips.ts`, no WebGL): the real `step` runs on scripted Intents and each frame is posed through `drawnPose`, then moved into the Fighter's own frame. The clips: Idle (one 2 s loop of its Motion); walking forward under the Gait (two strides from a left foot's Step, 2.5 m, played at the Crowd's walk speed, 1.0 s a loop); one Overhead swing back to Idle (1.1 s); the Stagger from an unblocked Overhead until Idle (0.5 s); and the fall from 1 HP, its Death Ragdoll (1.4 s). Recording takes about 0.4 s.
+- **The atlas** (`src/render/impostorAtlas.ts`, layout in `src/render/impostor.ts`): those 36 frames (4 + 8 + 10 + 6 + 8) from 8 directions, 10° above level, through an orthographic camera into 288 cells of 128 px (2.9 m square, the feet 0.35 m up). They go into a 2176 × 2176 sRGB render target, with mipmaps generated once at the end. The Body's team-coloured part (`*_Skirt`) is baked white, and again as a mask into a half-size target of the same layout, so the shader tints it: one atlas for both Teams. `atlasLayout` halves the cell if the GPU's texture limit is smaller.
+- **The impostor layer** (`src/render/crowdView.ts`): one `InstancedBufferGeometry` billboard draw per Team (200 instances each, a `ShaderMaterial` with fog). The vertex shader turns each billboard about the vertical to face the camera, so per frame the CPU writes only each Soldier's feet (3 floats) and atlas cell (2). Blob shadows are one more instanced draw for all 400, tilted to the ground's slope. The pure parts are in `src/render/impostor.ts`:
+  - `directionCell`: the camera's bearing from the Soldier relative to its heading, to the nearest of 8.
+  - `soldierFrame`: a fallen Soldier plays its fall once, then holds the last frame; one struck within a Stagger's length plays the Stagger; an engaged one loops the swing; one faster than 0.4 m/s walks; any other stands Idle. Loops run on Battle time from a per-Soldier offset, so ranks are not in step.
+  - `soldierAt`: the interpolation.
+- **The interpolation needs no state.** A Soldier's velocity is its last step's, so the step began at its position less its velocity over the step. `soldierAt` glides from there to where the step ended over the `stagger` Ticks after its last due Tick (`lastStepTick`, from `crowdDue`'s rule). A Soldier is drawn one step (0.1 s) behind and never jumps when a Tick arrives. The Crowd does not hold when a Soldier was struck or fell, so the view notes it itself when it sees HP drop or `alive` go to 0 (render memory, reset on a restart). A Soldier already fallen when first seen lies at rest.
+- **Terrain** (`src/render/battlefieldView.ts`): a mesh of the heightfield with each cell split along the Walk Surfaces' diagonal, so it is exactly the ground the Crowd and `groundBelow` stand on. Beyond the field it carries on at the edges' height in strips out to 400 m, with vertex-coloured grass, drier on the hilltops. Above it: the existing sky dome (`sky.ts`) in a dusk look, a low warm sun, and haze from 70 to 320 m. `Stage` draws a `battle:` Arena this way and sets the camera's far plane to 600 m for it (200 m otherwise, as before).
+- **The spectator camera** (`src/play/battleSpectator.ts`): orbit controls whose aim eases toward `battleFocus` (the middle of the engaged living Soldiers, else of all living ones). It circles slowly until the mouse takes it (drag, right-drag, wheel); **Follow** hands it back. It stays 2 m above the ground. A panel shows each army's strength, the Rout, the winner, the speed (paused to 4×), a seed box, restart and quit, and the frame's cost. For checking a page that is not drawing (dev only, from the console): `battleSeek(seconds)`, `battleLook(x, z, distance, yaw, height)` and `battleBench(frames)`.
+- **Shared code** gained only what this needed: `FighterView.ready` (a promise that resolves once the Body model is in); `loadBodyModel` keeps each material's name, so the bake can find the team-coloured part; `blobTexture` is exported; and `Stage.build` has the Battlefield branch. No Duel or Dungeon behaviour or number changed.
+- **`CONTEXT.md`**: the Soldier entry says how it is drawn.
+
+**What changed from the plan:**
+- **Baked at load, not as a dev command writing into `public/`.** This is simpler: no image encoding, and no file to commit and keep in step with the Body, the Motions and the Weapon (a change to any of them shows in the soldier at the next load). The Battle is offline for now, so loading is the Battle's start. The bake takes about 1.1 s, including the Body model's download and the clip recording, once per page. If that ever matters, the same function can write the targets to a file.
+- **One generic soldier for both Teams, with two colours**, not a soldier per Team. One atlas can serve both Teams only if they share a Body and Weapon, so `battle.soldier` is one entry with `colours`.
+- **The Warrior, not the Asturian.** The Asturian's team-coloured part is a thin belt, and the armies could not be told apart beyond 20 m. The Warrior's skirt shows from every side.
+- **A Stagger plays whenever a Soldier's HP drops, and an engaged Soldier swings in a loop.** The Crowd rolls blows without recording who swung, and recording it would add state for drawing's sake. In a melee most front-rank Soldiers are struck about once a second, so the Stagger plays often. It reads as a melee.
+- **Cylindrical billboards.** The atlas is baked 10° above level and turned only about the vertical. From a high spectator camera the fallen look flat, like a lying body seen edge-on. That is fine for a crowd, and the third render tier (Later) covers the near ones.
+- **The dev entry is on the title screen**, not in the Skirmish Lobby, which offers only `MATCH_FORMATS`; Stage 5 puts the Battle in the Lobby. The route opens only with `?dev=1`, and the spectator is its own lazily loaded chunk.
+
+**Measured** on this laptop, as at Stage 0 (Intel UHD iGPU in the Claude desktop app's Chromium):
+- **`CrowdView.update`** for 400 Soldiers through a whole war, in Node (`crowdView.test.ts`): **0.74 ms mean, 1.8 ms p99** per frame.
+- **In the browser**, through `battleBench`, over a whole war of seed 2 at 780 × 787. Each frame steps a Tick, updates the impostors and draws the scene, then calls `gl.finish()`. Per 300-frame window: the update alone **0.6 to 1.2 ms** mean, update plus draw **2 to 7 ms** mean, the GPU finished within 0.2 ms of that, and **5 draw calls** (sky, terrain, two Teams, shadows). That is inside the Stage 0 budget: 400 billboards under 4 ms of frame with the Arena, and 2 draws for the Crowd.
+- **The p99 had spikes of 20 to 170 ms**, but the same spikes came with a frozen Crowd and no Simulation (p50 1.5 ms, p99 31 ms). The Browser pane was hidden for the whole check, so the page ran as a background page and its `requestAnimationFrame` did not run at all. No real frame rate could be read; the costs above come from frames drawn synchronously. A check by eye at 60 fps in a visible window is still to do.
+
+**Check in `npm run dev`** (`#/battle/<seed>?dev=1`): seeds 1, 2 and 3 each played to the end (Team 1, Team 0 and Team 1 won, on Ticks 2086, 2089 and 2081), with no console errors. Stills from the spectator camera show:
+- both armies marching, each seen from the right side (its back from its own side, its front coming on), both at the flow field's diagonal;
+- the front ranks in the melee mid-swing, facing their enemies;
+- the fallen lying along the line of contact;
+- the routed Team fleeing toward its edge, seen from behind, with the winners following.
+
+The frame rate in a visible window was not seen (see Measured).
+
+**Tests**:
+- `src/render/impostor.test.ts` (12):
+  - the direction cell: 0 at the front, counting the way yaw turns; the same when Soldier and camera turn together; rounding at the halfway point; a Soldier walking away shows its back;
+  - the atlas layout: a cell for every clip, frame and direction, each its own and inside the atlas; about square; halving to fit;
+  - `soldierFrame`: the clip from the state; a fall played once and held; a Soldier already down lies at rest; loops on Battle time, with neighbours out of step;
+  - `lastStepTick` agrees with `crowdDue`;
+  - `soldierAt` glides from the step's start to its end and holds;
+  - through a whole war, no Soldier's drawn position jumps when a Tick arrives (to 1e-9).
+- `src/render/soldierClips.test.ts` (5): every clip's frames and length; every pose inside an atlas cell, standing at the origin facing +z; the swing over the head, the Stagger dipping, the fall ending on the ground; `localPose`; the data's soldier is a Body model.
+- `src/render/crowdView.test.ts` (3): three draws; each Soldier's cell matches its heading from the camera's bearing (Team 0 from behind, Team 1 from in front), with its feet on the ground; the first Soldier to fall shows its fall's first frame, and later its last; the update for 400 Soldiers through a war (logged, asserted under 4 ms mean).
+- `src/play/battleSpectator.test.ts` (2): `battleFocus`.
+- `src/tuning/battle.test.ts` (+1): the soldier's Weapon, colours and Body are checked, and the soldier is in the Tuning Data hash.
+
+One existing test needed the new `soldier` entry in a literal (`tuning.test.ts`'s raw fixture); no existing assertion changed. `npm run typecheck` and `npm run build` pass. `npm test`: **1642 passed, 5 skipped, 5 failed**, all timing-bound and on Stage 1's list: three 20 s timeouts (the Door spot soak, the four-Player "goes silent" Rollback test, the Run pickups test) and the two navmesh-under-250 ms checks. That is fewer failures than at Stage 1 (11), so no comparison against the unchanged tree was needed.
 
 ## Stage 3: the Fighter Pool and the Bubble
 A Player fights in a Battle. Soldiers near them become full Fighters and go back to the Crowd when the Player moves on.
