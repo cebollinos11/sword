@@ -1,6 +1,6 @@
 # Big Battle: 200 v 200 on an open field, with the duel's combat where the Players are
 
-> Status: planned (2026-11-02), not started. Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`. Next: Stage 0.
+> Status: Stage 0 done (2026-11-02). Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`. Next: Stage 1.
 
 ## Context
 Every Match today is a Duel: at most four Fighters a Team (`MAX_TEAM_SIZE`), each a full Fighter with a Skeleton, Pose-Key IK, a Blade Sweep and an AI Controller run on every peer, all in a 60 Hz deterministic Simulation that rolls back up to 15 Ticks (ADR 0001, 0005, 0010). We want a Mount & Blade–style battle: 200 soldiers a side, up to four human Players, the rest AI. The Players get the full combat against whoever is near them, while the rest of the battle is a cheap simulation drawn as impostor sprites. A Player can fight some soldiers, break away, move and engage others, and soldiers convert between low and high detail as they come near or move away.
@@ -66,6 +66,55 @@ Nothing here ships to players. It is a bench that answers how big the Fighter Po
 - **Run it** on whatever hardware is at hand, and write down the machine. If that isn't a mid-range laptop, note the gap and scale the budgets with a stated margin.
 - **Output**: the `### Result` of this Stage has a table of the numbers and **fixes** the starting values for Stage 1 to 4: Pool size, enemy and ally slots per Bubble, the Crowd rate and stagger, and the Bubble distances if the numbers argue for a change. If 24 full Fighters don't fit in ~8 ms per Tick of Simulation with headroom for Rollback, say so: the design shrinks the Bubble's budgets, not the target.
 - **Tests**: none required beyond the bench running without errors. The prototype Crowd code may be thrown away or kept as Stage 1's start.
+
+### Result
+Done 2026-11-02. The bench is `#/editor/bench` on the dev server (`src/editor/bench.ts`, left out of the build); its measurements are in `src/editor/benchCore.ts`, with no DOM, so they also run under Node, and `benchCore.test.ts` smoke-tests them at tiny sizes (4 tests). `npm run typecheck` and `npm run build` pass. `npm test`: 1607 passed, 5 skipped, and 3 failed on 20 s timeouts (the Door spot soak, the four-Player "goes silent" Rollback test, the navmesh-under-250 ms test). They are timing-bound and fail the same way without this Stage's changes: the Door spot soak takes ~25 to 30 s alone on this machine, and passes with a longer timeout.
+
+**Machine**: MSI GF63 Thin 11SC laptop, Intel Core i5-11400H (6 cores, 12 threads, 45 W H-series), 8 GB RAM, on mains power, Windows 11, Balanced power plan. The page ran in the Claude desktop app's Chromium 152 on the **Intel UHD Graphics** iGPU (Tiger Lake-H, 16 EU; the laptop's GTX 1650 was not used), 1280 × 960 canvas at pixel ratio 1.25, 144 Hz display. Node 24 gave the same Simulation numbers within noise. **The gap to the target**: the CPU is faster than a mid-range laptop's U-series chip (assume a mid-range laptop is about 1.3× slower on the Simulation). The GPU is weaker than a recent integrated GPU (Iris Xe, Radeon 680M), so the render numbers err on the safe side. The budgets below use **1.3× the measured Simulation cost**.
+
+**Fighters**: Beginner AI melee on the Editor's flat circle Arena, 600 Ticks for each N, all N still standing at the end (the worst case: nobody thins out). ms per Tick, mean / p99:
+
+| N | AI intents | Tick (AI + `stepMatch`) | Online Tick (+ snapshot, AI `save()`) | 15-Tick Rollback | `hashValue(match)` |
+|---|---|---|---|---|---|
+| 2 (Node, reference) | 0.19 / 1.5 | 0.83 / 5.8 | 0.88 / 5.9 | 11 / 34 | 0.39 / 1.5 |
+| 8 | 0.66 / 3.2 | 2.07 / 8.8 | 2.19 / 9.0 | 28 / 59 | 0.74 / 3.8 |
+| 16 | 1.30 / 4.2 | 3.01 / 8.1 | 3.17 / 8.2 | 46 / 72 | 0.95 / 2.9 |
+| 24 | 2.32 / 6.0 | 4.94 / 10.3 | 5.16 / 10.6 | 78 / 114 | 1.25 / 2.5 |
+| 32 | 4.14 / 8.8 | 7.57 / 14.7 | 7.85 / 15.2 | 117 / 165 | 1.63 / 3.2 |
+| 40 | 6.61 / 12.6 | 11.39 / 19.9 | 11.76 / 20.5 | 180 / 251 | 2.17 / 4.8 |
+
+Every timed Rollback re-simulated to the same hash. Cost grows faster than N: the AI's share goes from a third to over half, because its team view looks at every ally against every enemy.
+
+**Crowd prototype**: 400 Soldiers, 3600 Ticks (the armies meet and one wins). The step rebuilds the spatial hash every Tick, then updates 1/stagger of the Soldiers (separation, the nearest enemy within sight, a fake fight), and rebuilds each Team's flow field (BFS over a 50 × 50 grid) once a second. ms, mean / p99:
+
+| stagger (rate) | step per Tick | `hashValue` (plain arrays) | FNV over the typed arrays' bytes | snapshot (typed arrays) | `snapshot()` (plain arrays) |
+|---|---|---|---|---|---|
+| 6 (10 Hz) | 0.21 / 1.0 | 1.31 / 4.5 | 0.12 / 0.3 | 0.10 / 1.1 | 0.14 / 0.3 |
+| 3 (20 Hz) | 0.26 / 1.1 | 1.53 / 2.5 | 0.09 / 0.2 | 0.11 / 0.5 | 0.17 / 0.3 |
+| 1 (60 Hz) | 0.67 / 3.2 | 1.45 / 2.5 | 0.08 / 0.2 | 0.11 / 0.3 | 0.16 / 0.3 |
+
+**Render**: 400 instanced billboards (one InstancedMesh per Team, placeholder canvas texture, every matrix recomposed to face the camera each frame) in a ring 8 to 40 m around N `female` skinned Bodies posed from a recorded melee, through the third-person camera behind Fighter 0. ms per frame, mean / p99:
+
+| N | CPU (pose + update + draw) | frame interval | draw calls |
+|---|---|---|---|
+| 0 | 3.9 / 7.6 | 7.2 / 14.0 | 4 |
+| 8 | 8.5 / 17.1 | 9.7 / 20.9 | 104 |
+| 16 | 10.8 / 18.6 | 11.8 / 21.0 | 196 |
+| 24 | 11.7 / 18.6 | 12.5 / 21.0 | 290 |
+| 32 | 13.4 / 21.5 | 14.3 / 21.0 | 395 |
+| 40 | 15.8 / 24.3 | 16.6 / 27.8 | 420 |
+
+The 400 billboards are cheap (2 draws, under 4 ms of frame with the Arena). Each Body costs about 12 draw calls, and `drawnPose` solves `fighterPose` twice per Body per frame. The Bodies dominate the frame, not the Crowd.
+
+**What this fixes for Stages 1 to 4:**
+- **24 full Fighters do not fit.** At 24, a Tick is 4.9 ms here and ~6.4 ms on the target, with a p99 of 10 to 13 ms, and the frame needs ~12 ms of rendering on top. That is over 16.7 ms on its own, with nothing left for Rollback. So the Bubble's budgets shrink, as the plan says, not the target.
+- **Fighter Pool: 16 slots.** In steady state a Bubble binds 1 Player + 4 enemies + 3 allies = 8 Fighters: 2.1 ms per Tick here (~2.7 ms on the target) and ~8.5 ms of render. The other 8 slots absorb Fighters that are still waiting to demote (the 1 s minimum, the Action gate, the hysteresis band). 16 bound Fighters, the most the Pool allows, is 3.0 ms per Tick (~3.9 ms on the target) plus ~11 ms of render, which is inside a 60 fps frame. Stage 3 never binds more than 16.
+- **Attack Slots: 4 enemies and 3 allies per Bubble**, unchanged.
+- **Crowd: every 6th Tick (10 Hz), 1/6 of the Soldiers each Tick.** 0.21 ms per Tick (p99 1.0) is well inside the 1 ms budget. 20 Hz (stagger 3) costs about the same, which is room to spare if Stage 2's impostors look jerky.
+- **Crowd state as plain number arrays, not typed arrays, in Stage 1.** `snapshot()` (a deep copy) would turn a typed array into a plain object, and `hashValue` walks it as an object with sorted keys. Plain arrays work with today's `snapshot`, `hashValue` and JSON resyncs, at 0.14 ms per snapshot (every Tick online). `hashValue` costs 1.3 ms, but it only runs for the periodic checksum. A byte-level fast path (0.1 ms) is available if checksums ever need it.
+- **Bubble distances: unchanged.** Promote at 10 m, demote beyond 16 m, no Demotion within 1 s of Promotion. The numbers don't argue for a change. A smaller demote distance would only cut render cost, which the Pool cap already bounds.
+- **`MAX_TEAM_SIZE`: building the state directly is smaller.** `createInitialState` and `stepMatch` take any number of Fighters; only `createMatch`'s `checkTeams` enforces 4 a side. Stage 3's Battle Format should skip that check, not lift the constant. `net/messages.ts` also caps Fighters at `2 * MAX_TEAM_SIZE`, which matters in Stage 6. One shared-code tolerance fix was needed: the AI's flank table (`FLANKS`) only covered 2 to 4 allies on one target and crashed at 5 or more. More than 4 are now spaced evenly round the target, and 4 or fewer behave exactly as before.
+- **Online (Stage 6) will not fit as planned**, and this is flagged now. A full 15-Tick Rollback is 28 ms at 8 Fighters, and even a 1 v 1 Duel takes 11 ms. In practice a Rollback re-simulates about the round trip (~3 to 6 Ticks), and at 16 bound Fighters that is still 9 to 18 ms. Stage 6's shrinking rule should aim for about 8 to 10 bound Fighters in total across the four Bubbles (e.g. 2 enemies + 1 ally each when four Bubbles are apart), unless the AI's team view and `drawnPose`'s double solve are made cheaper first. Both are the obvious targets.
 
 ## Stage 1: the Battlefield and the Crowd in the Simulation
 A Battle with no Players fighting: two armies meet, fight by rule and one routs. Only debug rendering.

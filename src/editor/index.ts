@@ -58,6 +58,11 @@ const CHANNEL_LABELS: Record<PoseKeyChannel, string> = {
 };
 
 export function startEditor(container: HTMLElement, loaded: TuningData): void {
+  // Dev server only: the Big Battle bench (docs/plans/big-battle.md Stage 0), left out of the build.
+  if (import.meta.env.DEV && location.hash.startsWith('#/editor/bench')) {
+    void import('./bench').then((m) => m.startBench(container, loaded));
+    return;
+  }
   if (location.hash.startsWith('#/editor/sandbox')) {
     startSandbox(container, loaded);
     return;

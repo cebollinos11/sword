@@ -1283,7 +1283,8 @@ class RuleAi implements AiController {
     if (on.length > 1) {
       const bearings = [self.position, ...onIt.map(({ o }) => o.position)].map((p) => Math.atan2(p.x - t.position.x, p.z - t.position.z));
       const mean = Math.atan2(bearings.reduce((a, b) => a + Math.sin(b), 0), bearings.reduce((a, b) => a + Math.cos(b), 0));
-      slot = mean + FLANKS[on.length]![rank]!;
+      // More than MAX_TEAM_SIZE on one target (a Big Battle's Fighter Pool): spaced evenly round it.
+      slot = mean + (FLANKS[on.length]?.[rank] ?? ((rank + 0.5) / on.length - 0.5) * 2 * Math.PI);
     }
     const attacking = onIt.some(({ o }) => isThreat(o.action));
     const exposed = onIt.some(({ o }) => this.aimedAt(t, o)) && !this.aimedAt(t, self);
