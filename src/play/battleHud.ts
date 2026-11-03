@@ -66,6 +66,15 @@ export function battleResult(match: MatchState, me: number): BattleResult | null
 
 export const ARMY_NAMES = ['red', 'blue'] as const;
 
+/**
+ * What each Player has (a name, a Body), by Fighter slot: a Battle's Lineup names only its Players, so slot k is Lineup entry k, whose
+ * Player number says which of the Lobby's `perPlayer` entries it is. The Lobby's Lineup orders the Fighters Team by Team, so a Player's
+ * number and slot differ whenever Team 1's Player sits before Team 0's in the Members' order (the host on Team 2, say).
+ */
+export function playersBySlot<T>(lineup: readonly { readonly pilot: { readonly kind: string; readonly player?: number } }[], perPlayer: readonly T[]): (T | undefined)[] {
+  return lineup.map((slot) => (slot.pilot.kind === 'Player' ? perPlayer[slot.pilot.player!] : undefined));
+}
+
 /** One line for the Lobby after a Battle. */
 export function battleResultLine(r: BattleResult): string {
   return `${r.victory ? 'Victory' : 'Defeat'}: the ${ARMY_NAMES[r.winner]} army won · ${r.kills} ${r.kills === 1 ? 'kill' : 'kills'} · ${r.taken} ${r.taken === 1 ? 'soldier' : 'soldiers'} taken over`;

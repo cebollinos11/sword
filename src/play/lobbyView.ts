@@ -2,8 +2,8 @@
  * The Lobby drawn: the two teams with their Seats, the Match settings (Format,
  * Map cards, Match length) and your Weapon cards. In a Gauntlet, Team 1's Seats
  * give way to the Floors, the hand-made Maps and the Match length are hidden,
- * and the Random card names the Run seed. In a Battle (offline only) the Seats, Maps and Match length give way to the
- * two armies. Used by the Skirmish setup, the
+ * and the Random card names the Run seed. In a Battle the Maps and Match length give way to the two armies, and offline the
+ * Seats too (online they say which Team each Player fights in; an AI Seat fields nobody). Used by the Skirmish setup, the
  * online Room Lobby and the in-game Match setup alike; who may change what
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
@@ -117,9 +117,9 @@ export function waitingTag(state: LobbyState): string {
   return isGauntlet(state) ? 'Next Run' : 'Next Match';
 }
 
-/** The teams whose Seats the Lobby shows: both, or in a Gauntlet only Team 0 (the Floors fill Team 1). */
-export function shownTeams(state: LobbyState): number[] {
-  if (isBattle(state)) return [];
+/** The teams whose Seats the Lobby shows: both, or in a Gauntlet only Team 0 (the Floors fill Team 1), or in an offline Battle neither (its one Player is on Team 0). */
+export function shownTeams(state: LobbyState, online = false): number[] {
+  if (isBattle(state) && !online) return [];
   return isGauntlet(state) ? [0] : state.teams.map((_, team) => team);
 }
 
@@ -171,8 +171,8 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 // --- Teams ---
 
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  if (isBattle(state)) return section('Armies', armiesCard(ctx.tuning));
-  const shown = shownTeams(state);
+  if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(ctx.tuning));
+  const shown = shownTeams(state, ctx.lobby.online);
   const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
   const grid = h('div', 'lb-teams', null, teams[0]!, vs, teams[1]!);
@@ -180,7 +180,7 @@ function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const note = ctx.lobby.online
     ? h('p', 'lb-note', `${humans} of ${MAX_PLAYERS} players · Open seats wait for players to join; Empty ones field nobody.`)
     : null;
-  return section('Teams', grid, note);
+  return section('Teams', grid, note, isBattle(state) ? armiesCard(ctx.tuning) : null);
 }
 
 function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLElement {
@@ -190,7 +190,9 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', `Team ${team + 1}`), h('span', 'lb-team-count', `${fighters} ${fighters === 1 ? 'Fighter' : 'Fighters'}`)));
   let k = 0;
   for (let index = 0; index < MAX_TEAM_SIZE; index++) {
-    const seat = state.teams[team]![index]!;
+    const held = state.teams[team]![index]!;
+    // A Battle's armies are its own: an AI Seat fields nobody, and shows as Empty.
+    const seat: Seat = held.kind === 'AI' && isBattle(state) ? { kind: 'Closed' } : held;
     const fights = seat.kind === 'Player' || seat.kind === 'AI';
     card.append(seatRow(ctx, state, { team, index }, seat, fights ? teamColour(team, k++) : null));
   }
@@ -215,8 +217,8 @@ export function battleCard(tuning: Pick<TuningData, 'battle'>): { readonly count
   return {
     count: `${armySize} v ${armySize}`,
     note:
-      `Two armies of ${armySize} meet on an open field. You fight in the red army with your own Body and Weapon; soldiers near you ` +
-      `fight you blade to blade, at most four at once, and your allies close by join in. An army breaks below ${Math.round(rout.threshold * 100)}% of its soldiers ` +
+      `Two armies of ${armySize} meet on an open field. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
+      `fight you blade to blade, a few at once, and your allies close by join in. An army breaks below ${Math.round(rout.threshold * 100)}% of its soldiers ` +
       `and flees: the other wins. If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
   };
 }
@@ -300,7 +302,7 @@ function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat:
   const difficulties = Object.keys(ctx.tuning.ai.difficulties);
   const options: [string, string][] = [['Closed', 'Empty']];
   if (ctx.lobby.online && (seat.kind === 'Open' || canSetSeat(state, at, 'Open'))) options.push(['Open', 'Open seat']);
-  for (const d of difficulties) options.push([`AI:${d}`, `${d} AI`]);
+  if (!isBattle(state)) for (const d of difficulties) options.push([`AI:${d}`, `${d} AI`]);
   const value = seat.kind === 'AI' ? `AI:${seat.difficulty}` : seat.kind;
   const weapon = seat.kind === 'AI' ? seat.weapon : Object.keys(ctx.tuning.weapons)[0]!;
   const style = seat.kind === 'AI' && seat.style !== undefined ? { style: seat.style } : {};
@@ -361,9 +363,9 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
 }
 
-/** The Format toggle (Duels, Gauntlet and, offline, Battle: `lobbyFormats`), when the Lobby offers more than one. */
+/** The Format toggle (Duels, Gauntlet, Battle: `lobbyFormats`), when the Lobby offers more than one. */
 function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
-  const formats = lobbyFormats(ctx.lobby.online);
+  const formats = lobbyFormats();
   if (formats.length < 2) return null;
   const current = state.settings.format ?? 'Duels';
   const group = h('div', 'segmented');

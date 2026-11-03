@@ -18,9 +18,9 @@
  * seed), Players sit only on Team 0, and Team 1's Seats are set aside (kept for Duels): the Lineup fills Team 1 with
  * MAX_TEAM_SIZE Floor slots, each Floor deciding who stands there.
  *
- * In Battle format (docs/plans/big-battle.md, offline only until Stage 6) the Match is one Battle: the host fights in Team 0's
- * army of Soldiers against Team 1's, on a Battlefield of its own (a fresh seed each Battle). The Seats, the Map and the
- * Match length are set aside (kept for Duels): the armies are the Battle's.
+ * In Battle format (docs/plans/big-battle.md) the Match is one Battle: each Player fights in their Team's army of Soldiers
+ * against the other's, on a Battlefield of its own (a fresh seed each Battle). The Seats only say which Team each Player is
+ * on (an AI Seat fields nobody: the armies are the Battle's); the Map and the Match length are set aside (kept for Duels).
  */
 import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
@@ -56,7 +56,7 @@ export interface LobbySettings {
   readonly arena: string;
   /** Best of N Duels (Duels only; a Run ignores it). */
   readonly bestOf: number;
-  /** Duels (absent: the default), Gauntlet (a Run, on the Random Map, Team 1 the Floors' enemies) or, offline only, Battle (`lobbyFormats`). */
+  /** Duels (absent: the default), Gauntlet (a Run, on the Random Map, Team 1 the Floors' enemies) or Battle. */
   readonly format?: MatchFormat;
   /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly run?: RunKnobs;
@@ -151,12 +151,9 @@ export function runTuning(tuning: TuningData, settings: LobbySettings): TuningDa
   return dungeon === tuning.dungeon ? tuning : { ...tuning, dungeon };
 }
 
-/**
- * The Formats a Lobby offers: online, the wire's (`MATCH_FORMATS`); a Skirmish's also Battle, which online play refuses
- * until docs/plans/big-battle.md's Stage 6. Kept apart from `MATCH_FORMATS`, the wire's list.
- */
-export function lobbyFormats(online: boolean): readonly MatchFormat[] {
-  return online ? MATCH_FORMATS : [...MATCH_FORMATS, 'Battle'];
+/** The Formats a Lobby offers, in a Skirmish and online alike: the Lobby's wire list (`MATCH_FORMATS`) and Battle. */
+export function lobbyFormats(): readonly MatchFormat[] {
+  return [...MATCH_FORMATS, 'Battle'];
 }
 
 /** The Lobby plays a Battle (two armies, docs/plans/big-battle.md). */
@@ -183,10 +180,11 @@ export function humanSeats(state: LobbyState): number {
   return state.teams.flat().filter((s) => s.kind === 'Open' || s.kind === 'Player').length;
 }
 
-/** Fighters a team would field: its Players and AIs (in a Gauntlet, Team 1 always fields its MAX_TEAM_SIZE Floor slots). */
+/** Fighters a team would field: its Players and AIs (in a Gauntlet, Team 1 always fields its MAX_TEAM_SIZE Floor slots; in a Battle, its Players only). */
 export function teamSize(state: LobbyState, team: number): number {
   if (team === 1 && isGauntlet(state)) return MAX_TEAM_SIZE;
-  return (state.teams[team] ?? []).filter((s) => s.kind === 'Player' || s.kind === 'AI').length;
+  const battle = isBattle(state);
+  return (state.teams[team] ?? []).filter((s) => s.kind === 'Player' || (s.kind === 'AI' && !battle)).length;
 }
 
 /** May this Seat be set to `kind` (by the host)? Player Seats are the Members' own; Open Seats stay within MAX_PLAYERS. */
@@ -258,12 +256,8 @@ export function updateSettings(state: LobbyState, patch: Partial<Omit<LobbySetti
   return { ...state, settings: { ...state.settings, ...rest, ...(keep ? {} : { arena }) }, ...(keep ? {} : { matchArena: null }) };
 }
 
-/**
- * Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE;
- * a Battle is one Player's for now (offline, docs/plans/big-battle.md).
- */
+/** Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE; a Battle takes any Players. */
 export function formatProblem(state: LobbyState, format: MatchFormat): string | null {
-  if (format === 'Battle') return state.members.length > 1 ? 'A Battle is played offline, by one player, for now.' : null;
   if (format !== 'Gauntlet') return null;
   const players = state.teams.flat().filter((s) => s.kind === 'Player').length;
   return players > MAX_TEAM_SIZE ? `A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has ${players}.` : null;
@@ -308,6 +302,8 @@ export function nextMatchArena(state: LobbyState, played?: string): string {
 /** Who fights, read off the Seats team by team (Open and Closed Seats field nobody); in a Gauntlet Team 0's, then MAX_TEAM_SIZE Floor slots. */
 export function lobbyLineup(state: LobbyState): LobbyLineup {
   const gauntlet = isGauntlet(state);
+  // A Battle's Lineup names only its Players: its armies are the Battle's own.
+  const battle = isBattle(state);
   const seated = state.members.filter((m) => seatOf(state, m.id));
   const playerOf = (id: number) => seated.findIndex((m) => m.id === id) as PlayerNumber;
   const lineup: LineupSlot[] = [];
@@ -318,7 +314,7 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
     }
     for (const s of row) {
       if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) } });
-      else if (s.kind === 'AI') lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon });
+      else if (s.kind === 'AI' && !battle) lineup.push({ team, pilot: { kind: 'AI', difficulty: s.difficulty, ...(s.style === undefined ? {} : { style: s.style }) }, weapon: s.weapon });
     }
   });
   return { lineup, weapons: seated.map((m) => m.weapon), names: seated.map((m) => m.name), bodies: seated.map((m) => m.body), members: seated.map((m) => m.id) };
@@ -326,10 +322,11 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
 
 /** Why a Match cannot start now, or null. `requireReady`: every guest must be ready (a start from the Lobby, not a restart). */
 export function startProblem(state: LobbyState, requireReady: boolean): string | null {
-  // A Battle's armies are its own: only its Player needs a Seat (the host always has one).
-  if (isBattle(state)) return formatProblem(state, 'Battle');
-  for (let team = 0; team < state.teams.length; team++) {
-    if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
+  // A Battle's armies are its own: its Players need only a Seat (the host always has one), on either Team.
+  if (!isBattle(state)) {
+    for (let team = 0; team < state.teams.length; team++) {
+      if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
+    }
   }
   if (requireReady) {
     const waiting = state.members.find((m) => m.id !== 0 && !m.ready);

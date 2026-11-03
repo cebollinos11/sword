@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
@@ -10,6 +10,7 @@ import { createAutopilot, createBattlePilot, INVENTORY_LIST_KEY, inventoryKey, l
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
+import { playersBySlot } from './play/battleHud';
 import { devAutopilot, devAutopilotLoot, devBattlePilot, devMode, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
@@ -252,9 +253,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, in a Skirmish and in a Room; a Battle in a Skirmish only.
+    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, or a Battle, in a Skirmish and in a Room.
     const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
-    const battleFormat = savedFormat === 'Battle' && !online;
+    const battleFormat = savedFormat === 'Battle';
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
@@ -355,7 +356,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     battle?.dispose();
     battle = null;
     battleOn = false;
-    if (s.settings.format === 'Battle') return launchBattle(picks[0]!, playerNames, playerBodies);
+    if (s.settings.format === 'Battle') return launchBattle(l, s, lineup, picks, playerNames, playerBodies, members);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
     const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
@@ -392,22 +393,43 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Start a Battle (offline, docs/plans/big-battle.md): the player's Fighter in the red army on a fresh Battlefield, with
-   * their Weapon and Body. Its screen (loaded on demand) bakes the soldiers' impostors before the first Tick.
+   * Start a Battle (docs/plans/big-battle.md): each Player's Fighter in their Team's army on a fresh Battlefield, with their
+   * Weapon and Body. A host with nobody else plays it here; with other Players it runs in a Rollback session (every peer
+   * steps the same Battle, as for a Duel or a Run), the host choosing the Battlefield's seed. Its screen (loaded on demand)
+   * bakes the soldiers' impostors before the first Tick; it draws from the local Fighter the session names.
    */
-  function launchBattle(weapon: string, playerNames: readonly string[], playerBodies: readonly string[]): void {
+  function launchBattle(l: Lobby, s: LobbyState, lineup: Lineup, picks: readonly string[], playerNames: readonly string[], playerBodies: readonly string[], members: readonly number[]): void {
     matchTuning = tuning;
     warmed = new Set();
     setPlayed(null);
     const pilot = devBattlePilot();
-    const d = playerInBattle(tuning, { weapon, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), ...(pilot ? { pilot: createBattlePilot(tuning, pilot) } : {}) });
+    let d: MatchDriver;
+    if (members.length <= 1) {
+      d = playerInBattle(tuning, { weapon: picks[0]!, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), team: lineup[0]!.team === 1 ? 1 : 0, ...(pilot ? { pilot: createBattlePilot(tuning, pilot) } : {}) });
+    } else {
+      const me = members.indexOf(l.me!);
+      let session;
+      if (l.isHost) {
+        const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
+        session = createRollbackSession({ role: 'host', guests, tuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed: Math.floor(Math.random() * ARENA_SEED_RANGE) }, lineup });
+      } else {
+        const transport = l.matchTransport(s.generation, 0);
+        if (!transport) return;
+        session = createRollbackSession({ role: 'guest', transport, tuning, weapon: picks[me]! });
+      }
+      // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
+      const battlePilot = pilot ? createBattlePilot(tuning, pilot) : null;
+      d = playerVsPlayer(session, playerNames, battlePilot ? { intent: (state, fighter) => battlePilot.intent(state, fighter), watch() {} } : undefined);
+    }
     game.play({ driver: d, names: playerNames, bodies: playerBodies });
     battleOn = true;
     hud.hide();
-    const arena = d.state!.arena;
+    // By Fighter slot: a Battle's Lineup names only its Players, in the Pool's first slots.
+    const chosen = playersBySlot(lineup, playerBodies);
+    const tagged = playersBySlot(lineup, playerNames);
     void import('./play/battleScreen').then(({ BattleScreen }) => {
       if (driver !== d) return;
-      battle = new BattleScreen(container, renderer, tuning, local, playerBodies[0] ?? menu.body, arena);
+      battle = new BattleScreen(container, renderer, tuning, local, chosen, tagged);
     });
   }
 
@@ -711,8 +733,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function presentBattle(match: MatchState, me: number): void {
     const r = battle?.present(match, me);
     if (!r || !battle) return;
-    resultText = battle.showResults(r, `Back to the Lobby in ${BATTLE_RESULT_SECONDS} seconds.`);
-    resultAt = performance.now() + BATTLE_RESULT_SECONDS * 1000;
+    // Online the host decides when the Lobby returns (its Lobby message takes every guest back; a guest closing its session first
+    // would look to the host like a Player leaving): the results wait on a guest.
+    const waits = lobby?.online === true && !lobby.isHost;
+    resultText = battle.showResults(r, waits ? 'Back to the Lobby when the host returns.' : `Back to the Lobby in ${BATTLE_RESULT_SECONDS} seconds.`);
+    resultAt = waits ? null : performance.now() + BATTLE_RESULT_SECONDS * 1000;
   }
 
   // Dev mode only: play `ticks` of a Battle at once (for a browser that is not drawing at speed), with the Player's Intents
@@ -732,6 +757,27 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const crowd = curr.duel.crowd!;
       const alive = [0, 1].map((t) => crowd.alive.filter((a, s) => a && crowd.team[s] === t).length);
       return { tick: curr.tick, status: curr.status, record: crowd.players[d.localFighter], hp: me.hp, fallen: Boolean(me.death), at: me.position, alive, rout: crowd.rout, result: resultText };
+    };
+
+  // Dev mode only: where an online Battle stands on this peer and what its session has done (Rollbacks, stalls, resyncs), for the browser check.
+  if (devMode())
+    (window as unknown as { battleOnline: () => unknown }).battleOnline = () => {
+      const d = driver as { stats?: unknown; localFighter: number } | null;
+      const crowd = curr.duel.crowd;
+      if (!d || !battleOn || !crowd) return null;
+      const f = curr.duel.fighters[d.localFighter];
+      return {
+        tick: curr.tick,
+        me: d.localFighter,
+        status: curr.status,
+        record: crowd.players[d.localFighter],
+        hp: f?.hp,
+        players: crowd.players,
+        bound: curr.duel.fighters.filter((x) => x.soldier).length,
+        hash: hashValue(curr.duel),
+        stats: d.stats,
+        result: resultText,
+      };
     };
 
   // --- The scene behind the menus ---
@@ -834,6 +880,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (resultAt !== null && now >= resultAt && !inShot) {
       resultAt = null;
       const l = lobby;
+      // Online the Lobby message first, so a guest follows it rather than finding the host's session closed under it.
+      if (battleOn && l?.online) l.backToLobby();
       stopMatch();
       if (l) {
         l.backToLobby();

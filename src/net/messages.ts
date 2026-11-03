@@ -2,7 +2,7 @@ import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, M
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -177,8 +177,8 @@ const isPlayer = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_PLAYERS;
 const isFighterIndex = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_POOL;
 const FORMAT_SET: ReadonlySet<unknown> = new Set(MATCH_FORMATS);
 /**
- * The Formats a Rollback session plays: the Lobby's (`MATCH_FORMATS`) and a Battle (docs/plans/big-battle.md, Stage 6). The Lobby offers
- * a Battle online only from Stage 7, so its messages (`isFormatOnMap`) still refuse one.
+ * The Formats a Rollback session plays: the Lobby's wire list (`MATCH_FORMATS`) and a Battle (docs/plans/big-battle.md, Stage 6).
+ * `isFormatOnMap` still judges the first; a Battle is on a Battlefield only (`isLobbyFormatOnMap`: the Lobby's Battle, any Map).
  */
 const SESSION_FORMATS: ReadonlySet<unknown> = new Set<MatchFormat>([...MATCH_FORMATS, 'Battle']);
 /** The human Players a Run fields: 1 to Team 0's MAX_TEAM_SIZE. */
@@ -206,6 +206,13 @@ export function isFormatOnMap(format: unknown, arena: unknown, formats: Readonly
   if (!formats.has(format)) return false;
   if (format === 'Battle') return arena === undefined || isBattlefieldName(arena);
   return format !== 'Gauntlet' || isRandomMapName(arena);
+}
+/**
+ * A Format and Map a Lobby holds (docs/plans/big-battle.md, Stage 7): the session's Formats, a Battle too. A Battle sets the Lobby's Map
+ * aside (it is played on a Battlefield of its own seed, named when it starts), so the Map setting is any Map the Lobby may hold.
+ */
+export function isLobbyFormatOnMap(format: unknown, arena: unknown): boolean {
+  return format === 'Battle' ? true : isFormatOnMap(format, arena);
 }
 /** A Format and Map a session plays (a Battle too). */
 const isSessionFormatOnMap = (format: unknown, arena: unknown): boolean => isFormatOnMap(format, arena, SESSION_FORMATS);

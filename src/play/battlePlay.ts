@@ -98,7 +98,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     for (const s of swap.update(duel, seconds)) {
       renderer.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y: battlefieldHeight(hf, s.at.x, s.at.z), z: s.at.z }, strength: 1 });
     }
-    const bodies = battleBodies(duel, 0, body, tuning.battle.soldier.body);
+    const bodies = battleBodies(duel, 0, [body], tuning.battle.soldier.body);
     const corpse = duel.crowd!.players[0]?.corpse ?? -1;
     renderer.setPlayer(0, bodies.player as Parameters<Renderer['setPlayer']>[1]);
     renderer.setChosenBodies(bodies.others);

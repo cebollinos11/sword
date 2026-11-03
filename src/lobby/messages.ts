@@ -5,7 +5,7 @@
  */
 import { MAX_TEAM_SIZE } from '../sim';
 import { RUN_KNOB_KEYS } from '../tuning';
-import { isFormatOnMap } from '../net';
+import { isLobbyFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
 export type RefuseLobbyReason = 'RoomFull' | 'TuningDataMismatch' | 'ProtocolMismatch';
@@ -75,7 +75,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     isInt(settings.bestOf) &&
     settings.bestOf > 0 &&
     // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
-    isFormatOnMap(settings.format, settings.arena) &&
+    isLobbyFormatOnMap(settings.format, settings.arena) &&
     (settings.run === undefined || isRunKnobs(settings.run)) &&
     Array.isArray(members) &&
     members.length >= 1 &&
@@ -88,7 +88,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     typeof v.playing === 'boolean' &&
     Array.isArray(inMatch) &&
     inMatch.every(isCount) &&
-    (v.matchArena === null || (isShortString(v.matchArena) && isFormatOnMap(settings.format, v.matchArena)))
+    (v.matchArena === null || (isShortString(v.matchArena) && isLobbyFormatOnMap(settings.format, v.matchArena)))
   );
 }
 

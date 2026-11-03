@@ -71,10 +71,11 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   };
 }
 
-/** A Battle's Player: their Weapon (kept until their Fighter falls), and the Battle's seed (its Battlefield and armies). */
+/** A Battle's Player: their Weapon (kept until their Fighter falls), their Team (default 0) and the Battle's seed (its Battlefield and armies). */
 export interface PlayerInBattleOptions {
   readonly weapon: string;
   readonly seed: number;
+  readonly team?: 0 | 1;
   /** Dev mode and tests: the Player's slot on this Controller (e.g. a Battle autopilot), the local Intents ignored. */
   readonly pilot?: Controller;
 }
@@ -84,12 +85,13 @@ export interface PlayerInBattleOptions {
  * Fighter, then each Soldier they take over), a Pool AI every other slot.
  */
 export function playerInBattle(tuning: TuningData, options: PlayerInBattleOptions): MatchDriver {
-  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, teams: [0], weapons: [options.weapon] });
+  const team = options.team ?? 0;
+  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, teams: [team], weapons: [options.weapon] });
   let pending: Intent | null = null;
   const controllers = poolControllers(tuning, [options.pilot ?? { intent: () => pending! }]);
   return {
     localFighter: 0,
-    lineup: [{ team: 0, pilot: { kind: 'Player', player: 0 } }],
+    lineup: [{ team, pilot: { kind: 'Player', player: 0 } }],
     get state() {
       return match;
     },

@@ -18,6 +18,7 @@ import {
   setSeat,
   startMatch,
   startProblem,
+  teamSize,
   MAX_PLAYERS,
   updateMember,
   updateSettings,
@@ -180,25 +181,51 @@ describe('The Arena of each Match', () => {
 });
 
 describe('A Battle in the Lobby', () => {
-  it("is offered offline only, apart from the wire's list of Formats", () => {
-    expect(lobbyFormats(false)).toEqual([...MATCH_FORMATS, 'Battle']);
-    expect(lobbyFormats(true)).toEqual(MATCH_FORMATS);
+  it("is offered offline and online, beside the wire's Duels and Gauntlet", () => {
+    expect(lobbyFormats()).toEqual([...MATCH_FORMATS, 'Battle']);
     expect(MATCH_FORMATS).not.toContain('Battle');
   });
 
-  it("starts with the host alone, whatever the Seats hold, and is one player's for now", () => {
+  it('starts with the host alone, whatever the Seats hold', () => {
     const s = setFormat(newLobby(options(false)), 'Battle', 'gen:greybox:1');
     expect(isBattle(s)).toBe(true);
     expect(startProblem(setSeat(s, { team: 1, index: 0 }, { kind: 'Closed' }), true)).toBeNull();
-    const two = join(newLobby(options(true)), guest)!;
-    expect(formatProblem(two, 'Battle')).not.toBeNull();
-    expect(setFormat(two, 'Battle', 'gen:greybox:1')).toBe(two);
   });
 
-  it('keeps the Battle off the wire: a Lobby message carrying it is refused', () => {
-    const s = setFormat(newLobby(options(false)), 'Battle', 'gen:greybox:1');
+  it("takes any Players, each on the Team they sit in, and fields no AI (the armies are the Battle's)", () => {
+    let s = join(newLobby(options(true)), guest)!;
+    expect(formatProblem(s, 'Battle')).toBeNull();
+    s = setFormat(s, 'Battle', 'gen:greybox:1');
+    expect(isBattle(s)).toBe(true);
+    expect(lobbyLineup(s).lineup).toEqual([
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 1, pilot: { kind: 'Player', player: 1 } },
+    ]);
+    // An AI Seat (a Duel's) fields nobody, and does not count in the Team's size.
+    const ai = setSeat(s, { team: 1, index: 1 }, { kind: 'AI', difficulty: 'Normal', weapon: other });
+    expect(lobbyLineup(ai).lineup).toHaveLength(2);
+    expect(teamSize(ai, 1)).toBe(1);
+    expect(() => checkLineup(tuning, lobbyLineup(ai).lineup, 2, 'Battle')).not.toThrow();
+    // Both Players on one Team is a Lineup too: the other army fights without a Player.
+    const together = moveMember(s, 1, { team: 0, index: 1 });
+    expect(lobbyLineup(together).lineup.map((l) => l.team)).toEqual([0, 0]);
+    expect(() => checkLineup(tuning, lobbyLineup(together).lineup, 2, 'Battle')).not.toThrow();
+    // A guest still has to be ready, as for any online Match, but no Team need field a Player.
+    expect(startProblem(s, true)).toMatch(/Guest/);
+    expect(startProblem(updateMember(s, 1, { ready: true }), true)).toBeNull();
+    expect(startProblem(moveMember(together, 0, { team: 1, index: 0 }), false)).toBeNull();
+  });
+
+  it('is on the wire: a Lobby message carrying it, on whatever Map the Lobby holds, is accepted', () => {
+    const s = setFormat(join(newLobby(options(true)), guest)!, 'Battle', 'gen:greybox:1');
     const m = { type: 'lobby', you: 0, ack: 0, state: s };
-    expect(parseLobbyMessage(m)).toBeNull();
-    expect(parseLobbyMessage({ ...m, state: setFormat(s, 'Duels', 'gen:greybox:1') })).toEqual({ ...m, state: setFormat(s, 'Duels', 'gen:greybox:1') });
+    expect(parseLobbyMessage(m)).toEqual(m);
+    const hand = { ...m, state: { ...s, settings: { ...s.settings, arena: 'circle' } } };
+    expect(parseLobbyMessage(hand)).toEqual(hand);
+    const started = { ...m, state: startMatch(s) };
+    expect(parseLobbyMessage(started)).toEqual(started);
+    // A Format it does not know is still refused, and a Gauntlet is still on a Random Map only.
+    expect(parseLobbyMessage({ ...m, state: { ...s, settings: { ...s.settings, format: 'Siege' } } })).toBeNull();
+    expect(parseLobbyMessage({ ...m, state: { ...s, settings: { ...s.settings, arena: 'circle', format: 'Gauntlet' } } })).toBeNull();
   });
 });

@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { createBattlePilot, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { createMatch, hashValue, stepMatch, takeOverFighter, type MatchState } from '../sim';
-import { isFormatOnMap, parseNetMessage } from './messages';
+import { isFormatOnMap, isLobbyFormatOnMap, parseNetMessage } from './messages';
 
 const tuning = loadTuningData();
 /** Two small armies close together, so a whole Battle is quick. */
@@ -48,7 +48,7 @@ const resync = (s: Sample, state: unknown = s.state, ai: readonly unknown[] = s.
 const busy = () => samples.find((s) => s.state.duel.fighters.filter((f) => f.soldier).length >= 3)!;
 
 describe('A Battle on the wire (docs/plans/big-battle.md, Stage 6)', () => {
-  it('a hello may carry a Battle, of one to four Players, on a Battlefield; the Lobby still refuses one until Stage 7', () => {
+  it('a hello may carry a Battle, of one to four Players, on a Battlefield only; the Lobby holds one on any Map (Stage 7)', () => {
     const hello = { type: 'hello', protocol: 1, tuningHash: 'abcd1234' };
     for (const match of [{ bestOf: 1, format: 'Battle' }, { bestOf: 1, format: 'Battle', arena: 'battle:7', seed: 7 }, { bestOf: 1, format: 'Battle', weapons: ['Halberd'], teams: [1] }]) {
       expect(parseNetMessage({ ...hello, match }), JSON.stringify(match)).toEqual({ ...hello, match });
@@ -60,6 +60,11 @@ describe('A Battle on the wire (docs/plans/big-battle.md, Stage 6)', () => {
     expect(parseNetMessage({ ...hello, match: { bestOf: 1, format: 'Battle', arena: 'gen:greybox:3' } })).toBeNull();
     expect(isFormatOnMap('Battle', undefined)).toBe(false);
     expect(isFormatOnMap('Duels', 'circle')).toBe(true);
+    // The Lobby sets the Map aside for a Battle (it names its Battlefield from its seed at the start), and judges the rest as before.
+    expect(isLobbyFormatOnMap('Battle', 'circle')).toBe(true);
+    expect(isLobbyFormatOnMap('Battle', 'gen:greybox:3')).toBe(true);
+    expect(isLobbyFormatOnMap('Gauntlet', 'circle')).toBe(false);
+    expect(isLobbyFormatOnMap('Siege', 'circle')).toBe(false);
   });
 
   it("accepts every state of a Battle as a resync with its Pool AIs' memory, through JSON, which keeps its hash", () => {
