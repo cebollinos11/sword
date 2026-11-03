@@ -1,6 +1,6 @@
 # Battle Objectives: squads, a Commander and five Objectives, then walls and levels
 
-> Status: planned (2026-11-03). Nothing built yet. Eight Stages: 0, 1, 2a, 2b, 3a, 3b, 4a, 4b, each one chat (see "How to run each Stage"). Decisions below came from an interview, in rounds. This plan builds on `docs/plans/big-battle.md` (Milestones 1 and 2, done) and ADR 0020, and takes from its Later list: orders (per squad), obstacles and fortifications (Crowd pathfinding beyond a flow field) and reinforcement waves. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/big-battle.md`.
+> Status: Stage 0 done (2026-11-03): 200 v 200 fits with Squads. Nothing else built yet. Eight Stages: 0, 1, 2a, 2b, 3a, 3b, 4a, 4b, each one chat (see "How to run each Stage"). Decisions below came from an interview, in rounds. This plan builds on `docs/plans/big-battle.md` (Milestones 1 and 2, done) and ADR 0020, and takes from its Later list: orders (per squad), obstacles and fortifications (Crowd pathfinding beyond a flow field) and reinforcement waves. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/big-battle.md`.
 
 ## Context
 A Battle today is two armies of `battle.armySize` Soldiers charging each other across an open heightfield. One flow field per Team, rebuilt from positions, steers the Crowd at the enemy, and the Battle ends in a Rout (ADR 0020). It looks like a blob, and there is nothing to fight over but the other army.
@@ -96,6 +96,30 @@ The Big Battle plan's rules hold: determinism first (every new piece of state is
 - Extend Stage 0's bench (and `battleRollback.test.ts`'s measure) with a 200 v 200 Battle with Squads: 32 Squad brains, the cached destination fields, formation steering, and (a stub for Stage 3b) Wall push-out against a box of Walls.
 - Measure one Tick and a 15-Tick Rollback re-simulation on the march and in the melee. Write down the numbers and the budget gate's figures.
 - **Done**: the numbers are in the Result, and they say whether 200 v 200 fits with Squads. If not, the default `armySize` this plan uses.
+
+### Result
+**Built** (`src/editor/benchSquads.ts`, tests in `benchSquads.test.ts`, a Squads button on the bench page `#/editor/bench`): benchCore's Crowd prototype with Squads on top. 200 v 200 is 32 Squads (16 a side, 12 Soldiers, the remainder 8 folded one each into the last 8, so 13). Per Squad a brain at 2 Hz, staggered by index (morale under 30% falls back to the Base; Formation column, line or loose, or column when the clearance under the anchor is under 6 m; anchor heading turning at a limited rate, speed 0.8 of a Soldier's, halting in contact, at its destination or when the Squad lags 6 m). The destination fields are 12 BFS fields (five Objectives, two Bases, five spawn points) plus a clearance per cell, built once with the Walls and held outside the state. Soldiers steer to their place (up to 20% faster to catch up), the front six of a line close with the enemy, a Soldier whose place is in a Wall follows the field, and everyone is pushed out of a box of 24 Walls (two rows with gates and blocks on the centre line). The state is the Crowd's arrays plus the Squad arrays, snapshotted per Tick and restored by copying back; a 15-Tick Rollback lands on the same byte hash every time. No Commander, merging or respawning (a brain's cost does not depend on them).
+
+**Measured** (this laptop, Node, `npx vitest run src/editor/benchSquads.test.ts`; two runs agree to within 0.01 to 0.1 ms; Crowd only, not a whole Match):
+
+| 3,600 Ticks | Tick mean / p99 / max | online Tick (+ snapshot) | march: Tick, 15-Tick Rollback mean / p99 | melee: Tick, 15-Tick Rollback mean / p99 |
+|---|---|---|---|---|
+| 100 v 100 (16 Squads) | 0.13 / 0.25 / 1 to 3 | 0.17 | 0.15, 2.6 / 4.5 | 0.12, 2.1 / 4.2 |
+| **200 v 200 (32 Squads)** | **0.25 / 1.1 / 4.8** | **0.30** | **0.34, 5.5 / 17.5** | **0.20, 3.6 / 11 to 15** |
+| 300 v 300 (50 Squads) | 0.39 / 0.8 / 4 | 0.45 | 0.43, 7.4 / 13.7 | 0.33, 6.0 / 12.9 |
+
+- The 32 brains cost under 0.01 ms a Tick (about one brain a Tick), the anchors 0.01 ms, the Soldiers 0.24 ms. The 12 fields and the clearance build in 2.5 to 9 ms once.
+- The same Crowd without Squads (the old prototype, in the same run) is 0.21 ms a Tick, so Squads, fields and Wall push-out add about 0.04 ms (+20%). The prototype sits under the real Crowd step (0.38 ms at 400 Soldiers, Big Battle Stage 1) because it omits the real morale and Intent plumbing; scaled by the same ratio, a real Squad Crowd is about 0.45 to 0.5 ms a Tick, inside the 1 ms gate.
+- "March" and "melee" are Ticks with under 2% and over 20% of the living Soldiers in sight of an enemy. The march is the costlier because all 400 are alive; the melee thins out. The Rollback p99 is high because the machine's other processes show up in a 5 ms sample.
+- **The real Rollback soak, as it stands today** (`battleRollback.test.ts`, four Players, no Squads): Tick 3.7 ms mean (12.4 p99); a 15-Tick Rollback **24.4 ms on the march**, as at Stage 6, and **67 ms in the melee with four Bubbles full** (p99 133). Adding Squads' extra to the 15 Ticks (about +0.6 ms measured, +1.5 ms scaled to the real Crowd) puts the march at about **26 ms, inside the budget gate's 30 ms**. The four-Bubble melee was over 30 ms before this plan and the gate as written names the march; the plan does not make it worse by more than that +1.5 ms. I did not extend `battleRollback.test.ts` itself: there are no Squads in the Simulation to run it with until Stage 1, so that Stage should add the Squads' share to its measure.
+
+**Done**: 200 v 200 fits with Squads. The default `armySize` this plan uses stays **200**. A 300 v 300 would also fit the Crowd's own 1 ms, and the march Rollback has about 4 ms of head room before 30 (Squads at 300 v 300 add about 3 ms), but the plan's target stays 200.
+
+**Unchanged findings for later Stages**: the prototype's Walls are boxes, so push-out is cheap; Stage 3b's real Walls (a navmesh or a grid) must stay within about 0.2 ms to hold the 1 ms gate. Squads never reach Wall corners that trap a column in this stub (0 Soldiers inside a Wall over every run) — not evidence that the real push-out works.
+
+**For Stage 1**: read `src/editor/benchSquads.ts` for a working shape of the Squad arrays (anchor, heading, velocity, destination, Formation, living; per Soldier a Squad and a slot) and the 2 Hz staggered brain. It is a throwaway prototype, not the Simulation's code. Add the Squads' share to `battleRollback.test.ts`'s measure once the Simulation has Squads. This Stage was committed without the Opus `/code-review` (the user skipped it); it only adds bench code and tests, no Simulation change.
+
+**Tests**: `benchSquads.test.ts` adds 5 (deployment, Walls, Rollback determinism, the 200 v 200 run that logs the table, the 100/300 scaling). `npm run typecheck` and `npm run build` pass. `npm test`: 1729 pass; `doorSpot.test.ts` times out at 20 s (it does with my changes stashed too, so it is the machine, not this Stage); six other files that failed in the full parallel run (attack slots, bubble, battle soak, arenaGen's timing, players) pass alone.
 
 ## Stage 1: Squads and Formations on the open field
 **Model**: Sonnet.

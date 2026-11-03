@@ -15,6 +15,7 @@ import { drawnPose, fighterColours, FighterView } from '../render/fighterView';
 import { Stage } from '../render/stage';
 import { placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { benchCrowd, benchFighters, DEFAULT_CROWD, meleeMatch, stats, type Stats } from './benchCore';
+import { benchSquads, DEFAULT_SQUADS } from './benchSquads';
 
 const FIGHTER_COUNTS = [8, 16, 24, 32, 40];
 const FIGHTER_TICKS = 600;
@@ -87,6 +88,17 @@ export function startBench(container: HTMLElement, tuning: TuningData): void {
     lines.push('');
   };
 
+  const squads = async () => {
+    lines.push('## Squad Crowd prototype (docs/plans/battle-objectives.md Stage 0; ms, mean / p99)\n', '| per Team | Squads | build once | Tick (march) | Tick (melee) | 15-Tick Rollback (march) | 15-Tick Rollback (melee) |', '|---|---|---|---|---|---|---|');
+    for (const perTeam of [100, 200, 300]) {
+      show(`Squads ${perTeam} v ${perTeam}`);
+      await pause();
+      const r = benchSquads({ ...DEFAULT_SQUADS, perTeam }, CROWD_TICKS);
+      lines.push(`| ${perTeam} | ${r.squads} | ${r.buildMs.toFixed(1)} | ${ms(r.stepMarch)} | ${ms(r.stepMelee)} | ${ms(r.rollbackMarch)} | ${ms(r.rollbackMelee)}${r.deterministic ? '' : ' (DIVERGED)'} |`);
+    }
+    lines.push('');
+  };
+
   const render = async () => {
     const max = FIGHTER_COUNTS[FIGHTER_COUNTS.length - 1]!;
     show(`recording a ${max}-Fighter melee to pose`);
@@ -142,10 +154,12 @@ export function startBench(container: HTMLElement, tuning: TuningData): void {
 
   button('Fighters', fighters);
   button('Crowd', crowd);
+  button('Squads', squads);
   button('Render', render);
   button('All', async () => {
     await fighters();
     await crowd();
+    await squads();
     await render();
   });
   stage.draw();

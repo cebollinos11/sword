@@ -240,7 +240,7 @@ export function createCrowd(params: CrowdParams = DEFAULT_CROWD, seed = 1): Crow
   return crowd;
 }
 
-function random(crowd: Crowd): number {
+export function random(crowd: Crowd): number {
   const s = (crowd.rng[0]! + 0x6d2b79f5) >>> 0;
   crowd.rng[0] = s;
   let t = Math.imul(s ^ (s >>> 15), s | 1);
@@ -248,14 +248,14 @@ function random(crowd: Crowd): number {
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
-const half = (crowd: Crowd) => crowd.params.fieldSize / 2;
+export const half = (crowd: Crowd) => crowd.params.fieldSize / 2;
 function cellOf(crowd: Crowd, x: number, z: number): number {
   const cx = Math.min(crowd.cells - 1, Math.max(0, Math.floor((x + half(crowd)) / crowd.cellSize)));
   const cz = Math.min(crowd.cells - 1, Math.max(0, Math.floor((z + half(crowd)) / crowd.cellSize)));
   return cz * crowd.cells + cx;
 }
 
-function rebuildGrid(crowd: Crowd): void {
+export function rebuildGrid(crowd: Crowd): void {
   const { cellStart, cellItems } = crowd;
   cellStart.fill(0);
   for (let i = 0; i < crowd.count; i++) if (crowd.alive[i]) cellStart[cellOf(crowd, crowd.x[i]!, crowd.z[i]!) + 1]!++;
