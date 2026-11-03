@@ -54,7 +54,7 @@ describe('Peer message validation', () => {
   });
 
   it('refuses a hello whose Match options are malformed', () => {
-    for (const match of [{}, { bestOf: 0 }, { bestOf: 2.5 }, { bestOf: 3, distance: 'far' }, { bestOf: 3, interDuelTicks: 0 }, { bestOf: 3, seed: 'x' }, { bestOf: 3, weapons: ['Halberd'] }, { bestOf: 3, weapons: [1, 2] }]) {
+    for (const match of [{}, { bestOf: 0 }, { bestOf: 2.5 }, { bestOf: 3, distance: 'far' }, { bestOf: 3, interDuelTicks: 0 }, { bestOf: 3, seed: 'x' }, { bestOf: 3, weapons: [] }, { bestOf: 3, weapons: [1, 2] }]) {
       expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match })).toBeNull();
     }
     expect(parseNetMessage({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', weapon: 7 })).toBeNull();
@@ -527,8 +527,8 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(resync(stocked))).toEqual(resync(stocked));
   });
 
-  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 22', () => {
-    expect(PROTOCOL_VERSION).toBe(22);
+  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 23', () => {
+    expect(PROTOCOL_VERSION).toBe(23);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);

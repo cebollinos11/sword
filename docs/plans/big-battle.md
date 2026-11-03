@@ -1,6 +1,6 @@
 # Big Battle: 200 v 200 on an open field, with the duel's combat where the Players are
 
-> Status: Stage 5 done (2026-11-03). Milestone 1 complete. Next: Stage 6. Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`.
+> Status: Stage 6 done (2026-11-03): an online Battle runs in the Rollback session. Milestone 1 complete. Next: Stage 7. Decisions below came from an interview, one question at a time. Milestone 1 (Stages 0 to 5) is offline with one Player; Milestone 2 (Stages 6 and 7) is online with up to four. Each Stage ends with a `### Result` written by whoever builds it (what was done, what changed from the plan, test counts), as in `docs/plans/dungeon.md`.
 
 ## Context
 Every Match today is a Duel: at most four Fighters a Team (`MAX_TEAM_SIZE`), each a full Fighter with a Skeleton, Pose-Key IK, a Blade Sweep and an AI Controller run on every peer, all in a 60 Hz deterministic Simulation that rolls back up to 15 Ticks (ADR 0001, 0005, 0010). We want a Mount & Blade–style battle: 200 soldiers a side, up to four human Players, the rest AI. The Players get the full combat against whoever is near them, while the rest of the battle is a cheap simulation drawn as impostor sprites. A Player can fight some soldiers, break away, move and engage others, and soldiers convert between low and high detail as they come near or move away.
@@ -460,6 +460,68 @@ Nothing looks broken, so the Ticks weren't made cheaper. **The assertion**: mean
 - **Rollback cost**: a soak with four Bubbles full measures the worst Rollback; if it is over budget, lower the Bubble budgets, not the 15-Tick window.
 - **Tests**: loopback tests over the memory transport (two and four Players, a resync mid-battle, a Takeover mid-battle), as the Dungeon's Stage 4 did.
 
+### Result
+Done 2026-11-03. A Battle runs in a Rollback session for two to four Players, every peer agreeing Tick by Tick, the Crowd and the Fighter Pool included, through Rollbacks, a resync and a Player leaving. The Lobby doesn't offer it online yet (Stage 7). `PROTOCOL_VERSION` 22 → 23.
+
+- **Several Bubbles share the Pool** (`stepBubbles`, `data/battle.json` `slots.shared`, `bubbleSlots`, in `tuningDataHash`):
+  - With n Bubbles in use (the Players' Fighters still fighting, not one that left), each holds `slots.shared[n − 2]`: 2 enemies and 1 ally at two or three Bubbles, 1 and 1 at four. One Bubble keeps `slots.enemies` and `slots.allies` (4 and 3), so no offline number moves.
+  - The parser refuses an entry larger than the one before it, and one whose Players and slots don't fit the Pool (n × (1 + enemies + allies) ≤ `poolSize`).
+  - **Shedding**: past its share, a Bubble's slot-holders farthest from its Player let their Attack Slots go (`Waiting`, at once), and its farthest allies demote as soon as their Action allows. A Bubble can be past its share when more Bubbles come into use, or when a Fighter comes nearer another Bubble's Player.
+- **The Players' slots**: a Battle's Lineup names only its Players, slots 0 to 3 of the Pool, at most `MAX_TEAM_SIZE` a Team, no AI (`checkLineup`). `lineupAis` gives every other Pool slot a Pool AI, so the session's Controllers cover the whole Pool on every peer.
+- **A Player who leaves** (`takeOverFighter`, now also for a Battle): the session applies it at the Takeover Tick as for a Run. The Player's record is marked away (`BattlePlayer.away`, absent while it plays). Its Fighter, driven by the Normal takeover AI, has no Bubble and no ring, takes over no Soldier when it falls, and counts no more kills. To the AI it is an ally of its Team like a promoted Soldier (`bubblePlayer`): a `Waiting` Fighter may fight it, and none waits at a ring round it.
+- **The session** (`src/net/session.ts`):
+  - Its per-Fighter arrays come from `lineupAis`, so they cover the Pool.
+  - On a Rollback a Pool AI's null memory (its slot unbound at the base Tick) is loaded too. Before, null was skipped, so a Pool AI that had bound a Soldier in the Ticks being re-simulated kept that AI's memory when the same Promotion happened again.
+  - A resync must carry the Pool's size of Fighters and AI entries, a Crowd of `2 × armySize` Soldiers with a record per Player, a Pool AI's memory (or null) on each Pool slot, and an ordinary AI's nowhere else.
+- **The wire** (`src/net/messages.ts`):
+  - The session's hello and resync accept a Battle, on a Battlefield (`battle:<seed>`, or none). The Lobby's messages still refuse it (`isFormatOnMap` keeps `MATCH_FORMATS` by default), until Stage 7.
+  - A Lineup, teams and weapons may be of one (a one-Player Battle). A Duel still needs two Fighters.
+  - A Battle's state: up to 64 Pool slots (`MAX_POOL`), each Fighter's `soldier` binding, and the Crowd (`isCrowd`: every array as long as `x`, each entry what it may hold, every index in range, the Players' records with `away`). The Pool and the Crowd must agree on who is bound where (`isBattle`). Only a Battle has a Crowd.
+  - Pool AI memory (`isPoolAiMemory`). An AI memory's sightings may cover the Pool. `chamberedBy` holds Fighter indices up to the Pool, not Player numbers: a real Battle state with a Chamber by slot 12 was refused before.
+  - The checksums already hashed the whole state, the Crowd with it.
+
+**What changed from the plan:**
+- **"So the Pool never overflows"**: the Pool can't overflow (`openSlot` finds no free slot and nothing promotes), so the rule is about sharing it. Without shedding, a Bubble's counts ran past its share (6 slot-holders in one of two Bubbles side by side, Fighters drifting from one to the other), which `sharedBubbles.test.ts` caught.
+- **The shared slots are smaller than Stage 0 guessed** (2 enemies + 1 ally each at four Bubbles). Waiting Fighters and corpses keep the Pool fuller than the slots alone, and at 2 + 1 four Bubbles held 11 to 12 bound, the whole free Pool, most of the time. 1 + 1 holds 9.5 on average, Stage 0's 8 to 10.
+- **A Player who left "counts as an ally"**: its Fighter isn't promoted into an ally slot (it keeps its own), and it releases no Attack Slot by engaging a slot-holder as a promoted ally does. It is simply a full Fighter of its Team with no Bubble.
+- **The 15-Tick window stays**, as the plan says. But a Rollback is costly even with nothing bound (below), and Stage 7's check with four browsers will show whether that is felt.
+
+**Rollback cost** (`src/net/battleRollback.test.ts`, the full 200 v 200, four Players two a Team on a Hard Battle autopilot, a Pool AI on every other slot, each Tick snapshotted with every Pool AI's memory saved as the session does; every 10th Tick from 300 a 15-Tick Rollback: restore, load the Pool AIs, re-simulate, same hash every time). This laptop, alone, seed 1:
+
+| four Bubbles at | bound in the melee (mean / most) | 15-Tick Rollback in the melee, mean / max ms | Tick (+ snapshot, AI save) mean ms |
+|---|---|---|---|
+| 2 enemies + 1 ally | 11 to 12 / 12 | 76 / 142 | 3.9 |
+| **1 + 1 (chosen)** | **9.5 / 12** | **61 to 66 / 130 to 163** | **3.6** |
+| 2 + 0 | 8 to 9 / 12 | 55 / 118 | 3.0 |
+| 1 + 0 | 4 to 5 / 7 | 40 / 90 | 2.4 |
+
+- With nothing bound (the march), a 15-Tick Rollback is still 22 to 25 ms: the Crowd, the four Players' Fighters and the snapshots. Each bound Fighter adds about 0.3 ms a re-simulated Tick.
+- With two Players at 2 + 1: 7 to 8 bound, 46 ms. With three: 9 to 11 bound, 56 ms.
+- The max is noisy (the march alone reaches 64 to 73 ms), so the budget is the bound count Stage 0 named (about 8 to 10).
+- In the loopback tests (40 ms ± 20) the deepest Rollback was 3 to 9 Ticks and the session never stalled. At 1 + 1 a 6-Tick Rollback in the melee is about 25 ms here, on top of the Tick and the frame. Several of those a second would show. **Not measured**: the frame rate online in a browser (Stage 7's check).
+- The test asserts the structure: four Bubbles fought on more than 100 timed Ticks, at most `BOUND_BUDGET` (10) bound on average, never more than the free Pool, every Rollback to the same hash. Its time bound is relative, a Rollback in the melee under 4.5 times one on the march in the same run (about 2.2 to 2.8 measured). A first, absolute bound (180 ms) failed in the full suite, which slowed it about 3 times (173 ms mean overall).
+
+**Loopback tests** (`src/net/battle.test.ts`; 60 a side 10 m out; 40 ms ± 20; a virtual clock; each Player on a Hard Battle autopilot fed its own session's state; every peer's every simulated Tick hashed and compared with the same Intents stepped offline):
+- **Two Players**, one a Team: a whole Battle to its end (Tick 1966, the same on every peer, one Rout, one BattleEnd), with no Desync. Both Bubbles promoted enemies, and each peer rolled back about 1,100 times (deepest 3 to 7).
+- **Four Players**, two a Team, 1500 Ticks: 1,210 Ticks with four Bubbles and 8 or more slots bound. Every peer agreed every Tick, with 1,000 to 1,250 Rollbacks each (deepest 7 to 9).
+- **A resync**: on Tick 311 the guest moved a promoted Fighter and cut a Soldier's HP. It was caught at the next checksum and resynced to Tick 336 with 8 slots bound, so the Pool AIs' memory came with it. After that it matched the host and the offline Battle on every Tick.
+- **A Takeover**: Player 2 of three (Team 0) left on Tick 297 while its Bubble held enemies. Both other peers took the same Takeover Tick, and every peer marked it away from that Tick on and not before. Every Attack Slot a Team 1 Fighter took after it was taken within reach of Player 0, the one Team 0 Player still playing. The remaining two Bubbles stayed at their 2 + 1 share and the fights were slow, so only one slot changed hands in the 1,200 Ticks after.
+
+**Tests**:
+- `src/net/battle.test.ts` (4): above.
+- `src/net/battleRollback.test.ts` (1): above.
+- `src/net/battleMessages.test.ts` (5): a hello with a Battle of one to four Players, on a Battlefield only, and the Lobby still refusing it. Every state of a small Battle (each role, bound Pool AIs' memory, a takeover of a Soldier, a Player who left) is accepted as a resync through JSON, with the same hash. Refusals: a malformed Crowd, a Pool and Crowd that disagree, a Battle without its Crowd or a Duel with one, a Rematch, too many slots, malformed Pool AI memory.
+- `src/sim/sharedBubbles.test.ts` (4): four Bubbles never hold more than their shared slots (allies over it only while they may not demote yet) and were all full at once for a while. One Bubble holds 4, two hold 2 each. A Player who left is marked away once, with `bubblePlayer` false. After it, Team 0 Soldiers promote only as Player 0's allies, and its Fighter falling takes over no one.
+- `src/tuning/battle.test.ts` (+1, and the hash test covers `shared`): the table, `bubbleSlots`, and what the parser refuses.
+- **Changed assertions**:
+  - `messages.test.ts`: the protocol is 23, and a hello's options with one Weapon are now accepted (a one-Player Battle), so that refusal case became an empty list.
+  - `battle.test.ts`: its `slots` `toEqual` became `toMatchObject` (the new `shared`), and its `allies: 0` case passes `shared: []`.
+  - `tuning.test.ts`: the raw fixture gained `shared: []`.
+  - `teams.test.ts`: a Lineup of one is no longer a malformed one on the wire (a one-Player Battle; `checkLineup` judges it), so that refusal case became an empty Lineup.
+
+  No Duel, Dungeon or offline Battle assertion changed: one Bubble's slots are as before, and the Stage 3 to 5 Battle tests pass unchanged.
+- `npm run typecheck` and `npm run build` pass. `npm test` (one full run): **1707 passed, 5 skipped, 11 failed**. Two were real, both fixed since: `teams.test.ts`'s one-Player Lineup (above) and the soak's absolute time bound (above). The other nine are timing-bound, 20 s timeouts and the navmesh-under-250 ms checks, in the Door spot soak, the two navmesh checks, the Run pickups test, the four-Player "goes silent" and resync tests, the Gauntlet's four-Player net test, and two 1,500-Tick Battle hash replays (Stage 3's and Stage 4's). That is more than Stage 5's 4: this Stage's loopback tests and soak (about 5 minutes of CPU) run beside them. Run on their own afterwards, the Battle replays, `teams.test.ts`, `players.test.ts`, `dungeonRun.test.ts` and the soak passed (141 tests).
+
 ## Stage 7: online Battle, presentation and Lobby
 - Battle offered online in the Lobby (the host chooses it; Players pick their Team).
 - A marker for each Player (a name tag and a minimap icon), since a Player who took over a soldier looks like every other soldier.
@@ -471,4 +533,4 @@ Elites (captains with Relic-style `mods`); Soldiers solid to full Fighters; orde
 ## Open questions
 1. **A close swap is visible.** With the third-person camera a few metres behind the Player, 10 m is mid-screen. The crossfade hides some of it; the third render tier (Later) is the cheap fix with no new art if playtesters notice.
 2. **Beginner AI was tuned for Duels.** Four of them taking turns may feel too passive or too deadly in a crowd. Stage 5 tuning judges it against "a Player can hold off four soldiers but not a dozen".
-3. **The Pool size online.** Four Bubbles × (4 + 3) = 28 slots plus the Players. If Stage 0 says the laptop can't Roll back that many, Stage 6's shrinking rule decides it.
+3. **The Pool size online.** Four Bubbles × (4 + 3) = 28 slots plus the Players. If Stage 0 says the laptop can't Roll back that many, Stage 6's shrinking rule decides it. **Settled in Stage 6**: `battle.slots.shared`, 1 enemy + 1 ally a Bubble at four, about 9.5 bound.

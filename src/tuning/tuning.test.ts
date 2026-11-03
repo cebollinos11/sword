@@ -40,7 +40,7 @@ function goodRaw() {
       rout: { threshold: 0.2, seconds: 5 },
       soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },
-      slots: { enemies: 4, allies: 3, engaged: 2.5 },
+      slots: { enemies: 4, allies: 3, engaged: 2.5, shared: [] },
       ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 },
       takeover: { seconds: 1.5 },
     },

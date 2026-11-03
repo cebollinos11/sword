@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-02, `docs/plans/big-battle.md`). Stage 1 built the Crowd tier and the Battlefield as decided here; Stage 3 built the Fighter Pool, Promotion and Demotion (each Stage's Result).
+Accepted (2026-11-02, `docs/plans/big-battle.md`). Stage 1 built the Crowd tier and the Battlefield as decided here; Stage 3 built the Fighter Pool, Promotion and Demotion; Stage 6 put it on the wire unchanged (each Stage's Result).
 
 ## Context
 
@@ -31,3 +31,4 @@ A Battle simulates its armies in two tiers, both inside `SimState`, both hashed,
 - Every system that iterates `fighters` must tolerate an unbound Pool slot. Making an unbound slot Benched does that: it is not stepped, hits and is hit by nothing, blocks no bodies, is not drawn and is no AI's target, as a Run's empty enemy slot already was.
 - A Battle's Duel never ends by its Fighters (only the Rout ends a Battle), and on the open Battlefield the AI walks straight, never routing over its thousands of Walk Surfaces.
 - Soldiers hold outside sword reach of the enemy full Fighters by steering alone, never collision, so a crowd of them costs the Fighters' Simulation nothing.
+- Online (Stage 6) nothing new crosses the wire during play: the checksums hash the Crowd with the rest of the state, and a resync carries it, the Pool's bindings and every Pool slot's AI memory (null while unbound, and loaded as null on a Rollback, so a Pool AI never plays on for a binding it had only in Ticks being re-simulated). The cost that bounds a Battle online is a Rollback's re-simulation of the bound Fighters, so several Bubbles share smaller slot budgets (`battle.slots.shared`), set by measuring a four-Player Rollback.

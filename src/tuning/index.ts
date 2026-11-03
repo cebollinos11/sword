@@ -58,7 +58,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { parseBattle, type BattleTuning, type BattlefieldTuning, type BubbleTuning, type CrowdTuning, type DeployTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning } from './battle';
+export { bubbleSlots, parseBattle, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CrowdTuning, type DeployTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';

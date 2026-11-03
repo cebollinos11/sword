@@ -26,10 +26,15 @@
  *    Attack Slot held promotes its Player's allied Soldiers within `promote`, nearest the slot-holding enemies first, up to
  *    `slots.allies` (`Ally`).
  * A promoted enemy counts in the Bubble of its nearest enemy Player, an ally in its nearest Team-mate's (the lower slot on
- * a tie). A promoted Fighter starts at guard where its Soldier stands, facing its heading, with its Team and HP, the
- * generic soldier's Weapon (`battle.soldier`), and a Soldier's max HP. Pure.
+ * a tie). Overlapping Bubbles share the Pool: while several are in use, each holds fewer Attack Slots and ally slots
+ * (`slots.shared`, Stage 6), so their Players and slots always fit it. Past its share (more Bubbles came into use, or a Fighter
+ * came nearer another Bubble's Player), a Bubble's slot-holders farthest from its Player let their Attack Slots go, and its
+ * farthest allies demote as soon as they may. A Player who left an online Battle (`BattlePlayer.away`) has no Bubble: an AI
+ * drives its Fighter as an ally of its Team, and it takes over no Soldier when it falls. A promoted Fighter starts at guard
+ * where its Soldier stands, facing its heading, with its Team and HP, the generic soldier's Weapon (`battle.soldier`), and a
+ * Soldier's max HP. Pure.
  */
-import type { TuningData } from '../tuning';
+import { bubbleSlots, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf } from './battlefield';
 import { secondsToTicks } from './constants';
@@ -41,6 +46,12 @@ import { standingFighter } from './step';
 
 /** Whether a Pool slot is bound to a Soldier. */
 export const isBound = (f: FighterState): boolean => f.soldier !== undefined;
+
+/**
+ * Whether Fighter `k` of a Battle, if in play, is a Player's with a Bubble: not bound to a Soldier, and its Player still plays (not
+ * `BattlePlayer.away`). A Player's Fighter an AI took over fights on as an ally of its Team, as a promoted Soldier does.
+ */
+export const bubblePlayer = (duel: SimState, k: number): boolean => duel.fighters[k]?.soldier === undefined && !duel.crowd?.players[k]?.away;
 
 /** An unbound Pool slot: Benched (0 HP, out of play) at the field's centre, wielding the generic soldier's Weapon. */
 export function unboundSlot(tuning: TuningData, arena: string): FighterState {
@@ -56,9 +67,9 @@ interface Centre {
   readonly team: number;
 }
 
-/** Each Bubble: each Player's Fighter (the first `players` slots) still in the fight. */
-function bubbleCentres(fighters: readonly FighterState[], players: number): Centre[] {
-  return fighters.slice(0, players).flatMap((f) => (inDuel(f) ? [{ x: f.position.x, z: f.position.z, team: f.team }] : []));
+/** Each Bubble: each Player's Fighter (the first `players` slots) still in the fight, but a Player's who left (`BattlePlayer.away`). */
+function bubbleCentres(fighters: readonly FighterState[], players: number, crowd: CrowdState): Centre[] {
+  return fighters.slice(0, players).flatMap((f, k) => (inDuel(f) && !crowd.players[k]?.away ? [{ x: f.position.x, z: f.position.z, team: f.team }] : []));
 }
 
 /** Whether a promoted Fighter's Action lets it demote: Idle (standing or walking) on the ground. */
@@ -182,7 +193,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       e.crowd.hp[record.soldier] = 0;
       e.crowd.alive[record.soldier] = 0;
     }
-    if (tick - f.death.tick < takeoverTicks) continue;
+    // A Player who left takes over no one: an AI drives its Fighter, and it just lies there.
+    if (record.away || tick - f.death.tick < takeoverTicks) continue;
     const s = nearestAlly(pool(), soldiers(), players, f);
     if (s < 0) continue;
     const e = edit();
@@ -203,7 +215,9 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     e.crowd.players[p] = { ...record, soldier: s, taken: record.taken + 1, corpse } satisfies BattlePlayer;
   }
 
-  const centres = bubbleCentres(pool(), players);
+  const centres = bubbleCentres(pool(), players, soldiers());
+  // Each Bubble's slots, shrunk while several are in use so they share the Pool.
+  const budget = bubbleSlots(slots, centres.length);
   const farFromAll = (f: FighterState) => centres.every((c) => Math.hypot(f.position.x - c.x, f.position.z - c.z) > bubble.demote);
 
   for (let k = players; k < duel.fighters.length; k++) {
@@ -253,7 +267,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
         const f = pool()[k]!;
         if (roleOf(k) === 'Ally') continue;
         let player = Infinity;
-        for (const g of pool()) if (inDuel(g) && !isBound(g) && g.team !== f.team) player = Math.min(player, Math.hypot(g.position.x - f.position.x, g.position.z - f.position.z));
+        for (const c of centres) if (c.team !== f.team) player = Math.min(player, Math.hypot(c.x - f.position.x, c.z - f.position.z));
         for (const a of live) {
           const g = pool()[a]!;
           if (roleOf(a) !== 'Ally' || g.team === f.team) continue;
@@ -295,11 +309,24 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
 
     // A slot-holding enemy a promoted ally engages lets its Attack Slot go.
     for (const k of promoted()) if (roleOf(k) === 'Attack' && engagedByAlly(k)) assign(k, 'Waiting');
+    /** A Bubble's promoted Fighters of `role`, nearest its Player first (the lower slot on a tie). */
+    const nearestIn = (b: number, role: SoldierRole) => {
+      const c = centres[b]!;
+      const away = (k: number) => Math.hypot(pool()[k]!.position.x - c.x, pool()[k]!.position.z - c.z);
+      return promoted()
+        .filter((k) => roleOf(k) === role && bubbleOf(k) === b)
+        .sort((p, q) => away(p) - away(q) || p - q);
+    };
+    // No Bubble holds more than its share (as when more Bubbles come into use, or a slot-holder comes nearer another Bubble's Player):
+    // the slot-holders farthest from its Player let their Attack Slots go.
+    centres.forEach((_, b) => {
+      for (const k of nearestIn(b, 'Attack').slice(budget.enemies)) assign(k, 'Waiting');
+    });
 
     // Each Bubble fills its free Attack Slots, nearest its Player first: a Waiting Fighter no ally engages, or a Soldier.
     centres.forEach((c, b) => {
       const mine = promoted().filter((k) => roleOf(k) !== 'Ally' && bubbleOf(k) === b);
-      let open = slots.enemies - mine.filter((k) => roleOf(k) === 'Attack').length;
+      let open = budget.enemies - mine.filter((k) => roleOf(k) === 'Attack').length;
       if (open <= 0) return;
       const near: { k: number; s: number; d: number }[] = [];
       for (const k of mine) {
@@ -330,9 +357,13 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     // an Attack Slot, each Bubble promotes its Player's allied Soldiers, nearest the slot-holders first.
     const enemiesIn = (b: number, roles: readonly SoldierRole[]) => promoted().filter((k) => roles.includes(roleOf(k)) && bubbleOf(k) === b);
     for (const k of promoted()) if (roleOf(k) === 'Ally' && demotesNow(pool()[k]!) && enemiesIn(bubbleOf(k), ['Attack', 'Waiting']).length === 0) demote(k);
+    // An ally past its Bubble's share (the farthest from its Player) goes back to the Crowd as soon as it may.
+    centres.forEach((_, b) => {
+      for (const k of nearestIn(b, 'Ally').slice(budget.allies)) if (demotesNow(pool()[k]!)) demote(k);
+    });
     centres.forEach((_, b) => {
       const holders = enemiesIn(b, ['Attack']).map((k) => pool()[k]!.position);
-      let open = slots.allies - promoted().filter((k) => roleOf(k) === 'Ally' && bubbleOf(k) === b).length;
+      let open = budget.allies - promoted().filter((k) => roleOf(k) === 'Ally' && bubbleOf(k) === b).length;
       if (holders.length === 0 || open <= 0) return;
       const c0 = soldiers();
       const near: { s: number; d: number }[] = [];

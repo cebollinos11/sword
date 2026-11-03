@@ -104,6 +104,24 @@ export interface SlotsTuning {
   readonly allies: number;
   /** A slot-holding enemy with a promoted ally this close (m), nearer it than any Player, may be engaged by that ally (one enemy to an ally) and lets its Attack Slot go. */
   readonly engaged: number;
+  /**
+   * Each Bubble's slots while several are in use (docs/plans/big-battle.md, Stage 6): entry n - 2 for n Bubbles (the last entry for more),
+   * so the Bubbles share the Pool and it never overflows. Each entry is no larger than the one before (or `enemies` and `allies`), and
+   * n Bubbles' Players and slots fit the Pool.
+   */
+  readonly shared: readonly BubbleSlots[];
+}
+
+/** One Bubble's Attack Slots and ally slots. */
+export interface BubbleSlots {
+  readonly enemies: number;
+  readonly allies: number;
+}
+
+/** Each Bubble's slots while `bubbles` of them are in use: `slots.enemies` and `slots.allies` for one (or none), else `slots.shared`'s entry. */
+export function bubbleSlots(slots: SlotsTuning, bubbles: number): BubbleSlots {
+  if (bubbles <= 1 || slots.shared.length === 0) return slots;
+  return slots.shared[Math.min(bubbles - 2, slots.shared.length - 1)]!;
 }
 
 /**
@@ -229,8 +247,20 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   if (bubble.hold >= bubble.promote) throw new TuningDataError(`battle.bubble.hold (${bubble.hold}) must be less than battle.bubble.promote (${bubble.promote})`);
   const allies = nonNegativeNumber(sl, 'allies', 'battle.slots');
   if (!Number.isInteger(allies)) throw new TuningDataError(`battle.slots.allies must be a whole number, got ${allies}`);
-  const slots: SlotsTuning = { enemies: wholeNumber(sl, 'enemies', 'battle.slots'), allies, engaged: positiveNumber(sl, 'engaged', 'battle.slots') };
+  const slots: SlotsTuning = { enemies: wholeNumber(sl, 'enemies', 'battle.slots'), allies, engaged: positiveNumber(sl, 'engaged', 'battle.slots'), shared: [] };
   if (slots.enemies + slots.allies >= bubble.poolSize) throw new TuningDataError(`battle.slots: ${slots.enemies} enemies and ${slots.allies} allies must leave room in the Pool of ${bubble.poolSize} for the Player`);
+  array(sl.shared, 'battle.slots.shared').forEach((raw, i) => {
+    const where = `battle.slots.shared[${i}]`;
+    const e = record(raw, where);
+    const entry: BubbleSlots = { enemies: wholeNumber(e, 'enemies', where), allies: nonNegativeNumber(e, 'allies', where) };
+    if (!Number.isInteger(entry.allies)) throw new TuningDataError(`${where}.allies must be a whole number, got ${entry.allies}`);
+    const before = i === 0 ? slots : slots.shared[i - 1]!;
+    if (entry.enemies > before.enemies || entry.allies > before.allies) throw new TuningDataError(`${where}: a Bubble's slots never grow as more Bubbles are in use`);
+    const bubbles = i + 2;
+    if (bubbles * (1 + entry.enemies + entry.allies) > bubble.poolSize)
+      throw new TuningDataError(`${where}: ${bubbles} Bubbles of a Player, ${entry.enemies} enemies and ${entry.allies} allies must fit the Pool of ${bubble.poolSize}`);
+    (slots.shared as BubbleSlots[]).push(entry);
+  });
   const ring: RingTuning = {
     radius: positiveNumber(rg, 'radius', 'battle.ring'),
     spacing: positiveNumber(rg, 'spacing', 'battle.ring'),

@@ -46,7 +46,12 @@
   "slots": {
     "enemies": 4,
     "allies": 3,
-    "engaged": 2.5
+    "engaged": 2.5,
+    "shared": [
+      { "enemies": 2, "allies": 1 },
+      { "enemies": 2, "allies": 1 },
+      { "enemies": 1, "allies": 1 }
+    ]
   },
   "ring": {
     "radius": 3.5,

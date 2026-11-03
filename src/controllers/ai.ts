@@ -147,6 +147,7 @@ import {
   attackTimings,
   blockedAt,
   createRng,
+  bubblePlayer,
   deadlyGround,
   findPath,
   groundBelow,
@@ -1013,12 +1014,12 @@ class RuleAi implements AiController {
     if (!seen) return IDLE_INTENT;
 
     const self = state.fighters[fighter]!;
-    // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, never a Player).
+    // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, and a Player's Fighter an AI took over, never a Player).
     const role = state.crowd ? self.soldier?.role : undefined;
     const enemies = seen.fighters
       .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
       .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
-      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || state.fighters[i]!.soldier !== undefined))
+      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || !bubblePlayer(state, i)))
       .sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
@@ -1384,8 +1385,8 @@ class RuleAi implements AiController {
   private waitAtRing(state: SimState, self: FighterState): Intent {
     let player: FighterState | null = null;
     let near = Infinity;
-    for (const o of state.fighters) {
-      if (!inDuel(o) || o.team === self.team || o.soldier) continue;
+    for (const [i, o] of state.fighters.entries()) {
+      if (!inDuel(o) || o.team === self.team || !bubblePlayer(state, i)) continue;
       const d = Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z);
       if (d < near) [player, near] = [o, d];
     }

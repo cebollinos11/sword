@@ -158,8 +158,9 @@ describe('Peer message validation: team battles', () => {
 
   it('refuses a malformed Lineup', () => {
     const player = { team: 0, pilot: { kind: 'Player', player: 0 } };
+    // A Lineup of one is a one-Player Battle's (docs/plans/big-battle.md, Stage 6): `checkLineup` judges it, not the wire.
     for (const lineup of [
-      [player],
+      [],
       Array(9).fill(player),
       [player, { team: 2, pilot: { kind: 'Player', player: 1 } }],
       [player, { team: 1, pilot: { kind: 'Player', player: 4 } }],

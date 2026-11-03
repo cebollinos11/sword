@@ -35,7 +35,7 @@ export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTi
 
 /**
  * The Players' records with this Tick's kills counted: a Fighter that fell to a Hit, Kick or Throwing Dagger of a Player's
- * Fighter (one of the first `players` slots) on another Team is that Player's kill.
+ * Fighter (one of the first `players` slots) on another Team is that Player's kill, while it plays (not once it has left).
  */
 function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[], teams: readonly number[], players: number): readonly BattlePlayer[] {
   let out: BattlePlayer[] | null = null;
@@ -46,7 +46,7 @@ function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[
       if ((b.type === 'Hit' || b.type === 'KickLanded') && b.defender === e.fighter) by = b.attacker;
       else if (b.type === 'DaggerHit' && b.defender === e.fighter) by = b.thrower;
     }
-    if (by < 0 || by >= players || teams[by] === teams[e.fighter] || !records[by]) continue;
+    if (by < 0 || by >= players || teams[by] === teams[e.fighter] || !records[by] || records[by]!.away) continue;
     out ??= records.slice();
     out[by] = { ...out[by]!, kills: out[by]!.kills + 1 };
   }
@@ -65,7 +65,7 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
   const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning);
   let duel = step(bubbled, intents, tuning);
   const before = duel.crowd!;
-  // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead.
+  // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead (none for one who left).
   const fighters: CrowdFighter[] = duel.fighters.flatMap((f, k) => {
     if (!inDuel(f)) return [];
     const was = bubbled.fighters[k]!.position;
@@ -75,7 +75,7 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
     const moving = d > TRAVEL_EPSILON;
     const dx = moving ? ox / d : 0;
     const dz = moving ? oz / d : 0;
-    return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
+    return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players && !before.players[k]?.away ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
   });
   const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters);
   const tally = countKills(stepped.players, duel.events, duel.fighters.map((f) => f.team), players);

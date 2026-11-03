@@ -42,6 +42,13 @@
  * snapshotted with every simulated Tick so a Rollback restores it, and it
  * travels with the host's state on a resync.
  *
+ * A Battle (docs/plans/big-battle.md, Stage 6) is the same session over a bigger
+ * Match: its Lineup names only the Players (slots 0 to 3 of the Fighter Pool), and
+ * every other Pool slot has a Pool AI, whose memory (null while its slot is unbound)
+ * is snapshotted and resynced like any AI's. The Crowd is part of the state, so the
+ * checksums and a resync cover it. A Player who leaves is taken over by the AI as in
+ * a Duel, and their Fighter then fights as an ally with no Bubble (`takeOverFighter`).
+ *
  * It talks only through Transports, and only Intents (plus checksums, the
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
@@ -62,7 +69,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { isHallAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isHallAiMemory, isPoolAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -245,9 +252,9 @@ class Session implements RollbackSession, PeerIntentSource {
   /** Each Player's Fighter, and each Fighter's Player (-1 for an AI of the Lineup). */
   private fighterOf: number[] = [];
   private playerOf: number[] = [];
-  /** The Match's Format (from the Lineup's setting up): a Run's takeover is an Ally AI. */
+  /** The Match's Format (from the Lineup's setting up): a Run's takeover is an Ally AI, a Battle's Pool slots have Pool AIs. */
   private format: MatchFormat = 'Duels';
-  /** An AI Controller per AI Fighter, the Lineup's and those driving a Player who left (null for the Players' Fighters). */
+  /** An AI Controller per AI Fighter, the Lineup's (in a Battle, a Pool AI per Pool slot) and those driving a Player who left (null for the Players' Fighters). */
   private ais: (Controller | null)[] = [];
   /** Per Player: the Tick from which the AI drives their Fighter, because they left (null while they play). */
   private readonly takeover: (number | null)[] = [];
@@ -441,10 +448,14 @@ class Session implements RollbackSession, PeerIntentSource {
     this.lineup = lineup;
     this.format = format;
     this.players = lineupPlayers(lineup);
-    this.playerOf = lineup.map((s) => (s.pilot.kind === 'Player' ? s.pilot.player : -1));
+    // One entry per Fighter: in a Battle the whole Pool, past the Lineup's Players.
+    this.ais = lineupAis(this.tuning, lineup, format, match);
+    this.playerOf = this.ais.map((_, i) => {
+      const pilot = lineup[i]?.pilot;
+      return pilot?.kind === 'Player' ? pilot.player : -1;
+    });
     this.fighterOf = Array.from({ length: this.players }, (_, p) => this.playerOf.indexOf(p));
     this.localFighter = this.fighterOf[this.localPlayer] ?? -1;
-    this.ais = lineupAis(this.tuning, lineup, format, match);
     for (let p = 0; p < this.players; p++) {
       this.intents[p] = new Map();
       this.used[p] = new Map();
@@ -577,8 +588,14 @@ class Session implements RollbackSession, PeerIntentSource {
 
   private loadAis(memory: readonly unknown[]): void {
     this.ais.forEach((ai, i) => {
-      if (ai && memory[i] != null) ai.load?.(memory[i]);
+      // A Pool AI's null is memory too (its slot unbound): loading it drops whatever binding it played for since.
+      if (ai && (memory[i] != null || this.poolSlot(i))) ai.load?.(memory[i]);
     });
+  }
+
+  /** Whether Fighter i is a slot of a Battle's Fighter Pool past the Players' (a Pool AI drives it). */
+  private poolSlot(i: number): boolean {
+    return this.format === 'Battle' && this.playerOf[i]! < 0;
   }
 
   /** The Intent of the Player driving `fighter` for the Tick being simulated (or the next one): real once it has arrived, else their last real one repeated. */
@@ -817,15 +834,21 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
     const teams = this.lineup!.map((s) => s.team);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
-    if (state.duel.fighters.length !== teams.length || ai.length !== teams.length) return;
     // The Format and a Run's humans are fixed at the start.
     const config = this.state!.config;
     if ((state.config.format ?? 'Duels') !== config.format || (config.format === 'Gauntlet' && state.config.humans !== config.humans)) return;
+    // One Fighter and one AI entry per slot: in a Battle, the whole Pool.
+    if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
+    // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
+    const crowd = state.duel.crowd;
+    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.players.length !== teams.length)) return;
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
-      // A Run's Team 1 slots hold Hall AIs, every other AI an ordinary one: each takes only its own kind of memory.
+      // A Run's Team 1 slots hold Hall AIs, a Battle's Pool slots Pool AIs (null while unbound), every other AI an ordinary one: each takes only its own kind of memory.
       if (m !== null && isHallAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
+      if (m !== null && isPoolAiMemory(m) !== this.poolSlot(i)) return false;
+      if (this.poolSlot(i)) return true;
       if (this.aiDrives(i, tick)) return m !== null;
       return m === null || (p >= 0 && this.takeover[p] != null);
     };

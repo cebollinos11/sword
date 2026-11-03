@@ -79,6 +79,11 @@ export interface BattlePlayer {
   readonly kills: number;
   /** The Pool slot its own chosen Fighter lies in once it has taken over a Soldier (to the Battle's end), or -1. */
   readonly corpse: number;
+  /**
+   * Set once the Player has left an online Battle (docs/plans/big-battle.md, Stage 6; `takeOverFighter`): an AI drives its Fighter from
+   * then on, as an ally of its Team. It has no Bubble, takes over no Soldier when it falls, and counts no more kills. Absent while it plays.
+   */
+  readonly away?: true;
 }
 
 /** A Player's record at the start of a Battle. */

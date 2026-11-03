@@ -6,12 +6,13 @@
  * Plain data, so the host of a Player vs Player Match can send it to the
  * guest and both peers build the same Match and the same AI Controllers.
  */
-import { checkRunTeams, checkTeams, runPick, type MatchFormat, type MatchOptions } from '../sim';
+import { checkRunTeams, checkTeams, MAX_TEAM_SIZE, runPick, type MatchFormat, type MatchOptions } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type TuningData } from '../tuning';
 import { createAiController } from './ai';
 import { createAllyAi } from './allyAi';
 import type { Controller } from './controller';
 import { createHallAi } from './hallAi';
+import { createPoolAi } from './poolAi';
 
 /** The most human Players a Match fields (online: the host and three guests). */
 export const MAX_PLAYERS = 4;
@@ -56,11 +57,13 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
  * Throws unless the Lineup is playable with `players` human Players: valid teams
  * (1 to MAX_TEAM_SIZE Fighters a side), each Player driving exactly one Fighter, and every
  * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
- * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them).
+ * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them). In a Battle: only the Players' slots,
+ * 0 to MAX_TEAM_SIZE a Team (the rest of the Fighter Pool is the Bubbles', each slot a Pool AI).
  */
 export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels'): void {
   const teams = lineup.map((s) => s.team);
   if (format === 'Gauntlet') checkRunTeams(teams);
+  else if (format === 'Battle') checkBattleTeams(lineup);
   else checkTeams(teams);
   const floors = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1;
   for (const s of lineup) {
@@ -79,6 +82,16 @@ export function checkLineup(tuning: TuningData, lineup: Lineup, players: number,
     if (s.pilot.kind === 'AI' && s.pilot.style !== undefined && s.pilot.style !== RANDOM_PICK && !tuning.ai.styles[s.pilot.style]) throw new RangeError(`Unknown AI Style "${s.pilot.style}"`);
     if (s.pilot.kind === 'AI' && s.weapon !== undefined && !tuning.weapons[s.weapon]) throw new RangeError(`Unknown Weapon "${s.weapon}"`);
   }
+}
+
+/** Throws unless a Battle's Lineup is its Players' slots alone (no AI: the Pool's other slots are the Bubbles'), at most MAX_TEAM_SIZE a Team. */
+function checkBattleTeams(lineup: Lineup): void {
+  if (lineup.some((s) => s.pilot.kind !== 'Player')) throw new RangeError("A Battle's Lineup names only its Players: the Fighter Pool's other slots are the Bubbles'");
+  for (const t of [0, 1]) {
+    const size = lineup.filter((s) => s.team === t).length;
+    if (size > MAX_TEAM_SIZE) throw new RangeError(`A Battle fields at most ${MAX_TEAM_SIZE} Players on Team ${t}, got ${size}`);
+  }
+  if (!lineup.every((s) => s.team === 0 || s.team === 1)) throw new RangeError("Every Player's team must be 0 or 1");
 }
 
 /**
@@ -111,10 +124,12 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
 /**
  * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Hall AI
  * instead (its Halls decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order, and each Team 0 AI
- * an Ally AI (its own AI, walking with the Players once a Hall is cleared). `match` is the Match's options: its seed picks
+ * an Ally AI (its own AI, walking with the Players once a Hall is cleared). In a Battle, one entry per Fighter Pool slot: the
+ * Players' (null), then a Pool AI on every other slot (`poolControllers`). `match` is the Match's options: its seed picks
  * each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
  */
 export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
+  if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
   let slot = 0;
   const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
   return lineup.map((s, i) => {

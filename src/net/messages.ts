@@ -1,11 +1,15 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchOptions, type KnockdownPhase, type MatchState, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseBattleName, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 23;
 
-/** The most Fighters a Match fields: two full teams. */
+/** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
+/** The most Fighters a Battle's Fighter Pool fields on the wire (Tuning Data's `battle.bubble.poolSize` says exactly how many). */
+const MAX_POOL = 64;
+/** The most Soldiers a Battle's Crowd holds on the wire (Tuning Data's `battle.armySize` says exactly how many). */
+const MAX_SOLDIERS = 20_000;
 
 /**
  * Sent repeatedly while connecting. A guest's hello carries its Weapon pick. The host's, once it has
@@ -158,18 +162,25 @@ const isVec3 = (v: unknown): boolean => isObject(v) && isNum(v.x) && isNum(v.y) 
 const isDirection = (v: unknown): boolean => DIRECTION_SET.has(v as string);
 const isArrayOf = (v: unknown, item: (x: unknown) => boolean): boolean => Array.isArray(v) && v.every(item);
 const isTeam = (v: unknown): boolean => v === 0 || v === 1;
-/** One entry per Fighter: 2 to MAX_FIGHTERS of them. */
+/** One entry per Fighter of a Lineup (a Battle's names only its Players, so 1 or more): 1 to MAX_FIGHTERS of them. Whether the teams fit is for `checkLineup` to say. */
 const isPerFighter = (v: unknown, item: (x: unknown) => boolean): boolean =>
-  isArrayOf(v, item) && (v as unknown[]).length >= 2 && (v as unknown[]).length <= MAX_FIGHTERS;
+  isArrayOf(v, item) && (v as unknown[]).length >= 1 && (v as unknown[]).length <= MAX_FIGHTERS;
+/** One entry per Fighter in a Duel, or per slot of a Battle's Fighter Pool: 1 to MAX_POOL of them (`isFormatFighters` says how many). */
+const isPerSlot = (v: unknown, item: (x: unknown) => boolean): boolean => isArrayOf(v, item) && (v as unknown[]).length >= 1 && (v as unknown[]).length <= MAX_POOL;
 /** One Weapon name per Fighter. Whether the names exist is for Tuning Data to say. */
 const isWeapons = (v: unknown): boolean => isPerFighter(v, isString);
 /** Whether each team's size is allowed is for `checkTeams` to say. */
 const isTeams = (v: unknown): boolean => isPerFighter(v, isTeam);
 const isNullable = (item: (x: unknown) => boolean) => (v: unknown): boolean => v === null || item(v);
 const isPlayer = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_PLAYERS;
+/** A Fighter's index: one of a Duel's or a Battle's Fighter Pool's slots. */
+const isFighterIndex = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_POOL;
 const FORMAT_SET: ReadonlySet<unknown> = new Set(MATCH_FORMATS);
-/** A Match Format this build knows (Duels or Gauntlet); absent means Duels. */
-const isFormat = (v: unknown): boolean => FORMAT_SET.has(v);
+/**
+ * The Formats a Rollback session plays: the Lobby's (`MATCH_FORMATS`) and a Battle (docs/plans/big-battle.md, Stage 6). The Lobby offers
+ * a Battle online only from Stage 7, so its messages (`isFormatOnMap`) still refuse one.
+ */
+const SESSION_FORMATS: ReadonlySet<unknown> = new Set<MatchFormat>([...MATCH_FORMATS, 'Battle']);
 /** The human Players a Run fields: 1 to Team 0's MAX_TEAM_SIZE. */
 const isHumans = (v: unknown): boolean => isInt(v) && v >= 1 && v <= MAX_TEAM_SIZE;
 
@@ -183,11 +194,21 @@ export function isRandomMapName(v: unknown): boolean {
   }
 }
 
-/** A Format and Map that go together: a Gauntlet is played on a Random Map only (its seed is the Run seed). */
-export function isFormatOnMap(format: unknown, arena: unknown): boolean {
+/** A Battlefield's name (`battle:<seed>`). */
+const isBattlefieldName = (v: unknown): boolean => isString(v) && parseBattleName(v) !== null;
+
+/**
+ * A Format and Map that go together: a Gauntlet is played on a Random Map only (its seed is the Run seed). The Lobby's Formats
+ * (`MATCH_FORMATS`) by default; `formats` the session's, where a Battle is played on a Battlefield (absent: the one its seed names).
+ */
+export function isFormatOnMap(format: unknown, arena: unknown, formats: ReadonlySet<unknown> = FORMAT_SET): boolean {
   if (format === undefined) return true;
-  return isFormat(format) && (format !== 'Gauntlet' || isRandomMapName(arena));
+  if (!formats.has(format)) return false;
+  if (format === 'Battle') return arena === undefined || isBattlefieldName(arena);
+  return format !== 'Gauntlet' || isRandomMapName(arena);
 }
+/** A Format and Map a session plays (a Battle too). */
+const isSessionFormatOnMap = (format: unknown, arena: unknown): boolean => isFormatOnMap(format, arena, SESSION_FORMATS);
 
 /** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
@@ -226,7 +247,7 @@ function isMatchOptions(v: unknown): boolean {
     (v.weapons === undefined || isWeapons(v.weapons)) &&
     (v.teams === undefined || isTeams(v.teams)) &&
     (v.arena === undefined || (isString(v.arena) && v.arena.length > 0)) &&
-    isFormatOnMap(v.format, v.arena) &&
+    isSessionFormatOnMap(v.format, v.arena) &&
     (v.humans === undefined || isHumans(v.humans))
   );
 }
@@ -242,7 +263,7 @@ function isAction(v: unknown): boolean {
         PHASE_SET.has(v.phase as string) &&
         isBool(v.landed) &&
         (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick))) &&
-        (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isPlayer))
+        (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isFighterIndex))
       );
     case 'Block':
       return isDirection(v.direction);
@@ -338,9 +359,14 @@ function isFighter(v: unknown): boolean {
     (v.maxHp === undefined || (isNum(v.maxHp) && v.maxHp > 0)) &&
     (v.mods === undefined || isMods(v.mods)) &&
     (v.inventory === undefined || isInventory(v.inventory)) &&
-    (v.benched === undefined || v.benched === true)
+    (v.benched === undefined || v.benched === true) &&
+    (v.soldier === undefined || isSoldierBinding(v.soldier))
   );
 }
+
+const SOLDIER_ROLES: ReadonlySet<unknown> = new Set<SoldierRole>(['Attack', 'Ally', 'Waiting']);
+/** A Fighter Pool slot's Soldier: its index in the Crowd (checked against the Crowd by `isBattle`), its Promotion Tick and its role. */
+const isSoldierBinding = (v: unknown): boolean => isObject(v) && isInt(v.index) && v.index >= 0 && isTick(v.since) && SOLDIER_ROLES.has(v.role);
 
 /** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
 const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
@@ -381,11 +407,55 @@ function isSimState(v: unknown): boolean {
     isString(v.arena) &&
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
-    isPerFighter(v.fighters, isFighter) &&
+    isPerSlot(v.fighters, isFighter) &&
     isArrayOf(v.daggers, isDagger) &&
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent) &&
-    (v.hall === undefined || isSimHall(v.hall))
+    (v.hall === undefined || isSimHall(v.hall)) &&
+    (v.crowd === undefined || isCrowd(v.crowd, (v.fighters as unknown[]).length))
+  );
+}
+
+/** A Crowd's per-Soldier arrays of plain numbers. */
+const CROWD_NUMBERS = ['x', 'z', 'vx', 'vz', 'heading', 'hp'] as const;
+const isBit = (v: unknown): boolean => v === 0 || v === 1;
+
+/** A Battle's Player record: the Soldier it took over (or -1), its takeovers and kills, its corpse's Pool slot (or -1), and whether it left. */
+const isBattlePlayer = (v: unknown, soldiers: number, slots: number): boolean =>
+  isObject(v) &&
+  isInt(v.soldier) &&
+  v.soldier >= -1 &&
+  v.soldier < soldiers &&
+  isTick(v.taken) &&
+  isTick(v.kills) &&
+  isInt(v.corpse) &&
+  v.corpse >= -1 &&
+  v.corpse < slots &&
+  (v.away === undefined || v.away === true);
+
+/**
+ * A Battle's Crowd (`CrowdState`, docs/plans/big-battle.md): every per-Soldier array as long as the others, each entry what it may
+ * hold, and every index in range: a target another Soldier, a slot one of the `slots` Fighter Pool slots, a Player's Soldier one
+ * of the Crowd. The Crowd's own generator, its Rout, and up to MAX_PLAYERS Players' records. How many Soldiers is Tuning Data's to say.
+ */
+function isCrowd(v: unknown, slots: number): boolean {
+  if (!isObject(v) || !Array.isArray(v.x)) return false;
+  const n = v.x.length;
+  if (n > MAX_SOLDIERS) return false;
+  const sized = (a: unknown, item: (x: unknown) => boolean) => isArrayOf(a, item) && (a as unknown[]).length === n;
+  const index = (lo: number, hi: number) => (x: unknown) => isInt(x) && x >= lo && x < hi;
+  return (
+    CROWD_NUMBERS.every((k) => sized(v[k], isNum)) &&
+    sized(v.team, isTeam) &&
+    sized(v.target, index(-1, n)) &&
+    sized(v.engage, isTick) &&
+    sized(v.alive, isBit) &&
+    sized(v.slot, index(-1, slots)) &&
+    isObject(v.rng) &&
+    isInt(v.rng.seed) &&
+    (v.rout === null || (isObject(v.rout) && isTeam(v.rout.team) && isTick(v.rout.tick))) &&
+    isArrayOf(v.players, (p) => isBattlePlayer(p, n, slots)) &&
+    (v.players as unknown[]).length <= MAX_PLAYERS
   );
 }
 
@@ -490,18 +560,48 @@ function isMatchState(v: unknown): v is MatchState {
     isArrayOf(v.score, isTick) &&
     (v.score as unknown[]).length === 2 &&
     isSimState(v.duel) &&
-    (v.duel as Obj & { fighters: unknown[] }).fighters.length === (config.teams as unknown[]).length &&
+    isFormatFighters(config, v.duel as Obj & { fighters: Obj[] }) &&
     (v.nextDuelTick === null || isTick(v.nextDuelTick)) &&
     (status.status === 'InProgress' || (status.status === 'Over' && isWinner(status.winner) && isTick(status.tick))) &&
     isArrayOf(v.events, isEvent) &&
-    isFormatOnMap(config.format, config.arena) &&
-    isFormatOnMap(config.format, v.arena) &&
+    isSessionFormatOnMap(config.format, config.arena) &&
+    isSessionFormatOnMap(config.format, v.arena) &&
     (config.humans === undefined || isHumans(config.humans)) &&
     (config.players === undefined || (isPlayers(config.players) && (config.players as number[]).every((p) => (config.teams as number[])[p] === 0))) &&
     // A Run, and only a Run, carries its progress, and each of its Duels names its Hall.
     (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
-    (config.format === 'Gauntlet' ? isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined)
+    (config.format === 'Gauntlet' ? isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined) &&
+    // A Battle, and only a Battle, has a Crowd.
+    (config.format === 'Battle' ? isBattle(config, v.duel as Obj & { fighters: Obj[] }) : (v.duel as Obj).crowd === undefined)
   );
+}
+
+/**
+ * The Duel's Fighters for the Format: one per Lineup slot (2 to MAX_FIGHTERS), or in a Battle its whole Fighter Pool, the Players' Fighters
+ * (`config.teams`) first. How big the Pool is, is Tuning Data's to say.
+ */
+function isFormatFighters(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
+  const teams = (config.teams as unknown[]).length;
+  if (config.format === 'Battle') return duel.fighters.length >= teams;
+  return duel.fighters.length === teams && teams >= 2;
+}
+
+/**
+ * A Battle's Duel: its Crowd has a record per Player (`config.teams`), and the Pool and the Crowd agree on who is bound where. A slot past the
+ * Players' bound to a Soldier is that Soldier's slot, and a Soldier's slot is bound to it, or is the slot of a Player who took it over. A Player's
+ * own Fighter is never bound. No Rematch, and no Run.
+ */
+function isBattle(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
+  const crowd = duel.crowd as (Obj & { slot: number[]; x: unknown[]; players: Obj[] }) | undefined;
+  const players = (config.teams as unknown[]).length;
+  if (!crowd || config.rematchTicks !== null || crowd.players.length !== players) return false;
+  const soldiers = crowd.x.length;
+  const boundRight = duel.fighters.every((f, k) => {
+    const b = f.soldier as { index: number } | undefined;
+    return b === undefined || (k >= players && b.index < soldiers && crowd.slot[b.index] === k);
+  });
+  const slotRight = crowd.slot.every((k, s) => k < 0 || (k < players ? crowd.players[k]!.soldier === s : (duel.fighters[k]!.soldier as { index: number } | undefined)?.index === s));
+  return boundRight && slotRight;
 }
 
 /** How a Fighter fell: the Tick, and the felling blow if known. */
@@ -538,7 +638,7 @@ const MODES = ['Neutral', 'Pressure', 'Disengage'];
 /** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its plans. */
 function isAiMemory(v: unknown): boolean {
   if (!isObject(v) || !isInt(v.lastTick) || !isNum(v.lastHp)) return false;
-  const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerFighter(o.fighters, isSighting));
+  const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerSlot(o.fighters, isSighting));
   const d = v.defencePlan;
   const holdBreak = (h: unknown) => isObject(h) && isBool(h.go) && isTick(h.at);
   const defence =
@@ -581,4 +681,11 @@ function isAiMemory(v: unknown): boolean {
 export function isHallAiMemory(v: unknown): boolean {
   return isObject(v) && isString(v.hall) && (v.hall === '' || /^[1-9]\d*:[0-4]:[0-2]$/.test(v.hall)) && (v.memory === null || isAiMemory(v.memory));
 }
-const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v));
+/**
+ * A Pool AI's memory (a Battle's Fighter Pool slot, `src/controllers/poolAi.ts`) while its slot is bound: the binding its AI plays for and
+ * that AI's memory. Null while its slot is unbound.
+ */
+export function isPoolAiMemory(v: unknown): boolean {
+  return isObject(v) && Object.keys(v).length === 2 && isSoldierBinding(v.bound) && isAiMemory(v.memory);
+}
+const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v) || isPoolAiMemory(v));

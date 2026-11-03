@@ -204,4 +204,4 @@ export {
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield } from './battlefield';
 export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
-export { isBound, stepBubbles, unboundSlot } from './bubble';
+export { bubblePlayer, isBound, stepBubbles, unboundSlot } from './bubble';
