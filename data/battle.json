@@ -54,8 +54,8 @@
     ]
   },
   "tickets": {
-    "perSoldier": 2,
-    "drain": 0.3,
+    "perSoldier": 3.5,
+    "drain": 0.6,
     "limitSeconds": 900,
     "respawnSeconds": 10
   },

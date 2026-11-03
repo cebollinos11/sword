@@ -9,7 +9,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
-import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, startingTickets, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -218,9 +218,10 @@ export function battleCard(tuning: Pick<TuningData, 'battle'>): { readonly count
   return {
     count: `${armySize} v ${armySize}`,
     note:
-      `Two armies of ${armySize} meet on an open field. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
-      `fight you blade to blade, a few at once, and your allies close by join in. An army breaks below ${Math.round(rout.threshold * 100)}% of its soldiers ` +
-      `and flees: the other wins. If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
+      `Two armies of ${armySize} meet on an open field and fight over five Objectives. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
+      `fight you blade to blade, a few at once, and your allies close by join in. Each army has ${Math.round(startingTickets(tuning.battle))} Tickets: every death costs one, and an army that holds more Objectives than the enemy drains the enemy's. ` +
+      `With none left an army stops sending reinforcements, and once it is below ${Math.round(rout.threshold * 100)}% of its soldiers it breaks and flees: the other wins. ` +
+      `If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
   };
 }
 
@@ -479,6 +480,9 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 
 // --- Battle options ---
 
+/** The Battle maps the Lobby offers: only the open field for now (the Fort comes with the walls, Stage 3a of docs/plans/battle-objectives.md). */
+export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string }[] = [{ id: 'open', label: 'Open field' }];
+
 /** One Battle knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
 interface BattleKnobRow {
   readonly key: keyof BattleKnobs;
@@ -521,6 +525,18 @@ function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement
     }
     return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
   });
+  // The map picker: one choice for now, so nothing to set (and nothing the Lobby sends).
+  const map = h('div', 'segmented');
+  map.setAttribute('role', 'radiogroup');
+  map.setAttribute('aria-label', 'Map');
+  for (const choice of BATTLE_MAPS) {
+    const b = button('', choice.label, () => undefined);
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', 'true');
+    b.disabled = BATTLE_MAPS.length < 2 || !editable;
+    map.append(b);
+  }
+  rows.unshift(h('div', 'lb-row lb-knob', null, h('span', 'lb-label', 'Map'), map));
   const changed = knobs !== undefined && Object.keys(knobs).length > 0;
   const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { battle: {} }))) : null;
   const note = h('p', 'lb-note', `Fighting speed scales how often soldiers land blows on each other: slower means longer battles. ${editable ? '' : 'The host sets these.'}`);

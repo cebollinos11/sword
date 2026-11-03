@@ -19,6 +19,7 @@ import type { LocalController } from '../controllers';
 import { blobTexture } from '../render/blobShadow';
 import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
+import { ObjectiveMarks } from '../render/objectiveMarks';
 import { bakeImpostorAtlas } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
@@ -58,6 +59,8 @@ export class BattleScreen {
   /** The Battlefield's heights: known once the first state is (online, the Match starts when the peers have met). */
   private hf: Heightfield | null = null;
   private readonly tags: PlayerTags;
+  /** The Objectives drawn on the field: made with the Battlefield, once the first state is known. */
+  private marks: ObjectiveMarks | null = null;
   private fades = new Float32Array(0);
   private readonly focus = { x: 0, z: 0 };
   private disposed = false;
@@ -148,7 +151,14 @@ export class BattleScreen {
     const duel = curr.duel;
     const crowd = duel.crowd;
     if (!crowd || !this.crowdView || !duel.fighters[me]) return;
-    const hf = (this.hf ??= battlefieldOf(this.tuning.battle, curr.arena)!.heights);
+    if (!this.marks) {
+      const field = battlefieldOf(this.tuning.battle, curr.arena)!;
+      this.hf = field.heights;
+      this.marks = new ObjectiveMarks(field.objectives, field.heights, this.tuning.battle.soldier.colours);
+      this.renderer.scene.add(this.marks.root);
+    }
+    this.marks.update(crowd.objectives);
+    const hf = this.hf!;
     // A takeover (anyone's) moves Fighters between slots: draw that Tick as it stands, not from where the slots were.
     const tookOver = crowd.players.some((r, k) => r.taken !== (prev.duel.crowd?.players[k]?.taken ?? r.taken));
     const before = tookOver ? duel : prev.duel;
@@ -199,6 +209,7 @@ export class BattleScreen {
     this.disposed = true;
     removeEventListener('keydown', this.onKey);
     if (this.crowdView) this.renderer.scene.remove(this.crowdView.root);
+    this.marks?.dispose();
     this.renderer.setFades(null);
     this.renderer.setChosenBodies([]);
     this.tags.dispose();

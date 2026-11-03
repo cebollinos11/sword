@@ -101,7 +101,7 @@ export interface ObjectiveSite {
   readonly owner: number;
   /** Whether a Team's Squads may respawn here while it owns the Objective and no enemy is on it. */
   readonly spawn: boolean;
-  /** Set: it stands on the highest ground within this many metres of (x, z), "on the hill when the seed makes one". */
+  /** Set: it stands on the highest ground within this many metres of (x, z) along the line across the armies (same z), "on the hill when the seed makes one"; never off that line, so neither army is nearer. */
   readonly hill?: number;
 }
 

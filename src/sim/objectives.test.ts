@@ -76,22 +76,24 @@ describe("the open field's Objectives", () => {
     expect(sites.filter((s) => s.spawn).map((s) => s.id)).toEqual(['H0', 'H1']);
     const c = createCrowd(battle, 1);
     expect(c.objectives).toEqual({ progress: [1, 0, 0, 0, -1], owner: [0, -1, -1, -1, 1] });
-    expect(c.tickets).toEqual([400, 400]);
-    expect(startingTickets(battle)).toBe(400);
+    expect(c.tickets).toEqual([700, 700]);
+    expect(startingTickets(battle)).toBe(700);
     expect(map.field.bases.map((b) => [b.x, b.z])).toEqual([[0, -85], [0, 85]]);
   });
 
-  it('puts the centre Objective on the highest ground within its search of the middle', () => {
+  it('puts the centre Objective on the highest ground within its search of the middle, along the line across the armies', () => {
     for (const seed of [1, 2, 3, 7]) {
       const f = battleMapOf(battle, `battle:${seed}`).field;
       const b = f.objectives[2]!;
       const hf = f.heights;
       const half = hf.size / 2;
+      const row = Math.round(half / hf.cell);
       let top = -Infinity;
-      for (let r = 0; r < hf.side; r++)
-        for (let c = 0; c < hf.side; c++) if (Math.hypot(-half + c * hf.cell, -half + r * hf.cell) <= 15) top = Math.max(top, hf.heights[r * hf.side + c]!);
+      for (let c = 0; c < hf.side; c++) if (Math.abs(-half + c * hf.cell) <= 15) top = Math.max(top, hf.heights[row * hf.side + c]!);
       expect(battlefieldHeight(hf, b.x, b.z), `seed ${seed}`).toBeCloseTo(top, 9);
-      expect(Math.hypot(b.x, b.z)).toBeLessThanOrEqual(15);
+      expect(Math.abs(b.x)).toBeLessThanOrEqual(15);
+      // Both armies stay as far from it: it never leaves the line across the middle.
+      expect(b.z, `seed ${seed}`).toBe(0);
     }
   });
 
@@ -210,7 +212,7 @@ describe('Tickets', () => {
     // In the Crowd, on the second's last Tick only.
     const c = withCrowd(start(), () => ({ objectives: objectives([0, 0, 0, 1, 1]) })).duel.crowd!;
     expect(stepCrowd(c, 59, battle, [], map).tickets).toBe(c.tickets);
-    expect(stepCrowd(c, 120, battle, [], map).tickets).toEqual([400, 400 - drain]);
+    expect(stepCrowd(c, 120, battle, [], map).tickets).toEqual([700, 700 - drain]);
   });
 
   it('does not rout a Team until its Tickets are gone, and then routs it once its Soldiers fall below the threshold', () => {
@@ -418,9 +420,34 @@ describe('the Commander', () => {
     const minutes = m.tick / 3600;
     // eslint-disable-next-line no-console
     console.log(`Commander: ${changes} Order changes over ${minutes.toFixed(1)} min, ${(changes / 32 / minutes).toFixed(2)} per Squad per minute`);
-    expect(changes / 32 / minutes).toBeLessThan(4);
+    // Stage 2b's soak (240 Battles) measured 0.23 changes per Squad per minute on average and 0.29 at most over a whole Battle; the first minutes, when every Squad is first sent, run higher.
+    expect(changes / 32 / minutes).toBeLessThan(1);
     expect([...targets].filter((t) => t < O).sort()).toEqual([0, 1, 2, 3, 4]);
   }, 60000);
+
+  it('ends a whole 200 v 200 Battle by Tickets in about 6 to 8 minutes, on two seeds', () => {
+    for (const seed of [3, 7]) {
+      let m = start(tuning, seed);
+      let held = [0, 0];
+      let samples = 0;
+      while (m.status.status === 'InProgress') {
+        m = stepMatch(m, [], tuning);
+        if (m.tick % 300 === 0) {
+          held = [held[0]! + owned(m.duel.crowd!.objectives, 0), held[1]! + owned(m.duel.crowd!.objectives, 1)];
+          samples++;
+        }
+      }
+      const c = m.duel.crowd!;
+      const seconds = m.tick / 60;
+      // eslint-disable-next-line no-console
+      console.log(`seed ${seed}: ended after ${seconds.toFixed(0)} s, Tickets ${c.tickets.map(Math.round)}, held on average ${held.map((h) => (h / samples).toFixed(2))}`);
+      // Not the 15-minute limit, but Tickets: the loser's are gone.
+      expect(m.tick, `seed ${seed}`).toBeLessThan(limitTicks(battle));
+      expect(c.tickets[c.rout!.team], `seed ${seed}`).toBe(0);
+      expect(seconds, `seed ${seed}`).toBeGreaterThan(300);
+      expect(seconds, `seed ${seed}`).toBeLessThan(540);
+    }
+  }, 120000);
 
   it('sends an empty Squad to respawn and leaves a falling Squad alone', () => {
     const c = createCrowd(battle, 1);

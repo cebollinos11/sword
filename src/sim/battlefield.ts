@@ -114,22 +114,25 @@ export interface Battlefield {
   readonly bases: readonly [MapPoint, MapPoint];
 }
 
-/** An Objective site's place: where it asks to be, or the highest sample within `hill` metres of that (the nearest, then the lower index, on a tie). */
+/**
+ * An Objective site's place: where it asks to be, or, with `hill`, the highest sample within `hill` metres of that along the line across
+ * the armies (the same z, so both armies stay equally far from it: a hill must not hand one Team the centre). The nearest, then the lower
+ * index, on a tie.
+ */
 function settle(site: ObjectiveSite, hf: Heightfield): MapPoint {
   if (!site.hill) return { x: site.x, z: site.z };
   const half = hf.size / 2;
   let best: MapPoint = { x: site.x, z: site.z };
   let bestH = -Infinity;
   let bestD = Infinity;
-  for (let r = 0; r < hf.side; r++)
-    for (let c = 0; c < hf.side; c++) {
-      const x = -half + c * hf.cell;
-      const z = -half + r * hf.cell;
-      const d = Math.hypot(x - site.x, z - site.z);
-      if (d > site.hill) continue;
-      const h = hf.heights[r * hf.side + c]!;
-      if (h > bestH || (h === bestH && d < bestD)) [best, bestH, bestD] = [{ x, z }, h, d];
-    }
+  const r = Math.round((site.z + half) / hf.cell);
+  for (let c = 0; c < hf.side; c++) {
+    const x = -half + c * hf.cell;
+    const d = Math.abs(x - site.x);
+    if (d > site.hill) continue;
+    const h = hf.heights[r * hf.side + c]!;
+    if (h > bestH || (h === bestH && d < bestD)) [best, bestH, bestD] = [{ x, z: -half + r * hf.cell }, h, d];
+  }
   return best;
 }
 

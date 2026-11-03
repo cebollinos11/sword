@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, type CrowdState, type MatchState } from '../sim';
-import { armyStrengths, battleResult, battleResultLine, playersBySlot, playerStatus } from './battleHud';
+import { armyPlan, armyStrengths, battleResult, battleResultLine, objectiveName, playersBySlot, playerStatus } from './battleHud';
+import { battlefieldOf, RESPAWN } from '../sim';
+import { startingTickets } from '../tuning';
 import { join, lobbyLineup, moveMember, newLobby, setFormat, startMatch } from '../lobby/lobby';
 import { battleBodies } from './battleScreen';
 import { minimapHeading, minimapPoint, playerMarkers } from '../render/minimap';
+import * as THREE from 'three';
+import { ObjectiveMarks, objectiveLetter } from '../render/objectiveMarks';
 
 const tuning = loadTuningData();
 const army = tuning.battle.armySize;
@@ -20,12 +24,41 @@ const killed = (alive: readonly number[], team: number, count: number) => alive.
 const fallen = (match: MatchState): MatchState => ({ ...match, duel: { ...match.duel, fighters: match.duel.fighters.map((f, k) => (k === 0 ? { ...f, hp: 0, death: { tick: 0, cause: 'Hit' as const, blow: null } } : f)) } });
 
 describe("The Battle's HUD", () => {
-  it("reads each army's strength and whether it routed", () => {
-    const m = withCrowd(battle(), (c) => ({ ...c, alive: killed(c.alive, 1, army / 2), rout: { team: 1, tick: 5 } }));
+  it("reads each army's Tickets and strength and whether it routed", () => {
+    const start = startingTickets(tuning.battle);
+    const m = withCrowd(battle(), (c) => ({ ...c, alive: killed(c.alive, 1, army / 2), tickets: [start, start / 4 - 0.4], rout: { team: 1, tick: 5 } }));
     expect(armyStrengths(m.duel.crowd!, tuning.battle)).toEqual([
-      { alive: army, share: 1, routed: false },
-      { alive: army / 2, share: 0.5, routed: true },
+      { tickets: start, ticketShare: 1, alive: army, share: 1, routed: false },
+      { tickets: start / 4, ticketShare: 0.25, alive: army / 2, share: 0.5, routed: true },
     ]);
+  });
+
+  it("says what an army is doing: the Objectives most of its Squads are sent to, attacking what it does not own and defending what it does", () => {
+    const c = battle().duel.crowd!;
+    const sites = battlefieldOf(tuning.battle, battle().arena)!.objectives;
+    const per = c.squads.team.length / 2;
+    const send = (team: number, to: (q: number) => number | null): typeof c => {
+      const s = c.squads;
+      const target = s.target.map((t, q) => (s.team[q] === team ? (to(q - team * per) ?? t) : t));
+      const order = s.order.map((o, q) => (s.team[q] === team ? (to(q - team * per) === null ? RESPAWN : o) : o));
+      return { ...c, squads: { ...s, target, order } };
+    };
+    // Everyone to B (index 2), which nobody owns: attacking B.
+    expect(armyPlan(send(0, () => 2), sites, 0)).toBe('attacking B');
+    // Ten Squads to B, six to its own Home (index 0): attacking B and defending your Home.
+    expect(armyPlan(send(0, (k) => (k < 10 ? 2 : 0)), sites, 0)).toBe('attacking B and defending your Home');
+    // Team 1 sees Team 0's Home as the enemy's; and Squads sent to its own Home defend it.
+    expect(armyPlan(send(1, (k) => (k < 10 ? 0 : 4)), sites, 1)).toBe('attacking the enemy Home and defending your Home');
+    // Squads with no Order, empty or falling count for nothing.
+    expect(armyPlan(send(0, () => null), sites, 0)).toBe('regrouping');
+    const fall = send(0, () => 2);
+    expect(armyPlan({ ...fall, squads: { ...fall.squads, fall: fall.squads.fall.map(() => 1) } }, sites, 0)).toBe('regrouping');
+    expect(armyPlan({ ...fall, squads: { ...fall.squads, living: fall.squads.living.map(() => 0) } }, sites, 0)).toBe('regrouping');
+    // Taking B turns "attacking" into "defending" with no new Order.
+    const owned = { ...send(0, () => 2), objectives: { ...c.objectives, owner: c.objectives.owner.map((o, k) => (k === 2 ? 0 : o)) } };
+    expect(armyPlan(owned, sites, 0)).toBe('defending B');
+    expect(objectiveName(sites[1]!, 0)).toBe('A');
+    expect(objectiveName(sites[0]!, 1)).toBe('the enemy Home');
   });
 
   it('says the Player fights, has fallen (an ally left to take over), or is out (none left)', () => {
@@ -39,8 +72,9 @@ describe("The Battle's HUD", () => {
     expect(battleResult(m, 0)).toBeNull();
     const over: MatchState = withCrowd({ ...m, status: { status: 'Over', winner: 0, tick: 3000 } }, (c) => ({ ...c, players: [{ soldier: 7, taken: 2, kills: 5, corpse: 3 }] }));
     const r = battleResult(over, 0)!;
-    expect(r).toEqual({ victory: true, winner: 0, kills: 5, taken: 2, left: [army, army], seconds: 50 });
-    expect(battleResultLine(r)).toBe('Victory: the red army won · 5 kills · 2 soldiers taken over');
+    const start = startingTickets(tuning.battle);
+    expect(r).toEqual({ victory: true, winner: 0, kills: 5, taken: 2, left: [army, army], tickets: [start, start], held: [1, 1], seconds: 50 });
+    expect(battleResultLine(r)).toBe(`Victory: the red army won · ${start} v ${start} Tickets · 5 kills · 2 soldiers taken over`);
     expect(battleResult({ ...over, status: { status: 'Over', winner: 1, tick: 3000 } }, 0)!.victory).toBe(false);
   });
 
@@ -142,5 +176,32 @@ describe('The minimap', () => {
     const left = minimapHeading(Math.PI / 2);
     expect(left.x).toBeCloseTo(-1);
     expect(left.y).toBeCloseTo(0);
+  });
+});
+
+describe('The Objectives on the field', () => {
+  const sites = () => battlefieldOf(tuning.battle, battle().arena)!;
+
+  it('letters a Home Objective H and the others by their id', () => {
+    expect(sites().objectives.map((o) => objectiveLetter(o))).toEqual(['H', 'A', 'B', 'C', 'H']);
+  });
+
+  it("draws a ring, a capture arc, a pole, a flag and a letter for each, in the Owner's colour and filled to the progress", () => {
+    const field = sites();
+    const marks = new ObjectiveMarks(field.objectives, field.heights, tuning.battle.soldier.colours);
+    expect(marks.root.children).toHaveLength(5);
+    marks.update({ progress: [1, 0.5, 0, -0.25, -1], owner: [0, -1, -1, -1, 1] });
+    const [home, a, b, c, away] = marks.root.children as THREE.Group[];
+    const rim = (g: THREE.Group) => ((g.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.getHex();
+    const capture = (g: THREE.Group) => (g.children[1] as THREE.Mesh).geometry.drawRange.count;
+    expect(rim(home!)).toBe(tuning.battle.soldier.colours[0]);
+    expect(rim(away!)).toBe(tuning.battle.soldier.colours[1]);
+    expect(rim(a!)).not.toBe(tuning.battle.soldier.colours[0]);
+    const full = capture(home!);
+    expect(capture(a!)).toBe(full / 2);
+    expect(capture(b!)).toBe(0);
+    expect(capture(c!)).toBe(full / 4);
+    expect(((c!.children[1] as THREE.Mesh).material as THREE.MeshBasicMaterial).color.getHex()).toBe(tuning.battle.soldier.colours[1]);
+    marks.dispose();
   });
 });

@@ -249,6 +249,28 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   const half = battle.field.size / 2 - 2;
   const objectives = map.field.objectives;
   const spot: [number, number] = [0, 0];
+  /** Enemy Soldiers and Fighters of Team `own` standing inside Objective `at`'s circle (as they stood at the start of the Tick). */
+  const enemiesIn = (own: number, at: number): number => {
+    const site = objectives[at]!;
+    let enemies = 0;
+    for (let i = 0; i < n; i++)
+      if (crowd.alive[i] && crowd.team[i] !== own && crowd.slot[i]! < 0 && (crowd.x[i]! - site.x) ** 2 + (crowd.z[i]! - site.z) ** 2 <= site.radius * site.radius) enemies++;
+    for (const f of fighters) if (f.team !== own && (f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= site.radius * site.radius) enemies++;
+    return enemies;
+  };
+  /** Where Team `team`'s broken Squads may rally, found on first need: the spawns it owns with no enemy on them, then its Base (a destination index, as an Order's target). */
+  const rallies: (number[] | undefined)[] = [];
+  const rallyPoints = (team: number): number[] => {
+    if (rallies[team]) return rallies[team]!;
+    const found: number[] = [];
+    for (let j = 0; j < objectives.length; j++) {
+      // In the Team's own order (reversed for Team 1), so a tie in distance goes to the mirrored place for each.
+      const k = team === 0 ? j : objectives.length - 1 - j;
+      if (objectives[k]!.spawn && crowd.objectives.owner[k] === team && enemiesIn(team, k) === 0) found.push(k);
+    }
+    found.push(objectives.length + team);
+    return (rallies[team] = found);
+  };
 
   if (due.length > 0) {
     const nextAim = old.aim.slice();
@@ -301,12 +323,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           const base = objectives.length + own;
           let at = old.order[q] === RESPAWN ? old.target[q]! : base;
           if (at < objectives.length) {
-            const site = objectives[at]!;
-            let enemies = 0;
-            for (let i = 0; i < n; i++)
-              if (crowd.alive[i] && crowd.team[i] !== own && crowd.slot[i]! < 0 && (crowd.x[i]! - site.x) ** 2 + (crowd.z[i]! - site.z) ** 2 <= site.radius * site.radius) enemies++;
-            for (const f of fighters) if (f.team !== own && (f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= site.radius * site.radius) enemies++;
-            if (!site.spawn || crowd.objectives.owner[at] !== own || enemies > 0) at = base;
+            if (!objectives[at]!.spawn || crowd.objectives.owner[at] !== own || enemiesIn(own, at) > 0) at = base;
           }
           const slots: number[] = [];
           for (let i = own * battle.armySize; i < (own + 1) * battle.armySize && slots.length < p.size; i++)
@@ -366,14 +383,22 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
 
       if (nextFall[q]) {
         nextShape[q] = LOOSE;
-        const base = map.field.bases[own]!;
-        const dx = base.x - old.x[q]!;
-        const dz = base.z - old.z[q]!;
-        const toBase = Math.hypot(dx, dz);
-        // At the Base, another Squad of the Team close by with room: merge into it (nearest first; the lower Squad on a tie).
+        // It rallies at the nearest spawn its Team owns with no enemy on it, else at its Base.
+        let rally = rallyPoints(own)[0]!;
+        let rallyD = Infinity;
+        for (const k of rallyPoints(own)) {
+          const at = k < objectives.length ? objectives[k]! : map.field.bases[k - objectives.length]!;
+          const d2 = (at.x - old.x[q]!) ** 2 + (at.z - old.z[q]!) ** 2;
+          if (d2 < rallyD) [rally, rallyD] = [k, d2];
+        }
+        const rallyAt = rally < objectives.length ? objectives[rally]! : map.field.bases[rally - objectives.length]!;
+        const dx = rallyAt.x - old.x[q]!;
+        const dz = rallyAt.z - old.z[q]!;
+        const toRally = Math.hypot(dx, dz);
+        // At its rally point, another Squad of the Team close by with room: merge into it (nearest first; the lower Squad on a tie).
         let into = -1;
         let intoD = p.mergeRange * p.mergeRange;
-        for (let r = own * per; toBase <= p.mergeRange && r < (own + 1) * per; r++) {
+        for (let r = own * per; toRally <= p.mergeRange && r < (own + 1) * per; r++) {
           // A Squad that thinks later this Tick would recount without its new Soldiers: it cannot be merged into yet.
           if (r === q || slotOf[r]! > d || respawned.has(r) || nextLiving[r]! === 0 || nextLiving[r]! + alive > p.mergeMax) continue;
           const d2 = (old.x[r]! - old.x[q]!) ** 2 + (old.z[r]! - old.z[q]!) ** 2;
@@ -397,7 +422,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           return;
         }
         nextAim[q] = Math.atan2(dx, dz);
-        nextSpeed[q] = toBase > 2 * p.spacing ? walk : 0;
+        nextSpeed[q] = toRally > 2 * p.spacing ? walk : 0;
         return;
       }
 

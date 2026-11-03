@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-03, `docs/plans/battle-objectives.md`). Stage 1 built the Squads, and Stage 2a the Objectives, Tickets, the Commander and the static destination fields, as decided here.
+Accepted (2026-11-03, `docs/plans/battle-objectives.md`). Stage 1 built the Squads, and Stage 2a the Objectives, Tickets, the Commander and the static destination fields, as decided here. Stage 2b presented them (HUD, Objective markers, minimap, Results, Lobby) and tuned them.
 
 ## Context
 
@@ -23,7 +23,7 @@ For the steering, a flow field per destination can be built from positions each 
 - **Destination fields are static and cached outside `SimState`.** One flow field to each destination (each Objective and each Base, per Team) is built once per map and Tuning Data, like the navmesh, pure and tie-broken by index. A Rollback never rebuilds them, and they add nothing to the state or the Tick. This replaces the per-Team field rebuilt from the Soldiers' positions: a Squad's anchor follows its destination's field, and the last few metres toward an enemy are local steering.
 - **Objectives and Tickets are state too** (`CrowdState.objectives`: a progress from -1 to +1 and an Owner each; `CrowdState.tickets`: one number a Team). The map places the Objectives (static, `Battlefield.objectives`); capture counts the Soldiers and full Fighters inside each circle on a fixed step (a Player counting 3), a death costs a Team 1 Ticket, a Team out-holding the other drains it every second, and a Battle that reaches its time limit routs the Team behind. The Rout needs a Team's Tickets gone as well as its Soldiers fallen below the threshold, so a Team with Tickets left keeps respawning.
 - **A Squad's Order is state** (`SquadState.order`, `target`, `since`, `respawnAt`): attack or defend an Objective, or respawn at a spawn. Each Commander re-plans every `battle.commander.planSeconds`, reading the Soldiers and Squads as they stood at the start of the Tick and writing only its own Team's Orders, so the order the two plan in cannot matter. A Squad that is empty respawns whole into the dead slots of its Team (not a promoted or taken-over Soldier's), so the Crowd's capacity and the state's shape never change.
-- **Squads march by the destination fields** (`src/sim/destinations.ts`): a distance field to each Objective and each Base, 8-connected over a coarse grid, built once and cached on the built Battlefield (never state). The anchor walks straight at its place in the circle when nothing blocks the line, and down the field when something does (Stage 3b). A Squad that breaks (`moraleThreshold`) still falls back toward its Team's Base and merges there (`mergeRange`, `mergeMax`).
+- **Squads march by the destination fields** (`src/sim/destinations.ts`): a distance field to each Objective and each Base, 8-connected over a coarse grid, built once and cached on the built Battlefield (never state). The anchor walks straight at its place in the circle when nothing blocks the line, and down the field when something does (Stage 3b). A Squad that breaks (`moraleThreshold`) falls back toward the nearest spawn Objective its Team owns with no enemy on it (its Home Objective on the open field), else its Base, and merges there into the nearest Squad with room (`mergeRange`, `mergeMax`; Stage 2b settled this).
 - **Stage 1** had no Objectives, so every Squad's Order was to attack the enemy army: its anchor headed for the nearest living enemy Squad's anchor. Stage 2a replaced that with the Commander's Orders.
 
 ## Consequences

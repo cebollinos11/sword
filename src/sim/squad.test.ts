@@ -277,6 +277,25 @@ describe('a Squad that breaks', () => {
     for (const i of [0, 1]) expect(Math.hypot(c.x[i]! - c.squads.x[0]!, c.z[i]! - c.squads.z[0]!)).toBeLessThan(6);
   });
 
+  it("rallies at the nearest spawn its Team owns with no enemy on it (its Home), and at its Base when it has none", () => {
+    // Squad 0 down to two Soldiers, standing 45 m behind the centre: Team 0's Home (z = -30) is 15 m off, its Base (z = -85) 40.
+    const out = (m: MatchState): MatchState =>
+      withCrowd(m, (c, s) => {
+        [s.x[0], s.z[0]] = [0, -45];
+        for (const i of [0, 1]) [c.x[i], c.z[i]] = [(i - 0.5) * 2, -45];
+      });
+    const home = advance(out(broken()), 600).duel.crowd!;
+    // Merged into a Squad that stood there, or standing at the Home: never walking on to the Base.
+    expect(home.squads.living[0] === 0 || Math.hypot(home.squads.x[0]!, home.squads.z[0]! + 30) < 6).toBe(true);
+    expect(home.squads.z[0]!).toBeGreaterThan(-46);
+    // The enemy holds that Home (its progress at the enemy's end, so a Team 0 Soldier standing there does not take it back): it heads for the Base.
+    const lost = out(broken());
+    const taken: MatchState = { ...lost, duel: { ...lost.duel, crowd: { ...lost.duel.crowd!, objectives: { progress: lost.duel.crowd!.objectives.progress.map((v, k) => (k === 0 ? -1 : v)), owner: lost.duel.crowd!.objectives.owner.map((o, k) => (k === 0 ? 1 : o)) } } } };
+    const base = advance(taken, 600).duel.crowd!;
+    expect(base.squads.z[0]!).toBeLessThan(-60);
+    expect(base.squads.fall[0]).toBe(1);
+  });
+
   it('breaks off its fights: a Soldier of a Squad falling back does not stand and trade blows', () => {
     // Soldier 0's due Tick is 6; an enemy Soldier (Team 1's first) stands 1 m from it, in reach.
     const near = (fall: number) =>
