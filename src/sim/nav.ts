@@ -244,7 +244,7 @@ function buildNavMesh(arena: ArenaGeometry, tuning: TuningData): NavMesh {
       }
     }
   }
-  links.push(...jumpLinks(arena, tuning, edges, links));
+  if (arena.jumpLinks !== false) links.push(...jumpLinks(arena, tuning, edges, links));
   const out: number[][] = Array.from({ length: count }, () => []);
   links.forEach((l, id) => out[l.from]!.push(id));
   return { links, out };

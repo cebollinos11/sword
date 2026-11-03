@@ -143,6 +143,7 @@
  * repertoire its difficulty uses.
  */
 import {
+  battlefieldOf,
   arenaOf,
   attackTimings,
   blockedAt,
@@ -1519,11 +1520,11 @@ class RuleAi implements AiController {
    * Its route to `target` (Links, from where it stands), re-planned when either changes surface or every REPATH_TICKS;
    * null when they share a Walk Surface, either is off the navmesh, it is in the air, or there is no way. It follows jump
    * Links held no longer than its `jumpNav` (none while Slowed, as a Slowed Jump falls short), except one it just gave up on.
-   * A Battle's open field (it has a Crowd) has no Walls, ledges or Links: it walks straight there, and never builds a navmesh
-   * for the field's thousands of Walk Surfaces.
+   * A Battle's open field (it has a Crowd and no Walls) has no ledges or Links: it walks straight there, and never builds a navmesh
+   * for the field's thousands of Walk Surfaces. A hand-built Battle map (Walls, no jump Links) is routed like any Arena.
    */
   private routeTo(state: SimState, self: FighterState, target: Waypoint): readonly number[] | null {
-    if (state.crowd) {
+    if (state.crowd && !battlefieldOf(this.tuning.battle, state.arena)?.heights.walk) {
       this.route = null;
       return null;
     }
@@ -1625,7 +1626,7 @@ class RuleAi implements AiController {
    * target than it stands and heading away from it. The nearest takeoff; ties go to the lower id.
    */
   private escapeLink(state: SimState, self: FighterState, target: Sighting): number | null {
-    // A Battle's open field has no Links (`routeTo`).
+    // No Battle has jump Links: the open field has no Links at all (`routeTo`), a Battle map no jump Links (`jumpLinks: false`).
     if (state.crowd) return null;
     const arena = arenaOf(this.tuning, state.arena);
     const mesh = navMesh(arena, this.tuning);

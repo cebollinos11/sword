@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { arenaOf, battlefieldOf, parseBattleName, type Layout } from '../sim';
+import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
@@ -317,11 +317,11 @@ export class Stage {
     const layout = this.layout;
     const kitLook = layout && KIT_LOOKS[layout.kit];
     const kit = layout && kitLook ? this.tuning.kits[layout.kit] : undefined;
-    const field = parseBattleName(name) === null ? null : battlefieldOf(this.tuning.battle, name);
+    const field = isBattleName(name) ? battlefieldOf(this.tuning.battle, name) : null;
     this.camera.far = field ? BATTLEFIELD_FAR : FAR;
     this.camera.updateProjectionMatrix();
     const setting: Setting = field
-      ? battlefieldSetting(field.heights)
+      ? battle(name, field, () => this.arena === name)
       : look
         ? modelled(name, look, () => this.arena === name)
         : kit && kitLook && layout
@@ -452,6 +452,22 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
     if (shown) seeThrough(shown, on);
   };
   return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate, seeThrough: see };
+}
+
+/**
+ * A Battlefield's setting: the sky, light, ground and haze (`battlefieldSetting`), and on a hand-built Battle map (docs/plans/battle-objectives.md,
+ * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded.
+ */
+function battle(name: string, field: Battlefield, current: () => boolean): Setting {
+  const setting = battlefieldSetting(field.heights);
+  const map = battleMapName(name);
+  if (map === null) return setting;
+  const loaded = arenaModel(`battle_${map}`, [])
+    .then((model) => {
+      if (current()) setting.root.add(model);
+    })
+    .catch((e: unknown) => console.error(`Battle map model "${map}" failed to load`, e));
+  return { ...setting, loaded };
 }
 
 const kitModels = new Map<string, Promise<THREE.Object3D>>();

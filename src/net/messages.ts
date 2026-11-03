@@ -1,4 +1,4 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseBattleName, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 import { MAX_OBJECTIVES, MAX_SQUAD_PLACES } from '../tuning';
 
@@ -195,8 +195,8 @@ export function isRandomMapName(v: unknown): boolean {
   }
 }
 
-/** A Battlefield's name (`battle:<seed>`). */
-const isBattlefieldName = (v: unknown): boolean => isString(v) && parseBattleName(v) !== null;
+/** A Battlefield's name (`battle:<seed>`, or a hand-built map's `battle:<map>`: whether this build has the map, the Tuning Data hash says). */
+const isBattlefieldName = (v: unknown): boolean => isString(v) && isBattleName(v);
 
 /**
  * A Format and Map that go together: a Gauntlet is played on a Random Map only (its seed is the Run seed). The Lobby's Formats

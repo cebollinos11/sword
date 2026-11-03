@@ -4,7 +4,7 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
-import { BATTLE_KNOB_KEYS, RUN_KNOB_KEYS } from '../tuning';
+import { BATTLE_KNOB_KEYS, MAX_MAP_NAME, RUN_KNOB_KEYS } from '../tuning';
 import { isLobbyFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
@@ -50,9 +50,9 @@ function isRunKnobs(v: unknown): boolean {
 
 const BATTLE_KNOBS: ReadonlySet<string> = new Set(BATTLE_KNOB_KEYS);
 
-/** A Battle's knobs: numbers, each optional; `applyBattleKnobs` holds each to its range. */
+/** A Battle's knobs: numbers, each optional, and a short map name; `applyBattleKnobs` holds each to its range (an unknown map is the open field). */
 function isBattleKnobs(v: unknown): boolean {
-  return isObject(v) && Object.entries(v).every(([k, x]) => BATTLE_KNOBS.has(k) && isNum(x));
+  return isObject(v) && Object.entries(v).every(([k, x]) => (BATTLE_KNOBS.has(k) && isNum(x)) || (k === 'map' && typeof x === 'string' && x.length > 0 && x.length <= MAX_MAP_NAME));
 }
 
 function isSeat(v: unknown): boolean {

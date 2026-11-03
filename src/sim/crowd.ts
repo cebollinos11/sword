@@ -17,7 +17,8 @@
  *  - a free agent (no Squad) with an enemy within sight but out of reach walks at it, arriving just inside reach, and with none in
  *    sight walks down its Team's flow field (a BFS over a coarse grid from every cell holding a living enemy), rebuilt from the
  *    Tick's positions whenever it is needed (scratch, so it is never state);
- *  - while its Team routs, it flees toward its own edge of the field and strikes no one.
+ *  - while its Team routs, it flees toward its own edge of the field and strikes no one;
+ *  - on a hand-built map (docs/plans/battle-objectives.md, Stage 3a), a step that ends inside a wall or tower is pushed out of it.
  * Round each Player's Fighter (Stage 4), its waiting enemies (in the Crowd, within `bubble.promote`, not engaged last step)
  * steer to the waiting ring (`ringSpots`): spots `ring.spacing` apart on rings from `ring.radius` out, the ones ahead of the
  * Player (its way of travel) filled first, so the ring closes in front of them. No step ends within `bubble.hold` of an enemy
@@ -31,7 +32,7 @@
  * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
 import { startingTickets, type BattleTuning } from '../tuning';
-import { battleArenaName } from './battlefield';
+import { battleArenaName, pushOutOfBlocks } from './battlefield';
 import { planOrders } from './commander';
 import { TICK_SECONDS } from './constants';
 import { battleMapOf, type BattleMap } from './destinations';
@@ -122,15 +123,15 @@ export const crowdDue = (i: number, tick: number, stagger: number, armySize: num
 
 /**
  * The Crowd at the start of a Battle: each army of `armySize` deployed in Squads (`deploySquads`), each in column, the front
- * rank `deploy.front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the two armies a half turn of each other.
+ * rank the map's `front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the two armies a half turn of each other.
  * Every Soldier at `crowd.hp`, each Team with its starting Tickets, the Objectives with their Owners at the map's `arena` (default `battle:<seed>`),
  * and each Squad with its Commander's first Orders. `players`: how many Players the Battle has (each a fresh record).
  */
 export function createCrowd(battle: BattleTuning, seed: number, players = 0, arena: string = battleArenaName(seed)): CrowdState {
-  const { x, z, team, heading, squad, place, squads } = deploySquads(battle);
+  const map = battleMapOf(battle, arena);
+  const { x, z, team, heading, squad, place, squads } = deploySquads(battle, map.field.front);
   const n = x.length;
   const zeros = () => new Array<number>(n).fill(0);
-  const map = battleMapOf(battle, arena);
   const crowd: CrowdState = {
     x,
     z,
@@ -380,6 +381,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const stepped = stepSquads(crowd, tick, battle, map, fighters);
   const { squads, squad, place } = stepped;
   const offset: [number, number] = [0, 0];
+  const pushed: [number, number] = [0, 0];
   const x = crowd.x.slice();
   const z = crowd.z.slice();
   const vx = crowd.vx.slice();
@@ -619,6 +621,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     }
     nx = Math.min(edge, Math.max(-edge, nx));
     nz = Math.min(edge, Math.max(-edge, nz));
+    // Out of a map's walls and towers: a crude push (Stage 3a of docs/plans/battle-objectives.md; Stage 3b walks them round).
+    if (pushOutOfBlocks(map.field, nx, nz, p.separation / 2, own, pushed)) [nx, nz] = pushed;
     vx[i] = (nx - xi) / dt;
     vz[i] = (nz - zi) / dt;
     x[i] = nx;

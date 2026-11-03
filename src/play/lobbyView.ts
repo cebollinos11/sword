@@ -8,8 +8,8 @@
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
-import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, startingTickets, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
+import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
+import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -172,7 +172,7 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 // --- Teams ---
 
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(runTuning(ctx.tuning, state.settings)));
+  if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle));
   const shown = shownTeams(state, ctx.lobby.online);
   const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
@@ -181,7 +181,7 @@ function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const note = ctx.lobby.online
     ? h('p', 'lb-note', `${humans} of ${MAX_PLAYERS} players · Open seats wait for players to join; Empty ones field nobody.`)
     : null;
-  return section('Teams', grid, note, isBattle(state) ? armiesCard(runTuning(ctx.tuning, state.settings)) : null);
+  return section('Teams', grid, note, isBattle(state) ? armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle) : null);
 }
 
 function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLElement {
@@ -212,24 +212,25 @@ export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly cou
   };
 }
 
-/** What a Battle's card says: the armies, how it ends, and what happens when you fall. */
-export function battleCard(tuning: Pick<TuningData, 'battle'>): { readonly count: string; readonly note: string } {
+/** What a Battle's card says: the armies, where they meet (the map `knobs` pick), how it ends, and what happens when you fall. */
+export function battleCard(tuning: Pick<TuningData, 'battle'>, knobs?: BattleKnobs): { readonly count: string; readonly note: string } {
   const { armySize, rout } = tuning.battle;
+  const where = battleMapChoice(tuning, knobs).where;
   return {
     count: `${armySize} v ${armySize}`,
     note:
-      `Two armies of ${armySize} meet on an open field and fight over five Objectives. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
+      `Two armies of ${armySize} meet ${where} and fight over five Objectives. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
       `fight you blade to blade, a few at once, and your allies close by join in. Each army has ${Math.round(startingTickets(tuning.battle))} Tickets: every death costs one, and an army that holds more Objectives than the enemy drains the enemy's. ` +
       `With none left an army stops sending reinforcements, and once it is below ${Math.round(rout.threshold * 100)}% of its soldiers it breaks and flees: the other wins. ` +
       `If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
   };
 }
 
-/** In a Battle, the teams' place: the two armies. */
-function armiesCard(tuning: TuningData): HTMLElement {
+/** In a Battle, the teams' place: the two armies (`tuning` with the Lobby's `knobs` folded in). */
+function armiesCard(tuning: TuningData, knobs: BattleKnobs | undefined): HTMLElement {
   const card = h('div', 'lb-team lb-team-0');
   card.style.setProperty('--team', hex(tuning.battle.soldier.colours[0]));
-  const { count, note } = battleCard(tuning);
+  const { count, note } = battleCard(tuning, knobs);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'Battle'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
   return card;
 }
@@ -359,7 +360,9 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     b.disabled = !editable;
     length.append(b);
   }
-  const hint = isBattle(state) ? h('p', 'lb-note', 'A Battlefield of gentle hills, a fresh one each Battle.') : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
+  const hint = isBattle(state)
+    ? h('p', 'lb-note', battleMapChoice(ctx.tuning, state.settings.battle).id === OPEN_FIELD ? 'A Battlefield of gentle hills, a fresh one each Battle.' : 'A Battle map, the same each Battle: pick the open field for fresh hills.')
+    : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
   const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
   const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
   return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
@@ -480,8 +483,27 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 
 // --- Battle options ---
 
-/** The Battle maps the Lobby offers: only the open field for now (the Fort comes with the walls, Stage 3a of docs/plans/battle-objectives.md). */
-export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string }[] = [{ id: 'open', label: 'Open field' }];
+/**
+ * The Battle maps the Lobby offers (docs/plans/battle-objectives.md, Stage 3a): the open field, then the hand-built maps of `battle.maps`
+ * it knows by name. `id` is the `map` knob's value (`open`: none), `where` how the Battle card says where the armies meet.
+ */
+export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string; readonly where: string }[] = [
+  { id: OPEN_FIELD, label: 'Open field', where: 'on an open field' },
+  { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,' },
+];
+
+/** The Battle maps this Tuning Data has, as the Lobby offers them. */
+export const battleMaps = (tuning: Pick<TuningData, 'battle'>): typeof BATTLE_MAPS => BATTLE_MAPS.filter((m) => m.id === OPEN_FIELD || Object.hasOwn(tuning.battle.maps, m.id));
+
+/** The Battle map `knobs` pick, as the Lobby offers it (the open field for none, or one this Tuning Data does not have). */
+export const battleMapChoice = (tuning: Pick<TuningData, 'battle'>, knobs: BattleKnobs | undefined): (typeof BATTLE_MAPS)[number] =>
+  battleMaps(tuning).find((m) => m.id === knobs?.map) ?? BATTLE_MAPS[0]!;
+
+/** `knobs` with the map `id` picked (`open` drops the key), the army size back to that map's standard. */
+export function withBattleMap(knobs: BattleKnobs | undefined, id: string): BattleKnobs {
+  const { map: _map, armySize: _army, ...rest } = knobs ?? {};
+  return id === OPEN_FIELD ? rest : { ...rest, map: id };
+}
 
 /** One Battle knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
 interface BattleKnobRow {
@@ -491,11 +513,14 @@ interface BattleKnobRow {
   readonly choices: readonly (readonly [number, string])[];
 }
 
-/** The Battle options the Lobby offers, each with Tuning Data's value as its standard choice. */
-export function battleKnobRows(tuning: Pick<TuningData, 'battle'>): BattleKnobRow[] {
-  const sizes = [...new Set([10, 25, 50, 100, 200, 300, tuning.battle.armySize])].sort((a, b) => a - b);
+/** The Battle options the Lobby offers on the map `knobs` pick, each with its standard choice: the army sizes up to that map's cap, its own standard among them. */
+export function battleKnobRows(tuning: Pick<TuningData, 'battle'>, knobs?: BattleKnobs): BattleKnobRow[] {
+  const map = battleMapPicked(tuning.battle, knobs);
+  const standard = standardArmySize(tuning.battle, map);
+  const cap = armySizeCap(tuning.battle, map);
+  const sizes = [...new Set([10, 25, 50, 100, 200, 300, standard])].filter((n) => n <= cap).sort((a, b) => a - b);
   return [
-    { key: 'armySize', label: 'Soldiers a side', standard: tuning.battle.armySize, choices: sizes.map((n) => [n, String(n)] as const) },
+    { key: 'armySize', label: 'Soldiers a side', standard, choices: sizes.map((n) => [n, String(n)] as const) },
     { key: 'hitRate', label: 'Fighting speed', standard: 1, choices: [[0.25, '¼×'], [0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×']] },
   ];
 }
@@ -506,12 +531,13 @@ export function withBattleKnob(knobs: BattleKnobs | undefined, row: BattleKnobRo
   return value === row.standard ? rest : { ...rest, [row.key]: value };
 }
 
-/** A Battle's options (army size and how often soldiers land blows): the host sets them, everyone sees them. */
+/** A Battle's options (the map, army size and how often soldiers land blows): the host sets them, everyone sees them. */
 function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
   const knobs = state.settings.battle;
-  const rows = battleKnobRows(ctx.tuning).map((row) => {
-    const current = knobs?.[row.key] ?? row.standard;
+  const rows = battleKnobRows(ctx.tuning, knobs).map((row) => {
+    // The army size as the Battle will have it: held to the map's cap.
+    const current = row.key === 'armySize' ? runTuning(ctx.tuning, state.settings).battle.armySize : (knobs?.[row.key] ?? row.standard);
     const group = h('div', 'segmented');
     group.setAttribute('role', 'radiogroup');
     group.setAttribute('aria-label', row.label);
@@ -525,20 +551,24 @@ function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement
     }
     return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
   });
-  // The map picker: one choice for now, so nothing to set (and nothing the Lobby sends).
+  // The map picker: picking one sets the army size back to that map's standard.
   const map = h('div', 'segmented');
   map.setAttribute('role', 'radiogroup');
   map.setAttribute('aria-label', 'Map');
-  for (const choice of BATTLE_MAPS) {
-    const b = button('', choice.label, () => undefined);
+  const picked = battleMapChoice(ctx.tuning, knobs).id;
+  const maps = battleMaps(ctx.tuning);
+  for (const choice of maps) {
+    const b = button('', choice.label, () => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })));
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', 'true');
-    b.disabled = BATTLE_MAPS.length < 2 || !editable;
+    b.setAttribute('aria-checked', String(choice.id === picked));
+    b.disabled = maps.length < 2 || !editable;
     map.append(b);
   }
   rows.unshift(h('div', 'lb-row lb-knob', null, h('span', 'lb-label', 'Map'), map));
-  const changed = knobs !== undefined && Object.keys(knobs).length > 0;
-  const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { battle: {} }))) : null;
+  // Back to standard: the army size and fighting speed, on the map picked.
+  const changed = knobs !== undefined && Object.keys(knobs).some((k) => k !== 'map');
+  const reset =
+    editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { battle: s.settings.battle?.map === undefined ? {} : { map: s.settings.battle.map } }))) : null;
   const note = h('p', 'lb-note', `Fighting speed scales how often soldiers land blows on each other: slower means longer battles. ${editable ? '' : 'The host sets these.'}`);
   return section('Battle options', ...rows, note, reset);
 }

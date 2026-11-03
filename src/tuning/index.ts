@@ -58,7 +58,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { applyBattleKnobs, BATTLE_KNOB_KEYS, bubbleSlots, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, parseBattle, parseBattleKnobs, squadSizes, startingTickets, type BattleKnobs, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning } from './battle';
+export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, parseBattle, parseBattleKnobs, squadSizes, startingTickets, type BattleKnobs, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type WallBlock } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -785,6 +785,8 @@ const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', {
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
 /** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
+/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path. */
+const battleMapFiles = import.meta.glob<unknown>('../../data/battlemaps/*.json', { eager: true, import: 'default' });
 /** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
 const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 
@@ -848,7 +850,17 @@ export function loadTuningData(): TuningData {
     match: matchJson,
     dungeon: dungeonJson,
     relics: relicsJson,
-    battle: battleJson,
+    battle: {
+      ...battleJson,
+      maps: Object.fromEntries(
+        inFileOrder(battleMapFiles).map(([path, raw]) => {
+          const file = path.slice(path.lastIndexOf('/') + 1);
+          const name = record(raw, `data/battlemaps/${file}`).name;
+          if (typeof name !== 'string' || `${name}.json` !== file) throw new TuningDataError(`data/battlemaps/${file}: a Battle map must live in <its name>.json`);
+          return [name, raw];
+        }),
+      ),
+    },
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,

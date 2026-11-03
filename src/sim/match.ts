@@ -42,7 +42,7 @@ import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
 import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
-import { battleArenaName, parseBattleName } from './battlefield';
+import { battleArenaName, battlefieldOf, battleMapName } from './battlefield';
 import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
 
@@ -486,11 +486,12 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
 }
 
 /**
- * A Battle at Tick 0: both armies deployed (`createCrowd`) on Battlefield `options.arena` (default `battle:<seed>`), its
+ * A Battle at Tick 0: both armies deployed (`createCrowd`) on Battlefield `options.arena` (default `battle:<seed>`; a hand-built map's
+ * `battle:<map>` takes an army no bigger than the map's `armySize.max`, folded in by `applyBattleKnobs`), its
  * Players' Fighters (`teams`: 0 to MAX_TEAM_SIZE a Team, default none) at their Team's spawns behind its army, then the rest
  * of the Fighter Pool (`battle.bubble.poolSize` slots in all) unbound. `teams` (and `weapons`) name only the Players' Fighters:
  * `checkTeams` and its MAX_TEAM_SIZE a side never apply to the Pool. Throws on a bad lineup, more Players than the Pool holds,
- * an Arena that is not a Battlefield, or a Rematch (a Battle has none).
+ * an Arena that is not a Battlefield, an army too big for its map, or a Rematch (a Battle has none).
  */
 function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   const teams = options.teams ?? [];
@@ -500,7 +501,10 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (options.start || options.relics?.length) throw new RangeError('Only a Run has a start Hall or Relics');
   const seed = options.seed ?? 1;
   const arena = options.arena ?? battleArenaName(seed);
-  if (parseBattleName(arena) === null) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed>), got "${arena}"`);
+  if (!battlefieldOf(tuning.battle, arena)) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed> or a map of battle.maps), got "${arena}"`);
+  const map = battleMapName(arena);
+  if (map !== null && tuning.battle.armySize > tuning.battle.maps[map]!.armySize.max)
+    throw new RangeError(`Battle map "${map}" holds armies of at most ${tuning.battle.maps[map]!.armySize.max}, got ${tuning.battle.armySize} (fold the map in with applyBattleKnobs)`);
   const config: MatchConfig = {
     format: 'Battle',
     bestOf: options.bestOf,

@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, type BattleKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
@@ -417,15 +417,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     warmed = new Set();
     setPlayed(null);
     const pilot = devBattlePilot();
+    // The Lobby's map: a hand-built one by name, else the open field of the host's seed.
+    const seed = Math.floor(Math.random() * ARENA_SEED_RANGE);
+    const arena = battleNameFor(s.settings.battle?.map !== undefined && Object.hasOwn(tuning.battle.maps, s.settings.battle.map) ? s.settings.battle.map : undefined, seed);
     let d: MatchDriver;
     if (members.length <= 1) {
-      d = playerInBattle(battleTuning, { weapon: picks[0]!, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), team: lineup[0]!.team === 1 ? 1 : 0, ...(pilot ? { pilot: createBattlePilot(battleTuning, pilot) } : {}) });
+      d = playerInBattle(battleTuning, { weapon: picks[0]!, seed, arena, team: lineup[0]!.team === 1 ? 1 : 0, ...(pilot ? { pilot: createBattlePilot(battleTuning, pilot) } : {}) });
     } else {
       const me = members.indexOf(l.me!);
       let session;
       if (l.isHost) {
         const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed: Math.floor(Math.random() * ARENA_SEED_RANGE) }, lineup });
+        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup });
       } else {
         const transport = l.matchTransport(s.generation, 0);
         if (!transport) return;

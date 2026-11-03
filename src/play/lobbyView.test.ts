@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
-import { newLobby, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
+import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
+import { arenaLabel, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -74,5 +74,31 @@ describe('the Lobby view in Gauntlet', () => {
     // After a Run, the next Run is on the next seed.
     const after = startMatch(s);
     expect(randomBlurb(after, 'gen:greybox:1234', false)).toBe(`Run seed ${mapSeed('gen:greybox:' + ((1234 + 381967) % 1000000))}`);
+  });
+});
+
+describe("the Lobby's Battle map picker (docs/plans/battle-objectives.md, Stage 3a)", () => {
+  const fort = tuning.battle.maps.fort!;
+
+  it('offers the open field and the Fort; picking a map sets the army size back to its standard', () => {
+    expect(battleMaps(tuning).map((m) => m.label)).toEqual(['Open field', 'Fort']);
+    expect(battleMapChoice(tuning, undefined).id).toBe('open');
+    expect(battleMapChoice(tuning, { map: 'fort' }).label).toBe('Fort');
+    expect(battleMapChoice(tuning, { map: 'nowhere' }).id).toBe('open');
+    expect(withBattleMap({ armySize: 50, hitRate: 0.5 }, 'fort')).toEqual({ map: 'fort', hitRate: 0.5 });
+    expect(withBattleMap({ map: 'fort', armySize: 50 }, 'open')).toEqual({});
+  });
+
+  it("holds the army size row to the map's most, its standard the map's own, and folds the map into the Battle", () => {
+    const [army] = battleKnobRows(tuning, { map: 'fort' });
+    expect(army!.standard).toBe(fort.armySize.standard);
+    expect(Math.max(...army!.choices.map(([n]) => n))).toBeLessThanOrEqual(fort.armySize.max);
+    expect(withBattleKnob({ map: 'fort' }, army!, fort.armySize.standard)).toEqual({ map: 'fort' });
+    // The open field keeps its own sizes, 300 among them.
+    expect(battleKnobRows(tuning)[0]!.choices.map(([n]) => n)).toContain(300);
+    const settings = { arena: 'library', bestOf: 3, format: 'Battle' as const, battle: { map: 'fort', armySize: 300 } };
+    expect(runTuning(tuning, settings).battle.armySize).toBe(Math.min(300, fort.armySize.max));
+    expect(battleCard(runTuning(tuning, settings), settings.battle).note).toMatch(/ruined fort/);
+    expect(battleCard(tuning).note).toMatch(/open field/);
   });
 });

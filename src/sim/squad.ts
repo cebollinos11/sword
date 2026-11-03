@@ -6,7 +6,7 @@
  * - The anchor: a point and a heading per Squad. It turns at `squad.turnRate` toward its aim and walks at `squad.speed` of a
  *   Soldier's pace, every Tick (a few dozen of them). Soldiers steer to their place in the Formation round it (`stepCrowd`).
  * - The Formation, chosen by the situation (never by order): a **line** facing the enemy once an enemy Soldier is within
- *   `squad.engage` (the first `line.wide` places are the front rank that fights), a **column** on the march, **loose** when the
+ *   `squad.engage` and no wall of the map stands between them (the first `line.wide` places are the front rank that fights), a **column** on the march, **loose** when the
  *   Squad is down to `squad.looseBelow` of its strength or falling back.
  * - The brain steps every `squad.brainSeconds` (2 Hz), each Squad on its own Tick (staggered by its place in its own army, so the
  *   k-th Squads of the two armies think together). It reads the Tick's Soldiers and the other Team's Squads as they stood, never
@@ -27,7 +27,8 @@
 import { deployLayout, squadSizes, type BattleTuning } from '../tuning';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import type { CrowdFighter, CrowdState } from './crowd';
-import { steerToward, type BattleMap } from './destinations';
+import { inBlock, pushOutOfBlocks } from './battlefield';
+import { inSight, steerToward, type BattleMap } from './destinations';
 import { respawnTicks } from './objectives';
 
 export const COLUMN = 0;
@@ -69,10 +70,14 @@ export interface SquadState {
   readonly respawnAt: readonly number[];
 }
 
+/** How many times nearer the centre a place in an Objective's circle is tried when it falls inside a map's block, before the centre itself. */
+const SPOT_TRIES = 4;
+
 /**
  * Squad `q`'s (of `per` in its army) own place at destination `target` (an Objective's index, or `objectives + team` for a Base) as a world
  * point: a place in the Objective's circle, spread by the Squad's place in its army (the golden angle) and turned half a turn for Team 1 as the
- * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it.
+ * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it. A place inside a map's block (a
+ * wall across a gatehouse's circle) moves in toward the centre, along its own line, until it is clear.
  */
 export function orderSpot(map: BattleMap, target: number, q: number, per: number, battle: BattleTuning, out: [number, number]): void {
   const { objectives, bases } = map.field;
@@ -89,8 +94,12 @@ export function orderSpot(map: BattleMap, target: number, q: number, per: number
   const o = objectives[target]!;
   const angle = k * 2.399963229728653;
   const reach = 0.7 * o.radius * Math.sqrt((k + 0.5) / per);
-  out[0] = o.x + sign * Math.sin(angle) * reach;
-  out[1] = o.z + sign * Math.cos(angle) * reach;
+  for (let t = 0; t <= SPOT_TRIES; t++) {
+    const r = (reach * (SPOT_TRIES - t)) / SPOT_TRIES;
+    out[0] = o.x + sign * Math.sin(angle) * r;
+    out[1] = o.z + sign * Math.cos(angle) * r;
+    if (!inBlock(map.field, out[0], out[1])) return;
+  }
 }
 
 /** Squads in each army. */
@@ -140,9 +149,10 @@ export interface Deployment {
 
 /**
  * Both armies deployed in Squads: each Team's Squads in ranks of `deployLayout().perRank` side by side, each in column, the front
- * rank's first row `deploy.front` from the centre. Team 0 at -z facing +z, Team 1 at +z facing -z, mirrors of each other.
+ * rank's first row `front` (the map's, `deploy.front` on the open field) from the centre. Team 0 at -z facing +z, Team 1 at +z facing -z,
+ * mirrors of each other.
  */
-export function deploySquads(battle: BattleTuning): Deployment {
+export function deploySquads(battle: BattleTuning, front = battle.deploy.front): Deployment {
   const layout = deployLayout(battle);
   const { spacing, column } = battle.squad;
   const per = layout.sizes.length;
@@ -160,7 +170,7 @@ export function deploySquads(battle: BattleTuning): Deployment {
       const rank = Math.floor(k / layout.perRank);
       const inRank = Math.min(layout.perRank, per - rank * layout.perRank);
       const lx = (k - rank * layout.perRank - (inRank - 1) / 2) * column.wide * spacing;
-      const lz = -(battle.deploy.front + ((layout.rows - 1) / 2) * spacing + rank * layout.deepest * spacing);
+      const lz = -(front + ((layout.rows - 1) / 2) * spacing + rank * layout.deepest * spacing);
       const q = t * per + k;
       anchors.x.push(t === 0 ? lx : -lx);
       anchors.z.push(t === 0 ? lz : -lz);
@@ -339,7 +349,9 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
             claimed.add(i);
             nextSquad[i] = q;
             nextPlace[i] = s;
-            spawned.push({ i, x: Math.max(-half, Math.min(half, spot[0] + out[0])), z: Math.max(-half, Math.min(half, spot[1] + out[1])), heading: facing });
+            // On the field, and out of a map's blocks.
+            pushOutOfBlocks(map.field, Math.max(-half, Math.min(half, spot[0] + out[0])), Math.max(-half, Math.min(half, spot[1] + out[1])), battle.crowd.separation / 2, own, out);
+            spawned.push({ i, x: out[0], z: out[1], heading: facing });
           });
           x[q] = spot[0];
           z[q] = spot[1];
@@ -434,6 +446,18 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
         if (d2 < nearD) [near, nearD] = [i, d2];
       }
+      // An enemy behind a map's wall is not contact (it cannot be reached through the wall): when the nearest is hidden, the nearest one
+      // within `engage` that can be seen is, if any (the lower index on a tie). On the open field every enemy is in sight.
+      if (near >= 0 && nearD <= p.engage * p.engage && !inSight(map.fields, cx, cz, crowd.x[near]!, crowd.z[near]!)) {
+        let seen = -1;
+        let seenD = p.engage * p.engage;
+        for (let i = 0; i < n; i++) {
+          if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own) continue;
+          const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
+          if (d2 <= seenD && (seen < 0 || d2 < seenD) && inSight(map.fields, cx, cz, crowd.x[i]!, crowd.z[i]!)) [seen, seenD] = [i, d2];
+        }
+        [near, nearD] = seen >= 0 ? [seen, seenD] : [-1, Infinity];
+      }
       const inContact = near >= 0 && nearD <= p.engage * p.engage;
       nextShape[q] = inContact ? LINE : alive < p.looseBelow * p.size ? LOOSE : COLUMN;
       // It walks while its Soldiers keep up and none is engaged; in contact it halts once a Soldier of it fights.
@@ -451,7 +475,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         nextAim[q] = own === 0 ? 0 : Math.PI;
         return;
       }
-      nextAim[q] = steerToward(map.fields, old.target[q]!, old.x[q]!, old.z[q]!, spot[0], spot[1]);
+      nextAim[q] = steerToward(map.fields, old.target[q]!, old.x[q]!, old.z[q]!, spot[0], spot[1], own);
       nextSpeed[q] = lagging ? 0 : walk * p.speed;
     });
     // A Squad found empty (wiped out, or merged away just now) starts its wait to respawn.
@@ -467,14 +491,16 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     if (edit.place) place = edit.place;
   }
 
-  // Every anchor turns toward its aim and walks.
+  // Every anchor turns toward its aim and walks, on the field and out of a map's blocks.
   const turn = p.turnRate * TICK_SECONDS;
+  const pushed: [number, number] = [0, 0];
   for (let q = 0; q < m; q++) {
     const diff = wrap(aim[q]! - heading[q]!);
     if (diff !== 0) heading[q] = heading[q]! + Math.max(-turn, Math.min(turn, diff));
     if (speed[q]! === 0) continue;
     x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
     z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
+    if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, old.team[q]!, pushed)) [x[q], z[q]] = pushed;
   }
   return { squads: { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt }, squad, place, spawned };
 }

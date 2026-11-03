@@ -3,6 +3,7 @@
  * and terrain, where the armies deploy, how the Crowd steps, moves and fights, and when a Team routs. Distances in metres,
  * speeds in m/s, HP in a Fighter's units, times in seconds.
  */
+import { parseArena, type WalkSurface, type WallSegment } from './arena';
 import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
@@ -251,6 +252,38 @@ export interface TakeoverTuning {
   readonly seconds: number;
 }
 
+/** A solid block of a Battle map's walls or towers (docs/plans/battle-objectives.md, Stage 3a): from above an axis-aligned box, solid from the ground to `top`. */
+export interface WallBlock {
+  readonly id: string;
+  readonly minX: number;
+  readonly minZ: number;
+  readonly maxX: number;
+  readonly maxZ: number;
+  readonly top: number;
+}
+
+/**
+ * A hand-built Battle map (docs/plans/battle-objectives.md, Stage 3a; ADR 0022), `data/battlemaps/<name>.json`, exported by
+ * `art/build_battle_<name>.py` from its Collision helpers: its floor (Walk Surfaces), its solid blocks (a Wall stands on each of their
+ * sides, and Soldiers keep out of them), any other Walls, its Objectives, each Team's Base, where the armies deploy, and how big an army
+ * it holds. Fought as the Battlefield `battle:<name>`. Static, like an Arena.
+ */
+export interface BattleMapTuning {
+  readonly name: string;
+  readonly walk: readonly WalkSurface[];
+  readonly walls: readonly WallSegment[];
+  /** Block k is the half turn of block `length - 1 - k`, so Team 1's Soldiers are pushed out of them as Team 0's are, turned (`pushOutOfBlocks`). */
+  readonly blocks: readonly WallBlock[];
+  /** In the order a Battle numbers them; Objective k is the half turn of Objective `length - 1 - k`, as on the open field. */
+  readonly objectives: readonly ObjectiveSite[];
+  /** Each Team's Base: [Team 0, Team 1]. */
+  readonly bases: readonly [{ readonly x: number; readonly z: number }, { readonly x: number; readonly z: number }];
+  /** How far from the centre (m, along z) each army's front rank deploys, as `deploy.front` on the open field. */
+  readonly front: number;
+  /** The army size a Battle on it has unless the Lobby picks another, and the most it may (whole numbers): set from the budget gate. */
+  readonly armySize: { readonly standard: number; readonly max: number };
+}
+
 export interface BattleTuning {
   /** Soldiers in each army (a whole number, at least 1). */
   readonly armySize: number;
@@ -267,6 +300,8 @@ export interface BattleTuning {
   readonly slots: SlotsTuning;
   readonly ring: RingTuning;
   readonly takeover: TakeoverTuning;
+  /** The hand-built Battle maps, by name (`data/battlemaps/<name>.json`; none in a Battle written by hand). The open field is not one. */
+  readonly maps: Readonly<Record<string, BattleMapTuning>>;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -286,6 +321,83 @@ function colour(v: unknown, where: string): number {
   if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff) return v;
   if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return parseInt(v.slice(1), 16);
   throw new TuningDataError(`${where} must be a colour "#rrggbb", got ${JSON.stringify(v)}`);
+}
+
+/** An Objective's site, inside the `size` m field. */
+function parseSite(raw: unknown, where: string, size: number): ObjectiveSite {
+  const o = record(raw, where);
+  const owner = o.owner;
+  if (owner !== -1 && owner !== 0 && owner !== 1) throw new TuningDataError(`${where}.owner must be -1 (none), 0 or 1, got ${JSON.stringify(owner)}`);
+  const { x, z } = fieldPoint([o.x, o.z], where, size);
+  if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false, got ${JSON.stringify(o.spawn)}`);
+  const site = { id: nonEmptyString(o, 'id', where), x, z, weight: positiveNumber(o, 'weight', where), owner, spawn: o.spawn };
+  return o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+}
+
+/** Throws unless a map holds 1 to MAX_OBJECTIVES Objectives, each with its own id. */
+function checkSites(sites: readonly ObjectiveSite[], where: string): void {
+  if (sites.length < 1 || sites.length > MAX_OBJECTIVES) throw new TuningDataError(`${where} must hold 1 to ${MAX_OBJECTIVES} Objectives, got ${sites.length}`);
+  if (new Set(sites.map((o) => o.id)).size !== sites.length) throw new TuningDataError(`${where}: every Objective needs its own id`);
+}
+
+/** A point written [x, z] (or { x, z }, as parsed) strictly inside the `size` m field, or on its edge with `edge`. */
+function fieldPoint(v: unknown, where: string, size: number, edge = false): { x: number; z: number } {
+  const [x, z] = Array.isArray(v) ? v : [record(v, where).x, record(v, where).z];
+  const inside = (c: unknown): c is number => typeof c === 'number' && Number.isFinite(c) && (edge ? Math.abs(c) <= size / 2 : Math.abs(c) < size / 2);
+  if (!inside(x) || !inside(z)) throw new TuningDataError(`${where}: (x, z) must lie inside the ${size} m field, got (${JSON.stringify(x)}, ${JSON.stringify(z)})`);
+  return { x, z };
+}
+
+/**
+ * A Battle map (`BattleMapTuning`), checked against the Battle's field and army layout: its floor reaches every side of the field's square,
+ * its blocks stand inside it, its Objectives and Bases lie inside it, and its armies deploy inside it at its most. Accepts its own output.
+ */
+function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'field' | 'deploy' | 'squad'>): BattleMapTuning {
+  const m = record(raw, where);
+  const size = b.field.size;
+  const arena = parseArena({ name: m.name, walk: m.walk, walls: m.walls ?? [] }, where);
+  const xs = arena.walk.flatMap((w) => w.points.map((p) => p.x));
+  const zs = arena.walk.flatMap((w) => w.points.map((p) => p.z));
+  if (Math.min(...xs) !== -size / 2 || Math.max(...xs) !== size / 2 || Math.min(...zs) !== -size / 2 || Math.max(...zs) !== size / 2)
+    throw new TuningDataError(`${where}.walk must reach every side of the ${size} m field`);
+  const blocks = array(m.blocks ?? [], `${where}.blocks`).map((raw, i): WallBlock => {
+    const at = `${where}.blocks[${i}]`;
+    const o = record(raw, at);
+    const lo = fieldPoint('minX' in o ? { x: o.minX, z: o.minZ } : o.min, `${at}.min`, size, true);
+    const hi = fieldPoint('maxX' in o ? { x: o.maxX, z: o.maxZ } : o.max, `${at}.max`, size, true);
+    if (hi.x <= lo.x || hi.z <= lo.z) throw new TuningDataError(`${at}: max must lie beyond min on both axes`);
+    return { id: nonEmptyString(o, 'id', at), minX: lo.x, minZ: lo.z, maxX: hi.x, maxZ: hi.z, top: positiveNumber(o, 'top', at) };
+  });
+  const objectives = array(m.objectives, `${where}.objectives`).map((raw, i) => parseSite(raw, `${where}.objectives[${i}]`, size));
+  checkSites(objectives, `${where}.objectives`);
+  const bases = array(m.bases, `${where}.bases`);
+  if (bases.length !== 2) throw new TuningDataError(`${where}.bases must hold Team 0's Base and Team 1's`);
+  const front = positiveNumber(m, 'front', where);
+  // Nothing a Squad heads for or deploys at may stand in a wall: its destination field would start inside it.
+  const solid = (x: number, z: number) => blocks.some((b) => x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ);
+  objectives.forEach((o, i) => {
+    if (solid(o.x, o.z)) throw new TuningDataError(`${where}.objectives[${i}] (${o.id}) stands inside a block`);
+  });
+  bases.forEach((p, i) => {
+    const at = fieldPoint(p, `${where}.bases[${i}]`, size);
+    if (solid(at.x, at.z)) throw new TuningDataError(`${where}.bases[${i}] stands inside a block`);
+  });
+  if (blocks.some((b) => b.minZ < -front && b.maxZ > -front)) throw new TuningDataError(`${where}.front: Team 0's front rank (z = ${-front}) runs through a block`);
+  const army = record(m.armySize, `${where}.armySize`);
+  const armySize = { standard: wholeNumber(army, 'standard', `${where}.armySize`), max: wholeNumber(army, 'max', `${where}.armySize`) };
+  if (armySize.standard > armySize.max) throw new TuningDataError(`${where}.armySize.standard (${armySize.standard}) must be at most its max (${armySize.max})`);
+  const fits = maxArmySize({ ...b, deploy: { ...b.deploy, front } });
+  if (armySize.max > fits) throw new TuningDataError(`${where}.armySize.max (${armySize.max}) must deploy inside the field from front ${front} (at most ${fits})`);
+  return {
+    name: arena.name,
+    walk: arena.walk,
+    walls: arena.walls,
+    blocks,
+    objectives,
+    bases: [fieldPoint(bases[0], `${where}.bases[0]`, size), fieldPoint(bases[1], `${where}.bases[1]`, size)],
+    front,
+    armySize,
+  };
 }
 
 /** Validate the raw Battle Tuning Data (with the Weapon roster's names, to check the soldier's Weapon, when given). Accepts its own output. */
@@ -367,23 +479,9 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     captureSeconds: positiveNumber(ob, 'captureSeconds', 'battle.objectives'),
     rate: positiveNumber(ob, 'rate', 'battle.objectives'),
     maxRate: positiveNumber(ob, 'maxRate', 'battle.objectives'),
-    openField: array(ob.openField, 'battle.objectives.openField').map((raw, i) => {
-      const where = `battle.objectives.openField[${i}]`;
-      const o = record(raw, where);
-      const owner = o.owner;
-      if (owner !== -1 && owner !== 0 && owner !== 1) throw new TuningDataError(`${where}.owner must be -1 (none), 0 or 1, got ${JSON.stringify(owner)}`);
-      const x = o.x;
-      const z = o.z;
-      if (typeof x !== 'number' || typeof z !== 'number' || !Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) >= field.size / 2 || Math.abs(z) >= field.size / 2)
-        throw new TuningDataError(`${where}: (x, z) must lie inside the ${field.size} m field, got (${JSON.stringify(x)}, ${JSON.stringify(z)})`);
-      if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false, got ${JSON.stringify(o.spawn)}`);
-      const site = { id: nonEmptyString(o, 'id', where), x, z, weight: positiveNumber(o, 'weight', where), owner, spawn: o.spawn };
-      return o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
-    }),
+    openField: array(ob.openField, 'battle.objectives.openField').map((raw, i) => parseSite(raw, `battle.objectives.openField[${i}]`, field.size)),
   };
-  if (objectives.openField.length < 1 || objectives.openField.length > MAX_OBJECTIVES)
-    throw new TuningDataError(`battle.objectives.openField must hold 1 to ${MAX_OBJECTIVES} Objectives, got ${objectives.openField.length}`);
-  if (new Set(objectives.openField.map((o) => o.id)).size !== objectives.openField.length) throw new TuningDataError('battle.objectives.openField: every Objective needs its own id');
+  checkSites(objectives.openField, 'battle.objectives.openField');
   if (objectives.maxRate < objectives.rate) throw new TuningDataError(`battle.objectives.maxRate (${objectives.maxRate}) must be at least battle.objectives.rate (${objectives.rate})`);
   const tickets: TicketsTuning = {
     perSoldier: positiveNumber(tk2, 'perSoldier', 'battle.tickets'),
@@ -450,6 +548,12 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     waiting: nonNegativeNumber(rg, 'waiting', 'battle.ring'),
   };
   if (!Number.isInteger(ring.waiting)) throw new TuningDataError(`battle.ring.waiting must be a whole number, got ${ring.waiting}`);
+  const maps: Record<string, BattleMapTuning> = {};
+  for (const [key, raw] of Object.entries(record(b.maps ?? {}, 'battle.maps'))) {
+    const map = parseBattleMap(raw, `battle.maps.${key}`, { field, deploy, squad });
+    if (map.name !== key || !/^[a-z][a-z0-9]*$/.test(key)) throw new TuningDataError(`battle.maps.${key}: a map's name is lower-case letters and digits, and its key (got "${map.name}")`);
+    maps[key] = map;
+  }
   if (ring.radius < bubble.hold || ring.radius >= bubble.promote) throw new TuningDataError(`battle.ring.radius (${ring.radius}) must be at least battle.bubble.hold (${bubble.hold}) and less than battle.bubble.promote (${bubble.promote})`);
   return {
     armySize,
@@ -473,6 +577,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     slots,
     ring,
     takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover') },
+    maps,
   };
 }
 
@@ -482,20 +587,27 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
  * every peer compares see the same armies.
  */
 export interface BattleKnobs {
-  /** Soldiers in each army (replaces `armySize`; held to what fits the field, see `maxArmySize`). */
+  /** The map (docs/plans/battle-objectives.md, Stage 3a): a key of `battle.maps`, or absent (or any other name) for the open field. */
+  readonly map?: string;
+  /** Soldiers in each army (replaces `armySize`, or the map's standard; held to what fits the field and to the map's most, see `armySizeCap`). */
   readonly armySize?: number;
   /** Multiplies the chance a Soldier lands a blow each Crowd step (so the Crowd fights slower below 1; the product is held to 1). */
   readonly hitRate?: number;
 }
 
-/** Every Battle knob's key. */
-export const BATTLE_KNOB_KEYS: readonly (keyof BattleKnobs)[] = ['armySize', 'hitRate'];
+/** Every numeric Battle knob's key (the map is a name). */
+export const BATTLE_KNOB_KEYS: readonly Exclude<keyof BattleKnobs, 'map'>[] = ['armySize', 'hitRate'];
 
-/** Battle knobs read back from storage: each of BATTLE_KNOB_KEYS that is a finite number (any other key dropped), or null for none. */
+/** The longest map name a Battle knob carries. */
+export const MAX_MAP_NAME = 32;
+
+/** Battle knobs read back from storage: each of BATTLE_KNOB_KEYS that is a finite number and a short `map` name (any other key dropped), or null for none. */
 export function parseBattleKnobs(raw: unknown): BattleKnobs | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
   const knobs = Object.fromEntries(
-    Object.entries(raw).filter(([k, v]) => (BATTLE_KNOB_KEYS as readonly string[]).includes(k) && typeof v === 'number' && Number.isFinite(v)),
+    Object.entries(raw).filter(
+      ([k, v]) => ((BATTLE_KNOB_KEYS as readonly string[]).includes(k) && typeof v === 'number' && Number.isFinite(v)) || (k === 'map' && typeof v === 'string' && v.length > 0 && v.length <= MAX_MAP_NAME),
+    ),
   ) as BattleKnobs;
   return Object.keys(knobs).length > 0 ? knobs : null;
 }
@@ -563,11 +675,24 @@ export function maxArmySize(b: Pick<BattleTuning, 'field' | 'deploy' | 'squad'>)
   return army;
 }
 
-/** The Battle with the Lobby's knobs applied; `b` itself when none change anything. Out-of-range values are held to their range. */
+/** The Battle map `knobs` pick, or null for the open field. */
+export const battleMapPicked = (b: Pick<BattleTuning, 'maps'>, knobs: BattleKnobs | undefined): BattleMapTuning | null => (knobs?.map !== undefined && Object.hasOwn(b.maps, knobs.map) ? b.maps[knobs.map]! : null);
+
+/** The most Soldiers an army may be on `map` (null: the open field): what deploys inside the field, and no more than the map's `armySize.max`. */
+export const armySizeCap = (b: BattleTuning, map: BattleMapTuning | null): number => (map ? Math.min(map.armySize.max, maxArmySize({ ...b, deploy: { ...b.deploy, front: map.front } })) : maxArmySize(b));
+
+/** The army size a Battle on `map` (null: the open field) has when the Lobby picks none: Tuning Data's `armySize`, or the map's standard. */
+export const standardArmySize = (b: BattleTuning, map: BattleMapTuning | null): number => (map ? map.armySize.standard : b.armySize);
+
+/**
+ * The Battle with the Lobby's knobs applied; `b` itself when none change anything. Out-of-range values are held to their range: the army
+ * to the map's cap (`armySizeCap`), its standard (`standardArmySize`) when the knobs name none.
+ */
 export function applyBattleKnobs(b: BattleTuning, knobs: BattleKnobs | undefined): BattleTuning {
   if (!knobs) return b;
-  const { armySize = b.armySize, hitRate = 1 } = knobs;
-  const army = Math.min(maxArmySize(b), Math.max(1, Math.round(armySize)));
+  const map = battleMapPicked(b, knobs);
+  const { armySize = standardArmySize(b, map), hitRate = 1 } = knobs;
+  const army = Math.min(armySizeCap(b, map), Math.max(1, Math.round(armySize)));
   const hitChance = Math.min(1, b.crowd.hitChance * (hitRate > 0 ? hitRate : 1));
   if (army === b.armySize && hitChance === b.crowd.hitChance) return b;
   return { ...b, armySize: army, crowd: { ...b.crowd, hitChance } };

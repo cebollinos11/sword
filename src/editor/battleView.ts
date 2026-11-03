@@ -3,12 +3,14 @@
  * (no Fighters) stepped through `stepMatch` in real time, drawn plainly: the Battlefield's heightfield as a shaded mesh,
  * each Soldier a box in its Team's colour (a fallen one lies flat and grey), a free orbit camera. A panel shows the
  * Tick, each army's strength, the Rout and the winner, with a seed box, a restart and the speed. `#/editor/battle/<seed>`
- * starts on that seed. Render only: nothing here feeds the Simulation, and the Editor only imports it in dev.
+ * starts on that seed; `#/editor/battle/<map>/<seed>` on a hand-built Battle map (`battle.maps`, its walls and towers drawn as grey
+ * boxes, docs/plans/battle-objectives.md Stage 3a) at its standard army size. Render only: nothing here feeds the Simulation, and the
+ * Editor only imports it in dev.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ATTACK, battlefieldHeight, battleMapOf, COLUMN, createMatch, crowdAlive, DEFEND, descend, LINE, LOOSE, orderSpot, owned, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
-import type { TuningData } from '../tuning';
+import { ATTACK, battlefieldHeight, battleMapOf, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, LINE, LOOSE, orderSpot, owned, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
+import { applyBattleKnobs, type TuningData } from '../tuning';
 
 const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
 const FALLEN_COLOUR = 0x555555;
@@ -36,7 +38,11 @@ function terrainMesh(hf: Heightfield): THREE.Mesh {
   return mesh;
 }
 
-export function startBattleView(container: HTMLElement, tuning: TuningData): void {
+export function startBattleView(container: HTMLElement, base: TuningData): void {
+  // A hand-built map named in the hash, folded in as the Lobby would (its standard army size).
+  const parts = location.hash.split('/');
+  const mapName = parts[3] !== undefined && Object.hasOwn(base.battle.maps, parts[3]) ? parts[3] : undefined;
+  const tuning: TuningData = mapName ? { ...base, battle: applyBattleKnobs(base.battle, { map: mapName }) } : base;
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   container.style.position = 'relative';
@@ -60,6 +66,8 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   soldiers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(soldiers);
   let terrain: THREE.Mesh | null = null;
+  const walls = new THREE.Group();
+  scene.add(walls);
   // Squads (docs/plans/battle-objectives.md, Stage 1): each anchor a cone along its heading, each Soldier's place a dot.
   const squadCount = 2 * squadsPerTeam(tuning.battle);
   const cone = new THREE.ConeGeometry(0.9, 3, 8);
@@ -148,7 +156,7 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   fieldPick.onchange = drawField;
 
   const start = (seed: number) => {
-    match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed });
+    match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed, arena: battleNameFor(mapName, seed) });
     map = battleMapOf(tuning.battle, match.arena);
     hf = map.field.heights;
     buildObjectives();
@@ -158,13 +166,19 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
     if (terrain) scene.remove(terrain);
     terrain = terrainMesh(hf);
     scene.add(terrain);
+    walls.clear();
+    for (const b of map.field.blocks) {
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(b.maxX - b.minX, b.top, b.maxZ - b.minZ), new THREE.MeshLambertMaterial({ color: 0x8a8580 }));
+      wall.position.set((b.minX + b.maxX) / 2, b.top / 2, (b.minZ + b.maxZ) / 2);
+      walls.add(wall);
+    }
     seedBox.value = String(seed);
     carry = 0;
     // Not `location.hash =`: a hash change reloads the page (main.ts).
-    history.replaceState(null, '', `#/editor/battle/${seed}`);
+    history.replaceState(null, '', `#/editor/battle/${mapName ? `${mapName}/` : ''}${seed}`);
   };
   restart.onclick = () => start(Math.max(0, Math.floor(Number(seedBox.value) || 0)));
-  const fromHash = Number(location.hash.split('/')[3]);
+  const fromHash = Number(parts[mapName ? 4 : 3]);
   start(Number.isInteger(fromHash) && fromHash >= 0 ? fromHash : 1);
 
   const m4 = new THREE.Matrix4();
