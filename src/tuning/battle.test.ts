@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattleKnobs, bubbleSlots, loadTuningData, maxArmySize, parseBattle, parseBattleKnobs, tuningDataHash, TuningDataError } from './index';
+import { applyBattleKnobs, bubbleSlots, deployLayout, loadTuningData, maxArmySize, parseBattle, parseBattleKnobs, squadSizes, tuningDataHash, TuningDataError } from './index';
 
 const tuning = loadTuningData();
 
@@ -85,10 +85,37 @@ describe('Battle Tuning Data (data/battle.json)', () => {
     expect(parseBattle(b)).toEqual(b);
   });
 
+  it('sets the Squads: 12 Soldiers, 2 Hz, column 3 wide, line 6 wide, and what it refuses', () => {
+    const b = tuning.battle;
+    expect(b.squad).toMatchObject({ size: 12, spacing: 1.5, brainSeconds: 0.5, moraleThreshold: 0.3, engage: 15, column: { wide: 3 }, line: { wide: 6 } });
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, size: 0 } })).toThrow(/battle\.squad\.size/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, catchUp: 0.9 } })).toThrow(/battle\.squad\.catchUp must be at least 1/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, speed: 1.2 } })).toThrow(/battle\.squad\.speed must be at most 1/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, moraleThreshold: 1.5 } })).toThrow(/battle\.squad\.moraleThreshold must be at most 1/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, mergeMax: 11 } })).toThrow(/battle\.squad\.mergeMax \(11\) must be at least/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, baseDistance: 100 } })).toThrow(/battle\.squad\.baseDistance/);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, column: { wide: 2.5 } } })).toThrow(/battle\.squad\.column\.wide must be a whole number/);
+    expect(() => parseBattle({ ...b, squad: undefined })).toThrow(TuningDataError);
+    expect(() => parseBattle({ ...b, squad: { ...b.squad, mergeMax: 65 } })).toThrow(/at most 64 Soldiers/);
+    expect(parseBattle(b)).toEqual(b);
+  });
+
+  it('cuts an army into Squads of 12, the remainder folded one each into the last, and lays them out inside the field', () => {
+    expect(squadSizes(200, 12)).toEqual([...new Array<number>(8).fill(12), ...new Array<number>(8).fill(13)]);
+    expect(squadSizes(120, 12)).toEqual(new Array<number>(10).fill(12));
+    expect(squadSizes(40, 12)).toEqual([13, 13, 14]);
+    expect(squadSizes(5, 12)).toEqual([5]);
+    for (const army of [1, 11, 12, 23, 100, 199, 200, 331]) expect(squadSizes(army, 12).reduce((a, s) => a + s, 0)).toBe(army);
+    const layout = deployLayout(tuning.battle);
+    expect(layout).toMatchObject({ perRank: 6, ranks: 3, rows: 4, deepest: 5 });
+    expect(layout.depth).toBeLessThan(tuning.battle.field.size / 2);
+    expect(maxArmySize(tuning.battle)).toBeGreaterThan(200);
+  });
+
   it('is part of the Tuning Data hash', () => {
     const base = tuningDataHash(tuning);
     const b = tuning.battle;
-    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, slots: { ...b.slots, shared: [{ enemies: 3, allies: 1 }] } }, { ...b, ring: { ...b.ring, radius: 4 } }, { ...b, ring: { ...b.ring, waiting: 9 } }, { ...b, takeover: { seconds: 2 } }, { ...b, soldier: { ...b.soldier, difficulty: 'Skilled' } }, { ...b, soldier: { ...b.soldier, style: { aggression: 0.5 } } }, { ...b, soldier: { ...b.soldier, mods: { damage: 0.6 } } }])
+    for (const battle of [{ ...b, squad: { ...b.squad, size: 10 } }, { ...b, squad: { ...b.squad, column: { wide: 4 } } }, { ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, slots: { ...b.slots, shared: [{ enemies: 3, allies: 1 }] } }, { ...b, ring: { ...b.ring, radius: 4 } }, { ...b, ring: { ...b.ring, waiting: 9 } }, { ...b, takeover: { seconds: 2 } }, { ...b, soldier: { ...b.soldier, difficulty: 'Skilled' } }, { ...b, soldier: { ...b.soldier, style: { aggression: 0.5 } } }, { ...b, soldier: { ...b.soldier, mods: { damage: 0.6 } } }])
       expect(tuningDataHash({ ...tuning, battle })).not.toBe(base);
   });
 

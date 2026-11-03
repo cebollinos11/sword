@@ -35,8 +35,9 @@ function goodRaw() {
     battle: {
       armySize: 20,
       field: { size: 100, cell: 10, hillHeight: 1, hillLength: 50 },
-      deploy: { front: 10, perRank: 10, file: 1.5, rank: 1.5 },
+      deploy: { front: 10, perRank: 10 },
       crowd: { stagger: 6, walkSpeed: 2.5, hp: 100, damage: [8, 20], hitChance: 0.35, engageReach: 1.6, separation: 0.9, sight: 12, flowCell: 4 },
+      squad: { size: 12, spacing: 1.5, turnRate: 1.2, catchUp: 1.2, speed: 0.8, lag: 6, brainSeconds: 0.5, moraleThreshold: 0.3, looseBelow: 0.5, engage: 15, mergeRange: 6, mergeMax: 16, baseDistance: 45, column: { wide: 3 }, line: { wide: 6 }, loose: { spread: 0.8 } },
       rout: { threshold: 0.2, seconds: 5 },
       soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },

@@ -1,5 +1,6 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseBattleName, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
+import { MAX_SQUAD_PLACES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
 export const PROTOCOL_VERSION = 24;
@@ -440,6 +441,27 @@ const isBattlePlayer = (v: unknown, soldiers: number, slots: number): boolean =>
   v.corpse < slots &&
   (v.away === undefined || v.away === true);
 
+/** The most places a Squad's Formation has (a Soldier's `place`). */
+const MAX_PLACES = MAX_SQUAD_PLACES;
+
+/**
+ * A Battle's Squads (`SquadState`, docs/plans/battle-objectives.md): every per-Squad array as long as the others (at most `soldiers` of
+ * them, Team 0's half then Team 1's), each entry what it may hold (a Formation is 0 to 2, a count up to `MAX_PLACES`).
+ */
+function isSquads(v: unknown, soldiers: number): boolean {
+  if (!isObject(v) || !Array.isArray(v.team)) return false;
+  const m = v.team.length;
+  if (m < 2 || m % 2 !== 0 || m > soldiers) return false;
+  const sized = (a: unknown, item: (x: unknown) => boolean) => isArrayOf(a, item) && (a as unknown[]).length === m;
+  return (
+    v.team.every((t, q) => t === (q < m / 2 ? 0 : 1)) &&
+    ['x', 'z', 'heading', 'aim', 'speed'].every((k) => sized(v[k], isNum)) &&
+    sized(v.shape, (x) => isInt(x) && x >= 0 && x <= 2) &&
+    sized(v.living, (x) => isInt(x) && x >= 0 && x <= MAX_PLACES) &&
+    sized(v.fall, isBit)
+  );
+}
+
 /**
  * A Battle's Crowd (`CrowdState`, docs/plans/big-battle.md): every per-Soldier array as long as the others, each entry what it may
  * hold, and every index in range: a target another Soldier, a slot one of the `slots` Fighter Pool slots, a Player's Soldier one
@@ -458,6 +480,9 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.engage, isTick) &&
     sized(v.alive, isBit) &&
     sized(v.slot, index(-1, slots)) &&
+    isSquads(v.squads, n) &&
+    sized(v.squad, index(-1, (v.squads as { team: unknown[] }).team.length)) &&
+    sized(v.place, (x) => isInt(x) && x >= 0 && x < MAX_PLACES) &&
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
     (v.rout === null || (isObject(v.rout) && isTeam(v.rout.team) && isTick(v.rout.tick))) &&

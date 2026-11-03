@@ -238,7 +238,9 @@ describe('the waiting ring', () => {
   it('steps Soldiers out of the path of a Team-mate Fighter walking through them', () => {
     // Team 0's own army: the Player walks through it from behind.
     const at = new Map<number, readonly [number, number]>(Array.from({ length: 20 }, (_, j) => [j, [60 + ((j % 5) - 2) * 1.2, 4 + Math.floor(j / 5) * 1.2]] as const));
+    // Free agents (a Squad's Soldiers would walk back toward their places): this is the path rule alone.
     let m = soldiersAt(playerAt(battle(1, waitOnly), 60, 0, 0), at);
+    m = { ...m, duel: { ...m.duel, crowd: { ...m.duel.crowd!, squad: m.duel.crowd!.squad.map((q, s) => (s < 20 ? -1 : q)) } } };
     let worst = Infinity;
     for (let k = 0; k < 4 * 60; k++) {
       m = stepMatch(m, [walk(0, 1)], waitOnly);

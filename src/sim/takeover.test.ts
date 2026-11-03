@@ -94,6 +94,9 @@ describe('Taking over an ally', () => {
     expect(me.soldier).toBeUndefined();
     expect(me.mods).toBeUndefined();
     expect(next.crowd!.slot[1]).toBe(0);
+    // It leaves its Squad (a free agent, as Players are); the others keep theirs.
+    expect(next.crowd!.squad[1]).toBe(-1);
+    expect(next.crowd!.squad[2]).toBe(start.duel.crowd!.squad[2]);
     // The Player's own Fighter lies on in a free Pool slot.
     const corpse = next.crowd!.players[0]!.corpse;
     expect(corpse).toBeGreaterThan(0);

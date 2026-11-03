@@ -7,11 +7,14 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, routTicks, stepMatch, TICK_SECONDS, type Heightfield, type MatchState } from '../sim';
+import { battlefieldHeight, battlefieldOf, COLUMN, createMatch, crowdAlive, LINE, LOOSE, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type Heightfield, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 
 const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
 const FALLEN_COLOUR = 0x555555;
+/** A Squad's anchor by Formation (column, line, loose), and while it falls back. */
+const SHAPE_COLOURS = [0x66cc66, 0xffaa33, 0xcc66ff] as const;
+const FALLING_COLOUR = 0xff3366;
 const SPEEDS = [0, 1, 2, 4, 8];
 /** Ticks stepped at most per frame, so a slow frame never spirals. */
 const MAX_TICKS_PER_FRAME = 60;
@@ -53,6 +56,13 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   soldiers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   scene.add(soldiers);
   let terrain: THREE.Mesh | null = null;
+  // Squads (docs/plans/battle-objectives.md, Stage 1): each anchor a cone along its heading, each Soldier's place a dot.
+  const squadCount = 2 * squadsPerTeam(tuning.battle);
+  const cone = new THREE.ConeGeometry(0.9, 3, 8);
+  cone.rotateX(Math.PI / 2);
+  const anchors = new THREE.InstancedMesh(cone, new THREE.MeshBasicMaterial(), squadCount);
+  const dots = new THREE.InstancedMesh(new THREE.SphereGeometry(0.18, 6, 4), new THREE.MeshBasicMaterial(), n);
+  scene.add(anchors, dots);
 
   const panel = document.createElement('div');
   panel.style.cssText = 'position:absolute;top:8px;left:8px;padding:8px 10px;background:rgba(15,15,20,.85);color:#eee;font:12px/1.5 ui-monospace,monospace;border-radius:6px;z-index:10';
@@ -63,9 +73,12 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   const restart = document.createElement('button');
   restart.textContent = 'Restart';
   const speedButton = document.createElement('button');
+  const squadsBox = document.createElement('input');
+  squadsBox.type = 'checkbox';
+  squadsBox.checked = true;
   const status = document.createElement('pre');
   status.style.margin = '6px 0 0';
-  controls.append('seed ', seedBox, ' ', restart, ' ', speedButton);
+  controls.append('seed ', seedBox, ' ', restart, ' ', speedButton, ' ', squadsBox, ' squads');
   panel.append(controls, status);
   container.appendChild(panel);
 
@@ -103,6 +116,35 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   const one = new THREE.Vector3(1, 1, 1);
   const colour = new THREE.Color();
 
+  const hidden = new THREE.Matrix4().makeScale(0, 0, 0);
+  const place: [number, number] = [0, 0];
+  /** The Squads' anchors (cones: green column, orange line, purple loose, pink falling back) and places (dots, in the Team's colour). */
+  const drawSquads = (c: NonNullable<MatchState['duel']['crowd']>) => {
+    anchors.visible = dots.visible = squadsBox.checked;
+    if (!squadsBox.checked) return;
+    const sq = c.squads;
+    for (let k = 0; k < squadCount; k++) {
+      if (sq.living[k] === 0) anchors.setMatrixAt(k, hidden);
+      else anchors.setMatrixAt(k, m4.compose(p.set(sq.x[k]!, battlefieldHeight(hf, sq.x[k]!, sq.z[k]!) + 3, sq.z[k]!), q.setFromAxisAngle(up, sq.heading[k]!), one));
+      anchors.setColorAt(k, colour.setHex(sq.fall[k] ? FALLING_COLOUR : SHAPE_COLOURS[sq.shape[k] as 0 | 1 | 2]));
+    }
+    for (let i = 0; i < n; i++) {
+      const k = c.squad[i]!;
+      if (!c.alive[i] || k < 0 || c.slot[i]! >= 0) {
+        dots.setMatrixAt(i, hidden);
+        continue;
+      }
+      placeOffset(tuning.battle, sq.shape[k]!, c.place[i]!, sq.heading[k]!, place);
+      const x = sq.x[k]! + place[0];
+      const z = sq.z[k]! + place[1];
+      dots.setMatrixAt(i, m4.compose(p.set(x, battlefieldHeight(hf, x, z) + 0.15, z), q.identity(), one));
+      dots.setColorAt(i, colour.setHex(TEAM_COLOURS[c.team[i]!]!));
+    }
+    anchors.instanceMatrix.needsUpdate = dots.instanceMatrix.needsUpdate = true;
+    if (anchors.instanceColor) anchors.instanceColor.needsUpdate = true;
+    if (dots.instanceColor) dots.instanceColor.needsUpdate = true;
+  };
+
   const draw = () => {
     const c = match.duel.crowd!;
     for (let i = 0; i < n; i++) {
@@ -114,13 +156,16 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
       soldiers.setMatrixAt(i, m4.compose(p, q, one));
       soldiers.setColorAt(i, colour.setHex(c.alive[i] ? TEAM_COLOURS[c.team[i]!]! : FALLEN_COLOUR));
     }
+    drawSquads(c);
     soldiers.instanceMatrix.needsUpdate = true;
     if (soldiers.instanceColor) soldiers.instanceColor.needsUpdate = true;
     const [a, b] = crowdAlive(c);
     const rout = c.rout ? `Team ${c.rout.team} routed at Tick ${c.rout.tick} (ends ${c.rout.tick + routTicks(tuning)})` : 'no Rout yet';
     const over = match.status.status === 'Over' ? `\nOVER: Team ${match.status.winner} wins at Tick ${match.status.tick}` : '';
     const engaged = c.target.filter((t) => t >= 0).length;
-    status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (red)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${rout}${over}`;
+    const formations = [COLUMN, LINE, LOOSE].map((f) => c.squads.shape.filter((s, k) => s === f && c.squads.living[k]! > 0).length);
+    const squadsLine = `Squads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
+    status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (red)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${squadsLine}\n${rout}${over}`;
   };
 
   const resize = () => {

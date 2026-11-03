@@ -20,12 +20,8 @@ export interface BattlefieldTuning {
 export interface DeployTuning {
   /** How far from the field's centre (m, along z) each army's front rank stands: Team 0 at -z, Team 1 at +z. */
   readonly front: number;
-  /** Soldiers in each rank (a whole number). */
+  /** Soldiers wide a rank of Squads is (a whole number): a rank holds `floor(perRank / squad.column.wide)` Squads, side by side. */
   readonly perRank: number;
-  /** Between neighbours in a rank (m). */
-  readonly file: number;
-  /** Between ranks (m). */
-  readonly rank: number;
 }
 
 export interface CrowdTuning {
@@ -53,6 +49,45 @@ export interface RoutTuning {
   readonly threshold: number;
   /** How long a routed Team flees before the Battle ends (s). */
   readonly seconds: number;
+}
+
+/**
+ * Squads and Formations (docs/plans/battle-objectives.md, Stage 1): a fixed group of a Battle's Soldiers that moves in a Formation
+ * round an anchor. The Formation is chosen by the situation: column on the march, line in contact, loose when broken up or falling back.
+ */
+export interface SquadTuning {
+  /** Soldiers in a Squad at deployment (a whole number): an army fields `floor(armySize / size)` Squads, the remainder folded one each into the last. */
+  readonly size: number;
+  /** Between neighbouring places in a Formation (m), files and ranks alike. */
+  readonly spacing: number;
+  /** The most (radians a second) a Squad's anchor turns, so it wheels and does not flip. */
+  readonly turnRate: number;
+  /** A Soldier out of place walks up to this many times its walk speed to catch up (at least 1). */
+  readonly catchUp: number;
+  /** A Squad's anchor walks at this share of `crowd.walkSpeed` (more than 0, at most 1), so its Soldiers keep up. */
+  readonly speed: number;
+  /** The anchor waits while the Squad's Soldiers in the Crowd are further than this (m) behind it. */
+  readonly lag: number;
+  /** A Squad's brain steps this often (s), each Squad on its own Tick (staggered like the Crowd): 0.5 is 2 Hz. */
+  readonly brainSeconds: number;
+  /** A Squad down to this share of its strength (0 to 1) falls back toward its Base and merges into another Squad. */
+  readonly moraleThreshold: number;
+  /** A Squad down to this share of its strength (0 to 1) fights loose, not in column. */
+  readonly looseBelow: number;
+  /** An enemy Soldier this close (m) to a Squad's Soldiers puts it in line, facing them: it is in contact. */
+  readonly engage: number;
+  /** A falling-back Squad within this distance (m) of its Base merges into another Squad of its Team that close to it and with room. */
+  readonly mergeRange: number;
+  /** A merged Squad never holds more than this many living Soldiers (a whole number, at least `size`). */
+  readonly mergeMax: number;
+  /** A Team's Base is this far (m) from the centre along z, on its own side, behind its deployment: where a Squad falls back to. */
+  readonly baseDistance: number;
+  /** The column: this many places wide (a whole number), as deep as the Squad needs. */
+  readonly column: { readonly wide: number };
+  /** The line: this many places wide (a whole number); the first rank is the front rank that fights. */
+  readonly line: { readonly wide: number };
+  /** The loose Formation: places on a spiral, this many times the `spacing` apart (above 1 a looser crowd, below 1 a tighter one). */
+  readonly loose: { readonly spread: number };
 }
 
 /** The generic soldier both armies field: one Body and Weapon, told apart by each Team's colour. */
@@ -153,6 +188,7 @@ export interface BattleTuning {
   readonly field: BattlefieldTuning;
   readonly deploy: DeployTuning;
   readonly crowd: CrowdTuning;
+  readonly squad: SquadTuning;
   readonly rout: RoutTuning;
   readonly soldier: SoldierTuning;
   readonly bubble: BubbleTuning;
@@ -216,13 +252,40 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const deploy: DeployTuning = {
     front: positiveNumber(d, 'front', 'battle.deploy'),
     perRank: wholeNumber(d, 'perRank', 'battle.deploy'),
-    file: positiveNumber(d, 'file', 'battle.deploy'),
-    rank: positiveNumber(d, 'rank', 'battle.deploy'),
   };
+  const sq = record(b.squad, 'battle.squad');
+  const column = record(sq.column, 'battle.squad.column');
+  const line = record(sq.line, 'battle.squad.line');
+  const loose = record(sq.loose, 'battle.squad.loose');
+  const squad: SquadTuning = {
+    size: wholeNumber(sq, 'size', 'battle.squad'),
+    spacing: positiveNumber(sq, 'spacing', 'battle.squad'),
+    turnRate: positiveNumber(sq, 'turnRate', 'battle.squad'),
+    catchUp: positiveNumber(sq, 'catchUp', 'battle.squad'),
+    speed: positiveNumber(sq, 'speed', 'battle.squad'),
+    lag: positiveNumber(sq, 'lag', 'battle.squad'),
+    brainSeconds: positiveNumber(sq, 'brainSeconds', 'battle.squad'),
+    moraleThreshold: share(sq, 'moraleThreshold', 'battle.squad'),
+    looseBelow: share(sq, 'looseBelow', 'battle.squad'),
+    engage: positiveNumber(sq, 'engage', 'battle.squad'),
+    mergeRange: positiveNumber(sq, 'mergeRange', 'battle.squad'),
+    mergeMax: wholeNumber(sq, 'mergeMax', 'battle.squad'),
+    baseDistance: positiveNumber(sq, 'baseDistance', 'battle.squad'),
+    column: { wide: wholeNumber(column, 'wide', 'battle.squad.column') },
+    line: { wide: wholeNumber(line, 'wide', 'battle.squad.line') },
+    loose: { spread: positiveNumber(loose, 'spread', 'battle.squad.loose') },
+  };
+  if (squad.catchUp < 1) throw new TuningDataError(`battle.squad.catchUp must be at least 1, got ${squad.catchUp}`);
+  if (squad.speed > 1) throw new TuningDataError(`battle.squad.speed must be at most 1, got ${squad.speed}`);
+  if (squad.mergeMax < squad.size) throw new TuningDataError(`battle.squad.mergeMax (${squad.mergeMax}) must be at least battle.squad.size (${squad.size})`);
+  if (squad.baseDistance >= field.size / 2) throw new TuningDataError(`battle.squad.baseDistance (${squad.baseDistance}) must lie inside the ${field.size} m field`);
   const armySize = wholeNumber(b, 'armySize', 'battle');
-  const depth = deploy.front + (Math.ceil(armySize / deploy.perRank) - 1) * deploy.rank;
-  const width = (Math.min(armySize, deploy.perRank) - 1) * deploy.file;
-  if (depth >= field.size / 2 || width >= field.size) throw new TuningDataError(`battle.deploy: an army of ${armySize} (${width} m wide, its last rank ${depth} m out) must fit inside the ${field.size} m field`);
+  // A Squad's places and count must fit what a resync accepts (MAX_PLACES in net/messages.ts).
+  if (squad.mergeMax > MAX_SQUAD_PLACES || Math.max(...squadSizes(armySize, squad.size)) > MAX_SQUAD_PLACES) throw new TuningDataError(`battle.squad: a Squad holds at most ${MAX_SQUAD_PLACES} Soldiers (mergeMax ${squad.mergeMax}, army ${armySize} in Squads of ${squad.size})`);
+  if (!deployFits({ armySize, field, deploy, squad })) {
+    const layout = deployLayout({ armySize, deploy, squad });
+    throw new TuningDataError(`battle.deploy: an army of ${armySize} (${layout.width} m wide, its last rank ${layout.depth} m out) must fit inside the ${field.size} m field`);
+  }
   const weapon = nonEmptyString(s, 'weapon', 'battle.soldier');
   if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`battle.soldier.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
   const difficulty = nonEmptyString(s, 'difficulty', 'battle.soldier');
@@ -275,6 +338,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     field,
     deploy,
     crowd,
+    squad,
     rout: { threshold: share(r, 'threshold', 'battle.rout'), seconds: positiveNumber(r, 'seconds', 'battle.rout') },
     soldier: {
       body: nonEmptyString(s, 'body', 'battle.soldier'),
@@ -315,10 +379,61 @@ export function parseBattleKnobs(raw: unknown): BattleKnobs | null {
   return Object.keys(knobs).length > 0 ? knobs : null;
 }
 
+/** The most Soldiers a Squad may ever hold: the wire's limit on a Soldier's place and a Squad's count. */
+export const MAX_SQUAD_PLACES = 64;
+
+/** The sizes of an army's Squads: `floor(armySize / squad.size)` of them (at least 1), the remainder folded one each into the last. */
+export function squadSizes(armySize: number, size: number): number[] {
+  const squads = Math.max(1, Math.floor(armySize / size));
+  const base = Math.floor(armySize / squads);
+  const extra = armySize - base * squads;
+  return Array.from({ length: squads }, (_, q) => base + (q >= squads - extra ? 1 : 0));
+}
+
+/** How an army's Squads stand at deployment: in ranks of `perRank` Squads side by side, each Squad in column. */
+export interface DeployLayout {
+  readonly sizes: readonly number[];
+  /** Squads in a full rank. */
+  readonly perRank: number;
+  /** Ranks of Squads. */
+  readonly ranks: number;
+  /** Rows in a Squad's column at the nominal size (the first stands at `deploy.front`), and in the deepest one. */
+  readonly rows: number;
+  readonly deepest: number;
+  /** How wide the widest rank is (m), and how far from the centre (m) the last Soldier stands. */
+  readonly width: number;
+  readonly depth: number;
+}
+
+/** The layout of an army's Squads at deployment (see `DeployLayout`): pure, from the Tuning Data alone. */
+export function deployLayout(b: Pick<BattleTuning, 'armySize' | 'deploy' | 'squad'>): DeployLayout {
+  const { deploy, squad } = b;
+  const sizes = squadSizes(b.armySize, squad.size);
+  const perRank = Math.max(1, Math.floor(deploy.perRank / squad.column.wide));
+  const ranks = Math.ceil(sizes.length / perRank);
+  const deepest = Math.ceil(Math.max(...sizes) / squad.column.wide);
+  return {
+    sizes,
+    perRank,
+    ranks,
+    rows: Math.ceil(squad.size / squad.column.wide),
+    deepest,
+    width: Math.min(perRank, sizes.length) * squad.column.wide * squad.spacing,
+    depth: deploy.front + ranks * deepest * squad.spacing,
+  };
+}
+
+/** Whether an army deploys inside the field: its last rank short of the middle, its widest rank inside the sides. */
+function deployFits(b: Pick<BattleTuning, 'armySize' | 'field' | 'deploy' | 'squad'>): boolean {
+  const layout = deployLayout(b);
+  return layout.depth < b.field.size / 2 && layout.width < b.field.size;
+}
+
 /** The most Soldiers an army can be and still deploy inside the field (its last rank short of the middle), as `parseBattle` checks. */
-export function maxArmySize(b: Pick<BattleTuning, 'field' | 'deploy'>): number {
-  const ranks = Math.floor((b.field.size / 2 - b.deploy.front - 1e-9) / b.deploy.rank);
-  return Math.max(1, ranks + 1) * b.deploy.perRank;
+export function maxArmySize(b: Pick<BattleTuning, 'field' | 'deploy' | 'squad'>): number {
+  let army = 1;
+  while (deployFits({ ...b, armySize: army + 1 })) army++;
+  return army;
 }
 
 /** The Battle with the Lobby's knobs applied; `b` itself when none change anything. Out-of-range values are held to their range. */

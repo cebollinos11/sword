@@ -53,7 +53,7 @@
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
-import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch, takeOverFighter } from '../sim';
+import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
 import {
@@ -841,7 +841,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
     // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
     const crowd = state.duel.crowd;
-    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.players.length !== teams.length)) return;
+    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length)) return;
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;

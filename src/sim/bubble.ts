@@ -133,6 +133,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       engage: before.engage.slice(),
       alive: before.alive.slice(),
       slot: before.slot.slice(),
+      squad: before.squad.slice(),
+      place: before.place.slice(),
       players: before.players.slice(),
     };
     return { fighters, crowd };
@@ -206,6 +208,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       e.fighters[k] = free();
     } else e.fighters[p] = fighterOf(e.crowd, s);
     e.crowd.slot[s] = p;
+    // A taken-over Soldier leaves its Squad (a free agent, as Players are): the Squad goes on one short.
+    e.crowd.squad[s] = -1;
     let corpse = record.corpse;
     if (record.soldier >= 0) e.crowd.slot[record.soldier] = -1;
     else {

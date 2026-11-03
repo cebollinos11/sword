@@ -8,7 +8,7 @@
  * same plane), while the Crowd reads `battlefieldHeight` directly, in constant time. Pure functions of the name and
  * Tuning Data; the built field is a cache, never state, so it cannot change an outcome (ADR 0006).
  */
-import type { ArenaGeometry, BattleTuning, SpawnPoint, WalkSurface } from '../tuning';
+import { deployLayout, type ArenaGeometry, type BattleTuning, type SpawnPoint, type WalkSurface } from '../tuning';
 import { createRng, nextFloat } from './rng';
 
 const PREFIX = 'battle:';
@@ -100,8 +100,7 @@ export interface Battlefield {
 
 /** Where Team `team`'s k-th Fighter spawns: behind its army's last rank, side by side, facing the enemy. */
 function spawnsOf(battle: BattleTuning, hf: Heightfield): SpawnPoint[] {
-  const { deploy, armySize } = battle;
-  const back = deploy.front + Math.ceil(armySize / deploy.perRank) * deploy.rank + 2;
+  const back = deployLayout(battle).depth + 2;
   return [0, 1].flatMap((team) =>
     [0, 1, 2, 3].map((slot) => {
       const x = (slot - 1.5) * 2 * (team === 0 ? 1 : -1);

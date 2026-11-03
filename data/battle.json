@@ -8,9 +8,7 @@
   },
   "deploy": {
     "front": 40,
-    "perRank": 20,
-    "file": 1.5,
-    "rank": 1.5
+    "perRank": 20
   },
   "crowd": {
     "stagger": 6,
@@ -22,6 +20,24 @@
     "separation": 0.9,
     "sight": 12,
     "flowCell": 4
+  },
+  "squad": {
+    "size": 12,
+    "spacing": 1.5,
+    "turnRate": 1.2,
+    "catchUp": 1.2,
+    "speed": 0.8,
+    "lag": 6,
+    "brainSeconds": 0.5,
+    "moraleThreshold": 0.3,
+    "looseBelow": 0.5,
+    "engage": 15,
+    "mergeRange": 6,
+    "mergeMax": 16,
+    "baseDistance": 85,
+    "column": { "wide": 3 },
+    "line": { "wide": 6 },
+    "loose": { "spread": 0.8 }
   },
   "rout": {
     "threshold": 0.2,

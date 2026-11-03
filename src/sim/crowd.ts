@@ -4,15 +4,19 @@
  * and fights them.
  *
  * Each Tick updates only the Soldiers whose place in their army matches the Tick modulo `battle.crowd.stagger` (`crowdDue`), so every
- * Soldier steps once per stagger period and the cost per Tick is even. A Soldier's step:
+ * Soldier steps once per stagger period and the cost per Tick is even. Beside it the Squads think and their anchors move (`stepSquads`,
+ * docs/plans/battle-objectives.md Stage 1, ADR 0021). A Soldier's step:
  *  - looks round it through a spatial hash of the living Soldiers (rebuilt each Tick, scratch, never state): it is
  *    pushed apart from those closer than `separation`, and finds the nearest enemy within `sight`;
  *  - an enemy within `engageReach` is its target: it stands, faces it and rolls a blow from the Crowd's own seeded
  *    generator (`hitChance`, then damage uniform in `damage`). Every blow of a Tick lands together after the Tick's
- *    steps, so the order Soldiers step in never decides who strikes first. At 0 HP a Soldier dies and stops counting;
- *  - an enemy within sight but out of reach: it walks at it, arriving just inside reach;
- *  - none in sight: it walks down its Team's flow field (a BFS over a coarse grid from every cell holding a living
- *    enemy), rebuilt from the Tick's positions whenever a Soldier needs it (scratch, so it is never state);
+ *    steps, so the order Soldiers step in never decides who strikes first. At 0 HP a Soldier dies and stops counting.
+ *    (A Soldier of a Squad falling back breaks off and walks instead of fighting);
+ *  - a Soldier of a Squad otherwise steers to its place in the Squad's Formation round the anchor, up to `squad.catchUp` times faster
+ *    when out of place; only the front rank of a Squad in line (`squad.line.wide` places) walks at an enemy in sight, the rear holds;
+ *  - a free agent (no Squad) with an enemy within sight but out of reach walks at it, arriving just inside reach, and with none in
+ *    sight walks down its Team's flow field (a BFS over a coarse grid from every cell holding a living enemy), rebuilt from the
+ *    Tick's positions whenever it is needed (scratch, so it is never state);
  *  - while its Team routs, it flees toward its own edge of the field and strikes no one.
  * Round each Player's Fighter (Stage 4), its waiting enemies (in the Crowd, within `bubble.promote`, not engaged last step)
  * steer to the waiting ring (`ringSpots`): spots `ring.spacing` apart on rings from `ring.radius` out, the ones ahead of the
@@ -24,6 +28,7 @@
 import type { BattleTuning } from '../tuning';
 import { TICK_SECONDS } from './constants';
 import { createRng, nextFloat, type RngState } from './rng';
+import { deploySquads, LINE, placeOffset, stepSquads, type SquadState } from './squad';
 
 /** A Team's Rout: which Team broke, and on which Tick. */
 export interface Rout {
@@ -58,6 +63,12 @@ export interface CrowdState {
    * Promotion until its Demotion writes them back (`alive` and `hp` drop to 0 at once if its Fighter falls).
    */
   readonly slot: readonly number[];
+  /** The Squad (index into `squads`) it belongs to (docs/plans/battle-objectives.md, Stage 1), or -1 for a free agent (a Soldier a Player took over). */
+  readonly squad: readonly number[];
+  /** Its place in its Squad's Formation (0 is the front-left of the first row); meaningless for a free agent. */
+  readonly place: readonly number[];
+  /** The Squads: anchors, Formations and morale (`stepSquads`). */
+  readonly squads: SquadState;
   /** The Crowd's own seeded generator, apart from the Duel's (`SimState.rng`), so the Crowd never shifts the Fighters' draws. */
   readonly rng: RngState;
   /** The Team that routed, once one has; null until then. */
@@ -97,27 +108,12 @@ export const FRESH_PLAYER: BattlePlayer = { soldier: -1, taken: 0, kills: 0, cor
 export const crowdDue = (i: number, tick: number, stagger: number, armySize: number): boolean => (i % armySize) % stagger === tick % stagger;
 
 /**
- * The Crowd at the start of a Battle: each army of `armySize` in ranks of `deploy.perRank` (`deploy.file` apart, ranks
- * `deploy.rank` apart), its front rank `deploy.front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the
- * two armies a half turn of each other. Every Soldier at `crowd.hp`. `players`: how many Players the Battle has (each a fresh record).
+ * The Crowd at the start of a Battle: each army of `armySize` deployed in Squads (`deploySquads`), each in column, the front
+ * rank `deploy.front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the two armies a half turn of each other.
+ * Every Soldier at `crowd.hp`. `players`: how many Players the Battle has (each a fresh record).
  */
 export function createCrowd(battle: BattleTuning, seed: number, players = 0): CrowdState {
-  const { armySize, deploy } = battle;
-  const x: number[] = [];
-  const z: number[] = [];
-  const team: number[] = [];
-  const heading: number[] = [];
-  for (const t of [0, 1])
-    for (let k = 0; k < armySize; k++) {
-      const rank = Math.floor(k / deploy.perRank);
-      const inRank = Math.min(deploy.perRank, armySize - rank * deploy.perRank);
-      const lx = (k - rank * deploy.perRank - (inRank - 1) / 2) * deploy.file;
-      const lz = -(deploy.front + rank * deploy.rank);
-      x.push(t === 0 ? lx : -lx);
-      z.push(t === 0 ? lz : -lz);
-      team.push(t);
-      heading.push(t === 0 ? 0 : Math.PI);
-    }
+  const { x, z, team, heading, squad, place, squads } = deploySquads(battle);
   const n = x.length;
   const zeros = () => new Array<number>(n).fill(0);
   return {
@@ -132,6 +128,9 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0): Cr
     engage: zeros(),
     alive: new Array<number>(n).fill(1),
     slot: new Array<number>(n).fill(-1),
+    squad,
+    place,
+    squads,
     rng: createRng(seed ^ 0x5bd1e995),
     rout: null,
     players: new Array<BattlePlayer>(players).fill(FRESH_PLAYER),
@@ -358,6 +357,9 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const stride = p.walkSpeed * dt;
   const sep2 = p.separation * p.separation;
   const sight2 = p.sight * p.sight;
+  const reach2 = p.engageReach * p.engageReach;
+  const { squads, squad, place } = stepSquads(crowd, tick, battle);
+  const offset: [number, number] = [0, 0];
   const x = crowd.x.slice();
   const z = crowd.z.slice();
   const vx = crowd.vx.slice();
@@ -397,6 +399,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     const xi = x[i]!;
     const zi = z[i]!;
     const own = team[i]!;
+    const sq = squad[i]!;
     const fleeing = crowd.rout?.team === own;
     const gx0 = cellIndex(xi, half, grid.cell, grid.side);
     const gz0 = cellIndex(zi, half, grid.cell, grid.side);
@@ -479,27 +482,42 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       wz = own === 0 ? -1 : 1;
       target[i] = -1;
       engage[i] = 0;
+    } else if (best >= 0 && bestD <= reach2 && !(sq >= 0 && squads.fall[sq])) {
+      // Engaged: stand, face it and trade blows (any Soldier of a Squad does, a rear rank rarely; a Squad falling back breaks off).
+      face = Math.atan2(crowd.x[best]! - xi, crowd.z[best]! - zi);
+      engage[i] = target[i] === best ? engage[i]! + 1 : 1;
+      target[i] = best;
+      if (draw() < p.hitChance) {
+        damage[best] = damage[best]! + p.damage[0] + draw() * (p.damage[1] - p.damage[0]);
+        struck = true;
+      }
+    } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < battle.squad.line.wide)) {
+      // A Squad's Soldier steers to its place in the Formation round the anchor, up to `catchUp` times faster when out of place;
+      // only the front rank of a line closes with an enemy in sight (below), the rear rank holds its places.
+      target[i] = -1;
+      engage[i] = 0;
+      placeOffset(battle, squads.shape[sq]!, place[i]!, squads.heading[sq]!, offset);
+      const ox = squads.x[sq]! + offset[0] - xi;
+      const oz = squads.z[sq]! + offset[1] - zi;
+      const d = Math.hypot(ox, oz);
+      if (d > 1e-9) {
+        const pace = Math.min(d > battle.squad.spacing ? battle.squad.catchUp : 1, d / stride);
+        wx = (ox / d) * pace;
+        wz = (oz / d) * pace;
+      }
+      // In its place it faces where the Squad does; out of it, the way it walks.
+      if (d < battle.squad.spacing / 2) face = squads.heading[sq]!;
     } else if (best >= 0) {
+      // In sight: walk at it, arriving just inside reach.
       const d = Math.sqrt(bestD);
       const tx = (crowd.x[best]! - xi) / (d || 1);
       const tz = (crowd.z[best]! - zi) / (d || 1);
       face = Math.atan2(tx, tz);
-      if (d <= p.engageReach) {
-        // Engaged: stand, face it and trade blows.
-        engage[i] = target[i] === best ? engage[i]! + 1 : 1;
-        target[i] = best;
-        if (draw() < p.hitChance) {
-          damage[best] = damage[best]! + p.damage[0] + draw() * (p.damage[1] - p.damage[0]);
-          struck = true;
-        }
-      } else {
-        // In sight: walk at it, arriving just inside reach.
-        target[i] = -1;
-        engage[i] = 0;
-        const pace = Math.min(1, (d - p.engageReach * 0.9) / stride);
-        wx = tx * pace;
-        wz = tz * pace;
-      }
+      target[i] = -1;
+      engage[i] = 0;
+      const pace = Math.min(1, (d - p.engageReach * 0.9) / stride);
+      wx = tx * pace;
+      wz = tz * pace;
     } else {
       target[i] = -1;
       engage[i] = 0;
@@ -602,5 +620,5 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     }
   }
 
-  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, rng, rout, players: crowd.players };
+  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, squad, place, squads, rng, rout, players: crowd.players };
 }

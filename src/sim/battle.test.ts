@@ -22,6 +22,7 @@ import {
   type Intent,
   type MatchState,
 } from '.';
+import { secondsToTicks } from './constants';
 import { createRng, nextFloat } from './rng';
 
 const tuning = loadTuningData();
@@ -154,13 +155,17 @@ describe('the Battle Format', () => {
       for (let t = start; t < start + stagger; t++) for (let i = 0; i < n; i++) if (crowdDue(i, t, stagger, tuning.battle.armySize)) count[i]!++;
       expect(count.every((c) => c === 1)).toBe(true);
     }
-    // And the step moves exactly those: on the march, before any enemy is in sight, every Soldier walks on its due Ticks only.
+    // And the step moves only those: a Soldier never moves except on its due Ticks, and once the Squads are marching (every brain has
+    // set its anchor walking by Tick 2 × its period) every Soldier is walking after its place and moves on each of its due Ticks.
     let crowd = createCrowd(tuning.battle, 2);
-    for (let t = 1; t <= 4 * stagger; t++) {
+    const marching = 2 * Math.max(stagger, secondsToTicks(tuning.battle.squad.brainSeconds));
+    for (let t = 1; t <= marching + 2 * stagger; t++) {
       const next = stepCrowd(crowd, t, tuning.battle);
       for (let i = 0; i < n; i++) {
         const moved = next.x[i] !== crowd.x[i] || next.z[i] !== crowd.z[i];
-        expect(moved, `Soldier ${i} on Tick ${t}`).toBe(crowdDue(i, t, stagger, tuning.battle.armySize));
+        const due = crowdDue(i, t, stagger, tuning.battle.armySize);
+        if (moved) expect(due, `Soldier ${i} moved on Tick ${t}, not its Tick`).toBe(true);
+        else if (t > marching) expect(due, `Soldier ${i} stood on its Tick ${t}`).toBe(false);
       }
       crowd = next;
     }
