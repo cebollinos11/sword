@@ -26,8 +26,11 @@ import { secondsToTicks } from './constants';
 import { createRng, nextFloat } from './rng';
 
 const tuning = loadTuningData();
-/** Two small armies that meet within a few seconds: fast enough to fight many Battles in a test. */
-const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+/**
+ * Two small armies that meet within a few seconds: fast enough to fight many Battles in a test. Half a Ticket a Soldier, so a Team stops
+ * respawning after about half its army has fallen and the Battle ends in a Rout within the run, as a Rout Battle did.
+ */
+const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 }, tickets: { ...tuning.battle.tickets, perSoldier: 0.5 } } };
 /** The same with a Fighter Pool only big enough for one Player: nothing promotes, so the Crowd fights alone (no AI drives a promoted Fighter here). */
 const unpooled: TuningData = { ...small, battle: { ...small.battle, bubble: { ...small.battle.bubble, poolSize: 1 } } };
 
@@ -140,8 +143,11 @@ describe('the Battle Format', () => {
     // Team 1 keeps only a fifth less one: below the threshold.
     const keep = Math.ceil(b.rout.threshold * b.armySize) - 1;
     const alive = c.alive.map((a, i) => (i >= b.armySize + keep ? 0 : a));
-    const crowd: CrowdState = { ...c, alive, hp: c.hp.map((h, i) => (alive[i] ? h : 0)) };
-    let next = stepCrowd(crowd, 1, b);
+    // A Team routs once its Tickets are gone as well: with Tickets left it would respawn instead.
+    const crowd: CrowdState = { ...c, alive, hp: c.hp.map((h, i) => (alive[i] ? h : 0)), tickets: [c.tickets[0]!, 5] };
+    expect(stepCrowd(crowd, 1, b).rout).toBeNull();
+    const broke: CrowdState = { ...crowd, tickets: [c.tickets[0]!, 0] };
+    let next = stepCrowd(broke, 1, b);
     expect(next.rout).toEqual({ team: 1, tick: 1 });
     for (let t = 2; t <= 2 + 3 * b.crowd.stagger; t++) next = stepCrowd(next, t, b);
     for (let i = b.armySize; i < b.armySize + keep; i++) expect(next.z[i]!).toBeGreaterThan(crowd.z[i]!);
@@ -202,8 +208,10 @@ describe('the Battle Format', () => {
   it('gives equal armies about even odds over many seeds', () => {
     const wins = [0, 0];
     const seeds = 40;
+    // A short limit (a minute and a half), so each Battle ends within the run: by Tickets, then Objectives, then the coin.
+    const quick: TuningData = { ...small, battle: { ...small.battle, tickets: { ...small.battle.tickets, limitSeconds: 90 } } };
     for (let seed = 1; seed <= seeds; seed++) {
-      const end = toEnd(battle(small, seed), small);
+      const end = toEnd(battle(quick, seed), quick);
       expect(end.status.status).toBe('Over');
       wins[(end.status as { winner: number }).winner]!++;
     }

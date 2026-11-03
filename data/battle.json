@@ -39,6 +39,39 @@
     "line": { "wide": 6 },
     "loose": { "spread": 0.8 }
   },
+  "objectives": {
+    "radius": 12,
+    "playerCount": 3,
+    "captureSeconds": 0.5,
+    "rate": 0.01,
+    "maxRate": 0.08,
+    "openField": [
+      { "id": "H0", "x": 0, "z": -30, "weight": 0.6, "owner": 0, "spawn": true },
+      { "id": "A", "x": -55, "z": 0, "weight": 1, "owner": -1, "spawn": false },
+      { "id": "B", "x": 0, "z": 0, "weight": 1.4, "owner": -1, "spawn": false, "hill": 15 },
+      { "id": "C", "x": 55, "z": 0, "weight": 1, "owner": -1, "spawn": false },
+      { "id": "H1", "x": 0, "z": 30, "weight": 0.6, "owner": 1, "spawn": true }
+    ]
+  },
+  "tickets": {
+    "perSoldier": 2,
+    "drain": 0.3,
+    "limitSeconds": 900,
+    "respawnSeconds": 10
+  },
+  "commander": {
+    "planSeconds": 2.5,
+    "holdSeconds": 15,
+    "stick": 0.25,
+    "falloff": 0.6,
+    "distance": 0.004,
+    "threatRadius": 30,
+    "danger": 0.15,
+    "attack": 1,
+    "retake": 1.2,
+    "garrison": 0.3,
+    "defend": 1.5
+  },
   "rout": {
     "threshold": 0.2,
     "seconds": 5

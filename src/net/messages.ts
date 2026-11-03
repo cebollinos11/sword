@@ -1,6 +1,6 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseBattleName, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
-import { MAX_SQUAD_PLACES } from '../tuning';
+import { MAX_OBJECTIVES, MAX_SQUAD_PLACES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
 export const PROTOCOL_VERSION = 24;
@@ -458,7 +458,25 @@ function isSquads(v: unknown, soldiers: number): boolean {
     ['x', 'z', 'heading', 'aim', 'speed'].every((k) => sized(v[k], isNum)) &&
     sized(v.shape, (x) => isInt(x) && x >= 0 && x <= 2) &&
     sized(v.living, (x) => isInt(x) && x >= 0 && x <= MAX_PLACES) &&
-    sized(v.fall, isBit)
+    sized(v.fall, isBit) &&
+    // An Order is ATTACK, DEFEND or RESPAWN (0 to 2) to one of the Objectives or Bases; a respawn is due at a Tick, or -1.
+    sized(v.order, (x) => isInt(x) && x >= 0 && x <= 2) &&
+    sized(v.target, (x) => isInt(x) && x >= 0 && x < MAX_OBJECTIVES + 2) &&
+    sized(v.since, isInt) &&
+    sized(v.respawnAt, (x) => isInt(x) && x >= -1)
+  );
+}
+
+/** A Battle's Objectives (`ObjectiveState`): a progress from -1 to +1 and an Owner (-1 for none, or a Team) each, as many as the map holds (at most MAX_OBJECTIVES). */
+function isObjectives(v: unknown): boolean {
+  if (!isObject(v) || !Array.isArray(v.progress)) return false;
+  const k = v.progress.length;
+  return (
+    k >= 1 &&
+    k <= MAX_OBJECTIVES &&
+    v.progress.every((x) => isNum(x) && x >= -1 && x <= 1) &&
+    isArrayOf(v.owner, (x) => x === -1 || x === 0 || x === 1) &&
+    (v.owner as unknown[]).length === k
   );
 }
 
@@ -481,6 +499,9 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.alive, isBit) &&
     sized(v.slot, index(-1, slots)) &&
     isSquads(v.squads, n) &&
+    isObjectives(v.objectives) &&
+    isArrayOf(v.tickets, (x) => isNum(x) && x >= 0) &&
+    (v.tickets as unknown[]).length === 2 &&
     sized(v.squad, index(-1, (v.squads as { team: unknown[] }).team.length)) &&
     sized(v.place, (x) => isInt(x) && x >= 0 && x < MAX_PLACES) &&
     isObject(v.rng) &&

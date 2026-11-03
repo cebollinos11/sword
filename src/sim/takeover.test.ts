@@ -24,8 +24,8 @@ import {
 } from '.';
 
 const tuning = loadTuningData();
-/** Two small armies close together, so a whole Battle is quick. */
-const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+/** Two small armies close together, so a whole Battle is quick (half a Ticket a Soldier, so a Team stops respawning early and the Battle ends in a Rout). */
+const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 }, tickets: { ...tuning.battle.tickets, perSoldier: 0.5 } } };
 const army = small.battle.armySize;
 const takeoverTicks = Math.round(small.battle.takeover.seconds / TICK_SECONDS);
 

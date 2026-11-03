@@ -23,10 +23,19 @@
  * Player (its way of travel) filled first, so the ring closes in front of them. No step ends within `bubble.hold` of an enemy
  * full Fighter, and a Soldier in a moving Team-mate full Fighter's path (`ring.pathAhead` ahead, `ring.pathWidth` aside)
  * steps out of it. Steering only, never collision.
- * A Team routs once its living Soldiers fall below `rout.threshold` of the army. Pure: never mutates its input.
+ * Objectives, Tickets and the Commanders (docs/plans/battle-objectives.md, Stage 2a; `objectives.ts`, `commander.ts`): every
+ * `objectives.captureSeconds` the Soldiers and full Fighters inside each Objective are counted and its progress moves; every second the
+ * Team with more Objectives drains the enemy's Tickets; a death costs 1 Ticket; each Team's Commander re-plans its Squads' Orders every
+ * `commander.planSeconds`; a Squad wiped out respawns (`stepSquads`) into dead slots while its Team has Tickets.
+ * A Team routs once its Tickets are gone and its living Soldiers fall below `rout.threshold` of the army, or, at the Battle's time limit, the
+ * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
-import type { BattleTuning } from '../tuning';
+import { startingTickets, type BattleTuning } from '../tuning';
+import { battleArenaName } from './battlefield';
+import { planOrders } from './commander';
 import { TICK_SECONDS } from './constants';
+import { battleMapOf, type BattleMap } from './destinations';
+import { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, planTicks, stepObjectives, type ObjectiveState } from './objectives';
 import { createRng, nextFloat, type RngState } from './rng';
 import { deploySquads, LINE, placeOffset, stepSquads, type SquadState } from './squad';
 
@@ -67,8 +76,12 @@ export interface CrowdState {
   readonly squad: readonly number[];
   /** Its place in its Squad's Formation (0 is the front-left of the first row); meaningless for a free agent. */
   readonly place: readonly number[];
-  /** The Squads: anchors, Formations and morale (`stepSquads`). */
+  /** The Squads: anchors, Formations, morale and Orders (`stepSquads`, `planOrders`). */
   readonly squads: SquadState;
+  /** The Objectives' progress and Owners, entry k being map Objective k (`stepObjectives`). */
+  readonly objectives: ObjectiveState;
+  /** Each Team's Tickets: [Team 0, Team 1]. A death costs 1, being out-held drains them, at 0 a Team respawns no Squads. */
+  readonly tickets: readonly number[];
   /** The Crowd's own seeded generator, apart from the Duel's (`SimState.rng`), so the Crowd never shifts the Fighters' draws. */
   readonly rng: RngState;
   /** The Team that routed, once one has; null until then. */
@@ -110,13 +123,15 @@ export const crowdDue = (i: number, tick: number, stagger: number, armySize: num
 /**
  * The Crowd at the start of a Battle: each army of `armySize` deployed in Squads (`deploySquads`), each in column, the front
  * rank `deploy.front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the two armies a half turn of each other.
- * Every Soldier at `crowd.hp`. `players`: how many Players the Battle has (each a fresh record).
+ * Every Soldier at `crowd.hp`, each Team with its starting Tickets, the Objectives with their Owners at the map's `arena` (default `battle:<seed>`),
+ * and each Squad with its Commander's first Orders. `players`: how many Players the Battle has (each a fresh record).
  */
-export function createCrowd(battle: BattleTuning, seed: number, players = 0): CrowdState {
+export function createCrowd(battle: BattleTuning, seed: number, players = 0, arena: string = battleArenaName(seed)): CrowdState {
   const { x, z, team, heading, squad, place, squads } = deploySquads(battle);
   const n = x.length;
   const zeros = () => new Array<number>(n).fill(0);
-  return {
+  const map = battleMapOf(battle, arena);
+  const crowd: CrowdState = {
     x,
     z,
     vx: zeros(),
@@ -131,10 +146,13 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0): Cr
     squad,
     place,
     squads,
+    objectives: createObjectives(map.field.objectives),
+    tickets: [startingTickets(battle), startingTickets(battle)],
     rng: createRng(seed ^ 0x5bd1e995),
     rout: null,
     players: new Array<BattlePlayer>(players).fill(FRESH_PLAYER),
   };
+  return { ...crowd, squads: planOrders(crowd, 0, battle, map) };
 }
 
 /** Living Soldiers per Team: [Team 0, Team 1]. */
@@ -346,9 +364,10 @@ function fillRings(crowd: CrowdState, battle: BattleTuning, fighters: readonly C
  * (`fillRings`), facing it, unless an enemy Soldier is in reach. No step ends within `bubble.hold` of an enemy in
  * `fighters`: a Soldier holds outside its sword reach, and one already inside steps back out to it. Before that, a step
  * that ends in a moving Team-mate's path (`ring.pathAhead` ahead of it, `ring.pathWidth` either side of its line) is moved
- * aside, by at most a stride, out of it. Pure.
+ * aside, by at most a stride, out of it. `map`: the Battlefield's Objectives and destination fields (static; the default is the field of seed 1,
+ * which `stepBattle` replaces with the Battle's own). Pure.
  */
-export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning, fighters: readonly CrowdFighter[] = []): CrowdState {
+export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning, fighters: readonly CrowdFighter[] = [], map: BattleMap = battleMapOf(battle, battleArenaName(1))): CrowdState {
   const p = battle.crowd;
   const n = crowd.x.length;
   const half = battle.field.size / 2;
@@ -358,7 +377,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const sep2 = p.separation * p.separation;
   const sight2 = p.sight * p.sight;
   const reach2 = p.engageReach * p.engageReach;
-  const { squads, squad, place } = stepSquads(crowd, tick, battle);
+  const stepped = stepSquads(crowd, tick, battle, map, fighters);
+  const { squads, squad, place } = stepped;
   const offset: [number, number] = [0, 0];
   const x = crowd.x.slice();
   const z = crowd.z.slice();
@@ -367,7 +387,25 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const heading = crowd.heading.slice();
   const target = crowd.target.slice();
   const engage = crowd.engage.slice();
-  const { team, alive, slot } = crowd;
+  const { team, slot } = crowd;
+  // Soldiers a Squad respawned this Tick stand at their spawn from now on, at full HP; the Tick's steps and blows do not see them.
+  let alive = crowd.alive;
+  let hp = crowd.hp;
+  if (stepped.spawned.length > 0) {
+    alive = alive.slice();
+    hp = hp.slice();
+    for (const s of stepped.spawned) {
+      x[s.i] = s.x;
+      z[s.i] = s.z;
+      vx[s.i] = 0;
+      vz[s.i] = 0;
+      heading[s.i] = s.heading;
+      target[s.i] = -1;
+      engage[s.i] = 0;
+      (alive as number[])[s.i] = 1;
+      (hp as number[])[s.i] = p.hp;
+    }
+  }
   const hold = battle.bubble.hold;
   const { pathAhead, pathWidth } = battle.ring;
   const ringed = fighters.length > 0 && fillRings(crowd, battle, fighters);
@@ -589,11 +627,12 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     else if (wx !== 0 || wz !== 0) heading[i] = Math.atan2(wx, wz);
   }
 
-  let hp = crowd.hp;
   let living = alive;
+  let tickets = crowd.tickets;
   if (struck) {
     const nextHp = hp.slice();
     const nextAlive = alive.slice();
+    const lost = [0, 0];
     for (let j = 0; j < n; j++) {
       if (damage[j]! <= 0) continue;
       nextHp[j] = Math.max(0, nextHp[j]! - damage[j]!);
@@ -603,22 +642,43 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
         engage[j] = 0;
         vx[j] = 0;
         vz[j] = 0;
+        lost[team[j]!]!++;
       }
     }
     hp = nextHp;
     living = nextAlive;
+    // Every death costs its Team a Ticket.
+    tickets = [Math.max(0, tickets[0]! - lost[0]!), Math.max(0, tickets[1]! - lost[1]!)];
   }
 
   let rout = crowd.rout;
+  let objectives = crowd.objectives;
+  let ordered = squads;
   if (!rout) {
+    // Capture: the Soldiers in the Crowd and the full Fighters (a Player's counting more) inside each Objective.
+    const sites = map.field.objectives;
+    if (tick % captureTicks(battle) === 0) {
+      const inside: [number[], number[]] = [sites.map(() => 0), sites.map(() => 0)];
+      sites.forEach((site, k) => {
+        const r2 = site.radius * site.radius;
+        for (let i = 0; i < n; i++) if (living[i] && slot[i]! < 0 && (x[i]! - site.x) ** 2 + (z[i]! - site.z) ** 2 <= r2) inside[team[i]!]![k]!++;
+        for (const f of fighters) if ((f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= r2) inside[f.team]![k]! += f.ahead !== undefined ? battle.objectives.playerCount : 1;
+      });
+      objectives = stepObjectives(objectives, inside, battle);
+    }
+    if (drainDue(tick)) tickets = drainTickets(tickets, objectives, battle);
+    // Each Commander re-plans its Squads' Orders from the Soldiers and Objectives as they stood at the start of the Tick and the Squads as this Tick's brains left them.
+    if (tick % planTicks(battle) === 0) ordered = planOrders({ ...crowd, squad, place, squads }, tick, battle, map, fighters);
+
     const left: [number, number] = [0, 0];
     for (let i = 0; i < n; i++) if (living[i]) left[team[i] as 0 | 1]++;
-    const broken = [routs(battle, left[0]), routs(battle, left[1])];
+    // A Team routs once its Tickets are gone and its Soldiers have fallen below the threshold.
+    const broken = [tickets[0]! <= 0 && routs(battle, left[0]), tickets[1]! <= 0 && routs(battle, left[1])];
     if (broken[0] || broken[1]) {
       const routed = broken[0] && broken[1] ? (left[0] === left[1] ? (draw() < 0.5 ? 0 : 1) : left[0] < left[1] ? 0 : 1) : broken[0] ? 0 : 1;
       rout = { team: routed, tick };
-    }
+    } else if (tick >= limitTicks(battle)) rout = { team: limitLoser(tickets, objectives, draw), tick };
   }
 
-  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, squad, place, squads, rng, rout, players: crowd.players };
+  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, squad, place, squads: ordered, objectives, tickets, rng, rout, players: crowd.players };
 }

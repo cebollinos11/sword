@@ -10,24 +10,39 @@
  *   Squad is down to `squad.looseBelow` of its strength or falling back.
  * - The brain steps every `squad.brainSeconds` (2 Hz), each Squad on its own Tick (staggered by its place in its own army, so the
  *   k-th Squads of the two armies think together). It reads the Tick's Soldiers and the other Team's Squads as they stood, never
- *   as the other brain left them this Tick, so neither army thinks a step ahead. Its Order, until a Commander gives others
- *   (Stage 2a), is to attack the enemy army: the nearest living enemy Squad.
+ *   as the other brain left them this Tick, so neither army thinks a step ahead. Its Order is what
+ *   the Commander (Stage 2a, `commander.ts`) gives them: march to an Objective by its destination field and stand there (attack or
+ *   defend), or stand at a spawn awaiting Orders.
  * - A Squad's rear rank steps up into gaps: its living Soldiers whose place is past its living count take the lowest free places.
  * - Morale: a Squad down to `squad.moraleThreshold` of `squad.size` falls back toward its Team's Base (loose; its Soldiers break off
  *   their fights and walk, see `stepCrowd`). Within `squad.mergeRange` of the Base it merges into the nearest other Squad of its Team that
  *   is that close to it and has room (at most `squad.mergeMax` living Soldiers): remnants gather at the Base and join. Back above
- *   `squad.looseBelow` (merged remnants) it rallies and marches out again. A Squad with no living Soldier, wiped out or merged away,
- *   is simply empty (Stage 2a respawns it).
+ *   `squad.looseBelow` (merged remnants) it rallies and marches out again.
+ * - A Squad with no living Soldier, wiped out or merged away, is empty. `tickets.respawnSeconds` after the brain first sees it empty, while
+ *   its Team has Tickets, it respawns whole at the spawn its Order names (its Base, or an Objective its Team owns that no enemy is on):
+ *   up to `squad.size` of its Team's dead Soldiers (not promoted ones) are given back to it, at full HP, in column round the spawn.
  *
  * Pure: nothing here mutates its input, and nothing reads anything but the state and the Tuning Data.
  */
 import { deployLayout, squadSizes, type BattleTuning } from '../tuning';
 import { secondsToTicks, TICK_SECONDS } from './constants';
-import type { CrowdState } from './crowd';
+import type { CrowdFighter, CrowdState } from './crowd';
+import { steerToward, type BattleMap } from './destinations';
+import { respawnTicks } from './objectives';
 
 export const COLUMN = 0;
 export const LINE = 1;
 export const LOOSE = 2;
+
+/**
+ * A Squad's Order, given by its Team's Commander (`commander.ts`): ATTACK an Objective the Team does not own, DEFEND one it does,
+ * RESPAWN (an empty Squad waits to respawn at the spawn its `target` names; a Squad just respawned awaits Orders). A Squad down to
+ * its morale threshold falls back (`SquadState.fall`), whatever its Order: FALL is how the debug view names that.
+ */
+export const ATTACK = 0;
+export const DEFEND = 1;
+export const RESPAWN = 2;
+export const FALL = 3;
 
 /** The Squads as struct-of-arrays: entry q of each array is Squad q. Team 0's Squads come first, then Team 1's. */
 export interface SquadState {
@@ -45,6 +60,37 @@ export interface SquadState {
   readonly living: readonly number[];
   /** 1 while it falls back toward its Base, else 0. */
   readonly fall: readonly number[];
+  /** Its Order's kind (ATTACK, DEFEND or RESPAWN), and its destination: an Objective's index, or for RESPAWN a spawn (an Objective, or `objectives + team` for the Team's Base). */
+  readonly order: readonly number[];
+  readonly target: readonly number[];
+  /** The Tick the Order was given: the Commander holds it at least `commander.holdSeconds` from then. */
+  readonly since: readonly number[];
+  /** The Tick an empty Squad respawns at (once its Team has Tickets), or -1 while it is not empty. */
+  readonly respawnAt: readonly number[];
+}
+
+/**
+ * Squad `q`'s (of `per` in its army) own place at destination `target` (an Objective's index, or `objectives + team` for a Base) as a world
+ * point: a place in the Objective's circle, spread by the Squad's place in its army (the golden angle) and turned half a turn for Team 1 as the
+ * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it.
+ */
+export function orderSpot(map: BattleMap, target: number, q: number, per: number, battle: BattleTuning, out: [number, number]): void {
+  const { objectives, bases } = map.field;
+  const k = q % per;
+  const sign = q < per ? 1 : -1;
+  if (target >= objectives.length) {
+    const base = bases[target - objectives.length]!;
+    // A row across the Base, as wide as the Squads' columns need but never past the field's edges, Team 1's turned half a turn like the rest.
+    const gap = Math.min(battle.squad.column.wide * battle.squad.spacing * 1.5, (battle.field.size - 8) / per);
+    out[0] = base.x + sign * (k - (per - 1) / 2) * gap;
+    out[1] = base.z;
+    return;
+  }
+  const o = objectives[target]!;
+  const angle = k * 2.399963229728653;
+  const reach = 0.7 * o.radius * Math.sqrt((k + 0.5) / per);
+  out[0] = o.x + sign * Math.sin(angle) * reach;
+  out[1] = o.z + sign * Math.cos(angle) * reach;
 }
 
 /** Squads in each army. */
@@ -143,15 +189,29 @@ export function deploySquads(battle: BattleTuning): Deployment {
     shape: new Array<number>(m).fill(COLUMN),
     living: anchors.team.map((_, q) => layout.sizes[q % per]!),
     fall: zeros(),
+    // Awaiting Orders: the Commander's first plan gives them (`createCrowd`).
+    order: new Array<number>(m).fill(RESPAWN),
+    target: zeros(),
+    since: zeros(),
+    respawnAt: new Array<number>(m).fill(-1),
   };
   return { squads, squad, place, x, z, team, heading };
 }
 
-/** What a Squad step changes: the Squads, and which Squad and place each Soldier has (the same arrays when nothing moved). */
+/** A Soldier a Squad's respawn gave back: where it stands now, facing which way. It is at full HP, engaged with no one. */
+export interface Spawned {
+  readonly i: number;
+  readonly x: number;
+  readonly z: number;
+  readonly heading: number;
+}
+
+/** What a Squad step changes: the Squads, which Squad and place each Soldier has (the same arrays when nothing moved), and the Soldiers respawned. */
 export interface SquadStep {
   readonly squads: SquadState;
   readonly squad: readonly number[];
   readonly place: readonly number[];
+  readonly spawned: readonly Spawned[];
 }
 
 const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
@@ -160,9 +220,9 @@ const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 
  * The Squads one Tick on (`tick` is the Tick being stepped): the brains due think (see the file's header), then every anchor
  * turns and walks. Once a Team has routed nothing steps: the Soldiers flee and the Squads stand.
  */
-export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning): SquadStep {
+export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning, map: BattleMap, fighters: readonly CrowdFighter[] = []): SquadStep {
   const old = crowd.squads;
-  if (crowd.rout) return { squads: old, squad: crowd.squad, place: crowd.place };
+  if (crowd.rout) return { squads: old, squad: crowd.squad, place: crowd.place, spawned: [] };
   const p = battle.squad;
   const walk = battle.crowd.walkSpeed;
   const m = old.team.length;
@@ -181,8 +241,14 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   let shape = old.shape;
   let living = old.living;
   let fall = old.fall;
+  let order = old.order;
+  let respawnAt = old.respawnAt;
   let squad = crowd.squad;
   let place = crowd.place;
+  const spawned: Spawned[] = [];
+  const half = battle.field.size / 2 - 2;
+  const objectives = map.field.objectives;
+  const spot: [number, number] = [0, 0];
 
   if (due.length > 0) {
     const nextAim = old.aim.slice();
@@ -190,6 +256,11 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     const nextShape = old.shape.slice();
     const nextLiving = old.living.slice();
     const nextFall = old.fall.slice();
+    const nextRespawnAt = old.respawnAt.slice();
+    const nextOrder = old.order.slice();
+    const claimed = new Set<number>();
+    // Squads that respawned this Tick: their Soldiers are still dead in `crowd`, so nothing merges into them until the next.
+    const respawned = new Set<number>();
     const edit: { squad: number[] | null; place: number[] | null } = { squad: null, place: null };
     // Every Soldier of the Squads due, in index order.
     const slotOf = new Int32Array(m).fill(-1);
@@ -223,7 +294,49 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
       }
       nextLiving[q] = alive;
       nextSpeed[q] = 0;
-      if (alive === 0) return;
+      if (alive === 0) {
+        if (old.respawnAt[q]! < 0) nextRespawnAt[q] = tick + respawnTicks(battle);
+        else if (tick >= old.respawnAt[q]! && crowd.tickets[own]! > 0) {
+          // Respawn whole at the spawn its Order names, or its Base when that is not one it may use now.
+          const base = objectives.length + own;
+          let at = old.order[q] === RESPAWN ? old.target[q]! : base;
+          if (at < objectives.length) {
+            const site = objectives[at]!;
+            let enemies = 0;
+            for (let i = 0; i < n; i++)
+              if (crowd.alive[i] && crowd.team[i] !== own && crowd.slot[i]! < 0 && (crowd.x[i]! - site.x) ** 2 + (crowd.z[i]! - site.z) ** 2 <= site.radius * site.radius) enemies++;
+            for (const f of fighters) if (f.team !== own && (f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= site.radius * site.radius) enemies++;
+            if (!site.spawn || crowd.objectives.owner[at] !== own || enemies > 0) at = base;
+          }
+          const slots: number[] = [];
+          for (let i = own * battle.armySize; i < (own + 1) * battle.armySize && slots.length < p.size; i++)
+            if (!crowd.alive[i] && crowd.slot[i]! < 0 && !claimed.has(i)) slots.push(i);
+          if (slots.length === 0) return;
+          orderSpot(map, at, q, per, battle, spot);
+          const facing = own === 0 ? 0 : Math.PI;
+          const nextSquad = (edit.squad ??= crowd.squad.slice());
+          const nextPlace = (edit.place ??= crowd.place.slice());
+          const out: [number, number] = [0, 0];
+          slots.forEach((i, s) => {
+            placeOffset(battle, COLUMN, s, facing, out);
+            claimed.add(i);
+            nextSquad[i] = q;
+            nextPlace[i] = s;
+            spawned.push({ i, x: Math.max(-half, Math.min(half, spot[0] + out[0])), z: Math.max(-half, Math.min(half, spot[1] + out[1])), heading: facing });
+          });
+          x[q] = spot[0];
+          z[q] = spot[1];
+          heading[q] = facing;
+          nextAim[q] = facing;
+          nextShape[q] = COLUMN;
+          nextLiving[q] = slots.length;
+          nextFall[q] = 0;
+          nextRespawnAt[q] = -1;
+          nextOrder[q] = RESPAWN;
+          respawned.add(q);
+        }
+        return;
+      }
       if (inCrowd > 0) {
         cx /= inCrowd;
         cz /= inCrowd;
@@ -253,16 +366,16 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
 
       if (nextFall[q]) {
         nextShape[q] = LOOSE;
-        const bz = own === 0 ? -p.baseDistance : p.baseDistance;
-        const dx = 0 - old.x[q]!;
-        const dz = bz - old.z[q]!;
+        const base = map.field.bases[own]!;
+        const dx = base.x - old.x[q]!;
+        const dz = base.z - old.z[q]!;
         const toBase = Math.hypot(dx, dz);
         // At the Base, another Squad of the Team close by with room: merge into it (nearest first; the lower Squad on a tie).
         let into = -1;
         let intoD = p.mergeRange * p.mergeRange;
         for (let r = own * per; toBase <= p.mergeRange && r < (own + 1) * per; r++) {
           // A Squad that thinks later this Tick would recount without its new Soldiers: it cannot be merged into yet.
-          if (r === q || slotOf[r]! > d || nextLiving[r]! === 0 || nextLiving[r]! + alive > p.mergeMax) continue;
+          if (r === q || slotOf[r]! > d || respawned.has(r) || nextLiving[r]! === 0 || nextLiving[r]! + alive > p.mergeMax) continue;
           const d2 = (old.x[r]! - old.x[q]!) ** 2 + (old.z[r]! - old.z[q]!) ** 2;
           if (d2 < intoD) [into, intoD] = [r, d2];
         }
@@ -288,7 +401,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         return;
       }
 
-      // Attack the enemy army: the nearest living enemy Squad (as it stood), and the nearest enemy Soldier to this Squad's Soldiers.
+      // The nearest enemy Soldier to this Squad's Soldiers (as they stood): within `engage` it is in contact, and the Squad turns to it.
       let near = -1;
       let nearD = Infinity;
       for (let i = 0; i < n; i++) {
@@ -296,25 +409,32 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
         if (d2 < nearD) [near, nearD] = [i, d2];
       }
-      let foe = -1;
-      let foeD = Infinity;
-      for (let r = (1 - own) * per; r < (2 - own) * per; r++) {
-        if (old.living[r]! === 0) continue;
-        const d2 = (old.x[r]! - old.x[q]!) ** 2 + (old.z[r]! - old.z[q]!) ** 2;
-        if (d2 < foeD) [foe, foeD] = [r, d2];
-      }
       const inContact = near >= 0 && nearD <= p.engage * p.engage;
       nextShape[q] = inContact ? LINE : alive < p.looseBelow * p.size ? LOOSE : COLUMN;
-      if (inContact) nextAim[q] = Math.atan2(crowd.x[near]! - old.x[q]!, crowd.z[near]! - old.z[q]!);
-      else if (foe >= 0) nextAim[q] = Math.atan2(old.x[foe]! - old.x[q]!, old.z[foe]! - old.z[q]!);
-      else if (near >= 0) nextAim[q] = Math.atan2(crowd.x[near]! - old.x[q]!, crowd.z[near]! - old.z[q]!);
-      else return;
       // It walks while its Soldiers keep up and none is engaged; in contact it halts once a Soldier of it fights.
       const lagging = inCrowd === 0 || Math.hypot(cx - old.x[q]!, cz - old.z[q]!) > p.lag;
-      nextSpeed[q] = lagging || (inContact && contact > 0) ? 0 : walk * p.speed;
+      if (inContact) {
+        nextAim[q] = Math.atan2(crowd.x[near]! - old.x[q]!, crowd.z[near]! - old.z[q]!);
+        nextSpeed[q] = lagging || contact > 0 ? 0 : walk * p.speed;
+        return;
+      }
+      // Otherwise it follows its Order: an Order to an Objective marches by that Objective's field to its place in the circle and stands
+      // there facing the enemy's end; a Squad awaiting Orders (just respawned) stands.
+      if (old.order[q] === RESPAWN || old.target[q]! >= objectives.length) return;
+      orderSpot(map, old.target[q]!, q, per, battle, spot);
+      if (Math.hypot(spot[0] - old.x[q]!, spot[1] - old.z[q]!) <= 2 * p.spacing) {
+        nextAim[q] = own === 0 ? 0 : Math.PI;
+        return;
+      }
+      nextAim[q] = steerToward(map.fields, old.target[q]!, old.x[q]!, old.z[q]!, spot[0], spot[1]);
+      nextSpeed[q] = lagging ? 0 : walk * p.speed;
     });
+    // A Squad found empty (wiped out, or merged away just now) starts its wait to respawn.
+    for (const q of due) if (nextLiving[q] === 0 && nextRespawnAt[q]! < 0) nextRespawnAt[q] = tick + respawnTicks(battle);
     aim = nextAim;
     speed = nextSpeed;
+    order = nextOrder;
+    respawnAt = nextRespawnAt;
     shape = nextShape;
     living = nextLiving;
     fall = nextFall;
@@ -323,7 +443,6 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   }
 
   // Every anchor turns toward its aim and walks.
-  const half = battle.field.size / 2 - 2;
   const turn = p.turnRate * TICK_SECONDS;
   for (let q = 0; q < m; q++) {
     const diff = wrap(aim[q]! - heading[q]!);
@@ -332,5 +451,5 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
     z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
   }
-  return { squads: { team: old.team, x, z, heading, aim, speed, shape, living, fall }, squad, place };
+  return { squads: { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt }, squad, place, spawned };
 }

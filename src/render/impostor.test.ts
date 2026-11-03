@@ -144,21 +144,21 @@ describe('render-side interpolation between Crowd steps', () => {
     expect(soldierAt(crowd, 0, 17, 18, stagger, army, out)).toEqual([10, 20]);
   });
 
-  it('never jumps when a new Tick arrives, through a whole war', () => {
+  it('never jumps when a new Tick arrives, through the march and the fighting, respawns apart', () => {
     let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 4 });
     const a: [number, number] = [0, 0];
     const b: [number, number] = [0, 0];
     let worst = 0;
     let moving = 0;
-    while (match.status.status === 'InProgress') {
+    while (match.status.status === 'InProgress' && match.tick < 6000) {
       const before = match.duel;
       match = stepMatch(match, [], tuning);
       const after = match.duel;
       const c0 = before.crowd!;
       const c1 = after.crowd!;
       for (let i = 0; i < c0.x.length; i++) {
-        // A Soldier's velocity is zeroed when it falls: it settles where it fell.
-        if (!c1.alive[i]) continue;
+        // A Soldier's velocity is zeroed when it falls: it settles where it fell. A Soldier a Squad respawned this Tick appears at its spawn.
+        if (!c1.alive[i] || !c0.alive[i]) continue;
         soldierAt(c0, i, before.tick, after.tick, stagger, army, a);
         soldierAt(c1, i, after.tick, after.tick, stagger, army, b);
         worst = Math.max(worst, Math.hypot(a[0] - b[0], a[1] - b[1]));

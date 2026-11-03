@@ -90,6 +90,75 @@ export interface SquadTuning {
   readonly loose: { readonly spread: number };
 }
 
+/** One Objective of a map (docs/plans/battle-objectives.md, Stage 2a): where it is, what it is worth to a Commander, who owns it at the start. */
+export interface ObjectiveSite {
+  readonly id: string;
+  readonly x: number;
+  readonly z: number;
+  /** What it is worth to a Commander (more than 0); 1 is an ordinary Objective. */
+  readonly weight: number;
+  /** Its Owner at the start: -1 for none, else a Team (a Home Objective). */
+  readonly owner: number;
+  /** Whether a Team's Squads may respawn here while it owns the Objective and no enemy is on it. */
+  readonly spawn: boolean;
+  /** Set: it stands on the highest ground within this many metres of (x, z), "on the hill when the seed makes one". */
+  readonly hill?: number;
+}
+
+/** The Objectives (docs/plans/battle-objectives.md, Stage 2a, ADR 0021): the capture circle, how fast it is taken, and the open field's five. */
+export interface ObjectivesTuning {
+  /** Every Objective's circle (m). */
+  readonly radius: number;
+  /** How many Soldiers a Player's full Fighter counts as on an Objective. Other full Fighters count as 1. */
+  readonly playerCount: number;
+  /** Capture steps this often (s), on the Crowd's clock (rounded to whole Ticks). */
+  readonly captureSeconds: number;
+  /** Progress (of the -1 to +1 range) a second for each Soldier more inside than the other Team has... */
+  readonly rate: number;
+  /** ...but never faster than this a second. */
+  readonly maxRate: number;
+  /** The open field's Objectives, in the order a Battle numbers them. */
+  readonly openField: readonly ObjectiveSite[];
+}
+
+/** Tickets and the end of a Battle (docs/plans/battle-objectives.md, Stage 2a). */
+export interface TicketsTuning {
+  /** A Team starts with this many Tickets for each Soldier of its army (derived from `armySize`, not a Lobby option). */
+  readonly perSoldier: number;
+  /** A second, a Team that owns more Objectives drains the enemy by this many Tickets for each Objective it owns more. */
+  readonly drain: number;
+  /** At this many seconds the Battle is decided by Tickets, then Objectives, then a coin flip. */
+  readonly limitSeconds: number;
+  /** A Squad wiped out (or merged away) respawns whole this many seconds later, while its Team has Tickets. */
+  readonly respawnSeconds: number;
+}
+
+/** A Commander (docs/plans/battle-objectives.md, Stage 2a, ADR 0021): how a Team scores Objectives and gives Squads Orders. */
+export interface CommanderTuning {
+  /** It re-plans this often (s). */
+  readonly planSeconds: number;
+  /** An Order holds at least this long (s) unless the Squad breaks. */
+  readonly holdSeconds: number;
+  /** Value added to the Objective a Squad is already ordered to, so Orders do not flip-flop. */
+  readonly stick: number;
+  /** Each Squad already sent to an Objective makes the next worth this much of the one before (0 to 1). */
+  readonly falloff: number;
+  /** Value lost for each metre of path to an Objective. */
+  readonly distance: number;
+  /** Enemy Soldiers within this many metres of an Objective are its threat. */
+  readonly threatRadius: number;
+  /** Value lost for each Squad's worth of enemy Soldiers the Objective holds more than the Team's. */
+  readonly danger: number;
+  /** An Objective nobody owns is worth its weight times this. */
+  readonly attack: number;
+  /** An Objective the enemy owns is worth its weight times this. */
+  readonly retake: number;
+  /** An Objective the Team owns, no enemy near, is worth its weight times this. */
+  readonly garrison: number;
+  /** An Objective the Team owns with a threat on it is worth its weight times this, up to the threat of one Squad's worth of Soldiers. */
+  readonly defend: number;
+}
+
 /** The generic soldier both armies field: one Body and Weapon, told apart by each Team's colour. */
 export interface SoldierTuning {
   /** The Body model a Soldier is drawn as (a name from the Body roster, `src/render/bodyModel.ts`). Render-only. */
@@ -189,6 +258,9 @@ export interface BattleTuning {
   readonly deploy: DeployTuning;
   readonly crowd: CrowdTuning;
   readonly squad: SquadTuning;
+  readonly objectives: ObjectivesTuning;
+  readonly tickets: TicketsTuning;
+  readonly commander: CommanderTuning;
   readonly rout: RoutTuning;
   readonly soldier: SoldierTuning;
   readonly bubble: BubbleTuning;
@@ -223,6 +295,9 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const d = record(b.deploy, 'battle.deploy');
   const c = record(b.crowd, 'battle.crowd');
   const r = record(b.rout, 'battle.rout');
+  const ob = record(b.objectives, 'battle.objectives');
+  const tk2 = record(b.tickets, 'battle.tickets');
+  const cm = record(b.commander, 'battle.commander');
   const s = record(b.soldier, 'battle.soldier');
   const u = record(b.bubble, 'battle.bubble');
   const sl = record(b.slots, 'battle.slots');
@@ -286,6 +361,49 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     const layout = deployLayout({ armySize, deploy, squad });
     throw new TuningDataError(`battle.deploy: an army of ${armySize} (${layout.width} m wide, its last rank ${layout.depth} m out) must fit inside the ${field.size} m field`);
   }
+  const objectives: ObjectivesTuning = {
+    radius: positiveNumber(ob, 'radius', 'battle.objectives'),
+    playerCount: wholeNumber(ob, 'playerCount', 'battle.objectives'),
+    captureSeconds: positiveNumber(ob, 'captureSeconds', 'battle.objectives'),
+    rate: positiveNumber(ob, 'rate', 'battle.objectives'),
+    maxRate: positiveNumber(ob, 'maxRate', 'battle.objectives'),
+    openField: array(ob.openField, 'battle.objectives.openField').map((raw, i) => {
+      const where = `battle.objectives.openField[${i}]`;
+      const o = record(raw, where);
+      const owner = o.owner;
+      if (owner !== -1 && owner !== 0 && owner !== 1) throw new TuningDataError(`${where}.owner must be -1 (none), 0 or 1, got ${JSON.stringify(owner)}`);
+      const x = o.x;
+      const z = o.z;
+      if (typeof x !== 'number' || typeof z !== 'number' || !Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) >= field.size / 2 || Math.abs(z) >= field.size / 2)
+        throw new TuningDataError(`${where}: (x, z) must lie inside the ${field.size} m field, got (${JSON.stringify(x)}, ${JSON.stringify(z)})`);
+      if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false, got ${JSON.stringify(o.spawn)}`);
+      const site = { id: nonEmptyString(o, 'id', where), x, z, weight: positiveNumber(o, 'weight', where), owner, spawn: o.spawn };
+      return o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+    }),
+  };
+  if (objectives.openField.length < 1 || objectives.openField.length > MAX_OBJECTIVES)
+    throw new TuningDataError(`battle.objectives.openField must hold 1 to ${MAX_OBJECTIVES} Objectives, got ${objectives.openField.length}`);
+  if (new Set(objectives.openField.map((o) => o.id)).size !== objectives.openField.length) throw new TuningDataError('battle.objectives.openField: every Objective needs its own id');
+  if (objectives.maxRate < objectives.rate) throw new TuningDataError(`battle.objectives.maxRate (${objectives.maxRate}) must be at least battle.objectives.rate (${objectives.rate})`);
+  const tickets: TicketsTuning = {
+    perSoldier: positiveNumber(tk2, 'perSoldier', 'battle.tickets'),
+    drain: nonNegativeNumber(tk2, 'drain', 'battle.tickets'),
+    limitSeconds: positiveNumber(tk2, 'limitSeconds', 'battle.tickets'),
+    respawnSeconds: nonNegativeNumber(tk2, 'respawnSeconds', 'battle.tickets'),
+  };
+  const commander: CommanderTuning = {
+    planSeconds: positiveNumber(cm, 'planSeconds', 'battle.commander'),
+    holdSeconds: nonNegativeNumber(cm, 'holdSeconds', 'battle.commander'),
+    stick: nonNegativeNumber(cm, 'stick', 'battle.commander'),
+    falloff: share(cm, 'falloff', 'battle.commander'),
+    distance: nonNegativeNumber(cm, 'distance', 'battle.commander'),
+    threatRadius: positiveNumber(cm, 'threatRadius', 'battle.commander'),
+    danger: nonNegativeNumber(cm, 'danger', 'battle.commander'),
+    attack: nonNegativeNumber(cm, 'attack', 'battle.commander'),
+    retake: nonNegativeNumber(cm, 'retake', 'battle.commander'),
+    garrison: nonNegativeNumber(cm, 'garrison', 'battle.commander'),
+    defend: nonNegativeNumber(cm, 'defend', 'battle.commander'),
+  };
   const weapon = nonEmptyString(s, 'weapon', 'battle.soldier');
   if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`battle.soldier.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
   const difficulty = nonEmptyString(s, 'difficulty', 'battle.soldier');
@@ -339,6 +457,9 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     deploy,
     crowd,
     squad,
+    objectives,
+    tickets,
+    commander,
     rout: { threshold: share(r, 'threshold', 'battle.rout'), seconds: positiveNumber(r, 'seconds', 'battle.rout') },
     soldier: {
       body: nonEmptyString(s, 'body', 'battle.soldier'),
@@ -381,6 +502,12 @@ export function parseBattleKnobs(raw: unknown): BattleKnobs | null {
 
 /** The most Soldiers a Squad may ever hold: the wire's limit on a Soldier's place and a Squad's count. */
 export const MAX_SQUAD_PLACES = 64;
+
+/** The most Objectives a map holds: the wire's limit on a Battle's Objective state (a Squad's destination also counts the two Bases). */
+export const MAX_OBJECTIVES = 12;
+
+/** A Team's Tickets at the start of a Battle: `tickets.perSoldier` for each Soldier of the army. */
+export const startingTickets = (b: Pick<BattleTuning, 'armySize' | 'tickets'>): number => b.tickets.perSoldier * b.armySize;
 
 /** The sizes of an army's Squads: `floor(armySize / squad.size)` of them (at least 1), the remainder folded one each into the last. */
 export function squadSizes(armySize: number, size: number): number[] {

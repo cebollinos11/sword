@@ -135,6 +135,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       slot: before.slot.slice(),
       squad: before.squad.slice(),
       place: before.place.slice(),
+      tickets: before.tickets.slice(),
       players: before.players.slice(),
     };
     return { fighters, crowd };

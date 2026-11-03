@@ -58,7 +58,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { applyBattleKnobs, BATTLE_KNOB_KEYS, bubbleSlots, deployLayout, MAX_SQUAD_PLACES, maxArmySize, parseBattle, parseBattleKnobs, squadSizes, type BattleKnobs, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning } from './battle';
+export { applyBattleKnobs, BATTLE_KNOB_KEYS, bubbleSlots, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, parseBattle, parseBattleKnobs, squadSizes, startingTickets, type BattleKnobs, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';

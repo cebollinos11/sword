@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed (2026-11-03, `docs/plans/battle-objectives.md`). Stage 1 built the Squads as decided here; the Objectives, Tickets and the Commander (Stages 2a and 2b) and the static destination fields (Stage 2a) are decided here and not built yet. Accepted when Stage 2a lands.
+Accepted (2026-11-03, `docs/plans/battle-objectives.md`). Stage 1 built the Squads, and Stage 2a the Objectives, Tickets, the Commander and the static destination fields, as decided here.
 
 ## Context
 
@@ -21,7 +21,10 @@ For the steering, a flow field per destination can be built from positions each 
 - **A Soldier a Player takes over leaves its Squad**; a promoted Soldier keeps its Squad and place, and the Squad does not wait for it.
 - **The Commander is one per Team, symmetric, and sees the whole Battle.** The same rules drive both Teams on every peer. It is blind to Players as people: they count only through the Objective counts and the threat score.
 - **Destination fields are static and cached outside `SimState`.** One flow field to each destination (each Objective and each Base, per Team) is built once per map and Tuning Data, like the navmesh, pure and tie-broken by index. A Rollback never rebuilds them, and they add nothing to the state or the Tick. This replaces the per-Team field rebuilt from the Soldiers' positions: a Squad's anchor follows its destination's field, and the last few metres toward an enemy are local steering.
-- **Stage 1 (built)** has no Objectives, so every Squad's Order is to attack the enemy army: its anchor heads for the nearest living enemy Squad's anchor (a Squad's own local steering) and, once an enemy Soldier is within `battle.squad.engage`, turns to it and stands in line. A Squad that breaks (`moraleThreshold`) falls back toward its Team's Base and merges, at the Base, into a Squad of its Team there with room (`mergeRange`, `mergeMax`). The static fields and the Commander replace this "attack the army" Order in Stages 2a and 2b.
+- **Objectives and Tickets are state too** (`CrowdState.objectives`: a progress from -1 to +1 and an Owner each; `CrowdState.tickets`: one number a Team). The map places the Objectives (static, `Battlefield.objectives`); capture counts the Soldiers and full Fighters inside each circle on a fixed step (a Player counting 3), a death costs a Team 1 Ticket, a Team out-holding the other drains it every second, and a Battle that reaches its time limit routs the Team behind. The Rout needs a Team's Tickets gone as well as its Soldiers fallen below the threshold, so a Team with Tickets left keeps respawning.
+- **A Squad's Order is state** (`SquadState.order`, `target`, `since`, `respawnAt`): attack or defend an Objective, or respawn at a spawn. Each Commander re-plans every `battle.commander.planSeconds`, reading the Soldiers and Squads as they stood at the start of the Tick and writing only its own Team's Orders, so the order the two plan in cannot matter. A Squad that is empty respawns whole into the dead slots of its Team (not a promoted or taken-over Soldier's), so the Crowd's capacity and the state's shape never change.
+- **Squads march by the destination fields** (`src/sim/destinations.ts`): a distance field to each Objective and each Base, 8-connected over a coarse grid, built once and cached on the built Battlefield (never state). The anchor walks straight at its place in the circle when nothing blocks the line, and down the field when something does (Stage 3b). A Squad that breaks (`moraleThreshold`) still falls back toward its Team's Base and merges there (`mergeRange`, `mergeMax`).
+- **Stage 1** had no Objectives, so every Squad's Order was to attack the enemy army: its anchor headed for the nearest living enemy Squad's anchor. Stage 2a replaced that with the Commander's Orders.
 
 ## Consequences
 
@@ -30,4 +33,5 @@ For the steering, a flow field per destination can be built from positions each 
 - The state's shape never changes: respawning Squads (Stage 2a) reuses dead Crowd slots, an emptied Squad's arrays stay.
 - `deploy` in `data/battle.json` is the footprint of the Squads' ranks, no longer of Soldiers' ranks, and an army's size is held by that layout (`maxArmySize`).
 - Peers on different Tuning Data or maps refuse each other, as before; the Lobby's army-size knob is held to what the layout fits.
+- A Rollback re-simulates the Commanders, the capture step and the respawns with the Crowd; they cost a few arrays and one plan every 2.5 s (Stage 2a's Result has the numbers).
 - The Battlefield stays the open heightfield until Stage 3a (Battle maps as `ArenaGeometry`, ADR 0022, which will also carry the Walk Surface rule for Soldiers).

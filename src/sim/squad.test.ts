@@ -26,7 +26,7 @@ import {
   type MatchState,
   type SquadState,
 } from '.';
-import { arenaOf, battlefieldHeight, battlefieldOf, standingFighter } from '.';
+import { arenaOf, battlefieldHeight, battlefieldOf, battleMapOf, orderSpot, standingFighter } from '.';
 
 const tuning = loadTuningData();
 /** Three Squads a side (13, 13 and 14 Soldiers), close together: a Battle is quick, and the Squads stand next to each other. */
@@ -121,9 +121,21 @@ describe('Formations by the situation', () => {
       prev = s;
       if (m.tick === 600) {
         const c = m.duel.crowd!;
-        // On the march: every Squad in column, advanced toward the other army, its Soldiers in their places.
+        // On the march: every Squad in column, advanced toward its Objective (the Squads with a long way to go 15 m or more; the Order
+        // given at deployment holds for 15 s), its Soldiers in their places.
         expect(c.squads.shape.every((v) => v === COLUMN)).toBe(true);
-        for (let q = 0; q < 32; q++) expect(Math.abs(c.squads.z[q]!)).toBeLessThan(Math.abs(createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).duel.crowd!.squads.z[q]!) - 15);
+        const first = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).duel.crowd!.squads;
+        const map = battleMapOf(tuning.battle, 'battle:2');
+        const spot: [number, number] = [0, 0];
+        let marched = 0;
+        for (let q = 0; q < 32; q++) {
+          orderSpot(map, first.target[q]!, q, 16, tuning.battle, spot);
+          const far = Math.hypot(spot[0] - first.x[q]!, spot[1] - first.z[q]!);
+          if (far < 40) continue;
+          marched++;
+          expect(Math.hypot(c.squads.x[q]! - first.x[q]!, c.squads.z[q]! - first.z[q]!), `Squad ${q}`).toBeGreaterThan(15);
+        }
+        expect(marched).toBeGreaterThan(8);
         let near = 0;
         for (let i = 0; i < c.x.length; i++) {
           const [px, pz] = placeOf(tuning, c, i);

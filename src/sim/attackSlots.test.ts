@@ -27,8 +27,8 @@ import {
 } from '.';
 
 const tuning = loadTuningData();
-/** Two small armies close together: a Player's Bubble reaches them within a few seconds. */
-const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+/** Two small armies close together: a Player's Bubble reaches them within a few seconds. Half a Ticket a Soldier, so a Team stops respawning early and a Battle ends in a Rout within seconds, as it did before Tickets. */
+const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 }, tickets: { ...tuning.battle.tickets, perSoldier: 0.5 } } };
 const { bubble, slots, ring } = small.battle;
 const army = small.battle.armySize;
 const minTicks = Math.round(bubble.minPromotedSeconds / TICK_SECONDS);

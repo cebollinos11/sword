@@ -50,7 +50,8 @@ describe('CrowdView', () => {
     for (let i = 0; i < 2 * army; i++) {
       const f = look.feet(i);
       expect(cellOf('walk', directionCell(crowd.heading[i]!, yawTo(f.getX(i % army), f.getZ(i % army), camera.position.x, camera.position.z)))).toContain(seen(i));
-      expect((i < army ? [3, 4, 5] : [7, 0, 1]).flatMap((d) => cellOf('walk', d))).toContain(seen(i));
+      // Every Soldier walks (the Squads head for their Objectives, so no one direction holds for an army).
+      expect([0, 1, 2, 3, 4, 5, 6, 7].flatMap((d) => cellOf('walk', d))).toContain(seen(i));
     }
     for (const i of [0, 57, 199, 260]) {
       const f = look.feet(i);
@@ -77,14 +78,15 @@ describe('CrowdView', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 7].map((d) => fallCells(d)[CLIP_FRAMES.death - 1])).toContain(shown());
   });
 
-  it('updates 400 Soldiers well inside the Stage 0 render budget, through a whole war', () => {
+  it('updates 400 Soldiers well inside the Stage 0 render budget, through the march and the first fighting', () => {
     let match: MatchState = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 1 });
     const hf = battlefieldOf(tuning.battle, match.arena)!.heights;
     const camera = new THREE.PerspectiveCamera();
     camera.position.set(-30, 25, -60);
     const view = new CrowdView(atlas, tuning.battle, new THREE.Texture());
     const ms: number[] = [];
-    while (match.status.status === 'InProgress') {
+    // The march and the first fighting (a Battle now lasts minutes, not seconds).
+    while (match.status.status === 'InProgress' && match.tick < 4000) {
       match = stepMatch(match, [], tuning);
       // Two frames a Tick, as at 120 fps.
       for (const alpha of [0, 0.5]) {

@@ -21,13 +21,18 @@
 import { expect, it } from 'vitest';
 import { bubbleSlots, loadTuningData } from '../tuning';
 import { createBattlePilot, lineupAis, lineupMatch, type Controller, type Lineup } from '../controllers';
-import { createMatch, hashValue, inDuel, restore, snapshot, stepCrowd, stepMatch, stepSquads, type Intent, type MatchState, type Snapshot } from '../sim';
+import { battleMapOf, createMatch, hashValue, inDuel, restore, snapshot, stepCrowd, stepMatch, stepSquads, type Intent, type MatchState, type Snapshot } from '../sim';
 import { ROLLBACK_WINDOW } from './session';
 
 const tuning = loadTuningData();
 /** A Rollback is timed every this many Ticks, from FROM_TICK (the armies about to meet) to the Battle's end. */
 const ROLLBACK_EVERY = 10;
 const FROM_TICK = 300;
+/**
+ * The soak stops here if the Battle has not ended (docs/plans/battle-objectives.md, Stage 2a): a Battle ends by Tickets now and lasts minutes, not
+ * seconds, and these 2.5 minutes hold the march, the melee, captures and Squads respawning.
+ */
+const MAX_TICKS = 9000;
 /**
  * Stage 0's budget: about this many bound Fighters in all, on average while four Bubbles are fighting. 10 was 9.5 at Stage 6; with the
  * Squads' lines holding the fight nearer the Players it reads 10.2 (docs/plans/battle-objectives.md, Stage 1), still "about 10".
@@ -59,6 +64,7 @@ function soak(seed: number) {
   const bareMs: number[] = [];
   const squadMs: number[] = [];
   const rollbacks: Timed[] = [];
+  const map = battleMapOf(tuning.battle, m.arena);
   /** One Tick as the session simulates it: the Players' Intents as sent, the Pool AIs deciding; then the snapshot and the AIs' memory. */
   const simulate = (at: MatchState): MatchState => {
     const t = at.tick + 1;
@@ -68,7 +74,7 @@ function soak(seed: number) {
     memories.set(t, pool.map((ai) => ai?.save?.() ?? null));
     return next;
   };
-  while (m.status.status === 'InProgress') {
+  while (m.status.status === 'InProgress' && m.tick < MAX_TICKS) {
     const at = m;
     sent.set(at.tick + 1, pilots.map((p, k) => JSON.parse(JSON.stringify(p.intent(at.duel, k))) as Intent));
     const t0 = performance.now();
@@ -77,11 +83,11 @@ function soak(seed: number) {
     const c = at.duel.crowd!;
     const bare = { ...c, squad: c.squad.map(() => -1) };
     const c0 = performance.now();
-    stepCrowd(c, m.tick, tuning.battle);
+    stepCrowd(c, m.tick, tuning.battle, [], map);
     const c1 = performance.now();
-    stepCrowd(bare, m.tick, tuning.battle);
+    stepCrowd(bare, m.tick, tuning.battle, [], map);
     const c2 = performance.now();
-    stepSquads(c, m.tick, tuning.battle);
+    stepSquads(c, m.tick, tuning.battle, map);
     crowdMs.push(c1 - c0);
     bareMs.push(c2 - c1);
     squadMs.push(performance.now() - c2);

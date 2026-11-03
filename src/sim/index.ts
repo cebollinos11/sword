@@ -202,7 +202,10 @@ export {
   type RunStart,
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
-export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield } from './battlefield';
-export { brainTicks, COLUMN, deploySquads, LINE, LOOSE, placeOffset, squadDue, squadsPerTeam, stepSquads, type SquadState, type SquadStep } from './squad';
+export { battleArenaName, battlefieldHeight, battlefieldOf, heightfield, parseBattleName, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
+export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
+export { battleMapOf, descend, destinationFields, fieldDistance, lineClear, steerToward, type BattleMap, type DestinationFields } from './destinations';
+export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
+export { planOrders } from './commander';
 export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
 export { bubblePlayer, isBound, stepBubbles, unboundSlot } from './bubble';

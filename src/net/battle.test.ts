@@ -24,7 +24,7 @@ const TICK_CAP = 5000;
 /** Each peer loads its own Tuning Data: two armies of 60, 10 m out from the centre. */
 const peerTuning = (): TuningData => {
   const t = loadTuningData();
-  return { ...t, battle: { ...t.battle, armySize: 60, deploy: { ...t.battle.deploy, front: 10, perRank: 20 } } };
+  return { ...t, battle: { ...t.battle, armySize: 60, deploy: { ...t.battle.deploy, front: 10, perRank: 20 }, tickets: { ...t.battle.tickets, perSoldier: 0.5 } } };
 };
 
 /** One Player per Team given, in Lobby order: the host first. */

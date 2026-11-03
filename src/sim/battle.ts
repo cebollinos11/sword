@@ -8,6 +8,7 @@ import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import { stepBubbles } from './bubble';
 import { crowdAlive, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState } from './crowd';
+import { battleMapOf } from './destinations';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
 import type { MatchEvent, MatchState } from './match';
@@ -54,6 +55,19 @@ function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[
 }
 
 /**
+ * The Tickets after this Tick's deaths outside the Crowd's own fights (those it charges itself): a Soldier the Bubbles killed this Tick (a
+ * promoted Fighter that fell, or a Player's taken-over Soldier) is a living Soldier of `prev` that is not living in `bubbled`, and a Player's
+ * own chosen Fighter that fell this Tick (a Death event of a Pool slot below `players` whose record holds no Soldier). Each costs its Team 1.
+ */
+function chargeDeaths(crowd: CrowdState, prev: CrowdState, bubbled: CrowdState, events: readonly SimEvent[], teams: readonly number[], players: number): CrowdState {
+  const lost = [0, 0];
+  for (let i = 0; i < prev.alive.length; i++) if (prev.alive[i] && !bubbled.alive[i]) lost[prev.team[i]!]!++;
+  for (const e of events) if (e.type === 'Death' && e.fighter < players && crowd.players[e.fighter]!.soldier < 0) lost[teams[e.fighter]!]!++;
+  if (lost[0] === 0 && lost[1] === 0) return crowd;
+  return { ...crowd, tickets: [Math.max(0, crowd.tickets[0]! - lost[0]!), Math.max(0, crowd.tickets[1]! - lost[1]!)] };
+}
+
+/**
  * One Tick of a Battle in progress (the Battle branch of `stepMatch`): the Bubbles promote and demote (`stepBubbles`, the
  * Players' Fighters being the Match's `teams`), the Fighters' Duel is stepped (it carries the Crowd through), then the
  * Crowd; a new Rout is reported, and `routTicks` after it the Battle is over, won by the other Team (the Duel ends with
@@ -64,7 +78,7 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
   const players = match.config.teams.length;
   const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning);
   let duel = step(bubbled, intents, tuning);
-  const before = duel.crowd!;
+  const before = chargeDeaths(duel.crowd!, match.duel.crowd!, bubbled.crowd!, duel.events, duel.fighters.map((f) => f.team), players);
   // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead (none for one who left).
   const fighters: CrowdFighter[] = duel.fighters.flatMap((f, k) => {
     if (!inDuel(f)) return [];
@@ -77,7 +91,7 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
     const dz = moving ? oz / d : 0;
     return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players && !before.players[k]?.away ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
   });
-  const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters);
+  const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters, battleMapOf(tuning.battle, match.arena));
   const tally = countKills(stepped.players, duel.events, duel.fighters.map((f) => f.team), players);
   const crowd = tally === stepped.players ? stepped : { ...stepped, players: tally };
   duel = { ...duel, crowd };

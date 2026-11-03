@@ -7,7 +7,7 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { battlefieldHeight, battlefieldOf, COLUMN, createMatch, crowdAlive, LINE, LOOSE, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type Heightfield, type MatchState } from '../sim';
+import { ATTACK, battlefieldHeight, battleMapOf, COLUMN, createMatch, crowdAlive, DEFEND, descend, LINE, LOOSE, orderSpot, owned, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 
 const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
@@ -15,6 +15,10 @@ const FALLEN_COLOUR = 0x555555;
 /** A Squad's anchor by Formation (column, line, loose), and while it falls back. */
 const SHAPE_COLOURS = [0x66cc66, 0xffaa33, 0xcc66ff] as const;
 const FALLING_COLOUR = 0xff3366;
+/** Orders: attack (red), defend (blue-green), respawn (yellow). An Objective's ring by its Owner, its pole by its progress. */
+const ORDER_COLOURS = [0xff5544, 0x33ddaa, 0xffee44] as const;
+const OWNER_COLOURS = [0x3d7bd9, 0xd94a3d] as const;
+const UNOWNED_COLOUR = 0xcccccc;
 const SPEEDS = [0, 1, 2, 4, 8];
 /** Ticks stepped at most per frame, so a slow frame never spirals. */
 const MAX_TICKS_PER_FRAME = 60;
@@ -76,12 +80,27 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   const squadsBox = document.createElement('input');
   squadsBox.type = 'checkbox';
   squadsBox.checked = true;
+  const ordersBox = document.createElement('input');
+  ordersBox.type = 'checkbox';
+  ordersBox.checked = true;
+  const fieldPick = document.createElement('select');
   const status = document.createElement('pre');
   status.style.margin = '6px 0 0';
-  controls.append('seed ', seedBox, ' ', restart, ' ', speedButton, ' ', squadsBox, ' squads');
+  controls.append('seed ', seedBox, ' ', restart, ' ', speedButton, ' ', squadsBox, ' squads ', ordersBox, ' orders field ', fieldPick);
   panel.append(controls, status);
   container.appendChild(panel);
 
+  // Objectives (docs/plans/battle-objectives.md, Stage 2a): a ring by Owner and a pole by progress each, a line from each Squad's anchor to its
+  // Order's place, and (picked from the list) one destination field drawn as an arrow in each cell.
+  const objectiveGroup = new THREE.Group();
+  const orderLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
+  orderLines.frustumCulled = false;
+  const fieldLines = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff }));
+  fieldLines.frustumCulled = false;
+  scene.add(objectiveGroup, orderLines, fieldLines);
+  let rings: THREE.LineLoop[] = [];
+  let poles: THREE.Mesh[] = [];
+  let map: BattleMap;
   let match: MatchState;
   let hf: Heightfield;
   let speed = 1;
@@ -93,9 +112,49 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
   };
   showSpeed();
 
+  const buildObjectives = () => {
+    objectiveGroup.clear();
+    rings = [];
+    poles = [];
+    for (const site of map.field.objectives) {
+      const circle = Array.from({ length: 48 }, (_, k) => new THREE.Vector3(Math.sin((k / 48) * 2 * Math.PI) * site.radius, 0.3, Math.cos((k / 48) * 2 * Math.PI) * site.radius));
+      const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(circle), new THREE.LineBasicMaterial({ color: UNOWNED_COLOUR }));
+      ring.position.set(site.x, battlefieldHeight(map.field.heights, site.x, site.z), site.z);
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1, 8).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: UNOWNED_COLOUR }));
+      pole.position.copy(ring.position);
+      objectiveGroup.add(ring, pole);
+      rings.push(ring);
+      poles.push(pole);
+    }
+  };
+  /** The picked destination field as an arrow in each cell: the way down the field (the lowest neighbour). */
+  const drawField = () => {
+    const d = Number(fieldPick.value);
+    fieldLines.visible = d >= 0;
+    if (d < 0) return;
+    const f = map.fields;
+    const points: THREE.Vector3[] = [];
+    for (let r = 0; r < f.side; r++)
+      for (let c = 0; c < f.side; c++) {
+        const x = (c - (f.side - 1) / 2) * f.cell;
+        const z = (r - (f.side - 1) / 2) * f.cell;
+        const way = descend(f, d, x, z);
+        if (way === null) continue;
+        const y = battlefieldHeight(hf, x, z) + 0.6;
+        points.push(new THREE.Vector3(x, y, z), new THREE.Vector3(x + Math.sin(way) * f.cell * 0.45, y, z + Math.cos(way) * f.cell * 0.45));
+      }
+    fieldLines.geometry.setFromPoints(points);
+  };
+  fieldPick.onchange = drawField;
+
   const start = (seed: number) => {
     match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed });
-    hf = battlefieldOf(tuning.battle, match.arena)!.heights;
+    map = battleMapOf(tuning.battle, match.arena);
+    hf = map.field.heights;
+    buildObjectives();
+    fieldPick.replaceChildren(new Option('off', '-1'), ...[...map.field.objectives.map((o) => o.id), 'Base 0', 'Base 1'].map((id, d) => new Option(id, String(d))));
+    fieldPick.value = '-1';
+    drawField();
     if (terrain) scene.remove(terrain);
     terrain = terrainMesh(hf);
     scene.add(terrain);
@@ -145,6 +204,33 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
     if (dots.instanceColor) dots.instanceColor.needsUpdate = true;
   };
 
+  const spot: [number, number] = [0, 0];
+  /** The Objectives' rings and poles, and the Orders' lines from each Squad's anchor to where it is going. */
+  const drawObjectives = (c: NonNullable<MatchState['duel']['crowd']>) => {
+    map.field.objectives.forEach((_, k) => {
+      const owner = c.objectives.owner[k]!;
+      const progress = c.objectives.progress[k]!;
+      (rings[k]!.material as THREE.LineBasicMaterial).color.setHex(owner < 0 ? UNOWNED_COLOUR : OWNER_COLOURS[owner]!);
+      poles[k]!.scale.set(1, Math.max(0.05, Math.abs(progress)) * 12, 1);
+      (poles[k]!.material as THREE.MeshBasicMaterial).color.setHex(progress === 0 ? UNOWNED_COLOUR : OWNER_COLOURS[progress > 0 ? 0 : 1]!);
+    });
+    orderLines.visible = ordersBox.checked;
+    if (!ordersBox.checked) return;
+    const sq = c.squads;
+    const per = sq.team.length / 2;
+    const points: THREE.Vector3[] = [];
+    const colours: number[] = [];
+    for (let k = 0; k < sq.team.length; k++) {
+      if (sq.living[k] === 0) continue;
+      orderSpot(map, sq.target[k]!, k, per, tuning.battle, spot);
+      const colour = new THREE.Color(sq.fall[k] ? FALLING_COLOUR : ORDER_COLOURS[sq.order[k]!]);
+      points.push(new THREE.Vector3(sq.x[k]!, battlefieldHeight(hf, sq.x[k]!, sq.z[k]!) + 3, sq.z[k]!), new THREE.Vector3(spot[0], battlefieldHeight(hf, spot[0], spot[1]) + 3, spot[1]));
+      colours.push(colour.r, colour.g, colour.b, colour.r, colour.g, colour.b);
+    }
+    orderLines.geometry.setFromPoints(points);
+    orderLines.geometry.setAttribute('color', new THREE.Float32BufferAttribute(colours, 3));
+  };
+
   const draw = () => {
     const c = match.duel.crowd!;
     for (let i = 0; i < n; i++) {
@@ -157,6 +243,7 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
       soldiers.setColorAt(i, colour.setHex(c.alive[i] ? TEAM_COLOURS[c.team[i]!]! : FALLEN_COLOUR));
     }
     drawSquads(c);
+    drawObjectives(c);
     soldiers.instanceMatrix.needsUpdate = true;
     if (soldiers.instanceColor) soldiers.instanceColor.needsUpdate = true;
     const [a, b] = crowdAlive(c);
@@ -164,7 +251,10 @@ export function startBattleView(container: HTMLElement, tuning: TuningData): voi
     const over = match.status.status === 'Over' ? `\nOVER: Team ${match.status.winner} wins at Tick ${match.status.tick}` : '';
     const engaged = c.target.filter((t) => t >= 0).length;
     const formations = [COLUMN, LINE, LOOSE].map((f) => c.squads.shape.filter((s, k) => s === f && c.squads.living[k]! > 0).length);
-    const squadsLine = `Squads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
+    const kinds = [ATTACK, DEFEND].map((o) => c.squads.order.filter((v, k) => v === o && c.squads.living[k]! > 0 && !c.squads.fall[k]).length);
+    const objectivesLine = map.field.objectives.map((o, k) => `${o.id} ${c.objectives.owner[k] === -1 ? '-' : c.objectives.owner[k]} ${c.objectives.progress[k]!.toFixed(2)}`).join('  ');
+    const ticketsLine = `Tickets ${c.tickets.map((t) => t.toFixed(0)).join(' / ')}  Objectives ${owned(c.objectives, 0)} v ${owned(c.objectives, 1)}  Orders: attack ${kinds[0]} defend ${kinds[1]}, empty ${c.squads.living.filter((l) => l === 0).length}`;
+    const squadsLine = `${ticketsLine}\n${objectivesLine}\nSquads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
     status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (red)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${squadsLine}\n${rout}${over}`;
   };
 

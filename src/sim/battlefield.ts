@@ -8,7 +8,7 @@
  * same plane), while the Crowd reads `battlefieldHeight` directly, in constant time. Pure functions of the name and
  * Tuning Data; the built field is a cache, never state, so it cannot change an outcome (ADR 0006).
  */
-import { deployLayout, type ArenaGeometry, type BattleTuning, type SpawnPoint, type WalkSurface } from '../tuning';
+import { deployLayout, type ArenaGeometry, type BattleTuning, type ObjectiveSite, type SpawnPoint, type WalkSurface } from '../tuning';
 import { createRng, nextFloat } from './rng';
 
 const PREFIX = 'battle:';
@@ -92,10 +92,45 @@ export function battlefieldHeight(hf: Heightfield, x: number, z: number): number
   return h00 + v * (h01 - h00) + u * (h11 - h01);
 }
 
-/** A built Battlefield: its Arena (the heightfield's triangles as Walk Surfaces, and each Team's spawns) and its heightfield. */
+/** An Objective as a map places it (docs/plans/battle-objectives.md, Stage 2a): `ObjectiveSite` with its place settled. Static, never state. */
+export interface MapObjective extends Omit<ObjectiveSite, 'hill'> {
+  readonly radius: number;
+}
+
+/** A point on the map (m). */
+export interface MapPoint {
+  readonly x: number;
+  readonly z: number;
+}
+
+/**
+ * A built Battlefield: its Arena (the heightfield's triangles as Walk Surfaces, and each Team's spawns), its heightfield, and what the
+ * armies fight over: its Objectives and each Team's Base (`bases[team]`), static like the ground and never state.
+ */
 export interface Battlefield {
   readonly arena: ArenaGeometry;
   readonly heights: Heightfield;
+  readonly objectives: readonly MapObjective[];
+  readonly bases: readonly [MapPoint, MapPoint];
+}
+
+/** An Objective site's place: where it asks to be, or the highest sample within `hill` metres of that (the nearest, then the lower index, on a tie). */
+function settle(site: ObjectiveSite, hf: Heightfield): MapPoint {
+  if (!site.hill) return { x: site.x, z: site.z };
+  const half = hf.size / 2;
+  let best: MapPoint = { x: site.x, z: site.z };
+  let bestH = -Infinity;
+  let bestD = Infinity;
+  for (let r = 0; r < hf.side; r++)
+    for (let c = 0; c < hf.side; c++) {
+      const x = -half + c * hf.cell;
+      const z = -half + r * hf.cell;
+      const d = Math.hypot(x - site.x, z - site.z);
+      if (d > site.hill) continue;
+      const h = hf.heights[r * hf.side + c]!;
+      if (h > bestH || (h === bestH && d < bestD)) [best, bestH, bestD] = [{ x, z }, h, d];
+    }
+  return best;
 }
 
 /** Where Team `team`'s k-th Fighter spawns: behind its army's last rank, side by side, facing the enemy. */
@@ -120,7 +155,9 @@ function build(battle: BattleTuning, name: string, seed: number): Battlefield {
       walk.push({ id: `t${c}_${r}a`, points: [at(c, r), at(c + 1, r), at(c + 1, r + 1)] });
       walk.push({ id: `t${c}_${r}b`, points: [at(c, r), at(c + 1, r + 1), at(c, r + 1)] });
     }
-  return { arena: { name, walk, walls: [], spawns: spawnsOf(battle, hf), doors: [] }, heights: hf };
+  const objectives = battle.objectives.openField.map(({ hill: _hill, ...site }, k) => ({ ...site, ...settle(battle.objectives.openField[k]!, hf), radius: battle.objectives.radius }));
+  const bases: [MapPoint, MapPoint] = [{ x: 0, z: -battle.squad.baseDistance }, { x: 0, z: battle.squad.baseDistance }];
+  return { arena: { name, walk, walls: [], spawns: spawnsOf(battle, hf), doors: [] }, heights: hf, objectives, bases };
 }
 
 /** How many Battlefields one Battle Tuning Data keeps built; one dropped is built again (the same field). */
