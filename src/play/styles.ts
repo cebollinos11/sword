@@ -1,3 +1,4 @@
+import { BATTLE_HUD_CSS } from './battleHud';
 import { FLOOR_MAP_CSS } from './floorMapView';
 import { INVENTORY_CSS } from './inventoryScreen';
 import { MENU_CSS } from './menuStyles';
@@ -110,6 +111,6 @@ export function ensurePlayStyles(): void {
   if (injected) return;
   injected = true;
   const style = document.createElement('style');
-  style.textContent = CSS + MENU_CSS + FLOOR_MAP_CSS + INVENTORY_CSS;
+  style.textContent = CSS + MENU_CSS + FLOOR_MAP_CSS + INVENTORY_CSS + BATTLE_HUD_CSS;
   document.head.append(style);
 }

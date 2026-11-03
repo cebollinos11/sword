@@ -62,7 +62,27 @@ export interface CrowdState {
   readonly rng: RngState;
   /** The Team that routed, once one has; null until then. */
   readonly rout: Rout | null;
+  /** Each Player's record (docs/plans/big-battle.md, Stage 5), by Player slot (the first slots of the Fighter Pool): none in an AI-vs-AI war. */
+  readonly players: readonly BattlePlayer[];
 }
+
+/**
+ * A Player of a Battle, in its Pool slot (docs/plans/big-battle.md, Stage 5). A Player whose Fighter falls takes over the
+ * nearest living ally Soldier (`stepBubbles`): that Soldier is its Fighter from then on (its `slot` is the Player's slot).
+ */
+export interface BattlePlayer {
+  /** The Soldier the Player's Fighter is, once it has taken one over; -1 while it is still its own chosen Fighter. */
+  readonly soldier: number;
+  /** Soldiers it has taken over. */
+  readonly taken: number;
+  /** Enemy full Fighters it has felled (the blow that took their last HP was its). */
+  readonly kills: number;
+  /** The Pool slot its own chosen Fighter lies in once it has taken over a Soldier (to the Battle's end), or -1. */
+  readonly corpse: number;
+}
+
+/** A Player's record at the start of a Battle. */
+export const FRESH_PLAYER: BattlePlayer = { soldier: -1, taken: 0, kills: 0, corpse: -1 };
 
 /**
  * Whether Soldier `i` steps on Tick `tick`: once every `stagger` Ticks, 1/stagger of the Soldiers each Tick. It goes by the
@@ -74,9 +94,9 @@ export const crowdDue = (i: number, tick: number, stagger: number, armySize: num
 /**
  * The Crowd at the start of a Battle: each army of `armySize` in ranks of `deploy.perRank` (`deploy.file` apart, ranks
  * `deploy.rank` apart), its front rank `deploy.front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the
- * two armies a half turn of each other. Every Soldier at `crowd.hp`.
+ * two armies a half turn of each other. Every Soldier at `crowd.hp`. `players`: how many Players the Battle has (each a fresh record).
  */
-export function createCrowd(battle: BattleTuning, seed: number): CrowdState {
+export function createCrowd(battle: BattleTuning, seed: number, players = 0): CrowdState {
   const { armySize, deploy } = battle;
   const x: number[] = [];
   const z: number[] = [];
@@ -109,6 +129,7 @@ export function createCrowd(battle: BattleTuning, seed: number): CrowdState {
     slot: new Array<number>(n).fill(-1),
     rng: createRng(seed ^ 0x5bd1e995),
     rout: null,
+    players: new Array<BattlePlayer>(players).fill(FRESH_PLAYER),
   };
 }
 
@@ -256,6 +277,9 @@ export function ringSpots(battle: BattleTuning, x: number, z: number, ahead: num
 /** The furthest round its Player (radians) a waiting Soldier heads for at once: a spot further round it walks to round them. */
 const RING_DETOUR = Math.PI / 4;
 
+/** The most times a step is put back out of the enemy full Fighters' holds (see `stepCrowd`): enough for a few close together. */
+const HOLD_PASSES = 4;
+
 /** Each Soldier's waiting-ring spot this Tick (x, z) and the `fighters` entry it rings (-1 for none): scratch, never state. */
 let spotScratch = new Float64Array(0);
 let ringOf = new Int32Array(0);
@@ -263,7 +287,7 @@ let ringOf = new Int32Array(0);
 /**
  * Hands out the waiting ring's spots round each Player's Fighter in `fighters` (those with `ahead`, in order) to its waiting
  * enemies: Soldiers in the Crowd, living, of a Team that has not routed, not engaged on their last step, within
- * `bubble.promote` of it and not given a spot by an earlier one. Each spot in fill order (`ringSpots`) goes to the nearest
+ * `bubble.promote` of it and not given a spot by an earlier one, the `ring.waiting` nearest it at most. Each spot in fill order (`ringSpots`) goes to the nearest
  * waiting enemy not yet given one (the lower index on a tie). Whether any Soldier has a spot.
  */
 function fillRings(crowd: CrowdState, battle: BattleTuning, fighters: readonly CrowdFighter[]): boolean {
@@ -281,6 +305,13 @@ function fillRings(crowd: CrowdState, battle: BattleTuning, fighters: readonly C
     for (let i = 0; i < n; i++) {
       if (!inCrowd(crowd, i) || crowd.team[i] === f.team || crowd.rout?.team === crowd.team[i] || crowd.target[i]! >= 0 || ringOf[i]! >= 0) continue;
       if ((crowd.x[i]! - f.x) ** 2 + (crowd.z[i]! - f.z) ** 2 <= reach2) waiting.push(i);
+    }
+    if (waiting.length === 0) return;
+    // Only the `ring.waiting` nearest wait (the lower index on a tie); the others fight on in the Crowd.
+    if (waiting.length > battle.ring.waiting) {
+      const d2 = (i: number) => (crowd.x[i]! - f.x) ** 2 + (crowd.z[i]! - f.z) ** 2;
+      waiting.sort((a, b) => d2(a) - d2(b) || a - b);
+      waiting.length = battle.ring.waiting;
     }
     if (waiting.length === 0) return;
     any = true;
@@ -505,19 +536,24 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       nx -= fz * side * by;
       nz += fx * side * by;
     }
-    // Out of every enemy full Fighter's reach: put back on the edge of its hold, away from it.
-    for (const f of fighters) {
-      if (f.team === own) continue;
-      const ox = nx - f.x;
-      const oz = nz - f.z;
-      const d = Math.hypot(ox, oz);
-      if (d >= hold) continue;
-      if (d > 1e-9) {
-        nx = f.x + (ox / d) * hold;
-        nz = f.z + (oz / d) * hold;
-      } else {
-        // Exactly on it: back the way its own army stands.
-        nz = f.z + (own === 0 ? -hold : hold);
+    // Out of every enemy full Fighter's reach: put back on the edge of its hold, away from it. Put out of one, it may land
+    // in another's, so again until it lands in none (or HOLD_PASSES run out).
+    for (let pass = 0, moved = true; moved && pass < HOLD_PASSES; pass++) {
+      moved = false;
+      for (const f of fighters) {
+        if (f.team === own) continue;
+        const ox = nx - f.x;
+        const oz = nz - f.z;
+        const d = Math.hypot(ox, oz);
+        if (d >= hold) continue;
+        moved = true;
+        if (d > 1e-9) {
+          nx = f.x + (ox / d) * hold;
+          nz = f.z + (oz / d) * hold;
+        } else {
+          // Exactly on it: back the way its own army stands.
+          nz = f.z + (own === 0 ? -hold : hold);
+        }
       }
     }
     nx = Math.min(edge, Math.max(-edge, nx));
@@ -561,5 +597,5 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     }
   }
 
-  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, rng, rout };
+  return { x, z, vx, vz, heading, hp, team, target, engage, alive: living, slot, rng, rout, players: crowd.players };
 }

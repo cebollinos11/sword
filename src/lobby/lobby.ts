@@ -17,8 +17,12 @@
  * In Gauntlet format (docs/plans/gauntlet.md) the Match is a Run: the Map must be a Random Map (its seed is the Run
  * seed), Players sit only on Team 0, and Team 1's Seats are set aside (kept for Duels): the Lineup fills Team 1 with
  * MAX_TEAM_SIZE Floor slots, each Floor deciding who stands there.
+ *
+ * In Battle format (docs/plans/big-battle.md, offline only until Stage 6) the Match is one Battle: the host fights in Team 0's
+ * army of Soldiers against Team 1's, on a Battlefield of its own (a fresh seed each Battle). The Seats, the Map and the
+ * Match length are set aside (kept for Duels): the armies are the Battle's.
  */
-import { MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
+import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
 import { applyDungeonKnobs, type RunKnobs, type TuningData } from '../tuning';
 
@@ -52,7 +56,7 @@ export interface LobbySettings {
   readonly arena: string;
   /** Best of N Duels (Duels only; a Run ignores it). */
   readonly bestOf: number;
-  /** Duels (absent: the default) or Gauntlet: a Run, on the Random Map, Team 1 the Floors' enemies. */
+  /** Duels (absent: the default), Gauntlet (a Run, on the Random Map, Team 1 the Floors' enemies) or, offline only, Battle (`lobbyFormats`). */
   readonly format?: MatchFormat;
   /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly run?: RunKnobs;
@@ -145,6 +149,19 @@ export function runTuning(tuning: TuningData, settings: LobbySettings): TuningDa
   if (settings.format !== 'Gauntlet') return tuning;
   const dungeon = applyDungeonKnobs(tuning.dungeon, settings.run);
   return dungeon === tuning.dungeon ? tuning : { ...tuning, dungeon };
+}
+
+/**
+ * The Formats a Lobby offers: online, the wire's (`MATCH_FORMATS`); a Skirmish's also Battle, which online play refuses
+ * until docs/plans/big-battle.md's Stage 6. Kept apart from `MATCH_FORMATS`, the wire's list.
+ */
+export function lobbyFormats(online: boolean): readonly MatchFormat[] {
+  return online ? MATCH_FORMATS : [...MATCH_FORMATS, 'Battle'];
+}
+
+/** The Lobby plays a Battle (two armies, docs/plans/big-battle.md). */
+export function isBattle(state: LobbyState): boolean {
+  return state.settings.format === 'Battle';
 }
 
 /** The Lobby plays a Gauntlet Run (not Duels). */
@@ -241,8 +258,12 @@ export function updateSettings(state: LobbyState, patch: Partial<Omit<LobbySetti
   return { ...state, settings: { ...state.settings, ...rest, ...(keep ? {} : { arena }) }, ...(keep ? {} : { matchArena: null }) };
 }
 
-/** Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE. */
+/**
+ * Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE;
+ * a Battle is one Player's for now (offline, docs/plans/big-battle.md).
+ */
 export function formatProblem(state: LobbyState, format: MatchFormat): string | null {
+  if (format === 'Battle') return state.members.length > 1 ? 'A Battle is played offline, by one player, for now.' : null;
   if (format !== 'Gauntlet') return null;
   const players = state.teams.flat().filter((s) => s.kind === 'Player').length;
   return players > MAX_TEAM_SIZE ? `A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has ${players}.` : null;
@@ -305,6 +326,8 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
 
 /** Why a Match cannot start now, or null. `requireReady`: every guest must be ready (a start from the Lobby, not a restart). */
 export function startProblem(state: LobbyState, requireReady: boolean): string | null {
+  // A Battle's armies are its own: only its Player needs a Seat (the host always has one).
+  if (isBattle(state)) return formatProblem(state, 'Battle');
   for (let team = 0; team < state.teams.length; team++) {
     if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
   }

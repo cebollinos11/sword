@@ -70,3 +70,12 @@ export function devAutopilotLoot(search: string = location.search, hash: string 
   const raw = query(search, hash).get('loot');
   return raw === '1' ? 'take' : raw === 'drop' ? 'drop' : null;
 }
+
+/**
+ * Dev mode only: a Battle's Player on a Battle autopilot (`?dev=1&battlePilot=Hard`, any AI difficulty), the local Intents
+ * ignored, to play Battles through in a browser that is not drawing at speed. Null otherwise.
+ */
+export function devBattlePilot(search: string = location.search, hash: string = location.hash): string | null {
+  if (!devMode(search, hash)) return null;
+  return query(search, hash).get('battlePilot') || null;
+}

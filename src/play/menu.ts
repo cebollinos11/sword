@@ -1,6 +1,6 @@
 import type { TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
-import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { cleanName, isBattle, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
 import { devMode } from '../devMode';
 import { button, h, thumb, thumbImage } from './dom';
 import { arenaLabel, lobbyBody } from './lobbyView';
@@ -574,7 +574,7 @@ export class Menu {
       } else status = 'Only the host restarts the Match; your Weapon and Seat apply then.';
     } else if (!lobby.online) {
       const problem = startProblem(state, false);
-      status = problem ?? 'Pick your Weapon and fill the Seats, then fight.';
+      status = problem ?? (isBattle(state) ? 'Pick your Weapon, then fight.' : 'Pick your Weapon and fill the Seats, then fight.');
       const fight = button('cta', 'Fight', () => this.handlers.onStart());
       fight.disabled = Boolean(problem);
       actions.push(fight);

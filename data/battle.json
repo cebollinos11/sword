@@ -15,9 +15,9 @@
   "crowd": {
     "stagger": 6,
     "walkSpeed": 2.5,
-    "hp": 100,
-    "damage": [8, 20],
-    "hitChance": 0.2,
+    "hp": 50,
+    "damage": [4, 10],
+    "hitChance": 0.08,
     "engageReach": 1.6,
     "separation": 0.9,
     "sight": 12,
@@ -30,7 +30,10 @@
   "soldier": {
     "body": "female",
     "weapon": "Arming Sword",
-    "colours": ["#c0392b", "#2e86c1"]
+    "colours": ["#c0392b", "#2e86c1"],
+    "difficulty": "Beginner",
+    "style": { "throwRate": 0 },
+    "mods": { "damage": 0.5 }
   },
   "bubble": {
     "poolSize": 16,
@@ -49,6 +52,10 @@
     "radius": 3.5,
     "spacing": 1.2,
     "pathAhead": 3,
-    "pathWidth": 0.8
+    "pathWidth": 0.8,
+    "waiting": 8
+  },
+  "takeover": {
+    "seconds": 1.5
   }
 }

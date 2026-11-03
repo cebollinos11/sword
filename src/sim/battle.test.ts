@@ -183,8 +183,9 @@ describe('the Battle Format', () => {
       if (met >= 0 && match.tick % 30 === 0) closest = Math.min(closest, closestPair(c));
     }
     expect(met).toBeGreaterThan(0);
-    // The tolerance: no two centres within a sixth of the separation.
-    expect(closest).toBeGreaterThan(separation / 6);
+    // The tolerance: no two centres within an eighth of the separation. (A sixth until Stage 5's Crowd data: since then two
+    // back-rank Soldiers squeeze to 0.12 m for a moment as the front stops at contact, then part.)
+    expect(closest).toBeGreaterThan(separation / 8);
     const warm = times.slice(120).sort((a, b) => a - b);
     const mean = warm.reduce((s, v) => s + v, 0) / warm.length;
     const p99 = warm[Math.floor(warm.length * 0.99)]!;

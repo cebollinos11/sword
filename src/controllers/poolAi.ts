@@ -1,7 +1,7 @@
 /**
  * The Pool AI: the Controller of one Fighter Pool slot of a Battle (docs/plans/big-battle.md, Stage 3). The slot keeps it
  * for the whole Battle, while the Bubbles decide which Soldier, if any, stands there (`FighterState.soldier`). Each
- * Promotion starts a Beginner AI from fresh memory on the slot's first Tick bound to that Soldier, as an AI Takeover
+ * Promotion starts a soldier's AI (`battle.soldier.difficulty`, with its Battle-only `style`) from fresh memory on the slot's first Tick bound to that Soldier, as an AI Takeover
  * starts one at its Tick, so every peer's AI decides alike; a Demotion drops it. An unbound slot asks for nothing.
  *
  * Its memory is the binding it plays for (the Soldier and its Promotion Tick) and that AI's memory, so a Rollback across
@@ -12,7 +12,7 @@ import type { TuningData } from '../tuning';
 import { createAiController } from './ai';
 import type { Controller } from './controller';
 
-/** The difficulty every promoted Soldier plays (Elites are Later). */
+/** The difficulty every promoted Soldier plays by default (Elites are Later); Tuning Data `battle.soldier` says which, and its Battle-only Style. */
 export const SOLDIER_DIFFICULTY = 'Beginner';
 
 /** A Pool AI's memory: the binding its AI plays for and that AI's memory, or null while its slot is unbound. */
@@ -29,7 +29,8 @@ class PoolAi implements Controller {
   /** A Beginner AI from fresh memory (the same Controller each time, its memory reset). */
   private freshAi(): Controller {
     if (!this.ai) {
-      this.ai = createAiController(this.tuning, SOLDIER_DIFFICULTY);
+      const { difficulty, style } = this.tuning.battle.soldier;
+      this.ai = createAiController(this.tuning, difficulty, style);
       this.fresh = this.ai.save?.();
     } else this.ai.load?.(this.fresh);
     return this.ai;

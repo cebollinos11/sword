@@ -6,6 +6,12 @@
  * `stepBubbles` runs at the start of each Battle Tick, before the Fighters step, and decides everything from Simulation
  * positions only, so every peer promotes alike and a Rollback re-simulates it like any other step (ADR 0019's "choices by
  * walking"). In order:
+ *  - taking over an ally (Stage 5): a Player's Fighter that fell kills its Soldier if it had taken one over, and
+ *    `takeover.seconds` after its fall the Player takes over the nearest living ally Soldier (in the Crowd, or a promoted
+ *    ally, which keeps its Fighter as it stands): it becomes the Player's Fighter in the Player's slot, with the generic
+ *    soldier's Weapon and the Soldier's own HP. The fallen Fighter lies on: the Player's own chosen Fighter in a free Pool
+ *    slot to the Battle's end (`BattlePlayer.corpse`), a Soldier it had taken over in the Crowd. With no living ally left
+ *    the Player is out: its Fighter just lies there;
  *  - a promoted Fighter that fell kills its Soldier (where it fell, facing its way, 0 HP), and `corpseSeconds` after its
  *    fall its slot frees, the Soldier lying in the Crowd;
  *  - Demotion: a promoted Fighter further than `demote` from every Player's Fighter in play, Idle on the ground, at least
@@ -27,8 +33,9 @@ import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf } from './battlefield';
 import { secondsToTicks } from './constants';
-import type { CrowdState } from './crowd';
+import type { BattlePlayer, CrowdState } from './crowd';
 import { inDuel } from './duel';
+import { foldMods, isNoMods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
 
@@ -70,6 +77,24 @@ function nearestCentre(centres: readonly Centre[], x: number, z: number, team: n
 }
 
 /**
+ * The living ally Soldier nearest where Player's Fighter `f` fell (the lower index on a tie), for it to take over: one of its
+ * Team in the Crowd, or promoted into an ally slot and still standing, but never another Player's. -1 when its Team has none.
+ */
+function nearestAlly(fighters: readonly FighterState[], crowd: CrowdState, players: number, f: FighterState): number {
+  let best = -1;
+  let bestD = Infinity;
+  for (let s = 0; s < crowd.x.length; s++) {
+    if (!crowd.alive[s] || crowd.team[s] !== f.team) continue;
+    const k = crowd.slot[s]!;
+    if (k >= 0 && (k < players || fighters[k]!.soldier?.role !== 'Ally' || !inDuel(fighters[k]!))) continue;
+    const at = k >= 0 ? fighters[k]!.position : { x: crowd.x[s]!, z: crowd.z[s]! };
+    const d = Math.hypot(at.x - f.position.x, at.z - f.position.z);
+    if (d < bestD) [best, bestD] = [s, d];
+  }
+  return best;
+}
+
+/**
  * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
  * Players' Fighters. A state without a Crowd is returned as it is.
  */
@@ -77,13 +102,11 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   const before = duel.crowd;
   if (!before) return duel;
   const { bubble, slots } = tuning.battle;
-  const centres = bubbleCentres(duel.fighters, players);
-  const farFromAll = (f: FighterState) => centres.every((c) => Math.hypot(f.position.x - c.x, f.position.z - c.z) > bubble.demote);
   const minTicks = secondsToTicks(bubble.minPromotedSeconds);
   const corpseTicks = secondsToTicks(bubble.corpseSeconds);
 
   let fighters: FighterState[] | null = null;
-  let crowd: { -readonly [K in keyof CrowdState]: CrowdState[K] extends readonly number[] ? number[] : CrowdState[K] } | null = null;
+  let crowd: { -readonly [K in keyof CrowdState]: CrowdState[K] extends readonly number[] ? number[] : CrowdState[K] extends readonly BattlePlayer[] ? BattlePlayer[] : CrowdState[K] } | null = null;
   const edit = () => {
     fighters ??= duel.fighters.slice();
     crowd ??= {
@@ -99,6 +122,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       engage: before.engage.slice(),
       alive: before.alive.slice(),
       slot: before.slot.slice(),
+      players: before.players.slice(),
     };
     return { fighters, crowd };
   };
@@ -128,6 +152,59 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     e.fighters[k] = free();
   };
   const demotesNow = (f: FighterState) => tick - f.soldier!.since >= minTicks && demotable(f);
+  /** The first unbound (Benched) slot after the Players', or -1. A Player's corpse is neither bound nor Benched: never free. */
+  const openSlot = () => {
+    const p = pool();
+    for (let k = players; k < p.length; k++) if (p[k]!.benched && !isBound(p[k]!)) return k;
+    return -1;
+  };
+  /** Soldier `s` as a full Fighter at guard where it stands, facing its heading, with its Team and HP and the generic soldier's Weapon. */
+  const fighterOf = (c: NonNullable<typeof crowd>, s: number): FighterState => {
+    const at = { x: c.x[s]!, z: c.z[s]! };
+    const geometry = arenaOf(tuning, duel.arena);
+    const hf = battlefieldOf(tuning.battle, duel.arena)!.heights;
+    const f = standingFighter(tuning, geometry, { position: at, y: battlefieldHeight(hf, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!);
+    return { ...f, hp: c.hp[s]!, maxHp: tuning.battle.crowd.hp };
+  };
+  /** A promoted Soldier's Mods (`battle.soldier.mods`), when they change anything. */
+  const soldierMods = foldMods([{ effects: tuning.battle.soldier.mods }]);
+  const modded = isNoMods(soldierMods) ? {} : { mods: soldierMods };
+
+  // Taking over an ally: a Player's fallen Fighter kills its Soldier, and later the Player plays on as the nearest living ally.
+  const takeoverTicks = secondsToTicks(tuning.battle.takeover.seconds);
+  for (let p = 0; p < players; p++) {
+    const f = duel.fighters[p]!;
+    const record = before.players[p];
+    if (!f.death || !record) continue;
+    if (record.soldier >= 0 && soldiers().alive[record.soldier]) {
+      const e = edit();
+      writeBack(e.crowd, record.soldier, f);
+      e.crowd.hp[record.soldier] = 0;
+      e.crowd.alive[record.soldier] = 0;
+    }
+    if (tick - f.death.tick < takeoverTicks) continue;
+    const s = nearestAlly(pool(), soldiers(), players, f);
+    if (s < 0) continue;
+    const e = edit();
+    const k = e.crowd.slot[s]!;
+    if (k >= 0) {
+      // A promoted ally: its Fighter, as it stands, becomes the Player's; its slot frees.
+      const { soldier: _binding, mods: _mods, ...ally } = e.fighters[k]!;
+      e.fighters[p] = ally;
+      e.fighters[k] = free();
+    } else e.fighters[p] = fighterOf(e.crowd, s);
+    e.crowd.slot[s] = p;
+    let corpse = record.corpse;
+    if (record.soldier >= 0) e.crowd.slot[record.soldier] = -1;
+    else {
+      corpse = openSlot();
+      if (corpse >= 0) e.fighters[corpse] = f;
+    }
+    e.crowd.players[p] = { ...record, soldier: s, taken: record.taken + 1, corpse } satisfies BattlePlayer;
+  }
+
+  const centres = bubbleCentres(pool(), players);
+  const farFromAll = (f: FighterState) => centres.every((c) => Math.hypot(f.position.x - c.x, f.position.z - c.z) > bubble.demote);
 
   for (let k = players; k < duel.fighters.length; k++) {
     const f = duel.fighters[k]!;
@@ -199,20 +276,10 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       const f = e.fighters[k]!;
       e.fighters[k] = { ...f, soldier: { ...f.soldier!, role } };
     };
-    /** The first unbound slot after the Players', or -1. */
-    const openSlot = () => {
-      const p = pool();
-      for (let k = players; k < p.length; k++) if (!isBound(p[k]!)) return k;
-      return -1;
-    };
-    const geometry = arenaOf(tuning, duel.arena);
-    const hf = battlefieldOf(tuning.battle, duel.arena)!.heights;
     /** Soldier `s` takes slot `k` as a Fighter at guard, holding `role`. */
     const promote = (s: number, k: number, role: SoldierRole) => {
       const e = edit();
-      const at = { x: e.crowd.x[s]!, z: e.crowd.z[s]! };
-      const f = standingFighter(tuning, geometry, { position: at, y: battlefieldHeight(hf, at.x, at.z), facing: e.crowd.heading[s]! }, tuning.battle.soldier.weapon, e.crowd.team[s]!);
-      e.fighters[k] = { ...f, hp: e.crowd.hp[s]!, maxHp: tuning.battle.crowd.hp, soldier: { index: s, since: tick, role } };
+      e.fighters[k] = { ...fighterOf(e.crowd, s), ...modded, soldier: { index: s, since: tick, role } };
       e.crowd.slot[s] = k;
     };
     /**

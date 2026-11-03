@@ -16,6 +16,7 @@ import { defaultBody, isBody } from '../render/bodyModel';
 import { bakeImpostorAtlas } from '../render/impostorAtlas';
 import { Renderer } from '../render/renderer';
 import { placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import { battleBodies } from './battleScreen';
 import { bindLocalInput } from './input';
 
 /** Ticks stepped at most per frame, so a slow frame never spirals. */
@@ -76,10 +77,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
   const controllers = poolControllers(tuning, [player]);
   const hf: Heightfield = battlefieldOf(tuning.battle, match.arena)!.heights;
   local.setYaw(match.duel.fighters[0]!.facing);
-  const soldierBodies = match.duel.fighters.map((_, k) => (k === 0 ? undefined : tuning.battle.soldier.body));
-  renderer.setPlayer(0, storedBody() as Parameters<Renderer['setPlayer']>[1]);
-  renderer.setChosenBodies(soldierBodies);
-  renderer.setFades((k) => (k === 0 ? 1 : swap.modelFade(k)));
+  const body = storedBody();
 
   let prev: SimState = match.duel;
   const tickMs: number[] = [];
@@ -100,6 +98,11 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     for (const s of swap.update(duel, seconds)) {
       renderer.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y: battlefieldHeight(hf, s.at.x, s.at.z), z: s.at.z }, strength: 1 });
     }
+    const bodies = battleBodies(duel, 0, body, tuning.battle.soldier.body);
+    const corpse = duel.crowd!.players[0]?.corpse ?? -1;
+    renderer.setPlayer(0, bodies.player as Parameters<Renderer['setPlayer']>[1]);
+    renderer.setChosenBodies(bodies.others);
+    renderer.setFades((k) => (k === 0 || k === corpse ? 1 : swap.modelFade(k)));
     const me = duel.fighters[0]!;
     const l = (a: number, b: number) => a + (b - a) * alpha;
     const was = prev.fighters[0] ?? me;

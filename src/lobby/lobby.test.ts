@@ -4,13 +4,17 @@ import { checkLineup } from '../controllers';
 import {
   canSetSeat,
   endMatch,
+  formatProblem,
+  isBattle,
   join,
+  lobbyFormats,
   leave,
   lobbyLineup,
   moveMember,
   newLobby,
   nextMatchArena,
   seatOf,
+  setFormat,
   setSeat,
   startMatch,
   startProblem,
@@ -19,6 +23,7 @@ import {
   updateSettings,
   type NewLobbyOptions,
 } from './lobby';
+import { MATCH_FORMATS } from '../sim';
 import { parseLobbyMessage } from './messages';
 
 const tuning = loadTuningData();
@@ -171,5 +176,29 @@ describe('The Arena of each Match', () => {
     let s = startMatch(newLobby(options(false)));
     s = startMatch(endMatch(s));
     expect(s.matchArena).toBe('circle');
+  });
+});
+
+describe('A Battle in the Lobby', () => {
+  it("is offered offline only, apart from the wire's list of Formats", () => {
+    expect(lobbyFormats(false)).toEqual([...MATCH_FORMATS, 'Battle']);
+    expect(lobbyFormats(true)).toEqual(MATCH_FORMATS);
+    expect(MATCH_FORMATS).not.toContain('Battle');
+  });
+
+  it("starts with the host alone, whatever the Seats hold, and is one player's for now", () => {
+    const s = setFormat(newLobby(options(false)), 'Battle', 'gen:greybox:1');
+    expect(isBattle(s)).toBe(true);
+    expect(startProblem(setSeat(s, { team: 1, index: 0 }, { kind: 'Closed' }), true)).toBeNull();
+    const two = join(newLobby(options(true)), guest)!;
+    expect(formatProblem(two, 'Battle')).not.toBeNull();
+    expect(setFormat(two, 'Battle', 'gen:greybox:1')).toBe(two);
+  });
+
+  it('keeps the Battle off the wire: a Lobby message carrying it is refused', () => {
+    const s = setFormat(newLobby(options(false)), 'Battle', 'gen:greybox:1');
+    const m = { type: 'lobby', you: 0, ack: 0, state: s };
+    expect(parseLobbyMessage(m)).toBeNull();
+    expect(parseLobbyMessage({ ...m, state: setFormat(s, 'Duels', 'gen:greybox:1') })).toEqual({ ...m, state: setFormat(s, 'Duels', 'gen:greybox:1') });
   });
 });

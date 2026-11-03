@@ -508,7 +508,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (teams.length > poolSize) throw new RangeError(`A Battle's Fighter Pool holds ${poolSize} Fighters, got ${teams.length} Players`);
   const players = initialDuel(tuning, config, arena, seed);
   const unbound = unboundSlot(tuning, arena);
-  const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: createCrowd(tuning.battle, seed) };
+  const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: createCrowd(tuning.battle, seed, teams.length) };
   return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }], run: null };
 }
 

@@ -2,7 +2,8 @@
  * The Lobby drawn: the two teams with their Seats, the Match settings (Format,
  * Map cards, Match length) and your Weapon cards. In a Gauntlet, Team 1's Seats
  * give way to the Floors, the hand-made Maps and the Match length are hidden,
- * and the Random card names the Run seed. Used by the Skirmish setup, the
+ * and the Random card names the Run seed. In a Battle (offline only) the Seats, Maps and Match length give way to the
+ * two armies. Used by the Skirmish setup, the
  * online Room Lobby and the in-game Match setup alike; who may change what
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
@@ -14,7 +15,9 @@ import {
   BEST_OF,
   canSetSeat,
   formatProblem,
+  isBattle,
   isGauntlet,
+  lobbyFormats,
   MAX_PLAYERS,
   member,
   nextMatchArena,
@@ -116,17 +119,18 @@ export function waitingTag(state: LobbyState): string {
 
 /** The teams whose Seats the Lobby shows: both, or in a Gauntlet only Team 0 (the Floors fill Team 1). */
 export function shownTeams(state: LobbyState): number[] {
+  if (isBattle(state)) return [];
   return isGauntlet(state) ? [0] : state.teams.map((_, team) => team);
 }
 
 /** The Map cards besides Random: every pickable Arena, or none in a Gauntlet (a Run is on the Random Map). */
 export function shownArenas(tuning: TuningData, state: LobbyState): string[] {
-  return isGauntlet(state) ? [] : pickableArenas(tuning);
+  return isGauntlet(state) || isBattle(state) ? [] : pickableArenas(tuning);
 }
 
 /** Whether the Match length (Best of N) is shown: not for a Run. */
 export function showsBestOf(state: LobbyState): boolean {
-  return !isGauntlet(state);
+  return !isGauntlet(state) && !isBattle(state);
 }
 
 /** What the Random card says under its name: the next Match's seed, or in a Gauntlet the Run seed. */
@@ -167,6 +171,7 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 // --- Teams ---
 
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+  if (isBattle(state)) return section('Armies', armiesCard(ctx.tuning));
   const shown = shownTeams(state);
   const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
@@ -202,6 +207,27 @@ export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly cou
       `Clear a Hall, then stand at a Door together to go on: each Door names the Hall behind it (a Fight, an Elite, a Treasure or a Rest). ` +
       `Beat a Floor's Boss to go down. HP carries over; a Rest Hall's fire heals, and fallen allies return in the next Hall.`,
   };
+}
+
+/** What a Battle's card says: the armies, how it ends, and what happens when you fall. */
+export function battleCard(tuning: Pick<TuningData, 'battle'>): { readonly count: string; readonly note: string } {
+  const { armySize, rout } = tuning.battle;
+  return {
+    count: `${armySize} v ${armySize}`,
+    note:
+      `Two armies of ${armySize} meet on an open field. You fight in the red army with your own Body and Weapon; soldiers near you ` +
+      `fight you blade to blade, at most four at once, and your allies close by join in. An army breaks below ${Math.round(rout.threshold * 100)}% of its soldiers ` +
+      `and flees: the other wins. If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
+  };
+}
+
+/** In a Battle, the teams' place: the two armies. */
+function armiesCard(tuning: TuningData): HTMLElement {
+  const card = h('div', 'lb-team lb-team-0');
+  card.style.setProperty('--team', hex(tuning.battle.soldier.colours[0]));
+  const { count, note } = battleCard(tuning);
+  card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'Battle'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
+  return card;
 }
 
 /** In a Gauntlet, Team 1's place: the Dungeon the Run walks. */
@@ -317,7 +343,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { arena: a })));
     maps.append(card);
   }
-  if (Object.keys(ctx.tuning.kits).length > 0) maps.append(randomCard(ctx, state, editable));
+  if (Object.keys(ctx.tuning.kits).length > 0 && !isBattle(state)) maps.append(randomCard(ctx, state, editable));
   const seed = mapSeed(nextMatchArena(state, ctx.played ?? undefined));
   const length = h('div', 'segmented');
   length.setAttribute('role', 'radiogroup');
@@ -329,15 +355,15 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     b.disabled = !editable;
     length.append(b);
   }
-  const hint = editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
-  const seedRow = seed !== null && editable ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
+  const hint = isBattle(state) ? h('p', 'lb-note', 'A Battlefield of gentle hills, a fresh one each Battle.') : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
+  const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
   const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
   return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
 }
 
-/** The Format toggle (Duels or Gauntlet), when the Lobby offers more than one. */
+/** The Format toggle (Duels, Gauntlet and, offline, Battle: `lobbyFormats`), when the Lobby offers more than one. */
 function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
-  const formats = MATCH_FORMATS;
+  const formats = lobbyFormats(ctx.lobby.online);
   if (formats.length < 2) return null;
   const current = state.settings.format ?? 'Duels';
   const group = h('div', 'segmented');

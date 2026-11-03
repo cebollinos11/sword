@@ -7,7 +7,7 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
-import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -65,6 +65,36 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
     tick(localIntent) {
       pending = localIntent;
       pilot?.watch(match);
+      match = stepMatchWith(match, controllers, tuning);
+      return { advanced: true };
+    },
+  };
+}
+
+/** A Battle's Player: their Weapon (kept until their Fighter falls), and the Battle's seed (its Battlefield and armies). */
+export interface PlayerInBattleOptions {
+  readonly weapon: string;
+  readonly seed: number;
+  /** Dev mode and tests: the Player's slot on this Controller (e.g. a Battle autopilot), the local Intents ignored. */
+  readonly pilot?: Controller;
+}
+
+/**
+ * A Battle stepped locally (docs/plans/big-battle.md, Stage 5): the local player drives the Fighter Pool's slot 0 (their own
+ * Fighter, then each Soldier they take over), a Pool AI every other slot.
+ */
+export function playerInBattle(tuning: TuningData, options: PlayerInBattleOptions): MatchDriver {
+  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, teams: [0], weapons: [options.weapon] });
+  let pending: Intent | null = null;
+  const controllers = poolControllers(tuning, [options.pilot ?? { intent: () => pending! }]);
+  return {
+    localFighter: 0,
+    lineup: [{ team: 0, pilot: { kind: 'Player', player: 0 } }],
+    get state() {
+      return match;
+    },
+    tick(localIntent) {
+      pending = localIntent;
       match = stepMatchWith(match, controllers, tuning);
       return { advanced: true };
     },

@@ -6,10 +6,11 @@ import { BODY_MODELS } from './render/bodyModel';
 import { CameraShake } from './render/cameraShake';
 import { placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
-import { createAutopilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createAutopilot, createBattlePilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
-import { playerVsAi, type MatchDriver } from './play/driver';
-import { devAutopilot, devAutopilotLoot, devRunRelics, devRunStart } from './devMode';
+import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
+import type { BattleScreen } from './play/battleScreen';
+import { devAutopilot, devAutopilotLoot, devBattlePilot, devMode, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { inventoryHoldsInput } from './play/inventoryView';
@@ -46,6 +47,8 @@ const cameraDir = new Vector3();
 const MAX_TICKS_PER_FRAME = 8;
 /** How long the final result stays on screen before the Lobby returns (seconds, cosmetic). */
 const RESULT_SECONDS = 2.5;
+/** How long a Battle's results screen stays up before the Lobby returns (seconds, cosmetic). */
+const BATTLE_RESULT_SECONDS = 8;
 /** How long a Run's results screen stays up, after its Final Blow Shot, before the Lobby returns (seconds, cosmetic). */
 const RUN_RESULT_SECONDS = 6;
 /** A Run's exit Halls are built one at a time this far apart (ms), so no one frame takes all of them. */
@@ -197,6 +200,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let attempt: Attempt | null = null;
   /** When the in-game menu last opened because the mouse was freed (the Esc that freed it must not close it again). */
   let pausedAt = -Infinity;
+  /** A Battle is being played (docs/plans/big-battle.md): its screen draws it (null while its code loads), not the Duel's loop. */
+  let battleOn = false;
+  let battle: BattleScreen | null = null;
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
@@ -246,11 +252,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function lobbyOptions(online: boolean): NewLobbyOptions {
     const weapon = weapons.find((w) => w === savedWeapon) ?? weapons[0]!;
     const random = savedArena !== null && savedArena.startsWith('gen:') && isArenaName(tuning, savedArena);
-    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, in a Skirmish and in a Room.
+    // The Format picked last: a Gauntlet on its Random Map, or a fresh one, in a Skirmish and in a Room; a Battle in a Skirmish only.
     const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
+    const battleFormat = savedFormat === 'Battle' && !online;
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
-    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
+    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
     return { host: { name: menu.name, weapon, body: menu.body }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
@@ -344,6 +351,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     playing = s.generation;
     lobbyShown = true;
     const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
+    // A restart replaces the Battle being played, if any.
+    battle?.dispose();
+    battle = null;
+    battleOn = false;
+    if (s.settings.format === 'Battle') return launchBattle(picks[0]!, playerNames, playerBodies);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
     const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
@@ -377,6 +389,26 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const doors = match.format ? devAutopilot() : null;
     const pilot = doors ? createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot()) : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
+  }
+
+  /**
+   * Start a Battle (offline, docs/plans/big-battle.md): the player's Fighter in the red army on a fresh Battlefield, with
+   * their Weapon and Body. Its screen (loaded on demand) bakes the soldiers' impostors before the first Tick.
+   */
+  function launchBattle(weapon: string, playerNames: readonly string[], playerBodies: readonly string[]): void {
+    matchTuning = tuning;
+    warmed = new Set();
+    setPlayed(null);
+    const pilot = devBattlePilot();
+    const d = playerInBattle(tuning, { weapon, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), ...(pilot ? { pilot: createBattlePilot(tuning, pilot) } : {}) });
+    game.play({ driver: d, names: playerNames, bodies: playerBodies });
+    battleOn = true;
+    hud.hide();
+    const arena = d.state!.arena;
+    void import('./play/battleScreen').then(({ BattleScreen }) => {
+      if (driver !== d) return;
+      battle = new BattleScreen(container, renderer, tuning, local, playerBodies[0] ?? menu.body, arena);
+    });
   }
 
   /** The broker options, or undefined (after showing why) if the URL is unusable. */
@@ -478,6 +510,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   };
 
   function stopMatch(): void {
+    battle?.dispose();
+    battle = null;
+    battleOn = false;
     driver?.close?.();
     driver = null;
     playing = 0;
@@ -672,6 +707,33 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
   }
 
+  /** A Battle's new Tick: its banners, and once it is over its results screen, then the Lobby. */
+  function presentBattle(match: MatchState, me: number): void {
+    const r = battle?.present(match, me);
+    if (!r || !battle) return;
+    resultText = battle.showResults(r, `Back to the Lobby in ${BATTLE_RESULT_SECONDS} seconds.`);
+    resultAt = performance.now() + BATTLE_RESULT_SECONDS * 1000;
+  }
+
+  // Dev mode only: play `ticks` of a Battle at once (for a browser that is not drawing at speed), with the Player's Intents
+  // as the loop would sample them (or the `battlePilot`'s). Reports where the Battle stands.
+  if (devMode())
+    (window as unknown as { battleAdvance: (ticks: number) => unknown }).battleAdvance = (ticks) => {
+      const d = driver;
+      if (!d || !battleOn || !battle?.ready) return 'no Battle running';
+      for (let k = 0; k < ticks && resultAt === null; k++) {
+        d.tick(local.sample());
+        prev = curr;
+        curr = d.state!;
+        renderer.impacts.onTick(curr.tick, curr.duel);
+        presentBattle(curr, d.localFighter);
+      }
+      const me = curr.duel.fighters[d.localFighter]!;
+      const crowd = curr.duel.crowd!;
+      const alive = [0, 1].map((t) => crowd.alive.filter((a, s) => a && crowd.team[s] === t).length);
+      return { tick: curr.tick, status: curr.status, record: crowd.players[d.localFighter], hp: me.hp, fallen: Boolean(me.death), at: me.position, alive, rout: crowd.rout, result: resultText };
+    };
+
   // --- The scene behind the menus ---
 
   let previewKey = '';
@@ -717,6 +779,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const frozen = menu.paused && !lobby?.online;
     // A Match's first state (Tick 0, with its first DuelStart) is never stepped into: hear it once it exists.
     if (driver?.state && !inShot) audio.onMatchTick(driver.state);
+    // A Battle waits for its soldiers' impostors to be baked.
+    if (battleOn && !battle?.ready) accumulator = 0;
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;
@@ -730,7 +794,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // Possibly predicted, or corrected by a Rollback: the Renderer just interpolates from the last state shown.
       prev = curr;
       curr = d.state;
-      if (finalBlow.record(curr, local.yaw, doorTicksNeeded(matchTuning)) && !inShot) {
+      if (!battleOn && finalBlow.record(curr, local.yaw, doorTicksNeeded(matchTuning)) && !inShot) {
         // The last Fighter of a Team fell: cut to the Final Blow Shot, which replays from a moment before.
         inShot = true;
         hud.cinematic(true);
@@ -743,6 +807,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         audio.onMatchTick(curr);
         renderer.impacts.onTick(curr.tick, curr.duel);
         shake.onTick(curr.tick, curr.duel.events, d.localFighter);
+      }
+      if (battleOn) {
+        presentBattle(curr, d.localFighter);
+        continue;
       }
       present(curr, d.localFighter);
       setPlayed(curr.arena);
@@ -773,7 +841,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       } else menu.showTitle(resultText);
     }
 
-    if (driver) {
+    if (driver && battleOn) {
+      battle?.draw(prev, curr, driver.localFighter, Math.min(1, accumulator / TICK_SECONDS), frozen ? 0 : elapsed);
+    } else if (driver) {
       const alpha = accumulator / TICK_SECONDS;
       // A fresh Duel resets the Fighters: don't interpolate across the swap.
       const before: SimState = prev.duelNumber === curr.duelNumber ? prev.duel : curr.duel;

@@ -7,10 +7,11 @@
 import type { TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import { stepBubbles } from './bubble';
-import { crowdAlive, stepCrowd, type CrowdFighter } from './crowd';
+import { crowdAlive, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState } from './crowd';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
 import type { MatchEvent, MatchState } from './match';
+import type { SimEvent } from './events';
 import { step } from './step';
 
 /** A Team routed: its Soldiers fell below `battle.rout.threshold` of the army and flee toward their edge. */
@@ -31,6 +32,26 @@ const TRAVEL_EPSILON = 1e-4;
 
 /** Ticks a routed Team flees before the Battle ends (`battle.rout.seconds`, at least 1). */
 export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.battle.rout.seconds));
+
+/**
+ * The Players' records with this Tick's kills counted: a Fighter that fell to a Hit, Kick or Throwing Dagger of a Player's
+ * Fighter (one of the first `players` slots) on another Team is that Player's kill.
+ */
+function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[], teams: readonly number[], players: number): readonly BattlePlayer[] {
+  let out: BattlePlayer[] | null = null;
+  for (const e of events) {
+    if (e.type !== 'Death') continue;
+    let by = -1;
+    for (const b of events) {
+      if ((b.type === 'Hit' || b.type === 'KickLanded') && b.defender === e.fighter) by = b.attacker;
+      else if (b.type === 'DaggerHit' && b.defender === e.fighter) by = b.thrower;
+    }
+    if (by < 0 || by >= players || teams[by] === teams[e.fighter] || !records[by]) continue;
+    out ??= records.slice();
+    out[by] = { ...out[by]!, kills: out[by]!.kills + 1 };
+  }
+  return out ?? records;
+}
 
 /**
  * One Tick of a Battle in progress (the Battle branch of `stepMatch`): the Bubbles promote and demote (`stepBubbles`, the
@@ -56,7 +77,9 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
     const dz = moving ? oz / d : 0;
     return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
   });
-  const crowd = stepCrowd(before, duel.tick, tuning.battle, fighters);
+  const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters);
+  const tally = countKills(stepped.players, duel.events, duel.fighters.map((f) => f.team), players);
+  const crowd = tally === stepped.players ? stepped : { ...stepped, players: tally };
   duel = { ...duel, crowd };
   if (!before.rout && crowd.rout) events.push({ type: 'Rout', team: crowd.rout.team });
   let { status, score } = match;

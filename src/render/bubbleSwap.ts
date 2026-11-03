@@ -77,6 +77,11 @@ export class BubbleSwap {
     return this.bound[k] ? 1 : 0;
   }
 
+  /** Drop any swap in progress of Soldier `soldier` (a Player took it over: its model is drawn in the Player's slot now). */
+  forget(soldier: number): void {
+    for (const [k, f] of this.fading) if (f.soldier === soldier) this.fading.delete(k);
+  }
+
   /** Each Soldier's impostor's share (0 to 1) into `out`: none while promoted, all otherwise, crossfading with its slot's model during a swap. */
   impostorFades(crowd: CrowdState, out: Float32Array): Float32Array {
     for (let i = 0; i < crowd.slot.length; i++) out[i] = crowd.slot[i]! >= 0 ? 0 : 1;

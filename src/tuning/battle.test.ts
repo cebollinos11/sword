@@ -44,7 +44,7 @@ describe('Battle Tuning Data (data/battle.json)', () => {
   it('sets the Attack Slots (4 enemies, 3 allies) and the waiting ring just outside sword reach', () => {
     const b = tuning.battle;
     expect(b.slots).toEqual({ enemies: 4, allies: 3, engaged: 2.5 });
-    expect(b.ring).toEqual({ radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8 });
+    expect(b.ring).toEqual({ radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 });
     expect(parseBattle({ ...b, slots: { ...b.slots, allies: 0 } }).slots.allies).toBe(0);
     expect(() => parseBattle({ ...b, slots: { ...b.slots, enemies: 0 } })).toThrow(/battle\.slots\.enemies/);
     expect(() => parseBattle({ ...b, slots: { ...b.slots, allies: 1.5 } })).toThrow(/battle\.slots\.allies must be a whole number/);
@@ -57,7 +57,19 @@ describe('Battle Tuning Data (data/battle.json)', () => {
   it('is part of the Tuning Data hash', () => {
     const base = tuningDataHash(tuning);
     const b = tuning.battle;
-    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, ring: { ...b.ring, radius: 4 } }])
+    for (const battle of [{ ...b, armySize: 199 }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, ring: { ...b.ring, radius: 4 } }, { ...b, ring: { ...b.ring, waiting: 9 } }, { ...b, takeover: { seconds: 2 } }, { ...b, soldier: { ...b.soldier, difficulty: 'Skilled' } }, { ...b, soldier: { ...b.soldier, style: { aggression: 0.5 } } }, { ...b, soldier: { ...b.soldier, mods: { damage: 0.6 } } }])
       expect(tuningDataHash({ ...tuning, battle })).not.toBe(base);
+  });
+
+  it("sets the takeover's delay, the waiting ring's cap and how a promoted soldier fights, Battle only", () => {
+    const b = tuning.battle;
+    expect(b.takeover).toEqual({ seconds: 1.5 });
+    expect(b.soldier).toMatchObject({ difficulty: 'Beginner', style: { throwRate: 0 }, mods: { damage: 0.5 } });
+    expect(() => parseBattle({ ...b, ring: { ...b.ring, waiting: 2.5 } })).toThrow(/battle\.ring\.waiting must be a whole number/);
+    expect(() => parseBattle({ ...b, takeover: { seconds: -1 } })).toThrow(/battle\.takeover\.seconds/);
+    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, difficulty: 'Godlike' } }, undefined, ['Beginner'])).toThrow(/battle\.soldier\.difficulty "Godlike"/);
+    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, style: { reactionTime: 2 } } }, undefined, undefined, ['aggression'])).toThrow(/battle\.soldier\.style\.reactionTime/);
+    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, mods: { maxHp: 1 } } })).toThrow(/battle\.soldier\.mods\.maxHp/);
+    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, mods: { damage: 0 } } })).toThrow(/battle\.soldier\.mods/);
   });
 });

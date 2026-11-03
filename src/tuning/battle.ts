@@ -3,6 +3,7 @@
  * and terrain, where the armies deploy, how the Crowd steps, moves and fights, and when a Team routs. Distances in metres,
  * speeds in m/s, HP in a Fighter's units, times in seconds.
  */
+import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export interface BattlefieldTuning {
@@ -62,6 +63,15 @@ export interface SoldierTuning {
   readonly weapon: string;
   /** Each Team's colour (0xRRGGBB), on the Body's team-coloured part: [Team 0, Team 1]. Render-only. */
   readonly colours: readonly [number, number];
+  /** The AI difficulty a promoted Soldier plays (a name from `ai.difficulties`). */
+  readonly difficulty: string;
+  /** How a promoted Soldier fights in a Battle: a Style (multipliers on that difficulty's chances, as `ai.styles`), for the Battle only, so no Duel changes. */
+  readonly style: Readonly<Record<string, number>>;
+  /**
+   * A promoted Soldier's Mods, as a Relic's effects (multipliers only: `damage`, `damageTaken`, ...), so a soldier fights as a
+   * soldier, not as a Duel's Fighter. A Player who takes a Soldier over drops them: it fights at its own strength.
+   */
+  readonly mods: RelicEffects;
 }
 
 /**
@@ -109,6 +119,14 @@ export interface RingTuning {
   readonly pathAhead: number;
   /** ...and less than this (m) to either side of its line: then, if they are on one Team, it steps aside. */
   readonly pathWidth: number;
+  /** The most enemy Soldiers that wait on a Player's ring at once, the nearest it (a whole number, 0 or more); the others fight on in the Crowd. */
+  readonly waiting: number;
+}
+
+/** Taking over an ally (docs/plans/big-battle.md, Stage 5): a Player whose Fighter falls plays on as the nearest living ally Soldier. */
+export interface TakeoverTuning {
+  /** How long after its Fighter falls (s) a Player takes over its ally, its fall played out first. */
+  readonly seconds: number;
 }
 
 export interface BattleTuning {
@@ -122,6 +140,7 @@ export interface BattleTuning {
   readonly bubble: BubbleTuning;
   readonly slots: SlotsTuning;
   readonly ring: RingTuning;
+  readonly takeover: TakeoverTuning;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -144,7 +163,7 @@ function colour(v: unknown, where: string): number {
 }
 
 /** Validate the raw Battle Tuning Data (with the Weapon roster's names, to check the soldier's Weapon, when given). Accepts its own output. */
-export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTuning {
+export function parseBattle(raw: unknown, weapons?: readonly string[], difficulties?: readonly string[], styleKeys?: readonly string[]): BattleTuning {
   const b = record(raw, 'battle');
   const f = record(b.field, 'battle.field');
   const d = record(b.deploy, 'battle.deploy');
@@ -154,6 +173,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   const u = record(b.bubble, 'battle.bubble');
   const sl = record(b.slots, 'battle.slots');
   const rg = record(b.ring, 'battle.ring');
+  const tk = record(b.takeover, 'battle.takeover');
   const field: BattlefieldTuning = {
     size: positiveNumber(f, 'size', 'battle.field'),
     cell: positiveNumber(f, 'cell', 'battle.field'),
@@ -187,6 +207,14 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
   if (depth >= field.size / 2 || width >= field.size) throw new TuningDataError(`battle.deploy: an army of ${armySize} (${width} m wide, its last rank ${depth} m out) must fit inside the ${field.size} m field`);
   const weapon = nonEmptyString(s, 'weapon', 'battle.soldier');
   if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`battle.soldier.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
+  const difficulty = nonEmptyString(s, 'difficulty', 'battle.soldier');
+  if (difficulties && !difficulties.includes(difficulty)) throw new TuningDataError(`battle.soldier.difficulty "${difficulty}" is not an AI difficulty (${difficulties.join(', ')})`);
+  const st = record(s.style, 'battle.soldier.style');
+  for (const k of Object.keys(st)) if (styleKeys && !styleKeys.includes(k)) throw new TuningDataError(`battle.soldier.style.${k}: a Style scales only ${styleKeys.join(', ')}`);
+  const style = Object.fromEntries(Object.keys(st).map((k) => [k, nonNegativeNumber(st, k, 'battle.soldier.style')]));
+  const md = record(s.mods, 'battle.soldier.mods');
+  for (const k of Object.keys(md)) if (!(RELIC_MULTIPLIERS as readonly string[]).includes(k)) throw new TuningDataError(`battle.soldier.mods.${k}: a soldier's Mods are only ${RELIC_MULTIPLIERS.join(', ')}`);
+  const mods = Object.fromEntries(Object.keys(md).map((k) => [k, positiveNumber(md, k, 'battle.soldier.mods')])) as RelicEffects;
   const colours = array(s.colours, 'battle.soldier.colours');
   if (colours.length !== 2) throw new TuningDataError(`battle.soldier.colours must be [Team 0, Team 1], got ${JSON.stringify(s.colours)}`);
   const bubble: BubbleTuning = {
@@ -208,7 +236,9 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
     spacing: positiveNumber(rg, 'spacing', 'battle.ring'),
     pathAhead: positiveNumber(rg, 'pathAhead', 'battle.ring'),
     pathWidth: positiveNumber(rg, 'pathWidth', 'battle.ring'),
+    waiting: nonNegativeNumber(rg, 'waiting', 'battle.ring'),
   };
+  if (!Number.isInteger(ring.waiting)) throw new TuningDataError(`battle.ring.waiting must be a whole number, got ${ring.waiting}`);
   if (ring.radius < bubble.hold || ring.radius >= bubble.promote) throw new TuningDataError(`battle.ring.radius (${ring.radius}) must be at least battle.bubble.hold (${bubble.hold}) and less than battle.bubble.promote (${bubble.promote})`);
   return {
     armySize,
@@ -220,9 +250,13 @@ export function parseBattle(raw: unknown, weapons?: readonly string[]): BattleTu
       body: nonEmptyString(s, 'body', 'battle.soldier'),
       weapon,
       colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
+      difficulty,
+      style,
+      mods,
     },
     bubble,
     slots,
     ring,
+    takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover') },
   };
 }

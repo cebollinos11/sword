@@ -752,7 +752,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
-    battle: parseBattle(root.battle, Object.keys(weapons)),
+    battle: parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS),
     skeleton,
     ai,
     gait: parseGait(root.gait),
