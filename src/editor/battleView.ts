@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ATTACK, battlefieldHeight, battleMapOf, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, LINE, LOOSE, orderSpot, owned, placeOffset, routTicks, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
+import { ATTACK, battlefieldHeight, battleMapOf, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, formationSpot, LINE, LOOSE, orderSpot, owned, routTicks, squadNarrows, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
 import { applyBattleKnobs, type TuningData } from '../tuning';
 
 const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
@@ -196,6 +196,8 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     anchors.visible = dots.visible = squadsBox.checked;
     if (!squadsBox.checked) return;
     const sq = c.squads;
+    // Places as the Soldiers steer to them: narrowed through a pass, and moved in out of a wall (Stage 3b).
+    const narrow = squadNarrows(tuning.battle, map, sq);
     for (let k = 0; k < squadCount; k++) {
       if (sq.living[k] === 0) anchors.setMatrixAt(k, hidden);
       else anchors.setMatrixAt(k, m4.compose(p.set(sq.x[k]!, battlefieldHeight(hf, sq.x[k]!, sq.z[k]!) + 3, sq.z[k]!), q.setFromAxisAngle(up, sq.heading[k]!), one));
@@ -207,9 +209,8 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
         dots.setMatrixAt(i, hidden);
         continue;
       }
-      placeOffset(tuning.battle, sq.shape[k]!, c.place[i]!, sq.heading[k]!, place);
-      const x = sq.x[k]! + place[0];
-      const z = sq.z[k]! + place[1];
+      formationSpot(tuning.battle, map, sq, k, c.place[i]!, narrow[k]!, place);
+      const [x, z] = place;
       dots.setMatrixAt(i, m4.compose(p.set(x, battlefieldHeight(hf, x, z) + 0.15, z), q.identity(), one));
       dots.setColorAt(i, colour.setHex(TEAM_COLOURS[c.team[i]!]!));
     }
@@ -268,7 +269,8 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     const kinds = [ATTACK, DEFEND].map((o) => c.squads.order.filter((v, k) => v === o && c.squads.living[k]! > 0 && !c.squads.fall[k]).length);
     const objectivesLine = map.field.objectives.map((o, k) => `${o.id} ${c.objectives.owner[k] === -1 ? '-' : c.objectives.owner[k]} ${c.objectives.progress[k]!.toFixed(2)}`).join('  ');
     const ticketsLine = `Tickets ${c.tickets.map((t) => t.toFixed(0)).join(' / ')}  Objectives ${owned(c.objectives, 0)} v ${owned(c.objectives, 1)}  Orders: attack ${kinds[0]} defend ${kinds[1]}, empty ${c.squads.living.filter((l) => l === 0).length}`;
-    const squadsLine = `${ticketsLine}\n${objectivesLine}\nSquads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
+    const narrowed = squadNarrows(tuning.battle, map, c.squads).filter((w, k) => w > 0 && c.squads.living[k]! > 0).length;
+    const squadsLine = `${ticketsLine}\n${objectivesLine}\nSquads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, narrowed ${narrowed}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
     status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (red)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${squadsLine}\n${rout}${over}`;
   };
 

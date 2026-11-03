@@ -269,9 +269,11 @@ function overlapping(field: Battlefield, x: number, z: number, radius: number, t
  * on a curtain wall, are one wall), by its shallowest side at all when every side does, until it overlaps none or PUSH_PASSES run out.
  * Team 0 looks at the blocks in ascending order and breaks a tie -x, +x, -z, +z; Team 1 in descending order, +x, -x, +z, -z: a map's block
  * k is the half turn of its block `length - 1 - k` (as its Objectives are), so each army is pushed as the other is, turned with the map.
- * A crude push (Stage 3a): it keeps Soldiers out of the walls, it does not walk them round. Whether it moved the body. Deterministic.
+ * A step from (fromX, fromZ), given, that walked into a block from outside it slides along it instead (Stage 3b): out by the side it
+ * came in through (the side whose face it crossed last), keeping the part of its step along that side, when that lands in no other block.
+ * Whether it moved the body. Deterministic.
  */
-export function pushOutOfBlocks(field: Battlefield, x: number, z: number, radius: number, team: number, out: [number, number]): boolean {
+export function pushOutOfBlocks(field: Battlefield, x: number, z: number, radius: number, team: number, out: [number, number], fromX = NaN, fromZ = NaN): boolean {
   out[0] = x;
   out[1] = z;
   if (field.blocks.length === 0) return false;
@@ -283,6 +285,15 @@ export function pushOutOfBlocks(field: Battlefield, x: number, z: number, radius
     if (!hit) break;
     const ways = [out[0] - (hit.minX - radius), hit.maxX + radius - out[0], out[1] - (hit.minZ - radius), hit.maxZ + radius - out[1]];
     const to = (w: number): [number, number] => (w === 0 ? [hit.minX - radius, out[1]] : w === 1 ? [hit.maxX + radius, out[1]] : w === 2 ? [out[0], hit.minZ - radius] : [out[0], hit.maxZ + radius]);
+    const entered = pass === 0 ? entrySide(hit, radius, fromX, fromZ, x, z, order) : -1;
+    if (entered >= 0) {
+      const [tx, tz] = to(entered);
+      if (!overlapping(field, tx, tz, radius, team, hit)) {
+        [out[0], out[1]] = [tx, tz];
+        moved = true;
+        continue;
+      }
+    }
     let best = -1;
     let any: number = order[0];
     for (const w of order) {
@@ -294,6 +305,23 @@ export function pushOutOfBlocks(field: Battlefield, x: number, z: number, radius
     moved = true;
   }
   return moved;
+}
+
+/**
+ * The side of block `b` (grown by `radius`; -x, +x, -z, +z as `WAYS`) a step from (fx, fz) to (x, z) came in through: the one whose face
+ * it crossed last. -1 when it started inside (or was not given). A step through a corner exactly, both faces at once, takes the first of
+ * the two in `order`.
+ */
+function entrySide(b: WallBlock, radius: number, fx: number, fz: number, x: number, z: number, order: readonly number[]): number {
+  const outX = fx <= b.minX - radius ? 0 : fx >= b.maxX + radius ? 1 : -1;
+  const outZ = fz <= b.minZ - radius ? 2 : fz >= b.maxZ + radius ? 3 : -1;
+  if (outX < 0) return outZ;
+  if (outZ < 0) return outX;
+  // Outside on both axes: the face crossed later is the one it came in through.
+  const tx = ((outX === 0 ? b.minX - radius : b.maxX + radius) - fx) / (x - fx);
+  const tz = ((outZ === 2 ? b.minZ - radius : b.maxZ + radius) - fz) / (z - fz);
+  if (tx !== tz) return tx > tz ? outX : outZ;
+  return order.indexOf(outX) < order.indexOf(outZ) ? outX : outZ;
 }
 
 /** The four Walls round a block, each solid from below the floor to the block's top. */

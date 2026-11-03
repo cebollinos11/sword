@@ -37,7 +37,7 @@ function goodRaw() {
       field: { size: 100, cell: 10, hillHeight: 1, hillLength: 50 },
       deploy: { front: 10, perRank: 10 },
       crowd: { stagger: 6, walkSpeed: 2.5, hp: 100, damage: [8, 20], hitChance: 0.35, engageReach: 1.6, separation: 0.9, sight: 12, flowCell: 4 },
-      squad: { size: 12, spacing: 1.5, turnRate: 1.2, catchUp: 1.2, speed: 0.8, lag: 6, brainSeconds: 0.5, moraleThreshold: 0.3, looseBelow: 0.5, engage: 15, mergeRange: 6, mergeMax: 16, baseDistance: 45, column: { wide: 3 }, line: { wide: 6 }, loose: { spread: 0.8 } },
+      squad: { size: 12, spacing: 1.5, turnRate: 1.2, catchUp: 1.2, speed: 0.8, lag: 6, brainSeconds: 0.5, moraleThreshold: 0.3, looseBelow: 0.5, engage: 15, mergeRange: 6, mergeMax: 16, baseDistance: 45, column: { wide: 3 }, line: { wide: 6 }, loose: { spread: 0.8 }, narrow: { room: 3, ahead: 6 } },
       objectives: { radius: 8, playerCount: 3, captureSeconds: 0.5, rate: 0.01, maxRate: 0.08, openField: [{ id: 'A', x: 0, z: 0, weight: 1, owner: -1, spawn: false }] },
       tickets: { perSoldier: 2, drain: 0.3, limitSeconds: 900, respawnSeconds: 10 },
       commander: { planSeconds: 2.5, holdSeconds: 15, stick: 0.25, falloff: 0.6, distance: 0.004, threatRadius: 30, danger: 0.15, attack: 1, retake: 1.2, garrison: 0.3, defend: 1.5 },

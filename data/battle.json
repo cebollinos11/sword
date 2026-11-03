@@ -37,7 +37,8 @@
     "baseDistance": 85,
     "column": { "wide": 3 },
     "line": { "wide": 6 },
-    "loose": { "spread": 0.8 }
+    "loose": { "spread": 0.8 },
+    "narrow": { "room": 3, "ahead": 6 }
   },
   "objectives": {
     "radius": 12,

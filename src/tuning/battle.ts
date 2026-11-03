@@ -89,6 +89,12 @@ export interface SquadTuning {
   readonly line: { readonly wide: number };
   /** The loose Formation: places on a spiral, this many times the `spacing` apart (above 1 a looser crowd, below 1 a tighter one). */
   readonly loose: { readonly spread: number };
+  /**
+   * Narrow passes (docs/plans/battle-objectives.md, Stage 3b): a Formation narrows to as many files as fit the clearance ahead (from
+   * its anchor to `ahead` m past it), keeping `room` m between its outer files and the nearest wall, so a line becomes a column through
+   * a gate and opens out beyond it. Nothing narrows on the open field (no walls).
+   */
+  readonly narrow: { readonly room: number; readonly ahead: number };
 }
 
 /** One Objective of a map (docs/plans/battle-objectives.md, Stage 2a): where it is, what it is worth to a Commander, who owns it at the start. */
@@ -444,6 +450,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const column = record(sq.column, 'battle.squad.column');
   const line = record(sq.line, 'battle.squad.line');
   const loose = record(sq.loose, 'battle.squad.loose');
+  const narrow = record(sq.narrow, 'battle.squad.narrow');
   const squad: SquadTuning = {
     size: wholeNumber(sq, 'size', 'battle.squad'),
     spacing: positiveNumber(sq, 'spacing', 'battle.squad'),
@@ -461,6 +468,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     column: { wide: wholeNumber(column, 'wide', 'battle.squad.column') },
     line: { wide: wholeNumber(line, 'wide', 'battle.squad.line') },
     loose: { spread: positiveNumber(loose, 'spread', 'battle.squad.loose') },
+    narrow: { room: positiveNumber(narrow, 'room', 'battle.squad.narrow'), ahead: positiveNumber(narrow, 'ahead', 'battle.squad.narrow') },
   };
   if (squad.catchUp < 1) throw new TuningDataError(`battle.squad.catchUp must be at least 1, got ${squad.catchUp}`);
   if (squad.speed > 1) throw new TuningDataError(`battle.squad.speed must be at most 1, got ${squad.speed}`);

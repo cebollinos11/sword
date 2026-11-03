@@ -8,8 +8,9 @@
  * A cell holds the length (m) of the shortest path from it to the destination over the cells that are not blocked (8 ways, the
  * diagonal costing √2), and -1 when it cannot be reached. The open field has no Walls, so no cell is blocked and its clearance is
  * unbounded; a hand-built map's blocks (its walls and towers, Stage 3a) block the cells whose centres they cover, and a blocked cell holds
- * one step more than its lowest open neighbour (Stage 3b stores a clearance per cell). Where nothing stands between a point and a
- * destination the anchor walks straight at it (`steerToward`); the field leads it round what does.
+ * one step more than its lowest open neighbour. Where nothing stands between a point and a destination the anchor walks straight at it
+ * (`steerToward`); the field leads it round what does. Each cell also stores its clearance (Stage 3b): how far its centre is from the
+ * nearest block, which a Squad's Formation narrows to (`clearanceAt`, `formationNarrow` in `squad.ts`).
  */
 import type { BattleTuning, WallBlock } from '../tuning';
 import { battlefieldOf, inBlock, type Battlefield } from './battlefield';
@@ -24,6 +25,11 @@ export interface DestinationFields {
   /** Per destination, per cell (row by row along z): the path length (m) to it, or -1. */
   readonly dist: readonly Float64Array[];
   readonly objectives: number;
+  /**
+   * Per cell, how far (m) its centre is from the nearest of the map's blocks (negative inside one): static, like the fields. Null on the
+   * open field, where nothing is ever near (`clearanceAt` is Infinity).
+   */
+  readonly clearance: Float64Array | null;
   /** The map's solid blocks (none on the open field), and how far (m) a straight line keeps from them to count as clear (`lineClear`). */
   readonly blocks: readonly WallBlock[];
   readonly margin: number;
@@ -153,9 +159,62 @@ export function destinationFields(battle: BattleTuning, field: Battlefield): Des
   const places = [...field.objectives, ...field.bases];
   const dist = places.map((p) => fill(side, cell, blocked, cellOf(p.z, cell, side) * side + cellOf(p.x, cell, side)));
   if (field.blocks.length > 0) for (const d of dist) fillBlocked(d, side, cell, blocked);
-  const fields: DestinationFields = { cell, side, blocked, dist, objectives: field.objectives.length, blocks: field.blocks, margin: battle.squad.spacing };
+  const clearance = field.blocks.length > 0 ? clearanceOf(field.blocks, side, cell) : null;
+  const fields: DestinationFields = { cell, side, blocked, dist, objectives: field.objectives.length, clearance, blocks: field.blocks, margin: battle.squad.spacing };
   built.set(field, fields);
   return fields;
+}
+
+/** How far (m) (x, z) is from block `b`'s sides: negative inside it, by the depth to its nearest side. */
+function blockDistance(b: WallBlock, x: number, z: number): number {
+  const dx = Math.max(b.minX - x, x - b.maxX);
+  const dz = Math.max(b.minZ - z, z - b.maxZ);
+  return dx <= 0 && dz <= 0 ? Math.max(dx, dz) : Math.hypot(Math.max(0, dx), Math.max(0, dz));
+}
+
+/** Each cell's clearance (see `DestinationFields.clearance`): its centre's distance from the nearest block. */
+function clearanceOf(blocks: readonly WallBlock[], side: number, cell: number): Float64Array {
+  const mid = (side - 1) / 2;
+  const out = new Float64Array(side * side);
+  for (let c = 0; c < out.length; c++) {
+    const x = ((c % side) - mid) * cell;
+    const z = (Math.floor(c / side) - mid) * cell;
+    let near = Infinity;
+    for (const b of blocks) near = Math.min(near, blockDistance(b, x, z));
+    out[c] = near;
+  }
+  return out;
+}
+
+/**
+ * The clearance (m) at (x, z): the cells' clearances round it blended by where it stands among their centres (bilinear), so it falls
+ * smoothly toward a wall. Infinity on the open field. Off the grid, the edge cells'.
+ */
+export function clearanceAt(f: DestinationFields, x: number, z: number): number {
+  const cl = f.clearance;
+  if (!cl) return Infinity;
+  const mid = (f.side - 1) / 2;
+  const gx = Math.min(f.side - 1, Math.max(0, x / f.cell + mid));
+  const gz = Math.min(f.side - 1, Math.max(0, z / f.cell + mid));
+  const cx = Math.min(f.side - 2, Math.floor(gx));
+  const cz = Math.min(f.side - 2, Math.floor(gz));
+  const u = gx - cx;
+  const v = gz - cz;
+  const at = cz * f.side + cx;
+  return (cl[at]! * (1 - u) + cl[at + 1]! * u) * (1 - v) + (cl[at + f.side]! * (1 - u) + cl[at + f.side + 1]! * u) * v;
+}
+
+/**
+ * A clearance (m) that (x, z) certainly has: its cell's less its distance from the cell's centre (a wall can be no nearer). Infinity on the
+ * open field. A line from (x, z) shorter than this, less a body's half width, passes no block: the walls' tests can be skipped.
+ */
+export function clearanceBelow(f: DestinationFields, x: number, z: number): number {
+  const cl = f.clearance;
+  if (!cl) return Infinity;
+  const cx = cellOf(x, f.cell, f.side);
+  const cz = cellOf(z, f.cell, f.side);
+  const mid = (f.side - 1) / 2;
+  return cl[cz * f.side + cx]! - Math.hypot(x - (cx - mid) * f.cell, z - (cz - mid) * f.cell);
 }
 
 /** The path length (m) from (x, z) to destination `d`, or -1 where it cannot be reached. */
@@ -165,12 +224,14 @@ export function fieldDistance(f: DestinationFields, d: number, x: number, z: num
 
 /** Whether the segment from (x, z) to (tx, tz) passes within `margin` of block `b` (a slab test against the block grown by it). */
 function crosses(b: WallBlock, margin: number, x: number, z: number, tx: number, tz: number): boolean {
+  // One axis's slab at a time (x, then z), narrowing the share [t0, t1] of the segment inside both.
   let t0 = 0;
   let t1 = 1;
-  for (const [p, d, lo, hi] of [
-    [x, tx - x, b.minX - margin, b.maxX + margin],
-    [z, tz - z, b.minZ - margin, b.maxZ + margin],
-  ] as const) {
+  for (let axis = 0; axis < 2; axis++) {
+    const p = axis === 0 ? x : z;
+    const d = axis === 0 ? tx - x : tz - z;
+    const lo = (axis === 0 ? b.minX : b.minZ) - margin;
+    const hi = (axis === 0 ? b.maxX : b.maxZ) + margin;
     if (Math.abs(d) < 1e-12) {
       if (p <= lo || p >= hi) return false;
       continue;
@@ -199,9 +260,12 @@ export function lineClear(f: DestinationFields, x: number, z: number, tx: number
   return true;
 }
 
-/** Whether one can see from (x, z) to (tx, tz): no block of a hand-built map stands across the line (always, on the open field). */
-export function inSight(f: DestinationFields, x: number, z: number, tx: number, tz: number): boolean {
-  for (const b of f.blocks) if (crosses(b, 0, x, z, tx, tz)) return false;
+/**
+ * Whether one can see from (x, z) to (tx, tz): no block of a hand-built map stands across the line (always, on the open field). With
+ * `margin`, whether a body that wide (m, each side) can walk it: the line keeps that far from every block.
+ */
+export function inSight(f: DestinationFields, x: number, z: number, tx: number, tz: number, margin = 0): boolean {
+  for (const b of f.blocks) if (crosses(b, margin, x, z, tx, tz)) return false;
   return true;
 }
 
@@ -221,9 +285,11 @@ const TIE = 1e-9;
 /**
  * The heading (yaw) from (x, z) toward the centre of the lowest of the 8 cells round it in destination `d`'s field, or null at a minimum or
  * where the field does not reach. On a tie (two ways round a wall as long), the first in `STEPS` order for Team 0, and for Team 1 the first in
- * that order turned half round, so each Team takes the other's way turned with the map (the armies are a half turn of each other).
+ * that order turned half round, so each Team takes the other's way turned with the map (the armies are a half turn of each other). With
+ * `room`, a cell whose centre is nearer a block than that (its clearance) counts as blocked too, so a body that wide never walks at a
+ * centre on a wall's face (Stage 3b: a Soldier walking round).
  */
-export function descend(f: DestinationFields, d: number, x: number, z: number, team = 0): number | null {
+export function descend(f: DestinationFields, d: number, x: number, z: number, team = 0, room = 0): number | null {
   const turn = team === 1 ? -1 : 1;
   const field = f.dist[d]!;
   const cx = cellOf(x, f.cell, f.side);
@@ -231,6 +297,8 @@ export function descend(f: DestinationFields, d: number, x: number, z: number, t
   let best = -1;
   let bestD = field[cz * f.side + cx]!;
   if (bestD < 0) return null;
+  const cl = room > 0 ? f.clearance : null;
+  const shut = (c: number): boolean => f.blocked[c] === 1 || (cl !== null && cl[c]! < room);
   for (const [sx, sz] of STEPS) {
     const dx = sx * turn;
     const dz = sz * turn;
@@ -238,13 +306,33 @@ export function descend(f: DestinationFields, d: number, x: number, z: number, t
     const nz = cz + dz;
     if (nx < 0 || nz < 0 || nx >= f.side || nz >= f.side) continue;
     // Never into a blocked cell, nor diagonally past a blocked corner, as the field's own paths never go (out of a blocked cell, any way).
-    if (f.blocked[nz * f.side + nx] || (dx !== 0 && dz !== 0 && (f.blocked[cz * f.side + nx] || f.blocked[nz * f.side + cx]))) continue;
+    if (shut(nz * f.side + nx) || (dx !== 0 && dz !== 0 && (shut(cz * f.side + nx) || shut(nz * f.side + cx)))) continue;
     const v = field[nz * f.side + nx]!;
     if (v >= 0 && v < bestD - TIE) [best, bestD] = [nz * f.side + nx, v];
   }
   if (best < 0) return null;
   const mid = (f.side - 1) / 2;
   return Math.atan2(((best % f.side) - mid) * f.cell - x, (Math.floor(best / f.side) - mid) * f.cell - z);
+}
+
+/**
+ * The destination whose field best leads from (x, z) toward (tx, tz), for a Soldier walled off from its Squad (Stage 3b): the one whose path
+ * from (x, z) is the most longer than its path from (tx, tz), so (tx, tz) lies the most nearly on the way to it (the best of the lower bounds
+ * the fields give on the walk between the two points). Team 1 looks at the destinations in Team 0's order turned half round (Objective k
+ * as Objective n - 1 - k, each Team's Base as the other's), so a tie goes the mirrored way. -1 when no field reaches both.
+ */
+export function toward(f: DestinationFields, x: number, z: number, tx: number, tz: number, team = 0): number {
+  const n = f.objectives;
+  let best = -1;
+  let gain = -Infinity;
+  for (let j = 0; j < f.dist.length; j++) {
+    const d = team === 1 ? (j < n ? n - 1 - j : 2 * n + 1 - j) : j;
+    const from = fieldDistance(f, d, x, z);
+    const to = fieldDistance(f, d, tx, tz);
+    if (from < 0 || to < 0) continue;
+    if (from - to > gain + TIE) [best, gain] = [d, from - to];
+  }
+  return best;
 }
 
 /** What a Battle's Squads and Commanders read of the map: the Battlefield (its Objectives and Bases) and the destination fields to them. Static. */

@@ -28,7 +28,7 @@ import { deployLayout, squadSizes, type BattleTuning } from '../tuning';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import type { CrowdFighter, CrowdState } from './crowd';
 import { inBlock, pushOutOfBlocks } from './battlefield';
-import { inSight, steerToward, type BattleMap } from './destinations';
+import { clearanceAt, clearanceBelow, inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
 import { respawnTicks } from './objectives';
 
 export const COLUMN = 0;
@@ -70,14 +70,20 @@ export interface SquadState {
   readonly respawnAt: readonly number[];
 }
 
-/** How many times nearer the centre a place in an Objective's circle is tried when it falls inside a map's block, before the centre itself. */
-const SPOT_TRIES = 4;
+/** The golden angle (radians), which spreads places round an Objective's centre. */
+const GOLDEN = 2.399963229728653;
+/** How many more places in an Objective's circle a Squad tries on a map when its own has no room for its Formation (`orderSpot`). */
+const SPOT_TRIES = 6;
+/** How far out (share of the radius) those other places reach: inside the circle, so the Squad still counts there. */
+const SPOT_REACH = 0.85;
 
 /**
  * Squad `q`'s (of `per` in its army) own place at destination `target` (an Objective's index, or `objectives + team` for a Base) as a world
  * point: a place in the Objective's circle, spread by the Squad's place in its army (the golden angle) and turned half a turn for Team 1 as the
- * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it. A place inside a map's block (a
- * wall across a gatehouse's circle) moves in toward the centre, along its own line, until it is clear.
+ * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it. On a map, a place without room for a
+ * column (`narrow.room` from the walls past its outer files: a wall across a gatehouse's circle) gives way to the first of the Squad's own
+ * further places that has (Stage 3b): its share of a denser spiral over the circle (every `per`-th place from its own), so two Squads never
+ * share one; to the roomiest of them when none has.
  */
 export function orderSpot(map: BattleMap, target: number, q: number, per: number, battle: BattleTuning, out: [number, number]): void {
   const { objectives, bases } = map.field;
@@ -92,14 +98,28 @@ export function orderSpot(map: BattleMap, target: number, q: number, per: number
     return;
   }
   const o = objectives[target]!;
-  const angle = k * 2.399963229728653;
   const reach = 0.7 * o.radius * Math.sqrt((k + 0.5) / per);
-  for (let t = 0; t <= SPOT_TRIES; t++) {
-    const r = (reach * (SPOT_TRIES - t)) / SPOT_TRIES;
-    out[0] = o.x + sign * Math.sin(angle) * r;
-    out[1] = o.z + sign * Math.cos(angle) * r;
-    if (!inBlock(map.field, out[0], out[1])) return;
+  out[0] = o.x + sign * Math.sin(k * GOLDEN) * reach;
+  out[1] = o.z + sign * Math.cos(k * GOLDEN) * reach;
+  if (!map.fields.clearance) return;
+  const need = battle.squad.narrow.room + ((battle.squad.column.wide - 1) / 2) * battle.squad.spacing;
+  let best = clearanceAt(map.fields, out[0], out[1]);
+  if (best >= need) return;
+  let bx = out[0];
+  let bz = out[1];
+  for (let t = 1; t <= SPOT_TRIES; t++) {
+    const j = k + t * per;
+    const r = SPOT_REACH * o.radius * Math.sqrt((j + 0.5) / (per * (SPOT_TRIES + 1)));
+    const x = o.x + sign * Math.sin(j * GOLDEN) * r;
+    const z = o.z + sign * Math.cos(j * GOLDEN) * r;
+    const clear = clearanceAt(map.fields, x, z);
+    if (clear > best) [best, bx, bz] = [clear, x, z];
+    if (clear >= need) break;
   }
+  // The centre, never inside a block, if even the roomiest is.
+  const blocked = inBlock(map.field, bx, bz);
+  out[0] = blocked ? o.x : bx;
+  out[1] = blocked ? o.z : bz;
 }
 
 /** Squads in each army. */
@@ -114,13 +134,17 @@ export const brainTicks = (battle: BattleTuning): number => Math.max(1, secondsT
 /**
  * Where place `place` of a Formation stands from the anchor, as a world offset (x, z) into `out`, for an anchor heading `heading`.
  * The column and the line fill rows from the front (the first row is ahead of the anchor), centred on the Squad's nominal depth;
- * the loose Formation fills a spiral.
+ * the loose Formation fills a spiral. A Formation narrowed to `narrow` files (`formationNarrow`, more than 0) fills rows that wide
+ * whatever its shape, centred on the depth of its `living` Soldiers.
  */
-export function placeOffset(battle: BattleTuning, shape: number, place: number, heading: number, out: [number, number]): void {
+export function placeOffset(battle: BattleTuning, shape: number, place: number, heading: number, out: [number, number], narrow = 0, living = battle.squad.size): void {
   const { spacing, size, column, line, loose } = battle.squad;
   let r: number;
   let f: number;
-  if (shape === LOOSE) {
+  if (narrow > 0) {
+    r = ((place % narrow) - (narrow - 1) / 2) * spacing;
+    f = ((Math.ceil(Math.max(1, living) / narrow) - 1) / 2 - Math.floor(place / narrow)) * spacing;
+  } else if (shape === LOOSE) {
     const reach = spacing * loose.spread * Math.sqrt(place + 1);
     r = Math.sin(place * 2.4) * reach;
     f = Math.cos(place * 2.4) * reach;
@@ -133,6 +157,100 @@ export function placeOffset(battle: BattleTuning, shape: number, place: number, 
   const c = Math.cos(heading);
   out[0] = r * c + f * s;
   out[1] = -r * s + f * c;
+}
+
+/**
+ * How many files a Squad's Formation narrows to where its anchor stands at (x, z) facing `heading` (docs/plans/battle-objectives.md,
+ * Stage 3b): as many as the least clearance ahead holds, sampled every `spacing` from its anchor to `narrow.ahead` past it, keeping
+ * `narrow.room` from the walls on each side. 0 when its own Formation fits (it does not narrow), and
+ * always on the open field. A column or a line narrows to fewer files than its own; a loose Formation wider than the room, to rows.
+ * At least 1.
+ */
+export function formationNarrow(battle: BattleTuning, fields: DestinationFields, shape: number, living: number, x: number, z: number, heading: number): number {
+  if (!fields.clearance) return 0;
+  const { spacing, column, line, loose, narrow } = battle.squad;
+  const s = Math.sin(heading);
+  const c = Math.cos(heading);
+  let least = Infinity;
+  for (let d = 0; d <= narrow.ahead + 1e-9; d += spacing) least = Math.min(least, clearanceAt(fields, x + s * d, z + c * d));
+  const fit = Math.max(1, Math.floor((2 * (least - narrow.room)) / spacing) + 1);
+  if (shape === LOOSE) return spacing * loose.spread * Math.sqrt(Math.max(1, living)) + narrow.room <= least ? 0 : fit;
+  return fit < (shape === LINE ? line.wide : column.wide) ? fit : 0;
+}
+
+/** Each Squad's narrowing (`formationNarrow`) where its anchor stands: scratch, a function of the Squads' state, never state itself. */
+export function squadNarrows(battle: BattleTuning, map: BattleMap, squads: SquadState): number[] {
+  const out = new Array<number>(squads.team.length).fill(0);
+  if (!map.fields.clearance) return out;
+  for (let q = 0; q < out.length; q++) out[q] = formationNarrow(battle, map.fields, squads.shape[q]!, squads.living[q]!, squads.x[q]!, squads.z[q]!, squads.heading[q]!);
+  return out;
+}
+
+/**
+ * How many points of the line from a Squad's anchor out to a Soldier's place are tried, from the place inward, before the anchor itself:
+ * where a place a Soldier cannot walk to from the anchor moves in to (`formationSpot`), and the points a Soldier walled off from its place
+ * walks to on the way (`stepCrowd`).
+ */
+export const SPOKE_POINTS = 4;
+
+/**
+ * Where place `place` of Squad `q` stands, as a world point into `out`: its place in the Formation (`placeOffset`) round the anchor,
+ * narrowed to `narrow` files (`squadNarrows`). On a map, a place a Soldier could not walk to from the anchor (inside a block, or past one, or
+ * nearer one than a Soldier's half `separation`) moves in toward the anchor, along its own line, until it can (the anchor itself, at the
+ * last, which is always clear).
+ */
+export function formationSpot(battle: BattleTuning, map: BattleMap, squads: SquadState, q: number, place: number, narrow: number, out: [number, number]): void {
+  placeOffset(battle, squads.shape[q]!, place, squads.heading[q]!, out, narrow, squads.living[q]);
+  const ox = out[0];
+  const oz = out[1];
+  const ax = squads.x[q]!;
+  const az = squads.z[q]!;
+  out[0] = ax + ox;
+  out[1] = az + oz;
+  if (map.field.blocks.length === 0) return;
+  const body = battle.crowd.separation / 2;
+  if (Math.hypot(ox, oz) + body < clearanceBelow(map.fields, ax, az)) return;
+  for (let t = SPOKE_POINTS - 1; t >= 0 && !inSight(map.fields, ax, az, out[0], out[1], body); t--) {
+    out[0] = ax + (ox * t) / SPOKE_POINTS;
+    out[1] = az + (oz * t) / SPOKE_POINTS;
+  }
+}
+
+/** Enemy Soldiers (in the Crowd) and full Fighters of Team `own` standing inside Objective `at`'s circle. */
+function enemiesIn(crowd: CrowdState, map: BattleMap, fighters: readonly CrowdFighter[], own: number, at: number): number {
+  const site = map.field.objectives[at]!;
+  const n = crowd.x.length;
+  let enemies = 0;
+  for (let i = 0; i < n; i++)
+    if (crowd.alive[i] && crowd.team[i] !== own && crowd.slot[i]! < 0 && (crowd.x[i]! - site.x) ** 2 + (crowd.z[i]! - site.z) ** 2 <= site.radius * site.radius) enemies++;
+  for (const f of fighters) if (f.team !== own && (f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= site.radius * site.radius) enemies++;
+  return enemies;
+}
+
+/** Where Team `team`'s broken Squads may rally: the spawns it owns with no enemy on them, then its Base (destination indices, as an Order's target). */
+function rallyPoints(crowd: CrowdState, map: BattleMap, fighters: readonly CrowdFighter[], team: number): number[] {
+  const objectives = map.field.objectives;
+  const found: number[] = [];
+  for (let j = 0; j < objectives.length; j++) {
+    // In the Team's own order (reversed for Team 1), so a tie in distance goes to the mirrored place for each.
+    const k = team === 0 ? j : objectives.length - 1 - j;
+    if (objectives[k]!.spawn && crowd.objectives.owner[k] === team && enemiesIn(crowd, map, fighters, team, k) === 0) found.push(k);
+  }
+  found.push(objectives.length + team);
+  return found;
+}
+
+/** The nearest of `rallies` (`rallyPoints`) to (x, z), the first on a tie. */
+function nearestRally(map: BattleMap, rallies: readonly number[], x: number, z: number): number {
+  const objectives = map.field.objectives;
+  let rally = rallies[0]!;
+  let rallyD = Infinity;
+  for (const k of rallies) {
+    const at = k < objectives.length ? objectives[k]! : map.field.bases[k - objectives.length]!;
+    const d2 = (at.x - x) ** 2 + (at.z - z) ** 2;
+    if (d2 < rallyD) [rally, rallyD] = [k, d2];
+  }
+  return rally;
 }
 
 /** The Squads and Soldiers at the start of a Battle, as `createCrowd` deploys them. */
@@ -216,12 +334,17 @@ export interface Spawned {
   readonly heading: number;
 }
 
-/** What a Squad step changes: the Squads, which Squad and place each Soldier has (the same arrays when nothing moved), and the Soldiers respawned. */
+/**
+ * What a Squad step changes: the Squads, which Squad and place each Soldier has (the same arrays when nothing moved), and the Soldiers
+ * respawned; and, scratch for the Tick's Soldier steps, how many files each Squad's Formation narrows to where its anchor now stands
+ * (`squadNarrows`).
+ */
 export interface SquadStep {
   readonly squads: SquadState;
   readonly squad: readonly number[];
   readonly place: readonly number[];
   readonly spawned: readonly Spawned[];
+  readonly narrow: readonly number[];
 }
 
 const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
@@ -232,7 +355,7 @@ const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 
  */
 export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning, map: BattleMap, fighters: readonly CrowdFighter[] = []): SquadStep {
   const old = crowd.squads;
-  if (crowd.rout) return { squads: old, squad: crowd.squad, place: crowd.place, spawned: [] };
+  if (crowd.rout) return { squads: old, squad: crowd.squad, place: crowd.place, spawned: [], narrow: squadNarrows(battle, map, old) };
   const p = battle.squad;
   const walk = battle.crowd.walkSpeed;
   const m = old.team.length;
@@ -259,28 +382,9 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   const half = battle.field.size / 2 - 2;
   const objectives = map.field.objectives;
   const spot: [number, number] = [0, 0];
-  /** Enemy Soldiers and Fighters of Team `own` standing inside Objective `at`'s circle (as they stood at the start of the Tick). */
-  const enemiesIn = (own: number, at: number): number => {
-    const site = objectives[at]!;
-    let enemies = 0;
-    for (let i = 0; i < n; i++)
-      if (crowd.alive[i] && crowd.team[i] !== own && crowd.slot[i]! < 0 && (crowd.x[i]! - site.x) ** 2 + (crowd.z[i]! - site.z) ** 2 <= site.radius * site.radius) enemies++;
-    for (const f of fighters) if (f.team !== own && (f.x - site.x) ** 2 + (f.z - site.z) ** 2 <= site.radius * site.radius) enemies++;
-    return enemies;
-  };
-  /** Where Team `team`'s broken Squads may rally, found on first need: the spawns it owns with no enemy on them, then its Base (a destination index, as an Order's target). */
+  /** Where Team `team`'s broken Squads may rally (`rallyPoints`, from the Soldiers as they stood at the start of the Tick), found on first need. */
   const rallies: (number[] | undefined)[] = [];
-  const rallyPoints = (team: number): number[] => {
-    if (rallies[team]) return rallies[team]!;
-    const found: number[] = [];
-    for (let j = 0; j < objectives.length; j++) {
-      // In the Team's own order (reversed for Team 1), so a tie in distance goes to the mirrored place for each.
-      const k = team === 0 ? j : objectives.length - 1 - j;
-      if (objectives[k]!.spawn && crowd.objectives.owner[k] === team && enemiesIn(team, k) === 0) found.push(k);
-    }
-    found.push(objectives.length + team);
-    return (rallies[team] = found);
-  };
+  const rallyOf = (team: number): number[] => (rallies[team] ??= rallyPoints(crowd, map, fighters, team));
 
   if (due.length > 0) {
     const nextAim = old.aim.slice();
@@ -333,7 +437,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           const base = objectives.length + own;
           let at = old.order[q] === RESPAWN ? old.target[q]! : base;
           if (at < objectives.length) {
-            if (!objectives[at]!.spawn || crowd.objectives.owner[at] !== own || enemiesIn(own, at) > 0) at = base;
+            if (!objectives[at]!.spawn || crowd.objectives.owner[at] !== own || enemiesIn(crowd, map, fighters, own, at) > 0) at = base;
           }
           const slots: number[] = [];
           for (let i = own * battle.armySize; i < (own + 1) * battle.armySize && slots.length < p.size; i++)
@@ -396,13 +500,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
       if (nextFall[q]) {
         nextShape[q] = LOOSE;
         // It rallies at the nearest spawn its Team owns with no enemy on it, else at its Base.
-        let rally = rallyPoints(own)[0]!;
-        let rallyD = Infinity;
-        for (const k of rallyPoints(own)) {
-          const at = k < objectives.length ? objectives[k]! : map.field.bases[k - objectives.length]!;
-          const d2 = (at.x - old.x[q]!) ** 2 + (at.z - old.z[q]!) ** 2;
-          if (d2 < rallyD) [rally, rallyD] = [k, d2];
-        }
+        const rally = nearestRally(map, rallyOf(own), old.x[q]!, old.z[q]!);
         const rallyAt = rally < objectives.length ? objectives[rally]! : map.field.bases[rally - objectives.length]!;
         const dx = rallyAt.x - old.x[q]!;
         const dz = rallyAt.z - old.z[q]!;
@@ -433,7 +531,8 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           nextFall[q] = 0;
           return;
         }
-        nextAim[q] = Math.atan2(dx, dz);
+        // Straight at it when nothing blocks the way, else round a map's walls by its field (Stage 3b).
+        nextAim[q] = steerToward(map.fields, rally, old.x[q]!, old.z[q]!, rallyAt.x, rallyAt.z, own);
         nextSpeed[q] = toRally > 2 * p.spacing ? walk : 0;
         return;
       }
@@ -491,16 +590,19 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     if (edit.place) place = edit.place;
   }
 
-  // Every anchor turns toward its aim and walks, on the field and out of a map's blocks.
+  // Every anchor turns toward its aim and walks, on the field and out of a map's blocks (sliding along one it walks into).
   const turn = p.turnRate * TICK_SECONDS;
   const pushed: [number, number] = [0, 0];
   for (let q = 0; q < m; q++) {
     const diff = wrap(aim[q]! - heading[q]!);
     if (diff !== 0) heading[q] = heading[q]! + Math.max(-turn, Math.min(turn, diff));
     if (speed[q]! === 0) continue;
+    const fromX = x[q]!;
+    const fromZ = z[q]!;
     x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
     z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
-    if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, old.team[q]!, pushed)) [x[q], z[q]] = pushed;
+    if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, old.team[q]!, pushed, fromX, fromZ)) [x[q], z[q]] = pushed;
   }
-  return { squads: { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt }, squad, place, spawned };
+  const squads: SquadState = { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt };
+  return { squads, squad, place, spawned, narrow: squadNarrows(battle, map, squads) };
 }

@@ -35,10 +35,10 @@ import { startingTickets, type BattleTuning } from '../tuning';
 import { battleArenaName, pushOutOfBlocks } from './battlefield';
 import { planOrders } from './commander';
 import { TICK_SECONDS } from './constants';
-import { battleMapOf, type BattleMap } from './destinations';
+import { battleMapOf, clearanceBelow, descend, inSight, toward, type BattleMap } from './destinations';
 import { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, planTicks, stepObjectives, type ObjectiveState } from './objectives';
 import { createRng, nextFloat, type RngState } from './rng';
-import { deploySquads, LINE, placeOffset, stepSquads, type SquadState } from './squad';
+import { deploySquads, formationSpot, LINE, SPOKE_POINTS, stepSquads, type SquadState } from './squad';
 
 /** A Team's Rout: which Team broke, and on which Tick. */
 export interface Rout {
@@ -379,7 +379,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const sight2 = p.sight * p.sight;
   const reach2 = p.engageReach * p.engageReach;
   const stepped = stepSquads(crowd, tick, battle, map, fighters);
-  const { squads, squad, place } = stepped;
+  const { squads, squad, place, narrow } = stepped;
+  const walled = map.field.blocks.length > 0;
   const offset: [number, number] = [0, 0];
   const pushed: [number, number] = [0, 0];
   const x = crowd.x.slice();
@@ -531,22 +532,53 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
         damage[best] = damage[best]! + p.damage[0] + draw() * (p.damage[1] - p.damage[0]);
         struck = true;
       }
-    } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < battle.squad.line.wide)) {
-      // A Squad's Soldier steers to its place in the Formation round the anchor, up to `catchUp` times faster when out of place;
-      // only the front rank of a line closes with an enemy in sight (below), the rear rank holds its places.
+    } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < (narrow[sq] || battle.squad.line.wide) && (!walled || Math.sqrt(bestD) < clearanceBelow(map.fields, xi, zi) || inSight(map.fields, xi, zi, crowd.x[best]!, crowd.z[best]!)))) {
+      // A Squad's Soldier steers to its place in the Formation round the anchor (narrowed through a pass), up to `catchUp` times faster
+      // when out of place; only the front rank of a line closes with an enemy in sight (below, never one behind a wall), the rear rank
+      // holds its places.
       target[i] = -1;
       engage[i] = 0;
-      placeOffset(battle, squads.shape[sq]!, place[i]!, squads.heading[sq]!, offset);
-      const ox = squads.x[sq]! + offset[0] - xi;
-      const oz = squads.z[sq]! + offset[1] - zi;
-      const d = Math.hypot(ox, oz);
-      if (d > 1e-9) {
-        const pace = Math.min(d > battle.squad.spacing ? battle.squad.catchUp : 1, d / stride);
-        wx = (ox / d) * pace;
-        wz = (oz / d) * pace;
+      formationSpot(battle, map, squads, sq, place[i]!, narrow[sq]!, offset);
+      let [tx, tz] = offset;
+      let way: number | null = null;
+      // Walking to a point on the way to its place, not to its place.
+      let aside = false;
+      // On a map (Stage 3b), a Soldier that cannot walk straight to its place (a wall across the line, or too near it for its body) walks
+      // to the furthest point it can of the line from its anchor out to its place (clear all the way by `formationSpot`, so from there on
+      // it walks straight), and round by the destination field that leads past its anchor when it can reach none of it.
+      if (walled && Math.hypot(tx - xi, tz - zi) + p.separation / 2 >= clearanceBelow(map.fields, xi, zi) && !inSight(map.fields, xi, zi, tx, tz, p.separation / 2)) {
+        const ax = squads.x[sq]!;
+        const az = squads.z[sq]!;
+        const ox = tx - ax;
+        const oz = tz - az;
+        let reached = false;
+        for (let t = SPOKE_POINTS - 1; t >= 0 && !reached; t--) {
+          tx = ax + (ox * t) / SPOKE_POINTS;
+          tz = az + (oz * t) / SPOKE_POINTS;
+          reached = inSight(map.fields, xi, zi, tx, tz, p.separation / 2);
+        }
+        aside = true;
+        if (!reached) {
+          // Never at a cell centre on a wall's face when there is another way down; down the field as it is when there is not.
+          const d = toward(map.fields, xi, zi, ax, az, own);
+          if (d >= 0) way = descend(map.fields, d, xi, zi, own, p.separation / 2) ?? descend(map.fields, d, xi, zi, own);
+        }
       }
-      // In its place it faces where the Squad does; out of it, the way it walks.
-      if (d < battle.squad.spacing / 2) face = squads.heading[sq]!;
+      if (way !== null) {
+        wx = Math.sin(way) * battle.squad.catchUp;
+        wz = Math.cos(way) * battle.squad.catchUp;
+      } else {
+        const ox = tx - xi;
+        const oz = tz - zi;
+        const d = Math.hypot(ox, oz);
+        if (d > 1e-9) {
+          const pace = Math.min(d > battle.squad.spacing ? battle.squad.catchUp : 1, d / stride);
+          wx = (ox / d) * pace;
+          wz = (oz / d) * pace;
+        }
+        // In its place it faces where the Squad does; out of it, the way it walks.
+        if (d < battle.squad.spacing / 2 && !aside) face = squads.heading[sq]!;
+      }
     } else if (best >= 0) {
       // In sight: walk at it, arriving just inside reach.
       const d = Math.sqrt(bestD);
@@ -621,8 +653,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     }
     nx = Math.min(edge, Math.max(-edge, nx));
     nz = Math.min(edge, Math.max(-edge, nz));
-    // Out of a map's walls and towers: a crude push (Stage 3a of docs/plans/battle-objectives.md; Stage 3b walks them round).
-    if (pushOutOfBlocks(map.field, nx, nz, p.separation / 2, own, pushed)) [nx, nz] = pushed;
+    // Out of a map's walls and towers, sliding along one it walked into (docs/plans/battle-objectives.md, Stages 3a and 3b).
+    if (pushOutOfBlocks(map.field, nx, nz, p.separation / 2, own, pushed, xi, zi)) [nx, nz] = pushed;
     vx[i] = (nx - xi) / dt;
     vz[i] = (nz - zi) / dt;
     x[i] = nx;

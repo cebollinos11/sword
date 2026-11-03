@@ -203,8 +203,8 @@ export {
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
-export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
-export { battleMapOf, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, type BattleMap, type DestinationFields } from './destinations';
+export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
+export { battleMapOf, clearanceAt, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, type BattleMap, type DestinationFields } from './destinations';
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
 export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
