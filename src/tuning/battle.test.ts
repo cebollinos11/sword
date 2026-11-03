@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bubbleSlots, loadTuningData, parseBattle, tuningDataHash, TuningDataError } from './index';
+import { applyBattleKnobs, bubbleSlots, loadTuningData, maxArmySize, parseBattle, parseBattleKnobs, tuningDataHash, TuningDataError } from './index';
 
 const tuning = loadTuningData();
 
@@ -102,5 +102,35 @@ describe('Battle Tuning Data (data/battle.json)', () => {
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, style: { reactionTime: 2 } } }, undefined, undefined, ['aggression'])).toThrow(/battle\.soldier\.style\.reactionTime/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, mods: { maxHp: 1 } } })).toThrow(/battle\.soldier\.mods\.maxHp/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, mods: { damage: 0 } } })).toThrow(/battle\.soldier\.mods/);
+  });
+});
+
+describe('Battle knobs', () => {
+  const b = tuning.battle;
+  it('leave Tuning Data as it is when they change nothing', () => {
+    expect(applyBattleKnobs(b, undefined)).toBe(b);
+    expect(applyBattleKnobs(b, {})).toBe(b);
+    expect(applyBattleKnobs(b, { armySize: b.armySize, hitRate: 1 })).toBe(b);
+  });
+
+  it('set the army size and scale the chance of a blow', () => {
+    const k = applyBattleKnobs(b, { armySize: 50, hitRate: 0.5 });
+    expect(k.armySize).toBe(50);
+    expect(k.crowd.hitChance).toBeCloseTo(b.crowd.hitChance / 2);
+    expect(parseBattle(k)).toEqual(k);
+  });
+
+  it('hold out-of-range values to what the field takes', () => {
+    expect(applyBattleKnobs(b, { armySize: 1e6 }).armySize).toBe(maxArmySize(b));
+    expect(() => parseBattle(applyBattleKnobs(b, { armySize: 1e6 }))).not.toThrow();
+    expect(() => parseBattle({ ...b, armySize: maxArmySize(b) + 1 })).toThrow(/must fit inside/);
+    expect(applyBattleKnobs(b, { armySize: -5 }).armySize).toBe(1);
+    expect(applyBattleKnobs(b, { hitRate: 100 }).crowd.hitChance).toBe(1);
+  });
+
+  it('are read back from storage only as known numeric keys', () => {
+    expect(parseBattleKnobs({ armySize: 50, hitRate: 'x', other: 1 })).toEqual({ armySize: 50 });
+    expect(parseBattleKnobs({})).toBeNull();
+    expect(parseBattleKnobs([1])).toBeNull();
   });
 });

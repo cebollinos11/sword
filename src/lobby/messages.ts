@@ -4,7 +4,7 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
-import { RUN_KNOB_KEYS } from '../tuning';
+import { BATTLE_KNOB_KEYS, RUN_KNOB_KEYS } from '../tuning';
 import { isLobbyFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
@@ -48,6 +48,13 @@ function isRunKnobs(v: unknown): boolean {
   return isObject(v) && Object.entries(v).every(([k, x]) => RUN_KNOBS.has(k) && isNum(x));
 }
 
+const BATTLE_KNOBS: ReadonlySet<string> = new Set(BATTLE_KNOB_KEYS);
+
+/** A Battle's knobs: numbers, each optional; `applyBattleKnobs` holds each to its range. */
+function isBattleKnobs(v: unknown): boolean {
+  return isObject(v) && Object.entries(v).every(([k, x]) => BATTLE_KNOBS.has(k) && isNum(x));
+}
+
 function isSeat(v: unknown): boolean {
   if (!isObject(v)) return false;
   switch (v.kind) {
@@ -77,6 +84,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
     isLobbyFormatOnMap(settings.format, settings.arena) &&
     (settings.run === undefined || isRunKnobs(settings.run)) &&
+    (settings.battle === undefined || isBattleKnobs(settings.battle)) &&
     Array.isArray(members) &&
     members.length >= 1 &&
     members.length <= MAX_PLAYERS &&

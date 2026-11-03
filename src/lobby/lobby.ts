@@ -24,7 +24,7 @@
  */
 import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
-import { applyDungeonKnobs, type RunKnobs, type TuningData } from '../tuning';
+import { applyBattleKnobs, applyDungeonKnobs, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -60,6 +60,8 @@ export interface LobbySettings {
   readonly format?: MatchFormat;
   /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly run?: RunKnobs;
+  /** A Battle's options: army size and hit rate (Battle only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
+  readonly battle?: BattleKnobs;
 }
 
 export interface LobbyState {
@@ -143,9 +145,14 @@ export function member(state: LobbyState, id: number): Member | undefined {
 
 /**
  * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Run with knobs, its Gauntlet
- * with them folded in (`applyDungeonKnobs`). Every peer builds it from the Lobby, so their Tuning Data hashes still agree.
+ * with them folded in (`applyDungeonKnobs`), or for a Battle with options, its armies with them folded in
+ * (`applyBattleKnobs`). Every peer builds it from the Lobby, so their Tuning Data hashes still agree.
  */
 export function runTuning(tuning: TuningData, settings: LobbySettings): TuningData {
+  if (settings.format === 'Battle') {
+    const battle = applyBattleKnobs(tuning.battle, settings.battle);
+    return battle === tuning.battle ? tuning : { ...tuning, battle };
+  }
   if (settings.format !== 'Gauntlet') return tuning;
   const dungeon = applyDungeonKnobs(tuning.dungeon, settings.run);
   return dungeon === tuning.dungeon ? tuning : { ...tuning, dungeon };

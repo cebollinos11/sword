@@ -290,3 +290,43 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover') },
   };
 }
+
+/**
+ * A Battle's options, picked in the Lobby (the host's, sent to every guest with the Lobby): each one absent keeps Tuning
+ * Data as it is. `applyBattleKnobs` folds them into the Battle before it starts, so the Simulation and the Tuning Data hash
+ * every peer compares see the same armies.
+ */
+export interface BattleKnobs {
+  /** Soldiers in each army (replaces `armySize`; held to what fits the field, see `maxArmySize`). */
+  readonly armySize?: number;
+  /** Multiplies the chance a Soldier lands a blow each Crowd step (so the Crowd fights slower below 1; the product is held to 1). */
+  readonly hitRate?: number;
+}
+
+/** Every Battle knob's key. */
+export const BATTLE_KNOB_KEYS: readonly (keyof BattleKnobs)[] = ['armySize', 'hitRate'];
+
+/** Battle knobs read back from storage: each of BATTLE_KNOB_KEYS that is a finite number (any other key dropped), or null for none. */
+export function parseBattleKnobs(raw: unknown): BattleKnobs | null {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null;
+  const knobs = Object.fromEntries(
+    Object.entries(raw).filter(([k, v]) => (BATTLE_KNOB_KEYS as readonly string[]).includes(k) && typeof v === 'number' && Number.isFinite(v)),
+  ) as BattleKnobs;
+  return Object.keys(knobs).length > 0 ? knobs : null;
+}
+
+/** The most Soldiers an army can be and still deploy inside the field (its last rank short of the middle), as `parseBattle` checks. */
+export function maxArmySize(b: Pick<BattleTuning, 'field' | 'deploy'>): number {
+  const ranks = Math.floor((b.field.size / 2 - b.deploy.front - 1e-9) / b.deploy.rank);
+  return Math.max(1, ranks + 1) * b.deploy.perRank;
+}
+
+/** The Battle with the Lobby's knobs applied; `b` itself when none change anything. Out-of-range values are held to their range. */
+export function applyBattleKnobs(b: BattleTuning, knobs: BattleKnobs | undefined): BattleTuning {
+  if (!knobs) return b;
+  const { armySize = b.armySize, hitRate = 1 } = knobs;
+  const army = Math.min(maxArmySize(b), Math.max(1, Math.round(armySize)));
+  const hitChance = Math.min(1, b.crowd.hitChance * (hitRate > 0 ? hitRate : 1));
+  if (army === b.armySize && hitChance === b.crowd.hitChance) return b;
+  return { ...b, armySize: army, crowd: { ...b.crowd, hitChance } };
+}

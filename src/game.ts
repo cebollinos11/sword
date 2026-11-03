@@ -1,5 +1,5 @@
 import { ARENA_SEED_RANGE, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
-import { parseRunKnobs, type RunKnobs, type TuningData } from './tuning';
+import { parseBattleKnobs, parseRunKnobs, type BattleKnobs, type RunKnobs, type TuningData } from './tuning';
 import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS } from './render/bodyModel';
@@ -69,6 +69,7 @@ const WEAPON_STORAGE_KEY = 'sword.weapon';
 const ARENA_STORAGE_KEY = 'sword.arena';
 const FORMAT_STORAGE_KEY = 'sword.format';
 const RUN_KNOBS_STORAGE_KEY = 'sword.runKnobs';
+const BATTLE_KNOBS_STORAGE_KEY = 'sword.battleKnobs';
 const ROOM_ROUTE = '#/room/';
 
 /** What the loop needs to know to present a Match: the driver (which also says who the local player is). */
@@ -111,6 +112,15 @@ function storedKnobs(): RunKnobs | null {
   try {
     // Only today's knobs: a stale key (v1's `heal`) is dropped, as the Lobby message would refuse it.
     return parseRunKnobs(JSON.parse(stored(RUN_KNOBS_STORAGE_KEY) ?? 'null'));
+  } catch {
+    return null;
+  }
+}
+
+/** The Battle options picked last (army size, hit rate), or null for none. */
+function storedBattleKnobs(): BattleKnobs | null {
+  try {
+    return parseBattleKnobs(JSON.parse(stored(BATTLE_KNOBS_STORAGE_KEY) ?? 'null'));
   } catch {
     return null;
   }
@@ -163,6 +173,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const savedArena = stored(ARENA_STORAGE_KEY);
   const savedFormat = stored(FORMAT_STORAGE_KEY);
   const savedKnobs = storedKnobs();
+  const savedBattleKnobs = storedBattleKnobs();
 
   let driver: MatchDriver | null = null;
   let names: readonly string[] | null = null;
@@ -258,7 +269,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const battleFormat = savedFormat === 'Battle';
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
-    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}) };
+    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}), ...(savedBattleKnobs ? { battle: savedBattleKnobs } : {}) };
     return { host: { name: menu.name, weapon, body: menu.body }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
@@ -320,6 +331,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       store(ARENA_STORAGE_KEY, s.settings.arena);
       store(FORMAT_STORAGE_KEY, s.settings.format ?? 'Duels');
       store(RUN_KNOBS_STORAGE_KEY, JSON.stringify(s.settings.run ?? {}));
+      store(BATTLE_KNOBS_STORAGE_KEY, JSON.stringify(s.settings.battle ?? {}));
     }
   }
 
@@ -399,26 +411,28 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
    * bakes the soldiers' impostors before the first Tick; it draws from the local Fighter the session names.
    */
   function launchBattle(l: Lobby, s: LobbyState, lineup: Lineup, picks: readonly string[], playerNames: readonly string[], playerBodies: readonly string[], members: readonly number[]): void {
-    matchTuning = tuning;
+    // The Lobby's army size and hit rate folded in; every peer builds the same from the host's Lobby.
+    const battleTuning = runTuning(tuning, s.settings);
+    matchTuning = battleTuning;
     warmed = new Set();
     setPlayed(null);
     const pilot = devBattlePilot();
     let d: MatchDriver;
     if (members.length <= 1) {
-      d = playerInBattle(tuning, { weapon: picks[0]!, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), team: lineup[0]!.team === 1 ? 1 : 0, ...(pilot ? { pilot: createBattlePilot(tuning, pilot) } : {}) });
+      d = playerInBattle(battleTuning, { weapon: picks[0]!, seed: Math.floor(Math.random() * ARENA_SEED_RANGE), team: lineup[0]!.team === 1 ? 1 : 0, ...(pilot ? { pilot: createBattlePilot(battleTuning, pilot) } : {}) });
     } else {
       const me = members.indexOf(l.me!);
       let session;
       if (l.isHost) {
         const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-        session = createRollbackSession({ role: 'host', guests, tuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed: Math.floor(Math.random() * ARENA_SEED_RANGE) }, lineup });
+        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed: Math.floor(Math.random() * ARENA_SEED_RANGE) }, lineup });
       } else {
         const transport = l.matchTransport(s.generation, 0);
         if (!transport) return;
-        session = createRollbackSession({ role: 'guest', transport, tuning, weapon: picks[me]! });
+        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]! });
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
-      const battlePilot = pilot ? createBattlePilot(tuning, pilot) : null;
+      const battlePilot = pilot ? createBattlePilot(battleTuning, pilot) : null;
       d = playerVsPlayer(session, playerNames, battlePilot ? { intent: (state, fighter) => battlePilot.intent(state, fighter), watch() {} } : undefined);
     }
     game.play({ driver: d, names: playerNames, bodies: playerBodies });
@@ -429,7 +443,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const tagged = playersBySlot(lineup, playerNames);
     void import('./play/battleScreen').then(({ BattleScreen }) => {
       if (driver !== d) return;
-      battle = new BattleScreen(container, renderer, tuning, local, chosen, tagged);
+      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged);
     });
   }
 

@@ -9,7 +9,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, parseGeneratedName } from '../sim';
-import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type RunKnobs, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type BattleKnobs, type RunKnobs, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -21,6 +21,7 @@ import {
   MAX_PLAYERS,
   member,
   nextMatchArena,
+  runTuning,
   seatOf,
   setFormat,
   setSeat,
@@ -160,7 +161,7 @@ export interface LobbyViewContext {
 export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
   const state = ctx.lobby.state!;
   const left = h('div', 'lb-main', null, teamsBlock(ctx, state));
-  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isGauntlet(state) ? knobsBlock(ctx, state) : null, weaponBlock(ctx, state));
+  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isGauntlet(state) ? knobsBlock(ctx, state) : null, isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
   return h('div', 'lb-body', null, left, right);
 }
 
@@ -171,7 +172,7 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 // --- Teams ---
 
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(ctx.tuning));
+  if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(runTuning(ctx.tuning, state.settings)));
   const shown = shownTeams(state, ctx.lobby.online);
   const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
@@ -180,7 +181,7 @@ function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const note = ctx.lobby.online
     ? h('p', 'lb-note', `${humans} of ${MAX_PLAYERS} players · Open seats wait for players to join; Empty ones field nobody.`)
     : null;
-  return section('Teams', grid, note, isBattle(state) ? armiesCard(ctx.tuning) : null);
+  return section('Teams', grid, note, isBattle(state) ? armiesCard(runTuning(ctx.tuning, state.settings)) : null);
 }
 
 function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLElement {
@@ -474,6 +475,56 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { run: {} }))) : null;
   const note = h('p', 'lb-note', `Enemy skill steps every enemy along ${ladder}. ${editable ? '' : 'The host sets these.'}`);
   return section('Run difficulty', ...rows, note, reset);
+}
+
+// --- Battle options ---
+
+/** One Battle knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
+interface BattleKnobRow {
+  readonly key: keyof BattleKnobs;
+  readonly label: string;
+  readonly standard: number;
+  readonly choices: readonly (readonly [number, string])[];
+}
+
+/** The Battle options the Lobby offers, each with Tuning Data's value as its standard choice. */
+export function battleKnobRows(tuning: Pick<TuningData, 'battle'>): BattleKnobRow[] {
+  const sizes = [...new Set([10, 25, 50, 100, 200, 300, tuning.battle.armySize])].sort((a, b) => a - b);
+  return [
+    { key: 'armySize', label: 'Soldiers a side', standard: tuning.battle.armySize, choices: sizes.map((n) => [n, String(n)] as const) },
+    { key: 'hitRate', label: 'Fighting speed', standard: 1, choices: [[0.25, '¼×'], [0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×']] },
+  ];
+}
+
+/** `knobs` with `row`'s key set to `value`, or dropped when that is its standard. */
+export function withBattleKnob(knobs: BattleKnobs | undefined, row: BattleKnobRow, value: number): BattleKnobs {
+  const { [row.key]: _old, ...rest } = knobs ?? {};
+  return value === row.standard ? rest : { ...rest, [row.key]: value };
+}
+
+/** A Battle's options (army size and how often soldiers land blows): the host sets them, everyone sees them. */
+function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
+  const editable = ctx.lobby.isHost;
+  const knobs = state.settings.battle;
+  const rows = battleKnobRows(ctx.tuning).map((row) => {
+    const current = knobs?.[row.key] ?? row.standard;
+    const group = h('div', 'segmented');
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', row.label);
+    for (const [value, text] of row.choices) {
+      const b = button('', text, () => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleKnob(s.settings.battle, row, value) })));
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(value === current));
+      if (value === row.standard) b.title = 'Standard';
+      b.disabled = !editable;
+      group.append(b);
+    }
+    return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
+  });
+  const changed = knobs !== undefined && Object.keys(knobs).length > 0;
+  const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { battle: {} }))) : null;
+  const note = h('p', 'lb-note', `Fighting speed scales how often soldiers land blows on each other: slower means longer battles. ${editable ? '' : 'The host sets these.'}`);
+  return section('Battle options', ...rows, note, reset);
 }
 
 // --- Your Weapon ---
