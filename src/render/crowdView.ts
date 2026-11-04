@@ -11,7 +11,7 @@
  * in (`BubbleSwap`), and what happens to it meanwhile is the model's to show, so it lies at rest if it comes back fallen.
  */
 import * as THREE from 'three';
-import { battlefieldHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
+import { groundHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { atlasCell, directionCell, soldierAt, soldierFrame, yawTo, type AtlasLayout, type ClipSeconds } from './impostor';
 import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
@@ -181,7 +181,9 @@ export class CrowdView {
       team.fade.setX(k, fade);
       soldierAt(crowd, i, tick, tick + alpha, stagger, army, at);
       const [x, z] = at;
-      const y = battlefieldHeight(hf, x, z);
+      // On its own Walk Surface (a map of several levels: in the tunnel, not on the bridge over it).
+      const s = crowd.surface[i]!;
+      const y = groundHeight(hf, s, x, z);
       team.feet.setXYZ(k, x, y, z);
       const alive = crowd.alive[i] === 1;
       const { clip, frame } = soldierFrame(
@@ -202,7 +204,7 @@ export class CrowdView {
 
       // The shadow, lying on the ground's slope under it.
       const e = 0.5;
-      normal.set(battlefieldHeight(hf, x - e, z) - battlefieldHeight(hf, x + e, z), 2 * e, battlefieldHeight(hf, x, z - e) - battlefieldHeight(hf, x, z + e)).normalize();
+      normal.set(groundHeight(hf, s, x - e, z) - groundHeight(hf, s, x + e, z), 2 * e, groundHeight(hf, s, x, z - e) - groundHeight(hf, s, x, z + e)).normalize();
       tilt.setFromUnitVectors(UP, normal);
       place.set(x, y, z).addScaledVector(normal, SHADOW_LIFT);
       // A full model draws its own shadow: the impostor's goes with it.

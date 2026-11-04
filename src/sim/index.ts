@@ -50,7 +50,7 @@ export type {
 export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
-export { arenaOf, blockedAt, deadlyGround, groundBelow, insideZone, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
+export { arenaOf, blockedAt, deadlyGround, groundBelow, insideZone, onSurface, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
 export {
   assembleArena,
@@ -202,9 +202,10 @@ export {
   type RunStart,
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
-export { battleArenaName, battlefieldHeight, battlefieldOf, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
+export { battleArenaName, battlefieldHeight, battlefieldOf, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
 export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
-export { battleMapOf, clearanceAt, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, type BattleMap, type DestinationFields } from './destinations';
+export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
+export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './levels';
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
 export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, stepCrowd, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';

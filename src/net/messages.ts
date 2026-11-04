@@ -441,6 +441,10 @@ const isBattlePlayer = (v: unknown, soldiers: number, slots: number): boolean =>
   v.corpse < slots &&
   (v.away === undefined || v.away === true);
 
+/** The most Walk Surfaces a Battle map may have: a Soldier's and an anchor's `surface` is one of them, or -1 on the open field (the session checks the map's own count). */
+const MAX_WALK_SURFACES = 65_536;
+const isSurface = (x: unknown): boolean => isInt(x) && x >= -1 && x < MAX_WALK_SURFACES;
+
 /** The most places a Squad's Formation has (a Soldier's `place`). */
 const MAX_PLACES = MAX_SQUAD_PLACES;
 
@@ -463,7 +467,8 @@ function isSquads(v: unknown, soldiers: number): boolean {
     sized(v.order, (x) => isInt(x) && x >= 0 && x <= 2) &&
     sized(v.target, (x) => isInt(x) && x >= 0 && x < MAX_OBJECTIVES + 2) &&
     sized(v.since, isInt) &&
-    sized(v.respawnAt, (x) => isInt(x) && x >= -1)
+    sized(v.respawnAt, (x) => isInt(x) && x >= -1) &&
+    sized(v.surface, isSurface)
   );
 }
 
@@ -498,6 +503,7 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.engage, isTick) &&
     sized(v.alive, isBit) &&
     sized(v.slot, index(-1, slots)) &&
+    sized(v.surface, isSurface) &&
     isSquads(v.squads, n) &&
     isObjectives(v.objectives) &&
     isArrayOf(v.tickets, (x) => isNum(x) && x >= 0) &&

@@ -47,6 +47,7 @@ function goodRaw() {
       slots: { enemies: 4, allies: 3, engaged: 2.5, shared: [] },
       ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 },
       takeover: { seconds: 1.5 },
+      levels: { stepUp: 0.35, drop: 3, height: 1.8, promote: 2.5 },
     },
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5, finalBlowLead: 0.35, finalBlowTail: 0.55, finalBlowSpeed: 0.3, finalBlowDistance: 3.4, finalBlowHeight: 1.6, finalBlowSpin: 0.35, shake: 1 },

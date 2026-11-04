@@ -45,6 +45,22 @@ export interface CrowdTuning {
   readonly flowCell: number;
 }
 
+/**
+ * Soldiers on several levels (docs/plans/battle-objectives.md, Stage 4a; ADR 0022): how a Soldier crosses between a Battle map's Walk
+ * Surfaces. It walks onto ground within `stepUp` of its feet and drops off an open ledge onto ground at most `drop` below, and never
+ * jumps; bodies whose feet are `height` or more apart are on different levels.
+ */
+export interface LevelsTuning {
+  /** The most a Soldier steps up (m): never more than a Fighter (`fall.stepUp`). */
+  readonly stepUp: number;
+  /** The deepest a Soldier drops off a ledge (m): no deeper than a Fighter's drop Link takes. */
+  readonly drop: number;
+  /** A Soldier's height (m): a Wall that high over its feet stops it, and bodies whose feet are this far apart or more are on different levels (they neither push, see nor fight each other). */
+  readonly height: number;
+  /** A Soldier more than this (m) above or below a Player's Fighter is never promoted into its Bubble, however near across the ground. */
+  readonly promote: number;
+}
+
 export interface RoutTuning {
   /** A Team routs once its living Soldiers fall below this share of `armySize` (0 to 1). */
   readonly threshold: number;
@@ -306,6 +322,7 @@ export interface BattleTuning {
   readonly slots: SlotsTuning;
   readonly ring: RingTuning;
   readonly takeover: TakeoverTuning;
+  readonly levels: LevelsTuning;
   /** The hand-built Battle maps, by name (`data/battlemaps/<name>.json`; none in a Battle written by hand). The open field is not one. */
   readonly maps: Readonly<Record<string, BattleMapTuning>>;
 }
@@ -421,6 +438,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const sl = record(b.slots, 'battle.slots');
   const rg = record(b.ring, 'battle.ring');
   const tk = record(b.takeover, 'battle.takeover');
+  const lv = record(b.levels, 'battle.levels');
   const field: BattlefieldTuning = {
     size: positiveNumber(f, 'size', 'battle.field'),
     cell: positiveNumber(f, 'cell', 'battle.field'),
@@ -585,6 +603,12 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     slots,
     ring,
     takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover') },
+    levels: {
+      stepUp: positiveNumber(lv, 'stepUp', 'battle.levels'),
+      drop: positiveNumber(lv, 'drop', 'battle.levels'),
+      height: positiveNumber(lv, 'height', 'battle.levels'),
+      promote: positiveNumber(lv, 'promote', 'battle.levels'),
+    },
     maps,
   };
 }

@@ -22,13 +22,18 @@
  *   its Team has Tickets, it respawns whole at the spawn its Order names (its Base, or an Objective its Team owns that no enemy is on):
  *   up to `squad.size` of its Team's dead Soldiers (not promoted ones) are given back to it, at full HP, in column round the spawn.
  *
+ * - On a map of several levels (Stage 4a), the anchor stands on a Walk Surface (`SquadState.surface`) and walks by the Soldiers' walk rule
+ *   (`levels.ts`); a Squad's places, its spot at an Objective and the enemies it is in contact with are those of its own level.
+ *
  * Pure: nothing here mutates its input, and nothing reads anything but the state and the Tuning Data.
  */
 import { deployLayout, squadSizes, type BattleTuning } from '../tuning';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import type { CrowdFighter, CrowdState } from './crowd';
-import { inBlock, pushOutOfBlocks } from './battlefield';
+import { groundOf, inBlock, pushOutOfBlocks, soldierHeight } from './battlefield';
 import { clearanceAt, clearanceBelow, inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
+import { onSurface } from './arena';
+import { sameLevel, trace, walkTo } from './levels';
 import { respawnTicks } from './objectives';
 
 export const COLUMN = 0;
@@ -68,6 +73,8 @@ export interface SquadState {
   readonly since: readonly number[];
   /** The Tick an empty Squad respawns at (once its Team has Tickets), or -1 while it is not empty. */
   readonly respawnAt: readonly number[];
+  /** The Walk Surface its anchor stands on (Stage 4a; an index into the map's `walk`), or -1 on the open field. */
+  readonly surface: readonly number[];
 }
 
 /** The golden angle (radians), which spreads places round an Objective's centre. */
@@ -83,28 +90,39 @@ const SPOT_REACH = 0.85;
  * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it. On a map, a place without room for a
  * column (`narrow.room` from the walls past its outer files: a wall across a gatehouse's circle) gives way to the first of the Squad's own
  * further places that has (Stage 3b): its share of a denser spiral over the circle (every `per`-th place from its own), so two Squads never
- * share one; to the roomiest of them when none has.
+ * share one; to the roomiest of them when none has. On a map of several levels (Stage 4a) a place counts only where a Soldier walks to it
+ * from the destination's centre without dropping (on its level: never off a keep's edge onto the ground below), and its Walk Surface is
+ * returned; -1 on any other map.
  */
-export function orderSpot(map: BattleMap, target: number, q: number, per: number, battle: BattleTuning, out: [number, number]): void {
+export function orderSpot(map: BattleMap, target: number, q: number, per: number, battle: BattleTuning, out: [number, number]): number {
   const { objectives, bases } = map.field;
   const k = q % per;
   const sign = q < per ? 1 : -1;
+  const layered = map.field.layered;
   if (target >= objectives.length) {
     const base = bases[target - objectives.length]!;
     // A row across the Base, as wide as the Squads' columns need but never past the field's edges, Team 1's turned half a turn like the rest.
     const gap = Math.min(battle.squad.column.wide * battle.squad.spacing * 1.5, (battle.field.size - 8) / per);
     out[0] = base.x + sign * (k - (per - 1) / 2) * gap;
     out[1] = base.z;
-    return;
+    if (!layered) return -1;
+    const home = map.field.baseSurfaces[target - objectives.length]!;
+    const on = trace(map.field.arena, battle.levels, home, base.x, base.z, out[0], out[1], false);
+    return on >= 0 ? on : groundOf(battle, map.field, out[0], out[1], soldierHeight(map.field, home, base.x, base.z));
   }
   const o = objectives[target]!;
   const reach = 0.7 * o.radius * Math.sqrt((k + 0.5) / per);
   out[0] = o.x + sign * Math.sin(k * GOLDEN) * reach;
   out[1] = o.z + sign * Math.cos(k * GOLDEN) * reach;
-  if (!map.fields.clearance) return;
+  if (!map.fields.clearance) return -1;
+  const home = layered ? map.field.objectiveSurfaces[target]! : -1;
+  /** The Walk Surface a place stands on, walked to from the Objective's centre (-1: none on its level); -1 on a one-level map. */
+  const on = (x: number, z: number) => (layered ? trace(map.field.arena, battle.levels, home, o.x, o.z, x, z, false) : -1);
+  const room = (x: number, z: number, at: number) => (layered && at < 0 ? -Infinity : clearanceAt(map.fields, x, z, at));
   const need = battle.squad.narrow.room + ((battle.squad.column.wide - 1) / 2) * battle.squad.spacing;
-  let best = clearanceAt(map.fields, out[0], out[1]);
-  if (best >= need) return;
+  let bs = on(out[0], out[1]);
+  let best = room(out[0], out[1], bs);
+  if (best >= need) return bs;
   let bx = out[0];
   let bz = out[1];
   for (let t = 1; t <= SPOT_TRIES; t++) {
@@ -112,14 +130,16 @@ export function orderSpot(map: BattleMap, target: number, q: number, per: number
     const r = SPOT_REACH * o.radius * Math.sqrt((j + 0.5) / (per * (SPOT_TRIES + 1)));
     const x = o.x + sign * Math.sin(j * GOLDEN) * r;
     const z = o.z + sign * Math.cos(j * GOLDEN) * r;
-    const clear = clearanceAt(map.fields, x, z);
-    if (clear > best) [best, bx, bz] = [clear, x, z];
+    const at = on(x, z);
+    const clear = room(x, z, at);
+    if (clear > best) [best, bx, bz, bs] = [clear, x, z, at];
     if (clear >= need) break;
   }
-  // The centre, never inside a block, if even the roomiest is.
-  const blocked = inBlock(map.field, bx, bz);
+  // The centre, never inside a block (nor off its level), if even the roomiest is.
+  const blocked = inBlock(map.field, bx, bz) || best === -Infinity;
   out[0] = blocked ? o.x : bx;
   out[1] = blocked ? o.z : bz;
+  return blocked ? home : bs;
 }
 
 /** Squads in each army. */
@@ -166,13 +186,13 @@ export function placeOffset(battle: BattleTuning, shape: number, place: number, 
  * always on the open field. A column or a line narrows to fewer files than its own; a loose Formation wider than the room, to rows.
  * At least 1.
  */
-export function formationNarrow(battle: BattleTuning, fields: DestinationFields, shape: number, living: number, x: number, z: number, heading: number): number {
+export function formationNarrow(battle: BattleTuning, fields: DestinationFields, shape: number, living: number, x: number, z: number, heading: number, surface = -1): number {
   if (!fields.clearance) return 0;
   const { spacing, column, line, loose, narrow } = battle.squad;
   const s = Math.sin(heading);
   const c = Math.cos(heading);
   let least = Infinity;
-  for (let d = 0; d <= narrow.ahead + 1e-9; d += spacing) least = Math.min(least, clearanceAt(fields, x + s * d, z + c * d));
+  for (let d = 0; d <= narrow.ahead + 1e-9; d += spacing) least = Math.min(least, clearanceAt(fields, x + s * d, z + c * d, surface));
   const fit = Math.max(1, Math.floor((2 * (least - narrow.room)) / spacing) + 1);
   if (shape === LOOSE) return spacing * loose.spread * Math.sqrt(Math.max(1, living)) + narrow.room <= least ? 0 : fit;
   return fit < (shape === LINE ? line.wide : column.wide) ? fit : 0;
@@ -182,7 +202,7 @@ export function formationNarrow(battle: BattleTuning, fields: DestinationFields,
 export function squadNarrows(battle: BattleTuning, map: BattleMap, squads: SquadState): number[] {
   const out = new Array<number>(squads.team.length).fill(0);
   if (!map.fields.clearance) return out;
-  for (let q = 0; q < out.length; q++) out[q] = formationNarrow(battle, map.fields, squads.shape[q]!, squads.living[q]!, squads.x[q]!, squads.z[q]!, squads.heading[q]!);
+  for (let q = 0; q < out.length; q++) out[q] = formationNarrow(battle, map.fields, squads.shape[q]!, squads.living[q]!, squads.x[q]!, squads.z[q]!, squads.heading[q]!, squads.surface[q]);
   return out;
 }
 
@@ -197,9 +217,10 @@ export const SPOKE_POINTS = 4;
  * Where place `place` of Squad `q` stands, as a world point into `out`: its place in the Formation (`placeOffset`) round the anchor,
  * narrowed to `narrow` files (`squadNarrows`). On a map, a place a Soldier could not walk to from the anchor (inside a block, or past one, or
  * nearer one than a Soldier's half `separation`) moves in toward the anchor, along its own line, until it can (the anchor itself, at the
- * last, which is always clear).
+ * last, which is always clear). On a map of several levels (Stage 4a) it must also be walked to from the anchor without dropping (so a place
+ * past the edge of a bridge moves in onto the bridge), and its Walk Surface is returned; -1 on any other map.
  */
-export function formationSpot(battle: BattleTuning, map: BattleMap, squads: SquadState, q: number, place: number, narrow: number, out: [number, number]): void {
+export function formationSpot(battle: BattleTuning, map: BattleMap, squads: SquadState, q: number, place: number, narrow: number, out: [number, number]): number {
   placeOffset(battle, squads.shape[q]!, place, squads.heading[q]!, out, narrow, squads.living[q]);
   const ox = out[0];
   const oz = out[1];
@@ -207,13 +228,29 @@ export function formationSpot(battle: BattleTuning, map: BattleMap, squads: Squa
   const az = squads.z[q]!;
   out[0] = ax + ox;
   out[1] = az + oz;
-  if (map.field.blocks.length === 0) return;
   const body = battle.crowd.separation / 2;
-  if (Math.hypot(ox, oz) + body < clearanceBelow(map.fields, ax, az)) return;
+  if (map.field.layered) {
+    const from = squads.surface[q]!;
+    for (let t = SPOKE_POINTS; t > 0; t--) {
+      const x = ax + (ox * t) / SPOKE_POINTS;
+      const z = az + (oz * t) / SPOKE_POINTS;
+      const on = map.field.blocks.length > 0 && !inSight(map.fields, ax, az, x, z, body) ? -1 : trace(map.field.arena, battle.levels, from, ax, az, x, z, false);
+      if (on < 0) continue;
+      out[0] = x;
+      out[1] = z;
+      return on;
+    }
+    out[0] = ax;
+    out[1] = az;
+    return from;
+  }
+  if (map.field.blocks.length === 0) return -1;
+  if (Math.hypot(ox, oz) + body < clearanceBelow(map.fields, ax, az)) return -1;
   for (let t = SPOKE_POINTS - 1; t >= 0 && !inSight(map.fields, ax, az, out[0], out[1], body); t--) {
     out[0] = ax + (ox * t) / SPOKE_POINTS;
     out[1] = az + (oz * t) / SPOKE_POINTS;
   }
+  return -1;
 }
 
 /** Enemy Soldiers (in the Crowd) and full Fighters of Team `own` standing inside Objective `at`'s circle. */
@@ -322,15 +359,18 @@ export function deploySquads(battle: BattleTuning, front = battle.deploy.front):
     target: zeros(),
     since: zeros(),
     respawnAt: new Array<number>(m).fill(-1),
+    // On a Battle map, `createCrowd` stands each anchor on its Walk Surface.
+    surface: new Array<number>(m).fill(-1),
   };
   return { squads, squad, place, x, z, team, heading };
 }
 
-/** A Soldier a Squad's respawn gave back: where it stands now, facing which way. It is at full HP, engaged with no one. */
+/** A Soldier a Squad's respawn gave back: where it stands now (on which Walk Surface, -1 on the open field), facing which way. It is at full HP, engaged with no one. */
 export interface Spawned {
   readonly i: number;
   readonly x: number;
   readonly z: number;
+  readonly surface: number;
   readonly heading: number;
 }
 
@@ -346,6 +386,9 @@ export interface SquadStep {
   readonly spawned: readonly Spawned[];
   readonly narrow: readonly number[];
 }
+
+/** Each Soldier's height as the brains read it, on a map of several levels (scratch, never state). */
+let levelScratch = new Float64Array(0);
 
 const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
 
@@ -365,6 +408,11 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   const x = old.x.slice();
   const z = old.z.slice();
   const heading = old.heading.slice();
+  const surface = old.surface.slice();
+  const field = map.field;
+  // On a map of several levels (Stage 4a), anchors walk by the walk rule, and a Squad sees and is in contact only with its own level.
+  const layered = field.layered;
+  const lv = battle.levels;
 
   // The brains due: Team 0's Squads by place in the army, then Team 1's.
   const due: number[] = [];
@@ -385,8 +433,14 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
   /** Where Team `team`'s broken Squads may rally (`rallyPoints`, from the Soldiers as they stood at the start of the Tick), found on first need. */
   const rallies: (number[] | undefined)[] = [];
   const rallyOf = (team: number): number[] => (rallies[team] ??= rallyPoints(crowd, map, fighters, team));
+  /** Destination `d`'s Walk Surface (an Objective's, or `objectives + team` for a Base's). */
+  const surfaceOf = (d: number): number => (d < objectives.length ? field.objectiveSurfaces[d]! : field.baseSurfaces[d - objectives.length]!);
 
   if (due.length > 0) {
+    // Each Soldier's height as it stood, where levels matter.
+    if (layered && levelScratch.length < n) levelScratch = new Float64Array(n);
+    const ys = layered ? levelScratch : null;
+    if (ys) for (let i = 0; i < n; i++) ys[i] = soldierHeight(field, crowd.surface[i]!, crowd.x[i]!, crowd.z[i]!);
     const nextAim = old.aim.slice();
     const nextSpeed = old.speed.slice();
     const nextShape = old.shape.slice();
@@ -443,7 +497,10 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           for (let i = own * battle.armySize; i < (own + 1) * battle.armySize && slots.length < p.size; i++)
             if (!crowd.alive[i] && crowd.slot[i]! < 0 && !claimed.has(i)) slots.push(i);
           if (slots.length === 0) return;
-          orderSpot(map, at, q, per, battle, spot);
+          const spotOn = orderSpot(map, at, q, per, battle, spot);
+          // The anchor stands on the spot's Walk Surface on a map of several levels, else on the floor under it.
+          const anchorOn = layered ? spotOn : groundOf(battle, field, spot[0], spot[1]);
+          const spotY = soldierHeight(field, anchorOn, spot[0], spot[1]);
           const facing = own === 0 ? 0 : Math.PI;
           const nextSquad = (edit.squad ??= crowd.squad.slice());
           const nextPlace = (edit.place ??= crowd.place.slice());
@@ -455,10 +512,13 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
             nextPlace[i] = s;
             // On the field, and out of a map's blocks.
             pushOutOfBlocks(map.field, Math.max(-half, Math.min(half, spot[0] + out[0])), Math.max(-half, Math.min(half, spot[1] + out[1])), battle.crowd.separation / 2, own, out);
-            spawned.push({ i, x: out[0], z: out[1], heading: facing });
+            // On the spot's level where it walks there from the spot, else on the ground there nearest the spot's height.
+            const on = layered && anchorOn >= 0 ? trace(field.arena, lv, anchorOn, spot[0], spot[1], out[0], out[1], false) : -1;
+            spawned.push({ i, x: out[0], z: out[1], surface: on >= 0 ? on : groundOf(battle, field, out[0], out[1], spotY), heading: facing });
           });
           x[q] = spot[0];
           z[q] = spot[1];
+          surface[q] = anchorOn;
           heading[q] = facing;
           nextAim[q] = facing;
           nextShape[q] = COLUMN;
@@ -532,16 +592,18 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
           return;
         }
         // Straight at it when nothing blocks the way, else round a map's walls by its field (Stage 3b).
-        nextAim[q] = steerToward(map.fields, rally, old.x[q]!, old.z[q]!, rallyAt.x, rallyAt.z, own);
+        nextAim[q] = steerToward(map.fields, rally, old.x[q]!, old.z[q]!, rallyAt.x, rallyAt.z, own, old.surface[q], surfaceOf(rally));
         nextSpeed[q] = toRally > 2 * p.spacing ? walk : 0;
         return;
       }
 
-      // The nearest enemy Soldier to this Squad's Soldiers (as they stood): within `engage` it is in contact, and the Squad turns to it.
+      // The nearest enemy Soldier to this Squad's Soldiers (as they stood), on its anchor's level: within `engage` it is in contact, and the
+      // Squad turns to it.
+      const ay = ys === null ? 0 : soldierHeight(field, old.surface[q]!, old.x[q]!, old.z[q]!);
       let near = -1;
       let nearD = Infinity;
       for (let i = 0; i < n; i++) {
-        if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own) continue;
+        if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own || (ys !== null && Math.abs(ys[i]! - ay) >= lv.height)) continue;
         const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
         if (d2 < nearD) [near, nearD] = [i, d2];
       }
@@ -551,7 +613,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         let seen = -1;
         let seenD = p.engage * p.engage;
         for (let i = 0; i < n; i++) {
-          if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own) continue;
+          if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own || (ys !== null && Math.abs(ys[i]! - ay) >= lv.height)) continue;
           const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
           if (d2 <= seenD && (seen < 0 || d2 < seenD) && inSight(map.fields, cx, cz, crowd.x[i]!, crowd.z[i]!)) [seen, seenD] = [i, d2];
         }
@@ -569,12 +631,13 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
       // Otherwise it follows its Order: an Order to an Objective marches by that Objective's field to its place in the circle and stands
       // there facing the enemy's end; a Squad awaiting Orders (just respawned) stands.
       if (old.order[q] === RESPAWN || old.target[q]! >= objectives.length) return;
-      orderSpot(map, old.target[q]!, q, per, battle, spot);
-      if (Math.hypot(spot[0] - old.x[q]!, spot[1] - old.z[q]!) <= 2 * p.spacing) {
+      const spotOn = orderSpot(map, old.target[q]!, q, per, battle, spot);
+      // There: near its spot, and on its level (not in the tunnel under a spot on the bridge).
+      if (Math.hypot(spot[0] - old.x[q]!, spot[1] - old.z[q]!) <= 2 * p.spacing && (!layered || spotOn < 0 || sameLevel(field.arena, lv, old.surface[q]!, spotOn, spot[0], spot[1]))) {
         nextAim[q] = own === 0 ? 0 : Math.PI;
         return;
       }
-      nextAim[q] = steerToward(map.fields, old.target[q]!, old.x[q]!, old.z[q]!, spot[0], spot[1], own);
+      nextAim[q] = steerToward(map.fields, old.target[q]!, old.x[q]!, old.z[q]!, spot[0], spot[1], own, old.surface[q], spotOn);
       nextSpeed[q] = lagging ? 0 : walk * p.speed;
     });
     // A Squad found empty (wiped out, or merged away just now) starts its wait to respawn.
@@ -602,7 +665,15 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
     z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
     if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, old.team[q]!, pushed, fromX, fromZ)) [x[q], z[q]] = pushed;
+    // Onto the Walk Surface it walks onto (Stage 4a): by the walk rule where there are levels, else the floor under it.
+    if (layered) {
+      surface[q] = walkTo(field.arena, lv, surface[q]!, fromX, fromZ, x[q]!, z[q]!, pushed);
+      [x[q], z[q]] = pushed;
+    } else if (field.heights.walk && (surface[q]! < 0 || !onSurface(field.arena, surface[q]!, x[q]!, z[q]!))) {
+      const on = groundOf(battle, field, x[q]!, z[q]!);
+      if (on >= 0) surface[q] = on;
+    }
   }
-  const squads: SquadState = { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt };
+  const squads: SquadState = { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt, surface };
   return { squads, squad, place, spawned, narrow: squadNarrows(battle, map, squads) };
 }

@@ -80,6 +80,9 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
   let duel = step(bubbled, intents, tuning);
   const before = chargeDeaths(duel.crowd!, match.duel.crowd!, bubbled.crowd!, duel.events, duel.fighters.map((f) => f.team), players);
   // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead (none for one who left).
+  // On a map of several levels, its feet's height too (the Crowd's level tests; Stage 4a).
+  const map = battleMapOf(tuning.battle, match.arena);
+  const layered = map.field.layered;
   const fighters: CrowdFighter[] = duel.fighters.flatMap((f, k) => {
     if (!inDuel(f)) return [];
     const was = bubbled.fighters[k]!.position;
@@ -89,9 +92,9 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
     const moving = d > TRAVEL_EPSILON;
     const dx = moving ? ox / d : 0;
     const dz = moving ? oz / d : 0;
-    return [{ x: f.position.x, z: f.position.z, team: f.team, dx, dz, ...(k < players && !before.players[k]?.away ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
+    return [{ x: f.position.x, z: f.position.z, ...(layered ? { y: f.y } : {}), team: f.team, dx, dz, ...(k < players && !before.players[k]?.away ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
   });
-  const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters, battleMapOf(tuning.battle, match.arena));
+  const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters, map);
   const tally = countKills(stepped.players, duel.events, duel.fighters.map((f) => f.team), players);
   const crowd = tally === stepped.players ? stepped : { ...stepped, players: tally };
   duel = { ...duel, crowd };

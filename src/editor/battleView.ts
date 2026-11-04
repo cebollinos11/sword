@@ -9,7 +9,7 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ATTACK, battlefieldHeight, battleMapOf, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, formationSpot, LINE, LOOSE, orderSpot, owned, routTicks, squadNarrows, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
+import { ATTACK, battlefieldHeight, battleMapOf, groundHeight, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, formationSpot, LINE, LOOSE, orderSpot, owned, routTicks, squadNarrows, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
 import { applyBattleKnobs, type TuningData } from '../tuning';
 
 const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
@@ -209,9 +209,9 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
         dots.setMatrixAt(i, hidden);
         continue;
       }
-      formationSpot(tuning.battle, map, sq, k, c.place[i]!, narrow[k]!, place);
+      const on = formationSpot(tuning.battle, map, sq, k, c.place[i]!, narrow[k]!, place);
       const [x, z] = place;
-      dots.setMatrixAt(i, m4.compose(p.set(x, battlefieldHeight(hf, x, z) + 0.15, z), q.identity(), one));
+      dots.setMatrixAt(i, m4.compose(p.set(x, groundHeight(hf, on >= 0 ? on : c.surface[i]!, x, z) + 0.15, z), q.identity(), one));
       dots.setColorAt(i, colour.setHex(TEAM_COLOURS[c.team[i]!]!));
     }
     anchors.instanceMatrix.needsUpdate = dots.instanceMatrix.needsUpdate = true;
@@ -251,7 +251,7 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     for (let i = 0; i < n; i++) {
       const x = c.x[i]!;
       const z = c.z[i]!;
-      p.set(x, battlefieldHeight(hf, x, z), z);
+      p.set(x, groundHeight(hf, c.surface[i]!, x, z), z);
       q.setFromAxisAngle(up, c.heading[i]!);
       if (!c.alive[i]) q.multiply(flat);
       soldiers.setMatrixAt(i, m4.compose(p, q, one));

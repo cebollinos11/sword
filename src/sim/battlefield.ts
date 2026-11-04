@@ -8,11 +8,14 @@
  *  - **a hand-built Battle map**, `battle:<map>` (`battle.maps`, exported by `art/build_battle_<map>.py`): an `ArenaGeometry` of its own,
  *    its floor's Walk Surfaces and its Walls, with no jump Links. Its solid blocks (walls, towers) stand a Wall on each side; Soldiers are
  *    pushed out of them (`pushOutOfBlocks`) and the destination fields go round them. Its ground (`battlefieldHeight`) is the highest Walk
- *    Surface under a point: one level only for now (Stage 4a puts Soldiers on several).
+ *    Surface under a point; a Soldier stands on a Walk Surface of its own (`CrowdState.surface`, Stage 4a: `soldierHeight`, `levels.ts`), so
+ *    on a map of several levels (`layered`) one in a tunnel stands on the tunnel's floor, not on the bridge over it. A map whose Walk
+ *    Surfaces are not every one joined to every other by walking and dropping is refused when it is built (`walkCheck`).
  * Pure functions of the name and Tuning Data; the built field is a cache, never state, so it cannot change an outcome (ADR 0006).
  */
 import { deployLayout, type ArenaGeometry, type BattleMapTuning, type BattleTuning, type ObjectiveSite, type SpawnPoint, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
-import { groundBelow } from './arena';
+import { groundBelow, surfaceHeight } from './arena';
+import { groundNear, walkCheck } from './levels';
 import { createRng, nextFloat } from './rng';
 
 const PREFIX = 'battle:';
@@ -161,6 +164,33 @@ export interface Battlefield {
   readonly blocks: readonly WallBlock[];
   /** Per cell of a `BLOCK_CELL` grid over the field (row by row along z, from (-size/2, -size/2)), the blocks within `BLOCK_REACH` of it, ascending. */
   readonly blockCells: readonly (readonly number[])[];
+  /**
+   * Whether a hand-built map has several levels (Stage 4a): some Walk Surface not flat at its floor's height (a ramp, a platform, a bridge).
+   * Only then do Soldiers cross between levels by the walk rule (`levels.ts`), and the destination fields have a node per level. False on
+   * the open field (one heightfield) and on a one-level map, where a Soldier's Walk Surface is the floor under it and moves nothing.
+   */
+  readonly layered: boolean;
+  /** Each Objective's and each Base's Walk Surface: the highest under its centre (-1 on the open field, whose ground is the heightfield). */
+  readonly objectiveSurfaces: readonly number[];
+  readonly baseSurfaces: readonly [number, number];
+}
+
+/**
+ * The height (m) of a Soldier on Walk Surface `surface` at (x, z) (Stage 4a): its surface's there, or on the open field (`surface` -1) the
+ * heightfield's. A Soldier's height is never stored: it follows its surface.
+ */
+export function soldierHeight(field: Battlefield, surface: number, x: number, z: number): number {
+  return groundHeight(field.heights, surface, x, z);
+}
+
+/** `soldierHeight` from a Battlefield's ground alone (as the renderer has it): Walk Surface `surface`'s height at (x, z), or the heightfield's for -1. */
+export function groundHeight(hf: Heightfield, surface: number, x: number, z: number): number {
+  return surface >= 0 && hf.walk ? surfaceHeight(hf.walk, surface, x, z) : battlefieldHeight(hf, x, z);
+}
+
+/** The Walk Surface a Soldier put down at (x, z) on `field` stands on: the highest there (`groundNear`), or -1 on the open field (or off the floor). */
+export function groundOf(battle: BattleTuning, field: Battlefield, x: number, z: number, y = Infinity): number {
+  return field.heights.walk ? groundNear(field.arena, battle.levels, x, z, y) : -1;
 }
 
 /**
@@ -210,7 +240,18 @@ function build(battle: BattleTuning, name: string, seed: number): Battlefield {
   const objectives = battle.objectives.openField.map(({ hill: _hill, ...site }, k) => ({ ...site, ...settle(battle.objectives.openField[k]!, hf), radius: battle.objectives.radius }));
   const bases: [MapPoint, MapPoint] = [{ x: 0, z: -battle.squad.baseDistance }, { x: 0, z: battle.squad.baseDistance }];
   const front = battle.deploy.front;
-  return { arena: { name, walk, walls: [], spawns: spawnsOf(battle, hf, front), doors: [] }, heights: hf, objectives, bases, front, blocks: [], blockCells: [] };
+  return {
+    arena: { name, walk, walls: [], spawns: spawnsOf(battle, hf, front), doors: [] },
+    heights: hf,
+    objectives,
+    bases,
+    front,
+    blocks: [],
+    blockCells: [],
+    layered: false,
+    objectiveSurfaces: objectives.map(() => -1),
+    baseSurfaces: [-1, -1],
+  };
 }
 
 /** The block lookup's cell (m), and the furthest (m) past a cell a body may reach and still be pushed out of a block it meets there (more than any Soldier's radius). */
@@ -335,7 +376,10 @@ function blockWalls(b: WallBlock): WallSegment[] {
   return corners.map((a, k) => ({ id: `${b.id}_${k}`, a, b: corners[(k + 1) % 4]!, bottom: -1, top: b.top }));
 }
 
-/** A hand-built Battle map's Battlefield: its floor and Walls (its own, and each block's four) with no jump Links, its spawns behind its armies, its Objectives and Bases where it puts them. */
+/**
+ * A hand-built Battle map's Battlefield: its floor and Walls (its own, and each block's four) with no jump Links, its spawns behind its
+ * armies, its Objectives and Bases where it puts them. Throws when its Walk Surfaces are not all joined by walking and dropping (`walkCheck`).
+ */
 function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Battlefield {
   const size = battle.field.size;
   const floor = Math.min(...map.walk.flatMap((w) => w.points.map((p) => p.y)));
@@ -343,6 +387,9 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
   // The Players spawn at the floor's height (on one level, where they stand).
   const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: false };
   const heights: Heightfield = { ...flat, walk: arena };
+  const unjoined = walkCheck(arena, battle.levels);
+  if (unjoined) throw new Error(`Battle map "${map.name}": ${unjoined}`);
+  const highest = (p: MapPoint) => groundNear(arena, battle.levels, p.x, p.z, Infinity);
   return {
     arena,
     heights,
@@ -351,6 +398,9 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
     front: map.front,
     blocks: map.blocks,
     blockCells: blockCellsOf(map.blocks, size),
+    layered: map.walk.some((w) => w.points.some((p) => p.y !== floor)),
+    objectiveSurfaces: map.objectives.map(highest),
+    baseSurfaces: [highest(map.bases[0]), highest(map.bases[1])],
   };
 }
 

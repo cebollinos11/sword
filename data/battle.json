@@ -112,5 +112,11 @@
   },
   "takeover": {
     "seconds": 1.5
+  },
+  "levels": {
+    "stepUp": 0.35,
+    "drop": 3,
+    "height": 1.8,
+    "promote": 2.5
   }
 }

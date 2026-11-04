@@ -32,11 +32,13 @@
  * farthest allies demote as soon as they may. A Player who left an online Battle (`BattlePlayer.away`) has no Bubble: an AI
  * drives its Fighter as an ally of its Team, and it takes over no Soldier when it falls. A promoted Fighter starts at guard
  * where its Soldier stands, facing its heading, with its Team and HP, the generic soldier's Weapon (`battle.soldier`), and a
- * Soldier's max HP. Pure.
+ * Soldier's max HP. On a hand-built map (docs/plans/battle-objectives.md, Stage 4a) a Soldier more than `levels.promote` above or below a
+ * Player's Fighter is never promoted into its Bubble (Promotion goes by the distance across the ground, so nobody is promoted through a
+ * floor), and a Demotion stands its Soldier on the Walk Surface its Fighter stood on. Pure.
  */
 import { bubbleSlots, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
-import { battlefieldHeight, battlefieldOf } from './battlefield';
+import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
 import type { BattlePlayer, CrowdState } from './crowd';
 import { inDuel } from './duel';
@@ -60,16 +62,17 @@ export function unboundSlot(tuning: TuningData, arena: string): FighterState {
   return { ...standingFighter(tuning, geometry, { position: { x: 0, z: 0 }, y: y ? battlefieldHeight(y, 0, 0) : 0, facing: 0 }, tuning.battle.soldier.weapon, 1), hp: 0, benched: true };
 }
 
-/** A Bubble: where its Player's Fighter stands, and its Team. */
+/** A Bubble: where its Player's Fighter stands (its feet's height too), and its Team. */
 interface Centre {
   readonly x: number;
   readonly z: number;
+  readonly y: number;
   readonly team: number;
 }
 
 /** Each Bubble: each Player's Fighter (the first `players` slots) still in the fight, but a Player's who left (`BattlePlayer.away`). */
 function bubbleCentres(fighters: readonly FighterState[], players: number, crowd: CrowdState): Centre[] {
-  return fighters.slice(0, players).flatMap((f, k) => (inDuel(f) && !crowd.players[k]?.away ? [{ x: f.position.x, z: f.position.z, team: f.team }] : []));
+  return fighters.slice(0, players).flatMap((f, k) => (inDuel(f) && !crowd.players[k]?.away ? [{ x: f.position.x, z: f.position.z, y: f.y, team: f.team }] : []));
 }
 
 /** Whether a promoted Fighter's Action lets it demote: Idle (standing or walking) on the ground. */
@@ -115,6 +118,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   const { bubble, slots } = tuning.battle;
   const minTicks = secondsToTicks(bubble.minPromotedSeconds);
   const corpseTicks = secondsToTicks(bubble.corpseSeconds);
+  const field = battlefieldOf(tuning.battle, duel.arena)!;
 
   let fighters: FighterState[] | null = null;
   let crowd: { -readonly [K in keyof CrowdState]: CrowdState[K] extends readonly number[] ? number[] : CrowdState[K] extends readonly BattlePlayer[] ? BattlePlayer[] : CrowdState[K] } | null = null;
@@ -124,6 +128,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       ...before,
       x: before.x.slice(),
       z: before.z.slice(),
+      surface: before.surface.slice(),
       vx: before.vx.slice(),
       vz: before.vz.slice(),
       heading: before.heading.slice(),
@@ -143,10 +148,12 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   /** The Pool and the Crowd as they stand so far in this step. */
   const pool = (): readonly FighterState[] => fighters ?? duel.fighters;
   const soldiers = (): CrowdState => crowd ?? before;
-  /** Soldier `s` takes Fighter `f`'s place, heading and HP, standing, engaged with no one. */
+  /** Soldier `s` takes Fighter `f`'s place (on a hand-built map, on the Walk Surface under its feet), heading and HP, standing, engaged with no one. */
   const writeBack = (c: NonNullable<typeof crowd>, s: number, f: FighterState) => {
     c.x[s] = f.position.x;
     c.z[s] = f.position.z;
+    const on = groundOf(tuning.battle, field, f.position.x, f.position.z, f.y);
+    if (on >= 0) c.surface[s] = on;
     c.heading[s] = f.facing;
     c.hp[s] = f.hp;
     c.vx[s] = 0;
@@ -176,8 +183,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   const fighterOf = (c: NonNullable<typeof crowd>, s: number): FighterState => {
     const at = { x: c.x[s]!, z: c.z[s]! };
     const geometry = arenaOf(tuning, duel.arena);
-    const hf = battlefieldOf(tuning.battle, duel.arena)!.heights;
-    const f = standingFighter(tuning, geometry, { position: at, y: battlefieldHeight(hf, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!);
+    const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!);
     return { ...f, hp: c.hp[s]!, maxHp: tuning.battle.crowd.hp };
   };
   /** A promoted Soldier's Mods (`battle.soldier.mods`), when they change anything. */
@@ -303,13 +309,16 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     };
     /**
      * Whether Soldier `s` may promote into Bubble `b`, as an ally of its Player or an enemy: in the Crowd, living, its Team not
-     * routed, within `promote` of the Player's Fighter and no nearer another Bubble of that kind.
+     * routed, within `promote` of the Player's Fighter and no nearer another Bubble of that kind; on a hand-built map, no more than
+     * `levels.promote` above or below it (never through a floor).
      */
     const promotable = (s: number, b: number, ally: boolean) => {
       const c = soldiers();
       const centre = centres[b]!;
       if (!c.alive[s] || c.slot[s]! >= 0 || c.rout?.team === c.team[s] || (c.team[s] === centre.team) !== ally) return false;
-      return Math.hypot(c.x[s]! - centre.x, c.z[s]! - centre.z) <= bubble.promote && nearestCentre(centres, c.x[s]!, c.z[s]!, c.team[s]!, ally) === b;
+      if (Math.hypot(c.x[s]! - centre.x, c.z[s]! - centre.z) > bubble.promote) return false;
+      if (field.heights.walk && Math.abs(soldierHeight(field, c.surface[s]!, c.x[s]!, c.z[s]!) - centre.y) > tuning.battle.levels.promote) return false;
+      return nearestCentre(centres, c.x[s]!, c.z[s]!, c.team[s]!, ally) === b;
     };
 
     // A slot-holding enemy a promoted ally engages lets its Attack Slot go.

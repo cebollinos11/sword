@@ -130,6 +130,11 @@ export function surfacesAt(arena: ArenaGeometry, x: number, z: number): readonly
   return at;
 }
 
+/** Whether Walk Surface `i`'s polygon, seen from above, contains (x, z) (its edges count). */
+export function onSurface(arena: ArenaGeometry, i: number, x: number, z: number): boolean {
+  return inside(indexOf(arena).surfaces[i]!, x, z);
+}
+
 /** The height of Walk Surface `i` above (x, z) (its plane, wherever the point is). */
 export function surfaceHeight(arena: ArenaGeometry, i: number, x: number, z: number): number {
   const s = indexOf(arena).surfaces[i]!;

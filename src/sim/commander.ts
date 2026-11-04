@@ -111,7 +111,7 @@ export function planOrders(crowd: CrowdState, tick: number, battle: BattleTuning
         // Objectives in the Team's own order (reversed for Team 1), so a tie goes to the mirrored Objective for each: the half-turn mirror of the armies.
         for (let j = 0; j < O; j++) {
           const k = team === 0 ? j : O - 1 - j;
-          const path = fieldDistance(map.fields, k, old.x[q]!, old.z[q]!);
+          const path = fieldDistance(map.fields, k, old.x[q]!, old.z[q]!, old.surface[q]);
           if (path < 0) continue;
           // Enemy Soldiers there beyond what the Team has there already or has on the way (a Squad standing there is in both counts).
           const outnumbered = Math.max(0, threat[foe]![k]! - Math.max(threat[team]![k]!, sent[k]! * size)) / size;
@@ -138,10 +138,11 @@ export function planOrders(crowd: CrowdState, tick: number, battle: BattleTuning
       let bestCost = Infinity;
       for (const s of spawns) {
         const at = s < O ? sites[s]! : map.field.bases[s - O]!;
+        const on = s < O ? map.field.objectiveSurfaces[s]! : map.field.baseSurfaces[s - O]!;
         let cost = 0;
         let total = 0;
         for (let k = 0; k < O; k++) {
-          const path = fieldDistance(map.fields, k, at.x, at.z);
+          const path = fieldDistance(map.fields, k, at.x, at.z, on);
           cost += value[k]! * (path < 0 ? UNREACHABLE : path);
           total += value[k]!;
         }

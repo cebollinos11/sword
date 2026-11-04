@@ -14,8 +14,10 @@ export interface Snapshot<T extends { readonly tick: number } = SimState> {
 function deepCopy<T>(v: T): T {
   if (v === null || typeof v !== 'object') return v;
   if (Array.isArray(v)) return v.map(deepCopy) as T;
-  const out: Record<string, unknown> = {};
-  for (const k of Object.keys(v)) out[k] = deepCopy((v as Record<string, unknown>)[k]);
+  // A spread first, so the copy has the original's shape: built a key at a time, an object of many keys (a Battle's Crowd) turns into a
+  // slow dictionary, and every Tick that reads it pays.
+  const out = { ...(v as Record<string, unknown>) };
+  for (const k of Object.keys(out)) out[k] = deepCopy(out[k]);
   return out as T;
 }
 
