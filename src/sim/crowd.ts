@@ -583,7 +583,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
         damage[best] = damage[best]! + p.damage[0] + draw() * (p.damage[1] - p.damage[0]);
         struck = true;
       }
-    } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < (narrow[sq] || battle.squad.line.wide) && (!walled || Math.sqrt(bestD) < clearanceBelow(map.fields, xi, zi, crowd.surface[i]) || inSight(map.fields, xi, zi, crowd.x[best]!, crowd.z[best]!)))) {
+    } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < (narrow[sq] || battle.squad.line.wide) && (!(walled || layered) || Math.sqrt(bestD) < clearanceBelow(map.fields, xi, zi, crowd.surface[i]) || inSight(map.fields, xi, zi, crowd.x[best]!, crowd.z[best]!, 0, ys === null ? NaN : ys[i]!, ys === null ? NaN : ys[best]!)))) {
       // A Squad's Soldier steers to its place in the Formation round the anchor (narrowed through a pass), up to `catchUp` times faster
       // when out of place; only the front rank of a line closes with an enemy in sight (below, never one behind a wall), the rear rank
       // holds its places.

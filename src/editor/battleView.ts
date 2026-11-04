@@ -4,7 +4,7 @@
  * each Soldier a box in its Team's colour (a fallen one lies flat and grey), a free orbit camera. A panel shows the
  * Tick, each army's strength, the Rout and the winner, with a seed box, a restart and the speed. `#/editor/battle/<seed>`
  * starts on that seed; `#/editor/battle/<map>/<seed>` on a hand-built Battle map (`battle.maps`, its walls and towers drawn as grey
- * boxes, docs/plans/battle-objectives.md Stage 3a) at its standard army size. Render only: nothing here feeds the Simulation, and the
+ * boxes, docs/plans/battle-objectives.md Stage 3a; a map of several levels also its raised Walk Surfaces and the Walls it stands, Stage 4b) at its standard army size. Render only: nothing here feeds the Simulation, and the
  * Editor only imports it in dev.
  */
 import * as THREE from 'three';
@@ -172,6 +172,23 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
       wall.position.set((b.minX + b.maxX) / 2, b.top / 2, (b.minZ + b.maxZ) / 2);
       walls.add(wall);
     }
+    // A map of several levels (Stage 4b: the Fort's keep): each raised Walk Surface (the deck and the ramps) translucent so the tunnel under
+    // it shows, and the outline of each Wall the map itself stands (the keep's faces, parapets and ramp sides; the field's edge is left out).
+    const raised = new THREE.MeshLambertMaterial({ color: 0xc9b98f, transparent: true, opacity: 0.55, side: THREE.DoubleSide });
+    for (const w of map.field.arena.walk) {
+      if (w.points.every((p) => p.y === 0)) continue;
+      // A triangle fan over the surface's corners (a Walk Surface is convex).
+      const pts = w.points.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+      const fan = pts.slice(2).flatMap((_, k) => [pts[0]!, pts[k + 1]!, pts[k + 2]!]);
+      walls.add(new THREE.Mesh(new THREE.BufferGeometry().setFromPoints(fan), raised));
+    }
+    const rails: THREE.Vector3[] = [];
+    for (const w of map.field.arena.walls) {
+      if (!w.id.startsWith('WALL_') || w.id.startsWith('WALL_edge')) continue;
+      const [a, b, c, d] = [new THREE.Vector3(w.a.x, w.bottom, w.a.z), new THREE.Vector3(w.b.x, w.bottom, w.b.z), new THREE.Vector3(w.b.x, w.top, w.b.z), new THREE.Vector3(w.a.x, w.top, w.a.z)];
+      rails.push(a, b, b, c, c, d, d, a);
+    }
+    if (rails.length > 0) walls.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(rails), new THREE.LineBasicMaterial({ color: 0xffe08a })));
     seedBox.value = String(seed);
     carry = 0;
     // Not `location.hash =`: a hash change reloads the page (main.ts).
@@ -200,7 +217,7 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     const narrow = squadNarrows(tuning.battle, map, sq);
     for (let k = 0; k < squadCount; k++) {
       if (sq.living[k] === 0) anchors.setMatrixAt(k, hidden);
-      else anchors.setMatrixAt(k, m4.compose(p.set(sq.x[k]!, battlefieldHeight(hf, sq.x[k]!, sq.z[k]!) + 3, sq.z[k]!), q.setFromAxisAngle(up, sq.heading[k]!), one));
+      else anchors.setMatrixAt(k, m4.compose(p.set(sq.x[k]!, groundHeight(hf, sq.surface[k]!, sq.x[k]!, sq.z[k]!) + 3, sq.z[k]!), q.setFromAxisAngle(up, sq.heading[k]!), one));
       anchors.setColorAt(k, colour.setHex(sq.fall[k] ? FALLING_COLOUR : SHAPE_COLOURS[sq.shape[k] as 0 | 1 | 2]));
     }
     for (let i = 0; i < n; i++) {

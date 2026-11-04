@@ -304,6 +304,11 @@ export interface BattleMapTuning {
   readonly front: number;
   /** The army size a Battle on it has unless the Lobby picks another, and the most it may (whole numbers): set from the budget gate. */
   readonly armySize: { readonly standard: number; readonly max: number };
+  /**
+   * The Tickets a Team starts with for each Soldier of its army on this map, replacing `tickets.perSoldier` (`applyBattleKnobs`): a map whose
+   * walls and levels slow the killing lasts longer on the same Tickets, so it may start with fewer. Absent: the Battle's own.
+   */
+  readonly ticketsPerSoldier?: number;
 }
 
 export interface BattleTuning {
@@ -420,6 +425,7 @@ function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'fiel
     bases: [fieldPoint(bases[0], `${where}.bases[0]`, size), fieldPoint(bases[1], `${where}.bases[1]`, size)],
     front,
     armySize,
+    ...(m.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(m, 'ticketsPerSoldier', where) }),
   };
 }
 
@@ -726,6 +732,7 @@ export function applyBattleKnobs(b: BattleTuning, knobs: BattleKnobs | undefined
   const { armySize = standardArmySize(b, map), hitRate = 1 } = knobs;
   const army = Math.min(armySizeCap(b, map), Math.max(1, Math.round(armySize)));
   const hitChance = Math.min(1, b.crowd.hitChance * (hitRate > 0 ? hitRate : 1));
-  if (army === b.armySize && hitChance === b.crowd.hitChance) return b;
-  return { ...b, armySize: army, crowd: { ...b.crowd, hitChance } };
+  const perSoldier = map?.ticketsPerSoldier ?? b.tickets.perSoldier;
+  if (army === b.armySize && hitChance === b.crowd.hitChance && perSoldier === b.tickets.perSoldier) return b;
+  return { ...b, armySize: army, crowd: { ...b.crowd, hitChance }, tickets: { ...b.tickets, perSoldier } };
 }

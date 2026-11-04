@@ -21,7 +21,7 @@
 import type { ArenaGeometry, BattleTuning, LevelsTuning, WallBlock } from '../tuning';
 import { surfaceHeight, surfacesAt } from './arena';
 import { battlefieldOf, inBlock, type Battlefield } from './battlefield';
-import { EDGE_PROBE, probeEdges, sameLevel, trace } from './levels';
+import { EDGE_PROBE, probeEdges, sameLevel, trace, walled } from './levels';
 
 /** The fields to every destination of one map. Destination d is Objective d for d below `objectives`, then each Team's Base (`objectives + team`). */
 export interface DestinationFields {
@@ -213,11 +213,12 @@ const centreOf = (c: number, cell: number, side: number): number => (c - (side -
 function nodeIn(f: DestinationFields, c: number, s: number): number {
   const L = f.levels!;
   if (s < 0) return L.start[c + 1]! > L.start[c]! ? L.start[c + 1]! - 1 : -1;
+  // The node on the surface itself, the usual case, needs no height.
+  for (let k = L.start[c]!; k < L.start[c + 1]!; k++) if (L.surface[k] === s) return k;
   const h = surfaceHeight(L.arena, s, centreOf(c % f.side, f.cell, f.side), centreOf(Math.floor(c / f.side), f.cell, f.side));
   let best = -1;
   let bestD = L.lv.stepUp + 1e-9;
   for (let k = L.start[c]!; k < L.start[c + 1]!; k++) {
-    if (L.surface[k] === s) return k;
     const d = Math.abs(L.y[k]! - h);
     if (d < bestD) [best, bestD] = [k, d];
   }
@@ -514,10 +515,14 @@ export function lineClear(f: DestinationFields, x: number, z: number, tx: number
 
 /**
  * Whether one can see from (x, z) to (tx, tz): no block of a hand-built map stands across the line (always, on the open field). With
- * `margin`, whether a body that wide (m, each side) can walk it: the line keeps that far from every block.
+ * `margin`, whether a body that wide (m, each side) can walk it: the line keeps that far from every block. With the two heights (`y`, `ty`), on a
+ * map of several levels, the map's Walls count too (see below).
  */
-export function inSight(f: DestinationFields, x: number, z: number, tx: number, tz: number, margin = 0): boolean {
+export function inSight(f: DestinationFields, x: number, z: number, tx: number, tz: number, margin = 0, y = NaN, ty = NaN): boolean {
   for (const b of f.blocks) if (crosses(b, margin, x, z, tx, tz)) return false;
+  // On a map of several levels, given the two bodies' heights, no Wall of the map (a ramp's rail, a keep's face) stands across the line at the
+  // lower one's height either: an enemy over a rail is not one a Squad can walk to.
+  if (f.levels && y === y && ty === ty && walled(f.levels.arena, f.levels.lv, x, z, tx, tz, Math.min(y, ty))) return false;
   return true;
 }
 
@@ -594,8 +599,34 @@ function levelDescend(f: DestinationFields, d: number, x: number, z: number, tea
     }
   }
   if (best < 0) return null;
-  const c = L.cell[best]!;
-  return Math.atan2(centreOf(c % f.side, f.cell, f.side) - x, centreOf(Math.floor(c / f.side), f.cell, f.side) - z);
+  const at2 = (k: number): [number, number] => [centreOf(L.cell[k]! % f.side, f.cell, f.side), centreOf(Math.floor(L.cell[k]! / f.side), f.cell, f.side)];
+  const reach = (k: number): boolean => {
+    const [cx, cz] = at2(k);
+    return trace(L.arena, L.lv, s, x, z, cx, cz, true) >= 0;
+  };
+  // The field's way leaves from a node's centre, but the body may stand across a thin Wall from it (a ramp's rail through the cell): then take
+  // the node of the cells round it on its level that it can walk to with the least way left, the field's length there and the walk to it
+  // (the 3 x 3 cells in the Team's order, so a tie goes the mirrored way).
+  if (s >= 0 && !reach(best)) {
+    const turn = team === 1 ? -1 : 1;
+    const c0 = cellAt(f, x, z);
+    const [cx0, cz0] = [c0 % f.side, Math.floor(c0 / f.side)];
+    let alt = -1;
+    let altCost = Infinity;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const [nx, nz] = [cx0 + dx * turn, cz0 + dz * turn];
+        if (nx < 0 || nz < 0 || nx >= f.side || nz >= f.side) continue;
+        const k = nodeIn(f, nz * f.side + nx, s);
+        if (k < 0 || field[k]! < 0 || (room > 0 && f.clearance![k]! < room) || !reach(k)) continue;
+        const [cx, cz] = at2(k);
+        const cost = field[k]! + Math.hypot(cx - x, cz - z);
+        if (cost < altCost - TIE) [alt, altCost] = [k, cost];
+      }
+    if (alt >= 0) best = alt;
+  }
+  const [cx, cz] = at2(best);
+  return Math.atan2(cx - x, cz - z);
 }
 
 /**

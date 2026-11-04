@@ -10,12 +10,14 @@ or headless:
 
 With SAVE = True it writes public/models/arenas/battle_fort.glb (the look) and data/battlemaps/fort.json (the
 Battle map, read back from the Collision helpers):
-  - WALK_<id>:  one planar convex face of the floor (a Walk Surface). The floor is the field's square less the
-                solid blocks, cut into rectangles along every block's sides, so a block's sides lie on the floor's
-                edges and the navmesh never links across one.
+  - WALK_<id>:  one planar convex face of the floor (a Walk Surface). The ground is the field's square less the
+                solid blocks and less what the keep stands over (no ground under a deck or a ramp), cut into
+                rectangles along every such side, so a side lies on the ground's edges and the navmesh never links
+                across one. WALK_deck_*: the keep's deck, 4 m up; WALK_ramp_*: its two ramps (sloped faces).
   - BLOCK_<id>: a solid block of wall or tower, a box from the ground to its `top`: a Wall stands on each of its
                 four sides (the Simulation adds them), and the Soldiers and the destination fields keep out of it.
-  - WALL_<id>:  one vertical quad, solid between its bottom and top heights: the field's edge.
+  - WALL_<id>:  one vertical quad, solid between its bottom and top heights: the field's edge, and the keep's faces,
+                its parapets (a Fighter's rail along the deck) and its ramps' sides.
   - OBJ_<id>:   an empty at an Objective, with its `weight`, `owner` (-1 none) and `spawn` (0 or 1) properties.
   - BASE_T<team>: an empty at each Team's Base.
   - DEPLOY:     an empty on Team 0's front rank (z = -front); Team 1 deploys as its half turn.
@@ -24,13 +26,17 @@ Battle map, read back from the Collision helpers):
 Everything is authored in game coordinates (x east, y up, z toward Team 1; facing 0 looks along +z) and placed in
 Blender as (x, -z, y), which the glTF export (export_yup) turns back into game coordinates.
 
-Layout: a ruined square fort in the middle of the field, on one level (y 0). Its curtain wall (4 m thick) has a
+Layout: a ruined square fort in the middle of the field. Its curtain wall (4 m thick) has a
 gatehouse in the middle of each side the armies face (D toward Team 0, E toward Team 1, a 10 m gate between two
 towers), a breach in each east and west side (A's and C's way in) and a smaller breach on each gate side, to the
-right of the army facing it. Two corners still stand as towers, the other two have fallen to stumps. Inside, the
-four corner stones of the keep that Stage 4b raises stand round the courtyard where B is. Outside, A and C stand
-on the flanks by a ruined outbuilding each. The whole map is its own half turn about the centre (the armies are a
-half turn of each other), so neither Team has the shorter way to anything: Objective k mirrors Objective 4 - k.
+right of the army facing it. Two corners still stand as towers, the other two have fallen to stumps. Inside stands
+the keep (Stage 4b): a 28 m square block 4 m high with B on its deck, reached by a ramp up its west face and one up its east
+face (each 11 m wide and 9 m long, railed), with a 6 m tunnel under it from one gatehouse's side to the other's (D to E). The
+deck and ramps stand over no ground and the tunnel is the ground, so a Soldier in the tunnel is on its floor, not on the deck
+over it (ADR 0022: never a block under a deck, since blocks push Soldiers off). Outside, A and C stand on the flanks by a
+ruined outbuilding each. The whole map is its own half turn about the centre (the armies are a half turn of each other), so
+neither Team has the shorter way to anything: Objective k mirrors Objective 4 - k, and block k mirrors block n - 1 - k, as
+the Walk Surfaces and Walls do (the keep, its ramps and its tunnel included).
 """
 import json
 import math
@@ -50,12 +56,20 @@ OUT_JSON = os.path.join(REPO, 'data', 'battlemaps', 'fort.json')
 HALF = 100.0  # the field's half side (battle.field.size / 2)
 FRONT = 52.0  # Team 0's front rank stands at z = -FRONT: clear of the gatehouses (their towers reach z = -37)
 BASE = 88.0  # each Team's Base, behind its deployment
-ARMY_SIZE = {'standard': 200, 'max': 200}  # measured on the budget gate (Stage 3a's Result)
+ARMY_SIZE = {'standard': 144, 'max': 144}  # measured on the budget gate (Stage 4b: the keep makes the Fort a map of several levels, which costs more a Soldier)
+TICKETS = 2.4  # Tickets a Team starts with for each Soldier (the open field's is 3.5): the keep and tunnel slow the killing, so Battles on the Fort last about 7 minutes on fewer than the open field (Stage 4b)
+
+KEEP = 14.0  # the keep's half side: a 28 m square in the courtyard, B on its deck
+DECK = 4.0  # the keep's deck, above a Soldier's drop (battle.levels.drop, 3 m), so nobody drops off it
+RAIL = 1.0  # its parapet's height above the deck
+TUNNEL = 3.0  # the tunnel under the keep, joining the gatehouses (D and E): 6 m wide, DECK high, along z
+RAMP = 5.5  # each ramp is 2 x RAMP wide (11 m: a column fits it) and RAMP_LEN long (9 m), up the keep's west and east faces; its rails stand off the destination grid's 2 m cell edges
+RAMP_LEN = 9.0
 
 CURTAIN = 5.0  # the curtain wall's top
 TOWER = 9.0  # a gatehouse tower's or a standing corner tower's top
 STUMP = 3.0  # a fallen corner tower's stump
-RUIN = 2.5  # the keep's corner stones and the outbuildings
+RUIN = 2.5  # the outbuildings
 
 # Team 0's half of the solid blocks, (id, x0, x1, z0, z1, top); Team 1's half is its half turn (`turned`).
 SOUTH = [
@@ -68,10 +82,8 @@ SOUTH = [
     ('corner_se', 30, 38, -38, -30, STUMP),
     ('curtain_e_s', 30, 34, -30, -6, CURTAIN),  # the east breach z -6 to 6 (and, turned, the west one)
     ('curtain_e_n', 30, 34, 6, 30, CURTAIN),
-    ('keep_se', 14, 18, -18, -14, RUIN),
-    ('keep_sw', -18, -14, -18, -14, RUIN),
-    ('shed_a', -58, -54, -16, -8, RUIN),  # A's outbuilding (C's, turned)
-    ('shed_a2', -66, -62, 8, 16, RUIN),
+    ('shed_a', -58, -54, -15, -7, RUIN),  # A's outbuilding (C's, turned)
+    ('shed_a2', -66, -62, 7, 15, RUIN),
 ]
 
 
@@ -113,14 +125,26 @@ MAT_INDEX = {n: i for i, n in enumerate(MATERIALS)}
 # ---------------------------------------------------------------- the floor (game coordinates)
 
 
+# What the keep stands over, where there is no ground (x0, x1, z0, z1): its two halves beside the tunnel, and the ramps. Its deck and
+# ramps are Walk Surfaces over this; the tunnel (x -TUNNEL to TUNNEL, under the deck) is ground.
+CARVED = [
+    (-KEEP, -TUNNEL, -KEEP, KEEP),
+    (TUNNEL, KEEP, -KEEP, KEEP),
+    (-KEEP - RAMP_LEN, -KEEP, -RAMP, RAMP),
+    (KEEP, KEEP + RAMP_LEN, -RAMP, RAMP),
+]
+SOLIDS = [b[1:5] for b in BLOCKS] + CARVED
+
+
 def floor_rects():
-    """The field's square less the blocks, as rectangles (x0, x1, z0, z1): cut along every block side, the free cells
-    merged along x, then runs of the same span merged along z. Each block side lies on rectangles' edges."""
-    xs = sorted({-HALF, HALF, *(v for b in BLOCKS for v in (b[1], b[2]))})
-    zs = sorted({-HALF, HALF, *(v for b in BLOCKS for v in (b[3], b[4]))})
+    """The ground: the field's square less the blocks and less what the keep stands over, as rectangles (x0, x1, z0, z1):
+    cut along every such side, the free cells merged along x, then runs of the same span merged along z. Each side lies on
+    rectangles' edges."""
+    xs = sorted({-HALF, HALF, *(v for b in SOLIDS for v in (b[0], b[1]))})
+    zs = sorted({-HALF, HALF, *(v for b in SOLIDS for v in (b[2], b[3]))})
 
     def solid(x, z):
-        return any(b[1] < x < b[2] and b[3] < z < b[4] for b in BLOCKS)
+        return any(b[0] < x < b[1] and b[2] < z < b[3] for b in SOLIDS)
 
     rows = []
     for j in range(len(zs) - 1):
@@ -150,8 +174,38 @@ def floor_rects():
 
 
 WALK = [(f'{k:03d}', r) for k, r in enumerate(floor_rects())]
-EDGE = [('edge_s', (-HALF, -HALF), (HALF, -HALF)), ('edge_e', (HALF, -HALF), (HALF, HALF)),
-        ('edge_n', (HALF, HALF), (-HALF, HALF)), ('edge_w', (-HALF, HALF), (-HALF, -HALF))]
+
+# The keep's deck: 9 rectangles cut along the tunnel's sides (x) and the ramps' (z), so Walk Surfaces' edges lie under the Walls, at DECK.
+DECK_X = (-KEEP, -TUNNEL, TUNNEL, KEEP)
+DECK_Z = (-KEEP, -RAMP, RAMP, KEEP)
+DECK_WALK = [(f'deck_{i}{j}', (DECK_X[i], DECK_X[i + 1], DECK_Z[j], DECK_Z[j + 1])) for j in range(3) for i in range(3)]
+# Sloped faces, (id, four corners (x, y, z)): the west ramp rises toward +x, the east one toward -x.
+RAMP_WALK = [
+    ('ramp_w', [(-KEEP - RAMP_LEN, 0.0, -RAMP), (-KEEP, DECK, -RAMP), (-KEEP, DECK, RAMP), (-KEEP - RAMP_LEN, 0.0, RAMP)]),
+    ('ramp_e', [(KEEP + RAMP_LEN, 0.0, RAMP), (KEEP, DECK, RAMP), (KEEP, DECK, -RAMP), (KEEP + RAMP_LEN, 0.0, -RAMP)]),
+]
+
+
+def _walls():
+    """Walls, (id, a, b, bottom, top) with a and b as (x, z): the field's edge; the keep's faces (solid from the ground to the deck, the
+    tunnel's mouths and the ramps' mouths open); a parapet along the deck's edge (a Fighter's rail, open at the ramps); the tunnel's sides;
+    and the ramps' sides (solid below, a rail above). A Soldier on the deck is stopped by the parapet, and a face topped at the deck stops
+    one on the ground but not one above it: no ground lies within a step of the deck's edge, which is what keeps a Soldier on it."""
+    k, t, r, d = KEEP, TUNNEL, RAMP, DECK
+    edge = [('edge_s', (-HALF, -HALF), (HALF, -HALF)), ('edge_e', (HALF, -HALF), (HALF, HALF)),
+            ('edge_n', (HALF, HALF), (-HALF, HALF)), ('edge_w', (-HALF, HALF), (-HALF, -HALF))]
+    face = [('face_s_w', (-k, -k), (-t, -k)), ('face_s_e', (t, -k), (k, -k)), ('face_n_w', (-k, k), (-t, k)), ('face_n_e', (t, k), (k, k)),
+            ('face_w_s', (-k, -k), (-k, -r)), ('face_w_n', (-k, r), (-k, k)), ('face_e_s', (k, -k), (k, -r)), ('face_e_n', (k, r), (k, k)),
+            ('tunnel_w', (-t, -k), (-t, k)), ('tunnel_e', (t, -k), (t, k))]
+    parapet = [('parapet_s', (-k, -k), (k, -k)), ('parapet_n', (-k, k), (k, k)),
+               ('parapet_w_s', (-k, -k), (-k, -r)), ('parapet_w_n', (-k, r), (-k, k)), ('parapet_e_s', (k, -k), (k, -r)), ('parapet_e_n', (k, r), (k, k))]
+    ramp = [('ramp_w_s', (-k - RAMP_LEN, -r), (-k, -r)), ('ramp_w_n', (-k - RAMP_LEN, r), (-k, r)),
+            ('ramp_e_s', (k, -r), (k + RAMP_LEN, -r)), ('ramp_e_n', (k, r), (k + RAMP_LEN, r))]
+    return ([(i, a, b, -1.0, 4.0) for i, a, b in edge] + [(i, a, b, -1.0, d) for i, a, b in face]
+            + [(i, a, b, d, d + RAIL) for i, a, b in parapet] + [(i, a, b, -1.0, d + RAIL) for i, a, b in ramp])
+
+
+WALLS = _walls()
 
 # ---------------------------------------------------------------- the look (game coordinates)
 
@@ -260,6 +314,54 @@ def banner(x, z, mat, facing):
     G.box(x + 0.1, x + 1.7, 3.6, 5.8, z - 0.03 * facing, z + 0.03 * facing, mat)
 
 
+def prism_x(profile, z0, z1, mat):
+    """A prism: `profile`, counter-clockwise seen from +z as points (x, y), stood from z0 to z1."""
+    G.face([(x, y, z1) for x, y in profile], mat)
+    G.face([(x, y, z0) for x, y in reversed(profile)], mat)
+    for k, (x, y) in enumerate(profile):
+        x2, y2 = profile[(k + 1) % len(profile)]
+        G.face([(x, y, z0), (x2, y2, z0), (x2, y2, z1), (x, y, z1)], mat)
+
+
+def keep_look():
+    """The keep (Stage 4b): two halves of stone either side of the tunnel with a lighter deck, a roof over the tunnel, a low parapet round
+    the deck (open at the ramps) with posts, and the ramps with a rail along each side. Nothing the Simulation reads: its Walls and Walk
+    Surfaces are the helpers (`collision`), and the look stays outside them so a Fighter never clips a parapet."""
+    k, t, r, d = KEEP, TUNNEL, RAMP, DECK
+    for x0, x1 in ((-k, -t), (t, k)):
+        # A darker plinth round the outer faces, then the wall under a lighter deck.
+        out0, out1 = (x0 - 0.15, x1) if x0 < 0 else (x0, x1 + 0.15)
+        G.box(out0, out1, 0, 0.8, -k - 0.15, k + 0.15, 'StoneDark')
+        G.box(x0, x1, 0.8, d, -k, k, 'Stone', top='StoneLight')
+    # The roof of the tunnel, seen from below too.
+    G.box(-t, t, d - 1.0, d, -k, k, 'Stone', top='StoneLight', skip_bottom=False)
+    # The parapet, 0.4 m thick on the deck's edge (inside the Walls), open at the ramps; posts at the corners and the ramps' mouths.
+    w, h = 0.4, RAIL
+    G.box(-k, k, d, d + h, -k, -k + w, 'Stone', top='StoneLight')
+    G.box(-k, k, d, d + h, k - w, k, 'Stone', top='StoneLight')
+    for sx in (-1, 1):
+        for a, b in ((-k + w, -r), (r, k - w)):
+            G.box(*sorted((sx * k, sx * (k - w))), d, d + h, a, b, 'Stone', top='StoneLight')
+    for sx in (-1, 1):
+        for sz in (-1, 1):
+            G.box(*sorted((sx * k, sx * (k - 0.8))), d, d + 2.2, *sorted((sz * k, sz * (k - 0.8))), 'StoneDark', top='Stone')
+        for sz in (-1, 1):
+            G.box(*sorted((sx * k, sx * (k - 0.6))), d, d + 1.6, *sorted((sz * r, sz * (r + 0.6))), 'StoneDark', top='Stone')
+    # The ramps: a sloped way (one face, seen from above) and a rail each side, a parallelogram stood along it, 0.6 m thick, outside the way.
+    for sx in (-1, 1):
+        a, b = sx * k, sx * (k + RAMP_LEN)
+        G.face([(a, d, -r), (a, d, r), (b, 0.0, r), (b, 0.0, -r)] if sx > 0 else [(a, d, r), (a, d, -r), (b, 0.0, -r), (b, 0.0, r)], 'StoneLight')
+        profile = [(a, 0.0), (b, 0.0), (b, RAIL), (a, d + RAIL)]
+        if sx < 0:
+            profile.reverse()
+        for z0, z1 in ((r, r + 0.6), (-r - 0.6, -r)):
+            prism_x(profile, z0, z1, 'Stone')
+    # Worn steps of dirt at the ramps' feet.
+    for sx in (-1, 1):
+        G.face([(sx * (k + RAMP_LEN), 0.02, -r - 1.5), (sx * (k + RAMP_LEN), 0.02, r + 1.5), (sx * (k + RAMP_LEN + 3), 0.02, r + 1.5), (sx * (k + RAMP_LEN + 3), 0.02, -r - 1.5)] if sx > 0 else
+               [(sx * (k + RAMP_LEN), 0.02, r + 1.5), (sx * (k + RAMP_LEN), 0.02, -r - 1.5), (sx * (k + RAMP_LEN + 3), 0.02, -r - 1.5), (sx * (k + RAMP_LEN + 3), 0.02, r + 1.5)], 'Dirt')
+
+
 def build_look():
     # The courtyard's trodden earth, a centimetre over the grass the game draws (src/render/stage.ts).
     G.face([(-30, 0.01, -30), (-30, 0.01, 30), (30, 0.01, 30), (30, 0.01, -30)], 'Dirt')
@@ -274,10 +376,7 @@ def build_look():
     for b in BLOCKS:
         if b[0].startswith('corner') and b[5] == STUMP:
             rubble(b[1] - 3, b[2] + 3, b[3] - 3, b[4] + 3, 18)
-    # The keep's foundation, flush with the courtyard: where Stage 4b raises it.
-    for x0, z0 in ((-14, -14), (-14, 10), (10, -14), (10, 10)):
-        G.face([(x0, 0.03, z0), (x0, 0.03, z0 + 4), (x0 + 4, 0.03, z0 + 4), (x0 + 4, 0.03, z0)], 'StoneDark')
-    G.face([(-14, 0.02, -14), (-14, 0.02, 14), (14, 0.02, 14), (14, 0.02, -14)], 'StoneLight')
+    keep_look()
     banner(0, -BASE, 'Banner0', 1)
     banner(0, BASE, 'Banner1', -1)
 
@@ -361,14 +460,23 @@ def collision(coll):
         me = bpy.data.meshes.new(f'WALK_{id}')
         me.from_pydata([tuple(to_blender(p)) for p in pts], [], [[0, 1, 2, 3]])
         coll.objects.link(bpy.data.objects.new(f'WALK_{id}', me))
+    for id, (x0, x1, z0, z1) in DECK_WALK:
+        pts = [(x0, DECK, z0), (x1, DECK, z0), (x1, DECK, z1), (x0, DECK, z1)]
+        me = bpy.data.meshes.new(f'WALK_{id}')
+        me.from_pydata([tuple(to_blender(p)) for p in pts], [], [[0, 1, 2, 3]])
+        coll.objects.link(bpy.data.objects.new(f'WALK_{id}', me))
+    for id, pts in RAMP_WALK:
+        me = bpy.data.meshes.new(f'WALK_{id}')
+        me.from_pydata([tuple(to_blender(p)) for p in pts], [], [[0, 1, 2, 3]])
+        coll.objects.link(bpy.data.objects.new(f'WALK_{id}', me))
     for k, (id, x0, x1, z0, z1, top) in enumerate(BLOCKS):
         # The block's footprint, lifted to its top.
         pts = [(x0, top, z0), (x1, top, z0), (x1, top, z1), (x0, top, z1)]
         me = bpy.data.meshes.new(f'BLOCK_{k:02d}_{id}')
         me.from_pydata([tuple(to_blender(p)) for p in pts], [], [[0, 1, 2, 3]])
         coll.objects.link(bpy.data.objects.new(f'BLOCK_{k:02d}_{id}', me))
-    for id, a, b in EDGE:
-        q = [(a[0], -1.0, a[1]), (b[0], -1.0, b[1]), (b[0], 4.0, b[1]), (a[0], 4.0, a[1])]
+    for id, a, b, bottom, top in WALLS:
+        q = [(a[0], bottom, a[1]), (b[0], bottom, b[1]), (b[0], top, b[1]), (a[0], top, a[1])]
         me = bpy.data.meshes.new(f'WALL_{id}')
         me.from_pydata([tuple(to_blender(p)) for p in q], [], [[0, 1, 2, 3]])
         coll.objects.link(bpy.data.objects.new(f'WALL_{id}', me))
@@ -412,6 +520,7 @@ def export_json(coll):
         'name': 'fort',
         'front': front,
         'armySize': ARMY_SIZE,
+        'ticketsPerSoldier': TICKETS,
         'bases': bases,
         'objectives': [o for _, o in sorted(objectives, key=lambda e: e[0])],
         'blocks': blocks,
@@ -425,7 +534,7 @@ def write_json(path, data):
     def items(key):
         rows = data[key]
         return [f'    {json.dumps(r)}' + (',' if k < len(rows) - 1 else '') for k, r in enumerate(rows)]
-    lines = ['{', '  "name": "fort",', f'  "front": {json.dumps(data["front"])},', f'  "armySize": {json.dumps(data["armySize"])},',
+    lines = ['{', '  "name": "fort",', f'  "front": {json.dumps(data["front"])},', f'  "armySize": {json.dumps(data["armySize"])},', f'  "ticketsPerSoldier": {json.dumps(data["ticketsPerSoldier"])},',
              f'  "bases": {json.dumps(data["bases"])},', '  "objectives": [', *items('objectives'), '  ],', '  "blocks": [', *items('blocks'),
              '  ],', '  "walls": [', *items('walls'), '  ],', '  "walk": [', *items('walk'), '  ]', '}', '']
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -446,7 +555,7 @@ def build():
     collision(helpers)
     helpers.hide_render = True
     triangles = sum(len(p.vertices) - 2 for p in fort.data.polygons)
-    report = {'triangles': triangles, 'faces_dropped': len(G.faces) - len(fort.data.polygons), 'walk': len(WALK), 'blocks': len(BLOCKS), 'saved': bool(SAVE)}
+    report = {'triangles': triangles, 'faces_dropped': len(G.faces) - len(fort.data.polygons), 'walk': len(WALK) + len(DECK_WALK) + len(RAMP_WALK), 'blocks': len(BLOCKS), 'walls': len(WALLS), 'saved': bool(SAVE)}
     if SAVE:
         os.makedirs(os.path.dirname(OUT_GLB), exist_ok=True)
         bpy.ops.object.select_all(action='DESELECT')

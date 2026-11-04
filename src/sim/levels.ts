@@ -30,13 +30,54 @@ function segmentsCross(ax: number, az: number, bx: number, bz: number, cx: numbe
   return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0) || d1 === 0 || d2 === 0) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0) || d3 === 0 || d4 === 0);
 }
 
+/** The wall lookup's cell (m). */
+const WALL_CELL = 8;
+
+/** An arena's Walls binned by the cells their bounding boxes touch (static, built once per arena): `walled` then looks only at the Walls near a step. */
+interface WallGrid {
+  readonly x0: number;
+  readonly z0: number;
+  readonly side: number;
+  readonly cells: readonly (readonly number[])[];
+}
+const wallGrids = new WeakMap<ArenaGeometry, WallGrid>();
+
+/** The wall lookup's cell along one axis for a coordinate `v` from the grid's origin `o`, kept inside the grid. */
+const wallCell = (g: WallGrid, v: number, o: number): number => Math.min(g.side - 1, Math.max(0, Math.floor((v - o) / WALL_CELL)));
+
+function wallGridOf(arena: ArenaGeometry): WallGrid {
+  let g = wallGrids.get(arena);
+  if (g) return g;
+  const xs = arena.walls.flatMap((w) => [w.a.x, w.b.x]);
+  const zs = arena.walls.flatMap((w) => [w.a.z, w.b.z]);
+  const x0 = Math.min(0, ...xs) - 1;
+  const z0 = Math.min(0, ...zs) - 1;
+  const side = Math.max(1, Math.ceil((Math.max(0, ...xs) - x0 + 1) / WALL_CELL), Math.ceil((Math.max(0, ...zs) - z0 + 1) / WALL_CELL));
+  const cells: number[][] = Array.from({ length: side * side }, () => []);
+  const at = (v: number, o: number) => wallCell({ x0, z0, side, cells }, v, o);
+  arena.walls.forEach((w, k) => {
+    for (let r = at(Math.min(w.a.z, w.b.z), z0); r <= at(Math.max(w.a.z, w.b.z), z0); r++)
+      for (let c = at(Math.min(w.a.x, w.b.x), x0); c <= at(Math.max(w.a.x, w.b.x), x0); c++) cells[r * side + c]!.push(k);
+  });
+  wallGrids.set(arena, (g = { x0, z0, side, cells }));
+  return g;
+}
+
 /** Whether a Wall of `arena` stands across the step p → q for a Soldier with its feet at `y` (from `stepUp` over them to `height`). */
-function walled(arena: ArenaGeometry, lv: LevelsTuning, px: number, pz: number, qx: number, qz: number, y: number): boolean {
-  for (const w of arena.walls) {
-    if (w.bottom >= y + lv.height || w.top <= y + lv.stepUp) continue;
-    if (Math.max(px, qx) < Math.min(w.a.x, w.b.x) || Math.min(px, qx) > Math.max(w.a.x, w.b.x) || Math.max(pz, qz) < Math.min(w.a.z, w.b.z) || Math.min(pz, qz) > Math.max(w.a.z, w.b.z)) continue;
-    if (segmentsCross(px, pz, qx, qz, w.a.x, w.a.z, w.b.x, w.b.z)) return true;
-  }
+export function walled(arena: ArenaGeometry, lv: LevelsTuning, px: number, pz: number, qx: number, qz: number, y: number): boolean {
+  const g = wallGridOf(arena);
+  const c0 = wallCell(g, Math.min(px, qx), g.x0);
+  const c1 = wallCell(g, Math.max(px, qx), g.x0);
+  const r0 = wallCell(g, Math.min(pz, qz), g.z0);
+  const r1 = wallCell(g, Math.max(pz, qz), g.z0);
+  for (let r = r0; r <= r1; r++)
+    for (let c = c0; c <= c1; c++)
+      for (const k of g.cells[r * g.side + c]!) {
+        const w = arena.walls[k]!;
+        if (w.bottom >= y + lv.height || w.top <= y + lv.stepUp) continue;
+        if (Math.max(px, qx) < Math.min(w.a.x, w.b.x) || Math.min(px, qx) > Math.max(w.a.x, w.b.x) || Math.max(pz, qz) < Math.min(w.a.z, w.b.z) || Math.min(pz, qz) > Math.max(w.a.z, w.b.z)) continue;
+        if (segmentsCross(px, pz, qx, qz, w.a.x, w.a.z, w.b.x, w.b.z)) return true;
+      }
   return false;
 }
 

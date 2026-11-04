@@ -17,6 +17,7 @@ import {
   DEFEND,
   formationNarrow,
   formationSpot,
+  groundOf,
   hashValue,
   inBlock,
   inSight,
@@ -47,7 +48,7 @@ const open = battleMapOf(base.battle, 'battle:1');
 describe('clearance', () => {
   it("stores each field cell's distance to the nearest wall (negative inside one), the same at a cell's half turn, and none on the open field", () => {
     const f = map.fields;
-    const cl = f.clearance!;
+    expect(f.clearance).not.toBeNull();
     const mid = (f.side - 1) / 2;
     for (let c = 0; c < f.side * f.side; c++) {
       const x = ((c % f.side) - mid) * f.cell;
@@ -59,9 +60,20 @@ describe('clearance', () => {
         const dz = Math.max(b.minZ - z, 0, z - b.maxZ);
         near = Math.min(near, dx === 0 && dz === 0 ? -Math.min(x - b.minX, b.maxX - x, z - b.minZ, b.maxZ - z) : Math.hypot(dx, dz));
       }
-      expect(cl[c], `cell ${c}`).toBeCloseTo(near, 9);
-      expect(cl[c]! < 0).toBe(inBlock(map.field, x, z));
-      expect(cl[f.side * f.side - 1 - c]).toBeCloseTo(cl[c]!, 9);
+      // The Fort is a map of several levels (Stage 4b): a node's clearance also counts the keep's walls and rails and the field's edge, so it is
+      // never more than the nearest block's, and is exactly it where nothing else is nearer (a block within 8 m, the field's edge at least 10 m
+      // off and the keep at least 26 m).
+      // (On a map of several levels it is stored a node, not a cell, at hand: `clearanceAt` gives the highest node's.)
+      const here = clearanceAt(f, x, z);
+      // A cell whose centre a block covers holds no node.
+      if (near < 0) {
+        expect(inBlock(map.field, x, z), `cell ${c}`).toBe(true);
+        continue;
+      }
+      expect(here, `cell ${c}`).toBeLessThanOrEqual(near + 1e-9);
+      if (near <= 8 && Math.hypot(x, z) > 40 && Math.abs(x) <= 90 && Math.abs(z) <= 90) expect(here, `cell ${c}`).toBeCloseTo(near, 9);
+      expect(here, `cell ${c}`).toBeGreaterThanOrEqual(0);
+      expect(clearanceAt(f, -x, -z), `cell ${c}`).toBeCloseTo(here, 9);
     }
     // The south gate is 10 m between its towers: 5 m at its middle, falling evenly toward a tower between the cells' centres.
     expect(clearanceAt(f, 0, -32)).toBeCloseTo(5, 9);
@@ -78,7 +90,10 @@ describe('narrow passes', () => {
     // Team 0 marching north (+z) through the south gate on its middle line.
     expect(formationNarrow(battle, f, LINE, 12, 0, -60, 0)).toBe(0);
     expect(formationNarrow(battle, f, LINE, 12, 0, -32, 0)).toBe(battle.squad.column.wide);
-    expect(formationNarrow(battle, f, LINE, 12, 0, -20, 0)).toBe(0);
+    // Beyond the gate the courtyard (60 m across, with the keep in it since Stage 4b) is no wider than a line needs: ahead of the keep's
+    // tunnel mouth, 6 m short of it, a line is a column; out in the open it is a line.
+    expect(formationNarrow(battle, f, LINE, 12, 0, -20, 0)).toBe(1);
+    expect(formationNarrow(battle, f, LINE, 12, -80, 0, 0)).toBe(0);
     // A column fits the gate's middle as it is; through the 8 m breach east of it, fewer files.
     expect(formationNarrow(battle, f, COLUMN, 12, 0, -32, 0)).toBe(0);
     expect(formationNarrow(battle, f, COLUMN, 12, 21, -32, 0)).toBeGreaterThan(0);
@@ -121,20 +136,20 @@ describe('walls', () => {
   it('slides a step that walks into a wall back out by the side it came in through, each Team the mirror of the other', () => {
     const field = battlefieldOf(battle, FORT)!;
     const out: [number, number] = [0, 0];
-    // A step north into the south-east corner of the shed by A (x -58 to -54, z -16 to -8): its shallowest way out is east, but it came
+    // A step north into the south-east corner of the shed by A (x -58 to -54, z -15 to -7): its shallowest way out is east, but it came
     // in through the south face, so it slides along that.
-    pushOutOfBlocks(field, -54.3, -15.5, 0.45, 0, out);
+    pushOutOfBlocks(field, -54.3, -14.5, 0.45, 0, out);
     expect(out[0]).toBeCloseTo(-53.55, 9);
-    expect(pushOutOfBlocks(field, -54.3, -15.5, 0.45, 0, out, -54.3, -16.6)).toBe(true);
-    expect(out).toEqual([-54.3, -16.45]);
-    pushOutOfBlocks(field, 54.3, 15.5, 0.45, 1, out, 54.3, 16.6);
-    expect(out).toEqual([54.3, 16.45]);
+    expect(pushOutOfBlocks(field, -54.3, -14.5, 0.45, 0, out, -54.3, -15.6)).toBe(true);
+    expect(out).toEqual([-54.3, -15.45]);
+    pushOutOfBlocks(field, 54.3, 14.5, 0.45, 1, out, 54.3, 15.6);
+    expect(out).toEqual([54.3, 15.45]);
     // Diagonally in past a corner: the face crossed last.
-    pushOutOfBlocks(field, -54.4, -15.8, 0.45, 0, out, -53.0, -16.5);
+    pushOutOfBlocks(field, -54.4, -14.8, 0.45, 0, out, -53.0, -15.5);
     expect(out[0]).toBeCloseTo(-53.55, 9);
-    expect(out[1]).toBe(-15.8);
+    expect(out[1]).toBe(-14.8);
     // A body that started inside is put out by its shallowest side as before.
-    pushOutOfBlocks(field, -54.3, -15.5, 0.45, 0, out, -54.3, -15.6);
+    pushOutOfBlocks(field, -54.3, -14.5, 0.45, 0, out, -54.3, -14.6);
     expect(out[0]).toBeCloseTo(-53.55, 9);
   });
 
@@ -176,7 +191,7 @@ describe('walls', () => {
     const set = <T,>(xs: readonly T[], k: number, v: T): T[] => xs.map((x, j) => (j === k ? v : x));
     const sq = crowd.squads;
     const fallen = (xs: readonly number[]) => xs.map((v, i) => (crowd.team[i] === 1 ? 0 : v));
-    let c: CrowdState = { ...crowd, alive: fallen(crowd.alive), hp: fallen(crowd.hp), squads: { ...sq, x: set(sq.x, 0, spot[0]), z: set(sq.z, 0, spot[1]), heading: set(sq.heading, 0, 0), aim: set(sq.aim, 0, 0), order: set(sq.order, 0, DEFEND), target: set(sq.target, 0, 2), since: set(sq.since, 0, 25 * 60) } };
+    let c: CrowdState = { ...crowd, alive: fallen(crowd.alive), hp: fallen(crowd.hp), squads: { ...sq, x: set(sq.x, 0, spot[0]), z: set(sq.z, 0, spot[1]), heading: set(sq.heading, 0, 0), aim: set(sq.aim, 0, 0), order: set(sq.order, 0, DEFEND), target: set(sq.target, 0, 2), since: set(sq.since, 0, 25 * 60), surface: set(sq.surface, 0, groundOf(battle, battlefieldOf(battle, FORT)!, spot[0], spot[1])) } };
     const members = c.squad.flatMap((s, i) => (s === 0 ? [i] : []));
     const walledOff = members.filter((i) => !inSight(map.fields, c.x[i]!, c.z[i]!, spot[0], spot[1]));
     expect(walledOff.length).toBeGreaterThan(members.length / 2);

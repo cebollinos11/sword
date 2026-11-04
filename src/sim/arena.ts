@@ -40,6 +40,8 @@ interface ArenaIndex {
   readonly wallBounds: Float64Array;
   /** Per body radius, per grid cell, the Walls (ascending) that come within two radii of it: built on first use. */
   readonly wallCells: Map<number, readonly (readonly number[])[]>;
+  /** `[i]` for each surface i, shared, so a lookup that finds one surface allocates nothing. */
+  readonly one: readonly (readonly number[])[];
 }
 
 /** Grid cell size (m) of the surface lookup. */
@@ -48,6 +50,7 @@ const CELL = 1;
 const EDGE_EPS = 1e-6;
 
 const indexes = new WeakMap<ArenaGeometry, ArenaIndex>();
+const NONE: readonly number[] = [];
 
 function buildIndex(arena: ArenaGeometry): ArenaIndex {
   const surfaces = arena.walk.map((surface): IndexedSurface => {
@@ -79,7 +82,7 @@ function buildIndex(arena: ArenaGeometry): ArenaIndex {
   });
   const wallBounds = new Float64Array(arena.walls.length * 4);
   arena.walls.forEach((w, i) => wallBounds.set([Math.min(w.a.x, w.b.x), Math.max(w.a.x, w.b.x), Math.min(w.a.z, w.b.z), Math.max(w.a.z, w.b.z)], i * 4));
-  return { surfaces, x0, z0, cols, rows, cells, last: null, wallBounds, wallCells: new Map() };
+  return { surfaces, x0, z0, cols, rows, cells, last: null, wallBounds, wallCells: new Map(), one: surfaces.map((_, i) => [i]) };
 }
 
 function indexOf(arena: ArenaGeometry): ArenaIndex {
@@ -125,7 +128,9 @@ export function surfacesAt(arena: ArenaGeometry, x: number, z: number): readonly
   if (index.last && index.last.x === x && index.last.z === z) return index.last.at;
   const c = Math.floor((x - index.x0) / CELL);
   const r = Math.floor((z - index.z0) / CELL);
-  const at = c < 0 || r < 0 || c >= index.cols || r >= index.rows ? [] : index.cells[r * index.cols + c]!.filter((i) => inside(index.surfaces[i]!, x, z));
+  const list = c < 0 || r < 0 || c >= index.cols || r >= index.rows ? NONE : index.cells[r * index.cols + c]!;
+  // A cell only one surface reaches (most of a map's floor): no array is made.
+  const at = list.length === 1 ? (inside(index.surfaces[list[0]!]!, x, z) ? index.one[list[0]!]! : NONE) : list.filter((i) => inside(index.surfaces[i]!, x, z));
   index.last = { x, z, at };
   return at;
 }

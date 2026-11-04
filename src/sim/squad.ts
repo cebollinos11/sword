@@ -231,10 +231,12 @@ export function formationSpot(battle: BattleTuning, map: BattleMap, squads: Squa
   const body = battle.crowd.separation / 2;
   if (map.field.layered) {
     const from = squads.surface[q]!;
+    // No block can stand across a line shorter than the anchor's clearance (less a body's half width): then only the Walk Surface is traced.
+    const sure = Math.hypot(ox, oz) + body < clearanceBelow(map.fields, ax, az, from);
     for (let t = SPOKE_POINTS; t > 0; t--) {
       const x = ax + (ox * t) / SPOKE_POINTS;
       const z = az + (oz * t) / SPOKE_POINTS;
-      const on = map.field.blocks.length > 0 && !inSight(map.fields, ax, az, x, z, body) ? -1 : trace(map.field.arena, battle.levels, from, ax, az, x, z, false);
+      const on = !sure && map.field.blocks.length > 0 && !inSight(map.fields, ax, az, x, z, body) ? -1 : trace(map.field.arena, battle.levels, from, ax, az, x, z, false);
       if (on < 0) continue;
       out[0] = x;
       out[1] = z;
@@ -609,13 +611,13 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
       }
       // An enemy behind a map's wall is not contact (it cannot be reached through the wall): when the nearest is hidden, the nearest one
       // within `engage` that can be seen is, if any (the lower index on a tie). On the open field every enemy is in sight.
-      if (near >= 0 && nearD <= p.engage * p.engage && !inSight(map.fields, cx, cz, crowd.x[near]!, crowd.z[near]!)) {
+      if (near >= 0 && nearD <= p.engage * p.engage && !inSight(map.fields, cx, cz, crowd.x[near]!, crowd.z[near]!, 0, ay, ys === null ? NaN : ys[near]!)) {
         let seen = -1;
         let seenD = p.engage * p.engage;
         for (let i = 0; i < n; i++) {
           if (!crowd.alive[i] || crowd.slot[i]! >= 0 || crowd.team[i] === own || (ys !== null && Math.abs(ys[i]! - ay) >= lv.height)) continue;
           const d2 = (crowd.x[i]! - cx) ** 2 + (crowd.z[i]! - cz) ** 2;
-          if (d2 <= seenD && (seen < 0 || d2 < seenD) && inSight(map.fields, cx, cz, crowd.x[i]!, crowd.z[i]!)) [seen, seenD] = [i, d2];
+          if (d2 <= seenD && (seen < 0 || d2 < seenD) && inSight(map.fields, cx, cz, crowd.x[i]!, crowd.z[i]!, 0, ay, ys === null ? NaN : ys[i]!)) [seen, seenD] = [i, d2];
         }
         [near, nearD] = seen >= 0 ? [seen, seenD] : [-1, Infinity];
       }
