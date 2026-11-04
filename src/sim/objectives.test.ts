@@ -6,6 +6,7 @@
  * lands on the same state, and the state survives a JSON resync.
  */
 import { describe, expect, it } from 'vitest';
+import { troopOf } from './crowd';
 import { loadTuningData, startingTickets, type TuningData } from '../tuning';
 import {
   ATTACK,
@@ -279,7 +280,8 @@ describe('respawning', () => {
     expect(back.every((i) => c.team[i] === 0)).toBe(true);
     expect(back).toEqual(dead.slice(0, back.length));
     expect(new Set(back.map((i) => c.place[i])).size).toBe(back.length);
-    expect(back.every((i) => c.hp[i] === small.battle.crowd.hp)).toBe(true);
+    // At its Troop's full HP.
+    expect(back.every((i) => c.hp[i] === troopOf(small.battle, c, i).hp)).toBe(true);
     expect(c.squads.living[0]).toBe(back.length);
     expect(c.squads.respawnAt[0]).toBe(-1);
   });

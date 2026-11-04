@@ -12,7 +12,7 @@ import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, stepMatch, T
 import type { TuningData } from '../tuning';
 import { blobTexture } from '../render/blobShadow';
 import { CrowdView } from '../render/crowdView';
-import { bakeImpostorAtlas } from '../render/impostorAtlas';
+import { bakeImpostorAtlases } from '../render/impostorAtlas';
 import { Stage } from '../render/stage';
 
 const SPEEDS = [0, 1, 2, 4];
@@ -83,8 +83,9 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
   status.textContent = 'baking the soldier…';
 
   const baking = performance.now();
-  const atlas = await bakeImpostorAtlas(stage.renderer, tuning, tuning.battle.soldier);
-  console.info(`Impostor atlas: ${atlas.layout.width}×${atlas.layout.height} px, baked in ${(performance.now() - baking).toFixed(0)} ms (with its Body model's load)`);
+  const atlas = await bakeImpostorAtlases(stage.renderer, tuning);
+  const first = atlas.atlases[0]!;
+  console.info(`Impostor atlases: ${atlas.atlases.length} of ${first.layout.width}×${first.layout.height} px, baked in ${(performance.now() - baking).toFixed(0)} ms (with their Body models' load)`);
   const view = new CrowdView(atlas, tuning.battle, blobTexture());
   stage.scene.add(view.root);
 

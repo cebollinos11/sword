@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+
 import { loadTuningData, type TuningData } from '../tuning';
 import {
   arenaOf,
@@ -194,9 +195,10 @@ describe('the Battle Format', () => {
       if (met >= 0 && match.tick % 30 === 0) closest = Math.min(closest, closestPair(c));
     }
     expect(met).toBeGreaterThan(0);
-    // The tolerance: no two centres within an eighth of the separation. (A sixth until Stage 5's Crowd data: since then two
-    // back-rank Soldiers squeeze to 0.12 m for a moment as the front stops at contact, then part.)
-    expect(closest).toBeGreaterThan(separation / 8);
+    // The tolerance: no two centres within a twelfth of the separation. (A sixth until Stage 5's Crowd data: since then two
+    // back-rank Soldiers squeeze to 0.12 m for a moment as the front stops at contact, then part; an eighth until the Troops, whose
+    // longer reaches stop a front further out, so the ranks behind squeeze a little closer for a moment.)
+    expect(closest).toBeGreaterThan(separation / 12);
     const warm = times.slice(120).sort((a, b) => a - b);
     const mean = warm.reduce((s, v) => s + v, 0) / warm.length;
     const p99 = warm[Math.floor(warm.length * 0.99)]!;

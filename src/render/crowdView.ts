@@ -1,7 +1,8 @@
 /**
- * The Crowd drawn (docs/plans/big-battle.md, Stage 2): every Soldier an impostor, one instanced billboard draw per Team
- * from the soldier's baked atlas (`bakeImpostorAtlas`), tinted in the shader with its Team's colour, and a blob shadow
- * under each (one more draw for both). Each frame a Soldier's billboard turns about the vertical to face the camera
+ * The Crowd drawn (docs/plans/big-battle.md, Stage 2): every Soldier an impostor, one instanced billboard draw per Team and look
+ * (a Troop's Body and Weapon, each from its own baked atlas, `bakeImpostorAtlases`), tinted in the shader with its Team's colour
+ * in a shade of its own (`soldierShade`, so an army is not one flat colour), and a blob shadow under each (one more draw for all).
+ * Each look's draw holds a billboard for every place of its army; a Soldier of another look is drawn there at no size (no pixels). Each frame a Soldier's billboard turns about the vertical to face the camera
  * (in the shader), shows the atlas cell of the direction the camera sees it from (`directionCell`) and of the clip and
  * frame its state shows (`soldierFrame`), and glides between its Crowd steps (`soldierAt`).
  *
@@ -13,8 +14,8 @@
 import * as THREE from 'three';
 import { groundHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
 import type { BattleTuning } from '../tuning';
-import { atlasCell, directionCell, impostorStretch, soldierAt, soldierFrame, yawTo, type AtlasLayout, type ClipSeconds } from './impostor';
-import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
+import { atlasCell, directionCell, impostorStretch, soldierAt, soldierFrame, yawTo, type AtlasLayout } from './impostor';
+import { CELL_METRES, FEET_METRES, type ImpostorAtlas, type ImpostorAtlases } from './impostorAtlas';
 import { BAYER_GLSL } from './dither';
 
 /** A Soldier's shadow: its radius (m), how dark (0 to 1), and how far above the ground it lies (m). */
@@ -27,9 +28,11 @@ const vertexShader = /* glsl */ `
   attribute vec2 aCell;
   attribute float aFade;
   attribute vec2 aSize;
+  attribute vec2 aShade;
   uniform vec2 uCellSize;
   varying vec2 vUv;
   varying float vFade;
+  varying vec2 vShade;
   #include <fog_pars_vertex>
   void main() {
     // Turned about the vertical to face the camera.
@@ -40,6 +43,7 @@ const vertexShader = /* glsl */ `
     vec3 world = aFeet + vec3(f.y, 0.0, -f.x) * (position.x * aSize.x) + vec3(0.0, position.y * aSize.y, 0.0);
     vUv = aCell + uv * uCellSize;
     vFade = aFade;
+    vShade = aShade;
     vec4 mvPosition = viewMatrix * vec4(world, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
@@ -52,6 +56,7 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uTint;
   varying vec2 vUv;
   varying float vFade;
+  varying vec2 vShade;
   ${BAYER_GLSL}
   #include <fog_pars_fragment>
   void main() {
@@ -60,21 +65,44 @@ const fragmentShader = /* glsl */ `
     vec4 colour = texture2D(uAtlas, vUv);
     if (colour.a < 0.5) discard;
     float team = texture2D(uMask, vUv).r;
-    gl_FragColor = vec4(colour.rgb * mix(vec3(1.0), uTint, team), 1.0);
+    // Its own shade: of its Team's colour on the team-coloured part (x), and a little lighter or darker all over (y).
+    gl_FragColor = vec4(colour.rgb * vShade.y * mix(vec3(1.0), uTint * vShade.x, team), 1.0);
     #include <fog_fragment>
     #include <colorspace_fragment>
   }
 `;
 
-/** One Team's impostors: a billboard per Soldier of its army, its feet and atlas cell set per frame. */
+/** How far a Soldier's shade of its Team's colour (x) and its brightness all over (y) vary either side of 1. */
+const SHADE_SPREAD: readonly [number, number] = [0.16, 0.07];
+
+/**
+ * Soldier `i`'s shade (render-only, the same every frame and on every peer): a multiplier on its Team's colour and one on its
+ * whole impostor, each within SHADE_SPREAD of 1, from a hash of `i`.
+ */
+export function soldierShade(i: number): [number, number] {
+  let h = Math.imul(i + 1, 0x9e3779b1) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b) >>> 0;
+  h = (h ^ (h >>> 13)) >>> 0;
+  const a = (h & 0xffff) / 0xffff;
+  const b = (h >>> 16) / 0xffff;
+  return [1 + SHADE_SPREAD[0] * (2 * a - 1), 1 + SHADE_SPREAD[1] * (2 * b - 1)];
+}
+
+/** One Team's impostors of one look: a billboard per place of its army, its feet and atlas cell set per frame (no size for a Soldier of another look). */
 class TeamImpostors {
   readonly mesh: THREE.Mesh;
   readonly feet: THREE.InstancedBufferAttribute;
   readonly cell: THREE.InstancedBufferAttribute;
   readonly fade: THREE.InstancedBufferAttribute;
   readonly size: THREE.InstancedBufferAttribute;
+  readonly shade: THREE.InstancedBufferAttribute;
 
-  constructor(atlas: ImpostorAtlas, count: number, tint: number) {
+  constructor(
+    readonly atlas: ImpostorAtlas,
+    count: number,
+    tint: number,
+    team: number,
+  ) {
     const quad = new THREE.PlaneGeometry(CELL_METRES, CELL_METRES).translate(0, CELL_METRES / 2 - FEET_METRES, 0);
     const geometry = new THREE.InstancedBufferGeometry();
     geometry.index = quad.index;
@@ -88,6 +116,10 @@ class TeamImpostors {
     geometry.setAttribute('aFade', this.fade);
     this.size = new THREE.InstancedBufferAttribute(new Float32Array(count * 2).fill(1), 2).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aSize', this.size);
+    const shades = new Float32Array(count * 2);
+    for (let k = 0; k < count; k++) shades.set(soldierShade(team * count + k), 2 * k);
+    this.shade = new THREE.InstancedBufferAttribute(shades, 2);
+    geometry.setAttribute('aShade', this.shade);
     geometry.instanceCount = count;
     const uniforms = THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
@@ -129,10 +161,12 @@ const UP = new THREE.Vector3(0, 1, 0);
 
 export class CrowdView {
   readonly root = new THREE.Group();
-  private readonly teams: TeamImpostors[];
+  /** Each Team's draws, one per look: `teams[team][look]`. */
+  private readonly teams: TeamImpostors[][];
   private readonly shadows: THREE.InstancedMesh;
   private readonly layout: AtlasLayout;
-  private readonly seconds: ClipSeconds;
+  /** Which look (atlas) Troop `t`'s look `l` is drawn from. */
+  private readonly lookIndex: readonly (readonly number[])[];
   /** What the view last saw of each Soldier, and when (Battle seconds) it saw it struck or fall: NaN for never. */
   private seenHp = new Float64Array(0);
   private seenAlive = new Uint8Array(0);
@@ -140,15 +174,17 @@ export class CrowdView {
   private diedAt = new Float64Array(0);
   private lastTick = -1;
 
+  /** `atlases`: one atlas (every Soldier the same look), or a Battle's atlases, one per look (`bakeImpostorAtlases`). */
   constructor(
-    atlas: ImpostorAtlas,
+    atlases: ImpostorAtlas | ImpostorAtlases,
     private readonly battle: BattleTuning,
     blob: THREE.Texture,
   ) {
-    this.layout = atlas.layout;
-    this.seconds = atlas.seconds;
-    this.teams = [0, 1].map((team) => new TeamImpostors(atlas, battle.armySize, battle.soldier.colours[team]!));
-    for (const t of this.teams) this.root.add(t.mesh);
+    const all = 'atlases' in atlases ? atlases.atlases : [atlases];
+    this.lookIndex = 'atlases' in atlases ? atlases.index : battle.troops.map((t) => t.bodies.map(() => 0));
+    this.layout = all[0]!.layout;
+    this.teams = [0, 1].map((team) => all.map((atlas) => new TeamImpostors(atlas, battle.armySize, battle.soldier.colours[team]!, team)));
+    for (const t of this.teams.flat()) this.root.add(t.mesh);
     const disc = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
     const shade = new THREE.MeshBasicMaterial({
       map: blob,
@@ -180,8 +216,11 @@ export class CrowdView {
     const cx = camera.position.x;
     const cz = camera.position.z;
     for (let i = 0; i < n; i++) {
-      const team = this.teams[crowd.team[i]!]!;
+      const draws = this.teams[crowd.team[i]!]!;
+      const team = draws[this.lookOf(crowd, i)] ?? draws[0]!;
       const k = i % army;
+      // Its place in every other look's draw is empty.
+      for (const other of draws) if (other !== team) other.size.setXY(k, 0, 0);
       const fade = fades ? fades[i]! : crowd.slot[i]! >= 0 ? 0 : 1;
       team.fade.setX(k, fade);
       soldierAt(crowd, i, tick, tick + alpha, stagger, army, at);
@@ -201,7 +240,7 @@ export class CrowdView {
         },
         time,
         i,
-        this.seconds,
+        team.atlas.seconds,
         this.layout.frames,
       );
       const viewYaw = yawTo(x, z, cx, cz);
@@ -221,13 +260,24 @@ export class CrowdView {
       size.setScalar(2 * SHADOW_RADIUS * (alive ? thick : 1.3 * height) * (fade > 0.5 ? 1 : 0));
       this.shadows.setMatrixAt(i, matrix.compose(place, tilt, size));
     }
-    for (const t of this.teams) {
+    for (const t of this.teams.flat()) {
       t.feet.needsUpdate = true;
       t.cell.needsUpdate = true;
       t.fade.needsUpdate = true;
       t.size.needsUpdate = true;
     }
     this.shadows.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Which look's draw Soldier `i` is in (its Troop's look). */
+  private lookOf(crowd: CrowdState, i: number): number {
+    return this.lookIndex[crowd.troop[i] ?? 0]?.[crowd.look[i] ?? 0] ?? 0;
+  }
+
+  /** The draw Soldier `i` of `crowd` is in (its Team's, of its look); its billboard there is instance `i % armySize`. */
+  meshOf(crowd: CrowdState, i: number): THREE.Mesh {
+    const draws = this.teams[crowd.team[i]!]!;
+    return (draws[this.lookOf(crowd, i)] ?? draws[0]!).mesh;
   }
 
   /** Note each Soldier struck (its HP dropped) or fallen since the last Tick seen, at Battle time `now`. */
@@ -252,7 +302,7 @@ export class CrowdView {
   }
 
   dispose(): void {
-    for (const t of this.teams) t.dispose();
+    for (const t of this.teams.flat()) t.dispose();
     this.shadows.geometry.dispose();
     (this.shadows.material as THREE.Material).dispose();
   }

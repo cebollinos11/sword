@@ -6,14 +6,14 @@
  * title screen with `?dev=1`): no HUD, Lobby or result screen yet (Stage 5), just a panel with the Player's HP, the armies,
  * the Pool and the frame's cost. Esc frees the mouse; a click takes it again.
  */
-import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState, type SoldierRole } from '../sim';
+import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, soldierBody, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState, type SoldierRole } from '../sim';
 import { defaultWeaponName, type TuningData } from '../tuning';
 import { LocalController, poolControllers, type Controller } from '../controllers';
 import { blobTexture } from '../render/blobShadow';
 import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
 import { defaultBody, isBody } from '../render/bodyModel';
-import { bakeImpostorAtlas } from '../render/impostorAtlas';
+import { bakeImpostorAtlases } from '../render/impostorAtlas';
 import { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { battleBodies } from './battleScreen';
@@ -60,7 +60,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
   container.appendChild(panel);
   panel.textContent = 'baking the soldier…';
 
-  const atlas = await bakeImpostorAtlas(renderer.gl, tuning, tuning.battle.soldier);
+  const atlas = await bakeImpostorAtlases(renderer.gl, tuning);
   const crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
   renderer.scene.add(crowdView.root);
   const swap = new BubbleSwap();
@@ -98,7 +98,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     for (const s of swap.update(duel, seconds)) {
       renderer.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y: battlefieldHeight(hf, s.at.x, s.at.z), z: s.at.z }, strength: 1 });
     }
-    const bodies = battleBodies(duel, 0, [body], tuning.battle.soldier.body);
+    const bodies = battleBodies(duel, 0, [body], tuning.battle.soldier.body, (s) => (duel.crowd ? soldierBody(tuning.battle, duel.crowd, s) : tuning.battle.soldier.body));
     const corpse = duel.crowd!.players[0]?.corpse ?? -1;
     renderer.setPlayer(0, bodies.player as Parameters<Renderer['setPlayer']>[1]);
     renderer.setChosenBodies(bodies.others);

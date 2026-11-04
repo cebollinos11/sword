@@ -40,7 +40,7 @@ import { bubbleSlots, type Size, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
-import { soldierSize, type BattlePlayer, type CrowdState } from './crowd';
+import { soldierSize, troopOf, type BattlePlayer, type CrowdState } from './crowd';
 import { inDuel } from './duel';
 import { foldMods, isNoMods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
@@ -139,6 +139,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       team: before.team as number[],
       sizeHeight: before.sizeHeight as number[],
       sizeThick: before.sizeThick as number[],
+      troop: before.troop as number[],
+      look: before.look as number[],
       target: before.target.slice(),
       engage: before.engage.slice(),
       alive: before.alive.slice(),
@@ -185,23 +187,26 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     return -1;
   };
   /**
-   * Soldier `s` as a full Fighter at guard where it stands, facing its heading, with its Team and HP and the generic soldier's Weapon, in
+   * Soldier `s` as a full Fighter at guard where it stands, facing its heading, with its Team and HP and its Troop's Weapon, in
    * its own Size (`soldierSize`), or in `size` (a Player taking it over keeps the Player's own: absent for the standard body).
    */
   const fighterOf = (c: NonNullable<typeof crowd>, s: number, size?: Size | null): FighterState => {
     const at = { x: c.x[s]!, z: c.z[s]! };
     const geometry = arenaOf(tuning, duel.arena);
-    const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!, size === undefined ? soldierSize(c, s) : (size ?? undefined));
-    return { ...f, hp: c.hp[s]!, maxHp: tuning.battle.crowd.hp };
+    const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, troopOf(tuning.battle, c, s).weapon, c.team[s]!, size === undefined ? soldierSize(c, s) : (size ?? undefined));
+    return { ...f, hp: c.hp[s]!, maxHp: troopOf(tuning.battle, c, s).hp };
   };
   /** Fighter `f` (a promoted ally a Player takes over) re-made at guard where it stands, with its HP, in a body of `size`. */
   const resized = (f: FighterState, size: Size | undefined): FighterState => {
     const made = standingFighter(tuning, arenaOf(tuning, duel.arena), { position: f.position, y: f.y, facing: f.facing }, f.weapon, f.team, size);
     return { ...made, hp: f.hp, maxHp: f.maxHp };
   };
-  /** A promoted Soldier's Mods (`battle.soldier.mods`), when they change anything. */
-  const soldierMods = foldMods([{ effects: tuning.battle.soldier.mods }]);
-  const modded = isNoMods(soldierMods) ? {} : { mods: soldierMods };
+  /** A promoted Soldier's Mods (its Troop's), when they change anything: one record per Troop. */
+  const troopMods = tuning.battle.troops.map((t) => {
+    const folded = foldMods([{ effects: t.mods }]);
+    return isNoMods(folded) ? {} : { mods: folded };
+  });
+  const modded = (c: CrowdState, s: number) => troopMods[c.troop[s] ?? 0] ?? troopMods[0]!;
 
   // Taking over an ally: a Player's fallen Fighter kills its Soldier, and later the Player plays on as the nearest living ally.
   const takeoverTicks = secondsToTicks(tuning.battle.takeover.seconds);
@@ -324,7 +329,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     /** Soldier `s` takes slot `k` as a Fighter at guard, holding `role`. */
     const promote = (s: number, k: number, role: SoldierRole) => {
       const e = edit();
-      e.fighters[k] = { ...fighterOf(e.crowd, s), ...modded, soldier: { index: s, since: tick, role } };
+      e.fighters[k] = { ...fighterOf(e.crowd, s), ...modded(e.crowd, s), soldier: { index: s, since: tick, role } };
       e.crowd.slot[s] = k;
     };
     /**

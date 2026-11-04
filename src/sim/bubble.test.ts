@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { troopOf } from './crowd';
 import { loadTuningData, type TuningData } from '../tuning';
 import { poolControllers, type Controller } from '../controllers';
 import {
@@ -75,9 +76,10 @@ describe('the Fighter Pool and the Bubble', () => {
     expect(f.y).toBeCloseTo(ground, 6);
     expect(f.facing).toBe(2.345);
     expect(f.hp).toBe(63.5);
-    expect(f.maxHp).toBe(small.battle.crowd.hp);
+    // Its Troop's HP and Weapon.
+    expect(f.maxHp).toBe(troopOf(small.battle, m.duel.crowd!, LONE).hp);
     expect(f.team).toBe(1);
-    expect(f.weapon).toBe(small.battle.soldier.weapon);
+    expect(f.weapon).toBe(troopOf(small.battle, m.duel.crowd!, LONE).weapon);
     expect(f.action.kind).toBe('Idle');
     expect(m.duel.crowd!.slot[LONE]).toBe(1);
     // No other slot is bound: nothing else stands within 10 m of the Player.

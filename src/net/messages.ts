@@ -1,6 +1,6 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
-import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES } from '../tuning';
+import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
 export const PROTOCOL_VERSION = 25;
@@ -11,6 +11,8 @@ const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
 const MAX_POOL = 64;
 /** The most Soldiers a Battle's Crowd holds on the wire (Tuning Data's `battle.armySize` says exactly how many). */
 const MAX_SOLDIERS = 20_000;
+/** The most Bodies a Troop names, as a Crowd's `look` may index. */
+const MAX_LOOKS = 16;
 
 /**
  * Sent repeatedly while connecting. A guest's hello carries its Weapon pick. The host's, once it has
@@ -510,6 +512,8 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.surface, isSurface) &&
     sized(v.sizeHeight, isSizePart) &&
     sized(v.sizeThick, isSizePart) &&
+    sized(v.troop, index(0, MAX_TROOPS)) &&
+    sized(v.look, index(0, MAX_LOOKS)) &&
     isSquads(v.squads, n) &&
     isObjectives(v.objectives) &&
     isArrayOf(v.tickets, (x) => isNum(x) && x >= 0) &&
@@ -749,9 +753,9 @@ export function isHallAiMemory(v: unknown): boolean {
 }
 /**
  * A Pool AI's memory (a Battle's Fighter Pool slot, `src/controllers/poolAi.ts`) while its slot is bound: the binding its AI plays for and
- * that AI's memory. Null while its slot is unbound.
+ * that AI's memory, and the AI difficulty it plays (its Troop's). Null while its slot is unbound.
  */
 export function isPoolAiMemory(v: unknown): boolean {
-  return isObject(v) && Object.keys(v).length === 2 && isSoldierBinding(v.bound) && isAiMemory(v.memory);
+  return isObject(v) && Object.keys(v).length === 3 && isSoldierBinding(v.bound) && typeof v.difficulty === 'string' && v.difficulty.length > 0 && v.difficulty.length <= 32 && isAiMemory(v.memory);
 }
 const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v) || isPoolAiMemory(v));

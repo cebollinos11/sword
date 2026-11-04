@@ -1,12 +1,12 @@
 /**
- * The impostor atlas (docs/plans/big-battle.md, Stage 2), baked in-engine when a Battle is drawn: the generic soldier's
- * own Body and Weapon, posed frame by frame from its clips (`soldierClips`, recorded from the Simulation), rendered from
+ * The impostor atlases (docs/plans/big-battle.md, Stage 2), baked in-engine when a Battle is drawn, one per look a Soldier can
+ * have (a Troop's Body and its Weapon, `soldierLooks`): that Body and Weapon, posed frame by frame from its clips (`soldierClips`, recorded from the Simulation), rendered from
  * `IMPOSTOR_DIRECTIONS` directions round it into one texture (`atlasLayout`). Its team-coloured part is baked white and,
  * into a second, half-size texture of the same layout, as a mask, so the impostor's shader tints it with each Team's
  * colour: one atlas serves both Teams. Render-only.
  */
 import * as THREE from 'three';
-import { weaponByName, type SoldierTuning, type TuningData } from '../tuning';
+import { weaponByName, type BattleTuning, type TuningData } from '../tuning';
 import { BODY_MODELS, type BodyModelName } from './bodyModel';
 import { FighterView } from './fighterView';
 import { atlasCell, atlasLayout, IMPOSTOR_CLIPS, type AtlasLayout, type ClipSeconds } from './impostor';
@@ -46,9 +46,53 @@ function target(width: number, height: number, colorSpace: THREE.ColorSpace): TH
   return rt;
 }
 
-/** Bake the soldier's atlas with `renderer` (the one that will draw it). Resolves once its Body model has loaded. */
-export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: TuningData, soldier: SoldierTuning): Promise<ImpostorAtlas> {
-  if (!isModel(soldier.body)) throw new Error(`battle.soldier.body "${soldier.body}" is not a Body model (${BODY_MODELS.join(', ')})`);
+/** One look a Soldier can have: the Body it is drawn as and the Weapon it holds. Each is baked into an atlas of its own. */
+export interface SoldierLook {
+  readonly body: string;
+  readonly weapon: string;
+}
+
+/**
+ * Every look a Battle's Soldiers can have (each Troop's Bodies, each with its Weapon), each once, and which of them Troop `t`'s look `l`
+ * is (`index[t][l]`).
+ */
+export function soldierLooks(battle: Pick<BattleTuning, 'troops'>): { readonly looks: SoldierLook[]; readonly index: number[][] } {
+  const looks: SoldierLook[] = [];
+  const index = battle.troops.map((t) =>
+    t.bodies.map((body) => {
+      const k = looks.findIndex((l) => l.body === body && l.weapon === t.weapon);
+      if (k >= 0) return k;
+      looks.push({ body, weapon: t.weapon });
+      return looks.length - 1;
+    }),
+  );
+  return { looks, index };
+}
+
+/** A Battle's impostor atlases: one per look (`soldierLooks`), and which atlas Troop `t`'s look `l` is drawn from (`index[t][l]`). */
+export interface ImpostorAtlases {
+  readonly atlases: readonly ImpostorAtlas[];
+  readonly index: readonly (readonly number[])[];
+  dispose(): void;
+}
+
+/** Bake every look's atlas of a Battle (`soldierLooks`), one after another, with `renderer`. */
+export async function bakeImpostorAtlases(renderer: THREE.WebGLRenderer, tuning: TuningData, battle: BattleTuning = tuning.battle): Promise<ImpostorAtlases> {
+  const { looks, index } = soldierLooks(battle);
+  const atlases: ImpostorAtlas[] = [];
+  for (const look of looks) atlases.push(await bakeImpostorAtlas(renderer, tuning, look));
+  return {
+    atlases,
+    index,
+    dispose() {
+      for (const a of atlases) a.dispose();
+    },
+  };
+}
+
+/** Bake one look's atlas with `renderer` (the one that will draw it). Resolves once its Body model has loaded. */
+export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: TuningData, soldier: SoldierLook): Promise<ImpostorAtlas> {
+  if (!isModel(soldier.body)) throw new Error(`A Troop's Body "${soldier.body}" is not a Body model (${BODY_MODELS.join(', ')})`);
   const weapon = weaponByName(tuning, soldier.weapon);
   const clips = soldierClips(tuning, weapon.name);
   const view = new FighterView(0xffffff, tuning, soldier.body);

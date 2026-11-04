@@ -12,7 +12,7 @@
  * then the generic soldier's; their fallen Fighter lies on in the Body they chose), and carries a name tag (`PlayerTags`).
  * Nothing here is part of the Simulation: each peer draws its own view of the same state.
  */
-import { battlefieldHeight, battlefieldOf, type Heightfield, type MatchState, type SimState } from '../sim';
+import { battlefieldHeight, battlefieldOf, soldierBody, type Heightfield, type MatchState, type SimState } from '../sim';
 import { PlayerTags } from './playerTags';
 import type { TuningData } from '../tuning';
 import type { LocalController } from '../controllers';
@@ -20,7 +20,7 @@ import { blobTexture } from '../render/blobShadow';
 import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
 import { ObjectiveMarks } from '../render/objectiveMarks';
-import { bakeImpostorAtlas } from '../render/impostorAtlas';
+import { bakeImpostorAtlases } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
@@ -34,18 +34,26 @@ const FOLLOW_RATE = 1.5;
 
 /**
  * The Body each Fighter slot wears. `chosen[k]` is the Body Player slot k picked in the Lobby (every peer has the Lobby's, so
- * Bodies need no protocol of their own): a Player's slot wears it while the Fighter is theirs, and the generic soldier's once they
+ * Bodies need no protocol of their own): a Player's slot wears it while the Fighter is theirs, and the Soldier's once they
  * have taken over a Soldier; their fallen Fighter lies on in the slot `record.corpse` in the Body they chose. Every other slot
- * is a Soldier promoted to a Fighter: the generic soldier's. `player` is slot `me`'s (the Renderer's local Player).
+ * is a Soldier promoted to a Fighter: that Soldier's. A Soldier's Body is `bodyOf(soldier)` (its Troop's look, `soldierBody`),
+ * or the generic soldier's `soldierBody` without it. `player` is slot `me`'s (the Renderer's local Player).
  */
-export function battleBodies(state: SimState, me: number, chosen: readonly (string | undefined)[], soldierBody: string): { player: string; others: (string | undefined)[] } {
+export function battleBodies(
+  state: SimState,
+  me: number,
+  chosen: readonly (string | undefined)[],
+  soldierBody: string,
+  bodyOf: (soldier: number) => string = () => soldierBody,
+): { player: string; others: (string | undefined)[] } {
   const players = state.crowd?.players ?? [];
-  const bodies = state.fighters.map((_, k) => {
+  const bodies = state.fighters.map((f, k) => {
     const own = chosen[k] ?? soldierBody;
     const record = players[k];
-    if (record) return record.soldier >= 0 ? soldierBody : own;
+    if (record) return record.soldier >= 0 ? bodyOf(record.soldier) : own;
     const owner = players.findIndex((r) => r.corpse === k);
-    return owner >= 0 ? (chosen[owner] ?? soldierBody) : soldierBody;
+    if (owner >= 0) return chosen[owner] ?? soldierBody;
+    return f.soldier ? bodyOf(f.soldier.index) : soldierBody;
   });
   return { player: bodies[me] ?? soldierBody, others: bodies.map((b, k) => (k === me ? undefined : b)) };
 }
@@ -89,7 +97,7 @@ export class BattleScreen {
     this.tags = new PlayerTags(container, tuning.battle.soldier.colours, names);
     addEventListener('keydown', this.onKey);
     this.hud.announce('Mustering the armies…', 30);
-    void bakeImpostorAtlas(renderer.gl, tuning, tuning.battle.soldier).then((atlas) => {
+    void bakeImpostorAtlases(renderer.gl, tuning).then((atlas) => {
       if (this.disposed) return;
       this.crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
       renderer.scene.add(this.crowdView.root);
@@ -169,7 +177,7 @@ export class BattleScreen {
       if (taken.has(s.soldier)) continue;
       this.renderer.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y: battlefieldHeight(hf, s.at.x, s.at.z), z: s.at.z }, strength: 1 });
     }
-    const bodies = battleBodies(duel, me, this.chosen, this.tuning.battle.soldier.body);
+    const bodies = battleBodies(duel, me, this.chosen, this.tuning.battle.soldier.body, (s) => soldierBody(this.tuning.battle, crowd, s));
     this.renderer.setPlayer(me, bodies.player as Body);
     this.renderer.setChosenBodies(bodies.others);
     // Every Player's slot, and where a Player's fallen Fighter lies, is drawn whole: only a Promotion's slot fades.
