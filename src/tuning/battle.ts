@@ -126,6 +126,11 @@ export interface ObjectiveSite {
   readonly spawn: boolean;
   /** Set: it stands on the highest ground within this many metres of (x, z) along the line across the armies (same z), "on the hill when the seed makes one"; never off that line, so neither army is nearer. */
   readonly hill?: number;
+  /**
+   * Set (a hand-built map of several levels): the height of the floor it stands on, when other Walk Surfaces lie over its x and z (a hall under
+   * a roof, a summit over a hall). Absent: it stands on the highest Walk Surface there, as the Fort's B does.
+   */
+  readonly y?: number;
 }
 
 /** The Objectives (docs/plans/battle-objectives.md, Stage 2a, ADR 0021): the capture circle, how fast it is taken, and the open field's five. */
@@ -359,7 +364,10 @@ function parseSite(raw: unknown, where: string, size: number): ObjectiveSite {
   const { x, z } = fieldPoint([o.x, o.z], where, size);
   if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false, got ${JSON.stringify(o.spawn)}`);
   const site = { id: nonEmptyString(o, 'id', where), x, z, weight: positiveNumber(o, 'weight', where), owner, spawn: o.spawn };
-  return o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+  const hilled = o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+  if (o.y === undefined) return hilled;
+  if (typeof o.y !== 'number' || !Number.isFinite(o.y)) throw new TuningDataError(`${where}.y must be a number, got ${JSON.stringify(o.y)}`);
+  return { ...hilled, y: o.y };
 }
 
 /** Throws unless a map holds 1 to MAX_OBJECTIVES Objectives, each with its own id. */

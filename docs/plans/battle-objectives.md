@@ -476,6 +476,17 @@ At 200 v 200 the Crowd step is inside the gate's "about 1 ms" but the march Roll
 
 **Tests**: `fort.test.ts` adds 8 (the map of several levels and its walk check, B on the deck, no block under a raised part; its half turn in Walk Surfaces and Walls; B counting the keep only; a Squad through the tunnel and one round the keep; a Squad up a ramp to B; a Squad pressed against a rail and sight across it; the fields and clearance node by node; the map file Tickets) and its two whole Battles check every Soldier's level on every Tick; `levelChecks.testdata.ts` (shared helpers). `npm run typecheck` and `npm run build` pass. `npm test` full run: 1842 passed, 1 failed: `doorSpot.test.ts` times out (about 50 s against 20 s), as Stages 0, 3a, 3b and 4a found it doing on main too.
 
+## Stage 5: the Ziggurat
+Added after Stage 4b, on its rules. A four-tier temple on rolling hills (ADR 0022's last section): `art/build_battle_ziggurat.py` writes `data/battlemaps/ziggurat.json` and `public/models/arenas/battle_ziggurat.glb`; the Lobby offers it as the Ziggurat. Four Objectives (A and D at opposite corners of floor 2, B in the plaza, C on the summit), two Bases, 6 m corridors and ramps.
+
+**Done when** every kind of unit can walk to every Objective (balance is not tested): `ziggurat.test.ts` marches a Squad of each Team from its Base to each of the four, every Soldier standing on the Objective's floor, with the level check on every Tick; a full Fighter a Player's Controller drives walks the navmesh from its spawn to A, B, C, D and back to B; every spawn and Objective has a navmesh path to every Objective; and a whole AI v AI Battle plays to its end with every Soldier on the right level on every Tick.
+
+### Result
+- **Built**: the map, its look (render only: trees, braziers, steps), the Lobby entry, and the one rule above (an Objective's optional `y`: `parseSite`, `buildMap`, the marks and the debug view). 604 Walk Surfaces (72 rectangles of floor, apron and terraces, 20 ramps, and 512 triangles of hills), 162 Walls, no blocks.
+- **Measured**: a whole Match Tick costs 1.4 ms at 144 v 144 and 1.9 ms at 200 v 200 (the Fort: 2.1 ms at 144), but the budget gate's Rollback soak (`FORT_MAP=ziggurat FORT_ARMY=200 npx vitest run src/net/fortRollback.test.ts`) read 125 ms for a 15-Tick march Rollback at 200 v 200, on a machine busy with a full test run, so the figure is unreliable and over the gate either way. **The army is 144 v 144, as the Fort's; the gate is not re-measured on a quiet machine, and a 200 v 200 run there is the way to raise it.**
+- **Walked**: all eight Squad marches arrive (38 to 75 s from a Base to a floor), a full Fighter reaches A, B, C, D and B in 152 s, and the AI v AI Battle ended on Tickets at 587 s with 10,547 crossings between floors.
+- **Not done**: no human-played Battle in the browser (only the debug view and Blender renders were looked at); the Soldiers inside the temple are hidden from above by its roofs (the camera does not cut them away); no balance tuning: the Tickets (2.4 a Soldier) are the Fort's.
+
 ## Later
 Ranged Soldiers (Throwing Daggers, then bows), which give towers their point; other Objective kinds (a Gate to break, a VIP, siege equipment to escort); "follow me" and other Orders a Player can give; a Kit generator for Battle maps; Soldiers solid to full Fighters; Elites; asymmetric attack-and-defend maps.
 
