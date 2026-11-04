@@ -160,3 +160,15 @@ export function soldierAt(crowd: CrowdState, i: number, tick: number, at: number
   out[1] = crowd.z[i]! - crowd.vz[i]! * back;
   return out;
 }
+
+/**
+ * How much a Soldier's impostor is stretched for its Size (`height`, `thick`), as [across, up], about its feet (so they stay on the
+ * ground). The atlas is baked from the standard body. Up follows the height. Across, a body seen face on is as wide as it is thick, and
+ * one seen side on reaches as far as it is tall (its arms and Weapon scale with the height), so across blends from `thick` to `height` as
+ * the camera (`viewYaw` from the Soldier) comes round from its front or back (`heading`) to its side. A fallen one lies along its heading,
+ * so the same blend gives its length side on.
+ */
+export function impostorStretch(height: number, thick: number, heading: number, viewYaw: number): [number, number] {
+  const side = Math.abs(Math.sin(viewYaw - heading));
+  return [thick + (height - thick) * side, height];
+}

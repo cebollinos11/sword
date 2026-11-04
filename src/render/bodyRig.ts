@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { JointName, Vec3 } from '../sim';
-import type { SkeletonTuning } from '../tuning';
+import type { Size, SkeletonTuning } from '../tuning';
 
 /**
  * Drives a skinned Body model's bones from a solved Skeleton. The model's
@@ -129,13 +129,24 @@ export function boneFrames(j: Joints): Record<BodyBone, BoneFrame> {
 
 const desired = new THREE.Matrix4();
 const parentInverse = new THREE.Matrix4();
-const ONE = new THREE.Vector3(1, 1, 1);
+const scale = new THREE.Vector3();
+
+/**
+ * How much each bone is stretched in its own frame (x along the bone, y and z across it) for a body `height` times as tall and `thick`
+ * times as wide: along a limb or the spine it follows the height, across it the thickness; the hips run sideways, the head swells with both.
+ */
+function boneScale(name: BodyBone, height: number, thick: number, out: THREE.Vector3): THREE.Vector3 {
+  if (name === 'hips') return out.set(thick, height, thick);
+  // Along the neck the head follows the height (so a build is exactly as tall as its height says); across it, it swells with both.
+  if (name === 'head') return out.set(height, (height + thick) / 2, (height + thick) / 2);
+  if (name === 'foot_L' || name === 'foot_R') return out.set(height, thick, height);
+  return out.set(height, thick, thick);
+}
 
 /** A loaded Body model's bones, posed from solved Skeletons. */
 export class BodyRig {
-  private readonly bones: { name: BodyBone; bone: THREE.Bone; turn: THREE.Quaternion }[];
+  private readonly bones: { name: BodyBone; bone: THREE.Bone; turn: THREE.Matrix4 }[];
   private readonly rest: Record<BodyBone, BoneFrame>;
-  private readonly rotation = new THREE.Quaternion();
 
   /**
    * `model` is the model's scene in its bind pose, at the origin; `skeleton`
@@ -153,21 +164,22 @@ export class BodyRig {
       if (!(bone instanceof THREE.Bone)) throw new Error(`Body model has no bone "${name}"`);
       bone.matrixWorld.decompose(new THREE.Vector3(), world, new THREE.Vector3());
       // The bone's own turn relative to its rest frame, kept as the frame moves.
-      return { name, bone, turn: this.rest[name].rotation.clone().invert().multiply(world) };
+      // Posed by matrix (a stretched bone's matrix carries shear its position, rotation and scale could not hold), so three.js must not rebuild it.
+      bone.matrixAutoUpdate = false;
+      return { name, bone, turn: new THREE.Matrix4().makeRotationFromQuaternion(this.rest[name].rotation.clone().invert().multiply(world)) };
     });
   }
 
-  /** Put every bone where the solved Skeleton's joints are. */
-  pose(joints: Joints): void {
+  /** Put every bone where the solved Skeleton's joints are, stretched for a body of `size` (default: the standard one). */
+  pose(joints: Joints, size: Size = { height: 1, thick: 1 }): void {
     const frames = boneFrames(joints);
     this.model.updateMatrixWorld(true);
     for (const { name, bone, turn } of this.bones) {
       const f = frames[name];
-      this.rotation.copy(f.rotation).multiply(turn);
-      desired.compose(f.origin, this.rotation, ONE);
+      // Stretch in the Skeleton's bone frame, then turn the model's own bone axes onto it.
+      desired.compose(f.origin, f.rotation, boneScale(name, size.height, size.thick, scale)).multiply(turn);
       parentInverse.copy(bone.parent!.matrixWorld).invert();
       bone.matrix.multiplyMatrices(parentInverse, desired);
-      bone.matrix.decompose(bone.position, bone.quaternion, bone.scale);
       // Every bone's parent is a bone posed before it (or the static rig), so its world matrix is already `desired`: no walk down the children per bone.
       bone.matrixWorld.copy(desired);
     }

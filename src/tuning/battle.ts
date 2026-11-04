@@ -199,6 +199,11 @@ export interface SoldierTuning {
    * soldier, not as a Duel's Fighter. A Player who takes a Soldier over drops them: it fights at its own strength.
    */
   readonly mods: RelicEffects;
+  /**
+   * How much Soldiers' Sizes vary: the spread (standard deviation) of each part of a Soldier's Size, height and thickness apart, on a bell
+   * curve round the standard body (1), cut to MIN_SIZE to MAX_SIZE. 0 (the default): every Soldier is the standard body.
+   */
+  readonly sizeSpread: number;
 }
 
 /**
@@ -604,6 +609,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
       difficulty,
       style,
       mods,
+      sizeSpread: s.sizeSpread === undefined ? 0 : nonNegativeNumber(s, 'sizeSpread', 'battle.soldier'),
     },
     bubble,
     slots,

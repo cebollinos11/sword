@@ -1,9 +1,9 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
-import { MAX_OBJECTIVES, MAX_SQUAD_PLACES } from '../tuning';
+import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -220,7 +220,7 @@ const isSessionFormatOnMap = (format: unknown, arena: unknown): boolean => isFor
 
 /** Who fights: per slot a team and a Pilot (a Player, or an AI difficulty and optional Style), and an optional AI Weapon. Tuning Data and `checkLineup` judge the rest. */
 function isLineupSlot(v: unknown): boolean {
-  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon))) return false;
+  if (!isObject(v) || !isTeam(v.team) || !isObject(v.pilot) || (v.weapon !== undefined && !isString(v.weapon)) || (v.size !== undefined && !isSize(v.size))) return false;
   const p = v.pilot;
   return (p.kind === 'Player' && isPlayer(p.player)) || (p.kind === 'AI' && isString(p.difficulty) && (p.style === undefined || isString(p.style)));
 }
@@ -348,6 +348,7 @@ function isFighter(v: unknown): boolean {
     v.daggers >= 0 &&
     isBool(v.sheathed) &&
     isString(v.weapon) &&
+    (v.size === undefined || isSize(v.size)) &&
     isAction(v.action) &&
     isObject(v.motion) &&
     isString(v.motion.name) &&
@@ -423,6 +424,9 @@ function isSimState(v: unknown): boolean {
     (v.crowd === undefined || isCrowd(v.crowd, (v.fighters as unknown[]).length))
   );
 }
+
+/** One part of a Soldier's Size (its height or its thickness): in range and on the step, as `isSize` judges it. */
+const isSizePart = (x: unknown): boolean => isNum(x) && isSize({ height: x, thick: 1 });
 
 /** A Crowd's per-Soldier arrays of plain numbers. */
 const CROWD_NUMBERS = ['x', 'z', 'vx', 'vz', 'heading', 'hp'] as const;
@@ -504,6 +508,8 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.alive, isBit) &&
     sized(v.slot, index(-1, slots)) &&
     sized(v.surface, isSurface) &&
+    sized(v.sizeHeight, isSizePart) &&
+    sized(v.sizeThick, isSizePart) &&
     isSquads(v.squads, n) &&
     isObjectives(v.objectives) &&
     isArrayOf(v.tickets, (x) => isNum(x) && x >= 0) &&
@@ -608,6 +614,7 @@ function isMatchState(v: unknown): v is MatchState {
     config.interDuelTicks >= 1 &&
     (config.rematchTicks === null || (isInt(config.rematchTicks) && config.rematchTicks >= 1)) &&
     isWeapons(config.weapons) &&
+    (config.sizes === undefined || (isArrayOf(config.sizes, isSize) && (config.sizes as unknown[]).length === (config.teams as unknown[]).length)) &&
     (config.weapons as unknown[]).length === (config.teams as unknown[]).length &&
     isInt(v.matchNumber) &&
     v.matchNumber >= 1 &&

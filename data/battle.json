@@ -83,7 +83,8 @@
     "colours": ["#c0392b", "#2e86c1"],
     "difficulty": "Beginner",
     "style": { "throwRate": 0 },
-    "mods": { "damage": 0.5 }
+    "mods": { "damage": 0.5 },
+    "sizeSpread": 0.13
   },
   "bubble": {
     "poolSize": 16,

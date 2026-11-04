@@ -4,6 +4,7 @@
  * Halls (docs/plans/dungeon.md). Every peer builds each Floor's graph from this and the Run seed (`floorGraph`), so peers
  * with different Dungeons refuse each other at connect.
  */
+import { clampSize, MAX_SIZE, MIN_SIZE, type Size } from './size';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 /** A Weapon, Body or AI Style written `"random"` is picked by a pure hash of the Run seed, the Hall and the slot. */
@@ -39,6 +40,8 @@ export interface DungeonEnemy {
   readonly minTeam?: number;
   /** The Relics it carries, by name (data/relics.json; 1 to MAX_ENEMY_RELICS, one may repeat; an Elite's); absent: none. */
   readonly relics?: readonly string[];
+  /** Its Size (`{ height, thick }`, each MIN_SIZE to MAX_SIZE); absent: the standard body. */
+  readonly size?: Size;
 }
 
 /** One hand-written group of 1 to MAX_ENCOUNTER_ENEMIES enemies; Team 1 slots past the last are Benched. */
@@ -118,6 +121,16 @@ function enemyRelics(raw: unknown, where: string, relicNames: readonly string[])
   });
 }
 
+function parseEnemySize(raw: unknown, at: string): Size {
+  const o = record(raw, at);
+  const part = (key: 'height' | 'thick'): number => {
+    const v = o[key] === undefined ? 1 : positiveNumber(o, key, at);
+    if (v < MIN_SIZE || v > MAX_SIZE) throw new TuningDataError(`${at}.${key} must be from ${MIN_SIZE} to ${MAX_SIZE}, got ${v}`);
+    return v;
+  };
+  return clampSize({ height: part('height'), thick: part('thick') });
+}
+
 /** Validate the raw Dungeon against the Weapon roster, the AI difficulties and Styles and the Relics. Accepts its own output. */
 export function parseDungeon(raw: unknown, weapons: readonly string[], difficulties: readonly string[], styles: readonly string[], relicNames: readonly string[]): DungeonTuning {
   const d = record(raw, 'dungeon');
@@ -135,6 +148,7 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
       const hpScale = e.hpScale === undefined ? 1 : positiveNumber(e, 'hpScale', at);
       const minTeam = e.minTeam === undefined ? undefined : wholeNumber(e, 'minTeam', at, 1, MAX_ENCOUNTER_ENEMIES);
       const relics = e.relics === undefined ? undefined : enemyRelics(e.relics, `${at}.relics`, relicNames);
+      const size = e.size === undefined ? undefined : parseEnemySize(e.size, `${at}.size`);
       return {
         difficulty,
         weapon,
@@ -143,6 +157,7 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
         hpScale,
         ...(minTeam === undefined ? {} : { minTeam }),
         ...(relics === undefined ? {} : { relics }),
+        ...(size === undefined ? {} : { size }),
       };
     });
     if (enemies.length < 1 || enemies.length > MAX_ENCOUNTER_ENEMIES)

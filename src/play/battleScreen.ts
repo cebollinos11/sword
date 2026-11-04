@@ -23,7 +23,7 @@ import { ObjectiveMarks } from '../render/objectiveMarks';
 import { bakeImpostorAtlas } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
-import { placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { battleFocus } from './battleSpectator';
 import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, ARMY_NAMES, type BattleResult } from './battleHud';
 
@@ -182,7 +182,7 @@ export class BattleScreen {
     const l = (a: number, b: number) => a + (b - a) * alpha;
     const at = { x: l(g.position.x, f.position.x), y: l(g.y, f.y), z: l(g.position.z, f.position.z) };
     const status = playerStatus(duel, me);
-    if (status === 'Fighting') placeThirdPersonCamera(camera, this.tuning.camera, at, this.local.yaw, this.local.pitch, this.renderer.collider);
+    if (status === 'Fighting') placeThirdPersonCamera(camera, cameraForHeight(this.tuning.camera, f.size?.height ?? 1), at, this.local.yaw, this.local.pitch, this.renderer.collider);
     else if (status === 'Fallen' || curr.status.status === 'Over') placeOrbitCamera(camera, this.tuning.camera, at, this.local.yaw, this.renderer.collider);
     else {
       // Out: watch the battle from above, the aim easing toward its middle, turned with the mouse.

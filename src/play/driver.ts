@@ -6,7 +6,7 @@
  * which already has this shape) plug into the same loop.
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
-import type { TuningData } from '../tuning';
+import type { Size, TuningData } from '../tuning';
 import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
@@ -77,6 +77,8 @@ export interface PlayerInBattleOptions {
   readonly seed: number;
   readonly arena?: string;
   readonly team?: 0 | 1;
+  /** The Player's Size (default: the standard body), kept through every Soldier they take over. */
+  readonly size?: Size;
   /** Dev mode and tests: the Player's slot on this Controller (e.g. a Battle autopilot), the local Intents ignored. */
   readonly pilot?: Controller;
 }
@@ -87,12 +89,12 @@ export interface PlayerInBattleOptions {
  */
 export function playerInBattle(tuning: TuningData, options: PlayerInBattleOptions): MatchDriver {
   const team = options.team ?? 0;
-  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, ...(options.arena ? { arena: options.arena } : {}), teams: [team], weapons: [options.weapon] });
+  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, ...(options.arena ? { arena: options.arena } : {}), teams: [team], weapons: [options.weapon], ...(options.size ? { sizes: [options.size] } : {}) });
   let pending: Intent | null = null;
   const controllers = poolControllers(tuning, [options.pilot ?? { intent: () => pending! }]);
   return {
     localFighter: 0,
-    lineup: [{ team, pilot: { kind: 'Player', player: 0 } }],
+    lineup: [{ team, pilot: { kind: 'Player', player: 0 }, ...(options.size ? { size: options.size } : {}) }],
     get state() {
       return match;
     },

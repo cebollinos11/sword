@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { groundHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
 import type { BattleTuning } from '../tuning';
-import { atlasCell, directionCell, soldierAt, soldierFrame, yawTo, type AtlasLayout, type ClipSeconds } from './impostor';
+import { atlasCell, directionCell, impostorStretch, soldierAt, soldierFrame, yawTo, type AtlasLayout, type ClipSeconds } from './impostor';
 import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
 import { BAYER_GLSL } from './dither';
 
@@ -26,6 +26,7 @@ const vertexShader = /* glsl */ `
   attribute vec3 aFeet;
   attribute vec2 aCell;
   attribute float aFade;
+  attribute vec2 aSize;
   uniform vec2 uCellSize;
   varying vec2 vUv;
   varying float vFade;
@@ -35,7 +36,8 @@ const vertexShader = /* glsl */ `
     vec2 toCamera = cameraPosition.xz - aFeet.xz;
     float d = length(toCamera);
     vec2 f = d > 1e-4 ? toCamera / d : vec2(0.0, 1.0);
-    vec3 world = aFeet + vec3(f.y, 0.0, -f.x) * position.x + vec3(0.0, position.y, 0.0);
+    // Stretched to its Size about its feet (the quad's origin), so its feet stay on the ground: aSize is (across, up).
+    vec3 world = aFeet + vec3(f.y, 0.0, -f.x) * (position.x * aSize.x) + vec3(0.0, position.y * aSize.y, 0.0);
     vUv = aCell + uv * uCellSize;
     vFade = aFade;
     vec4 mvPosition = viewMatrix * vec4(world, 1.0);
@@ -70,6 +72,7 @@ class TeamImpostors {
   readonly feet: THREE.InstancedBufferAttribute;
   readonly cell: THREE.InstancedBufferAttribute;
   readonly fade: THREE.InstancedBufferAttribute;
+  readonly size: THREE.InstancedBufferAttribute;
 
   constructor(atlas: ImpostorAtlas, count: number, tint: number) {
     const quad = new THREE.PlaneGeometry(CELL_METRES, CELL_METRES).translate(0, CELL_METRES / 2 - FEET_METRES, 0);
@@ -83,6 +86,8 @@ class TeamImpostors {
     geometry.setAttribute('aCell', this.cell);
     this.fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aFade', this.fade);
+    this.size = new THREE.InstancedBufferAttribute(new Float32Array(count * 2).fill(1), 2).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aSize', this.size);
     geometry.instanceCount = count;
     const uniforms = THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
@@ -199,7 +204,12 @@ export class CrowdView {
         this.seconds,
         this.layout.frames,
       );
-      const { column, row } = atlasCell(this.layout, clip, frame, directionCell(crowd.heading[i]!, yawTo(x, z, cx, cz), this.layout.directions));
+      const viewYaw = yawTo(x, z, cx, cz);
+      const { column, row } = atlasCell(this.layout, clip, frame, directionCell(crowd.heading[i]!, viewYaw, this.layout.directions));
+      const height = crowd.sizeHeight[i] ?? 1;
+      const thick = crowd.sizeThick[i] ?? 1;
+      const [across, up] = impostorStretch(height, thick, crowd.heading[i]!, viewYaw);
+      team.size.setXY(k, across, up);
       team.cell.setXY(k, (column * this.layout.cell) / this.layout.width, (row * this.layout.cell) / this.layout.height);
 
       // The shadow, lying on the ground's slope under it.
@@ -208,13 +218,14 @@ export class CrowdView {
       tilt.setFromUnitVectors(UP, normal);
       place.set(x, y, z).addScaledVector(normal, SHADOW_LIFT);
       // A full model draws its own shadow: the impostor's goes with it.
-      size.setScalar(2 * SHADOW_RADIUS * (alive ? 1 : 1.3) * (fade > 0.5 ? 1 : 0));
+      size.setScalar(2 * SHADOW_RADIUS * (alive ? thick : 1.3 * height) * (fade > 0.5 ? 1 : 0));
       this.shadows.setMatrixAt(i, matrix.compose(place, tilt, size));
     }
     for (const t of this.teams) {
       t.feet.needsUpdate = true;
       t.cell.needsUpdate = true;
       t.fade.needsUpdate = true;
+      t.size.needsUpdate = true;
     }
     this.shadows.instanceMatrix.needsUpdate = true;
   }

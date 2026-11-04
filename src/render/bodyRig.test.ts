@@ -101,4 +101,21 @@ describe('Body rig', () => {
     const expected = twist({ x: 0, y: rest.chest.y - 0.1, z: 0.1 });
     expect(moved.distanceTo(v(expected))).toBeLessThan(1e-6);
   });
+
+  it.each([{ height: 1.4, thick: 0.6 }, { height: 0.6, thick: 1.4 }])('keeps every bone on its joints once a body of %o is stretched and the scene updates', (size) => {
+    const fighter = { ...createInitialState(tuning, 1, duelPlacements(2)).fighters[0]!, size };
+    const joints = fighterPose(fighter, tuning).joints;
+    const root = model();
+    const ends = new Map(BODY_BONES.map((n) => [n, root.getObjectByName(n)!.worldToLocal(v(rest[LAYOUT[n][2]]))] as const));
+    new BodyRig(root, tuning.skeleton).pose(joints, size);
+    // The renderer updates the scene's matrices after the rig: that must not move a bone.
+    root.updateMatrixWorld(true);
+    for (const name of BODY_BONES) {
+      const bone = root.getObjectByName(name)!;
+      const [, from, to] = LAYOUT[name];
+      expect(bone.getWorldPosition(new THREE.Vector3()).distanceTo(v(joints[from])), `${name} start`).toBeLessThan(1e-5);
+      // The feet swell evenly rather than stretching to the joint, so only the limbs and spine are held to their far ends.
+      if (from !== to && !['hips', 'foot_L', 'foot_R'].includes(name)) expect(bone.localToWorld(ends.get(name)!.clone()).distanceTo(v(joints[to])), `${name} end`).toBeLessThan(0.03);
+    }
+  });
 });

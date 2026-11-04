@@ -51,6 +51,13 @@ export function placeThirdPersonCamera(
   camera.lookAt(position.x + fx * look.forward + rx * shoulder * 0.5, y + lookHeight + look.up, position.z + fz * look.forward + rz * shoulder * 0.5);
 }
 
+/** The follow camera for a Fighter `height` times as tall as standard: it sits, looks and stands off in proportion, so a giant is not crowded and a midget not lost. */
+export function cameraForHeight(setup: CameraTuning, height: number): CameraTuning {
+  if (height === 1) return setup;
+  const { back, shoulder, eyeHeight, ahead, lookHeight } = setup;
+  return { ...setup, back: back * height, shoulder: shoulder * height, eyeHeight: eyeHeight * height, ahead: ahead * height, lookHeight: lookHeight * height };
+}
+
 /**
  * Final Blow Shot camera: `distance` back from `centre` and `height` above its floor,
  * looking along `yaw` at the fallen Fighter's middle, close and low enough to see the blow land.

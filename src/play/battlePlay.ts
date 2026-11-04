@@ -15,7 +15,7 @@ import { CrowdView } from '../render/crowdView';
 import { defaultBody, isBody } from '../render/bodyModel';
 import { bakeImpostorAtlas } from '../render/impostorAtlas';
 import { Renderer } from '../render/renderer';
-import { placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { battleBodies } from './battleScreen';
 import { bindLocalInput } from './input';
 
@@ -107,7 +107,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     const l = (a: number, b: number) => a + (b - a) * alpha;
     const was = prev.fighters[0] ?? me;
     const at = { x: l(was.position.x, me.position.x), y: l(was.y, me.y), z: l(was.position.z, me.position.z) };
-    if (inDuel(me)) placeThirdPersonCamera(renderer.camera, tuning.camera, at, local.yaw, local.pitch, renderer.collider);
+    if (inDuel(me)) placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, me.size?.height ?? 1), at, local.yaw, local.pitch, renderer.collider);
     else placeOrbitCamera(renderer.camera, tuning.camera, at, local.yaw, renderer.collider);
     crowdView.update(duel.crowd!, duel.tick, alpha, hf, renderer.camera, swap.impostorFades(duel.crowd!, fades));
     renderer.render(prev, duel, alpha);

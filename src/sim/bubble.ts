@@ -36,15 +36,18 @@
  * Player's Fighter is never promoted into its Bubble (Promotion goes by the distance across the ground, so nobody is promoted through a
  * floor), and a Demotion stands its Soldier on the Walk Surface its Fighter stood on. Pure.
  */
-import { bubbleSlots, type TuningData } from '../tuning';
+import { bubbleSlots, type Size, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
-import type { BattlePlayer, CrowdState } from './crowd';
+import { soldierSize, type BattlePlayer, type CrowdState } from './crowd';
 import { inDuel } from './duel';
 import { foldMods, isNoMods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
+
+/** Whether two Sizes are the same body (absent: the standard one). */
+const sameSize = (a: Size | undefined, b: Size | undefined): boolean => (a?.height ?? 1) === (b?.height ?? 1) && (a?.thick ?? 1) === (b?.thick ?? 1);
 
 /** Whether a Pool slot is bound to a Soldier. */
 export const isBound = (f: FighterState): boolean => f.soldier !== undefined;
@@ -134,6 +137,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       heading: before.heading.slice(),
       hp: before.hp.slice(),
       team: before.team as number[],
+      sizeHeight: before.sizeHeight as number[],
+      sizeThick: before.sizeThick as number[],
       target: before.target.slice(),
       engage: before.engage.slice(),
       alive: before.alive.slice(),
@@ -179,12 +184,20 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     for (let k = players; k < p.length; k++) if (p[k]!.benched && !isBound(p[k]!)) return k;
     return -1;
   };
-  /** Soldier `s` as a full Fighter at guard where it stands, facing its heading, with its Team and HP and the generic soldier's Weapon. */
-  const fighterOf = (c: NonNullable<typeof crowd>, s: number): FighterState => {
+  /**
+   * Soldier `s` as a full Fighter at guard where it stands, facing its heading, with its Team and HP and the generic soldier's Weapon, in
+   * its own Size (`soldierSize`), or in `size` (a Player taking it over keeps the Player's own: absent for the standard body).
+   */
+  const fighterOf = (c: NonNullable<typeof crowd>, s: number, size?: Size | null): FighterState => {
     const at = { x: c.x[s]!, z: c.z[s]! };
     const geometry = arenaOf(tuning, duel.arena);
-    const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!);
+    const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, tuning.battle.soldier.weapon, c.team[s]!, size === undefined ? soldierSize(c, s) : (size ?? undefined));
     return { ...f, hp: c.hp[s]!, maxHp: tuning.battle.crowd.hp };
+  };
+  /** Fighter `f` (a promoted ally a Player takes over) re-made at guard where it stands, with its HP, in a body of `size`. */
+  const resized = (f: FighterState, size: Size | undefined): FighterState => {
+    const made = standingFighter(tuning, arenaOf(tuning, duel.arena), { position: f.position, y: f.y, facing: f.facing }, f.weapon, f.team, size);
+    return { ...made, hp: f.hp, maxHp: f.maxHp };
   };
   /** A promoted Soldier's Mods (`battle.soldier.mods`), when they change anything. */
   const soldierMods = foldMods([{ effects: tuning.battle.soldier.mods }]);
@@ -208,12 +221,19 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     if (s < 0) continue;
     const e = edit();
     const k = e.crowd.slot[s]!;
+    // The Player keeps its own Size (its fallen Fighter's), whatever the Soldier's.
+    const own = f.size ?? null;
     if (k >= 0) {
-      // A promoted ally: its Fighter, as it stands, becomes the Player's; its slot frees.
+      // A promoted ally: its Fighter, as it stands, becomes the Player's; its slot frees. One of another Size stands at guard where it was, re-made in the Player's.
       const { soldier: _binding, mods: _mods, ...ally } = e.fighters[k]!;
-      e.fighters[p] = ally;
+      e.fighters[p] = sameSize(ally.size, f.size) ? ally : resized(ally, f.size);
       e.fighters[k] = free();
-    } else e.fighters[p] = fighterOf(e.crowd, s);
+    } else e.fighters[p] = fighterOf(e.crowd, s, own);
+    // The Soldier is the Player's body now: its impostor (once it falls) is drawn in the Player's Size too.
+    e.crowd.sizeHeight = e.crowd.sizeHeight.slice();
+    e.crowd.sizeThick = e.crowd.sizeThick.slice();
+    e.crowd.sizeHeight[s] = f.size?.height ?? 1;
+    e.crowd.sizeThick[s] = f.size?.thick ?? 1;
     e.crowd.slot[s] = p;
     // A taken-over Soldier leaves its Squad (a free agent, as Players are): the Squad goes on one short.
     e.crowd.squad[s] = -1;

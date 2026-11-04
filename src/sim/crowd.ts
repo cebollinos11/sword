@@ -34,7 +34,7 @@
  * A Team routs once its Tickets are gone and its living Soldiers fall below `rout.threshold` of the army, or, at the Battle's time limit, the
  * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
-import { startingTickets, type BattleTuning } from '../tuning';
+import { clampSize, startingTickets, type BattleTuning, type Size } from '../tuning';
 import { onSurface } from './arena';
 import { battleArenaName, groundOf, pushOutOfBlocks, soldierHeight } from './battlefield';
 import { planOrders } from './commander';
@@ -83,6 +83,12 @@ export interface CrowdState {
    * Promotion until its Demotion writes them back (`alive` and `hp` drop to 0 at once if its Fighter falls).
    */
   readonly slot: readonly number[];
+  /**
+   * Its Size (docs/plans/big-battle.md): a height and a thickness, each a multiple of the standard body (`soldierSizes`), fixed for the
+   * Battle. A promoted Soldier's Fighter has it; its impostor is drawn stretched to it. Soldiers fighting in the Crowd ignore it.
+   */
+  readonly sizeHeight: readonly number[];
+  readonly sizeThick: readonly number[];
   /** The Squad (index into `squads`) it belongs to (docs/plans/battle-objectives.md, Stage 1), or -1 for a free agent (a Soldier a Player took over). */
   readonly squad: readonly number[];
   /** Its place in its Squad's Formation (0 is the front-left of the first row); meaningless for a free agent. */
@@ -121,6 +127,47 @@ export interface BattlePlayer {
   readonly away?: true;
 }
 
+/** Draws of the generator summed for one bell-curve sample (Irwin–Hall): their sum less half of them has mean 0 and spread 1. */
+const BELL_DRAWS = 12;
+
+/**
+ * Each Soldier's Size for a Battle of `seed` (`n` Soldiers, `armySize` an army): height and thickness apart, each on a bell curve round
+ * the standard body with `battle.soldier.sizeSpread` spread, cut to the allowed range and snapped to its step (`clampSize`). Soldier `i`
+ * takes the Size of its place in its army (`i` modulo `armySize`), so the two armies field the same bodies and neither is the bigger.
+ * A sum of the Simulation's own generator's draws (no Math.random, no transcendental function), so every peer draws the same.
+ */
+export function soldierSizes(battle: BattleTuning, seed: number, n: number): { readonly height: number[]; readonly thick: number[] } {
+  const spread = battle.soldier.sizeSpread;
+  const army = battle.armySize;
+  const height = new Array<number>(n).fill(1);
+  const thick = new Array<number>(n).fill(1);
+  if (spread <= 0) return { height, thick };
+  let rng = createRng(seed ^ 0x2c1b3c6d);
+  const bell = (): number => {
+    let sum = 0;
+    for (let d = 0; d < BELL_DRAWS; d++) {
+      const [v, next] = nextFloat(rng);
+      rng = next;
+      sum += v;
+    }
+    return 1 + spread * (sum - BELL_DRAWS / 2);
+  };
+  const ofPlace: Size[] = Array.from({ length: Math.min(army, n) }, () => clampSize({ height: bell(), thick: bell() }));
+  for (let i = 0; i < n; i++) {
+    const s = ofPlace[i % army]!;
+    height[i] = s.height;
+    thick[i] = s.thick;
+  }
+  return { height, thick };
+}
+
+/** Soldier `i`'s Size, or undefined for the standard body. */
+export function soldierSize(crowd: Pick<CrowdState, 'sizeHeight' | 'sizeThick'>, i: number): Size | undefined {
+  const height = crowd.sizeHeight[i] ?? 1;
+  const thick = crowd.sizeThick[i] ?? 1;
+  return height === 1 && thick === 1 ? undefined : { height, thick };
+}
+
 /** A Player's record at the start of a Battle. */
 export const FRESH_PLAYER: BattlePlayer = { soldier: -1, taken: 0, kills: 0, corpse: -1 };
 
@@ -145,6 +192,8 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0, are
   const zeros = () => new Array<number>(n).fill(0);
   // On a hand-built map, every Soldier and anchor stands on the highest Walk Surface under it (a map deploys its armies on open ground).
   const ground = (px: number, pz: number) => groundOf(battle, map.field, px, pz);
+  const { height: sizeHeight, thick: sizeThick } = soldierSizes(battle, seed, n);
+  const sizes = { sizeHeight, sizeThick };
   const squads = { ...deployed.squads, surface: deployed.squads.x.map((ax, q) => ground(ax, deployed.squads.z[q]!)) };
   const crowd: CrowdState = {
     x,
@@ -159,6 +208,7 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0, are
     engage: zeros(),
     alive: new Array<number>(n).fill(1),
     slot: new Array<number>(n).fill(-1),
+    ...sizes,
     squad,
     place,
     squads,
@@ -786,5 +836,5 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     } else if (tick >= limitTicks(battle)) rout = { team: limitLoser(tickets, objectives, draw), tick };
   }
 
-  return { x, z, surface, vx, vz, heading, hp, team, target, engage, alive: living, slot, squad, place, squads: ordered, objectives, tickets, rng, rout, players: crowd.players };
+  return { x, z, surface, vx, vz, heading, hp, team, target, engage, alive: living, slot, sizeHeight: crowd.sizeHeight, sizeThick: crowd.sizeThick, squad, place, squads: ordered, objectives, tickets, rng, rout, players: crowd.players };
 }
