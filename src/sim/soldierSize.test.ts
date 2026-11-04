@@ -48,20 +48,20 @@ describe("Soldiers' Sizes", () => {
   const big = { ...tuning.battle, armySize: 2000 };
   const { height, thick } = soldierSizes(big, 3, 2 * big.armySize);
 
-  it('are every one a valid Size, on a bell curve round the standard body across the whole range', () => {
+  it('are every one a valid Size, on a narrow bell curve round the standard body', () => {
     for (let i = 0; i < height.length; i++) expect(isSize({ height: height[i], thick: thick[i] })).toBe(true);
     for (const part of [height, thick]) {
       const mean = part.reduce((a, b) => a + b, 0) / part.length;
       const sd = Math.sqrt(part.reduce((a, b) => a + (b - mean) ** 2, 0) / part.length);
       expect(mean).toBeCloseTo(1, 1);
-      expect(sd).toBeGreaterThan(0.09);
-      expect(sd).toBeLessThan(0.17);
-      // Most near the standard body, a few far out: a bell, not a flat spread.
+      // The spread Tuning Data names (snapping to the 0.05 step adds a little).
+      expect(sd).toBeGreaterThan(big.soldier.sizeSpread * 0.85);
+      expect(sd).toBeLessThan(big.soldier.sizeSpread * 1.2);
+      // Most near the standard body, outliers rare: a tall, narrow bell, not a flat spread.
       const near = part.filter((v) => Math.abs(v - 1) <= 0.1 + 1e-9).length / part.length;
-      const far = part.filter((v) => Math.abs(v - 1) >= 0.3 - 1e-9).length / part.length;
-      expect(near).toBeGreaterThan(0.5);
-      expect(far).toBeGreaterThan(0);
-      expect(far).toBeLessThan(0.05);
+      const far = part.filter((v) => Math.abs(v - 1) >= 0.25 - 1e-9).length / part.length;
+      expect(near).toBeGreaterThan(0.75);
+      expect(far).toBeLessThan(0.01);
       expect(Math.min(...part)).toBeGreaterThanOrEqual(0.6);
       expect(Math.max(...part)).toBeLessThanOrEqual(1.4);
     }

@@ -84,7 +84,7 @@
     "difficulty": "Beginner",
     "style": { "throwRate": 0 },
     "mods": { "damage": 0.5 },
-    "sizeSpread": 0.13
+    "sizeSpread": 0.08
   },
   "bubble": {
     "poolSize": 16,
