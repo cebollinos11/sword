@@ -34,7 +34,7 @@
  * A Team routs once its Tickets are gone and its living Soldiers fall below `rout.threshold` of the army, or, at the Battle's time limit, the
  * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
-import { startingTickets, type BattleTuning } from '../tuning';
+import { clampSize, maxEngageReach, startingTickets, troopBodies, type BattleTuning, type Size, type TroopTuning } from '../tuning';
 import { onSurface } from './arena';
 import { battleArenaName, groundOf, pushOutOfBlocks, soldierHeight } from './battlefield';
 import { planOrders } from './commander';
@@ -83,6 +83,19 @@ export interface CrowdState {
    * Promotion until its Demotion writes them back (`alive` and `hp` drop to 0 at once if its Fighter falls).
    */
   readonly slot: readonly number[];
+  /**
+   * Its Size (docs/plans/big-battle.md): a height and a thickness, each a multiple of the standard body (`soldierSizes`), fixed for the
+   * Battle. A promoted Soldier's Fighter has it; its impostor is drawn stretched to it. Soldiers fighting in the Crowd ignore it.
+   */
+  readonly sizeHeight: readonly number[];
+  readonly sizeThick: readonly number[];
+  /**
+   * Its Troop (an index into `battle.troops`, `soldierTroops`), fixed for the Battle: its HP, blows and reach in the Crowd, and a promoted
+   * Fighter's Weapon, AI difficulty and Mods. A Soldier a Squad respawns into its slot is of the same Troop.
+   */
+  readonly troop: readonly number[];
+  /** Which of its Troop's Bodies it is drawn as (an index into the Troop's `bodies`). Render-only, fixed for the Battle. */
+  readonly look: readonly number[];
   /** The Squad (index into `squads`) it belongs to (docs/plans/battle-objectives.md, Stage 1), or -1 for a free agent (a Soldier a Player took over). */
   readonly squad: readonly number[];
   /** Its place in its Squad's Formation (0 is the front-left of the first row); meaningless for a free agent. */
@@ -121,6 +134,97 @@ export interface BattlePlayer {
   readonly away?: true;
 }
 
+/** Draws of the generator summed for one bell-curve sample (Irwin–Hall): their sum less half of them has mean 0 and spread 1. */
+const BELL_DRAWS = 12;
+
+/**
+ * Each Soldier's Size for a Battle of `seed` (`n` Soldiers, `armySize` an army): height and thickness apart, each on a bell curve round
+ * the standard body with `battle.soldier.sizeSpread` spread, cut to the allowed range and snapped to its step (`clampSize`). Soldier `i`
+ * takes the Size of its place in its army (`i` modulo `armySize`), so the two armies field the same bodies and neither is the bigger.
+ * A Troop's `height` and `width` ranges cut its Soldiers' parts first, so they apply even with no spread (a Troop with height [1.4, 1.4] is always giant).
+ * A sum of the Simulation's own generator's draws (no Math.random, no transcendental function), so every peer draws the same.
+ */
+export function soldierSizes(battle: BattleTuning, seed: number, n: number): { readonly height: number[]; readonly thick: number[] } {
+  const spread = battle.soldier.sizeSpread;
+  const army = battle.armySize;
+  const height = new Array<number>(n).fill(1);
+  const thick = new Array<number>(n).fill(1);
+  const ranged = battle.troops.some((t) => t.height !== undefined || t.width !== undefined);
+  if (spread <= 0 && !ranged) return { height, thick };
+  const troopOfPlace = ranged ? soldierTroops(battle, seed, n).troop : [];
+  let rng = createRng(seed ^ 0x2c1b3c6d);
+  const bell = (): number => {
+    let sum = 0;
+    for (let d = 0; d < BELL_DRAWS; d++) {
+      const [v, next] = nextFloat(rng);
+      rng = next;
+      sum += v;
+    }
+    return 1 + spread * (sum - BELL_DRAWS / 2);
+  };
+  // A Troop's `height` and `width` ranges cut its Soldiers' Sizes (places and Troops are both by place in the army).
+  const within = (v: number, range: readonly [number, number] | undefined): number => (range ? Math.min(range[1], Math.max(range[0], v)) : v);
+  const ofPlace: Size[] = Array.from({ length: Math.min(army, n) }, (_, k) => {
+    const troop = ranged ? battle.troops[troopOfPlace[k] ?? 0] : undefined;
+    return clampSize({ height: within(bell(), troop?.height), thick: within(bell(), troop?.width) });
+  });
+  for (let i = 0; i < n; i++) {
+    const s = ofPlace[i % army]!;
+    height[i] = s.height;
+    thick[i] = s.thick;
+  }
+  return { height, thick };
+}
+
+/**
+ * Each Soldier's Troop and look (which of the Troop's Bodies) for a Battle of `seed`: the Troop drawn by weight (`battle.troops`), the look
+ * evenly among its Bodies. Like Sizes, Soldier `i` takes those of its place in its army, so the two armies field the same Troops.
+ * The Simulation's own generator, so every peer draws the same.
+ */
+export function soldierTroops(battle: BattleTuning, seed: number, n: number): { readonly troop: number[]; readonly look: number[] } {
+  const troops = battle.troops;
+  const army = battle.armySize;
+  const troop = new Array<number>(n).fill(0);
+  const look = new Array<number>(n).fill(0);
+  const total = troops.reduce((sum, t) => sum + t.weight, 0);
+  let rng = createRng(seed ^ 0x7f4a7c15);
+  const draw = (): number => {
+    const [v, next] = nextFloat(rng);
+    rng = next;
+    return v;
+  };
+  const places = Math.min(army, n);
+  const ofPlace: [number, number][] = [];
+  for (let k = 0; k < places; k++) {
+    let pick = draw() * total;
+    let t = 0;
+    while (t < troops.length - 1 && pick >= troops[t]!.weight) pick -= troops[t++]!.weight;
+    const bodies = Math.max(troops[t]!.bodies.length, ...(troops[t]!.teamBodies ?? []).map((l) => l.length));
+    ofPlace.push([t, Math.min(bodies - 1, Math.floor(draw() * bodies))]);
+  }
+  for (let i = 0; i < n; i++) [troop[i], look[i]] = ofPlace[i % army]!;
+  return { troop, look };
+}
+
+/** Soldier `i`'s Troop (the first, the generic soldier, for a Crowd that names none). */
+export function troopOf(battle: BattleTuning, crowd: Pick<CrowdState, 'troop'>, i: number): TroopTuning {
+  return battle.troops[crowd.troop[i] ?? 0] ?? battle.troops[0]!;
+}
+
+/** The Body Soldier `i` is drawn as: its look among its Troop's Bodies for its Team (`troopBodies`). */
+export function soldierBody(battle: BattleTuning, crowd: Pick<CrowdState, 'troop' | 'look' | 'team'>, i: number): string {
+  const team = crowd.team[i] ?? 0;
+  const bodies = troopBodies(troopOf(battle, crowd, i), team);
+  return bodies[(crowd.look[i] ?? 0) % bodies.length] ?? bodies[0]!;
+}
+
+/** Soldier `i`'s Size, or undefined for the standard body. */
+export function soldierSize(crowd: Pick<CrowdState, 'sizeHeight' | 'sizeThick'>, i: number): Size | undefined {
+  const height = crowd.sizeHeight[i] ?? 1;
+  const thick = crowd.sizeThick[i] ?? 1;
+  return height === 1 && thick === 1 ? undefined : { height, thick };
+}
+
 /** A Player's record at the start of a Battle. */
 export const FRESH_PLAYER: BattlePlayer = { soldier: -1, taken: 0, kills: 0, corpse: -1 };
 
@@ -134,7 +238,7 @@ export const crowdDue = (i: number, tick: number, stagger: number, armySize: num
 /**
  * The Crowd at the start of a Battle: each army of `armySize` deployed in Squads (`deploySquads`), each in column, the front
  * rank the map's `front` from the centre: Team 0 at -z facing +z, Team 1 at +z facing -z, the two armies a half turn of each other.
- * Every Soldier at `crowd.hp`, each Team with its starting Tickets, the Objectives with their Owners at the map's `arena` (default `battle:<seed>`),
+ * Every Soldier at its Troop's HP, each Team with its starting Tickets, the Objectives with their Owners at the map's `arena` (default `battle:<seed>`),
  * and each Squad with its Commander's first Orders. `players`: how many Players the Battle has (each a fresh record).
  */
 export function createCrowd(battle: BattleTuning, seed: number, players = 0, arena: string = battleArenaName(seed)): CrowdState {
@@ -145,6 +249,9 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0, are
   const zeros = () => new Array<number>(n).fill(0);
   // On a hand-built map, every Soldier and anchor stands on the highest Walk Surface under it (a map deploys its armies on open ground).
   const ground = (px: number, pz: number) => groundOf(battle, map.field, px, pz);
+  const { height: sizeHeight, thick: sizeThick } = soldierSizes(battle, seed, n);
+  const sizes = { sizeHeight, sizeThick };
+  const { troop, look } = soldierTroops(battle, seed, n);
   const squads = { ...deployed.squads, surface: deployed.squads.x.map((ax, q) => ground(ax, deployed.squads.z[q]!)) };
   const crowd: CrowdState = {
     x,
@@ -153,12 +260,15 @@ export function createCrowd(battle: BattleTuning, seed: number, players = 0, are
     vx: zeros(),
     vz: zeros(),
     heading,
-    hp: new Array<number>(n).fill(battle.crowd.hp),
+    hp: troop.map((t) => battle.troops[t]!.hp),
     team,
     target: new Array<number>(n).fill(-1),
     engage: zeros(),
     alive: new Array<number>(n).fill(1),
     slot: new Array<number>(n).fill(-1),
+    ...sizes,
+    troop,
+    look,
     squad,
     place,
     squads,
@@ -200,7 +310,7 @@ let ysScratch = new Float64Array(0);
 const crowded = new Float64Array(2 * 32);
 
 function gridFor(battle: BattleTuning, n: number): Grid {
-  const cell = Math.max(battle.crowd.engageReach, battle.crowd.separation) * 2;
+  const cell = Math.max(maxEngageReach(battle), battle.crowd.separation) * 2;
   const side = Math.ceil(battle.field.size / cell);
   if (!gridScratch || gridScratch.cell !== cell || gridScratch.side !== side || gridScratch.items.length < n)
     gridScratch = { cell, side, start: new Int32Array(side * side + 1), items: new Int32Array(n) };
@@ -411,7 +521,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   const stride = p.walkSpeed * dt;
   const sep2 = p.separation * p.separation;
   const sight2 = p.sight * p.sight;
-  const reach2 = p.engageReach * p.engageReach;
+  const troops = battle.troops;
+  const troopOfI = (i: number): TroopTuning => troops[crowd.troop[i] ?? 0] ?? troops[0]!;
   const stepped = stepSquads(crowd, tick, battle, map, fighters);
   const { squads, squad, place, narrow } = stepped;
   const walled = map.field.blocks.length > 0;
@@ -447,7 +558,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       target[s.i] = -1;
       engage[s.i] = 0;
       (alive as number[])[s.i] = 1;
-      (hp as number[])[s.i] = p.hp;
+      (hp as number[])[s.i] = troopOfI(s.i).hp;
       if (field.heights.walk) surface[s.i] = s.surface;
     }
   }
@@ -488,6 +599,9 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     const own = team[i]!;
     const sq = squad[i]!;
     const fleeing = crowd.rout?.team === own;
+    // Its Troop's blows and reach.
+    const tr = troopOfI(i);
+    const reach2 = tr.engageReach * tr.engageReach;
     const gx0 = cellIndex(xi, half, grid.cell, grid.side);
     const gz0 = cellIndex(zi, half, grid.cell, grid.side);
     // Separation from the neighbouring cells, and the nearest enemy within sight (ring by ring outward until found).
@@ -544,7 +658,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     // Whether this step may drop off a ledge (Stage 4a): only one that follows a destination field (whose joins drop) or has no place to keep
     // (a free agent, a fleeing Soldier); a crowd's push never shoves a Soldier off a deck.
     let mayDrop = sq < 0 || fleeing;
-    const ring = ringed && !fleeing && ringOf[i]! >= 0 && !(best >= 0 && bestD <= p.engageReach * p.engageReach) ? fighters[ringOf[i]!]! : null;
+    const ring = ringed && !fleeing && ringOf[i]! >= 0 && !(best >= 0 && bestD <= reach2) ? fighters[ringOf[i]!]! : null;
     if (ring) {
       // Waiting for an Attack Slot: walk to its spot on the ring, arriving there, facing the Player's Fighter. A spot more
       // than RING_DETOUR round the Player from where it stands it walks to round them (toward a point that far round, at
@@ -579,8 +693,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       face = Math.atan2(crowd.x[best]! - xi, crowd.z[best]! - zi);
       engage[i] = target[i] === best ? engage[i]! + 1 : 1;
       target[i] = best;
-      if (draw() < p.hitChance) {
-        damage[best] = damage[best]! + p.damage[0] + draw() * (p.damage[1] - p.damage[0]);
+      if (draw() < tr.hitChance) {
+        damage[best] = damage[best]! + tr.damage[0] + draw() * (tr.damage[1] - tr.damage[0]);
         struck = true;
       }
     } else if (sq >= 0 && !(best >= 0 && squads.shape[sq] === LINE && place[i]! < (narrow[sq] || battle.squad.line.wide) && (!(walled || layered) || Math.sqrt(bestD) < clearanceBelow(map.fields, xi, zi, crowd.surface[i]) || inSight(map.fields, xi, zi, crowd.x[best]!, crowd.z[best]!, 0, ys === null ? NaN : ys[i]!, ys === null ? NaN : ys[best]!)))) {
@@ -646,7 +760,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       face = Math.atan2(tx, tz);
       target[i] = -1;
       engage[i] = 0;
-      const pace = Math.min(1, (d - p.engageReach * 0.9) / stride);
+      const pace = Math.min(1, (d - tr.engageReach * 0.9) / stride);
       wx = tx * pace;
       wz = tz * pace;
     } else {
@@ -786,5 +900,5 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     } else if (tick >= limitTicks(battle)) rout = { team: limitLoser(tickets, objectives, draw), tick };
   }
 
-  return { x, z, surface, vx, vz, heading, hp, team, target, engage, alive: living, slot, squad, place, squads: ordered, objectives, tickets, rng, rout, players: crowd.players };
+  return { x, z, surface, vx, vz, heading, hp, team, target, engage, alive: living, slot, sizeHeight: crowd.sizeHeight, sizeThick: crowd.sizeThick, troop: crowd.troop, look: crowd.look, squad, place, squads: ordered, objectives, tickets, rng, rout, players: crowd.players };
 }

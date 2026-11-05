@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { battlefieldHeight, battlefieldOf, createMatch, stepMatch, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
 import { CrowdView } from './crowdView';
-import { atlasCell, atlasLayout, CLIP_FRAMES, directionCell, yawTo, type ImpostorClip } from './impostor';
-import type { ImpostorAtlas } from './impostorAtlas';
+import { atlasCell, atlasLayout, CLIP_FRAMES, directionCell, impostorStretch, yawTo, type ImpostorClip } from './impostor';
+import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
 
 const tuning = loadTuningData();
 const army = tuning.battle.armySize;
@@ -100,5 +100,43 @@ describe('CrowdView', () => {
     console.log(`CrowdView.update, 400 Soldiers, ${ms.length} frames: mean ${mean.toFixed(3)} ms, p99 ${ms[Math.floor(ms.length * 0.99)]!.toFixed(3)} ms`);
     // Stage 0: 400 billboards were under 4 ms of frame, draw included. Generous slack for a loaded test run.
     expect(mean).toBeLessThan(4);
+  });
+});
+
+describe("A Soldier's impostor in its Size", () => {
+  it('stretches up by the height and across from the thickness (face on) to the height (side on)', () => {
+    expect(impostorStretch(1.3, 0.8, 0, yawTo(0, 0, 0, 10))).toEqual([0.8, 1.3]);
+    expect(impostorStretch(1.3, 0.8, 0, yawTo(0, 0, 0, -10))[0]).toBeCloseTo(0.8, 9);
+    expect(impostorStretch(1.3, 0.8, 0, yawTo(0, 0, 10, 0))[0]).toBeCloseTo(1.3, 9);
+    expect(impostorStretch(1, 1, 0.4, 2)).toEqual([1, 1]);
+  });
+
+  it("is stretched about its feet, so they stay on the ground whatever its height", () => {
+    let match: MatchState = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 });
+    for (let t = 0; t < 30; t++) match = stepMatch(match, [], tuning);
+    const hf = battlefieldOf(tuning.battle, match.arena)!.heights;
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(30, 20, -150);
+    const view = new CrowdView(atlas, tuning.battle, new THREE.Texture());
+    view.update(match.duel.crowd!, match.duel.tick, 0, hf, camera);
+    const meshes = view.root.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh));
+    const crowd = match.duel.crowd!;
+    // Some Soldiers are not the standard body.
+    expect(crowd.sizeHeight.some((h) => h !== 1)).toBe(true);
+    for (const i of [0, 57, 199, 260, army + 3]) {
+      const geometry = meshes[Math.floor(i / army)]!.geometry;
+      const feet = geometry.getAttribute('aFeet') as THREE.InstancedBufferAttribute;
+      const size = geometry.getAttribute('aSize') as THREE.InstancedBufferAttribute;
+      const k = i % army;
+      const [across, up] = impostorStretch(crowd.sizeHeight[i]!, crowd.sizeThick[i]!, crowd.heading[i]!, yawTo(feet.getX(k), feet.getZ(k), camera.position.x, camera.position.z));
+      expect(size.getX(k)).toBeCloseTo(across, 5);
+      expect(size.getY(k)).toBeCloseTo(up, 5);
+      expect(feet.getY(k)).toBeCloseTo(battlefieldHeight(hf, feet.getX(k), feet.getZ(k)), 5);
+    }
+    // The quad's feet line is its origin (the shader scales about it): its bottom edge is FEET_METRES below, its top the rest of a cell above.
+    const quad = meshes[0]!.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const ys = Array.from({ length: quad.count }, (_, v) => quad.getY(v));
+    expect(Math.min(...ys)).toBeCloseTo(-FEET_METRES, 5);
+    expect(Math.max(...ys)).toBeCloseTo(CELL_METRES - FEET_METRES, 5);
   });
 });

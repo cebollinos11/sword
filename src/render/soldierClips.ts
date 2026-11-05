@@ -119,8 +119,9 @@ export function soldierClips(tuning: TuningData, weapon: string): SoldierClips {
     (s, t) => t > 1 && s.fighters[0]!.action.kind === 'Idle',
   );
 
-  // Struck by an Overhead it does not Block: its Stagger until it is Idle again.
-  const pair = createInitialState(tuning, 1, duelPlacements(STRIKE_DISTANCE), [weapon, weapon]);
+  // Struck by an Overhead it does not Block: its Stagger until it is Idle again. The striker wields the generic soldier's Weapon whatever
+  // this soldier's, so the blow is an ordinary one at the reach it is placed for (a Heavy Blow would knock it down, not Stagger it).
+  const pair = createInitialState(tuning, 1, duelPlacements(STRIKE_DISTANCE), [weapon, tuning.battle.soldier.weapon]);
   const strike = (t: number): Intent[] => [IDLE_INTENT, t === 0 ? { ...IDLE_INTENT, attack: true, direction: 'Overhead' } : IDLE_INTENT];
   let staggered = false;
   const struck = record(tuning, pair, strike, (s) => {

@@ -42,7 +42,7 @@ import {
   type SimState,
   type Track,
 } from '../sim';
-import { DEFAULT_STYLE, RANDOM_PICK, weaponByName, type HitZone, type TuningData } from '../tuning';
+import { clampSize, DEFAULT_STYLE, MAX_SIZE, MIN_SIZE, RANDOM_PICK, SIZE_STEP, sizedTuning, weaponByName, type HitZone, type Size, type TuningData } from '../tuning';
 import { drawnPose, FIGHTER_COLOURS, FighterView } from '../render/fighterView';
 import { ImpactEffects } from '../render/impacts';
 import { CameraShake } from '../render/cameraShake';
@@ -99,9 +99,13 @@ function precompute<S extends object>(sandbox: Sandbox<S>, initial: S, controlle
 const weaponPicks = { red: '', blue: '' };
 const pickedWeapons = (): string[] => [weaponPicks.red, weaponPicks.blue];
 
+/** Each Fighter's build in every script (the "Sizes" folder edits these; 1 is the standard body). */
+const sizePicks = { redHeight: 1, redThick: 1, blueHeight: 1, blueThick: 1 };
+const pickedSizes = (): Size[] => [clampSize({ height: sizePicks.redHeight, thick: sizePicks.redThick }), clampSize({ height: sizePicks.blueHeight, thick: sizePicks.blueThick })];
+
 /** Two scripted Tracks facing each other `distance` apart (like `runDuel`, but through a session). */
 function scripted(tuning: TuningData, distance: number, a: Track, b: Track, ticks: number): SandboxRun {
-  const initial = createInitialState(tuning, 1, duelPlacements(distance), pickedWeapons());
+  const initial = createInitialState(tuning, 1, duelPlacements(distance), pickedWeapons(), undefined, undefined, pickedSizes());
   return precompute(duelSandbox(tuning), initial, [scriptedController(a), scriptedController(b)], ticks);
 }
 
@@ -175,7 +179,7 @@ function movementDuel(tuning: TuningData): SandboxRun {
 function aiVsAiMatch(tuning: TuningData): SandboxRun {
   const style = (s: string, fighter: number) => lineupStyle(tuning, s, aiMatch.seed, fighter);
   const controllers = [createAiController(tuning, aiMatch.red, style(aiMatch.redStyle, 0)), createAiController(tuning, aiMatch.blue, style(aiMatch.blueStyle, 1))];
-  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons(), arena: tuning.arena.editor });
+  const start = createMatch(tuning, { bestOf: aiMatch.bestOf, seed: aiMatch.seed, weapons: pickedWeapons(), sizes: pickedSizes(), arena: tuning.arena.editor });
   const run = precompute(matchSandbox(tuning), start, controllers, AI_MATCH_MAX_TICKS);
   return { ...run, match: (t) => run.session.history[t] as MatchState };
 }
@@ -199,7 +203,7 @@ function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun
   local.releaseAll();
   local.setYaw(0); // Fighter 0 starts facing +z
   const recorder = recordingSandbox(matchSandbox(tuning));
-  const options = { opponent: playerMatch.ai, style: playerMatch.style, bestOf: playerMatch.bestOf, seed: playerMatch.seed, weapons: pickedWeapons() };
+  const options = { opponent: playerMatch.ai, style: playerMatch.style, bestOf: playerMatch.bestOf, seed: playerMatch.seed, weapons: pickedWeapons(), sizes: pickedSizes() };
   const session = playerVsAiSession(tuning, local, options, recorder);
   return {
     session,
@@ -468,6 +472,9 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const weaponOptions = Object.fromEntries(session.weaponNames().map((n) => [n, n]));
   weapons.addBinding(weaponPicks, 'red', { label: 'red', options: weaponOptions }).on('change', rerun);
   weapons.addBinding(weaponPicks, 'blue', { label: 'blue', options: weaponOptions }).on('change', rerun);
+  const sizes = pane.addFolder({ title: 'Sizes', expanded: false });
+  const range = { min: MIN_SIZE, max: MAX_SIZE, step: SIZE_STEP };
+  for (const key of ['redHeight', 'redThick', 'blueHeight', 'blueThick'] as const) sizes.addBinding(sizePicks, key, { ...range, label: key.replace(/([A-Z])/g, ' $1').toLowerCase() }).on('change', rerun);
   const ai = pane.addFolder({ title: 'AI vs AI', expanded: true });
   const difficulties = Object.fromEntries(Object.keys(tuning.ai.difficulties).map((k) => [k, k]));
   /** Changing an AI setting switches to (and re-runs) the AI vs AI Match. */
@@ -655,7 +662,7 @@ saved ${file} (${result})`),
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {
-      views[i]!.update(drawnPose(from, to, i, alpha, tuning), weaponByName(tuning, f.weapon));
+      views[i]!.update(drawnPose(from, to, i, alpha, tuning), weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size);
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;
       if (ui.hitZones && !f.death) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning, f.action.kind === 'Knockdown' ? tuning.fighter.lyingHitFactor : 1));

@@ -1,4 +1,4 @@
-import type { TuningData } from '../tuning';
+import { clampSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, storedSize, STANDARD_SIZE, type Size, type TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
 import { cleanName, isBattle, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
 import { devMode } from '../devMode';
@@ -38,8 +38,11 @@ export interface RoomInvite {
 
 type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lobby' | 'pause';
 
+import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
+
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
+const SIZE_STORAGE_KEY = 'sword.size';
 const NAME_STORAGE_KEY = 'sword.name';
 const PS1_STORAGE_KEY = 'sword.ps1';
 const COLLIDERS_STORAGE_KEY = 'sword.colliders';
@@ -73,6 +76,11 @@ function storedBroker(): string {
 function storedBody(): BodyModelName {
   const saved = stored(BODY_STORAGE_KEY);
   return BODY_MODELS.find((b) => b === saved) ?? 'female';
+}
+
+function storedSizePick(): Size {
+  const [height, thick] = (stored(SIZE_STORAGE_KEY) ?? '').split(',').map(Number);
+  return height !== undefined && thick !== undefined && Number.isFinite(height) && Number.isFinite(thick) ? clampSize({ height, thick }) : STANDARD_SIZE;
 }
 
 /** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
@@ -149,6 +157,8 @@ export class Menu {
   private joinText = '';
   /** The Body model you are drawn as, in every Match (render-only; the other players see it too, and the AIs wear random ones). */
   body: BodyModelName = storedBody();
+  /** How tall and thick you are, in every Match (it changes your reach, your Hit Zones and how much room you take; the others see it too). */
+  size: Size = storedSizePick();
   /** Your name in Rooms. */
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
   /** Draw the game at PlayStation resolution (240 lines, the screen's aspect ratio kept). */
@@ -325,6 +335,27 @@ export class Menu {
     return b;
   }
 
+  /** Mouse sensitivity slider (1.00 is the original feel); applies at once and is remembered. */
+  private sensitivityItem(): HTMLElement {
+    const value = h('span', 'nav-hint', `${getLookSensitivity().toFixed(2)}×`);
+    const input = h('input', 'sens-slider');
+    input.type = 'range';
+    input.min = String(SENSITIVITY_MIN);
+    input.max = String(SENSITIVITY_MAX);
+    input.step = '0.05';
+    input.value = String(getLookSensitivity());
+    input.setAttribute('aria-label', 'Mouse sensitivity');
+    input.addEventListener('input', () => {
+      setLookSensitivity(Number(input.value));
+      value.textContent = `${getLookSensitivity().toFixed(2)}×`;
+    });
+    // Keep arrow keys and Escape for the slider rather than the game.
+    input.addEventListener('keydown', (e) => {
+      if (e.code !== 'Escape') e.stopPropagation();
+    });
+    return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Mouse Sensitivity'), input, value);
+  }
+
   /** Toggles PlayStation resolution; stays on this screen. */
   private ps1Item(): HTMLButtonElement {
     const b = this.navItem(`PS1 Resolution: ${this.ps1 ? 'On' : 'Off'}`, 'Play in 240 chunky lines, at your screen\'s shape', () => {
@@ -489,11 +520,30 @@ export class Menu {
       card.setAttribute('aria-pressed', String(b === this.body));
       grid.append(card);
     }
+    const sizeSlider = (label: string, part: keyof Size) => {
+      const input = h('input', 'size-slider');
+      input.type = 'range';
+      input.min = String(MIN_SIZE);
+      input.max = String(MAX_SIZE);
+      input.step = String(SIZE_STEP);
+      input.value = String(this.size[part]);
+      input.setAttribute('aria-label', label);
+      const value = h('span', 'size-value', `×${this.size[part].toFixed(2)}`);
+      input.addEventListener('input', () => {
+        this.size = clampSize({ ...this.size, [part]: Number(input.value) });
+        value.textContent = `×${this.size[part].toFixed(2)}`;
+        store(SIZE_STORAGE_KEY, `${this.size.height},${this.size.thick}`);
+        this.lobby?.setMine({ size: storedSize(this.size) });
+      });
+      return h('label', 'lb-row', null, h('span', 'field-label', label), input, value);
+    };
     const display = h('div', 'lb-row', null, h('span', 'field-label', 'Display'), this.fullscreenButton() ?? h('span', 'menu-help', 'Fullscreen is not available here.'));
     return this.card(
       'Character',
       this.nameField(),
       h('div', 'field', null, h('span', 'field-label', 'Look'), grid),
+      h('div', 'field', null, h('span', 'field-label', 'Build'), sizeSlider('Height', 'height'), sizeSlider('Thick', 'thick')),
+      h('p', 'menu-help', 'Height lengthens your body and your Weapon; thick widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
       h('p', 'menu-help', 'Only you see your look: everyone else is drawn in a random one, and it never changes how a Fighter fights.'),
       display,
     );
@@ -618,6 +668,7 @@ export class Menu {
     if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
+    nav.append(this.sensitivityItem());
     nav.append(this.ps1Item());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);

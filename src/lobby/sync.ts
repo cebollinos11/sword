@@ -11,8 +11,8 @@
  *
  * A Skirmish uses the same host Lobby offline, with no guests.
  */
-import type { TuningData } from '../tuning';
-import { RANDOM_PICK, tuningDataHash } from '../tuning';
+import type { Size, TuningData } from '../tuning';
+import { RANDOM_PICK, storedSize, tuningDataHash } from '../tuning';
 import { isArenaName } from '../sim';
 import { PROTOCOL_VERSION, splitTransport, type Channels, type Transport } from '../net';
 import {
@@ -41,7 +41,7 @@ export const MAX_NAME = 16;
 export type LobbyStatus = 'Joining' | 'Open' | 'Closed';
 
 /** What a player may change about themselves. */
-export type MemberPatch = Partial<Pick<Member, 'name' | 'weapon' | 'body' | 'ready'>>;
+export type MemberPatch = Partial<Pick<Member, 'name' | 'weapon' | 'body' | 'size' | 'ready'>>;
 
 export interface Lobby {
   readonly online: boolean;
@@ -224,13 +224,13 @@ export class HostLobby extends Base implements Lobby {
       if (m.tuningHash !== this.tuningHash) return this.refuse(link, 'TuningDataMismatch');
       const id = this.nextId++;
       const weapon = this.tuning.weapons[m.weapon] ? m.weapon : this.state.members[0]!.weapon;
-      const joined = join(this.state, { id, name: cleanName(m.name), weapon, body: m.body, ready: false });
+      const joined = join(this.state, { id, name: cleanName(m.name), weapon, body: m.body, ...(storedSize(m.size) && { size: storedSize(m.size) }), ready: false });
       if (!joined) return this.refuse(link, 'RoomFull');
       link.id = id;
       return this.set(joined);
     }
     if (m.type !== 'member' || link.id === null || m.seq < link.seq) return;
-    const patch: MemberPatch = { name: cleanName(m.name), body: m.body, ready: m.ready, ...(this.tuning.weapons[m.weapon] ? { weapon: m.weapon } : {}) };
+    const patch: MemberPatch = { name: cleanName(m.name), body: m.body, size: m.size, ready: m.ready, ...(this.tuning.weapons[m.weapon] ? { weapon: m.weapon } : {}) };
     let next = updateMember(this.state, link.id, patch);
     if (m.seq > link.seq) {
       link.seq = m.seq;
@@ -255,7 +255,7 @@ export class GuestLobby extends Base implements Lobby {
   status: LobbyStatus = 'Joining';
   private readonly channels: Channels;
   private readonly tuningHash: string;
-  private mine: { name: string; weapon: string; body: string; ready: boolean };
+  private mine: { name: string; weapon: string; body: string; size?: Size; ready: boolean };
   private seq = 0;
   private acked = -1;
   private move: { seq: number; to: SeatRef } | null = null;
@@ -268,11 +268,11 @@ export class GuestLobby extends Base implements Lobby {
   constructor(
     transport: Transport,
     private readonly tuning: TuningData,
-    me: { name: string; weapon: string; body: string },
+    me: { name: string; weapon: string; body: string; size?: Size },
   ) {
     super();
     this.tuningHash = tuningDataHash(tuning);
-    this.mine = { name: cleanName(me.name), weapon: me.weapon, body: me.body, ready: false };
+    this.mine = { name: cleanName(me.name), weapon: me.weapon, body: me.body, ...(me.size && { size: me.size }), ready: false };
     this.channels = splitTransport(transport);
     this.channels.room.onMessage((raw) => this.receive(parseLobbyMessage(raw)));
     this.channels.room.onClose(() => this.closed(this.closing ? null : 'The host closed the Room (disconnected).'));
@@ -311,7 +311,7 @@ export class GuestLobby extends Base implements Lobby {
     if (now - this.heard > LOBBY_TIMEOUT_MS) return this.closed('Lost the connection to the host.');
     if (this.status === 'Joining' && now - this.sentAt >= HEARTBEAT_MS) {
       this.sentAt = now;
-      this.channels.room.send({ type: 'join', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, name: this.mine.name, weapon: this.mine.weapon, body: this.mine.body } satisfies LobbyMessage);
+      this.channels.room.send({ type: 'join', protocol: PROTOCOL_VERSION, tuningHash: this.tuningHash, name: this.mine.name, weapon: this.mine.weapon, body: this.mine.body, ...(this.mine.size && { size: this.mine.size }) } satisfies LobbyMessage);
     } else if (this.status === 'Open' && now - this.sentAt >= HEARTBEAT_MS * 2) this.sendWishes();
   }
 

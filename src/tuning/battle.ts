@@ -5,6 +5,7 @@
  */
 import { parseArena, type WalkSurface, type WallSegment } from './arena';
 import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
+import { MAX_SIZE, MIN_SIZE } from './size';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export interface BattlefieldTuning {
@@ -204,7 +205,63 @@ export interface SoldierTuning {
    * soldier, not as a Duel's Fighter. A Player who takes a Soldier over drops them: it fights at its own strength.
    */
   readonly mods: RelicEffects;
+  /**
+   * How much Soldiers' Sizes vary: the spread (standard deviation) of each part of a Soldier's Size, height and thickness apart, on a bell
+   * curve round the standard body (1), cut to MIN_SIZE to MAX_SIZE. 0 (the default): every Soldier is the standard body.
+   */
+  readonly sizeSpread: number;
 }
+
+/**
+ * A Troop (a Soldier Type): one kind of Soldier an army fields, mixed through both armies by `weight`. Its stats replace the
+ * Crowd's own (`battle.crowd.hp`, `damage`, `hitChance`, `engageReach`) for its Soldiers, and a promoted one fights with its
+ * Weapon, AI difficulty and Mods. Every Troop plays the Battle's Style (`battle.soldier.style`). A Battle that names no Troops
+ * fields one, the generic soldier (`battle.soldier` and `battle.crowd`).
+ */
+export interface TroopTuning {
+  /** Its name, for people. */
+  readonly name: string;
+  /** Its share of each army: its weight over the sum of every Troop's (more than 0). */
+  readonly weight: number;
+  /** The Body models it is drawn as (names from the Body roster, `src/render/bodyModel.ts`), one picked per Soldier. Render-only. */
+  readonly bodies: readonly string[];
+  /**
+   * Its Bodies per Team (`[team 0's, team 1's]`), where the two armies wear different models for the same Troop (`teamBodies` in the
+   * data: either entry may be left out to use `bodies`). Absent: both Teams wear `bodies`. Look `l` of a Soldier is `l` modulo the list's
+   * length. Render-only. Read it through `troopBodies`.
+   */
+  readonly teamBodies?: readonly [readonly string[], readonly string[]];
+  /**
+   * The range (`[min, max]`, MIN_SIZE to MAX_SIZE, in multiples of the standard body) its Soldiers' Size height is cut to (`height` in the
+   * data), so a Troop can always be tall or always short. Absent: any height. See `soldierSizes`.
+   */
+  readonly height?: readonly [number, number];
+  /** As `height`, for the Size's thickness (`width` in the data). */
+  readonly width?: readonly [number, number];
+  /** The Weapon it wields (a name from the Weapon roster). */
+  readonly weapon: string;
+  /** The AI difficulty a promoted Soldier of it plays (a name from `ai.difficulties`). */
+  readonly difficulty: string;
+  /** Its HP, in a Fighter's units. */
+  readonly hp: number;
+  /** A Crowd blow's damage, uniform in [min, max]. */
+  readonly damage: readonly [number, number];
+  /** The chance a Crowd step engaged lands a blow. */
+  readonly hitChance: number;
+  /** How near (m) an enemy Soldier must be for it to engage in the Crowd. */
+  readonly engageReach: number;
+  /** A promoted Soldier's Mods, as `battle.soldier.mods` (which it defaults to). */
+  readonly mods: RelicEffects;
+}
+
+/** The Bodies `troop`'s Soldiers of `team` are drawn as (`TroopTuning.teamBodies`, else `bodies`). */
+export const troopBodies = (troop: Pick<TroopTuning, 'bodies' | 'teamBodies'>, team: number): readonly string[] => troop.teamBodies?.[team === 1 ? 1 : 0] ?? troop.bodies;
+
+/** The most Bodies a Troop names. */
+export const MAX_TROOP_BODIES = 16;
+
+/** The most Troops a Battle names (each Body and Weapon of them is baked into its own impostor atlas). */
+export const MAX_TROOPS = 8;
 
 /**
  * The Bubble round each Player's Fighter (docs/plans/big-battle.md, Stage 3): where Soldiers promote to full Fighters in
@@ -328,6 +385,8 @@ export interface BattleTuning {
   readonly commander: CommanderTuning;
   readonly rout: RoutTuning;
   readonly soldier: SoldierTuning;
+  /** The Troops both armies field, mixed by weight (at least one; `TroopTuning`). */
+  readonly troops: readonly TroopTuning[];
   readonly bubble: BubbleTuning;
   readonly slots: SlotsTuning;
   readonly ring: RingTuning;
@@ -436,6 +495,98 @@ function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'fiel
     ...(m.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(m, 'ticketsPerSoldier', where) }),
   };
 }
+
+/**
+ * The Troops of `raw` (`battle.troops`), each field it leaves out the generic soldier's (`soldier`, `crowd`): `body` or `bodies` (one or
+ * more; `teamBodies` for a different list per Team), `height` and `width` (`[min, max]` Size ranges), `weapon`, `difficulty`, `hp`, `damage`, `hitChance`, `engageReach` and `mods`. Absent: the one generic soldier.
+ */
+function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, weapons?: readonly string[], difficulties?: readonly string[]): TroopTuning[] {
+  const generic: TroopTuning = {
+    name: 'Soldier',
+    weight: 1,
+    bodies: [soldier.body],
+    weapon: soldier.weapon,
+    difficulty: soldier.difficulty,
+    hp: crowd.hp,
+    damage: crowd.damage,
+    hitChance: crowd.hitChance,
+    engageReach: crowd.engageReach,
+    mods: soldier.mods,
+  };
+  if (raw === undefined) return [generic];
+  const list = array(raw, 'battle.troops');
+  if (list.length < 1 || list.length > MAX_TROOPS) throw new TuningDataError(`battle.troops must name 1 to ${MAX_TROOPS} Troops, got ${list.length}`);
+  const names = new Set<string>();
+  return list.map((item, i) => {
+    const where = `battle.troops[${i}]`;
+    const t = record(item, where);
+    const name = nonEmptyString(t, 'name', where);
+    if (names.has(name)) throw new TuningDataError(`${where}.name "${name}" is named twice`);
+    names.add(name);
+    let bodies = generic.bodies;
+    if (t.bodies !== undefined) {
+      const raw = array(t.bodies, `${where}.bodies`);
+      if (raw.length < 1 || raw.length > MAX_TROOP_BODIES || raw.some((v) => typeof v !== 'string' || v.length === 0)) throw new TuningDataError(`${where}.bodies must be 1 to ${MAX_TROOP_BODIES} Body names, got ${JSON.stringify(t.bodies)}`);
+      bodies = raw as string[];
+    } else if (t.body !== undefined) bodies = [nonEmptyString(t, 'body', where)];
+    let teamBodies: [readonly string[], readonly string[]] | undefined;
+    if (t.teamBodies !== undefined) {
+      const pair = array(t.teamBodies, `${where}.teamBodies`);
+      if (pair.length !== 2) throw new TuningDataError(`${where}.teamBodies must be [team 0's Bodies, team 1's Bodies], got ${JSON.stringify(t.teamBodies)}`);
+      const side = pair.map((v, k): readonly string[] => {
+        if (v === null) return bodies;
+        const list = array(v, `${where}.teamBodies[${k}]`);
+        if (list.length < 1 || list.length > MAX_TROOP_BODIES || list.some((n) => typeof n !== 'string' || n.length === 0)) throw new TuningDataError(`${where}.teamBodies[${k}] must be 1 to ${MAX_TROOP_BODIES} Body names (or null), got ${JSON.stringify(v)}`);
+        return list as string[];
+      });
+      teamBodies = [side[0]!, side[1]!];
+    }
+    const sizeRange = (key: 'height' | 'width'): [number, number] | undefined => {
+      if (t[key] === undefined) return undefined;
+      const r = array(t[key], `${where}.${key}`);
+      if (r.length !== 2 || r.some((v) => typeof v !== 'number' || !Number.isFinite(v) || v < MIN_SIZE || v > MAX_SIZE) || (r[0] as number) > (r[1] as number))
+        throw new TuningDataError(`${where}.${key} must be [min, max] with ${MIN_SIZE} <= min <= max <= ${MAX_SIZE}, got ${JSON.stringify(t[key])}`);
+      return [r[0] as number, r[1] as number];
+    };
+    const height = sizeRange('height');
+    const width = sizeRange('width');
+    const weapon = t.weapon === undefined ? generic.weapon : nonEmptyString(t, 'weapon', where);
+    if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`${where}.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
+    const difficulty = t.difficulty === undefined ? generic.difficulty : nonEmptyString(t, 'difficulty', where);
+    if (difficulties && !difficulties.includes(difficulty)) throw new TuningDataError(`${where}.difficulty "${difficulty}" is not an AI difficulty (${difficulties.join(', ')})`);
+    let damage = generic.damage;
+    if (t.damage !== undefined) {
+      const dmg = array(t.damage, `${where}.damage`);
+      if (dmg.length !== 2 || dmg.some((v) => typeof v !== 'number' || !Number.isFinite(v) || v < 0) || (dmg[0] as number) > (dmg[1] as number))
+        throw new TuningDataError(`${where}.damage must be [min, max] with 0 <= min <= max, got ${JSON.stringify(t.damage)}`);
+      damage = [dmg[0] as number, dmg[1] as number];
+    }
+    let mods = generic.mods;
+    if (t.mods !== undefined) {
+      const md = record(t.mods, `${where}.mods`);
+      for (const k of Object.keys(md)) if (!(RELIC_MULTIPLIERS as readonly string[]).includes(k)) throw new TuningDataError(`${where}.mods.${k}: a soldier's Mods are only ${RELIC_MULTIPLIERS.join(', ')}`);
+      mods = Object.fromEntries(Object.keys(md).map((k) => [k, positiveNumber(md, k, `${where}.mods`)])) as RelicEffects;
+    }
+    return {
+      name,
+      weight: t.weight === undefined ? 1 : positiveNumber(t, 'weight', where),
+      bodies,
+      ...(teamBodies ? { teamBodies } : {}),
+      ...(height ? { height } : {}),
+      ...(width ? { width } : {}),
+      weapon,
+      difficulty,
+      hp: t.hp === undefined ? generic.hp : positiveNumber(t, 'hp', where),
+      damage,
+      hitChance: t.hitChance === undefined ? generic.hitChance : share(t, 'hitChance', where),
+      engageReach: t.engageReach === undefined ? generic.engageReach : positiveNumber(t, 'engageReach', where),
+      mods,
+    };
+  });
+}
+
+/** The furthest any Troop engages from (m): the Crowd's spatial hash is sized for it. */
+export const maxEngageReach = (b: Pick<BattleTuning, 'troops' | 'crowd'>): number => Math.max(b.crowd.engageReach, ...b.troops.map((t) => t.engageReach));
 
 /** Validate the raw Battle Tuning Data (with the Weapon roster's names, to check the soldier's Weapon, when given). Accepts its own output. */
 export function parseBattle(raw: unknown, weapons?: readonly string[], difficulties?: readonly string[], styleKeys?: readonly string[]): BattleTuning {
@@ -554,6 +705,16 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const mods = Object.fromEntries(Object.keys(md).map((k) => [k, positiveNumber(md, k, 'battle.soldier.mods')])) as RelicEffects;
   const colours = array(s.colours, 'battle.soldier.colours');
   if (colours.length !== 2) throw new TuningDataError(`battle.soldier.colours must be [Team 0, Team 1], got ${JSON.stringify(s.colours)}`);
+  const soldier: SoldierTuning = {
+    body: nonEmptyString(s, 'body', 'battle.soldier'),
+    weapon,
+    colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
+    difficulty,
+    style,
+    mods,
+    sizeSpread: s.sizeSpread === undefined ? 0 : nonNegativeNumber(s, 'sizeSpread', 'battle.soldier'),
+  };
+  const troops = parseTroops(b.troops, soldier, crowd, weapons, difficulties);
   const bubble: BubbleTuning = {
     poolSize: wholeNumber(u, 'poolSize', 'battle.bubble'),
     promote: positiveNumber(u, 'promote', 'battle.bubble'),
@@ -605,14 +766,8 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     tickets,
     commander,
     rout: { threshold: share(r, 'threshold', 'battle.rout'), seconds: positiveNumber(r, 'seconds', 'battle.rout') },
-    soldier: {
-      body: nonEmptyString(s, 'body', 'battle.soldier'),
-      weapon,
-      colours: [colour(colours[0], 'battle.soldier.colours[0]'), colour(colours[1], 'battle.soldier.colours[1]')],
-      difficulty,
-      style,
-      mods,
-    },
+    soldier,
+    troops,
     bubble,
     slots,
     ring,
@@ -742,5 +897,8 @@ export function applyBattleKnobs(b: BattleTuning, knobs: BattleKnobs | undefined
   const hitChance = Math.min(1, b.crowd.hitChance * (hitRate > 0 ? hitRate : 1));
   const perSoldier = map?.ticketsPerSoldier ?? b.tickets.perSoldier;
   if (army === b.armySize && hitChance === b.crowd.hitChance && perSoldier === b.tickets.perSoldier) return b;
-  return { ...b, armySize: army, crowd: { ...b.crowd, hitChance }, tickets: { ...b.tickets, perSoldier } };
+  // Every Troop's hit chance scales by the same knob.
+  const rate = hitRate > 0 ? hitRate : 1;
+  const troops = b.troops.map((t) => ({ ...t, hitChance: Math.min(1, t.hitChance * rate) }));
+  return { ...b, armySize: army, crowd: { ...b.crowd, hitChance }, troops, tickets: { ...b.tickets, perSoldier } };
 }

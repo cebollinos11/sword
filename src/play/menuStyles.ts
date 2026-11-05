@@ -46,6 +46,9 @@ export const MENU_CSS = `
 .nav-item:hover, .nav-item:focus-visible { background: linear-gradient(90deg, #ffffff17, #ffffff05); border-left-color: var(--gold); transform: translateX(4px); }
 .nav-label { font-family: var(--display); font-size: 1.35rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .nav-hint { font-size: 0.82rem; color: var(--muted); }
+.nav-item.sens { cursor: default; }
+.nav-item.sens:hover { transform: none; }
+.sens-slider { width: 100%; accent-color: var(--gold); }
 .nav-item.primary .nav-label { color: var(--gold-2); }
 .nav-item.danger .nav-label { color: #f08a7c; }
 .nav-link { color: inherit; text-decoration: none; }
@@ -97,6 +100,8 @@ export const MENU_CSS = `
 .room-code { font-family: ui-monospace, monospace; font-size: 2rem; font-weight: 700; letter-spacing: 0.22em; color: var(--gold-2); }
 
 /* Character */
+.size-slider { flex: 1; min-width: 6rem; accent-color: var(--accent, #f5cd7a); }
+.size-value { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
 .body-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.6rem, 1fr)); gap: 0.5rem; }
 .body-card { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; padding: 0.4rem 0.3rem 0.5rem; border-radius: 10px; border: 1px solid var(--line);
   background: radial-gradient(ellipse at 50% 40%, #ffffff14, transparent 70%), #ffffff06; transition: background 120ms, border-color 120ms, transform 120ms; }

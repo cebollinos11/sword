@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { troopOf } from './crowd';
 import { loadTuningData, type TuningData } from '../tuning';
 import { createBattlePilot, poolControllers, type Controller } from '../controllers';
 import {
@@ -73,7 +74,7 @@ function flank(): MatchState {
 }
 
 describe('Taking over an ally', () => {
-  it('takes over the nearest living ally Soldier, with its HP and the generic soldier, once its fall has played', () => {
+  it('takes over the nearest living ally Soldier, with its HP and its Troop, once its fall has played', () => {
     const start = flank();
     const dead = start.duel.fighters[0]!;
     const fallTick = dead.death!.tick;
@@ -87,8 +88,10 @@ describe('Taking over an ally', () => {
     expect(inDuel(me)).toBe(true);
     expect(me.position).toEqual({ x: 64, z: 0 });
     expect(me.hp).toBe(37);
-    expect(me.maxHp).toBe(small.battle.crowd.hp);
-    expect(me.weapon).toBe(small.battle.soldier.weapon);
+    // The Soldier's Troop's HP and Weapon.
+    const taken = next.crowd!.players[0]!.soldier;
+    expect(me.maxHp).toBe(troopOf(small.battle, next.crowd!, taken).hp);
+    expect(me.weapon).toBe(troopOf(small.battle, next.crowd!, taken).weapon);
     expect(me.team).toBe(0);
     // A Player's Fighter: no binding, and none of a soldier's Mods.
     expect(me.soldier).toBeUndefined();

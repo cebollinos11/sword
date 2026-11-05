@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { defineConfig, type Plugin } from 'vitest/config';
+import { configDefaults, defineConfig, type Plugin } from 'vitest/config';
 
 /**
  * Dev server only: `POST /__thumbs/<folder>/<name>.webp` saves the body under public/thumbs/,
@@ -39,9 +39,15 @@ export default defineConfig({
   build: { chunkSizeWarningLimit: 1000 },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
     fsModuleCache: false,
     // The Rollback session tests replay hundreds of Ticks; under a full parallel run they can need more than the default 5 s.
     testTimeout: 20_000,
+    // Two tiers. `npm test` runs "fast" (everything but `*.slow.test.ts`); `npm run test:slow` the whole-Battle, soak and
+    // Rollback-budget tests that take minutes; `npm run test:all` both (CI). Each slow scenario has its own file so the
+    // workers can run them side by side: Vitest parallelises per file, not per test.
+    projects: [
+      { extends: true, test: { name: 'fast', include: ['src/**/*.test.ts'], exclude: [...configDefaults.exclude, 'src/**/*.slow.test.ts'] } },
+      { extends: true, test: { name: 'slow', include: ['src/**/*.slow.test.ts'] } },
+    ],
   },
 });

@@ -1,5 +1,6 @@
 import type { Direction, Intent, InventoryRef } from '../sim';
 import type { Controller } from './controller';
+import { getLookSensitivity } from './lookSensitivity';
 import { inventoryClick, inventoryKey, type InventoryClickAction, type InventoryKey } from './inventoryKeys';
 
 export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw' | 'sheathe';
@@ -130,7 +131,8 @@ export class LocalController implements Controller {
 
   /** Relative mouse movement in screen pixels (+x right, +y down). */
   mouseMove(dx: number, dy: number): void {
-    this.look(dx, dy);
+    const sensitivity = getLookSensitivity();
+    this.look(dx * sensitivity, dy * sensitivity);
     this.travel.x += dx;
     this.travel.y += dy;
     if (Math.hypot(this.travel.x, this.travel.y) < GESTURE_PX) return;

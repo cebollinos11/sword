@@ -12,6 +12,6 @@ import type { TuningData } from './index';
  * the same name refuse each other (`generatorVersion` is for tests).
  */
 export function tuningDataHash(tuning: TuningData, generatorVersion = GENERATOR_VERSION): string {
-  const { camera: _camera, ...simulated } = tuning;
+  const { camera: _camera, size: _size, ...simulated } = tuning;
   return hashValue({ ...simulated, generatorVersion });
 }

@@ -3,7 +3,7 @@
  * (`hallRoster`), where its exit Doors' zones and a Rest Hall's fire are, and whose standing counts at a Door. Pure
  * functions of Tuning Data, the Run's config and the Hall, so every peer agrees with nothing sent.
  */
-import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type ArenaGeometry, type ArenaPoint, type TuningData } from '../tuning';
+import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type ArenaGeometry, type ArenaPoint, type Size, type TuningData } from '../tuning';
 import { insideZone } from './arena';
 import { parseGeneratedName } from './arenaGen/named';
 import { FLOOR_ROWS, floorGraph, hallSlot, runPick, runSeed, type Hall } from './dungeon';
@@ -28,6 +28,8 @@ export interface HallEnemy {
   readonly style?: string;
   /** The Relics it carries (Tuning Data names, as its Encounter lists them), or absent (none). Its Mods are theirs folded; an Elite Hall drops one. */
   readonly relics?: readonly string[];
+  /** Its Size (its Encounter's), or absent for the standard body. */
+  readonly size?: Size;
   readonly maxHp: number;
 }
 
@@ -129,6 +131,7 @@ export function hallRoster(
       ...(body === undefined ? {} : { body }),
       ...(style === undefined ? {} : { style }),
       ...(e.relics === undefined ? {} : { relics: e.relics }),
+      ...(e.size === undefined ? {} : { size: e.size }),
       maxHp: enemyMaxHp(tuning, e.hpScale, config.humans, at.row),
     };
   });
