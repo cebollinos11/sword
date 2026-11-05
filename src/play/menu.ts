@@ -38,6 +38,8 @@ export interface RoomInvite {
 
 type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lobby' | 'pause';
 
+import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
+
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
 const SIZE_STORAGE_KEY = 'sword.size';
@@ -331,6 +333,27 @@ export class Menu {
     const b = h('button', `nav-item ${className}`, null, h('span', 'nav-label', label), h('span', 'nav-hint', hint));
     b.addEventListener('click', onClick);
     return b;
+  }
+
+  /** Mouse sensitivity slider (1.00 is the original feel); applies at once and is remembered. */
+  private sensitivityItem(): HTMLElement {
+    const value = h('span', 'nav-hint', `${getLookSensitivity().toFixed(2)}×`);
+    const input = h('input', 'sens-slider');
+    input.type = 'range';
+    input.min = String(SENSITIVITY_MIN);
+    input.max = String(SENSITIVITY_MAX);
+    input.step = '0.05';
+    input.value = String(getLookSensitivity());
+    input.setAttribute('aria-label', 'Mouse sensitivity');
+    input.addEventListener('input', () => {
+      setLookSensitivity(Number(input.value));
+      value.textContent = `${getLookSensitivity().toFixed(2)}×`;
+    });
+    // Keep arrow keys and Escape for the slider rather than the game.
+    input.addEventListener('keydown', (e) => {
+      if (e.code !== 'Escape') e.stopPropagation();
+    });
+    return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Mouse Sensitivity'), input, value);
   }
 
   /** Toggles PlayStation resolution; stays on this screen. */
@@ -645,6 +668,7 @@ export class Menu {
     if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
+    nav.append(this.sensitivityItem());
     nav.append(this.ps1Item());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
