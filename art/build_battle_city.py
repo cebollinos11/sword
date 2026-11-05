@@ -200,6 +200,7 @@ class Ramp:
 
     def __init__(self, id, rect, lo, hi, high):
         self.id, self.rect, self.lo, self.hi, self.high = id, rect, lo, hi, high
+        self.cut = None  # the roof level its footprint was cut from
 
     def height(self, x, z):
         x0, x1, z0, z1 = self.rect
@@ -257,6 +258,7 @@ def build_plan():
             for c in cs & levels[h]:
                 voids[c] = max(voids.get(c, 0.0), h)
             levels[h] -= cs
+        ramp.cut = cut_levels[0]
         ramps.append(ramp)
         used.update(cs)
 
@@ -762,12 +764,15 @@ def ramp_looks():
                 pts = [(x0, r.height(x0, za), za), (x0, r.height(x0, zb), zb), (x1, r.height(x1, zb), zb), (x1, r.height(x1, za), za)]
             G.face(pts, 'StoneLight' if s % 2 == 0 else 'Stone')
         t = 0.5
+        # A stair cut down into a roof (a door stair, the castle's) is a trench: its sides are the building, up to the roof it was cut from.
+        roof = r.cut if r.cut is not None and r.cut > r.lo + EPS and abs(r.cut - r.hi) < EPS else r.lo
+        up = lambda y: max(y + RAIL, roof)
         if along_x:
-            prof = [(x0, r.lo), (x1, r.lo), (x1, r.height(x1, z0) + RAIL), (x0, r.height(x0, z0) + RAIL)]
+            prof = [(x0, r.lo), (x1, r.lo), (x1, up(r.height(x1, z0))), (x0, up(r.height(x0, z0)))]
             wedge(prof, (z0 - t, z0), 'x')
             wedge(prof, (z1, z1 + t), 'x')
         else:
-            prof = [(z0, r.lo), (z1, r.lo), (z1, r.height(x0, z1) + RAIL), (z0, r.height(x0, z0) + RAIL)]
+            prof = [(z0, r.lo), (z1, r.lo), (z1, up(r.height(x0, z1))), (z0, up(r.height(x0, z0)))]
             wedge(prof, (x0 - t, x0), 'z')
             wedge(prof, (x1, x1 + t), 'z')
 
