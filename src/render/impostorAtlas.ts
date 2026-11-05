@@ -79,10 +79,20 @@ export interface ImpostorAtlases {
 }
 
 /** Bake every look's atlas of a Battle (`soldierLooks`), one after another, with `renderer`. */
-export async function bakeImpostorAtlases(renderer: THREE.WebGLRenderer, tuning: TuningData, battle: BattleTuning = tuning.battle): Promise<ImpostorAtlases> {
+export async function bakeImpostorAtlases(
+  renderer: THREE.WebGLRenderer,
+  tuning: TuningData,
+  battle: BattleTuning = tuning.battle,
+  /** Called before each look is baked and after the last: `done` of `total` looks are in. Resolving it lets the page paint between looks. */
+  onProgress?: (done: number, total: number) => void | Promise<void>,
+): Promise<ImpostorAtlases> {
   const { looks, index } = soldierLooks(battle);
   const atlases: ImpostorAtlas[] = [];
-  for (const look of looks) atlases.push(await bakeImpostorAtlas(renderer, tuning, look));
+  for (const look of looks) {
+    await onProgress?.(atlases.length, looks.length);
+    atlases.push(await bakeImpostorAtlas(renderer, tuning, look));
+  }
+  await onProgress?.(looks.length, looks.length);
   return {
     atlases,
     index,
