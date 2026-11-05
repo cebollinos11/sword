@@ -87,7 +87,7 @@
     "sizeSpread": 0.08
   },
   "troops": [
-    { "name": "Levy", "weight": 5, "bodies": ["female", "brawler"], "weapon": "Arming Sword", "difficulty": "Beginner", "hp": 45, "damage": [3, 9], "hitChance": 0.08 },
+    { "name": "Levy", "weight": 5, "bodies": ["female", "brawler"], "teamBodies": [["templar"], ["monk"]], "weapon": "Arming Sword", "difficulty": "Beginner", "hp": 45, "damage": [3, 9], "hitChance": 0.08 },
     { "name": "Halberdier", "weight": 2, "bodies": ["asturian"], "weapon": "Halberd", "difficulty": "Beginner", "hp": 50, "damage": [5, 11], "hitChance": 0.07, "engageReach": 2.2 },
     { "name": "Swordsman", "weight": 2, "bodies": ["prince"], "weapon": "Longsword", "difficulty": "Skilled", "hp": 60, "damage": [4, 10], "hitChance": 0.09 },
     { "name": "Brute", "weight": 1, "bodies": ["monk"], "weapon": "Sledge Hammer", "difficulty": "Skilled", "hp": 70, "damage": [6, 13], "hitChance": 0.06 }
