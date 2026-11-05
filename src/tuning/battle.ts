@@ -219,6 +219,12 @@ export interface TroopTuning {
   readonly weight: number;
   /** The Body models it is drawn as (names from the Body roster, `src/render/bodyModel.ts`), one picked per Soldier. Render-only. */
   readonly bodies: readonly string[];
+  /**
+   * Its Bodies per Team (`[team 0's, team 1's]`), where the two armies wear different models for the same Troop (`teamBodies` in the
+   * data: either entry may be left out to use `bodies`). Absent: both Teams wear `bodies`. Look `l` of a Soldier is `l` modulo the list's
+   * length. Render-only. Read it through `troopBodies`.
+   */
+  readonly teamBodies?: readonly [readonly string[], readonly string[]];
   /** The Weapon it wields (a name from the Weapon roster). */
   readonly weapon: string;
   /** The AI difficulty a promoted Soldier of it plays (a name from `ai.difficulties`). */
@@ -234,6 +240,9 @@ export interface TroopTuning {
   /** A promoted Soldier's Mods, as `battle.soldier.mods` (which it defaults to). */
   readonly mods: RelicEffects;
 }
+
+/** The Bodies `troop`'s Soldiers of `team` are drawn as (`TroopTuning.teamBodies`, else `bodies`). */
+export const troopBodies = (troop: Pick<TroopTuning, 'bodies' | 'teamBodies'>, team: number): readonly string[] => troop.teamBodies?.[team === 1 ? 1 : 0] ?? troop.bodies;
 
 /** The most Bodies a Troop names. */
 export const MAX_TROOP_BODIES = 16;
@@ -473,7 +482,7 @@ function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'fiel
 
 /**
  * The Troops of `raw` (`battle.troops`), each field it leaves out the generic soldier's (`soldier`, `crowd`): `body` or `bodies` (one or
- * more), `weapon`, `difficulty`, `hp`, `damage`, `hitChance`, `engageReach` and `mods`. Absent: the one generic soldier.
+ * more; `teamBodies` for a different list per Team), `weapon`, `difficulty`, `hp`, `damage`, `hitChance`, `engageReach` and `mods`. Absent: the one generic soldier.
  */
 function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, weapons?: readonly string[], difficulties?: readonly string[]): TroopTuning[] {
   const generic: TroopTuning = {
@@ -504,6 +513,18 @@ function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, w
       if (raw.length < 1 || raw.length > MAX_TROOP_BODIES || raw.some((v) => typeof v !== 'string' || v.length === 0)) throw new TuningDataError(`${where}.bodies must be 1 to ${MAX_TROOP_BODIES} Body names, got ${JSON.stringify(t.bodies)}`);
       bodies = raw as string[];
     } else if (t.body !== undefined) bodies = [nonEmptyString(t, 'body', where)];
+    let teamBodies: [readonly string[], readonly string[]] | undefined;
+    if (t.teamBodies !== undefined) {
+      const pair = array(t.teamBodies, `${where}.teamBodies`);
+      if (pair.length !== 2) throw new TuningDataError(`${where}.teamBodies must be [team 0's Bodies, team 1's Bodies], got ${JSON.stringify(t.teamBodies)}`);
+      const side = pair.map((v, k): readonly string[] => {
+        if (v === null) return bodies;
+        const list = array(v, `${where}.teamBodies[${k}]`);
+        if (list.length < 1 || list.length > MAX_TROOP_BODIES || list.some((n) => typeof n !== 'string' || n.length === 0)) throw new TuningDataError(`${where}.teamBodies[${k}] must be 1 to ${MAX_TROOP_BODIES} Body names (or null), got ${JSON.stringify(v)}`);
+        return list as string[];
+      });
+      teamBodies = [side[0]!, side[1]!];
+    }
     const weapon = t.weapon === undefined ? generic.weapon : nonEmptyString(t, 'weapon', where);
     if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`${where}.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
     const difficulty = t.difficulty === undefined ? generic.difficulty : nonEmptyString(t, 'difficulty', where);
@@ -525,6 +546,7 @@ function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, w
       name,
       weight: t.weight === undefined ? 1 : positiveNumber(t, 'weight', where),
       bodies,
+      ...(teamBodies ? { teamBodies } : {}),
       weapon,
       difficulty,
       hp: t.hp === undefined ? generic.hp : positiveNumber(t, 'hp', where),

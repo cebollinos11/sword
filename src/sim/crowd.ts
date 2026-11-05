@@ -34,7 +34,7 @@
  * A Team routs once its Tickets are gone and its living Soldiers fall below `rout.threshold` of the army, or, at the Battle's time limit, the
  * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
-import { clampSize, maxEngageReach, startingTickets, type BattleTuning, type Size, type TroopTuning } from '../tuning';
+import { clampSize, maxEngageReach, startingTickets, troopBodies, type BattleTuning, type Size, type TroopTuning } from '../tuning';
 import { onSurface } from './arena';
 import { battleArenaName, groundOf, pushOutOfBlocks, soldierHeight } from './battlefield';
 import { planOrders } from './commander';
@@ -191,7 +191,7 @@ export function soldierTroops(battle: BattleTuning, seed: number, n: number): { 
     let pick = draw() * total;
     let t = 0;
     while (t < troops.length - 1 && pick >= troops[t]!.weight) pick -= troops[t++]!.weight;
-    const bodies = troops[t]!.bodies.length;
+    const bodies = Math.max(troops[t]!.bodies.length, ...(troops[t]!.teamBodies ?? []).map((l) => l.length));
     ofPlace.push([t, Math.min(bodies - 1, Math.floor(draw() * bodies))]);
   }
   for (let i = 0; i < n; i++) [troop[i], look[i]] = ofPlace[i % army]!;
@@ -203,10 +203,11 @@ export function troopOf(battle: BattleTuning, crowd: Pick<CrowdState, 'troop'>, 
   return battle.troops[crowd.troop[i] ?? 0] ?? battle.troops[0]!;
 }
 
-/** The Body Soldier `i` is drawn as: its look among its Troop's Bodies. */
-export function soldierBody(battle: BattleTuning, crowd: Pick<CrowdState, 'troop' | 'look'>, i: number): string {
-  const bodies = troopOf(battle, crowd, i).bodies;
-  return bodies[crowd.look[i] ?? 0] ?? bodies[0]!;
+/** The Body Soldier `i` is drawn as: its look among its Troop's Bodies for its Team (`troopBodies`). */
+export function soldierBody(battle: BattleTuning, crowd: Pick<CrowdState, 'troop' | 'look' | 'team'>, i: number): string {
+  const team = crowd.team[i] ?? 0;
+  const bodies = troopBodies(troopOf(battle, crowd, i), team);
+  return bodies[(crowd.look[i] ?? 0) % bodies.length] ?? bodies[0]!;
 }
 
 /** Soldier `i`'s Size, or undefined for the standard body. */

@@ -13,7 +13,7 @@
  */
 import * as THREE from 'three';
 import { groundHeight, TICK_SECONDS, type CrowdState, type Heightfield } from '../sim';
-import type { BattleTuning } from '../tuning';
+import { troopBodies, type BattleTuning } from '../tuning';
 import { atlasCell, directionCell, impostorStretch, soldierAt, soldierFrame, yawTo, type AtlasLayout } from './impostor';
 import { CELL_METRES, FEET_METRES, type ImpostorAtlas, type ImpostorAtlases } from './impostorAtlas';
 import { BAYER_GLSL } from './dither';
@@ -166,7 +166,7 @@ export class CrowdView {
   private readonly shadows: THREE.InstancedMesh;
   private readonly layout: AtlasLayout;
   /** Which look (atlas) Troop `t`'s look `l` is drawn from. */
-  private readonly lookIndex: readonly (readonly number[])[];
+  private readonly lookIndex: readonly (readonly (readonly number[])[])[];
   /** What the view last saw of each Soldier, and when (Battle seconds) it saw it struck or fall: NaN for never. */
   private seenHp = new Float64Array(0);
   private seenAlive = new Uint8Array(0);
@@ -181,7 +181,7 @@ export class CrowdView {
     blob: THREE.Texture,
   ) {
     const all = 'atlases' in atlases ? atlases.atlases : [atlases];
-    this.lookIndex = 'atlases' in atlases ? atlases.index : battle.troops.map((t) => t.bodies.map(() => 0));
+    this.lookIndex = 'atlases' in atlases ? atlases.index : [0, 1].map((team) => battle.troops.map((t) => troopBodies(t, team).map(() => 0)));
     this.layout = all[0]!.layout;
     this.teams = [0, 1].map((team) => all.map((atlas) => new TeamImpostors(atlas, battle.armySize, battle.soldier.colours[team]!, team)));
     for (const t of this.teams.flat()) this.root.add(t.mesh);
@@ -271,7 +271,8 @@ export class CrowdView {
 
   /** Which look's draw Soldier `i` is in (its Troop's look). */
   private lookOf(crowd: CrowdState, i: number): number {
-    return this.lookIndex[crowd.troop[i] ?? 0]?.[crowd.look[i] ?? 0] ?? 0;
+    const looks = this.lookIndex[crowd.team[i] === 1 ? 1 : 0]?.[crowd.troop[i] ?? 0];
+    return looks?.[(crowd.look[i] ?? 0) % (looks.length || 1)] ?? 0;
   }
 
   /** The draw Soldier `i` of `crowd` is in (its Team's, of its look); its billboard there is instance `i % armySize`. */
