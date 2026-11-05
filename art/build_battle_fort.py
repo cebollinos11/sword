@@ -115,6 +115,7 @@ MATERIALS = {
     'StoneDark': (0x6a645b, 1.0),
     'StoneLight': (0xa9a294, 1.0),
     'Rubble': (0x7a7368, 1.0),
+    'Grass': (0x5f7f42, 1.0),
     'Dirt': (0x7d6a4f, 1.0),
     'Wood': (0x5a4330, 1.0),
     'Banner0': (0xc0392b, 1.0),
@@ -363,7 +364,8 @@ def keep_look():
 
 
 def build_look():
-    # The courtyard's trodden earth, a centimetre over the grass the game draws (src/render/stage.ts).
+    # The ground: grass over the whole field (the game draws no terrain under a hand-built map), and the courtyard's trodden earth a centimetre over it.
+    G.face([(-HALF, 0.0, -HALF), (-HALF, 0.0, HALF), (HALF, 0.0, HALF), (HALF, 0.0, -HALF)], 'Grass')
     G.face([(-30, 0.01, -30), (-30, 0.01, 30), (30, 0.01, 30), (30, 0.01, -30)], 'Dirt')
     for b in BLOCKS:
         block_look(b)
