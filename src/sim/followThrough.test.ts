@@ -17,6 +17,8 @@ function withoutFollowThrough(t: TuningData): TuningData {
 }
 
 const plain = withoutFollowThrough(tuning);
+/** Weapon overrides are authored freely and need not keep the follow-through rule, so only Weapons playing the default Attack Motion are checked. */
+const playsDefault = (weapon: string, direction: string) => !tuning.motionOverrides[weapon]?.[direction];
 const hitsOf = (run: ScriptRun) => run.events.filter((e) => e.type === 'Hit' || e.type === 'Block' || e.type === 'WallStrike');
 
 describe('Attack follow-through', () => {
@@ -31,7 +33,7 @@ describe('Attack follow-through', () => {
 
   it('leaves every Weapon\'s Wind-up and Release pose untouched, up to and including the last Tick the Blade Sweep is live', () => {
     for (const weapon of Object.keys(tuning.weapons))
-      for (const direction of DIRECTIONS) {
+      for (const direction of DIRECTIONS.filter((d) => playsDefault(weapon, d))) {
         const { releaseEnd } = attackTimings(tuning, weapon, direction);
         expect(attackTimings(plain, weapon, direction), `${weapon} ${direction}`).toEqual(attackTimings(tuning, weapon, direction));
         // The Tick after releaseEnd is the first that differs: Recovery's own sweep from releaseEnd - 1 ends on the releaseEnd pose.
@@ -47,7 +49,7 @@ describe('Attack follow-through', () => {
       { position: { x: 0, z: 1.3 }, facing: Math.PI },
     ];
     for (const weapon of Object.keys(tuning.weapons))
-      for (const direction of DIRECTIONS) {
+      for (const direction of DIRECTIONS.filter((d) => playsDefault(weapon, d))) {
         const script = { placements, weapons: [weapon, weapon], a: [...attack(direction), ...wait(20), ...attack(direction)], b: wait(200) };
         const run = runDuel(tuning, script);
         expect(hitsOf(run).length, `${weapon} ${direction}`).toBeGreaterThan(0);

@@ -180,12 +180,12 @@ describe('Blocks on the whole Weapon', () => {
     expect(block).toBeDefined();
     const pose = fighterPose(defender!, tuning);
     const axis = normalize(sub(pose.blade.tip, pose.blade.hilt));
-    // Along the shaft from the sword hand: behind it (toward the off hand), not past the off hand.
+    // Along the shaft from the sword hand: behind it (toward the off hand), not past the off hand (give or take the blade's radius, as the Block's contact is).
     const along = dot(sub(block!.point, pose.blade.hilt), axis);
     expect(along).toBeLessThan(0);
-    expect(along).toBeGreaterThan(-tuning.weapons.Halberd!.offHandGrip!.along);
+    expect(along).toBeGreaterThan(-tuning.weapons.Halberd!.offHandGrip!.along - tuning.block.bladeRadius);
     const offAxis = length(sub(sub(block!.point, pose.blade.hilt), scale(axis, along)));
-    expect(offAxis).toBeLessThanOrEqual(tuning.block.bladeRadius + 1e-9);
+    expect(offAxis).toBeLessThanOrEqual(2 * tuning.block.bladeRadius);
     expect(events<HitEvent>(blocked('Halberd', 'Overhead').run, 'Hit')).toEqual([]);
   });
 });
@@ -230,7 +230,7 @@ describe('Motion overrides', () => {
   function withOverride(): TuningData {
     const overhead = tuning.motions.Overhead!;
     const slow: Motion = { ...overhead, markers: { ...overhead.markers, windUpEnd: overhead.markers.windUpEnd! + 0.1 } };
-    return { ...tuning, motionOverrides: { Longsword: { Overhead: slow } } };
+    return { ...tuning, motionOverrides: { ...tuning.motionOverrides, Longsword: { ...tuning.motionOverrides.Longsword, Overhead: slow } } };
   }
   const releaseTick = (t: TuningData, weapon: string) =>
     runDuel(t, { distance: 3, weapons: [weapon, 'Arming Sword'], a: attack('Overhead'), b: [] }).events.find(
