@@ -53,7 +53,7 @@
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
-import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type CrowdState } from '../sim';
+import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type Battlefield, type CrowdState } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, startingTickets, tuningDataHash, weaponMotion, type BattleTuning, type TuningData } from '../tuning';
 import {
@@ -194,8 +194,10 @@ const NOTHING: TickResult = { advanced: false, stalled: false, waited: false, ro
  * holding at most its starting Tickets, every Squad's destination one of the map's Objectives or the two Bases, and every Soldier and anchor
  * on one of the map's Walk Surfaces (docs/plans/battle-objectives.md, Stage 4a; -1 on the open field, `walk` 0).
  */
-function battleStateFits(crowd: CrowdState, battle: BattleTuning, walk: number): boolean {
-  const objectives = battle.objectives.openField.length;
+function battleStateFits(crowd: CrowdState, battle: BattleTuning, field: Battlefield | null): boolean {
+  // The map's own Objectives: a hand-built map has its own number of them, not the open field's.
+  const objectives = field?.objectives.length ?? battle.objectives.openField.length;
+  const walk = field?.heights.walk?.walk.length ?? 0;
   const onMap = (s: number) => (walk === 0 ? s === -1 : s >= 0 && s < walk);
   return (
     crowd.surface.every(onMap) &&
@@ -859,7 +861,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
     // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
     const crowd = state.duel.crowd;
-    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)?.heights.walk?.walk.length ?? 0))) return;
+    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)))) return;
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;

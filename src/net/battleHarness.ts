@@ -3,7 +3,7 @@
  * driving its own Player, compared Tick by Tick with the same Battle stepped offline. See `battle.test.ts` for what is being tested.
  */
 import { expect, vi } from 'vitest';
-import { loadTuningData, type TuningData } from '../tuning';
+import { applyBattleKnobs, loadTuningData, type TuningData } from '../tuning';
 import { createBattlePilot, lineupAis, lineupMatch, type Controller, type Lineup, type PlayerNumber } from '../controllers';
 import { createMatch, hashValue, IDLE_INTENT, inDuel, stepMatch, takeOverFighter, TICK_RATE, type BattlePlayer, type Intent, type MatchEvent, type MatchOptions, type MatchState } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -16,11 +16,21 @@ export const WEAPON = 'Longsword';
 /** The most Ticks a test may play (a whole Battle of these armies takes about half of it). */
 export const TICK_CAP = 5000;
 
-/** Each peer loads its own Tuning Data: two armies of 60, 10 m out from the centre. */
-export const peerTuning = (): TuningData => {
+/**
+ * Each peer loads its own Tuning Data: two armies of 60, 10 m out from the centre on the open field; on a hand-built `map`, 60 a side
+ * folded in as the Lobby folds it (`applyBattleKnobs`), half a Ticket a Soldier.
+ */
+export const peerTuning = (map?: string): TuningData => {
   const t = loadTuningData();
+  if (map) {
+    const battle = applyBattleKnobs(t.battle, { map, armySize: 60 });
+    return { ...t, battle: { ...battle, tickets: { ...battle.tickets, perSoldier: 0.5 } } };
+  }
   return { ...t, battle: { ...t.battle, armySize: 60, deploy: { ...t.battle.deploy, front: 10, perRank: 20 }, tickets: { ...t.battle.tickets, perSoldier: 0.5 } } };
 };
+
+/** The Match: the open field, or hand-built map `map`. */
+export const matchOn = (map?: string): MatchOptions => (map ? { ...MATCH, arena: `battle:${map}` } : MATCH);
 
 /** One Player per Team given, in Lobby order: the host first. */
 export const battleLineup = (teams: readonly number[]): Lineup => teams.map((team, p) => ({ team, pilot: { kind: 'Player', player: p as PlayerNumber } }));
@@ -69,6 +79,8 @@ export interface BattleOptions {
   readonly teams: readonly number[];
   /** Per Player: a Tick function in place of `stepMatch` (to inject divergence). */
   readonly step?: (player: number) => Step | undefined;
+  /** A hand-built Battle map (`battle.maps`) in place of the open field. */
+  readonly map?: string;
 }
 
 /** The pilot's Intent for the local Fighter, from the session's own (possibly predicted) state. */
@@ -86,7 +98,7 @@ export function startBattle(o: BattleOptions) {
   const players = o.teams.length;
   const lineup = battleLineup(o.teams);
   const pairs: MemoryTransportPair[] = Array.from({ length: players - 1 }, (_, i) => createMemoryTransportPair({ ...NET, seed: 7 + i }));
-  const tunings = Array.from({ length: players }, () => peerTuning());
+  const tunings = Array.from({ length: players }, () => peerTuning(o.map));
   const traces = tunings.map(() => new Map<number, Snap>());
   // A Rollback re-simulates a Tick several times and only the last version counts, so each step just notes its Match and a Tick is turned
   // into its Snap (hashed) once, when it is confirmed. Snapping every step cost over a third of the run.
@@ -105,7 +117,7 @@ export function startBattle(o: BattleOptions) {
     latest[k]!.set(next.tick, next);
     return next;
   };
-  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: stepOf(0) });
+  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: matchOn(o.map), lineup, weapon: WEAPON, step: stepOf(0) });
   const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: stepOf(i + 1) }));
   const peers: Peer[] = [host, ...guests].map((session, k) => {
     const peer: Peer = { player: k, session, pilot: createBattlePilot(tunings[k]!, 'Hard'), sent: new Map(), events: [], sums: new Map(), trace: traces[k]!, gone: false };
@@ -141,7 +153,7 @@ export function startBattle(o: BattleOptions) {
   const until = (done: () => boolean, each?: (peer: Peer) => void, cap = TICK_CAP) => {
     while (!done() && peers[0]!.session.currentTick < cap) frame(each);
   };
-  return { lineup, peers, host: peers[0]!, guests: peers.slice(1), confirmed, until };
+  return { lineup, map: o.map, peers, host: peers[0]!, guests: peers.slice(1), confirmed, until };
 }
 
 /** A Player who left: the AI drives their Fighter from `from` on. */
@@ -151,11 +163,12 @@ export interface Takeover {
 }
 
 /** The Battle stepped offline with the Intents the Players sent and fresh AI Controllers: the Match each Tick left, and its checksums. */
-export function offline(lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = []) {
-  const tuning = peerTuning();
-  const ais = lineupAis(tuning, lineup, 'Battle', MATCH);
+export function offline(lineup: Lineup, peers: readonly Peer[], upTo: number, takeovers: readonly Takeover[] = [], map?: string) {
+  const tuning = peerTuning(map);
+  const match = matchOn(map);
+  const ais = lineupAis(tuning, lineup, 'Battle', match);
   const taken = new Map(takeovers.map((d) => [d.player, { from: d.from, ai: takeoverAi(tuning, lineup, 'Battle', d.player) }]));
-  let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), MATCH));
+  let m = createMatch(tuning, lineupMatch(tuning, lineup, lineup.map(() => WEAPON), match));
   const trace = new Map<number, Snap>();
   const hashes = new Map<number, string>();
   for (let t = 1; t <= upTo; t++) {
