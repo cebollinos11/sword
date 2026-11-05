@@ -64,7 +64,9 @@ const fragmentShader = /* glsl */ `
     if (vFade < 1.0 && bayer4(gl_FragCoord.xy) < 1.0 - vFade) discard;
     vec4 colour = texture2D(uAtlas, vUv);
     if (colour.a < 0.5) discard;
-    float team = texture2D(uMask, vUv).r;
+    // The colour is baked white on the team part and filtered, so an edge pixel is white where the mask has only partly risen:
+    // taking the mask's partial values as full keeps that white from showing as a fringe.
+    float team = smoothstep(0.0, 0.35, texture2D(uMask, vUv).r);
     // Its own shade: of its Team's colour on the team-coloured part (x), and a little lighter or darker all over (y).
     gl_FragColor = vec4(colour.rgb * vShade.y * mix(vec3(1.0), uTint * vShade.x, team), 1.0);
     #include <fog_fragment>

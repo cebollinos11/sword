@@ -126,9 +126,10 @@ export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: T
     rt.texture.generateMipmaps = false;
   }
 
-  // The mask pass's materials: white on the team-coloured part, black elsewhere.
-  const white = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const black = new THREE.MeshBasicMaterial({ color: 0x000000 });
+  // The mask pass's materials: white on the team-coloured part, black elsewhere. Double-sided, as a Body's skirt is a thin sheet that
+  // the colour pass shows from behind too: a culled back face would leave the mask empty there and the skirt white.
+  const white = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
+  const black = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
   const own = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
   view.root.traverse((o) => {
     if (o instanceof THREE.Mesh) own.set(o, o.material);
