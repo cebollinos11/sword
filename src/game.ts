@@ -7,6 +7,7 @@ import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
+import { getAimIndicator } from './controllers/aimIndicator';
 import { createAutopilot, createBattlePilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
@@ -970,7 +971,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
-      hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
+      hud.update(curr, { localFighter: me, aim: getAimIndicator() ? local.aimed : undefined, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
       syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
     } else {

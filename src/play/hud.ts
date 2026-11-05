@@ -1,4 +1,4 @@
-import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
+import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type Direction, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import { fighterColours } from '../render/fighterView';
@@ -22,6 +22,8 @@ export interface HudView {
   readonly tuning?: TuningData;
   /** How the pickups are drawn this frame (`pickupViews`): the one labelled shows its name. Absent: none. */
   readonly pickups?: readonly PickupView[];
+  /** The Direction the next attack/block would use (`LocalController.aimed`), drawn as a line beside the crosshair; `locked`: a held Attack's, which the mouse no longer changes. Absent: no line. */
+  readonly aim?: { readonly direction: Direction; readonly locked: boolean };
   /** Where a point of the Arena is drawn on screen (CSS px from the top left), or null when it is behind the camera: for the pickup labels. */
   readonly project?: (p: { readonly x: number; readonly y: number; readonly z: number }) => { readonly x: number; readonly y: number } | null;
 }
@@ -103,12 +105,14 @@ function label(match: MatchState, tuning: TuningData, lineup: Lineup | null, fig
   return pilot.kind === 'Player' ? (names?.[pilot.player] ?? `Player ${pilot.player + 1}`) : `${pilot.difficulty} AI`;
 }
 
+const AIM_DIRECTIONS: readonly Direction[] = ['Overhead', 'Left', 'Right', 'Thrust'];
+
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
 
 /**
  * The in-match HUD: an HP bar per Fighter, the round score and a centre dot
- * crosshair (purely visual), nothing else (story 19): no Duel counter, and deliberately no Direction indicator
- * (Directions are read from poses). Your team stands on the left (you first),
+ * crosshair (purely visual), nothing else (story 19): no Duel counter, and a short line off the crosshair for the Direction an attack/block would use now
+ * (purely visual: the Simulation reads Directions from poses, never from this). Your team stands on the left (you first),
  * the enemy team on the right, each bar in its Fighter's colour with a short
  * label, filled to its own max HP; the score reads your team's Duels first (in a
  * Run, the Floor and Hall). A Benched Fighter has no bar. A short transient banner
@@ -126,6 +130,8 @@ export class Hud {
   private fps = 0;
   private readonly banner = document.createElement('div');
   private readonly crosshair = document.createElement('div');
+  /** One line per Direction around the crosshair; only the aimed one shows. */
+  private readonly aimLines = new Map<Direction, HTMLElement>();
   private readonly menu = document.createElement('button');
   private readonly results = document.createElement('div');
   /** A Run's pickup labels (one element per pickup seen, reused). */
@@ -179,6 +185,12 @@ export class Hud {
     this.banner.className = 'hud-banner';
     this.stats.className = 'hud-stats';
     this.crosshair.className = 'hud-crosshair';
+    for (const d of AIM_DIRECTIONS) {
+      const line = document.createElement('div');
+      line.className = `hud-aim hud-aim-${d.toLowerCase()}`;
+      this.aimLines.set(d, line);
+      this.crosshair.append(line);
+    }
     const bars = [document.createElement('div'), document.createElement('div')];
     bars.forEach((bar, i) => (bar.className = `hud-letterbox hud-letterbox-${i}`));
     this.results.className = 'hud-results';
@@ -308,6 +320,8 @@ export class Hud {
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
     this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
     this.mapButton.hidden = !match.run;
+    for (const [d, line] of this.aimLines) line.classList.toggle('on', view.aim?.direction === d);
+    this.crosshair.classList.toggle('locked', Boolean(view.aim?.locked));
     this.map.update(match, this.matchTuning ?? this.tuning);
     this.updatePickups(match, view);
     this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));

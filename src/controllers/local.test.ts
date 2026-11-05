@@ -391,3 +391,17 @@ describe('Local Controller: Throw', () => {
     expect(c.sample().throw).toBeUndefined();
   });
 });
+
+describe('Local Controller: aimed (the HUD indicator)', () => {
+  it('follows the latest gesture, and locks to a held Attack until a Feint', () => {
+    const c = new LocalController();
+    c.mouseMove(100, 0);
+    expect(c.aimed).toEqual({ direction: 'Right', locked: false });
+    c.buttonDown('attack');
+    c.sample();
+    c.mouseMove(-100, 0);
+    expect(c.aimed).toEqual({ direction: 'Right', locked: true });
+    c.feint();
+    expect(c.aimed).toEqual({ direction: 'Left', locked: true });
+  });
+});

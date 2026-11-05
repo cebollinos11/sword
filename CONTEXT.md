@@ -133,7 +133,7 @@ A coarse region of the Skeleton (head, torso, limbs (arms), legs (thigh, shin an
 _Avoid_: Hitbox, body part
 
 **Direction**:
-One of four attack/block directions: Overhead, Left, Right, Thrust. Chosen by the most recent mouse movement before the attack/block button is pressed; it is read from the Fighter's pose, never from a HUD indicator.
+One of four attack/block directions: Overhead, Left, Right, Thrust. Chosen by the most recent mouse movement before the attack/block button is pressed; it is read from the Fighter's pose by the Simulation; the HUD only shows the Direction a press would use now (a line off the crosshair) as a teaching aid, and nothing reads it back.
 _Avoid_: Stance, angle
 
 **Attack**:

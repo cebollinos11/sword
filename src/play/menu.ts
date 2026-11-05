@@ -38,6 +38,7 @@ export interface RoomInvite {
 
 type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lobby' | 'pause';
 
+import { getAimIndicator, setAimIndicator } from '../controllers/aimIndicator';
 import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
 
 const BROKER_STORAGE_KEY = 'sword.broker';
@@ -356,6 +357,16 @@ export class Menu {
     return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Mouse Sensitivity'), input, value);
   }
 
+  /** Toggles the Direction line off the crosshair; stays on this screen. */
+  private aimItem(): HTMLButtonElement {
+    const b = this.navItem(`Direction Indicator: ${getAimIndicator() ? 'On' : 'Off'}`, 'A line off the crosshair showing where a swing or block would go', () => {
+      setAimIndicator(!getAimIndicator());
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(getAimIndicator()));
+    return b;
+  }
+
   /** Toggles PlayStation resolution; stays on this screen. */
   private ps1Item(): HTMLButtonElement {
     const b = this.navItem(`PS1 Resolution: ${this.ps1 ? 'On' : 'Off'}`, 'Play in 240 chunky lines, at your screen\'s shape', () => {
@@ -669,6 +680,7 @@ export class Menu {
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
     nav.append(this.sensitivityItem());
+    nav.append(this.aimItem());
     nav.append(this.ps1Item());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
