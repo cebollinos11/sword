@@ -88,16 +88,32 @@ export function startBattle(o: BattleOptions) {
   const pairs: MemoryTransportPair[] = Array.from({ length: players - 1 }, (_, i) => createMemoryTransportPair({ ...NET, seed: 7 + i }));
   const tunings = Array.from({ length: players }, () => peerTuning());
   const traces = tunings.map(() => new Map<number, Snap>());
+  // A Rollback re-simulates a Tick several times and only the last version counts, so each step just notes its Match and a Tick is turned
+  // into its Snap (hashed) once, when it is confirmed. Snapping every step cost over a third of the run.
+  const latest = tunings.map(() => new Map<number, MatchState>());
+  const snapped = tunings.map(() => 0);
+  const settle = (k: number, confirmed: number) => {
+    while (snapped[k]! < confirmed) {
+      const t = ++snapped[k]!;
+      const m = latest[k]!.get(t);
+      if (m) traces[k]!.set(t, snap(m)); // none for a Tick a resync skipped
+      latest[k]!.delete(t);
+    }
+  };
   const stepOf = (k: number): Step => (m, intents, t) => {
     const next = (o.step?.(k) ?? stepMatch)(m, intents, t);
-    traces[k]!.set(next.tick, snap(next));
+    latest[k]!.set(next.tick, next);
     return next;
   };
   const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: stepOf(0) });
   const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: stepOf(i + 1) }));
   const peers: Peer[] = [host, ...guests].map((session, k) => {
     const peer: Peer = { player: k, session, pilot: createBattlePilot(tunings[k]!, 'Hard'), sent: new Map(), events: [], sums: new Map(), trace: traces[k]!, gone: false };
-    session.onEvent((e) => peer.events.push(e));
+    session.onEvent((e) => {
+      peer.events.push(e);
+      // A resync puts the guest on the host's state and re-simulates Ticks it had already confirmed: snap them again.
+      if (e.type === 'Resynced') snapped[k] = Math.min(snapped[k]!, e.tick);
+    });
     return peer;
   });
   const live = () => peers.filter((p) => !p.gone);
@@ -114,6 +130,7 @@ export function startBattle(o: BattleOptions) {
       if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
       each?.(peer);
       const c = session.confirmedTick;
+      settle(peer.player, c);
       for (let t = c - (c % CHECKSUM_INTERVAL); t > 0 && t > c - 600; t -= CHECKSUM_INTERVAL) {
         const sum = session.checksumAt(t);
         if (sum !== undefined) peer.sums.set(t, sum);
