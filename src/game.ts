@@ -928,7 +928,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
 
     if (driver && battleOn) {
-      battle?.draw(prev, curr, driver.localFighter, Math.min(1, accumulator / TICK_SECONDS), frozen ? 0 : elapsed);
+      battle?.draw(prev, curr, driver.localFighter, Math.min(1, accumulator / TICK_SECONDS), frozen ? 0 : elapsed, driver.ping ?? null);
     } else if (driver) {
       const alpha = accumulator / TICK_SECONDS;
       // A fresh Duel resets the Fighters: don't interpolate across the swap.

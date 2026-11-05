@@ -169,7 +169,7 @@ export class BattleScreen {
   }
 
   /** Draw the frame between Ticks `prev` and `curr` (`alpha` of the way), `seconds` of wall time after the last. */
-  draw(prev: MatchState, curr: MatchState, me: number, alpha: number, seconds: number): void {
+  draw(prev: MatchState, curr: MatchState, me: number, alpha: number, seconds: number, ping: number | null = null): void {
     const duel = curr.duel;
     const crowd = duel.crowd;
     if (!crowd || !this.crowdView || !duel.fighters[me]) return;
@@ -222,7 +222,7 @@ export class BattleScreen {
     for (const soldier of taken) fades[soldier] = 0;
     this.crowdView.update(crowd, duel.tick, alpha, hf, camera, fades);
     this.renderer.render(before, duel, alpha);
-    this.hud.update(curr, me);
+    this.hud.update(curr, me, ping);
     this.tags.update(duel, before, me, alpha, (p) => this.renderer.toScreen(p));
   }
 

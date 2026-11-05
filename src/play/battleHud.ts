@@ -163,6 +163,9 @@ export class BattleHud {
   private readonly minimap: Minimap;
   private bannerUntil = 0;
   private mapShown = true;
+  private readonly stats = document.createElement('div');
+  private frames = 0;
+  private statsAt = 0;
 
   constructor(
     container: HTMLElement,
@@ -217,7 +220,8 @@ export class BattleHud {
     const key = document.createElement('div');
     key.className = 'battle-map-key';
     key.textContent = 'N: map';
-    this.root.append(strip, me, this.map, key, this.banner, this.results);
+    this.stats.className = 'hud-stats';
+    this.root.append(strip, me, this.map, key, this.stats, this.banner, this.results);
     container.append(this.root);
   }
 
@@ -234,7 +238,7 @@ export class BattleHud {
   }
 
   /** Redraw from `match`, Fighter `me` being the Player's slot. */
-  update(match: MatchState, me: number): void {
+  update(match: MatchState, me: number, ping: number | null = null): void {
     const duel = match.duel;
     const crowd = duel.crowd;
     if (!crowd) return;
@@ -259,6 +263,14 @@ export class BattleHud {
     this.hpFill.style.width = `${Math.max(0, (hp / max) * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(hp)} / ${max}`;
     if (this.mapShown) this.minimap.draw(duel, me, this.sites.objectives);
+    this.frames++;
+    const now = performance.now();
+    if (now - this.statsAt >= 500) {
+      const fps = Math.round((this.frames * 1000) / (now - this.statsAt));
+      this.frames = 0;
+      this.statsAt = now;
+      this.stats.textContent = ping == null ? `${fps} fps` : `${fps} fps · ${Math.round(ping)} ms`;
+    }
     if (this.bannerUntil && performance.now() > this.bannerUntil) {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;
