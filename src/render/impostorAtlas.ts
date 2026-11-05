@@ -2,7 +2,7 @@
  * The impostor atlases (docs/plans/big-battle.md, Stage 2), baked in-engine when a Battle is drawn, one per look a Soldier can
  * have (a Troop's Body for each Team and its Weapon, `soldierLooks`): that Body and Weapon, posed frame by frame from its clips (`soldierClips`, recorded from the Simulation), rendered from
  * `IMPOSTOR_DIRECTIONS` directions round it into one texture (`atlasLayout`). Its team-coloured part is baked white and,
- * into a second, half-size texture of the same layout, as a mask, so the impostor's shader tints it with each Team's
+ * into a second texture of the same size and layout, as a mask, so the impostor's shader tints it with each Team's
  * colour: one atlas serves both Teams. Render-only.
  */
 import * as THREE from 'three';
@@ -16,7 +16,7 @@ import { soldierClips } from './soldierClips';
 export const CELL_METRES = 2.9;
 /** How far (m) the soldier's feet stand above a cell's bottom edge, leaving room for what lies in front of them. */
 export const FEET_METRES = 0.35;
-/** A cell's side (px) in the colour atlas; the mask's is half. */
+/** A cell's side (px) in the colour atlas and in the mask, which must match it so the mask's edge lines up with the colour's. */
 const CELL_PIXELS = 128;
 /** The atlas's longest side (px) at most, below the GPU's own limit. */
 const MAX_PIXELS = 4096;
@@ -25,7 +25,7 @@ const BAKE_ELEVATION = (10 * Math.PI) / 180;
 
 export interface ImpostorAtlas {
   readonly colour: THREE.Texture;
-  /** 1 on the team-coloured part, 0 elsewhere (red channel), in the same layout at half the size. */
+  /** 1 on the team-coloured part, 0 elsewhere (red channel), in the same layout and size. */
   readonly mask: THREE.Texture;
   readonly layout: AtlasLayout;
   readonly seconds: ClipSeconds;
@@ -119,7 +119,7 @@ export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: T
 
   const layout = atlasLayout(CELL_PIXELS, Math.min(MAX_PIXELS, renderer.capabilities.maxTextureSize));
   const colour = target(layout.width, layout.height, THREE.SRGBColorSpace);
-  const mask = target(layout.width / 2, layout.height / 2, THREE.NoColorSpace);
+  const mask = target(layout.width, layout.height, THREE.NoColorSpace);
   // Allocated with all their mip levels, then filled cell by cell without regenerating them; generated once at the end.
   for (const rt of [colour, mask]) {
     renderer.initRenderTarget(rt);
@@ -145,12 +145,12 @@ export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: T
   };
   renderer.setClearColor(0x000000, 0);
   renderer.autoClear = true;
-  for (const [rt, scale, maskPass] of [
-    [colour, 1, false],
-    [mask, 0.5, true],
+  for (const [rt, maskPass] of [
+    [colour, false],
+    [mask, true],
   ] as const) {
     masking(maskPass);
-    const side = layout.cell * scale;
+    const side = layout.cell;
     for (const clip of IMPOSTOR_CLIPS)
       clips.poses[clip].forEach((pose, frame) => {
         view.update(pose, weapon);
