@@ -364,6 +364,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
   const arenas = shownArenas(ctx.tuning, state);
   const maps = h('div', 'map-grid');
+  if (isBattle(state)) for (const card of battleMapCards(ctx, state, editable)) maps.append(card);
   for (const a of arenas) {
     const info = ARENA_INFO[a];
     const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', arenaLabel(a)), info ? h('span', 'map-blurb', info.blurb) : null);
@@ -392,6 +393,21 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
   const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
   return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
+}
+
+/** In a Battle, one picture card per map (`battleMaps`): the host picks, everyone sees the pick (offline, you are the host). */
+function battleMapCards(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement[] {
+  const picked = battleMapChoice(ctx.tuning, state.settings.battle).id;
+  return battleMaps(ctx.tuning).map((choice) => {
+    const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', choice.label), h('span', 'map-blurb', choice.blurb));
+    // The map's picture (public/thumbs/battlemaps/<id>.webp), over its painted stand-in while it loads (or if it is missing).
+    (card.firstChild as HTMLElement).style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`;
+    card.setAttribute('aria-pressed', String(choice.id === picked));
+    card.disabled = !editable && choice.id !== picked;
+    // Picking one sets the army size back to that map's standard.
+    if (editable) card.addEventListener('click', () => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })));
+    return card;
+  });
 }
 
 /** The Format toggle (Duels, Gauntlet, Battle: `lobbyFormats`), when the Lobby offers more than one. */
@@ -513,11 +529,11 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
  * The Battle maps the Lobby offers (docs/plans/battle-objectives.md, Stage 3a): the open field, then the hand-built maps of `battle.maps`
  * it knows by name. `id` is the `map` knob's value (`open`: none), `where` how the Battle card says where the armies meet.
  */
-export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string; readonly where: string }[] = [
-  { id: OPEN_FIELD, label: 'Open field', where: 'on an open field' },
-  { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,' },
-  { id: 'ziggurat', label: 'Ziggurat', where: 'on and in an ancient stepped temple above the jungle,' },
-  { id: 'city', label: 'City', where: 'over the streets and rooftops of a hill town under its castle,' },
+export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string; readonly where: string; readonly blurb: string; readonly art: string }[] = [
+  { id: OPEN_FIELD, label: 'Open field', where: 'on an open field', blurb: 'Gentle hills, fresh each Battle', art: 'linear-gradient(180deg, #8fb4d8, #cfdcc0 45%, #6f9a47 46%, #3b5f25)' },
+  { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,', blurb: 'A ruined fort, its walls breached', art: 'linear-gradient(180deg, #9db3c8, #c9c3b0 50%, #6b6a5a 51%, #3d4a2c)' },
+  { id: 'ziggurat', label: 'Ziggurat', where: 'on and in an ancient stepped temple above the jungle,', blurb: 'A stepped temple over the jungle', art: 'linear-gradient(180deg, #c9d8a8, #7fa55a 45%, #8a7a58 46%, #2f4a22)' },
+  { id: 'city', label: 'City', where: 'over the streets and rooftops of a hill town under its castle,', blurb: 'Streets and rooftops under a castle', art: 'linear-gradient(180deg, #a8bccf, #d8c6a4 45%, #8f6f55 46%, #4a3a30)' },
 ];
 
 /** The Battle maps this Tuning Data has, as the Lobby offers them. */
@@ -559,7 +575,7 @@ export function withBattleKnob(knobs: BattleKnobs | undefined, row: BattleKnobRo
   return value === row.standard ? rest : { ...rest, [row.key]: value };
 }
 
-/** A Battle's options (the map, army size and how often soldiers land blows): the host sets them, everyone sees them. */
+/** A Battle's options (army size and how often soldiers land blows): the host sets them, everyone sees them. */
 function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const editable = ctx.lobby.isHost;
   const knobs = state.settings.battle;
@@ -579,20 +595,6 @@ function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement
     }
     return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
   });
-  // The map picker: picking one sets the army size back to that map's standard.
-  const map = h('div', 'segmented');
-  map.setAttribute('role', 'radiogroup');
-  map.setAttribute('aria-label', 'Map');
-  const picked = battleMapChoice(ctx.tuning, knobs).id;
-  const maps = battleMaps(ctx.tuning);
-  for (const choice of maps) {
-    const b = button('', choice.label, () => ctx.lobby.edit((s) => updateSettings(s, { battle: withBattleMap(s.settings.battle, choice.id) })));
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(choice.id === picked));
-    b.disabled = maps.length < 2 || !editable;
-    map.append(b);
-  }
-  rows.unshift(h('div', 'lb-row lb-knob', null, h('span', 'lb-label', 'Map'), map));
   // Back to standard: the army size and fighting speed, on the map picked.
   const changed = knobs !== undefined && Object.keys(knobs).some((k) => k !== 'map');
   const reset =

@@ -32,12 +32,12 @@ export function select(label: string, options: readonly (readonly [string, strin
 export const hex = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
 
 /** A picture drawn by the thumbnail page (`#/thumbs`), under public/thumbs/. */
-export function thumb(folder: 'arenas' | 'bodies' | 'weapons', name: string): string {
+export function thumb(folder: 'arenas' | 'battlemaps' | 'bodies' | 'weapons', name: string): string {
   return `${import.meta.env.BASE_URL}thumbs/${folder}/${name}.webp`;
 }
 
 /** An `<img>` of a thumbnail that removes itself if the picture is missing. */
-export function thumbImage(className: string, folder: 'arenas' | 'bodies' | 'weapons', name: string, alt = ''): HTMLImageElement {
+export function thumbImage(className: string, folder: 'arenas' | 'battlemaps' | 'bodies' | 'weapons', name: string, alt = ''): HTMLImageElement {
   const img = h('img', className);
   img.src = thumb(folder, name);
   img.alt = alt;

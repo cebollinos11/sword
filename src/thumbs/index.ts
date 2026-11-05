@@ -4,6 +4,7 @@
  *
  * - arenas/<Arena>.webp: each Arena with two Fighters squaring up at their spawns;
  * - arenas/random.webp: the Random Map's card, the same shot of one greybox Generated Arena (RANDOM_SHOT);
+ * - battlemaps/<id>.webp: each Battle map (the open field and every `battle.maps` one), a high three-quarter view over the field;
  * - bodies/<model>.webp: each Body model, full length, on a transparent background;
  * - weapons/<file>.webp: each Weapon on its own, on a transparent background.
  *
@@ -17,6 +18,8 @@ import { Stage } from '../render/stage';
 import { drawnPose, FighterView, teamColour } from '../render/fighterView';
 import { BODY_MODELS, preloadBody, type BodyModelName } from '../render/bodyModel';
 import { weaponThumb } from '../play/dom';
+import { battleMaps } from '../play/lobbyView';
+import { battleNameFor, OPEN_FIELD } from '../sim';
 
 const ARENA_SIZE = { w: 640, h: 360 };
 const BODY_SIZE = { w: 320, h: 420 };
@@ -37,6 +40,12 @@ const NEUTRAL = 0x8a8f99;
 const ARENA_SHOT = { side: 0.95, minSide: 4.5, up: 0.35, minUp: 2.2, along: -0.35 };
 /** Arenas walled in beside the Fighters' line: shot from behind the first Fighter instead, high, looking down the line. */
 const FROM_BEHIND: ReadonlySet<string> = new Set(['library']);
+/** The seed of the open field the Battle maps' first card shows. */
+const OPEN_FIELD_SEED = 1;
+/** Where the camera stands over a Battle map: back along +z, up, looking at a point `lookAt` metres up and `ahead` metres along -z from the middle (m). */
+const BATTLE_SHOT = { back: 95, up: 62, lookAt: 4, ahead: 0, fov: 50 };
+/** Maps shot differently: the open field from low down (from above it is all haze), the City from further off. */
+const BATTLE_SHOTS: Readonly<Record<string, Partial<typeof BATTLE_SHOT>>> = { [OPEN_FIELD]: { back: 50, up: 14, lookAt: 0, ahead: 20 }, city: { back: 112, up: 72 } };
 /** The Generated Arena the Random Map's card shows: any greybox one stands for them all. */
 const RANDOM_SHOT = 'gen:greybox:12';
 
@@ -66,6 +75,7 @@ export async function startThumbs(container: HTMLElement, tuning: TuningData): P
     const random = withGeneratedArena(tuning, RANDOM_SHOT);
     await save('arenas/random.webp', await arenaShot(container, random.tuning, RANDOM_SHOT, random.layout));
   }
+  for (const map of battleMaps(tuning)) if (wanted(`battlemaps/${map.id}`)) await save(`battlemaps/${map.id}.webp`, await battleShot(container, tuning, map.id));
   for (const body of BODY_MODELS) if (wanted(`bodies/${body}`)) await save(`bodies/${body}.webp`, await bodyShot(tuning, body));
   for (const [file, weapon] of weaponFiles(tuning)) if (wanted(`weapons/${file}`)) await save(`weapons/${file}.webp`, weaponShot(tuning, weapon));
   say('done');
@@ -131,6 +141,29 @@ async function arenaShot(container: HTMLElement, tuning: TuningData, arena: stri
     cam.position.y += Math.max(s.minUp, apart * s.up);
   }
   cam.lookAt(mid.x, mid.y + 0.8, mid.z);
+  await frames(2);
+  stage.renderer.render(stage.scene, cam);
+  const out = shrink(stage.canvas, ARENA_SIZE);
+  stage.renderer.dispose();
+  box.remove();
+  return out;
+}
+
+async function battleShot(container: HTMLElement, tuning: TuningData, map: string): Promise<HTMLCanvasElement> {
+  const box = document.createElement('div');
+  box.style.cssText = `position:fixed;left:0;top:0;width:${ARENA_SIZE.w}px;height:${ARENA_SIZE.h}px;visibility:hidden`;
+  container.append(box);
+  const stage = new Stage(box, tuning);
+  stage.renderer.setPixelRatio(SUPERSAMPLE);
+  stage.resize();
+  stage.setArena(battleNameFor(map === OPEN_FIELD ? undefined : map, OPEN_FIELD_SEED), tuning);
+  await stage.ready();
+  const cam = stage.camera;
+  const shot = { ...BATTLE_SHOT, ...BATTLE_SHOTS[map] };
+  cam.fov = shot.fov;
+  cam.updateProjectionMatrix();
+  cam.position.set(0, shot.up, shot.back);
+  cam.lookAt(0, shot.lookAt, -shot.ahead);
   await frames(2);
   stage.renderer.render(stage.scene, cam);
   const out = shrink(stage.canvas, ARENA_SIZE);
