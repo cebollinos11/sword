@@ -11,6 +11,7 @@ import {
   IDLE_INTENT,
   soldierSize,
   soldierSizes,
+  soldierTroops,
   standingFighter,
   stepBubbles,
   stepMatch,
@@ -45,7 +46,9 @@ function withCrowd(m: MatchState, edit: (c: { x: number[]; z: number[]; hp: numb
 }
 
 describe("Soldiers' Sizes", () => {
-  const big = { ...tuning.battle, armySize: 2000 };
+  // The bell curve is each Soldier's own draw; a Troop's `height` and `width` ranges then cut it (tested below), so here no Troop has one.
+  const unranged = tuning.battle.troops.map(({ height: _h, width: _w, ...troop }) => troop);
+  const big = { ...tuning.battle, armySize: 2000, troops: unranged };
   const { height, thick } = soldierSizes(big, 3, 2 * big.armySize);
 
   it('are every one a valid Size, on a narrow bell curve round the standard body', () => {
@@ -83,6 +86,35 @@ describe("Soldiers' Sizes", () => {
     const crowd = createCrowd(small.battle, 7);
     expect(crowd.sizeHeight).toEqual(soldierSizes(small.battle, 7, crowd.x.length).height);
     expect(hashValue(createCrowd(small.battle, 7))).toBe(hashValue(crowd));
+  });
+});
+
+describe("A Troop's height and width ranges", () => {
+  const ranged = { ...tuning.battle, armySize: 2000 };
+  const n = 2 * ranged.armySize;
+  const { troop } = soldierTroops(ranged, 3, n);
+
+  it('cut the Size of every Soldier of the Troop, whatever the spread', () => {
+    const rangedTroops = ranged.troops.filter((t) => t.height || t.width);
+    expect(rangedTroops.length, 'the Tuning Data names some ranges').toBeGreaterThan(0);
+    for (const sizeSpread of [ranged.soldier.sizeSpread, 0]) {
+      const { height, thick } = soldierSizes({ ...ranged, soldier: { ...ranged.soldier, sizeSpread } }, 3, n);
+      // Sizes snap to a step, so a bound may be passed by half of it.
+      const slack = 0.05;
+      for (let i = 0; i < n; i++) {
+        const t = ranged.troops[troop[i]!]!;
+        if (t.height) expect(height[i]!, `Soldier ${i} (${t.name}) height, spread ${sizeSpread}`).toBeGreaterThanOrEqual(t.height[0] - slack);
+        if (t.height) expect(height[i]!, `Soldier ${i} (${t.name}) height, spread ${sizeSpread}`).toBeLessThanOrEqual(t.height[1] + slack);
+        if (t.width) expect(thick[i]!, `Soldier ${i} (${t.name}) width, spread ${sizeSpread}`).toBeGreaterThanOrEqual(t.width[0] - slack);
+        if (t.width) expect(thick[i]!, `Soldier ${i} (${t.name}) width, spread ${sizeSpread}`).toBeLessThanOrEqual(t.width[1] + slack);
+      }
+    }
+  });
+
+  it('with none in the Tuning Data, a spread of 0 is all standard bodies', () => {
+    const none = { ...ranged, soldier: { ...ranged.soldier, sizeSpread: 0 }, troops: ranged.troops.map(({ height: _h, width: _w, ...x }) => x) };
+    const flat = soldierSizes(none, 3, n);
+    expect(flat.height.every((v) => v === 1) && flat.thick.every((v) => v === 1)).toBe(true);
   });
 });
 

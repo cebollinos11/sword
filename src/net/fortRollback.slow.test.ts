@@ -2,7 +2,7 @@
  * docs/plans/battle-objectives.md, Stage 3a (Open question 3): the budget gate on the Fort. The same soak as `battleRollback.test.ts`
  * (four Players on a Hard Battle autopilot, two a Team, a Pool AI on every other slot, stepped as a Rollback session steps it, a
  * ROLLBACK_WINDOW-Tick Rollback timed every ROLLBACK_EVERY Ticks and checked to land on the same hash), on the Fort at its standard army
- * size (`FORT_ARMY` in the environment to try another; `FORT_MAP=bridge` or `platform` for Stage 4a's test maps of several levels,
+ * size (`FORT_ARMY` in the environment to try another; `FORT_MAP=ziggurat` for Stage 5's temple, `bridge` or `platform` for Stage 4a's test maps of several levels,
  * `levelMaps.testdata.ts`). On the Fort the Pool AIs path over its navmesh, and the Crowd is pushed out of
  * its walls, so both the Crowd step and the bound Fighters' share are measured here. The figures it logs are the measurement (the
  * Stage's Result); the times asserted are relative, as in `battleRollback.test.ts`, so a loaded machine does not fail it.
@@ -15,7 +15,8 @@ import { withLevelMaps } from '../sim/levelMaps.testdata';
 import { ROLLBACK_WINDOW } from './session';
 
 const MAP = process.env.FORT_MAP ?? 'fort';
-const base = MAP === 'fort' ? loadTuningData() : withLevelMaps(loadTuningData(), MAP as 'platform' | 'bridge');
+const loaded = loadTuningData();
+const base = Object.hasOwn(loaded.battle.maps, MAP) ? loaded : withLevelMaps(loaded, MAP as 'platform' | 'bridge');
 const army = Number(process.env.FORT_ARMY ?? base.battle.maps[MAP]!.armySize.standard);
 const tuning: TuningData = { ...base, battle: applyBattleKnobs(base.battle, { map: MAP, armySize: army }) };
 const ROLLBACK_EVERY = 10;

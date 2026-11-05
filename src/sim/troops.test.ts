@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyBattleKnobs, loadTuningData, parseBattle, type TuningData } from '../tuning';
+import { applyBattleKnobs, loadTuningData, parseBattle, troopBodies, type TuningData } from '../tuning';
 import { soldierLooks } from '../render/impostorAtlas';
 import { createCrowd, hashValue, soldierBody, soldierTroops, troopOf } from '.';
 
@@ -46,7 +46,7 @@ describe('Troops (Soldier Types)', () => {
     const c = createCrowd(small.battle, 5);
     for (let i = 0; i < c.x.length; i++) {
       expect(c.hp[i]).toBe(troopOf(small.battle, c, i).hp);
-      expect(troopOf(small.battle, c, i).bodies).toContain(soldierBody(small.battle, c, i));
+      expect(troopBodies(troopOf(small.battle, c, i), c.team[i]!)).toContain(soldierBody(small.battle, c, i));
     }
     const other = { ...c, troop: c.troop.map((t) => (t + 1) % small.battle.troops.length) };
     expect(hashValue(other)).not.toBe(hashValue(c));
@@ -59,15 +59,35 @@ describe('Troops (Soldier Types)', () => {
 
   it('bakes one impostor atlas per distinct Body and Weapon', () => {
     const { looks, index } = soldierLooks({ troops: [
-      { ...tuning.battle.troops[0]!, bodies: ['female', 'monk'], weapon: 'Arming Sword' },
-      { ...tuning.battle.troops[0]!, bodies: ['monk'], weapon: 'Arming Sword' },
-      { ...tuning.battle.troops[0]!, bodies: ['monk'], weapon: 'Halberd' },
+      { ...tuning.battle.troops[0]!, bodies: ['female', 'monk'], teamBodies: undefined, weapon: 'Arming Sword' },
+      { ...tuning.battle.troops[0]!, bodies: ['monk'], teamBodies: undefined, weapon: 'Arming Sword' },
+      { ...tuning.battle.troops[0]!, bodies: ['monk'], teamBodies: undefined, weapon: 'Halberd' },
     ] });
     expect(looks).toEqual([
       { body: 'female', weapon: 'Arming Sword' },
       { body: 'monk', weapon: 'Arming Sword' },
       { body: 'monk', weapon: 'Halberd' },
     ]);
-    expect(index).toEqual([[0, 1], [1], [2]]);
+    expect(index).toEqual([[[0, 1], [1], [2]], [[0, 1], [1], [2]]]);
+  });
+
+  it('draws a Troop in different Bodies per Team when it names teamBodies', () => {
+    const troop = { ...tuning.battle.troops[0]!, bodies: ['female'], teamBodies: [['female'], ['monk', 'prince']] as [string[], string[]], weapon: 'Arming Sword' };
+    const { looks, index } = soldierLooks({ troops: [troop] });
+    expect(looks.map((l) => l.body)).toEqual(['female', 'monk', 'prince']);
+    expect(index).toEqual([[[0]], [[1, 2]]]);
+
+    const battle = { ...small.battle, troops: [troop] };
+    const crowd = createCrowd(battle, 7);
+    const t0 = crowd.team.findIndex((t) => t === 0);
+    const t1 = crowd.team.findIndex((t) => t === 1);
+    expect(soldierBody(battle, crowd, t0)).toBe('female');
+    expect(['monk', 'prince']).toContain(soldierBody(battle, crowd, t1));
+  });
+
+  it('parses teamBodies, taking null to mean the Troop’s own bodies', () => {
+    const raw = { ...tuning.battle, troops: [{ name: 'A', bodies: ['monk'], teamBodies: [null, ['prince']] }] } as unknown as Parameters<typeof parseBattle>[0];
+    const parsed = parseBattle(raw);
+    expect(parsed.troops[0]!.teamBodies).toEqual([['monk'], ['prince']]);
   });
 });

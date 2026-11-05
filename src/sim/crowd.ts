@@ -34,7 +34,7 @@
  * A Team routs once its Tickets are gone and its living Soldiers fall below `rout.threshold` of the army, or, at the Battle's time limit, the
  * Team that is behind (`limitLoser`). Pure: never mutates its input.
  */
-import { clampSize, maxEngageReach, startingTickets, type BattleTuning, type Size, type TroopTuning } from '../tuning';
+import { clampSize, maxEngageReach, startingTickets, troopBodies, type BattleTuning, type Size, type TroopTuning } from '../tuning';
 import { onSurface } from './arena';
 import { battleArenaName, groundOf, pushOutOfBlocks, soldierHeight } from './battlefield';
 import { planOrders } from './commander';
@@ -141,6 +141,7 @@ const BELL_DRAWS = 12;
  * Each Soldier's Size for a Battle of `seed` (`n` Soldiers, `armySize` an army): height and thickness apart, each on a bell curve round
  * the standard body with `battle.soldier.sizeSpread` spread, cut to the allowed range and snapped to its step (`clampSize`). Soldier `i`
  * takes the Size of its place in its army (`i` modulo `armySize`), so the two armies field the same bodies and neither is the bigger.
+ * A Troop's `height` and `width` ranges cut its Soldiers' parts first, so they apply even with no spread (a Troop with height [1.4, 1.4] is always giant).
  * A sum of the Simulation's own generator's draws (no Math.random, no transcendental function), so every peer draws the same.
  */
 export function soldierSizes(battle: BattleTuning, seed: number, n: number): { readonly height: number[]; readonly thick: number[] } {
@@ -148,7 +149,9 @@ export function soldierSizes(battle: BattleTuning, seed: number, n: number): { r
   const army = battle.armySize;
   const height = new Array<number>(n).fill(1);
   const thick = new Array<number>(n).fill(1);
-  if (spread <= 0) return { height, thick };
+  const ranged = battle.troops.some((t) => t.height !== undefined || t.width !== undefined);
+  if (spread <= 0 && !ranged) return { height, thick };
+  const troopOfPlace = ranged ? soldierTroops(battle, seed, n).troop : [];
   let rng = createRng(seed ^ 0x2c1b3c6d);
   const bell = (): number => {
     let sum = 0;
@@ -159,7 +162,12 @@ export function soldierSizes(battle: BattleTuning, seed: number, n: number): { r
     }
     return 1 + spread * (sum - BELL_DRAWS / 2);
   };
-  const ofPlace: Size[] = Array.from({ length: Math.min(army, n) }, () => clampSize({ height: bell(), thick: bell() }));
+  // A Troop's `height` and `width` ranges cut its Soldiers' Sizes (places and Troops are both by place in the army).
+  const within = (v: number, range: readonly [number, number] | undefined): number => (range ? Math.min(range[1], Math.max(range[0], v)) : v);
+  const ofPlace: Size[] = Array.from({ length: Math.min(army, n) }, (_, k) => {
+    const troop = ranged ? battle.troops[troopOfPlace[k] ?? 0] : undefined;
+    return clampSize({ height: within(bell(), troop?.height), thick: within(bell(), troop?.width) });
+  });
   for (let i = 0; i < n; i++) {
     const s = ofPlace[i % army]!;
     height[i] = s.height;
@@ -191,7 +199,7 @@ export function soldierTroops(battle: BattleTuning, seed: number, n: number): { 
     let pick = draw() * total;
     let t = 0;
     while (t < troops.length - 1 && pick >= troops[t]!.weight) pick -= troops[t++]!.weight;
-    const bodies = troops[t]!.bodies.length;
+    const bodies = Math.max(troops[t]!.bodies.length, ...(troops[t]!.teamBodies ?? []).map((l) => l.length));
     ofPlace.push([t, Math.min(bodies - 1, Math.floor(draw() * bodies))]);
   }
   for (let i = 0; i < n; i++) [troop[i], look[i]] = ofPlace[i % army]!;
@@ -203,10 +211,11 @@ export function troopOf(battle: BattleTuning, crowd: Pick<CrowdState, 'troop'>, 
   return battle.troops[crowd.troop[i] ?? 0] ?? battle.troops[0]!;
 }
 
-/** The Body Soldier `i` is drawn as: its look among its Troop's Bodies. */
-export function soldierBody(battle: BattleTuning, crowd: Pick<CrowdState, 'troop' | 'look'>, i: number): string {
-  const bodies = troopOf(battle, crowd, i).bodies;
-  return bodies[crowd.look[i] ?? 0] ?? bodies[0]!;
+/** The Body Soldier `i` is drawn as: its look among its Troop's Bodies for its Team (`troopBodies`). */
+export function soldierBody(battle: BattleTuning, crowd: Pick<CrowdState, 'troop' | 'look' | 'team'>, i: number): string {
+  const team = crowd.team[i] ?? 0;
+  const bodies = troopBodies(troopOf(battle, crowd, i), team);
+  return bodies[(crowd.look[i] ?? 0) % bodies.length] ?? bodies[0]!;
 }
 
 /** Soldier `i`'s Size, or undefined for the standard body. */

@@ -1,6 +1,6 @@
 /**
  * docs/plans/battle-objectives.md, Stage 3a: an online Battle on the Fort over the memory transport (40 ms ± 20 latency), as
- * `battle.test.ts` plays one on the open field. Each peer drives its own Player with a Hard Battle autopilot fed its own (possibly
+ * `battle.test.ts` and `battle*.slow.test.ts` play one on the open field. Each peer drives its own Player with a Hard Battle autopilot fed its own (possibly
  * predicted) state, and every other Pool slot is a Pool AI on every peer. Every peer's Tick function notes the hash of the Match each Tick
  * leaves, and the Battle is stepped offline again from the Intents the Players sent, so the peers are compared with it Tick by Tick: the
  * Crowd pushed out of the walls, the Pool AIs routed round them by the navmesh, all of it. The armies are small (60 a side, half a Ticket
@@ -42,9 +42,21 @@ it('two Players, one a Team, play a whole Battle on the Fort online: both peers 
   const pair = createMemoryTransportPair({ latencyMs: 40, jitterMs: 20, seed: 7 });
   const tunings = [peerTuning(), peerTuning()];
   const hashes = [new Map<number, string>(), new Map<number, string>()];
+  // A Rollback re-simulates a Tick several times and only the last version counts, so each step just notes its Match, and a Tick is hashed
+  // once, when it is confirmed (a confirmed Tick is never simulated again). Hashing every step cost more than a third of the test.
+  const latest = [new Map<number, MatchState>(), new Map<number, MatchState>()];
+  const hashed = [0, 0];
+  const settle = () =>
+    peers.forEach((p, k) => {
+      for (; hashed[k]! < p.session.confirmedTick; ) {
+        const t = ++hashed[k]!;
+        hashes[k]!.set(t, hashValue(latest[k]!.get(t)!));
+        latest[k]!.delete(t);
+      }
+    });
   const stepOf = (k: number) => (m: MatchState, intents: readonly Intent[], t: TuningData) => {
     const next = stepMatch(m, intents, t);
-    hashes[k]!.set(next.tick, hashValue(next));
+    latest[k]!.set(next.tick, next);
     return next;
   };
   const host = createRollbackSession({ role: 'host', guests: [pair.a], tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: stepOf(0) });
@@ -66,6 +78,7 @@ it('two Players, one a Team, play a whole Battle on the Fort online: both peers 
       const r = session.tick(intent);
       if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
     });
+    settle();
     if (end === null && host.state?.status.status === 'Over') end = host.state.status.tick;
   }
   expect(end, 'the Battle ended').not.toBeNull();

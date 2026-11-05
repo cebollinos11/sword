@@ -24,6 +24,7 @@ import { bakeImpostorAtlases } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import { LoadingBar, nextPaint } from './loadingBar';
 import { battleFocus } from './battleSpectator';
 import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, ARMY_NAMES, type BattleResult } from './battleHud';
 
@@ -72,6 +73,7 @@ export class BattleScreen {
   private fades = new Float32Array(0);
   private readonly focus = { x: 0, z: 0 };
   private disposed = false;
+  private loading: LoadingBar | null = null;
   /** What has been announced: the Rout, the fall, the takeovers so far, being out, the result. */
   private routSeen = false;
   private fellSeen = false;
@@ -92,13 +94,25 @@ export class BattleScreen {
     private readonly chosen: readonly (string | undefined)[],
     /** Each Player's name by Fighter slot (for the tags). */
     names: readonly (string | undefined)[],
+    /** The loading bar already up while the Battle was built (else one is made here). */
+    existing?: LoadingBar,
   ) {
     this.hud = new BattleHud(container, tuning.battle);
     this.tags = new PlayerTags(container, tuning.battle.soldier.colours, names);
     addEventListener('keydown', this.onKey);
-    this.hud.announce('Mustering the armies…', 30);
-    void bakeImpostorAtlases(renderer.gl, tuning).then((atlas) => {
+    const loading = existing ?? new LoadingBar(container, 'Mustering the armies');
+    this.loading = loading;
+    const progress = async (done: number, total: number) => {
       if (this.disposed) return;
+      loading.set(total === 0 ? 1 : done / total, done < total ? `Drawing soldier ${done + 1} of ${total}…` : 'Ready');
+      await nextPaint();
+    };
+    void bakeImpostorAtlases(renderer.gl, tuning, tuning.battle, progress).then((atlas) => {
+      if (this.disposed) {
+        atlas.dispose();
+        return;
+      }
+      loading.finish();
       this.crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
       renderer.scene.add(this.crowdView.root);
       this.ready = true;
@@ -215,6 +229,7 @@ export class BattleScreen {
   /** The Battle is over or abandoned: take the impostors and the HUD away, and give the Renderer its defaults back. */
   dispose(): void {
     this.disposed = true;
+    this.loading?.dispose();
     removeEventListener('keydown', this.onKey);
     if (this.crowdView) this.renderer.scene.remove(this.crowdView.root);
     this.marks?.dispose();

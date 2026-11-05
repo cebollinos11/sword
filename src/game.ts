@@ -2,7 +2,8 @@ import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRost
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3 } from 'three';
 import { Renderer } from './render/renderer';
-import { BODY_MODELS } from './render/bodyModel';
+import { BODY_MODELS, preloadBody } from './render/bodyModel';
+import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, createBrowserAudio } from './audio';
@@ -418,6 +419,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
    * bakes the soldiers' impostors before the first Tick; it draws from the local Fighter the session names.
    */
   function launchBattle(l: Lobby, s: LobbyState, lineup: Lineup, picks: readonly string[], playerNames: readonly string[], playerBodies: readonly string[], members: readonly number[]): void {
+    // Building the Battle takes a moment: put the loading bar up and let it paint first, so the menu doesn't just hang there.
+    const bar = new LoadingBar(container, 'Mustering the armies');
+    bar.set(0, 'Preparing the battlefield…');
+    requestAnimationFrame(() => setTimeout(() => beginBattle(l, s, lineup, picks, playerNames, playerBodies, members, bar), 0));
+  }
+
+  function beginBattle(l: Lobby, s: LobbyState, lineup: Lineup, picks: readonly string[], playerNames: readonly string[], playerBodies: readonly string[], members: readonly number[], bar: LoadingBar): void {
     // The Lobby's army size and hit rate folded in; every peer builds the same from the host's Lobby.
     const battleTuning = runTuning(tuning, s.settings);
     matchTuning = battleTuning;
@@ -438,7 +446,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup });
       } else {
         const transport = l.matchTransport(s.generation, 0);
-        if (!transport) return;
+        if (!transport) {
+          bar.dispose();
+          return;
+        }
         session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]! });
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
@@ -452,8 +463,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const chosen = playersBySlot(lineup, playerBodies);
     const tagged = playersBySlot(lineup, playerNames);
     void import('./play/battleScreen').then(({ BattleScreen }) => {
-      if (driver !== d) return;
-      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged);
+      if (driver !== d) {
+        bar.dispose();
+        return;
+      }
+      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged, bar);
     });
   }
 
@@ -984,6 +998,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   addEventListener('pagehide', () => leave());
 
   menu.showTitle();
+  loadBodiesWithBar(container);
   // Opened from a Room link: join it right away, and drop the hash so a reload doesn't rejoin.
   if (location.hash.startsWith(ROOM_ROUTE)) {
     const linked = parseRoomInput(location.hash);
@@ -993,6 +1008,22 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
   requestAnimationFrame(frame);
   return game;
+}
+
+/** Load every Body model behind a loading bar over the menu, so the first seconds don't look like a freeze. */
+function loadBodiesWithBar(container: HTMLElement): void {
+  const bar = new LoadingBar(container, 'Loading');
+  let done = 0;
+  const total = BODY_MODELS.length;
+  bar.set(0, 'Fighters…');
+  void Promise.allSettled(
+    BODY_MODELS.map((b) =>
+      preloadBody(b).finally(() => {
+        done++;
+        bar.set(done / total, `Fighters ${done} of ${total}`);
+      }),
+    ),
+  ).then(() => bar.finish());
 }
 
 /**

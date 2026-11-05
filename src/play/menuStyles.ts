@@ -46,6 +46,9 @@ export const MENU_CSS = `
 .nav-item:hover, .nav-item:focus-visible { background: linear-gradient(90deg, #ffffff17, #ffffff05); border-left-color: var(--gold); transform: translateX(4px); }
 .nav-label { font-family: var(--display); font-size: 1.35rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
 .nav-hint { font-size: 0.82rem; color: var(--muted); }
+.nav-item.sens { cursor: default; }
+.nav-item.sens:hover { transform: none; }
+.sens-slider { width: 100%; accent-color: var(--gold); }
 .nav-item.primary .nav-label { color: var(--gold-2); }
 .nav-item.danger .nav-label { color: #f08a7c; }
 .nav-link { color: inherit; text-decoration: none; }

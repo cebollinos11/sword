@@ -459,8 +459,9 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
  * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded.
  */
 function battle(name: string, field: Battlefield, current: () => boolean): Setting {
-  const setting = battlefieldSetting(field.heights);
   const map = battleMapName(name);
+  // A hand-built map models its own ground; the flat grass plane would only show through it and run on past its edge.
+  const setting = battlefieldSetting(field.heights, map === null);
   if (map === null) return setting;
   const loaded = arenaModel(`battle_${map}`, [])
     .then((model) => {

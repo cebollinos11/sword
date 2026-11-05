@@ -5,6 +5,7 @@
  */
 import { parseArena, type WalkSurface, type WallSegment } from './arena';
 import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
+import { MAX_SIZE, MIN_SIZE } from './size';
 import { array, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export interface BattlefieldTuning {
@@ -126,6 +127,11 @@ export interface ObjectiveSite {
   readonly spawn: boolean;
   /** Set: it stands on the highest ground within this many metres of (x, z) along the line across the armies (same z), "on the hill when the seed makes one"; never off that line, so neither army is nearer. */
   readonly hill?: number;
+  /**
+   * Set (a hand-built map of several levels): the height of the floor it stands on, when other Walk Surfaces lie over its x and z (a hall under
+   * a roof, a summit over a hall). Absent: it stands on the highest Walk Surface there, as the Fort's B does.
+   */
+  readonly y?: number;
 }
 
 /** The Objectives (docs/plans/battle-objectives.md, Stage 2a, ADR 0021): the capture circle, how fast it is taken, and the open field's five. */
@@ -219,6 +225,19 @@ export interface TroopTuning {
   readonly weight: number;
   /** The Body models it is drawn as (names from the Body roster, `src/render/bodyModel.ts`), one picked per Soldier. Render-only. */
   readonly bodies: readonly string[];
+  /**
+   * Its Bodies per Team (`[team 0's, team 1's]`), where the two armies wear different models for the same Troop (`teamBodies` in the
+   * data: either entry may be left out to use `bodies`). Absent: both Teams wear `bodies`. Look `l` of a Soldier is `l` modulo the list's
+   * length. Render-only. Read it through `troopBodies`.
+   */
+  readonly teamBodies?: readonly [readonly string[], readonly string[]];
+  /**
+   * The range (`[min, max]`, MIN_SIZE to MAX_SIZE, in multiples of the standard body) its Soldiers' Size height is cut to (`height` in the
+   * data), so a Troop can always be tall or always short. Absent: any height. See `soldierSizes`.
+   */
+  readonly height?: readonly [number, number];
+  /** As `height`, for the Size's thickness (`width` in the data). */
+  readonly width?: readonly [number, number];
   /** The Weapon it wields (a name from the Weapon roster). */
   readonly weapon: string;
   /** The AI difficulty a promoted Soldier of it plays (a name from `ai.difficulties`). */
@@ -234,6 +253,9 @@ export interface TroopTuning {
   /** A promoted Soldier's Mods, as `battle.soldier.mods` (which it defaults to). */
   readonly mods: RelicEffects;
 }
+
+/** The Bodies `troop`'s Soldiers of `team` are drawn as (`TroopTuning.teamBodies`, else `bodies`). */
+export const troopBodies = (troop: Pick<TroopTuning, 'bodies' | 'teamBodies'>, team: number): readonly string[] => troop.teamBodies?.[team === 1 ? 1 : 0] ?? troop.bodies;
 
 /** The most Bodies a Troop names. */
 export const MAX_TROOP_BODIES = 16;
@@ -401,7 +423,10 @@ function parseSite(raw: unknown, where: string, size: number): ObjectiveSite {
   const { x, z } = fieldPoint([o.x, o.z], where, size);
   if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false, got ${JSON.stringify(o.spawn)}`);
   const site = { id: nonEmptyString(o, 'id', where), x, z, weight: positiveNumber(o, 'weight', where), owner, spawn: o.spawn };
-  return o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+  const hilled = o.hill === undefined ? site : { ...site, hill: positiveNumber(o, 'hill', where) };
+  if (o.y === undefined) return hilled;
+  if (typeof o.y !== 'number' || !Number.isFinite(o.y)) throw new TuningDataError(`${where}.y must be a number, got ${JSON.stringify(o.y)}`);
+  return { ...hilled, y: o.y };
 }
 
 /** Throws unless a map holds 1 to MAX_OBJECTIVES Objectives, each with its own id. */
@@ -473,7 +498,7 @@ function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'fiel
 
 /**
  * The Troops of `raw` (`battle.troops`), each field it leaves out the generic soldier's (`soldier`, `crowd`): `body` or `bodies` (one or
- * more), `weapon`, `difficulty`, `hp`, `damage`, `hitChance`, `engageReach` and `mods`. Absent: the one generic soldier.
+ * more; `teamBodies` for a different list per Team), `height` and `width` (`[min, max]` Size ranges), `weapon`, `difficulty`, `hp`, `damage`, `hitChance`, `engageReach` and `mods`. Absent: the one generic soldier.
  */
 function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, weapons?: readonly string[], difficulties?: readonly string[]): TroopTuning[] {
   const generic: TroopTuning = {
@@ -504,6 +529,27 @@ function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, w
       if (raw.length < 1 || raw.length > MAX_TROOP_BODIES || raw.some((v) => typeof v !== 'string' || v.length === 0)) throw new TuningDataError(`${where}.bodies must be 1 to ${MAX_TROOP_BODIES} Body names, got ${JSON.stringify(t.bodies)}`);
       bodies = raw as string[];
     } else if (t.body !== undefined) bodies = [nonEmptyString(t, 'body', where)];
+    let teamBodies: [readonly string[], readonly string[]] | undefined;
+    if (t.teamBodies !== undefined) {
+      const pair = array(t.teamBodies, `${where}.teamBodies`);
+      if (pair.length !== 2) throw new TuningDataError(`${where}.teamBodies must be [team 0's Bodies, team 1's Bodies], got ${JSON.stringify(t.teamBodies)}`);
+      const side = pair.map((v, k): readonly string[] => {
+        if (v === null) return bodies;
+        const list = array(v, `${where}.teamBodies[${k}]`);
+        if (list.length < 1 || list.length > MAX_TROOP_BODIES || list.some((n) => typeof n !== 'string' || n.length === 0)) throw new TuningDataError(`${where}.teamBodies[${k}] must be 1 to ${MAX_TROOP_BODIES} Body names (or null), got ${JSON.stringify(v)}`);
+        return list as string[];
+      });
+      teamBodies = [side[0]!, side[1]!];
+    }
+    const sizeRange = (key: 'height' | 'width'): [number, number] | undefined => {
+      if (t[key] === undefined) return undefined;
+      const r = array(t[key], `${where}.${key}`);
+      if (r.length !== 2 || r.some((v) => typeof v !== 'number' || !Number.isFinite(v) || v < MIN_SIZE || v > MAX_SIZE) || (r[0] as number) > (r[1] as number))
+        throw new TuningDataError(`${where}.${key} must be [min, max] with ${MIN_SIZE} <= min <= max <= ${MAX_SIZE}, got ${JSON.stringify(t[key])}`);
+      return [r[0] as number, r[1] as number];
+    };
+    const height = sizeRange('height');
+    const width = sizeRange('width');
     const weapon = t.weapon === undefined ? generic.weapon : nonEmptyString(t, 'weapon', where);
     if (weapons && !weapons.includes(weapon)) throw new TuningDataError(`${where}.weapon "${weapon}" is not a Weapon (${weapons.join(', ')})`);
     const difficulty = t.difficulty === undefined ? generic.difficulty : nonEmptyString(t, 'difficulty', where);
@@ -525,6 +571,9 @@ function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, w
       name,
       weight: t.weight === undefined ? 1 : positiveNumber(t, 'weight', where),
       bodies,
+      ...(teamBodies ? { teamBodies } : {}),
+      ...(height ? { height } : {}),
+      ...(width ? { width } : {}),
       weapon,
       difficulty,
       hp: t.hp === undefined ? generic.hp : positiveNumber(t, 'hp', where),

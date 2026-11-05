@@ -26,7 +26,7 @@ const LETTER = 3.4;
 export const objectiveLetter = (site: Pick<MapObjective, 'id'>): string => (/^H\d+$/.test(site.id) ? 'H' : site.id);
 
 /** A flat strip round (x, z) between two radii, over the ground (heights absolute, positions about the centre). Its triangles run in angle order, so a draw range cuts it as an arc. */
-function ringGeometry(hf: Heightfield, x: number, z: number, inner: number, outer: number): THREE.BufferGeometry {
+function ringGeometry(hf: Heightfield, x: number, z: number, inner: number, outer: number, level?: number): THREE.BufferGeometry {
   const positions = new Float32Array((SEGMENTS + 1) * 2 * 3);
   const index: number[] = [];
   for (let s = 0; s <= SEGMENTS; s++) {
@@ -34,7 +34,7 @@ function ringGeometry(hf: Heightfield, x: number, z: number, inner: number, oute
     for (const [k, r] of [inner, outer].entries()) {
       const px = x + Math.sin(a) * r;
       const pz = z + Math.cos(a) * r;
-      positions.set([px - x, battlefieldHeight(hf, px, pz) + LIFT, pz - z], (s * 2 + k) * 3);
+      positions.set([px - x, (level ?? battlefieldHeight(hf, px, pz)) + LIFT, pz - z], (s * 2 + k) * 3);
     }
     if (s < SEGMENTS) {
       const i = s * 2;
@@ -97,9 +97,10 @@ export class ObjectiveMarks {
     for (const site of sites) {
       const root = new THREE.Group();
       root.name = `objective ${site.id}`;
-      root.position.set(site.x, battlefieldHeight(hf, site.x, site.z), site.z);
+      // An Objective on a named level (`y`: a hall under a roof) is drawn flat on it, not on the highest ground over it.
+      root.position.set(site.x, site.y ?? battlefieldHeight(hf, site.x, site.z), site.z);
       const ring = (inner: number, outer: number, opacity: number): THREE.Mesh => {
-        const geometry = ringGeometry(hf, site.x, site.z, inner, outer);
+        const geometry = ringGeometry(hf, site.x, site.z, inner, outer, site.y);
         // Rebased on the ground at the centre, so the mesh sits at the Objective's own height and the ring's vertices follow the slope.
         geometry.translate(0, -root.position.y, 0);
         const material = new THREE.MeshBasicMaterial({ color: NEUTRAL, transparent: true, opacity, side: THREE.DoubleSide, depthWrite: false });

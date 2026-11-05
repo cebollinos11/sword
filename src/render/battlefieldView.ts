@@ -75,8 +75,8 @@ export function terrainMesh(hf: Heightfield): THREE.Mesh {
   return mesh;
 }
 
-/** A Battlefield's setting: the sky, the light, the terrain, and the haze (background and fog). */
-export function battlefieldSetting(hf: Heightfield): {
+/** A Battlefield's setting: the sky, the light, the terrain (unless `terrain` is false: the map's model is its own ground), and the haze (background and fog). */
+export function battlefieldSetting(hf: Heightfield, terrain = true): {
   root: THREE.Group;
   background: THREE.Color;
   fog: THREE.Fog;
@@ -87,7 +87,7 @@ export function battlefieldSetting(hf: Heightfield): {
   const sun = new THREE.DirectionalLight(0xffd6a6, 1.7);
   sun.position.set(60, 45, -80);
   root.add(sun);
-  root.add(terrainMesh(hf));
+  if (terrain) root.add(terrainMesh(hf));
   return {
     root,
     background: new THREE.Color(HAZE),

@@ -389,7 +389,8 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
   const heights: Heightfield = { ...flat, walk: arena };
   const unjoined = walkCheck(arena, battle.levels);
   if (unjoined) throw new Error(`Battle map "${map.name}": ${unjoined}`);
-  const highest = (p: MapPoint) => groundNear(arena, battle.levels, p.x, p.z, Infinity);
+  // An Objective that names its level (`y`) stands on the floor there nearest under it, else on the highest.
+  const highest = (p: MapPoint & { readonly y?: number }) => groundNear(arena, battle.levels, p.x, p.z, p.y ?? Infinity);
   return {
     arena,
     heights,

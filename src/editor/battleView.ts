@@ -127,7 +127,7 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     for (const site of map.field.objectives) {
       const circle = Array.from({ length: 48 }, (_, k) => new THREE.Vector3(Math.sin((k / 48) * 2 * Math.PI) * site.radius, 0.3, Math.cos((k / 48) * 2 * Math.PI) * site.radius));
       const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(circle), new THREE.LineBasicMaterial({ color: UNOWNED_COLOUR }));
-      ring.position.set(site.x, battlefieldHeight(map.field.heights, site.x, site.z), site.z);
+      ring.position.set(site.x, site.y ?? battlefieldHeight(map.field.heights, site.x, site.z), site.z);
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1, 8).translate(0, 0.5, 0), new THREE.MeshBasicMaterial({ color: UNOWNED_COLOUR }));
       pole.position.copy(ring.position);
       objectiveGroup.add(ring, pole);

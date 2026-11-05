@@ -28,3 +28,13 @@ Attack or Block while Sheathed Draws the Weapon first.
   swing. A tap repeats the last Direction; swipe a new way while holding to Feint.
 - Jump, Throw and Sheathe pads: tap. The Sheathe pad reads Draw while you are Sheathed; tap it again to Draw.
 - ☰ opens the menu.
+
+## Tests
+
+| Command | Runs | About |
+|---|---|---|
+| `npm test` | the fast tier (everything but `*.slow.test.ts`) | ~3.5 min on 4 cores |
+| `npm run test:slow` | whole-Battle, soak and Rollback-budget tests | ~5.5 min on 4 cores |
+| `npm run test:all` | both (what CI runs before deploying) | |
+
+A test that plays a whole Battle or a long soak belongs in its own `*.slow.test.ts` file, one scenario per file, so the workers can run the files side by side (Vitest parallelises per file, not per test). Shared set-up goes in a plain module beside it (see `src/net/battleHarness.ts`).

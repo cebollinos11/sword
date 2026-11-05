@@ -516,6 +516,8 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string; readonly where: string }[] = [
   { id: OPEN_FIELD, label: 'Open field', where: 'on an open field' },
   { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,' },
+  { id: 'ziggurat', label: 'Ziggurat', where: 'on and in an ancient stepped temple above the jungle,' },
+  { id: 'city', label: 'City', where: 'over the streets and rooftops of a hill town under its castle,' },
 ];
 
 /** The Battle maps this Tuning Data has, as the Lobby offers them. */
