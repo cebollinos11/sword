@@ -8,8 +8,10 @@
  *   - never mutate an input state
  * The purity test (purity.test.ts) enforces the first two mechanically.
  */
+export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
-export type { Direction, Intent } from './intent';
+export type { Direction, Intent, InventoryRef } from './intent';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -33,6 +35,10 @@ export type {
   KnockdownPhase,
   MotionPlayback,
   SimState,
+  SimHall,
+  HallPhase,
+  SoldierBinding,
+  SoldierRole,
   SheatheAction,
   Slide,
   Slow,
@@ -44,7 +50,7 @@ export type {
 export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
-export { arenaOf, blockedAt, deadlyGround, groundBelow, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
+export { arenaOf, blockedAt, deadlyGround, groundBelow, insideZone, onSurface, surfaceHeight, surfacesAt, wallCrossing, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
 export {
   assembleArena,
@@ -78,7 +84,7 @@ export {
 export { corners, DROP_DAMAGE_LIMIT, findPath, JUMP_HOLDS, navMesh, navPolygon, steer, type DropLink, type JumpLink, type NavLink, type NavMesh, type NavPoint, type PathOptions, type WalkLink } from './nav';
 export type { RngState } from './rng';
 export { createRng, nextFloat } from './rng';
-export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, step, teamPlacements } from './step';
+export { CENTRE_PLACEMENT, createInitialState, defaultTeam, duelPlacements, standingFighter, step, teamPlacements } from './step';
 export {
   attackMotionName,
   attackTimings,
@@ -143,12 +149,25 @@ export {
   checkRunTeams,
   checkTeams,
   createMatch,
+  doorTicksNeeded,
   duelsToWin,
+  hallBehind,
+  hallDuel,
   MATCH_FORMATS,
   MAX_TEAM_SIZE,
+  runCleared,
+  runHall,
+  takenExit,
   teamMembers,
   stepMatch,
+  type DoorTakenEvent,
   type DuelStartEvent,
+  type HallClearedEvent,
+  type DroppedItem,
+  type ItemDroppedEvent,
+  type ItemTakenEvent,
+  placeDrop,
+  takeOverFighter,
   type MatchConfig,
   type MatchEndEvent,
   type MatchEvent,
@@ -156,7 +175,38 @@ export {
   type MatchOptions,
   type MatchState,
   type MatchStatus,
+  type RestedEvent,
   type RunEndEvent,
   type RunState,
 } from './match';
-export { enemyMaxHp, floorRoster, runPick, runSeed, type FloorEnemy } from './gauntlet';
+export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
+export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
+export {
+  atRestFire,
+  doorCounters,
+  enemyMaxHp,
+  exitDoor,
+  hallKey,
+  hallOf,
+  hallRoster,
+  inExitZone,
+  REST_FIRE_RADIUS,
+  restFire,
+  runKit,
+  runPathTo,
+  presentPlayers,
+  runPlayers,
+  ZONE_HEIGHT,
+  type HallEnemy,
+  type HallRef,
+  type RunStart,
+} from './hall';
+export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
+export { battleArenaName, battlefieldHeight, battlefieldOf, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
+export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
+export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
+export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './levels';
+export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
+export { planOrders } from './commander';
+export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { bubblePlayer, isBound, stepBubbles, unboundSlot } from './bubble';

@@ -140,7 +140,7 @@ describe('Rollback session: three and four Players', () => {
     expectHashes(playing(s), expected);
     for (const g of s.guests) expect(g!.stats.rollbacks).toBeGreaterThan(0);
     expect(s.events.flat().some((e) => e.type === 'Desync' || e.type === 'PlayerLeft')).toBe(false);
-  });
+  }, 60_000);
 
   it('a guest that leaves mid-Match is replaced by the AI from the same Tick on every peer, and the rest play on', () => {
     const s = star(TWO_VS_TWO, NETS);

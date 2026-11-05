@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
+import { defaultWeaponName, loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
 import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, ROLLBACK_WINDOW, type SessionEvent } from './session';
@@ -240,6 +240,51 @@ describe('Rollback session: checksum resync', () => {
       expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
       expect(s.host.checksumAt(tick), `host @${tick}`).toBe(hash);
     }
+  });
+});
+
+describe('Rollback session: a resync sends the host state as it truly was', () => {
+  it('a resync request that reaches the host in the same Tick as the Intents that make it roll back is answered with the state after that Rollback', () => {
+    const pair = createMemoryTransportPair({});
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH });
+    const heard: unknown[] = [];
+    pair.b.onMessage((m) => heard.push(m));
+    pair.b.send({ type: 'hello', protocol: PROTOCOL_VERSION, tuningHash: tuningDataHash(tuning), weapon: defaultWeaponName(tuning) });
+    // The guest says nothing more: the host plays its window out, predicting the guest idle.
+    for (let i = 0; i < 40; i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+    }
+    expect(host.currentTick).toBeGreaterThanOrEqual(10);
+    // Then, in one go, the guest's real Intents (not idle) and a request for the host's state: the host takes both in one Tick.
+    const moving: Intent = { ...IDLE_INTENT, move: { x: 1, z: 0 }, face: 0 };
+    const guestIntents = Array.from({ length: 10 }, () => moving);
+    pair.b.send({ type: 'intents', tick: 10, streams: [{ player: 1, from: 1, intents: guestIntents }], acks: [0, 10] });
+    pair.b.send({ type: 'resyncRequest', tick: 0 });
+    pair.advance(TICK_MS);
+    host.tick(IDLE_INTENT);
+    pair.advance(TICK_MS);
+    const resync = heard.find((m) => (m as { type?: string }).type === 'resync') as { tick: number; state: unknown } | undefined;
+    expect(resync, 'the host answered').toBeDefined();
+    let truth = createMatch(tuning, MATCH);
+    for (let t = 1; t <= resync!.tick; t++) truth = stepMatch(truth, [IDLE_INTENT, t <= 10 ? moving : IDLE_INTENT], tuning);
+    expect(resync!.tick).toBe(10);
+    expect(hashValue(resync!.state)).toBe(hashValue(truth));
+  });
+});
+
+describe('Rollback session: negative zero', () => {
+  it('a local Intent with a -0 (a stick at rest, an AI facing 0) plays as the peers receive it, since JSON has no -0: no Desync', () => {
+    // Fighter 1 is told to face -0 for a while (till it has turned to it); the wire carries +0, and a facing the Fighter keeps is hashed bit-exact.
+    const negative: Intent = { ...IDLE_INTENT, move: { x: -0, z: -0 }, face: -0 };
+    const guestIntent = (tick: number): Intent => (tick >= 10 && tick <= 100 ? negative : IDLE_INTENT);
+    const s = connect({ latencyMs: 40, jitterMs: 20, seed: 3 });
+    for (let i = 0; i < 400 && Math.min(s.host.confirmedTick, s.guest.confirmedTick) < 150; i++) frame(s, () => IDLE_INTENT, guestIntent);
+    expect(s.guest.confirmedTick).toBeGreaterThanOrEqual(150);
+    expect(s.guestEvents.filter((e) => e.type === 'Desync')).toEqual([]);
+    for (let t = CHECKSUM_INTERVAL; t <= 150; t += CHECKSUM_INTERVAL) expect(s.guest.checksumAt(t), `@${t}`).toBe(s.host.checksumAt(t));
+    // The guest's own Fighter faces +0 on both peers.
+    expect(Object.is(s.guest.state!.duel.fighters[1]!.facing, -0)).toBe(false);
   });
 });
 

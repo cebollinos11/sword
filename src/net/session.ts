@@ -42,16 +42,24 @@
  * snapshotted with every simulated Tick so a Rollback restores it, and it
  * travels with the host's state on a resync.
  *
+ * A Battle (docs/plans/big-battle.md, Stage 6) is the same session over a bigger
+ * Match: its Lineup names only the Players (slots 0 to 3 of the Fighter Pool), and
+ * every other Pool slot has a Pool AI, whose memory (null while its slot is unbound)
+ * is snapshotted and resynced like any AI's. The Crowd is part of the state, so the
+ * checksums and a resync cover it. A Player who leaves is taken over by the AI as in
+ * a Duel, and their Fighter then fights as an ally with no Bubble (`takeOverFighter`).
+ *
  * It talks only through Transports, and only Intents (plus checksums, the
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
-import { createMatch, hashValue, IDLE_INTENT, restore, snapshot, stepMatch } from '../sim';
+import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type CrowdState } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
-import { defaultWeaponName, tuningDataHash, weaponMotion, type TuningData } from '../tuning';
+import { DEFAULT_STYLE, defaultWeaponName, startingTickets, tuningDataHash, weaponMotion, type BattleTuning, type TuningData } from '../tuning';
 import {
   checkLineup,
   createAiController,
+  createAllyAi,
   createRemoteController,
   lineupAis,
   lineupMatch,
@@ -61,7 +69,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { isFloorAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isHallAiMemory, isPoolAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -72,6 +80,19 @@ export const CHECKSUM_INTERVAL = 30;
 export const DEFAULT_TIMEOUT_TICKS = 300;
 /** The AI difficulty that takes over the Fighter of a Player who left (the first difficulty if Tuning Data has none of that name). */
 export const TAKEOVER_DIFFICULTY = 'Normal';
+/**
+ * The AI Controller that takes over Fighter `fighter` of a Player who left, at TAKEOVER_DIFFICULTY. In a Run it is an
+ * Ally AI (it follows the party and walks to the Door the other Players stand at once a Hall is cleared). The Simulation
+ * knows the Fighter has left (`takeOverFighter`, applied at the takeover Tick), so the Doors do not wait on its walk.
+ */
+export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchFormat, fighter: number): Controller {
+  const difficulties = Object.keys(tuning.ai.difficulties);
+  const difficulty = difficulties.includes(TAKEOVER_DIFFICULTY) ? TAKEOVER_DIFFICULTY : difficulties[0]!;
+  if (format !== 'Gauntlet') return createAiController(tuning, difficulty);
+  // It walks with the Players still playing (not with itself): the Lineup's Player slots but its own.
+  const others = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && i !== fighter ? [i] : []));
+  return createAllyAi(tuning, difficulty, DEFAULT_STYLE, others);
+}
 /** Time sync: the lead (in Ticks) is averaged over this many Intents messages. */
 const LEAD_SAMPLES = 32;
 /** Time sync: wait a Tick when the averaged lead over a peer is at least this many Ticks... */
@@ -168,9 +189,35 @@ export interface RollbackSession {
 
 const NOTHING: TickResult = { advanced: false, stalled: false, waited: false, rolledBack: 0 };
 
+/**
+ * Whether a resynced Crowd's Objectives, Tickets and Squad Orders fit Tuning Data: one Objective state for each Objective of the map, a Team
+ * holding at most its starting Tickets, every Squad's destination one of the map's Objectives or the two Bases, and every Soldier and anchor
+ * on one of the map's Walk Surfaces (docs/plans/battle-objectives.md, Stage 4a; -1 on the open field, `walk` 0).
+ */
+function battleStateFits(crowd: CrowdState, battle: BattleTuning, walk: number): boolean {
+  const objectives = battle.objectives.openField.length;
+  const onMap = (s: number) => (walk === 0 ? s === -1 : s >= 0 && s < walk);
+  return (
+    crowd.surface.every(onMap) &&
+    crowd.squads.surface.every(onMap) &&
+    crowd.objectives.owner.length === objectives &&
+    crowd.tickets.every((t) => t <= startingTickets(battle)) &&
+    // Never the other Team's Base: it would respawn there.
+    crowd.squads.target.every((t, q) => t < objectives + (crowd.squads.team[q] === 0 ? 1 : 2) && t !== objectives + (1 - crowd.squads.team[q]!))
+  );
+}
+
 /** Field-agnostic, so new Intent fields are compared too. */
 function sameIntent(a: Intent, b: Intent): boolean {
   return a === b || hashValue(a) === hashValue(b);
+}
+
+/**
+ * The Intent as the peers will read it off the wire. JSON has no negative zero, and the Simulation keeps some of what an Intent says (a
+ * facing, bit-exact in the checksum), so a `-0` a Controller sent (a stick at rest, an AI's `atan2`) must play as `0` on this peer too.
+ */
+function wireIntent(intent: Intent): Intent {
+  return JSON.parse(JSON.stringify(intent)) as Intent;
 }
 
 /** Drop every entry of a per-Tick map whose Tick matches. */
@@ -223,7 +270,9 @@ class Session implements RollbackSession, PeerIntentSource {
   /** Each Player's Fighter, and each Fighter's Player (-1 for an AI of the Lineup). */
   private fighterOf: number[] = [];
   private playerOf: number[] = [];
-  /** An AI Controller per AI Fighter, the Lineup's and those driving a Player who left (null for the Players' Fighters). */
+  /** The Match's Format (from the Lineup's setting up): a Run's takeover is an Ally AI, a Battle's Pool slots have Pool AIs. */
+  private format: MatchFormat = 'Duels';
+  /** An AI Controller per AI Fighter, the Lineup's (in a Battle, a Pool AI per Pool slot) and those driving a Player who left (null for the Players' Fighters). */
   private ais: (Controller | null)[] = [];
   /** Per Player: the Tick from which the AI drives their Fighter, because they left (null while they play). */
   private readonly takeover: (number | null)[] = [];
@@ -253,6 +302,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly confirmed: number[] = [];
   /** Earliest Tick simulated with a wrong prediction (or before a takeover), pending Rollback. */
   private rollbackFrom: number | null = null;
+  /** Ticks re-simulated ahead of this Tick's own Rollback, to answer a resync request (see `sendResync`). */
+  private rolledEarly = 0;
   /** The Tick being simulated right now, if any (what the Remote Controller is asked about). */
   private simulating: number | null = null;
   private readonly hashes = new Map<number, string>();
@@ -386,7 +437,8 @@ class Session implements RollbackSession, PeerIntentSource {
     if (--this.helloCountdown <= 0) this.sendHellos();
     if (this.status !== 'Running') return NOTHING;
 
-    const rolledBack = this.rollback();
+    const rolledBack = this.rollback() + this.rolledEarly;
+    this.rolledEarly = 0;
     const next = this.currentTick + 1;
     const stalled = next - this.othersConfirmed() > ROLLBACK_WINDOW;
     const waited = !stalled && this.shouldWait();
@@ -395,7 +447,7 @@ class Session implements RollbackSession, PeerIntentSource {
     } else if (waited) {
       this.stats.waits++;
     } else {
-      this.intents[this.localPlayer]!.set(next, localIntent);
+      this.intents[this.localPlayer]!.set(next, wireIntent(localIntent));
       this.simulateNext();
     }
     this.recordConfirmed();
@@ -409,14 +461,19 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Floor AI on each Team 1 slot), a random Style picked from `match`'s seed. */
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Hall AI on each Team 1 slot), a random Style picked from `match`'s seed. */
   private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
+    this.format = format;
     this.players = lineupPlayers(lineup);
-    this.playerOf = lineup.map((s) => (s.pilot.kind === 'Player' ? s.pilot.player : -1));
+    // One entry per Fighter: in a Battle the whole Pool, past the Lineup's Players.
+    this.ais = lineupAis(this.tuning, lineup, format, match);
+    this.playerOf = this.ais.map((_, i) => {
+      const pilot = lineup[i]?.pilot;
+      return pilot?.kind === 'Player' ? pilot.player : -1;
+    });
     this.fighterOf = Array.from({ length: this.players }, (_, p) => this.playerOf.indexOf(p));
     this.localFighter = this.fighterOf[this.localPlayer] ?? -1;
-    this.ais = lineupAis(this.tuning, lineup, format, match);
     for (let p = 0; p < this.players; p++) {
       this.intents[p] = new Map();
       this.used[p] = new Map();
@@ -454,7 +511,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.drop(link.peer, this.status === 'Running' ? this.confirmed[link.peer]! + 1 : 1);
   }
 
-  /** Player p left: the AI drives their Fighter from Tick `from` on (in a Run, an ordinary AI on their Team 0 slot for the rest of it; `config.humans` stays). */
+  /** Player p left: the AI drives their Fighter from Tick `from` on (`takeoverAi`: in a Run, an Ally AI on their Team 0 slot for the rest of it, the Fighter marked away in the Run from `from`; `config.humans` stays). */
   private drop(p: number, from: number): void {
     if (p === this.localPlayer) return this.disconnect('Dropped');
     if (p < 0 || p >= this.players || this.takeover[p] != null) return;
@@ -462,8 +519,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (this.state && from <= this.confirmedTick) return;
     this.takeover[p] = from;
     const fighter = this.fighterOf[p]!;
-    const difficulties = Object.keys(this.tuning.ai.difficulties);
-    const ai = createAiController(this.tuning, difficulties.includes(TAKEOVER_DIFFICULTY) ? TAKEOVER_DIFFICULTY : difficulties[0]!);
+    const ai = takeoverAi(this.tuning, this.lineup!, this.format, fighter);
     this.ais[fighter] = ai;
     this.takeoverMemory[fighter] = ai.save?.() ?? null;
     if (this.state && from <= this.currentTick) this.rollbackFrom = Math.min(this.rollbackFrom ?? from, from);
@@ -520,8 +576,11 @@ class Session implements RollbackSession, PeerIntentSource {
   // --- Simulation ---
 
   private simulateNext(): void {
-    const prev = this.state!;
-    const t = prev.tick + 1;
+    const t = this.state!.tick + 1;
+    // A takeover Tick marks the Fighter away in the Run on every peer (`takeOverFighter`: idempotent, so a Rollback past it, or a resync
+    // that already carries it, applies it again harmlessly), before this Tick's Intents, which the Controllers read it from.
+    let prev = this.state!;
+    for (let p = 0; p < this.players; p++) if (this.takeover[p] === t && this.fighterOf[p]! >= 0) prev = takeOverFighter(prev, this.fighterOf[p]!);
     const intents = this.playerOf.map((p, i) => {
       if (this.aiDrives(i, t)) {
         // A takeover starts every peer's AI from the same fresh memory, whatever it did in Ticks since re-simulated.
@@ -547,8 +606,14 @@ class Session implements RollbackSession, PeerIntentSource {
 
   private loadAis(memory: readonly unknown[]): void {
     this.ais.forEach((ai, i) => {
-      if (ai && memory[i] != null) ai.load?.(memory[i]);
+      // A Pool AI's null is memory too (its slot unbound): loading it drops whatever binding it played for since.
+      if (ai && (memory[i] != null || this.poolSlot(i))) ai.load?.(memory[i]);
     });
+  }
+
+  /** Whether Fighter i is a slot of a Battle's Fighter Pool past the Players' (a Pool AI drives it). */
+  private poolSlot(i: number): boolean {
+    return this.format === 'Battle' && this.playerOf[i]! < 0;
   }
 
   /** The Intent of the Player driving `fighter` for the Tick being simulated (or the next one): real once it has arrived, else their last real one repeated. */
@@ -770,6 +835,8 @@ class Session implements RollbackSession, PeerIntentSource {
 
   /** Host: send a guest the confirmed state, plus the other Players' Intents it may still lack up to it. */
   private sendResync(link: Link): void {
+    // Intents taken in this same Tick may have contradicted a prediction at or before the confirmed Tick: roll back first, so the state sent is the true one.
+    this.rolledEarly += this.rollback();
     const tick = this.confirmedTick;
     const streams: IntentStream[] = [];
     for (let p = 0; p < this.players; p++) if (p !== link.peer) streams.push(this.stream(p, link.acks[p]! + 1, Math.min(tick, this.have(p))));
@@ -785,15 +852,21 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
     const teams = this.lineup!.map((s) => s.team);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
-    if (state.duel.fighters.length !== teams.length || ai.length !== teams.length) return;
     // The Format and a Run's humans are fixed at the start.
     const config = this.state!.config;
     if ((state.config.format ?? 'Duels') !== config.format || (config.format === 'Gauntlet' && state.config.humans !== config.humans)) return;
+    // One Fighter and one AI entry per slot: in a Battle, the whole Pool.
+    if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
+    // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
+    const crowd = state.duel.crowd;
+    if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)?.heights.walk?.walk.length ?? 0))) return;
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
-      // A Run's Team 1 slots hold Floor AIs, every other AI an ordinary one: each takes only its own kind of memory.
-      if (m !== null && isFloorAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
+      // A Run's Team 1 slots hold Hall AIs, a Battle's Pool slots Pool AIs (null while unbound), every other AI an ordinary one: each takes only its own kind of memory.
+      if (m !== null && isHallAiMemory(m) !== (config.format === 'Gauntlet' && teams[i] === 1)) return false;
+      if (m !== null && isPoolAiMemory(m) !== this.poolSlot(i)) return false;
+      if (this.poolSlot(i)) return true;
       if (this.aiDrives(i, tick)) return m !== null;
       return m === null || (p >= 0 && this.takeover[p] != null);
     };

@@ -100,9 +100,9 @@ describe('A team Match', () => {
     expect(m.duel.fighters.map((f) => f.position)).toEqual(teamPlacements([0, 1, 1, 0, 1], 2, 1.5).map((p) => p.position));
   });
 
-  it('refuses a team with no Fighters or more than three', () => {
+  it('refuses a team with no Fighters or more than four', () => {
     expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 0] })).toThrow(/Team 1/);
-    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 0, 0, 0, 1] })).toThrow(/Team 0/);
+    expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 0, 0, 0, 0, 1] })).toThrow(/Team 0/);
     expect(() => createMatch(tuning, { arena: 'circle', bestOf: 1, teams: [0, 2] })).toThrow(/0 or 1/);
   });
 

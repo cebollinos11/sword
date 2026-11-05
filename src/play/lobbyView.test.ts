@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { isArenaName, withGeneratedArena } from '../sim';
-import { newLobby, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, mapSeed, offeredFormats, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf } from './lobbyView';
+import { isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
+import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
+import { arenaLabel, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -26,9 +26,32 @@ describe('the Lobby view in Gauntlet', () => {
   const skirmish = (arena: string): LobbyState =>
     newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena, bestOf: 3 }, online: false, ai: { difficulty: 'Normal', weapon } });
 
-  it('offers the Format toggle in a Skirmish and online (online co-op, docs/plans/gauntlet.md Stage 4)', () => {
-    expect(offeredFormats(false)).toEqual(['Duels', 'Gauntlet']);
-    expect(offeredFormats(true)).toEqual(['Duels', 'Gauntlet']);
+  it('offers the Format toggle in a Skirmish and online (a Run online is co-op, every Player on Team 0)', () => {
+    expect(MATCH_FORMATS).toEqual(['Duels', 'Gauntlet']);
+    // Neither a Skirmish nor an online Lobby of one Player refuses either of them.
+    expect(formatRefusal(skirmish('library'))).toBeNull();
+  });
+
+  it('online, a Lobby with more Players than Team 0 holds refuses the Gauntlet, with the existing text', () => {
+    const online = newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena: 'library', bestOf: 3 }, online: true, ai: { difficulty: 'Normal', weapon } });
+    expect(formatRefusal(online)).toBeNull();
+    const seat = (member: number) => ({ kind: 'Player' as const, member });
+    const five: LobbyState = {
+      ...online,
+      members: [0, 1, 2, 3, 4].map((id) => ({ id, name: `P${id}`, weapon, body: 'monk', ready: false })),
+      teams: [[seat(0), seat(1), seat(2), seat(3)], [seat(4), { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }]],
+    };
+    expect(formatRefusal(five)).toBe(`A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has 5.`);
+    expect(setFormat(five, 'Gauntlet', 'gen:greybox:5')).toBe(five);
+  });
+
+  it('describes the Dungeon on the Floors card: its Floors of Halls, the Doors and the Boss', () => {
+    expect(tuning.dungeon.floors).toHaveLength(3);
+    const card = dungeonCard(tuning);
+    expect(card.count).toBe('3 Floors of Halls');
+    expect(card.note).toMatch(/^A Dungeon of 3 Floors, each a map of Halls from an entrance to a Boss\. /);
+    expect(card.note).toContain('stand at a Door together');
+    expect(dungeonCard({ dungeon: { ...tuning.dungeon, floors: tuning.dungeon.floors.slice(0, 1) } }).count).toBe('1 Floor of Halls');
   });
 
   it('in Duels shows both teams, every Map, Best of N and the next seed', () => {
@@ -51,5 +74,31 @@ describe('the Lobby view in Gauntlet', () => {
     // After a Run, the next Run is on the next seed.
     const after = startMatch(s);
     expect(randomBlurb(after, 'gen:greybox:1234', false)).toBe(`Run seed ${mapSeed('gen:greybox:' + ((1234 + 381967) % 1000000))}`);
+  });
+});
+
+describe("the Lobby's Battle map picker (docs/plans/battle-objectives.md, Stage 3a)", () => {
+  const fort = tuning.battle.maps.fort!;
+
+  it('offers the open field and the Fort; picking a map sets the army size back to its standard', () => {
+    expect(battleMaps(tuning).map((m) => m.label)).toEqual(['Open field', 'Fort']);
+    expect(battleMapChoice(tuning, undefined).id).toBe('open');
+    expect(battleMapChoice(tuning, { map: 'fort' }).label).toBe('Fort');
+    expect(battleMapChoice(tuning, { map: 'nowhere' }).id).toBe('open');
+    expect(withBattleMap({ armySize: 50, hitRate: 0.5 }, 'fort')).toEqual({ map: 'fort', hitRate: 0.5 });
+    expect(withBattleMap({ map: 'fort', armySize: 50 }, 'open')).toEqual({});
+  });
+
+  it("holds the army size row to the map's most, its standard the map's own, and folds the map into the Battle", () => {
+    const [army] = battleKnobRows(tuning, { map: 'fort' });
+    expect(army!.standard).toBe(fort.armySize.standard);
+    expect(Math.max(...army!.choices.map(([n]) => n))).toBeLessThanOrEqual(fort.armySize.max);
+    expect(withBattleKnob({ map: 'fort' }, army!, fort.armySize.standard)).toEqual({ map: 'fort' });
+    // The open field keeps its own sizes, 300 among them.
+    expect(battleKnobRows(tuning)[0]!.choices.map(([n]) => n)).toContain(300);
+    const settings = { arena: 'library', bestOf: 3, format: 'Battle' as const, battle: { map: 'fort', armySize: 300 } };
+    expect(runTuning(tuning, settings).battle.armySize).toBe(Math.min(300, fort.armySize.max));
+    expect(battleCard(runTuning(tuning, settings), settings.battle).note).toMatch(/ruined fort/);
+    expect(battleCard(tuning).note).toMatch(/open field/);
   });
 });

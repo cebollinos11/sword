@@ -268,7 +268,7 @@ describe('Local Controller: Jump', () => {
 });
 
 describe('Local Controller: Crouch', () => {
-  it('C crouches on every Tick it is held, not Ctrl (which closes the tab with W)', () => {
+  it('C or Left Ctrl crouches on every Tick it is held', () => {
     const c = new LocalController();
     expect(c.sample().crouch).toBeUndefined();
     c.keyDown('KeyC');
@@ -277,6 +277,10 @@ describe('Local Controller: Crouch', () => {
     c.keyUp('KeyC');
     expect(c.sample().crouch).toBeUndefined();
     c.keyDown('ControlLeft');
+    expect(c.sample().crouch).toBe(true);
+    c.keyUp('ControlLeft');
+    expect(c.sample().crouch).toBeUndefined();
+    c.keyDown('ControlRight');
     expect(c.sample().crouch).toBeUndefined();
   });
 

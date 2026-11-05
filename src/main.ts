@@ -1,3 +1,4 @@
+import { devMode } from './devMode';
 import { loadTuningData, TuningDataError, type TuningData } from './tuning';
 
 /**
@@ -5,6 +6,8 @@ import { loadTuningData, TuningDataError, type TuningData } from './tuning';
  *   /sword/            the game
  *   /sword/#/editor    the Editor (loaded on demand, so the game never ships Tweakpane up front)
  *   /sword/#/thumbs    dev server only: draws and saves the menu's pictures (public/thumbs/)
+ *   /sword/#/battle/<seed>?dev=1    dev mode only: watch an AI-vs-AI Battle (docs/plans/big-battle.md, Stage 2)
+ *   /sword/#/battle/<seed>/play?dev=1    dev mode only: play a Battle, your Fighter among the armies (Stage 3)
  */
 const container = document.getElementById('app')!;
 
@@ -37,6 +40,10 @@ const tuning = load();
 if (tuning) {
   if (import.meta.env.DEV && location.hash.startsWith('#/thumbs')) {
     void import('./thumbs').then((m) => m.startThumbs(container, tuning));
+  } else if (/^#\/battle\/\d+\/play/.test(location.hash) && devMode()) {
+    void import('./play/battlePlay').then((m) => m.startBattlePlay(container, tuning));
+  } else if (location.hash.startsWith('#/battle') && devMode()) {
+    void import('./play/battleSpectator').then((m) => m.startBattleSpectator(container, tuning));
   } else if (location.hash.startsWith('#/editor')) {
     void import('./editor').then((m) => m.startEditor(container, tuning));
   } else {

@@ -4,14 +4,15 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
-import { isFormatOnMap } from '../net';
+import { BATTLE_KNOB_KEYS, isSize, MAX_MAP_NAME, RUN_KNOB_KEYS, type Size } from '../tuning';
+import { isLobbyFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
 export type RefuseLobbyReason = 'RoomFull' | 'TuningDataMismatch' | 'ProtocolMismatch';
 
 export type LobbyMessage =
   /** Guest → host, repeated until the first `lobby` arrives. */
-  | { readonly type: 'join'; readonly protocol: number; readonly tuningHash: string; readonly name: string; readonly weapon: string; readonly body: string }
+  | { readonly type: 'join'; readonly protocol: number; readonly tuningHash: string; readonly name: string; readonly weapon: string; readonly body: string; readonly size?: Size }
   /** Host → guest: the whole Lobby, the guest's Member id, and the last of its sequence numbers applied. */
   | { readonly type: 'lobby'; readonly state: LobbyState; readonly you: number; readonly ack: number }
   /** Host → guest: turned away. The link closes soon after. */
@@ -23,6 +24,7 @@ export type LobbyMessage =
       readonly name: string;
       readonly weapon: string;
       readonly body: string;
+      readonly size?: Size;
       readonly ready: boolean;
       readonly seat: SeatRef | null;
     };
@@ -39,6 +41,21 @@ function isSeatRef(v: unknown): v is SeatRef {
   return isObject(v) && isCount(v.team) && v.team < TEAM_COUNT && isCount(v.index) && v.index < MAX_TEAM_SIZE;
 }
 
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const RUN_KNOBS: ReadonlySet<string> = new Set(RUN_KNOB_KEYS);
+
+/** A Run's knobs: numbers, each optional; `applyDungeonKnobs` holds each to its range. */
+function isRunKnobs(v: unknown): boolean {
+  return isObject(v) && Object.entries(v).every(([k, x]) => RUN_KNOBS.has(k) && isNum(x));
+}
+
+const BATTLE_KNOBS: ReadonlySet<string> = new Set(BATTLE_KNOB_KEYS);
+
+/** A Battle's knobs: numbers, each optional, and a short map name; `applyBattleKnobs` holds each to its range (an unknown map is the open field). */
+function isBattleKnobs(v: unknown): boolean {
+  return isObject(v) && Object.entries(v).every(([k, x]) => (BATTLE_KNOBS.has(k) && isNum(x)) || (k === 'map' && typeof x === 'string' && x.length > 0 && x.length <= MAX_MAP_NAME));
+}
+
 function isSeat(v: unknown): boolean {
   if (!isObject(v)) return false;
   switch (v.kind) {
@@ -48,14 +65,14 @@ function isSeat(v: unknown): boolean {
     case 'Player':
       return isCount(v.member);
     case 'AI':
-      return isShortString(v.difficulty) && isShortString(v.weapon) && (v.style === undefined || isShortString(v.style));
+      return isShortString(v.difficulty) && isShortString(v.weapon) && (v.style === undefined || isShortString(v.style)) && (v.size === undefined || isSize(v.size));
     default:
       return false;
   }
 }
 
 function isMember(v: unknown): boolean {
-  return isObject(v) && isCount(v.id) && isShortString(v.name) && isShortString(v.weapon) && isShortString(v.body) && typeof v.ready === 'boolean';
+  return isObject(v) && isCount(v.id) && isShortString(v.name) && isShortString(v.weapon) && isShortString(v.body) && (v.size === undefined || isSize(v.size)) && typeof v.ready === 'boolean';
 }
 
 function isLobbyState(v: unknown): v is LobbyState {
@@ -66,7 +83,9 @@ function isLobbyState(v: unknown): v is LobbyState {
     isInt(settings.bestOf) &&
     settings.bestOf > 0 &&
     // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
-    isFormatOnMap(settings.format, settings.arena) &&
+    isLobbyFormatOnMap(settings.format, settings.arena) &&
+    (settings.run === undefined || isRunKnobs(settings.run)) &&
+    (settings.battle === undefined || isBattleKnobs(settings.battle)) &&
     Array.isArray(members) &&
     members.length >= 1 &&
     members.length <= MAX_PLAYERS &&
@@ -78,7 +97,7 @@ function isLobbyState(v: unknown): v is LobbyState {
     typeof v.playing === 'boolean' &&
     Array.isArray(inMatch) &&
     inMatch.every(isCount) &&
-    (v.matchArena === null || (isShortString(v.matchArena) && isFormatOnMap(settings.format, v.matchArena)))
+    (v.matchArena === null || (isShortString(v.matchArena) && isLobbyFormatOnMap(settings.format, v.matchArena)))
   );
 }
 
@@ -87,13 +106,13 @@ export function parseLobbyMessage(m: unknown): LobbyMessage | null {
   if (!isObject(m)) return null;
   switch (m.type) {
     case 'join':
-      return isInt(m.protocol) && isShortString(m.tuningHash) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) ? (m as unknown as LobbyMessage) : null;
+      return isInt(m.protocol) && isShortString(m.tuningHash) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) && (m.size === undefined || isSize(m.size)) ? (m as unknown as LobbyMessage) : null;
     case 'lobby':
       return isLobbyState(m.state) && isCount(m.you) && isInt(m.ack) ? (m as unknown as LobbyMessage) : null;
     case 'refuse':
       return REASONS.has(m.reason) ? (m as unknown as LobbyMessage) : null;
     case 'member':
-      return isInt(m.seq) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) && typeof m.ready === 'boolean' && (m.seat === null || isSeatRef(m.seat))
+      return isInt(m.seq) && isShortString(m.name) && isShortString(m.weapon) && isShortString(m.body) && (m.size === undefined || isSize(m.size)) && typeof m.ready === 'boolean' && (m.seat === null || isSeatRef(m.seat))
         ? (m as unknown as LobbyMessage)
         : null;
     default:

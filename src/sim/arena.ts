@@ -6,6 +6,7 @@
  */
 import { surfacePlane, type ArenaGeometry, type TuningData, type WalkSurface, type WallSegment } from '../tuning';
 import { generatedArena, isArenaName } from './arenaGen/named';
+import { battlefieldOf } from './battlefield';
 import type { Vec2 } from './state';
 import type { Vec3 } from './vec';
 
@@ -39,6 +40,8 @@ interface ArenaIndex {
   readonly wallBounds: Float64Array;
   /** Per body radius, per grid cell, the Walls (ascending) that come within two radii of it: built on first use. */
   readonly wallCells: Map<number, readonly (readonly number[])[]>;
+  /** `[i]` for each surface i, shared, so a lookup that finds one surface allocates nothing. */
+  readonly one: readonly (readonly number[])[];
 }
 
 /** Grid cell size (m) of the surface lookup. */
@@ -47,6 +50,7 @@ const CELL = 1;
 const EDGE_EPS = 1e-6;
 
 const indexes = new WeakMap<ArenaGeometry, ArenaIndex>();
+const NONE: readonly number[] = [];
 
 function buildIndex(arena: ArenaGeometry): ArenaIndex {
   const surfaces = arena.walk.map((surface): IndexedSurface => {
@@ -78,7 +82,7 @@ function buildIndex(arena: ArenaGeometry): ArenaIndex {
   });
   const wallBounds = new Float64Array(arena.walls.length * 4);
   arena.walls.forEach((w, i) => wallBounds.set([Math.min(w.a.x, w.b.x), Math.max(w.a.x, w.b.x), Math.min(w.a.z, w.b.z), Math.max(w.a.z, w.b.z)], i * 4));
-  return { surfaces, x0, z0, cols, rows, cells, last: null, wallBounds, wallCells: new Map() };
+  return { surfaces, x0, z0, cols, rows, cells, last: null, wallBounds, wallCells: new Map(), one: surfaces.map((_, i) => [i]) };
 }
 
 function indexOf(arena: ArenaGeometry): ArenaIndex {
@@ -92,10 +96,14 @@ function indexOf(arena: ArenaGeometry): ArenaIndex {
 
 /**
  * The Arena named `name` in Tuning Data, or the Generated Arena a `gen:<kit>:<seed>` name builds from Tuning Data's Kit
- * (built once and reused, `generatedArena`: a Rematch's next Random Map, Stage 6). Throws on an unknown name.
+ * (built once and reused, `generatedArena`: a Rematch's next Random Map, Stage 6), or the Battlefield a `battle:<seed>`
+ * name builds from Tuning Data `battle.field` (`battlefieldOf`). Throws on an unknown name.
  */
 export function arenaOf(tuning: Pick<TuningData, 'arenas'>, name: string): ArenaGeometry {
-  const arena = tuning.arenas[name] ?? ('kits' in tuning && isArenaName(tuning as TuningData, name) ? generatedArena(tuning as TuningData, name)?.arena : undefined);
+  const arena =
+    tuning.arenas[name] ??
+    ('kits' in tuning && isArenaName(tuning as TuningData, name) ? generatedArena(tuning as TuningData, name)?.arena : undefined) ??
+    ('battle' in tuning ? battlefieldOf((tuning as TuningData).battle, name)?.arena : undefined);
   if (!arena) throw new Error(`Unknown Arena "${name}" (have: ${Object.keys(tuning.arenas).join(', ')})`);
   return arena;
 }
@@ -120,9 +128,16 @@ export function surfacesAt(arena: ArenaGeometry, x: number, z: number): readonly
   if (index.last && index.last.x === x && index.last.z === z) return index.last.at;
   const c = Math.floor((x - index.x0) / CELL);
   const r = Math.floor((z - index.z0) / CELL);
-  const at = c < 0 || r < 0 || c >= index.cols || r >= index.rows ? [] : index.cells[r * index.cols + c]!.filter((i) => inside(index.surfaces[i]!, x, z));
+  const list = c < 0 || r < 0 || c >= index.cols || r >= index.rows ? NONE : index.cells[r * index.cols + c]!;
+  // A cell only one surface reaches (most of a map's floor): no array is made.
+  const at = list.length === 1 ? (inside(index.surfaces[list[0]!]!, x, z) ? index.one[list[0]!]! : NONE) : list.filter((i) => inside(index.surfaces[i]!, x, z));
   index.last = { x, z, at };
   return at;
+}
+
+/** Whether Walk Surface `i`'s polygon, seen from above, contains (x, z) (its edges count). */
+export function onSurface(arena: ArenaGeometry, i: number, x: number, z: number): boolean {
+  return inside(indexOf(arena).surfaces[i]!, x, z);
 }
 
 /** The height of Walk Surface `i` above (x, z) (its plane, wherever the point is). */
@@ -298,4 +313,18 @@ function pushOut(p: Vec2, y: number, arena: ArenaGeometry, tuning: TuningData, w
     z = qz + dz * radius;
   }
   return { at: { x, z }, moved };
+}
+
+/** Whether (x, z) is inside (or on the edge of) the convex polygon `zone`, from above. */
+export function insideZone(zone: readonly { readonly x: number; readonly z: number }[], x: number, z: number): boolean {
+  let sign = 0;
+  for (let i = 0; i < zone.length; i++) {
+    const a = zone[i]!;
+    const b = zone[(i + 1) % zone.length]!;
+    const cross = Math.sign((b.x - a.x) * (z - a.z) - (b.z - a.z) * (x - a.x));
+    if (cross === 0) continue;
+    if (sign !== 0 && cross !== sign) return false;
+    sign = cross;
+  }
+  return true;
 }

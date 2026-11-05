@@ -10,7 +10,7 @@
  *   });
  *   run.final.fighters[1].hp; run.events.filter((e) => e.type === 'Hit');
  */
-import type { TuningData } from '../tuning';
+import type { Size, TuningData } from '../tuning';
 import type { SimEvent } from './events';
 import { IDLE_INTENT, type Direction, type Intent } from './intent';
 import type { Placement } from './skeleton';
@@ -89,6 +89,8 @@ export interface DuelScript {
   readonly seed?: number;
   /** Each Fighter's Weapon (default: the default Weapon). */
   readonly weapons?: readonly string[];
+  /** Each Fighter's Size (default: the standard body). */
+  readonly sizes?: readonly (Size | undefined)[];
   /** Fighter 0's Track. */
   readonly a?: Track;
   /** Fighter 1's Track. */
@@ -100,6 +102,6 @@ export interface DuelScript {
 /** Run a two-Fighter Duel from scripted Tracks. */
 export function runDuel(tuning: TuningData, script: DuelScript): ScriptRun {
   const placements = script.placements ?? duelPlacements(script.distance ?? 2);
-  const initial = createInitialState(tuning, script.seed ?? 1, placements, script.weapons);
+  const initial = createInitialState(tuning, script.seed ?? 1, placements, script.weapons, undefined, undefined, script.sizes);
   return runScript(tuning, initial, [script.a ?? [], script.b ?? []], script.ticks);
 }

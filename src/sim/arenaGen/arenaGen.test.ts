@@ -80,10 +80,10 @@ describe('assembleArena', () => {
     }
   });
 
-  it('gives each Team three spawns on safe ground, the two Teams far apart', () => {
+  it('gives each Team four spawns on safe ground, the two Teams far apart', () => {
     for (const seed of seeds) {
       const arena = assembleArena(GREYBOX_KIT, generateLayout(GREYBOX_KIT, seed, DEFAULT_GEN_PARAMS), 'gen');
-      for (const team of [0, 1]) expect(arena.spawns.filter((s) => s.team === team).map((s) => s.slot)).toEqual([0, 1, 2]);
+      for (const team of [0, 1]) expect(arena.spawns.filter((s) => s.team === team).map((s) => s.slot)).toEqual([0, 1, 2, 3]);
       for (const s of arena.spawns) {
         const g = groundBelow(arena, s.position.x, s.position.z, s.position.y + 0.01)!;
         expect(g.y).toBeCloseTo(s.position.y, 9);
@@ -107,11 +107,11 @@ const floor = (id: string, x0: number, x1: number, y = 0) => ({
 });
 const abyss = { ...floor('abyss', -30, 30, -8), abyss: true };
 const spawn = (team: number, slot: number, x: number, z: number): SpawnPoint => ({ team, slot, position: { x, y: 0, z }, facing: 0 });
-const lineUp = (team: number, x: number) => [0, 1, 2].map((slot) => spawn(team, slot, x, (slot - 1) * 2));
+const lineUp = (team: number, x: number) => [0, 1, 2, 3].map((slot) => spawn(team, slot, x, ((slot - 1.5) * 4) / 3));
 
 describe('judgeArena', () => {
   it('passes a plain floor with the Teams across it, and reports its stats', () => {
-    const arena: ArenaGeometry = { name: 'plain', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)] };
+    const arena: ArenaGeometry = { name: 'plain', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)], doors: [] };
     const { ok, reasons, stats } = judgeArena(arena, tuning, { now: () => performance.now() });
     expect(reasons).toEqual([]);
     expect(ok).toBe(true);
@@ -124,7 +124,7 @@ describe('judgeArena', () => {
 
   it('fails Teams that only a Jump joins, and spawns by deadly ground', () => {
     // Two floors 2 m apart across the Abyss: a Jump gets over, walking never does.
-    const arena: ArenaGeometry = { name: 'gap', walk: [floor('a', -12, -1), floor('b', 1, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 2)] };
+    const arena: ArenaGeometry = { name: 'gap', walk: [floor('a', -12, -1), floor('b', 1, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 2)], doors: [] };
     const { ok, reasons } = judgeArena(arena, tuning);
     expect(ok).toBe(false);
     expect(reasons.some((r) => /reach/.test(r))).toBe(true);
@@ -136,14 +136,14 @@ describe('judgeArena', () => {
   });
 
   it('fails too little open floor at the lowest level, and too few spawns', () => {
-    const arena: ArenaGeometry = { name: 'thin', walk: [floor('a', -12, -10), floor('b', -10, 12, 3), abyss], walls: [], spawns: lineUp(0, -6).map((s) => ({ ...s, position: { ...s.position, y: 3 } })) };
+    const arena: ArenaGeometry = { name: 'thin', walk: [floor('a', -12, -10), floor('b', -10, 12, 3), abyss], walls: [], spawns: lineUp(0, -6).map((s) => ({ ...s, position: { ...s.position, y: 3 } })), doors: [] };
     const { reasons } = judgeArena(arena, tuning, { minOpenFloor: 0.5 });
     expect(reasons.some((r) => /open floor/.test(r))).toBe(true);
     expect(reasons.some((r) => /team 1.*spawns/.test(r))).toBe(true);
   });
 
   it('fails a navmesh that builds too slowly', () => {
-    const arena: ArenaGeometry = { name: 'slow', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)] };
+    const arena: ArenaGeometry = { name: 'slow', walk: [floor('a', -12, 0), floor('b', 0, 12), abyss], walls: [], spawns: [...lineUp(0, -6), ...lineUp(1, 6)], doors: [] };
     let t = 0;
     const { reasons, stats } = judgeArena(arena, tuning, { now: () => (t += 300) });
     expect(stats.buildMs).toBe(300);

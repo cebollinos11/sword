@@ -10,7 +10,7 @@ export interface LocalInputBinding {
  * Feeds browser mouse/key events to a Local Controller. Left mouse = attack,
  * right mouse = block, mouse movement = gesture + camera turn (pointer lock is
  * requested on the first click so the mouse never leaves the window), WASD
- * walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C = crouch (held). Losing focus lets go of everything.
+ * walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C or Left Ctrl = crouch (held). Losing focus lets go of everything.
  */
 export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement): LocalInputBinding {
   const binding: LocalInputBinding = { enabled: false, dispose };
@@ -24,6 +24,14 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
         void Promise.resolve(canvas.requestPointerLock()).catch(() => undefined);
       } catch {
         /* no pointer lock */
+      }
+    }
+    // Keyboard Lock (which keeps Ctrl+W from closing the tab) only works in fullscreen, and only where it exists.
+    if ('keyboard' in navigator && !document.fullscreenElement) {
+      try {
+        void Promise.resolve(document.documentElement.requestFullscreen({ navigationUI: 'hide' })).catch(() => undefined);
+      } catch {
+        /* no fullscreen */
       }
     }
     const b = button(e.button);
@@ -41,10 +49,24 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
     if (!binding.enabled || e.repeat) return;
     // Space would scroll the page (or press a focused button).
     if (e.code === 'Space') e.preventDefault();
-    local.keyDown(e.code);
+    local.keyDown(e.code, e.shiftKey);
   };
   const onKeyUp = (e: KeyboardEvent) => local.keyUp(e.code);
   const onBlur = () => local.releaseAll();
+  // Ctrl+W (closing the tab) cannot be cancelled from a key handler. In fullscreen Chromium lets the page take the
+  // keys with Keyboard Lock (the first click goes fullscreen for it); elsewhere, closing mid-Match at least asks first.
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (!binding.enabled) return;
+    e.preventDefault();
+    e.returnValue = '';
+  };
+  const syncKeyboardLock = () => {
+    const keyboard = (navigator as Navigator & { keyboard?: { lock(codes?: string[]): Promise<void>; unlock(): void } }).keyboard;
+    if (!keyboard) return;
+    // Every key: with Ctrl held, A S D F E R Q would also be browser shortcuts (Ctrl+F finds, Ctrl+R reloads).
+    if (document.fullscreenElement) void keyboard.lock().catch(() => undefined);
+    else keyboard.unlock();
+  };
   const onContextMenu = (e: Event) => e.preventDefault();
 
   canvas.addEventListener('mousedown', onMouseDown);
@@ -54,6 +76,9 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
   canvas.addEventListener('contextmenu', onContextMenu);
+  window.addEventListener('beforeunload', onBeforeUnload);
+  document.addEventListener('fullscreenchange', syncKeyboardLock);
+  syncKeyboardLock();
 
   function dispose(): void {
     canvas.removeEventListener('mousedown', onMouseDown);
@@ -63,6 +88,8 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     canvas.removeEventListener('contextmenu', onContextMenu);
+    window.removeEventListener('beforeunload', onBeforeUnload);
+    document.removeEventListener('fullscreenchange', syncKeyboardLock);
   }
 
   return binding;

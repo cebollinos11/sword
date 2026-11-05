@@ -149,7 +149,7 @@ export class SwingTrails {
       const inner = { x: hilt.x + (tip.x - hilt.x) * INNER, y: hilt.y + (tip.y - hilt.y) * INNER, z: hilt.z + (tip.z - hilt.z) * INNER };
       trail.update(trailing(prev, curr, i) ? { inner, tip } : null, this.clock);
     });
-    // A smaller Match than the last one: the missing Fighters leave no trail.
-    for (let i = blades.length; i < this.trails.length; i++) this.trails[i]!.clear();
+    // A smaller Match than the last one: the missing Fighters leave no trail. (A Fighter never drawn has none: a Battle's Pool leaves gaps.)
+    for (let i = blades.length; i < this.trails.length; i++) this.trails[i]?.clear();
   }
 }

@@ -11,5 +11,6 @@
   "crouchDepth": 0.4,
   "crouchSpeed": 6,
   "crouchWalkFactor": 0.5,
-  "sheathedWalkFactor": 1.6
+  "sheathedWalkFactor": 1.6,
+  "lyingHitFactor": 2
 }

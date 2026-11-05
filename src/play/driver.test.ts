@@ -75,13 +75,13 @@ describe('Player vs AI Match driver', () => {
     expect(driver.state!.duel.fighters.some((f) => f.death)).toBe(true);
   });
 
-  it('rejects a Lineup without the player, or with a team of four', () => {
+  it('rejects a Lineup without the player, or with a team of five', () => {
     const noPlayer: Lineup = [
       { team: 0, pilot: { kind: 'AI', difficulty: 'Normal' } },
       { team: 1, pilot: { kind: 'AI', difficulty: 'Normal' } },
     ];
     expect(() => playerVsAi(tuning, { arena: 'circle', lineup: noPlayer, weapon, bestOf: 1 })).toThrow(/Player 0/);
-    const four: Lineup = [...versus('Normal'), ...versus('Normal').slice(1), ...versus('Normal').slice(1), ...versus('Normal').slice(1)];
-    expect(() => playerVsAi(tuning, { arena: 'circle', lineup: four, weapon, bestOf: 1 })).toThrow(/Team 1/);
+    const five: Lineup = [...versus('Normal'), ...Array.from({ length: 4 }, () => versus('Normal').slice(1)).flat()];
+    expect(() => playerVsAi(tuning, { arena: 'circle', lineup: five, weapon, bestOf: 1 })).toThrow(/Team 1/);
   });
 });

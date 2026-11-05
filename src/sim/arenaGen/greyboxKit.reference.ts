@@ -1,7 +1,8 @@
 /**
  * The greybox Kit as it was written by hand before it became a Kit file (data/kits/greybox.json, built by
  * art/build_kit_greybox.py). Tests only: the Kit read from the file must deep-equal it, so every Generated Arena
- * is the same as before. Do not edit it to match the file.
+ * is the same as before. Do not edit it to match the file; a Piece added later (the door, for the Dungeon's Hall
+ * Arenas) is added here as well, so it is checked too.
  */
 import type { Connector, Kit, PieceSurface, PieceWall, Skirt } from '../../tuning';
 
@@ -10,6 +11,7 @@ const LEVEL = 3;
 const CRATE = 0.8;
 const RAIL = 1;
 const PILLAR = 4;
+const DOOR_WALL = 4;
 
 /** A flat rectangle from (x0, z0) to (x1, z1) at height y. */
 const rect = (x0: number, z0: number, x1: number, z1: number, y = 0): PieceSurface['points'] => [
@@ -97,5 +99,22 @@ export const HAND_WRITTEN_GREYBOX_KIT: Kit = {
       solid: false,
     },
     void: { id: 'void', cols: 1, rows: 1, walk: [], walls: [], connectors: [], skirts: [], solid: false },
+    // An edge cell's floor with a tall Wall along its -z side (a doorway drawn in it) and a door zone before it.
+    door: {
+      id: 'door',
+      cols: 1,
+      rows: 1,
+      walk: [TILE],
+      walls: [{ a: [0, 0], b: [CELL, 0], bottom: 0, top: DOOR_WALL }],
+      connectors: ALL_SIDES.filter((c) => c.side !== 0),
+      skirts: LEVEL_SKIRTS,
+      solid: true,
+      zone: [
+        [0.25, 0],
+        [2.75, 0],
+        [2.75, 2.5],
+        [0.25, 2.5],
+      ],
+    },
   },
 };

@@ -16,6 +16,8 @@ With SAVE = True it writes art/kit_greybox.blend, public/models/kits/greybox.glb
     `tile` marks a whole flat cell the assembler may merge.
   - WALL_<id>_<n> (Collision): one vertical quad, a Wall of Piece <id>, solid
     between its bottom and top heights.
+  - DOOR_<id>_0 (Collision): one flat convex face on the ground, the door zone of
+    Piece <id> (the door alone: docs/plans/dungeon.md, Doors).
   - TRIM_support: a column one cell wide and one level tall, its top at y 0, which
     the renderer stacks under every cell of a solid Piece above level 0.
 Helpers are in cell-local coordinates relative to their Piece's root: x and z run
@@ -27,8 +29,10 @@ Everything is authored in game coordinates (x east, y up, z) and placed in
 Blender as (x, -z, y), which the glTF export (export_yup) turns back.
 
 The numbers are the hand-written TypeScript greybox Kit's: a 3 m cell, floors at
-0, 3 and 6 m, 0.8 m crates, 1 m rails, 4 m pillars. The look is plain greys,
-tinted per Piece kind; a dark border round each floor tile shows the grid.
+0, 3 and 6 m, 0.8 m crates, 1 m rails, 4 m pillars; the door (added with the
+Dungeon's Hall Arenas) is a floor walled along its outer side by a 4 m Wall with
+a doorway drawn in it, nobody walks through. The look is plain greys, tinted per
+Piece kind; a dark border round each floor tile shows the grid.
 """
 import json
 import os
@@ -51,6 +55,9 @@ MAX_LEVELS = 3
 CRATE = 0.8
 RAIL = 1.0
 PILLAR = 4.0
+DOOR_WALL = 4.0  # the door's Wall, along its -z side
+DOORWAY = (0.75, 2.25, 2.6)  # the doorway drawn in it: from x, to x, how tall
+DOOR_THICKNESS = 0.3  # the door's Wall drawn this thick, centred on it
 SLAB = 0.4  # how thick a floor tile is drawn, below its Walk Surface
 BORDER = 0.05  # the dark border round a floor tile's top
 RAIL_THICKNESS = 0.12  # drawn centred on the rail's Wall
@@ -69,6 +76,8 @@ MATERIALS = {
     'Pillar': 0x8a8e95,
     'Rail': 0x6e7279,
     'Support': 0x5f6268,
+    'Door': 0x7a7468,
+    'Doorway': 0x2a2724,
 }
 MAT_INDEX = {n: i for i, n in enumerate(MATERIALS)}
 
@@ -92,7 +101,7 @@ ALL_SIDES = [{'col': 0, 'row': 0, 'side': s, 'y': 0} for s in range(4)]
 LEVEL_SKIRTS = [{'col': 0, 'row': 0, 'side': s, 'min': 0, 'max': 0} for s in range(4)]
 TILE = (rect(0, 0, CELL, CELL), True)
 
-# id: cols, rows, solid, walk [(points, tile)], walls [(a, b, bottom, top)], connectors, skirts
+# id: cols, rows, solid, walk [(points, tile)], walls [(a, b, bottom, top)], connectors, skirts (and the door's zone [(x, z)])
 PIECES = {
     'floor': dict(cols=1, rows=1, solid=True, walk=[TILE], walls=[], connectors=ALL_SIDES, skirts=LEVEL_SKIRTS),
     # Rises one level along +z over two cells.
@@ -118,6 +127,13 @@ PIECES = {
     # A 2 m wide floor along z, with nothing either side of it.
     'bridge': dict(cols=1, rows=1, solid=False, walk=[(rect(0.5, 0, 2.5, CELL), False)], walls=[], connectors=[{'col': 0, 'row': 0, 'side': 0, 'y': 0}, {'col': 0, 'row': 0, 'side': 2, 'y': 0}], skirts=[]),
     'void': dict(cols=1, rows=1, solid=False, walk=[], walls=[], connectors=[], skirts=[]),
+    # An edge cell's floor with a tall Wall along its -z side (the footprint's edge), a doorway drawn in it, and a
+    # door zone on the ground before it. Placed on an edge cell turned so -z faces out.
+    'door': dict(
+        cols=1, rows=1, solid=True, walk=[TILE], walls=[((0, 0), (CELL, 0), 0.0, DOOR_WALL)],
+        connectors=[c for c in ALL_SIDES if c['side'] != 0], skirts=LEVEL_SKIRTS,
+        zone=[(0.25, 0), (2.75, 0), (2.75, 2.5), (0.25, 2.5)],
+    ),
 }
 
 # ---------------------------------------------------------------- the look (game coordinates, cell-local)
@@ -164,7 +180,7 @@ def tile_slab(g, x0, z0, x1, z1, top='Top'):
 
 def look(id):
     g = Geo()
-    if id in ('floor', 'crate', 'pillar', 'rail'):
+    if id in ('floor', 'crate', 'pillar', 'rail', 'door'):
         tile_slab(g, 0, 0, CELL, CELL)
     if id == 'crate':
         g.box((0.75, 0, 0.75), (2.25, CRATE, 2.25), 'Crate', top='CrateTop', skip=('-y',))
@@ -173,6 +189,15 @@ def look(id):
     elif id == 'rail':
         h = RAIL_THICKNESS / 2
         g.box((0, 0, -h), (CELL, RAIL, h), 'Rail', skip=('-y',))
+    elif id == 'door':
+        h = DOOR_THICKNESS / 2
+        x0, x1, tall = DOORWAY
+        # Two jambs and a lintel round the doorway, and the doorway itself dark, at the Wall's outer face.
+        g.box((0, 0, -h), (x0, DOOR_WALL, h), 'Door', skip=('-y',))
+        g.box((x1, 0, -h), (CELL, DOOR_WALL, h), 'Door', skip=('-y',))
+        g.box((x0, tall, -h), (x1, DOOR_WALL, h), 'Door', skip=('-y',))
+        g.face([(x0, 0, -h + 0.01), (x0, tall, -h + 0.01), (x1, tall, -h + 0.01), (x1, 0, -h + 0.01)], 'Doorway')
+        g.face([(x1, 0, -h + 0.01), (x1, tall, -h + 0.01), (x0, tall, -h + 0.01), (x0, 0, -h + 0.01)], 'Doorway')
     elif id == 'bridge':
         tile_slab(g, 0.5, 0, 2.5, CELL, top='Bridge')
     elif id == 'ramp':
@@ -277,6 +302,15 @@ def collision(coll, id, piece, origin):
         obj['piece'] = id
         obj['index'] = n
         coll.objects.link(obj)
+    if 'zone' in piece:
+        pts = [(x, 0.0, z) for x, z in piece['zone']]
+        me = bpy.data.meshes.new(f'DOOR_{id}_0')
+        me.from_pydata([tuple(to_blender(p)) for p in pts], [], [list(range(len(pts)))])
+        obj = bpy.data.objects.new(f'DOOR_{id}_0', me)
+        obj.location = origin
+        obj['piece'] = id
+        obj['index'] = 0
+        coll.objects.link(obj)
 
 
 def num(x):
@@ -319,11 +353,13 @@ def export_kit(roots, helpers):
             'skirts': [{k: num(v) for k, v in s.items()} for s in json.loads(root['skirts'])],
             'solid': bool(root['solid']),
         }
+        for o in own('DOOR_'):
+            pieces[id]['zone'] = [[p[0], p[2]] for p in (local(o, o.data.vertices[i].co) for i in o.data.polygons[0].vertices)]
     return {'name': KIT, 'cell': num(CELL), 'levelHeight': num(LEVEL), 'maxLevels': MAX_LEVELS, 'pieces': pieces}
 
 
 def write_json(path, kit):
-    """Compact enough to read: one Walk Surface, Wall, connector or skirt per line."""
+    """Compact enough to read: one Walk Surface, Wall, connector or skirt per line (a door's zone on one line)."""
     d = lambda v: json.dumps(v, separators=(', ', ': '))
     lines = ['{', f'  "name": {d(kit["name"])},', f'  "cell": {kit["cell"]},', f'  "levelHeight": {kit["levelHeight"]},', f'  "maxLevels": {kit["maxLevels"]},', '  "pieces": {']
     ids = list(kit['pieces'])
@@ -333,13 +369,15 @@ def write_json(path, kit):
         lines.append(f'      "id": {d(id)}, "cols": {p["cols"]}, "rows": {p["rows"]}, "solid": {d(p["solid"])},')
         for key in ('walk', 'walls', 'connectors', 'skirts'):
             items = p[key]
-            last = key == 'skirts'
+            last = key == 'skirts' and 'zone' not in p
             if not items:
                 lines.append(f'      "{key}": []' + ('' if last else ','))
                 continue
             lines.append(f'      "{key}": [')
             lines += [f'        {d(v)}' + (',' if i < len(items) - 1 else '') for i, v in enumerate(items)]
             lines.append('      ]' + ('' if last else ','))
+        if 'zone' in p:
+            lines.append(f'      "zone": {d(p["zone"])}')
         lines.append('    }' + (',' if k < len(ids) - 1 else ''))
     lines += ['  }', '}', '']
     os.makedirs(os.path.dirname(path), exist_ok=True)

@@ -2,6 +2,7 @@
 
 > Status: Stages 1 and 2 done and their playtests passed. Stage 3 (Feel) done, waiting for its playtest; Stage 4 (Adapt) is next. Stages run in order (1 Styles, 2 Team, 3 Feel, 4 Adapt); stop for a playtest after each.
 > Every Stage first reads this file, `CONTEXT.md`, ADRs 0001, 0005 and 0007, `src/controllers/ai.ts` and `src/controllers/ai.test.ts`. A Stage ends when `npm run typecheck` and `npm test` pass and the work is committed; then mark it done below and add its Result.
+> The Gauntlet named below (`data/gauntlet.json`, `src/tuning/gauntlet.ts`, `floorRoster`, the Floor AI) was replaced by the Dungeon (`docs/plans/dungeon.md`): an enemy's `style` (or `"random"`) is now an Encounter's in `data/dungeon.json`, resolved by `hallRoster` and played by the Hall AI.
 
 ## Progress
 - [x] Stage 1: Styles, new tiers, exploit fixes

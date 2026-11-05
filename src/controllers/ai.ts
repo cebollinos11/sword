@@ -97,7 +97,7 @@
  *  - Teamwork (`teamwork`), by what it sees of its allies as it sees everyone, Reaction Time ago (their place, how
  *    they move and their Action; never their plans), so the team shares no memory and every peer agrees:
  *    - Flank slots (rolled as it picks its circling side): the team on its target (each ally seen nearer it than
- *      any other enemy), ranked by Fighter index, takes slots around it (FLANKS: two at ±70°, three at 0° and ±115°
+ *      any other enemy), ranked by Fighter index, takes slots around it (FLANKS: two at ±70°, three at 0° and ±115°, four at ±45° and ±135°
  *      of their mean bearing), and it circles to its own instead of at random; it steers clear of any ally within CROWD.
  *    - Turns (rolled once per Attack of its own): it starts no Attack from its spacing while an ally on its target is
  *      seen swinging, and otherwise only in its own turn window (TURN_TICKS, by rank), pressing as often there as the
@@ -125,6 +125,9 @@
  *    near, and a Block it means raises once the Draw is done. An enemy it sees
  *    Sheathed, Sheathing or Drawing cannot Block (`defenceless`): rolled once at
  *    `punish`, it skips spacing and Feints and closes in to swing.
+ *  - In a Battle, as a promoted Soldier (`FighterState.soldier.role`): holding an Attack Slot it chases without giving
+ *    up (never Disengages); Waiting (no Attack Slot) it fights only promoted allies, never a Player, and with none on it
+ *    walks to its spot on the waiting ring (`waitAtRing`) and stands there facing the Player.
  *
  * A Style (Tuning Data `ai.styles`) scales its difficulty's chances (`skillOf`); the default Style changes nothing.
  *
@@ -140,10 +143,12 @@
  * repertoire its difficulty uses.
  */
 import {
+  battlefieldOf,
   arenaOf,
   attackTimings,
   blockedAt,
   createRng,
+  bubblePlayer,
   deadlyGround,
   findPath,
   groundBelow,
@@ -176,7 +181,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -194,6 +199,8 @@ interface Sighting {
   readonly airborne: boolean;
   readonly hp: number;
   readonly weapon: string;
+  /** Its Size, when it is not the standard body. */
+  readonly size?: Size;
   readonly team: number;
   /** Out of the Duel (`inDuel`): fallen, or a Benched slot. */
   readonly fallen: boolean;
@@ -476,7 +483,7 @@ const WALKING_AFTER = 0.3;
 const BACKING_OUT = 0.1;
 
 /** Flank slots (radians, around the target from the mean bearing of the team on it), by how many share it, in Fighter-index order. */
-const FLANKS: Readonly<Record<number, readonly number[]>> = { 2: [-70 * DEG, 70 * DEG], 3: [0, -115 * DEG, 115 * DEG] };
+const FLANKS: Readonly<Record<number, readonly number[]>> = { 2: [-70 * DEG, 70 * DEG], 3: [0, -115 * DEG, 115 * DEG], 4: [-45 * DEG, 45 * DEG, -135 * DEG, 135 * DEG] };
 /** It steers away from an ally closer than this (m). */
 const CROWD = 1.0;
 /**
@@ -539,6 +546,8 @@ const BESIDE: Readonly<Record<Direction, readonly Direction[]>> = { Overhead: ['
  * every ally, and it takes off with no enemy Attack or Kick seen coming within reach and HOP_THREAT more.
  */
 const PINCER = 120 * DEG;
+/** How near (m) its spot on a Battle's waiting ring a Waiting Fighter stands still (`waitAtRing`). */
+const RING_ARRIVE = 0.3;
 const HOP_SLOT = 20 * DEG;
 const ALLY_AHEAD = 1.5;
 const ALLY_ASIDE = 0.8;
@@ -701,7 +710,27 @@ interface Enemy {
   readonly near: boolean;
 }
 
-class AiController implements Controller {
+/** How far (m) past touching a Fighter ahead stands in its way, walking to a spot (`sidestep`). */
+const WAY_AHEAD = 0.6;
+/** How much room (m) it leaves passing a Fighter, walking to a spot (`sidestep`). */
+const WAY_CLEAR = 0.15;
+
+/** Where it walks to (`approach`): an enemy as seen, or a spot on the ground (`walkTo`). */
+type Waypoint = Pick<Sighting, 'position' | 'y' | 'airborne'>;
+
+/** The AI Controller: a Controller with memory that can also just walk somewhere (`walkTo`, for the Ally AI). */
+export interface AiController extends Controller {
+  save(): unknown;
+  load(saved: unknown): void;
+  /**
+   * Instead of `intent`: walk to `to` (a spot on the ground) the way it closes on an enemy, along the navmesh and
+   * through its jump Links, looking where it walks, and stand once within `stop` m of it across the ground, on its level. It steps
+   * round a Fighter in its way, unless `shove`: then it walks on and the bodies push past each other.
+   */
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number, shove?: boolean): Intent;
+}
+
+class RuleAi implements AiController {
   private readonly reactionTicks: number;
   /** The most Ticks late it may notice an Attack (`reactionJitter`): half its Reaction Time, at most JITTER_MAX, or 0 without the knob. */
   private readonly jitterTicks: number;
@@ -827,7 +856,9 @@ class AiController implements Controller {
     this.lastTick = state.tick;
     const prev = this.seen[this.seen.length - 1];
     const fighters = state.fighters.map((o, i): Sighting => {
-      const before = prev?.fighters[i];
+      // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
+      const last = prev?.fighters[i];
+      const before = last?.fallen && inDuel(o) ? undefined : last;
       // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
       const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
       const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
@@ -846,6 +877,7 @@ class AiController implements Controller {
         airborne: o.air !== undefined,
         hp: o.hp,
         weapon: o.weapon,
+        ...(o.size && { size: o.size }),
         team: o.team,
         fallen: !inDuel(o),
         facing: o.facing,
@@ -860,10 +892,10 @@ class AiController implements Controller {
     if (this.seen.length > this.reactionTicks + this.jitterTicks + 1) this.seen.shift();
   }
 
-  /** How far (m) a Fighter with `weapon` reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one. */
-  private reach(weapon: string): number {
+  /** How far (m) a Fighter reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one, and in proportion to its height. */
+  private reach(f: { readonly weapon: string; readonly size?: Size | undefined }): number {
     const { attackRange } = this.tuning.ai;
-    return attackRange + weaponByName(this.tuning, weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length;
+    return (attackRange + weaponByName(this.tuning, f.weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length) * (f.size?.height ?? 1);
   }
 
   /**
@@ -881,6 +913,58 @@ class AiController implements Controller {
   }
 
   /**
+   * Instead of `intent` (the Ally AI in a cleared Hall): walk to `to` the way it closes on an enemy, and stand once
+   * within `stop` m of it. A Fighter standing in its way on its level it steps round (`sidestep`), unless `shove`. It keeps
+   * watching (so its memory stays as `intent` would keep it) but plans no fight.
+   */
+  walkTo(state: SimState, fighter: number, to: { readonly x: number; readonly y: number; readonly z: number }, stop: number, shove = false): Intent {
+    this.rng = tickRng(state, fighter);
+    this.view = null;
+    this.observe(state);
+    this.defencePlan = null;
+    this.feintPlan = null;
+    this.attackPlan = null;
+    this.throwPlan = null;
+    this.focus = null;
+    const self = state.fighters[fighter]!;
+    const there = Math.hypot(to.x - self.position.x, to.z - self.position.z) <= stop && Math.abs(to.y - self.y) < LEVEL;
+    if (there && !this.jumpRun) {
+      this.route = null;
+      return this.flying(state, self, IDLE_INTENT);
+    }
+    const way = this.approach(state, self, { position: { x: to.x, z: to.z }, y: to.y, airborne: false });
+    const move = this.jumpRun || shove ? way.move : this.sidestep(state, self, fighter, way.move);
+    return this.flying(state, self, { ...IDLE_INTENT, ...way, move, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
+  }
+
+  /**
+   * `move` turned aside (about 50°, away from it, else towards it, onto safe ground) when the nearest other Fighter in the
+   * Duel on its level stands in its way: ahead along `move`, within WAY_AHEAD and less than two Fighters wide off its line.
+   * Else (or with no safe side) `move`.
+   */
+  private sidestep(state: SimState, self: FighterState, fighter: number, move: Vec2): Vec2 {
+    if (move.x === 0 && move.z === 0) return move;
+    const wide = 2 * this.tuning.fighter.radius + WAY_CLEAR;
+    let nearest = Infinity;
+    let across = 0;
+    for (let i = 0; i < state.fighters.length; i++) {
+      const o = state.fighters[i]!;
+      if (i === fighter || !inDuel(o) || Math.abs(o.y - self.y) >= LEVEL) continue;
+      const d = { x: o.position.x - self.position.x, z: o.position.z - self.position.z };
+      const ahead = d.x * move.x + d.z * move.z;
+      const off = move.x * d.z - move.z * d.x;
+      if (ahead > 0 && ahead < wide + WAY_AHEAD && Math.abs(off) < wide && ahead < nearest) [nearest, across] = [ahead, off];
+    }
+    if (nearest === Infinity) return move;
+    // Perpendicular to `move`, away from the side the Fighter in the way stands on (one way for a head-on one); that side
+    // onto a ledge (the edge of a ramp), the other side; both, `move` itself, pushing past along its own route. Never a
+    // wider turn: on a narrow ramp the only safe ones point back, and two Fighters there swapped ends every Tick.
+    const side = across >= 0 ? 1 : -1;
+    const aside = (k: number) => unit({ x: move.x + k * move.z * 1.2, z: move.z - k * move.x * 1.2 });
+    return [aside(side), aside(-side)].find((m) => this.safe(state, self, m)) ?? move;
+  }
+
+  /**
    * Played as one of a team (its Attack's roll, or for a Chamber its next one's), it never lets a Wind-up go with an ally
    * in its swing line (for the Wind-up's Direction), whichever plan pressed it: it holds the Wind-up for LINE_HOLD Ticks (until the ally stands
    * LINE_SLACK clear beyond the line), then Feints into a Block.
@@ -894,7 +978,7 @@ class AiController implements Controller {
     const v = this.view;
     if (!v || self.air || intent.block || !(this.attackPlan?.team ?? this.turn)) return intent;
     const holding = this.lineHold >= 0;
-    const reach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0) + (holding ? LINE_SLACK : 0);
+    const reach = this.reach(self) + (a.direction === 'Thrust' ? THRUST_REACH : 0) + (holding ? LINE_SLACK : 0);
     if (!this.allyInLine(self, v.team, v.toward, reach, a.direction)) return intent;
     if (!holding) this.lineHold = tick + LINE_HOLD;
     return tick < this.lineHold ? { ...intent, attack: true, direction: a.direction } : { ...intent, attack: false, block: true, direction: a.direction };
@@ -934,16 +1018,18 @@ class AiController implements Controller {
     if (!seen) return IDLE_INTENT;
 
     const self = state.fighters[fighter]!;
+    // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, and a Player's Fighter an AI took over, never a Player).
+    const role = state.crowd ? self.soldier?.role : undefined;
     const enemies = seen.fighters
       .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
       .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
-      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team)
+      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || !bubblePlayer(state, i)))
       .sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
       this.forget();
       this.focus = null;
-      return IDLE_INTENT;
+      return role === 'Waiting' ? this.waitAtRing(state, self) : IDLE_INTENT;
     }
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
@@ -952,7 +1038,7 @@ class AiController implements Controller {
     const allies: Ally[] = this.skill.teamwork > 0 ? seen.fighters.map((o, i) => ({ o, i })).filter(({ o, i }) => i !== fighter && !o.fallen && o.team === self.team) : [];
     const focused = this.chooseFocus(state, self, fighter, enemies, reach, allies);
 
-    this.think(state.tick, self, focused.o);
+    this.think(state.tick, self, focused.o, role === 'Attack');
     const team = allies.length > 0 ? this.teamView(self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
@@ -1012,7 +1098,7 @@ class AiController implements Controller {
 
     // An enemy on lower ground in reach of a jumping Attack: leap down at it.
     const below = target.y < self.y - LEVEL && (target.action.kind === 'Idle' || target.action.kind === 'Block');
-    if (below && !this.jumpRun && dist <= this.reach(self.weapon) + this.leapRange() && this.chance(this.skill.jumpAttackRate)) {
+    if (below && !this.jumpRun && dist <= this.reach(self) + this.leapRange() && this.chance(this.skill.jumpAttackRate)) {
       const leap = this.leap(state, self, target, dist, toward, base);
       if (leap) return leap;
     }
@@ -1034,8 +1120,8 @@ class AiController implements Controller {
 
     if (this.toss(state, self, target, dist, toward)) return { ...base, ...this.throwAim(self, target, dist), throw: true };
 
-    const myReach = this.reach(self.weapon);
-    const theirReach = this.reach(target.weapon);
+    const myReach = this.reach(self);
+    const theirReach = this.reach(target);
     const turn = this.turnOf(state.tick, self, team, toward, myReach);
     // Taking turns, it presses as often in its own window as the team would between them.
     const turns = this.turn === true && team !== null ? team.on.length : 1;
@@ -1211,7 +1297,8 @@ class AiController implements Controller {
     if (on.length > 1) {
       const bearings = [self.position, ...onIt.map(({ o }) => o.position)].map((p) => Math.atan2(p.x - t.position.x, p.z - t.position.z));
       const mean = Math.atan2(bearings.reduce((a, b) => a + Math.sin(b), 0), bearings.reduce((a, b) => a + Math.cos(b), 0));
-      slot = mean + FLANKS[on.length]![rank]!;
+      // More than MAX_TEAM_SIZE on one target (a Big Battle's Fighter Pool): spaced evenly round it.
+      slot = mean + (FLANKS[on.length]?.[rank] ?? ((rank + 0.5) / on.length - 0.5) * 2 * Math.PI);
     }
     const attacking = onIt.some(({ o }) => isThreat(o.action));
     const exposed = onIt.some(({ o }) => this.aimedAt(t, o)) && !this.aimedAt(t, self);
@@ -1238,7 +1325,7 @@ class AiController implements Controller {
   /** Played as one of a team with an ally beside its line (where a Left or Right would sweep), it cuts along the line (an Overhead or a Thrust), not across it. */
   private narrowLine(self: FighterState): boolean {
     const v = this.view;
-    return this.turn === true && v !== null && this.allyInLine(self, v.team, v.toward, this.reach(self.weapon), 'Left');
+    return this.turn === true && v !== null && this.allyInLine(self, v.team, v.toward, this.reach(self), 'Left');
   }
 
   /** Whether it plays its next Attack as one of a team: rolled at `teamwork` (once, kept in `turn` until it starts one). Only asked with allies standing. */
@@ -1268,13 +1355,14 @@ class AiController implements Controller {
     });
   }
 
-  private think(tick: number, self: FighterState, target: Sighting): void {
+  /** With `chase` (a Battle's Fighter holding an Attack Slot) it never Disengages: it keeps after its target. */
+  private think(tick: number, self: FighterState, target: Sighting, chase = false): void {
     const { caution, pressure, footwork } = this.skill;
     const hurt = this.lastHp >= 0 && self.hp < this.lastHp;
     this.lastHp = self.hp;
     // Just hit, or in its own Recovery: shaken, it lapses more readily for a while.
     if (this.skill.humanMistakes > 0 && (hurt || (self.action.kind === 'Attack' && self.action.phase === 'Recovery'))) this.shaken = tick + LAPSE_TICKS;
-    if (hurt && this.chance(caution)) {
+    if (hurt && !chase && this.chance(caution)) {
       this.tactic = { mode: 'Disengage', until: tick + 40 + Math.floor(this.random() * 50) };
     } else if (tick >= this.tactic.until && (pressure > 0 || caution > 0)) {
       const max = self.maxHp;
@@ -1282,7 +1370,7 @@ class AiController implements Controller {
       const press = Math.min(1, Math.max(0, pressure * (0.7 + ahead * 1.5)));
       const back = caution * (self.hp < 0.35 * max ? 0.45 : 0.08);
       const r = this.random();
-      const mode: Mode = r < press ? 'Pressure' : r < press + back ? 'Disengage' : 'Neutral';
+      const mode: Mode = r < press ? 'Pressure' : r < press + back && !chase ? 'Disengage' : 'Neutral';
       this.tactic = { mode, until: tick + 60 + Math.floor(this.random() * 120) };
     }
     if (footwork > 0 && tick >= this.strafe.until) {
@@ -1291,6 +1379,27 @@ class AiController implements Controller {
       const flank = this.chance(this.skill.teamwork);
       this.strafe = { sign, until, flank, ...this.idleLife(tick), hop: this.chance(this.skill.jumpStep) };
     }
+  }
+
+  /**
+   * A Battle's Waiting Fighter (no Attack Slot) with no promoted ally to fight: it walks to its spot on the waiting ring
+   * round the nearest enemy Player's Fighter (`battle.ring.radius` out, on its own bearing from it), facing it, and stands
+   * there until it is given a slot or demotes.
+   */
+  private waitAtRing(state: SimState, self: FighterState): Intent {
+    let player: FighterState | null = null;
+    let near = Infinity;
+    for (const [i, o] of state.fighters.entries()) {
+      if (!inDuel(o) || o.team === self.team || !bubblePlayer(state, i)) continue;
+      const d = Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z);
+      if (d < near) [player, near] = [o, d];
+    }
+    if (!player) return IDLE_INTENT;
+    const from = near > 1e-6 ? { x: (self.position.x - player.position.x) / near, z: (self.position.z - player.position.z) / near } : { x: 0, z: -1 };
+    const { radius } = this.tuning.battle.ring;
+    const to = { x: player.position.x + from.x * radius - self.position.x, z: player.position.z + from.z * radius - self.position.z };
+    const face = Math.atan2(player.position.x - self.position.x, player.position.z - self.position.z);
+    return { ...IDLE_INTENT, face, move: Math.hypot(to.x, to.z) > RING_ARRIVE ? unit(to) : ZERO };
   }
 
   /** Idle life for its next while of circling (`idleLife`, rolled with the side): a spacing of its own, maybe no circling, maybe a short pause first. */
@@ -1335,7 +1444,7 @@ class AiController implements Controller {
    */
   private landsInTime(self: FighterState, target: Sighting, dist: number, direction: Direction): boolean {
     const { windUpEnd } = attackTimings(this.tuning, self.weapon, direction);
-    const walk = Math.ceil(Math.max(0, dist - this.reach(self.weapon)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
+    const walk = Math.ceil(Math.max(0, dist - this.reach(self)) / (this.tuning.fighter.walkSpeed * TICK_SECONDS));
     return Math.max(windUpEnd, walk) <= this.openingLeft(target);
   }
 
@@ -1405,8 +1514,8 @@ class AiController implements Controller {
   /** Where it pitches its look: at the chest of `o` (lower when it crouches, the floor when it lies in a Knockdown), so its blows reach it. */
   private aim(self: FighterState, o: Sighting, flat: number): number {
     const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
-    const theirs = o.action.kind === 'Knockdown' ? LYING_AIM : AIM_HEIGHT * (1 - crouchDrop * o.crouch);
-    const mine = AIM_HEIGHT * (1 - crouchDrop * self.crouch);
+    const theirs = o.action.kind === 'Knockdown' ? LYING_AIM * (o.size?.height ?? 1) : AIM_HEIGHT * (o.size?.height ?? 1) * (1 - crouchDrop * o.crouch);
+    const mine = AIM_HEIGHT * (self.size?.height ?? 1) * (1 - crouchDrop * self.crouch);
     return Math.atan2(o.y + theirs - (self.y + mine), Math.max(flat, 0.5));
   }
 
@@ -1414,8 +1523,14 @@ class AiController implements Controller {
    * Its route to `target` (Links, from where it stands), re-planned when either changes surface or every REPATH_TICKS;
    * null when they share a Walk Surface, either is off the navmesh, it is in the air, or there is no way. It follows jump
    * Links held no longer than its `jumpNav` (none while Slowed, as a Slowed Jump falls short), except one it just gave up on.
+   * A Battle's open field (it has a Crowd and no Walls) has no ledges or Links: it walks straight there, and never builds a navmesh
+   * for the field's thousands of Walk Surfaces. A hand-built Battle map (Walls, no jump Links) is routed like any Arena.
    */
-  private routeTo(state: SimState, self: FighterState, target: Sighting): readonly number[] | null {
+  private routeTo(state: SimState, self: FighterState, target: Waypoint): readonly number[] | null {
+    if (state.crowd && !battlefieldOf(this.tuning.battle, state.arena)?.heights.walk) {
+      this.route = null;
+      return null;
+    }
     const arena = arenaOf(this.tuning, state.arena);
     const me = { x: self.position.x, z: self.position.z, y: self.y };
     const it = { x: target.position.x, z: target.position.z, y: target.y };
@@ -1436,7 +1551,7 @@ class AiController implements Controller {
   }
 
   /** Whether the next Link of its route to `target` is a jump Link. */
-  private jumpFirst(state: SimState, self: FighterState, target: Sighting): boolean {
+  private jumpFirst(state: SimState, self: FighterState, target: Waypoint): boolean {
     const first = this.routeTo(state, self, target)?.[0];
     return first !== undefined && navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[first]!.kind === 'jump';
   }
@@ -1446,7 +1561,7 @@ class AiController implements Controller {
    * else towards the next corner of its route there, or through the jump Link its route takes next (`takeJump`); with
    * no way there, as near as it safely can.
    */
-  private approach(state: SimState, self: FighterState, target: Sighting): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
+  private approach(state: SimState, self: FighterState, target: Waypoint): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
     const arena = arenaOf(this.tuning, state.arena);
     const run = this.jumpRun;
     if (run?.escape && run.stage !== 'Fly') return this.takeJump(state, self, run.link, navMesh(arena, this.tuning).links[run.link] as JumpLink);
@@ -1514,6 +1629,8 @@ class AiController implements Controller {
    * target than it stands and heading away from it. The nearest takeoff; ties go to the lower id.
    */
   private escapeLink(state: SimState, self: FighterState, target: Sighting): number | null {
+    // No Battle has jump Links: the open field has no Links at all (`routeTo`), a Battle map no jump Links (`jumpLinks: false`).
+    if (state.crowd) return null;
     const arena = arenaOf(this.tuning, state.arena);
     const mesh = navMesh(arena, this.tuning);
     const from = navPolygon(arena, this.tuning, { x: self.position.x, z: self.position.z, y: self.y });
@@ -1558,7 +1675,7 @@ class AiController implements Controller {
     const face = Math.atan2(lands.x - self.position.x, lands.z - self.position.z);
     const toward = { x: Math.sin(face), z: Math.cos(face) };
     const flat = Math.hypot(lands.x - self.position.x, lands.z - self.position.z);
-    const stand = this.reach(self.weapon) - LANDING_INSIDE;
+    const stand = this.reach(self) - LANDING_INSIDE;
     const spot = { x: lands.x - toward.x * stand, z: lands.z - toward.z * stand };
     const walk = Math.hypot(spot.x - self.position.x, spot.z - self.position.z) / (walkSpeed * TICK_SECONDS);
     if (state.tick < pressAt && walk > landTick - state.tick) return null;
@@ -1636,7 +1753,7 @@ class AiController implements Controller {
    */
   private leap(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent | null {
     const arena = arenaOf(this.tuning, state.arena);
-    const reach = this.reach(self.weapon);
+    const reach = this.reach(self);
     const { windUpEnd: windUp, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Overhead');
     const release = releaseEnd - windUp;
     for (const hold of this.leapHolds()) {
@@ -1674,7 +1791,7 @@ class AiController implements Controller {
    */
   private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
     if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
-    const reachOf = (o: Sighting) => this.reach(o.weapon) + THRUST_REACH;
+    const reachOf = (o: Sighting) => this.reach(o) + THRUST_REACH;
     // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
     const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
     const coming = fresh.fighters.some(
@@ -1772,7 +1889,7 @@ class AiController implements Controller {
   private toss(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2): boolean {
     const { throwRange } = this.tuning.ai;
     const { throwRate, mistakeRate } = this.skill;
-    if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self.weapon) || dist > throwRange) return false;
+    if (throwRate <= 0 || self.daggers <= 0 || dist <= this.reach(self) || dist > throwRange) return false;
     const walkingAway = (target.velocity.x * toward.x + target.velocity.z * toward.z) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
     if (walkingAway < FLEEING || !this.clearLine(state, self, target)) return false;
     if (!this.chance(throwRate * (1 - mistakeRate))) return false;
@@ -1811,7 +1928,7 @@ class AiController implements Controller {
     const flat = Math.max(Math.hypot(x - hx, z - hz), 0.5);
     const flight = flat / speed;
     const crouchDrop = this.tuning.fighter.crouchDepth / this.tuning.fighter.height;
-    const rise = target.y + AIM_HEIGHT * (1 - crouchDrop * target.crouch) - (self.y + HAND_HEIGHT) + 0.5 * gravity * flight * flight;
+    const rise = target.y + AIM_HEIGHT * (target.size?.height ?? 1) * (1 - crouchDrop * target.crouch) - (self.y + HAND_HEIGHT * (self.size?.height ?? 1)) + 0.5 * gravity * flight * flight;
     return { face: Math.atan2(x - hx, z - hz) + this.aimError, pitch: Math.atan2(rise, flat) - loft * DEG };
   }
 
@@ -1879,7 +1996,7 @@ class AiController implements Controller {
       const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
       if (high.length > 0) options = high;
     }
-    if (options.includes('Thrust') && dist > this.reach(self.weapon) - 0.1 && this.random() < 0.6) return 'Thrust';
+    if (options.includes('Thrust') && dist > this.reach(self) - 0.1 && this.random() < 0.6) return 'Thrust';
     return this.pick(options);
   }
 
@@ -1923,7 +2040,7 @@ class AiController implements Controller {
     const tick = state.tick;
     let plan = this.attackPlan;
     if (plan && plan.direction !== a.direction && !plan.chain) plan = this.attackPlan = { ...plan, direction: a.direction };
-    const myReach = this.reach(self.weapon) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
+    const myReach = this.reach(self) + (a.direction === 'Thrust' ? THRUST_REACH : 0);
     const closeIn = dist > Math.max(1.0, this.tuning.ai.retreatRange + 0.1) ? toward : ZERO;
     const inLine = plan?.team === true && team !== null && this.allyInLine(self, team, toward, myReach);
     if (a.phase === 'Wind-up') {
@@ -1955,14 +2072,14 @@ class AiController implements Controller {
         plan = this.attackPlan = { ...plan, chainRolled: true, chain };
       }
       const myTurn = !plan.team || team === null || (team.on.length < 2 && !inLine);
-      if (plan.chain && myTurn && dist <= this.reach(self.weapon) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
+      if (plan.chain && myTurn && dist <= this.reach(self) + SWING_IN * 0.5 && target.action.kind !== 'Knockdown') {
         this.attackPlan = { ...plan, chainHeld: true };
         return { ...base, attack: true, direction: plan.chain, move: this.safeMove(state, self, closeIn) };
       }
       this.attackPlan = { ...plan, chainHeld: false };
     }
     // Not Chaining: step back out of a counter, if it is cautious.
-    if (this.skill.caution > 0 && (this.tactic.mode !== 'Pressure' || !a.landed) && dist < this.reach(target.weapon) + 0.2) {
+    if (this.skill.caution > 0 && (this.tactic.mode !== 'Pressure' || !a.landed) && dist < this.reach(target) + 0.2) {
       return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
     }
     return base;
@@ -2011,7 +2128,7 @@ class AiController implements Controller {
     if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
       // Played as one of a team, it swings into no Attack (a Chamber, an Outpace) with an ally in its swing line.
       const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
-      const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self.weapon), 'Left');
+      const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
@@ -2071,7 +2188,7 @@ class AiController implements Controller {
     if (this.skill.holdBreak <= 0 || self.air) return null;
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     let plan = this.defencePlan!;
-    const theirReach = this.reach(seen.weapon) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
+    const theirReach = this.reach(seen) + (atk.direction === 'Thrust' ? THRUST_REACH : 0);
     if (atk.phase === 'Release') return plan.holdBreak?.go && flat > theirReach + 0.1 ? base : null;
     const { windUpEnd } = attackTimings(this.tuning, seen.weapon, atk.direction);
     const held = state.tick - this.reactionTicks - plan.attackStart - windUpEnd;
@@ -2118,7 +2235,7 @@ class AiController implements Controller {
     const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
     // How many Ticks until their Release, if they let go as soon as they can (as far as their pose shows).
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
-    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self.weapon)) {
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self)) {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
       if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
     }
@@ -2145,21 +2262,25 @@ class AiController implements Controller {
 export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y: number, dir: Vec2): boolean {
   if (dir.x === 0 && dir.z === 0) return true;
   const { stepUp } = tuning.fall;
-  const solid = (x: number, z: number) => {
-    const g = groundBelow(arena, x, z, y + stepUp);
-    return g !== null && y - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
+  // Each look ahead is measured from the ground of the one before (the first from its feet), so walking down a slope
+  // (a ramp) is a run of small steps down, not one drop off a ledge.
+  const solid = (x: number, z: number, from: number) => {
+    const g = groundBelow(arena, x, z, from + stepUp);
+    return g !== null && from - g.y <= stepUp && !deadlyGround(arena, x, z, g.y) ? g : null;
   };
+  let from = y;
   for (const k of [0.5, 1]) {
     const x = at.x + dir.x * SAFETY_PROBE * k;
     const z = at.z + dir.z * SAFETY_PROBE * k;
-    const g = solid(x, z);
+    const g = solid(x, z, from);
     if (!g || blockedAt(arena, x, z, g.y, tuning)) return false;
-    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN)) return false;
+    for (const side of [-1, 1]) if (!solid(x + side * dir.z * SAFETY_MARGIN, z - side * dir.x * SAFETY_MARGIN, from)) return false;
+    from = g.y;
   }
   return true;
 }
 
 /** A rule-based AI Controller with the given difficulty, playing `style` (a Style from `tuning.ai.styles`, or explicit multipliers; default DEFAULT_STYLE). */
-export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): Controller {
-  return new AiController(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
+export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): AiController {
+  return new RuleAi(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
 }

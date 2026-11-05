@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attack, hold, runDuel, createInitialState, duelPlacements } from '../sim';
-import { impactBursts } from './impacts';
+import { dustPuffs, impactBursts } from './impacts';
 
 const tuning = loadTuningData();
 
@@ -56,5 +56,33 @@ describe('impactBursts for daggers', () => {
 
   it('a dagger stuck in a wall makes no burst', () => {
     expect(impactBursts({ fighters, events: [{ type: 'DaggerStuck', point, direction: { x: 0, y: 0, z: 1 } }] }, tuning)).toEqual([]);
+  });
+});
+
+describe('dustPuffs', () => {
+  const fighters = createInitialState(tuning, 1, duelPlacements(3)).fighters;
+  const feet = { x: fighters[0]!.position.x, y: fighters[0]!.y, z: fighters[0]!.position.z };
+
+  it('a Jump and a Landing kick up dust at the Fighter\'s feet, a bigger drop a bigger puff', () => {
+    const jump = dustPuffs(1, { fighters, events: [{ type: 'Jump', fighter: 0 }] });
+    const small = dustPuffs(1, { fighters, events: [{ type: 'Land', fighter: 0, height: 0.2, damage: 0 }] });
+    const big = dustPuffs(1, { fighters, events: [{ type: 'Land', fighter: 0, height: 3, damage: 0 }] });
+    expect(jump).toEqual([{ kind: 'Jump', point: feet, strength: expect.any(Number) }]);
+    expect(big[0]!.strength).toBeGreaterThan(small[0]!.strength);
+    expect(big[0]!.strength).toBeLessThanOrEqual(1);
+  });
+
+  it('a Fighter hitting the floor and a Kick landing puff at the victim, not the attacker', () => {
+    const down = dustPuffs(1, { fighters, events: [{ type: 'KnockdownPhase', fighter: 1, phase: 'Down' }] });
+    expect(down).toEqual([{ kind: 'Down', point: { x: fighters[1]!.position.x, y: fighters[1]!.y, z: fighters[1]!.position.z }, strength: 1 }]);
+    const kick = dustPuffs(1, { fighters, events: [{ type: 'KickLanded', attacker: 0, defender: 1, outcome: 'Shove', zone: 'torso', point: feet, damage: 0 }] });
+    expect(kick.map((p) => p.kind)).toEqual(['Shove']);
+    expect(kick[0]!.point.z).toBe(fighters[1]!.position.z);
+  });
+
+  it('a Fighter being pushed along the floor scuffs it every few Ticks', () => {
+    const sliding = fighters.map((f, i) => (i === 1 ? { ...f, slide: { vx: 0, vz: 3, ticks: 10 } } : f));
+    expect(dustPuffs(3, { fighters: sliding, events: [] }).map((p) => p.kind)).toEqual(['Scuff']);
+    expect(dustPuffs(4, { fighters: sliding, events: [] })).toEqual([]);
   });
 });

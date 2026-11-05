@@ -7,6 +7,7 @@
 import { weaponByName, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks, TICK_SECONDS } from '../constants';
 import { mirrorDirection, type Direction } from '../intent';
+import { modsOf } from '../mods';
 import { motionTargets, type PoseTargets } from '../motion';
 import type { BlockAction, BlockImpact, FighterState } from '../state';
 import type { Vec3 } from '../vec';
@@ -97,13 +98,13 @@ const IMPACT_PUSH: Record<Direction, Vec3> = {
 /**
  * The Block Impact of a blow at `bladeSpeed` from `attacker` stopped by `defender`'s Block: the
  * Blade Speed over the attacker's Weapon's reference speed (clamped), scaled by the attacker's
- * Weapon's `blockImpact.dealt` and the defender's Weapon's `blockImpact.taken`.
+ * Weapon's `blockImpact.dealt` and the defender's Weapon's `blockImpact.taken`, then by the defender's `mods.blockImpactTaken`.
  */
 export function startBlockImpact(attacker: FighterState, defender: FighterState, direction: Direction, bladeSpeed: number, tuning: TuningData): BlockImpact {
   const dealt = weaponByName(tuning, attacker.weapon);
   const taken = weaponByName(tuning, defender.weapon);
   const clamped = Math.min(IMPACT_STRENGTH_MAX, Math.max(IMPACT_STRENGTH_MIN, bladeSpeed / dealt.speed));
-  return { direction, strength: clamped * dealt.blockImpact.dealt * taken.blockImpact.taken, tick: 0 };
+  return { direction, strength: clamped * dealt.blockImpact.dealt * taken.blockImpact.taken * modsOf(defender).blockImpactTaken, tick: 0 };
 }
 
 /** The Block Impact one Tick on, or undefined once it has settled (`block.impactDuration`). */

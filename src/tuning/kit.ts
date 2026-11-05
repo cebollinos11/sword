@@ -11,8 +11,8 @@
 import { checkSurface } from './arena';
 import { array, finiteNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
 
-export type PieceId = 'floor' | 'ramp' | 'crate' | 'pillar' | 'rail' | 'bridge' | 'void';
-export const PIECE_IDS: readonly PieceId[] = ['floor', 'ramp', 'crate', 'pillar', 'rail', 'bridge', 'void'];
+export type PieceId = 'floor' | 'ramp' | 'crate' | 'pillar' | 'rail' | 'bridge' | 'void' | 'door';
+export const PIECE_IDS: readonly PieceId[] = ['floor', 'ramp', 'crate', 'pillar', 'rail', 'bridge', 'void', 'door'];
 
 export type Side = 0 | 1 | 2 | 3;
 
@@ -58,6 +58,11 @@ export interface Piece {
   readonly skirts: readonly Skirt[];
   /** Whether its whole footprint is ground (or walled off), with no gap a body could step through into the Abyss. */
   readonly solid: boolean;
+  /**
+   * The door's alone (and required there): its door zone, a convex polygon of [x, z] corners on the ground at its level,
+   * before the doorway in its Wall along -z (docs/plans/dungeon.md, Doors). Standing in it is how a party takes the Door.
+   */
+  readonly zone?: readonly (readonly [number, number])[];
 }
 
 export interface Kit {
@@ -144,7 +149,16 @@ function parsePiece(raw: unknown, id: PieceId, cell: number, where: string): Pie
     return { ...cellOf(s, at), min, max };
   });
   if (typeof o.solid !== 'boolean') throw new TuningDataError(`${where}.solid must be true or false`);
-  return { id, cols, rows, walk, walls, connectors, skirts, solid: o.solid };
+  const piece: Piece = { id, cols, rows, walk, walls, connectors, skirts, solid: o.solid };
+  if (o.zone === undefined && id !== 'door') return piece;
+  if (id !== 'door') throw new TuningDataError(`${where}.zone: only a door has a zone`);
+  const zone = array(o.zone, `${where}.zone`).map((p, k) => {
+    const [x, z] = numbers(p, 2, `${where}.zone[${k}]`) as [number, number];
+    inside(x, z, `${where}.zone[${k}]`);
+    return [x, z] as const;
+  });
+  checkSurface({ id: `${where}.zone`, points: zone.map(([x, z]) => ({ x, y: 0, z })) }, `${where}.zone`);
+  return { ...piece, zone };
 }
 
 /** Validate one raw Kit file. Throws TuningDataError naming the path. */

@@ -97,6 +97,8 @@ export const MENU_CSS = `
 .room-code { font-family: ui-monospace, monospace; font-size: 2rem; font-weight: 700; letter-spacing: 0.22em; color: var(--gold-2); }
 
 /* Character */
+.size-slider { flex: 1; min-width: 6rem; accent-color: var(--accent, #f5cd7a); }
+.size-value { min-width: 3.2rem; text-align: right; font-variant-numeric: tabular-nums; }
 .body-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(6.6rem, 1fr)); gap: 0.5rem; }
 .body-card { display: flex; flex-direction: column; align-items: center; gap: 0.2rem; padding: 0.4rem 0.3rem 0.5rem; border-radius: 10px; border: 1px solid var(--line);
   background: radial-gradient(ellipse at 50% 40%, #ffffff14, transparent 70%), #ffffff06; transition: background 120ms, border-color 120ms, transform 120ms; }
@@ -108,6 +110,10 @@ export const MENU_CSS = `
 .body-name { font-size: 0.85rem; }
 .lb-row { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin: 0.5rem 0; }
 .lb-row .field-label, .lb-row .lb-label { min-width: 4rem; }
+.lb-knob { flex-direction: column; align-items: flex-start; gap: 0.35rem; margin: 0.65rem 0; }
+.lb-knob .segmented { flex-wrap: wrap; }
+.lb-reset { margin-top: 0.3rem; padding: 0.35rem 0.8rem; border-radius: 8px; border: 1px solid var(--line-2); background: transparent; color: var(--muted); font-size: 0.82rem; }
+.lb-reset:hover { color: inherit; border-color: var(--gold); }
 
 /* How to play */
 .keys { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem 1.1rem; margin: 0 0 1rem; align-items: baseline; }

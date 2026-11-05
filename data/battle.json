@@ -1,0 +1,129 @@
+{
+  "armySize": 200,
+  "field": {
+    "size": 200,
+    "cell": 5,
+    "hillHeight": 2.5,
+    "hillLength": 70
+  },
+  "deploy": {
+    "front": 40,
+    "perRank": 20
+  },
+  "crowd": {
+    "stagger": 6,
+    "walkSpeed": 2.5,
+    "hp": 50,
+    "damage": [4, 10],
+    "hitChance": 0.08,
+    "engageReach": 1.6,
+    "separation": 0.9,
+    "sight": 12,
+    "flowCell": 4
+  },
+  "squad": {
+    "size": 12,
+    "spacing": 1.5,
+    "turnRate": 1.2,
+    "catchUp": 1.2,
+    "speed": 0.8,
+    "lag": 6,
+    "brainSeconds": 0.5,
+    "moraleThreshold": 0.3,
+    "looseBelow": 0.5,
+    "engage": 15,
+    "mergeRange": 6,
+    "mergeMax": 16,
+    "baseDistance": 85,
+    "column": { "wide": 3 },
+    "line": { "wide": 6 },
+    "loose": { "spread": 0.8 },
+    "narrow": { "room": 3, "ahead": 6 }
+  },
+  "objectives": {
+    "radius": 12,
+    "playerCount": 3,
+    "captureSeconds": 0.5,
+    "rate": 0.01,
+    "maxRate": 0.08,
+    "openField": [
+      { "id": "H0", "x": 0, "z": -30, "weight": 0.6, "owner": 0, "spawn": true },
+      { "id": "A", "x": -55, "z": 0, "weight": 1, "owner": -1, "spawn": false },
+      { "id": "B", "x": 0, "z": 0, "weight": 1.4, "owner": -1, "spawn": false, "hill": 15 },
+      { "id": "C", "x": 55, "z": 0, "weight": 1, "owner": -1, "spawn": false },
+      { "id": "H1", "x": 0, "z": 30, "weight": 0.6, "owner": 1, "spawn": true }
+    ]
+  },
+  "tickets": {
+    "perSoldier": 3.5,
+    "drain": 0.6,
+    "limitSeconds": 900,
+    "respawnSeconds": 10
+  },
+  "commander": {
+    "planSeconds": 2.5,
+    "holdSeconds": 15,
+    "stick": 0.25,
+    "falloff": 0.6,
+    "distance": 0.004,
+    "threatRadius": 30,
+    "danger": 0.15,
+    "attack": 1,
+    "retake": 1.2,
+    "garrison": 0.3,
+    "defend": 1.5
+  },
+  "rout": {
+    "threshold": 0.2,
+    "seconds": 5
+  },
+  "soldier": {
+    "body": "female",
+    "weapon": "Arming Sword",
+    "colours": ["#c0392b", "#2e86c1"],
+    "difficulty": "Beginner",
+    "style": { "throwRate": 0 },
+    "mods": { "damage": 0.5 },
+    "sizeSpread": 0.08
+  },
+  "troops": [
+    { "name": "Levy", "weight": 5, "bodies": ["female", "brawler"], "weapon": "Arming Sword", "difficulty": "Beginner", "hp": 45, "damage": [3, 9], "hitChance": 0.08 },
+    { "name": "Halberdier", "weight": 2, "bodies": ["asturian"], "weapon": "Halberd", "difficulty": "Beginner", "hp": 50, "damage": [5, 11], "hitChance": 0.07, "engageReach": 2.2 },
+    { "name": "Swordsman", "weight": 2, "bodies": ["prince"], "weapon": "Longsword", "difficulty": "Skilled", "hp": 60, "damage": [4, 10], "hitChance": 0.09 },
+    { "name": "Brute", "weight": 1, "bodies": ["monk"], "weapon": "Sledge Hammer", "difficulty": "Skilled", "hp": 70, "damage": [6, 13], "hitChance": 0.06 }
+  ],
+  "bubble": {
+    "poolSize": 16,
+    "promote": 10,
+    "demote": 16,
+    "minPromotedSeconds": 1,
+    "corpseSeconds": 3,
+    "hold": 3
+  },
+  "slots": {
+    "enemies": 4,
+    "allies": 3,
+    "engaged": 2.5,
+    "shared": [
+      { "enemies": 2, "allies": 1 },
+      { "enemies": 2, "allies": 1 },
+      { "enemies": 1, "allies": 1 }
+    ]
+  },
+  "ring": {
+    "radius": 3.5,
+    "spacing": 1.2,
+    "pathAhead": 3,
+    "pathWidth": 0.8,
+    "waiting": 8
+  },
+  "takeover": {
+    "seconds": 1.5
+  },
+  "levels": {
+    "stepUp": 0.35,
+    "drop": 3,
+    "height": 1.8,
+    "promote": 2.5
+  }
+}

@@ -10,6 +10,7 @@ const flat: ArenaGeometry = {
   walk: [{ id: 'floor', points: [corner(-60, -60), corner(-60, 60), corner(60, 60), corner(60, -60)] }],
   walls: [],
   spawns: [],
+  doors: [],
 };
 const tuning: TuningData = { ...base, arenas: { ...base.arenas, homing: flat } };
 const noHoming: TuningData = { ...tuning, dagger: { ...tuning.dagger, homingTurn: 0 } };

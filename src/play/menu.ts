@@ -1,6 +1,6 @@
-import type { TuningData } from '../tuning';
+import { clampSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, storedSize, STANDARD_SIZE, type Size, type TuningData } from '../tuning';
 import { BODY_LABELS, BODY_MODELS, type BodyModelName } from '../render/bodyModel';
-import { cleanName, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
+import { cleanName, isBattle, MAX_NAME, member, startProblem, type Lobby } from '../lobby';
 import { devMode } from '../devMode';
 import { button, h, thumb, thumbImage } from './dom';
 import { arenaLabel, lobbyBody } from './lobbyView';
@@ -40,6 +40,7 @@ type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lob
 
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
+const SIZE_STORAGE_KEY = 'sword.size';
 const NAME_STORAGE_KEY = 'sword.name';
 const PS1_STORAGE_KEY = 'sword.ps1';
 const COLLIDERS_STORAGE_KEY = 'sword.colliders';
@@ -73,6 +74,11 @@ function storedBroker(): string {
 function storedBody(): BodyModelName {
   const saved = stored(BODY_STORAGE_KEY);
   return BODY_MODELS.find((b) => b === saved) ?? 'female';
+}
+
+function storedSizePick(): Size {
+  const [height, thick] = (stored(SIZE_STORAGE_KEY) ?? '').split(',').map(Number);
+  return height !== undefined && thick !== undefined && Number.isFinite(height) && Number.isFinite(thick) ? clampSize({ height, thick }) : STANDARD_SIZE;
 }
 
 /** Fullscreen with the WebKit prefix some iPad Safari versions still need. */
@@ -113,7 +119,7 @@ const KEYS: readonly (readonly [string, string])[] = [
   ['Right mouse', 'Block in the Direction you last moved'],
   ['W A S D', 'Walk'],
   ['Space', 'Jump'],
-  ['C (hold)', 'Crouch'],
+  ['C or Left Ctrl (hold)', 'Crouch'],
   ['F', 'Kick'],
   ['E (hold)', 'Throw a dagger: hold to draw it back, let go to throw'],
   ['R', 'Sheathe your Weapon to walk faster (you cannot Attack or Block), or Draw it again'],
@@ -149,6 +155,8 @@ export class Menu {
   private joinText = '';
   /** The Body model you are drawn as, in every Match (render-only; the other players see it too, and the AIs wear random ones). */
   body: BodyModelName = storedBody();
+  /** How tall and thick you are, in every Match (it changes your reach, your Hit Zones and how much room you take; the others see it too). */
+  size: Size = storedSizePick();
   /** Your name in Rooms. */
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
   /** Draw the game at PlayStation resolution (240 lines, the screen's aspect ratio kept). */
@@ -337,6 +345,19 @@ export class Menu {
     return b;
   }
 
+  /** Watches an AI-vs-AI Battle (docs/plans/big-battle.md, Stage 2) until the Lobby offers it. Null without ?dev=1. */
+  private battleItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    // A hash change reloads the page into the Battle (main.ts).
+    return this.navItem('Battle (dev)', 'Watch 200 v 200 Soldiers fight it out', () => (location.hash = '#/battle/1?dev=1'));
+  }
+
+  /** Plays a Battle (docs/plans/big-battle.md, Stage 3): your Fighter among the armies, Soldiers near you promoted to full Fighters. Null without ?dev=1. */
+  private battlePlayItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    return this.navItem('Battle, playing (dev)', 'Walk into 200 v 200 and fight whoever comes near', () => (location.hash = '#/battle/1/play?dev=1'));
+  }
+
   /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
@@ -371,10 +392,12 @@ export class Menu {
       'nav',
       'title-nav',
       null,
-      this.navItem('Skirmish', 'You and AI Fighters, up to 3 a side', () => this.handlers.onSkirmish(), 'primary'),
+      this.navItem('Skirmish', 'You and AI Fighters, up to 4 a side', () => this.handlers.onSkirmish(), 'primary'),
       this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
+      this.battleItem(),
+      this.battlePlayItem(),
       this.ps1Item(),
       this.colliderItem(),
       editor,
@@ -474,11 +497,30 @@ export class Menu {
       card.setAttribute('aria-pressed', String(b === this.body));
       grid.append(card);
     }
+    const sizeSlider = (label: string, part: keyof Size) => {
+      const input = h('input', 'size-slider');
+      input.type = 'range';
+      input.min = String(MIN_SIZE);
+      input.max = String(MAX_SIZE);
+      input.step = String(SIZE_STEP);
+      input.value = String(this.size[part]);
+      input.setAttribute('aria-label', label);
+      const value = h('span', 'size-value', `×${this.size[part].toFixed(2)}`);
+      input.addEventListener('input', () => {
+        this.size = clampSize({ ...this.size, [part]: Number(input.value) });
+        value.textContent = `×${this.size[part].toFixed(2)}`;
+        store(SIZE_STORAGE_KEY, `${this.size.height},${this.size.thick}`);
+        this.lobby?.setMine({ size: storedSize(this.size) });
+      });
+      return h('label', 'lb-row', null, h('span', 'field-label', label), input, value);
+    };
     const display = h('div', 'lb-row', null, h('span', 'field-label', 'Display'), this.fullscreenButton() ?? h('span', 'menu-help', 'Fullscreen is not available here.'));
     return this.card(
       'Character',
       this.nameField(),
       h('div', 'field', null, h('span', 'field-label', 'Look'), grid),
+      h('div', 'field', null, h('span', 'field-label', 'Build'), sizeSlider('Height', 'height'), sizeSlider('Thick', 'thick')),
+      h('p', 'menu-help', 'Height lengthens your body and your Weapon; thick widens you. Taller reaches further, wider is harder to miss and takes more room. Everyone sees it.'),
       h('p', 'menu-help', 'Only you see your look: everyone else is drawn in a random one, and it never changes how a Fighter fights.'),
       display,
     );
@@ -559,7 +601,7 @@ export class Menu {
       } else status = 'Only the host restarts the Match; your Weapon and Seat apply then.';
     } else if (!lobby.online) {
       const problem = startProblem(state, false);
-      status = problem ?? 'Pick your Weapon and fill the Seats, then fight.';
+      status = problem ?? (isBattle(state) ? 'Pick your Weapon, then fight.' : 'Pick your Weapon and fill the Seats, then fight.');
       const fight = button('cta', 'Fight', () => this.handlers.onStart());
       fight.disabled = Boolean(problem);
       actions.push(fight);

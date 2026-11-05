@@ -4,7 +4,7 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
   return {
-    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6 },
+    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6, lyingHitFactor: 2 },
     arena: { match: 'flat', editor: 'flat' },
     arenas: [{ name: 'flat', radius: 8, walk: [{ id: 'WALK_floor', points: [[-8, 0, -8], [8, 0, -8], [8, 0, 8], [-8, 0, 8]] }] }],
     fall: { gravity: 14, jumpSpeed: 4.8, jumpBoost: 20, jumpBoostDelay: 0.12, jumpBoostTime: 0.35, airControl: 4, fallDelay: 0.2, safeHeight: 1.6, damagePerMetre: 22, knockdownDamageFactor: 2, stepUp: 0.35, snapDown: 0.4 },
@@ -13,13 +13,42 @@ function goodRaw() {
       head: { multiplier: 1.5, radius: 0.11 },
       torso: { multiplier: 1, radius: 0.15 },
       limbs: { multiplier: 0.6, radius: 0.06 },
+      legs: { multiplier: 0.6, radius: 0.09 },
     },
     chamber: { windowSeconds: 0.15 },
     kick: { knockdownDamage: 5, shoveDamage: 1, knockdownSlide: 2.5, shoveSlide: 0.3, knockdownSlideTicks: 24, shoveSlideTicks: 6, knockdownTicks: 60, whiffRecovery: 24, legRadius: 0.08 },
     dagger: { count: 3, speed: 18, gravity: 9.8, loft: 4, homingCone: 25, homingRange: 20, homingTurn: 60, radius: 0.04, maxTicks: 90, damage: 5, slowFactor: 0.6, slowTicks: 180, throwWalkFactor: 1, maxHoldTicks: 120, blockImpact: 0.3 },
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
-    gauntlet: { interFloorSeconds: 5, heal: 0.3, revive: 0.4, perPlayerHp: 0.5, floors: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] },
+    dungeon: {
+      doorSeconds: 1.5,
+      hallFadeSeconds: 1,
+      revive: 0.25,
+      restHeal: 0.5,
+      perPlayerHp: 0.5,
+      depthHp: 0.1,
+      inventory: { weapons: 3, relics: 6, equippedRelics: 3 },
+      loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3 },
+      floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
+    },
+    relics: [],
+    battle: {
+      armySize: 20,
+      field: { size: 100, cell: 10, hillHeight: 1, hillLength: 50 },
+      deploy: { front: 10, perRank: 10 },
+      crowd: { stagger: 6, walkSpeed: 2.5, hp: 100, damage: [8, 20], hitChance: 0.35, engageReach: 1.6, separation: 0.9, sight: 12, flowCell: 4 },
+      squad: { size: 12, spacing: 1.5, turnRate: 1.2, catchUp: 1.2, speed: 0.8, lag: 6, brainSeconds: 0.5, moraleThreshold: 0.3, looseBelow: 0.5, engage: 15, mergeRange: 6, mergeMax: 16, baseDistance: 45, column: { wide: 3 }, line: { wide: 6 }, loose: { spread: 0.8 }, narrow: { room: 3, ahead: 6 } },
+      objectives: { radius: 8, playerCount: 3, captureSeconds: 0.5, rate: 0.01, maxRate: 0.08, openField: [{ id: 'A', x: 0, z: 0, weight: 1, owner: -1, spawn: false }] },
+      tickets: { perSoldier: 2, drain: 0.3, limitSeconds: 900, respawnSeconds: 10 },
+      commander: { planSeconds: 2.5, holdSeconds: 15, stick: 0.25, falloff: 0.6, distance: 0.004, threatRadius: 30, danger: 0.15, attack: 1, retake: 1.2, garrison: 0.3, defend: 1.5 },
+      rout: { threshold: 0.2, seconds: 5 },
+      soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
+      bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },
+      slots: { enemies: 4, allies: 3, engaged: 2.5, shared: [] },
+      ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 },
+      takeover: { seconds: 1.5 },
+      levels: { stepUp: 0.35, drop: 3, height: 1.8, promote: 2.5 },
+    },
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5, finalBlowLead: 0.35, finalBlowTail: 0.55, finalBlowSpeed: 0.3, finalBlowDistance: 3.4, finalBlowHeight: 1.6, finalBlowSpin: 0.35, shake: 1 },
     skeleton: {
@@ -82,6 +111,10 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: 0 } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: undefined } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
+    const floor = good.dungeon.floors[0]!;
+    const named = { ...good.dungeon, floors: [{ ...floor, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random', relics: ['Whetstone'] }] } }] };
+    expect(() => parseTuningData({ ...good, dungeon: named })).toThrow(/unknown Relic "Whetstone"/);
+    expect(parseTuningData({ ...good, dungeon: named, relics: [{ name: 'Whetstone', icon: 'whetstone', effects: { damage: 1.1 } }] }).dungeon.floors[0]!.boss.enemies[0]!.relics).toEqual(['Whetstone']);
     const sword = good.weapons[0]!;
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, length: 0 }] })).toThrow(/^weapons\/Sword\.length/);
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, speed: undefined }] })).toThrow(/^weapons\/Sword\.speed/);

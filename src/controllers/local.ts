@@ -1,5 +1,6 @@
-import type { Direction, Intent } from '../sim';
+import type { Direction, Intent, InventoryRef } from '../sim';
 import type { Controller } from './controller';
+import { inventoryClick, inventoryKey, type InventoryClickAction, type InventoryKey } from './inventoryKeys';
 
 export type LocalButton = 'attack' | 'block' | 'jump' | 'crouch' | 'kick' | 'throw' | 'sheathe';
 
@@ -15,8 +16,11 @@ const KICK_KEY = 'KeyF';
 /** The key that Sheathes the Weapon, or Draws it when Sheathed. */
 const SHEATHE_KEY = 'KeyR';
 
-/** The key held to crouch (not Ctrl: browsers keep Ctrl+W, which would close the tab). */
-const CROUCH_KEY = 'KeyC';
+/**
+ * The keys held to crouch. Left Ctrl is safe to use because the page asks the browser to hand over Ctrl+W
+ * (Keyboard Lock in fullscreen, an installed app) and, failing that, confirms before the tab closes (`bindLocalInput`).
+ */
+const CROUCH_KEYS: readonly string[] = ['KeyC', 'ControlLeft'];
 
 /** Mouse travel (px) that counts as a Direction gesture; smaller movements add up until they reach it. */
 export const GESTURE_PX = 6;
@@ -88,6 +92,7 @@ function quantiseYaw(yaw: number): number {
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
  *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
+ *   The number keys equip an inventory item (with Shift only select it) and X drops the one selected last, once each (`inventoryKeys.ts`); so does a click on the inventory screen.
  */
 export class LocalController implements Controller {
   private readonly held = { attack: false, block: false, jump: false, crouch: false, kick: false, throw: false, sheathe: false };
@@ -102,6 +107,10 @@ export class LocalController implements Controller {
   private latched: Direction = 'Overhead';
   private yawRadians = 0;
   private pitchRadians = 0;
+  /** The inventory keys pressed since the last sample (`inventoryKeys.ts`), and the item the drop key drops. */
+  private equipAsked: InventoryRef | undefined;
+  private dropAsked: InventoryRef | undefined;
+  private selected: InventoryRef | null = null;
 
   /** The camera yaw (radians, 0 looks along +z, same convention as Fighter facing). */
   get yaw(): number {
@@ -156,23 +165,41 @@ export class LocalController implements Controller {
     this.held[button] = false;
   }
 
-  /** A key went down (`KeyboardEvent.code`). Unknown keys are ignored. */
-  keyDown(code: string): void {
+  /** A key went down (`KeyboardEvent.code`, `shift` its Shift state: Shift and a number key selects an inventory item without equipping it). Unknown keys are ignored. */
+  keyDown(code: string, shift = false): void {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = true;
     else if (code === FEINT_KEY) this.feint();
     else if (code === JUMP_KEY) this.buttonDown('jump');
-    else if (code === CROUCH_KEY) this.buttonDown('crouch');
+    else if (CROUCH_KEYS.includes(code)) this.buttonDown('crouch');
     else if (code === KICK_KEY) this.buttonDown('kick');
     else if (code === THROW_KEY) this.buttonDown('throw');
     else if (code === SHEATHE_KEY) this.buttonDown('sheathe');
+    else this.inventoryKey(code, shift);
+  }
+
+  /** A number key equips and selects an item (with Shift only selects), the drop key drops the selected one (one Intent, however long it is held). */
+  private inventoryKey(code: string, shift: boolean): void {
+    const key = inventoryKey(code, this.selected, shift);
+    if (key) this.ask(key);
+  }
+
+  /** A click or tap on an inventory screen's equip or drop control: asked on one Tick, like its key (`inventoryClick`). */
+  inventoryClick(ref: InventoryRef, action: InventoryClickAction): void {
+    this.ask(inventoryClick(ref, action));
+  }
+
+  private ask(key: InventoryKey): void {
+    this.selected = key.selected;
+    if (key.equip) this.equipAsked = key.equip;
+    if (key.drop) this.dropAsked = key.drop;
   }
 
   keyUp(code: string): void {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = false;
     else if (code === JUMP_KEY) this.buttonUp('jump');
-    else if (code === CROUCH_KEY) this.buttonUp('crouch');
+    else if (CROUCH_KEYS.includes(code)) this.buttonUp('crouch');
     else if (code === KICK_KEY) this.buttonUp('kick');
     else if (code === THROW_KEY) this.buttonUp('throw');
     else if (code === SHEATHE_KEY) this.buttonUp('sheathe');
@@ -191,6 +218,7 @@ export class LocalController implements Controller {
   releaseAll(): void {
     this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
+    this.equipAsked = this.dropAsked = undefined;
   }
 
   /** The Intent for the coming Tick. Call exactly once per Tick. */
@@ -203,6 +231,9 @@ export class LocalController implements Controller {
     const throwing = this.pressed.throw;
     const throwHeld = this.held.throw;
     const sheathe = this.pressed.sheathe;
+    const equip = this.equipAsked;
+    const drop = this.dropAsked;
+    this.equipAsked = this.dropAsked = undefined;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
@@ -215,7 +246,7 @@ export class LocalController implements Controller {
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }) };
+    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }) };
   }
 
   intent(): Intent {

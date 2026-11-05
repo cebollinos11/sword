@@ -1,17 +1,22 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { arenaOf, type Layout } from '../sim';
+import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
+import { battlefieldSetting } from './battlefieldView';
 import { abyss, greybox, isGreybox } from './greybox';
-import { kitPlacements, type KitPlacement } from './kitPlacement';
+import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
 const VERTICAL_FOV = 60;
 const MIN_HORIZONTAL_FOV = 62;
+
+/** The camera's far plane (m): an Arena's, and a Battlefield's, where the camera looks out over the whole field into the haze. */
+const FAR = 200;
+const BATTLEFIELD_FAR = 600;
 
 const MAX_PIXEL_RATIO = 1.5;
 /** The game lowers its own resolution in steps when frames run slow (a weak or wrong GPU), never below this, and never raises it again. */
@@ -209,7 +214,7 @@ export class Stage {
     this.pixelRatio = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
     container.appendChild(this.renderer.domElement);
 
-    this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, 200);
+    this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, FAR);
     this.camera.position.set(0, 3, -6);
     this.camera.lookAt(0, 1, 0);
 
@@ -312,13 +317,18 @@ export class Stage {
     const layout = this.layout;
     const kitLook = layout && KIT_LOOKS[layout.kit];
     const kit = layout && kitLook ? this.tuning.kits[layout.kit] : undefined;
-    const setting: Setting = look
-      ? modelled(name, look, () => this.arena === name)
-      : kit && kitLook && layout
-        ? kitted(kit, layout, kitLook, geometry, () => this.geometry === geometry)
-        : isGreybox(name)
-          ? greybox(geometry)
-          : outdoors(geometry);
+    const field = isBattleName(name) ? battlefieldOf(this.tuning.battle, name) : null;
+    this.camera.far = field ? BATTLEFIELD_FAR : FAR;
+    this.camera.updateProjectionMatrix();
+    const setting: Setting = field
+      ? battle(name, field, () => this.arena === name)
+      : look
+        ? modelled(name, look, () => this.arena === name)
+        : kit && kitLook && layout
+          ? kitted(kit, layout, kitLook, geometry, () => this.geometry === geometry)
+          : isGreybox(name)
+            ? greybox(geometry)
+            : outdoors(geometry);
     this.loaded = setting.loaded ?? Promise.resolve();
     this.animate = setting.animate;
     this.scene.background = setting.background;
@@ -444,6 +454,22 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
   return { root, background: new THREE.Color(look.background), fog: new THREE.Fog(look.fog.color, look.fog.near, look.fog.far), loaded, animate, seeThrough: see };
 }
 
+/**
+ * A Battlefield's setting: the sky, light, ground and haze (`battlefieldSetting`), and on a hand-built Battle map (docs/plans/battle-objectives.md,
+ * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded.
+ */
+function battle(name: string, field: Battlefield, current: () => boolean): Setting {
+  const setting = battlefieldSetting(field.heights);
+  const map = battleMapName(name);
+  if (map === null) return setting;
+  const loaded = arenaModel(`battle_${map}`, [])
+    .then((model) => {
+      if (current()) setting.root.add(model);
+    })
+    .catch((e: unknown) => console.error(`Battle map model "${map}" failed to load`, e));
+  return { ...setting, loaded };
+}
+
 const kitModels = new Map<string, Promise<THREE.Object3D>>();
 
 /** A Kit's model (loaded once, shared by every Generated Arena of the Kit): a root node per Piece, holding its look. */
@@ -473,7 +499,7 @@ function kitInstances(model: THREE.Object3D, placements: readonly KitPlacement[]
     byNode.set(p.node, list);
   }
   for (const [node, matrices] of byNode) {
-    const template = model.getObjectByName(node);
+    const template = model.getObjectByName(node) ?? (STAND_IN_NODES[node] ? model.getObjectByName(STAND_IN_NODES[node]) : undefined);
     if (!template) {
       console.error(`Kit model has no node "${node}"`);
       continue;

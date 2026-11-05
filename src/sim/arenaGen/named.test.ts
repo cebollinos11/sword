@@ -17,6 +17,15 @@ describe('withGeneratedArena: a Random Map built from its name alone', () => {
     for (const name of Object.keys(tuning.arenas)) expect(built.arenas[name]).toBe(tuning.arenas[name]);
   });
 
+  it('builds a Hall Arena from a :d<n> name: its Doors, and the name it was asked for', () => {
+    const { tuning: built } = withGeneratedArena(tuning, 'gen:greybox:42:d3');
+    const arena = built.arenas['gen:greybox:42:d3']!;
+    expect(arena).toStrictEqual(generateArena(GREYBOX_KIT, 42, { ...DEFAULT_GEN_PARAMS, doors: 3 }, tuning).arena);
+    expect(arena.name).toBe('gen:greybox:42:d3');
+    expect(arena.doors).toHaveLength(3);
+    expect(withGeneratedArena(tuning, 'gen:greybox:42').tuning.arenas['gen:greybox:42']!.doors).toEqual([]);
+  });
+
   it('builds the same Arena from the same name every time', () => {
     const a = withGeneratedArena(tuning, 'gen:greybox:7').tuning.arenas['gen:greybox:7'];
     const b = withGeneratedArena(loadTuningData(), 'gen:greybox:7').tuning.arenas['gen:greybox:7'];
@@ -45,8 +54,17 @@ describe('withGeneratedArena: a Random Map built from its name alone', () => {
 
 describe('parseGeneratedName and isArenaName: checking a name without building it', () => {
   it('reads the Kit and seed of a gen: name, and null for any other', () => {
-    expect(parseGeneratedName('gen:greybox:1234')).toEqual({ kit: 'greybox', seed: 1234 });
+    expect(parseGeneratedName('gen:greybox:1234')).toEqual({ kit: 'greybox', seed: 1234, doors: 0 });
     expect(parseGeneratedName('library')).toBeNull();
+  });
+
+  it('reads a Hall Arena\'s Doors from an optional :d<n> (1 to 4), and refuses any other ending', () => {
+    for (const doors of [1, 2, 3, 4]) expect(parseGeneratedName(`gen:greybox:1234:d${doors}`)).toEqual({ kit: 'greybox', seed: 1234, doors });
+    for (const end of ['d0', 'd5', 'd', 'd01', 'D2', 'x2', '2', ''])
+      expect(() => parseGeneratedName(`gen:greybox:7:${end}`), end).toThrow(/gen:<kit>:<seed>:d<n>/);
+    expect(() => parseGeneratedName('gen:greybox:7:d2:d2')).toThrow(/gen:<kit>:<seed>/);
+    expect(isArenaName(tuning, 'gen:greybox:5:d3')).toBe(true);
+    expect(isArenaName(tuning, 'gen:greybox:5:d9')).toBe(false);
   });
 
   it('knows the Arenas a Lobby may name: hand-made ones and gen: names of a Kit held', () => {
@@ -87,6 +105,7 @@ describe('nextArenaSeed / nextArenaName: the Arena of the next Match', () => {
 
   it('moves a Random Map to the next seed, and leaves a hand-made Arena as it is', () => {
     expect(nextArenaName('gen:greybox:12')).toBe('gen:greybox:381979');
+    expect(nextArenaName('gen:greybox:12:d3')).toBe('gen:greybox:381979:d3');
     expect(nextArenaName('library')).toBe('library');
   });
 });

@@ -4,11 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Sword</title>
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%icons/icon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/icon-192.png" />
+    <meta name="theme-color" content="#2b4a63" />
+    <meta name="mobile-web-app-capable" content="yes" />
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #9fc9e8; }
+      body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       #app { width: 100%; height: 100%; }
       .fatal-error { font-family: system-ui, sans-serif; max-width: 48rem; margin: 4rem auto; padding: 1.5rem 2rem;
         background: #fff4f2; color: #5a1a12; border: 2px solid #c0392b; border-radius: 8px; }
+      .fatal-error { user-select: text; -webkit-user-select: text; }
       .fatal-error h1 { margin-top: 0; font-size: 1.4rem; }
       .fatal-error pre { white-space: pre-wrap; font-size: 0.95rem; }
     </style>

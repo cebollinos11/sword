@@ -6,8 +6,8 @@
  * which already has this shape) plug into the same loop.
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
-import type { TuningData } from '../tuning';
-import { checkLineup, lineupAis, lineupMatch, playerFighter, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import type { Size, TuningData } from '../tuning';
+import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -35,25 +35,66 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly lineup: Lineup;
   /** The player's Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
+  /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored. */
+  readonly autopilot?: readonly number[];
+  /** Dev mode only (`devAutopilotLoot`): the autopilot also picks up and equips its loot, and with 'drop' drops one item and takes it again. */
+  readonly autopilotLoot?: AutopilotLoot | null;
 }
 
 /**
  * A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other (in a
- * Gauntlet, a Floor AI each Team 1 slot). Throws on an invalid Lineup.
+ * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { lineup, weapon, ...matchOptions } = options;
+  const { lineup, weapon, autopilot, autopilotLoot, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const local: Controller = { intent: () => pending! };
+  const pilot = autopilot ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;
+  const local: Controller = pilot ?? { intent: () => pending! };
   const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,
     lineup,
+    get state() {
+      return match;
+    },
+    tick(localIntent) {
+      pending = localIntent;
+      pilot?.watch(match);
+      match = stepMatchWith(match, controllers, tuning);
+      return { advanced: true };
+    },
+  };
+}
+
+/** A Battle's Player: their Weapon (kept until their Fighter falls), their Team (default 0), the Battle's seed (its armies, and the open field's hills) and its Battlefield (default the open field of the seed). */
+export interface PlayerInBattleOptions {
+  readonly weapon: string;
+  readonly seed: number;
+  readonly arena?: string;
+  readonly team?: 0 | 1;
+  /** The Player's Size (default: the standard body), kept through every Soldier they take over. */
+  readonly size?: Size;
+  /** Dev mode and tests: the Player's slot on this Controller (e.g. a Battle autopilot), the local Intents ignored. */
+  readonly pilot?: Controller;
+}
+
+/**
+ * A Battle stepped locally (docs/plans/big-battle.md, Stage 5): the local player drives the Fighter Pool's slot 0 (their own
+ * Fighter, then each Soldier they take over), a Pool AI every other slot.
+ */
+export function playerInBattle(tuning: TuningData, options: PlayerInBattleOptions): MatchDriver {
+  const team = options.team ?? 0;
+  let match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: options.seed, ...(options.arena ? { arena: options.arena } : {}), teams: [team], weapons: [options.weapon], ...(options.size ? { sizes: [options.size] } : {}) });
+  let pending: Intent | null = null;
+  const controllers = poolControllers(tuning, [options.pilot ?? { intent: () => pending! }]);
+  return {
+    localFighter: 0,
+    lineup: [{ team, pilot: { kind: 'Player', player: 0 }, ...(options.size ? { size: options.size } : {}) }],
     get state() {
       return match;
     },

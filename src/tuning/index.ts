@@ -17,9 +17,36 @@ import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
-import gauntletJson from '../../data/gauntlet.json';
+import dungeonJson from '../../data/dungeon.json';
+import relicsJson from '../../data/relics.json';
+import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
-import { parseGauntlet, RANDOM_PICK, type GauntletTuning } from './gauntlet';
+export {
+  applyDungeonKnobs,
+  dungeonDifficultyLadder,
+  floorEncounters,
+  MAX_ENCOUNTER_ENEMIES,
+  MAX_ENEMY_RELICS,
+  MAX_LOOT_SPOTS,
+  parseDungeon,
+  parseRunKnobs,
+  POOLED_HALL_KINDS,
+  RANDOM_PICK,
+  RUN_KNOB_KEYS,
+  WEIGHTED_HALL_KINDS,
+  type DungeonEncounter,
+  type DungeonLoot,
+  type DungeonEnemy,
+  type DungeonFloor,
+  type DungeonTuning,
+  type HallKind,
+  type PooledHallKind,
+  type RunKnobs,
+  type WeightedHallKind,
+} from './dungeon';
+import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
+import { parseRelics, type RelicTuning } from './relics';
+import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
 import { linksIdle, parseMotion, motionFileName, type Motion, type PoseKey } from './motion';
@@ -27,10 +54,13 @@ import { parseWeapon, weaponFileName, type WeaponTuning } from './weapon';
 import { array, finiteNumber, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export { TuningDataError } from './validate';
+export { clampSize, isSize, isStandardSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, sizedTuning, STANDARD_SIZE, storedSize, type Size } from './size';
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
-export { MAX_FLOOR_ENEMIES, parseGauntlet, RANDOM_PICK, type GauntletEnemy, type GauntletFloor, type GauntletTuning } from './gauntlet';
-export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
+export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
+export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
+export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleKnobs, squadSizes, startingTickets, type BattleKnobs, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
+export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';
@@ -52,6 +82,8 @@ export interface FighterTuning {
   readonly turnSpeed: number;
   /** Seconds over which the pose crossfades whenever the Motion changes (e.g. Block → Idle), so poses never snap. */
   readonly motionBlend: number;
+  /** How much larger (a multiplier) the Hit Zones of a Fighter in Knockdown are to a blade or dagger, so a flat body is not a sliver to hit. 1 = as they are standing. */
+  readonly lyingHitFactor: number;
   /** How far (degrees) a Fighter may look up or down from level (Intent `pitch`). */
   readonly lookPitchMax: number;
   /** The share of its look pitch a Fighter leans its torso by (0 = upright; 1 = as far as it looks). */
@@ -228,7 +260,7 @@ export interface MatchTuning {
   readonly lineSpacing: number;
 }
 
-export const HIT_ZONES = ['head', 'torso', 'limbs'] as const;
+export const HIT_ZONES = ['head', 'torso', 'limbs', 'legs'] as const;
 export type HitZone = (typeof HIT_ZONES)[number];
 
 export interface HitZoneTuning {
@@ -395,8 +427,12 @@ export interface TuningData {
   readonly dagger: DaggerTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
-  /** A Gauntlet Run's Floors, and how HP carries between them. */
-  readonly gauntlet: GauntletTuning;
+  /** A Dungeon Run's Floors (each a graph of Halls, rebuilt from the Run seed), their Encounters, and how HP carries between Halls. */
+  readonly dungeon: DungeonTuning;
+  /** Every Relic, in file order (data/relics.json); an Encounter's enemies name theirs. */
+  readonly relics: readonly RelicTuning[];
+  /** A Battle's armies, Battlefield, Crowd and Rout (data/battle.json): docs/plans/big-battle.md. */
+  readonly battle: BattleTuning;
   readonly skeleton: SkeletonTuning;
   readonly ai: AiTuning;
   /** How feet step whenever the body moves (the Gait). */
@@ -410,6 +446,11 @@ export interface TuningData {
    * the default of the same name. Look Motions up with `weaponMotion`.
    */
   readonly motionOverrides: Readonly<Record<string, Readonly<Record<string, Motion>>>>;
+  /**
+   * Set only on the Tuning Data of a Fighter that is not the standard Size (`sizedTuning`): its Size, and the standard Skeleton the
+   * Motions are authored for, which their targets are scaled from. Never in a loaded file, and not hashed.
+   */
+  readonly size?: { readonly height: number; readonly thick: number; readonly skeleton: SkeletonTuning };
 }
 
 /** The default Weapon: the first in the roster. */
@@ -597,6 +638,7 @@ function parseAi(raw: unknown): AiTuning {
 export function parseTuningData(raw: unknown): TuningData {
   const root = record(raw, 'tuning');
   const f = record(root.fighter, 'fighter');
+  const relics = parseRelics(root.relics);
   const arenas: Record<string, ArenaGeometry> = {};
   (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
     const arena = parseArena(raw, `arenas[${i}]`);
@@ -675,6 +717,7 @@ export function parseTuningData(raw: unknown): TuningData {
       crouchSpeed: positiveNumber(f, 'crouchSpeed', 'fighter'),
       crouchWalkFactor: positiveNumber(f, 'crouchWalkFactor', 'fighter'),
       sheathedWalkFactor: positiveNumber(f, 'sheathedWalkFactor', 'fighter'),
+      lyingHitFactor: positiveNumber(f, 'lyingHitFactor', 'fighter'),
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,
@@ -713,7 +756,9 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
-    gauntlet: parseGauntlet(root.gauntlet, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles)),
+    dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
+    relics,
+    battle: parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS),
     skeleton,
     ai,
     gait: parseGait(root.gait),
@@ -746,6 +791,8 @@ const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', {
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
 /** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
+/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path. */
+const battleMapFiles = import.meta.glob<unknown>('../../data/battlemaps/*.json', { eager: true, import: 'default' });
 /** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
 const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 
@@ -807,7 +854,19 @@ export function loadTuningData(): TuningData {
     dagger: daggerJson,
     block: blockJson,
     match: matchJson,
-    gauntlet: gauntletJson,
+    dungeon: dungeonJson,
+    relics: relicsJson,
+    battle: {
+      ...battleJson,
+      maps: Object.fromEntries(
+        inFileOrder(battleMapFiles).map(([path, raw]) => {
+          const file = path.slice(path.lastIndexOf('/') + 1);
+          const name = record(raw, `data/battlemaps/${file}`).name;
+          if (typeof name !== 'string' || `${name}.json` !== file) throw new TuningDataError(`data/battlemaps/${file}: a Battle map must live in <its name>.json`);
+          return [name, raw];
+        }),
+      ),
+    },
     skeleton: skeletonJson,
     ai: aiJson,
     gait: gaitJson,

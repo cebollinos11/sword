@@ -1,17 +1,18 @@
 import * as THREE from 'three';
 import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
-import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
+import { sizedTuning, weaponByName, type Size, type TuningData, type WeaponTuning } from '../tuning';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
+import { setDitherFade } from './dither';
 
 export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
 
 /** Each team's colours: red for team 0, blue for team 1, a different shade for each teammate (the first is FIGHTER_COLOURS'). */
 export const TEAM_COLOURS: readonly (readonly number[])[] = [
-  [0xc0392b, 0xe67e5c, 0x7b241c],
-  [0x2e86c1, 0x76c3ee, 0x1b4f72],
+  [0xc0392b, 0xe67e5c, 0x7b241c, 0xd35400],
+  [0x2e86c1, 0x76c3ee, 0x1b4f72, 0x16a085],
 ];
 
 /** The colour of a team's `k`-th Fighter (in Fighter order). */
@@ -26,6 +27,9 @@ export function fighterColours(teams: readonly number[]): number[] {
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
+const STANDARD: Size = { height: 1, thick: 1 };
+/** Radius (m) of a joint's sphere on the bare Skeleton. */
+const JOINT_RADIUS = 0.055;
 
 /** Bone thickness (radius, metres) by bone; anything unlisted is a limb. */
 function boneRadius(a: JointName, b: JointName): number {
@@ -50,9 +54,15 @@ export class FighterView {
   private readonly bones: { mesh: THREE.Mesh; a: JointName; b: JointName }[] = [];
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
+  private readonly headRadius: number;
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  /** The geometries and materials the primitives share (made in the constructor). */
+  private readonly owned: { dispose(): void }[] = [];
+  private disposed = false;
+  /** Resolves once its Body is drawn as it will stay: its model in (or failed to load), or at once for the bare Skeleton. */
+  readonly ready: Promise<void>;
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
@@ -62,6 +72,8 @@ export class FighterView {
     const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8);
     const sphere = new THREE.SphereGeometry(1, 10, 8);
     const box = new THREE.BoxGeometry(1, 1, 1);
+    const cone = new THREE.ConeGeometry(1, 1, 8);
+    this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone);
 
     for (const [a, b] of BONES) {
       const mesh = new THREE.Mesh(cylinder, body);
@@ -72,18 +84,21 @@ export class FighterView {
     for (const name of JOINT_NAMES) {
       if (name === 'head' || name === 'chest' || name === 'pelvis') continue;
       const mesh = new THREE.Mesh(sphere, body);
-      mesh.scale.setScalar(0.055);
+      mesh.scale.setScalar(JOINT_RADIUS);
       this.joints.set(name, mesh);
       this.skeleton.add(mesh);
     }
     this.head = new THREE.Mesh(sphere, body);
-    this.head.scale.setScalar(tuning.skeleton.headRadius);
+    this.headRadius = tuning.skeleton.headRadius;
+    this.head.scale.setScalar(this.headRadius);
     this.skeleton.add(this.head);
     this.root.add(this.skeleton);
+    this.ready = Promise.resolve();
     if (wears !== 'skeleton') {
       // Until it loads (or if it cannot), the Fighter is drawn as its Skeleton.
-      loadBodyModel(wears, colour, tuning.skeleton).then(
+      this.ready = loadBodyModel(wears, colour, tuning.skeleton).then(
         (model) => {
+          if (this.disposed) return;
           this.model = model;
           this.skeleton.visible = false;
           this.root.add(model.root);
@@ -105,7 +120,7 @@ export class FighterView {
       shaft: new THREE.Mesh(cylinder, wood),
       axe: new THREE.Mesh(box, steel),
       hook: new THREE.Mesh(box, steel),
-      spike: new THREE.Mesh(new THREE.ConeGeometry(1, 1, 8), steel),
+      spike: new THREE.Mesh(cone, steel),
     };
     this.polearm.group.add(this.polearm.shaft, this.polearm.axe, this.polearm.hook, this.polearm.spike);
     this.hammer = {
@@ -118,19 +133,42 @@ export class FighterView {
     this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
   }
 
+  /** Free what this view made: the primitives' geometries and materials, and a loaded model's own materials (its geometry and textures are the shared template's). */
+  dispose(): void {
+    this.disposed = true;
+    for (const o of this.owned) o.dispose();
+    this.model?.root.traverse((o) => {
+      if (o instanceof THREE.SkinnedMesh) (o.material as THREE.Material).dispose();
+    });
+  }
+
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
   set bodyVisible(on: boolean) {
     this.skeleton.visible = on && !this.model;
     if (this.model) this.model.root.visible = on;
   }
 
-  /** Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data). */
-  update(pose: SkeletonPose, weapon: WeaponTuning): void {
+  /** How much of it shows, 0 (none) to 1 (all): between them it is dithered (`dither.ts`), crossfading with a Soldier's impostor. */
+  setFade(fade: number): void {
+    if (fade >= 1 && this.root.userData.fade === undefined) return;
+    setDitherFade(this.root, fade);
+  }
+
+  /**
+   * Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data, at the Fighter's Size when it has one), in a body
+   * `size` tall and thick (default: the standard body): limbs, joints and the head are drawn that much thicker.
+   */
+  update(pose: SkeletonPose, weapon: WeaponTuning, size: Size = STANDARD): void {
     const p = pose.joints;
-    for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], mesh.userData.radius as number);
-    for (const [name, mesh] of this.joints) mesh.position.set(p[name].x, p[name].y, p[name].z);
+    for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], (mesh.userData.radius as number) * size.thick);
+    for (const [name, mesh] of this.joints) {
+      mesh.position.set(p[name].x, p[name].y, p[name].z);
+      // No wider than the body is tall, so a short wide Fighter's ankles stay above the floor.
+      mesh.scale.setScalar(JOINT_RADIUS * Math.min(size.thick, size.height));
+    }
     this.head.position.set(p.head.x, p.head.y, p.head.z);
-    this.model?.rig.pose(p, pose.blade);
+    this.head.scale.setScalar(this.headRadius * size.height);
+    this.model?.rig.pose(p, pose.blade, size);
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
@@ -253,10 +291,11 @@ export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonP
  */
 export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData): SkeletonPose {
   const f = to.fighters[i]!;
-  const weapon = weaponByName(tuning, f.weapon);
+  const sized = sizedTuning(tuning, f.size);
+  const weapon = weaponByName(sized, f.weapon);
   if (f.death) {
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
-    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, tuning, arenaOf(tuning, to.arena), f.sheathed);
+    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed);
   }
   const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
   return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;

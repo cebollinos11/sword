@@ -14,7 +14,7 @@
  *   3. resolveContact: a Block, a Chamber (the attacker Staggers, cause Chambered), a hit that Staggers the victim (or, in the air or
  *      from a Heavy Blow, knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
-import { isHeavyBlow, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { isHeavyBlow, sizedTuning, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { inDuel } from './duel';
@@ -24,6 +24,7 @@ import { attackSweepLive, blocksAttack, guardDirection, kickSweepLive, knockdown
 import type { Emit } from './events';
 import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
+import { modsOf } from './mods';
 import { followMotion, playbackTargets, upperBody } from './motion';
 import { bladeAndLeg, fighterPose } from './pose';
 import { startSlide } from './slide';
@@ -84,7 +85,7 @@ export type Contact = BladeContact | KickContact | WallContact;
 function weaponCapsule(f: FighterState, tuning: TuningData): Capsule {
   const { hilt, tip } = f.blade;
   const axis = normalize(sub(tip, hilt));
-  return { a: sub(hilt, scale(axis, weaponByName(tuning, f.weapon).gripLength)), b: tip, radius: tuning.block.bladeRadius };
+  return { a: sub(hilt, scale(axis, weaponByName(sizedTuning(tuning, f.size), f.weapon).gripLength)), b: tip, radius: tuning.block.bladeRadius };
 }
 
 /** Whether a point `along` the blade (0 at the main hand, 1 at the tip) lies on the Weapon's Head (within `head` of the tip). */
@@ -98,6 +99,12 @@ export function onHead(weapon: WeaponTuning, along: number): boolean {
  */
 export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZone, bladeSpeed: number, head = true): number {
   return weapon.damage * (bladeSpeed / weapon.speed) * tuning.hitZones[zone].multiplier * (head ? 1 : weapon.shaftDamage);
+}
+
+/** The Hit Zone capsules a blade or dagger meets on `f`: a Fighter in Knockdown lies flat, so its zones are `fighter.lyingHitFactor` times as thick. */
+function bodyCapsules(f: FighterState, tuning: TuningData): HitCapsule[] {
+  const own = sizedTuning(tuning, f.size);
+  return hitZoneCapsules(fighterPose(f, tuning), own, f.action.kind === 'Knockdown' ? own.fighter.lyingHitFactor : 1);
 }
 
 /**
@@ -126,12 +133,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
     if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
     const { direction, chamberedBy } = attacker.action;
-    const weapon = weaponByName(tuning, attacker.weapon);
+    const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
       if (j === i || !inDuel(defender)) return;
-      const zones: Capsule[] = hitZoneCapsules(fighterPose(defender, tuning), tuning);
+      const zones: Capsule[] = bodyCapsules(defender, tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       const chambered = !blocked && (chamberedBy?.includes(j) ?? false) && chamberHolds(defender, direction);
       // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
@@ -163,7 +170,7 @@ function findKickContacts(before: FighterState, kicker: FighterState, i: number,
   let best: { contact: KickContact; travelled: number } | null = null;
   next.forEach((defender, j) => {
     if (j === i || !inDuel(defender)) return;
-    const zones = hitZoneCapsules(fighterPose(defender, tuning), tuning).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
+    const zones = hitZoneCapsules(fighterPose(defender, tuning), sizedTuning(tuning, defender.size)).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
     const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples);
     if (!c) return;
     const travelled = length(sub(c.point, before.kickLeg.toe));
@@ -188,7 +195,7 @@ export interface DaggerContact {
  * ignores Weapons. Hit Zones are padded by `dagger.radius`.
  */
 export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: readonly FighterState[], tuning: TuningData): DaggerContact[] {
-  const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : hitZoneCapsules(fighterPose(f, tuning), tuning)));
+  const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : bodyCapsules(f, tuning)));
   const out: DaggerContact[] = [];
   sweeps.forEach((sweep, k) => {
     let best: { s: number; depth: number; contact: DaggerContact } | null = null;
@@ -208,6 +215,16 @@ export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: rea
     if (found) out.push(found.contact);
   });
   return out;
+}
+
+/**
+ * `out[killer]` heals by its `mods.healOnKill` (never above its max HP) when a Hit took `victim` from above zero HP to zero: only the Hit
+ * that causes the Death heals, and a killer already at zero HP (or one who is not in the Duel) does not come back.
+ */
+function healOnKill(out: FighterState[], killer: number, hpBefore: number, hpAfter: number): void {
+  const k = out[killer]!;
+  const heal = modsOf(k).healOnKill;
+  if (heal > 0 && hpBefore > 0 && hpAfter <= 0 && k.hp > 0) out[killer] = { ...k, hp: Math.min(k.maxHp, k.hp + heal) };
 }
 
 /**
@@ -240,10 +257,11 @@ export function resolveDaggers(
       out[c.defender] = { ...out[c.defender]!, blockImpact: { ...impact, strength: impact.strength * tuning.dagger.blockImpact } };
       continue;
     }
-    const damage = tuning.dagger.damage * tuning.hitZones[c.zone].multiplier;
+    const damage = tuning.dagger.damage * tuning.hitZones[c.zone].multiplier * modsOf(thrower).daggerDamage * modsOf(defender).damageTaken;
     emit({ type: 'DaggerHit', thrower: d.owner, defender: c.defender, zone: c.zone, point: c.point, damage });
     const hurt = out[c.defender]!;
     const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
+    healOnKill(out, d.owner, hurt.hp, wounded.hp);
     out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
   }
   return { fighters: out, spent };
@@ -275,7 +293,8 @@ export function resolveContacts(
  * Put a Fighter into Stagger, interrupting its Action (and re-solving its blade for the new Motion). `from` (a blade Hit
  * only) is the side the blow came from, from the Fighter's own view.
  */
-export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, tuning: TuningData, emit: Emit, from?: Direction): FighterState {
+export function staggerFighter(f: FighterState, index: number, cause: StaggerCause, standard: TuningData, emit: Emit, from?: Direction): FighterState {
+  const tuning = sizedTuning(standard, f.size);
   // A blocked attacker keeps the upper body it was blocked in (the Recoil holds it) rather than recoiling through its Motion.
   const hold = cause === 'Blocked' ? upperBody(playbackTargets(tuning, f.weapon, f.motion)) : undefined;
   const { action, motion } = stagger(tuning, f.weapon, cause, hold, from);
@@ -288,7 +307,8 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
  * Knock a Fighter down (ADR 0007): a Knockdown interrupts its Action, its Block Impact is dropped, a Jump's boost
  * left is lost, and its pose is re-solved lying.
  */
-function knockDown(f: FighterState, tuning: TuningData): FighterState {
+function knockDown(f: FighterState, standard: TuningData): FighterState {
+  const tuning = sizedTuning(standard, f.size);
   const { blockImpact: _impact, air, ...rest } = f;
   const { action, motion } = knockdown();
   let flight: Airborne | undefined;
@@ -344,14 +364,15 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
  * back (its Weapon's `heavyBlow.blockSlide`), the Block holding. Otherwise a hit: the defender takes damage and Staggers,
  * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
  * wherever it is and pushes it away (`heavyBlow.knockdownSlide`).
- * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow).
+ * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow). The damage is scaled by the Fighters'
+ * `mods` (`src/sim/mods.ts`, which writes down the order and that nothing is rounded), and a Hit that fells its victim heals its attacker (`healOnKill`).
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
   const defender = before[c.defender]!;
   const action = attacker.action as AttackAction;
   if (action.landed) return;
-  const weapon = weaponByName(tuning, attacker.weapon);
+  const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
   const { dx, dz } = awayFrom(attacker, defender);
   if (c.chambered) {
     emit({ type: 'Chamber', chamberer: c.defender, attacker: c.attacker, direction: c.direction, point: c.point });
@@ -368,8 +389,10 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
     out[c.defender] = heavy ? push(guarded, dx, dz, weapon.heavyBlow.blockSlide, weapon.heavyBlow.blockSlideTicks) : guarded;
     return;
   }
-  const damage = attacker.team === defender.team ? 0 : hitDamage(tuning, weapon, c.zone, c.bladeSpeed, c.onHead);
-  const heavy = damage > 0 && isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
+  const blow = attacker.team === defender.team ? 0 : hitDamage(tuning, weapon, c.zone, c.bladeSpeed, c.onHead);
+  const heavy = blow > 0 && isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
+  const { damage: dealt, heavyDamage } = modsOf(attacker);
+  const damage = blow * dealt * (heavy ? heavyDamage : 1) * modsOf(defender).damageTaken;
   const current = out[c.attacker]!;
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
   if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
@@ -377,6 +400,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
+  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   if (heavy) {
     out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, tuning);
     return;
@@ -415,7 +439,7 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   // An enemy in the air is knocked down whatever it does; a defender already in Knockdown is only Shoved: nobody is knocked down twice.
   const knocked = (mx !== 0 || mz !== 0 || (defender.air !== undefined && attacker.team !== defender.team)) && defender.action.kind !== 'Knockdown';
   const { kick } = tuning;
-  const damage = attacker.team === defender.team ? 0 : knocked ? kick.knockdownDamage : kick.shoveDamage;
+  const damage = attacker.team === defender.team ? 0 : (knocked ? kick.knockdownDamage * modsOf(attacker).kickDamage : kick.shoveDamage) * modsOf(defender).damageTaken;
   const distance = knocked ? kick.knockdownSlide : kick.shoveSlide;
   const ticks = knocked ? kick.knockdownSlideTicks : kick.shoveSlideTicks;
 
@@ -423,6 +447,7 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   const hurt = out[c.defender]!;
   const pushed = push(hurt, dx, dz, distance, ticks);
   const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
+  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
   if (!knocked) {

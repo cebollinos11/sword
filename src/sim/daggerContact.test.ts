@@ -11,6 +11,7 @@ const flat: ArenaGeometry = {
   walk: [{ id: 'floor', points: [corner(-60, -60), corner(-60, 60), corner(60, 60), corner(60, -60)] }],
   walls: [],
   spawns: [],
+  doors: [],
 };
 const tuning = { ...base, arenas: { ...base.arenas, contact: flat } };
 const { dagger, hitZones, fighter } = tuning;

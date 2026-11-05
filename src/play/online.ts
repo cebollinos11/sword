@@ -14,8 +14,8 @@
  *   over): it becomes a notice for the HUD.
  */
 import type { Intent } from '../sim';
-import type { Controller } from '../controllers';
-import type { RefuseReason, RollbackSession, SessionEvent } from '../net';
+import type { Autopilot, Controller } from '../controllers';
+import type { RefuseReason, RollbackSession, SessionEvent, SessionStats } from '../net';
 import type { MatchDriver } from './driver';
 
 export interface PlayerVsPlayerDriver extends MatchDriver {
@@ -24,6 +24,8 @@ export interface PlayerVsPlayerDriver extends MatchDriver {
   readonly failure: string | null;
   readonly waiting: string | null;
   readonly ping: number | null;
+  /** The session's counts (Rollbacks, stalls, resyncs), for the dev page's measurements. */
+  readonly stats: SessionStats;
   /** The oldest notice not yet shown (e.g. a Player left), or null. */
   takeNotice(): string | null;
   close(): void;
@@ -53,10 +55,19 @@ function carryPresses(dropped: Intent | null, next: Intent): Intent {
   return { ...next, attack: next.attack || dropped.attack, block: next.block || dropped.block };
 }
 
-/** `names`: each Player's name (index = Player number), for notices. */
-export function playerVsPlayer(session: RollbackSession, names: readonly string[] = []): PlayerVsPlayerDriver {
+/**
+ * `names`: each Player's name (index = Player number), for notices.
+ *
+ * `autopilot` (dev mode only, `devAutopilot` in src/devMode.ts): the local Fighter's Intents come from it, fed the session's
+ * (possibly predicted) state, instead of the Local Controller's, and go through the session like any local Intent. Each peer
+ * has its own: Players who pick different Doors do not gather anywhere (a Door needs every Player Fighter at it, ADR 0010),
+ * so the party waits in the Cleared Hall until they agree. Its memory is not part of the Simulation and not rolled back.
+ */
+export function playerVsPlayer(session: RollbackSession, names: readonly string[] = [], autopilot?: Autopilot): PlayerVsPlayerDriver {
   let failure: string | null = null;
   let dropped: Intent | null = null;
+  // The autopilot is asked once per Tick of the state: while the session waits or stalls on the same one, its Intent is reused (its memory follows the Simulation).
+  let lastPilot: { tick: number; intent: Intent } | null = null;
   const notices: string[] = [];
   session.onEvent((e: SessionEvent) => {
     if (failure) return;
@@ -82,6 +93,9 @@ export function playerVsPlayer(session: RollbackSession, names: readonly string[
     get ping() {
       return session.ping;
     },
+    get stats() {
+      return session.stats;
+    },
     get waiting() {
       if (session.status !== 'Connecting') return null;
       return session.role === 'host' ? 'Waiting for the other players…' : 'Waiting for the host…';
@@ -89,7 +103,16 @@ export function playerVsPlayer(session: RollbackSession, names: readonly string[
     takeNotice() {
       return notices.shift() ?? null;
     },
-    tick(localIntent) {
+    tick(piloted) {
+      let localIntent = piloted;
+      const state = session.state;
+      if (autopilot && state && session.localFighter >= 0 && state.status.status !== 'Over') {
+        if (lastPilot?.tick !== state.tick) {
+          autopilot.watch(state);
+          lastPilot = { tick: state.tick, intent: autopilot.intent(state.duel, session.localFighter) };
+        }
+        localIntent = lastPilot.intent;
+      }
       const running = session.status === 'Running';
       const intent = carryPresses(running ? dropped : null, localIntent);
       const { advanced } = session.tick(intent);

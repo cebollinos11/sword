@@ -1,4 +1,4 @@
-import { defaultWeaponName, weaponByName, type ArenaGeometry, type TuningData } from '../tuning';
+import { defaultWeaponName, sizedTuning, storedSize, weaponByName, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
@@ -66,37 +66,54 @@ export function createInitialState(
   weapons: readonly string[] = [],
   teams: readonly number[] = [],
   arena: string = tuning.arena.editor,
+  sizes: readonly (Size | undefined)[] = [],
 ): SimState {
   const geometry = arenaOf(tuning, arena);
   return {
     tick: 0,
     arena,
     rng: createRng(seed),
-    fighters: placements.map(({ position, facing, y: placedY = 0 }, i) => {
-      // A placement stands on the ground under it, within a step of where it is placed.
-      const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
-      const weapon = weaponByName(tuning, weapons[i] ?? defaultWeaponName(tuning)).name;
-      return {
-        position: { x: position.x, z: position.z },
-        y,
-        facing,
-        pitch: 0,
-        crouch: 0,
-        team: teams[i] ?? defaultTeam(i),
-        hp: tuning.fighter.maxHp,
-        maxHp: tuning.fighter.maxHp,
-        weapon,
-        action: IDLE_ACTION,
-        motion: IDLE_MOTION,
-        ...bladeAndLeg(motionPose(tuning, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
-        daggers: tuning.dagger.count,
-        sheathed: false,
-        gait: initialGait(tuning, weapon, IDLE_MOTION, { position, facing, y }),
-      };
-    }),
+    fighters: placements.map((placement, i) => standingFighter(tuning, geometry, placement, weapons[i] ?? defaultWeaponName(tuning), teams[i] ?? defaultTeam(i), sizes[i])),
     daggers: [],
     duel: DUEL_FIGHTING,
     events: [],
+  };
+}
+
+/**
+ * A Fighter at the start of a Duel: Idle at guard, full HP, standing on the ground under `placement` (within a step of its
+ * height), wielding `weapon` (a Weapon name; throws on an unknown one) on `team`, in a body of `bodySize` (default: the standard one). A Battle's Promotion makes its Fighters here too.
+ */
+export function standingFighter(
+  tuning: TuningData,
+  geometry: ArenaGeometry,
+  { position, facing, y: placedY = 0 }: Placement,
+  weaponName: string,
+  team: number,
+  bodySize?: Size,
+): FighterState {
+  // A placement stands on the ground under it, within a step of where it is placed.
+  const y = groundBelow(geometry, position.x, position.z, placedY + tuning.fall.stepUp)?.y ?? placedY;
+  const weapon = weaponByName(tuning, weaponName).name;
+  const size = storedSize(bodySize);
+  const sized = sizedTuning(tuning, size);
+  return {
+    position: { x: position.x, z: position.z },
+    y,
+    facing,
+    pitch: 0,
+    crouch: 0,
+    team,
+    hp: tuning.fighter.maxHp,
+    maxHp: tuning.fighter.maxHp,
+    weapon,
+    ...(size && { size }),
+    action: IDLE_ACTION,
+    motion: IDLE_MOTION,
+    ...bladeAndLeg(motionPose(sized, IDLE_MOTION.name, IDLE_MOTION.tick, { position, facing, y }, weapon)),
+    daggers: tuning.dagger.count,
+    sheathed: false,
+    gait: initialGait(sized, weapon, IDLE_MOTION, { position, facing, y }),
   };
 }
 
@@ -279,9 +296,10 @@ function settleBodies(
   const positions = new Map(living.map((i, k) => [i, resolved[k]!]));
   return fighters.map((f, i) => {
     if (!inDuel(f)) return f;
-    const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, tuning);
-    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, tuning, emit) : grounded;
-    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, tuning, arena, emit) };
+    const own = sizedTuning(tuning, f.size);
+    const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, own);
+    const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
+    const settled = { ...moved, gait: updateGait(before[i]!, moved, i, own, arena, emit) };
     return { ...settled, ...bladeAndLeg(fighterPose(settled, tuning)) };
   });
 }
@@ -326,7 +344,7 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   const arena = arenaOf(tuning, state.arena);
   let fighters = settleBodies(
     state.fighters,
-    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, tuning, emit))),
+    state.fighters.map((f, i) => (!inDuel(f) ? f : stepFighter(f, i, tick, (fighting && intents[i]) || IDLE_INTENT, sizedTuning(tuning, f.size), emit))),
     tuning,
     arena,
     fighting,
@@ -359,8 +377,9 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
   fighters.forEach((f, i) => {
     if (f.death?.tick === tick) emit({ type: 'Death', fighter: i, cause: f.death.cause });
   });
-  const duel = updateDuel(state.duel, fighters, tick, emit);
+  // A Battle's Duel never ends by its Fighters: the Battle ends by a Rout (`stepBattle`).
+  const duel = state.crowd ? state.duel : updateDuel(state.duel, fighters, tick, emit, state.hall !== undefined);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.floor === undefined ? {} : { floor: state.floor }) };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.hall === undefined ? {} : { hall: state.hall }), ...(state.crowd === undefined ? {} : { crowd: state.crowd }) };
 }

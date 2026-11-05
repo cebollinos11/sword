@@ -1,9 +1,14 @@
+import type { HallKind } from '../tuning';
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
+import type { Inventory } from './inventory';
+import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
+import type { CrowdState } from './crowd';
+import type { Size } from '../tuning';
 import type { Vec3 } from './vec';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
@@ -187,8 +192,22 @@ export interface FighterState {
   readonly hp: number;
   /** Its max HP: `fighter.maxHp`, or in a Gauntlet Run an enemy's scaled one (docs/plans/gauntlet.md). HP never rises above it. */
   readonly maxHp: number;
+  /**
+   * Its equipped Relics folded into one record (`foldMods`): every Hit, Throwing Dagger, Kick, Block Impact, heal and its max HP read the
+   * Fighter's own. Absent while they are `NO_MODS` (see `modsOf`), set only by `setMods`, at a Hall's start or on an equip.
+   */
+  readonly mods?: Mods;
+  /**
+   * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
+   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Hall starts and
+   * changed by the Intent's `equip` and `drop` in a Cleared Hall (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
+   * `weapon`, and `mods` is the fold of its equipped Relics.
+   */
+  readonly inventory?: Inventory;
   /** The name of the Weapon it wields (Tuning Data `weapons`), chosen when the Match is created and kept across Duels. */
   readonly weapon: string;
+  /** How tall and thick it is, fixed for the Match; absent for the standard body (Tuning Data `sizedTuning` scales everything it affects). */
+  readonly size?: Size;
   readonly action: Action;
   /** The Motion animating the current Action and its playhead. */
   readonly motion: MotionPlayback;
@@ -218,7 +237,31 @@ export interface FighterState {
    * slot's spawn, out of the Duel (`inDuel`): not stepped, hits and is hit by nothing, blocks no bodies, never a target, not counted by the Duel's end.
    */
   readonly benched?: true;
+  /**
+   * In a Battle, present on a Fighter Pool slot bound to a Soldier (docs/plans/big-battle.md, Stage 3): the Soldier it was promoted
+   * from (its index in the Crowd) and the Tick of its Promotion. Absent on a Player's Fighter, on an unbound slot (which is Benched),
+   * and in every Duel and Run, so their state hashes as it always did.
+   */
+  readonly soldier?: SoldierBinding;
 }
+
+/** A Fighter Pool slot's Soldier (`FighterState.soldier`). */
+export interface SoldierBinding {
+  /** The Soldier's index in the Crowd. */
+  readonly index: number;
+  /** The Tick (`SimState.tick`) of its Promotion: the first Tick it was stepped as a full Fighter. */
+  readonly since: number;
+  /** What it holds in its Bubble (docs/plans/big-battle.md, Stage 4; `SoldierRole`). */
+  readonly role: SoldierRole;
+}
+
+/**
+ * A promoted Fighter's place in its Bubble: `Attack`, an enemy of the Bubble's Player holding one of its Attack Slots (it
+ * fights the Player and their allies); `Ally`, an ally of the Player holding an ally slot (it fights the Bubble's enemies);
+ * `Waiting`, an enemy holding no Attack Slot (it lost its slot to a promoted ally engaging it): it fights only promoted
+ * allies, never a Player, and with none on it waits at the ring until it takes a free slot again or demotes.
+ */
+export type SoldierRole = 'Attack' | 'Ally' | 'Waiting';
 
 /**
  * How a Fighter fell. The Simulation only records it; the Death Ragdoll is
@@ -314,6 +357,27 @@ export type DuelState =
   | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };
 
 /**
+ * A Hall's phase: `Fighting` while any Team 1 Fighter is in the Duel, `Cleared` once none is (at once for a Hall with no
+ * Encounter), the party free to walk to a Door; `Leaving` once it has taken one, during the fade to the next Hall.
+ */
+export type HallPhase = 'Fighting' | 'Cleared' | 'Leaving';
+
+/** Which Hall of a Dungeon Run a Duel is fought in (`SimState.hall`): Floor (1-based), row and index in it (0-based). */
+export interface SimHall {
+  readonly floor: number;
+  /** 0 the entrance, 4 the Boss. */
+  readonly row: number;
+  readonly index: number;
+  readonly kind: HallKind;
+  readonly phase: HallPhase;
+  /**
+   * The Player Fighters an AI Takeover has taken (ascending), as the Run's `away`, mirrored here so a Controller reads it off the
+   * state (and so it rolls back). Absent while nobody has left, so a Run without a Takeover hashes as it always did.
+   */
+  readonly away?: readonly number[];
+}
+
+/**
  * The complete Simulation state. Plain, JSON-like data only: everything that
  * influences the next Tick lives here so snapshot/restore and hashing are exact.
  */
@@ -326,8 +390,17 @@ export interface SimState {
   /** Throwing Daggers in flight, in the order they were thrown. */
   readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
-  /** In a Gauntlet Run, the Floor this Duel is (1-based), so a Controller, which sees only SimState, can tell Floors apart; absent otherwise. */
-  readonly floor?: number;
+  /**
+   * In a Gauntlet Run, the Hall this Duel is fought in and its phase (mirroring `MatchState.run`), so a Controller, which
+   * sees only SimState, can tell Halls apart and see one is cleared; absent otherwise. While present, the Duel ends only
+   * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
+   */
+  readonly hall?: SimHall;
+  /**
+   * In a Battle (docs/plans/big-battle.md), its Soldiers: the Crowd, stepped by `stepMatch` after the Fighters (`stepCrowd`);
+   * absent otherwise, so a Duel's state hashes as it always did. `step` carries it through unchanged.
+   */
+  readonly crowd?: CrowdState;
   /** What happened during the Tick that produced this state (for audio, effects, overlays, tests). */
   readonly events: readonly SimEvent[];
 }
