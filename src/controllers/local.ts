@@ -118,6 +118,15 @@ export class LocalController implements Controller {
     return this.yawRadians;
   }
 
+  /**
+   * The Direction a press would use now, for the HUD's aim indicator: the latest gesture, or, while an Attack is held,
+   * the Direction it is locked to (`locked`: only a Feint changes it).
+   */
+  get aimed(): { readonly direction: Direction; readonly locked: boolean } {
+    const locked = this.held.attack;
+    return { direction: locked ? this.latched : this.gestured, locked };
+  }
+
   /** The camera pitch (radians from level, + looks up), within MAX_LOOK_PITCH. */
   get pitch(): number {
     return this.pitchRadians;

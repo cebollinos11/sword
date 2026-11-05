@@ -56,6 +56,15 @@ const CSS = `
 @media (pointer: fine) { .hud-menu { top: 0.6rem; bottom: auto; left: auto; right: 0.6rem; transform: none; width: 2rem; height: 2rem; font-size: 0.95rem; } .hud-stats { right: 3rem; } }
 .hud-crosshair { position: absolute; top: 50%; left: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; border-radius: 50%;
   background: #fffe; box-shadow: 0 0 0 1px #0008; }
+.hud-aim { position: absolute; display: none; background: #fffe; box-shadow: 0 0 0 1px #0008; border-radius: 1px; }
+.hud-aim.on { display: block; }
+.hud-crosshair.locked .hud-aim { background: #ffb347; }
+.hud-aim-overhead, .hud-aim-thrust { left: 1px; width: 2px; height: 22px; }
+.hud-aim-overhead { bottom: 10px; }
+.hud-aim-thrust { top: 10px; }
+.hud-aim-left, .hud-aim-right { top: 1px; height: 2px; width: 22px; }
+.hud-aim-left { right: 10px; }
+.hud-aim-right { left: 10px; }
 .hud-letterbox { position: absolute; left: 0; right: 0; height: 11vh; background: #000; transform: scaleY(0); transition: transform 350ms ease-out; }
 .hud-letterbox-0 { top: 0; transform-origin: top; }
 .hud-letterbox-1 { bottom: 0; transform-origin: bottom; }
