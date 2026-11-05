@@ -1,6 +1,6 @@
 /**
  * docs/plans/battle-objectives.md, Stage 3a: an online Battle on the Fort over the memory transport (40 ms ± 20 latency), as
- * `battle.test.ts` plays one on the open field. Each peer drives its own Player with a Hard Battle autopilot fed its own (possibly
+ * `battle.test.ts` and `battle*.slow.test.ts` play one on the open field. Each peer drives its own Player with a Hard Battle autopilot fed its own (possibly
  * predicted) state, and every other Pool slot is a Pool AI on every peer. Every peer's Tick function notes the hash of the Match each Tick
  * leaves, and the Battle is stepped offline again from the Intents the Players sent, so the peers are compared with it Tick by Tick: the
  * Crowd pushed out of the walls, the Pool AIs routed round them by the navmesh, all of it. The armies are small (60 a side, half a Ticket
