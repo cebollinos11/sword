@@ -337,9 +337,11 @@ describe('a Player fighting beside allies in a Battle', () => {
     expect(waiting).toBeGreaterThan(0);
   });
 
-  it('keeps every waiting Soldier outside sword reach of the Player', () => {
+  it('keeps every waiting Soldier outside sword reach of the Player, while the Player lives', () => {
     let checked = 0;
     for (const m of states.slice(1)) {
+      // A fallen Player holds nobody back: the Soldiers walk over them.
+      if (m.duel.fighters[0]!.hp <= 0) continue;
       const c = m.duel.crowd!;
       const p = m.duel.fighters[0]!.position;
       for (let s = army; s < 2 * army; s++) {

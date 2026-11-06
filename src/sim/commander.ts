@@ -6,7 +6,7 @@
  * ahead of the other. It sees the whole Battle.
  *
  * - **Value of an Objective** to a Team: its weight times `attack` (nobody's), `retake` (the enemy's), `garrison` (the Team's own, no
- *   enemy near) or, with enemy Soldiers within `threatRadius`, up to `defend` (the more of them, up to a Squad's worth, the nearer
+ *   enemy near; only the first `garrisonSquads` Squads sent there earn it, any more earn nothing) or, with enemy Soldiers within `threatRadius`, up to `defend` (the more of them, up to a Squad's worth, the nearer
  *   `defend`).
  * - **A Squad sent there** earns the value, less `falloff` for each Squad already sent (so Squads spread over the Objectives), less
  *   `distance` for each metre of the path from the Squad's anchor (the destination field's length), less `danger` for each Squad's worth
@@ -115,8 +115,10 @@ export function planOrders(crowd: CrowdState, tick: number, battle: BattleTuning
           if (path < 0) continue;
           // Enemy Soldiers there beyond what the Team has there already or has on the way (a Squad standing there is in both counts).
           const outnumbered = Math.max(0, threat[foe]![k]! - Math.max(threat[team]![k]!, sent[k]! * size)) / size;
-          const stays = old.order[q] !== RESPAWN && old.target[q] === k ? c.stick : 0;
-          const score = value[k]! * c.falloff ** sent[k]! - c.distance * path - c.danger * outnumbered + stays;
+          // A Squad beyond the garrison of an Objective the Team owns with no enemy near is spare there: it earns nothing, not even `stick`.
+          const spare = crowd.objectives.owner[k] === team && threat[foe]![k]! === 0 && sent[k]! >= c.garrisonSquads;
+          const stays = !spare && old.order[q] !== RESPAWN && old.target[q] === k ? c.stick : 0;
+          const score = (spare ? 0 : value[k]! * c.falloff ** sent[k]!) - c.distance * path - c.danger * outnumbered + stays;
           if (score > bestScore) [bestScore, bestAt, bestK] = [score, f, k];
         }
       });

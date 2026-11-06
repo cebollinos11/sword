@@ -40,7 +40,7 @@ function goodRaw() {
       squad: { size: 12, spacing: 1.5, turnRate: 1.2, catchUp: 1.2, speed: 0.8, lag: 6, brainSeconds: 0.5, moraleThreshold: 0.3, looseBelow: 0.5, engage: 15, mergeRange: 6, mergeMax: 16, baseDistance: 45, column: { wide: 3 }, line: { wide: 6 }, loose: { spread: 0.8 }, narrow: { room: 3, ahead: 6 } },
       objectives: { radius: 8, spawnRadius: 12, playerCount: 3, captureSeconds: 0.5, rate: 0.01, maxRate: 0.08, openField: [{ id: 'A', x: 0, z: 0, weight: 1, owner: -1, spawn: false }] },
       tickets: { perSoldier: 2, drain: 0.3, limitSeconds: 900, respawnSeconds: 10 },
-      commander: { planSeconds: 2.5, holdSeconds: 15, stick: 0.25, falloff: 0.6, distance: 0.004, threatRadius: 30, danger: 0.15, attack: 1, retake: 1.2, garrison: 0.3, defend: 1.5 },
+      commander: { planSeconds: 2.5, holdSeconds: 15, stick: 0.25, falloff: 0.8, distance: 0.003, threatRadius: 30, danger: 0.15, attack: 1, retake: 1.2, garrison: 0.3, garrisonSquads: 1, defend: 1.5 },
       rout: { threshold: 0.2, seconds: 5 },
       soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },

@@ -65,13 +65,14 @@
     "planSeconds": 2.5,
     "holdSeconds": 15,
     "stick": 0.25,
-    "falloff": 0.6,
-    "distance": 0.004,
+    "falloff": 0.8,
+    "distance": 0.003,
     "threatRadius": 30,
     "danger": 0.15,
     "attack": 1,
     "retake": 1.2,
     "garrison": 0.3,
+    "garrisonSquads": 1,
     "defend": 1.5
   },
   "rout": {

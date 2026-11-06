@@ -186,6 +186,8 @@ export interface CommanderTuning {
   readonly retake: number;
   /** An Objective the Team owns, no enemy near, is worth its weight times this. */
   readonly garrison: number;
+  /** At most this many Squads hold an Objective the Team owns with no enemy near; any more are spare and earn nothing (nor `stick`) there, so they go where they are needed. */
+  readonly garrisonSquads: number;
   /** An Objective the Team owns with a threat on it is worth its weight times this, up to the threat of one Squad's worth of Soldiers. */
   readonly defend: number;
 }
@@ -706,6 +708,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     attack: nonNegativeNumber(cm, 'attack', 'battle.commander'),
     retake: nonNegativeNumber(cm, 'retake', 'battle.commander'),
     garrison: nonNegativeNumber(cm, 'garrison', 'battle.commander'),
+    garrisonSquads: nonNegativeNumber(cm, 'garrisonSquads', 'battle.commander'),
     defend: nonNegativeNumber(cm, 'defend', 'battle.commander'),
   };
   const weapon = nonEmptyString(s, 'weapon', 'battle.soldier');
