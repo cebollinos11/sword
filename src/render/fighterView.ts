@@ -73,7 +73,9 @@ export class FighterView {
     const sphere = new THREE.SphereGeometry(1, 10, 8);
     const box = new THREE.BoxGeometry(1, 1, 1);
     const cone = new THREE.ConeGeometry(1, 1, 8);
-    this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone);
+    // A four-sided pyramid whose base is the unit box's end face, so a sword's point meets its blade flush.
+    const point = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1, false, Math.PI / 4);
+    this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone, point);
 
     for (const [a, b] of BONES) {
       const mesh = new THREE.Mesh(cylinder, body);
@@ -110,11 +112,12 @@ export class FighterView {
     this.sword = {
       group: new THREE.Group(),
       blade: new THREE.Mesh(box, steel),
+      point: new THREE.Mesh(point, steel),
       crossguard: new THREE.Mesh(box, dark),
       grip: new THREE.Mesh(cylinder, dark),
       pommel: new THREE.Mesh(sphere, steel),
     };
-    this.sword.group.add(this.sword.blade, this.sword.crossguard, this.sword.grip, this.sword.pommel);
+    this.sword.group.add(this.sword.blade, this.sword.point, this.sword.crossguard, this.sword.grip, this.sword.pommel);
     this.polearm = {
       group: new THREE.Group(),
       shaft: new THREE.Mesh(cylinder, wood),
@@ -181,6 +184,7 @@ export class FighterView {
 interface SwordMeshes {
   readonly group: THREE.Group;
   readonly blade: THREE.Mesh;
+  readonly point: THREE.Mesh;
   readonly crossguard: THREE.Mesh;
   readonly grip: THREE.Mesh;
   readonly pommel: THREE.Mesh;
@@ -243,11 +247,17 @@ function placeInFrame(mesh: THREE.Mesh, along: number, out: number, size: readon
 
 /** Where the crossguard sits, in front of the sword hand (m). */
 const GUARD = 0.07;
+/** How long a sword's tapered point is (m). */
+const SWORD_POINT = 0.1;
 
 function placeSword(m: SwordMeshes, b: BladeTransform, w: WeaponTuning): void {
   const len = weaponFrame(b);
-  const blade = Math.max(len - GUARD, 0.01);
+  // The blade runs from the guard and tapers to a point at the tip.
+  const reach = Math.max(len - GUARD, 0.01);
+  const point = Math.min(SWORD_POINT, reach * 0.5);
+  const blade = reach - point;
   placeInFrame(m.blade, GUARD + blade / 2, 0, [0.012, blade, 0.045]);
+  placeInFrame(m.point, GUARD + blade + point / 2, 0, [0.012, point, 0.045]);
   placeInFrame(m.crossguard, GUARD, 0, [0.03, 0.025, 0.18]);
   const grip = w.gripLength + GUARD;
   placeInFrame(m.grip, GUARD - grip / 2, 0, [0.016, grip, 0.016]);
