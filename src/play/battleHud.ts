@@ -11,6 +11,7 @@ import {
   inDuel,
   owned,
   RESPAWN,
+  secondsToTicks,
   TICK_SECONDS,
   type BattlePlayer,
   type CrowdState,
@@ -74,6 +75,22 @@ export function playerStatus(state: SimState, me: number): PlayerStatus {
   const crowd = state.crowd;
   return crowd && crowdAlive(crowd)[f.team as 0 | 1] > 0 ? 'Fallen' : 'Out';
 }
+
+/**
+ * How long (s) until fallen Player `me` takes over an ally (`battle.takeover.seconds` after the fall), and how far through that
+ * wait they are (0 to 1); null unless they lie fallen with a Soldier to take over. Read from the state (the Simulation decides).
+ */
+export function takeoverCountdown(state: SimState, me: number, battle: BattleTuning): { seconds: number; progress: number } | null {
+  const f = state.fighters[me];
+  const record = state.crowd?.players[me];
+  if (!f?.death || !record || record.away || playerStatus(state, me) !== 'Fallen') return null;
+  const wait = secondsToTicks(battle.takeover.seconds);
+  const left = Math.max(0, f.death.tick + wait - state.tick);
+  return { seconds: left * TICK_SECONDS, progress: wait > 0 ? 1 - left / wait : 1 };
+}
+
+/** How long (ms) the HP bar takes to fill after a takeover. */
+const REFILL_MS = 700;
 
 /** The Player's record in a Battle (none outside one). */
 export function playerRecord(state: SimState, me: number): BattlePlayer | null {
@@ -162,6 +179,8 @@ export class BattleHud {
   private readonly map = document.createElement('div');
   private readonly minimap: Minimap;
   private bannerUntil = 0;
+  /** When (performance.now) the HP bar began filling after a takeover; NaN when it is not. */
+  private refillAt = Number.NaN;
   private mapShown = true;
   private readonly stats = document.createElement('div');
   private frames = 0;
@@ -231,6 +250,12 @@ export class BattleHud {
     this.map.hidden = !this.mapShown;
   }
 
+  /** The Player took over a Soldier: fill the HP bar from empty, glowing, so the fresh HP shows. */
+  refill(): void {
+    this.refillAt = performance.now();
+    this.hpFill.parentElement?.classList.add('refill');
+  }
+
   announce(text: string, seconds = 2.5): void {
     this.banner.textContent = text;
     this.banner.classList.add('visible');
@@ -256,10 +281,18 @@ export class BattleHud {
     const f = duel.fighters[me];
     const record = playerRecord(duel, me);
     const status = playerStatus(duel, me);
-    const hp = f && inDuel(f) ? f.hp : 0;
+    let hp = f && inDuel(f) ? f.hp : 0;
     const max = f?.maxHp ?? 1;
+    if (!Number.isNaN(this.refillAt)) {
+      const t = (performance.now() - this.refillAt) / REFILL_MS;
+      if (t >= 1) {
+        this.refillAt = Number.NaN;
+        this.hpFill.parentElement?.classList.remove('refill');
+      } else hp *= 1 - (1 - Math.max(0, t)) ** 3;
+    }
+    const countdown = takeoverCountdown(duel, me, this.battle);
     this.who.textContent =
-      status === 'Out' ? 'Out: your army has no soldiers left' : status === 'Fallen' ? 'Fallen: taking over a soldier…' : record && record.soldier >= 0 ? `A soldier of your army · ${record.kills} kills` : `You · ${record?.kills ?? 0} kills`;
+      status === 'Out' ? 'Out: your army has no soldiers left' : status === 'Fallen' ? (countdown ? `Fallen: taking over a soldier in ${countdown.seconds.toFixed(1)} s` : 'Fallen: taking over a soldier…') : record && record.soldier >= 0 ? `A soldier of your army · ${record.kills} kills` : `You · ${record?.kills ?? 0} kills`;
     this.hpFill.style.width = `${Math.max(0, (hp / max) * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(hp)} / ${max}`;
     if (this.mapShown) this.minimap.draw(duel, me, this.sites.objectives);

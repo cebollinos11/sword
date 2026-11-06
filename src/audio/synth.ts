@@ -187,6 +187,8 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.gong(ENDING_DELAY, 1);
       case 'MatchEnd':
         return this.fanfare(ENDING_DELAY);
+      case 'Takeover':
+        return this.takeover();
     }
   }
 
@@ -419,6 +421,16 @@ export class WebAudioPlayer implements SoundPlayer {
     this.ring(out, { base: base * 1.5, partials: STEEL, at: 0.07, peak: 0.16, decay: 1.3 });
     // The blade sliding along the other's edge.
     this.hiss(out, { filter: 'bandpass', freq: 2800, to: 7500, q: 7, at: 0.05, dur: 0.38, peak: 0.45, attack: 0.08, flutter: 55 });
+  }
+
+  /** The view flying to a taken-over Soldier: a broad rush of air swelling and rising, a low swell under it, and a soft chime as it lands. */
+  private takeover(): void {
+    const out = this.bus(0.35, 1.2, [-0.4, 0.4], 0.8);
+    this.hiss(out, { filter: 'bandpass', freq: 250, to: 1800, q: 1.2, dur: 0.85, peak: 0.5, attack: 0.55 });
+    this.hiss(out, { filter: 'bandpass', freq: 1200, to: 4200, q: 6, dur: 0.75, peak: 0.18, attack: 0.5 });
+    this.tone(out, { type: 'sine', freq: 70, to: 110, dur: 0.9, peak: 0.25, attack: 0.5 });
+    this.tone(out, { type: 'triangle', freq: 660, at: 0.7, dur: 0.6, peak: 0.08, attack: 0.01 });
+    this.tone(out, { type: 'sine', freq: 990, at: 0.72, dur: 0.5, peak: 0.05, attack: 0.01 });
   }
 
   private feint(): void {

@@ -5,14 +5,19 @@
  * Battle's HUD and minimap, the banners and the results screen.
  *
  * The camera follows the Player's slot: their own Fighter, then each Soldier they take over (it turns to face the way that
- * Soldier faces). While they lie fallen it orbits where they fell; once they are out it watches the battle from above.
+ * Soldier faces). While they lie fallen it orbits where they fell, the screen dimming to grey, a countdown up, and the ally
+ * Soldier they will take over marked (`TakeoverMark`), the camera drifting toward it; on the takeover it flies there along an
+ * arc with a rush of air (`flightCamera`, the `Takeover` sound), the screen clears and the HP bar fills. Once they are out it
+ * watches the battle from above.
  *
  * Online (Stage 7) the local Player's slot is whatever the session says (`me`, from the Lineup), not 0, and every Player's
  * slot is a Player's: it is never faded like a Promotion's slot, shows that Player's own Body (until they take over a Soldier,
  * then the generic soldier's; their fallen Fighter lies on in the Body they chose), and carries a name tag (`PlayerTags`).
  * Nothing here is part of the Simulation: each peer draws its own view of the same state.
  */
-import { battlefieldHeight, battlefieldOf, soldierBody, type Heightfield, type MatchState, type SimState } from '../sim';
+import * as THREE from 'three';
+import { battlefieldHeight, battlefieldOf, groundHeight, soldierBody, takeoverTarget, type Heightfield, type MatchState, type SimState, type Vec3 } from '../sim';
+import type { SoundCue } from '../audio';
 import { PlayerTags } from './playerTags';
 import type { TuningData } from '../tuning';
 import type { LocalController } from '../controllers';
@@ -24,14 +29,22 @@ import { bakeImpostorAtlases } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
+import { soldierAt } from '../render/impostor';
+import { deathTint, fallenDrift, flightCamera, FLIGHT_SECONDS, TakeoverMark } from '../render/takeoverView';
 import { LoadingBar, nextPaint } from './loadingBar';
 import { battleFocus } from './battleSpectator';
-import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, ARMY_NAMES, type BattleResult } from './battleHud';
+import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, takeoverCountdown, ARMY_NAMES, type BattleResult } from './battleHud';
 
 /** The spectator camera, once the Player is out: this far back and up from the battle's middle. */
 const SPECTATOR = { orbitDistance: 34, orbitHeight: 22, lookHeight: 0 };
 /** How fast (per second) the spectator camera's aim eases toward the battle's middle. */
 const FOLLOW_RATE = 1.5;
+/** How fast (per second) the fallen camera turns toward the Soldier to be taken over, and the screen greys once down. */
+const TURN_RATE = 2.5;
+const GREY_RATE = 2.5;
+
+/** The shortest turn from angle `a` to `b` (radians), in -π to π. */
+const turnTo = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
 /**
  * The Body each Fighter slot wears. `chosen[k]` is the Body Player slot k picked in the Lobby (every peer has the Lobby's, so
@@ -81,6 +94,16 @@ export class BattleScreen {
   private takenSeen = 0;
   private outSeen = false;
   private result: BattleResult | null = null;
+  /** The marker over the Soldier a fallen Player will take over. */
+  private readonly mark = new TakeoverMark();
+  /** The camera's flight to a taken-over Soldier: where it set off from and how long it has flown; null when not flying. */
+  private flight: { from: THREE.Vector3; fromQuat: THREE.Quaternion; elapsed: number } | null = null;
+  /** The takeovers the camera has flown to. */
+  private flownTo = 0;
+  /** How far the screen is greyed (0 to 1), and the wall time drawn (s), which beats the marker's pulse. */
+  private down = 0;
+  private time = 0;
+  private tint = '';
   private readonly onKey = (e: KeyboardEvent) => {
     if (e.code === 'KeyN' && !e.repeat) this.hud.toggleMap();
   };
@@ -96,7 +119,10 @@ export class BattleScreen {
     names: readonly (string | undefined)[],
     /** The loading bar already up while the Battle was built (else one is made here). */
     existing?: LoadingBar,
+    /** Plays a sound from the view (the takeover's rush of air). */
+    private readonly onCue: (cue: SoundCue) => void = () => {},
   ) {
+    renderer.scene.add(this.mark.root);
     this.hud = new BattleHud(container, tuning.battle);
     this.tags = new PlayerTags(container, tuning.battle.soldier.colours, names);
     addEventListener('keydown', this.onKey);
@@ -141,6 +167,8 @@ export class BattleScreen {
       const f = duel.fighters[me];
       if (f) this.local.setYaw(f.facing);
       this.hud.announce('You fight on as a soldier', 2);
+      this.hud.refill();
+      this.onCue({ sound: 'Takeover' });
     }
     const status = playerStatus(duel, me);
     if (status === 'Fallen' && !this.fellSeen) {
@@ -204,8 +232,42 @@ export class BattleScreen {
     const l = (a: number, b: number) => a + (b - a) * alpha;
     const at = { x: l(g.position.x, f.position.x), y: l(g.y, f.y), z: l(g.position.z, f.position.z) };
     const status = playerStatus(duel, me);
-    if (status === 'Fighting') placeThirdPersonCamera(camera, cameraForHeight(this.tuning.camera, f.size?.height ?? 1), at, this.local.yaw, this.local.pitch, this.renderer.collider);
-    else if (status === 'Fallen' || curr.status.status === 'Over') placeOrbitCamera(camera, this.tuning.camera, at, this.local.yaw, this.renderer.collider);
+    this.time += seconds;
+    // Fallen: the ally Soldier the Player will take over, marked where it stands.
+    const countdown = takeoverCountdown(duel, me, this.tuning.battle);
+    const target = countdown ? this.takeoverAt(duel, before, me, alpha, hf) : null;
+    if (target && countdown) {
+      this.mark.show(target, this.tuning.battle.soldier.colours[f.team] ?? 0xffffff, countdown.progress, this.time);
+      this.hud.announce(`You fell · taking over a soldier in ${countdown.seconds.toFixed(1)}`, 0.3);
+    } else this.mark.hide();
+    // A new takeover: the camera flies from where it is now to behind the Soldier.
+    const record = playerRecord(duel, me);
+    if (record && record.taken > this.flownTo) {
+      this.flownTo = record.taken;
+      this.flight = { from: camera.position.clone(), fromQuat: camera.quaternion.clone(), elapsed: 0 };
+    }
+    if (status === 'Fighting') {
+      placeThirdPersonCamera(camera, cameraForHeight(this.tuning.camera, f.size?.height ?? 1), at, this.local.yaw, this.local.pitch, this.renderer.collider);
+      if (this.flight) {
+        const to = camera.position.clone();
+        const toQuat = camera.quaternion.clone();
+        if (flightCamera(this.flight.from, this.flight.fromQuat, to, toQuat, this.flight.elapsed, camera)) this.flight = null;
+        else this.flight.elapsed += seconds;
+      }
+    } else if (status === 'Fallen' && target && countdown && curr.status.status !== 'Over') {
+      // The aim drifts from where they fell toward the Soldier, the camera stands back and turns to face it, so it comes into view.
+      const drift = fallenDrift(countdown.progress, Math.hypot(target.x - at.x, target.z - at.z));
+      const aim = { x: at.x + (target.x - at.x) * drift.aim, y: at.y + (target.y - at.y) * drift.aim, z: at.z + (target.z - at.z) * drift.aim };
+      if (Math.hypot(target.x - at.x, target.z - at.z) > 1) {
+        const want = Math.atan2(target.x - at.x, target.z - at.z);
+        this.local.setYaw(this.local.yaw + turnTo(this.local.yaw, want) * (1 - Math.exp(-TURN_RATE * seconds)) * Math.min(1, countdown.progress * 3));
+      }
+      const setup = this.tuning.camera;
+      placeOrbitCamera(camera, { ...setup, orbitDistance: setup.orbitDistance * drift.pull, orbitHeight: setup.orbitHeight * drift.pull }, aim, this.local.yaw, this.renderer.collider);
+      // ...and lifts its look partway toward the Soldier, so one far off is on screen, not above it.
+      const look = drift.look;
+      camera.lookAt(aim.x + (target.x - aim.x) * look, aim.y + setup.lookHeight * 0.5 + (target.y + 1 - aim.y - setup.lookHeight * 0.5) * look, aim.z + (target.z - aim.z) * look);
+    } else if (status === 'Fallen' || curr.status.status === 'Over') placeOrbitCamera(camera, this.tuning.camera, at, this.local.yaw, this.renderer.collider);
     else {
       // Out: watch the battle from above, the aim easing toward its middle, turned with the mouse.
       const aim = battleFocus(crowd, { x: 0, z: 0 }) ?? this.focus;
@@ -216,6 +278,11 @@ export class BattleScreen {
       placeOrbitCamera(camera, { ...this.tuning.camera, ...SPECTATOR }, { x: this.focus.x, y, z: this.focus.z }, this.local.yaw, this.renderer.collider);
     }
     if (status !== 'Out') [this.focus.x, this.focus.z] = [f.position.x, f.position.z];
+    // Grey while down; clearing as the camera flies to the Soldier.
+    if (status === 'Fallen') this.down = Math.min(1, this.down + GREY_RATE * seconds);
+    else this.down = Math.max(0, this.down - seconds / FLIGHT_SECONDS);
+    const tint = deathTint(this.down);
+    if (tint !== this.tint) this.renderer.canvas.style.filter = this.tint = tint;
 
     if (this.fades.length !== crowd.x.length) this.fades = new Float32Array(crowd.x.length);
     const fades = this.swap.impostorFades(crowd, this.fades);
@@ -226,9 +293,29 @@ export class BattleScreen {
     this.tags.update(duel, before, me, alpha, (p) => this.renderer.toScreen(p));
   }
 
+  /** Where the feet of the Soldier fallen Player `me` would take over now are drawn (`takeoverTarget`), or null if there is none. */
+  private takeoverAt(duel: SimState, before: SimState, me: number, alpha: number, hf: Heightfield): Vec3 | null {
+    const crowd = duel.crowd!;
+    const s = takeoverTarget(duel, me);
+    if (s < 0) return null;
+    const k = crowd.slot[s]!;
+    const f = k >= 0 ? duel.fighters[k] : undefined;
+    if (f) {
+      // A promoted ally: where its Fighter stands, between this Tick and the last.
+      const g = before.fighters[k]?.soldier?.index === s ? before.fighters[k]! : f;
+      const l = (a: number, b: number) => a + (b - a) * alpha;
+      return { x: l(g.position.x, f.position.x), y: l(g.y, f.y), z: l(g.position.z, f.position.z) };
+    }
+    const [x, z] = soldierAt(crowd, s, duel.tick, duel.tick + alpha, this.tuning.battle.crowd.stagger, this.tuning.battle.armySize, [0, 0]);
+    return { x, y: groundHeight(hf, crowd.surface[s]!, x, z), z };
+  }
+
   /** The Battle is over or abandoned: take the impostors and the HUD away, and give the Renderer its defaults back. */
   dispose(): void {
     this.disposed = true;
+    this.renderer.scene.remove(this.mark.root);
+    this.mark.dispose();
+    this.renderer.canvas.style.filter = '';
     this.loading?.dispose();
     removeEventListener('keydown', this.onKey);
     if (this.crowdView) this.renderer.scene.remove(this.crowdView.root);

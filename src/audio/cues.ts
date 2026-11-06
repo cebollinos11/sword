@@ -167,6 +167,11 @@ export interface MatchEndCue {
   readonly winner: number;
 }
 
+/** A Battle's Player fell and now takes over an ally: a rising rush of air as the view flies to the Soldier (from the view, not the Simulation). */
+export interface TakeoverCue {
+  readonly sound: 'Takeover';
+}
+
 export type SoundCue =
   | SwingCue
   | BlockCue
@@ -189,7 +194,8 @@ export type SoundCue =
   | WallStrikeCue
   | DuelStartCue
   | DuelEndCue
-  | MatchEndCue;
+  | MatchEndCue
+  | TakeoverCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;

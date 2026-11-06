@@ -16,6 +16,7 @@ import {
   standingFighter,
   stepBubbles,
   stepMatch,
+  takeoverTarget,
   TICK_SECONDS,
   type CrowdState,
   type FighterState,
@@ -74,6 +75,16 @@ function flank(): MatchState {
 }
 
 describe('Taking over an ally', () => {
+  it('names the Soldier a fallen Player will take over before the takeover (for the view), the one it then takes', () => {
+    const start = flank();
+    // Soldier 0 lies dead; Soldier 1, 4 m off, is the nearest living ally.
+    expect(takeoverTarget(start.duel, 0)).toBe(1);
+    const next = stepBubbles(start.duel, 1, start.duel.fighters[0]!.death!.tick + takeoverTicks, small);
+    expect(next.crowd!.players[0]!.soldier).toBe(1);
+    // A Player still standing has no one to take over.
+    expect(takeoverTarget(battle().duel, 0)).toBe(-1);
+  });
+
   it('takes over the nearest living ally Soldier, at `takeover.hp` HP and with its Troop, once its fall has played', () => {
     const start = flank();
     const dead = start.duel.fighters[0]!;

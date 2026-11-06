@@ -467,7 +467,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         bar.dispose();
         return;
       }
-      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged, bar);
+      battle = new BattleScreen(container, renderer, battleTuning, local, chosen, tagged, bar, (cue) => audio.playCue(cue));
     });
   }
 

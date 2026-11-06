@@ -112,6 +112,17 @@ function nearestAlly(fighters: readonly FighterState[], crowd: CrowdState, playe
 }
 
 /**
+ * The Soldier Player `p` (a fallen Player's slot) would take over were it now: the living ally Soldier nearest its Fighter,
+ * as `stepBubbles` picks it, or -1 if none (or `p` is no fallen Player). For the view, which shows it before the takeover.
+ */
+export function takeoverTarget(duel: SimState, p: number): number {
+  const crowd = duel.crowd;
+  const f = duel.fighters[p];
+  if (!crowd || !f?.death || !crowd.players[p] || crowd.players[p]!.away) return -1;
+  return nearestAlly(duel.fighters, crowd, crowd.players.length, f);
+}
+
+/**
  * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
  * Players' Fighters. A state without a Crowd is returned as it is.
  */

@@ -33,6 +33,8 @@ const CSS = `
 .hud-banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; font-size: 2.2rem; font-weight: 700;
   text-shadow: 0 2px 6px #000a; opacity: 0; transition: opacity 250ms; }
 .hud-banner.visible { opacity: 1; }
+.hud-bar.refill { box-shadow: 0 0 10px 2px #fff8; border-color: #fff; }
+.hud-bar.refill .hud-fill { transition: none; }
 .hud-results { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); min-width: 16rem; padding: 1.2rem 1.6rem;
   background: #000b; border: 1px solid #fff4; border-radius: 12px; text-align: center; text-shadow: 0 1px 2px #000a; }
 .hud-results { max-height: 90vh; max-width: 92vw; overflow-y: auto; box-sizing: border-box; }
