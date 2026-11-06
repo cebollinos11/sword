@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, type CrowdState, type MatchState } from '../sim';
+import { createMatch, TICK_RATE, type CrowdState, type MatchState } from '../sim';
 import { armyPlan, armyStrengths, battleResult, battleResultLine, objectiveName, playersBySlot, playerStatus, takeoverCountdown } from './battleHud';
 import { battlefieldOf, RESPAWN } from '../sim';
 import { startingTickets } from '../tuning';
@@ -24,18 +24,23 @@ const killed = (alive: readonly number[], team: number, count: number) => alive.
 const fallen = (match: MatchState): MatchState => ({ ...match, duel: { ...match.duel, fighters: match.duel.fighters.map((f, k) => (k === 0 ? { ...f, hp: 0, death: { tick: 0, cause: 'Hit' as const, blow: null } } : f)) } });
 
 describe("The Battle's HUD", () => {
-  it('counts down to the takeover while the Player lies fallen, and not otherwise', () => {
+  it('counts down to the takeover while the Player lies fallen: watching, then flying to the Soldier', () => {
     const t = loadTuningData();
     const m = createMatch(t, { format: 'Battle', bestOf: 1, seed: 1, teams: [0], weapons: ['Longsword'] });
     expect(takeoverCountdown(m.duel, 0, t.battle)).toBeNull();
     const f = m.duel.fighters[0]!;
     const fallen = { ...m.duel, fighters: [{ ...f, hp: 0, death: { tick: m.duel.tick, cause: 'Hit' as const, blow: null } }, ...m.duel.fighters.slice(1)] };
-    const now = takeoverCountdown(fallen, 0, t.battle)!;
-    expect(now.seconds).toBeCloseTo(t.battle.takeover.seconds, 1);
-    expect(now.progress).toBe(0);
-    const later = takeoverCountdown({ ...fallen, tick: fallen.tick + 30 }, 0, t.battle)!;
-    expect(later.seconds).toBeLessThan(now.seconds);
-    expect(later.progress).toBeGreaterThan(0);
+    const at = (ticks: number, alpha = 0) => takeoverCountdown({ ...fallen, tick: fallen.tick + ticks }, 0, t.battle, alpha)!;
+    const pick = Math.round(t.battle.takeover.pickSeconds * TICK_RATE);
+    const take = Math.round(t.battle.takeover.seconds * TICK_RATE);
+    expect(at(0)).toEqual({ seconds: expect.closeTo(t.battle.takeover.seconds, 3), phase: 'Watch', progress: 0 });
+    expect(at(pick / 2)).toMatchObject({ phase: 'Watch', progress: 0.5 });
+    expect(at(pick - 1, 0.5).phase).toBe('Watch');
+    expect(at(pick)).toMatchObject({ phase: 'Fly', progress: 0 });
+    expect(at(pick + (take - pick) / 2).progress).toBeCloseTo(0.5);
+    // Smooth between Ticks.
+    expect(at(pick + 1, 0.5).progress).toBeCloseTo(1.5 / (take - pick));
+    expect(at(take - 1).seconds).toBeCloseTo(1 / TICK_RATE);
   });
 
   it("reads each army's Tickets and strength and whether it routed", () => {

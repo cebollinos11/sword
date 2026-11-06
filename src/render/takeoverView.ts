@@ -1,26 +1,27 @@
 /**
- * The view of a Battle's takeover (render only; the Simulation decides who and when, `stepBubbles`): while the Player lies
- * fallen, the ally Soldier they will take over is marked (`TakeoverMark`: a ring at its feet and a beam of light over it, in
- * their Team's colour, swelling as the takeover nears) and the camera drifts toward it (`fallenDrift`); on the takeover the
- * camera flies from where it was to behind the Soldier along an arc (`flightCamera`), and the screen, dimmed and greyed while
- * they were down (`deathTint`), clears as it lands.
+ * The view of a Battle's takeover (render only; the Simulation decides who and when, `stepBubbles`). The Player falls and, for
+ * `takeover.pickSeconds`, watches from an orbit round where they fell (turned with the mouse), the screen dimmed and greyed
+ * (`deathTint`). Then the Soldier they will take over (near their Team's spawn) is marked (`TakeoverMark`: a ring at its feet and
+ * a pillar of light over it, in their Team's colour) and the camera flies by (`flybyCamera`) from where it was, up over the field,
+ * to behind that Soldier, landing as the takeover happens, the grey clearing as it goes. Should the Soldier change at the last
+ * moment, a short flight (`flightCamera`) covers the rest.
  */
 import * as THREE from 'three';
 import type { Vec3 } from '../sim';
 
-/** How long (s) the camera's flight to a taken-over Soldier takes: at least FLIGHT_SECONDS, longer the further it goes, up to FLIGHT_MAX_SECONDS. */
+/** How long (s) the short catch-up flight at the takeover takes: at least FLIGHT_SECONDS, longer the further it goes, up to FLIGHT_MAX_SECONDS. */
 export const FLIGHT_SECONDS = 0.7;
 const FLIGHT_PER_METRE = 0.012;
 const FLIGHT_MAX_SECONDS = 1.4;
-/** How high (m) the flight's arc rises at most, and per metre flown. */
+/** How high (m) the short flight's arc rises at most, and per metre flown. */
 const ARC_MAX = 7;
 const ARC_PER_METRE = 0.3;
-/** How far toward the Soldier (0 to 1) the fallen camera's aim drifts by the takeover (never more than DRIFT_MAX m), and how much further back and up it stands. */
-const DRIFT_AIM = 0.45;
-const DRIFT_MAX = 8;
-const DRIFT_PULL = 0.6;
-/** How far (0 to 1) the fallen camera's look turns from its aim to the Soldier by the takeover. */
-const DRIFT_LOOK = 0.5;
+/** How high (m) the flyby rises over the straight line: per metre flown, within these bounds, so the field is seen from above. */
+const FLYBY_ARC_PER_METRE = 0.35;
+const FLYBY_ARC_MIN = 4;
+const FLYBY_ARC_MAX = 30;
+/** The share of the flyby spent turning to look at the Soldier at its start, and settling behind its shoulder at its end. */
+const FLYBY_TURN = 0.3;
 /** How grey (0 to 1) and how dark (0 to 1, of the light taken away) the screen is while the Player is down. */
 const GREY = 0.8;
 const DARK = 0.35;
@@ -31,27 +32,15 @@ export function easeInOut(t: number): number {
   return u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2;
 }
 
-/**
- * The fallen camera's drift toward the Soldier to be taken over, `distance` m away, `progress` (0 to 1) of the way through the
- * takeover's delay: how far its aim has moved from the fallen Fighter toward the Soldier (`aim`, a share of the way, at most
- * DRIFT_AIM and DRIFT_MAX m, so a far Soldier does not leave it looking at empty field) and how much further back and up it stands
- * (`pull`, a factor from 1), and how far its look turns from the aim to the Soldier (`look`), so the Soldier comes into view. Still for the first moment (the fall plays out), then easing.
- */
-export function fallenDrift(progress: number, distance: number): { aim: number; pull: number; look: number } {
-  const e = easeInOut((progress - 0.25) / 0.75);
-  const share = distance > 0 ? Math.min(DRIFT_AIM, DRIFT_MAX / distance) : 0;
-  return { aim: share * e, pull: 1 + DRIFT_PULL * e, look: DRIFT_LOOK * e };
-}
-
-/** How long (s) the camera's flight over `distance` m takes. */
+/** How long (s) the short catch-up flight over `distance` m takes. */
 export function flightSeconds(distance: number): number {
   return Math.min(FLIGHT_MAX_SECONDS, FLIGHT_SECONDS + distance * FLIGHT_PER_METRE);
 }
 
 /**
- * The camera `elapsed` seconds into a flight (`flightSeconds` long) from (`from`, looking along `fromQuat`) to (`to`, `toQuat`): its position eased
- * along the straight line and lifted on an arc (higher the further it goes), its look turned between the two. Writes `out` and
- * returns whether the flight is over (it is then exactly at `to`).
+ * The camera `elapsed` seconds into a short flight (`flightSeconds` long) from (`from`, looking along `fromQuat`) to (`to`,
+ * `toQuat`): its position eased along the straight line and lifted on an arc (higher the further it goes), its look turned
+ * between the two. Writes `out` and returns whether the flight is over (it is then exactly at `to`).
  */
 export function flightCamera(
   from: THREE.Vector3,
@@ -68,6 +57,37 @@ export function flightCamera(
   out.position.y += arc;
   out.quaternion.slerpQuaternions(fromQuat, toQuat, e);
   return t >= 1;
+}
+
+const lookMatrix = new THREE.Matrix4();
+const lookQuat = new THREE.Quaternion();
+const UP = new THREE.Vector3(0, 1, 0);
+
+/**
+ * The camera `t` (0 to 1) of the way through the flyby from (`from`, looking along `fromQuat`) to (`to`, `toQuat`: behind the
+ * Soldier's shoulder), with `focus` the Soldier (its chest): its position eased along the straight line and lifted high on an arc
+ * (higher the further it goes); its look turning first to the Soldier, holding on it across the field, then settling into `toQuat`.
+ * At `t` 1 it is exactly at `to`, looking along `toQuat`. Writes `out`.
+ */
+export function flybyCamera(
+  from: THREE.Vector3,
+  fromQuat: THREE.Quaternion,
+  to: THREE.Vector3,
+  toQuat: THREE.Quaternion,
+  focus: THREE.Vector3,
+  t: number,
+  out: { position: THREE.Vector3; quaternion: THREE.Quaternion },
+): void {
+  const u = Math.min(1, Math.max(0, t));
+  const distance = from.distanceTo(to);
+  const arc = Math.min(FLYBY_ARC_MAX, Math.max(FLYBY_ARC_MIN, distance * FLYBY_ARC_PER_METRE)) * Math.sin(Math.PI * u);
+  out.position.lerpVectors(from, to, easeInOut(u));
+  out.position.y += arc;
+  // Looking at the Soldier from where the camera is (a camera looks down its -z).
+  if (out.position.distanceToSquared(focus) > 1e-6) lookQuat.setFromRotationMatrix(lookMatrix.lookAt(out.position, focus, UP));
+  else lookQuat.copy(toQuat);
+  out.quaternion.slerpQuaternions(fromQuat, lookQuat, easeInOut(u / FLYBY_TURN));
+  out.quaternion.slerp(toQuat, easeInOut((u - (1 - FLYBY_TURN)) / FLYBY_TURN));
 }
 
 /** How much the screen is tinted (0 clear, 1 fully) while the Player is down: `down` (0 to 1) as a CSS filter, '' when clear. */

@@ -138,17 +138,18 @@ describe('Battle Tuning Data (data/battle.json)', () => {
   it('is part of the Tuning Data hash', () => {
     const base = tuningDataHash(tuning);
     const b = tuning.battle;
-    for (const battle of [{ ...b, squad: { ...b.squad, size: 10 } }, { ...b, squad: { ...b.squad, column: { wide: 4 } } }, { ...b, armySize: 199 }, { ...b, tickets: { ...b.tickets, drain: 0.5 } }, { ...b, commander: { ...b.commander, holdSeconds: 10 } }, { ...b, objectives: { ...b.objectives, radius: 10 } }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, slots: { ...b.slots, shared: [{ enemies: 3, allies: 1 }] } }, { ...b, ring: { ...b.ring, radius: 4 } }, { ...b, ring: { ...b.ring, waiting: 9 } }, { ...b, takeover: { ...b.takeover, seconds: 2 } }, { ...b, takeover: { ...b.takeover, hp: 80 } }, { ...b, soldier: { ...b.soldier, difficulty: 'Skilled' } }, { ...b, soldier: { ...b.soldier, style: { aggression: 0.5 } } }, { ...b, soldier: { ...b.soldier, mods: { damage: 0.6 } } }])
+    for (const battle of [{ ...b, squad: { ...b.squad, size: 10 } }, { ...b, squad: { ...b.squad, column: { wide: 4 } } }, { ...b, armySize: 199 }, { ...b, tickets: { ...b.tickets, drain: 0.5 } }, { ...b, commander: { ...b.commander, holdSeconds: 10 } }, { ...b, objectives: { ...b.objectives, radius: 10 } }, { ...b, crowd: { ...b.crowd, hp: 99 } }, { ...b, field: { ...b.field, hillHeight: 2 } }, { ...b, rout: { ...b.rout, seconds: 4 } }, { ...b, soldier: { ...b.soldier, weapon: 'Longsword' } }, { ...b, bubble: { ...b.bubble, poolSize: 12 } }, { ...b, bubble: { ...b.bubble, demote: 18 } }, { ...b, slots: { ...b.slots, enemies: 3 } }, { ...b, slots: { ...b.slots, shared: [{ enemies: 3, allies: 1 }] } }, { ...b, ring: { ...b.ring, radius: 4 } }, { ...b, ring: { ...b.ring, waiting: 9 } }, { ...b, takeover: { ...b.takeover, seconds: 2 } }, { ...b, takeover: { ...b.takeover, hp: 80 } }, { ...b, takeover: { ...b.takeover, pickSeconds: 3 } }, { ...b, soldier: { ...b.soldier, difficulty: 'Skilled' } }, { ...b, soldier: { ...b.soldier, style: { aggression: 0.5 } } }, { ...b, soldier: { ...b.soldier, mods: { damage: 0.6 } } }])
       expect(tuningDataHash({ ...tuning, battle })).not.toBe(base);
   });
 
   it("sets the takeover's delay, the waiting ring's cap and how a promoted soldier fights, Battle only", () => {
     const b = tuning.battle;
-    expect(b.takeover).toEqual({ seconds: 1.5, hp: 100 });
+    expect(b.takeover).toEqual({ seconds: 10, pickSeconds: 5, hp: 100 });
     expect(b.soldier).toMatchObject({ difficulty: 'Beginner', style: { throwRate: 0 }, mods: { damage: 0.5 } });
     expect(() => parseBattle({ ...b, ring: { ...b.ring, waiting: 2.5 } })).toThrow(/battle\.ring\.waiting must be a whole number/);
     expect(() => parseBattle({ ...b, takeover: { ...b.takeover, seconds: -1 } })).toThrow(/battle\.takeover\.seconds/);
     expect(() => parseBattle({ ...b, takeover: { ...b.takeover, hp: 0 } })).toThrow(/battle\.takeover\.hp/);
+    expect(() => parseBattle({ ...b, takeover: { ...b.takeover, pickSeconds: 11 } })).toThrow(/pickSeconds/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, difficulty: 'Godlike' } }, undefined, ['Beginner'])).toThrow(/battle\.soldier\.difficulty "Godlike"/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, style: { reactionTime: 2 } } }, undefined, undefined, ['aggression'])).toThrow(/battle\.soldier\.style\.reactionTime/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, mods: { maxHp: 1 } } })).toThrow(/battle\.soldier\.mods\.maxHp/);

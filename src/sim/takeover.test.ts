@@ -16,6 +16,7 @@ import {
   standingFighter,
   stepBubbles,
   stepMatch,
+  takeoverSpawns,
   takeoverTarget,
   TICK_SECONDS,
   type CrowdState,
@@ -30,6 +31,7 @@ const tuning = loadTuningData();
 const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 }, tickets: { ...tuning.battle.tickets, perSoldier: 0.5 } } };
 const army = small.battle.armySize;
 const takeoverTicks = Math.round(small.battle.takeover.seconds / TICK_SECONDS);
+const pickTicks = Math.round(small.battle.takeover.pickSeconds / TICK_SECONDS);
 
 const battle = (seed = 1) => createMatch(small, { format: 'Battle', bestOf: 1, seed, teams: [0], weapons: ['Longsword'] });
 
@@ -62,11 +64,12 @@ function withSlot(match: MatchState, k: number, edit: (f: FighterState) => Fight
 const fell = (match: MatchState): MatchState => withSlot(match, 0, (f) => ({ ...f, hp: 0, death: { tick: match.duel.tick, cause: 'Hit', blow: null } }));
 
 /**
- * The Player fallen at (60, 0), far out on the flank. Team 0's Soldier 0 lies dead 2 m from them, Soldier 1 stands 4 m off
- * with 37 HP, and Soldier 2 6 m off. The rest of both armies is about 50 m away, at their deploy.
+ * The Player fallen at (60, 0), far out on the flank, with all their army fallen but two: Soldier 0 lies dead 2 m from them,
+ * Soldier 1 stands 4 m off with 37 HP, and Soldier 2 6 m off. The enemy army is about 50 m away, at its deploy.
  */
 function flank(): MatchState {
   const m = withCrowd(playerAt(battle(), 60, 0), (c) => {
+    for (let s = 3; s < army; s++) [c.alive[s], c.hp[s]] = [0, 0];
     [c.x[0], c.z[0], c.alive[0], c.hp[0]] = [62, 0, 0, 0];
     [c.x[1], c.z[1], c.hp[1]] = [64, 0, 37];
     [c.x[2], c.z[2]] = [66, 0];
@@ -77,12 +80,50 @@ function flank(): MatchState {
 describe('Taking over an ally', () => {
   it('names the Soldier a fallen Player will take over before the takeover (for the view), the one it then takes', () => {
     const start = flank();
-    // Soldier 0 lies dead; Soldier 1, 4 m off, is the nearest living ally.
-    expect(takeoverTarget(start.duel, 0)).toBe(1);
+    // Soldier 0 lies dead; of Soldiers 1 and 2, 1 is the nearer the spawns.
+    expect(takeoverTarget(start.duel, 0, small)).toBe(1);
     const next = stepBubbles(start.duel, 1, start.duel.fighters[0]!.death!.tick + takeoverTicks, small);
     expect(next.crowd!.players[0]!.soldier).toBe(1);
     // A Player still standing has no one to take over.
-    expect(takeoverTarget(battle().duel, 0)).toBe(-1);
+    expect(takeoverTarget(battle().duel, 0, small)).toBe(-1);
+  });
+
+  it("takes over the ally nearest its Team's spawn, not the one nearest where it fell", () => {
+    const start = flank();
+    const base = takeoverSpawns(start.duel.crowd!, battlefieldOf(small.battle, start.arena)!, 0).at(-1)!;
+    // Soldier 5 stands 3 m from the Base, far from the fall; Soldiers 1 and 2 stand right by it.
+    const m = withCrowd(start, (c) => {
+      [c.x[5], c.z[5], c.alive[5], c.hp[5]] = [base.x + 3, base.z, 1, 40];
+    });
+    expect(takeoverTarget(m.duel, 0, small)).toBe(5);
+    const next = stepBubbles(m.duel, 1, m.duel.fighters[0]!.death!.tick + takeoverTicks, small);
+    expect(next.crowd!.players[0]!.soldier).toBe(5);
+    expect(next.fighters[0]!.position).toEqual({ x: base.x + 3, z: base.z });
+  });
+
+  it('chooses the Soldier `pickSeconds` after the fall and takes that one, even if another comes nearer the spawn meanwhile', () => {
+    const start = flank();
+    const fall = start.duel.fighters[0]!.death!.tick;
+    const base = takeoverSpawns(start.duel.crowd!, battlefieldOf(small.battle, start.arena)!, 0).at(-1)!;
+    // Before the pick, nothing is chosen.
+    expect(stepBubbles(start.duel, 1, fall + pickTicks - 1, small).crowd!.players[0]).toEqual(FRESH_PLAYER);
+    const picked = stepBubbles(start.duel, 1, fall + pickTicks, small);
+    expect(picked.crowd!.players[0]).toEqual({ ...FRESH_PLAYER, next: 1 });
+    expect(picked.fighters[0]).toBe(start.duel.fighters[0]);
+    // Soldier 2 walks up to the Base: Soldier 1 is still the one.
+    const moved = withCrowd({ ...start, duel: picked }, (c) => {
+      [c.x[2], c.z[2]] = [base.x, base.z];
+    });
+    expect(takeoverTarget(moved.duel, 0, small)).toBe(1);
+    const next = stepBubbles(moved.duel, 1, fall + takeoverTicks, small);
+    expect(next.crowd!.players[0]!.soldier).toBe(1);
+    expect(next.crowd!.players[0]!.next).toBeUndefined();
+    // Had Soldier 1 fallen before the takeover, the one nearest the spawn then is taken.
+    const gone = withCrowd(moved, (c) => {
+      [c.alive[1], c.hp[1]] = [0, 0];
+    });
+    expect(takeoverTarget(gone.duel, 0, small)).toBe(2);
+    expect(stepBubbles(gone.duel, 1, fall + takeoverTicks, small).crowd!.players[0]!.soldier).toBe(2);
   });
 
   it('takes over the nearest living ally Soldier, at `takeover.hp` HP and with its Troop, once its fall has played', () => {
@@ -92,7 +133,7 @@ describe('Taking over an ally', () => {
     // Not before `takeover.seconds`.
     const early = stepBubbles(start.duel, 1, fallTick + takeoverTicks - 1, small);
     expect(early.fighters[0]).toBe(dead);
-    expect(early.crowd!.players[0]).toEqual(FRESH_PLAYER);
+    expect(early.crowd!.players[0]).toEqual({ ...FRESH_PLAYER, next: 1 });
 
     const next = stepBubbles(start.duel, 1, fallTick + takeoverTicks, small);
     const me = next.fighters[0]!;
@@ -126,7 +167,7 @@ describe('Taking over an ally', () => {
     const start = flank();
     const ally = { ...placed(start, 61, 1, small.battle.soldier.weapon, 0), hp: 22, maxHp: small.battle.crowd.hp, mods: { ...tuningMods() }, soldier: { index: 5, since: 0, role: 'Ally' as const } };
     const m = withCrowd(withSlot(start, 3, () => ally), (c) => {
-      c.slot[5] = 3;
+      [c.slot[5], c.alive[5], c.hp[5]] = [3, 1, 22];
     });
     const next = stepBubbles(m.duel, 1, start.duel.fighters[0]!.death!.tick + takeoverTicks, small);
     const { soldier: _s, mods: _m, ...own } = ally;

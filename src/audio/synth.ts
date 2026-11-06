@@ -188,7 +188,7 @@ export class WebAudioPlayer implements SoundPlayer {
       case 'MatchEnd':
         return this.fanfare(ENDING_DELAY);
       case 'Takeover':
-        return this.takeover();
+        return this.takeover(cue.seconds);
     }
   }
 
@@ -423,14 +423,18 @@ export class WebAudioPlayer implements SoundPlayer {
     this.hiss(out, { filter: 'bandpass', freq: 2800, to: 7500, q: 7, at: 0.05, dur: 0.38, peak: 0.45, attack: 0.08, flutter: 55 });
   }
 
-  /** The view flying to a taken-over Soldier: a broad rush of air swelling and rising, a low swell under it, and a soft chime as it lands. */
-  private takeover(): void {
-    const out = this.bus(0.35, 1.2, [-0.4, 0.4], 0.8);
-    this.hiss(out, { filter: 'bandpass', freq: 250, to: 1800, q: 1.2, dur: 0.85, peak: 0.5, attack: 0.55 });
-    this.hiss(out, { filter: 'bandpass', freq: 1200, to: 4200, q: 6, dur: 0.75, peak: 0.18, attack: 0.5 });
-    this.tone(out, { type: 'sine', freq: 70, to: 110, dur: 0.9, peak: 0.25, attack: 0.5 });
-    this.tone(out, { type: 'triangle', freq: 660, at: 0.7, dur: 0.6, peak: 0.08, attack: 0.01 });
-    this.tone(out, { type: 'sine', freq: 990, at: 0.72, dur: 0.5, peak: 0.05, attack: 0.01 });
+  /**
+   * The view flying to the Soldier a fallen Player will take over, over `seconds`: wind rising as it climbs, a low swell under it,
+   * a faster rush as it dives in, and a soft chime as it lands.
+   */
+  private takeover(seconds: number): void {
+    const d = Math.max(0.5, seconds);
+    const out = this.bus(0.35, 1.2, [-0.4, 0.4], d);
+    this.hiss(out, { filter: 'bandpass', freq: 200, to: 900, q: 1.2, dur: d * 0.75, peak: 0.3, attack: d * 0.4, flutter: 3 });
+    this.tone(out, { type: 'sine', freq: 60, to: 95, dur: d, peak: 0.18, attack: d * 0.5 });
+    this.hiss(out, { filter: 'bandpass', freq: 500, to: 2600, q: 1.4, at: d * 0.6, dur: d * 0.42, peak: 0.45, attack: d * 0.3 });
+    this.tone(out, { type: 'triangle', freq: 660, at: d - 0.05, dur: 0.7, peak: 0.08, attack: 0.01 });
+    this.tone(out, { type: 'sine', freq: 990, at: d - 0.03, dur: 0.6, peak: 0.05, attack: 0.01 });
   }
 
   private feint(): void {

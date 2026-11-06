@@ -209,4 +209,4 @@ export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './l
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
 export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
-export { bubblePlayer, isBound, stepBubbles, takeoverTarget, unboundSlot } from './bubble';
+export { bubblePlayer, isBound, stepBubbles, takeoverSpawns, takeoverTarget, unboundSlot } from './bubble';

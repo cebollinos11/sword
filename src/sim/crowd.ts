@@ -128,6 +128,11 @@ export interface BattlePlayer {
   /** The Pool slot its own chosen Fighter lies in once it has taken over a Soldier (to the Battle's end), or -1. */
   readonly corpse: number;
   /**
+   * While it lies fallen, from `battle.takeover.pickSeconds` after its fall: the Soldier it will take over at `takeover.seconds`
+   * (the view flies to it meanwhile). Absent otherwise.
+   */
+  readonly next?: number;
+  /**
    * Set once the Player has left an online Battle (docs/plans/big-battle.md, Stage 6; `takeOverFighter`): an AI drives its Fighter from
    * then on, as an ally of its Team. It has no Bubble, takes over no Soldier when it falls, and counts no more kills. Absent while it plays.
    */

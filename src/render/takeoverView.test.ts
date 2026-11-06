@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import { deathTint, easeInOut, fallenDrift, flightCamera, flightSeconds, FLIGHT_SECONDS, TakeoverMark } from './takeoverView';
+import { deathTint, easeInOut, flightCamera, flightSeconds, flybyCamera, FLIGHT_SECONDS, TakeoverMark } from './takeoverView';
 
 describe("The view of a Battle's takeover", () => {
   it('eases in and out, held at the ends', () => {
@@ -12,20 +12,26 @@ describe("The view of a Battle's takeover", () => {
     expect(easeInOut(0.25)).toBeLessThan(0.25);
   });
 
-  it('holds the fallen camera still while the fall plays, then drifts it toward the Soldier and back', () => {
-    expect(fallenDrift(0, 10)).toEqual({ aim: 0, pull: 1, look: 0 });
-    expect(fallenDrift(0.2, 10)).toEqual({ aim: 0, pull: 1, look: 0 });
-    const mid = fallenDrift(0.6, 10);
-    const end = fallenDrift(1, 10);
-    expect(mid.aim).toBeGreaterThan(0);
-    expect(end.aim).toBeGreaterThan(mid.aim);
-    expect(end.aim).toBeLessThan(1);
-    expect(end.pull).toBeGreaterThan(1);
-  });
-
-  it('drifts only a few metres toward a Soldier far off, so the view is not left on empty field', () => {
-    expect(fallenDrift(1, 100).aim * 100).toBeLessThanOrEqual(8);
-    expect(fallenDrift(1, 0).aim).toBe(0);
+  it('flies by high over the field, watching the Soldier, and lands exactly behind its shoulder', () => {
+    const from = new THREE.Vector3(0, 5, 0);
+    const to = new THREE.Vector3(40, 2, 0);
+    const focus = new THREE.Vector3(42, 1.2, 0);
+    const fromQuat = new THREE.Quaternion();
+    const toQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2);
+    const out = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() };
+    flybyCamera(from, fromQuat, to, toQuat, focus, 0, out);
+    expect(out.position.distanceTo(from)).toBeCloseTo(0);
+    expect(out.quaternion.angleTo(fromQuat)).toBeCloseTo(0);
+    // Halfway: well above the line between the two (0.35 m up a metre flown), looking at the Soldier.
+    flybyCamera(from, fromQuat, to, toQuat, focus, 0.5, out);
+    expect(out.position.x).toBeCloseTo(20);
+    expect(out.position.y).toBeCloseTo(3.5 + from.distanceTo(to) * 0.35);
+    const look = new THREE.Vector3(0, 0, -1).applyQuaternion(out.quaternion);
+    const toFocus = focus.clone().sub(out.position).normalize();
+    expect(look.dot(toFocus)).toBeCloseTo(1, 5);
+    flybyCamera(from, fromQuat, to, toQuat, focus, 1, out);
+    expect(out.position.distanceTo(to)).toBeCloseTo(0);
+    expect(out.quaternion.angleTo(toQuat)).toBeCloseTo(0);
   });
 
   it('flies longer the further it goes, within bounds', () => {

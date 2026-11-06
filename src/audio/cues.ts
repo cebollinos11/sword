@@ -167,9 +167,10 @@ export interface MatchEndCue {
   readonly winner: number;
 }
 
-/** A Battle's Player fell and now takes over an ally: a rising rush of air as the view flies to the Soldier (from the view, not the Simulation). */
+/** A Battle's Player fell and now flies to the ally they will take over: a rush of air swelling over the flight's `seconds`, landing as it ends (from the view, not the Simulation). */
 export interface TakeoverCue {
   readonly sound: 'Takeover';
+  readonly seconds: number;
 }
 
 export type SoundCue =

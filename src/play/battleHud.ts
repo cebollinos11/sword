@@ -76,17 +76,25 @@ export function playerStatus(state: SimState, me: number): PlayerStatus {
   return crowd && crowdAlive(crowd)[f.team as 0 | 1] > 0 ? 'Fallen' : 'Out';
 }
 
+/** Where a fallen Player is in coming back: watching where they fell, or flying to the Soldier they will take over. */
+export type TakeoverPhase = 'Watch' | 'Fly';
+
 /**
- * How long (s) until fallen Player `me` takes over an ally (`battle.takeover.seconds` after the fall), and how far through that
- * wait they are (0 to 1); null unless they lie fallen with a Soldier to take over. Read from the state (the Simulation decides).
+ * Fallen Player `me`'s way back, `alpha` of the way from this Tick to the next: how long (s) until they take over an ally
+ * (`battle.takeover.seconds` after the fall), which phase they are in (watching until `takeover.pickSeconds`, then flying to the
+ * Soldier), and how far through that phase (0 to 1). Null unless they lie fallen and still play. Read from the state (the
+ * Simulation decides).
  */
-export function takeoverCountdown(state: SimState, me: number, battle: BattleTuning): { seconds: number; progress: number } | null {
+export function takeoverCountdown(state: SimState, me: number, battle: BattleTuning, alpha = 0): { seconds: number; phase: TakeoverPhase; progress: number } | null {
   const f = state.fighters[me];
   const record = state.crowd?.players[me];
   if (!f?.death || !record || record.away || playerStatus(state, me) !== 'Fallen') return null;
-  const wait = secondsToTicks(battle.takeover.seconds);
-  const left = Math.max(0, f.death.tick + wait - state.tick);
-  return { seconds: left * TICK_SECONDS, progress: wait > 0 ? 1 - left / wait : 1 };
+  const take = secondsToTicks(battle.takeover.seconds);
+  const pick = Math.min(take, secondsToTicks(battle.takeover.pickSeconds));
+  const since = Math.min(take, state.tick + alpha - f.death.tick);
+  const seconds = (take - since) * TICK_SECONDS;
+  if (since < pick) return { seconds, phase: 'Watch', progress: pick > 0 ? since / pick : 1 };
+  return { seconds, phase: 'Fly', progress: take > pick ? (since - pick) / (take - pick) : 1 };
 }
 
 /** How long (ms) the HP bar takes to fill after a takeover. */
@@ -292,7 +300,7 @@ export class BattleHud {
     }
     const countdown = takeoverCountdown(duel, me, this.battle);
     this.who.textContent =
-      status === 'Out' ? 'Out: your army has no soldiers left' : status === 'Fallen' ? (countdown ? `Fallen: taking over a soldier in ${countdown.seconds.toFixed(1)} s` : 'Fallen: taking over a soldier…') : record && record.soldier >= 0 ? `A soldier of your army · ${record.kills} kills` : `You · ${record?.kills ?? 0} kills`;
+      status === 'Out' ? 'Out: your army has no soldiers left' : status === 'Fallen' ? (countdown ? `Fallen: back in the fight in ${Math.ceil(countdown.seconds)} s` : 'Fallen: taking over a soldier…') : record && record.soldier >= 0 ? `A soldier of your army · ${record.kills} kills` : `You · ${record?.kills ?? 0} kills`;
     this.hpFill.style.width = `${Math.max(0, (hp / max) * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(hp)} / ${max}`;
     if (this.mapShown) this.minimap.draw(duel, me, this.sites.objectives);

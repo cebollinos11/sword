@@ -332,8 +332,10 @@ export interface RingTuning {
 
 /** Taking over an ally (docs/plans/big-battle.md, Stage 5): a Player whose Fighter falls plays on as the nearest living ally Soldier. */
 export interface TakeoverTuning {
-  /** How long after its Fighter falls (s) a Player takes over its ally, its fall played out first. */
+  /** How long after its Fighter falls (s) a Player takes over its ally: the fall played out and watched, then the flight to the Soldier. */
   readonly seconds: number;
+  /** How long after its Fighter falls (s) the Soldier it will take over is chosen (and the view sets off to it): at most `seconds`. */
+  readonly pickSeconds: number;
   /** The HP (and max HP) a Player's taken-over Soldier is given, whatever the Soldier had. */
   readonly hp: number;
 }
@@ -590,6 +592,14 @@ function parseTroops(raw: unknown, soldier: SoldierTuning, crowd: CrowdTuning, w
 /** The furthest any Troop engages from (m): the Crowd's spatial hash is sized for it. */
 export const maxEngageReach = (b: Pick<BattleTuning, 'troops' | 'crowd'>): number => Math.max(b.crowd.engageReach, ...b.troops.map((t) => t.engageReach));
 
+/** `battle.takeover`: the Soldier is chosen no later than it is taken over. */
+function takeoverTuning(tk: Record<string, unknown>): TakeoverTuning {
+  const seconds = nonNegativeNumber(tk, 'seconds', 'battle.takeover');
+  const pickSeconds = nonNegativeNumber(tk, 'pickSeconds', 'battle.takeover');
+  if (pickSeconds > seconds) throw new TuningDataError('battle.takeover.pickSeconds must be at most battle.takeover.seconds');
+  return { seconds, pickSeconds, hp: positiveNumber(tk, 'hp', 'battle.takeover') };
+}
+
 /** Validate the raw Battle Tuning Data (with the Weapon roster's names, to check the soldier's Weapon, when given). Accepts its own output. */
 export function parseBattle(raw: unknown, weapons?: readonly string[], difficulties?: readonly string[], styleKeys?: readonly string[]): BattleTuning {
   const b = record(raw, 'battle');
@@ -773,7 +783,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     bubble,
     slots,
     ring,
-    takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover'), hp: positiveNumber(tk, 'hp', 'battle.takeover') },
+    takeover: takeoverTuning(tk),
     levels: {
       stepUp: positiveNumber(lv, 'stepUp', 'battle.levels'),
       drop: positiveNumber(lv, 'drop', 'battle.levels'),
