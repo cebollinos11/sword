@@ -168,6 +168,19 @@ describe('Lobby sync', () => {
     expect(g.failure).toMatch(/Lost/);
   });
 
+  it("a page that stalls (starting a Battle blocks it for seconds) does not take its own stall for the peer's silence", () => {
+    const r = room();
+    const g = r.connect('Bo');
+    r.guests.push(g);
+    r.run(1000);
+    // Both pages were blocked for longer than the timeout: whatever the other sent is still queued behind the stall.
+    const late = 1000 + LOBBY_TIMEOUT_MS + 5000;
+    r.host.pump(late);
+    g.pump(late);
+    expect(r.host.state.members).toHaveLength(2);
+    expect(g.status).toBe('Open');
+  });
+
   it('restarts a Match with new settings over the same link', () => {
     const r = room({ latencyMs: 30, jitterMs: 10 });
     const g = r.connect('Bo');

@@ -368,6 +368,41 @@ describe('Rollback session: disconnect', () => {
     expect(host.currentTick).toBe(at + 10);
   });
 
+  it('a guest still building the Match (before its first Intents) gets the longer connect timeout', () => {
+    const pair = createMemoryTransportPair({ latencyMs: 30 });
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, timeoutTicks: 60, connectTimeoutTicks: 600 });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning });
+    const events: SessionEvent[] = [];
+    host.onEvent((e) => events.push(e));
+    // The guest's hello reaches the host (which starts the Match), then the guest's page stalls building it.
+    pair.advance(TICK_MS * 3);
+    for (let i = 0; i < 300; i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+    }
+    expect(host.status).toBe('Running');
+    expect(events.filter((e) => e.type === 'PlayerLeft')).toEqual([]);
+    // It wakes: the Match goes on with it, and from then on the ordinary timeout applies.
+    for (let i = 0; i < 60; i++) {
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+      guest.tick(IDLE_INTENT);
+    }
+    expect(guest.status).toBe('Running');
+    expect(events.filter((e) => e.type === 'PlayerLeft')).toEqual([]);
+    // Silent for good: dropped once even the connect timeout runs out.
+    const pair2 = createMemoryTransportPair({ latencyMs: 30 });
+    const host2 = createRollbackSession({ role: 'host', transport: pair2.a, tuning, match: MATCH, timeoutTicks: 60, connectTimeoutTicks: 600 });
+    createRollbackSession({ role: 'guest', transport: pair2.b, tuning });
+    const events2: SessionEvent[] = [];
+    host2.onEvent((e) => events2.push(e));
+    for (let i = 0; i < 650; i++) {
+      pair2.advance(TICK_MS);
+      host2.tick(IDLE_INTENT);
+    }
+    expect(events2).toContainEqual(expect.objectContaining({ type: 'PlayerLeft', player: 1 }));
+  });
+
   it('a guest the host has dropped is told so, and its Match ends', () => {
     const s = connect({ latencyMs: 30 });
     for (let i = 0; i < 30; i++) frame(s);

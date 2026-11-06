@@ -78,6 +78,12 @@ export const ROLLBACK_WINDOW = 15;
 export const CHECKSUM_INTERVAL = 30;
 /** Ticks without any message from a peer before it counts as gone. */
 export const DEFAULT_TIMEOUT_TICKS = 300;
+/**
+ * The same, for a peer whose first Intents have not arrived yet: it may still be building the Match (a Battle's
+ * battlefield and its soldiers' impostors take seconds, during which its page neither ticks nor sends). A peer that
+ * is really gone is caught sooner by its link closing (the Lobby's own timeout).
+ */
+export const DEFAULT_CONNECT_TIMEOUT_TICKS = 60 * 60;
 /** The AI difficulty that takes over the Fighter of a Player who left (the first difficulty if Tuning Data has none of that name). */
 export const TAKEOVER_DIFFICULTY = 'Normal';
 /**
@@ -154,6 +160,8 @@ export interface RollbackSessionOptions {
   readonly weapon?: string;
   /** Default DEFAULT_TIMEOUT_TICKS. */
   readonly timeoutTicks?: number;
+  /** Silence allowed before a peer's first Intents arrive. Default DEFAULT_CONNECT_TIMEOUT_TICKS (never less than `timeoutTicks`). */
+  readonly connectTimeoutTicks?: number;
   /** The Tick function. Defaults to `stepMatch`; tests swap it to inject divergence. */
   readonly step?: typeof stepMatch;
 }
@@ -287,6 +295,7 @@ class Session implements RollbackSession, PeerIntentSource {
   /** This peer's Weapon pick. */
   private readonly weapon: string;
   private readonly timeoutTicks: number;
+  private readonly connectTimeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
   private readonly listeners: ((e: SessionEvent) => void)[] = [];
   private inbox: { link: Link; message: NetMessage }[] = [];
@@ -322,6 +331,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.tuning = o.tuning;
     this.tuningHash = tuningDataHash(o.tuning);
     this.timeoutTicks = o.timeoutTicks ?? DEFAULT_TIMEOUT_TICKS;
+    this.connectTimeoutTicks = Math.max(this.timeoutTicks, o.connectTimeoutTicks ?? DEFAULT_CONNECT_TIMEOUT_TICKS);
     this.stepFn = o.step ?? stepMatch;
     this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
@@ -422,7 +432,8 @@ class Session implements RollbackSession, PeerIntentSource {
     }
     for (const l of this.closedLinks.splice(0)) this.dropLink(l);
     for (const l of this.live()) {
-      if (l.silentTicks <= this.timeoutTicks) continue;
+      // Until its first Intents arrive the peer may still be building the Match: give it longer.
+      if (l.silentTicks <= (l.heardIntents ? this.timeoutTicks : this.connectTimeoutTicks)) continue;
       if (this.role === 'guest') {
         this.disconnect('Timeout');
         return NOTHING;

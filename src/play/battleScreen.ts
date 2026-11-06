@@ -25,7 +25,7 @@ import { blobTexture } from '../render/blobShadow';
 import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
 import { ObjectiveMarks } from '../render/objectiveMarks';
-import { bakeImpostorAtlases } from '../render/impostorAtlas';
+import { bakeImpostorAtlases, type ImpostorAtlases } from '../render/impostorAtlas';
 import type { Body } from '../render/bodyModel';
 import type { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
@@ -76,6 +76,8 @@ export class BattleScreen {
   /** The impostors are baked and in the scene: the Battle may start. */
   ready = false;
   private crowdView: CrowdView | null = null;
+  /** The soldiers' baked impostors (GPU textures), freed with the screen. */
+  private atlas: ImpostorAtlases | null = null;
   private readonly swap = new BubbleSwap();
   private readonly hud: BattleHud;
   /** The Battlefield's heights: known once the first state is (online, the Match starts when the peers have met). */
@@ -139,6 +141,7 @@ export class BattleScreen {
         return;
       }
       loading.finish();
+      this.atlas = atlas;
       this.crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
       renderer.scene.add(this.crowdView.root);
       this.ready = true;
@@ -318,7 +321,12 @@ export class BattleScreen {
     this.renderer.canvas.style.filter = '';
     this.loading?.dispose();
     removeEventListener('keydown', this.onKey);
-    if (this.crowdView) this.renderer.scene.remove(this.crowdView.root);
+    if (this.crowdView) {
+      this.renderer.scene.remove(this.crowdView.root);
+      this.crowdView.dispose();
+    }
+    this.atlas?.dispose();
+    this.atlas = null;
     this.marks?.dispose();
     this.renderer.setFades(null);
     this.renderer.setChosenBodies([]);

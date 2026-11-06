@@ -33,8 +33,16 @@ import { parseLobbyMessage, type LobbyMessage, type RefuseLobbyReason } from './
 
 /** The host sends the state at least this often; a guest its wishes at twice this. Also the join retry. */
 export const HEARTBEAT_MS = 500;
-/** Nothing heard for this long: the peer is gone. */
-export const LOBBY_TIMEOUT_MS = 10_000;
+/**
+ * Nothing heard for this long: the peer is gone. Generous, since starting a Battle holds a page's main thread for
+ * seconds at a time (its battlefield, then its soldiers' impostors), and nothing is sent meanwhile.
+ */
+export const LOBBY_TIMEOUT_MS = 20_000;
+/**
+ * A pump this much later than the last one means this page itself stalled (a long build, a background tab): that
+ * time is not the peer's silence, since anything it sent meanwhile is still queued behind the stall.
+ */
+export const STALL_MS = 1_000;
 /** The longest name a Member may have. */
 export const MAX_NAME = 16;
 
@@ -98,6 +106,13 @@ abstract class Base {
   status: LobbyStatus = 'Open';
   failure: string | null = null;
   protected now = 0;
+
+  /** Move the clock to `now`; returns how long this page stalled since the last pump (0 if it did not). */
+  protected advance(now: number): number {
+    const stalled = this.now > 0 && now - this.now > STALL_MS ? now - this.now : 0;
+    this.now = now;
+    return stalled;
+  }
 
   onChange(listener: () => void): () => void {
     this.listeners.add(listener);
@@ -180,8 +195,9 @@ export class HostLobby extends Base implements Lobby {
   }
 
   pump(now: number): void {
-    this.now = now;
+    const stalled = this.advance(now);
     for (const link of [...this.links]) {
+      link.heard += stalled;
       if (link.closeAt !== null && now >= link.closeAt) link.channels.room.close();
       else if (now - link.heard > LOBBY_TIMEOUT_MS) link.channels.room.close();
     }
@@ -305,9 +321,10 @@ export class GuestLobby extends Base implements Lobby {
   }
 
   pump(now: number): void {
-    this.now = now;
+    const stalled = this.advance(now);
     if (this.status === 'Closed') return;
     if (this.heard === 0) this.heard = now;
+    else this.heard += stalled;
     if (now - this.heard > LOBBY_TIMEOUT_MS) return this.closed('Lost the connection to the host.');
     if (this.status === 'Joining' && now - this.sentAt >= HEARTBEAT_MS) {
       this.sentAt = now;

@@ -855,7 +855,25 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   setInterval(() => lobby?.pump(performance.now()), LOBBY_PUMP_MS);
 
+  /**
+   * Each animation frame. The next one is asked for first, so nothing a frame throws can stop the loop for good: a page
+   * whose loop died would still show the Lobby (its own timer pumps it) while every Match it starts never ticks, which
+   * the other players see as this one leaving. A Match that throws ends here with the reason instead.
+   */
+  let lastFailure = '';
   function frame(now: number): void {
+    requestAnimationFrame(frame);
+    try {
+      runFrame(now);
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      if (why !== lastFailure) console.error(e);
+      lastFailure = why;
+      if (driver) matchFailed(`The Match stopped on an error: ${why}`);
+    }
+  }
+
+  function runFrame(now: number): void {
     const elapsed = Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
     accumulator += elapsed;
     last = now;
@@ -992,7 +1010,6 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       renderer.setChosenBodies(chosen);
       renderer.render(duel, duel, 1);
     }
-    requestAnimationFrame(frame);
   }
 
   addEventListener('pagehide', () => leave());
