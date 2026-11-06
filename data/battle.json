@@ -41,7 +41,7 @@
     "narrow": { "room": 3, "ahead": 6 }
   },
   "objectives": {
-    "radius": 12,
+    "radius": 6,
     "playerCount": 3,
     "captureSeconds": 0.5,
     "rate": 0.01,
