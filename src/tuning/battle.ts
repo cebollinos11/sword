@@ -334,6 +334,8 @@ export interface RingTuning {
 export interface TakeoverTuning {
   /** How long after its Fighter falls (s) a Player takes over its ally, its fall played out first. */
   readonly seconds: number;
+  /** The HP (and max HP) a Player's taken-over Soldier is given, whatever the Soldier had. */
+  readonly hp: number;
 }
 
 /** A solid block of a Battle map's walls or towers (docs/plans/battle-objectives.md, Stage 3a): from above an axis-aligned box, solid from the ground to `top`. */
@@ -771,7 +773,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
     bubble,
     slots,
     ring,
-    takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover') },
+    takeover: { seconds: nonNegativeNumber(tk, 'seconds', 'battle.takeover'), hp: positiveNumber(tk, 'hp', 'battle.takeover') },
     levels: {
       stepUp: positiveNumber(lv, 'stepUp', 'battle.levels'),
       drop: positiveNumber(lv, 'drop', 'battle.levels'),

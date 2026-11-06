@@ -74,7 +74,7 @@ function flank(): MatchState {
 }
 
 describe('Taking over an ally', () => {
-  it('takes over the nearest living ally Soldier, with its HP and its Troop, once its fall has played', () => {
+  it('takes over the nearest living ally Soldier, at `takeover.hp` HP and with its Troop, once its fall has played', () => {
     const start = flank();
     const dead = start.duel.fighters[0]!;
     const fallTick = dead.death!.tick;
@@ -87,10 +87,12 @@ describe('Taking over an ally', () => {
     const me = next.fighters[0]!;
     expect(inDuel(me)).toBe(true);
     expect(me.position).toEqual({ x: 64, z: 0 });
-    expect(me.hp).toBe(37);
-    // The Soldier's Troop's HP and Weapon.
+    // Fresh at `takeover.hp` (100), not the Soldier's 37 nor its Troop's max.
+    expect(me.hp).toBe(small.battle.takeover.hp);
+    expect(me.hp).toBe(100);
+    expect(me.maxHp).toBe(small.battle.takeover.hp);
+    // The Soldier's Troop's Weapon.
     const taken = next.crowd!.players[0]!.soldier;
-    expect(me.maxHp).toBe(troopOf(small.battle, next.crowd!, taken).hp);
     expect(me.weapon).toBe(troopOf(small.battle, next.crowd!, taken).weapon);
     expect(me.team).toBe(0);
     // A Player's Fighter: no binding, and none of a soldier's Mods.
@@ -117,7 +119,7 @@ describe('Taking over an ally', () => {
     });
     const next = stepBubbles(m.duel, 1, start.duel.fighters[0]!.death!.tick + takeoverTicks, small);
     const { soldier: _s, mods: _m, ...own } = ally;
-    expect(next.fighters[0]).toEqual(own);
+    expect(next.fighters[0]).toEqual({ ...own, hp: small.battle.takeover.hp, maxHp: small.battle.takeover.hp });
     expect(next.fighters[3]!.benched).toBe(true);
     expect(next.crowd!.slot[5]).toBe(0);
     expect(next.crowd!.players[0]!.soldier).toBe(5);

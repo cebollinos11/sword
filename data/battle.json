@@ -118,7 +118,8 @@
     "waiting": 8
   },
   "takeover": {
-    "seconds": 1.5
+    "seconds": 1.5,
+    "hp": 100
   },
   "levels": {
     "stepUp": 0.35,

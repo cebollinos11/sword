@@ -9,7 +9,7 @@
  *  - taking over an ally (Stage 5): a Player's Fighter that fell kills its Soldier if it had taken one over, and
  *    `takeover.seconds` after its fall the Player takes over the nearest living ally Soldier (in the Crowd, or a promoted
  *    ally, which keeps its Fighter as it stands): it becomes the Player's Fighter in the Player's slot, with the generic
- *    soldier's Weapon and the Soldier's own HP. The fallen Fighter lies on: the Player's own chosen Fighter in a free Pool
+ *    soldier's Weapon and `takeover.hp` HP (and max HP), whatever the Soldier had. The fallen Fighter lies on: the Player's own chosen Fighter in a free Pool
  *    slot to the Battle's end (`BattlePlayer.corpse`), a Soldier it had taken over in the Crowd. With no living ally left
  *    the Player is out: its Fighter just lies there;
  *  - a promoted Fighter that fell kills its Soldier (where it fell, facing its way, 0 HP), and `corpseSeconds` after its
@@ -210,6 +210,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
 
   // Taking over an ally: a Player's fallen Fighter kills its Soldier, and later the Player plays on as the nearest living ally.
   const takeoverTicks = secondsToTicks(tuning.battle.takeover.seconds);
+  const takeoverHp = tuning.battle.takeover.hp;
   for (let p = 0; p < players; p++) {
     const f = duel.fighters[p]!;
     const record = before.players[p];
@@ -234,6 +235,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       e.fighters[p] = sameSize(ally.size, f.size) ? ally : resized(ally, f.size);
       e.fighters[k] = free();
     } else e.fighters[p] = fighterOf(e.crowd, s, own);
+    // The Player comes back fresh: `takeover.hp`, whatever the Soldier had left.
+    e.fighters[p] = { ...e.fighters[p]!, hp: takeoverHp, maxHp: takeoverHp };
     // The Soldier is the Player's body now: its impostor (once it falls) is drawn in the Player's Size too.
     e.crowd.sizeHeight = e.crowd.sizeHeight.slice();
     e.crowd.sizeThick = e.crowd.sizeThick.slice();

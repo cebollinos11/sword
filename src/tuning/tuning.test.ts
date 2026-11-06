@@ -46,7 +46,7 @@ function goodRaw() {
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },
       slots: { enemies: 4, allies: 3, engaged: 2.5, shared: [] },
       ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 },
-      takeover: { seconds: 1.5 },
+      takeover: { seconds: 1.5, hp: 100 },
       levels: { stepUp: 0.35, drop: 3, height: 1.8, promote: 2.5 },
     },
     gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },

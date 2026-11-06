@@ -184,7 +184,7 @@ describe('A Player taking over a Soldier', () => {
     expect(soldierSize(next.crowd!, 1)).toBeUndefined();
   });
 
-  it("re-makes a promoted ally of another Size in the Player's, where it stands, with its HP", () => {
+  it("re-makes a promoted ally of another Size in the Player's, where it stands, at `takeover.hp`", () => {
     const start = fallen(mine);
     const ally: FighterState = {
       ...standingFighter(small, arenaOf(small, start.arena), { position: { x: 61, z: 1 }, y: ground(start, 61, 1), facing: 1 }, small.battle.soldier.weapon, 0, { height: 0.7, thick: 1.35 }),
@@ -200,7 +200,7 @@ describe('A Player taking over a Soldier', () => {
     expect(me.size).toEqual(mine);
     expect(me.position).toEqual(ally.position);
     expect(me.facing).toBe(1);
-    expect(me.hp).toBe(22);
+    expect(me.hp).toBe(100);
     expect(me.soldier).toBeUndefined();
     expect(next.fighters[3]!.benched).toBe(true);
   });
