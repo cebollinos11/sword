@@ -54,3 +54,7 @@ The temple is a four-tier stepped pyramid (96 m at its foot, a terrace 12 m wide
 
 The map is its own half turn (every Walk Surface and Wall has its half turn among them; the plan's Objective k mirrors n - 1 - k holds in x and z, and not in level for B and C, so the two Teams meet a Commander's ties in a different order there: the one asymmetry the map's brief demands).
 
+
+## The Cavern (lava)
+
+The fourth hand-built map, a sci-fi cave of cube platforms, ramps and bridges over a river of lava, 150 a side (`art/build_battle_cavern.py`). The river is a Walk Surface marked `lava`, 8 m under every walkable floor, so it is deadly ground for full Fighters (a Fighter that steps or is knocked off a bridge or bank dies there) while Soldiers never reach it: no ground lies within `battle.levels.drop` of any ledge over it, so they slide along an open ledge as along a wall (a Soldier that dies in the lava is not simulated; they simply never enter it). Two rules came with it: `walkCheck` leaves deadly surfaces out (they are never walked to or from), and a map's floor, where Players spawn, is its lowest ground that is not deadly. The generator shifts its 4 m plan by half a metre so that no Wall of it lies on a centre of the 5 m destination fields (Squads pinned against rails otherwise).

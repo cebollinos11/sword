@@ -14,7 +14,7 @@
  * Pure functions of the name and Tuning Data; the built field is a cache, never state, so it cannot change an outcome (ADR 0006).
  */
 import { deployLayout, type ArenaGeometry, type BattleMapTuning, type BattleTuning, type ObjectiveSite, type SpawnPoint, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
-import { groundBelow, surfaceHeight } from './arena';
+import { deadly, groundBelow, surfaceHeight } from './arena';
 import { groundNear, walkCheck } from './levels';
 import { createRng, nextFloat } from './rng';
 
@@ -385,7 +385,8 @@ function blockWalls(b: WallBlock): WallSegment[] {
  */
 function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Battlefield {
   const size = battle.field.size;
-  const floor = Math.min(...map.walk.flatMap((w) => w.points.map((p) => p.y)));
+  // The floor is the lowest ground that is not deadly: a lava river far below it (the Cavern) is no place for the Players to spawn.
+  const floor = Math.min(...map.walk.filter((w) => !deadly(w)).flatMap((w) => w.points.map((p) => p.y)));
   const flat: Heightfield = { size, cell: size, side: 2, heights: [floor, floor, floor, floor] };
   // The Players spawn at the floor's height (on one level, where they stand).
   const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: false };

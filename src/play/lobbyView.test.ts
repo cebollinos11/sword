@@ -81,7 +81,7 @@ describe("the Lobby's Battle map picker (docs/plans/battle-objectives.md, Stage 
   const fort = tuning.battle.maps.fort!;
 
   it('offers the open field and the Fort; picking a map sets the army size back to its standard', () => {
-    expect(battleMaps(tuning).map((m) => m.label)).toEqual(['Open field', 'Fort', 'Ziggurat', 'City']);
+    expect(battleMaps(tuning).map((m) => m.label)).toEqual(['Open field', 'Fort', 'Ziggurat', 'City', 'Cavern']);
     expect(battleMapChoice(tuning, undefined).id).toBe('open');
     expect(battleMapChoice(tuning, { map: 'fort' }).label).toBe('Fort');
     expect(battleMapChoice(tuning, { map: 'nowhere' }).id).toBe('open');

@@ -539,6 +539,7 @@ export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string
   { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,', blurb: 'A ruined fort, its walls breached', art: 'linear-gradient(180deg, #9db3c8, #c9c3b0 50%, #6b6a5a 51%, #3d4a2c)' },
   { id: 'ziggurat', label: 'Ziggurat', where: 'on and in an ancient stepped temple above the jungle,', blurb: 'A stepped temple over the jungle', art: 'linear-gradient(180deg, #c9d8a8, #7fa55a 45%, #8a7a58 46%, #2f4a22)' },
   { id: 'city', label: 'City', where: 'over the streets and rooftops of a hill town under its castle,', blurb: 'Streets and rooftops under a castle', art: 'linear-gradient(180deg, #a8bccf, #d8c6a4 45%, #8f6f55 46%, #4a3a30)' },
+  { id: 'cavern', label: 'Cavern', where: 'in a cavern of cut basalt, over a river of lava,', blurb: 'Lava river, bridges and platforms', art: 'linear-gradient(180deg, #2a2224, #3b2d2b 45%, #ff6a1a 46%, #6a1d08)' },
 ];
 
 /** The Battle maps this Tuning Data has, as the Lobby offers them. */

@@ -13,7 +13,7 @@
  * where its Soldiers can walk.
  */
 import type { ArenaGeometry, LevelsTuning } from '../tuning';
-import { onSurface, surfaceHeight, surfacesAt } from './arena';
+import { deadly, onSurface, surfaceHeight, surfacesAt } from './arena';
 
 /** A walk is traced in steps of at most this (m): short enough that no Walk Surface of a Battle map is stepped over. */
 const SUB = 0.25;
@@ -220,6 +220,8 @@ export function probeEdges(arena: ArenaGeometry, lv: LevelsTuning, drops: boolea
 export function walkCheck(arena: ArenaGeometry, lv: LevelsTuning): string | null {
   const n = arena.walk.length;
   if (n === 0) return 'it has no Walk Surface';
+  const first = arena.walk.findIndex((w) => !deadly(w));
+  if (first < 0) return 'it has no walkable Walk Surface';
   const out = arena.walk.map(() => new Set<number>());
   const back = arena.walk.map(() => new Set<number>());
   probeEdges(arena, lv, true, (from, to) => {
@@ -228,16 +230,18 @@ export function walkCheck(arena: ArenaGeometry, lv: LevelsTuning): string | null
   }, () => {});
   const reach = (links: readonly Set<number>[]): Uint8Array => {
     const seen = new Uint8Array(n);
-    seen[0] = 1;
-    const todo = [0];
+    seen[first] = 1;
+    const todo = [first];
     while (todo.length) for (const t of links[todo.pop()!]!) if (!seen[t]) (seen[t] = 1), todo.push(t);
     return seen;
   };
   const there = reach(out);
   const home = reach(back);
   for (let i = 0; i < n; i++) {
-    if (!there[i]) return `Walk Surface ${arena.walk[i]!.id} cannot be walked to from ${arena.walk[0]!.id}`;
-    if (!home[i]) return `Walk Surface ${arena.walk[i]!.id} cannot walk back to ${arena.walk[0]!.id}`;
+    // Deadly ground (a lava river, far below every ledge) is never walked to or from: Soldiers do not drop that far.
+    if (deadly(arena.walk[i]!)) continue;
+    if (!there[i]) return `Walk Surface ${arena.walk[i]!.id} cannot be walked to from ${arena.walk[first]!.id}`;
+    if (!home[i]) return `Walk Surface ${arena.walk[i]!.id} cannot walk back to ${arena.walk[first]!.id}`;
   }
   return null;
 }

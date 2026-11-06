@@ -78,7 +78,7 @@ describe('the Ziggurat as Tuning Data', () => {
 
 describe('the Lobby', () => {
   it('offers the Ziggurat beside the Fort and the open field, at its own army size', () => {
-    expect(battleMaps(base).map((m) => m.id)).toEqual(['open', 'fort', 'ziggurat', 'city']);
+    expect(battleMaps(base).map((m) => m.id)).toEqual(['open', 'fort', 'ziggurat', 'city', 'cavern']);
     expect(battleMapChoice(base, { map: 'ziggurat' }).label).toBe('Ziggurat');
     expect(battleCard(tuning, { map: 'ziggurat' }).note).toMatch(/stepped temple/);
   });
