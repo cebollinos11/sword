@@ -6,5 +6,5 @@
   "impactLean": 5,
   "impactFrequency": 4,
   "impactDuration": 0.2,
-  "correctionWindow": 0.15
+  "correctionWindow": 5
 }
