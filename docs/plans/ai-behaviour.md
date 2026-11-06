@@ -46,6 +46,7 @@ User decisions:
   - If the attacker walks after it while holding, it Kicks. They are moving, so the Kick is a Knockdown (ADR 0007).
   - Once it is out of reach, a held Wind-up is no longer a threat to sit and Block. It hovers just outside and baits (steps in and back) to draw the Release, then punishes the Recovery.
 - `whiffCheck` (the bait-then-punish fix): rolled once per own Attack. In its Wind-up, if the target seen backing out of reach will be beyond reach at Release, it holds the Wind-up (closing in, as `holdUntil` already allows) or Feints into a Block instead of swinging at air.
+- `pressAhead` (added later; 1 on Beginner, Skilled and Expert, absent on Easy, Normal and Hard): rolled once per Attack it defends from its own Wind-up. If its Wind-up Releases at least 10 Ticks before the attacker's can, it swings on (Outpace) whatever `preempt` rolls, rather than Feint into a Block and give up a hit it would land first. Closer calls still go to the `preempt` roll (with its 6-Tick margin).
 - `punishFits` (weapon-aware): it punishes an opening only if its own Wind-up for the chosen Direction (`attackTimings`, Tempo included) lands before the opening's remaining Ticks, as read from the seen `motionTick`. Otherwise it spaces out. This stops a Sledge Hammer from "punishing" a short Recovery into a counter.
 
 **Styles:** Tuning Data `ai.styles` in `data/ai.json`. Each Style holds multipliers on the difficulty's chances plus values for new knobs. A starting set:

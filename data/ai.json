@@ -96,7 +96,8 @@
       "reactionJitter": 0.4,
       "humanMistakes": 0.4,
       "idleLife": 0.4,
-      "jumpStep": 0.2
+      "jumpStep": 0.2,
+      "pressAhead": 1
     },
     "Skilled": {
       "reactionTime": 0.26,
@@ -126,7 +127,8 @@
       "reactionJitter": 0.7,
       "humanMistakes": 0.7,
       "idleLife": 0.7,
-      "jumpStep": 0.35
+      "jumpStep": 0.35,
+      "pressAhead": 1
     },
     "Expert": {
       "reactionTime": 0.16,
@@ -156,7 +158,8 @@
       "reactionJitter": 0.9,
       "humanMistakes": 0.9,
       "idleLife": 0.9,
-      "jumpStep": 0.5
+      "jumpStep": 0.5,
+      "pressAhead": 1
     }
   },
   "styles": {

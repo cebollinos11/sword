@@ -523,6 +523,23 @@ describe('AI Controller: repertoire', () => {
     }
   });
 
+  it('with pressAhead 1 it swings on when its own Wind-up clearly lands first, rather than Feint into a Block', () => {
+    // It swings first (aggression 1, in reach); the scripted Fighter answers with its own Attack `late` Ticks after.
+    const eager: TuningData = { ...repo, ai: { ...repo.ai, aggression: 1, kickRate: 0, throwRate: 0 } };
+    const skill = (pressAhead: number) => ({ ...sharp, preempt: 0, pressAhead });
+    const first = vsAi(eager, skill(0), wait(60), 60);
+    const start = first.run.states.findIndex((s) => s.fighters[1]!.action.kind === 'Attack');
+    expect(start).toBeGreaterThan(0);
+    const answer = (late: number): Track => [...wait(start + late - 1), ...attack('Overhead')];
+    const firstEvent = (pressAhead: number, late: number) =>
+      vsAi(eager, skill(pressAhead), answer(late), start + 120).run.events.find((e) => e.type === 'Hit' || e.type === 'Block' || e.type === 'Chamber');
+    // Well behind it: with pressAhead it hits first; without (and no preempt) it gives the hit up and Blocks.
+    expect(firstEvent(1, 14)).toMatchObject({ type: 'Hit', attacker: 1, defender: 0 });
+    expect(firstEvent(0, 14)).toMatchObject({ type: 'Block', defender: 1 });
+    // Only just behind it, not clearly ahead: it Blocks either way.
+    expect(firstEvent(1, 2)).toMatchObject({ type: 'Block', defender: 1 });
+  });
+
   it('a Chamber that misses its timing (the Wind-up is held) falls back to a Block', () => {
     const { run } = vsAi(passive, { ...sharp, chamberRate: 1 }, [...wait(30), ...attack('Overhead', 40)], 200);
     expect(run.events.some((e) => e.type === 'Chamber')).toBe(false);
@@ -1050,8 +1067,9 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
+      expect(pressAhead, tier).toBe(1);
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
     }
   });
@@ -1059,7 +1077,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
   it('Easy, Normal and Hard leave every new knob off', () => {
     for (const name of ['Easy', 'Normal', 'Hard']) {
       const skill = skillOf(repo, aiDifficulty(repo, name));
-      expect([skill.lowSwingRead, skill.holdBreak, skill.whiffCheck, skill.punishFits, skill.teamwork], name).toEqual([0, 0, 0, 0, 0]);
+      expect([skill.lowSwingRead, skill.holdBreak, skill.whiffCheck, skill.punishFits, skill.teamwork, skill.pressAhead], name).toEqual([0, 0, 0, 0, 0, 0]);
     }
   });
 

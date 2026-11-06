@@ -32,7 +32,7 @@
  *    Crouches under a Left or Right (`duckRate`: a Crouch lets both pass over);
  *    or tries a Chamber, attacking into it timed off how far along its Wind-up
  *    was (`chamberRate`); or, when its own Wind-up will land first, swings on
- *    (`preempt`). A wrong-Direction Block is the mistake (`mistakeRate`,
+ *    (`preempt`; and, with `pressAhead`, always when it is clearly ahead). A wrong-Direction Block is the mistake (`mistakeRate`,
  *    rolled once per opponent Attack). An Attack Feint is a new Attack to plan for.
  *  - Footwork (`footwork`): it hovers just outside the longer of the two
  *    Weapons' reach (inside its own if its Weapon is the longer), circling its
@@ -419,6 +419,8 @@ const DEFEND_LEVEL = 1.0;
 const SAFETY_PROBE = 0.8;
 /** ...and this far (m) to either side of where it looks. */
 const SAFETY_MARGIN = 0.1;
+/** Its own Wind-up Releasing at least this many Ticks before an attacker's is clearly ahead (`pressAhead`): it swings on. */
+const PRESS_AHEAD_LEAD = 10;
 /** A Thrust reaches this much (m) further than a swing. */
 const THRUST_REACH = 0.15;
 /** From this far (m) beyond its reach it may step in and swing into an Attack, holding the Wind-up while it closes. */
@@ -609,6 +611,7 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     humanMistakes: 0,
     idleLife: 0,
     jumpStep: 0,
+    pressAhead: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -2237,7 +2240,10 @@ class RuleAi implements AiController {
     const theirRelease = atk.phase === 'Wind-up' ? Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks) : 0;
     if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self)) {
       const mine = attackTimings(this.tuning, self.weapon, own.direction);
-      if (Math.max(0, mine.windUpEnd - self.motion.tick) + 6 < theirRelease && this.chance(this.skill.preempt)) return plan('Outpace');
+      const lead = theirRelease - Math.max(0, mine.windUpEnd - self.motion.tick);
+      // Clearly ahead (`pressAhead`): it swings on rather than give up the hit it would land first.
+      if (lead >= PRESS_AHEAD_LEAD && this.chance(this.skill.pressAhead)) return plan('Outpace');
+      if (lead > 6 && this.chance(this.skill.preempt)) return plan('Outpace');
     }
     if ((atk.direction === 'Left' || atk.direction === 'Right') && !self.air && this.chance(this.skill.duckRate)) {
       // Reading the look: never Duck a swing seen coming low (it would hit the Crouch).
