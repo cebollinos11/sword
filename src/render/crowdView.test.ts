@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { battlefieldHeight, battlefieldOf, createMatch, stepMatch, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
 import { CrowdView } from './crowdView';
-import { atlasCell, atlasLayout, CLIP_FRAMES, directionCell, impostorStretch, yawTo, type ImpostorClip } from './impostor';
+import { atlasCell, atlasLayout, CLIP_FRAMES, directionCell, impostorStretch, WALK_SPEED_MIN, yawTo, type ImpostorClip } from './impostor';
 import { CELL_METRES, FEET_METRES, type ImpostorAtlas } from './impostorAtlas';
 
 const tuning = loadTuningData();
@@ -47,12 +47,21 @@ describe('CrowdView', () => {
     // away, at most 45 degrees off) from behind, Team 1 (walking toward the camera) from in front.
     const crowd = match.duel.crowd!;
     const seen = (i: number) => `${look.cell(i).column},${look.cell(i).row}`;
+    // A Soldier walking is drawn walking, from that direction; one already standing at its place (a Squad sent to its Home
+    // Objective, whose circle reaches the deployment) stands. Nearly every Soldier walks (the Squads head for their Objectives, so no
+    // one direction holds for an army).
+    let walking = 0;
     for (let i = 0; i < 2 * army; i++) {
       const f = look.feet(i);
-      expect(cellOf('walk', directionCell(crowd.heading[i]!, yawTo(f.getX(i % army), f.getZ(i % army), camera.position.x, camera.position.z)))).toContain(seen(i));
-      // Every Soldier walks (the Squads head for their Objectives, so no one direction holds for an army).
-      expect([0, 1, 2, 3, 4, 5, 6, 7].flatMap((d) => cellOf('walk', d))).toContain(seen(i));
+      const direction = directionCell(crowd.heading[i]!, yawTo(f.getX(i % army), f.getZ(i % army), camera.position.x, camera.position.z));
+      if (Math.hypot(crowd.vx[i]!, crowd.vz[i]!) < WALK_SPEED_MIN) {
+        expect(cellOf('idle', direction)).toContain(seen(i));
+        continue;
+      }
+      walking++;
+      expect(cellOf('walk', direction)).toContain(seen(i));
     }
+    expect(walking).toBeGreaterThan(0.8 * 2 * army);
     for (const i of [0, 57, 199, 260]) {
       const f = look.feet(i);
       expect(f.getY(i % army)).toBeCloseTo(battlefieldHeight(hf, f.getX(i % army), f.getZ(i % army)), 5);

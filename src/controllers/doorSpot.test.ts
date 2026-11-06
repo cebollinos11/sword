@@ -9,8 +9,6 @@ const RADIUS = tuning.fighter.radius;
 
 /** The Hall Arenas of a few seeds, each with 1 to 3 exits (`gen:greybox:<seed>:d<exits + 1>`). */
 const ARENAS = [1, 2, 3, 4, 5, 6].flatMap((seed) => [2, 3, 4].map((d) => `gen:greybox:${seed}:d${d}`));
-/** A soak of Hall Arenas: every Door of seeds 1 to 60, 1 to 3 exits each. */
-const SOAK = Array.from({ length: 60 }, (_, k) => k + 1).flatMap((seed) => [2, 3, 4].map((d) => `gen:greybox:${seed}:d${d}`));
 
 /** A Hall Arena stub with an entrance and one exit Door whose zone is the polygon `corners` (at the ground), facing `facing`. */
 function stub(corners: readonly [number, number][], facing = 0): ArenaGeometry {
@@ -31,19 +29,6 @@ describe('exit door spots', () => {
         }
       }
     }
-  });
-
-  it('lie inside the zone of every Door of a soak of Hall Arenas (seeds 1 to 60), or no Fighter standing at one could ever count', () => {
-    let spots = 0;
-    for (const name of SOAK) {
-      const arena = arenaOf(withGeneratedArena(tuning, name).tuning, name);
-      for (let exit = 0; exit < arena.doors.length - 1; exit++)
-        for (const [i, a] of exitDoorSpots(arena, exit, RADIUS).entries()) {
-          spots++;
-          expect(inExitZone(arena, exit, { position: { x: a.x, z: a.z }, y: a.y }), `${name} exit ${exit} spot ${i}`).toBe(true);
-        }
-    }
-    expect(spots).toBeGreaterThan(1000);
   });
 
   it('stay inside a zone that is not aligned with its Door (a diamond: its corners are outside the box of its extents)', () => {

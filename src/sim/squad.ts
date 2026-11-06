@@ -85,6 +85,18 @@ const SPOT_TRIES = 6;
 const SPOT_REACH = 0.85;
 
 /**
+ * How far from a Squad's anchor its column's outermost Soldier stands (the corner place, plus half a Soldier's `separation`): how far inside an
+ * Objective's rim a Squad's place must be for all of it to stand in the circle (`orderSpot`).
+ */
+const columnReach = (battle: BattleTuning): number => {
+  const { spacing, size, column } = battle.squad;
+  return Math.hypot(((column.wide - 1) / 2) * spacing, ((Math.ceil(size / column.wide) - 1) / 2) * spacing) + battle.crowd.separation / 2;
+};
+
+/** How far out (from an Objective's centre) of a circle of `radius` places at `share` of it reach, held in so a whole column stands inside. */
+const spotReach = (battle: BattleTuning, radius: number, share: number): number => Math.max(0, Math.min(share * radius, radius - columnReach(battle)));
+
+/**
  * Squad `q`'s (of `per` in its army) own place at destination `target` (an Objective's index, or `objectives + team` for a Base) as a world
  * point: a place in the Objective's circle, spread by the Squad's place in its army (the golden angle) and turned half a turn for Team 1 as the
  * armies are, so Squads on one Objective, or respawning at one, do not stack; at a Base, a row across it. On a map, a place without room for a
@@ -111,7 +123,7 @@ export function orderSpot(map: BattleMap, target: number, q: number, per: number
     return on >= 0 ? on : groundOf(battle, map.field, out[0], out[1], soldierHeight(map.field, home, base.x, base.z));
   }
   const o = objectives[target]!;
-  const reach = 0.7 * o.radius * Math.sqrt((k + 0.5) / per);
+  const reach = spotReach(battle, o.radius, 0.7) * Math.sqrt((k + 0.5) / per);
   out[0] = o.x + sign * Math.sin(k * GOLDEN) * reach;
   out[1] = o.z + sign * Math.cos(k * GOLDEN) * reach;
   if (!map.fields.clearance) return -1;
@@ -127,7 +139,7 @@ export function orderSpot(map: BattleMap, target: number, q: number, per: number
   let bz = out[1];
   for (let t = 1; t <= SPOT_TRIES; t++) {
     const j = k + t * per;
-    const r = SPOT_REACH * o.radius * Math.sqrt((j + 0.5) / (per * (SPOT_TRIES + 1)));
+    const r = spotReach(battle, o.radius, SPOT_REACH) * Math.sqrt((j + 0.5) / (per * (SPOT_TRIES + 1)));
     const x = o.x + sign * Math.sin(j * GOLDEN) * r;
     const z = o.z + sign * Math.cos(j * GOLDEN) * r;
     const at = on(x, z);
@@ -214,21 +226,46 @@ export function squadNarrows(battle: BattleTuning, map: BattleMap, squads: Squad
 export const SPOKE_POINTS = 4;
 
 /**
+ * How much of a Formation offset (ox, oz) from an anchor at (ax, az) a place keeps (1: all of it) so it stands inside the circle of
+ * destination `target` (a body's half width in from its rim), when the anchor stands inside it: a Squad holding an Objective stands all
+ * of it on the Objective, however deep its column narrowed (one file on a rooftop is deeper than a small circle is wide). 1 for a Base, or
+ * an anchor outside the circle (marching there, its column is as long as it always was).
+ */
+function inCircleShare(map: BattleMap, target: number, ax: number, az: number, ox: number, oz: number, body: number): number {
+  const site = map.field.objectives[target];
+  if (!site) return 1;
+  const rim = site.radius - body;
+  const px = ax - site.x;
+  const pz = az - site.z;
+  const c = px * px + pz * pz - rim * rim;
+  if (c > 0) return 1;
+  const a = ox * ox + oz * oz;
+  if ((px + ox) ** 2 + (pz + oz) ** 2 <= rim * rim || a === 0) return 1;
+  // Where the line from the anchor along the offset meets the rim: |p + s·o| = rim, the root with s ≥ 0.
+  const b = px * ox + pz * oz;
+  return (-b + Math.sqrt(b * b - a * c)) / a;
+}
+
+/**
  * Where place `place` of Squad `q` stands, as a world point into `out`: its place in the Formation (`placeOffset`) round the anchor,
- * narrowed to `narrow` files (`squadNarrows`). On a map, a place a Soldier could not walk to from the anchor (inside a block, or past one, or
+ * narrowed to `narrow` files (`squadNarrows`), and, narrowed, held in its Objective's circle while its anchor stands there (`inCircleShare`:
+ * a column of its own width already fits there, `orderSpot` keeping its place far enough in). On a map, a place a Soldier could not walk to from the anchor (inside a block, or past one, or
  * nearer one than a Soldier's half `separation`) moves in toward the anchor, along its own line, until it can (the anchor itself, at the
  * last, which is always clear). On a map of several levels (Stage 4a) it must also be walked to from the anchor without dropping (so a place
  * past the edge of a bridge moves in onto the bridge), and its Walk Surface is returned; -1 on any other map.
  */
 export function formationSpot(battle: BattleTuning, map: BattleMap, squads: SquadState, q: number, place: number, narrow: number, out: [number, number]): number {
   placeOffset(battle, squads.shape[q]!, place, squads.heading[q]!, out, narrow, squads.living[q]);
-  const ox = out[0];
-  const oz = out[1];
+  let ox = out[0];
+  let oz = out[1];
   const ax = squads.x[q]!;
   const az = squads.z[q]!;
+  const body = battle.crowd.separation / 2;
+  const held = narrow > 0 ? inCircleShare(map, squads.target[q]!, ax, az, ox, oz, body) : 1;
+  ox *= held;
+  oz *= held;
   out[0] = ax + ox;
   out[1] = az + oz;
-  const body = battle.crowd.separation / 2;
   if (map.field.layered) {
     const from = squads.surface[q]!;
     // No block can stand across a line shorter than the anchor's clearance (less a body's half width): then only the Walk Surface is traced.

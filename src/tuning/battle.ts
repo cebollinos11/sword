@@ -136,8 +136,10 @@ export interface ObjectiveSite {
 
 /** The Objectives (docs/plans/battle-objectives.md, Stage 2a, ADR 0021): the capture circle, how fast it is taken, and the open field's five. */
 export interface ObjectivesTuning {
-  /** Every Objective's circle (m). */
+  /** Every Objective's circle (m), but a spawn's. */
   readonly radius: number;
+  /** A spawn Objective's circle (m): wider, as every Squad of a Team that respawns there gathers in it. */
+  readonly spawnRadius: number;
   /** How many Soldiers a Player's full Fighter counts as on an Objective. Other full Fighters count as 1. */
   readonly playerCount: number;
   /** Capture steps this often (s), on the Crowd's clock (rounded to whole Ticks). */
@@ -678,6 +680,7 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   }
   const objectives: ObjectivesTuning = {
     radius: positiveNumber(ob, 'radius', 'battle.objectives'),
+    spawnRadius: positiveNumber(ob, 'spawnRadius', 'battle.objectives'),
     playerCount: wholeNumber(ob, 'playerCount', 'battle.objectives'),
     captureSeconds: positiveNumber(ob, 'captureSeconds', 'battle.objectives'),
     rate: positiveNumber(ob, 'rate', 'battle.objectives'),

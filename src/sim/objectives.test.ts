@@ -75,6 +75,8 @@ describe("the open field's Objectives", () => {
     expect(sites.map((s) => s.id)).toEqual(['H0', 'A', 'B', 'C', 'H1']);
     expect(sites.map((s) => s.owner)).toEqual([0, -1, -1, -1, 1]);
     expect(sites.filter((s) => s.spawn).map((s) => s.id)).toEqual(['H0', 'H1']);
+    // A spawn's circle is the wider one, where the Team's respawning Squads gather.
+    expect(sites.map((s) => s.radius)).toEqual([12, 6, 6, 6, 12]);
     const c = createCrowd(battle, 1);
     expect(c.objectives).toEqual({ progress: [1, 0, 0, 0, -1], owner: [0, -1, -1, -1, 1] });
     expect(c.tickets).toEqual([700, 700]);
@@ -517,7 +519,8 @@ describe('determinism', () => {
     const owners = (x: MatchState) => x.duel.crowd!.objectives.owner.join();
     const first = owners(m);
     let captured = -1;
-    for (let k = 0; k < 6000 && captured < 0; k++) {
+    // Within 200 s: the open field's 6 m Objectives take a while to fill (it changes hands at about 110 s).
+    for (let k = 0; k < 12000 && captured < 0; k++) {
       m = stepMatch(m, [], small);
       if (owners(m) !== first) captured = m.tick;
     }

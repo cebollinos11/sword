@@ -42,6 +42,7 @@
   },
   "objectives": {
     "radius": 6,
+    "spawnRadius": 12,
     "playerCount": 3,
     "captureSeconds": 0.5,
     "rate": 0.01,
