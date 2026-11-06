@@ -250,6 +250,8 @@ export interface CrowdHearing extends Hearing {
   readonly blows: number;
   /** At most this many falling Soldiers' cries a second. */
   readonly cries: number;
+  /** War cries a second in the din at full, each from a fighting Soldier. */
+  readonly shouts: number;
 }
 
 /**
@@ -704,6 +706,7 @@ function parseAudio(au: Record<string, unknown>): AudioTuning {
     blowRange: nonNegativeNumber(cr, 'blowRange', 'audio.crowd'),
     blows: nonNegativeNumber(cr, 'blows', 'audio.crowd'),
     cries: nonNegativeNumber(cr, 'cries', 'audio.crowd'),
+    shouts: nonNegativeNumber(cr, 'shouts', 'audio.crowd'),
   };
   return { ...parseHearing(au, 'audio'), crowd };
 }

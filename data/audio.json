@@ -17,6 +17,7 @@
     "clashes": 9,
     "blowRange": 25,
     "blows": 6,
-    "cries": 2.5
+    "cries": 2.5,
+    "shouts": 1.5
   }
 }

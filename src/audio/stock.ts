@@ -19,6 +19,7 @@ export const STOCK_CLIPS = {
   armor: { count: 5, level: 0.8 },
   'arrow-hit': { count: 5, level: 0.8 },
   victory: { count: 1, level: 0.9 },
+  shout: { count: 6, level: 0.8 },
 } as const;
 
 export type StockClip = keyof typeof STOCK_CLIPS;

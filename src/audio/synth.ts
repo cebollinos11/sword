@@ -14,7 +14,7 @@
  *  - WallStrike: a blade knocking on a Wall and ringing;
  *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare;
  *  - CrowdBlow, CrowdFall: a blow on a Soldier near the Player, a falling Soldier's cry; and the Crowd's din (`setCrowd`):
- *    a bed of battle noise and distant clashes swelling with the fighting heard, from where it is.
+ *    a bed of battle noise, distant clashes and war cries swelling with the fighting heard, from where it is.
  * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
  * A sound placed in the world (`Placed.at`) is heard from the ears (`setEars`): quieter, muffled and wetter
  * the further off, panned to its side, and not played at all past the hearing range (Tuning Data `audio`).
@@ -55,8 +55,11 @@ const DIN_EVERY = 0.1;
 const DIN_EASE = 0.35;
 /** The din falls silent this long (s) after the Crowd was last heard (the Battle paused, or over). */
 const DIN_STALE = 0.4;
-/** How loud each distant clash in the din plays (before distance). */
+/** How loud each distant clash and war cry in the din plays (before distance). */
 const CLASH_LEVEL = 0.45;
+const SHOUT_LEVEL = 0.6;
+const pickClip = (clips: readonly StockClip[]): StockClip => clips[Math.floor(Math.random() * clips.length)]!;
+
 /** A low-pass at this frequency (Hz) is open: it muffles nothing. */
 const OPEN_CUTOFF = 20000;
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
@@ -151,6 +154,7 @@ export class WebAudioPlayer implements SoundPlayer {
   private din: Din = SILENT_DIN;
   private bed: { gain: GainNode; filter: BiquadFilterNode; pan: StereoPannerNode; send: GainNode } | null = null;
   private clashDebt = 0;
+  private shoutDebt = 0;
   /** Rate limits (sounds a second) on the Crowd's blows and cries: each kind's tokens, and when they were last topped up. */
   private readonly tokens = new Map<string, { n: number; at: number }>();
 
@@ -196,7 +200,10 @@ export class WebAudioPlayer implements SoundPlayer {
     this.updateBed();
     // Distant clashes, at random, as many a second as the fighting heard makes.
     this.clashDebt += this.din.level * crowd.clashes * Math.min(since, 1) * (0.5 + Math.random());
-    for (; this.clashDebt >= 1; this.clashDebt--) this.clash();
+    for (; this.clashDebt >= 1; this.clashDebt--) this.fromFighting(pickClip(CROWD_BLOW_CLIPS), CLASH_LEVEL, 0.85, 1.15);
+    // War cries: the same few voices pitched up or down, so they are many men.
+    this.shoutDebt += this.din.level * crowd.shouts * Math.min(since, 1) * (0.5 + Math.random());
+    for (; this.shoutDebt >= 1; this.shoutDebt--) this.fromFighting('shout', SHOUT_LEVEL, 0.8, 1.2);
   }
 
   play(cue: SoundCue): void {
@@ -339,8 +346,8 @@ export class WebAudioPlayer implements SoundPlayer {
     bed.send.gain.setTargetAtTime(Math.min(1, (0.3 + din.wet) * this.roomBoost), t, DIN_EASE);
   }
 
-  /** One distant clash in the din, from a fighting Soldier (a louder-heard one likelier), heard from there. */
-  private clash(): void {
+  /** One clip of the din (a clash, a war cry) from a fighting Soldier (a louder-heard one likelier), heard from there, at a rate in [lo, hi). */
+  private fromFighting(clip: StockClip, level: number, lo: number, hi: number): void {
     const i = pickFighting(this.din, Math.random());
     const at = this.fighting[i];
     if (!at) return;
@@ -348,8 +355,7 @@ export class WebAudioPlayer implements SoundPlayer {
     if (place.gain < INAUDIBLE) return;
     this.place = place;
     try {
-      const clip = CROWD_BLOW_CLIPS[Math.floor(Math.random() * CROWD_BLOW_CLIPS.length)]!;
-      this.clip({ sound: 'CrowdBlow' }, { clip, level: CLASH_LEVEL, rate: 0.85 + Math.random() * 0.3, at: Math.random() * DIN_EVERY, wet: 0.35 });
+      this.clip({ sound: 'CrowdBlow' }, { clip, level, rate: lo + Math.random() * (hi - lo), at: Math.random() * DIN_EVERY, wet: 0.35 });
     } finally {
       this.place = UNPLACED;
     }
