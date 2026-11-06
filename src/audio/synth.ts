@@ -12,7 +12,9 @@
  *  - Throw, Clink, Ricochet, Clatter, Thunk: a spinning dagger, a dagger turned aside and whirring away, landing on the floor, a dagger stuck;
  *  - Sheathe, Draw: steel sliding into its slot and seating, and sliding out brighter with a ring;
  *  - WallStrike: a blade knocking on a Wall and ringing;
- *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
+ *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare;
+ *  - CrowdBlow, CrowdFall: a blow on a Soldier near the Player, a falling Soldier's cry; and the Crowd's din (`setCrowd`):
+ *    a bed of battle noise and distant clashes swelling with the fighting heard, from where it is.
  * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
  * A sound placed in the world (`Placed.at`) is heard from the ears (`setEars`): quieter, muffled and wetter
  * the further off, panned to its side, and not played at all past the hearing range (Tuning Data `audio`).
@@ -37,14 +39,26 @@ import type {
   WallStrikeCue,
 } from './cues';
 import type { AudioTuning } from '../tuning';
+import type { Vec3 } from '../sim';
+import { crowdDin, pickFighting, SILENT_DIN, type Din } from './crowdDin';
 import type { SoundPlayer } from './listener';
 import { placement, UNPLACED, type Ears, type Placement } from './spatial';
 import { masterVolumeGain, onMasterVolume } from './volume';
-import { STOCK_CLIPS, stockFile, stockFor, type StockClip, type StockPlay } from './stock';
+import { CROWD_BLOW_CLIPS, STOCK_CLIPS, stockFile, stockFor, type StockClip, type StockPlay } from './stock';
 
 const MASTER_GAIN = 0.55;
 /** A placed sound quieter than this is too far off to bother playing. */
 const INAUDIBLE = 0.005;
+/** Seconds between updates of the Crowd's din (its bed's level and side, and its clashes). */
+const DIN_EVERY = 0.1;
+/** Seconds the din's bed takes to swell or ebb (a time constant). */
+const DIN_EASE = 0.35;
+/** The din falls silent this long (s) after the Crowd was last heard (the Battle paused, or over). */
+const DIN_STALE = 0.4;
+/** How loud each distant clash in the din plays (before distance). */
+const CLASH_LEVEL = 0.45;
+/** A low-pass at this frequency (Hz) is open: it muffles nothing. */
+const OPEN_CUTOFF = 20000;
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
 const ENDING_DELAY = 0.55;
 /** Seconds of the room's reverb tail. */
@@ -130,6 +144,15 @@ export class WebAudioPlayer implements SoundPlayer {
   /** Where the Player hears from (null: every sound as if at the ears), and where the sound now being played sits. */
   private ears: Ears | null = null;
   private place: Placement = UNPLACED;
+  /** The Crowd's din: where it fights, as last heard, when (context seconds), its nodes once made, and the clashes owed. */
+  private fighting: readonly Vec3[] = [];
+  private crowdAt = -Infinity;
+  private dinAt = -Infinity;
+  private din: Din = SILENT_DIN;
+  private bed: { gain: GainNode; filter: BiquadFilterNode; pan: StereoPannerNode; send: GainNode } | null = null;
+  private clashDebt = 0;
+  /** Rate limits (sounds a second) on the Crowd's blows and cries: each kind's tokens, and when they were last topped up. */
+  private readonly tokens = new Map<string, { n: number; at: number }>();
 
   /** `hearing`: how far placed sounds carry; without it every sound plays as if at the ears. */
   constructor(private readonly hearing?: AudioTuning) {}
@@ -152,12 +175,39 @@ export class WebAudioPlayer implements SoundPlayer {
 
   setEars(ears: Ears | null): void {
     this.ears = ears;
+    // Every frame: let the din ebb away once the Crowd stops being heard (paused, or no Battle).
+    const ctx = this.ctx;
+    if (ctx && this.bed && ctx.currentTime - this.crowdAt > DIN_STALE && this.din.level > 0) {
+      this.din = SILENT_DIN;
+      this.bed.gain.gain.setTargetAtTime(0, ctx.currentTime, DIN_EASE);
+    }
+  }
+
+  setCrowd(fighting: readonly Vec3[]): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.hearing) return;
+    this.fighting = fighting;
+    this.crowdAt = ctx.currentTime;
+    const since = ctx.currentTime - this.dinAt;
+    if (since < DIN_EVERY) return;
+    this.dinAt = ctx.currentTime;
+    const crowd = this.hearing.crowd;
+    this.din = crowdDin(fighting, this.ears, crowd);
+    this.updateBed();
+    // Distant clashes, at random, as many a second as the fighting heard makes.
+    this.clashDebt += this.din.level * crowd.clashes * Math.min(since, 1) * (0.5 + Math.random());
+    for (; this.clashDebt >= 1; this.clashDebt--) this.clash();
   }
 
   play(cue: SoundCue): void {
     const ctx = this.context();
     if (!ctx || ctx.state !== 'running') return;
-    const place = this.hearing && 'at' in cue ? placement(cue.at, this.ears, this.hearing) : UNPLACED;
+    let place = UNPLACED;
+    if (this.hearing && 'at' in cue) {
+      const crowd = cue.sound === 'CrowdBlow' || cue.sound === 'CrowdFall';
+      place = placement(cue.at, this.ears, crowd ? this.hearing.crowd : this.hearing, cue.flat);
+      if (crowd && !this.crowdAllows(cue, place)) return;
+    }
     if (place.gain < INAUDIBLE) return;
     this.place = place;
     try {
@@ -217,6 +267,91 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.fanfare(ENDING_DELAY);
       case 'Takeover':
         return this.takeover(cue.seconds);
+      case 'CrowdBlow':
+        return this.hit({ sound: 'Hit', defender: -1, zone: 'torso', strength: 0.4, by: 'Edge' });
+      case 'CrowdFall':
+        // A cry is a recording or nothing: a synthesised voice would not pass.
+        return;
+    }
+  }
+
+  // --- The Crowd -------------------------------------------------------------------------------
+
+  /**
+   * Whether one of the Crowd's own sounds plays: a blow only within `blowRange` (further off it is part of the din), and
+   * neither more often than its rate a second, so a big melee does not drown the Fighters.
+   */
+  private crowdAllows(cue: SoundCue, place: Placement): boolean {
+    const crowd = this.hearing!.crowd;
+    if (cue.sound === 'CrowdBlow') {
+      const at = cue.at;
+      const ears = this.ears;
+      if (at && ears && Math.hypot(at.x - ears.position.x, at.z - ears.position.z) > crowd.blowRange) return false;
+    }
+    if (place.gain < INAUDIBLE) return false;
+    return this.take(cue.sound, cue.sound === 'CrowdBlow' ? crowd.blows : crowd.cries);
+  }
+
+  /** A token bucket of `perSecond` (holding at most one second's worth): spends one if there is one. */
+  private take(kind: string, perSecond: number): boolean {
+    const now = this.ctx!.currentTime;
+    const b = this.tokens.get(kind) ?? { n: perSecond, at: now };
+    b.n = Math.min(perSecond, b.n + (now - b.at) * perSecond);
+    b.at = now;
+    this.tokens.set(kind, b);
+    if (b.n < 1) return false;
+    b.n--;
+    return true;
+  }
+
+  /** The din's bed: a loop of noise, banded to the roar of a melee, at the din's level, muffle and side. */
+  private updateBed(): void {
+    const ctx = this.ctx!;
+    const crowd = this.hearing!.crowd;
+    if (!this.bed) {
+      if (this.din.level <= 0) return;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      src.loop = true;
+      // The roar: mid-low noise, the body of many voices and feet.
+      const body = ctx.createBiquadFilter();
+      body.type = 'bandpass';
+      body.frequency.value = 420;
+      body.Q.value = 0.5;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = OPEN_CUTOFF;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const pan = ctx.createStereoPanner();
+      const send = ctx.createGain();
+      src.connect(body).connect(filter).connect(gain).connect(pan);
+      pan.connect(this.dry!);
+      pan.connect(send).connect(this.reverb!);
+      src.start();
+      this.bed = { gain, filter, pan, send };
+    }
+    const t = ctx.currentTime;
+    const { din, bed } = this;
+    bed.gain.gain.setTargetAtTime(din.level * crowd.bed, t, DIN_EASE);
+    bed.filter.frequency.setTargetAtTime(din.cutoff ?? OPEN_CUTOFF, t, DIN_EASE);
+    bed.pan.pan.setTargetAtTime(din.pan, t, DIN_EASE);
+    bed.send.gain.setTargetAtTime(Math.min(1, (0.3 + din.wet) * this.roomBoost), t, DIN_EASE);
+  }
+
+  /** One distant clash in the din, from a fighting Soldier (a louder-heard one likelier), heard from there. */
+  private clash(): void {
+    const i = pickFighting(this.din, Math.random());
+    const at = this.fighting[i];
+    if (!at) return;
+    const place = placement(at, this.ears, this.hearing!.crowd, true);
+    if (place.gain < INAUDIBLE) return;
+    this.place = place;
+    try {
+      const clip = CROWD_BLOW_CLIPS[Math.floor(Math.random() * CROWD_BLOW_CLIPS.length)]!;
+      this.clip({ sound: 'CrowdBlow' }, { clip, level: CLASH_LEVEL, rate: 0.85 + Math.random() * 0.3, at: Math.random() * DIN_EVERY, wet: 0.35 });
+    } finally {
+      this.place = UNPLACED;
     }
   }
 

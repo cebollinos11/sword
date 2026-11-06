@@ -6,7 +6,7 @@
  * Most sounds come from a Tick's events; a Duel starting and the Match
  * ending come from the Match's own events.
  */
-import type { DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
+import type { CrowdState, DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
 import type { HitZone } from '../tuning';
 import { CHEST } from './spatial';
 
@@ -16,6 +16,8 @@ import { CHEST } from './spatial';
  */
 export interface Placed {
   readonly at?: Vec3;
+  /** `at`'s height is not known (a Soldier in the Crowd): it is heard by its distance over the ground. */
+  readonly flat?: boolean;
 }
 
 /** What a floor is made of, for jumps and landings. */
@@ -182,6 +184,16 @@ export interface TakeoverCue {
   readonly seconds: number;
 }
 
+/** A blow landed on a Soldier fighting in the Crowd (its HP fell this Tick): steel on steel or on a body, if near enough to hear apart from the din. */
+export interface CrowdBlowCue extends Placed {
+  readonly sound: 'CrowdBlow';
+}
+
+/** A Soldier fell in the Crowd: its cry. */
+export interface CrowdFallCue extends Placed {
+  readonly sound: 'CrowdFall';
+}
+
 export type SoundCue =
   | SwingCue
   | BlockCue
@@ -205,7 +217,9 @@ export type SoundCue =
   | DuelStartCue
   | DuelEndCue
   | MatchEndCue
-  | TakeoverCue;
+  | TakeoverCue
+  | CrowdBlowCue
+  | CrowdFallCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;
@@ -337,4 +351,31 @@ export function matchCues(events: readonly MatchEvent[]): SoundCue[] {
     else if (e.type === 'MatchEnd') cues.push({ sound: 'MatchEnd', winner: e.winner });
   }
   return cues;
+}
+
+/** Where a Soldier stands, for its sounds: its height is not known here (see `Placed.flat`). */
+const soldierAt = (crowd: CrowdState, i: number): Vec3 => ({ x: crowd.x[i]!, y: 0, z: crowd.z[i]! });
+
+/**
+ * The Crowd's sounds between two of its states (`prev` the last one heard): a blow for each Soldier in the Crowd whose HP fell,
+ * a cry for each that fell there. Soldiers promoted to Fighters are left out (their own events sound), and so is a Soldier
+ * given back by a respawn. Pure: the din's level comes from `crowdFighting`, and the player thins these out by distance and rate.
+ */
+export function crowdCues(prev: CrowdState | undefined, now: CrowdState | undefined): SoundCue[] {
+  if (!prev || !now || prev.alive.length !== now.alive.length) return [];
+  const cues: SoundCue[] = [];
+  for (let i = 0; i < now.alive.length; i++) {
+    if (!prev.alive[i] || prev.slot[i]! >= 0 || now.slot[i]! >= 0) continue;
+    if (!now.alive[i]) cues.push({ sound: 'CrowdFall', at: soldierAt(now, i), flat: true });
+    else if (now.hp[i]! < prev.hp[i]!) cues.push({ sound: 'CrowdBlow', at: soldierAt(now, i), flat: true });
+  }
+  return cues;
+}
+
+/** Where the Crowd is fighting: every living Soldier in it that is engaged with an enemy (its height not known, see `Placed.flat`). */
+export function crowdFighting(crowd: CrowdState | undefined): Vec3[] {
+  if (!crowd) return [];
+  const out: Vec3[] = [];
+  for (let i = 0; i < crowd.alive.length; i++) if (crowd.alive[i] && crowd.slot[i]! < 0 && crowd.target[i]! >= 0) out.push(soldierAt(crowd, i));
+  return out;
 }

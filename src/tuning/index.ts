@@ -216,11 +216,8 @@ export interface BlockTuning {
   readonly correctionWindow: number;
 }
 
-/**
- * How the fight's sounds carry from where they happen to the Player's ears (the Fighter's position, the
- * camera's facing). Presentation only, like the camera: left out of the Tuning Data hash.
- */
-export interface AudioTuning {
+/** How far one kind of sound carries from where it happens to the Player's ears. */
+export interface Hearing {
   /** Within this distance (m) a sound plays at full level. */
   readonly near: number;
   /** At and beyond this distance (m) a sound is silent (and not played at all). */
@@ -233,6 +230,34 @@ export interface AudioTuning {
   readonly farWet: number;
   /** How far (0..1) a sound fully to one side pans to that speaker. */
   readonly pan: number;
+}
+
+/**
+ * The Crowd's sound in a Battle: a din of the fighting Soldiers (a bed of battle noise and distant clashes,
+ * from where they fight), the blows landing on Soldiers near the Player, and the cries of the Soldiers that fall.
+ * Its own Hearing carries further than a Fighter's.
+ */
+export interface CrowdHearing extends Hearing {
+  /** How many fighting Soldiers, each counted by how loud it is heard, make the din about two thirds of its full level. */
+  readonly full: number;
+  /** The level of the din's noise bed at full. */
+  readonly bed: number;
+  /** Distant clashes a second in the din at full. */
+  readonly clashes: number;
+  /** Blows landing on Soldiers within this distance (m) each sound. */
+  readonly blowRange: number;
+  /** At most this many of those blows a second. */
+  readonly blows: number;
+  /** At most this many falling Soldiers' cries a second. */
+  readonly cries: number;
+}
+
+/**
+ * How the fight's sounds carry from where they happen to the Player's ears (the Fighter's position, the
+ * camera's facing): a Fighter's, and the Crowd's. Presentation only, like the camera: left out of the Tuning Data hash.
+ */
+export interface AudioTuning extends Hearing {
+  readonly crowd: CrowdHearing;
 }
 
 /**
@@ -658,15 +683,29 @@ function parseAi(raw: unknown): AiTuning {
   };
 }
 
+function parseHearing(au: Record<string, unknown>, where: string): Hearing {
+  const near = nonNegativeNumber(au, 'near', where);
+  const far = positiveNumber(au, 'far', where);
+  if (far <= near) throw new TuningDataError(`${where}.far (${far}) must be beyond ${where}.near (${near})`);
+  const farWet = nonNegativeNumber(au, 'farWet', where);
+  const pan = nonNegativeNumber(au, 'pan', where);
+  if (farWet > 1) throw new TuningDataError(`${where}.farWet must be at most 1, got ${farWet}`);
+  if (pan > 1) throw new TuningDataError(`${where}.pan must be at most 1, got ${pan}`);
+  return { near, far, rolloff: positiveNumber(au, 'rolloff', where), muffle: positiveNumber(au, 'muffle', where), farWet, pan };
+}
+
 function parseAudio(au: Record<string, unknown>): AudioTuning {
-  const near = nonNegativeNumber(au, 'near', 'audio');
-  const far = positiveNumber(au, 'far', 'audio');
-  if (far <= near) throw new TuningDataError(`audio.far (${far}) must be beyond audio.near (${near})`);
-  const farWet = nonNegativeNumber(au, 'farWet', 'audio');
-  const pan = nonNegativeNumber(au, 'pan', 'audio');
-  if (farWet > 1) throw new TuningDataError(`audio.farWet must be at most 1, got ${farWet}`);
-  if (pan > 1) throw new TuningDataError(`audio.pan must be at most 1, got ${pan}`);
-  return { near, far, rolloff: positiveNumber(au, 'rolloff', 'audio'), muffle: positiveNumber(au, 'muffle', 'audio'), farWet, pan };
+  const cr = record(au.crowd, 'audio.crowd');
+  const crowd: CrowdHearing = {
+    ...parseHearing(cr, 'audio.crowd'),
+    full: positiveNumber(cr, 'full', 'audio.crowd'),
+    bed: nonNegativeNumber(cr, 'bed', 'audio.crowd'),
+    clashes: nonNegativeNumber(cr, 'clashes', 'audio.crowd'),
+    blowRange: nonNegativeNumber(cr, 'blowRange', 'audio.crowd'),
+    blows: nonNegativeNumber(cr, 'blows', 'audio.crowd'),
+    cries: nonNegativeNumber(cr, 'cries', 'audio.crowd'),
+  };
+  return { ...parseHearing(au, 'audio'), crowd };
 }
 
 /**

@@ -1,5 +1,5 @@
-import type { MatchState, SimEvent, SimState } from '../sim';
-import { matchCues, soundCues, type SoundCue } from './cues';
+import type { CrowdState, MatchState, SimEvent, SimState, Vec3 } from '../sim';
+import { crowdCues, crowdFighting, matchCues, soundCues, type SoundCue } from './cues';
 import type { Ears } from './spatial';
 
 /** Something that can make a sound for a cue (WebAudio in the browser, a recorder in tests). */
@@ -9,6 +9,8 @@ export interface SoundPlayer {
   setSpeed?(speed: number): void;
   /** Where the Player hears from, for sounds placed in the world (null: every sound as if at the ears). Optional. */
   setEars?(ears: Ears | null): void;
+  /** Where a Battle's Crowd is fighting this Tick (`crowdFighting`), for its din; empty outside a Battle. Optional. */
+  setCrowd?(fighting: readonly Vec3[]): void;
 }
 
 /**
@@ -25,6 +27,8 @@ export interface SoundPlayer {
 export class SimAudio {
   muted = false;
   private lastTick = -Infinity;
+  /** The Crowd as of the last Tick played, to hear its blows and falls against (undefined after a seek, or outside a Battle). */
+  private lastCrowd: CrowdState | undefined;
 
   constructor(private readonly player: SoundPlayer) {}
 
@@ -43,6 +47,15 @@ export class SimAudio {
     // A Match won this Tick plays its fanfare instead of the Duel's gong.
     if (won.length > 0) cues = cues.filter((c) => c.sound !== 'DuelEnd');
     this.play([...own.filter((c) => c.sound !== 'MatchEnd'), ...cues, ...won]);
+    this.hearCrowd(match.duel.crowd);
+  }
+
+  /** A Battle's Crowd this Tick: its blows and falls since the last Tick played, and where it fights now. */
+  private hearCrowd(crowd: CrowdState | undefined): void {
+    if (!crowd && !this.lastCrowd) return;
+    this.play(crowdCues(this.lastCrowd, crowd));
+    this.player.setCrowd?.(this.muted ? [] : crowdFighting(crowd));
+    this.lastCrowd = crowd;
   }
 
   /** Plays a sound that comes from outside the Simulation's events (e.g. a Renderer-only effect), unless muted. */
@@ -53,6 +66,7 @@ export class SimAudio {
   /** The loop jumped to `tick`; Ticks after it will sound. */
   seek(tick: number): void {
     this.lastTick = tick;
+    this.lastCrowd = undefined;
   }
 
   /** How fast time runs (1 = real time, below 1 = slow motion, e.g. the Final Blow Shot). */

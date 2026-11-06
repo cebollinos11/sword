@@ -4,7 +4,7 @@
  * and panned to the side they come from. Pure, so it is tested headlessly; the WebAudio player applies it.
  */
 import type { Vec3 } from '../sim';
-import type { AudioTuning } from '../tuning';
+import type { Hearing } from '../tuning';
 
 /** Where the Player hears from: a world position, and the horizontal unit vector to its right (the camera's). */
 export interface Ears {
@@ -33,10 +33,11 @@ const CENTRE = 2;
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 
-export function placement(at: Vec3 | undefined, ears: Ears | null, tuning: AudioTuning): Placement {
+/** `flat`: `at`'s height is not known (a Soldier's in the Crowd), so only the distance over the ground counts. */
+export function placement(at: Vec3 | undefined, ears: Ears | null, tuning: Hearing, flat = false): Placement {
   if (!at || !ears) return UNPLACED;
   const dx = at.x - ears.position.x;
-  const dy = at.y - ears.position.y;
+  const dy = flat ? 0 : at.y - ears.position.y;
   const dz = at.z - ears.position.z;
   const distance = Math.hypot(dx, dy, dz);
   // How far into the fade, 0 within `near` … 1 at `far`.

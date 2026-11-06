@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { attack, createMatch, hold, IDLE_INTENT, runDuel, stepMatch, type MatchState, type SimEvent } from '../sim';
+import { attack, createCrowd, createMatch, hold, IDLE_INTENT, runDuel, stepMatch, type CrowdState, type MatchState, type SimEvent } from '../sim';
 import type { SoundCue } from './cues';
 import { SimAudio } from './listener';
 
@@ -76,4 +76,21 @@ describe('SimAudio', () => {
     audio.onTick(1, [swingEvent]);
     expect(player.played).toEqual([]);
   });
+
+  it("hears a Battle's Crowd: its blows since the last Tick played, and where it fights, but not across a seek", () => {
+    const crowd = createCrowd(tuning.battle, 3);
+    const hurt = { ...crowd, hp: crowd.hp.map((h, i) => (i === 4 ? h - 10 : h)), target: crowd.target.map((t, i) => (i === 4 ? 7 : t)) };
+    const at = (tick: number, c: CrowdState) => ({ tick, events: [], duel: { events: [], crowd: c } }) as unknown as MatchState;
+    const played: SoundCue['sound'][] = [];
+    const fighting: number[] = [];
+    const audio = new SimAudio({ play: (cue) => played.push(cue.sound), setCrowd: (f) => fighting.push(f.length) });
+    audio.onMatchTick(at(1, crowd));
+    audio.onMatchTick(at(2, hurt));
+    expect(played).toEqual(['CrowdBlow']);
+    expect(fighting).toEqual([0, 1]);
+    audio.seek(10);
+    audio.onMatchTick(at(11, crowd));
+    expect(played).toEqual(['CrowdBlow']);
+  });
 });
+
