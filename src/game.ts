@@ -276,7 +276,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const gauntlet = savedFormat === 'Gauntlet' && Object.keys(tuning.kits).length > 0;
     const battleFormat = savedFormat === 'Battle';
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
-    const difficulty = difficulties.includes('Normal') ? 'Normal' : difficulties[0]!;
+    const difficulty = difficulties.includes('Skilled') ? 'Skilled' : difficulties[0]!;
     const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}), ...(savedBattleKnobs ? { battle: savedBattleKnobs } : {}) };
     return { host: { name: menu.name, weapon, body: menu.body, ...sizeOf(menu) }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
