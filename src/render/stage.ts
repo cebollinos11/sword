@@ -7,7 +7,7 @@ import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView
 import { battlefieldSetting } from './battlefieldView';
 import { abyss, greybox, isGreybox } from './greybox';
 import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
-import { sky, skyPane, type SkyLook } from './sky';
+import { bakeSkies, sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
 
 /** Camera field of view (degrees): vertical on a wide screen, widened on a tall one to keep this much across. */
@@ -293,6 +293,7 @@ export class Stage {
 
   draw(): void {
     this.animate?.(performance.now() / 1000);
+    bakeSkies(this.renderer);
     this.renderer.render(this.scene, this.camera);
     this.adapt();
   }

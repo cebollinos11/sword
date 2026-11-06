@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { createMatch, withGeneratedArena, type Layout, type SimState } from '../sim';
 import { weaponByName, type TuningData, type WeaponTuning } from '../tuning';
 import { Stage } from '../render/stage';
+import { bakeSkies } from '../render/sky';
 import { drawnPose, FighterView, teamColour } from '../render/fighterView';
 import { BODY_MODELS, preloadBody, type BodyModelName } from '../render/bodyModel';
 import { weaponThumb } from '../play/dom';
@@ -142,6 +143,7 @@ async function arenaShot(container: HTMLElement, tuning: TuningData, arena: stri
   }
   cam.lookAt(mid.x, mid.y + 0.8, mid.z);
   await frames(2);
+  bakeSkies(stage.renderer);
   stage.renderer.render(stage.scene, cam);
   const out = shrink(stage.canvas, ARENA_SIZE);
   stage.renderer.dispose();
@@ -165,6 +167,7 @@ async function battleShot(container: HTMLElement, tuning: TuningData, map: strin
   cam.position.set(0, shot.up, shot.back);
   cam.lookAt(0, shot.lookAt, -shot.ahead);
   await frames(2);
+  bakeSkies(stage.renderer);
   stage.renderer.render(stage.scene, cam);
   const out = shrink(stage.canvas, ARENA_SIZE);
   stage.renderer.dispose();
