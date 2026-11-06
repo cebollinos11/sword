@@ -300,9 +300,14 @@ function seatRow(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Se
   return row;
 }
 
+/** The AI difficulties a Seat offers: the human-feeling presets, not the older Easy / Normal / Hard. */
+export const SEAT_DIFFICULTIES: readonly string[] = ['Beginner', 'Skilled', 'Expert'];
+
 /** Host: what a non-Player Seat holds: Closed, Open (online, within the Players a Match fields) or an AI at a difficulty. */
 function kindSelect(ctx: LobbyViewContext, state: LobbyState, at: SeatRef, seat: Exclude<Seat, { kind: 'Player' }>): HTMLSelectElement {
-  const difficulties = Object.keys(ctx.tuning.ai.difficulties);
+  // Only the Seat AI difficulties are offered (plus a Seat's own, should it hold another one, so it still shows).
+  const difficulties = SEAT_DIFFICULTIES.filter((d) => ctx.tuning.ai.difficulties[d]);
+  if (seat.kind === 'AI' && !difficulties.includes(seat.difficulty)) difficulties.push(seat.difficulty);
   const options: [string, string][] = [['Closed', 'Empty']];
   if (ctx.lobby.online && (seat.kind === 'Open' || canSetSeat(state, at, 'Open'))) options.push(['Open', 'Open seat']);
   if (!isBattle(state)) for (const d of difficulties) options.push([`AI:${d}`, `${d} AI`]);
