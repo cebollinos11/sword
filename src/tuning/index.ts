@@ -15,6 +15,7 @@ import daggerJson from '../../data/dagger.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
+import audioJson from '../../data/audio.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
@@ -213,6 +214,25 @@ export interface BlockTuning {
   readonly impactDuration: number;
   /** Seconds after a Block is raised during which changing the Intent's Direction re-aims it (a late flick still counts). */
   readonly correctionWindow: number;
+}
+
+/**
+ * How the fight's sounds carry from where they happen to the Player's ears (the Fighter's position, the
+ * camera's facing). Presentation only, like the camera: left out of the Tuning Data hash.
+ */
+export interface AudioTuning {
+  /** Within this distance (m) a sound plays at full level. */
+  readonly near: number;
+  /** At and beyond this distance (m) a sound is silent (and not played at all). */
+  readonly far: number;
+  /** How steeply the level falls from `near` to `far` (1 = straight, higher = quieter sooner). */
+  readonly rolloff: number;
+  /** A sound at `far` is low-passed down to this frequency (Hz); a near one is not muffled. */
+  readonly muffle: number;
+  /** How much more of a sound at `far` goes into the room's reverb (0..1), so distant blows sound further off. */
+  readonly farWet: number;
+  /** How far (0..1) a sound fully to one side pans to that speaker. */
+  readonly pan: number;
 }
 
 /**
@@ -444,6 +464,8 @@ export interface TuningData {
   readonly gait: GaitTuning;
   /** Where the game camera sits (presentation only; not hashed). */
   readonly camera: CameraTuning;
+  /** How far the fight's sounds carry (presentation only; not hashed). */
+  readonly audio: AudioTuning;
   /** Every default Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
   /**
@@ -636,6 +658,17 @@ function parseAi(raw: unknown): AiTuning {
   };
 }
 
+function parseAudio(au: Record<string, unknown>): AudioTuning {
+  const near = nonNegativeNumber(au, 'near', 'audio');
+  const far = positiveNumber(au, 'far', 'audio');
+  if (far <= near) throw new TuningDataError(`audio.far (${far}) must be beyond audio.near (${near})`);
+  const farWet = nonNegativeNumber(au, 'farWet', 'audio');
+  const pan = nonNegativeNumber(au, 'pan', 'audio');
+  if (farWet > 1) throw new TuningDataError(`audio.farWet must be at most 1, got ${farWet}`);
+  if (pan > 1) throw new TuningDataError(`audio.pan must be at most 1, got ${pan}`);
+  return { near, far, rolloff: positiveNumber(au, 'rolloff', 'audio'), muffle: positiveNumber(au, 'muffle', 'audio'), farWet, pan };
+}
+
 /**
  * Validate raw (parsed JSON) Tuning Data. Throws TuningDataError when invalid.
  * `motions` is a list of raw Motions (one per file).
@@ -664,6 +697,7 @@ export function parseTuningData(raw: unknown): TuningData {
   const bl = record(root.block, 'block');
   const ma = record(root.match, 'match');
   const cam = record(root.camera, 'camera');
+  const au = root.audio === undefined ? audioJson : record(root.audio, 'audio');
   const facingHalfAngle = positiveNumber(bl, 'facingHalfAngle', 'block');
   if (facingHalfAngle > 180) throw new TuningDataError(`block.facingHalfAngle must be at most 180, got ${facingHalfAngle}`);
   const hitZones = Object.fromEntries(
@@ -783,6 +817,7 @@ export function parseTuningData(raw: unknown): TuningData {
       finalBlowSpin: finiteNumber(cam, 'finalBlowSpin', 'camera'),
       shake: nonNegativeNumber(cam, 'shake', 'camera'),
     },
+    audio: parseAudio(au),
     motions,
     motionOverrides,
   };
@@ -876,6 +911,7 @@ export function loadTuningData(): TuningData {
     ai: aiJson,
     gait: gaitJson,
     camera: cameraJson,
+    audio: audioJson,
     motions,
     motionOverrides,
   });

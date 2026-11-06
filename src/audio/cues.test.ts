@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon } from '../tuning';
 import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, type Intent, type SimState } from '../sim';
 import { arenaSurface, matchCues, soundCues, type SoundCue } from './cues';
+import { CHEST } from './spatial';
 
 const tuning = loadTuningData();
 
@@ -34,7 +35,7 @@ describe('soundCues', () => {
     const limbCues = limb.states.flatMap((s) => soundCues(s.events));
     expect(headCues).toEqual([
       { sound: 'Swing', fighter: 0, direction: 'Overhead', weight: expect.any(Number) },
-      { sound: 'Hit', defender: 1, zone: 'head', strength: expect.any(Number), by: 'Edge' },
+      { sound: 'Hit', defender: 1, zone: 'head', strength: expect.any(Number), by: 'Edge', at: expect.any(Object) },
     ]);
     expect(limbCues[1]).toMatchObject({ sound: 'Hit', zone: 'limbs' });
     const strength = (c: (typeof headCues)[number] | undefined) => (c?.sound === 'Hit' ? c.strength : NaN);
@@ -77,7 +78,7 @@ describe('soundCues', () => {
       ]).map((c) => c.sound),
     ).toEqual(['Chamber', 'Feint', 'Hit', 'Knockdown', 'Hit', 'DuelEnd']);
     const kick = soundCues([{ type: 'KickLanded', attacker: 0, defender: 1, outcome: 'Shove', zone: 'torso', point, damage: 1 }]);
-    expect(kick).toEqual([{ sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Kick' }]);
+    expect(kick).toEqual([{ sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Kick', at: point }]);
     const shaft = soundCues([{ type: 'Hit', attacker: 0, defender: 1, direction: 'Left', zone: 'limbs', point, bladeSpeed: 8, head: false, heavy: false, damage: 6 }]);
     expect(shaft[0]).toMatchObject({ by: 'Shaft' });
   });
@@ -105,8 +106,8 @@ describe('Footsteps and floors', () => {
       state,
     );
     expect(cues).toEqual([
-      { sound: 'Jump', fighter: 1, surface: 'snow' },
-      { sound: 'Land', fighter: 1, strength: expect.any(Number), surface: 'snow' },
+      { sound: 'Jump', fighter: 1, surface: 'snow', at: expect.any(Object) },
+      { sound: 'Land', fighter: 1, strength: expect.any(Number), surface: 'snow', at: expect.any(Object) },
     ]);
   });
 });
@@ -127,9 +128,9 @@ describe('Kicks, Knockdowns and Deaths', () => {
         state,
       ),
     ).toEqual([
-      { sound: 'Kick', fighter: 0 },
-      { sound: 'BodyFall', fighter: 1, surface: 'wood' },
-      { sound: 'Death', fighter: 1, cause: 'Water' },
+      { sound: 'Kick', fighter: 0, at: expect.any(Object) },
+      { sound: 'BodyFall', fighter: 1, surface: 'wood', at: expect.any(Object) },
+      { sound: 'Death', fighter: 1, cause: 'Water', at: expect.any(Object) },
     ]);
   });
 
@@ -137,6 +138,28 @@ describe('Kicks, Knockdowns and Deaths', () => {
     const run = runDuel(withWeapon(tuning, { damage: 10_000 }), { distance: 1.2, a: attack('Overhead'), b: [] });
     const cues = run.states.flatMap((s) => soundCues(s.events, s)).map((c) => c.sound);
     expect(cues).toEqual(['Swing', 'Hit', 'Death', 'DuelEnd']);
+  });
+});
+
+describe('Where sounds happen', () => {
+  it("a Fighter's own sounds come from its chest, and a contact's from where the blades or bodies met", () => {
+    const state = createInitialState(tuning, 1, duelPlacements(2));
+    const b = state.fighters[1]!;
+    const point = { x: 0.3, y: 1.5, z: 0.6 };
+    const [swing, hit] = soundCues(
+      [
+        { type: 'AttackPhase', fighter: 1, direction: 'Left', phase: 'Release' },
+        { type: 'Hit', attacker: 1, defender: 0, direction: 'Left', zone: 'torso', point, bladeSpeed: 8, head: true, heavy: false, damage: 10 },
+      ],
+      state,
+    );
+    expect(swing!.sound === 'Swing' && swing!.at).toEqual({ x: b.position.x, y: b.y + CHEST, z: b.position.z });
+    expect(hit!.sound === 'Hit' && hit!.at).toEqual(point);
+  });
+
+  it("without the state, a Fighter's sounds have no place (heard as if at the ears)", () => {
+    const [swing] = soundCues([{ type: 'AttackPhase', fighter: 0, direction: 'Left', phase: 'Release' }]);
+    expect(swing!.sound === 'Swing' && swing!.at).toBeUndefined();
   });
 });
 
@@ -164,13 +187,13 @@ describe('Dagger sounds', () => {
   it('a thrown dagger whooshes, a Hit thumps like any Hit, a Block clinks and a stuck dagger thunks', () => {
     expect(soundCues([{ type: 'DaggerThrown', thrower: 1 }])).toEqual([{ sound: 'Throw', fighter: 1 }]);
     expect(soundCues([{ type: 'DaggerHit', thrower: 0, defender: 1, zone: 'torso', point, damage: 5 }])).toEqual([
-      { sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Dagger' },
+      { sound: 'Hit', defender: 1, zone: 'torso', strength: expect.any(Number), by: 'Dagger', at: point },
     ]);
     expect(soundCues([{ type: 'DaggerBlocked', thrower: 0, defender: 1, point }])).toEqual([
-      { sound: 'Clink', defender: 1 },
-      { sound: 'Ricochet', defender: 1 },
+      { sound: 'Clink', defender: 1, at: point },
+      { sound: 'Ricochet', defender: 1, at: point },
     ]);
-    expect(soundCues([{ type: 'DaggerStuck', point, direction: { x: 0, y: 0, z: 1 } }])).toEqual([{ sound: 'Thunk', point, surface: 'stone' }]);
+    expect(soundCues([{ type: 'DaggerStuck', point, direction: { x: 0, y: 0, z: 1 } }])).toEqual([{ sound: 'Thunk', point, surface: 'stone', at: point }]);
   });
 
   it('a harder dagger Hit is not quieter than a lighter one, and none is louder than the maximum', () => {
@@ -205,8 +228,8 @@ describe('Sheathe and Draw sounds', () => {
   it('the Weapon sliding into its slot and out again each sound once, on the swap', () => {
     const cues = sheatheThenDraw('Arming Sword');
     expect(cues).toEqual([
-      { sound: 'Sheathe', fighter: 0, weight: expect.any(Number) },
-      { sound: 'Draw', fighter: 0, weight: expect.any(Number) },
+      { sound: 'Sheathe', fighter: 0, weight: expect.any(Number), at: expect.any(Object) },
+      { sound: 'Draw', fighter: 0, weight: expect.any(Number), at: expect.any(Object) },
     ]);
   });
 

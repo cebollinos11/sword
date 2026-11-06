@@ -14,7 +14,9 @@
  *  - WallStrike: a blade knocking on a Wall and ringing;
  *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
  * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
- * Everything passes through a small room reverb and a compressor. In slow motion (`setSpeed`)
+ * A sound placed in the world (`Placed.at`) is heard from the ears (`setEars`): quieter, muffled and wetter
+ * the further off, panned to its side, and not played at all past the hearing range (Tuning Data `audio`).
+ * Everything passes through a small room reverb and a compressor, then the player's master volume (`volume.ts`). In slow motion (`setSpeed`)
  * sounds deepen and stretch, and the room grows. Browser-only; never imported by the Simulation.
  */
 import type { Direction } from '../sim';
@@ -34,10 +36,15 @@ import type {
   ThunkCue,
   WallStrikeCue,
 } from './cues';
+import type { AudioTuning } from '../tuning';
 import type { SoundPlayer } from './listener';
+import { placement, UNPLACED, type Ears, type Placement } from './spatial';
+import { masterVolumeGain, onMasterVolume } from './volume';
 import { STOCK_CLIPS, stockFile, stockFor, type StockClip, type StockPlay } from './stock';
 
 const MASTER_GAIN = 0.55;
+/** A placed sound quieter than this is too far off to bother playing. */
+const INAUDIBLE = 0.005;
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
 const ENDING_DELAY = 0.55;
 /** Seconds of the room's reverb tail. */
@@ -120,6 +127,12 @@ export class WebAudioPlayer implements SoundPlayer {
   private stretch = 1;
   private deepen = 1;
   private roomBoost = 1;
+  /** Where the Player hears from (null: every sound as if at the ears), and where the sound now being played sits. */
+  private ears: Ears | null = null;
+  private place: Placement = UNPLACED;
+
+  /** `hearing`: how far placed sounds carry; without it every sound plays as if at the ears. */
+  constructor(private readonly hearing?: AudioTuning) {}
 
   /**
    * Browsers keep audio suspended until a user gesture. Resume on the first
@@ -137,9 +150,24 @@ export class WebAudioPlayer implements SoundPlayer {
     this.roomBoost = 1 + (slow - 1) * 0.6;
   }
 
+  setEars(ears: Ears | null): void {
+    this.ears = ears;
+  }
+
   play(cue: SoundCue): void {
     const ctx = this.context();
     if (!ctx || ctx.state !== 'running') return;
+    const place = this.hearing && 'at' in cue ? placement(cue.at, this.ears, this.hearing) : UNPLACED;
+    if (place.gain < INAUDIBLE) return;
+    this.place = place;
+    try {
+      this.sound(cue);
+    } finally {
+      this.place = UNPLACED;
+    }
+  }
+
+  private sound(cue: SoundCue): void {
     const stock = stockFor(cue);
     if (stock && this.clip(cue, stock)) return;
     switch (cue.sound) {
@@ -205,7 +233,9 @@ export class WebAudioPlayer implements SoundPlayer {
     comp.attack.value = 0.003;
     comp.release.value = 0.2;
     const master = ctx.createGain();
-    master.gain.value = MASTER_GAIN;
+    master.gain.value = MASTER_GAIN * masterVolumeGain();
+    // The menu's master volume: a short glide, so dragging the slider does not click.
+    onMasterVolume((gain) => master.gain.setTargetAtTime(MASTER_GAIN * gain, ctx.currentTime, 0.02));
     comp.connect(master).connect(ctx.destination);
     this.dry = ctx.createGain();
     this.dry.connect(comp);
@@ -261,25 +291,36 @@ export class WebAudioPlayer implements SoundPlayer {
 
   /**
    * Where one sound's layers go: straight out, and `wet` of it into the room. `pan` places it
-   * (-1 left … 1 right), or sweeps it from the first to the second over `panDur` seconds.
+   * (-1 left … 1 right), or sweeps it from the first to the second over `panDur` seconds. The sound
+   * now being played is heard from where it sits (`place`): its level, side, muffle and room on top.
    */
   private bus(wet: number, level = 1, pan: number | readonly [number, number] = 0, panDur = 0): GainNode {
     const ctx = this.ctx!;
+    const place = this.place;
     const g = ctx.createGain();
-    g.gain.value = level;
+    g.gain.value = level * place.gain;
     let out: AudioNode = g;
-    const [from, to] = typeof pan === 'number' ? [pan, pan] : pan;
+    if (place.cutoff !== null) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = place.cutoff;
+      out.connect(lp);
+      out = lp;
+    }
+    // The sound's own pan (a swing's sweep) narrows into what is left to the side it comes from.
+    const side = (p: number) => place.pan + p * (1 - Math.abs(place.pan));
+    const [from, to] = (typeof pan === 'number' ? [pan, pan] : pan).map(side) as [number, number];
     if (from !== 0 || to !== 0) {
       const p = ctx.createStereoPanner();
       const t = ctx.currentTime;
       p.pan.setValueAtTime(from, t);
       p.pan.linearRampToValueAtTime(to, t + panDur * this.stretch);
-      g.connect(p);
+      out.connect(p);
       out = p;
     }
     out.connect(this.dry!);
     const send = ctx.createGain();
-    send.gain.value = Math.min(1, wet * this.roomBoost);
+    send.gain.value = Math.min(1, (wet + place.wet) * this.roomBoost);
     out.connect(send).connect(this.reverb!);
     return g;
   }

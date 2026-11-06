@@ -1,0 +1,8 @@
+{
+  "near": 3,
+  "far": 40,
+  "rolloff": 1.6,
+  "muffle": 900,
+  "farWet": 0.35,
+  "pan": 0.85
+}

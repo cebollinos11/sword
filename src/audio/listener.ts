@@ -1,11 +1,14 @@
 import type { MatchState, SimEvent, SimState } from '../sim';
 import { matchCues, soundCues, type SoundCue } from './cues';
+import type { Ears } from './spatial';
 
 /** Something that can make a sound for a cue (WebAudio in the browser, a recorder in tests). */
 export interface SoundPlayer {
   play(cue: SoundCue): void;
   /** How fast time runs (1 = real time, below 1 = slow motion): sounds deepen and stretch to match. Optional. */
   setSpeed?(speed: number): void;
+  /** Where the Player hears from, for sounds placed in the world (null: every sound as if at the ears). Optional. */
+  setEars?(ears: Ears | null): void;
 }
 
 /**
@@ -55,6 +58,11 @@ export class SimAudio {
   /** How fast time runs (1 = real time, below 1 = slow motion, e.g. the Final Blow Shot). */
   setSpeed(speed: number): void {
     this.player.setSpeed?.(speed);
+  }
+
+  /** Where the Player hears from: the loop sets it each frame (the Fighter's position, the camera's right); null hears every sound as if at the ears. */
+  setEars(ears: Ears | null): void {
+    this.player.setEars?.(ears);
   }
 
   /** Whether `tick` is new (not yet played); if so it becomes the last one played. */
