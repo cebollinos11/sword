@@ -216,6 +216,9 @@ function settle(site: ObjectiveSite, hf: Heightfield): MapPoint {
 }
 
 /** Where Team `team`'s k-th Fighter spawns: behind its army's last rank (its front rank `front` from the centre), side by side, facing the enemy. */
+/** An Objective's circle (m): `objectives.spawnRadius` for a spawn, where a Team's respawning Squads gather, `objectives.radius` for any other. */
+const objectiveRadius = (battle: BattleTuning, site: { readonly spawn: boolean }): number => (site.spawn ? battle.objectives.spawnRadius : battle.objectives.radius);
+
 function spawnsOf(battle: BattleTuning, hf: Heightfield, front: number): SpawnPoint[] {
   const back = deployLayout({ ...battle, deploy: { ...battle.deploy, front } }).depth + 2;
   return [0, 1].flatMap((team) =>
@@ -237,7 +240,7 @@ function build(battle: BattleTuning, name: string, seed: number): Battlefield {
       walk.push({ id: `t${c}_${r}a`, points: [at(c, r), at(c + 1, r), at(c + 1, r + 1)] });
       walk.push({ id: `t${c}_${r}b`, points: [at(c, r), at(c + 1, r + 1), at(c, r + 1)] });
     }
-  const objectives = battle.objectives.openField.map(({ hill: _hill, ...site }, k) => ({ ...site, ...settle(battle.objectives.openField[k]!, hf), radius: battle.objectives.radius }));
+  const objectives = battle.objectives.openField.map(({ hill: _hill, ...site }, k) => ({ ...site, ...settle(battle.objectives.openField[k]!, hf), radius: objectiveRadius(battle, site) }));
   const bases: [MapPoint, MapPoint] = [{ x: 0, z: -battle.squad.baseDistance }, { x: 0, z: battle.squad.baseDistance }];
   const front = battle.deploy.front;
   return {
@@ -394,7 +397,7 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
   return {
     arena,
     heights,
-    objectives: map.objectives.map(({ hill: _hill, ...site }) => ({ ...site, radius: battle.objectives.radius })),
+    objectives: map.objectives.map(({ hill: _hill, ...site }) => ({ ...site, radius: objectiveRadius(battle, site) })),
     bases: [map.bases[0], map.bases[1]],
     front: map.front,
     blocks: map.blocks,

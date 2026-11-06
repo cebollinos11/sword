@@ -170,12 +170,16 @@ describe('walls', () => {
         expect(Math.hypot(mine[0] - o.x, mine[1] - o.z)).toBeLessThan(o.radius);
         if (clearanceAt(map.fields, mine[0], mine[1]) >= need) roomy++;
       }
-    // Nearly every Squad finds room; at the gatehouses that means outside the passage, not in it.
-    expect(roomy).toBeGreaterThan(0.9 * 5 * per);
-    // The open field's places are the golden-angle spiral they always were.
+    // Nearly every Squad finds room; at the gatehouses that means outside the passage, not in it. (More than 90% until the spawns'
+    // wider circle, which reaches further into the gatehouses' walls by D and E.)
+    expect(roomy).toBeGreaterThan(0.85 * 5 * per);
+    // The open field's places are the golden-angle spiral they always were, out to 0.7 of the radius, or less where a whole column
+    // (its corner place, and half a Soldier's separation) would stand past the rim.
     orderSpot(open, 2, 3, per, base.battle, mine);
     const o = open.field.objectives[2]!;
-    const reach = 0.7 * o.radius * Math.sqrt(3.5 / per);
+    const { spacing, size, column } = base.battle.squad;
+    const corner = Math.hypot(((column.wide - 1) / 2) * spacing, ((Math.ceil(size / column.wide) - 1) / 2) * spacing) + base.battle.crowd.separation / 2;
+    const reach = Math.min(0.7 * o.radius, o.radius - corner) * Math.sqrt(3.5 / per);
     expect(mine[0]).toBe(o.x + Math.sin(3 * 2.399963229728653) * reach);
     expect(mine[1]).toBe(o.z + Math.cos(3 * 2.399963229728653) * reach);
   });
@@ -328,7 +332,8 @@ describe('Squads among walls, over whole Battles', () => {
       );
       expect(m.status.status).toBe('Over');
       expect(log.inside).toBe(0);
-      if (arena === FORT) expect(log.stuck).toBeLessThan(20);
+      // (Under 20 s until the 6 m Objectives and the wider spawns: more Squads now crowd round a gatehouse's spawn for a while.)
+      if (arena === FORT) expect(log.stuck).toBeLessThan(30);
     }
   }, 600_000);
 

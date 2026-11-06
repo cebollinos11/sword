@@ -104,7 +104,8 @@ describe('Battle Tuning Data (data/battle.json)', () => {
     const b = tuning.battle;
     expect(b.objectives.openField.map((o) => o.id)).toEqual(['H0', 'A', 'B', 'C', 'H1']);
     expect(b.objectives.openField.map((o) => o.owner)).toEqual([0, -1, -1, -1, 1]);
-    expect(b.objectives).toMatchObject({ radius: 12, playerCount: 3 });
+    expect(b.objectives).toMatchObject({ radius: 6, spawnRadius: 12, playerCount: 3 });
+    expect(() => parseBattle({ ...b, objectives: { ...b.objectives, spawnRadius: 0 } })).toThrow(/battle\.objectives\.spawnRadius/);
     expect(b.tickets).toMatchObject({ perSoldier: 3.5, limitSeconds: 900, respawnSeconds: 10 });
     expect(startingTickets(b)).toBe(700);
     expect(b.commander).toMatchObject({ planSeconds: 2.5, holdSeconds: 15 });

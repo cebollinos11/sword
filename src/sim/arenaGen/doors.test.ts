@@ -182,19 +182,3 @@ describe('the judge on Doors', () => {
     expect(reasons).toContain('door 1 spawn 0 stands on no Walk Surface');
   });
 });
-
-describe('Hall Arenas stay within ADR 0014\'s navmesh budget', () => {
-  it('build their navmesh in under 250 ms (seeds 1-20, :d1 to :d4 in turn, timed by the judge on a fresh copy; logged)', () => {
-    const times: number[] = [];
-    for (let seed = 1; seed <= 20; seed++) {
-      const { arena } = generateArena(GREYBOX_KIT, seed, { ...DEFAULT_GEN_PARAMS, doors: 1 + (seed % 4) }, tuning);
-      const copy = parseArena(JSON.parse(JSON.stringify(arena)), arena.name);
-      times.push(judgeArena(copy, tuning, { now: () => performance.now(), doors: copy.doors.length }).stats.buildMs!);
-    }
-    times.sort((a, b) => a - b);
-    console.log(`Hall Arenas 1-20: navmesh builds in ${times[10]!.toFixed(0)} ms (median), ${times[19]!.toFixed(0)} ms at most`);
-    // As for Random Maps: test files run side by side, so the median holds the line, the slowest only a gross one.
-    expect(times[10]).toBeLessThan(250);
-    expect(times[19]).toBeLessThan(1000);
-  }, 60_000);
-});

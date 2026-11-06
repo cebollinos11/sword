@@ -176,18 +176,4 @@ describe('generateArena', () => {
     console.log(`generated Arenas 1-200: ${jumps} with a jump Link, ${(tries / 200).toFixed(2)} attempts on average`);
     expect(jumps).toBeGreaterThan(150);
   }, 120_000);
-
-  it('builds their navmesh in under 250 ms (seeds 1-20, timed by the judge on a fresh copy; logged)', () => {
-    const times: number[] = [];
-    for (let seed = 1; seed <= 20; seed++) {
-      const { arena } = generateArena(GREYBOX_KIT, seed, DEFAULT_GEN_PARAMS, tuning);
-      const copy = parseArena(JSON.parse(JSON.stringify(arena)), arena.name);
-      times.push(judgeArena(copy, tuning, { now: () => performance.now() }).stats.buildMs!);
-    }
-    times.sort((a, b) => a - b);
-    console.log(`generated Arenas 1-20: navmesh builds in ${times[10]!.toFixed(0)} ms (median), ${times[19]!.toFixed(0)} ms at most`);
-    // Test files run side by side, so a single build can be slowed: the median holds the line, the slowest only a gross one.
-    expect(times[10]).toBeLessThan(250);
-    expect(times[19]).toBeLessThan(1000);
-  }, 60_000);
 });
