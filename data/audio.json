@@ -13,8 +13,6 @@
     "farWet": 0.5,
     "pan": 0.7,
     "full": 30,
-    "bed": 0.32,
-    "clashes": 9,
     "blowRange": 25,
     "blows": 6,
     "cries": 2.5,

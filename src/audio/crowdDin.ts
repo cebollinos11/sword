@@ -2,7 +2,7 @@
  * The din of a Battle's Crowd: how loud, from which side and how far off its fighting sounds, from where its Soldiers
  * are engaged (`crowdFighting`) and the ears. Each fighting Soldier counts by how loud it is heard (the Crowd's own
  * Hearing, which carries over the whole field), so a big fight far off is a low, muffled roar and a small one close
- * by is loud. Pure, so it is tested headlessly; the WebAudio player plays the bed and the clashes from it.
+ * by is loud. Pure, so it is tested headlessly; the WebAudio player plays the war cries from it.
  */
 import type { Vec3 } from '../sim';
 import type { CrowdHearing } from '../tuning';

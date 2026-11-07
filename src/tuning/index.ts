@@ -233,17 +233,12 @@ export interface Hearing {
 }
 
 /**
- * The Crowd's sound in a Battle: a din of the fighting Soldiers (a bed of battle noise and distant clashes,
- * from where they fight), the blows landing on Soldiers near the Player, and the cries of the Soldiers that fall.
+ * The Crowd's sound in a Battle: a din of the fighting Soldiers (war cries from where they fight), the blows landing on Soldiers near the Player, and the cries of the Soldiers that fall.
  * Its own Hearing carries further than a Fighter's.
  */
 export interface CrowdHearing extends Hearing {
   /** How many fighting Soldiers, each counted by how loud it is heard, make the din about two thirds of its full level. */
   readonly full: number;
-  /** The level of the din's noise bed at full. */
-  readonly bed: number;
-  /** Distant clashes a second in the din at full. */
-  readonly clashes: number;
   /** Blows landing on Soldiers within this distance (m) each sound. */
   readonly blowRange: number;
   /** At most this many of those blows a second. */
@@ -701,8 +696,6 @@ function parseAudio(au: Record<string, unknown>): AudioTuning {
   const crowd: CrowdHearing = {
     ...parseHearing(cr, 'audio.crowd'),
     full: positiveNumber(cr, 'full', 'audio.crowd'),
-    bed: nonNegativeNumber(cr, 'bed', 'audio.crowd'),
-    clashes: nonNegativeNumber(cr, 'clashes', 'audio.crowd'),
     blowRange: nonNegativeNumber(cr, 'blowRange', 'audio.crowd'),
     blows: nonNegativeNumber(cr, 'blows', 'audio.crowd'),
     cries: nonNegativeNumber(cr, 'cries', 'audio.crowd'),
