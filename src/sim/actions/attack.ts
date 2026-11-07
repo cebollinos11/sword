@@ -69,12 +69,34 @@ export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
       if (tick < t.windUpEnd) return enter(a, 'Wind-up', tick + 1, ctx);
       if (intent.attack) return enter(a, 'Wind-up', tick, ctx);
       return enter(a, 'Release', tick + 1, ctx);
-    case 'Release':
-      return enter(a, tick + 1 >= t.releaseEnd ? 'Recovery' : 'Release', tick + 1, ctx);
-    case 'Recovery':
+    case 'Release': {
+      if (tick + 1 < t.releaseEnd) return enter(a, 'Release', tick + 1, ctx);
+      // Attack pressed again during Release, the swing having found nothing yet: queue a Whiff Chain in the Direction held now.
+      const queued = intent.attack && !a.landed ? { ...a, whiffChain: intent.direction } : a;
+      return enter(queued, 'Recovery', tick + 1, ctx);
+    }
+    case 'Recovery': {
+      const { whiffChain, ...rest } = a;
+      if (whiffChain !== undefined) {
+        if (intent.attack && !a.landed) return startWhiffChain(f, whiffChain, intent, ctx);
+        return recover({ ...f, action: rest }, t, intent, ctx);
+      }
       return recover(f, t, intent, ctx);
+    }
   }
 };
+
+/**
+ * A Whiff Chain: an Attack that landed nothing, with attack pressed again during its Release and still held as its
+ * Recovery begins, skips the Recovery. The next Attack starts at once in the Direction held as Release ended, its pose
+ * blending from the end of the swing straight to its held Wind-up pose, which it reaches on the usual Wind-up Tick.
+ * Only one Tick of Recovery is played: the last Blade Sweep segment, into the end-of-Release pose, belongs to the old swing.
+ */
+function startWhiffChain(f: FighterState, direction: Direction, intent: Intent, ctx: ActionContext): ActionUpdate {
+  const started = startAttack(f, { ...intent, direction }, ctx)!;
+  // The blend arrives as the Wind-up reaches its held pose (blend Tick 1 shows the Wind-up's Tick 0).
+  return { ...started, blendTicks: attackTimings(ctx.tuning, f.weapon, direction).windUpEnd + 1 };
+}
 
 /**
  * One Tick of Recovery. Its length never changes, but holding attack during it Chains: rather than

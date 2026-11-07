@@ -40,6 +40,12 @@ export interface AttackAction {
    */
   readonly chain?: AttackChain;
   /**
+   * Present on the first Tick of Recovery when attack was pressed again during Release (a Whiff Chain): the Direction
+   * it was held in as Release ended. If the swing still landed nothing and attack is still held, the next Attack starts
+   * on the following Tick, skipping the Recovery.
+   */
+  readonly whiffChain?: Direction;
+  /**
    * Fighters that pressed a Chamber against this Attack inside its Chamber window, in the order they did: each
    * Chamber lands only if the Blade Sweep then reaches that Fighter's Weapon or body (see `src/sim/chamber.ts`).
    */

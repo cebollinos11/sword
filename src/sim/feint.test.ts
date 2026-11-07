@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { hold, runDuel, wait, type HitEvent, type ScriptRun } from './index';
+import { attackTimings } from './actions';
 
 const repo = loadTuningData();
 
@@ -80,9 +81,20 @@ describe('Feint', () => {
   });
 
   it('Release and Recovery are committed: changing Direction or pressing block does not cancel them', () => {
+    // Attack held in Release would Whiff Chain (whiffChain.test.ts), so Release sees only block; attack joins once Recovery is under way.
+    const { windUpEnd, releaseEnd } = attackTimings(tuning, 'arming-sword', 'Overhead');
+    // The Intent on Tick t acts on the state after t Ticks: the tap's Wind-up holds through Tick windUpEnd, its Release through releaseEnd.
+    const inRelease = windUpEnd + 2;
+    const inRecovery = releaseEnd + 1;
     const run = runDuel(tuning, {
       placements: FAR,
-      a: [...hold(1, { attack: true, direction: 'Overhead' }), ...wait(25), ...hold(34, { attack: true, block: true, direction: 'Left' }), ...wait(1)],
+      a: [
+        ...hold(1, { attack: true, direction: 'Overhead' }),
+        ...wait(inRelease - 1),
+        ...hold(inRecovery - inRelease, { block: true, direction: 'Left' }),
+        ...hold(60 - inRecovery, { attack: true, block: true, direction: 'Left' }),
+        ...wait(1),
+      ],
       b: wait(1),
     });
     expect(eventsOf(run, 'Feint')).toEqual([]);

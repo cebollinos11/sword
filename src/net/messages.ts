@@ -273,6 +273,7 @@ function isAction(v: unknown): boolean {
         PHASE_SET.has(v.phase as string) &&
         isBool(v.landed) &&
         (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick))) &&
+        (v.whiffChain === undefined || isDirection(v.whiffChain)) &&
         (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isFighterIndex))
       );
     case 'Block':
