@@ -61,3 +61,14 @@ https://www.minetest.net/ — Minetest Game's sounds are © 2010–2023 celeron5
 | Files | Original |
 |---|---|
 | `lava-0` | mods/default/sounds/default_cool_lava.1 (edited: faded), layered with the Nether mod's nether_lava_bubble and nether_lava_bubble.0 |
+
+## Recorded for Sword
+
+War cries recorded by the game's author for this game (Windows Sound
+Recorder, 2026-11-06). Mixed to mono, trimmed of leading and trailing
+silence, faded at the ends and peak-normalised; nothing else was changed.
+They play pitched up and down in a Battle's Crowd din.
+
+| Files | Original |
+|---|---|
+| `shout-0`…`shout-5` | Recording (2)–(6), Recording |

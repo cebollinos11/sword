@@ -1,12 +1,12 @@
 import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
-import { Vector3 } from 'three';
+import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS, preloadBody } from './render/bodyModel';
 import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
-import { arenaSurface, createBrowserAudio } from './audio';
+import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
 import { createAutopilot, createBattlePilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
@@ -156,8 +156,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** The Tuning Data a Match on an Arena is played with, and a Random Map's Layout (`createArenaWorlds`). */
   const arenaWorld = createArenaWorlds(tuning);
   const renderer = new Renderer(container, tuning, arenaWorld);
-  const audio = createBrowserAudio();
-  renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena) });
+  const audio = createBrowserAudio(tuning.audio);
+  renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena), at: point });
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
   const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;
@@ -945,6 +945,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       } else menu.showTitle(resultText);
     }
 
+    // The fight is heard from the Player's Fighter (the camera's, once it has fallen), facing the way the camera does.
+    audio.setEars(driver ? earsOf(curr.duel, driver.localFighter, renderer.camera) : null);
     if (driver && battleOn) {
       battle?.draw(prev, curr, driver.localFighter, Math.min(1, accumulator / TICK_SECONDS), frozen ? 0 : elapsed, driver.ping ?? null);
     } else if (driver) {
@@ -1057,6 +1059,17 @@ function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readon
 }
 
 /** Where the Fighters still in the Duel are, on average (the Arena centre if none): neither fallen nor Benched. */
+const earRight = new Vector3();
+
+/** Where the Player hears from: its Fighter's chest while it stands (the camera, once it has fallen), with the camera's right as its right. */
+function earsOf(duel: SimState, me: number, camera: Camera): Ears {
+  const f = duel.fighters[me];
+  const position = f && !f.death ? { x: f.position.x, y: f.y + CHEST, z: f.position.z } : { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+  earRight.set(1, 0, 0).applyQuaternion(camera.quaternion);
+  const across = Math.hypot(earRight.x, earRight.z) || 1;
+  return { position, right: { x: earRight.x / across, z: earRight.z / across } };
+}
+
 function fightCentre(a: SimState, b: SimState, alpha: number): CameraTarget {
   const living = b.fighters.flatMap((f, i) => (inDuel(f) ? [lerpPosition(a, b, i, alpha)] : []));
   if (living.length === 0) return { x: 0, z: 0 };

@@ -39,6 +39,7 @@ export interface RoomInvite {
 type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lobby' | 'pause';
 
 import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
+import { getMasterVolume, setMasterVolume } from '../audio/volume';
 
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
@@ -356,6 +357,28 @@ export class Menu {
     return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Mouse Sensitivity'), input, value);
   }
 
+  /** Master volume slider (0 to 100%, full by default); applies at once and is remembered. */
+  private volumeItem(): HTMLElement {
+    const percent = () => `${Math.round(getMasterVolume() * 100)}%`;
+    const value = h('span', 'nav-hint', percent());
+    const input = h('input', 'sens-slider');
+    input.type = 'range';
+    input.min = '0';
+    input.max = '1';
+    input.step = '0.05';
+    input.value = String(getMasterVolume());
+    input.setAttribute('aria-label', 'Master volume');
+    input.addEventListener('input', () => {
+      setMasterVolume(Number(input.value));
+      value.textContent = percent();
+    });
+    // Keep arrow keys and Escape for the slider rather than the game.
+    input.addEventListener('keydown', (e) => {
+      if (e.code !== 'Escape') e.stopPropagation();
+    });
+    return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Volume'), input, value);
+  }
+
   /** Toggles PlayStation resolution; stays on this screen. */
   private ps1Item(): HTMLButtonElement {
     const b = this.navItem(`PS1 Resolution: ${this.ps1 ? 'On' : 'Off'}`, 'Play in 240 chunky lines, at your screen\'s shape', () => {
@@ -668,6 +691,7 @@ export class Menu {
     if (lobby) nav.append(this.navItem('Match setup', host ? 'Weapons, Map, teams, AI — then restart' : 'Your Weapon and Seat for the next Match', () => this.open('lobby')));
     nav.append(this.navItem('Character', 'Your name and how you look', () => this.open('settings')));
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
+    nav.append(this.volumeItem());
     nav.append(this.sensitivityItem());
     nav.append(this.ps1Item());
     const colliders = this.colliderItem();

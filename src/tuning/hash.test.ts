@@ -11,7 +11,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera, audio: tuning.audio };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
@@ -110,5 +110,10 @@ describe('Tuning Data content hash', () => {
   it('ignores the camera (presentation only)', () => {
     const camera: TuningData = { ...tuning, camera: { ...tuning.camera, back: tuning.camera.back + 1 } };
     expect(tuningDataHash(camera)).toBe(tuningDataHash(tuning));
+  });
+
+  it('ignores how far sounds carry (presentation only)', () => {
+    const audio: TuningData = { ...tuning, audio: { ...tuning.audio, far: tuning.audio.far + 1 } };
+    expect(tuningDataHash(audio)).toBe(tuningDataHash(tuning));
   });
 });

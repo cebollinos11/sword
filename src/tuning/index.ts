@@ -15,6 +15,7 @@ import daggerJson from '../../data/dagger.json';
 import blockJson from '../../data/block.json';
 import matchJson from '../../data/match.json';
 import gaitJson from '../../data/gait.json';
+import audioJson from '../../data/audio.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
@@ -213,6 +214,47 @@ export interface BlockTuning {
   readonly impactDuration: number;
   /** Seconds after a Block is raised during which changing the Intent's Direction re-aims it (a late flick still counts). */
   readonly correctionWindow: number;
+}
+
+/** How far one kind of sound carries from where it happens to the Player's ears. */
+export interface Hearing {
+  /** Within this distance (m) a sound plays at full level. */
+  readonly near: number;
+  /** At and beyond this distance (m) a sound is silent (and not played at all). */
+  readonly far: number;
+  /** How steeply the level falls from `near` to `far` (1 = straight, higher = quieter sooner). */
+  readonly rolloff: number;
+  /** A sound at `far` is low-passed down to this frequency (Hz); a near one is not muffled. */
+  readonly muffle: number;
+  /** How much more of a sound at `far` goes into the room's reverb (0..1), so distant blows sound further off. */
+  readonly farWet: number;
+  /** How far (0..1) a sound fully to one side pans to that speaker. */
+  readonly pan: number;
+}
+
+/**
+ * The Crowd's sound in a Battle: a din of the fighting Soldiers (war cries from where they fight), the blows landing on Soldiers near the Player, and the cries of the Soldiers that fall.
+ * Its own Hearing carries further than a Fighter's.
+ */
+export interface CrowdHearing extends Hearing {
+  /** How many fighting Soldiers, each counted by how loud it is heard, make the din about two thirds of its full level. */
+  readonly full: number;
+  /** Blows landing on Soldiers within this distance (m) each sound. */
+  readonly blowRange: number;
+  /** At most this many of those blows a second. */
+  readonly blows: number;
+  /** At most this many falling Soldiers' cries a second. */
+  readonly cries: number;
+  /** War cries a second in the din at full, each from a fighting Soldier. */
+  readonly shouts: number;
+}
+
+/**
+ * How the fight's sounds carry from where they happen to the Player's ears (the Fighter's position, the
+ * camera's facing): a Fighter's, and the Crowd's. Presentation only, like the camera: left out of the Tuning Data hash.
+ */
+export interface AudioTuning extends Hearing {
+  readonly crowd: CrowdHearing;
 }
 
 /**
@@ -444,6 +486,8 @@ export interface TuningData {
   readonly gait: GaitTuning;
   /** Where the game camera sits (presentation only; not hashed). */
   readonly camera: CameraTuning;
+  /** How far the fight's sounds carry (presentation only; not hashed). */
+  readonly audio: AudioTuning;
   /** Every default Motion, keyed by name. Always contains `Idle`. */
   readonly motions: Readonly<Record<string, Motion>>;
   /**
@@ -636,6 +680,30 @@ function parseAi(raw: unknown): AiTuning {
   };
 }
 
+function parseHearing(au: Record<string, unknown>, where: string): Hearing {
+  const near = nonNegativeNumber(au, 'near', where);
+  const far = positiveNumber(au, 'far', where);
+  if (far <= near) throw new TuningDataError(`${where}.far (${far}) must be beyond ${where}.near (${near})`);
+  const farWet = nonNegativeNumber(au, 'farWet', where);
+  const pan = nonNegativeNumber(au, 'pan', where);
+  if (farWet > 1) throw new TuningDataError(`${where}.farWet must be at most 1, got ${farWet}`);
+  if (pan > 1) throw new TuningDataError(`${where}.pan must be at most 1, got ${pan}`);
+  return { near, far, rolloff: positiveNumber(au, 'rolloff', where), muffle: positiveNumber(au, 'muffle', where), farWet, pan };
+}
+
+function parseAudio(au: Record<string, unknown>): AudioTuning {
+  const cr = record(au.crowd, 'audio.crowd');
+  const crowd: CrowdHearing = {
+    ...parseHearing(cr, 'audio.crowd'),
+    full: positiveNumber(cr, 'full', 'audio.crowd'),
+    blowRange: nonNegativeNumber(cr, 'blowRange', 'audio.crowd'),
+    blows: nonNegativeNumber(cr, 'blows', 'audio.crowd'),
+    cries: nonNegativeNumber(cr, 'cries', 'audio.crowd'),
+    shouts: nonNegativeNumber(cr, 'shouts', 'audio.crowd'),
+  };
+  return { ...parseHearing(au, 'audio'), crowd };
+}
+
 /**
  * Validate raw (parsed JSON) Tuning Data. Throws TuningDataError when invalid.
  * `motions` is a list of raw Motions (one per file).
@@ -664,6 +732,7 @@ export function parseTuningData(raw: unknown): TuningData {
   const bl = record(root.block, 'block');
   const ma = record(root.match, 'match');
   const cam = record(root.camera, 'camera');
+  const au = root.audio === undefined ? audioJson : record(root.audio, 'audio');
   const facingHalfAngle = positiveNumber(bl, 'facingHalfAngle', 'block');
   if (facingHalfAngle > 180) throw new TuningDataError(`block.facingHalfAngle must be at most 180, got ${facingHalfAngle}`);
   const hitZones = Object.fromEntries(
@@ -783,6 +852,7 @@ export function parseTuningData(raw: unknown): TuningData {
       finalBlowSpin: finiteNumber(cam, 'finalBlowSpin', 'camera'),
       shake: nonNegativeNumber(cam, 'shake', 'camera'),
     },
+    audio: parseAudio(au),
     motions,
     motionOverrides,
   };
@@ -876,6 +946,7 @@ export function loadTuningData(): TuningData {
     ai: aiJson,
     gait: gaitJson,
     camera: cameraJson,
+    audio: audioJson,
     motions,
     motionOverrides,
   });

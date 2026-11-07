@@ -19,6 +19,7 @@ export const STOCK_CLIPS = {
   armor: { count: 5, level: 0.8 },
   'arrow-hit': { count: 5, level: 0.8 },
   victory: { count: 1, level: 0.9 },
+  shout: { count: 6, level: 0.8 },
 } as const;
 
 export type StockClip = keyof typeof STOCK_CLIPS;
@@ -49,6 +50,11 @@ const play = (clip: StockClip, level: number, opts: Partial<Omit<StockPlay, 'cli
   wet: 0.2,
   ...opts,
 });
+
+/** What a Soldier's blow in the Crowd may sound like. */
+export const CROWD_BLOW_CLIPS: readonly StockClip[] = ['clang', 'armor', 'hit', 'hit'];
+
+const pickOf = <T>(xs: readonly T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 
 /** The clip a cue plays, or null when it stays synthesised. */
 export function stockFor(cue: SoundCue): StockPlay | null {
@@ -87,6 +93,12 @@ export function stockFor(cue: SoundCue): StockPlay | null {
       return play('armor', 0.5 + 0.5 * cue.strength, { wet: 0.3 });
     case 'MatchEnd':
       return play('victory', 1, { at: ENDING_DELAY, wet: 0.4 });
+    case 'CrowdBlow':
+      // A Soldier's blow rings off steel or lands in a body, a little different every time.
+      return play(pickOf(CROWD_BLOW_CLIPS), 0.7, { rate: 0.88 + Math.random() * 0.24, wet: 0.3 });
+    case 'CrowdFall':
+      // The cry of a falling Soldier, pitched a little so a Crowd of them are not all one man.
+      return play('death', 0.75, { rate: 0.88 + Math.random() * 0.24, wet: 0.5 });
     default:
       return null;
   }

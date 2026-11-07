@@ -6,14 +6,25 @@
  * Most sounds come from a Tick's events; a Duel starting and the Match
  * ending come from the Match's own events.
  */
-import type { DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
+import type { CrowdState, DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
 import type { HitZone } from '../tuning';
+import { CHEST } from './spatial';
+
+/**
+ * Where in the world a sound happens (`at`, metres), so it is heard from there: quieter and muffled far off,
+ * panned to the side it comes from. Absent, it plays as if at the ears (a sound with no place, or no Fighter to find).
+ */
+export interface Placed {
+  readonly at?: Vec3;
+  /** `at`'s height is not known (a Soldier in the Crowd): it is heard by its distance over the ground. */
+  readonly flat?: boolean;
+}
 
 /** What a floor is made of, for jumps and landings. */
 export type Surface = 'wood' | 'stone' | 'metal' | 'snow';
 
 /** The swing sound: an Attack entered Release. `weight` is 0 (a light sword) to 1 (a polearm), from the Weapon's length. */
-export interface SwingCue {
+export interface SwingCue extends Placed {
   readonly sound: 'Swing';
   readonly fighter: number;
   readonly direction: Direction;
@@ -21,7 +32,7 @@ export interface SwingCue {
 }
 
 /** An Attack was Blocked by rule: steel on steel. `strength` is 0..1, from the Blade Speed; `weight` is the attacker's Weapon's. */
-export interface BlockCue {
+export interface BlockCue extends Placed {
   readonly sound: 'Block';
   readonly defender: number;
   readonly strength: number;
@@ -32,7 +43,7 @@ export interface BlockCue {
  * Something wounded a Fighter. `strength` is 0..1, from the damage dealt. `by` is what landed: a blade's
  * cutting Head, the shaft behind it, a Kick or a Throwing Dagger.
  */
-export interface HitCue {
+export interface HitCue extends Placed {
   readonly sound: 'Hit';
   readonly defender: number;
   readonly zone: HitZone;
@@ -41,45 +52,45 @@ export interface HitCue {
 }
 
 /** An Attack was Chambered: a ringing clash, the counter's blade sliding along the other's. */
-export interface ChamberCue {
+export interface ChamberCue extends Placed {
   readonly sound: 'Chamber';
   readonly chamberer: number;
 }
 
 /** A Feint: the Wind-up is pulled back, a quick flick of cloth. */
-export interface FeintCue {
+export interface FeintCue extends Placed {
   readonly sound: 'Feint';
   readonly fighter: number;
 }
 
 /** A Kick entered Release: the leg snaps out. */
-export interface KickCue {
+export interface KickCue extends Placed {
   readonly sound: 'Kick';
   readonly fighter: number;
 }
 
 /** A Kick or a Heavy Blow knocked a Fighter down: a heavy shove, before the body hits the floor (see BodyFallCue). */
-export interface KnockdownCue {
+export interface KnockdownCue extends Placed {
   readonly sound: 'Knockdown';
   readonly fighter: number;
 }
 
 /** A body hit the floor: flat on its back in a Knockdown, or a fallen Fighter crumpling. */
-export interface BodyFallCue {
+export interface BodyFallCue extends Placed {
   readonly sound: 'BodyFall';
   readonly fighter: number;
   readonly surface: Surface;
 }
 
 /** A Fighter jumped. */
-export interface JumpCue {
+export interface JumpCue extends Placed {
   readonly sound: 'Jump';
   readonly fighter: number;
   readonly surface: Surface;
 }
 
 /** A Fighter landed from a Jump or a fall: a thud. `strength` is 0..1, from the height it dropped. */
-export interface LandCue {
+export interface LandCue extends Placed {
   readonly sound: 'Land';
   readonly fighter: number;
   readonly strength: number;
@@ -87,14 +98,14 @@ export interface LandCue {
 }
 
 /** A Fighter fell (its Death): a deep, final blow, a hiss of Lava or a splash of Water. */
-export interface DeathCue {
+export interface DeathCue extends Placed {
   readonly sound: 'Death';
   readonly fighter: number;
   readonly cause: DeathCause;
 }
 
 /** A Throw entered Release: the dagger whooshes out of the hand. */
-export interface ThrowCue {
+export interface ThrowCue extends Placed {
   readonly sound: 'Throw';
   readonly fighter: number;
 }
@@ -103,47 +114,47 @@ export interface ThrowCue {
  * A Sheathe reached its swap: steel sliding into its slot, ending in a soft seat. `weight` is the Weapon's
  * (0 light … 1 heavy), as for a Swing.
  */
-export interface SheatheCue {
+export interface SheatheCue extends Placed {
   readonly sound: 'Sheathe';
   readonly fighter: number;
   readonly weight: number;
 }
 
 /** A Draw reached its swap: steel sliding out of its slot, brighter than a Sheathe, ending in a ring. */
-export interface DrawCue {
+export interface DrawCue extends Placed {
   readonly sound: 'Draw';
   readonly fighter: number;
   readonly weight: number;
 }
 
 /** A thrown dagger was Blocked by rule: a light clink. */
-export interface ClinkCue {
+export interface ClinkCue extends Placed {
   readonly sound: 'Clink';
   readonly defender: number;
 }
 
 /** A Blocked dagger tumbling away: a fading, fluttering whirr of a spinning blade. */
-export interface RicochetCue {
+export interface RicochetCue extends Placed {
   readonly sound: 'Ricochet';
   readonly defender: number;
 }
 
 /** A Blocked dagger landed on the floor at `point`: a light clatter of steel. Render-only (the Simulation has dropped it), so the Renderer sends it. */
-export interface ClatterCue {
+export interface ClatterCue extends Placed {
   readonly sound: 'Clatter';
   readonly point: Vec3;
   readonly surface: Surface;
 }
 
 /** A thrown dagger stuck in a Wall or the floor at `point`: a short thunk. */
-export interface ThunkCue {
+export interface ThunkCue extends Placed {
   readonly sound: 'Thunk';
   readonly point: Vec3;
   readonly surface: Surface;
 }
 
 /** A blade stopped by an Arena Wall: a dull knock with a short ring. `strength` is 0..1, from the Blade Speed. */
-export interface WallStrikeCue {
+export interface WallStrikeCue extends Placed {
   readonly sound: 'WallStrike';
   readonly strength: number;
   readonly surface: Surface;
@@ -173,6 +184,16 @@ export interface TakeoverCue {
   readonly seconds: number;
 }
 
+/** A blow landed on a Soldier fighting in the Crowd (its HP fell this Tick): steel on steel or on a body, if near enough to hear apart from the din. */
+export interface CrowdBlowCue extends Placed {
+  readonly sound: 'CrowdBlow';
+}
+
+/** A Soldier fell in the Crowd: its cry. */
+export interface CrowdFallCue extends Placed {
+  readonly sound: 'CrowdFall';
+}
+
 export type SoundCue =
   | SwingCue
   | BlockCue
@@ -196,7 +217,9 @@ export type SoundCue =
   | DuelStartCue
   | DuelEndCue
   | MatchEndCue
-  | TakeoverCue;
+  | TakeoverCue
+  | CrowdBlowCue
+  | CrowdFallCue;
 
 /** Damage at which a Hit sound plays at full strength (about a head hit with repo Tuning Data). */
 const FULL_STRENGTH_DAMAGE = 45;
@@ -243,10 +266,15 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
   const cues: SoundCue[] = [];
   const surface = arenaSurface(now?.arena);
   const fighter = (i: number) => now?.fighters[i];
+  /** Where a Fighter's sounds come from: its chest. */
+  const body = (i: number): Vec3 | undefined => {
+    const f = fighter(i);
+    return f && { x: f.position.x, y: f.y + CHEST, z: f.position.z };
+  };
   for (const e of events) {
     switch (e.type) {
       case 'AttackPhase':
-        if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction, weight: weaponWeight(fighter(e.fighter)) });
+        if (e.phase === 'Release') cues.push({ sound: 'Swing', fighter: e.fighter, direction: e.direction, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter) });
         break;
       case 'Block':
         cues.push({
@@ -254,57 +282,58 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
           defender: e.defender,
           strength: clamp(e.bladeSpeed / FULL_STRENGTH_BLOCK_SPEED, 0.3, 1),
           weight: weaponWeight(fighter(e.attacker)),
+          at: e.point,
         });
         break;
       case 'WallStrike':
-        cues.push({ sound: 'WallStrike', strength: clamp(e.bladeSpeed / FULL_STRENGTH_WALL_SPEED, 0.25, 1), surface });
+        cues.push({ sound: 'WallStrike', strength: clamp(e.bladeSpeed / FULL_STRENGTH_WALL_SPEED, 0.25, 1), surface, at: e.point });
         break;
       case 'Hit':
-        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? 'Edge' : 'Shaft' });
-        if (e.heavy) cues.push({ sound: 'Knockdown', fighter: e.defender });
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? 'Edge' : 'Shaft', at: e.point });
+        if (e.heavy) cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
       case 'Chamber':
-        cues.push({ sound: 'Chamber', chamberer: e.chamberer });
+        cues.push({ sound: 'Chamber', chamberer: e.chamberer, at: e.point });
         break;
       case 'Feint':
-        cues.push({ sound: 'Feint', fighter: e.fighter });
+        cues.push({ sound: 'Feint', fighter: e.fighter, at: body(e.fighter) });
         break;
       case 'KickPhase':
-        if (e.phase === 'Release') cues.push({ sound: 'Kick', fighter: e.fighter });
+        if (e.phase === 'Release') cues.push({ sound: 'Kick', fighter: e.fighter, at: body(e.fighter) });
         break;
       case 'KnockdownPhase':
-        if (e.phase === 'Down') cues.push({ sound: 'BodyFall', fighter: e.fighter, surface });
+        if (e.phase === 'Down') cues.push({ sound: 'BodyFall', fighter: e.fighter, surface, at: body(e.fighter) });
         break;
       case 'Death':
-        cues.push({ sound: 'Death', fighter: e.fighter, cause: e.cause });
+        cues.push({ sound: 'Death', fighter: e.fighter, cause: e.cause, at: body(e.fighter) });
         break;
       case 'KickLanded':
-        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Kick' });
-        if (e.outcome === 'Knockdown') cues.push({ sound: 'Knockdown', fighter: e.defender });
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Kick', at: e.point });
+        if (e.outcome === 'Knockdown') cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
       case 'DaggerThrown':
-        cues.push({ sound: 'Throw', fighter: e.thrower });
+        cues.push({ sound: 'Throw', fighter: e.thrower, at: body(e.thrower) });
         break;
       case 'DaggerHit':
-        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Dagger' });
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Dagger', at: e.point });
         break;
       case 'DaggerBlocked':
-        cues.push({ sound: 'Clink', defender: e.defender }, { sound: 'Ricochet', defender: e.defender });
+        cues.push({ sound: 'Clink', defender: e.defender, at: e.point }, { sound: 'Ricochet', defender: e.defender, at: e.point });
         break;
       case 'DaggerStuck':
-        cues.push({ sound: 'Thunk', point: e.point, surface });
+        cues.push({ sound: 'Thunk', point: e.point, surface, at: e.point });
         break;
       case 'Jump':
-        cues.push({ sound: 'Jump', fighter: e.fighter, surface });
+        cues.push({ sound: 'Jump', fighter: e.fighter, surface, at: body(e.fighter) });
         break;
       case 'Land':
-        if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: clamp(e.height / FULL_STRENGTH_DROP, 0.15, 1), surface });
+        if (e.height >= LAND_QUIET) cues.push({ sound: 'Land', fighter: e.fighter, strength: clamp(e.height / FULL_STRENGTH_DROP, 0.15, 1), surface, at: body(e.fighter) });
         break;
       case 'Sheathed':
-        cues.push({ sound: 'Sheathe', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)) });
+        cues.push({ sound: 'Sheathe', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter) });
         break;
       case 'Drawn':
-        cues.push({ sound: 'Draw', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)) });
+        cues.push({ sound: 'Draw', fighter: e.fighter, weight: weaponWeight(fighter(e.fighter)), at: body(e.fighter) });
         break;
       case 'DuelEnd':
         cues.push({ sound: 'DuelEnd', winner: e.winner });
@@ -322,4 +351,31 @@ export function matchCues(events: readonly MatchEvent[]): SoundCue[] {
     else if (e.type === 'MatchEnd') cues.push({ sound: 'MatchEnd', winner: e.winner });
   }
   return cues;
+}
+
+/** Where a Soldier stands, for its sounds: its height is not known here (see `Placed.flat`). */
+const soldierAt = (crowd: CrowdState, i: number): Vec3 => ({ x: crowd.x[i]!, y: 0, z: crowd.z[i]! });
+
+/**
+ * The Crowd's sounds between two of its states (`prev` the last one heard): a blow for each Soldier in the Crowd whose HP fell,
+ * a cry for each that fell there. Soldiers promoted to Fighters are left out (their own events sound), and so is a Soldier
+ * given back by a respawn. Pure: the din's level comes from `crowdFighting`, and the player thins these out by distance and rate.
+ */
+export function crowdCues(prev: CrowdState | undefined, now: CrowdState | undefined): SoundCue[] {
+  if (!prev || !now || prev.alive.length !== now.alive.length) return [];
+  const cues: SoundCue[] = [];
+  for (let i = 0; i < now.alive.length; i++) {
+    if (!prev.alive[i] || prev.slot[i]! >= 0 || now.slot[i]! >= 0) continue;
+    if (!now.alive[i]) cues.push({ sound: 'CrowdFall', at: soldierAt(now, i), flat: true });
+    else if (now.hp[i]! < prev.hp[i]!) cues.push({ sound: 'CrowdBlow', at: soldierAt(now, i), flat: true });
+  }
+  return cues;
+}
+
+/** Where the Crowd is fighting: every living Soldier in it that is engaged with an enemy (its height not known, see `Placed.flat`). */
+export function crowdFighting(crowd: CrowdState | undefined): Vec3[] {
+  if (!crowd) return [];
+  const out: Vec3[] = [];
+  for (let i = 0; i < crowd.alive.length; i++) if (crowd.alive[i] && crowd.slot[i]! < 0 && crowd.target[i]! >= 0) out.push(soldierAt(crowd, i));
+  return out;
 }

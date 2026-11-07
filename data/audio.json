@@ -1,0 +1,21 @@
+{
+  "near": 3,
+  "far": 40,
+  "rolloff": 1.6,
+  "muffle": 900,
+  "farWet": 0.35,
+  "pan": 0.85,
+  "crowd": {
+    "near": 6,
+    "far": 150,
+    "rolloff": 1.4,
+    "muffle": 450,
+    "farWet": 0.5,
+    "pan": 0.7,
+    "full": 30,
+    "blowRange": 25,
+    "blows": 6,
+    "cries": 2.5,
+    "shouts": 1.5
+  }
+}

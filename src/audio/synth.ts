@@ -12,9 +12,13 @@
  *  - Throw, Clink, Ricochet, Clatter, Thunk: a spinning dagger, a dagger turned aside and whirring away, landing on the floor, a dagger stuck;
  *  - Sheathe, Draw: steel sliding into its slot and seating, and sliding out brighter with a ring;
  *  - WallStrike: a blade knocking on a Wall and ringing;
- *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare.
+ *  - DuelStart, DuelEnd, MatchEnd: blades drawn and war drums, a gong, a fanfare;
+ *  - CrowdBlow, CrowdFall: a blow on a Soldier near the Player, a falling Soldier's cry; and the Crowd's din (`setCrowd`):
+ *    war cries swelling with the fighting heard, from where it is.
  * Where a recorded stock clip fits a cue (see `stockFor`), that plays instead once it has loaded.
- * Everything passes through a small room reverb and a compressor. In slow motion (`setSpeed`)
+ * A sound placed in the world (`Placed.at`) is heard from the ears (`setEars`): quieter, muffled and wetter
+ * the further off, panned to its side, and not played at all past the hearing range (Tuning Data `audio`).
+ * Everything passes through a small room reverb and a compressor, then the player's master volume (`volume.ts`). In slow motion (`setSpeed`)
  * sounds deepen and stretch, and the room grows. Browser-only; never imported by the Simulation.
  */
 import type { Direction } from '../sim';
@@ -34,10 +38,22 @@ import type {
   ThunkCue,
   WallStrikeCue,
 } from './cues';
+import type { AudioTuning } from '../tuning';
+import type { Vec3 } from '../sim';
+import { crowdDin, pickFighting, SILENT_DIN, type Din } from './crowdDin';
 import type { SoundPlayer } from './listener';
+import { placement, UNPLACED, type Ears, type Placement } from './spatial';
+import { masterVolumeGain, onMasterVolume } from './volume';
 import { STOCK_CLIPS, stockFile, stockFor, type StockClip, type StockPlay } from './stock';
 
 const MASTER_GAIN = 0.55;
+/** A placed sound quieter than this is too far off to bother playing. */
+const INAUDIBLE = 0.005;
+/** Seconds between updates of the Crowd's din (its war cries). */
+const DIN_EVERY = 0.1;
+/** How loud each war cry in the din plays (before distance). */
+const SHOUT_LEVEL = 0.6;
+
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
 const ENDING_DELAY = 0.55;
 /** Seconds of the room's reverb tail. */
@@ -120,6 +136,19 @@ export class WebAudioPlayer implements SoundPlayer {
   private stretch = 1;
   private deepen = 1;
   private roomBoost = 1;
+  /** Where the Player hears from (null: every sound as if at the ears), and where the sound now being played sits. */
+  private ears: Ears | null = null;
+  private place: Placement = UNPLACED;
+  /** The Crowd's din: where it fights, as last heard, when (context seconds), and the war cries owed. */
+  private fighting: readonly Vec3[] = [];
+  private dinAt = -Infinity;
+  private din: Din = SILENT_DIN;
+  private shoutDebt = 0;
+  /** Rate limits (sounds a second) on the Crowd's blows and cries: each kind's tokens, and when they were last topped up. */
+  private readonly tokens = new Map<string, { n: number; at: number }>();
+
+  /** `hearing`: how far placed sounds carry; without it every sound plays as if at the ears. */
+  constructor(private readonly hearing?: AudioTuning) {}
 
   /**
    * Browsers keep audio suspended until a user gesture. Resume on the first
@@ -137,9 +166,43 @@ export class WebAudioPlayer implements SoundPlayer {
     this.roomBoost = 1 + (slow - 1) * 0.6;
   }
 
+  setEars(ears: Ears | null): void {
+    this.ears = ears;
+  }
+
+  setCrowd(fighting: readonly Vec3[]): void {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.hearing) return;
+    this.fighting = fighting;
+    const since = ctx.currentTime - this.dinAt;
+    if (since < DIN_EVERY) return;
+    this.dinAt = ctx.currentTime;
+    const crowd = this.hearing.crowd;
+    this.din = crowdDin(fighting, this.ears, crowd);
+    // War cries: the same few voices pitched up or down, so they are many men.
+    this.shoutDebt += this.din.level * crowd.shouts * Math.min(since, 1) * (0.5 + Math.random());
+    for (; this.shoutDebt >= 1; this.shoutDebt--) this.fromFighting('shout', SHOUT_LEVEL, 0.8, 1.2);
+  }
+
   play(cue: SoundCue): void {
     const ctx = this.context();
     if (!ctx || ctx.state !== 'running') return;
+    let place = UNPLACED;
+    if (this.hearing && 'at' in cue) {
+      const crowd = cue.sound === 'CrowdBlow' || cue.sound === 'CrowdFall';
+      place = placement(cue.at, this.ears, crowd ? this.hearing.crowd : this.hearing, cue.flat);
+      if (crowd && !this.crowdAllows(cue, place)) return;
+    }
+    if (place.gain < INAUDIBLE) return;
+    this.place = place;
+    try {
+      this.sound(cue);
+    } finally {
+      this.place = UNPLACED;
+    }
+  }
+
+  private sound(cue: SoundCue): void {
     const stock = stockFor(cue);
     if (stock && this.clip(cue, stock)) return;
     switch (cue.sound) {
@@ -189,6 +252,55 @@ export class WebAudioPlayer implements SoundPlayer {
         return this.fanfare(ENDING_DELAY);
       case 'Takeover':
         return this.takeover(cue.seconds);
+      case 'CrowdBlow':
+        return this.hit({ sound: 'Hit', defender: -1, zone: 'torso', strength: 0.4, by: 'Edge' });
+      case 'CrowdFall':
+        // A cry is a recording or nothing: a synthesised voice would not pass.
+        return;
+    }
+  }
+
+  // --- The Crowd -------------------------------------------------------------------------------
+
+  /**
+   * Whether one of the Crowd's own sounds plays: a blow only within `blowRange` (further off it is part of the din), and
+   * neither more often than its rate a second, so a big melee does not drown the Fighters.
+   */
+  private crowdAllows(cue: SoundCue, place: Placement): boolean {
+    const crowd = this.hearing!.crowd;
+    if (cue.sound === 'CrowdBlow') {
+      const at = cue.at;
+      const ears = this.ears;
+      if (at && ears && Math.hypot(at.x - ears.position.x, at.z - ears.position.z) > crowd.blowRange) return false;
+    }
+    if (place.gain < INAUDIBLE) return false;
+    return this.take(cue.sound, cue.sound === 'CrowdBlow' ? crowd.blows : crowd.cries);
+  }
+
+  /** A token bucket of `perSecond` (holding at most one second's worth): spends one if there is one. */
+  private take(kind: string, perSecond: number): boolean {
+    const now = this.ctx!.currentTime;
+    const b = this.tokens.get(kind) ?? { n: perSecond, at: now };
+    b.n = Math.min(perSecond, b.n + (now - b.at) * perSecond);
+    b.at = now;
+    this.tokens.set(kind, b);
+    if (b.n < 1) return false;
+    b.n--;
+    return true;
+  }
+
+  /** One clip of the din (a war cry) from a fighting Soldier (a louder-heard one likelier), heard from there, at a rate in [lo, hi). */
+  private fromFighting(clip: StockClip, level: number, lo: number, hi: number): void {
+    const i = pickFighting(this.din, Math.random());
+    const at = this.fighting[i];
+    if (!at) return;
+    const place = placement(at, this.ears, this.hearing!.crowd, true);
+    if (place.gain < INAUDIBLE) return;
+    this.place = place;
+    try {
+      this.clip({ sound: 'CrowdBlow' }, { clip, level, rate: lo + Math.random() * (hi - lo), at: Math.random() * DIN_EVERY, wet: 0.35 });
+    } finally {
+      this.place = UNPLACED;
     }
   }
 
@@ -205,7 +317,9 @@ export class WebAudioPlayer implements SoundPlayer {
     comp.attack.value = 0.003;
     comp.release.value = 0.2;
     const master = ctx.createGain();
-    master.gain.value = MASTER_GAIN;
+    master.gain.value = MASTER_GAIN * masterVolumeGain();
+    // The menu's master volume: a short glide, so dragging the slider does not click.
+    onMasterVolume((gain) => master.gain.setTargetAtTime(MASTER_GAIN * gain, ctx.currentTime, 0.02));
     comp.connect(master).connect(ctx.destination);
     this.dry = ctx.createGain();
     this.dry.connect(comp);
@@ -261,25 +375,36 @@ export class WebAudioPlayer implements SoundPlayer {
 
   /**
    * Where one sound's layers go: straight out, and `wet` of it into the room. `pan` places it
-   * (-1 left … 1 right), or sweeps it from the first to the second over `panDur` seconds.
+   * (-1 left … 1 right), or sweeps it from the first to the second over `panDur` seconds. The sound
+   * now being played is heard from where it sits (`place`): its level, side, muffle and room on top.
    */
   private bus(wet: number, level = 1, pan: number | readonly [number, number] = 0, panDur = 0): GainNode {
     const ctx = this.ctx!;
+    const place = this.place;
     const g = ctx.createGain();
-    g.gain.value = level;
+    g.gain.value = level * place.gain;
     let out: AudioNode = g;
-    const [from, to] = typeof pan === 'number' ? [pan, pan] : pan;
+    if (place.cutoff !== null) {
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = place.cutoff;
+      out.connect(lp);
+      out = lp;
+    }
+    // The sound's own pan (a swing's sweep) narrows into what is left to the side it comes from.
+    const side = (p: number) => place.pan + p * (1 - Math.abs(place.pan));
+    const [from, to] = (typeof pan === 'number' ? [pan, pan] : pan).map(side) as [number, number];
     if (from !== 0 || to !== 0) {
       const p = ctx.createStereoPanner();
       const t = ctx.currentTime;
       p.pan.setValueAtTime(from, t);
       p.pan.linearRampToValueAtTime(to, t + panDur * this.stretch);
-      g.connect(p);
+      out.connect(p);
       out = p;
     }
     out.connect(this.dry!);
     const send = ctx.createGain();
-    send.gain.value = Math.min(1, wet * this.roomBoost);
+    send.gain.value = Math.min(1, (wet + place.wet) * this.roomBoost);
     out.connect(send).connect(this.reverb!);
     return g;
   }
