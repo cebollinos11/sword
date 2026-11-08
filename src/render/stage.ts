@@ -5,6 +5,7 @@ import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { battlefieldSetting } from './battlefieldView';
+import { texturedModel } from './triplanar';
 import { abyss, greybox, isGreybox } from './greybox';
 import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { bakeSkies, sky, skyPane, type SkyLook } from './sky';
@@ -466,6 +467,7 @@ function battle(name: string, field: Battlefield, current: () => boolean): Setti
   if (map === null) return setting;
   const loaded = arenaModel(`battle_${map}`, [])
     .then((model) => {
+      texturedModel(model);
       if (current()) setting.root.add(model);
     })
     .catch((e: unknown) => console.error(`Battle map model "${map}" failed to load`, e));

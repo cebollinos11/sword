@@ -1,0 +1,9 @@
+old_sandstone_blocks: Source: https://polyhaven.com/a/sandstone_blocks_05 Authors: Rob Tuytel 
+mountain_rock_bright: Source: https://ambientcg.com/a/Rock008 Authors: ambientCG 
+dungeon_stone_wall_sharp: Source: https://polyhaven.com/a/rock_wall_12 Authors: Amal Kumar 
+dense_green_grass_sharp: Source: https://ambientcg.com/a/Grass001 Authors: ambientCG 
+dusty_rocky_trail_smooth: Source: https://polyhaven.com/a/rocky_trail_02 Authors: Amal Kumar 
+dark_old_wood: Source: https://ambientcg.com/a/Wood035 Authors: ambientCG 
+interlocking_clay_roof_tiles_smooth: Source: https://polyhaven.com/a/clay_roof_tiles_02 Authors: Amal Kumar 
+cobblestone_pavers_smooth_1: Source: https://ambientcg.com/a/PavingStones009 Authors: ambientCG 
+cracked_clay_plaster_sharp: Source: https://polyhaven.com/a/clay_plaster Authors: Amal Kumar 

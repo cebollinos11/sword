@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { battlefieldHeight, type Heightfield } from '../sim';
 import { sky, type SkyLook } from './sky';
+import { applyTriplanar } from './triplanar';
 
 /** The haze: its colour (also the sky's horizon and the background), where it starts and where nothing shows through (m). */
 const HAZE = 0x9a93a0;
@@ -70,7 +71,10 @@ export function terrainMesh(hf: Heightfield): THREE.Mesh {
   geometry.setAttribute('color', new THREE.BufferAttribute(colours, 3));
   geometry.setIndex(index);
   geometry.computeVertexNormals();
-  const mesh = new THREE.Mesh(geometry, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  // The ground has no UVs: its grass is projected from the world (its vertex colours tint it).
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true });
+  applyTriplanar(material, 'grass');
+  const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'terrain';
   return mesh;
 }
