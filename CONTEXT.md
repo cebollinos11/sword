@@ -437,6 +437,10 @@ _Avoid_: skin, theme
 **Quick check**:
 The Map Editor's headless run of whole AI-v-AI Battles on a draft (`quickCheck`, `src/mapEditor/quickCheck.ts`; `npm run quick-check -- <map>.source.json`), each on a fixed seed so a rerun gives the same numbers: how long a Battle lasts and how it ends, how often each Objective changes hands, each Team's Tickets every 30 s, and the stall time. Not a Play-test (which is watched or played).
 
+**Mirror mode** (docs/plans/map-editor.md, Stage 6):
+The Map Editor's way of building a map that is its own half turn (ADR 0022, x, z → -x, -z), marked `mirror: true` in the Map Source (`src/mapEditor/mirror.ts`). A Brush, Objective or prop placed in it gets its **twin**, its half turn (a Ramp's `up` and rails turned, an Objective's starting Owner and a banner's Team swapped, a prop facing the other way), linked both ways by `twin` (the other's id; its own on one placed on the centre's half turn, which stays centred); twins are edited together, each edit one undo step, and keep side by side in the paint order; `unlink` turns a pair back into two free parts. The two Bases of a mirrored map are twins. The Map Compiler lists a mirrored map's Objectives and Blocks so that k and n - 1 - k are twins and merges its Walk Surfaces so the half turn keeps them, and the checks warn where it is not its own half turn, naming the parts.
+_Avoid_: symmetry mode, mirror (alone: the half turn is not a reflection)
+
 **Stuck** (the stuck measure, `StuckMeter`, `src/mapEditor/stuck.ts`):
 A Soldier steering to its place, more than two places from it, that has not closed on it by 0.5 m in the last second; counted once it has been so for 3 s. The stuck heat map is the Soldier-seconds by 2 m cell; a measure read from the Match, never state.
 

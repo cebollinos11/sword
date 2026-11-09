@@ -15,6 +15,9 @@
  *
  * Stage 5: each prop is drawn as a small mark of its kind (a tree green, a torch orange…) and picked and dragged as a marker; the prop tool
  * places one of the kind `propKind` with a click, at the level being edited. Each Brush that names a material shows it in its label.
+ *
+ * Stage 6: in mirror mode the field's centre is marked (the half turn's), and the twin of the selected Brush, Objective or prop is outlined
+ * dashed in cyan, so the part an edit also changes is in sight.
  */
 import type { LevelsTuning, ObjectivesTuning } from '../../tuning';
 import type { ClearanceNode, MapChecks } from '../checks';
@@ -44,6 +47,9 @@ const REACH_PX = 7;
 const HANDLE_PX = 5;
 /** An Objective's and a Base's drawn size (px): a click this near takes it. */
 const MARKER_PX = 10;
+/** The outline of the selected part's twin (Stage 6). */
+const TWIN = '#5ee0ff';
+
 /** The Teams' colours (Team 0, Team 1), as the markers are drawn. */
 const TEAM = ['#e0c040', '#4080e0'];
 /** The width (px) the panel covers on the right, and the share of the height the list of checks may cover at the bottom. */
@@ -258,6 +264,13 @@ export class TopView {
       return;
     }
     s.select(picked.id);
+    // A Brush that is its own twin stays centred (Stage 6): a drag on it pans, as one on the ground did before.
+    if (picked.twin === picked.id) {
+      this.gesture = pan;
+      this.changed();
+      this.redraw();
+      return;
+    }
     s.beginDrag();
     this.gesture = { kind: 'move', start: p, screen, id: picked.id };
     this.changed();
@@ -348,6 +361,13 @@ export class TopView {
       if (b) this.outline(b, '#ff3b3b', 3);
     }
     if (sel) {
+      // Its twin (Stage 6), dashed: the Brush an edit of this one changes too.
+      const twin = sel.twin !== undefined && sel.twin !== sel.id ? source.brushes.find((x) => x.id === sel.twin) : undefined;
+      if (twin) {
+        ctx.setLineDash([6, 4]);
+        this.outline(twin, TWIN, 2);
+        ctx.setLineDash([]);
+      }
       this.outline(sel, '#ffe14d', 2);
       ctx.fillStyle = '#ffe14d';
       for (const h of handlesOf(sel)) ctx.fillRect(this.sx(h.x) - HANDLE_PX, this.sy(h.z) - HANDLE_PX, 2 * HANDLE_PX, 2 * HANDLE_PX);
@@ -624,6 +644,38 @@ export class TopView {
     const half = source.size / 2;
     const picked = this.session.marker;
     const isPicked = (m: Marker) => sameMarker(picked, m);
+    // The twin of the picked Objective or prop (Stage 6), ringed dashed in cyan, and the Bases' each other's in a mirrored map.
+    const twinOf = (m: Marker): boolean => {
+      if (!picked || picked.kind !== m.kind) return false;
+      if (m.kind === 'base') return source.mirror === true && picked.kind === 'base' && picked.team !== m.team;
+      if (m.kind !== 'objective' && m.kind !== 'prop') return false;
+      const list: readonly { id: string; twin?: string }[] = m.kind === 'objective' ? source.objectives : propsOf(source);
+      const p = list.find((v) => v.id === (picked as { id: string }).id);
+      return p !== undefined && p.twin !== p.id && p.twin === m.id;
+    };
+    const twinRing = (x: number, y: number, r: number) => {
+      ctx.strokeStyle = TWIN;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, 2 * Math.PI);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    if (source.mirror) {
+      // The centre the map turns about.
+      const cx = this.sx(0);
+      const cy = this.sy(0);
+      ctx.strokeStyle = TWIN;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(cx - 9, cy);
+      ctx.lineTo(cx + 9, cy);
+      ctx.moveTo(cx, cy - 9);
+      ctx.lineTo(cx, cy + 9);
+      ctx.stroke();
+      twinRing(cx, cy, 6);
+    }
     ctx.font = 'bold 12px system-ui, sans-serif';
     ([0, 1] as const).forEach((team) => {
       const y = this.sy(team === 0 ? -source.front : source.front);
@@ -663,6 +715,7 @@ export class TopView {
       ctx.strokeStyle = o.owner < 0 ? '#555' : TEAM[o.owner]!;
       ctx.lineWidth = o.spawn ? 3 : 1.5;
       ctx.stroke();
+      if (twinOf({ kind: 'objective', id: o.id })) twinRing(x, y, MARKER_PX + 4);
       if (isPicked({ kind: 'objective', id: o.id })) {
         ctx.strokeStyle = '#ffe14d';
         ctx.lineWidth = 2.5;
@@ -697,6 +750,7 @@ export class TopView {
       this.text(mark.letter, x, y, 0, 0.5);
       ctx.font = 'bold 12px system-ui, sans-serif';
       ctx.globalAlpha = 1;
+      if (twinOf({ kind: 'prop', id: p.id })) twinRing(x, y, PROP_PX + 3);
       if (isPicked({ kind: 'prop', id: p.id })) {
         ctx.strokeStyle = '#ffe14d';
         ctx.lineWidth = 2;
@@ -710,6 +764,7 @@ export class TopView {
       const y = this.sy(b.z);
       ctx.fillStyle = TEAM[t]!;
       ctx.fillRect(x - 8, y - 8, 16, 16);
+      if (twinOf({ kind: 'base', team: t as 0 | 1 })) twinRing(x, y, 13);
       if (isPicked({ kind: 'base', team: t as 0 | 1 })) {
         ctx.strokeStyle = '#ffe14d';
         ctx.lineWidth = 2.5;

@@ -37,6 +37,7 @@ import { draftTuning, type Draft } from '../playtest';
 import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../quickCheck';
 import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
+import { fortPortSource } from '../fortPort.testdata';
 import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
 import { BATTLE_SKIES, BRUSH_KINDS, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
 import { materialOf } from '../look';
@@ -169,6 +170,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     army: 0,
     quickBattles: 4,
     look3d: true,
+    mirror: false,
   };
   const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
@@ -361,7 +363,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  const examples: Record<string, () => unknown> = { "Stage 0's sample": sampleSource, "Stage 5's dressed sample": dressedSampleSource };
+  const examples: Record<string, () => unknown> = { "Stage 0's sample": sampleSource, "Stage 5's dressed sample": dressedSampleSource, "Stage 6's ported Fort (mirrored)": fortPortSource };
   for (const [path, raw] of Object.entries(bundled)) examples[path.slice(path.lastIndexOf('/') + 1)] = () => raw;
   ui.example = Object.keys(examples)[0]!;
   const picker = document.createElement('input');
@@ -550,6 +552,20 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   edits.addButton({ title: 'Delete (Del)' }).on('click', remove);
   edits.addButton({ title: 'Paint earlier ([)' }).on('click', withSelection((id) => session.reorder(id, -1)));
   edits.addButton({ title: 'Paint later (])' }).on('click', withSelection((id) => session.reorder(id, 1)));
+  // Stage 6: half-turn mirror mode, and turning a twin pair back into two free parts.
+  const setMirror = (on: boolean) =>
+    settingsEdit(() => {
+      session.setMirror(on);
+      say(on ? 'Mirror mode: what you place gets its half-turn twin (dashed cyan), edited with it; parts already each other’s half turn are linked, and Team 1’s Base is put at the half turn of Team 0’s (Ctrl+Z to undo).' : 'Mirror mode off: new parts are free; twins stay linked until unlinked.');
+    });
+  edits.addBinding(ui, 'mirror', { label: 'mirror mode (M)' }).on('change', (e) => !syncing && setMirror(e.value));
+  const unlink = () => {
+    const m = session.marker;
+    const target = session.selected ?? (m?.kind === 'objective' || m?.kind === 'prop' ? m : null);
+    if (target === null) return say('Select a Brush, an Objective or a prop with a twin first');
+    settingsEdit(() => session.unlink(target));
+  };
+  edits.addButton({ title: 'Unlink its twin' }).on('click', unlink);
 
   // --- Levels -------------------------------------------------------------
   let levelsFolder: FolderApi | undefined;
@@ -606,7 +622,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const buildBrush = () => {
     const sel = session.selection;
     const levels = session.source.levels;
-    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : ''}|${levels.join(',')}|${session.source.grid.step}` : '';
+    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : ''}|${levels.join(',')}|${session.source.grid.step}|${sel.twin ?? ''}` : '';
     if (key === brushKey && brushFolder) {
       if (sel) propsOf(sel, props);
       syncing = true;
@@ -619,7 +635,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     brushFolder = undefined;
     if (!sel) return;
     propsOf(sel, props);
-    const f = pane.addFolder({ title: `Brush: ${sel.kind} ${sel.id}`, index: 4 });
+    const twin = sel.twin === undefined ? '' : sel.twin === sel.id ? ' (its own twin)' : ` (twin ${sel.twin})`;
+    const f = pane.addFolder({ title: `Brush: ${sel.kind} ${sel.id}${twin}`, index: 4 });
     brushFolder = f;
     const step = session.source.grid.step;
     const half = session.source.size / 2;
@@ -696,6 +713,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     base0z: 0,
     base1x: 0,
     base1z: 0,
+    cell: 5,
     label: '',
     where: '',
     blurb: '',
@@ -742,6 +760,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       base0z: s.bases[0].z,
       base1x: s.bases[1].x,
       base1z: s.bases[1].z,
+      cell: s.grid.cell,
       label: lobby.label ?? '',
       where: lobby.where ?? '',
       blurb: lobby.blurb ?? '',
@@ -779,6 +798,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     try {
       f.addBinding(settings, 'name', { label: 'name' }).on('change', (e) => settingsEdit(() => session.setSettings({ name: e.value })));
       f.addBinding(settings, 'size', { label: 'size (m)', readonly: true, format: (v: number) => `${v} (the Battle's field)` });
+      // The coarse grid: drawn, a click's Brush and a duplicate's offset. The destination fields' cell keeps Walls off its dots (Stage 6).
+      const cells = { [`${tuning.battle.crowd.flowCell} m (the destination fields' cell)`]: tuning.battle.crowd.flowCell, ...(tuning.battle.crowd.flowCell === 5 ? {} : { '5 m': 5 }) };
+      f.addBinding(settings, 'cell', { label: 'coarse grid', options: cells }).on('change', (e) => settingsEdit(() => session.setSettings({ grid: { ...session.source.grid, cell: e.value } })));
       f.addBinding(settings, 'front', { label: 'front (m)', step: session.source.grid.step, min: session.source.grid.step }).on('change', (e) => {
         if (e.last) settingsEdit(() => session.setSettings({ front: e.value }));
       });
@@ -940,6 +962,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     buildBrush();
     buildProp();
     lookUi.sky = session.source.look?.sky ?? 'dusk';
+    ui.mirror = session.source.mirror === true;
     syncMap();
     undoButton.disabled = !session.canUndo;
     redoButton.disabled = !session.canRedo;
@@ -998,6 +1021,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       const m = session.marker;
       if (m) settingsEdit(() => session.moveMarker(m, dx!, dz!));
       else withSelection((id) => session.moveBrush(id, dx!, dz!))();
+    } else if (!mod && !e.altKey && key === 'm') {
+      setMirror(!session.source.mirror);
     } else if (!mod && !e.altKey && TOOL_KEYS[key]) {
       ui.tool = TOOL_KEYS[key]!;
       refreshPane();

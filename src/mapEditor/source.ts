@@ -19,6 +19,11 @@
  * block names the map's sky and light (`sky`, one of the Battle looks, `BATTLE_SKIES`) and places its props (trees, rubble, banners, crates,
  * torches). A source with neither is a Stage 4 source, and compiles to the same bytes.
  *
+ * Stage 6, half-turn mirror mode (`mirror.ts`): `mirror: true` marks a map meant to be its own half turn (ADR 0022). Its Brushes, Objectives
+ * and props may each carry a `twin`, the id of their half turn's (their own id where they are their own half turn), linked both ways; the
+ * Bases of a mirrored map are each other's twins. The compiler orders a mirrored map's Objectives and Blocks so that k mirrors n - 1 - k,
+ * and the checks say where it is not its own half turn. A source with no `mirror` and no `twin` compiles to the same bytes as before.
+ *
  * Every coordinate snaps to the grid's whole step (`grid.step`), so the compiled Walk Surfaces' corners are exact and neighbours share
  * edges exactly; every height a Brush stands at is one of the source's `levels`. Directions are the compass of the maps: north is +z
  * (toward Team 1), east +x.
@@ -78,6 +83,8 @@ export interface SourceProp {
   readonly y: number;
   readonly turn: number;
   readonly team?: 0 | 1;
+  /** Stage 6: its twin's id (its own where it is its own half turn). */
+  readonly twin?: string;
 }
 
 /** The map's look apart from its Brushes' materials (Stage 5, render-only): each part absent for the Battlefield's own. */
@@ -91,6 +98,8 @@ interface BrushBase {
   readonly id: string;
   /** How it is drawn (render-only; absent, its kind's own). Never on a Hole or a Hazard, which are drawn by what they are. */
   readonly material?: MapMaterial;
+  /** Stage 6: its twin's id, a Brush of its kind that is its half turn (its own where it is its own half turn); absent, it is free. */
+  readonly twin?: string;
 }
 export interface FloorBrush extends BrushBase {
   readonly kind: 'floor';
@@ -166,6 +175,8 @@ export interface SourceObjective {
   readonly owner: -1 | 0 | 1;
   readonly spawn: boolean;
   readonly y?: number;
+  /** Stage 6: its twin's id (its own where it is its own half turn). */
+  readonly twin?: string;
 }
 
 /** The map's card in the Lobby's map picker (Stage 3): the compiled map's `lobby`, render-only text, each part absent for the Lobby's own. */
@@ -192,6 +203,8 @@ export interface MapSource {
   readonly lobby?: SourceLobby;
   /** Stage 5: the sky and the props (render-only). */
   readonly look?: MapLook;
+  /** Stage 6: the map is meant to be its own half turn (mirror mode): the Bases are twins, and the compiler and checks mirror it. */
+  readonly mirror?: true;
 }
 
 /** Brush ids: letters, digits and `-`. No `_`, which the compiled ids put between a Brush's id and the rest, so none can collide. */
@@ -226,13 +239,37 @@ function side(v: unknown, where: string): Side {
 
 /** A Brush with its `material`, if the source names one (render-only: the compiler never reads it). */
 function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
-  const brush = parseShape(raw, where, step, half, level);
+  const shape = parseShape(raw, where, step, half, level);
   const m = (raw as Record<string, unknown>).material;
-  if (m === undefined) return brush;
-  const at = `${where} (${brush.id}).material`;
-  if (brush.kind === 'hole' || brush.kind === 'hazard') throw new TuningDataError(`${at}: a ${brush.kind === 'hole' ? 'Hole' : 'Hazard'} has no material of its own`);
-  if (typeof m !== 'string' || !(MAP_MATERIALS as readonly string[]).includes(m)) throw new TuningDataError(`${at} must be one of ${MAP_MATERIALS.join(', ')}, got ${JSON.stringify(m)}`);
-  return { ...brush, material: m as MapMaterial };
+  let brush = shape;
+  if (m !== undefined) {
+    const at = `${where} (${shape.id}).material`;
+    if (shape.kind === 'hole' || shape.kind === 'hazard') throw new TuningDataError(`${at}: a ${shape.kind === 'hole' ? 'Hole' : 'Hazard'} has no material of its own`);
+    if (typeof m !== 'string' || !(MAP_MATERIALS as readonly string[]).includes(m)) throw new TuningDataError(`${at} must be one of ${MAP_MATERIALS.join(', ')}, got ${JSON.stringify(m)}`);
+    brush = { ...shape, material: m as MapMaterial };
+  }
+  return withTwin(brush, raw, `${where} (${shape.id})`);
+}
+
+/** `v` with the `twin` the raw part names, if any (Stage 6; that it names a part that names it back is checked over the whole list, `checkTwins`). */
+function withTwin<T extends { readonly id: string }>(v: T, raw: unknown, where: string): T {
+  const t = (raw as Record<string, unknown>).twin;
+  if (t === undefined) return v;
+  if (typeof t !== 'string' || t === '') throw new TuningDataError(`${where}.twin must be the id of its twin, got ${JSON.stringify(t)}`);
+  return { ...v, twin: t };
+}
+
+/** Every `twin` in `items` names one of them of the same kind that names it back (or itself). */
+function checkTwins(items: readonly { readonly id: string; readonly twin?: string; readonly kind?: string }[], where: string, what: string): void {
+  const byId = new Map(items.map((v) => [v.id, v]));
+  items.forEach((v, i) => {
+    if (v.twin === undefined) return;
+    const t = byId.get(v.twin);
+    const at = `${where}[${i}] (${v.id}).twin`;
+    if (!t) throw new TuningDataError(`${at} names "${v.twin}", but no ${what} is`);
+    if (t.kind !== v.kind) throw new TuningDataError(`${at} names "${v.twin}", a ${t.kind}: a twin is of its own kind (${v.kind})`);
+    if (t.twin !== v.id) throw new TuningDataError(`${at} names "${v.twin}", whose twin is ${t.twin === undefined ? 'none' : `"${t.twin}"`}: twins name each other`);
+  });
 }
 
 function parseShape(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
@@ -293,7 +330,7 @@ function parseObjective(raw: unknown, where: string, half: number): SourceObject
   if (o.owner !== -1 && o.owner !== 0 && o.owner !== 1) throw new TuningDataError(`${where}.owner must be -1 (none), 0 or 1, got ${JSON.stringify(o.owner)}`);
   if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false`);
   const site: SourceObjective = { id, x, z, weight: positiveNumber(o, 'weight', where), owner: o.owner, spawn: o.spawn };
-  return o.y === undefined ? site : { ...site, y: finiteNumber(o, 'y', where) };
+  return withTwin(o.y === undefined ? site : { ...site, y: finiteNumber(o, 'y', where) }, raw, where);
 }
 
 function parseProp(raw: unknown, where: string, step: number, half: number): SourceProp {
@@ -306,10 +343,10 @@ function parseProp(raw: unknown, where: string, step: number, half: number): Sou
   const turn = finiteNumber(o, 'turn', at);
   if (turn < 0 || turn >= 360) throw new TuningDataError(`${at}.turn (${turn}) must be at least 0 and under 360 degrees`);
   const prop: SourceProp = { id, kind, x: gridNumber(o, 'x', at, step, half), z: gridNumber(o, 'z', at, step, half), y: finiteNumber(o, 'y', at), turn };
-  if (o.team === undefined) return prop;
+  if (o.team === undefined) return withTwin(prop, raw, at);
   if (kind !== 'banner') throw new TuningDataError(`${at}.team: only a banner is in a Team's colour`);
   if (o.team !== 0 && o.team !== 1) throw new TuningDataError(`${at}.team must be 0 or 1, got ${JSON.stringify(o.team)}`);
-  return { ...prop, team: o.team };
+  return withTwin({ ...prop, team: o.team }, raw, at);
 }
 
 /** The `look` block: its sky and props, each absent when the source leaves it out (and the block itself when both are). */
@@ -329,6 +366,7 @@ function parseLook(raw: unknown, step: number, half: number): MapLook | undefine
       if (ids.has(p.id)) throw new TuningDataError(`source.look.props[${i}]: another prop is already "${p.id}"`);
       ids.add(p.id);
     });
+    checkTwins(props, 'source.look.props', 'prop');
     if (props.length > 0) look = { ...look, props };
   }
   return look.sky === undefined && look.props === undefined ? undefined : look;
@@ -369,9 +407,11 @@ export function parseMapSource(raw: unknown): MapSource {
     if (ids.has(b.id)) throw new TuningDataError(`source.brushes[${i}]: another Brush is already "${b.id}"`);
     ids.add(b.id);
   });
+  checkTwins(brushes, 'source.brushes', 'Brush');
   const objectives = array(r.objectives, 'source.objectives').map((o, i) => parseObjective(o, `source.objectives[${i}]`, half));
   // The game's own rule for a map's Objectives (`parseBattleMap`), so the editor refuses the edit rather than Save the map.
   checkSites(objectives, 'source.objectives');
+  checkTwins(objectives, 'source.objectives', 'Objective');
   const bases = array(r.bases, 'source.bases');
   if (bases.length !== 2) throw new TuningDataError("source.bases must hold Team 0's Base and Team 1's");
   const basePoint = (v: unknown, at: string): GroundPoint => {
@@ -396,5 +436,6 @@ export function parseMapSource(raw: unknown): MapSource {
   };
   const lobby = parseMapLobby(r.lobby, 'source.lobby');
   const look = parseLook(r.look, step, half);
-  return { ...source, ...(lobby ? { lobby } : {}), ...(look ? { look } : {}) };
+  if (r.mirror !== undefined && r.mirror !== true) throw new TuningDataError(`source.mirror must be true (a map meant to be its own half turn) or left out, got ${JSON.stringify(r.mirror)}`);
+  return { ...source, ...(lobby ? { lobby } : {}), ...(look ? { look } : {}), ...(r.mirror ? { mirror: true as const } : {}) };
 }

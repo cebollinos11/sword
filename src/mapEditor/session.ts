@@ -17,12 +17,20 @@
  *
  * Stage 5: the look, all render-only. A Brush's material is part of the Brush (`replaceBrush`); a prop is a marker like an Objective, placed at
  * the level being edited (`addProp`), dragged (taking the level being edited, once it moves), edited and removed; the sky is a setting (`setSky`).
+ *
+ * Stage 6, half-turn mirror mode (`mirror.ts`, `setMirror`): in a mirrored source a Brush, Objective or prop placed gets its twin (its half
+ * turn), and twins are edited together, each edit one undo step: a move, a resize, a panel edit (the twin is made the edited part's half turn,
+ * keeping its own id), a material, a delete or a duplicate of one does the same to the other, and they keep their places side by side in
+ * the paint order. One placed on its own half turn (centred) is its own twin: a move leaves it where it is, a resize moves the opposite side
+ * too. The Bases of a mirrored map move together. `unlink` turns a pair back into two free parts. Links act whether or not mirror mode is
+ * on; mirror mode decides what new parts get, and how the map compiles and is checked.
  */
 import { MAX_OBJECTIVES, type BattleTuning } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import type { RepoFile } from '../editor/session';
 import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
 import { compileMap, list, mapFileText, MapCompileError, type CompileWarning } from './compile';
+import { brushesTwin, inMirrorOrder, objectivesTwin, propsTwin, turnBrush, turnObjective, turnPoint, turnProp } from './mirror';
 import { parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
 
 /** The most undo steps kept. */
@@ -216,6 +224,8 @@ export function sourceFileText(source: MapSource): string {
   ];
   if (s.ticketsPerSoldier !== undefined) head.push(`  "ticketsPerSoldier": ${line(s.ticketsPerSoldier)}`);
   if (s.lobby !== undefined) head.push(`  "lobby": ${line(s.lobby)}`);
+  // Mirror mode (Stage 6), after the settings, so a map with none writes what Stage 5 wrote.
+  if (s.mirror) head.push(`  "mirror": true`);
   const body = [list('bases', s.bases), list('objectives', s.objectives), list('brushes', s.brushes)];
   // The look (Stage 5): its sky, then its props one a line, last, so a map with none writes what Stage 4 wrote.
   if (s.look !== undefined) {
@@ -239,7 +249,55 @@ export interface MapFiles {
 }
 
 /** The settings of a Map Source the editor changes apart from its Brushes and levels. */
-export type MapSettings = Partial<Pick<MapSource, 'name' | 'objectives' | 'bases' | 'front' | 'armySize' | 'ticketsPerSoldier' | 'lobby'>>;
+export type MapSettings = Partial<Pick<MapSource, 'name' | 'grid' | 'objectives' | 'bases' | 'front' | 'armySize' | 'ticketsPerSoldier' | 'lobby'>>;
+
+/** The index in `items` of item k's twin: -1 for none, k itself where it is its own. */
+function twinOf(items: readonly { readonly id: string; readonly twin?: string }[], k: number): number {
+  const t = items[k]!.twin;
+  return t === undefined ? -1 : items.findIndex((v) => v.id === t);
+}
+
+/** `v` with no `twin` (a free part), or with `twin` set to `id`. */
+function linkedTo<T extends { readonly twin?: string }>(v: T, id: string | undefined): T {
+  const { twin: _old, ...rest } = v;
+  return (id === undefined ? rest : { ...rest, twin: id }) as T;
+}
+
+/**
+ * `items` with item k's twin made its half turn (`turn`), keeping the twin's own id and naming item k's (which an edit may have renamed);
+ * an item that is its own twin is linked to its own id again. Items with no twin are left as they are.
+ */
+function withTwinOf<T extends { readonly id: string; readonly twin?: string }>(items: readonly T[], k: number, turn: (v: T) => T, before: readonly T[] = items): T[] {
+  const v = items[k]!;
+  // The twin as the list stood before the edit: a rename of item k leaves its twin naming the old id.
+  const t = twinOf(before, k);
+  if (t < 0) return [...items];
+  if (t === k) return items.map((x, i) => (i === k ? linkedTo(x, x.id) : x));
+  return items.map((x, i) => (i === t ? linkedTo({ ...turn(v), id: items[t]!.id }, v.id) : x));
+}
+
+/** The pair's place in a mirrored list: item k is the second of its pair when its twin comes before it. */
+/** Each free item of `items` linked to the first free one that is its half turn (`twins`), or to itself where it is its own. */
+function linkAll<T extends { readonly id: string; readonly twin?: string }>(items: readonly T[], twins: (a: T, b: T) => boolean): T[] {
+  const out = [...items];
+  out.forEach((v, k) => {
+    if (v.twin !== undefined) return;
+    if (twins(v, v)) {
+      out[k] = linkedTo(v, v.id);
+      return;
+    }
+    const m = out.findIndex((w, i) => i !== k && w.twin === undefined && twins(v, w));
+    if (m < 0) return;
+    out[k] = linkedTo(v, out[m]!.id);
+    out[m] = linkedTo(out[m]!, v.id);
+  });
+  return out;
+}
+
+const isSecond = (items: readonly { readonly id: string; readonly twin?: string }[], k: number): boolean => {
+  const t = twinOf(items, k);
+  return t >= 0 && t < k;
+};
 
 export class MapEditorSession {
   private current: MapSource;
@@ -379,8 +437,8 @@ export class MapEditorSession {
   }
 
   /** A Brush id not yet taken: `<kind><n>`, the lowest n from 1. */
-  freshId(kind: BrushKind): string {
-    const taken = new Set(this.current.brushes.map((b) => b.id));
+  freshId(kind: BrushKind, brushes: readonly Brush[] = this.current.brushes): string {
+    const taken = new Set(brushes.map((b) => b.id));
     let n = 1;
     while (taken.has(`${kind}${n}`)) n++;
     return `${kind}${n}`;
@@ -443,9 +501,20 @@ export class MapEditorSession {
         }
       }
     }
-    this.apply({ ...this.current, brushes: [...this.current.brushes, brush] });
+    this.apply({ ...this.current, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
     this.select(id);
     return brush;
+  }
+
+  /**
+   * A new Brush and, in mirror mode, its twin painted right after it: `[b, twin]` with each naming the other, or `[b]` linked to itself where
+   * it is its own half turn. Outside mirror mode, `[b]` as it is. `taken`: the Brushes the twin's fresh id must not be.
+   */
+  private withNewTwin(b: Brush, taken: readonly Brush[]): Brush[] {
+    if (!this.current.mirror) return [b];
+    if (brushesTwin(b, b)) return [linkedTo(b, b.id)];
+    const id = this.freshId(b.kind, [...taken, b]);
+    return [linkedTo(b, id), linkedTo({ ...turnBrush(b), id }, b.id)];
   }
 
   private rectOf(p: GroundPoint, q: GroundPoint): Rect {
@@ -460,8 +529,10 @@ export class MapEditorSession {
     return k;
   }
 
+  /** `base` with its Brush k made `brush`, and its twin, if it has one, made that Brush's half turn (Stage 6). */
   private withBrush(k: number, brush: Brush, base: MapSource = this.current): MapSource {
-    return { ...base, brushes: base.brushes.map((b, i) => (i === k ? brush : b)) };
+    const brushes = base.brushes.map((b, i) => (i === k ? brush : b));
+    return { ...base, brushes: withTwinOf(brushes, k, turnBrush, base.brushes) };
   }
 
   /**
@@ -470,7 +541,10 @@ export class MapEditorSession {
    */
   replaceBrush(id: string, brush: Brush): void {
     const k = this.indexOf(id);
-    const b: Brush = brush.kind === 'ramp' ? { ...brush, rails: brush.rails.filter((s) => rampLongSides(brush.up).includes(s)) } : brush;
+    const was = this.current.brushes[k]!;
+    const shaped: Brush = brush.kind === 'ramp' ? { ...brush, rails: brush.rails.filter((s) => rampLongSides(brush.up).includes(s)) } : brush;
+    // The panel edits the shape: the link stays the Brush's own (an own twin renamed names its new id).
+    const b = linkedTo(shaped, was.twin === undefined ? undefined : was.twin === was.id ? shaped.id : was.twin);
     const selected = this.selected === id;
     // Nothing changed (a panel writing back what it shows): no edit, no undo step.
     if (JSON.stringify(b) === JSON.stringify(this.current.brushes[k])) return;
@@ -478,9 +552,11 @@ export class MapEditorSession {
     if (selected) this.selected = b.id;
   }
 
+  /** Take the Brush `id` away, and its twin with it. */
   deleteBrush(id: string): void {
     const k = this.indexOf(id);
-    this.apply({ ...this.current, brushes: this.current.brushes.filter((_, i) => i !== k) });
+    const t = twinOf(this.current.brushes, k);
+    this.apply({ ...this.current, brushes: this.current.brushes.filter((_, i) => i !== k && i !== t) });
     if (this.selected === id) this.selected = null;
   }
 
@@ -492,23 +568,48 @@ export class MapEditorSession {
     const r = boundsOf(b);
     const half = this.current.size / 2;
     const dx = r.x1 + cell <= half ? cell : r.x0 - cell >= -half ? -cell : 0;
-    const copy = { ...shifted(b, dx, 0), id: this.freshId(b.kind) } as Brush;
+    const copy = linkedTo({ ...shifted(b, dx, 0), id: this.freshId(b.kind) } as Brush, undefined);
+    // A twin's copy gets a twin of its own (a centred Brush's copy too, once it is off the centre), painted right after the pair.
+    const t = twinOf(this.current.brushes, k);
+    const copies = t < 0 ? [copy] : this.twinned(copy);
     const brushes = [...this.current.brushes];
-    brushes.splice(k + 1, 0, copy);
+    brushes.splice(Math.max(k, t) + 1, 0, ...copies);
     this.apply({ ...this.current, brushes });
     this.select(copy.id);
     return copy;
   }
 
+  /** `[b, twin]` (`b` linked to its half turn, a fresh id), or `[b]` linked to itself where it is its own half turn. */
+  private twinned(b: Brush): Brush[] {
+    if (brushesTwin(b, b)) return [linkedTo(b, b.id)];
+    const id = this.freshId(b.kind, [...this.current.brushes, b]);
+    return [linkedTo(b, id), linkedTo({ ...turnBrush(b), id }, b.id)];
+  }
+
   /** Move the Brush `id` `delta` places in paint order (later paints over earlier); clamped to the list. */
   reorder(id: string, delta: number): void {
+    const list = this.current.brushes;
     const k = this.indexOf(id);
-    const to = Math.max(0, Math.min(this.current.brushes.length - 1, k + delta));
-    if (to === k) return;
-    const brushes = [...this.current.brushes];
-    const [b] = brushes.splice(k, 1);
-    brushes.splice(to, 0, b!);
-    this.apply({ ...this.current, brushes });
+    const t = twinOf(list, k);
+    // A twin pair moves as one, side by side, and steps over another pair as one: so whatever a Brush paints over, its twin paints over
+    // that one's twin (Stage 6). Outside pairs, this is a step past one Brush.
+    const mine = t < 0 || t === k ? [k] : [Math.min(k, t), Math.max(k, t)];
+    const rest = list.map((_, i) => i).filter((i) => !mine.includes(i));
+    const units: number[][] = [];
+    for (let u = 0; u < rest.length; u++) {
+      const i = rest[u]!;
+      const j = rest[u + 1];
+      const tw = twinOf(list, i);
+      if (j !== undefined && tw === j && tw !== i) {
+        units.push([i, j]);
+        u++;
+      } else units.push([i]);
+    }
+    const at = units.filter((v) => v[0]! < mine[0]!).length;
+    const to = Math.max(0, Math.min(units.length, at + delta));
+    const order = [...units.slice(0, to).flat(), ...mine, ...units.slice(to).flat()];
+    if (order.every((v, i) => v === i)) return;
+    this.apply({ ...this.current, brushes: order.map((i) => list[i]!) });
   }
 
   /** Start a drag: the moves and resizes until `endDrag` are one undo step, each measured from the source as it is now. */
@@ -561,6 +662,11 @@ export class MapEditorSession {
       const r = boundsOf(b);
       const half = base.size / 2;
       const { step } = base.grid;
+      // A Brush that is its own twin stays centred: it does not move (the UI shows why).
+      if (b.twin === b.id) {
+        if (dx !== 0 || dz !== 0) throw new TuningDataError(`${id} is its own twin, so it stays centred: resize it, or unlink it to move it`);
+        return;
+      }
       const sx = Math.max(-half - r.x0, Math.min(half - r.x1, Math.round(dx / step) * step));
       const sz = Math.max(-half - r.z0, Math.min(half - r.z1, Math.round(dz / step) * step));
       this.dragTo(base, k, shifted(b, sx, sz));
@@ -580,14 +686,25 @@ export class MapEditorSession {
       const sz = this.snap(z);
       if (isSegment(b)) {
         if (handle !== 'a' && handle !== 'b') return;
-        const other = handle === 'a' ? b.b : b.a;
+        const own = b.twin === b.id;
+        const other = own ? turnPoint({ x: sx, z: sz }) : handle === 'a' ? b.b : b.a;
         if (other.x === sx && other.z === sz) return;
-        this.dragTo(base, k, { ...b, [handle]: { x: sx, z: sz } });
+        // A segment that is its own twin keeps its ends each other's half turn.
+        this.dragTo(base, k, own ? { ...b, [handle]: { x: sx, z: sz }, [handle === 'a' ? 'b' : 'a']: other } : { ...b, [handle]: { x: sx, z: sz } });
         return;
       }
       if (handle === 'a' || handle === 'b') return;
       const { step } = base.grid;
       let { x0, z0, x1, z1 } = b.rect;
+      if (b.twin === b.id) {
+        // A rectangle that is its own twin stays centred: the opposite side moves with the one dragged (at least two steps across).
+        if (handle.includes('w')) x1 = -(x0 = Math.min(sx, -step));
+        if (handle.includes('e')) x0 = -(x1 = Math.max(sx, step));
+        if (handle.includes('s')) z1 = -(z0 = Math.min(sz, -step));
+        if (handle.includes('n')) z0 = -(z1 = Math.max(sz, step));
+        this.dragTo(base, k, { ...b, rect: { x0, z0, x1, z1 } });
+        return;
+      }
       if (handle.includes('w')) x0 = Math.min(sx, x1 - step);
       if (handle.includes('e')) x1 = Math.max(sx, x0 + step);
       if (handle.includes('s')) z0 = Math.min(sz, z1 - step);
@@ -613,9 +730,52 @@ export class MapEditorSession {
     this.apply({ ...this.current, levels: this.current.levels.filter((l) => l !== y) });
   }
 
-  /** Change the map's settings (name, Objectives, Bases, `front`, army size, Tickets, Lobby card). Throws TuningDataError, changing nothing, where the parser refuses them. */
+  /** Change the map's settings (name, grid, Objectives, Bases, `front`, army size, Tickets, Lobby card). Throws TuningDataError, changing nothing, where the parser refuses them. */
   setSettings(settings: MapSettings): void {
-    this.replaceSettings({ ...this.current, ...settings });
+    let next = { ...this.current, ...settings };
+    // A mirrored map's Bases are twins: the one the edit moved takes the other with it (Team 0's, when both moved).
+    if (settings.bases && next.mirror) {
+      const [b0, b1] = settings.bases;
+      const moved0 = b0.x !== this.current.bases[0].x || b0.z !== this.current.bases[0].z;
+      next = { ...next, bases: moved0 || !(b1.x !== this.current.bases[1].x || b1.z !== this.current.bases[1].z) ? [b0, turnPoint(b0)] : [turnPoint(b1), b1] };
+    }
+    this.replaceSettings(next);
+  }
+
+  /**
+   * Turn mirror mode on or off (one undo step). On, every free Brush, Objective and prop whose half turn is on the map is linked to it (one
+   * that is its own half turn to itself), each first to the first free one that matches, and Team 1's Base is put at the half turn of Team 0's.
+   * Off, the links stay (`unlink` frees a pair); new parts are placed free, and the map compiles as an ordinary one.
+   */
+  setMirror(on: boolean): void {
+    const s = this.current;
+    if (!on) {
+      const { mirror: _m, ...rest } = s;
+      if (s.mirror) this.apply(rest);
+      return;
+    }
+    if (s.mirror) return;
+    const props = propsOf(s);
+    // A prop on the centre is its own twin (as `addProp` places one), though turned it faces the other way.
+    const look = props.length > 0 ? { ...s.look, props: linkAll(props, (a, b) => (a === b ? a.x === 0 && a.z === 0 : propsTwin(a, b))) } : s.look;
+    this.apply({ ...s, brushes: linkAll(s.brushes, brushesTwin), objectives: linkAll(s.objectives, objectivesTwin), bases: [s.bases[0], turnPoint(s.bases[0])], ...(look ? { look } : {}), mirror: true });
+  }
+
+  /** Turn the twins of the Brush, Objective or prop `m` (a Brush by its id) back into free parts (one undo step); nothing for a free one. */
+  unlink(m: string | Marker): void {
+    const s = this.current;
+    const free = <T extends { readonly id: string; readonly twin?: string }>(items: readonly T[], id: string, what: string): T[] => {
+      const k = items.findIndex((v) => v.id === id);
+      if (k < 0) throw new TuningDataError(`no ${what} "${id}"`);
+      const t = twinOf(items, k);
+      return items.map((v, i) => (i === k || i === t ? linkedTo(v, undefined) : v));
+    };
+    let next: MapSource;
+    if (typeof m === 'string') next = { ...s, brushes: free(s.brushes, m, 'Brush') };
+    else if (m.kind === 'objective') next = { ...s, objectives: free(s.objectives, m.id, 'Objective') };
+    else if (m.kind === 'prop') next = withLook(s, { ...s.look, props: free(propsOf(s), m.id, 'prop') });
+    else throw new TuningDataError("a mirrored map's Bases are always twins: turn mirror mode off to move them apart");
+    if (sourceFileText(next) !== sourceFileText(s)) this.apply(next);
   }
 
   /** Make `next` the source (a settings edit): no step when it writes the same file. */
@@ -644,9 +804,19 @@ export class MapEditorSession {
    */
   addObjective(at: GroundPoint): SourceObjective {
     const s = this.current;
-    if (s.objectives.length >= MAX_OBJECTIVES) throw new TuningDataError(`a map holds at most ${MAX_OBJECTIVES} Objectives`);
-    const o = this.placed({ id: freshObjectiveId(s.objectives), x: 0, z: 0, weight: 1, owner: -1, spawn: false }, at.x, at.z, s.levels);
-    this.apply({ ...s, objectives: [...s.objectives, o] });
+    let o = this.placed({ id: freshObjectiveId(s.objectives), x: 0, z: 0, weight: 1, owner: -1, spawn: false }, at.x, at.z, s.levels);
+    // In mirror mode its twin stands at its half turn (one on the centre is its own), and the pair takes the middle of the Battle's order.
+    let added = [o];
+    if (s.mirror) {
+      if (objectivesTwin(o, o)) added = [(o = linkedTo(o, o.id))];
+      else {
+        const twin = { ...turnObjective(o), id: freshObjectiveId([...s.objectives, o]) };
+        added = [(o = linkedTo(o, twin.id)), linkedTo(twin, o.id)];
+      }
+    }
+    if (s.objectives.length + added.length > MAX_OBJECTIVES) throw new TuningDataError(`a map holds at most ${MAX_OBJECTIVES} Objectives`);
+    const objectives = [...s.objectives, ...added];
+    this.apply({ ...s, objectives: s.mirror ? inMirrorOrder(objectives) : objectives });
     this.selectMarker({ kind: 'objective', id: o.id });
     return o;
   }
@@ -654,20 +824,28 @@ export class MapEditorSession {
   /** Take the Objective `id` away; refused (the parser's error) for a map's last. */
   removeObjective(id: string): void {
     const s = this.current;
-    if (!s.objectives.some((o) => o.id === id)) throw new TuningDataError(`no Objective "${id}"`);
-    this.apply({ ...s, objectives: s.objectives.filter((o) => o.id !== id) });
+    const k = s.objectives.findIndex((o) => o.id === id);
+    if (k < 0) throw new TuningDataError(`no Objective "${id}"`);
+    // Its twin goes with it.
+    const t = twinOf(s.objectives, k);
+    this.apply({ ...s, objectives: s.objectives.filter((_, i) => i !== k && i !== t) });
   }
 
   /** Move the Objective `id` `delta` places in the Battle's order (Objective k is the half turn of n - 1 - k); clamped to the list. */
   reorderObjective(id: string, delta: number): void {
     const list = [...this.current.objectives];
-    const k = list.findIndex((o) => o.id === id);
+    let k = list.findIndex((o) => o.id === id);
     if (k < 0) throw new TuningDataError(`no Objective "${id}"`);
+    // In mirror mode the order stays mirrored: moving the second of a pair moves the first the other way, and the pair keeps k and n - 1 - k.
+    const mirrored = this.current.mirror === true;
+    if (mirrored && isSecond(list, k)) [k, delta] = [twinOf(list, k), -delta];
     const to = Math.max(0, Math.min(list.length - 1, k + delta));
     if (to === k) return;
     const [o] = list.splice(k, 1);
     list.splice(to, 0, o!);
-    this.apply({ ...this.current, objectives: list });
+    const next = mirrored ? inMirrorOrder(list) : list;
+    if (next.every((v, i) => v === this.current.objectives[i])) return;
+    this.apply({ ...this.current, objectives: next });
   }
 
   /** Replace the Objective `id` with `o` (the panel's edit; it may rename it, and the selection follows). Throws TuningDataError, changing nothing, where the parser refuses it. */
@@ -675,9 +853,12 @@ export class MapEditorSession {
     const s = this.current;
     const k = s.objectives.findIndex((x) => x.id === id);
     if (k < 0) throw new TuningDataError(`no Objective "${id}"`);
-    if (JSON.stringify(o) === JSON.stringify(s.objectives[k])) return;
+    // The panel edits the Objective: its link stays its own, and its twin is made its half turn.
+    const was = s.objectives[k]!;
+    const edited = linkedTo(o, was.twin === undefined ? undefined : was.twin === was.id ? o.id : was.twin);
+    if (JSON.stringify(edited) === JSON.stringify(was)) return;
     const selected = this.marker?.kind === 'objective' && this.marker.id === id;
-    this.apply({ ...s, objectives: s.objectives.map((x, i) => (i === k ? o : x)) });
+    this.apply({ ...s, objectives: withTwinOf(s.objectives.map((x, i) => (i === k ? edited : x)), k, turnObjective, s.objectives) });
     if (selected) this.marker = { kind: 'objective', id: o.id };
   }
 
@@ -694,20 +875,27 @@ export class MapEditorSession {
         const k = base.objectives.findIndex((o) => o.id === m.id);
         if (k < 0) throw new TuningDataError(`no Objective "${m.id}"`);
         const o = base.objectives[k]!;
+        // One that is its own twin stays on the centre (its panel sets its level); a twin follows at the half turn.
+        if (!still && o.twin === o.id) throw new TuningDataError(`Objective ${o.id} is its own twin, so it stays on the centre: set its level in its folder, or unlink it to move it`);
         const moved = still ? o : this.placed(o, o.x + dx, o.z + dz, base.levels);
-        this.dragToSource(base, { ...base, objectives: base.objectives.map((x, i) => (i === k ? moved : x)) }, still);
+        const objectives = withTwinOf(base.objectives.map((x, i) => (i === k ? moved : x)), k, turnObjective, base.objectives);
+        this.dragToSource(base, { ...base, objectives }, still || JSON.stringify(objectives) === JSON.stringify(base.objectives));
       } else if (m.kind === 'prop') {
         const props = propsOf(base);
         const k = props.findIndex((p) => p.id === m.id);
         if (k < 0) throw new TuningDataError(`no prop "${m.id}"`);
         const p = props[k]!;
-        const moved = still ? p : { ...p, x: this.inside(p.x + dx), z: this.inside(p.z + dz), y: this.level };
-        this.dragToSource(base, withLook(base, { ...base.look, props: props.map((x, i) => (i === k ? moved : x)) }), still || (moved.x === p.x && moved.z === p.z && moved.y === p.y));
+        const own = p.twin === p.id;
+        const moved = still ? p : { ...p, x: own ? p.x : this.inside(p.x + dx), z: own ? p.z : this.inside(p.z + dz), y: this.level };
+        const next = withTwinOf(props.map((x, i) => (i === k ? moved : x)), k, turnProp, props);
+        this.dragToSource(base, withLook(base, { ...base.look, props: next }), still || JSON.stringify(next) === JSON.stringify(props));
       } else if (m.kind === 'base') {
         const b = base.bases[m.team]!;
         const moved = { x: this.inside(b.x + dx), z: this.inside(b.z + dz) };
-        const bases: MapSource['bases'] = m.team === 0 ? [moved, base.bases[1]] : [base.bases[0], moved];
-        this.dragToSource(base, { ...base, bases }, still || (moved.x === b.x && moved.z === b.z));
+        // A mirrored map's Bases are twins: the other Team's follows at the half turn.
+        const other = base.mirror ? turnPoint(moved) : base.bases[1 - m.team]!;
+        const bases: MapSource['bases'] = m.team === 0 ? [moved, other] : [other, moved];
+        this.dragToSource(base, { ...base, bases }, still || (bases[0].x === base.bases[0].x && bases[0].z === base.bases[0].z && bases[1].x === base.bases[1].x && bases[1].z === base.bases[1].z));
       } else {
         // Team 0's line is at z = -front: dragging it north brings it in. Team 1's at +front.
         const { step } = base.grid;
@@ -735,8 +923,8 @@ export class MapEditorSession {
   }
 
   /** A prop id not yet taken: `<kind><n>`, the lowest n from 1. */
-  private freshPropId(kind: PropKind): string {
-    const taken = new Set(propsOf(this.current).map((p) => p.id));
+  private freshPropId(kind: PropKind, more: readonly SourceProp[] = []): string {
+    const taken = new Set([...propsOf(this.current), ...more].map((p) => p.id));
     let n = 1;
     while (taken.has(`${kind}${n}`)) n++;
     return `${kind}${n}`;
@@ -748,9 +936,15 @@ export class MapEditorSession {
    */
   addProp(kind: PropKind, at: GroundPoint): SourceProp {
     const props = propsOf(this.current);
-    if (props.length >= MAX_PROPS) throw new TuningDataError(`a map holds at most ${MAX_PROPS} props`);
-    const p: SourceProp = { id: this.freshPropId(kind), kind, x: this.inside(at.x), z: this.inside(at.z), y: this.level, turn: 0 };
-    this.apply(withLook(this.current, { ...this.current.look, props: [...props, p] }));
+    let p: SourceProp = { id: this.freshPropId(kind), kind, x: this.inside(at.x), z: this.inside(at.z), y: this.level, turn: 0 };
+    // In mirror mode its twin stands at its half turn, facing the other way (one on the centre is its own).
+    let added = [p];
+    if (this.current.mirror) {
+      const twin = { ...turnProp(p), id: this.freshPropId(kind, [p]) };
+      added = p.x === 0 && p.z === 0 ? [(p = linkedTo(p, p.id))] : [(p = linkedTo(p, twin.id)), linkedTo(twin, p.id)];
+    }
+    if (props.length + added.length > MAX_PROPS) throw new TuningDataError(`a map holds at most ${MAX_PROPS} props`);
+    this.apply(withLook(this.current, { ...this.current.look, props: [...props, ...added] }));
     this.selectMarker({ kind: 'prop', id: p.id });
     return p;
   }
@@ -758,8 +952,10 @@ export class MapEditorSession {
   /** Take the prop `id` away. */
   removeProp(id: string): void {
     const props = propsOf(this.current);
-    if (!props.some((p) => p.id === id)) throw new TuningDataError(`no prop "${id}"`);
-    this.apply(withLook(this.current, { ...this.current.look, props: props.filter((p) => p.id !== id) }));
+    const k = props.findIndex((p) => p.id === id);
+    if (k < 0) throw new TuningDataError(`no prop "${id}"`);
+    const t = twinOf(props, k);
+    this.apply(withLook(this.current, { ...this.current.look, props: props.filter((_, i) => i !== k && i !== t) }));
   }
 
   /** Replace the prop `id` with `p` (the panel's edit; it may rename it, and the selection follows). Throws TuningDataError, changing nothing, where the parser refuses it. */
@@ -767,9 +963,11 @@ export class MapEditorSession {
     const props = propsOf(this.current);
     const k = props.findIndex((x) => x.id === id);
     if (k < 0) throw new TuningDataError(`no prop "${id}"`);
-    if (JSON.stringify(p) === JSON.stringify(props[k])) return;
+    const was = props[k]!;
+    const edited = linkedTo(p, was.twin === undefined ? undefined : was.twin === was.id ? p.id : was.twin);
+    if (JSON.stringify(edited) === JSON.stringify(was)) return;
     const selected = this.marker?.kind === 'prop' && this.marker.id === id;
-    this.apply(withLook(this.current, { ...this.current.look, props: props.map((x, i) => (i === k ? p : x)) }));
+    this.apply(withLook(this.current, { ...this.current.look, props: withTwinOf(props.map((x, i) => (i === k ? edited : x)), k, turnProp, props) }));
     if (selected) this.marker = { kind: 'prop', id: p.id };
   }
 

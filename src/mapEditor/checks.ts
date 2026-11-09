@@ -16,6 +16,9 @@
  *    Objective over several levels without its `y` (it takes the highest), or whose `y` names no floor there.
  *  - **Ramps** steeper than a Fighter walks: one Tick at its fastest walk (Sheathed) climbs more than `fall.stepUp` or falls more than
  *    `fall.snapDown`, so `settleGround` stops it (or lifts it off the slope).
+ *  - **The half turn** (a mirrored map's, Stage 6, `mirrorIssues`): where the map is not its own half turn (ADR 0022), as warnings naming
+ *    the parts: a twin pair that is not each other's half turn, a free Brush with none on the map, Objective k and n - 1 - k, Block k and
+ *    n - 1 - k, the Bases, and any Walk Surface or Wall of the compiled map whose half turn is not among them (paint order can do that).
  *  - The compiler's own warnings, and its refusal (an error naming its Brushes).
  *
  * Every result names the Brushes it concerns (an Objective's or a Base's too), so the editor can select and frame them. Pure (no DOM, no
@@ -29,11 +32,12 @@ import { battleMapOf } from '../sim/destinations';
 import { EDGE_PROBE, EDGE_REACH, edgesOf, groundNear, walkReach, walled, type WalkReach } from '../sim/levels';
 import { filesFit } from '../sim/squad';
 import { compileDraft, MapCompileError, walkChecked, type DraftMap } from './compile';
+import { basesTwin, brushesTwin, shape, turnBrush, turnObjective, twinDifference } from './mirror';
 import { boundsOf } from './session';
-import type { GroundPoint, MapSource, Rect } from './source';
+import type { Brush, GroundPoint, MapSource, Rect, SourceObjective } from './source';
 
 /** What a check is about. */
-export type IssueKind = 'compile' | 'unreachable' | 'deadly' | 'centre' | 'steep' | 'objective' | 'base' | 'compiler';
+export type IssueKind = 'compile' | 'unreachable' | 'deadly' | 'centre' | 'steep' | 'objective' | 'base' | 'mirror' | 'compiler';
 
 /**
  * One thing the checks found. Errors stop Save (the game would refuse the map); warnings are what the Simulation does that the author likely
@@ -303,10 +307,111 @@ export function checkMap(source: MapSource, tuning: Pick<TuningData, 'battle' | 
     issues.push({ severity: 'warning', kind: 'base', message: `Team ${t}'s Base ${s < 0 ? 'has no floor under it' : `stands on deadly ground (${surfaceBrush[s]})`}: its Squads fall back and respawn there.`, brushes: brushesAt(p.x, p.z), base: t as 0 | 1, at: { x: p.x, z: p.z } });
   });
 
+  if (source.mirror) issues.push(...mirrorIssues(source, draft));
   for (const w of draft.warnings) issues.push({ severity: 'warning', kind: 'compiler', message: w.message, brushes: w.brush ? [w.brush] : [] });
 
   const sorted = (['error', 'warning', 'note'] as const).flatMap((v) => issues.filter((i) => i.severity === v));
   return { source, draft, issues: sorted, ok: !sorted.some((i) => i.severity === 'error'), reach: reachOf, edges, centres: { cell, layered, hits } };
+}
+
+/** The ordinal of the k-th (from 0) in a list, as the messages write it. */
+const nth = (k: number): string => {
+  const n = k + 1;
+  const tens = n % 100;
+  return `${n}${tens >= 11 && tens <= 13 ? 'th' : n % 10 === 1 ? 'st' : n % 10 === 2 ? 'nd' : n % 10 === 3 ? 'rd' : 'th'}`;
+};
+
+/** A coordinate as the half-turn keys compare it: to a tenth of a millimetre, no negative zero (a ramp's stepped skirt divides). */
+const key4 = (v: number): number => Math.round(v * 1e4) + 0;
+
+/**
+ * Where a mirrored source (Stage 6) is not its own half turn (ADR 0022), as warnings naming the Brushes or markers concerned: twins that are
+ * not each other's half turn (or one its own twin that is not its own), a free Brush whose half turn is nowhere on the map, Objective k and
+ * n - 1 - k and Block k and n - 1 - k of the compiled map, the Bases, and every Walk Surface and Wall of the compiled map whose half turn is
+ * not among them (each Brush's, once). Silent on a map that is its own half turn.
+ */
+export function mirrorIssues(source: MapSource, draft: DraftMap): MapIssue[] {
+  const out: MapIssue[] = [];
+  const warn = (message: string, brushes: readonly string[], extra: Partial<MapIssue> = {}) => out.push({ severity: 'warning', kind: 'mirror', message, brushes, ...extra });
+  const { brushes } = source;
+  const byId = new Map(brushes.map((b) => [b.id, b]));
+  // Each Brush's shape, to find a free Brush's half turn among them in one lookup (a Rail's or Wall's ends either way round).
+  const shapes = new Map<string, number>();
+  const keep = (key: string) => shapes.set(key, (shapes.get(key) ?? 0) + 1);
+  for (const b of brushes) {
+    keep(shape(b));
+    if (b.kind === 'rail' || b.kind === 'wall') keep(shape({ ...b, a: b.b, b: b.a } as Brush));
+  }
+  /** Whether a Brush is the half turn of `b`, which is not its own (so the Brush found is another). */
+  const turnedElsewhere = (b: Brush): boolean => shapes.has(shape(turnBrush(b)));
+  brushes.forEach((b, k) => {
+    if (b.twin === b.id) {
+      if (!brushesTwin(b, b)) warn(`${b.id} is its own twin but not its own half turn (its ${twinDifference(b, b, turnBrush)} is not): centre it on the field, or unlink it.`, [b.id]);
+      return;
+    }
+    const t = b.twin === undefined ? undefined : byId.get(b.twin);
+    if (t) {
+      // Each pair once, at its first.
+      if (brushes.indexOf(t) > k && !brushesTwin(b, t)) warn(`${b.id} and ${t.id} are twins but not each other's half turn (${t.id}'s ${twinDifference(b, t, turnBrush)}): edit one, and the other follows.`, [b.id, t.id]);
+      return;
+    }
+    if (!brushesTwin(b, b) && !turnedElsewhere(b)) warn(`${b.id} has no half turn on the map: draw its twin in mirror mode, or centre it.`, [b.id]);
+  });
+
+  const { map } = draft;
+  const n = map.objectives.length;
+  for (let k = 0; k <= n - 1 - k; k++) {
+    const o = map.objectives[k]!;
+    const m = map.objectives[n - 1 - k]!;
+    const t = turnObjective(o as SourceObjective);
+    const same = t.x === m.x && t.z === m.z && t.weight === m.weight && t.owner === m.owner && t.spawn === m.spawn && t.y === m.y;
+    if (same) continue;
+    const what = k === n - 1 - k ? `Objective ${o.id}, the middle of the Battle's order, is not its own half turn: put it on the centre, neutral` : `Objective ${o.id} (${nth(k)} in the Battle's order) and ${m.id} (${nth(n - 1 - k)}) are not each other's half turn`;
+    warn(`${what}, so the two Teams' Commanders break their ties on different maps. Link them (mirror mode), or move and set one as the other's turned.`, [], { objective: o.id, at: { x: o.x, z: o.z } });
+  }
+  if (!basesTwin(map.bases)) warn("Team 1's Base is not the half turn of Team 0's: drag either with mirror mode on.", [], { base: 1, at: map.bases[1] });
+
+  const nb = map.blocks.length;
+  for (let k = 0; k < nb - 1 - k; k++) {
+    const a = map.blocks[k]!;
+    const b = map.blocks[nb - 1 - k]!;
+    if (a.minX === -b.maxX && a.maxX === -b.minX && a.minZ === -b.maxZ && a.maxZ === -b.minZ && a.top === b.top) continue;
+    warn(`Block ${draft.blockBrush[k]} (${nth(k)} of the Blocks) and ${draft.blockBrush[nb - 1 - k]} (${nth(nb - 1 - k)}) are not each other's half turn, so Soldiers pushed out of them are pushed differently for each Team: link each Block with its twin.`, [draft.blockBrush[k]!, draft.blockBrush[nb - 1 - k]!]);
+  }
+  if (nb % 2 === 1) {
+    const c = map.blocks[(nb - 1) / 2]!;
+    if (c.minX !== -c.maxX || c.minZ !== -c.maxZ) warn(`Block ${draft.blockBrush[(nb - 1) / 2]} is the middle of the Blocks but not its own half turn: centre it, or give it a twin.`, [draft.blockBrush[(nb - 1) / 2]!]);
+  }
+
+  // The compiled Walk Surfaces and Walls, each as a set: a part whose half turn is not among them, named by its Brush.
+  const unmatched = <T>(parts: readonly T[], keyOf: (p: T, turned: boolean) => string, brushOf: readonly string[]): Map<string, number> => {
+    const count = new Map<string, number>();
+    for (const p of parts) count.set(keyOf(p, false), (count.get(keyOf(p, false)) ?? 0) + 1);
+    const lost = new Map<string, number>();
+    parts.forEach((p, i) => {
+      const left = count.get(keyOf(p, true)) ?? 0;
+      if (left > 0) count.set(keyOf(p, true), left - 1);
+      else lost.set(brushOf[i]!, (lost.get(brushOf[i]!) ?? 0) + 1);
+    });
+    return lost;
+  };
+  const sign = (turned: boolean) => (turned ? -1 : 1);
+  const surfaceKey = (w: (typeof map.walk)[number], turned: boolean) => {
+    const { id: _id, points, ...kind } = w;
+    const pts = points.map((p) => `${key4(sign(turned) * p.x)},${key4(p.y)},${key4(sign(turned) * p.z)}`).sort();
+    return `${pts.join(' ')}|${Object.keys(kind).sort().join(',')}`;
+  };
+  const wallKey = (w: (typeof map.walls)[number], turned: boolean) => {
+    const ends = [w.a, w.b].map((p) => `${key4(sign(turned) * p.x)},${key4(sign(turned) * p.z)}`).sort();
+    return `${ends.join(' ')}|${key4(w.bottom)},${key4(w.top)}`;
+  };
+  const order = new Map(brushes.map((b, k) => [b.id, k]));
+  const named = (lost: Map<string, number>) => [...lost].sort((p, q) => (order.get(p[0]) ?? -1) - (order.get(q[0]) ?? -1));
+  for (const [b, count] of named(unmatched(map.walk, surfaceKey, draft.surfaceBrush)))
+    warn(`${b}'s Walk Surfaces (${count}) have no half turn among the map's: its twin lays a different floor (check the paint order of the Brushes it overlaps against its twin's, and that no twins overlap).`, [b]);
+  for (const [b, count] of named(unmatched(map.walls, wallKey, draft.wallBrush)))
+    warn(`${b === '' ? "The field's edge" : b}'s Walls (${count}) have no half turn among the map's: its twin stands different Walls (a face, a rail or a skirt: check what stands beside each).`, b === '' ? [] : [b]);
+  return out;
 }
 
 /** A number as the messages write it: to the centimetre, no trailing zeros. */

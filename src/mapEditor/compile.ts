@@ -17,6 +17,10 @@
  *    no higher than `battle.levels.stepUp`, so nobody on the ramp is stopped by it and nobody beside it walks under); each Rail and Wall.
  *  - **Blocks**, Objectives, Bases, the settings and the Lobby's card carry straight through.
  *
+ * A mirrored source (`mirror: true`, Stage 6, `mirror.ts`) compiles so that its map can be its own half turn (ADR 0022): each Brush's
+ * cells are merged in a way the half turn keeps (each row's runs, then runs alike in the rows above them), and its Objectives and Blocks
+ * are listed in their mirrored order (`mirrorOrder`), so that k and n - 1 - k are twins. A source without `mirror` compiles as before.
+ *
  * Pure and deterministic: no trig, no `Math.random`, every tie broken by Brush order then row-major cell order, so the same source always
  * compiles to the same bytes, and every id comes from a Brush id, so a small edit gives a small diff.
  */
@@ -25,6 +29,7 @@ import { TuningDataError } from '../tuning/validate';
 import { blockWalls } from '../sim/battlefield';
 import { walkCheck, type WalkReach } from '../sim/levels';
 import { RAIL, SIDES, type Brush, type MapSource, type RampBrush, type Rect, type Side } from './source';
+import { inMirrorOrder } from './mirror';
 
 /** Something the compiler noticed that the game accepts but the author likely did not mean. */
 export interface CompileWarning {
@@ -275,7 +280,8 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
 
   // Walk Surfaces: per level, each Brush's cells merged into rectangles.
   const rects: { l: number; i0: number; j0: number; i1: number; j1: number }[][] = brushes.map(() => []);
-  own.forEach((o, l) => {
+  if (source.mirror) own.forEach((o, l) => mergeRuns(o, N, l, rects));
+  else own.forEach((o, l) => {
     const used = new Uint8Array(N * N);
     for (let j = 0; j < N; j++)
       for (let i = 0; i < N; i++) {
@@ -492,14 +498,23 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     walls.push(...own);
     wallBrush.push(...own.map(() => b.id));
   });
-  const blockBrush = brushes.filter((b) => b.kind === 'block').map((b) => b.id);
+  let blockBrush = brushes.filter((b) => b.kind === 'block').map((b) => b.id);
+  // A mirrored map lists its Objectives and Blocks so that k and n - 1 - k are twins (ADR 0022: Team 1 breaks its ties the half-turned way).
+  let objectives = source.objectives;
+  if (source.mirror) {
+    objectives = inMirrorOrder(objectives);
+    const order = inMirrorOrder(brushes.filter((b) => b.kind === 'block')).map((b) => blockBrush.indexOf(b.id));
+    const listed = [...blocks];
+    order.forEach((k, n) => (blocks[n] = listed[k]!));
+    blockBrush = order.map((k) => blockBrush[k]!);
+  }
 
   const draft = {
     name: source.name,
     walk,
     walls,
     blocks,
-    objectives: source.objectives,
+    objectives: objectives.map(({ twin: _twin, ...o }) => o),
     bases: source.bases,
     front: source.front,
     armySize: source.armySize,
@@ -521,6 +536,44 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
   }
   const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: false };
   return { map, warnings, surfaceBrush, wallBrush, blockBrush, arena };
+}
+
+/**
+ * A mirrored source's merge (Stage 6): each row's runs of one Brush's cells at level `l`, then each run stacked with the same run in the rows
+ * above it, as `art/build_battle_fort.py`'s `floor_rects` does. It depends only on the cells, and the half turn maps a row's runs to its
+ * turned row's and a stack to a stack, so a map whose cells are their own half turn gets Walk Surfaces that are too (row-major greedy
+ * rectangles do not: they grow from the south-west). Each Brush's rectangles in row-major order of their south-west corners.
+ */
+function mergeRuns(o: Int32Array, N: number, l: number, rects: { l: number; i0: number; j0: number; i1: number; j1: number }[][]): void {
+  type Run = { k: number; i0: number; i1: number; j0: number };
+  // The runs still open after the rows so far, by owner and span, each with the row it began in.
+  let open = new Map<string, Run>();
+  const done: Run[] = [];
+  const ends: number[] = [];
+  for (let j = 0; j <= N; j++) {
+    const next = new Map<string, Run>();
+    for (let i = 0; j < N && i < N; ) {
+      const k = o[j * N + i]!;
+      let i1 = i + 1;
+      while (i1 < N && o[j * N + i1] === k) i1++;
+      if (k) {
+        const key = `${k}:${i}:${i1}`;
+        next.set(key, open.get(key) ?? { k, i0: i, i1, j0: j });
+        open.delete(key);
+      }
+      i = i1;
+    }
+    for (const r of open.values()) {
+      done.push(r);
+      ends.push(j);
+    }
+    open = next;
+  }
+  const order = done.map((_, n) => n).sort((p, q) => done[p]!.j0 - done[q]!.j0 || done[p]!.i0 - done[q]!.i0);
+  for (const n of order) {
+    const r = done[n]!;
+    rects[r.k - 1]!.push({ l, i0: r.i0, j0: r.j0, i1: r.i1, j1: ends[n]! });
+  }
 }
 
 /** A file's list `key`, one entry a line (the layout of the map files and the Map Sources). */
