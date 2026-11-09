@@ -124,7 +124,9 @@ describe('The Troop choice while fallen', () => {
     const down = fallen(battle());
     const cards = troopCards(down.duel, 0, tuning.battle)!;
     expect(cards.map((c) => c.name)).toEqual([...tuning.battle.troops.map((t) => t.name), 'Nearest']);
-    expect(cards.at(-1)!.chosen).toBe(true);
+    // To begin with, the Troop that wields the Weapon chosen in the Lobby.
+    const lobby = tuning.battle.troops.findIndex((t) => t.weapon === down.config.weapons[0]);
+    expect(cards.findIndex((c) => c.chosen)).toBe(lobby < 0 ? cards.length - 1 : lobby);
     expect(cards.at(-1)!.left).toBe(cards.slice(0, -1).reduce((a, c) => a + c.left, 0));
     const chose = withPlayers(down, [{ ...down.duel.crowd!.players[0]!, troop: 1 }]);
     expect(troopCards(chose.duel, 0, tuning.battle)!.findIndex((c) => c.chosen)).toBe(1);

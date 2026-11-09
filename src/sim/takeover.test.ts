@@ -35,7 +35,12 @@ const army = small.battle.armySize;
 const takeoverTicks = Math.round(small.battle.takeover.seconds / TICK_SECONDS);
 const pickTicks = Math.round(small.battle.takeover.pickSeconds / TICK_SECONDS);
 
-const battle = (seed = 1) => createMatch(small, { format: 'Battle', bestOf: 1, seed, teams: [0], weapons: ['Longsword'] });
+/** A Battle whose Player chose "Nearest" (no Troop: `BattlePlayer.troop` absent), so it takes over whichever ally is nearest a spawn. */
+const battle = (seed = 1): MatchState => {
+  const m = createMatch(small, { format: 'Battle', bestOf: 1, seed, teams: [0], weapons: ['Longsword'] });
+  const crowd = m.duel.crowd!;
+  return { ...m, duel: { ...m.duel, crowd: { ...crowd, players: crowd.players.map(({ troop: _troop, ...r }) => r) } } };
+};
 
 function placed(match: MatchState, x: number, z: number, weapon: string, team: number): FighterState {
   const y = battlefieldHeight(battlefieldOf(small.battle, match.arena)!.heights, x, z);
@@ -139,6 +144,13 @@ describe('Choosing the Troop to come back as', () => {
     expect(counts[levy]).toBe(1);
     expect(counts[brute]).toBe(1);
     expect(counts.reduce((a, b) => a + b, 0)).toBe(2);
+  });
+
+  it("starts each Player on the Troop that wields the Weapon it chose in the Lobby, and on none if no Troop wields it", () => {
+    const m = createMatch(small, { format: 'Battle', bestOf: 1, seed: 1, teams: [0, 1], weapons: ['Sledge Hammer', 'Longsword'] });
+    expect(m.duel.crowd!.players.map((r) => r.troop)).toEqual([brute, troopIndex('Swordsman')]);
+    const none: TuningData = { ...small, battle: { ...small.battle, troops: small.battle.troops.filter((t) => t.weapon !== 'Longsword') } };
+    expect(createMatch(none, { format: 'Battle', bestOf: 1, seed: 1, teams: [0], weapons: ['Longsword'] }).duel.crowd!.players[0]).toEqual(FRESH_PLAYER);
   });
 
   it('carries the Intent through a Battle Tick (`stepMatch`)', () => {
