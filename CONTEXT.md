@@ -422,6 +422,10 @@ _Avoid_: Piece (that is a Kit's), prefab
 The pure function from a Map Source to an ordinary Battle map (`compileMap`, `src/mapEditor/compile.ts`): it paints the Brushes on the fine grid one level at a time, merges each Brush's floor into rectangles (`WALK_<brush>_<n>`), stands the Walls the generators would (the field's edges, a face wherever the ground beside a floor is higher than a step, owned by the higher Brush, `WALL_<brush>_<side><n>`, each Ramp's rails or skirt), and passes the result through the game's own `parseBattleMap` and `walkCheck`, so it never gives a map the game refuses; an error names the Brushes it concerns. The same source always compiles to the same bytes.
 _Avoid_: Exporter, baker
 
+**Map Editor**:
+The dev route (`#/mapeditor?dev=1`, docs/plans/map-editor.md) that edits a Map Source: a top view of the field where Brushes are drawn, picked, moved and resized on the grid level by level, a panel of their numbers, undo, and Save, which writes the source and the map it compiles to and refuses a source the game would refuse. Its state and operations are `MapEditorSession` (`src/mapEditor/session.ts`). Not the Editor (the Motion Editor).
+_Avoid_: Level editor
+
 **Jump**:
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it, at its drawn walk speed even when Sheathed (ADR 0017). It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 

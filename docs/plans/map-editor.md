@@ -1,10 +1,10 @@
 # Map Editor: author, check and play-test Battle maps in the browser
 
-> Status: Stage 0 built (2026-11-09): the Map Source and its compiler, pure and tested; Stage 1 (the editor shell) next. Seven Stages (0 to 6), each one chat (see "How to run each Stage"). Each Stage ends with a `### Result` written by whoever builds it (what was built, what changed from the plan, test counts), as in `docs/plans/battle-objectives.md`.
+> Status: Stage 1 built (2026-11-09): the Map Editor at `#/mapeditor?dev=1` (top view, Brushes, levels, undo, New, Open, Save) over a pure, tested `MapEditorSession`; Stage 2 (live checks and overlays) next. Seven Stages (0 to 6), each one chat (see "How to run each Stage"). Each Stage ends with a `### Result` written by whoever builds it (what was built, what changed from the plan, test counts), as in `docs/plans/battle-objectives.md`.
 
 ## Progress
 - [x] Stage 0: the Map Source and its compiler (pure, no UI)
-- [ ] Stage 1: the editor shell (top view, Brushes, levels, save and load)
+- [x] Stage 1: the editor shell (top view, Brushes, levels, save and load)
 - [ ] Stage 2: live checks and overlays
 - [ ] Stage 3: Battle markers, map settings and the Lobby reading map files
 - [ ] Stage 4: play-test from the editor
@@ -104,6 +104,29 @@ To try: nothing in `npm run dev` yet (`#/mapeditor?dev=1` is Stage 1). In a test
 - New, Open (pick a `.source.json`, or one of `data/battlemaps/*.source.json` bundled in dev), Save (writes both `<map>.source.json` and the compiled `<map>.json` through `saveJsonFile`). Save refuses with the compiler's error shown.
 - The editor state and its operations live in a pure, unit-tested `MapEditorSession` (as `EditorSession` does for Motions); the UI only calls it.
 - **Done**: the user can rebuild Stage 0's sample by hand in the browser, save it, and the saved files match what Stage 0's compiler gives.
+
+### Result
+Built:
+- `src/mapEditor/session.ts`: `MapEditorSession`, the Map Editor's one source of truth (pure, no DOM or three.js; the purity scan of `src/mapEditor/*.ts` covers it). Every edit makes a new source and passes it through `parseMapSource` first, so the session never holds a source the parser refuses: a refused edit throws the parser's error and changes nothing. Operations: `addBrush(kind, from, to)` (snapped; a click makes one coarse cell, a segment one cell long), `replaceBrush` (the property panel; renames keep the selection), `moveBrush`, `resizeBrush` (by `Handle`: a rectangle's corners and sides' middles, never thinner than a step; a segment's ends), `deleteBrush`, `duplicateBrush` (a coarse cell east, painted right after), `reorder` (paint order), `addLevel`, `removeLevel` (refused while a Brush stands at it), `setSettings`, `open`, `undo` and `redo` (a stack of 200 source snapshots), `beginDrag`/`endDrag` (a drag is one undo step, each move measured from where it began), `dirty`, and `files(battle)`, which gives Save's two files or throws the compiler's `MapCompileError`. An edit that changes nothing is no step. Picking helpers for the top view: `brushAt`, `handleAt`, `handlesOf`, `brushLevels`. `sourceFileText` writes a source one Brush, Objective and Base a line (sharing `compile.ts`'s `list`), and `parseMapSource` reads it back as the same source.
+- How a new Brush stands, at the level being edited: a Floor, Deck, Hole, Hazard (lava) or Rail (1 m) at it; a Platform or a Ramp rising from it to the level above (on the top level, to it from the one below), a Ramp up its long side (north or east), railed on both long sides; a Wall from 1 m under it to 3 m over; a Block 3 m over it (refused, saying why, where that is not over 0).
+- `src/mapEditor/ui/` (only calls the session): `topView.ts`, a 2D canvas top view (north up). It draws the fine grid where it is 6 px or wider, the coarse 5 m cell, the axes and the field, each Brush by kind (Floor filled, Deck hatched, Platform thick-edged, Ramp with chevrons up its slope and its rails, Hole see-through with a cross, Hazard in its colour, Rail and Wall as lines, Block grey) in its level's colour, the level being edited solid and the others faded or hidden, the Objectives and Bases (drawn only; Stage 3 drags them), and the selected Brush's handles. Pointer: draw with a Brush tool; with the select tool, click to pick (the level being edited first, then any shown), drag to move, drag a handle to resize; pan with a right or middle drag or a drag on empty ground; zoom with the wheel about the pointer. `index.ts`: the Tweakpane panel (File: New, Open example, Open `.source.json`, Save; the tool; Edit; Levels; the selected Brush's numbers; Map: name and each Objective's numbers; status and the pointer's snapped coordinates) and the keys (V F D P R H Z L W B pick tools, Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y, Ctrl+D, Ctrl+S, Del, Esc, `[` `]` paint order, arrows nudge by a step, with Shift by a cell). Save writes `<map>.source.json` then `<map>.json` through `saveJsonFile`; a source that does not compile is not saved, its error is shown, and its Brushes are outlined in red and the first selected. The dev server puts the session in the console as `mapEditor`.
+- The route `#/mapeditor?dev=1` in `src/main.ts`, loaded on demand (`devMode()`, as the Battle routes).
+
+Changed from the plan:
+- **A 2D canvas, not three.js**, for the top view: what Stage 1 draws is flat, and Stage 2 adds the 3D view.
+- **Open example** offers Stage 0's sample (imported from `sample.testdata.ts`) besides any `data/battlemaps/*.source.json` (none yet), so there is a whole map to look at and compare with.
+- **The Map folder** edits the name and the Objectives' numbers already (the sample's C is at x 40, not the blank map's 50, so the Done needs it); dragging markers, the Bases, `front`, the army and the Lobby card stay Stage 3's.
+- **Saving two files from one click**: a browser may allow only one save dialog a click; if it refuses the second, the status says to click Save again (the first file is remembered and not asked again).
+- **Tweakpane's `refresh()` reports the values it shows as changes**: the panel ignores them while it syncs, and the session takes an edit that changes nothing as no step (else an undo was written straight back as a new edit, found in the browser check).
+
+Tests: `src/mapEditor/session.test.ts`, 23 fast, among them the Done: the sample rebuilt by the session's operations (drawn off and resized by a handle, a Ramp drawn in the wrong place and dragged, renamed and turned in the panel, levels added, C moved) saves exactly `sourceFileText(sampleSource())` and `mapFileText(compileMap(sampleSource()))`. `npm test`: 2007 passed (23 new); `npm run typecheck` clean. No Battle runs in this Stage, so no slow test changed. Checked in headless Chromium: drawing, moving, the panel's fields, undo, a refused Save, and a Save after undoing every edit giving the sample's exact files, with no console errors.
+
+Measured: the session's `files` (compile and both texts) for the sample takes 23 ms, a move 0.05 ms (median of 15 in Vitest).
+
+To try in `npm run dev` at `#/mapeditor?dev=1`:
+- File, Open example: Stage 0's sample. Switch Levels, editing between -8, 0 and 4 m and toggle "show all levels"; zoom in until the 0.5 m grid shows.
+- Rebuild the sample on New map: add levels 4 and -8; on 0 draw a Platform (it rises to 4) over x -12 to 12, z -8 to 8, two Ramps (set the north one to rise toward south), a Hole x 20 to 36, z -12 to 12; on -8 a Hazard there; on 4 a Deck x 12 to 44, z -3 to 3 and two Rails along its sides; rename each in the Brush panel (keep, rampS, rampN, pit, lava, bridge, bridgeRailS, bridgeRailN, in that paint order); Map: name `sample`, Objective C x 40. Save, and compare the files with the sample's (Open example, Save under another folder).
+- Draw a Platform with no Ramp and Save: refused, the Platform outlined in red. Undo and redo across drags; Ctrl+D; `[` and `]`; arrows.
 
 ## Stage 2: live checks and overlays
 **Model**: Opus (the checks must say what the Simulation will do).

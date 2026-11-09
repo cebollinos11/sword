@@ -494,13 +494,18 @@ export function compileMap(source: MapSource, battle: Pick<BattleTuning, 'field'
   return { map, warnings };
 }
 
+/** A file's list `key`, one entry a line (the layout of the map files and the Map Sources). */
+export function list(key: string, items: readonly unknown[]): string {
+  const line = (v: unknown) => JSON.stringify(v);
+  return items.length === 0 ? `  ${line(key)}: []` : `  ${line(key)}: [\n${items.map((v) => `    ${line(v)}`).join(',\n')}\n  ]`;
+}
+
 /**
  * A compiled map as `data/battlemaps/<map>.json` writes it (the generators' layout: points `[x, y, z]`, Wall ends `[x, z]`, Blocks by
  * `min` and `max`), one entry a line so a small edit gives a small diff. `parseBattleMap` reads it back as the same map.
  */
 export function mapFileText(map: BattleMapTuning): string {
   const line = (v: unknown) => JSON.stringify(v);
-  const list = (key: string, items: readonly unknown[]) => (items.length === 0 ? `  ${line(key)}: []` : `  ${line(key)}: [\n${items.map((v) => `    ${line(v)}`).join(',\n')}\n  ]`);
   const head: string[] = [`  "name": ${line(map.name)}`, `  "front": ${line(map.front)}`, `  "armySize": ${line(map.armySize)}`];
   if (map.ticketsPerSoldier !== undefined) head.push(`  "ticketsPerSoldier": ${line(map.ticketsPerSoldier)}`);
   head.push(`  "bases": ${line(map.bases.map((b) => [b.x, b.z]))}`);
