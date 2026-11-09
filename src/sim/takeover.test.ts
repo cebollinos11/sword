@@ -17,7 +17,9 @@ import {
   stepBubbles,
   stepMatch,
   takeoverSpawns,
+  canChooseTroop,
   takeoverTarget,
+  takeoverTroops,
   TICK_SECONDS,
   type CrowdState,
   type FighterState,
@@ -76,6 +78,75 @@ function flank(): MatchState {
   });
   return fell(m);
 }
+
+/** `match` with Soldier `s`'s Troop set to `troop`. */
+function withTroop(match: MatchState, s: number, troop: number): MatchState {
+  const c = match.duel.crowd!;
+  const t = c.troop.slice();
+  t[s] = troop;
+  return { ...match, duel: { ...match.duel, crowd: { ...c, troop: t } } };
+}
+
+describe('Choosing the Troop to come back as', () => {
+  const troopIndex = (name: string) => small.battle.troops.findIndex((t) => t.name === name);
+  const levy = troopIndex('Levy');
+  const brute = troopIndex('Brute');
+  /** The flank, Soldier 1 (the nearer the spawns) a Levy and Soldier 2 a Brute. */
+  const mixed = () => withTroop(withTroop(flank(), 1, levy), 2, brute);
+  const ask = (troop: number): Intent[] => [{ ...IDLE_INTENT, troop }];
+
+  it('takes over the chosen Troop’s ally nearest the spawns, with its Weapon, rather than the nearest of any Troop', () => {
+    const start = mixed();
+    const fall = start.duel.fighters[0]!.death!.tick;
+    expect(takeoverTarget(start.duel, 0, small)).toBe(1);
+    const chosen = stepBubbles(start.duel, 1, fall + 1, small, ask(brute));
+    expect(chosen.crowd!.players[0]!.troop).toBe(brute);
+    expect(takeoverTarget(chosen, 0, small)).toBe(2);
+    expect(stepBubbles(chosen, 1, fall + pickTicks, small).crowd!.players[0]!.next).toBe(2);
+    const next = stepBubbles(chosen, 1, fall + takeoverTicks, small);
+    expect(next.crowd!.players[0]!.soldier).toBe(2);
+    expect(next.fighters[0]!.weapon).toBe(small.battle.troops[brute]!.weapon);
+    // The choice is kept for the next fall.
+    expect(next.crowd!.players[0]!.troop).toBe(brute);
+  });
+
+  it('falls back to the nearest ally of any Troop when none of the chosen one is left', () => {
+    const start = withTroop(mixed(), 2, levy);
+    const fall = start.duel.fighters[0]!.death!.tick;
+    const chosen = stepBubbles(start.duel, 1, fall + 1, small, ask(brute));
+    expect(takeoverTroops(chosen, 0, small.battle)[brute]).toBe(0);
+    expect(stepBubbles(chosen, 1, fall + takeoverTicks, small).crowd!.players[0]!.soldier).toBe(1);
+  });
+
+  it('takes the choice only while the Player lies fallen and before the pick; -1 clears it, and a Troop that is not there is ignored', () => {
+    const start = mixed();
+    const fall = start.duel.fighters[0]!.death!.tick;
+    // Standing, nothing is taken.
+    expect(stepBubbles(battle().duel, 1, 1, small, ask(brute)).crowd!.players[0]).toEqual(FRESH_PLAYER);
+    expect(canChooseTroop(start.duel, 0, small.battle, fall + pickTicks - 1)).toBe(true);
+    expect(canChooseTroop(start.duel, 0, small.battle, fall + pickTicks)).toBe(false);
+    const late = stepBubbles(start.duel, 1, fall + pickTicks, small, ask(brute));
+    expect(late.crowd!.players[0]).toEqual({ ...FRESH_PLAYER, next: 1 });
+    const chosen = stepBubbles(start.duel, 1, fall + 1, small, ask(brute));
+    expect(stepBubbles(chosen, 1, fall + 2, small, ask(-1)).crowd!.players[0]).toEqual(FRESH_PLAYER);
+    expect(stepBubbles(chosen, 1, fall + 2, small, ask(small.battle.troops.length)).crowd!.players[0]!.troop).toBe(brute);
+    // Asking again for the same Troop changes nothing (a repeated prediction online is harmless).
+    expect(stepBubbles(chosen, 1, fall + 2, small, ask(brute))).toBe(chosen);
+  });
+
+  it('counts the allies of each Troop a fallen Player could take over', () => {
+    const counts = takeoverTroops(mixed().duel, 0, small.battle);
+    expect(counts[levy]).toBe(1);
+    expect(counts[brute]).toBe(1);
+    expect(counts.reduce((a, b) => a + b, 0)).toBe(2);
+  });
+
+  it('carries the Intent through a Battle Tick (`stepMatch`)', () => {
+    const start = mixed();
+    const intents = start.duel.fighters.map((_, k) => (k === 0 ? { ...IDLE_INTENT, troop: brute } : IDLE_INTENT));
+    expect(stepMatch(start, intents, small).duel.crowd!.players[0]!.troop).toBe(brute);
+  });
+});
 
 describe('Taking over an ally', () => {
   it('names the Soldier a fallen Player will take over before the takeover (for the view), the one it then takes', () => {

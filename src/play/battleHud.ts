@@ -7,6 +7,7 @@
  */
 import {
   battlefieldOf,
+  canChooseTroop,
   crowdAlive,
   inDuel,
   owned,
@@ -18,6 +19,7 @@ import {
   type MapObjective,
   type MatchState,
   type SimState,
+  takeoverTroops,
 } from '../sim';
 import { startingTickets, type BattleTuning } from '../tuning';
 import { Minimap } from '../render/minimap';
@@ -97,6 +99,38 @@ export function takeoverCountdown(state: SimState, me: number, battle: BattleTun
   return { seconds, phase: 'Fly', progress: take > pick ? (since - pick) / (take - pick) : 1 };
 }
 
+/**
+ * The Troop choice a key asks for while a fallen Player chooses (Intent `troop`): Digit1 to the number of Troops (at most 9) pick a Troop
+ * (its index in `battle.troops`), Digit0 whichever ally is nearest a spawn (-1); undefined for any other key.
+ */
+export function troopKey(code: string, troops: number): number | undefined {
+  const m = /^(?:Digit|Numpad)([0-9])$/.exec(code);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  if (n === 0) return -1;
+  return n <= Math.min(9, troops) ? n - 1 : undefined;
+}
+
+/** One card of the Troop choice: its key, name and Weapon, how many allies of it could be taken over, and whether it is the one chosen. */
+export interface TroopCard {
+  readonly key: string;
+  readonly troop: number;
+  readonly name: string;
+  readonly weapon: string;
+  readonly left: number;
+  readonly chosen: boolean;
+}
+
+/** The Troop choice fallen Player `me` sees (the Troops, then "Nearest"), or null while it cannot choose (`canChooseTroop`). */
+export function troopCards(state: SimState, me: number, battle: BattleTuning): TroopCard[] | null {
+  if (!canChooseTroop(state, me, battle) || playerStatus(state, me) !== 'Fallen') return null;
+  const chosen = state.crowd!.players[me]!.troop ?? -1;
+  const left = takeoverTroops(state, me, battle);
+  const cards: TroopCard[] = battle.troops.slice(0, 9).map((t, k) => ({ key: String(k + 1), troop: k, name: t.name, weapon: t.weapon, left: left[k] ?? 0, chosen: chosen === k }));
+  cards.push({ key: '0', troop: -1, name: 'Nearest', weapon: 'any weapon', left: left.reduce((a, b) => a + b, 0), chosen: chosen < 0 });
+  return cards;
+}
+
 /** How long (ms) the HP bar takes to fill after a takeover. */
 const REFILL_MS = 700;
 
@@ -169,7 +203,16 @@ export const BATTLE_HUD_CSS = `
 .battle-me .hud-fill { position: absolute; inset: 0 auto 0 0; background: #e8c547; }
 .battle-map { position: absolute; right: 1rem; bottom: 1rem; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 8px #0008; }
 .battle-map-key { position: absolute; right: 1rem; bottom: calc(1rem + 182px); font-size: 0.65rem; opacity: 0.7; text-shadow: 0 1px 2px #000; }
-@media (max-width: 640px) { .battle-map canvas { width: 120px !important; height: 120px !important; } .battle-map-key { bottom: calc(1rem + 122px); } }
+.battle-troops { position: absolute; left: 50%; bottom: 5.5rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; pointer-events: auto; text-shadow: 0 1px 2px #000; }
+.battle-troops[hidden] { display: none; }
+.battle-troops-title { font-size: 0.85rem; opacity: 0.9; }
+.battle-troops-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem; max-width: calc(100vw - 2rem); }
+.battle-troop { min-width: 6.5rem; padding: 0.35rem 0.6rem; background: #000a; border: 1px solid #fff4; border-radius: 6px; color: inherit; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 0.1rem; }
+.battle-troop b { font-size: 0.85rem; }
+.battle-troop span { font-size: 0.7rem; opacity: 0.8; }
+.battle-troop.chosen { border-color: #e8c547; box-shadow: 0 0 0 1px #e8c547, 0 0 8px #e8c54788; }
+.battle-troop.none { opacity: 0.45; }
+@media (max-width: 640px) { .battle-troops { top: 6rem; bottom: auto; width: calc(100vw - 2rem); } .battle-troop { min-width: 0; flex: 1 1 28%; padding: 0.3rem 0.45rem; } .battle-map canvas { width: 120px !important; height: 120px !important; } .battle-map-key { bottom: calc(1rem + 122px); } }
 `;
 
 /** The Battle's HUD over the game's canvas. */
@@ -191,6 +234,12 @@ export class BattleHud {
   private refillAt = Number.NaN;
   private mapShown = true;
   private readonly stats = document.createElement('div');
+  /** The Troop choice while the Player lies fallen (`troopCards`), and the cards it last drew (so they are rebuilt only when they change). */
+  private readonly troops = document.createElement('div');
+  private readonly troopRow = document.createElement('div');
+  private troopsDrawn = '';
+  /** A Troop card was clicked or tapped (an index into `battle.troops`, or -1 for the nearest ally). */
+  onTroop: (troop: number) => void = () => {};
   private frames = 0;
   private statsAt = 0;
 
@@ -248,7 +297,14 @@ export class BattleHud {
     key.className = 'battle-map-key';
     key.textContent = 'N: map';
     this.stats.className = 'hud-stats';
-    this.root.append(strip, me, this.map, key, this.stats, this.banner, this.results);
+    this.troops.className = 'battle-troops';
+    this.troops.hidden = true;
+    const title = document.createElement('div');
+    title.className = 'battle-troops-title';
+    title.textContent = 'Come back as…';
+    this.troopRow.className = 'battle-troops-row';
+    this.troops.append(title, this.troopRow);
+    this.root.append(strip, me, this.map, key, this.stats, this.troops, this.banner, this.results);
     container.append(this.root);
   }
 
@@ -303,6 +359,7 @@ export class BattleHud {
       status === 'Out' ? 'Out: your army has no soldiers left' : status === 'Fallen' ? (countdown ? `Fallen: back in the fight in ${Math.ceil(countdown.seconds)} s` : 'Fallen: taking over a soldier…') : record && record.soldier >= 0 ? `A soldier of your army · ${record.kills} kills` : `You · ${record?.kills ?? 0} kills`;
     this.hpFill.style.width = `${Math.max(0, (hp / max) * 100).toFixed(1)}%`;
     this.hpText.textContent = `${Math.ceil(hp)} / ${max}`;
+    this.drawTroops(troopCards(duel, me, this.battle));
     if (this.mapShown) this.minimap.draw(duel, me, this.sites.objectives);
     this.frames++;
     const now = performance.now();
@@ -316,6 +373,31 @@ export class BattleHud {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;
     }
+  }
+
+  /** Show the Troop choice's cards (hidden for null), rebuilt only when they change. */
+  private drawTroops(cards: TroopCard[] | null): void {
+    const drawn = cards ? cards.map((c) => `${c.troop}|${c.left}|${c.chosen ? 1 : 0}`).join() : '';
+    if (drawn === this.troopsDrawn) return;
+    this.troopsDrawn = drawn;
+    this.troops.hidden = !cards;
+    if (!cards) return;
+    this.troopRow.replaceChildren(
+      ...cards.map((c) => {
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = `battle-troop${c.chosen ? ' chosen' : ''}${c.left === 0 ? ' none' : ''}`;
+        const name = document.createElement('b');
+        name.textContent = `${c.key} · ${c.name}`;
+        const weapon = document.createElement('span');
+        weapon.textContent = c.weapon;
+        const left = document.createElement('span');
+        left.textContent = c.left === 0 ? 'none left' : `${c.left} left`;
+        card.append(name, weapon, left);
+        card.addEventListener('click', () => this.onTroop(c.troop));
+        return card;
+      }),
+    );
   }
 
   /** The results screen; `note` says what follows. */

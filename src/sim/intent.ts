@@ -81,6 +81,12 @@ export interface Intent {
   readonly equip?: InventoryRef;
   /** Drop the inventory item in this slot (absent = nothing): it leaves the inventory for a shared pickup at the Fighter's feet. Same conditions as `equip`; the equipped Weapon cannot be dropped. */
   readonly drop?: InventoryRef;
+  /**
+   * In a Battle, the Troop (an index into `battle.troops`) a fallen Player chooses to come back as, or -1 for whichever ally is nearest a spawn
+   * (absent = no change). Acted on only while the Player's Fighter lies fallen, before `battle.takeover.pickSeconds` (`stepBubbles`); the choice is
+   * kept for later falls. An index with no Troop is ignored.
+   */
+  readonly troop?: number;
 }
 
 /** An item of the Player's inventory, named by kind and slot (its index in `Inventory.weapons` or `Inventory.relics`). */
