@@ -26,7 +26,7 @@ import { hitZoneCapsules, type HitCapsule } from './hitZones';
 import { IDLE_INTENT, mirrorDirection, type Direction, type Intent } from './intent';
 import { modsOf } from './mods';
 import { followMotion, playbackTargets, upperBody } from './motion';
-import { bladeAndLeg, fighterPose } from './pose';
+import { fighterPose, withPose } from './pose';
 import { startSlide } from './slide';
 import type { Airborne, AttackAction, FighterState, StaggerCause } from './state';
 import type { BladeTransform } from './skeleton';
@@ -102,10 +102,17 @@ export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZon
 }
 
 /** The Hit Zone capsules a blade or dagger meets on `f`: a Fighter in Knockdown lies flat, so its zones are `fighter.lyingHitFactor` times as thick. */
-function bodyCapsules(f: FighterState, tuning: TuningData): HitCapsule[] {
+function bodyCapsules(f: FighterState, tuning: TuningData): readonly HitCapsule[] {
+  const known = bodyZones.get(f);
+  if (known && known.tuning === tuning) return known.zones;
   const own = sizedTuning(tuning, f.size);
-  return hitZoneCapsules(fighterPose(f, tuning), own, f.action.kind === 'Knockdown' ? own.fighter.lyingHitFactor : 1);
+  const zones = hitZoneCapsules(fighterPose(f, tuning), own, f.action.kind === 'Knockdown' ? own.fighter.lyingHitFactor : 1);
+  bodyZones.set(f, { tuning, zones });
+  return zones;
 }
+
+/** Each Fighter's Hit Zone capsules, by the state object they were built from: a cache like `fighterPose`'s, so every Attack on a Tick shares them. */
+const bodyZones = new WeakMap<FighterState, { readonly tuning: TuningData; readonly zones: readonly HitCapsule[] }>();
 
 /**
  * The first point the Blade Sweep from `from` to `to` meets an Arena Wall, or null: a blade already through a
@@ -138,7 +145,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const found: { s: number; contact: BladeContact }[] = [];
     next.forEach((defender, j) => {
       if (j === i || !inDuel(defender)) return;
-      const zones: Capsule[] = bodyCapsules(defender, tuning);
+      const zones: readonly Capsule[] = bodyCapsules(defender, tuning);
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       const chambered = !blocked && (chamberedBy?.includes(j) ?? false) && chamberHolds(defender, direction);
       // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
@@ -195,6 +202,7 @@ export interface DaggerContact {
  * ignores Weapons. Hit Zones are padded by `dagger.radius`.
  */
 export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: readonly FighterState[], tuning: TuningData): DaggerContact[] {
+  if (sweeps.length === 0) return [];
   const zones = fighters.map((f) => (!inDuel(f) || f.hp <= 0 ? null : bodyCapsules(f, tuning)));
   const out: DaggerContact[] = [];
   sweeps.forEach((sweep, k) => {
@@ -300,7 +308,7 @@ export function staggerFighter(f: FighterState, index: number, cause: StaggerCau
   const { action, motion } = stagger(tuning, f.weapon, cause, hold, from);
   emit({ type: 'Stagger', fighter: index, cause });
   const staggered = { ...f, action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
-  return { ...staggered, ...bladeAndLeg(fighterPose(staggered, tuning)) };
+  return withPose(staggered, tuning);
 }
 
 /**
@@ -317,7 +325,7 @@ function knockDown(f: FighterState, standard: TuningData): FighterState {
     flight = kept;
   }
   const down = { ...rest, ...(flight ? { air: flight } : {}), action, motion: followMotion(tuning, f.weapon, f.motion, motion) };
-  return { ...down, ...bladeAndLeg(fighterPose(down, tuning)) };
+  return withPose(down, tuning);
 }
 
 /** An airborne Fighter pushed along (dx, dz) (any length; none at all pushes nothing): its velocity gains `distance` spread over `ticks`, as the mean speed of that Slide. */

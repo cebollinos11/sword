@@ -62,6 +62,7 @@ import {
   createAllyAi,
   createRemoteController,
   lineupAis,
+  prepareAi,
   lineupMatch,
   lineupPlayers,
   ONE_VS_ONE,
@@ -550,6 +551,9 @@ class Session implements RollbackSession, PeerIntentSource {
 
   private build(state: MatchState): void {
     this.state = state;
+    // Now, while the Match starts, not mid-fight the first time an AI (or an AI Takeover) needs a path: a stalled frame there holds up
+    // this peer's Ticks and its replies to the others.
+    prepareAi(this.tuning, state.duel);
     this.states.set(0, snapshot(this.state));
     this.aiMemory.set(0, this.saveAis(0));
     this.status = 'Running';

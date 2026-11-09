@@ -13,7 +13,7 @@ import type { SimEvent } from './events';
 import { IDLE_INTENT, type Intent } from './intent';
 import { initialGait, updateGait } from './gait';
 import { followMotion } from './motion';
-import { bladeAndLeg, fighterPose, motionPose } from './pose';
+import { bladeAndLeg, motionPose, withPose } from './pose';
 import { createRng, nextFloat } from './rng';
 import type { Placement } from './skeleton';
 import type { Airborne, Death, DeathBlow, FighterState, MotionPlayback, SimState } from './state';
@@ -300,7 +300,7 @@ function settleBodies(
     const grounded = settleGround(before[i]!, { ...f, position: positions.get(i)! }, arena, own);
     const moved = before[i]!.air && !grounded.air ? land(before[i]!, grounded, i, fighting, own, emit) : grounded;
     const settled = { ...moved, gait: updateGait(before[i]!, moved, i, own, arena, emit) };
-    return { ...settled, ...bladeAndLeg(fighterPose(settled, tuning)) };
+    return withPose(settled, tuning);
   });
 }
 

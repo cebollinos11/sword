@@ -7,7 +7,7 @@ import type { TuningData } from '../tuning';
 import { inDuel } from './duel';
 import type { InventoryRef } from './intent';
 import { foldMods, setMods, type Mods } from './mods';
-import { bladeAndLeg, fighterPose } from './pose';
+import { withPose } from './pose';
 import type { FighterState } from './state';
 
 /**
@@ -81,7 +81,7 @@ export function dropItem(inv: Inventory, ref: InventoryRef): { readonly inventor
 export function holdInventory(f: FighterState, inventory: Inventory, tuning: TuningData): FighterState {
   const weapon = wieldedWeapon(inventory);
   const armed = setMods({ ...f, inventory, weapon }, inventoryMods(tuning, inventory), tuning.fighter.maxHp);
-  return weapon === f.weapon ? armed : { ...armed, ...bladeAndLeg(fighterPose(armed, tuning)) };
+  return weapon === f.weapon ? armed : withPose(armed, tuning);
 }
 
 /**

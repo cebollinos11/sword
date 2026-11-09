@@ -11,7 +11,7 @@ export {
   type Controller,
   type MatchRun,
 } from './controller';
-export { aiDifficulty, aiStyle, createAiController, type AiController } from './ai';
+export { aiDifficulty, aiStyle, createAiController, prepareAi, type AiController } from './ai';
 export { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
 export { createAutopilot, type Autopilot, type AutopilotLoot } from './autopilot';
 export { createBattlePilot } from './battlePilot';
