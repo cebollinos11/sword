@@ -12,7 +12,7 @@ depending on the Weapon.
 | # | Decision |
 |---|---|
 | Key | **R** toggles (Sheathe when drawn, Draw when Sheathed). Mobile: a tap button by Jump/Throw whose icon flips between the two states. |
-| Speed | Sheathed walk = `fighter.walkSpeed × fighter.sheathedWalkFactor` (1.6, so 4 m/s). It multiplies with Crouch, Slow and `dagger.throwWalkFactor`. Turning is unchanged. |
+| Speed | Sheathed walk = `fighter.walkSpeed × fighter.sheathedWalkFactor` (now 2.4, 6 m/s). It multiplies with Crouch, Slow and `dagger.throwWalkFactor`. Turning is unchanged. |
 | Jumps | A Jump takes off, and steers in the air, at the **drawn** walk speed. Jump reach, `jumpArc`, jump Links and `docs/jump-reach.md` stay valid. |
 | Actions | `Sheathe` and `Draw` are new Actions. They can start from Idle **on the run and in the air** (in a Jump, the same rule as Throw: `startAction`). While one plays, the Fighter walks at drawn speed, turns and crouches, but cannot Jump, Kick, Throw, Attack or Block. A Sheathe/Draw already started carries on through a ledge Fall and through a soft Landing. |
 | Timing | Hip slot 0.7 s and back slot 1.0 s, set by the Motion's duration. Each Motion has a `swap` marker: the Weapon changes between hand and slot there, which is when `sheathed` flips. |

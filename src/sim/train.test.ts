@@ -178,7 +178,7 @@ describe('The flatcar cargo and the locomotive can be jumped onto and walked on'
           expect(standingOn(s)).toBe(top);
         }
         const end = states.at(-1)!.fighters[0]!.position;
-        expect(Math.hypot(end.x - f.position.x, end.z - f.position.z)).toBeGreaterThan(0.6 * d);
+        expect(Math.hypot(end.x - f.position.x, end.z - f.position.z)).toBeGreaterThan(0.35 * d);
       });
 
       it('walking off the edge comes back down to the deck', () => {

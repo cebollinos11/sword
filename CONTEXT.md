@@ -414,7 +414,7 @@ _Avoid_: Map (the Lobby's pick of Arena), level
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it, at its drawn walk speed even when Sheathed (ADR 0017). It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 
 **Crouch**:
-Holding C (not Ctrl, which browsers keep for Ctrl+W) lowers the Fighter's hips and hands by `fighter.crouchDepth`, easing at `fighter.crouchSpeed`, with its feet planted. Not an Action: it combines with Attack, Block and Jump, and while crouched a Fighter walks at `fighter.crouchWalkFactor` of its speed. Lowered hips and hands mean lowered Hit Zones and blows.
+Holding C (not Ctrl, which browsers keep for Ctrl+W) lowers the Fighter's hips and hands by `fighter.crouchDepth`, easing at `fighter.crouchSpeed`, with its feet planted. Not an Action: it combines with Attack, Block and Jump, and while crouched a Fighter walks at `fighter.crouchWalkFactor` of its speed.  Walking backwards (relative to facing) is slower: `fighter.backwardWalkFactor`, blended by how backward the move is. Lowered hips and hands mean lowered Hit Zones and blows.
 _Avoid_: Duck, stance (a Crouch is not a Direction)
 
 **Fall**:
