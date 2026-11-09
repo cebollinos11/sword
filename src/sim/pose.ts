@@ -56,6 +56,33 @@ export function applyCrouch(targets: PoseTargets, crouch: number, tuning: Tuning
  * and the hips bobbing and swaying with each step, the torso leaning and the hands and Weapon aimed with where it looks, the sword hand shaken by any Block Impact, and its Weapon held as its grip says.
  */
 export function fighterPose(f: FighterState, standard: TuningData): SkeletonPose {
+  const known = solvedPoses.get(f);
+  if (known && known.tuning === standard) return known.pose;
+  const pose = solveFighter(f, standard);
+  solvedPoses.set(f, { tuning: standard, pose });
+  return pose;
+}
+
+/**
+ * `f` with its blade and kicking leg set from its solved Skeleton (what each Tick records), the pose remembered for the
+ * Fighter it returns, so a later `fighterPose` of it (the Blade Sweep's Hit Zones, the Renderer) does not solve it again.
+ */
+export function withPose(f: FighterState, tuning: TuningData): FighterState {
+  const pose = fighterPose(f, tuning);
+  const posed = { ...f, ...bladeAndLeg(pose) };
+  solvedPoses.set(posed, { tuning, pose });
+  return posed;
+}
+
+/**
+ * Each Fighter's solved Skeleton, by the very state object it was solved from (and the Tuning Data it was solved with).
+ * A FighterState is never changed in place, so the pose stays its own; a cache, not state: a miss (a restored snapshot,
+ * another Tick's Fighter) just solves again, to the same pose. Solved once a Tick instead of once for every Hit Zone
+ * test of every Attack, dagger and Kick against it, and every rendered frame.
+ */
+const solvedPoses = new WeakMap<FighterState, { readonly tuning: TuningData; readonly pose: SkeletonPose }>();
+
+function solveFighter(f: FighterState, standard: TuningData): SkeletonPose {
   const tuning = sizedTuning(standard, f.size);
   const moving = applyLook(applyCrouch(playbackTargets(tuning, f.weapon, f.motion), f.crouch, tuning), f.pitch, tuning);
   // A Knockdown holding a guard holds its hands as that Block does, on top of the lying body.

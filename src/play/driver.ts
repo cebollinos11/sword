@@ -7,7 +7,7 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { Size, TuningData } from '../tuning';
-import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -51,6 +51,7 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
+  prepareAi(tuning, match.duel);
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
   const pilot = autopilot ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;

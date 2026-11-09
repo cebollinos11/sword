@@ -1530,7 +1530,7 @@ class RuleAi implements AiController {
    * for the field's thousands of Walk Surfaces. A hand-built Battle map (Walls, no jump Links) is routed like any Arena.
    */
   private routeTo(state: SimState, self: FighterState, target: Waypoint): readonly number[] | null {
-    if (state.crowd && !battlefieldOf(this.tuning.battle, state.arena)?.heights.walk) {
+    if (!routesOnNavMesh(this.tuning, state)) {
       this.route = null;
       return null;
     }
@@ -2287,6 +2287,20 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
 }
 
 /** A rule-based AI Controller with the given difficulty, playing `style` (a Style from `tuning.ai.styles`, or explicit multipliers; default DEFAULT_STYLE). */
+/** Whether the AI routes over a navmesh in this Duel's Arena: everywhere but a Battle's open field (a Crowd and no Walls, `routeTo`). */
+function routesOnNavMesh(tuning: TuningData, state: SimState): boolean {
+  return !(state.crowd && !battlefieldOf(tuning.battle, state.arena)?.heights.walk);
+}
+
+/**
+ * Build what the AI would otherwise build the first time it needs a path in this Duel's Arena: its navmesh, which takes up to
+ * ~0.1 s on a hand-built Arena. Called as a Match starts, so it does not stall a frame mid-fight (online, every peer's, and its
+ * replies to the others with it). Nothing on a Battle's open field, where the AI never routes.
+ */
+export function prepareAi(tuning: TuningData, state: SimState): void {
+  if (routesOnNavMesh(tuning, state)) navMesh(arenaOf(tuning, state.arena), tuning);
+}
+
 export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): AiController {
   return new RuleAi(tuning, typeof difficulty === 'string' ? aiDifficulty(tuning, difficulty) : difficulty, typeof style === 'string' ? aiStyle(tuning, style) : style);
 }
