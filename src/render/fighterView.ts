@@ -282,7 +282,7 @@ function smearTexture(): THREE.Texture {
   // A fixed seed: every smear is the same picture (mirrored per mark).
   let seed = 7;
   const rand = (): number => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-  const shade = (): string => `rgb(${Math.round(150 + 105 * rand())},${Math.round(150 + 105 * rand())},${Math.round(150 + 105 * rand())})`;
+  const shade = (): string => `rgb(${Math.round(195 + 60 * rand())},${Math.round(195 + 60 * rand())},${Math.round(195 + 60 * rand())})`;
   const blob = (x: number, y: number, r: number): void => {
     g.fillStyle = shade();
     g.beginPath();
@@ -308,8 +308,8 @@ function smearTexture(): THREE.Texture {
 /** A view's blood material (its own, so its Fighter's dither fade reaches it; the texture is shared). */
 function bladeBloodMaterial(): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({
-    color: 0x7a0a0a,
-    emissive: 0x1e0000,
+    color: 0xc8141a,
+    emissive: 0x4a0000,
     map: smearTexture(),
     alphaTest: 0.5,
     side: THREE.DoubleSide,
