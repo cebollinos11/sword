@@ -9,6 +9,13 @@ the battlemaps glob), src/sim/levels.ts (walkCheck), src/sim/destinations.ts (ba
 (art/build_battle_cavern.py) and one shipped map (data/battlemaps/fort.json) to see what a compiled map
 must look like.
 
+Then read the code earlier Stages built: every file in src/mapEditor/ (from Stage 0: source.ts for the
+MapSource, the Brush kinds and parseMapSource; compile.ts for compileMap, MapCompileError and its
+.brushes, and mapFileText; sample.testdata.ts for the sample source; compile.test.ts). For a Stage with UI,
+also read how the Motion Editor is built and loaded: src/main.ts (the #/editor route, loaded on demand),
+src/editor/session.ts (EditorSession, the model for MapEditorSession), src/editor/save.ts (saveJsonFile)
+and the Editor's Tweakpane panels.
+
 1. Find the next Stage: the first unticked box under Progress in the plan. Do only that Stage. Read the
    previous Stage's "### Result" before you start.
 2. Keep the pure part (src/mapEditor/: source, compiler, checks, the editor session) free of three.js and
