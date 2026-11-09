@@ -49,6 +49,59 @@ export function bloodSpurts(duel: Pick<SimState, 'events' | 'fighters'>): BloodS
   return spurts;
 }
 
+/** Seconds a floor stain takes to splat out to its full size. */
+export const SPLAT_SECONDS = 0.14;
+/** A floor stain's size the moment it lands, as a share of its full size. */
+const SPLAT_FROM = 0.35;
+/** Seconds a wall stain takes to run down to its full length. */
+export const RUN_SECONDS = 1.6;
+
+/** How a just-laid stain is drawn `age` seconds after it landed, as multiples of its laid size. */
+export interface StainShape {
+  /** Width (along the surface, sideways). */
+  readonly width: number;
+  /** Height (on a wall: up the wall). */
+  readonly height: number;
+  /** How far its centre has slid down a wall (so its top edge stays put while it runs), in laid sizes. */
+  readonly drop: number;
+}
+
+/**
+ * A stain's shape `age` seconds after landing. On the floor it splats: it bursts out from small, overshooting a little,
+ * and settles at its laid size. On a Wall it runs: its top edge stays where the drop struck while gravity draws it down,
+ * `run` (a share of its size) longer at the end, fast at first and slowing.
+ */
+export function stainShape(onWall: boolean, age: number, run: number): StainShape {
+  if (!onWall) {
+    const u = Math.min(1, Math.max(0, age / SPLAT_SECONDS));
+    // Ease out with a small overshoot ("back"), so it reads as a splat rather than a grow.
+    const c = 1.6;
+    const e = 1 + (c + 1) * (u - 1) ** 3 + c * (u - 1) ** 2;
+    const s = SPLAT_FROM + (1 - SPLAT_FROM) * e;
+    return { width: s, height: s, drop: 0 };
+  }
+  const u = Math.min(1, Math.max(0, age / RUN_SECONDS));
+  const e = 1 - (1 - u) ** 3;
+  const height = 1 + run * e;
+  return { width: 1, height, drop: (height - 1) / 2 };
+}
+
+/** A stain still splatting or running: where it is and how, so each frame can redraw it. */
+interface Fresh {
+  readonly slot: number;
+  readonly born: number;
+  readonly onWall: boolean;
+  readonly run: number;
+  /** Signed: negative when mirrored. */
+  readonly width: number;
+  readonly size: number;
+  readonly at: THREE.Vector3;
+  readonly quat: THREE.Quaternion;
+}
+
+/** Most stains animating at once; past this a new one is laid at once at its final shape. */
+const MAX_FRESH = 256;
+
 /** Most droplets in flight at once (a spurt that finds the pool full is thinned or skipped, so a huge Battle cannot swamp the frame). */
 const MAX_DROPLETS = 512;
 /** Most stains kept: past this the oldest are overwritten. */
@@ -77,6 +130,7 @@ const DRIP_STAIN = 0.12;
 const BLOOD_COLOUR = new THREE.Color(0x8a0b0b);
 
 const FORWARD = new THREE.Vector3(0, 0, 1);
+const UP = new THREE.Vector3(0, 1, 0);
 
 /** What a droplet can strike: the Arena's floor and Walls, for the Arena the Duel is fought in. */
 interface World {
@@ -125,6 +179,8 @@ export class BloodEffects {
   private stained = 0;
   private nextStain = 0;
   private stainsDirty = false;
+  /** Stains still splatting or running. */
+  private fresh: Fresh[] = [];
   private world: World | null = null;
   private arenaName: string | null = null;
 
@@ -256,6 +312,7 @@ export class BloodEffects {
     this.stained = this.nextStain = 0;
     this.stains.count = 0;
     this.stainsDirty = false;
+    this.fresh.length = 0;
   }
 
   /** Advance the droplets by `seconds`, laying a stain where each strikes the environment. */
@@ -271,6 +328,13 @@ export class BloodEffects {
       this.points.geometry.setDrawRange(0, this.live);
       this.points.geometry.attributes.position!.needsUpdate = true;
       this.points.geometry.attributes.color!.needsUpdate = true;
+    }
+    if (this.fresh.length > 0) {
+      this.fresh = this.fresh.filter((f) => {
+        const age = this.clock - f.born;
+        this.place(f, age);
+        return age < (f.onWall ? RUN_SECONDS : SPLAT_SECONDS);
+      });
     }
     if (this.stainsDirty) {
       this.stains.instanceMatrix.needsUpdate = true;
@@ -364,6 +428,16 @@ export class BloodEffects {
     this.onSplatter({ x: point.x, y: point.y, z: point.z }, strength);
   }
 
+  /** Draw stain `f` as it is `age` seconds after landing. */
+  private place(f: Fresh, age: number): void {
+    const s = stainShape(f.onWall, age, f.run);
+    this.at.copy(f.at);
+    this.at.y -= s.drop * f.size;
+    this.size.set(f.width * s.width, f.size * s.height, 1);
+    this.stains.setMatrixAt(f.slot, this.matrix.compose(this.at, f.quat, this.size));
+    this.stainsDirty = true;
+  }
+
   /** Lay a stain `scale` times a spurt's size at (x, y, z) on a surface whose normal is (nx, ny, nz); most droplets leave one, every drip. */
   private stain(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number): void {
     if (scale >= 1 && Math.random() > STAIN_CHANCE) return;
@@ -371,15 +445,29 @@ export class BloodEffects {
     this.nextStain = (slot + 1) % MAX_STAINS;
     this.stained = Math.min(MAX_STAINS, this.stained + 1);
     this.stains.count = this.stained;
-    this.normal.set(nx, ny, nz);
-    this.quat.setFromUnitVectors(FORWARD, this.normal);
-    this.spin.setFromAxisAngle(this.normal, Math.random() * Math.PI * 2);
-    this.quat.premultiply(this.spin);
-    this.at.set(x + nx * LIFT, y + ny * LIFT, z + nz * LIFT);
+    const onWall = ny < 0.5;
+    if (onWall) {
+      // Upright on the Wall (its sprite's up is the world's), so it can run straight down.
+      this.quat.setFromAxisAngle(UP, Math.atan2(nx, nz));
+    } else {
+      this.normal.set(nx, ny, nz);
+      this.quat.setFromUnitVectors(FORWARD, this.normal);
+      this.spin.setFromAxisAngle(this.normal, Math.random() * Math.PI * 2);
+      this.quat.premultiply(this.spin);
+    }
     const size = STAIN_SIZE * scale * (0.3 + 0.7 * Math.random());
     // Mirrored half the time, so the one sprite does not repeat.
-    this.size.set(Math.random() < 0.5 ? -size : size, size, 1);
-    this.stains.setMatrixAt(slot, this.matrix.compose(this.at, this.quat, this.size));
+    const width = Math.random() < 0.5 ? -size : size;
+    const at = new THREE.Vector3(x + nx * LIFT, y + ny * LIFT, z + nz * LIFT);
+    const fresh: Fresh = { slot, born: this.clock, onWall, run: 0.4 + 0.8 * Math.random(), width, size, at, quat: this.quat.clone() };
+    // The slot may still be animating an older stain the ring buffer has just overwritten.
+    if (this.fresh.length > 0) this.fresh = this.fresh.filter((f) => f.slot !== slot);
+    if (this.fresh.length < MAX_FRESH) {
+      this.fresh.push(fresh);
+      this.place(fresh, 0);
+    } else {
+      this.place(fresh, Infinity);
+    }
     this.stains.setColorAt(slot, this.tint.copy(BLOOD_COLOUR).multiplyScalar(0.6 + 0.4 * Math.random()));
     this.stainsDirty = true;
   }
