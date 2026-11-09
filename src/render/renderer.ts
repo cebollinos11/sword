@@ -100,6 +100,11 @@ export class Renderer {
     this.daggers.onClatter = play && ((point) => play(point, this.arena));
   }
 
+  /** Called when a Hit's blood spray first strikes the floor or a Wall of Arena `arena`, at `point`, `strength` 0..1 (render-only, like a clatter). */
+  set onSplatter(play: ((point: Vec3, strength: number, arena: string) => void) | null) {
+    this.impacts.onSplatter = play && ((point, strength) => play(point, strength, this.arena));
+  }
+
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
   get camera(): THREE.PerspectiveCamera {
     return this.stage.camera;

@@ -72,3 +72,17 @@ They play pitched up and down in a Battle's Crowd din.
 | Files | Original |
 |---|---|
 | `shout-0`…`shout-5` | Recording (2)–(6), Recording |
+
+## Pixabay
+
+Supplied by the game's author as Pixabay downloads (named by their Pixabay
+uploader and sound ID), under the Pixabay Content License
+(https://pixabay.com/service/license-summary/): free to use, no credit
+required, credited here anyway. Mixed to mono, trimmed of leading and trailing
+silence and peak-normalised; nothing else was changed. They play when a Hit's
+blood spray strikes the floor or a Wall.
+
+| Files | Original | Uploader |
+|---|---|---|
+| `splatter-0` | blood-splatter-122253 | Universfield |
+| `splatter-1` | swing_blood_splatter-88039 | freesound_community |

@@ -22,6 +22,13 @@ describe('stockFor', () => {
     expect(stockFor(hit('Kick', 1))?.clip).toBe('heavy-hit');
   });
 
+  it("a strong Hit's blood splatters with the long clip, a light one's with the short, louder the stronger", () => {
+    const splat = (strength: number) => stockFor({ sound: 'Splatter', point: { x: 0, y: 0, z: 0 }, strength })!;
+    expect(splat(1)).toMatchObject({ clip: 'splatter', variant: 0 });
+    expect(splat(0.3)).toMatchObject({ clip: 'splatter', variant: 1 });
+    expect(splat(1).level).toBeGreaterThan(splat(0.3).level);
+  });
+
   it('cues with no fitting clip stay synthesised', () => {
     expect(stockFor({ sound: 'Feint', fighter: 0 })).toBeNull();
     expect(stockFor({ sound: 'Sheathe', fighter: 0, weight: 0 })).toBeNull();

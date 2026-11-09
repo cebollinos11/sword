@@ -229,6 +229,11 @@ export class ImpactEffects {
     for (const p of this.live.splice(0)) this.remove(p);
   }
 
+  /** Called when a Hit's blood spray first strikes the floor or a Wall: where, and how strong (0..1). */
+  set onSplatter(play: ((point: Vec3, strength: number) => void) | null) {
+    this.blood.onSplatter = play;
+  }
+
   /** Bloody Weapons, as drawn this frame (`poses`, by Fighter), drip now and then over `seconds`. */
   drip(poses: readonly (SkeletonPose | undefined)[], seconds: number): void {
     this.blades.drip(poses, seconds, (point, floorY) => this.blood.drip(point, floorY));

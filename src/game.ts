@@ -158,6 +158,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const renderer = new Renderer(container, tuning, arenaWorld);
   const audio = createBrowserAudio(tuning.audio);
   renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena), at: point });
+  renderer.onSplatter = (point, strength) => audio.playCue({ sound: 'Splatter', point, strength, at: point });
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
   const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;

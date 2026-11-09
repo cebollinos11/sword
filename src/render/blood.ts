@@ -68,6 +68,9 @@ const STAIN_SIZE = 3.55;
 const LIFT = 0.012;
 /** The share of landing droplets that leave a stain (the rest are too small to show). */
 const STAIN_CHANCE = 0.75;
+/** At most this many splatters are heard within `SPLATTER_WINDOW` seconds (a Battle's many Hits do not pile up into noise). */
+const MAX_SPLATTERS = 4;
+const SPLATTER_WINDOW = 0.5;
 /** A drip's stain, as a share of a spurt droplet's. */
 const DRIP_STAIN = 0.12;
 
@@ -106,6 +109,16 @@ export class BloodEffects {
   private readonly floor = new Float32Array(MAX_DROPLETS);
   /** Each droplet's stain size, as a share of a spurt's (a drip off a blade leaves a small one). */
   private readonly scale = new Float32Array(MAX_DROPLETS);
+  /** Each droplet's spurt (a serial), or -1 for a drip: the first droplet of a spurt to land splatters aloud. */
+  private readonly spurtOf = new Float64Array(MAX_DROPLETS);
+  /** Spurts not yet heard landing, by serial: their strength, and when they were sprayed (effect time). */
+  private readonly unheard = new Map<number, { readonly strength: number; readonly at: number }>();
+  private nextSpurt = 0;
+  /** Effect time, seconds, and when the latest splatters were heard (at most `MAX_SPLATTERS` within `SPLATTER_WINDOW`). */
+  private clock = 0;
+  private readonly heard: number[] = [];
+  /** Called when a spurt first strikes the floor or a Wall, where and how strong (0..1): its sound (none: silent). */
+  onSplatter: ((point: Vec3, strength: number) => void) | null = null;
   private live = 0;
   private readonly points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
   private readonly stains: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -168,6 +181,8 @@ export class BloodEffects {
   /** Spray `spurt`: droplets fan out away from the attacker, up and down, with a spread. */
   spurt(spurt: BloodSpurt): void {
     const n = Math.round(DROPLETS * (0.4 + 0.6 * spurt.strength));
+    const serial = this.nextSpurt++;
+    if (this.live < MAX_DROPLETS) this.unheard.set(serial, { strength: spurt.strength, at: this.clock });
     for (let k = 0; k < n && this.live < MAX_DROPLETS; k++) {
       const i = this.live++;
       const speed = SPEED * (0.35 + 0.65 * spurt.strength) * (0.35 + 0.65 * Math.random());
@@ -185,6 +200,7 @@ export class BloodEffects {
       this.life[i] = DROPLET_LIFE;
       this.floor[i] = spurt.floorY;
       this.scale[i] = 1;
+      this.spurtOf[i] = serial;
       const shade = 0.55 + 0.45 * Math.random();
       this.col[i * 3] = BLOOD_COLOUR.r * shade;
       this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
@@ -203,6 +219,7 @@ export class BloodEffects {
     this.life[i] = DROPLET_LIFE;
     this.floor[i] = floorY;
     this.scale[i] = DRIP_STAIN;
+    this.spurtOf[i] = -1;
     const shade = 0.5 + 0.3 * Math.random();
     this.col[i * 3] = BLOOD_COLOUR.r * shade;
     this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
@@ -226,6 +243,7 @@ export class BloodEffects {
   /** The loop jumped: what is flying is gone. Rewinding (to an earlier Tick) also washes the stains, which the replay lays down again. */
   seek(rewound: boolean): void {
     this.live = 0;
+    this.unheard.clear();
     this.points.geometry.setDrawRange(0, 0);
     if (rewound) this.clearStains();
   }
@@ -243,10 +261,13 @@ export class BloodEffects {
   /** Advance the droplets by `seconds`, laying a stain where each strikes the environment. */
   update(seconds: number): void {
     const dt = Math.min(0.1, Math.max(0, seconds));
+    this.clock += dt;
     if (dt > 0) {
       for (let i = this.live - 1; i >= 0; i--) {
         if (this.advance(i, dt)) this.drop(i);
       }
+      // A spurt whose droplets are all gone without landing (over a pit, or timed out) is never heard.
+      for (const [serial, s] of this.unheard) if (this.clock - s.at > DROPLET_LIFE) this.unheard.delete(serial);
       this.points.geometry.setDrawRange(0, this.live);
       this.points.geometry.attributes.position!.needsUpdate = true;
       this.points.geometry.attributes.color!.needsUpdate = true;
@@ -281,6 +302,7 @@ export class BloodEffects {
       // The face the droplet came from.
       if (this.normal.x * (from.x - wall.point.x) + this.normal.z * (from.z - wall.point.z) < 0) this.normal.negate();
       this.stain(wall.point.x, wall.point.y, wall.point.z, this.normal.x, 0, this.normal.z, this.scale[i]!);
+      this.splatter(i, wall.point);
       return true;
     }
     const floor = this.floorAt(to.x, to.z, from.y + 0.3, this.floor[i]!);
@@ -293,7 +315,11 @@ export class BloodEffects {
     }
     if (to.y <= floor) {
       const deadly = world && !world.field ? deadlyGround(world.arena, to.x, to.z, floor) : null;
-      if (!deadly) this.stain(to.x, floor, to.z, 0, 1, 0, this.scale[i]!);
+      if (!deadly) {
+        this.stain(to.x, floor, to.z, 0, 1, 0, this.scale[i]!);
+        to.y = floor;
+        this.splatter(i, to);
+      }
       return true;
     }
     p[i * 3] = to.x;
@@ -322,6 +348,20 @@ export class BloodEffects {
     this.life[i] = this.life[last]!;
     this.floor[i] = this.floor[last]!;
     this.scale[i] = this.scale[last]!;
+    this.spurtOf[i] = this.spurtOf[last]!;
+  }
+
+  /** Droplet `i` struck the floor or a Wall at `point`: the first of its spurt to do so is heard there (unless too many were just now). */
+  private splatter(i: number, point: Vec3): void {
+    const serial = this.spurtOf[i]!;
+    const strength = this.unheard.get(serial)?.strength;
+    if (strength === undefined) return;
+    this.unheard.delete(serial);
+    if (!this.onSplatter) return;
+    while (this.heard.length > 0 && this.clock - this.heard[0]! > SPLATTER_WINDOW) this.heard.shift();
+    if (this.heard.length >= MAX_SPLATTERS) return;
+    this.heard.push(this.clock);
+    this.onSplatter({ x: point.x, y: point.y, z: point.z }, strength);
   }
 
   /** Lay a stain `scale` times a spurt's size at (x, y, z) on a surface whose normal is (nx, ny, nz); most droplets leave one, every drip. */
