@@ -369,7 +369,7 @@ function entrySide(b: WallBlock, radius: number, fx: number, fz: number, x: numb
 }
 
 /** The four Walls round a block, each solid from below the floor to the block's top. */
-function blockWalls(b: WallBlock): WallSegment[] {
+export function blockWalls(b: WallBlock): WallSegment[] {
   const corners = [
     { x: b.minX, z: b.minZ },
     { x: b.maxX, z: b.minZ },

@@ -455,7 +455,7 @@ function fieldPoint(v: unknown, where: string, size: number, edge = false): { x:
  * A Battle map (`BattleMapTuning`), checked against the Battle's field and army layout: its floor reaches every side of the field's square,
  * its blocks stand inside it, its Objectives and Bases lie inside it, and its armies deploy inside it at its most. Accepts its own output.
  */
-function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'field' | 'deploy' | 'squad'>): BattleMapTuning {
+export function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning, 'field' | 'deploy' | 'squad'>): BattleMapTuning {
   const m = record(raw, where);
   const size = b.field.size;
   const arena = parseArena({ name: m.name, walk: m.walk, walls: m.walls ?? [] }, where);

@@ -60,7 +60,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
+export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -866,8 +866,8 @@ const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', {
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
 /** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
-/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path. */
-const battleMapFiles = import.meta.glob<unknown>('../../data/battlemaps/*.json', { eager: true, import: 'default' });
+/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path: not the Map Sources beside them (`<map>.source.json`, the Map Editor's, not Tuning Data). */
+const battleMapFiles = import.meta.glob<unknown>(['../../data/battlemaps/*.json', '!../../data/battlemaps/*.source.json'], { eager: true, import: 'default' });
 /** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
 const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 

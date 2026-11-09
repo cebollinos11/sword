@@ -410,6 +410,18 @@ _Avoid_: Tile, prefab, module
 The Pieces a seed places on the grid (each with its cell, level and quarter turn), before they are assembled into an Arena. The same Kit, seed and settings always give the same Layout.
 _Avoid_: Map (the Lobby's pick of Arena), level
 
+**Map Source**:
+The editable description of a Battle map (docs/plans/map-editor.md): its Brushes in paint order on a grid (every coordinate a whole number of `grid.step`), the heights they stand at (`levels`), its Objectives, Bases, `front`, army size and Tickets, and a Lobby card, saved as `data/battlemaps/<map>.source.json` beside the map it compiles to (`src/mapEditor/source.ts`). Not Tuning Data: never loaded by `loadTuningData` nor hashed; only the compiled map ships.
+_Avoid_: Level file, project
+
+**Brush**:
+One shape of a Map Source: a **Floor** (floor at a height), a **Deck** (a raised floor; the floor under it stays), a **Platform** (a solid box: its top is floor, the floor under it is cut out, Walls face it), a **Ramp** (sloped from `lo` to `hi`, the floor under its wedge cut out, a rail or a stepped skirt on each long side), a **Hole** (takes away what the Brushes before it laid at one level; at a Platform's top, the Platform there), a **Hazard** (lava, water or abyss at a height), a **Rail** or **Wall** (a segment) or a **Block** (the one-level box of a map's `blocks`, never under a Deck). A later Brush paints over an earlier one, but a Ramp's wedge and a Block cut out the floor under them whatever the order. Its id (letters, digits and `-`) names what it compiles to.
+_Avoid_: Piece (that is a Kit's), prefab
+
+**Map Compiler**:
+The pure function from a Map Source to an ordinary Battle map (`compileMap`, `src/mapEditor/compile.ts`): it paints the Brushes on the fine grid one level at a time, merges each Brush's floor into rectangles (`WALK_<brush>_<n>`), stands the Walls the generators would (the field's edges, a face wherever the ground beside a floor is higher than a step, owned by the higher Brush, `WALL_<brush>_<side><n>`, each Ramp's rails or skirt), and passes the result through the game's own `parseBattleMap` and `walkCheck`, so it never gives a map the game refuses; an error names the Brushes it concerns. The same source always compiles to the same bytes.
+_Avoid_: Exporter, baker
+
 **Jump**:
 A Fighter standing on the ground, Idle or Blocking, leaping up (Space, or the Jump pad), carrying its walk with it, at its drawn walk speed even when Sheathed (ADR 0017). It Falls until it lands. A tap is a small hop; holding Jump past `fall.jumpBoostDelay` keeps boosting it upward (`fall.jumpBoost`) for up to `fall.jumpBoostTime`, and letting go ends the boost for that Jump. A Jump's Landing deals no fall damage and never Staggers, however deep the drop (only deadly ground, such as an Abyss, kills it), unless the Fighter was knocked down in the air (ADR 0012). How high and far a Jump reaches: `docs/jump-reach.md`.
 
