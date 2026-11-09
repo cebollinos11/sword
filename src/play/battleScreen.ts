@@ -33,7 +33,7 @@ import { soldierAt } from '../render/impostor';
 import { deathTint, flightCamera, flybyCamera, FLIGHT_SECONDS, TakeoverMark } from '../render/takeoverView';
 import { LoadingBar, nextPaint } from './loadingBar';
 import { battleFocus } from './battleSpectator';
-import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, takeoverCountdown, ARMY_NAMES, type BattleResult } from './battleHud';
+import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, takeoverCountdown, troopCards, troopKey, ARMY_NAMES, type BattleResult } from './battleHud';
 
 /** The spectator camera, once the Player is out: this far back and up from the battle's middle. */
 const SPECTATOR = { orbitDistance: 34, orbitHeight: 22, lookHeight: 0 };
@@ -106,8 +106,14 @@ export class BattleScreen {
   private down = 0;
   private time = 0;
   private tint = '';
+  /** The latest Tick presented and the Player's slot in it: what a Troop key chooses against. */
+  private shown: { duel: SimState; me: number } | null = null;
   private readonly onKey = (e: KeyboardEvent) => {
-    if (e.code === 'KeyN' && !e.repeat) this.hud.toggleMap();
+    if (e.repeat) return;
+    if (e.code === 'KeyN') this.hud.toggleMap();
+    const troop = troopKey(e.code, this.tuning.battle.troops.length);
+    // A number key while the Player lies fallen and may still choose: the Troop it comes back as.
+    if (troop !== undefined && this.shown && troopCards(this.shown.duel, this.shown.me, this.tuning.battle)) this.local.askTroop(troop);
   };
 
   constructor(
@@ -126,6 +132,7 @@ export class BattleScreen {
   ) {
     renderer.scene.add(this.mark.root);
     this.hud = new BattleHud(container, tuning.battle);
+    this.hud.onTroop = (troop) => this.local.askTroop(troop);
     this.tags = new PlayerTags(container, tuning.battle.soldier.colours, names);
     addEventListener('keydown', this.onKey);
     const loading = existing ?? new LoadingBar(container, 'Mustering the armies');
@@ -157,6 +164,7 @@ export class BattleScreen {
     const duel = match.duel;
     const crowd = duel.crowd;
     if (!crowd || !duel.fighters[me]) return null;
+    this.shown = { duel, me };
     // Turned the way its Fighter faces to begin with: a Team 1 Player starts looking along -z.
     if (!this.started) {
       this.started = true;

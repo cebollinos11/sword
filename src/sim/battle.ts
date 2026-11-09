@@ -76,7 +76,7 @@ function chargeDeaths(crowd: CrowdState, prev: CrowdState, bubbled: CrowdState, 
 export function stepBattle(match: MatchState, intents: readonly Intent[], tuning: TuningData, tick: number): MatchState {
   const events: MatchEvent[] = [];
   const players = match.config.teams.length;
-  const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning);
+  const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning, intents);
   let duel = step(bubbled, intents, tuning);
   const before = chargeDeaths(duel.crowd!, match.duel.crowd!, bubbled.crowd!, duel.events, duel.fighters.map((f) => f.team), players);
   // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead (none for one who left).

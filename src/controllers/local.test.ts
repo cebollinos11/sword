@@ -7,6 +7,16 @@ function next(local: LocalController) {
 }
 
 describe('Local Controller', () => {
+  it('sends a chosen Troop (or -1) on the next Intent only', () => {
+    const local = new LocalController();
+    expect(local.sample().troop).toBeUndefined();
+    local.askTroop(2);
+    expect(local.sample().troop).toBe(2);
+    expect(local.sample().troop).toBeUndefined();
+    local.askTroop(-1);
+    expect(local.sample().troop).toBe(-1);
+  });
+
   it('defaults to an Overhead Attack when the mouse has never moved', () => {
     const local = new LocalController();
     local.buttonDown('attack');

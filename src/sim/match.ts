@@ -534,7 +534,13 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (teams.length > poolSize) throw new RangeError(`A Battle's Fighter Pool holds ${poolSize} Fighters, got ${teams.length} Players`);
   const players = initialDuel(tuning, config, arena, seed);
   const unbound = unboundSlot(tuning, arena);
-  const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: createCrowd(tuning.battle, seed, teams.length, arena) };
+  const crowd = createCrowd(tuning.battle, seed, teams.length, arena);
+  // Each Player comes back after a fall, to begin with, as the Troop that wields the Weapon it chose (none if no Troop does): `BattlePlayer.troop`.
+  const chosen = crowd.players.map((record, i) => {
+    const troop = tuning.battle.troops.findIndex((t) => t.weapon === config.weapons[i]);
+    return troop < 0 ? record : { ...record, troop };
+  });
+  const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: { ...crowd, players: chosen } };
   return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }], run: null };
 }
 

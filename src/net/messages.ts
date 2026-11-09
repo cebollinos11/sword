@@ -3,7 +3,7 @@ import { MAX_PLAYERS, type Lineup } from '../controllers';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -235,7 +235,7 @@ const isSlot = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_INVENTORY_
 const isInventoryRef = (v: unknown): boolean => isObject(v) && (v.kind === 'weapon' || v.kind === 'relic') && isSlot(v.slot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop)) && (v.troop === undefined || isInt(v.troop));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
@@ -435,7 +435,7 @@ const isSizePart = (x: unknown): boolean => isNum(x) && isSize({ height: x, thic
 const CROWD_NUMBERS = ['x', 'z', 'vx', 'vz', 'heading', 'hp'] as const;
 const isBit = (v: unknown): boolean => v === 0 || v === 1;
 
-/** A Battle's Player record: the Soldier it took over (or -1), its takeovers and kills, its corpse's Pool slot (or -1), and whether it left. */
+/** A Battle's Player record: the Soldier it took over (or -1), its takeovers and kills, its corpse's Pool slot (or -1), the Troop it chose to come back as, and whether it left. */
 const isBattlePlayer = (v: unknown, soldiers: number, slots: number): boolean =>
   isObject(v) &&
   isInt(v.soldier) &&
@@ -446,6 +446,7 @@ const isBattlePlayer = (v: unknown, soldiers: number, slots: number): boolean =>
   isInt(v.corpse) &&
   v.corpse >= -1 &&
   v.corpse < slots &&
+  (v.troop === undefined || (isInt(v.troop) && v.troop >= 0 && v.troop < MAX_TROOPS)) &&
   (v.away === undefined || v.away === true);
 
 /** The most Walk Surfaces a Battle map may have: a Soldier's and an anchor's `surface` is one of them, or -1 on the open field (the session checks the map's own count). */
