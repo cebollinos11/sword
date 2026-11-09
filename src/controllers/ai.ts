@@ -419,6 +419,10 @@ const DEFEND_LEVEL = 1.0;
 const SAFETY_PROBE = 0.8;
 /** ...and this far (m) to either side of where it looks. */
 const SAFETY_MARGIN = 0.1;
+/** Within this far (m) of the edge of the drop Link its route takes next, a walk holds while a Fighter is settling below (`holdForLanding`). */
+const DROP_HOLD_AT = 1.2;
+/** A Fighter in the air or Staggered below a drop Link, this near (m) its edge, is where a Fighter dropping would land on it. */
+const LANDING_CLEAR = 1.6;
 /** Its own Wind-up Releasing at least this many Ticks before an attacker's is clearly ahead (`pressAhead`): it swings on. */
 const PRESS_AHEAD_LEAD = 10;
 /** A Thrust reaches this much (m) further than a swing. */
@@ -937,7 +941,31 @@ class RuleAi implements AiController {
     }
     const way = this.approach(state, self, { position: { x: to.x, z: to.z }, y: to.y, airborne: false });
     const move = this.jumpRun || shove ? way.move : this.sidestep(state, self, fighter, way.move);
-    return this.flying(state, self, { ...IDLE_INTENT, ...way, move, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
+    const held = this.holdForLanding(state, self, fighter, move);
+    return this.flying(state, self, { ...IDLE_INTENT, ...way, move: held, face: move.x === 0 && move.z === 0 ? null : Math.atan2(move.x, move.z) });
+  }
+
+  /**
+   * Standing still instead of `move` while it is at the edge of the drop Link its route takes next and a Fighter still settling on the
+   * ground below it (in the air, or Staggered by its own Landing) is close to where it would land: a body dropping onto another
+   * pushes it hard, and a team funnelled down a ledge too small for two lands on the one before it and shoves it off the ground
+   * (into an Abyss, from a pad of a Hall's far side). It goes on once they have cleared the landing.
+   */
+  private holdForLanding(state: SimState, self: FighterState, fighter: number, move: Vec2): Vec2 {
+    const link = this.route?.links?.[0];
+    if (link === undefined || self.air || (move.x === 0 && move.z === 0)) return move;
+    const l = navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[link]!;
+    if (l.kind !== 'drop') return move;
+    const toEdge = (p: Vec2): number => {
+      const e = { x: l.right.x - l.left.x, z: l.right.z - l.left.z };
+      const t = Math.max(0, Math.min(1, ((p.x - l.left.x) * e.x + (p.z - l.left.z) * e.z) / (e.x * e.x + e.z * e.z || 1)));
+      return Math.hypot(l.left.x + e.x * t - p.x, l.left.z + e.z * t - p.z);
+    };
+    if (toEdge(self.position) > DROP_HOLD_AT) return move;
+    const settling = state.fighters.some(
+      (o, i) => i !== fighter && inDuel(o) && o.y < self.y - this.tuning.fall.stepUp && (o.air !== undefined || o.action.kind === 'Stagger') && toEdge(o.position) <= LANDING_CLEAR,
+    );
+    return settling ? ZERO : move;
   }
 
   /**

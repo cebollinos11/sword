@@ -325,7 +325,7 @@ describe('Dungeon Run: the end', { timeout: 60_000 }, () => {
     // Three Hard AI allies (a Player among them) against one Beginner a Hall: they walk to the Door themselves only with the
     // Hall AI, so here each cleared Hall's party is put in the Door's zone.
     const lineup: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, ...[0, 0].map(() => ({ team: 0, pilot: { kind: 'AI', difficulty: 'Hard' } }) as const), ...[1, 1, 1, 1].map(() => ({ team: 1, pilot: { kind: 'AI', difficulty: 'Floor' } }) as const)];
-    let m = createMatch(t, lineupMatch(t, lineup, ['Arming Sword'], { format: 'Gauntlet', bestOf: 1, seed: 5, arena: ARENA }));
+    let m = createMatch(t, lineupMatch(t, lineup, ['Arming Sword'], { format: 'Gauntlet', bestOf: 1, seed: 6, arena: ARENA }));
     const ais = lineupAis(t, lineup, 'Gauntlet', { arena: ARENA });
     const hp: number[][] = [];
     for (let k = 0; k < 40_000 && m.status.status === 'InProgress'; k++) {
