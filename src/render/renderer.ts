@@ -100,6 +100,11 @@ export class Renderer {
     this.daggers.onClatter = play && ((point) => play(point, this.arena));
   }
 
+  /** Called when a Hit's blood spray first strikes the floor or a Wall of Arena `arena`, at `point`, `strength` 0..1 (render-only, like a clatter). */
+  set onSplatter(play: ((point: Vec3, strength: number, arena: string) => void) | null) {
+    this.impacts.onSplatter = play && ((point, strength) => play(point, strength, this.arena));
+  }
+
   /** The game camera (the game loop places it, e.g. behind the local Fighter). */
   get camera(): THREE.PerspectiveCamera {
     return this.stage.camera;
@@ -209,6 +214,7 @@ export class Renderer {
       }
       slot.view.root.visible = true;
       slot.view.setFade(fade);
+      slot.view.setBlood(this.impacts.blades.marksOf(i));
       slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
@@ -222,6 +228,7 @@ export class Renderer {
     this.hallMarks.animate(seconds);
     this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
+    this.impacts.drip(poses, seconds);
     this.impacts.update(seconds);
     this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
     this.lastDraw = now;
