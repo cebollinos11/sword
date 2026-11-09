@@ -1,5 +1,11 @@
 import type { LocalController } from '../controllers';
 
+/**
+ * Wheel events closer together than this (ms) belong to one scroll: only its first event, or one turning the other
+ * way, is a notch. A trackpad or a free-spinning wheel sends a stream of events for one flick, and that is one Wheel Attack.
+ */
+export const WHEEL_SCROLL_GAP_MS = 150;
+
 export interface LocalInputBinding {
   /** Feed events to the Controller only while true (the menu is closed). */
   enabled: boolean;
@@ -9,8 +15,8 @@ export interface LocalInputBinding {
 /**
  * Feeds browser mouse/key events to a Local Controller. Left mouse = attack,
  * right mouse = block, mouse movement = gesture + camera turn (pointer lock is
- * requested on the first click so the mouse never leaves the window), WASD
- * walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C or Left Ctrl = crouch (held). Losing focus lets go of everything.
+ * requested on the first click so the mouse never leaves the window), mouse wheel up / down
+ * = queue a quick Overhead / Thrust Attack, WASD walk, Q = Attack Feint, Space = Jump, F = Kick, E = throw a dagger (held: hold it back, let go to throw), C or Left Ctrl = crouch (held). Losing focus lets go of everything.
  */
 export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement): LocalInputBinding {
   const binding: LocalInputBinding = { enabled: false, dispose };
@@ -68,6 +74,18 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
     else keyboard.unlock();
   };
   const onContextMenu = (e: Event) => e.preventDefault();
+  let lastWheel = { at: -Infinity, sign: 0 };
+  const onWheel = (e: WheelEvent) => {
+    if (!binding.enabled) return;
+    // Never scroll or zoom the page while playing.
+    e.preventDefault();
+    const sign = Math.sign(e.deltaY);
+    if (sign === 0) return;
+    const scroll = { at: e.timeStamp, sign };
+    const sameScroll = scroll.at - lastWheel.at < WHEEL_SCROLL_GAP_MS && sign === lastWheel.sign;
+    lastWheel = scroll;
+    if (!sameScroll) local.wheel(sign < 0 ? 'Overhead' : 'Thrust');
+  };
 
   canvas.addEventListener('mousedown', onMouseDown);
   window.addEventListener('mouseup', onMouseUp);
@@ -76,6 +94,7 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
   window.addEventListener('keyup', onKeyUp);
   window.addEventListener('blur', onBlur);
   canvas.addEventListener('contextmenu', onContextMenu);
+  canvas.addEventListener('wheel', onWheel, { passive: false });
   window.addEventListener('beforeunload', onBeforeUnload);
   document.addEventListener('fullscreenchange', syncKeyboardLock);
   syncKeyboardLock();
@@ -88,6 +107,7 @@ export function bindLocalInput(local: LocalController, canvas: HTMLCanvasElement
     window.removeEventListener('keyup', onKeyUp);
     window.removeEventListener('blur', onBlur);
     canvas.removeEventListener('contextmenu', onContextMenu);
+    canvas.removeEventListener('wheel', onWheel);
     window.removeEventListener('beforeunload', onBeforeUnload);
     document.removeEventListener('fullscreenchange', syncKeyboardLock);
   }

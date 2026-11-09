@@ -83,7 +83,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
   const tickMs: number[] = [];
   /** One Tick: every Controller decides, the Match steps. */
   const tick = () => {
-    pending = local.sample();
+    pending = local.sample(match.duel.fighters[0]);
     const t0 = performance.now();
     const intents = controllers.map((c, i) => c.intent(match.duel, i));
     prev = match.duel;
