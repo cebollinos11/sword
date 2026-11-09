@@ -4,8 +4,9 @@
  * events (ADR 0001); which burst or puff each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
-import type { SimState, Vec3 } from '../sim';
+import type { SimState, SkeletonPose, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
+import { BladeBlood } from './bladeBlood';
 import { BloodEffects, bloodSpurts } from './blood';
 
 /** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
@@ -195,6 +196,8 @@ export class ImpactEffects {
   private readonly box = new THREE.BoxGeometry(1, 1, 1);
   private readonly sphere = new THREE.SphereGeometry(1, 8, 6);
   private readonly blood: BloodEffects;
+  /** The blood on each Fighter's Weapon (the Renderer draws it on the Weapon). */
+  readonly blades: BladeBlood;
   private lastTick = -Infinity;
   /** Effect time, seconds. */
   private clock = 0;
@@ -205,13 +208,15 @@ export class ImpactEffects {
   ) {
     scene.add(this.root);
     this.blood = new BloodEffects(scene, tuning);
+    this.blades = new BladeBlood(tuning);
   }
 
-  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters'> & Partial<Pick<SimState, 'arena'>>): void {
+  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters' | 'tick'> & Partial<Pick<SimState, 'arena'>>): void {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
     this.blood.setArena(duel.arena);
     for (const s of bloodSpurts(duel)) this.blood.spurt(s);
+    this.blades.onTick(tick, duel);
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
@@ -219,8 +224,14 @@ export class ImpactEffects {
   /** The loop jumped to `tick`: clear what is flying (and, if it went back in time, the bloodstains); Ticks after it will burst. */
   seek(tick: number): void {
     this.blood.seek(tick < this.lastTick);
+    this.blades.seek(tick);
     this.lastTick = tick;
     for (const p of this.live.splice(0)) this.remove(p);
+  }
+
+  /** Bloody Weapons, as drawn this frame (`poses`, by Fighter), drip now and then over `seconds`. */
+  drip(poses: readonly (SkeletonPose | undefined)[], seconds: number): void {
+    this.blades.drip(poses, seconds, (point, floorY) => this.blood.drip(point, floorY));
   }
 
   /** Advance the particles by `seconds`. */

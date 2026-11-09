@@ -5,6 +5,7 @@ import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyMod
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
+import { MAX_MARKS, type BladeMark } from './bladeBlood';
 import { setDitherFade } from './dither';
 
 export const FIGHTER_COLOURS = [0xf1c40f, 0x2e86c1];
@@ -58,6 +59,12 @@ export class FighterView {
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  /** Blood on the Weapon (`setBlood`): one mesh per mark, made as needed, sharing `bloodMaterial`. */
+  private readonly bloodMeshes: THREE.Mesh[] = [];
+  /** Made with the first mark (so a view that never bloodies draws no smear texture). */
+  private bloodMaterial: THREE.MeshLambertMaterial | undefined;
+  private readonly shapes: { readonly box: THREE.BufferGeometry; readonly point: THREE.BufferGeometry; readonly cone: THREE.BufferGeometry };
+  private blood: readonly BladeMark[] = [];
   /** The geometries and materials the primitives share (made in the constructor). */
   private readonly owned: { dispose(): void }[] = [];
   private disposed = false;
@@ -75,6 +82,7 @@ export class FighterView {
     const cone = new THREE.ConeGeometry(1, 1, 8);
     // A four-sided pyramid whose base is the unit box's end face, so a sword's point meets its blade flush.
     const point = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1, false, Math.PI / 4);
+    this.shapes = { box, point, cone };
     this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone, point);
 
     for (const [a, b] of BONES) {
@@ -145,6 +153,11 @@ export class FighterView {
     });
   }
 
+  /** The blood on its Weapon (`BladeBlood`), drawn from the next `update` on: none, a clean Weapon. */
+  setBlood(marks: readonly BladeMark[]): void {
+    this.blood = marks;
+  }
+
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
   set bodyVisible(on: boolean) {
     this.skeleton.visible = on && !this.model;
@@ -178,7 +191,133 @@ export class FighterView {
     if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
     else placeSword(this.sword, pose.blade, weapon);
+    this.placeBlood(pose.blade, weapon);
   }
+
+  /** Lay each blood mark on the striking part nearest where it struck. */
+  private placeBlood(b: BladeTransform, w: WeaponTuning): void {
+    const marks = this.blood;
+    const n = Math.min(marks.length, MAX_MARKS);
+    if (n > 0 && !this.bloodMaterial) {
+      this.bloodMaterial = bladeBloodMaterial();
+      this.owned.push(this.bloodMaterial);
+      // Faded with the rest of the view, if it is fading.
+      if (this.root.userData.fade !== undefined) setDitherFade(this.root, (this.root.userData.fade as { value: number }).value);
+    }
+    while (this.bloodMeshes.length < n) {
+      const mesh = new THREE.Mesh(this.shapes.box, this.bloodMaterial);
+      this.bloodMeshes.push(mesh);
+      this.root.add(mesh);
+    }
+    for (let k = 0; k < this.bloodMeshes.length; k++) this.bloodMeshes[k]!.visible = k < n;
+    if (n === 0) return;
+    const len = weaponFrame(b);
+    for (let k = 0; k < n; k++) {
+      const m = marks[k]!;
+      const mesh = this.bloodMeshes[k]!;
+      // Each a hair proud of the last, so overlapping marks do not fight.
+      const proud = 1.06 + k * 0.012;
+      const at = m.t * len;
+      // Mirrored by its look, so the one smear does not repeat.
+      const flipX = m.look < 0.5 ? -1 : 1;
+      const flipY = (m.look * 4) % 1 < 0.5 ? -1 : 1;
+      if (w.look === 'hammer') {
+        const head = Math.max(w.head, 0.05);
+        const l = head * (0.45 + 0.55 * m.strength);
+        mesh.geometry = this.shapes.box;
+        placeInFrame(mesh, clampCentre(at, len - head, len, l), 0, [head * 0.85 * proud * flipX, l * flipY, head * 2.4 * 1.02]);
+      } else if (w.look === 'polearm') {
+        const spike = Math.min(0.18, w.head * 0.5);
+        const axe = Math.max(w.head - spike, 0.05) * 0.8;
+        if (at > len - spike) {
+          mesh.geometry = this.shapes.cone;
+          placeInFrame(mesh, len - spike / 2, 0, [0.02 * proud * flipX, spike * 1.02, 0.02 * proud]);
+        } else {
+          const l = Math.min(axe, markLength(m));
+          const axeStart = len - spike - axe;
+          mesh.geometry = this.shapes.box;
+          placeInFrame(mesh, clampCentre(at, axeStart, axeStart + axe, l), 0.09, [0.01 * proud * flipX, l * flipY, 0.16 * 1.02]);
+        }
+      } else {
+        const reach = Math.max(len - GUARD, 0.01);
+        const point = Math.min(SWORD_POINT, reach * 0.5);
+        const blade = reach - point;
+        if (at > GUARD + blade + point * 0.4) {
+          mesh.geometry = this.shapes.point;
+          placeInFrame(mesh, GUARD + blade + point / 2, 0, [0.012 * proud * flipX, point * 1.01, 0.045 * 1.02]);
+        } else {
+          const l = Math.min(blade, markLength(m));
+          mesh.geometry = this.shapes.box;
+          placeInFrame(mesh, clampCentre(at, GUARD, GUARD + blade, l), 0, [0.012 * proud * flipX, l * flipY, 0.045 * 1.02]);
+        }
+      }
+    }
+  }
+}
+
+/** How long a blood mark runs along a blade (m): longer the bloodier, and varied by its look. */
+const markLength = (m: BladeMark): number => (0.08 + 0.14 * m.strength) * (0.75 + 0.5 * m.look);
+
+/** The centre nearest `at` for a mark `length` long that stays within [from, to] (centred on it if it is longer). */
+function clampCentre(at: number, from: number, to: number, length: number): number {
+  if (length >= to - from) return (from + to) / 2;
+  return Math.min(to - length / 2, Math.max(from + length / 2, at));
+}
+
+/** The smear drawn on a bloody Weapon: made once, shared by every view's blood material. */
+let smear: THREE.Texture | undefined;
+
+/**
+ * A blade's blood smear, greyscale with ragged alpha (the material tints it): a smeared patch across the whole width (it is
+ * mapped across the blade's face, so nothing pokes past the edges), runs streaking from it towards one end, and flecks.
+ */
+function smearTexture(): THREE.Texture {
+  if (smear) return smear;
+  const W = 64;
+  const H = 256;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d')!;
+  // A fixed seed: every smear is the same picture (mirrored per mark).
+  let seed = 7;
+  const rand = (): number => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const shade = (): string => `rgb(${Math.round(150 + 105 * rand())},${Math.round(150 + 105 * rand())},${Math.round(150 + 105 * rand())})`;
+  const blob = (x: number, y: number, r: number): void => {
+    g.fillStyle = shade();
+    g.beginPath();
+    g.arc(x, y, r, 0, Math.PI * 2);
+    g.fill();
+  };
+  for (let k = 0; k < 70; k++) blob(rand() * W, 70 + rand() * 120, 6 + rand() * 14);
+  for (let k = 0; k < 7; k++) {
+    // A run, thinning as it goes.
+    const x = 4 + rand() * (W - 8);
+    const from = 120 + rand() * 60;
+    const to = Math.min(H - 4, from + 40 + rand() * 80);
+    const width = 2 + rand() * 4;
+    for (let y = from; y < to; y += 2) blob(x + Math.sin(y * 0.05) * 1.5, y, (width * (to - y)) / (to - from) + 0.8);
+  }
+  for (let k = 0; k < 40; k++) blob(rand() * W, 20 + rand() * (H - 40), 1 + rand() * 2.5);
+  smear = new THREE.CanvasTexture(c);
+  smear.colorSpace = THREE.SRGBColorSpace;
+  smear.anisotropy = 4;
+  return smear;
+}
+
+/** A view's blood material (its own, so its Fighter's dither fade reaches it; the texture is shared). */
+function bladeBloodMaterial(): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({
+    color: 0x7a0a0a,
+    emissive: 0x1e0000,
+    map: smearTexture(),
+    alphaTest: 0.5,
+    side: THREE.DoubleSide,
+    flatShading: true,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+  });
 }
 
 interface SwordMeshes {

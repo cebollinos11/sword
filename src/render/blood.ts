@@ -68,6 +68,8 @@ const STAIN_SIZE = 3.55;
 const LIFT = 0.012;
 /** The share of landing droplets that leave a stain (the rest are too small to show). */
 const STAIN_CHANCE = 0.75;
+/** A drip's stain, as a share of a spurt droplet's. */
+const DRIP_STAIN = 0.12;
 
 const BLOOD_COLOUR = new THREE.Color(0x8a0b0b);
 
@@ -102,6 +104,8 @@ export class BloodEffects {
   private readonly life = new Float32Array(MAX_DROPLETS);
   /** Each droplet's fallback floor when no Arena geometry is known. */
   private readonly floor = new Float32Array(MAX_DROPLETS);
+  /** Each droplet's stain size, as a share of a spurt's (a drip off a blade leaves a small one). */
+  private readonly scale = new Float32Array(MAX_DROPLETS);
   private live = 0;
   private readonly points: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
   private readonly stains: THREE.InstancedMesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
@@ -180,11 +184,29 @@ export class BloodEffects {
       this.vel[i * 3 + 2] = dz * norm * speed;
       this.life[i] = DROPLET_LIFE;
       this.floor[i] = spurt.floorY;
+      this.scale[i] = 1;
       const shade = 0.55 + 0.45 * Math.random();
       this.col[i * 3] = BLOOD_COLOUR.r * shade;
       this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
       this.col[i * 3 + 2] = BLOOD_COLOUR.b * shade;
     }
+  }
+
+  /** One drop falling off a bloody blade at `point` (`floorY`: the floor to land on when the Arena's geometry is unknown); it leaves a small stain. */
+  drip(point: Vec3, floorY: number): void {
+    if (this.live >= MAX_DROPLETS) return;
+    const i = this.live++;
+    this.pos[i * 3] = point.x;
+    this.pos[i * 3 + 1] = point.y;
+    this.pos[i * 3 + 2] = point.z;
+    this.vel[i * 3] = this.vel[i * 3 + 1] = this.vel[i * 3 + 2] = 0;
+    this.life[i] = DROPLET_LIFE;
+    this.floor[i] = floorY;
+    this.scale[i] = DRIP_STAIN;
+    const shade = 0.5 + 0.3 * Math.random();
+    this.col[i * 3] = BLOOD_COLOUR.r * shade;
+    this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
+    this.col[i * 3 + 2] = BLOOD_COLOUR.b * shade;
   }
 
   /** The Duel is in Arena `name` now: a different one is a new place (nothing carries over), and its floor and Walls are looked up afresh. */
@@ -258,7 +280,7 @@ export class BloodEffects {
       this.normal.set(-(w.b.z - w.a.z), 0, w.b.x - w.a.x).normalize();
       // The face the droplet came from.
       if (this.normal.x * (from.x - wall.point.x) + this.normal.z * (from.z - wall.point.z) < 0) this.normal.negate();
-      this.stain(wall.point.x, wall.point.y, wall.point.z, this.normal.x, 0, this.normal.z);
+      this.stain(wall.point.x, wall.point.y, wall.point.z, this.normal.x, 0, this.normal.z, this.scale[i]!);
       return true;
     }
     const floor = this.floorAt(to.x, to.z, from.y + 0.3, this.floor[i]!);
@@ -271,7 +293,7 @@ export class BloodEffects {
     }
     if (to.y <= floor) {
       const deadly = world && !world.field ? deadlyGround(world.arena, to.x, to.z, floor) : null;
-      if (!deadly) this.stain(to.x, floor, to.z, 0, 1, 0);
+      if (!deadly) this.stain(to.x, floor, to.z, 0, 1, 0, this.scale[i]!);
       return true;
     }
     p[i * 3] = to.x;
@@ -299,11 +321,12 @@ export class BloodEffects {
     }
     this.life[i] = this.life[last]!;
     this.floor[i] = this.floor[last]!;
+    this.scale[i] = this.scale[last]!;
   }
 
-  /** Lay a stain at (x, y, z) on a surface whose normal is (nx, ny, nz); most droplets leave one. */
-  private stain(x: number, y: number, z: number, nx: number, ny: number, nz: number): void {
-    if (Math.random() > STAIN_CHANCE) return;
+  /** Lay a stain `scale` times a spurt's size at (x, y, z) on a surface whose normal is (nx, ny, nz); most droplets leave one, every drip. */
+  private stain(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number): void {
+    if (scale >= 1 && Math.random() > STAIN_CHANCE) return;
     const slot = this.nextStain;
     this.nextStain = (slot + 1) % MAX_STAINS;
     this.stained = Math.min(MAX_STAINS, this.stained + 1);
@@ -313,7 +336,7 @@ export class BloodEffects {
     this.spin.setFromAxisAngle(this.normal, Math.random() * Math.PI * 2);
     this.quat.premultiply(this.spin);
     this.at.set(x + nx * LIFT, y + ny * LIFT, z + nz * LIFT);
-    const size = STAIN_SIZE * (0.3 + 0.7 * Math.random());
+    const size = STAIN_SIZE * scale * (0.3 + 0.7 * Math.random());
     // Mirrored half the time, so the one sprite does not repeat.
     this.size.set(Math.random() < 0.5 ? -size : size, size, 1);
     this.stains.setMatrixAt(slot, this.matrix.compose(this.at, this.quat, this.size));

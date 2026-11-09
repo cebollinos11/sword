@@ -209,6 +209,7 @@ export class Renderer {
       }
       slot.view.root.visible = true;
       slot.view.setFade(fade);
+      slot.view.setBlood(this.impacts.blades.marksOf(i));
       slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
@@ -222,6 +223,7 @@ export class Renderer {
     this.hallMarks.animate(seconds);
     this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
+    this.impacts.drip(poses, seconds);
     this.impacts.update(seconds);
     this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
     this.lastDraw = now;
