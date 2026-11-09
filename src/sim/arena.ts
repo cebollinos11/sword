@@ -215,7 +215,13 @@ export function ceilingAbove(arena: ArenaGeometry, x: number, z: number, fromY: 
  * segment (0 at a) and the point, or null. Ties go to the Wall earlier in the file.
  */
 export function wallCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry): { t: number; point: Vec3 } | null {
-  let best: { t: number; point: Vec3 } | null = null;
+  const hit = wallHit(a, b, arena);
+  return hit && { t: hit.t, point: hit.point };
+}
+
+/** `wallCrossing`, also naming the Wall crossed (for a render-only effect that needs its face's direction). */
+export function wallHit(a: Vec3, b: Vec3, arena: ArenaGeometry): { t: number; point: Vec3; wall: WallSegment } | null {
+  let best: { t: number; point: Vec3; wall: WallSegment } | null = null;
   const dx = b.x - a.x;
   const dz = b.z - a.z;
   for (const w of arena.walls) {
@@ -228,7 +234,7 @@ export function wallCrossing(a: Vec3, b: Vec3, arena: ArenaGeometry): { t: numbe
     if (t < 0 || t > 1 || u < 0 || u > 1) continue;
     const y = a.y + (b.y - a.y) * t;
     if (y < w.bottom || y > w.top) continue;
-    if (!best || t < best.t) best = { t, point: { x: a.x + dx * t, y, z: a.z + dz * t } };
+    if (!best || t < best.t) best = { t, point: { x: a.x + dx * t, y, z: a.z + dz * t }, wall: w };
   }
   return best;
 }

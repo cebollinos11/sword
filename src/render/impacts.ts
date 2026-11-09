@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import type { SimState, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
+import { BloodEffects, bloodSpurts } from './blood';
 
 /** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
@@ -193,6 +194,7 @@ export class ImpactEffects {
   private readonly live: Particle[] = [];
   private readonly box = new THREE.BoxGeometry(1, 1, 1);
   private readonly sphere = new THREE.SphereGeometry(1, 8, 6);
+  private readonly blood: BloodEffects;
   private lastTick = -Infinity;
   /** Effect time, seconds. */
   private clock = 0;
@@ -202,23 +204,28 @@ export class ImpactEffects {
     private readonly tuning: TuningData,
   ) {
     scene.add(this.root);
+    this.blood = new BloodEffects(scene, tuning);
   }
 
-  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters'>): void {
+  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters'> & Partial<Pick<SimState, 'arena'>>): void {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
+    this.blood.setArena(duel.arena);
+    for (const s of bloodSpurts(duel)) this.blood.spurt(s);
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
 
-  /** The loop jumped to `tick`: clear what is flying; Ticks after it will burst. */
+  /** The loop jumped to `tick`: clear what is flying (and, if it went back in time, the bloodstains); Ticks after it will burst. */
   seek(tick: number): void {
+    this.blood.seek(tick < this.lastTick);
     this.lastTick = tick;
     for (const p of this.live.splice(0)) this.remove(p);
   }
 
   /** Advance the particles by `seconds`. */
   update(seconds: number): void {
+    this.blood.update(seconds);
     const dt = Math.min(0.1, Math.max(0, seconds));
     this.clock += dt;
     for (let i = this.live.length - 1; i >= 0; i--) {
