@@ -87,7 +87,7 @@ const CSS = `
   align-items: center; justify-content: center; border: 2px solid #ffffff60; text-shadow: 0 1px 2px #000a; }
 .touch-pad-arrow { font-size: 1.6rem; line-height: 1; min-height: 1.6rem; }
 .touch-pad-label { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.9; }
-.touch-attack { right: var(--edge); bottom: var(--base); background: #c0392b88; }
+.touch-attack { right: var(--edge); bottom: var(--base); background: #f1c40f88; }
 .touch-block { right: calc(var(--edge) + var(--pad) * 0.95); bottom: calc(var(--base) + var(--pad) * 0.85);
   width: calc(var(--pad) * 0.78); height: calc(var(--pad) * 0.78); background: #2e86c188; }
 .touch-jump { right: calc(var(--edge) + var(--pad) * 1.15); bottom: var(--base);

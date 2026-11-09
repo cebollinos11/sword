@@ -111,7 +111,7 @@ MATERIALS = {
     'Awning1': (0x2e6fa1, 1.0, False),
     'Awning2': (0xd4a52b, 1.0, False),
     'Slate': (0x3c4656, 1.0, False),
-    'Banner0': (0xc0392b, 1.0, False),
+    'Banner0': (0xf1c40f, 1.0, False),
     'Banner1': (0x2e86c1, 1.0, False),
 }
 MAT_INDEX = {n: i for i, n in enumerate(MATERIALS)}

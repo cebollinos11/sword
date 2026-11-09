@@ -108,7 +108,7 @@ export function playerRecord(state: SimState, me: number): BattlePlayer | null {
 /** A finished Battle as the results screen tells it. */
 export interface BattleResult {
   readonly victory: boolean;
-  /** The winning army: 0 red, 1 blue. */
+  /** The winning army: 0 yellow, 1 blue. */
   readonly winner: number;
   readonly kills: number;
   readonly taken: number;
@@ -137,7 +137,7 @@ export function battleResult(match: MatchState, me: number): BattleResult | null
   };
 }
 
-export const ARMY_NAMES = ['red', 'blue'] as const;
+export const ARMY_NAMES = ['yellow', 'blue'] as const;
 
 /**
  * What each Player has (a name, a Body), by Fighter slot: a Battle's Lineup names only its Players, so slot k is Lineup entry k, whose
@@ -341,9 +341,9 @@ export class BattleHud {
       row('Winner', `the ${ARMY_NAMES[r.winner]} army`),
       row('Your kills', String(r.kills)),
       row('Soldiers taken over', String(r.taken)),
-      row('Tickets left', `${r.tickets[0]} red · ${r.tickets[1]} blue`),
-      row('Objectives held', `${r.held[0]} red · ${r.held[1]} blue`),
-      row('Left standing', `${r.left[0]} red · ${r.left[1]} blue`),
+      row('Tickets left', `${r.tickets[0]} yellow · ${r.tickets[1]} blue`),
+      row('Objectives held', `${r.held[0]} yellow · ${r.held[1]} blue`),
+      row('Left standing', `${r.left[0]} yellow · ${r.left[1]} blue`),
       row('Battle', `${m}:${String(s).padStart(2, '0')}`),
       next,
     );

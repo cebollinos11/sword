@@ -93,7 +93,7 @@ describe("The Battle's HUD", () => {
     const r = battleResult(over, 0)!;
     const start = startingTickets(tuning.battle);
     expect(r).toEqual({ victory: true, winner: 0, kills: 5, taken: 2, left: [army, army], tickets: [start, start], held: [1, 1], seconds: 50 });
-    expect(battleResultLine(r)).toBe(`Victory: the red army won · ${start} v ${start} Tickets · 5 kills · 2 soldiers taken over`);
+    expect(battleResultLine(r)).toBe(`Victory: the yellow army won · ${start} v ${start} Tickets · 5 kills · 2 soldiers taken over`);
     expect(battleResult({ ...over, status: { status: 'Over', winner: 1, tick: 3000 } }, 0)!.victory).toBe(false);
   });
 

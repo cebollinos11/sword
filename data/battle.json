@@ -82,7 +82,7 @@
   "soldier": {
     "body": "female",
     "weapon": "Arming Sword",
-    "colours": ["#c0392b", "#2e86c1"],
+    "colours": ["#f1c40f", "#2e86c1"],
     "difficulty": "Beginner",
     "style": { "throwRate": 0 },
     "mods": { "damage": 0.5 },

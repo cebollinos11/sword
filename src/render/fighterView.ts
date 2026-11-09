@@ -7,11 +7,11 @@ import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
 import { setDitherFade } from './dither';
 
-export const FIGHTER_COLOURS = [0xc0392b, 0x2e86c1];
+export const FIGHTER_COLOURS = [0xf1c40f, 0x2e86c1];
 
-/** Each team's colours: red for team 0, blue for team 1, a different shade for each teammate (the first is FIGHTER_COLOURS'). */
+/** Each team's colours: yellow for team 0, blue for team 1, a different shade for each teammate (the first is FIGHTER_COLOURS'). */
 export const TEAM_COLOURS: readonly (readonly number[])[] = [
-  [0xc0392b, 0xe67e5c, 0x7b241c, 0xd35400],
+  [0xf1c40f, 0xf9e07a, 0xb7950b, 0xf39c12],
   [0x2e86c1, 0x76c3ee, 0x1b4f72, 0x16a085],
 ];
 
