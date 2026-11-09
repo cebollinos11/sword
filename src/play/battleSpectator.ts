@@ -8,7 +8,7 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, stepMatch, TICK_SECONDS, type CrowdState, type Heightfield, type MatchState } from '../sim';
+import { battleNameFor, battlefieldHeight, battlefieldOf, createMatch, crowdAlive, stepMatch, TICK_SECONDS, type CrowdState, type Heightfield, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import { blobTexture } from '../render/blobShadow';
 import { CrowdView } from '../render/crowdView';
@@ -25,6 +25,37 @@ const CAMERA_CLEARANCE = 2;
 /** Frames before the frame cost is measured (the atlas bake and first draws are over), and how many it is averaged over on the panel. */
 const WARMUP_FRAMES = 120;
 const PANEL_FRAMES = 60;
+
+/**
+ * A view drawn over a Battle being watched (the Map Editor's play-test: the Objectives' owners and a heat map of Soldiers stuck). It is told of
+ * each Tick and each frame; render-only, it reads the Match and draws, nothing more.
+ */
+export interface SpectateOverlay {
+  /** A Battle began (the first, or a restart): `hf` is its ground. */
+  start(match: MatchState, stage: Stage, hf: Heightfield): void;
+  /** One Tick was stepped. */
+  tick(match: MatchState): void;
+  /** Once a frame, before it is drawn. */
+  frame(match: MatchState, stage: Stage, hf: Heightfield): void;
+  dispose(): void;
+}
+
+/** How a Battle is watched in place of the dev route's (`#/battle/<seed>?dev=1`): the Map Editor's play-test runs it on a draft in the same page. */
+export interface SpectateOptions {
+  /** A hand-built map of `battle.maps` to fight on, instead of the open field. */
+  readonly map?: string;
+  readonly seed?: number;
+  /** The speed at the start, one of 0 (paused), 1, 2 or 4. */
+  readonly speed?: number;
+  readonly overlay?: SpectateOverlay;
+  /** Quit's way out, in place of going to the title screen (and the address is left alone). */
+  readonly onExit?: () => void;
+}
+
+/** A Battle being watched, to stop and take out of the page. */
+export interface BattleHandle {
+  stop(): void;
+}
 
 /**
  * Where the spectator camera looks: the middle of the fighting (the engaged living Soldiers), or of every living
@@ -56,8 +87,9 @@ function stats(ms: readonly number[]): { mean: number; p99: number } {
   return { mean: ms.reduce((s, v) => s + v, 0) / ms.length, p99: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.99))]! };
 }
 
-export async function startBattleSpectator(container: HTMLElement, tuning: TuningData): Promise<void> {
+export async function startBattleSpectator(container: HTMLElement, tuning: TuningData, options: SpectateOptions = {}): Promise<BattleHandle> {
   container.style.position = 'relative';
+  let stopped = false;
   const stage = new Stage(container, tuning);
   const panel = document.createElement('div');
   panel.style.cssText = 'position:absolute;top:8px;left:8px;padding:8px 10px;background:rgba(15,15,20,.8);color:#eee;font:12px/1.5 ui-monospace,monospace;border-radius:6px;z-index:10';
@@ -82,14 +114,32 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
   container.appendChild(panel);
   status.textContent = 'baking the soldier…';
 
+  /** What stopping lets go of, once it exists. */
+  const release: (() => void)[] = [() => panel.remove(), () => stage.dispose()];
+  const handle: BattleHandle = {
+    stop() {
+      stopped = true;
+      options.overlay?.dispose();
+      for (const f of release) f();
+    },
+  };
+
   const baking = performance.now();
   const atlas = await bakeImpostorAtlases(stage.renderer, tuning);
+  release.push(() => atlas.dispose());
+  if (stopped) {
+    // Stopped while it baked: the Stage is gone; the atlas was not yet among what was released.
+    atlas.dispose();
+    return handle;
+  }
   const first = atlas.atlases[0]!;
   console.info(`Impostor atlases: ${atlas.atlases.length} of ${first.layout.width}×${first.layout.height} px, baked in ${(performance.now() - baking).toFixed(0)} ms (with their Body models' load)`);
   const view = new CrowdView(atlas, tuning.battle, blobTexture());
+  release.push(() => view.dispose());
   stage.scene.add(view.root);
 
   const orbit = new OrbitControls(stage.camera, stage.canvas);
+  release.push(() => orbit.dispose());
   orbit.enableDamping = true;
   orbit.maxPolarAngle = Math.PI * 0.47;
   orbit.minDistance = 6;
@@ -108,7 +158,7 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
 
   let match: MatchState;
   let hf: Heightfield;
-  let speed = 1;
+  let speed = Math.max(0, SPEEDS.indexOf(options.speed ?? 1));
   let carry = 0;
   const showSpeed = () => (speedButton.textContent = SPEEDS[speed] === 0 ? 'paused' : `${SPEEDS[speed]}×`);
   speedButton.onclick = () => {
@@ -117,12 +167,13 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
   };
   showSpeed();
   quit.onclick = () => {
+    if (options.onExit) return options.onExit();
     // Back to the title screen (a hash change reloads the page, main.ts).
     location.hash = '';
   };
 
   const start = (seed: number) => {
-    match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed });
+    match = createMatch(tuning, { format: 'Battle', bestOf: 1, seed, ...(options.map ? { arena: battleNameFor(options.map, seed) } : {}) });
     hf = battlefieldOf(tuning.battle, match.arena)!.heights;
     stage.setArena(match.arena);
     seedBox.value = String(seed);
@@ -131,10 +182,11 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
     orbit.target.set(0, battlefieldHeight(hf, 0, 0), 0);
     stage.camera.position.set(-35, 30, -90);
     orbit.update();
-    history.replaceState(null, '', `#/battle/${seed}${location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : ''}`);
+    options.overlay?.start(match, stage, hf);
+    if (!options.onExit) history.replaceState(null, '', `#/battle/${seed}${location.hash.includes('?') ? location.hash.slice(location.hash.indexOf('?')) : ''}`);
   };
   restart.onclick = () => start(Math.max(0, Math.floor(Number(seedBox.value) || 0)));
-  const fromHash = Number(location.hash.split(/[/?]/)[2]);
+  const fromHash = options.seed ?? Number(location.hash.split(/[/?]/)[2]);
   start(Number.isInteger(fromHash) && fromHash >= 0 ? fromHash : 1);
 
   const focus = { x: 0, z: 0 };
@@ -153,7 +205,10 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
   // For checking a moment of the war without waiting for it (dev only): step on to `seconds` of Battle time at once.
   // Returns the Tick reached and where the fighting is.
   (window as unknown as { battleSeek: (seconds: number) => unknown }).battleSeek = (seconds) => {
-    while (match.duel.tick * TICK_SECONDS < seconds && match.status.status === 'InProgress') match = stepMatch(match, [], tuning);
+    while (match.duel.tick * TICK_SECONDS < seconds && match.status.status === 'InProgress') {
+      match = stepMatch(match, [], tuning);
+      options.overlay?.tick(match);
+    }
     const crowd = match.duel.crowd!;
     const meanZ = [0, 1].map((t) => {
       const zs = crowd.z.filter((_, i) => crowd.alive[i] && crowd.team[i] === t);
@@ -194,6 +249,7 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
   };
 
   const frame = (now: number) => {
+    if (stopped) return;
     const dt = Math.min(0.25, (now - last) / 1000);
     if (frames > WARMUP_FRAMES) intervals.push(now - last);
     last = now;
@@ -202,6 +258,7 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
     let steps = 0;
     while (carry >= TICK_SECONDS && steps < MAX_TICKS_PER_FRAME && match.status.status === 'InProgress') {
       match = stepMatch(match, [], tuning);
+      options.overlay?.tick(match);
       carry -= TICK_SECONDS;
       steps++;
     }
@@ -219,6 +276,7 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
     const ground = battlefieldHeight(hf, stage.camera.position.x, stage.camera.position.z) + CAMERA_CLEARANCE;
     if (stage.camera.position.y < ground) stage.camera.position.y = ground;
     view.update(crowd, match.duel.tick, match.status.status === 'Over' ? 0 : Math.min(1, carry / TICK_SECONDS), hf, stage.camera);
+    options.overlay?.frame(match, stage, hf);
     stage.draw();
     calls = stage.renderer.info.render.calls;
     const t1 = performance.now();
@@ -238,4 +296,5 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+  return handle;
 }

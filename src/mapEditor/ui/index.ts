@@ -14,6 +14,10 @@
  * the Map folder edits the settings (name, front, army size, Tickets), the Bases, each Objective (id, place, weight, starting Owner,
  * spawn, its level `y`, its place in the Battle's order) and the Lobby card (label, where, blurb, art, with a preview of the card).
  *
+ * Stage 4: the Play-test folder runs the draft as it is now (no save, no reload) in the existing Battle routes over the editor (`playtest.ts`):
+ * Spectate, Play or Walk. Back returns to the editor with the session, its undo history and both cameras as they were. The Quick check button
+ * runs whole AI-v-AI Battles on the draft, fixed seeds, between frames, and lists what they found (`quickCheck.ts`).
+ *
  * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
 import { Pane, type FolderApi } from 'tweakpane';
@@ -22,11 +26,14 @@ import { saveJsonFile } from '../../editor/save';
 import { navMesh } from '../../sim';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { MapCompileError } from '../compile';
+import { draftTuning, type Draft } from '../playtest';
+import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../quickCheck';
 import { battleMapCard } from '../../play/lobbyView';
 import { sampleSource } from '../sample.testdata';
 import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
 import { BRUSH_KINDS, SIDES, type Brush, type BrushKind, type HazardKind, type Side, type SourceLobby, type SourceObjective } from '../source';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
+import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
 import { TopView, type Tool } from './topView';
 import { View3D } from './view3d';
 
@@ -135,6 +142,11 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     cursor: '',
     view: 'top' as 'top' | '3d',
     cost: '',
+    mode: 'spectate' as PlaytestMode,
+    speed: 1,
+    seed: 1,
+    army: 0,
+    quickBattles: 4,
   };
   const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
@@ -385,6 +397,87 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
   file.addButton({ title: 'Save (source + compiled map)' }).on('click', () => void save());
 
+  // --- Play-test and the Quick check ---------------------------------------
+  /** Ends the play-test running over the editor, if one is. */
+  let playtesting: (() => void) | null = null;
+  /** The draft of the current (or last) edit, for the play-test and the Quick check: refused with the compiler's error, shown in the status. */
+  const draftNow = (): Draft | null => {
+    try {
+      return draftTuning(session.source, tuning, ui.army > 0 ? { armySize: ui.army } : {});
+    } catch (e) {
+      say(`Not play-tested: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  };
+  const playtest = () => {
+    if (playtesting) return;
+    const t0 = performance.now();
+    const draft = draftNow();
+    if (!draft) return;
+    const draftMs = performance.now() - t0;
+    paneBox.style.display = 'none';
+    list.style.display = 'none';
+    playtesting = startPlaytest(draft, { mode: ui.mode, seed: ui.seed, speed: ui.speed, onBack }, (ms) => {
+      // Dev only: the last play-test's timings, for the cycle measure (the draft compiled and put in Tuning Data, then until the Battle was drawing).
+      if (import.meta.env.DEV) (window as unknown as { mapEditorPlaytest: unknown }).mapEditorPlaytest = { draftMs, startMs: ms, mode: ui.mode };
+    });
+    function onBack(): void {
+      playtesting = null;
+      paneBox.style.display = '';
+      list.style.display = '';
+      view.redraw();
+      say(`Back from the play-test (${PLAYTEST_MODES[ui.mode]}; the draft took ${draftMs.toFixed(0)} ms to build).`);
+    }
+  };
+  const quickBox = document.createElement('div');
+  quickBox.style.cssText =
+    'position:absolute;left:8px;top:8px;max-width:min(780px,calc(100% - 360px));max-height:64vh;overflow:auto;background:rgba(18,20,26,0.94);color:#ddd;font:11px/1.45 ui-monospace,monospace;border-radius:4px;z-index:6;display:none';
+  const quickText = document.createElement('pre');
+  quickText.style.cssText = 'margin:0;padding:8px 10px;white-space:pre-wrap';
+  const quickClose = document.createElement('button');
+  quickClose.textContent = '×';
+  quickClose.style.cssText = 'position:sticky;float:right;top:2px;right:2px;margin:2px;cursor:pointer';
+  quickClose.onclick = () => {
+    quickBox.style.display = 'none';
+    quickRun++;
+  };
+  quickBox.append(quickClose, quickText);
+  container.appendChild(quickBox);
+  /** Bumped to stop a Quick check running (a new one, or the box closed). */
+  let quickRun = 0;
+  const quickCheckNow = async () => {
+    const draft = draftNow();
+    if (!draft) return;
+    const mine = ++quickRun;
+    const started = performance.now();
+    const seeds = Array.from({ length: Math.max(1, Math.floor(ui.quickBattles)) }, (_, k) => k + 1);
+    const battles: BattleReport[] = [];
+    quickBox.style.display = 'block';
+    for (const seed of seeds) {
+      const run = new QuickBattle(draft.tuning, draft.map, seed);
+      // A few hundred Ticks at a time, so the page stays alive.
+      while (!run.step(300)) {
+        if (mine !== quickRun) return;
+        quickText.textContent = `Quick check · ${draft.map}: Battle ${seed} of ${seeds.length}, ${run.seconds.toFixed(0)} s of Battle time in…`;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      if (mine !== quickRun) return;
+      battles.push(run.report());
+    }
+    const report = summarise(draft.map, battles);
+    quickText.textContent = `${formatQuickCheck(report)}\n\n(${((performance.now() - started) / 1000).toFixed(1)} s to run; the same seeds give the same numbers)`;
+    // Dev only: the last report, for scripting.
+    if (import.meta.env.DEV) (window as unknown as { mapEditorQuick: unknown }).mapEditorQuick = report;
+  };
+  const playFolder = pane.addFolder({ title: 'Play-test', index: 1 });
+  playFolder.addBinding(ui, 'mode', { label: 'mode', options: Object.fromEntries(Object.entries(PLAYTEST_MODES).map(([k, v]) => [v, k])) });
+  playFolder.addBinding(ui, 'speed', { label: 'speed (Spectate)', options: { '1×': 1, '2×': 2, '4×': 4 } });
+  playFolder.addBinding(ui, 'seed', { label: 'seed', min: 0, step: 1 });
+  playFolder.addBinding(ui, 'army', { label: 'army (0: standard)', min: 0, step: 1 });
+  playFolder.addButton({ title: 'Play-test the draft (Ctrl+Enter)' }).on('click', playtest);
+  playFolder.addBinding(ui, 'quickBattles', { label: 'Quick check: Battles', min: 1, max: 12, step: 1 });
+  playFolder.addButton({ title: 'Quick check (headless Battles)' }).on('click', () => void quickCheckNow());
+
   // --- Tools and edits ----------------------------------------------------
   pane.addBinding(ui, 'tool', { label: 'tool', options: Object.fromEntries((['select', ...BRUSH_KINDS] as Tool[]).map((t) => [TOOL_LABELS[t], t])) });
   const edits = pane.addFolder({ title: 'Edit' });
@@ -420,7 +513,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   let levelsFolder: FolderApi | undefined;
   const buildLevels = () => {
     if (levelsFolder) pane.remove(levelsFolder);
-    const f = pane.addFolder({ title: 'Levels', index: 3 });
+    const f = pane.addFolder({ title: 'Levels', index: 4 });
     levelsFolder = f;
     ui.level = session.level;
     ui.showAll = session.showAll;
@@ -703,7 +796,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   };
 
   // --- Checks and overlays ------------------------------------------------
-  const checksFolder = pane.addFolder({ title: 'Checks', index: 3 });
+  const checksFolder = pane.addFolder({ title: 'Checks', index: 4 });
   checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d' } }).on('change', (e) => {
     if (syncing) return;
     view3d.show(e.value === '3d');
@@ -765,6 +858,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     if (session.dirty) e.preventDefault();
   });
   window.addEventListener('keydown', (e) => {
+    // The play-test has the keyboard (WASD would otherwise pick tools, the arrows nudge a Brush, Ctrl+Z undo an edit under it).
+    if (playtesting) return;
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
@@ -779,6 +874,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       duplicate();
     } else if (mod && key === 's') {
       void save();
+    } else if (mod && e.key === 'Enter') {
+      playtest();
     } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
       const m = session.marker;
       if (m?.kind === 'objective') settingsEdit(() => session.removeObjective(m.id));
@@ -792,9 +889,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } else if (!mod && (e.key === '[' || e.key === ']')) {
       withSelection((id) => session.reorder(id, e.key === '[' ? -1 : 1))();
     } else if (!mod && e.key.startsWith('Arrow') && (session.selected !== null || session.marker !== null)) {
-      // Nudge by a grid step (a coarse cell with Shift): the selected Brush, or the selected marker.
+      // Nudge by a grid step (a coarse cell with Shift): the selected Brush, or the selected marker. East is drawn on the left, so Left is +x.
       const by = e.shiftKey ? session.source.grid.cell : session.source.grid.step;
-      const [dx, dz] = { ArrowLeft: [-by, 0], ArrowRight: [by, 0], ArrowUp: [0, by], ArrowDown: [0, -by] }[e.key] ?? [0, 0];
+      const [dx, dz] = { ArrowLeft: [by, 0], ArrowRight: [-by, 0], ArrowUp: [0, by], ArrowDown: [0, -by] }[e.key] ?? [0, 0];
       const m = session.marker;
       if (m) settingsEdit(() => session.moveMarker(m, dx!, dz!));
       else withSelection((id) => session.moveBrush(id, dx!, dz!))();

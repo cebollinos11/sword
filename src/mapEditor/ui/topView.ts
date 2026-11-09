@@ -1,6 +1,8 @@
 /**
- * The Map Editor's top view (docs/plans/map-editor.md, Stage 1): the field seen from above on a 2D canvas, north (+z) up and east (+x)
- * right. It draws the fine grid (where it is wide enough to see) and the coarse grid (the destination fields' cell), each Brush by kind
+ * The Map Editor's top view (docs/plans/map-editor.md, Stage 1): the field seen from above on a 2D canvas, north (+z) up and east (+x) to
+ * the left. That is the way the game shows a Battle (the Battle's minimap, and the third-person camera looking along +z), so a map drawn here
+ * is the map seen when it is played (decided in Stage 4; Stages 1 to 3 drew east on the right, which is the field seen from below). It draws
+ * the fine grid (where it is wide enough to see) and the coarse grid (the destination fields' cell), each Brush by kind
  * in its level's colour (the level being edited solid, the others faded or hidden), the Objectives and Bases, and the selected Brush's
  * handles; and it turns the pointer into the session's operations: draw a Brush with the palette's tool, pick, move and resize with the
  * select tool, pan (right or middle drag, or a drag on empty ground) and zoom (the wheel). Over the Brushes it draws the live checks'
@@ -99,7 +101,7 @@ export class TopView {
     const h = this.canvas.clientHeight || 600;
     const open = h * (1 - LIST_SHARE);
     const scale = (0.94 * Math.min(w, open)) / source.size;
-    this.view = { cx: PANEL_PX / 2 / scale, cz: -(h / 2 - open / 2) / scale, scale };
+    this.view = { cx: -PANEL_PX / 2 / scale, cz: -(h / 2 - open / 2) / scale, scale };
     this.redraw();
   }
 
@@ -110,7 +112,7 @@ export class TopView {
     const open = h * (1 - LIST_SHARE);
     const span = Math.max(8, rect.x1 - rect.x0, rect.z1 - rect.z0) * 1.4;
     const scale = Math.min(200, Math.min(w, open) / span);
-    this.view = { cx: (rect.x0 + rect.x1) / 2 + PANEL_PX / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
+    this.view = { cx: (rect.x0 + rect.x1) / 2 - PANEL_PX / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
     this.redraw();
   }
 
@@ -135,11 +137,23 @@ export class TopView {
 
   private toGround(sx: number, sy: number): GroundPoint {
     const r = this.canvas.getBoundingClientRect();
-    return { x: this.view.cx + (sx - r.left - r.width / 2) / this.view.scale, z: this.view.cz - (sy - r.top - r.height / 2) / this.view.scale };
+    return { x: this.view.cx - (sx - r.left - r.width / 2) / this.view.scale, z: this.view.cz - (sy - r.top - r.height / 2) / this.view.scale };
   }
 
+  /** The x a world x is drawn at on the canvas as it is drawn on, which is mirrored (see `draw`): the screen's is `canvas.clientWidth` less this. */
   private sx(x: number): number {
     return this.canvas.clientWidth / 2 + (x - this.view.cx) * this.view.scale;
+  }
+
+  /** Text on the mirrored canvas, the right way round: its left edge (or its middle, as `textAlign` says) at the screen point (dx, dy) from where (wx, wy) is drawn. */
+  private text(s: string, wx: number, wy: number, dx = 0, dy = 0, max?: number): void {
+    const { ctx, canvas } = this;
+    const dpr = canvas.width / (canvas.clientWidth || 1);
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (max === undefined) ctx.fillText(s, canvas.clientWidth - wx + dx, wy + dy);
+    else ctx.fillText(s, canvas.clientWidth - wx + dx, wy + dy, max);
+    ctx.restore();
   }
   private sy(z: number): number {
     return this.canvas.clientHeight / 2 - (z - this.view.cz) * this.view.scale;
@@ -231,7 +245,7 @@ export class TopView {
       return;
     }
     if (g.kind === 'pan') {
-      this.view.cx = g.view!.cx - (e.clientX - g.screen.x) / this.view.scale;
+      this.view.cx = g.view!.cx + (e.clientX - g.screen.x) / this.view.scale;
       this.view.cz = g.view!.cz + (e.clientY - g.screen.y) / this.view.scale;
     } else if (g.kind === 'move') {
       this.edit(() => this.session.moveBrush(g.id!, p.x - g.start.x, p.z - g.start.z));
@@ -288,6 +302,8 @@ export class TopView {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#1b1e24';
     ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+    // The world is drawn mirrored left to right (east is on the left, as the game's minimap shows it): its x runs toward the screen's left.
+    ctx.setTransform(-dpr, 0, 0, dpr, canvas.width, 0);
     const half = source.size / 2;
     ctx.fillStyle = '#262a32';
     ctx.fillRect(this.sx(-half), this.sy(half), source.size * this.view.scale, source.size * this.view.scale);
@@ -445,7 +461,7 @@ export class TopView {
     ctx.strokeRect(this.sx(-half), this.sy(half), source.size * this.view.scale, source.size * this.view.scale);
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('N (+z) ↑', this.sx(0) + 4, this.sy(half) + 14);
+    this.text('N (+z) ↑   E (+x) ←', this.sx(0), this.sy(half), 4, 14);
   }
 
   /** How strongly the Brush is drawn: 1 at the level being edited, faded at the others (or hidden when only that level is shown). */
@@ -549,7 +565,7 @@ export class TopView {
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = '11px system-ui, sans-serif';
       const label = b.id === source.brushes[0]?.id && w > this.canvas.clientWidth ? '' : `${b.id}${heightLabel(b)}`;
-      ctx.fillText(label, x + 4, y + 13, w - 8);
+      this.text(label, x, y, 4 - w, 13, w - 8);
     }
     ctx.globalAlpha = 1;
   }
@@ -596,7 +612,7 @@ export class TopView {
       const grip = FRONT_GRIP * this.view.scale;
       ctx.fillRect(this.sx(-half), y - 3, grip, 6);
       ctx.fillRect(this.sx(half) - grip, y - 3, grip, 6);
-      ctx.fillText(`Team ${team} front (${team === 0 ? -source.front : source.front})`, this.sx(-half) + 6, y + (team === 0 ? 14 : -5));
+      this.text(`Team ${team} front (${team === 0 ? -source.front : source.front})`, this.sx(half), y, 6, team === 0 ? 14 : -5);
     });
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -626,11 +642,11 @@ export class TopView {
         ctx.stroke();
       }
       ctx.fillStyle = '#111';
-      ctx.fillText(o.id, x, y + 0.5);
+      this.text(o.id, x, y, 0, 0.5);
       if (o.y !== undefined) {
         ctx.fillStyle = 'rgba(255,255,255,0.9)';
         ctx.font = '10px system-ui, sans-serif';
-        ctx.fillText(`y ${o.y}`, x, y + MARKER_PX + 8);
+        this.text(`y ${o.y}`, x, y, 0, MARKER_PX + 8);
         ctx.font = 'bold 12px system-ui, sans-serif';
       }
     }
@@ -645,7 +661,7 @@ export class TopView {
         ctx.strokeRect(x - 11, y - 11, 22, 22);
       }
       ctx.fillStyle = '#111';
-      ctx.fillText(String(t), x, y + 0.5);
+      this.text(String(t), x, y, 0, 0.5);
     });
     ctx.textAlign = 'start';
     ctx.textBaseline = 'alphabetic';

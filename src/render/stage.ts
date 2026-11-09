@@ -6,7 +6,8 @@ import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
 import { battlefieldSetting } from './battlefieldView';
 import { texturedModel } from './triplanar';
-import { abyss, greybox, isGreybox } from './greybox';
+import { abyss, battleGreybox, greybox, isGreybox } from './greybox';
+import { hasBattleModel } from './battleModels';
 import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { bakeSkies, sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
@@ -225,8 +226,18 @@ export class Stage {
     this.setting = this.build(this.arena, geometry);
     this.collider = new CameraCollider(geometry);
 
-    window.addEventListener('resize', () => this.resize());
+    window.addEventListener('resize', this.onResize);
     this.resize();
+  }
+
+  private readonly onResize = (): void => this.resize();
+
+  /** Take the canvas out of the page and let go of the WebGL context, for a Stage made for a while (the Map Editor's play-test makes one each time). */
+  dispose(): void {
+    window.removeEventListener('resize', this.onResize);
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
+    this.renderer.domElement.remove();
   }
 
   get canvas(): HTMLCanvasElement {
@@ -458,13 +469,19 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
 
 /**
  * A Battlefield's setting: the sky, light, ground and haze (`battlefieldSetting`), and on a hand-built Battle map (docs/plans/battle-objectives.md,
- * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded.
+ * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded, or, with no
+ * model, its Walk Surfaces and Walls (`battleGreybox`).
  */
 function battle(name: string, field: Battlefield, current: () => boolean): Setting {
   const map = battleMapName(name);
   // A hand-built map models its own ground; the flat grass plane would only show through it and run on past its edge.
   const setting = battlefieldSetting(field.heights, map === null);
   if (map === null) return setting;
+  // A map with no model (one from the Map Editor, until Stage 5 exports it one) is drawn from its Walk Surfaces and Walls.
+  if (!hasBattleModel(map)) {
+    setting.root.add(battleGreybox(field.arena));
+    return setting;
+  }
   const loaded = arenaModel(`battle_${map}`, [])
     .then((model) => {
       texturedModel(model);

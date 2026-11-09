@@ -6,7 +6,7 @@
  * title screen with `?dev=1`): no HUD, Lobby or result screen yet (Stage 5), just a panel with the Player's HP, the armies,
  * the Pool and the frame's cost. Esc frees the mouse; a click takes it again.
  */
-import { battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, soldierBody, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState, type SoldierRole } from '../sim';
+import { battleNameFor, battlefieldHeight, battlefieldOf, createMatch, crowdAlive, inDuel, soldierBody, stepMatch, TICK_SECONDS, type Heightfield, type Intent, type MatchState, type SimState, type SoldierRole } from '../sim';
 import { defaultWeaponName, type TuningData } from '../tuning';
 import { LocalController, poolControllers, type Controller } from '../controllers';
 import { blobTexture } from '../render/blobShadow';
@@ -18,6 +18,7 @@ import { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { battleBodies } from './battleScreen';
 import { bindLocalInput } from './input';
+import type { BattleHandle } from './battleSpectator';
 
 /** Ticks stepped at most per frame, so a slow frame never spirals. */
 const MAX_TICKS_PER_FRAME = 8;
@@ -43,7 +44,7 @@ const rolesText = (duel: SimState): string => {
   return `${r.Attack} attacking, ${r.Waiting} waiting, ${r.Ally} allies`;
 };
 
-function storedBody(): string {
+export function storedBody(): string {
   try {
     const b = localStorage.getItem('sword.body');
     return b && isBody(b) ? b : defaultBody();
@@ -52,28 +53,55 @@ function storedBody(): string {
   }
 }
 
-export async function startBattlePlay(container: HTMLElement, tuning: TuningData): Promise<void> {
+/** How a Battle is played in place of the dev route's (`#/battle/<seed>/play?dev=1`): the Map Editor's play-test runs it on a draft in the same page. */
+export interface PlayOptions {
+  /** A hand-built map of `battle.maps` to fight on, instead of the open field. */
+  readonly map?: string;
+  readonly seed?: number;
+}
+
+export async function startBattlePlay(container: HTMLElement, tuning: TuningData, options: PlayOptions = {}): Promise<BattleHandle> {
   container.style.position = 'relative';
+  let stopped = false;
   const renderer = new Renderer(container, tuning);
   const panel = document.createElement('pre');
   panel.style.cssText = 'position:absolute;top:8px;left:8px;margin:0;padding:8px 10px;background:rgba(15,15,20,.8);color:#eee;font:12px/1.5 ui-monospace,monospace;border-radius:6px;z-index:10;pointer-events:none';
   container.appendChild(panel);
   panel.textContent = 'baking the soldier…';
 
+  const release: (() => void)[] = [() => panel.remove(), () => renderer.dispose()];
+  const handle: BattleHandle = {
+    stop() {
+      stopped = true;
+      for (const f of release) f();
+    },
+  };
   const atlas = await bakeImpostorAtlases(renderer.gl, tuning);
+  release.push(() => atlas.dispose());
+  if (stopped) {
+    // Stopped while it baked: the renderer is gone; the atlas was not yet among what was released.
+    atlas.dispose();
+    return handle;
+  }
   const crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
+  release.push(() => crowdView.dispose());
   renderer.scene.add(crowdView.root);
   const swap = new BubbleSwap();
 
   const local = new LocalController();
   const input = bindLocalInput(local, renderer.canvas);
   input.enabled = true;
+  release.push(() => {
+    input.dispose();
+    if (document.pointerLockElement) document.exitPointerLock();
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  });
   let pending: Intent | null = null;
   const player: Controller = { intent: () => pending! };
 
-  const seedOf = Number(location.hash.split(/[/?]/)[2]);
+  const seedOf = options.seed ?? Number(location.hash.split(/[/?]/)[2]);
   const seed = Number.isInteger(seedOf) && seedOf >= 0 ? seedOf : 1;
-  let match: MatchState = createMatch(tuning, { format: 'Battle', bestOf: 1, seed, teams: [0], weapons: [defaultWeaponName(tuning)] });
+  let match: MatchState = createMatch(tuning, { format: 'Battle', bestOf: 1, seed, ...(options.map ? { arena: battleNameFor(options.map, seed) } : {}), teams: [0], weapons: [defaultWeaponName(tuning)] });
   const controllers = poolControllers(tuning, [player]);
   const hf: Heightfield = battlefieldOf(tuning.battle, match.arena)!.heights;
   local.setYaw(match.duel.fighters[0]!.facing);
@@ -164,6 +192,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
   };
 
   const frame = (now: number) => {
+    if (stopped) return;
     const dt = Math.min(0.25, (now - last) / 1000);
     if (frames > WARMUP_FRAMES) intervals.push(now - last);
     last = now;
@@ -194,4 +223,5 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+  return handle;
 }
