@@ -379,6 +379,32 @@ export interface BattleMapTuning {
    * walls and levels slow the killing lasts longer on the same Tickets, so it may start with fewer. Absent: the Battle's own.
    */
   readonly ticketsPerSoldier?: number;
+  /** Its card in the Lobby's map picker (docs/plans/map-editor.md, Stage 3): render-only text, each part absent for the Lobby's own. */
+  readonly lobby?: BattleMapLobby;
+}
+
+/**
+ * A Battle map's card in the Lobby's map picker: its `label`, `where` the Battle card says the armies meet (a phrase after "meet", as "on an
+ * open field"), its `blurb` under the label and its `art` (a CSS background, the gradient under its picture). Render-only, though it lives
+ * in the hashed map file (peers must have the same map anyway).
+ */
+export interface BattleMapLobby {
+  readonly label?: string;
+  readonly where?: string;
+  readonly blurb?: string;
+  readonly art?: string;
+}
+
+/** The parts of a Lobby card, in the order a file writes them. */
+export const LOBBY_KEYS: readonly (keyof BattleMapLobby)[] = ['label', 'where', 'blurb', 'art'];
+
+/** A Battle map's Lobby card (`BattleMapLobby`): each part, when present, text that is not empty. Undefined for none, or a card with no part. */
+export function parseMapLobby(raw: unknown, where: string): BattleMapLobby | undefined {
+  if (raw === undefined) return undefined;
+  const o = record(raw, where);
+  const out: { -readonly [K in keyof BattleMapLobby]: string } = {};
+  for (const key of LOBBY_KEYS) if (o[key] !== undefined) out[key] = nonEmptyString(o, key, where);
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export interface BattleTuning {
@@ -437,8 +463,8 @@ function parseSite(raw: unknown, where: string, size: number): ObjectiveSite {
   return { ...hilled, y: o.y };
 }
 
-/** Throws unless a map holds 1 to MAX_OBJECTIVES Objectives, each with its own id. */
-function checkSites(sites: readonly ObjectiveSite[], where: string): void {
+/** Throws unless a map holds 1 to MAX_OBJECTIVES Objectives, each with its own id (a Map Source's too, `parseMapSource`). */
+export function checkSites(sites: readonly ObjectiveSite[], where: string): void {
   if (sites.length < 1 || sites.length > MAX_OBJECTIVES) throw new TuningDataError(`${where} must hold 1 to ${MAX_OBJECTIVES} Objectives, got ${sites.length}`);
   if (new Set(sites.map((o) => o.id)).size !== sites.length) throw new TuningDataError(`${where}: every Objective needs its own id`);
 }
@@ -491,6 +517,7 @@ export function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning
   if (armySize.standard > armySize.max) throw new TuningDataError(`${where}.armySize.standard (${armySize.standard}) must be at most its max (${armySize.max})`);
   const fits = maxArmySize({ ...b, deploy: { ...b.deploy, front } });
   if (armySize.max > fits) throw new TuningDataError(`${where}.armySize.max (${armySize.max}) must deploy inside the field from front ${front} (at most ${fits})`);
+  const lobby = parseMapLobby(m.lobby, `${where}.lobby`);
   return {
     name: arena.name,
     walk: arena.walk,
@@ -501,6 +528,8 @@ export function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning
     front,
     armySize,
     ...(m.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(m, 'ticketsPerSoldier', where) }),
+    // A map with no card has no `lobby` key, as before the Map Editor's Stage 3.
+    ...(lobby ? { lobby } : {}),
   };
 }
 
@@ -770,7 +799,8 @@ export function parseBattle(raw: unknown, weapons?: readonly string[], difficult
   const maps: Record<string, BattleMapTuning> = {};
   for (const [key, raw] of Object.entries(record(b.maps ?? {}, 'battle.maps'))) {
     const map = parseBattleMap(raw, `battle.maps.${key}`, { field, deploy, squad });
-    if (map.name !== key || !/^[a-z][a-z0-9]*$/.test(key)) throw new TuningDataError(`battle.maps.${key}: a map's name is lower-case letters and digits, and its key (got "${map.name}")`);
+    if (map.name !== key || !/^[a-z][a-z0-9]*$/.test(key) || key.length > MAX_MAP_NAME)
+      throw new TuningDataError(`battle.maps.${key}: a map's name is lower-case letters and digits, at most ${MAX_MAP_NAME} (as the Lobby's map knob carries it), and its key (got "${map.name}")`);
     maps[key] = map;
   }
   if (ring.radius < bubble.hold || ring.radius >= bubble.promote) throw new TuningDataError(`battle.ring.radius (${ring.radius}) must be at least battle.bubble.hold (${bubble.hold}) and less than battle.bubble.promote (${bubble.promote})`);

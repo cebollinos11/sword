@@ -10,17 +10,22 @@
  * (reachability, edges, clearance, field cell centres) and the 3D view (`view3d.ts`), and shows the cost: Walk Surfaces, Walls, the
  * compile and check time, and the navmesh's build time (measured here once the edits pause, as the Arena Lab times it).
  *
+ * Stage 3: the Battle's markers are dragged in the top view (Objectives, Bases, either front line) and placed with the Objective tool (O);
+ * the Map folder edits the settings (name, front, army size, Tickets), the Bases, each Objective (id, place, weight, starting Owner,
+ * spawn, its level `y`, its place in the Battle's order) and the Lobby card (label, where, blurb, art, with a preview of the card).
+ *
  * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
 import { Pane, type FolderApi } from 'tweakpane';
-import type { TuningData } from '../../tuning';
+import { maxArmySize, type TuningData } from '../../tuning';
 import { saveJsonFile } from '../../editor/save';
 import { navMesh } from '../../sim';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { MapCompileError } from '../compile';
+import { battleMapCard } from '../../play/lobbyView';
 import { sampleSource } from '../sample.testdata';
 import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
-import { BRUSH_KINDS, SIDES, type Brush, type BrushKind, type HazardKind, type Side } from '../source';
+import { BRUSH_KINDS, SIDES, type Brush, type BrushKind, type HazardKind, type Side, type SourceLobby, type SourceObjective } from '../source';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { TopView, type Tool } from './topView';
 import { View3D } from './view3d';
@@ -43,8 +48,9 @@ const TOOL_LABELS: Record<Tool, string> = {
   rail: 'Rail (L)',
   wall: 'Wall (W)',
   block: 'Block (B)',
+  objective: 'Objective (O): click to place',
 };
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', o: 'objective' };
 
 /** The selected Brush's numbers as the panel edits them: one flat record for every kind, read back by `brushFromProps`. */
 interface BrushProps {
@@ -125,7 +131,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     newLevel: 4,
     name: session.source.name,
     example: '',
-    status: 'Pick a tool and drag on the grid to draw a Brush. Select: click to pick, drag to move, drag a yellow handle to resize. Right-drag or drag empty ground to pan, wheel to zoom.',
+    status: 'Pick a tool and drag on the grid to draw a Brush. Select: click to pick, drag to move (an Objective, a Base or a front line too), drag a yellow handle to resize. Right-drag or drag empty ground to pan, wheel to zoom.',
     cursor: '',
     view: 'top' as 'top' | '3d',
     cost: '',
@@ -160,6 +166,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     },
   );
 
+  view.objectiveRadii = tuning.battle.objectives;
   const view3d = new View3D(container);
 
   // --- The live checks ----------------------------------------------------
@@ -214,6 +221,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       const levels = brushLevels(b, session.source.levels);
       if (!levels.includes(session.level)) session.level = levels[0]!;
     }
+    // An Objective's or a Base's check selects the marker (its floor's Brushes stay outlined).
+    if (issue.objective !== undefined) session.selectMarker({ kind: 'objective', id: issue.objective });
+    else if (issue.base !== undefined) session.selectMarker({ kind: 'base', team: issue.base });
     const rect = issueBounds(session.source, issue);
     if (rect) {
       view.frameRect(rect);
@@ -531,41 +541,164 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     });
   };
 
-  // --- Map settings (Stage 3 makes the markers draggable) ------------------
+  // --- Map settings, markers and the Lobby card (Stage 3) ------------------
+  /** The settings as the panel edits them, brought up to the source by `syncMap`. */
+  const settings = {
+    name: '',
+    size: 0,
+    front: 0,
+    standard: 0,
+    max: 0,
+    fits: '',
+    ownTickets: false,
+    tickets: 0,
+    base0x: 0,
+    base0z: 0,
+    base1x: 0,
+    base1z: 0,
+    label: '',
+    where: '',
+    blurb: '',
+    art: '',
+  };
+  /** Each Objective's numbers as the panel edits them: `named` whether it names its level, `y` that level. */
+  type ObjectiveProps = Omit<SourceObjective, 'y'> & { named: boolean; y: number };
+  let objectiveProps: ObjectiveProps[] = [];
+  const objectiveOf = (p: ObjectiveProps): SourceObjective => {
+    const o = { id: p.id, x: p.x, z: p.z, weight: p.weight, owner: p.owner, spawn: p.spawn };
+    return p.named ? { ...o, y: p.y } : o;
+  };
   let mapFolder: FolderApi | undefined;
-  const buildMap = () => {
-    if (mapFolder) pane.remove(mapFolder);
-    const f = pane.addFolder({ title: 'Map', expanded: false });
-    mapFolder = f;
-    ui.name = session.source.name;
-    f.addBinding(ui, 'name', { label: 'name' }).on('change', (e) => {
-      if (syncing) return;
-      try {
-        session.setSettings({ name: e.value });
-      } catch (err) {
-        ui.name = session.source.name;
-        say(err instanceof Error ? err.message : String(err));
-      }
-      sync();
+  /** What the Map folder was built for (the Objectives, the levels, the selected Objective): rebuilt when it changes, else refreshed. */
+  let mapKey = '';
+  let mapExpanded = false;
+  let previewKey = '';
+  const preview = document.createElement('div');
+  preview.style.cssText = 'margin:4px 8px 8px;height:64px;border-radius:6px;display:flex;flex-direction:column;justify-content:flex-end;padding:6px 8px;box-sizing:border-box;color:#fff;font:12px/1.3 system-ui,sans-serif;text-shadow:0 1px 2px #000';
+  /** Run a settings edit from the panel: its refusal is shown and the panel set back to the source. */
+  const settingsEdit = (f: () => void) => {
+    if (syncing) return;
+    try {
+      f();
+    } catch (err) {
+      say(err instanceof Error ? err.message : String(err));
+    }
+    sync();
+    view.redraw();
+  };
+  const syncMap = () => {
+    const s = session.source;
+    const lobby: SourceLobby = s.lobby ?? {};
+    Object.assign(settings, {
+      name: s.name,
+      size: s.size,
+      front: s.front,
+      standard: s.armySize.standard,
+      max: s.armySize.max,
+      fits: `${maxArmySize({ ...tuning.battle, deploy: { ...tuning.battle.deploy, front: s.front } })} a side from this front`,
+      ownTickets: s.ticketsPerSoldier !== undefined,
+      tickets: s.ticketsPerSoldier ?? tuning.battle.tickets.perSoldier,
+      base0x: s.bases[0].x,
+      base0z: s.bases[0].z,
+      base1x: s.bases[1].x,
+      base1z: s.bases[1].z,
+      label: lobby.label ?? '',
+      where: lobby.where ?? '',
+      blurb: lobby.blurb ?? '',
+      art: lobby.art ?? '',
     });
-    const objectives = session.source.objectives.map((o) => ({ ...o }));
-    for (const o of objectives) {
-      const of = f.addFolder({ title: `Objective ${o.id}`, expanded: false });
-      of.addBinding(o, 'x', { step: 0.5 });
-      of.addBinding(o, 'z', { step: 0.5 });
-      of.addBinding(o, 'weight', { step: 0.1, min: 0.1 });
-      of.addBinding(o, 'owner', { label: 'starts owned by', options: { nobody: -1, 'Team 0': 0, 'Team 1': 1 } });
-      of.addBinding(o, 'spawn');
-      of.on('change', (e) => {
-        if (!e.last || syncing) return;
-        try {
-          session.setSettings({ objectives: objectives.map((x) => ({ ...x })) });
-        } catch (err) {
-          say(err instanceof Error ? err.message : String(err));
-        }
-        sync();
-        view.redraw();
+    objectiveProps = s.objectives.map((o) => ({ ...o, named: o.y !== undefined, y: o.y ?? session.level }));
+    // The card as the Lobby shows it (`battleMapCard`), drawn again only when it changes.
+    const card = battleMapCard(s.name, s.lobby);
+    const cardKey = JSON.stringify(card);
+    if (cardKey !== previewKey) {
+      previewKey = cardKey;
+      preview.style.background = card.art;
+      preview.replaceChildren(Object.assign(document.createElement('b'), { textContent: card.label }), Object.assign(document.createElement('span'), { textContent: card.blurb }));
+    }
+    const picked = session.marker?.kind === 'objective' ? session.marker.id : '';
+    const key = `${s.objectives.map((o) => o.id).join(',')}|${s.levels.join(',')}|${picked}`;
+    if (key !== mapKey || !mapFolder) return buildMap(key);
+    // Each Objective's folder binds its own record: brought up in place (`sync` then refreshes the whole panel).
+    objectiveBound.forEach((bound, k) => Object.assign(bound, objectiveProps[k]));
+  };
+  /** The records the Objectives' folders are bound to (kept, so a refresh shows new values). */
+  let objectiveBound: ObjectiveProps[] = [];
+  const buildMap = (key: string) => {
+    if (mapFolder) {
+      mapExpanded = mapFolder.expanded;
+      pane.remove(mapFolder);
+    }
+    mapKey = key;
+    const picked = session.marker?.kind === 'objective' ? session.marker.id : null;
+    if (picked !== null) mapExpanded = true;
+    const f = pane.addFolder({ title: 'Map', expanded: mapExpanded });
+    mapFolder = f;
+    const levels = { options: Object.fromEntries(session.source.levels.map((y) => [`${y} m`, y])) };
+    syncing = true;
+    try {
+      f.addBinding(settings, 'name', { label: 'name' }).on('change', (e) => settingsEdit(() => session.setSettings({ name: e.value })));
+      f.addBinding(settings, 'size', { label: 'size (m)', readonly: true, format: (v: number) => `${v} (the Battle's field)` });
+      f.addBinding(settings, 'front', { label: 'front (m)', step: session.source.grid.step, min: session.source.grid.step }).on('change', (e) => {
+        if (e.last) settingsEdit(() => session.setSettings({ front: e.value }));
       });
+      const army = () => settingsEdit(() => session.setSettings({ armySize: { standard: settings.standard, max: settings.max } }));
+      f.addBinding(settings, 'standard', { label: 'army standard', step: 1, min: 1 }).on('change', (e) => e.last && army());
+      f.addBinding(settings, 'max', { label: 'army most', step: 1, min: 1 }).on('change', (e) => e.last && army());
+      f.addBinding(settings, 'fits', { label: 'fits', readonly: true });
+      const tickets = () => settingsEdit(() => session.setTickets(settings.ownTickets ? settings.tickets : undefined));
+      f.addBinding(settings, 'ownTickets', { label: 'own Tickets' }).on('change', tickets);
+      f.addBinding(settings, 'tickets', { label: 'Tickets a Soldier', step: 0.1, min: 0.1 }).on('change', (e) => e.last && settings.ownTickets && tickets());
+
+      const bases = () =>
+        settingsEdit(() =>
+          session.setSettings({
+            bases: [
+              { x: settings.base0x, z: settings.base0z },
+              { x: settings.base1x, z: settings.base1z },
+            ],
+          }),
+        );
+      const bf = f.addFolder({ title: 'Bases', expanded: false });
+      for (const k of ['base0x', 'base0z', 'base1x', 'base1z'] as const) bf.addBinding(settings, k, { label: `Team ${k[4]} ${k[5]}`, step: session.source.grid.step }).on('change', (e) => e.last && bases());
+
+      const lf = f.addFolder({ title: 'Lobby card', expanded: false });
+      const LOBBY_LABELS: Record<keyof SourceLobby, string> = { label: 'label', where: 'where (… meet ___ and fight)', blurb: 'blurb', art: 'art (CSS background)' };
+      for (const k of ['label', 'where', 'blurb', 'art'] as const)
+        lf.addBinding(settings, k, { label: LOBBY_LABELS[k] }).on('change', (e) =>
+          settingsEdit(() => {
+            // A background the browser cannot read would leave the Lobby's card with no picture.
+            if (k === 'art' && e.value.trim() !== '' && !CSS.supports('background', e.value)) throw new Error(`"${e.value}" is not a CSS background the browser reads (try linear-gradient(180deg, #8fb4d8, #3b5f25))`);
+            session.setLobby({ [k]: e.value });
+          }),
+        );
+      lf.element.appendChild(preview);
+
+      objectiveBound = objectiveProps.map((o) => ({ ...o }));
+      objectiveBound.forEach((o) => {
+        const id = o.id;
+        const of = f.addFolder({ title: `Objective ${id}`, expanded: id === picked });
+        of.addBinding(o, 'id');
+        of.addBinding(o, 'x', { step: session.source.grid.step });
+        of.addBinding(o, 'z', { step: session.source.grid.step });
+        of.addBinding(o, 'weight', { step: 0.1, min: 0.1 });
+        of.addBinding(o, 'owner', { label: 'starts owned by', options: { nobody: -1, 'Team 0': 0, 'Team 1': 1 } });
+        of.addBinding(o, 'spawn');
+        of.addBinding(o, 'named', { label: 'names its level' });
+        of.addBinding(o, 'y', { label: 'level (y)', ...levels });
+        of.on('change', (e) => {
+          if (e.last) settingsEdit(() => session.replaceObjective(id, objectiveOf(o)));
+        });
+        of.addButton({ title: 'Earlier in the order' }).on('click', () => settingsEdit(() => session.reorderObjective(id, -1)));
+        of.addButton({ title: 'Later in the order' }).on('click', () => settingsEdit(() => session.reorderObjective(id, 1)));
+        of.addButton({ title: 'Remove' }).on('click', () => settingsEdit(() => session.removeObjective(id)));
+      });
+      f.addButton({ title: 'Place an Objective (O, then click)' }).on('click', () => {
+        ui.tool = 'objective';
+        refreshPane();
+      });
+    } finally {
+      syncing = false;
     }
   };
 
@@ -612,6 +745,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const sync = () => {
     scheduleChecks();
     buildBrush();
+    syncMap();
     undoButton.disabled = !session.canUndo;
     redoButton.disabled = !session.canRedo;
     pane.title = `Map Editor: ${session.source.name}${session.dirty ? ' •' : ''}`;
@@ -620,7 +754,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   /** Rebuild every panel that depends on the source's shape (levels, Objectives) and bring the rest up to it. */
   const rebuild = () => {
     buildLevels();
-    buildMap();
+    mapKey = '';
     sync();
     view.redraw();
   };
@@ -646,19 +780,24 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } else if (mod && key === 's') {
       void save();
     } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
-      remove();
+      const m = session.marker;
+      if (m?.kind === 'objective') settingsEdit(() => session.removeObjective(m.id));
+      else remove();
     } else if (!mod && e.key === 'Escape') {
       ui.tool = 'select';
       session.select(null);
+      session.selectMarker(null);
       sync();
       view.redraw();
     } else if (!mod && (e.key === '[' || e.key === ']')) {
       withSelection((id) => session.reorder(id, e.key === '[' ? -1 : 1))();
-    } else if (!mod && e.key.startsWith('Arrow') && session.selected !== null) {
-      // Nudge by a grid step (a coarse cell with Shift).
+    } else if (!mod && e.key.startsWith('Arrow') && (session.selected !== null || session.marker !== null)) {
+      // Nudge by a grid step (a coarse cell with Shift): the selected Brush, or the selected marker.
       const by = e.shiftKey ? session.source.grid.cell : session.source.grid.step;
       const [dx, dz] = { ArrowLeft: [-by, 0], ArrowRight: [by, 0], ArrowUp: [0, by], ArrowDown: [0, -by] }[e.key] ?? [0, 0];
-      withSelection((id) => session.moveBrush(id, dx!, dz!))();
+      const m = session.marker;
+      if (m) settingsEdit(() => session.moveMarker(m, dx!, dz!));
+      else withSelection((id) => session.moveBrush(id, dx!, dz!))();
     } else if (!mod && !e.altKey && TOOL_KEYS[key]) {
       ui.tool = TOOL_KEYS[key]!;
       refreshPane();

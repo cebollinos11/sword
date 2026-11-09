@@ -9,12 +9,17 @@
  * Where the UI asks for a place, the session snaps it to the source's fine grid (`grid.step`) and keeps it inside the field. A new Brush
  * stands at the level being edited (`level`): a Floor, Deck, Hole, Hazard or Rail at it; a Platform or a Ramp rising from it to the level
  * above (on the top level, to it from the one below); a Wall from a metre under it to 3 m over it; a Block 3 m over it.
+ *
+ * Stage 3: the Battle's markers are edited here too. An Objective is placed, dragged, renamed and removed; one placed or dragged on a map of
+ * several levels takes the level being edited as its `y` (it stands on the floor there nearest under that height, as the Battlefield stands
+ * it, `groundNear`); the two Bases are dragged; the `front` is dragged by either Team's line (Team 0's at z = -front, Team 1's at +front).
+ * A marker is selected apart from the Brushes (selecting one clears the other).
  */
-import type { BattleTuning } from '../tuning';
+import { MAX_OBJECTIVES, type BattleTuning } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import type { RepoFile } from '../editor/session';
 import { compileMap, list, mapFileText, type CompileWarning } from './compile';
-import { parseMapSource, MAP_SOURCE_VERSION, RAIL, type Brush, type BrushKind, type GroundPoint, type MapSource, type Rect, type Side } from './source';
+import { parseMapSource, MAP_SOURCE_VERSION, RAIL, type Brush, type BrushKind, type GroundPoint, type MapSource, type Rect, type Side, type SourceLobby, type SourceObjective } from './source';
 
 /** The most undo steps kept. */
 const UNDO_DEPTH = 200;
@@ -133,6 +138,39 @@ export function handleAt(b: Brush, x: number, z: number, reach: number): Handle 
 /** A Ramp's long sides (those that may carry a rail): across its slope. */
 export const rampLongSides = (up: Side): readonly Side[] => (up === 'n' || up === 's' ? ['e', 'w'] : ['n', 's']);
 
+/** A Battle marker the top view picks and drags: an Objective (by id), a Team's Base, or a Team's front line (z = -front for Team 0, +front for Team 1). */
+export type Marker = { readonly kind: 'objective'; readonly id: string } | { readonly kind: 'base'; readonly team: 0 | 1 } | { readonly kind: 'front'; readonly team: 0 | 1 };
+
+/** Whether `a` and `b` are the same marker. */
+export const sameMarker = (a: Marker | null, b: Marker | null): boolean =>
+  a === b || (a !== null && b !== null && (a.kind === 'objective' ? b.kind === 'objective' && a.id === b.id : b.kind === a.kind && a.team === (b as { team: 0 | 1 }).team));
+
+/** How far in from each of the field's edges (m) a front line's grip reaches: a front line is picked there, so the Brushes along it stay pickable. */
+export const FRONT_GRIP = 6;
+
+/**
+ * The marker the point (x, z) picks within `reach` (m): an Objective (the last in the list on a tie, as it is drawn on top), else a Base,
+ * else a front line by its grip at either end (within FRONT_GRIP of the field's edge, `lineReach` of the line).
+ */
+export function markerAt(source: MapSource, x: number, z: number, reach: number, lineReach = reach): Marker | null {
+  const near = (p: GroundPoint) => Math.max(Math.abs(p.x - x), Math.abs(p.z - z)) <= reach;
+  for (let k = source.objectives.length - 1; k >= 0; k--) if (near(source.objectives[k]!)) return { kind: 'objective', id: source.objectives[k]!.id };
+  for (const team of [0, 1] as const) if (near(source.bases[team])) return { kind: 'base', team };
+  const half = source.size / 2;
+  if (Math.abs(x) > half + lineReach || Math.abs(x) < half - FRONT_GRIP) return null;
+  for (const team of [0, 1] as const) if (Math.abs(z - (team === 0 ? -source.front : source.front)) <= lineReach) return { kind: 'front', team };
+  return null;
+}
+
+/** An Objective id not yet taken: the first free letter from A, then `O<n>`. */
+export function freshObjectiveId(objectives: readonly SourceObjective[]): string {
+  const taken = new Set(objectives.map((o) => o.id));
+  for (let c = 65; c <= 90; c++) if (!taken.has(String.fromCharCode(c))) return String.fromCharCode(c);
+  let n = 1;
+  while (taken.has(`O${n}`)) n++;
+  return `O${n}`;
+}
+
 /**
  * A Map Source as `data/battlemaps/<map>.source.json` writes it: its settings, then one Brush, Objective and Base a line, so a small
  * edit gives a small diff. `parseMapSource` reads it back as the same source; the same source always gives the same text.
@@ -175,6 +213,8 @@ export class MapEditorSession {
   private dragBase: MapSource | null = null;
   /** The selected Brush's id, or null. */
   selected: string | null = null;
+  /** The selected Battle marker, or null (never both it and a Brush). */
+  marker: Marker | null = null;
   /** The level (a height of `source.levels`) new Brushes stand at and the top view edits. */
   level: number;
   /** Whether the top view shows and picks the Brushes of every level, or only those of `level`. */
@@ -198,6 +238,17 @@ export class MapEditorSession {
   /** Select the Brush `id` (null: none); an id the source has not is no selection. */
   select(id: string | null): void {
     this.selected = id !== null && this.current.brushes.some((b) => b.id === id) ? id : null;
+    if (this.selected !== null) this.marker = null;
+  }
+
+  /** Select the marker `m` (null: none), clearing the Brush selection; an Objective the source has not is no selection. */
+  selectMarker(m: Marker | null): void {
+    this.marker = m && this.hasMarker(m, this.current) ? m : null;
+    if (this.marker !== null) this.selected = null;
+  }
+
+  private hasMarker(m: Marker, s: MapSource): boolean {
+    return m.kind !== 'objective' || s.objectives.some((o) => o.id === m.id);
   }
 
   /** Whether the source differs from the one last saved or opened (worked out once per source). */
@@ -224,6 +275,7 @@ export class MapEditorSession {
     this.redoStack.length = 0;
     this.dragBase = null;
     this.selected = null;
+    this.marker = null;
     this.level = s.levels.includes(this.level) ? this.level : s.levels[0]!;
   }
 
@@ -243,6 +295,7 @@ export class MapEditorSession {
     this.current = s;
     if (!s.levels.includes(this.level)) this.level = nearest(s.levels, this.level);
     if (this.selection === null) this.selected = null;
+    if (this.marker && !this.hasMarker(this.marker, s)) this.marker = null;
   }
 
   /** Step back one edit; nothing while a drag is in progress (finish it first). */
@@ -270,6 +323,7 @@ export class MapEditorSession {
     this.current = s;
     if (!s.levels.includes(this.level)) this.level = nearest(s.levels, this.level);
     if (this.selection === null) this.selected = null;
+    if (this.marker && !this.hasMarker(this.marker, s)) this.marker = null;
   }
 
   /** `v` on the fine grid, inside the field. */
@@ -345,7 +399,7 @@ export class MapEditorSession {
       }
     }
     this.apply({ ...this.current, brushes: [...this.current.brushes, brush] });
-    this.selected = id;
+    this.select(id);
     return brush;
   }
 
@@ -397,7 +451,7 @@ export class MapEditorSession {
     const brushes = [...this.current.brushes];
     brushes.splice(k + 1, 0, copy);
     this.apply({ ...this.current, brushes });
-    this.selected = copy.id;
+    this.select(copy.id);
     return copy;
   }
 
@@ -441,11 +495,13 @@ export class MapEditorSession {
 
   /** In a drag, make the source `base` with its Brush k replaced by `brush`: `base` itself when that is the Brush it had, so a drag back to where it began is no step. */
   private dragTo(base: MapSource, k: number, brush: Brush): void {
-    if (JSON.stringify(brush) === JSON.stringify(base.brushes[k])) {
-      this.current = base;
-      return;
-    }
-    this.apply(this.withBrush(k, brush, base));
+    this.dragToSource(base, this.withBrush(k, brush, base), JSON.stringify(brush) === JSON.stringify(base.brushes[k]));
+  }
+
+  /** In a drag, make the source `next` (made from `base`), or `base` itself when `same`. */
+  private dragToSource(base: MapSource, next: MapSource, same: boolean): void {
+    if (same) this.current = base;
+    else this.apply(next);
   }
 
   /**
@@ -514,9 +570,117 @@ export class MapEditorSession {
 
   /** Change the map's settings (name, Objectives, Bases, `front`, army size, Tickets, Lobby card). Throws TuningDataError, changing nothing, where the parser refuses them. */
   setSettings(settings: MapSettings): void {
-    const next = { ...this.current, ...settings };
+    this.replaceSettings({ ...this.current, ...settings });
+  }
+
+  /** Make `next` the source (a settings edit): no step when it writes the same file. */
+  private replaceSettings(next: MapSource): void {
     if (sourceFileText(next) === sourceFileText(this.current)) return;
     this.apply(next);
+  }
+
+  /** `v` snapped to the fine grid and kept strictly inside the field (a marker may not stand on its edge). */
+  private inside(v: number): number {
+    const { step } = this.current.grid;
+    const half = this.current.size / 2;
+    return Math.max(-half + step, Math.min(half - step, Math.round(v / step) * step));
+  }
+
+  /** An Objective put at (x, z), snapped, with the level being edited as its `y` on a map of several levels (none on a map of one). */
+  private placed(o: SourceObjective, x: number, z: number, levels: readonly number[]): SourceObjective {
+    const { y: _y, ...rest } = o;
+    const at = { ...rest, x: this.inside(x), z: this.inside(z) };
+    return levels.length > 1 ? { ...at, y: this.level } : at;
+  }
+
+  /**
+   * Place a new Objective at (x, z), snapped, last in the Battle's order, neutral, not a spawn, weight 1, with the level being edited as
+   * its `y` on a map of several levels; it is selected. Throws TuningDataError, changing nothing, past MAX_OBJECTIVES.
+   */
+  addObjective(at: GroundPoint): SourceObjective {
+    const s = this.current;
+    if (s.objectives.length >= MAX_OBJECTIVES) throw new TuningDataError(`a map holds at most ${MAX_OBJECTIVES} Objectives`);
+    const o = this.placed({ id: freshObjectiveId(s.objectives), x: 0, z: 0, weight: 1, owner: -1, spawn: false }, at.x, at.z, s.levels);
+    this.apply({ ...s, objectives: [...s.objectives, o] });
+    this.selectMarker({ kind: 'objective', id: o.id });
+    return o;
+  }
+
+  /** Take the Objective `id` away; refused (the parser's error) for a map's last. */
+  removeObjective(id: string): void {
+    const s = this.current;
+    if (!s.objectives.some((o) => o.id === id)) throw new TuningDataError(`no Objective "${id}"`);
+    this.apply({ ...s, objectives: s.objectives.filter((o) => o.id !== id) });
+  }
+
+  /** Move the Objective `id` `delta` places in the Battle's order (Objective k is the half turn of n - 1 - k); clamped to the list. */
+  reorderObjective(id: string, delta: number): void {
+    const list = [...this.current.objectives];
+    const k = list.findIndex((o) => o.id === id);
+    if (k < 0) throw new TuningDataError(`no Objective "${id}"`);
+    const to = Math.max(0, Math.min(list.length - 1, k + delta));
+    if (to === k) return;
+    const [o] = list.splice(k, 1);
+    list.splice(to, 0, o!);
+    this.apply({ ...this.current, objectives: list });
+  }
+
+  /** Replace the Objective `id` with `o` (the panel's edit; it may rename it, and the selection follows). Throws TuningDataError, changing nothing, where the parser refuses it. */
+  replaceObjective(id: string, o: SourceObjective): void {
+    const s = this.current;
+    const k = s.objectives.findIndex((x) => x.id === id);
+    if (k < 0) throw new TuningDataError(`no Objective "${id}"`);
+    if (JSON.stringify(o) === JSON.stringify(s.objectives[k])) return;
+    const selected = this.marker?.kind === 'objective' && this.marker.id === id;
+    this.apply({ ...s, objectives: s.objectives.map((x, i) => (i === k ? o : x)) });
+    if (selected) this.marker = { kind: 'objective', id: o.id };
+  }
+
+  /**
+   * Drag the marker `m` by (dx, dz) from where it stood when the drag began, snapped and kept inside the field: an Objective (taking the
+   * level being edited as its `y` on a map of several levels, once it moves) or a Base to there, a front line along z (`front` at least a step, and
+   * short of the field's edge). Throws TuningDataError, changing nothing, where the parser refuses the result.
+   */
+  moveMarker(m: Marker, dx: number, dz: number): void {
+    this.dragging((base) => {
+      // Picked and let go where it stood (a click: the pointer moved less than half a step), it keeps its place (and its y) as it was.
+      const still = Math.abs(dx) < base.grid.step / 2 && Math.abs(dz) < base.grid.step / 2;
+      if (m.kind === 'objective') {
+        const k = base.objectives.findIndex((o) => o.id === m.id);
+        if (k < 0) throw new TuningDataError(`no Objective "${m.id}"`);
+        const o = base.objectives[k]!;
+        const moved = still ? o : this.placed(o, o.x + dx, o.z + dz, base.levels);
+        this.dragToSource(base, { ...base, objectives: base.objectives.map((x, i) => (i === k ? moved : x)) }, still);
+      } else if (m.kind === 'base') {
+        const b = base.bases[m.team]!;
+        const moved = { x: this.inside(b.x + dx), z: this.inside(b.z + dz) };
+        const bases: MapSource['bases'] = m.team === 0 ? [moved, base.bases[1]] : [base.bases[0], moved];
+        this.dragToSource(base, { ...base, bases }, still || (moved.x === b.x && moved.z === b.z));
+      } else {
+        // Team 0's line is at z = -front: dragging it north brings it in. Team 1's at +front.
+        const { step } = base.grid;
+        const front = Math.max(step, Math.min(base.size / 2 - step, Math.round((base.front + (m.team === 0 ? -dz : dz)) / step) * step));
+        this.dragToSource(base, { ...base, front }, still || front === base.front);
+      }
+    });
+  }
+
+  /** Change the Lobby card: each part given replaces the card's, an empty one takes it away (the Lobby's own then shows). */
+  setLobby(parts: Partial<Record<keyof SourceLobby, string>>): void {
+    const card: Record<string, string> = { ...this.current.lobby };
+    for (const [k, v] of Object.entries(parts)) {
+      if (v === undefined) continue;
+      if (v.trim() === '') delete card[k];
+      else card[k] = v;
+    }
+    const { lobby: _old, ...rest } = this.current;
+    this.replaceSettings(Object.keys(card).length > 0 ? { ...rest, lobby: card } : rest);
+  }
+
+  /** Set or clear (undefined: the Battle's own) the Tickets a Soldier starts with. */
+  setTickets(perSoldier: number | undefined): void {
+    const { ticketsPerSoldier: _old, ...rest } = this.current;
+    this.replaceSettings(perSoldier === undefined ? rest : { ...rest, ticketsPerSoldier: perSoldier });
   }
 
   /**

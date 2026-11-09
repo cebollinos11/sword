@@ -15,12 +15,12 @@
  *    the ground beside it is higher than a step (so nobody walks under a raised floor or into a Platform's side), owned by the higher Brush
  *    (`WALL_<brush>_<side><n>`, merged along each line); on each Ramp's long sides a rail, or else a skirt stepped up the slope (each step
  *    no higher than `battle.levels.stepUp`, so nobody on the ramp is stopped by it and nobody beside it walks under); each Rail and Wall.
- *  - **Blocks**, Objectives, Bases and the settings carry straight through.
+ *  - **Blocks**, Objectives, Bases, the settings and the Lobby's card carry straight through.
  *
  * Pure and deterministic: no trig, no `Math.random`, every tie broken by Brush order then row-major cell order, so the same source always
  * compiles to the same bytes, and every id comes from a Brush id, so a small edit gives a small diff.
  */
-import { parseBattleMap, type ArenaGeometry, type ArenaPoint, type BattleMapTuning, type BattleTuning, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
+import { LOBBY_KEYS, parseBattleMap, type ArenaGeometry, type ArenaPoint, type BattleMapTuning, type BattleTuning, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import { blockWalls } from '../sim/battlefield';
 import { walkCheck, type WalkReach } from '../sim/levels';
@@ -504,6 +504,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     front: source.front,
     armySize: source.armySize,
     ...(source.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: source.ticketsPerSoldier }),
+    ...(source.lobby === undefined ? {} : { lobby: source.lobby }),
   };
   // The game's own checks: what it would refuse, refused here, against the Brush it concerns.
   let map: BattleMapTuning;
@@ -536,6 +537,8 @@ export function mapFileText(map: BattleMapTuning): string {
   const line = (v: unknown) => JSON.stringify(v);
   const head: string[] = [`  "name": ${line(map.name)}`, `  "front": ${line(map.front)}`, `  "armySize": ${line(map.armySize)}`];
   if (map.ticketsPerSoldier !== undefined) head.push(`  "ticketsPerSoldier": ${line(map.ticketsPerSoldier)}`);
+  // The Lobby's card (Stage 3), its parts in one order whatever order the source gave them.
+  if (map.lobby !== undefined) head.push(`  "lobby": ${line(Object.fromEntries(LOBBY_KEYS.filter((k) => map.lobby![k] !== undefined).map((k) => [k, map.lobby![k]])))}`);
   head.push(`  "bases": ${line(map.bases.map((b) => [b.x, b.z]))}`);
   const body = [
     list('objectives', map.objectives),

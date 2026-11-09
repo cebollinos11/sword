@@ -9,7 +9,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
-import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from '../tuning';
+import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type RunKnobs, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -216,15 +216,20 @@ export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly cou
 export function battleCard(tuning: Pick<TuningData, 'battle'>, knobs?: BattleKnobs): { readonly count: string; readonly note: string } {
   const { armySize, rout } = tuning.battle;
   const where = battleMapChoice(tuning, knobs).where;
+  // As many as its map places (a map from the Map Editor may place 1 to 12), the open field's five.
+  const n = (battleMapPicked(tuning.battle, knobs)?.objectives ?? tuning.battle.objectives.openField).length;
   return {
     count: `${armySize} v ${armySize}`,
     note:
-      `Two armies of ${armySize} meet ${where} and fight over five Objectives. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
+      `Two armies of ${armySize} meet ${where} and fight over ${n === 1 ? 'one Objective' : `${COUNT_WORDS[n] ?? n} Objectives`}. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
       `fight you blade to blade, a few at once, and your allies close by join in. Each army has ${Math.round(startingTickets(tuning.battle))} Tickets: every death costs one, and an army that holds more Objectives than the enemy drains the enemy's. ` +
       `With none left an army stops sending reinforcements, and once it is below ${Math.round(rout.threshold * 100)}% of its soldiers it breaks and flees: the other wins. ` +
       `If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,
   };
 }
+
+/** Small counts as the cards spell them. */
+const COUNT_WORDS = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 
 /** In a Battle, the teams' place: the two armies (`tuning` with the Lobby's `knobs` folded in). */
 function armiesCard(tuning: TuningData, knobs: BattleKnobs | undefined): HTMLElement {
@@ -405,8 +410,11 @@ function battleMapCards(ctx: LobbyViewContext, state: LobbyState, editable: bool
   const picked = battleMapChoice(ctx.tuning, state.settings.battle).id;
   return battleMaps(ctx.tuning).map((choice) => {
     const card = h('button', 'map-card', null, h('span', 'map-art'), h('span', 'map-name', choice.label), h('span', 'map-blurb', choice.blurb));
-    // The map's picture (public/thumbs/battlemaps/<id>.webp), over its painted stand-in while it loads (or if it is missing).
-    (card.firstChild as HTMLElement).style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`;
+    // The map's picture (public/thumbs/battlemaps/<id>.webp), over its painted stand-in while it loads (or if it is missing). A map file's
+    // `art` the browser cannot read would drop the whole declaration: then the picture alone.
+    const art = card.firstChild as HTMLElement;
+    art.style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${choice.art}`;
+    if (!art.style.background) art.style.background = `url("${thumb('battlemaps', choice.id)}") center / cover no-repeat, ${PLAIN_ART}`;
     card.setAttribute('aria-pressed', String(choice.id === picked));
     card.disabled = !editable && choice.id !== picked;
     // Picking one sets the army size back to that map's standard.
@@ -530,11 +538,20 @@ function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 
 // --- Battle options ---
 
+/** A Battle map as the Lobby offers it: `id` is the `map` knob's value (`open`: none), `where` how the Battle card says where the armies meet. */
+export interface BattleMapChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly where: string;
+  readonly blurb: string;
+  readonly art: string;
+}
+
 /**
- * The Battle maps the Lobby offers (docs/plans/battle-objectives.md, Stage 3a): the open field, then the hand-built maps of `battle.maps`
- * it knows by name. `id` is the `map` knob's value (`open`: none), `where` how the Battle card says where the armies meet.
+ * The Battle maps the Lobby knows by name (docs/plans/battle-objectives.md, Stage 3a): the open field, then the hand-built maps' cards as
+ * they were before a map file carried its own (docs/plans/map-editor.md, Stage 3). A map file's `lobby` wins over its entry here.
  */
-export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string; readonly where: string; readonly blurb: string; readonly art: string }[] = [
+export const BATTLE_MAPS: readonly BattleMapChoice[] = [
   { id: OPEN_FIELD, label: 'Open field', where: 'on an open field', blurb: 'Gentle hills, fresh each Battle', art: 'linear-gradient(180deg, #8fb4d8, #cfdcc0 45%, #6f9a47 46%, #3b5f25)' },
   { id: 'fort', label: 'Fort', where: 'round a ruined fort, its walls broken by gates and breaches,', blurb: 'A ruined fort, its walls breached', art: 'linear-gradient(180deg, #9db3c8, #c9c3b0 50%, #6b6a5a 51%, #3d4a2c)' },
   { id: 'ziggurat', label: 'Ziggurat', where: 'on and in an ancient stepped temple above the jungle,', blurb: 'A stepped temple over the jungle', art: 'linear-gradient(180deg, #c9d8a8, #7fa55a 45%, #8a7a58 46%, #2f4a22)' },
@@ -542,12 +559,35 @@ export const BATTLE_MAPS: readonly { readonly id: string; readonly label: string
   { id: 'cavern', label: 'Cavern', where: 'in a cavern of cut basalt, over a river of lava,', blurb: 'Lava river, bridges and platforms', art: 'linear-gradient(180deg, #2a2224, #3b2d2b 45%, #ff6a1a 46%, #6a1d08)' },
 ];
 
-/** The Battle maps this Tuning Data has, as the Lobby offers them. */
-export const battleMaps = (tuning: Pick<TuningData, 'battle'>): typeof BATTLE_MAPS => BATTLE_MAPS.filter((m) => m.id === OPEN_FIELD || Object.hasOwn(tuning.battle.maps, m.id));
+/** The card of a map with neither a `lobby` of its own nor an entry in BATTLE_MAPS: its name, and a plain gradient. */
+const PLAIN_ART = 'linear-gradient(180deg, #9aa8b8, #b9b8a8 45%, #6f7466 46%, #3a4034)';
+
+/** Map `id`'s card from its file's `lobby` card: each part from it, else from its BATTLE_MAPS entry, else plain (its name capitalised). The Map Editor previews it. */
+export function battleMapCard(id: string, lobby: BattleMapLobby | undefined): BattleMapChoice {
+  const known = BATTLE_MAPS.find((m) => m.id === id);
+  const label = lobby?.label ?? known?.label ?? id.charAt(0).toUpperCase() + id.slice(1);
+  return {
+    id,
+    label,
+    where: lobby?.where ?? known?.where ?? `on ${label},`,
+    blurb: lobby?.blurb ?? known?.blurb ?? 'A hand-built Battle map',
+    art: lobby?.art ?? known?.art ?? PLAIN_ART,
+  };
+}
+
+/**
+ * The Battle maps this Tuning Data has, as the Lobby offers them: the open field, the maps BATTLE_MAPS knows in its order, then every other
+ * map of `battle.maps` in its order (a map saved from the Map Editor into `data/battlemaps/` appears with no code change).
+ */
+export function battleMaps(tuning: Pick<TuningData, 'battle'>): readonly BattleMapChoice[] {
+  const maps = tuning.battle.maps;
+  const known = BATTLE_MAPS.filter((m) => m.id !== OPEN_FIELD && Object.hasOwn(maps, m.id)).map((m) => m.id);
+  const others = Object.keys(maps).filter((id) => id !== OPEN_FIELD && !known.includes(id));
+  return [BATTLE_MAPS[0]!, ...[...known, ...others].map((id) => battleMapCard(id, maps[id]!.lobby))];
+}
 
 /** The Battle map `knobs` pick, as the Lobby offers it (the open field for none, or one this Tuning Data does not have). */
-export const battleMapChoice = (tuning: Pick<TuningData, 'battle'>, knobs: BattleKnobs | undefined): (typeof BATTLE_MAPS)[number] =>
-  battleMaps(tuning).find((m) => m.id === knobs?.map) ?? BATTLE_MAPS[0]!;
+export const battleMapChoice = (tuning: Pick<TuningData, 'battle'>, knobs: BattleKnobs | undefined): BattleMapChoice => battleMaps(tuning).find((m) => m.id === knobs?.map) ?? BATTLE_MAPS[0]!;
 
 /** `knobs` with the map `id` picked (`open` drops the key), the army size back to that map's standard. */
 export function withBattleMap(knobs: BattleKnobs | undefined, id: string): BattleKnobs {

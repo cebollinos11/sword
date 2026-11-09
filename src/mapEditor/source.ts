@@ -18,6 +18,7 @@
  * edges exactly; every height a Brush stands at is one of the source's `levels`. Directions are the compass of the maps: north is +z
  * (toward Team 1), east +x.
  */
+import { checkSites, MAX_MAP_NAME, parseMapLobby, type BattleMapLobby } from '../tuning/battle';
 import { array, finiteNumber, nonEmptyString, positiveNumber, record, TuningDataError } from '../tuning/validate';
 
 /** The format this module reads and writes; a source of another version is refused. */
@@ -123,13 +124,8 @@ export interface SourceObjective {
   readonly y?: number;
 }
 
-/** The map's card in the Lobby's map picker (Stage 3 reads it); render-only text. */
-export interface SourceLobby {
-  readonly label?: string;
-  readonly where?: string;
-  readonly blurb?: string;
-  readonly art?: string;
-}
+/** The map's card in the Lobby's map picker (Stage 3): the compiled map's `lobby`, render-only text, each part absent for the Lobby's own. */
+export type SourceLobby = BattleMapLobby;
 
 export interface MapSource {
   readonly version: number;
@@ -243,18 +239,6 @@ function parseObjective(raw: unknown, where: string, half: number): SourceObject
   return o.y === undefined ? site : { ...site, y: finiteNumber(o, 'y', where) };
 }
 
-function lobbyOf(raw: unknown): SourceLobby | undefined {
-  if (raw === undefined) return undefined;
-  const o = record(raw, 'source.lobby');
-  const out: Record<string, string> = {};
-  for (const key of ['label', 'where', 'blurb', 'art'] as const) {
-    if (o[key] === undefined) continue;
-    if (typeof o[key] !== 'string') throw new TuningDataError(`source.lobby.${key} must be text`);
-    out[key] = o[key];
-  }
-  return out;
-}
-
 /**
  * Validate a raw Map Source (a parsed `.source.json`). Throws TuningDataError naming the path (and the Brush's id). Accepts its own
  * output, so a parsed source parses again.
@@ -263,7 +247,7 @@ export function parseMapSource(raw: unknown): MapSource {
   const r = record(raw, 'source');
   if (r.version !== MAP_SOURCE_VERSION) throw new TuningDataError(`source.version must be ${MAP_SOURCE_VERSION}, got ${JSON.stringify(r.version)}`);
   const name = nonEmptyString(r, 'name', 'source');
-  if (!/^[a-z][a-z0-9]*$/.test(name)) throw new TuningDataError(`source.name "${name}" must be lower-case letters and digits, starting with a letter`);
+  if (!/^[a-z][a-z0-9]*$/.test(name) || name.length > MAX_MAP_NAME) throw new TuningDataError(`source.name "${name}" must be lower-case letters and digits, starting with a letter, at most ${MAX_MAP_NAME}`);
   const size = positiveNumber(r, 'size', 'source');
   const g = record(r.grid, 'source.grid');
   const step = positiveNumber(g, 'step', 'source.grid');
@@ -291,6 +275,8 @@ export function parseMapSource(raw: unknown): MapSource {
     ids.add(b.id);
   });
   const objectives = array(r.objectives, 'source.objectives').map((o, i) => parseObjective(o, `source.objectives[${i}]`, half));
+  // The game's own rule for a map's Objectives (`parseBattleMap`), so the editor refuses the edit rather than Save the map.
+  checkSites(objectives, 'source.objectives');
   const bases = array(r.bases, 'source.bases');
   if (bases.length !== 2) throw new TuningDataError("source.bases must hold Team 0's Base and Team 1's");
   const basePoint = (v: unknown, at: string): GroundPoint => {
@@ -313,6 +299,6 @@ export function parseMapSource(raw: unknown): MapSource {
     armySize: { standard: positiveNumber(army, 'standard', 'source.armySize'), max: positiveNumber(army, 'max', 'source.armySize') },
     ...(r.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(r, 'ticketsPerSoldier', 'source') }),
   };
-  const lobby = lobbyOf(r.lobby);
+  const lobby = parseMapLobby(r.lobby, 'source.lobby');
   return lobby ? { ...source, lobby } : source;
 }

@@ -6,15 +6,19 @@
  * select tool, pan (right or middle drag, or a drag on empty ground) and zoom (the wheel). Over the Brushes it draws the live checks'
  * overlays (Stage 2, `overlays.ts`) for the floors shown: reachability (unreached floors flash), edges, clearance and the field's cell
  * centres. It only calls the session and reads the checks.
+ *
+ * Stage 3: the Battle's markers are picked and dragged with the select tool before any Brush (an Objective, a Base, either Team's front
+ * line by its grips at the field's edges), and the Objective tool places a new Objective with a click. Each Objective is drawn with its capture circle and its `y`, each
+ * front line across the field in its Team's colour.
  */
-import type { LevelsTuning } from '../../tuning';
+import type { LevelsTuning, ObjectivesTuning } from '../../tuning';
 import type { ClearanceNode, MapChecks } from '../checks';
-import { boundsOf, brushAt, brushLevels, handleAt, handlesOf, isSegment, type Handle, type MapEditorSession } from '../session';
+import { boundsOf, brushAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
 import type { Brush, BrushKind, GroundPoint, MapSource, Rect } from '../source';
 import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
 
-/** The palette's tool: pick, move and resize Brushes, or draw one of a kind. */
-export type Tool = 'select' | BrushKind;
+/** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective. */
+export type Tool = 'select' | BrushKind | 'objective';
 
 /** A level's colour, by its place among the levels from the lowest. */
 const LEVEL_COLOURS = ['#4f7fbf', '#5fa05a', '#c9a44a', '#b8673f', '#9a5fb0', '#4aa6a6', '#c05f7a', '#8a8f4a'];
@@ -22,16 +26,21 @@ const HAZARD_COLOURS: Readonly<Record<string, string>> = { lava: '#ff5a1f', wate
 /** How near (px) the pointer must come to a handle or a segment to take it. */
 const REACH_PX = 7;
 const HANDLE_PX = 5;
+/** An Objective's and a Base's drawn size (px): a click this near takes it. */
+const MARKER_PX = 10;
+/** The Teams' colours (Team 0, Team 1), as the markers are drawn. */
+const TEAM = ['#e0c040', '#4080e0'];
 /** The width (px) the panel covers on the right, and the share of the height the list of checks may cover at the bottom. */
 const PANEL_PX = 340;
 const LIST_SHARE = 0.36;
 
 interface Gesture {
-  readonly kind: 'draw' | 'move' | 'resize' | 'pan';
+  readonly kind: 'draw' | 'move' | 'resize' | 'pan' | 'marker';
   readonly start: GroundPoint;
   readonly screen: { x: number; y: number };
   readonly id?: string;
   readonly handle?: Handle;
+  readonly marker?: Marker;
   readonly view?: { cx: number; cz: number };
 }
 
@@ -50,6 +59,8 @@ export class TopView {
   overlays: Overlays | null = null;
   clearance: readonly ClearanceNode[] | null = null;
   levels: LevelsTuning | null = null;
+  /** The Battle's capture circles, to draw each Objective's. */
+  objectiveRadii: Pick<ObjectivesTuning, 'radius' | 'spawnRadius'> | null = null;
   private flashing = false;
   /** False while the 3D view covers it: nothing is drawn, nor flashes. */
   shown = true;
@@ -82,12 +93,13 @@ export class TopView {
     this.frame(this.session.source);
   }
 
-  /** Fit the whole field in the view, left of the panel. */
+  /** Fit the whole field in the view, left of the panel and above the list of checks (so Team 0's Base and front line are in reach). */
   frame(source: MapSource): void {
     const w = Math.max(200, (this.canvas.clientWidth || 800) - PANEL_PX);
     const h = this.canvas.clientHeight || 600;
-    const scale = (0.94 * Math.min(w, h)) / source.size;
-    this.view = { cx: PANEL_PX / 2 / scale, cz: 0, scale };
+    const open = h * (1 - LIST_SHARE);
+    const scale = (0.94 * Math.min(w, open)) / source.size;
+    this.view = { cx: PANEL_PX / 2 / scale, cz: -(h / 2 - open / 2) / scale, scale };
     this.redraw();
   }
 
@@ -158,11 +170,24 @@ export class TopView {
       return;
     }
     const tool = this.tool();
+    const s = this.session;
+    if (tool === 'objective') {
+      this.gesture = null;
+      // On an Objective already there, the click selects it; off the field, it places nothing.
+      const there = markerAt(s.source, p.x, p.z, MARKER_PX / this.view.scale, 0);
+      const half = s.source.size / 2;
+      if (there?.kind === 'objective') {
+        s.selectMarker(there);
+        this.changed();
+      } else if (Math.abs(p.x) >= half || Math.abs(p.z) >= half) this.changed('Place an Objective on the field');
+      else this.edit(() => s.addObjective(p));
+      this.redraw();
+      return;
+    }
     if (tool !== 'select') {
       this.gesture = { kind: 'draw', start: p, screen };
       return;
     }
-    const s = this.session;
     const sel = s.selection;
     const handle = sel ? handleAt(sel, p.x, p.z, this.reach()) : null;
     if (sel && handle) {
@@ -170,9 +195,20 @@ export class TopView {
       this.gesture = { kind: 'resize', start: p, screen, id: sel.id, handle };
       return;
     }
+    // The markers are drawn over the Brushes, so they are picked first.
+    const marker = markerAt(s.source, p.x, p.z, MARKER_PX / this.view.scale, this.reach());
+    if (marker) {
+      s.selectMarker(marker);
+      s.beginDrag();
+      this.gesture = { kind: 'marker', start: p, screen, marker };
+      this.changed();
+      this.redraw();
+      return;
+    }
     const picked = brushAt(s.source, p.x, p.z, s.level, this.reach()) ?? (s.showAll ? brushAt(s.source, p.x, p.z, null, this.reach()) : null);
     if (!picked) {
       s.select(null);
+      s.selectMarker(null);
       this.changed();
       this.gesture = pan;
       this.redraw();
@@ -201,6 +237,8 @@ export class TopView {
       this.edit(() => this.session.moveBrush(g.id!, p.x - g.start.x, p.z - g.start.z));
     } else if (g.kind === 'resize') {
       this.edit(() => this.session.resizeBrush(g.id!, g.handle!, p.x, p.z));
+    } else if (g.kind === 'marker') {
+      this.edit(() => this.session.moveMarker(g.marker!, p.x - g.start.x, p.z - g.start.z));
     }
     this.redraw();
   }
@@ -209,13 +247,13 @@ export class TopView {
     const g = this.gesture;
     this.gesture = null;
     if (!g) return;
-    if (g.kind === 'move' || g.kind === 'resize') {
+    if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'marker') {
       this.session.endDrag();
       this.changed();
     } else if (g.kind === 'draw') {
       const p = this.toGround(e.clientX, e.clientY);
       const tool = this.tool();
-      if (tool !== 'select') this.edit(() => this.session.addBrush(tool, g.start, p));
+      if (tool !== 'select' && tool !== 'objective') this.edit(() => this.session.addBrush(tool, g.start, p));
     }
     this.redraw();
   }
@@ -224,7 +262,7 @@ export class TopView {
   private cancel(): void {
     const g = this.gesture;
     this.gesture = null;
-    if (g?.kind === 'move' || g?.kind === 'resize') {
+    if (g?.kind === 'move' || g?.kind === 'resize' || g?.kind === 'marker') {
       this.session.endDrag();
       this.changed();
     }
@@ -531,31 +569,81 @@ export class TopView {
     ctx.stroke();
   }
 
-  /** The Objectives (letters in circles, ringed by their starting owner) and the two Bases; Stage 3 makes them draggable. */
+  /**
+   * The markers: each Team's front line across the field (its army's front rank deploys there), each Objective (its letter in a circle
+   * ringed by its starting Owner, thicker for a spawn, its capture circle round it and its `y` under it) and the two Bases; the selected
+   * one ringed in yellow.
+   */
   private drawMarkers(source: MapSource): void {
     const { ctx } = this;
-    const TEAM = ['#e0c040', '#4080e0'];
+    const half = source.size / 2;
+    const picked = this.session.marker;
+    const isPicked = (m: Marker) => sameMarker(picked, m);
     ctx.font = 'bold 12px system-ui, sans-serif';
+    ([0, 1] as const).forEach((team) => {
+      const y = this.sy(team === 0 ? -source.front : source.front);
+      const on = isPicked({ kind: 'front', team });
+      ctx.strokeStyle = on ? '#ffe14d' : TEAM[team]!;
+      ctx.lineWidth = on ? 3 : 1.5;
+      ctx.setLineDash([10, 6]);
+      ctx.beginPath();
+      ctx.moveTo(this.sx(-half), y);
+      ctx.lineTo(this.sx(half), y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      // Its grips at the field's edges, where it is picked (FRONT_GRIP).
+      ctx.fillStyle = on ? '#ffe14d' : TEAM[team]!;
+      const grip = FRONT_GRIP * this.view.scale;
+      ctx.fillRect(this.sx(-half), y - 3, grip, 6);
+      ctx.fillRect(this.sx(half) - grip, y - 3, grip, 6);
+      ctx.fillText(`Team ${team} front (${team === 0 ? -source.front : source.front})`, this.sx(-half) + 6, y + (team === 0 ? 14 : -5));
+    });
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const radii = this.objectiveRadii;
     for (const o of source.objectives) {
       const x = this.sx(o.x);
       const y = this.sy(o.z);
+      if (radii) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(x, y, (o.spawn ? radii.spawnRadius : radii.radius) * this.view.scale, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
       ctx.fillStyle = 'rgba(255,255,255,0.9)';
       ctx.beginPath();
-      ctx.arc(x, y, 10, 0, 2 * Math.PI);
+      ctx.arc(x, y, MARKER_PX, 0, 2 * Math.PI);
       ctx.fill();
       ctx.strokeStyle = o.owner < 0 ? '#555' : TEAM[o.owner]!;
       ctx.lineWidth = o.spawn ? 3 : 1.5;
       ctx.stroke();
+      if (isPicked({ kind: 'objective', id: o.id })) {
+        ctx.strokeStyle = '#ffe14d';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(x, y, MARKER_PX + 4, 0, 2 * Math.PI);
+        ctx.stroke();
+      }
       ctx.fillStyle = '#111';
       ctx.fillText(o.id, x, y + 0.5);
+      if (o.y !== undefined) {
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.fillText(`y ${o.y}`, x, y + MARKER_PX + 8);
+        ctx.font = 'bold 12px system-ui, sans-serif';
+      }
     }
     source.bases.forEach((b, t) => {
       const x = this.sx(b.x);
       const y = this.sy(b.z);
       ctx.fillStyle = TEAM[t]!;
       ctx.fillRect(x - 8, y - 8, 16, 16);
+      if (isPicked({ kind: 'base', team: t as 0 | 1 })) {
+        ctx.strokeStyle = '#ffe14d';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(x - 11, y - 11, 22, 22);
+      }
       ctx.fillStyle = '#111';
       ctx.fillText(String(t), x, y + 0.5);
     });
