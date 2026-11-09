@@ -77,7 +77,7 @@ MATERIALS = {
     'LavaWall': (0x3a1409, 1.0, True, 0.5),
     'Gold': (0xc9a227, 1.0, False, 0.8),
     'Fire': (0xe8742c, 1.0, False, 3.0),
-    'Banner0': (0xc0392b, 1.0, False, 0),
+    'Banner0': (0xf1c40f, 1.0, False, 0),
     'Banner1': (0x2e86c1, 1.0, False, 0),
     'Wood': (0x5a4330, 1.0, False, 0),
 }

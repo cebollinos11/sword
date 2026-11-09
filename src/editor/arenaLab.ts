@@ -46,7 +46,7 @@ type Point = { readonly x: number; readonly y: number; readonly z: number };
 
 /**
  * Where the orbit camera stands (`position`) and looks (`target`) to see the whole footprint through a `fov`° view:
- * at the middle of the floors (the Abyss left out), from above and behind red's side (-z).
+ * at the middle of the floors (the Abyss left out), from above and behind yellow's side (-z).
  */
 export function frameArena(arena: ArenaGeometry, fov: number): { target: Point; position: Point } {
   const points = arena.walk.filter((s) => !s.abyss).flatMap((s) => s.points);

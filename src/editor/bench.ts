@@ -202,7 +202,7 @@ function billboards(scene: THREE.Scene): { update(camera: THREE.Camera, seconds:
   texture.colorSpace = THREE.SRGBColorSpace;
   const geometry = new THREE.PlaneGeometry(0.8, 1.8).translate(0, 0.9, 0);
   const perTeam = SOLDIERS / 2;
-  const meshes = [0xc0392b, 0x2e86c1].map((color) => new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ map: texture, color, alphaTest: 0.5 }), perTeam));
+  const meshes = [0xf1c40f, 0x2e86c1].map((color) => new THREE.InstancedMesh(geometry, new THREE.MeshBasicMaterial({ map: texture, color, alphaTest: 0.5 }), perTeam));
   // A ring of each army round the melee, 8 to 40 m out (a fixed pattern, not the Simulation's generator: render only).
   const base = meshes.map((_, team) =>
     Array.from({ length: perTeam }, (_, k) => {
