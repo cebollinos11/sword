@@ -71,3 +71,26 @@ export const sampleSource = (): MapSource =>
       ],
     },
   );
+
+/**
+ * A source the size of the City (about 650 Walk Surfaces and 500 Walls compiled, against `city.json`'s 634 and 280), to time the live
+ * checks on (docs/plans/map-editor.md, Stage 2): 63 buildings (Platforms 4 m up, 10 m square) in a 9 by 7 grid 20 m apart, each with a
+ * railed Ramp up its south face and a notch cut into its north side, and a railed bridge (a Deck) east to the next one.
+ */
+export function citySizedSource(): MapSource {
+  const brushes: Brush[] = [GROUND];
+  for (let r = -3; r <= 3; r++)
+    for (let c = -4; c <= 4; c++) {
+      const x = c * 20;
+      const z = r * 20;
+      const id = `${c + 4}x${r + 3}`;
+      brushes.push({ kind: 'platform', id: `house${id}`, rect: { x0: x - 5, z0: z - 5, x1: x + 5, z1: z + 5 }, top: 4 });
+      brushes.push({ kind: 'ramp', id: `stair${id}`, rect: { x0: x - 2, z0: z - 13, x1: x + 2, z1: z - 5 }, lo: 0, hi: 4, up: 'n', rails: ['e', 'w'] });
+      brushes.push({ kind: 'hole', id: `notch${id}`, rect: { x0: x - 1.5, z0: z + 2, x1: x + 1.5, z1: z + 5 }, y: 4 });
+      if (c === 4) continue;
+      brushes.push({ kind: 'deck', id: `bridge${id}`, rect: { x0: x + 5, z0: z + 2, x1: x + 15, z1: z + 4.5 }, y: 4 });
+      brushes.push({ kind: 'rail', id: `railS${id}`, a: { x: x + 5, z: z + 2 }, b: { x: x + 15, z: z + 2 }, y: 4, height: 1 });
+      brushes.push({ kind: 'rail', id: `railN${id}`, a: { x: x + 5, z: z + 4.5 }, b: { x: x + 15, z: z + 4.5 }, y: 4, height: 1 });
+    }
+  return withBrushes(brushes, [0, 4], { name: 'citysized' });
+}

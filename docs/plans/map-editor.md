@@ -1,11 +1,11 @@
 # Map Editor: author, check and play-test Battle maps in the browser
 
-> Status: Stage 1 built (2026-11-09): the Map Editor at `#/mapeditor?dev=1` (top view, Brushes, levels, undo, New, Open, Save) over a pure, tested `MapEditorSession`; Stage 2 (live checks and overlays) next. Seven Stages (0 to 6), each one chat (see "How to run each Stage"). Each Stage ends with a `### Result` written by whoever builds it (what was built, what changed from the plan, test counts), as in `docs/plans/battle-objectives.md`.
+> Status: Stage 2 built (2026-11-09): live checks and overlays in the Map Editor (`checkMap`, the game's own walk check, walk rule and destination fields on the compiled draft), a list that selects and frames each check's Brushes, and a 3D view; Stage 3 (Battle markers, map settings and the Lobby reading map files) next. Seven Stages (0 to 6), each one chat (see "How to run each Stage"). Each Stage ends with a `### Result` written by whoever builds it (what was built, what changed from the plan, test counts), as in `docs/plans/battle-objectives.md`.
 
 ## Progress
 - [x] Stage 0: the Map Source and its compiler (pure, no UI)
 - [x] Stage 1: the editor shell (top view, Brushes, levels, save and load)
-- [ ] Stage 2: live checks and overlays
+- [x] Stage 2: live checks and overlays
 - [ ] Stage 3: Battle markers, map settings and the Lobby reading map files
 - [ ] Stage 4: play-test from the editor
 - [ ] Stage 5: the look (a generated model, materials, props)
@@ -141,6 +141,37 @@ To try in `npm run dev` at `#/mapeditor?dev=1`:
 - A **3D view** (orbit camera) of the compiled greybox, with the same overlays, beside or switchable with the top view.
 - A cost line: Walk Surface and Wall counts, navmesh build time (measured here, as the Arena Lab does with a clock), compile time.
 - **Done**: on deliberately broken sources (a floating Platform, lava 2 m under a bank, a rail on a cell centre) each check fires and points at the right Brush; on Stage 0's sample none does.
+
+### Result
+Built:
+- `src/mapEditor/checks.ts` (pure, in the purity scan): `checkMap(source, tuning) → MapChecks`, every check the game's own code on the compiled draft. `compile.ts` now splits `compileMap` into `compileDraft` (the map `parseBattleMap` accepts, the Brush of each Walk Surface, Wall and Block, and the Arena a Battlefield stands Soldiers on) and `walkChecked`; `compileMap` is the two together, unchanged. `levels.ts`'s `walkCheck` is now `walkReach` (the one probe pass and the reach both ways, its probes passed out to a caller) plus the same verdict; nothing in the Simulation changed, and the editor reads the checks from the very pass `walkCheck` decides by. The checks:
+  - **Reachability** (error): per Brush, its Walk Surfaces Soldiers cannot walk to from the first, or back. Save refuses for the same reason (`walkChecked`), naming the same Brush.
+  - **Edges** (only while the edges overlay is on, `checkMap(…, { edges: true })`: classifying every probe costs a third more on a big map): every probe of that pass, merged into runs per edge: walk, drop (one way), Wall (`walled` at the step) or ledge.
+  - **Deadly ground within a drop** (warning): a walk or drop onto lava, water or abyss, naming the hazard, then the bank.
+  - **Walls through the destination fields' cell centres** (warning, on a map of several levels): every Wall (a Brush's, a face, a rail, a Block's sides; not the field's edge) through a `battle.crowd.flowCell` centre, standing across a body on a floor there, as `walled` counts heights. Such a node is cut off from all its neighbours (each join starts or ends on the Wall, and `walled` counts a touch). A one-level map's fields read no Wall, so it has none.
+  - **Objectives and Bases** (warning, where the Battlefield stands them, `groundNear`): no floor under it, on deadly ground, an Objective's `y` naming no floor there; an Objective over several levels without `y` is a **note** (it takes the highest, as the Fort's B does by design; capture is level-aware, so only Soldiers on that level take it).
+  - **Ramps steeper than a Fighter walks** (warning): one Tick at its fastest walk (Sheathed) climbing more than `fall.stepUp` or falling more than `fall.snapDown` (`settleGround`'s rule); `steepestRamp` is about 5.2 m a metre today, so only a very short Ramp fires.
+  - The compiler's warnings, and its refusal (one error, its Brushes; nothing else is checked).
+  - `fieldClearance(checks, battle)`: the real fields (`battleMapOf` on the draft): each node's clearance and the files a Formation fits there (`filesFit`, now exported from `squad.ts` and used by `formationNarrow`). `issueBounds` frames an issue (its Brushes, or its point where its Brush is the whole ground).
+- UI (`src/mapEditor/ui/`): the source is checked 120 ms after each edit (timed in the UI), and the list of checks sits under the view, errors, warnings, notes; clicking one selects its first Brush (switching to its level), outlines all of them in red and frames them in both views. The Checks folder: top view or 3D view, the overlays (reachability, flashing where unreached; edges, each kind on its own; clearance; field cell centres, red where a Wall cuts one off), a legend, the cost line (Walk Surfaces, Walls, Blocks, compile + checks ms, the fields' build ms once clearance is on) and a **Measure navmesh build** button (the Fighters' navmesh of the draft, timed as the Arena Lab times it). `view3d.ts`: the draft as `greybox` draws it (Walls triplanar stone), lava and water coloured, the same overlays, the Objectives and Bases as posts, axes at the centre, an orbit camera framed once per map.
+- `src/mapEditor/sample.testdata.ts`: `citySizedSource()`, 63 buildings with ramps, notches and railed bridges: 626 Walk Surfaces and 809 Walls compiled (`city.json`: 634 and 280).
+
+Changed from the plan:
+- **The sample fires the cell-centre check.** The plan's Done says Stage 0's sample fires none, but the destination fields' cell is 4 m (`crowd.flowCell`), not the source's 5 m coarse grid, and the sample's keep faces (x ±12, z ±8), its ramps' rails (x ±4) and the pit's bank under the bridge (x 20, 36) lie on 36 of its centres, whose nodes are cut off: that is what the Simulation does with it (the Fort and Cavern have it too). The checks say so rather than hide it; the sample is left as it is (Stage 1's tests rebuild it exactly). Its other checks are clean; C's over-two-levels is a note. The test pins this list exactly.
+- **Block under a Deck** stays the compiler's error (it was already refused), shown in the list.
+- **The navmesh is measured on demand**, not after every edit: on a City-sized map it takes about 150 ms on the main thread. The fields' clearance is built only while its overlay is on, once the edits pause (700 ms).
+- **The top view is a mirror of the world.** Stage 1 draws east (+x) right with north (+z) up, which is the field seen from below: seen from above (the 3D view, and the game), east lies left of north. The 3D view shows axes (x red, z blue) so the two can be matched. Not changed here (it is Stage 1's view and every gesture in it); worth deciding before Stage 4's play-test.
+
+Tests: `src/mapEditor/checks.test.ts`, 11 fast, among them the Done: a floating Platform (an error naming it; its top unreached; Save refuses naming it too), lava 2 m under a bank (a warning naming the lava, then the ground; 8 m down fires nothing), a Rail on a 4 m centre (a warning naming it, its three centres; one at x 21 fires nothing; on a one-level map nothing), and the sample's exact list. Also the edges (drops off a 3 m keep, Walls at its faces and the ramp's rails, ledges off a 4 m one, runs covering each edge end to end), the markers and a steep Ramp, a refused source, framing, clearance (one file on the 6 m railed ramp, a full line in the open), determinism, and the City-sized source checking clean. `src/mapEditor/checks.slow.test.ts` times it (asserting the fastest run under 100 ms: the median carries the other slow files running beside it). `npm test`: 2019 passed (12 new, with the purity scan of `checks.ts`); `npm run test:slow`: 24 passed (1 new); `npm run typecheck` clean. No shipped map and no existing test changed.
+
+Measured (Vitest, fastest / median, on this 4-core VM, which is noisy): the City-sized source's live checks (compile, walk check and every check but the edges and clearance) 48 / 56 to 76 ms, of which about 40 ms is the game's walk check on a fresh map (the same pass Save's compile runs) and 19 ms the compile; with the edges 62 / 70 to 95 ms; with the fields' clearance about 360 ms. Run against another full test suite at once, the median reached 105 ms. The sample: 20 to 26 ms, clearance 47 to 63 ms. In headless Chromium the sample's checks took 38 to 55 ms, its navmesh 11 to 19 ms, its fields 49 to 74 ms; `city.json`'s navmesh builds in about 150 ms. Checked in headless Chromium: Open example, draw a Platform with no Ramp (the error, its floor flashing, a click selecting and framing it), add a level -2 with a Hole and lava under it and a Rail at x 60 (both warnings; clicks select `hazard1` and `rail1`), edges and clearance on, the 3D view (focused on the lava from the list), Measure navmesh, back to the top view; no console errors.
+
+To try in `npm run dev` at `#/mapeditor?dev=1`:
+- File, Open example: the list shows the sample's four cell-centre warnings and C's note; zoom in on the keep to see the red dots on its faces. Click a warning to select and frame its Brush.
+- Draw a Platform (P) on open ground: an error, its floor flashing red; Save refuses. Add a Ramp (R) up to it and watch the error go.
+- Add a level -2, a Hole at 0 and a Hazard at -2 under it: the lava warning; set the Hazard's level to -8 (add it): gone.
+- Draw a Rail (L) along x = 60: a cell-centre warning; nudge it with the arrows half a metre: gone.
+- Checks: turn on edges (walk off, drop, Wall, ledge on), clearance (red where a Formation goes in one file), and switch the view to 3D; Measure navmesh build.
 
 ## Stage 3: Battle markers, map settings and the Lobby reading map files
 **Model**: Sonnet.

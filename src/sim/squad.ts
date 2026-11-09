@@ -191,6 +191,9 @@ export function placeOffset(battle: BattleTuning, shape: number, place: number, 
   out[1] = -r * s + f * c;
 }
 
+/** How many files (at least 1) a Formation fits in `clearance` (m) from a wall on each side, keeping `narrow.room` from them. */
+export const filesFit = (battle: Pick<BattleTuning, 'squad'>, clearance: number): number => Math.max(1, Math.floor((2 * (clearance - battle.squad.narrow.room)) / battle.squad.spacing) + 1);
+
 /**
  * How many files a Squad's Formation narrows to where its anchor stands at (x, z) facing `heading` (docs/plans/battle-objectives.md,
  * Stage 3b): as many as the least clearance ahead holds, sampled every `spacing` from its anchor to `narrow.ahead` past it, keeping
@@ -205,7 +208,7 @@ export function formationNarrow(battle: BattleTuning, fields: DestinationFields,
   const c = Math.cos(heading);
   let least = Infinity;
   for (let d = 0; d <= narrow.ahead + 1e-9; d += spacing) least = Math.min(least, clearanceAt(fields, x + s * d, z + c * d, surface));
-  const fit = Math.max(1, Math.floor((2 * (least - narrow.room)) / spacing) + 1);
+  const fit = filesFit(battle, least);
   if (shape === LOOSE) return spacing * loose.spread * Math.sqrt(Math.max(1, living)) + narrow.room <= least ? 0 : fit;
   return fit < (shape === LINE ? line.wide : column.wide) ? fit : 0;
 }

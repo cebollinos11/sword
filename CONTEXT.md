@@ -423,7 +423,7 @@ The pure function from a Map Source to an ordinary Battle map (`compileMap`, `sr
 _Avoid_: Exporter, baker
 
 **Map Editor**:
-The dev route (`#/mapeditor?dev=1`, docs/plans/map-editor.md) that edits a Map Source: a top view of the field where Brushes are drawn, picked, moved and resized on the grid level by level, a panel of their numbers, undo, and Save, which writes the source and the map it compiles to and refuses a source the game would refuse. Its state and operations are `MapEditorSession` (`src/mapEditor/session.ts`). Not the Editor (the Motion Editor).
+The dev route (`#/mapeditor?dev=1`, docs/plans/map-editor.md) that edits a Map Source: a top view of the field where Brushes are drawn, picked, moved and resized on the grid level by level, a panel of their numbers, undo, and Save, which writes the source and the map it compiles to and refuses a source the game would refuse. Its state and operations are `MapEditorSession` (`src/mapEditor/session.ts`). On every edit it compiles and checks the source (`checkMap`, `src/mapEditor/checks.ts`: the game's own walk check, walk rule, destination fields and marker placement run on the compiled draft) and lists what the Simulation will do that the author likely did not mean (an unreachable floor, a drop into lava, a Wall through a destination field's cell centre, an Objective with no floor), each naming its Brushes; overlays show the same in the top view and a 3D view. Not the Editor (the Motion Editor).
 _Avoid_: Level editor
 
 **Jump**:

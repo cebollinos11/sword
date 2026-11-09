@@ -23,7 +23,7 @@
 import { parseBattleMap, type ArenaGeometry, type ArenaPoint, type BattleMapTuning, type BattleTuning, type WalkSurface, type WallBlock, type WallSegment } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import { blockWalls } from '../sim/battlefield';
-import { walkCheck } from '../sim/levels';
+import { walkCheck, type WalkReach } from '../sim/levels';
 import { RAIL, SIDES, type Brush, type MapSource, type RampBrush, type Rect, type Side } from './source';
 
 /** Something the compiler noticed that the game accepts but the author likely did not mean. */
@@ -47,6 +47,18 @@ export class MapCompileError extends Error {
 export interface CompiledMap {
   readonly map: BattleMapTuning;
   readonly warnings: readonly CompileWarning[];
+}
+
+/**
+ * A compiled map before the walk check (`compileDraft`): the map `parseBattleMap` accepts, which Brush each of its Walk Surfaces, Walls
+ * and Blocks comes from (`''` for the field's edge Walls), and the Arena the Simulation stands Soldiers on (its Walls and its Blocks' Walls,
+ * as a Battlefield builds it). The Map Editor's checks (`checks.ts`) read it even where Soldiers cannot walk the whole map.
+ */
+export interface DraftMap extends CompiledMap {
+  readonly surfaceBrush: readonly string[];
+  readonly wallBrush: readonly string[];
+  readonly blockBrush: readonly string[];
+  readonly arena: ArenaGeometry;
 }
 
 /** Heights this close (m) are equal. */
@@ -110,6 +122,29 @@ function rampCorner(r: RampBrush, x: number, z: number): number {
  * concerned when the source is inconsistent or the game would refuse the map (`parseBattleMap`, `walkCheck`).
  */
 export function compileMap(source: MapSource, battle: Pick<BattleTuning, 'field' | 'deploy' | 'squad' | 'levels'>): CompiledMap {
+  const draft = compileDraft(source, battle);
+  walkChecked(draft, battle);
+  return { map: draft.map, warnings: draft.warnings };
+}
+
+/**
+ * Throws MapCompileError, naming the Brush of the Walk Surface it names, where `walkCheck` refuses the draft: Soldiers cannot walk (and
+ * drop) between all of its Walk Surfaces. Pass the draft's `walkReach` when it is already worked out.
+ */
+export function walkChecked(draft: DraftMap, battle: Pick<BattleTuning, 'levels'>, reach?: WalkReach): void {
+  const unjoined = walkCheck(draft.arena, battle.levels, reach);
+  if (!unjoined) return;
+  // walkCheck names the Walk Surface that cannot be reached (or cannot get back) first.
+  const lost = /Walk Surface (\S+)/.exec(unjoined)?.[1];
+  const k = draft.map.walk.findIndex((w) => w.id === lost);
+  throw new MapCompileError(`Soldiers cannot walk the whole map: ${unjoined}`, k >= 0 ? [draft.surfaceBrush[k]!] : []);
+}
+
+/**
+ * `compileMap` short of the walk check: the map `parseBattleMap` accepts, with the Brush of each of its parts. Throws MapCompileError
+ * where the source is inconsistent or `parseBattleMap` refuses the map.
+ */
+export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'field' | 'deploy' | 'squad' | 'levels'>): DraftMap {
   const warnings: CompileWarning[] = [];
   const { brushes, levels } = source;
   const step = source.grid.step;
@@ -484,14 +519,7 @@ export function compileMap(source: MapSource, battle: Pick<BattleTuning, 'field'
     throw new MapCompileError(`the game refuses the map: ${e.message}`, brush ? [brush] : []);
   }
   const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: false };
-  const unjoined = walkCheck(arena, battle.levels);
-  if (unjoined) {
-    // walkCheck names the Walk Surface that cannot be reached (or cannot get back) first.
-    const lost = /Walk Surface (\S+)/.exec(unjoined)?.[1];
-    const k = map.walk.findIndex((w) => w.id === lost);
-    throw new MapCompileError(`Soldiers cannot walk the whole map: ${unjoined}`, k >= 0 ? [surfaceBrush[k]!] : []);
-  }
-  return { map, warnings };
+  return { map, warnings, surfaceBrush, wallBrush, blockBrush, arena };
 }
 
 /** A file's list `key`, one entry a line (the layout of the map files and the Map Sources). */

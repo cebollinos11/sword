@@ -3,10 +3,15 @@
  * right. It draws the fine grid (where it is wide enough to see) and the coarse grid (the destination fields' cell), each Brush by kind
  * in its level's colour (the level being edited solid, the others faded or hidden), the Objectives and Bases, and the selected Brush's
  * handles; and it turns the pointer into the session's operations: draw a Brush with the palette's tool, pick, move and resize with the
- * select tool, pan (right or middle drag, or a drag on empty ground) and zoom (the wheel). It only calls the session.
+ * select tool, pan (right or middle drag, or a drag on empty ground) and zoom (the wheel). Over the Brushes it draws the live checks'
+ * overlays (Stage 2, `overlays.ts`) for the floors shown: reachability (unreached floors flash), edges, clearance and the field's cell
+ * centres. It only calls the session and reads the checks.
  */
+import type { LevelsTuning } from '../../tuning';
+import type { ClearanceNode, MapChecks } from '../checks';
 import { boundsOf, brushAt, brushLevels, handleAt, handlesOf, isSegment, type Handle, type MapEditorSession } from '../session';
-import type { Brush, BrushKind, GroundPoint, MapSource } from '../source';
+import type { Brush, BrushKind, GroundPoint, MapSource, Rect } from '../source';
+import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
 
 /** The palette's tool: pick, move and resize Brushes, or draw one of a kind. */
 export type Tool = 'select' | BrushKind;
@@ -17,8 +22,9 @@ const HAZARD_COLOURS: Readonly<Record<string, string>> = { lava: '#ff5a1f', wate
 /** How near (px) the pointer must come to a handle or a segment to take it. */
 const REACH_PX = 7;
 const HANDLE_PX = 5;
-/** The width (px) the panel covers on the right. */
+/** The width (px) the panel covers on the right, and the share of the height the list of checks may cover at the bottom. */
 const PANEL_PX = 340;
+const LIST_SHARE = 0.36;
 
 interface Gesture {
   readonly kind: 'draw' | 'move' | 'resize' | 'pan';
@@ -37,8 +43,18 @@ export class TopView {
   private gesture: Gesture | null = null;
   private pointer: GroundPoint | null = null;
   private queued = false;
-  /** Brushes the last compile refused, outlined in red. */
+  /** Brushes the last compile refused, or the check picked from the list, outlined in red. */
   flagged: readonly string[] = [];
+  /** The live checks of the source (Stage 2), the overlays switched on, and the destination fields' clearance once built. */
+  checks: MapChecks | null = null;
+  overlays: Overlays | null = null;
+  clearance: readonly ClearanceNode[] | null = null;
+  levels: LevelsTuning | null = null;
+  private flashing = false;
+  /** False while the 3D view covers it: nothing is drawn, nor flashes. */
+  shown = true;
+  /** Each Walk Surface's lowest and highest point, and their order from the lowest top, for the checks they were worked out for. */
+  private spans: { readonly of: MapChecks; readonly span: readonly { lo: number; hi: number }[]; readonly order: readonly number[] } | null = null;
 
   constructor(
     parent: HTMLElement,
@@ -75,13 +91,26 @@ export class TopView {
     this.redraw();
   }
 
+  /** Fit `rect` (an issue's Brushes) in the view, left of the panel and above the list of checks (`LIST_SHARE` of the height), with room round it. */
+  frameRect(rect: Rect): void {
+    const w = Math.max(200, (this.canvas.clientWidth || 800) - PANEL_PX);
+    const h = this.canvas.clientHeight || 600;
+    const open = h * (1 - LIST_SHARE);
+    const span = Math.max(8, rect.x1 - rect.x0, rect.z1 - rect.z0) * 1.4;
+    const scale = Math.min(200, Math.min(w, open) / span);
+    this.view = { cx: (rect.x0 + rect.x1) / 2 + PANEL_PX / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
+    this.redraw();
+  }
+
   /** Draw again at the next frame. */
   redraw(): void {
-    if (this.queued) return;
+    if (this.queued || !this.shown) return;
     this.queued = true;
     requestAnimationFrame(() => {
       this.queued = false;
       this.draw();
+      // Unreached floors flash: keep drawing while any are shown.
+      if (this.flashing) this.redraw();
     });
   }
 
@@ -226,6 +255,7 @@ export class TopView {
     ctx.fillRect(this.sx(-half), this.sy(half), source.size * this.view.scale, source.size * this.view.scale);
 
     for (const b of source.brushes) this.drawBrush(b, source);
+    this.drawOverlays();
     this.drawGrid(source);
     this.drawMarkers(source);
 
@@ -256,6 +286,94 @@ export class TopView {
       }
       ctx.stroke();
       ctx.setLineDash([]);
+    }
+  }
+
+  /** Whether a floor between heights `lo` and `hi` is shown: every one with all levels shown, else those at the level being edited. */
+  private shownAt(lo: number, hi: number): boolean {
+    if (this.session.showAll) return true;
+    const y = this.session.level;
+    const near = this.levels?.stepUp ?? 0.35;
+    return lo - near <= y && y <= hi + near;
+  }
+
+  private polygon(points: readonly { x: number; z: number }[]): void {
+    const { ctx } = this;
+    ctx.beginPath();
+    points.forEach((p, k) => (k === 0 ? ctx.moveTo(this.sx(p.x), this.sy(p.z)) : ctx.lineTo(this.sx(p.x), this.sy(p.z))));
+    ctx.closePath();
+  }
+
+  /** The live checks' overlays that are switched on, for the floors shown, lower floors first. */
+  private drawOverlays(): void {
+    const { ctx } = this;
+    const checks = this.checks;
+    const on = this.overlays;
+    this.flashing = false;
+    const draft = checks?.draft;
+    if (!checks || !on || !draft) return;
+    const walk = draft.map.walk;
+    if (this.spans?.of !== checks) {
+      const span = walk.map((w) => {
+        const ys = w.points.map((p) => p.y);
+        return { lo: Math.min(...ys), hi: Math.max(...ys) };
+      });
+      this.spans = { of: checks, span, order: walk.map((_, i) => i).sort((a, b) => span[a]!.hi - span[b]!.hi || a - b) };
+    }
+    const { span, order } = this.spans;
+    if (on.reach) {
+      const pulse = 0.3 + 0.3 * Math.sin(performance.now() / 160);
+      for (const i of order) {
+        const r = checks.reach[i]!;
+        if (r === 'deadly' || !this.shownAt(span[i]!.lo, span[i]!.hi)) continue;
+        const lost = r !== 'reached';
+        this.flashing ||= lost;
+        ctx.globalAlpha = lost ? 0.25 + pulse : 0.16;
+        ctx.fillStyle = REACH_COLOURS[r];
+        this.polygon(walk[i]!.points);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (on.clearance && this.clearance) {
+      const half = (checks.centres.cell / 2) * 0.84 * this.view.scale;
+      const nodes = this.clearance.filter((n) => this.shownAt(n.y, n.y)).sort((a, b) => a.y - b.y);
+      ctx.globalAlpha = 0.55;
+      for (const n of nodes) {
+        ctx.fillStyle = clearanceColour(n);
+        ctx.fillRect(this.sx(n.x) - half, this.sy(n.z) - half, 2 * half, 2 * half);
+      }
+      ctx.globalAlpha = 1;
+    }
+    if (on.edges) {
+      ctx.lineWidth = 2.5;
+      ctx.lineCap = 'round';
+      for (const e of checks.edges) {
+        if (!on.edgeKinds[e.kind] || !this.shownAt(span[e.surface]!.lo, span[e.surface]!.hi)) continue;
+        ctx.strokeStyle = EDGE_COLOURS[e.kind];
+        ctx.beginPath();
+        ctx.moveTo(this.sx(e.a.x), this.sy(e.a.z));
+        ctx.lineTo(this.sx(e.b.x), this.sy(e.b.z));
+        ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+    }
+    if (on.centres) {
+      const { cell, layered, hits } = checks.centres;
+      const half = checks.source.size / 2;
+      // Every centre as a faint dot where they are far enough apart to see, the ones a Wall cuts off in red.
+      if (cell * this.view.scale >= 6) {
+        ctx.fillStyle = layered ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.15)';
+        for (let z = -Math.floor(half / cell) * cell; z <= half; z += cell)
+          for (let x = -Math.floor(half / cell) * cell; x <= half; x += cell) ctx.fillRect(this.sx(x) - 1, this.sy(z) - 1, 2, 2);
+      }
+      ctx.fillStyle = '#ff3b3b';
+      for (const h of hits) {
+        if (!this.shownAt(h.y, h.y)) continue;
+        ctx.beginPath();
+        ctx.arc(this.sx(h.x), this.sy(h.z), 3.5, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     }
   }
 

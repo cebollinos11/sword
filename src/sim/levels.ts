@@ -172,7 +172,7 @@ export function groundNear(arena: ArenaGeometry, lv: LevelsTuning, x: number, z:
 }
 
 /** A Walk Surface's edges from above, each with its outward unit normal. */
-function edgesOf(arena: ArenaGeometry, i: number): { px: number; pz: number; qx: number; qz: number; length: number; nx: number; nz: number }[] {
+export function edgesOf(arena: ArenaGeometry, i: number): { px: number; pz: number; qx: number; qz: number; length: number; nx: number; nz: number }[] {
   const pts = arena.walk[i]!.points;
   let area = 0;
   pts.forEach((p, k) => {
@@ -191,52 +191,75 @@ function edgesOf(arena: ArenaGeometry, i: number): { px: number; pz: number; qx:
 
 /** How often (m) along a Walk Surface's edge a crossing is tried, and how far (m) in from it and out past it. */
 export const EDGE_PROBE = 0.25;
-const EDGE_REACH = 0.05;
+export const EDGE_REACH = 0.05;
 
 /**
  * Where a Soldier can step off each Walk Surface's edges: probed every EDGE_PROBE along every edge, from EDGE_REACH inside to EDGE_REACH
  * past it, by `trace` (with `drops`). Calls `each(from, to, x, z)` for every probe that crosses onto another surface, and `none(from, x, z)`
- * for every one that cannot step off at all (an edge of its level: a ledge, the foot of higher ground, a Wall, the field's edge).
+ * for every one that cannot step off at all (an edge of its level: a ledge, the foot of higher ground, a Wall, the field's edge); each with
+ * how far along which of its surface's edges (`edgesOf`) the probe stands.
  */
-export function probeEdges(arena: ArenaGeometry, lv: LevelsTuning, drops: boolean, each: (from: number, to: number, x: number, z: number) => void, none: (from: number, x: number, z: number, along: number, edge: number) => void): void {
+export function probeEdges(arena: ArenaGeometry, lv: LevelsTuning, drops: boolean, each: (from: number, to: number, x: number, z: number, along: number, edge: number) => void, none: (from: number, x: number, z: number, along: number, edge: number) => void): void {
   arena.walk.forEach((_, i) => {
     edgesOf(arena, i).forEach((e, k) => {
       for (let u = EDGE_PROBE / 2; u < e.length; u += EDGE_PROBE) {
         const ox = e.px + ((e.qx - e.px) * u) / e.length;
         const oz = e.pz + ((e.qz - e.pz) * u) / e.length;
         const to = trace(arena, lv, i, ox - e.nx * EDGE_REACH, oz - e.nz * EDGE_REACH, ox + e.nx * EDGE_REACH, oz + e.nz * EDGE_REACH, drops);
-        if (to >= 0 && to !== i) each(i, to, ox, oz);
+        if (to >= 0 && to !== i) each(i, to, ox, oz, u, k);
         else if (to < 0) none(i, ox, oz, u, k);
       }
     });
   });
 }
 
+/** Which Walk Surfaces the walk check (`walkCheck`) finds joined to the first by the Soldiers' walk rule. */
+export interface WalkReach {
+  /** The surface it starts from: the first that is not deadly, or -1 when every one is. */
+  readonly first: number;
+  /** Per Walk Surface, 1 where it can be walked (and dropped) to from `first`. */
+  readonly there: Uint8Array;
+  /** Per Walk Surface, 1 where it can walk (and drop) back to `first`. */
+  readonly home: Uint8Array;
+}
+
 /**
- * The build-time walk check (docs/plans/battle-objectives.md, Stage 4a; like ADR 0014's judge): whether every Walk Surface of a Battle map
- * can be walked (and dropped) to from every other by the Soldiers' walk rule, so no Squad is ever sent where it cannot go. Null when it can;
- * else what fails, naming the first Walk Surface that cannot be reached from the first one, or cannot get back to it.
+ * The walk check's reach (`walkCheck`): every edge of every Walk Surface probed once (`probeEdges`, with drops), the crossings joined into
+ * the ways out of and back into each surface, and both walked from the first surface that is not deadly. `each` and `none` see every probe
+ * as `probeEdges` gives it (the Map Editor's overlays read them; the check does not need them).
  */
-export function walkCheck(arena: ArenaGeometry, lv: LevelsTuning): string | null {
+export function walkReach(arena: ArenaGeometry, lv: LevelsTuning, each?: (from: number, to: number, x: number, z: number, along: number, edge: number) => void, none?: (from: number, x: number, z: number, along: number, edge: number) => void): WalkReach {
   const n = arena.walk.length;
-  if (n === 0) return 'it has no Walk Surface';
   const first = arena.walk.findIndex((w) => !deadly(w));
-  if (first < 0) return 'it has no walkable Walk Surface';
   const out = arena.walk.map(() => new Set<number>());
   const back = arena.walk.map(() => new Set<number>());
-  probeEdges(arena, lv, true, (from, to) => {
+  probeEdges(arena, lv, true, (from, to, x, z, along, edge) => {
     out[from]!.add(to);
     back[to]!.add(from);
-  }, () => {});
+    each?.(from, to, x, z, along, edge);
+  }, none ?? (() => {}));
   const reach = (links: readonly Set<number>[]): Uint8Array => {
     const seen = new Uint8Array(n);
+    if (first < 0) return seen;
     seen[first] = 1;
     const todo = [first];
     while (todo.length) for (const t of links[todo.pop()!]!) if (!seen[t]) (seen[t] = 1), todo.push(t);
     return seen;
   };
-  const there = reach(out);
-  const home = reach(back);
+  return { first, there: reach(out), home: reach(back) };
+}
+
+/**
+ * The build-time walk check (docs/plans/battle-objectives.md, Stage 4a; like ADR 0014's judge): whether every Walk Surface of a Battle map
+ * can be walked (and dropped) to from every other by the Soldiers' walk rule, so no Squad is ever sent where it cannot go. Null when it can;
+ * else what fails, naming the first Walk Surface that cannot be reached from the first one, or cannot get back to it. Pass the map's
+ * `walkReach` when it is already worked out.
+ */
+export function walkCheck(arena: ArenaGeometry, lv: LevelsTuning, reach?: WalkReach): string | null {
+  const n = arena.walk.length;
+  if (n === 0) return 'it has no Walk Surface';
+  if (arena.walk.every((w) => deadly(w))) return 'it has no walkable Walk Surface';
+  const { first, there, home } = reach ?? walkReach(arena, lv);
   for (let i = 0; i < n; i++) {
     // Deadly ground (a lava river, far below every ledge) is never walked to or from: Soldiers do not drop that far.
     if (deadly(arena.walk[i]!)) continue;

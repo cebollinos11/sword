@@ -379,6 +379,15 @@ export function blockWalls(b: WallBlock): WallSegment[] {
   return corners.map((a, k) => ({ id: `${b.id}_${k}`, a, b: corners[(k + 1) % 4]!, bottom: -1, top: b.top }));
 }
 
+/** The lowest floor of a hand-built Battle map that is not deadly (where its Players spawn), and whether it has several levels (`Battlefield.layered`). */
+export function mapFloor(map: Pick<BattleMapTuning, 'walk'>): number {
+  return Math.min(...map.walk.filter((w) => !deadly(w)).flatMap((w) => w.points.map((p) => p.y)));
+}
+export const isLayered = (map: Pick<BattleMapTuning, 'walk'>): boolean => {
+  const floor = mapFloor(map);
+  return map.walk.some((w) => w.points.some((p) => p.y !== floor));
+};
+
 /**
  * A hand-built Battle map's Battlefield: its floor and Walls (its own, and each block's four) with no jump Links, its spawns behind its
  * armies, its Objectives and Bases where it puts them. Throws when its Walk Surfaces are not all joined by walking and dropping (`walkCheck`).
@@ -386,7 +395,7 @@ export function blockWalls(b: WallBlock): WallSegment[] {
 function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Battlefield {
   const size = battle.field.size;
   // The floor is the lowest ground that is not deadly: a lava river far below it (the Cavern) is no place for the Players to spawn.
-  const floor = Math.min(...map.walk.filter((w) => !deadly(w)).flatMap((w) => w.points.map((p) => p.y)));
+  const floor = mapFloor(map);
   const flat: Heightfield = { size, cell: size, side: 2, heights: [floor, floor, floor, floor] };
   // The Players spawn at the floor's height (on one level, where they stand).
   const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: false };
@@ -403,7 +412,7 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
     front: map.front,
     blocks: map.blocks,
     blockCells: blockCellsOf(map.blocks, size),
-    layered: map.walk.some((w) => w.points.some((p) => p.y !== floor)),
+    layered: isLayered(map),
     objectiveSurfaces: map.objectives.map(highest),
     baseSurfaces: [highest(map.bases[0]), highest(map.bases[1])],
   };

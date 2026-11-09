@@ -5,16 +5,29 @@
  * writes `<map>.source.json` and the compiled `<map>.json` through `saveJsonFile`, and refuses, with the compiler's error and its
  * Brushes outlined in red, a source the game would refuse.
  *
- * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it.
+ * Stage 2: on every edit (a moment after it) the source is compiled and checked (`checkMap`, timed here: the pure modules read no clock), and
+ * what the checks find is listed under the view, each line selecting and framing its Brushes; the Checks folder switches the overlays
+ * (reachability, edges, clearance, field cell centres) and the 3D view (`view3d.ts`), and shows the cost: Walk Surfaces, Walls, the
+ * compile and check time, and the navmesh's build time (measured here once the edits pause, as the Arena Lab times it).
+ *
+ * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
 import { Pane, type FolderApi } from 'tweakpane';
 import type { TuningData } from '../../tuning';
 import { saveJsonFile } from '../../editor/save';
+import { navMesh } from '../../sim';
+import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { MapCompileError } from '../compile';
 import { sampleSource } from '../sample.testdata';
-import { blankSource, isSegment, MapEditorSession, rampLongSides } from '../session';
+import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
 import { BRUSH_KINDS, SIDES, type Brush, type BrushKind, type HazardKind, type Side } from '../source';
+import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { TopView, type Tool } from './topView';
+import { View3D } from './view3d';
+
+/** How long (ms) after an edit the source is checked again, and the navmesh and the fields' clearance built (they are slower). */
+const CHECK_AFTER = 120;
+const MEASURE_AFTER = 700;
 
 /** Map Sources bundled from `data/battlemaps/` (dev and build alike), keyed by file name. */
 const bundled = import.meta.glob<unknown>('../../../data/battlemaps/*.source.json', { eager: true, import: 'default' });
@@ -114,7 +127,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     example: '',
     status: 'Pick a tool and drag on the grid to draw a Brush. Select: click to pick, drag to move, drag a yellow handle to resize. Right-drag or drag empty ground to pan, wheel to zoom.',
     cursor: '',
+    view: 'top' as 'top' | '3d',
+    cost: '',
   };
+  const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
   let syncing = false;
   const refreshPane = () => {
@@ -144,6 +160,131 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     },
   );
 
+  const view3d = new View3D(container);
+
+  // --- The live checks ----------------------------------------------------
+  /** The checks of the source as it last was, how long they took, and the fields' clearance and navmesh time for them once measured. */
+  let checks: MapChecks | null = null;
+  let checkMs = 0;
+  let clearance: readonly ClearanceNode[] | null = null;
+  let fieldMs: number | null = null;
+  let navMs: number | null = null;
+  /** The checks the navmesh was last timed for. */
+  let navFor: MapChecks | null = null;
+  let checkTimer = 0;
+  let measureTimer = 0;
+  const list = document.createElement('div');
+  list.style.cssText =
+    'position:absolute;left:8px;bottom:8px;max-height:32vh;width:min(620px,calc(100% - 370px));overflow-y:auto;background:rgba(18,20,26,0.88);color:#ddd;font:12px/1.35 system-ui,sans-serif;border-radius:4px;z-index:5';
+  container.appendChild(list);
+  const SEVERITY = { error: ['✗', '#ff6b6b'], warning: ['!', '#ffc04d'], note: ['·', '#9ab'] } as const;
+  const showIssues = () => {
+    list.replaceChildren();
+    const c = checks;
+    if (!c) return;
+    const head = document.createElement('div');
+    head.style.cssText = 'padding:4px 8px;font-weight:600;border-bottom:1px solid #333;position:sticky;top:0;background:rgb(24,26,32)';
+    const count = (v: MapIssue['severity']) => c.issues.filter((i) => i.severity === v).length;
+    head.textContent = c.issues.length === 0 ? '✓ No checks fire' : `${count('error')} errors · ${count('warning')} warnings · ${count('note')} notes${c.ok ? '' : ' (Save refuses the map)'}`;
+    head.style.color = c.ok ? (count('warning') ? '#ffc04d' : '#7fdc8f') : '#ff6b6b';
+    list.appendChild(head);
+    c.issues.forEach((issue) => {
+      const row = document.createElement('div');
+      const [mark, colour] = SEVERITY[issue.severity];
+      row.style.cssText = 'padding:3px 8px;cursor:pointer;display:flex;gap:6px';
+      row.title = 'Select and frame it';
+      row.onmouseenter = () => (row.style.background = 'rgba(255,255,255,0.08)');
+      row.onmouseleave = () => (row.style.background = '');
+      const m = document.createElement('span');
+      m.textContent = mark;
+      m.style.cssText = `color:${colour};font-weight:700;width:10px;flex:none`;
+      const t = document.createElement('span');
+      t.textContent = issue.message;
+      row.append(m, t);
+      row.onclick = () => focusIssue(issue);
+      list.appendChild(row);
+    });
+  };
+  /** Select an issue's first Brush (at its level), outline all of them, and frame them in both views. */
+  const focusIssue = (issue: MapIssue) => {
+    view.flagged = issue.brushes;
+    const b = session.source.brushes.find((x) => x.id === issue.brushes[0]);
+    if (b) {
+      session.select(b.id);
+      const levels = brushLevels(b, session.source.levels);
+      if (!levels.includes(session.level)) session.level = levels[0]!;
+    }
+    const rect = issueBounds(session.source, issue);
+    if (rect) {
+      view.frameRect(rect);
+      view3d.focus(rect, session.level, session.source.name);
+    }
+    rebuild();
+  };
+  const costLine = () => {
+    const d = checks?.draft;
+    const counts = d ? `${d.map.walk.length} Walk Surfaces · ${d.map.walls.length} Walls · ${d.map.blocks.length} Blocks` : 'does not compile';
+    const nav = navMs === null ? 'navmesh: Measure' : `navmesh ${navMs.toFixed(0)} ms${navFor === checks ? '' : ' (before the last edit)'}`;
+    const fields = fieldMs === null ? '' : ` · fields ${fieldMs.toFixed(0)} ms`;
+    ui.cost = `${counts}\ncompile + checks ${checkMs.toFixed(0)} ms · ${checks?.ok ? nav : 'navmesh: not built'}${fields}`;
+  };
+  /** The fields' clearance for the checks as they are, built (and timed) when the overlay wants it. */
+  const buildClearance = () => {
+    if (!overlays.clearance || !checks || clearance) return;
+    const t0 = performance.now();
+    clearance = fieldClearance(checks, tuning.battle)?.nodes ?? null;
+    fieldMs = clearance ? performance.now() - t0 : null;
+  };
+  const drawChecks = () => {
+    view.checks = checks;
+    view.overlays = overlays;
+    view.clearance = overlays.clearance ? clearance : null;
+    view.levels = tuning.battle.levels;
+    view.redraw();
+    if (ui.view === '3d' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels);
+  };
+  const runChecks = () => {
+    window.clearTimeout(checkTimer);
+    checkTimer = 0;
+    const t0 = performance.now();
+    checks = checkMap(session.source, tuning, { edges: overlays.edges });
+    checkMs = performance.now() - t0;
+    clearance = null;
+    fieldMs = null;
+    costLine();
+    showIssues();
+    drawChecks();
+    refreshPane();
+    // The fields' clearance (when its overlay is on) waits for the edits to pause: on a big map it is the slowest thing here.
+    window.clearTimeout(measureTimer);
+    const measured = checks;
+    if (overlays.clearance)
+      measureTimer = window.setTimeout(() => {
+        if (checks !== measured) return;
+        buildClearance();
+        costLine();
+        drawChecks();
+        refreshPane();
+      }, MEASURE_AFTER);
+  };
+  /** Build the draft's navmesh (the Fighters', as a Battle on it builds it) and time it, as the Arena Lab does. */
+  const measureNavmesh = () => {
+    const d = checks?.ok ? checks.draft : null;
+    if (!d) return say('The navmesh is built for a map Save accepts: fix the errors first');
+    const t0 = performance.now();
+    navMesh({ ...d.arena }, tuning);
+    navMs = performance.now() - t0;
+    navFor = checks;
+    costLine();
+    refreshPane();
+  };
+  /** Check the source again a moment after it changes (each edit restarts the wait, so a drag checks once it rests). */
+  const scheduleChecks = () => {
+    if (checks?.source === session.source) return;
+    window.clearTimeout(checkTimer);
+    checkTimer = window.setTimeout(runChecks, CHECK_AFTER);
+  };
+
   const pane = new Pane({ title: 'Map Editor' });
   const paneBox = pane.element.parentElement!;
   paneBox.style.width = '320px';
@@ -158,6 +299,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const opened = (what: string) => {
     view.flagged = [];
     view.frame(session.source);
+    view3d.reframe();
     rebuild();
     say(`Opened ${what}`);
   };
@@ -427,11 +569,48 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     }
   };
 
+  // --- Checks and overlays ------------------------------------------------
+  const checksFolder = pane.addFolder({ title: 'Checks', index: 3 });
+  checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d' } }).on('change', (e) => {
+    if (syncing) return;
+    view3d.show(e.value === '3d');
+    view.shown = e.value !== '3d';
+    view.canvas.style.visibility = e.value === '3d' ? 'hidden' : 'visible';
+    drawChecks();
+  });
+  const overlayChanged = () => {
+    if (syncing) return;
+    // The edges' runs are worked out only while their overlay is on.
+    if (overlays.edges && checks?.draft && checks.edges.length === 0) return runChecks();
+    buildClearance();
+    costLine();
+    drawChecks();
+    refreshPane();
+  };
+  checksFolder.addBinding(overlays, 'reach', { label: 'reachability' }).on('change', overlayChanged);
+  checksFolder.addBinding(overlays, 'edges', { label: 'edges' }).on('change', overlayChanged);
+  for (const k of EDGE_KINDS) checksFolder.addBinding(overlays.edgeKinds, k, { label: `  ${EDGE_LABELS[k]}` }).on('change', overlayChanged);
+  checksFolder.addBinding(overlays, 'clearance', { label: 'clearance' }).on('change', overlayChanged);
+  checksFolder.addBinding(overlays, 'centres', { label: 'field cell centres' }).on('change', overlayChanged);
+  checksFolder.addBinding(ui, 'cost', { readonly: true, multiline: true, rows: 5, label: 'cost' });
+  checksFolder.addButton({ title: 'Measure navmesh build' }).on('click', measureNavmesh);
+  const legend = document.createElement('div');
+  legend.style.cssText = 'padding:2px 8px 6px;font:11px/1.4 system-ui,sans-serif;color:#bbb';
+  const swatch = (c: string, t: string) => `<span style="display:inline-block;width:9px;height:9px;background:${c};margin:0 3px 0 6px"></span>${t}`;
+  legend.innerHTML = [
+    `reach: ${swatch('#3fbf5f', 'reached')}${swatch('#ff3b3b', 'unreached')}${swatch('#ff9a2f', 'no way back')}`,
+    `edges: ${EDGE_KINDS.map((k) => swatch(EDGE_COLOURS[k], k)).join('')}`,
+    `clearance (files a Formation fits): ${swatch('#ff3b3b', '1')}${swatch('#ffb03f', '3')}${swatch('#5fc050', '6+')}${swatch('#4a78c8', 'open')}`,
+    `centres: ${swatch('#ff3b3b', 'a Wall cuts the node off')}`,
+  ].join('<br>');
+  checksFolder.element.appendChild(legend);
+
   pane.addBinding(ui, 'status', { readonly: true, multiline: true, rows: 5, label: 'status' });
   const cursorBinding = pane.addBinding(ui, 'cursor', { readonly: true, label: 'pointer' });
 
   /** Bring the panel up to the session: the Brush folder for the selection, the undo buttons, the title. */
   const sync = () => {
+    scheduleChecks();
     buildBrush();
     undoButton.disabled = !session.canUndo;
     redoButton.disabled = !session.canRedo;
@@ -446,6 +625,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view.redraw();
   };
   rebuild();
+  runChecks();
 
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();
