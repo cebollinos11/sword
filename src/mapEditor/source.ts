@@ -14,6 +14,11 @@
  *  - **Rail** and **Wall**: a segment with a bottom and a top (a Rail stands `height` over the floor `y`).
  *  - **Block**: the one-level solid box of `blocks` (a wall or a tower Soldiers are pushed out of); never under a Deck.
  *
+ * Stage 5, the look (render-only: none of it reaches the compiled map, nor the Tuning Data hash): each Brush that lays a floor or stands a
+ * Wall may name a `material` from the Map Editor's palette (`MAP_MATERIALS`; absent, its kind's own, `look.ts`), and the optional `look`
+ * block names the map's sky and light (`sky`, one of the Battle looks, `BATTLE_SKIES`) and places its props (trees, rubble, banners, crates,
+ * torches). A source with neither is a Stage 4 source, and compiles to the same bytes.
+ *
  * Every coordinate snaps to the grid's whole step (`grid.step`), so the compiled Walk Surfaces' corners are exact and neighbours share
  * edges exactly; every height a Brush stands at is one of the source's `levels`. Directions are the compass of the maps: north is +z
  * (toward Team 1), east +x.
@@ -44,9 +49,48 @@ export interface GroundPoint {
 
 export type HazardKind = 'lava' | 'water' | 'abyss';
 
+/** The palette a Brush's `material` comes from (Stage 5, render-only): how its floors, faces and rails are drawn in the map's model (`look.ts`). */
+export const MAP_MATERIALS = ['stone', 'brick', 'basalt', 'dungeon', 'cobble', 'plaster', 'tile', 'wood', 'grass', 'dirt', 'sand', 'metal', 'glow'] as const;
+export type MapMaterial = (typeof MAP_MATERIALS)[number];
+
+/** The sky and light a map is drawn under (Stage 5, render-only): one of the Stage's existing looks, for a Battlefield (`stage.ts`). */
+export const BATTLE_SKIES = ['dusk', 'mystic', 'sunset', 'fog', 'snow', 'ember'] as const;
+export type BattleSky = (typeof BATTLE_SKIES)[number];
+
+/** What a prop is (Stage 5, render-only): drawn from a small set of models (`render/mapProps.ts`); a torch carries a light. */
+export const PROP_KINDS = ['tree', 'rubble', 'banner', 'crate', 'torch'] as const;
+export type PropKind = (typeof PROP_KINDS)[number];
+
+/** The most props a map holds. */
+export const MAX_PROPS = 500;
+
+/**
+ * A prop: a render-only object standing at (x, z) on the floor nearest under the height `y` (the level it was placed at, as an Objective's
+ * `y` names its floor), turned `turn` degrees about the vertical (anticlockwise seen from
+ * above, from facing north), a banner in a Team's colour (`team`) or plain. It never reaches the compiled map: Soldiers and Fighters walk through it.
+ */
+export interface SourceProp {
+  /** Unique among the props, letters, digits and `-`. */
+  readonly id: string;
+  readonly kind: PropKind;
+  readonly x: number;
+  readonly z: number;
+  readonly y: number;
+  readonly turn: number;
+  readonly team?: 0 | 1;
+}
+
+/** The map's look apart from its Brushes' materials (Stage 5, render-only): each part absent for the Battlefield's own. */
+export interface MapLook {
+  readonly sky?: BattleSky;
+  readonly props?: readonly SourceProp[];
+}
+
 interface BrushBase {
   /** Unique in the source, letters, digits and `-`; the compiled map's ids are made from it (`WALK_<id>_<n>`, `WALL_<id>_<side><n>`, `BLOCK_<id>`). */
   readonly id: string;
+  /** How it is drawn (render-only; absent, its kind's own). Never on a Hole or a Hazard, which are drawn by what they are. */
+  readonly material?: MapMaterial;
 }
 export interface FloorBrush extends BrushBase {
   readonly kind: 'floor';
@@ -146,6 +190,8 @@ export interface MapSource {
   readonly armySize: { readonly standard: number; readonly max: number };
   readonly ticketsPerSoldier?: number;
   readonly lobby?: SourceLobby;
+  /** Stage 5: the sky and the props (render-only). */
+  readonly look?: MapLook;
 }
 
 /** Brush ids: letters, digits and `-`. No `_`, which the compiled ids put between a Brush's id and the rest, so none can collide. */
@@ -178,7 +224,18 @@ function side(v: unknown, where: string): Side {
   return v as Side;
 }
 
+/** A Brush with its `material`, if the source names one (render-only: the compiler never reads it). */
 function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
+  const brush = parseShape(raw, where, step, half, level);
+  const m = (raw as Record<string, unknown>).material;
+  if (m === undefined) return brush;
+  const at = `${where} (${brush.id}).material`;
+  if (brush.kind === 'hole' || brush.kind === 'hazard') throw new TuningDataError(`${at}: a ${brush.kind === 'hole' ? 'Hole' : 'Hazard'} has no material of its own`);
+  if (typeof m !== 'string' || !(MAP_MATERIALS as readonly string[]).includes(m)) throw new TuningDataError(`${at} must be one of ${MAP_MATERIALS.join(', ')}, got ${JSON.stringify(m)}`);
+  return { ...brush, material: m as MapMaterial };
+}
+
+function parseShape(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
   const o = record(raw, where);
   const id = nonEmptyString(o, 'id', where);
   if (!ID.test(id)) throw new TuningDataError(`${where}.id "${id}" may hold only letters, digits and -`);
@@ -237,6 +294,44 @@ function parseObjective(raw: unknown, where: string, half: number): SourceObject
   if (typeof o.spawn !== 'boolean') throw new TuningDataError(`${where}.spawn must be true or false`);
   const site: SourceObjective = { id, x, z, weight: positiveNumber(o, 'weight', where), owner: o.owner, spawn: o.spawn };
   return o.y === undefined ? site : { ...site, y: finiteNumber(o, 'y', where) };
+}
+
+function parseProp(raw: unknown, where: string, step: number, half: number): SourceProp {
+  const o = record(raw, where);
+  const id = nonEmptyString(o, 'id', where);
+  if (!ID.test(id)) throw new TuningDataError(`${where}.id "${id}" may hold only letters, digits and -`);
+  const at = `${where} (${id})`;
+  if (typeof o.kind !== 'string' || !(PROP_KINDS as readonly string[]).includes(o.kind)) throw new TuningDataError(`${at}.kind must be one of ${PROP_KINDS.join(', ')}, got ${JSON.stringify(o.kind)}`);
+  const kind = o.kind as PropKind;
+  const turn = finiteNumber(o, 'turn', at);
+  if (turn < 0 || turn >= 360) throw new TuningDataError(`${at}.turn (${turn}) must be at least 0 and under 360 degrees`);
+  const prop: SourceProp = { id, kind, x: gridNumber(o, 'x', at, step, half), z: gridNumber(o, 'z', at, step, half), y: finiteNumber(o, 'y', at), turn };
+  if (o.team === undefined) return prop;
+  if (kind !== 'banner') throw new TuningDataError(`${at}.team: only a banner is in a Team's colour`);
+  if (o.team !== 0 && o.team !== 1) throw new TuningDataError(`${at}.team must be 0 or 1, got ${JSON.stringify(o.team)}`);
+  return { ...prop, team: o.team };
+}
+
+/** The `look` block: its sky and props, each absent when the source leaves it out (and the block itself when both are). */
+function parseLook(raw: unknown, step: number, half: number): MapLook | undefined {
+  if (raw === undefined) return undefined;
+  const o = record(raw, 'source.look');
+  let look: MapLook = {};
+  if (o.sky !== undefined) {
+    if (typeof o.sky !== 'string' || !(BATTLE_SKIES as readonly string[]).includes(o.sky)) throw new TuningDataError(`source.look.sky must be one of ${BATTLE_SKIES.join(', ')}, got ${JSON.stringify(o.sky)}`);
+    look = { sky: o.sky as BattleSky };
+  }
+  if (o.props !== undefined) {
+    const props = array(o.props, 'source.look.props').map((p, i) => parseProp(p, `source.look.props[${i}]`, step, half));
+    if (props.length > MAX_PROPS) throw new TuningDataError(`source.look.props holds at most ${MAX_PROPS} props, this one ${props.length}`);
+    const ids = new Set<string>();
+    props.forEach((p, i) => {
+      if (ids.has(p.id)) throw new TuningDataError(`source.look.props[${i}]: another prop is already "${p.id}"`);
+      ids.add(p.id);
+    });
+    if (props.length > 0) look = { ...look, props };
+  }
+  return look.sky === undefined && look.props === undefined ? undefined : look;
 }
 
 /**
@@ -300,5 +395,6 @@ export function parseMapSource(raw: unknown): MapSource {
     ...(r.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(r, 'ticketsPerSoldier', 'source') }),
   };
   const lobby = parseMapLobby(r.lobby, 'source.lobby');
-  return lobby ? { ...source, lobby } : source;
+  const look = parseLook(r.look, step, half);
+  return { ...source, ...(lobby ? { lobby } : {}), ...(look ? { look } : {}) };
 }

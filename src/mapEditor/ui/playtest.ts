@@ -4,10 +4,14 @@
  * Owners and a stuck heat map drawn over it), **Play** (the Player's Fighter among the armies) and **Walk** (the Player alone on the map, no armies).
  * The draft is compiled into a copy of the Tuning Data (`draftTuning`), so every cache is built afresh for it. The editor is left as it was under
  * the layer (its session, undo history and cameras untouched); Back removes the layer and the Battle's renderer.
+ *
+ * Stage 5: the draft is drawn from its own model, exported as Save would write it and read back as the game reads a saved one
+ * (`setDraftBattleModel`), so the play-test shows the map as it will ship: its materials, props, torches and sky.
  */
 import { startBattlePlay } from '../../play/battlePlay';
 import { startBattleSpectator, type BattleHandle } from '../../play/battleSpectator';
 import { startMapWalk } from '../../play/mapWalk';
+import { clearDraftBattleModel, setDraftBattleModel } from '../../render/stage';
 import type { Draft } from '../playtest';
 import { SpectateOverlays } from './spectateOverlays';
 
@@ -21,6 +25,8 @@ export interface PlaytestOptions {
   readonly speed: number;
   /** Called once the layer is gone (Back, or Quit in the spectator). */
   readonly onBack: () => void;
+  /** The draft's model (`exportMapModel`), drawn in place of any saved one while the play-test runs. */
+  readonly model?: Promise<ArrayBuffer>;
 }
 
 /**
@@ -47,6 +53,8 @@ export function startPlaytest(draft: Draft, options: PlaytestOptions, onStarted?
 
   const t0 = performance.now();
   let handle: BattleHandle | null = null;
+  /** The draft's model this play-test drew, cleared once it ends (not a later play-test's). */
+  let glb: ArrayBuffer | null = null;
   let ended = false;
   const end = () => {
     if (ended) return;
@@ -56,12 +64,17 @@ export function startPlaytest(draft: Draft, options: PlaytestOptions, onStarted?
     void ready.then((h) => {
       h?.stop();
       layer.remove();
+      if (glb) clearDraftBattleModel(draft.map, glb);
     });
     options.onBack();
   };
   back.onclick = end;
   const ready: Promise<BattleHandle | null> = (async () => {
     try {
+      if (options.model) {
+        glb = await options.model;
+        await setDraftBattleModel(draft.map, glb);
+      }
       if (options.mode === 'walk') handle = startMapWalk(box, draft.tuning, { map: draft.map, seed: options.seed });
       else if (options.mode === 'play') handle = await startBattlePlay(box, draft.tuning, { map: draft.map, seed: options.seed });
       else handle = await startBattleSpectator(box, draft.tuning, { map: draft.map, seed: options.seed, speed: options.speed, overlay: new SpectateOverlays(layer, draft.tuning.battle), onExit: end });

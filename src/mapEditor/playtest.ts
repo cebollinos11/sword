@@ -8,7 +8,7 @@
  * map) is built from scratch, never answered with the last draft's field of the same name.
  */
 import { applyBattleKnobs, type BattleKnobs, type BattleMapTuning, type TuningData } from '../tuning';
-import { hasBattleModel } from '../render/battleModels';
+import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
 import { compileMap, type CompileWarning } from './compile';
 import type { MapSource } from './source';
 
@@ -24,11 +24,12 @@ export interface Draft {
 /**
  * The draft `source` compiled and placed in a copy of `base` (a new `battle`, so nothing built for another draft is reused), its armies as the
  * Lobby would size them for the map (`applyBattleKnobs`: the map's standard unless `knobs` name another size). Throws the compiler's
- * `MapCompileError`, or the game's own refusal of the armies, as Save and the Lobby do. A name a shipped map has a model for is refused: the
- * renderer would draw that model over the draft.
+ * `MapCompileError`, or the game's own refusal of the armies, as Save and the Lobby do. The name of a map a generator builds (the Fort, the
+ * Ziggurat, the City, the Cavern) is refused: Save would write over it. (A map made in the editor may be play-tested under its own name: the
+ * play-test draws the draft's model, `setDraftBattleModel`, over the one saved.)
  */
 export function draftTuning(source: MapSource, base: TuningData, knobs: Omit<BattleKnobs, 'map'> = {}): Draft {
-  if (hasBattleModel(source.name)) throw new Error(`"${source.name}" is a shipped map (it has a model of its own): rename the draft to play-test it`);
+  if (GENERATED_BATTLE_MAPS.includes(source.name)) throw new Error(`"${source.name}" is a shipped map (it has a model of its own): rename the draft to play-test it`);
   const { map, warnings } = compileMap(source, base.battle);
   const maps = { ...base.battle.maps, [source.name]: map };
   const battle = applyBattleKnobs({ ...base.battle, maps }, { ...knobs, map: source.name });

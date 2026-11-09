@@ -14,12 +14,16 @@
  * several levels takes the level being edited as its `y` (it stands on the floor there nearest under that height, as the Battlefield stands
  * it, `groundNear`); the two Bases are dragged; the `front` is dragged by either Team's line (Team 0's at z = -front, Team 1's at +front).
  * A marker is selected apart from the Brushes (selecting one clears the other).
+ *
+ * Stage 5: the look, all render-only. A Brush's material is part of the Brush (`replaceBrush`); a prop is a marker like an Objective, placed at
+ * the level being edited (`addProp`), dragged (taking the level being edited, once it moves), edited and removed; the sky is a setting (`setSky`).
  */
 import { MAX_OBJECTIVES, type BattleTuning } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import type { RepoFile } from '../editor/session';
-import { compileMap, list, mapFileText, type CompileWarning } from './compile';
-import { parseMapSource, MAP_SOURCE_VERSION, RAIL, type Brush, type BrushKind, type GroundPoint, type MapSource, type Rect, type Side, type SourceLobby, type SourceObjective } from './source';
+import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
+import { compileMap, list, mapFileText, MapCompileError, type CompileWarning } from './compile';
+import { parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
 
 /** The most undo steps kept. */
 const UNDO_DEPTH = 200;
@@ -138,24 +142,47 @@ export function handleAt(b: Brush, x: number, z: number, reach: number): Handle 
 /** A Ramp's long sides (those that may carry a rail): across its slope. */
 export const rampLongSides = (up: Side): readonly Side[] => (up === 'n' || up === 's' ? ['e', 'w'] : ['n', 's']);
 
-/** A Battle marker the top view picks and drags: an Objective (by id), a Team's Base, or a Team's front line (z = -front for Team 0, +front for Team 1). */
-export type Marker = { readonly kind: 'objective'; readonly id: string } | { readonly kind: 'base'; readonly team: 0 | 1 } | { readonly kind: 'front'; readonly team: 0 | 1 };
+/**
+ * A marker the top view picks and drags: an Objective (by id), a Team's Base, a Team's front line (z = -front for Team 0, +front for Team 1),
+ * or a prop (by id, Stage 5: render-only, but placed and dragged as the markers are).
+ */
+export type Marker =
+  | { readonly kind: 'objective'; readonly id: string }
+  | { readonly kind: 'base'; readonly team: 0 | 1 }
+  | { readonly kind: 'front'; readonly team: 0 | 1 }
+  | { readonly kind: 'prop'; readonly id: string };
 
 /** Whether `a` and `b` are the same marker. */
 export const sameMarker = (a: Marker | null, b: Marker | null): boolean =>
-  a === b || (a !== null && b !== null && (a.kind === 'objective' ? b.kind === 'objective' && a.id === b.id : b.kind === a.kind && a.team === (b as { team: 0 | 1 }).team));
+  a === b ||
+  (a !== null &&
+    b !== null &&
+    a.kind === b.kind &&
+    (a.kind === 'objective' || a.kind === 'prop' ? a.id === (b as { id: string }).id : a.team === (b as { team: 0 | 1 }).team));
+
+/** The map's props (none when it has no `look`). */
+export const propsOf = (source: MapSource): readonly SourceProp[] => source.look?.props ?? [];
+
+/** `source` with its look made `look`: a part left empty is taken away, and the block itself when nothing is left. */
+function withLook(source: MapSource, look: MapLook): MapSource {
+  const { look: _old, ...rest } = source;
+  const next: MapLook = { ...(look.sky !== undefined ? { sky: look.sky } : {}), ...(look.props !== undefined && look.props.length > 0 ? { props: look.props } : {}) };
+  return next.sky === undefined && next.props === undefined ? rest : { ...rest, look: next };
+}
 
 /** How far in from each of the field's edges (m) a front line's grip reaches: a front line is picked there, so the Brushes along it stay pickable. */
 export const FRONT_GRIP = 6;
 
 /**
  * The marker the point (x, z) picks within `reach` (m): an Objective (the last in the list on a tie, as it is drawn on top), else a Base,
- * else a front line by its grip at either end (within FRONT_GRIP of the field's edge, `lineReach` of the line).
+ * else a prop (the last on a tie), else a front line by its grip at either end (within FRONT_GRIP of the field's edge, `lineReach` of the line).
  */
 export function markerAt(source: MapSource, x: number, z: number, reach: number, lineReach = reach): Marker | null {
   const near = (p: GroundPoint) => Math.max(Math.abs(p.x - x), Math.abs(p.z - z)) <= reach;
   for (let k = source.objectives.length - 1; k >= 0; k--) if (near(source.objectives[k]!)) return { kind: 'objective', id: source.objectives[k]!.id };
   for (const team of [0, 1] as const) if (near(source.bases[team])) return { kind: 'base', team };
+  const props = propsOf(source);
+  for (let k = props.length - 1; k >= 0; k--) if (near(props[k]!)) return { kind: 'prop', id: props[k]!.id };
   const half = source.size / 2;
   if (Math.abs(x) > half + lineReach || Math.abs(x) < half - FRONT_GRIP) return null;
   for (const team of [0, 1] as const) if (Math.abs(z - (team === 0 ? -source.front : source.front)) <= lineReach) return { kind: 'front', team };
@@ -190,13 +217,24 @@ export function sourceFileText(source: MapSource): string {
   if (s.ticketsPerSoldier !== undefined) head.push(`  "ticketsPerSoldier": ${line(s.ticketsPerSoldier)}`);
   if (s.lobby !== undefined) head.push(`  "lobby": ${line(s.lobby)}`);
   const body = [list('bases', s.bases), list('objectives', s.objectives), list('brushes', s.brushes)];
+  // The look (Stage 5): its sky, then its props one a line, last, so a map with none writes what Stage 4 wrote.
+  if (s.look !== undefined) {
+    const parts: string[] = [];
+    if (s.look.sky !== undefined) parts.push(`    "sky": ${line(s.look.sky)}`);
+    if (s.look.props !== undefined) parts.push(`    "props": [\n${s.look.props.map((p) => `      ${line(p)}`).join(',\n')}\n    ]`);
+    body.push(`  "look": {\n${parts.join(',\n')}\n  }`);
+  }
   return `{\n${[...head, ...body].join(',\n')}\n}\n`;
 }
 
-/** What Save writes: the Map Source and the map it compiles to, side by side in `data/battlemaps/`, and what the compiler noticed. */
+/**
+ * What Save writes: the Map Source and the map it compiles to, side by side in `data/battlemaps/`, where its model goes (Stage 5: made and
+ * exported by the UI, `render/mapModel.ts`, as `public/models/arenas/battle_<map>.glb`), and what the compiler noticed.
+ */
 export interface MapFiles {
   readonly source: RepoFile;
   readonly map: RepoFile;
+  readonly model: Omit<RepoFile, 'text'>;
   readonly warnings: readonly CompileWarning[];
 }
 
@@ -248,7 +286,14 @@ export class MapEditorSession {
   }
 
   private hasMarker(m: Marker, s: MapSource): boolean {
+    if (m.kind === 'prop') return propsOf(s).some((p) => p.id === m.id);
     return m.kind !== 'objective' || s.objectives.some((o) => o.id === m.id);
+  }
+
+  /** The selected prop, or null. */
+  get prop(): SourceProp | null {
+    const m = this.marker;
+    return m?.kind === 'prop' ? (propsOf(this.current).find((p) => p.id === m.id) ?? null) : null;
   }
 
   /** Whether the source differs from the one last saved or opened (worked out once per source). */
@@ -651,6 +696,13 @@ export class MapEditorSession {
         const o = base.objectives[k]!;
         const moved = still ? o : this.placed(o, o.x + dx, o.z + dz, base.levels);
         this.dragToSource(base, { ...base, objectives: base.objectives.map((x, i) => (i === k ? moved : x)) }, still);
+      } else if (m.kind === 'prop') {
+        const props = propsOf(base);
+        const k = props.findIndex((p) => p.id === m.id);
+        if (k < 0) throw new TuningDataError(`no prop "${m.id}"`);
+        const p = props[k]!;
+        const moved = still ? p : { ...p, x: this.inside(p.x + dx), z: this.inside(p.z + dz), y: this.level };
+        this.dragToSource(base, withLook(base, { ...base.look, props: props.map((x, i) => (i === k ? moved : x)) }), still || (moved.x === p.x && moved.z === p.z && moved.y === p.y));
       } else if (m.kind === 'base') {
         const b = base.bases[m.team]!;
         const moved = { x: this.inside(b.x + dx), z: this.inside(b.z + dz) };
@@ -677,6 +729,50 @@ export class MapEditorSession {
     this.replaceSettings(Object.keys(card).length > 0 ? { ...rest, lobby: card } : rest);
   }
 
+  /** Set the sky and light the map is drawn under (undefined: the Battlefield's own, dusk). Render-only. */
+  setSky(sky: BattleSky | undefined): void {
+    this.replaceSettings(withLook(this.current, { ...this.current.look, sky }));
+  }
+
+  /** A prop id not yet taken: `<kind><n>`, the lowest n from 1. */
+  private freshPropId(kind: PropKind): string {
+    const taken = new Set(propsOf(this.current).map((p) => p.id));
+    let n = 1;
+    while (taken.has(`${kind}${n}`)) n++;
+    return `${kind}${n}`;
+  }
+
+  /**
+   * Place a new prop of `kind` at (x, z), snapped and kept inside the field, standing on the level being edited, facing north; it is selected.
+   * Throws TuningDataError, changing nothing, past MAX_PROPS.
+   */
+  addProp(kind: PropKind, at: GroundPoint): SourceProp {
+    const props = propsOf(this.current);
+    if (props.length >= MAX_PROPS) throw new TuningDataError(`a map holds at most ${MAX_PROPS} props`);
+    const p: SourceProp = { id: this.freshPropId(kind), kind, x: this.inside(at.x), z: this.inside(at.z), y: this.level, turn: 0 };
+    this.apply(withLook(this.current, { ...this.current.look, props: [...props, p] }));
+    this.selectMarker({ kind: 'prop', id: p.id });
+    return p;
+  }
+
+  /** Take the prop `id` away. */
+  removeProp(id: string): void {
+    const props = propsOf(this.current);
+    if (!props.some((p) => p.id === id)) throw new TuningDataError(`no prop "${id}"`);
+    this.apply(withLook(this.current, { ...this.current.look, props: props.filter((p) => p.id !== id) }));
+  }
+
+  /** Replace the prop `id` with `p` (the panel's edit; it may rename it, and the selection follows). Throws TuningDataError, changing nothing, where the parser refuses it. */
+  replaceProp(id: string, p: SourceProp): void {
+    const props = propsOf(this.current);
+    const k = props.findIndex((x) => x.id === id);
+    if (k < 0) throw new TuningDataError(`no prop "${id}"`);
+    if (JSON.stringify(p) === JSON.stringify(props[k])) return;
+    const selected = this.marker?.kind === 'prop' && this.marker.id === id;
+    this.apply(withLook(this.current, { ...this.current.look, props: props.map((x, i) => (i === k ? p : x)) }));
+    if (selected) this.marker = { kind: 'prop', id: p.id };
+  }
+
   /** Set or clear (undefined: the Battle's own) the Tickets a Soldier starts with. */
   setTickets(perSoldier: number | undefined): void {
     const { ticketsPerSoldier: _old, ...rest } = this.current;
@@ -684,15 +780,19 @@ export class MapEditorSession {
   }
 
   /**
-   * What Save writes: the source and the map it compiles to for `battle`, as `data/battlemaps/<name>.source.json` and `<name>.json`.
-   * Throws MapCompileError (naming the Brushes) where the source does not compile, so a map the game refuses is never written.
+   * What Save writes: the source and the map it compiles to for `battle`, as `data/battlemaps/<name>.source.json` and `<name>.json`, and
+   * where its model goes.
+   * Throws MapCompileError (naming the Brushes) where the source does not compile, so a map the game refuses is never written, and where
+   * it is named after a map a generator builds (Save would write over that map's files and its model).
    */
   files(battle: Pick<BattleTuning, 'field' | 'deploy' | 'squad' | 'levels'>): MapFiles {
-    const { map, warnings } = compileMap(this.current, battle);
     const name = this.current.name;
+    if (GENERATED_BATTLE_MAPS.includes(name)) throw new MapCompileError(`"${name}" is a shipped map built in art/ (Save would write over its files and model): rename the map`);
+    const { map, warnings } = compileMap(this.current, battle);
     return {
       source: { fileName: `${name}.source.json`, path: `data/battlemaps/${name}.source.json`, text: sourceFileText(this.current) },
       map: { fileName: `${name}.json`, path: `data/battlemaps/${name}.json`, text: mapFileText(map) },
+      model: { fileName: `battle_${name}.glb`, path: `public/models/arenas/battle_${name}.glb` },
       warnings,
     };
   }

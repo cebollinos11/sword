@@ -4,10 +4,12 @@ import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, 
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
-import { battlefieldSetting } from './battlefieldView';
+import { battlefieldSetting, DUSK, lookSetting, type BattlefieldLook } from './battlefieldView';
 import { texturedModel } from './triplanar';
 import { abyss, battleGreybox, greybox, isGreybox } from './greybox';
 import { hasBattleModel } from './battleModels';
+import { MAP_MODEL_ROOT, TORCH_LIGHT } from '../mapEditor/look';
+import { BATTLE_SKIES, type BattleSky } from '../mapEditor/source';
 import { kitPlacements, STAND_IN_NODES, type KitPlacement } from './kitPlacement';
 import { bakeSkies, sky, skyPane, type SkyLook } from './sky';
 import { snowfall, type SnowfallLook } from './snowfall';
@@ -173,6 +175,27 @@ const KIT_LOOKS: Readonly<Record<string, ArenaLook>> = {
     sky: MYSTIC_SKY,
   },
 };
+
+/**
+ * The skies and light a Battle map made in the Map Editor may be drawn under (docs/plans/map-editor.md, Stage 5; the model names one,
+ * `MAP_MODEL_ROOT`'s `userData.sky`): the Stage's existing looks, each an Arena's lights, air, sky and snow, with its haze pushed out to a
+ * Battlefield's distances. Dusk is the Battlefield's own (`battlefieldSetting`).
+ */
+const BATTLE_LOOKS: Readonly<Record<Exclude<BattleSky, 'dusk'>, BattlefieldLook>> = {
+  // The greybox Kit's mystic space: violet starlight, a cyan rim, a nebula sky.
+  mystic: { lights: KIT_LOOKS.greybox!.lights, haze: KIT_LOOKS.greybox!.background, near: 60, far: 320, sky: MYSTIC_SKY },
+  // The train's wasteland sunset and its brown dust.
+  sunset: { lights: ARENA_LOOKS.train!.lights, haze: ARENA_LOOKS.train!.fog.color, near: 50, far: 300 },
+  // The ship's thick sea fog.
+  fog: { lights: ARENA_LOOKS.ship!.lights, haze: ARENA_LOOKS.ship!.fog.color, near: 10, far: 140 },
+  // The summit's snowstorm.
+  snow: { lights: ARENA_LOOKS.summit!.lights, haze: ARENA_LOOKS.summit!.background, near: 15, far: 190, snow: ARENA_LOOKS.summit!.snow },
+  // The chamber's lava glow from below, cold light above, smoky orange air.
+  ember: { lights: ARENA_LOOKS.chamber!.lights, haze: ARENA_LOOKS.chamber!.fog.color, near: 30, far: 240 },
+};
+
+/** The light and air of a Battle map's sky (the Map Editor's 3D view shows a draft under it). */
+export const battleLook = (sky: BattleSky): BattlefieldLook => (sky === 'dusk' ? DUSK : BATTLE_LOOKS[sky]);
 
 /**
  * The shared 3D scene: WebGL renderer, camera, and the Arena with its light and air. `setArena`
@@ -403,32 +426,74 @@ function lambert(o: THREE.Mesh): void {
 function arenaModel(name: string, lamps: readonly Lamp[]): Promise<THREE.Object3D> {
   let p = models.get(name);
   if (!p) {
-    p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arenas/${name}.glb`).then((gltf) => {
-      const root = gltf.scene;
-      const dropped: THREE.Object3D[] = [];
-      root.traverse((o) => {
-        if (o instanceof THREE.Mesh) {
-          lambert(o);
-          o.matrixAutoUpdate = false;
-          o.updateMatrix();
-        } else if (o instanceof THREE.PointLight) {
-          const lamp = lamps.find((l) => o.name.startsWith(l.prefix));
-          if (!lamp) {
-            dropped.push(o);
-            return;
-          }
-          o.intensity = lamp.intensity;
-          o.distance = lamp.distance;
-          o.decay = 1.6;
-          o.color.set(lamp.color);
-        }
-      });
-      for (const o of dropped) o.removeFromParent();
-      return root;
-    });
+    p = new GLTFLoader().loadAsync(`${import.meta.env.BASE_URL}models/arenas/${name}.glb`).then((gltf) => prepared(gltf.scene, lamps));
     models.set(name, p);
   }
   return p;
+}
+
+/**
+ * A Map Editor map's model (`mapModel`) made ready to draw as the game draws it once loaded (`setDraftBattleModel`): Lambert materials, the
+ * torches' lamps, the triplanar textures. For the editor's 3D view; a model is made ready once.
+ */
+export function drawnMapModel(model: THREE.Object3D): THREE.Object3D {
+  // Once: drawn again (an overlay toggled), it is already made ready.
+  if (model.userData.drawn) return model;
+  model.userData.drawn = true;
+  texturedModel(prepared(model, BATTLE_LAMPS));
+  return model;
+}
+
+/** A loaded model made ready to draw: Lambert materials, fixed transforms, and only the lamps listed (each set as listed). */
+function prepared(root: THREE.Object3D, lamps: readonly Lamp[]): THREE.Object3D {
+  const dropped: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      lambert(o);
+      o.matrixAutoUpdate = false;
+      o.updateMatrix();
+    } else if (o instanceof THREE.PointLight) {
+      const lamp = lamps.find((l) => o.name.startsWith(l.prefix));
+      if (!lamp) {
+        dropped.push(o);
+        return;
+      }
+      o.intensity = lamp.intensity;
+      o.distance = lamp.distance;
+      o.decay = 1.6;
+      o.color.set(lamp.color);
+    }
+  });
+  for (const o of dropped) o.removeFromParent();
+  return root;
+}
+
+/** The lamps a Battle map's model keeps: a Map Editor map's torches (the generators' models carry no lights). */
+const BATTLE_LAMPS: readonly Lamp[] = [TORCH_LIGHT];
+
+/** Models of Map Editor drafts, by map (and the file each was read from), drawn in place of any saved file while set (the play-test's, `setDraftBattleModel`). */
+const draftModels = new Map<string, { readonly glb: ArrayBuffer; readonly model: Promise<THREE.Object3D> }>();
+
+/**
+ * Draw the Battle map `map` from `glb` (a Map Editor draft's model, as Save would write it: `exportMapModel`) until it is cleared
+ * (`clearDraftBattleModel`), in place of its saved model or its greybox: the play-test draws the draft as the game will once it is saved.
+ * Resolves once it is read.
+ */
+export function setDraftBattleModel(map: string, glb: ArrayBuffer): Promise<void> {
+  const model = new GLTFLoader().parseAsync(glb, '').then((gltf) => prepared(gltf.scene, BATTLE_LAMPS));
+  draftModels.set(map, { glb, model });
+  return model.then(() => undefined);
+}
+
+/** Stop drawing `map` from the draft model read from `glb`; a later draft's (a play-test started since) is left as it is. */
+export function clearDraftBattleModel(map: string, glb: ArrayBuffer): void {
+  if (draftModels.get(map)?.glb === glb) draftModels.delete(map);
+}
+
+/** The sky a Map Editor map's model names (dusk for any other model). */
+function skyOf(model: THREE.Object3D): BattleSky {
+  const sky: unknown = model.getObjectByName(MAP_MODEL_ROOT)?.userData.sky;
+  return (BATTLE_SKIES as readonly unknown[]).includes(sky) ? (sky as BattleSky) : 'dusk';
 }
 
 /** A modelled Arena: its room lights and air (`look`), and its model once loaded. */
@@ -469,25 +534,44 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
 
 /**
  * A Battlefield's setting: the sky, light, ground and haze (`battlefieldSetting`), and on a hand-built Battle map (docs/plans/battle-objectives.md,
- * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`), on the flat ground once loaded, or, with no
- * model, its Walk Surfaces and Walls (`battleGreybox`).
+ * Stage 3a) its model, `public/models/arenas/battle_<map>.glb` (exported by `art/build_battle_<map>.py`, or by the Map Editor's Save), on the flat
+ * ground once loaded, or, with no model (a draft in the Map Editor), its Walk Surfaces and Walls (`battleGreybox`). A draft being play-tested is
+ * drawn from its own model (`setDraftBattleModel`). A Map Editor map's model names its sky and light (`BATTLE_LOOKS`), put in once it has loaded.
  */
 function battle(name: string, field: Battlefield, current: () => boolean): Setting {
   const map = battleMapName(name);
   // A hand-built map models its own ground; the flat grass plane would only show through it and run on past its edge.
   const setting = battlefieldSetting(field.heights, map === null);
   if (map === null) return setting;
-  // A map with no model (one from the Map Editor, until Stage 5 exports it one) is drawn from its Walk Surfaces and Walls.
-  if (!hasBattleModel(map)) {
+  /** The sky, lights (and snow) dusk put in, taken out again for another look. */
+  const dusk = [...setting.root.children];
+  const draft = draftModels.get(map)?.model;
+  if (!draft && !hasBattleModel(map)) {
     setting.root.add(battleGreybox(field.arena));
     return setting;
   }
-  const loaded = arenaModel(`battle_${map}`, [])
+  const loaded = (draft ?? arenaModel(`battle_${map}`, BATTLE_LAMPS))
     .then((model) => {
       texturedModel(model);
-      if (current()) setting.root.add(model);
+      if (!current()) return;
+      const sky = skyOf(model);
+      if (sky !== 'dusk') {
+        // The same root, fog and background the Stage holds, made over in the map's look.
+        const look = lookSetting(battleLook(sky));
+        setting.root.remove(...dusk);
+        setting.root.add(...look.root.children);
+        setting.fog.color.copy(look.fog.color);
+        setting.fog.near = look.fog.near;
+        setting.fog.far = look.fog.far;
+        setting.background.copy(look.background);
+      }
+      setting.root.add(model);
     })
-    .catch((e: unknown) => console.error(`Battle map model "${map}" failed to load`, e));
+    .catch((e: unknown) => {
+      console.error(`Battle map model "${map}" failed to load`, e);
+      // A map shipped without its model (its .glb not moved into public/ beside its files) is still drawn: from its Walk Surfaces and Walls.
+      if (current()) setting.root.add(battleGreybox(field.arena));
+    });
   return { ...setting, loaded };
 }
 

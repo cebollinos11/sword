@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { battlefieldHeight, type Heightfield } from '../sim';
 import { sky, type SkyLook } from './sky';
+import { snowfall, type SnowfallLook } from './snowfall';
 import { applyTriplanar } from './triplanar';
 
 /** The haze: its colour (also the sky's horizon and the background), where it starts and where nothing shows through (m). */
@@ -79,22 +80,53 @@ export function terrainMesh(hf: Heightfield): THREE.Mesh {
   return mesh;
 }
 
-/** A Battlefield's setting: the sky, the light, the terrain (unless `terrain` is false: the map's model is its own ground), and the haze (background and fog). */
-export function battlefieldSetting(hf: Heightfield, terrain = true): {
+/**
+ * How a Battlefield is lit and hazed: its lights, its haze (the background, the fog's colour, where the fog starts and where nothing shows
+ * through, m), a sky dome (else the haze is the sky), and snow round the camera. The open field and the shipped maps are drawn at dusk
+ * (`DUSK`); a map made in the Map Editor names another (docs/plans/map-editor.md, Stage 5).
+ */
+export interface BattlefieldLook {
+  readonly lights: () => THREE.Light[];
+  readonly haze: number;
+  readonly near: number;
+  readonly far: number;
+  readonly sky?: SkyLook;
+  readonly snow?: SnowfallLook;
+}
+
+/** Dusk over the field: a dusky sky, cool sky light and a low warm sun, and a long haze for an open field. */
+export const DUSK: BattlefieldLook = {
+  lights: () => {
+    const sun = new THREE.DirectionalLight(0xffd6a6, 1.7);
+    sun.position.set(60, 45, -80);
+    return [new THREE.HemisphereLight(0xd4dcff, 0x4b5631, 1.15), sun];
+  },
+  haze: HAZE,
+  near: HAZE_NEAR,
+  far: HAZE_FAR,
+  sky: BATTLE_SKY,
+};
+
+/** A look's sky, lights and snow, and its haze (background and fog): a Battlefield's setting with no ground (the Map Editor's 3D view draws a draft's model in it). */
+export function lookSetting(look: BattlefieldLook): { root: THREE.Group; background: THREE.Color; fog: THREE.Fog } {
+  const root = new THREE.Group();
+  if (look.sky) root.add(sky(look.sky));
+  root.add(...look.lights());
+  if (look.snow) root.add(snowfall(look.snow));
+  return {
+    root,
+    background: new THREE.Color(look.haze),
+    fog: new THREE.Fog(look.haze, look.near, look.far),
+  };
+}
+
+/** A Battlefield's setting: the sky, the light, the terrain (unless `terrain` is false: the map's model is its own ground), and the haze (background and fog), as `look` has them. */
+export function battlefieldSetting(hf: Heightfield, terrain = true, look: BattlefieldLook = DUSK): {
   root: THREE.Group;
   background: THREE.Color;
   fog: THREE.Fog;
 } {
-  const root = new THREE.Group();
-  root.add(sky(BATTLE_SKY));
-  root.add(new THREE.HemisphereLight(0xd4dcff, 0x4b5631, 1.15));
-  const sun = new THREE.DirectionalLight(0xffd6a6, 1.7);
-  sun.position.set(60, 45, -80);
-  root.add(sun);
-  if (terrain) root.add(terrainMesh(hf));
-  return {
-    root,
-    background: new THREE.Color(HAZE),
-    fog: new THREE.Fog(HAZE, HAZE_NEAR, HAZE_FAR),
-  };
+  const setting = lookSetting(look);
+  if (terrain) setting.root.add(terrainMesh(hf));
+  return setting;
 }

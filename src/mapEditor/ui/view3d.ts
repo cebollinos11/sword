@@ -3,12 +3,19 @@
  * (`greybox`: floors tinted by height under a metre grid, Walls as thin boxes, the Walls triplanar-textured as stone), seen through an orbit
  * camera, with the same overlays as the top view: reachability, edges, the destination fields' clearance and the cell centres Walls cut
  * off, and the Objectives and Bases as posts. Render-only; it reads the checks (`checks.ts`) and draws, nothing more.
+ *
+ * Stage 5: given the map's model (`render/mapModel.ts`), it draws that instead of the greybox, as the game draws a loaded one (Lambert,
+ * triplanar textures, torches lit), under the map's sky and light: the look the map ships with, under the same overlays.
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { frameArena } from '../../editor/arenaLab';
 import { greybox } from '../../render/greybox';
 import { applyTriplanar } from '../../render/triplanar';
+import { battleLook, drawnMapModel } from '../../render/stage';
+import { lookSetting } from '../../render/battlefieldView';
+import { bakeSkies } from '../../render/sky';
+import type { BattleSky } from '../source';
 import { groundNear, surfaceHeight } from '../../sim';
 import type { LevelsTuning } from '../../tuning';
 import type { ClearanceNode, EdgeKind, MapChecks, SurfaceReach } from '../checks';
@@ -19,6 +26,8 @@ const FOV = 50;
 /** How far (m) over its floor an overlay is drawn, so it does not fight the floor for depth. */
 const LIFT = { reach: 0.04, clearance: 0.08, edges: 0.12, centres: 0.3 };
 const TEAM = [0xe0c040, 0x4080e0];
+/** How long (ms) after the look is drawn the view keeps drawing (its textures, and its sky, come in a moment later). */
+const SETTLE_MS = 2500;
 
 export class View3D {
   readonly canvas: HTMLCanvasElement;
@@ -32,6 +41,8 @@ export class View3D {
   private flashing: THREE.MeshBasicMaterial[] = [];
   private visible = false;
   private animating = false;
+  /** Draw every frame until this time (ms): the look's textures are loading. */
+  private settleUntil = 0;
 
   constructor(parent: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -54,9 +65,11 @@ export class View3D {
   }
 
   /** Draw `checks`' draft with the overlays switched on (and the clearance, when it has been built). */
-  update(checks: MapChecks, overlays: Overlays, clearance: readonly ClearanceNode[] | null, lv: LevelsTuning): void {
+  update(checks: MapChecks, overlays: Overlays, clearance: readonly ClearanceNode[] | null, lv: LevelsTuning, model: THREE.Object3D | null = null): void {
     if (this.content) {
       this.scene.remove(this.content);
+      // The same model drawn again (an overlay toggled) is kept; the rest goes.
+      if (model) model.removeFromParent();
       dispose(this.content);
     }
     this.content = null;
@@ -67,13 +80,24 @@ export class View3D {
       this.render();
       return;
     }
-    const look = greybox(draft.arena);
-    const walls = look.root.getObjectByName('greybox-walls');
-    if (walls instanceof THREE.Mesh) applyTriplanar(walls.material as THREE.Material, 'stone');
-    this.scene.background = look.background;
-    const root = look.root;
-    const deadly = draft.map.walk.filter((w) => w.lava || w.water);
-    if (deadly.length) root.add(fans(deadly.map((w) => ({ points: w.points, colour: w.lava ? 0xff5a1f : 0x2f7fe0 })), 0.02, 0.9));
+    let root: THREE.Group;
+    if (model) {
+      // The look: the model under its sky's light, its sky dome (or haze) behind; no fog, so the whole map shows.
+      const look = lookSetting(battleLook((checks.source.look?.sky ?? 'dusk') as BattleSky));
+      root = look.root;
+      root.add(drawnMapModel(model));
+      this.scene.background = look.background;
+      // The textures load a moment after the first one asks: keep drawing until they are in.
+      this.settleUntil = performance.now() + SETTLE_MS;
+    } else {
+      const look = greybox(draft.arena);
+      const walls = look.root.getObjectByName('greybox-walls');
+      if (walls instanceof THREE.Mesh) applyTriplanar(walls.material as THREE.Material, 'stone');
+      this.scene.background = look.background;
+      root = look.root;
+      const deadly = draft.map.walk.filter((w) => w.lava || w.water);
+      if (deadly.length) root.add(fans(deadly.map((w) => ({ points: w.points, colour: w.lava ? 0xff5a1f : 0x2f7fe0 })), 0.02, 0.9));
+    }
     if (overlays.reach) {
       const groups = new Map<SurfaceReach, typeof draft.map.walk[number][]>();
       draft.map.walk.forEach((w, i) => {
@@ -141,6 +165,7 @@ export class View3D {
     checks.source.bases.forEach((b, t) => post(b.x, b.z, undefined, TEAM[t]!, 3));
     this.content = root;
     this.scene.add(root);
+    if (this.settleUntil > performance.now()) this.loop();
     // Framed once per map (a new map, or one opened), so an edit keeps the camera where the author left it.
     if (this.framedFor !== checks.source.name) {
       this.framedFor = checks.source.name;
@@ -190,17 +215,17 @@ export class View3D {
         this.animating = false;
         return;
       }
-      if (this.flashing.length) {
-        for (const m of this.flashing) m.opacity = 0.35 + 0.35 * Math.sin(t / 160);
-        this.render();
-      }
+      if (this.flashing.length) for (const m of this.flashing) m.opacity = 0.35 + 0.35 * Math.sin(t / 160);
+      if (this.flashing.length || performance.now() < this.settleUntil) this.render();
       requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
   }
 
   private render(): void {
-    if (this.visible) this.renderer.render(this.scene, this.camera);
+    if (!this.visible) return;
+    bakeSkies(this.renderer);
+    this.renderer.render(this.scene, this.camera);
   }
 }
 

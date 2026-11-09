@@ -5,10 +5,12 @@
  *  - `sampleSource`: Stage 0's sample. A keep (a Platform 4 m up, x -12 to 12, z -8 to 8) with B on it, a railed Ramp up its south face and
  *    one up its north face, a bridge (a Deck 4 m up) running east off the keep over a lava pit (8 m down) to a dead end at x 44, C on the
  *    bridge's end, and five Objectives.
+ *  - `dressedSampleSource`: Stage 0's sample dressed (Stage 5): a material on each Brush, props (trees, rubble, banners, crates, torches)
+ *    and a sky. It compiles to the very same map as the sample.
  *  - `withBrushes`: a 200 m field source of the given Brushes (`GROUND` is the whole field's floor), with five Objectives and the Bases
  *    where a flat field takes them, to build a test's source from.
  */
-import type { Brush, FloorBrush, MapSource, SourceObjective } from './source';
+import type { Brush, FloorBrush, MapMaterial, MapSource, SourceObjective, SourceProp } from './source';
 
 const HALF = 100;
 
@@ -71,6 +73,36 @@ export const sampleSource = (): MapSource =>
       ],
     },
   );
+
+/** The materials the dressed sample's Brushes are drawn in. */
+const DRESSED: Readonly<Record<string, MapMaterial>> = { ground: 'grass', keep: 'brick', rampS: 'cobble', rampN: 'cobble', bridge: 'wood', bridgeRailS: 'metal', bridgeRailN: 'metal' };
+
+/** Stage 0's sample dressed: its Brushes in materials, trees and rubble about the field, banners and torches on the keep, crates by the bridge, a mystic sky. */
+export function dressedSampleSource(): MapSource {
+  const plain = sampleSource();
+  const props: SourceProp[] = [
+    ...[-60, -40, 60, 75].flatMap((x, k) => [
+      { id: `tree${2 * k + 1}`, kind: 'tree' as const, x, z: -25 + 10 * k, y: 0, turn: 0 },
+      { id: `tree${2 * k + 2}`, kind: 'tree' as const, x: -x, z: 30 - 8 * k, y: 0, turn: 90 },
+    ]),
+    { id: 'rubble1', kind: 'rubble', x: 16, z: -16, y: 0, turn: 30 },
+    { id: 'rubble2', kind: 'rubble', x: -18, z: 14, y: 0, turn: 0 },
+    { id: 'banner1', kind: 'banner', x: -10, z: -6, y: 4, turn: 180, team: 0 },
+    { id: 'banner2', kind: 'banner', x: -10, z: 6, y: 4, turn: 0, team: 1 },
+    { id: 'banner3', kind: 'banner', x: 10, z: -6, y: 4, turn: 180 },
+    ...[-11, 11].flatMap((x, k) => [
+      { id: `torch${2 * k + 1}`, kind: 'torch' as const, x, z: -7, y: 4, turn: 0 },
+      { id: `torch${2 * k + 2}`, kind: 'torch' as const, x, z: 7, y: 4, turn: 0 },
+    ]),
+    { id: 'crate1', kind: 'crate', x: 46, z: -2, y: 0, turn: 15 },
+    { id: 'crate2', kind: 'crate', x: 48, z: 1.5, y: 0, turn: 45 },
+  ];
+  return {
+    ...plain,
+    brushes: plain.brushes.map((b) => (DRESSED[b.id] ? { ...b, material: DRESSED[b.id] } : b)),
+    look: { sky: 'mystic', props },
+  };
+}
 
 /**
  * A source the size of the City (about 650 Walk Surfaces and 500 Walls compiled, against `city.json`'s 634 and 280), to time the live

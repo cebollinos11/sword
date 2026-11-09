@@ -12,15 +12,29 @@
  * Stage 3: the Battle's markers are picked and dragged with the select tool before any Brush (an Objective, a Base, either Team's front
  * line by its grips at the field's edges), and the Objective tool places a new Objective with a click. Each Objective is drawn with its capture circle and its `y`, each
  * front line across the field in its Team's colour.
+ *
+ * Stage 5: each prop is drawn as a small mark of its kind (a tree green, a torch orange…) and picked and dragged as a marker; the prop tool
+ * places one of the kind `propKind` with a click, at the level being edited. Each Brush that names a material shows it in its label.
  */
 import type { LevelsTuning, ObjectivesTuning } from '../../tuning';
 import type { ClearanceNode, MapChecks } from '../checks';
-import { boundsOf, brushAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
-import type { Brush, BrushKind, GroundPoint, MapSource, Rect } from '../source';
+import { boundsOf, brushAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, propsOf, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
+import type { Brush, BrushKind, GroundPoint, MapSource, PropKind, Rect } from '../source';
 import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
 
-/** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective. */
-export type Tool = 'select' | BrushKind | 'objective';
+/** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective or a prop. */
+export type Tool = 'select' | BrushKind | 'objective' | 'prop';
+
+/** How a prop is marked in the top view: its colour and a letter. */
+const PROP_MARKS: Readonly<Record<PropKind, { readonly colour: string; readonly letter: string }>> = {
+  tree: { colour: '#3f9a3a', letter: 'T' },
+  rubble: { colour: '#9a948a', letter: 'R' },
+  banner: { colour: '#d04a4a', letter: 'B' },
+  crate: { colour: '#b0844c', letter: 'C' },
+  torch: { colour: '#ff9a30', letter: 'F' },
+};
+/** A prop's drawn size (px). */
+const PROP_PX = 6;
 
 /** A level's colour, by its place among the levels from the lowest. */
 const LEVEL_COLOURS = ['#4f7fbf', '#5fa05a', '#c9a44a', '#b8673f', '#9a5fb0', '#4aa6a6', '#c05f7a', '#8a8f4a'];
@@ -63,6 +77,8 @@ export class TopView {
   levels: LevelsTuning | null = null;
   /** The Battle's capture circles, to draw each Objective's. */
   objectiveRadii: Pick<ObjectivesTuning, 'radius' | 'spawnRadius'> | null = null;
+  /** The kind of prop the prop tool places. */
+  propKind: PropKind = 'tree';
   private flashing = false;
   /** False while the 3D view covers it: nothing is drawn, nor flashes. */
   shown = true;
@@ -198,6 +214,19 @@ export class TopView {
       this.redraw();
       return;
     }
+    if (tool === 'prop') {
+      this.gesture = null;
+      // On a prop already there, the click selects it; off the field, it places nothing.
+      const there = markerAt(s.source, p.x, p.z, PROP_PX / this.view.scale, 0);
+      const half = s.source.size / 2;
+      if (there?.kind === 'prop') {
+        s.selectMarker(there);
+        this.changed();
+      } else if (Math.abs(p.x) >= half || Math.abs(p.z) >= half) this.changed('Place a prop on the field');
+      else this.edit(() => s.addProp(this.propKind, p));
+      this.redraw();
+      return;
+    }
     if (tool !== 'select') {
       this.gesture = { kind: 'draw', start: p, screen };
       return;
@@ -267,7 +296,7 @@ export class TopView {
     } else if (g.kind === 'draw') {
       const p = this.toGround(e.clientX, e.clientY);
       const tool = this.tool();
-      if (tool !== 'select' && tool !== 'objective') this.edit(() => this.session.addBrush(tool, g.start, p));
+      if (tool !== 'select' && tool !== 'objective' && tool !== 'prop') this.edit(() => this.session.addBrush(tool, g.start, p));
     }
     this.redraw();
   }
@@ -564,7 +593,7 @@ export class TopView {
     if (w > 40 && h > 16) {
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.font = '11px system-ui, sans-serif';
-      const label = b.id === source.brushes[0]?.id && w > this.canvas.clientWidth ? '' : `${b.id}${heightLabel(b)}`;
+      const label = b.id === source.brushes[0]?.id && w > this.canvas.clientWidth ? '' : `${b.id}${heightLabel(b)}${b.material ? ` · ${b.material}` : ''}`;
       this.text(label, x, y, 4 - w, 13, w - 8);
     }
     ctx.globalAlpha = 1;
@@ -648,6 +677,32 @@ export class TopView {
         ctx.font = '10px system-ui, sans-serif';
         this.text(`y ${o.y}`, x, y, 0, MARKER_PX + 8);
         ctx.font = 'bold 12px system-ui, sans-serif';
+      }
+    }
+    // The props: a small mark of each one's kind, faded off the level being edited; the selected one ringed.
+    for (const p of propsOf(source)) {
+      const x = this.sx(p.x);
+      const y = this.sy(p.z);
+      const mark = PROP_MARKS[p.kind];
+      ctx.globalAlpha = p.y === this.session.level ? 1 : 0.45;
+      ctx.fillStyle = mark.colour;
+      ctx.beginPath();
+      ctx.arc(x, y, PROP_PX, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.strokeStyle = '#111';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.font = 'bold 8px system-ui, sans-serif';
+      ctx.fillStyle = '#111';
+      this.text(mark.letter, x, y, 0, 0.5);
+      ctx.font = 'bold 12px system-ui, sans-serif';
+      ctx.globalAlpha = 1;
+      if (isPicked({ kind: 'prop', id: p.id })) {
+        ctx.strokeStyle = '#ffe14d';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, y, PROP_PX + 3, 0, 2 * Math.PI);
+        ctx.stroke();
       }
     }
     source.bases.forEach((b, t) => {

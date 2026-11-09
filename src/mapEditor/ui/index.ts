@@ -18,20 +18,28 @@
  * Spectate, Play or Walk. Back returns to the editor with the session, its undo history and both cameras as they were. The Quick check button
  * runs whole AI-v-AI Battles on the draft, fixed seeds, between frames, and lists what they found (`quickCheck.ts`).
  *
+ * Stage 5: the look. The Brush folder names the selected Brush's material; the Look folder the map's sky and light and the prop tool's kind
+ * (T, then click), and the selected prop's numbers. The map's model is generated from the Brushes (`render/mapModel.ts`): the 3D view shows
+ * it, the play-test draws it, and Save exports it as `public/models/arenas/battle_<map>.glb` after the two JSON files, so the game draws the
+ * saved map from it with no Blender step.
+ *
  * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
+import type * as THREE from 'three';
 import { Pane, type FolderApi } from 'tweakpane';
 import { maxArmySize, type TuningData } from '../../tuning';
-import { saveJsonFile } from '../../editor/save';
+import { saveGlbFile, saveJsonFile } from '../../editor/save';
+import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
-import { MapCompileError } from '../compile';
+import { compileDraft, MapCompileError, type DraftMap } from '../compile';
 import { draftTuning, type Draft } from '../playtest';
 import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../quickCheck';
 import { battleMapCard } from '../../play/lobbyView';
-import { sampleSource } from '../sample.testdata';
+import { dressedSampleSource, sampleSource } from '../sample.testdata';
 import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
-import { BRUSH_KINDS, SIDES, type Brush, type BrushKind, type HazardKind, type Side, type SourceLobby, type SourceObjective } from '../source';
+import { BATTLE_SKIES, BRUSH_KINDS, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
+import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
 import { TopView, type Tool } from './topView';
@@ -56,8 +64,12 @@ const TOOL_LABELS: Record<Tool, string> = {
   wall: 'Wall (W)',
   block: 'Block (B)',
   objective: 'Objective (O): click to place',
+  prop: 'Prop (T): click to place',
 };
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', o: 'objective' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', o: 'objective', t: 'prop' };
+
+/** The sky choices as the Look folder shows them: each the look of an existing Arena or of the Battlefield. */
+const SKY_LABELS: Record<BattleSky, string> = { dusk: 'dusk (the Battlefield)', mystic: 'mystic space (the Kit)', sunset: 'wasteland sunset (the train)', fog: 'sea fog (the ship)', snow: 'snowstorm (the summit)', ember: 'lava glow (the chamber)' };
 
 /** The selected Brush's numbers as the panel edits them: one flat record for every kind, read back by `brushFromProps`. */
 interface BrushProps {
@@ -80,6 +92,8 @@ interface BrushProps {
   hazard: HazardKind;
   height: number;
   bottom: number;
+  /** The Brush's material, or '' for its kind's own. */
+  material: MapMaterial | '';
 }
 
 function propsOf(b: Brush, into: BrushProps): BrushProps {
@@ -95,10 +109,17 @@ function propsOf(b: Brush, into: BrushProps): BrushProps {
   if (b.kind === 'hazard') into.hazard = b.hazard;
   if (b.kind === 'rail') into.height = b.height;
   if (b.kind === 'wall') into.bottom = b.bottom;
+  into.material = b.material ?? '';
   return into;
 }
 
+/** The Brush the panel's numbers make, with its material (none on a Hole or a Hazard). */
 function brushFromProps(kind: BrushKind, p: BrushProps): Brush {
+  const b = shapeFromProps(kind, p);
+  return p.material === '' || b.kind === 'hole' || b.kind === 'hazard' ? b : { ...b, material: p.material };
+}
+
+function shapeFromProps(kind: BrushKind, p: BrushProps): Brush {
   const rect = { x0: p.x0, z0: p.z0, x1: p.x1, z1: p.z1 };
   const a = { x: p.ax, z: p.az };
   const b = { x: p.bx, z: p.bz };
@@ -147,6 +168,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     seed: 1,
     army: 0,
     quickBattles: 4,
+    look3d: true,
   };
   const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
@@ -257,13 +279,19 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     clearance = fieldClearance(checks, tuning.battle)?.nodes ?? null;
     fieldMs = clearance ? performance.now() - t0 : null;
   };
+  /** The model the 3D view shows for the checks' source: built once per source (an overlay toggled draws the same one again). */
+  let shownModel: { readonly of: MapChecks; readonly model: THREE.Object3D | null } | null = null;
+  const lookModel = (c: MapChecks): THREE.Object3D | null => {
+    if (shownModel?.of !== c) shownModel = { of: c, model: c.draft ? mapModel(c.source, c.draft) : null };
+    return shownModel.model;
+  };
   const drawChecks = () => {
     view.checks = checks;
     view.overlays = overlays;
     view.clearance = overlays.clearance ? clearance : null;
     view.levels = tuning.battle.levels;
     view.redraw();
-    if (ui.view === '3d' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels);
+    if (ui.view === '3d' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels, ui.look3d ? lookModel(checks) : null);
   };
   const runChecks = () => {
     window.clearTimeout(checkTimer);
@@ -333,7 +361,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
     }
   };
-  const examples: Record<string, () => unknown> = { "Stage 0's sample": sampleSource };
+  const examples: Record<string, () => unknown> = { "Stage 0's sample": sampleSource, "Stage 5's dressed sample": dressedSampleSource };
   for (const [path, raw] of Object.entries(bundled)) examples[path.slice(path.lastIndexOf('/') + 1)] = () => raw;
   ui.example = Object.keys(examples)[0]!;
   const picker = document.createElement('input');
@@ -352,10 +380,17 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     });
   });
 
+  /** The compiled draft of `source`: the live checks' when they are of it, else compiled now. */
+  const draftOf = (source: typeof session.source): DraftMap => (checks?.source === source && checks.draft ? checks.draft : compileDraft(source, tuning.battle));
+  /** The map's model as Save writes it (a `.glb`), for `source` as it is now. */
+  const modelFile = (source: typeof session.source): Promise<ArrayBuffer> => exportMapModel(mapModel(source, draftOf(source)));
+
   const save = async () => {
     let files: ReturnType<MapEditorSession['files']>;
+    let model: THREE.Object3D;
     try {
       files = session.files(tuning.battle);
+      model = mapModel(session.source, draftOf(session.source));
     } catch (e) {
       view.flagged = e instanceof MapCompileError ? e.brushes : [];
       if (view.flagged[0]) session.select(view.flagged[0]);
@@ -366,9 +401,15 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view.flagged = [];
     view.redraw();
     const done: string[] = [];
-    for (const f of [files.source, files.map]) {
+    // The two JSON files, then the model (Stage 5): the three a map ships as.
+    const writes = [
+      { ...files.source, write: () => saveJsonFile(files.source.fileName, files.source.text) },
+      { ...files.map, write: () => saveJsonFile(files.map.fileName, files.map.text) },
+      { ...files.model, write: async () => saveGlbFile(files.model.fileName, await exportMapModel(model)) },
+    ];
+    for (const f of writes) {
       try {
-        const result = await saveJsonFile(f.fileName, f.text);
+        const result = await f.write();
         if (result === 'cancelled') {
           say([...done, `Save of ${f.fileName} cancelled`].join('\n'));
           return;
@@ -395,7 +436,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addBinding(ui, 'example', { label: 'example', options: Object.fromEntries(Object.keys(examples).map((k) => [k, k])) });
   file.addButton({ title: 'Open example' }).on('click', () => discardOk() && openRaw(examples[ui.example]!(), ui.example));
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
-  file.addButton({ title: 'Save (source + compiled map)' }).on('click', () => void save());
+  file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => void save());
 
   // --- Play-test and the Quick check ---------------------------------------
   /** Ends the play-test running over the editor, if one is. */
@@ -417,7 +458,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     const draftMs = performance.now() - t0;
     paneBox.style.display = 'none';
     list.style.display = 'none';
-    playtesting = startPlaytest(draft, { mode: ui.mode, seed: ui.seed, speed: ui.speed, onBack }, (ms) => {
+    const model = modelFile(session.source);
+    playtesting = startPlaytest(draft, { mode: ui.mode, seed: ui.seed, speed: ui.speed, onBack, model }, (ms) => {
       // Dev only: the last play-test's timings, for the cycle measure (the draft compiled and put in Tuning Data, then until the Battle was drawing).
       if (import.meta.env.DEV) (window as unknown as { mapEditorPlaytest: unknown }).mapEditorPlaytest = { draftMs, startMs: ms, mode: ui.mode };
     });
@@ -629,6 +671,11 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
         f.addBinding(props, 'top', { label: 'top (m)', step: 0.5 });
         break;
     }
+    // Its material (render-only): a Hole and a Hazard have none of their own.
+    if (sel.kind !== 'hole' && sel.kind !== 'hazard') {
+      const { material: _m, ...plain } = sel;
+      f.addBinding(props, 'material', { label: 'material', options: { [`its kind's (${materialOf(plain as Brush, session.source)})`]: '', ...Object.fromEntries(MAP_MATERIALS.map((m) => [m, m])) } });
+    }
     f.on('change', (e) => {
       if (e.last) commitProps();
     });
@@ -795,6 +842,59 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     }
   };
 
+  // --- The look (Stage 5): the sky, the prop tool and the selected prop -----
+  const lookUi = { sky: 'dusk' as BattleSky, propKind: 'tree' as PropKind };
+  const lookFolder = pane.addFolder({ title: 'Look', expanded: false });
+  lookFolder.addBinding(lookUi, 'sky', { label: 'sky and light', options: Object.fromEntries(BATTLE_SKIES.map((k) => [SKY_LABELS[k], k])) }).on('change', (e) => {
+    // The 3D view shows it once the checks have run on the edited source.
+    settingsEdit(() => session.setSky(e.value === 'dusk' ? undefined : e.value));
+  });
+  lookFolder.addBinding(lookUi, 'propKind', { label: 'prop tool places', options: Object.fromEntries(PROP_KINDS.map((k) => [k, k])) }).on('change', (e) => {
+    view.propKind = e.value;
+  });
+  lookFolder.addButton({ title: 'Place props (T, then click)' }).on('click', () => {
+    ui.tool = 'prop';
+    refreshPane();
+  });
+  lookFolder.addBinding(ui, 'look3d', { label: '3D view shows the look' }).on('change', () => !syncing && drawChecks());
+  let propFolder: FolderApi | undefined;
+  let propKey = '';
+  /** The selected prop's numbers as the panel edits them (`team` -1: plain). */
+  const propUi = { id: '', kind: 'tree' as PropKind, x: 0, z: 0, y: 0, turn: 0, team: -1 };
+  const propOf = (): SourceProp => {
+    const p = { id: propUi.id, kind: propUi.kind, x: propUi.x, z: propUi.z, y: propUi.y, turn: propUi.turn };
+    return propUi.kind === 'banner' && propUi.team >= 0 ? { ...p, team: propUi.team as 0 | 1 } : p;
+  };
+  const buildProp = () => {
+    const p = session.prop;
+    const key = p ? `${p.id}|${p.kind}|${session.source.levels.join(',')}` : '';
+    if (p) Object.assign(propUi, { ...p, team: p.team ?? -1 });
+    if (key === propKey && propFolder) return;
+    propKey = key;
+    if (propFolder) pane.remove(propFolder);
+    propFolder = undefined;
+    if (!p) return;
+    const f = pane.addFolder({ title: `Prop: ${p.kind} ${p.id}`, index: 4 });
+    propFolder = f;
+    syncing = true;
+    try {
+      const coord = { step: session.source.grid.step, min: -session.source.size / 2, max: session.source.size / 2 };
+      f.addBinding(propUi, 'id');
+      f.addBinding(propUi, 'kind', { options: Object.fromEntries(PROP_KINDS.map((k) => [k, k])) });
+      f.addBinding(propUi, 'x', coord);
+      f.addBinding(propUi, 'z', coord);
+      f.addBinding(propUi, 'y', { label: 'stands on', options: Object.fromEntries(session.source.levels.map((y) => [`${y} m`, y])) });
+      f.addBinding(propUi, 'turn', { label: 'turn (°)', min: 0, max: 345, step: 15 });
+      if (p.kind === 'banner') f.addBinding(propUi, 'team', { label: 'colour', options: { plain: -1, 'Team 0': 0, 'Team 1': 1 } });
+      f.on('change', (e) => {
+        if (e.last) settingsEdit(() => session.replaceProp(p.id, propOf()));
+      });
+      f.addButton({ title: 'Remove (Del)' }).on('click', () => settingsEdit(() => session.removeProp(p.id)));
+    } finally {
+      syncing = false;
+    }
+  };
+
   // --- Checks and overlays ------------------------------------------------
   const checksFolder = pane.addFolder({ title: 'Checks', index: 4 });
   checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d' } }).on('change', (e) => {
@@ -838,6 +938,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const sync = () => {
     scheduleChecks();
     buildBrush();
+    buildProp();
+    lookUi.sky = session.source.look?.sky ?? 'dusk';
     syncMap();
     undoButton.disabled = !session.canUndo;
     redoButton.disabled = !session.canRedo;
@@ -879,6 +981,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
       const m = session.marker;
       if (m?.kind === 'objective') settingsEdit(() => session.removeObjective(m.id));
+      else if (m?.kind === 'prop') settingsEdit(() => session.removeProp(m.id));
       else remove();
     } else if (!mod && e.key === 'Escape') {
       ui.tool = 'select';
