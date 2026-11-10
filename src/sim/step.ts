@@ -142,7 +142,9 @@ function walk(f: FighterState, intent: Intent, tuning: TuningData, drawnPace = f
     mx /= len;
     mz /= len;
   }
-  const speed = slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
+  const backness = Math.max(0, -(mx * Math.sin(f.facing) + mz * Math.cos(f.facing)) / Math.hypot(mx, mz));
+  const backward = 1 - (1 - tuning.fighter.backwardWalkFactor) * backness;
+  const speed = backward * slowFactor(f, tuning) * (sheathedPace(f) && !drawnPace ? tuning.fighter.sheathedWalkFactor : 1) * (f.action.kind === 'Stagger' ? RECOIL_WALK_FACTOR : 1) * (f.action.kind === 'Throw' ? tuning.dagger.throwWalkFactor : 1) * (1 + (tuning.fighter.crouchWalkFactor - 1) * f.crouch);
   const d = tuning.fighter.walkSpeed * TICK_SECONDS * speed;
   return { x: f.position.x + mx * d, z: f.position.z + mz * d };
 }

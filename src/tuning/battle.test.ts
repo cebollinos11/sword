@@ -25,9 +25,9 @@ describe('Battle Tuning Data (data/battle.json)', () => {
   it('names the generic soldier: a Weapon from the roster and a colour for each Team', () => {
     const b = tuning.battle;
     expect(b.soldier.weapon in tuning.weapons).toBe(true);
-    expect(b.soldier.colours).toEqual([0xc0392b, 0x2e86c1]);
+    expect(b.soldier.colours).toEqual([0xf1c40f, 0x2e86c1]);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, weapon: 'Spoon' } }, Object.keys(tuning.weapons))).toThrow(/battle\.soldier\.weapon "Spoon" is not a Weapon/);
-    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, colours: ['#c0392b'] } })).toThrow(/battle\.soldier\.colours/);
+    expect(() => parseBattle({ ...b, soldier: { ...b.soldier, colours: ['#f1c40f'] } })).toThrow(/battle\.soldier\.colours/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, colours: ['red', '#2e86c1'] } })).toThrow(/battle\.soldier\.colours\[0\] must be a colour/);
     expect(() => parseBattle({ ...b, soldier: { ...b.soldier, body: '' } })).toThrow(/battle\.soldier\.body/);
   });

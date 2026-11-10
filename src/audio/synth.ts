@@ -255,7 +255,8 @@ export class WebAudioPlayer implements SoundPlayer {
       case 'CrowdBlow':
         return this.hit({ sound: 'Hit', defender: -1, zone: 'torso', strength: 0.4, by: 'Edge' });
       case 'CrowdFall':
-        // A cry is a recording or nothing: a synthesised voice would not pass.
+      case 'Splatter':
+        // A cry, or blood landing, is a recording or nothing: a synthesised one would not pass.
         return;
     }
   }

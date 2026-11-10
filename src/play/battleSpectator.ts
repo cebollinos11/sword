@@ -291,7 +291,7 @@ export async function startBattleSpectator(container: HTMLElement, tuning: Tunin
     const over = match.status.status === 'Over' ? `\nTeam ${match.status.winner} wins` : '';
     status.textContent =
       `${match.arena}  ${(match.duel.tick * TICK_SECONDS).toFixed(1)} s\n` +
-      `Team 0 (red)  ${a} / ${tuning.battle.armySize}\nTeam 1 (blue) ${b} / ${tuning.battle.armySize}\n${rout}${over}\n` +
+      `Team 0 (yellow)  ${a} / ${tuning.battle.armySize}\nTeam 1 (blue) ${b} / ${tuning.battle.armySize}\n${rout}${over}\n` +
       `render ${r.recentCpu.mean.toFixed(2)} ms (p99 ${r.recentCpu.p99.toFixed(1)}), frame ${r.recentInterval.mean.toFixed(1)} ms, ${calls} draws`;
     requestAnimationFrame(frame);
   };

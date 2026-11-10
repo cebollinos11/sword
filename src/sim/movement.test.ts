@@ -57,7 +57,7 @@ describe('Staggered Fighters', () => {
     const run = runDuel(tuning, { distance: 1.3, a: [...attack('Overhead'), ...wait(blockTick), ...walk(120, { x: 0, z: -1 })], b: block });
     const at = (t: number) => run.states[t]!.fighters[0]!;
     expect(at(blockTick).action).toMatchObject({ kind: 'Stagger', cause: 'Blocked' });
-    const halfStep = tuning.fighter.walkSpeed * TICK_SECONDS * 0.5;
+    const halfStep = tuning.fighter.walkSpeed * TICK_SECONDS * 0.5 * tuning.fighter.backwardWalkFactor;
     let recoilTicks = 0;
     // A Tick's Intent shows up one state later, so the first two recoil Ticks are skipped.
     for (let t = blockTick + 2; at(t).action.kind === 'Stagger'; t++) {

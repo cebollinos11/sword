@@ -160,6 +160,16 @@ export interface WallStrikeCue extends Placed {
   readonly surface: Surface;
 }
 
+/**
+ * A Hit's blood spray struck the floor or a Wall at `point` (where its first droplet landed): a wet splatter. `strength`
+ * is 0..1, as the spray's. Render-only (the droplets are the Renderer's), so the Renderer sends it.
+ */
+export interface SplatterCue extends Placed {
+  readonly sound: 'Splatter';
+  readonly point: Vec3;
+  readonly strength: number;
+}
+
 /** A Duel began: blades drawn and a drum. `duelNumber` is 1-based. */
 export interface DuelStartCue {
   readonly sound: 'DuelStart';
@@ -214,6 +224,7 @@ export type SoundCue =
   | ClatterCue
   | ThunkCue
   | WallStrikeCue
+  | SplatterCue
   | DuelStartCue
   | DuelEndCue
   | MatchEndCue

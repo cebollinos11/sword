@@ -1211,10 +1211,11 @@ describe('AI Stage 1: exploit fixes', { timeout: 60_000 }, () => {
     const swinger = (whiffCheck: number) => ({ reactionTime: 0.3, mistakeRate: 0, feintRate: 0, aggression: 1, kickRate: 0, throwRate: 0, whiffCheck });
     const backOff: Track = [...walk(60, { x: 0, z: -1 }), ...wait(200)];
     const releasesBeyond = (r: ReturnType<typeof vsAi>) => r.run.events.filter((e) => e.type === 'AttackPhase' && e.fighter === 1 && e.phase === 'Release' && dist(r.run.states[e.tick]!) > reach + THRUST);
-    const swung = vsAi(passive, swinger(0), backOff, 100);
+    const fleeing: TuningData = { ...passive, fighter: { ...passive.fighter, backwardWalkFactor: 1 } }; // backing off at full speed, as the test was written
+    const swung = vsAi(fleeing, swinger(0), backOff, 100);
     expect(releasesBeyond(swung)).not.toEqual([]);
     expect(swung.run.events.some((e) => e.type === 'Hit' && e.attacker === 1)).toBe(false);
-    const checked = vsAi(passive, swinger(1), backOff, 100);
+    const checked = vsAi(fleeing, swinger(1), backOff, 100);
     expect(releasesBeyond(checked)).toEqual([]);
     expect(checked.run.events.some((e) => e.type === 'Feint' && e.fighter === 1 && e.into.kind === 'Block')).toBe(true);
     // A target it follows into reach is no whiff: it swings, and hits, as before.

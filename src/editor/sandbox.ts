@@ -4,7 +4,7 @@
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
  * Movement, an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
- * and seed in the "AI vs AI" folder), or Player vs AI (you play red with the
+ * and seed in the "AI vs AI" folder), or Player vs AI (you play yellow with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
  * folder (the Arena Lab, arenaLab.ts) generates an Arena from a seed and fights every script in it instead of the circle.
@@ -196,7 +196,7 @@ const lab = { kit: 'greybox', seed: 1, ...DEFAULT_GEN_PARAMS, use: true, collide
 const LAB_MAX_SEED = 999_999;
 
 /**
- * Player vs AI: you are red (Fighter 0, the Local Controller fed by mouse and
+ * Player vs AI: you are yellow (Fighter 0, the Local Controller fed by mouse and
  * keys), the AI (or a test opponent: Dummy, Wall) is blue. Live: nothing is precomputed, playing extends the run.
  */
 function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun {
@@ -225,7 +225,7 @@ type ScriptName = keyof typeof SCRIPTS;
 
 function describeMatch(m: MatchState, live: boolean): string {
   const score = `score ${m.score.join('–')}`;
-  const red = live ? 'you (red)' : 'red';
+  const red = live ? 'you (yellow)' : 'yellow';
   if (m.status.status === 'Over') return `Match over: ${m.status.winner === 0 ? red : 'blue'} wins · ${score}`;
   return `Duel ${m.duelNumber} of best of ${m.config.bestOf} · ${score}`;
 }
@@ -396,7 +396,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   // Sounds and impact effects play for Ticks reached by playing or stepping; scrubbing and restarting are silent.
   const audio = createBrowserAudio();
   const impacts = new ImpactEffects(stage.scene, tuning);
-  // Only a live run's third-person camera shakes, on your Fighter (red); the orbit camera stays still.
+  // Only a live run's third-person camera shakes, on your Fighter (yellow); the orbit camera stays still.
   const shake = new CameraShake();
   let heard = ui.tick;
   const hear = (t: number) => {
@@ -470,7 +470,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   pane.addButton({ title: 'Re-run script (live Tuning Data)' }).on('click', rerun);
   const weapons = pane.addFolder({ title: 'Weapons', expanded: true });
   const weaponOptions = Object.fromEntries(session.weaponNames().map((n) => [n, n]));
-  weapons.addBinding(weaponPicks, 'red', { label: 'red', options: weaponOptions }).on('change', rerun);
+  weapons.addBinding(weaponPicks, 'red', { label: 'yellow', options: weaponOptions }).on('change', rerun);
   weapons.addBinding(weaponPicks, 'blue', { label: 'blue', options: weaponOptions }).on('change', rerun);
   const sizes = pane.addFolder({ title: 'Sizes', expanded: false });
   const range = { min: MIN_SIZE, max: MAX_SIZE, step: SIZE_STEP };
@@ -488,8 +488,8 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const rerunAi = () => switchTo('AI vs AI Match');
   /** Every Style, and Random (picked from the seed). */
   const styles = { ...Object.fromEntries(Object.keys(tuning.ai.styles).map((k) => [k, k])), Random: RANDOM_PICK };
-  ai.addBinding(aiMatch, 'red', { label: 'red AI', options: difficulties }).on('change', rerunAi);
-  ai.addBinding(aiMatch, 'redStyle', { label: 'red Style', options: styles }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'red', { label: 'yellow AI', options: difficulties }).on('change', rerunAi);
+  ai.addBinding(aiMatch, 'redStyle', { label: 'yellow Style', options: styles }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'blue', { label: 'blue AI', options: difficulties }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'blueStyle', { label: 'blue Style', options: styles }).on('change', rerunAi);
   ai.addBinding(aiMatch, 'seed', { min: 1, max: 9999, step: 1 }).on('change', rerunAi);
@@ -507,7 +507,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
     ui.playing = true;
   });
   const help = {
-    text: 'You are red. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Q Feint · E throw a dagger · Space pause/play (try the Runner (test) opponent).',
+    text: 'You are yellow. Click the view to lock the mouse, Esc frees it.\nLeft/right mouse: attack/block. Mouse: aim + Direction.\nWASD walk · Q Feint · E throw a dagger · Space pause/play (try the Runner (test) opponent).',
   };
   vs.addBinding(help, 'text', { readonly: true, label: 'controls', multiline: true, rows: 3 });
 
@@ -601,7 +601,7 @@ saved ${file} (${result})`),
   overlays.addBinding(ui, 'bladeSweep', { label: 'Blade Sweep' });
   overlays.addBinding(ui, 'actionPhase', { label: 'Action/phase' });
   const status = pane.addFolder({ title: 'State' });
-  status.addBinding(ui, 'fighter0', { readonly: true, label: 'red', multiline: true, rows: 2 });
+  status.addBinding(ui, 'fighter0', { readonly: true, label: 'yellow', multiline: true, rows: 2 });
   status.addBinding(ui, 'fighter1', { readonly: true, label: 'blue', multiline: true, rows: 2 });
   status.addBinding(ui, 'match', { readonly: true, label: 'match' });
   status.addBinding(ui, 'determinism', { readonly: true, label: 'determinism' });

@@ -4,7 +4,7 @@ import { loadTuningData, motionFileName, parseMotion, parseTuningData, serialize
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
   return {
-    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6, lyingHitFactor: 2 },
+    fighter: { maxHp: 100, walkSpeed: 2, radius: 0.3, height: 1.8, turnSpeed: 360, motionBlend: 0.15, lookPitchMax: 50, lookLean: 0.45, lookHipShift: 0.3, crouchDepth: 0.4, crouchSpeed: 6, crouchWalkFactor: 0.5, sheathedWalkFactor: 1.6, backwardWalkFactor: 0.6, lyingHitFactor: 2 },
     arena: { match: 'flat', editor: 'flat' },
     arenas: [{ name: 'flat', radius: 8, walk: [{ id: 'WALK_floor', points: [[-8, 0, -8], [8, 0, -8], [8, 0, 8], [-8, 0, 8]] }] }],
     fall: { gravity: 14, jumpSpeed: 4.8, jumpBoost: 20, jumpBoostDelay: 0.12, jumpBoostTime: 0.35, airControl: 4, fallDelay: 0.2, safeHeight: 1.6, damagePerMetre: 22, knockdownDamageFactor: 2, stepUp: 0.35, snapDown: 0.4 },
@@ -42,7 +42,7 @@ function goodRaw() {
       tickets: { perSoldier: 2, drain: 0.3, limitSeconds: 900, respawnSeconds: 10 },
       commander: { planSeconds: 2.5, holdSeconds: 15, stick: 0.25, falloff: 0.8, distance: 0.003, threatRadius: 30, danger: 0.15, attack: 1, retake: 1.2, garrison: 0.3, garrisonSquads: 1, defend: 1.5 },
       rout: { threshold: 0.2, seconds: 5 },
-      soldier: { body: 'female', weapon: 'Sword', colours: ['#c0392b', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
+      soldier: { body: 'female', weapon: 'Sword', colours: ['#f1c40f', '#2e86c1'], difficulty: 'Normal', style: {}, mods: {} },
       bubble: { poolSize: 16, promote: 10, demote: 16, minPromotedSeconds: 1, corpseSeconds: 3, hold: 3 },
       slots: { enemies: 4, allies: 3, engaged: 2.5, shared: [] },
       ring: { radius: 3.5, spacing: 1.2, pathAhead: 3, pathWidth: 0.8, waiting: 8 },

@@ -9,6 +9,7 @@ Sword dueling game
 |---|---|
 | Mouse | Aim the camera; the last way you moved picks the Direction (up = Overhead, down = Thrust) |
 | Hold left mouse | Wind up an Attack; let go to swing |
+| Mouse wheel up / down | Quick Overhead / Thrust Attack, queued to follow your current swing |
 | Right mouse | Block in the Direction you last moved |
 | W A S D | Walk |
 | Space | Jump |

@@ -20,6 +20,7 @@ export const STOCK_CLIPS = {
   'arrow-hit': { count: 5, level: 0.8 },
   victory: { count: 1, level: 0.9 },
   shout: { count: 6, level: 0.8 },
+  splatter: { count: 2, level: 0.8 },
 } as const;
 
 export type StockClip = keyof typeof STOCK_CLIPS;
@@ -38,6 +39,9 @@ export interface StockPlay {
   /** Fraction of it sent into the room's reverb. */
   readonly wet: number;
 }
+
+/** A spray this strong (0..1) or stronger splatters with the long clip. */
+export const SPLATTER_HEAVY = 0.6;
 
 /** Seconds the victory call waits after the blow that ended the Match, so the Death is heard first. */
 const ENDING_DELAY = 0.55;
@@ -91,6 +95,9 @@ export function stockFor(cue: SoundCue): StockPlay | null {
       return play('arrow-hit', 0.8, { wet: 0.15 });
     case 'WallStrike':
       return play('armor', 0.5 + 0.5 * cue.strength, { wet: 0.3 });
+    case 'Splatter':
+      // The long, wet one for a strong Hit's spray, the short one for a light Hit's; each a little different in pitch.
+      return play('splatter', 0.6 + 0.4 * cue.strength, { variant: cue.strength >= SPLATTER_HEAVY ? 0 : 1, rate: 0.9 + Math.random() * 0.2, wet: 0.2 });
     case 'MatchEnd':
       return play('victory', 1, { at: ENDING_DELAY, wet: 0.4 });
     case 'CrowdBlow':

@@ -7,8 +7,9 @@
  * positions only, so every peer promotes alike and a Rollback re-simulates it like any other step (ADR 0019's "choices by
  * walking"). In order:
  *  - taking over an ally (Stage 5): a Player's Fighter that fell kills its Soldier if it had taken one over.
- *    `takeover.pickSeconds` after its fall the Soldier it will take over is chosen (`BattlePlayer.next`): the living ally
- *    Soldier nearest one of its Team's spawns (`takeoverSpawns`), in the Crowd or a promoted ally. `takeover.seconds` after
+ *    Until `takeover.pickSeconds` after its fall it may choose the Troop it comes back as (Intent `troop`, kept in
+ *    `BattlePlayer.troop`); then the Soldier it will take over is chosen (`BattlePlayer.next`): the living ally of that Troop (of any
+ *    Troop if none is left, or none was chosen) nearest one of its Team's spawns (`takeoverSpawns`), in the Crowd or a promoted ally. `takeover.seconds` after
  *    its fall the Player takes it over (or, if it is gone by then, the one nearest a spawn then; a promoted ally keeps its
  *    Fighter as it stands): it becomes the Player's Fighter in the Player's slot, with the generic
  *    soldier's Weapon and `takeover.hp` HP (and max HP), whatever the Soldier had. The fallen Fighter lies on: the Player's own chosen Fighter in a free Pool
@@ -38,13 +39,14 @@
  * Player's Fighter is never promoted into its Bubble (Promotion goes by the distance across the ground, so nobody is promoted through a
  * floor), and a Demotion stands its Soldier on the Walk Surface its Fighter stood on. Pure.
  */
-import { bubbleSlots, type Size, type TuningData } from '../tuning';
+import { bubbleSlots, type BattleTuning, type Size, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
 import { soldierSize, troopOf, type BattlePlayer, type CrowdState } from './crowd';
 import type { Battlefield, MapPoint } from './battlefield';
 import { inDuel } from './duel';
+import type { Intent } from './intent';
 import { foldMods, isNoMods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
@@ -123,11 +125,12 @@ export function takeoverSpawns(crowd: CrowdState, field: Battlefield, team: numb
  * The living ally Soldier a fallen Player of Team `team` takes over: the one nearest any of `spawns` (`takeoverSpawns`), in the
  * Crowd or a promoted ally (never a Player's), the lowest index on a tie; -1 if there is none.
  */
-function nearestAlly(fighters: readonly FighterState[], crowd: CrowdState, players: number, team: number, spawns: readonly MapPoint[]): number {
+function nearestAlly(fighters: readonly FighterState[], crowd: CrowdState, players: number, team: number, spawns: readonly MapPoint[], troop?: number): number {
   let best = -1;
   let bestD = Infinity;
   for (let s = 0; s < crowd.x.length; s++) {
     if (!canTakeOver(fighters, crowd, players, team, s)) continue;
+    if (troop !== undefined && (crowd.troop[s] ?? 0) !== troop) continue;
     const k = crowd.slot[s]!;
     const at = k >= 0 ? fighters[k]!.position : { x: crowd.x[s]!, z: crowd.z[s]! };
     let d = Infinity;
@@ -135,6 +138,42 @@ function nearestAlly(fighters: readonly FighterState[], crowd: CrowdState, playe
     if (d < bestD) [best, bestD] = [s, d];
   }
   return best;
+}
+
+/**
+ * The ally a fallen Player of Team `team` who chose `troop` (`BattlePlayer.troop`) takes over: the one of that Troop nearest a spawn, or, with
+ * none of it left (or no Troop chosen), the one of any Troop nearest a spawn; -1 if there is none.
+ */
+function chosenAlly(fighters: readonly FighterState[], crowd: CrowdState, players: number, team: number, spawns: readonly MapPoint[], troop: number | undefined): number {
+  const own = troop === undefined ? -1 : nearestAlly(fighters, crowd, players, team, spawns, troop);
+  return own >= 0 ? own : nearestAlly(fighters, crowd, players, team, spawns);
+}
+
+/**
+ * How many allies of each Troop (by its index in `battle.troops`) fallen Player `p` could take over now, for the view's choice; all 0 if
+ * `p` is no Player of a Battle.
+ */
+export function takeoverTroops(duel: SimState, p: number, battle: BattleTuning): number[] {
+  const counts = battle.troops.map(() => 0);
+  const crowd = duel.crowd;
+  const f = duel.fighters[p];
+  if (!crowd || !f || !crowd.players[p]) return counts;
+  const players = crowd.players.length;
+  for (let s = 0; s < crowd.x.length; s++) {
+    const t = crowd.troop[s] ?? 0;
+    if (t < counts.length && canTakeOver(duel.fighters, crowd, players, f.team, s)) counts[t]!++;
+  }
+  return counts;
+}
+
+/**
+ * Whether fallen Player `p` may still choose the Troop it comes back as (Intent `troop`): it lies fallen, still plays, and the Soldier it
+ * will take over is not yet chosen (`takeover.pickSeconds`), as of Tick `tick` (by default the next one to be stepped).
+ */
+export function canChooseTroop(duel: SimState, p: number, battle: BattleTuning, tick = duel.tick + 1): boolean {
+  const f = duel.fighters[p];
+  const record = duel.crowd?.players[p];
+  return !!f?.death && !!record && !record.away && tick - f.death.tick < secondsToTicks(battle.takeover.pickSeconds);
 }
 
 /**
@@ -149,14 +188,36 @@ export function takeoverTarget(duel: SimState, p: number, tuning: TuningData): n
   if (!crowd || !f?.death || !record || record.away) return -1;
   const players = crowd.players.length;
   if (record.next !== undefined && canTakeOver(duel.fighters, crowd, players, f.team, record.next)) return record.next;
-  return nearestAlly(duel.fighters, crowd, players, f.team, takeoverSpawns(crowd, battlefieldOf(tuning.battle, duel.arena)!, f.team));
+  return chosenAlly(duel.fighters, crowd, players, f.team, takeoverSpawns(crowd, battlefieldOf(tuning.battle, duel.arena)!, f.team), record.troop);
+}
+
+/**
+ * Each fallen Player's choice of the Troop it comes back as, from its Intent `troop` for Tick `tick` (`BattlePlayer.troop`): taken while
+ * `canChooseTroop`, -1 clearing it (whichever ally is nearest a spawn), an index with no Troop ignored. `duel` itself when nothing changes.
+ */
+function chooseTroops(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[]): SimState {
+  const crowd = duel.crowd;
+  if (!crowd) return duel;
+  let records: BattlePlayer[] | null = null;
+  for (let p = 0; p < players; p++) {
+    const asked = intents[p]?.troop;
+    const record = crowd.players[p];
+    if (asked === undefined || !record || !Number.isInteger(asked) || asked < -1 || asked >= tuning.battle.troops.length) continue;
+    if ((record.troop ?? -1) === asked || !canChooseTroop(duel, p, tuning.battle, tick)) continue;
+    records ??= crowd.players.slice();
+    const { troop: _old, ...rest } = record;
+    records[p] = asked < 0 ? rest : { ...rest, troop: asked };
+  }
+  return records ? { ...duel, crowd: { ...crowd, players: records } } : duel;
 }
 
 /**
  * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
  * Players' Fighters. A state without a Crowd is returned as it is.
  */
-export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData): SimState {
+export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[] = []): SimState {
+  const chosen = chooseTroops(duel, players, tick, tuning, intents);
+  if (chosen !== duel) duel = chosen;
   const before = duel.crowd;
   if (!before) return duel;
   const { bubble, slots } = tuning.battle;
@@ -269,13 +330,13 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     if (tick - f.death.tick < takeoverTicks) {
       // The Soldier to take over is chosen (and the view flies to it): kept while it can still be taken, chosen again if not.
       if (chosen >= 0) continue;
-      const pick = nearestAlly(pool(), soldiers(), players, f.team, takeoverSpawns(soldiers(), field, f.team));
+      const pick = chosenAlly(pool(), soldiers(), players, f.team, takeoverSpawns(soldiers(), field, f.team), record.troop);
       if (pick < 0 || pick === record.next) continue;
       const e = edit();
       e.crowd.players[p] = { ...record, next: pick };
       continue;
     }
-    const s = chosen >= 0 ? chosen : nearestAlly(pool(), soldiers(), players, f.team, takeoverSpawns(soldiers(), field, f.team));
+    const s = chosen >= 0 ? chosen : chosenAlly(pool(), soldiers(), players, f.team, takeoverSpawns(soldiers(), field, f.team), record.troop);
     if (s < 0) continue;
     const e = edit();
     const k = e.crowd.slot[s]!;

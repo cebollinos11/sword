@@ -1,4 +1,4 @@
-import type { Direction, Intent, InventoryRef } from '../sim';
+import { secondsToTicks, type Direction, type FighterState, type Intent, type InventoryRef, type SimState } from '../sim';
 import type { Controller } from './controller';
 import { getLookSensitivity } from './lookSensitivity';
 import { inventoryClick, inventoryKey, type InventoryClickAction, type InventoryKey } from './inventoryKeys';
@@ -40,6 +40,16 @@ export const FACE_STEPS = 4096;
 
 /** The key that re-aims a held Attack at the latest mouse gesture (an Attack Feint). */
 export const FEINT_KEY = 'KeyQ';
+
+/**
+ * How long (seconds) a Wheel Attack waits for its Fighter to be able to start it (out of a Stagger, a Kick, a Block...)
+ * before it is dropped, so a scroll made long ago never fires late. Release and Recovery do not count: a Wheel Attack
+ * made then always follows the swing (as a Whiff Chain or a Chain).
+ */
+export const WHEEL_QUEUE_SECONDS = 0.5;
+
+/** What the Local Controller needs to see of its own Fighter to start a queued Wheel Attack at the right Tick. */
+export type WheelView = Pick<FighterState, 'action'>;
 
 const MOVE_KEYS: Readonly<Record<string, 'forward' | 'back' | 'left' | 'right'>> = {
   KeyW: 'forward',
@@ -93,6 +103,7 @@ function quantiseYaw(yaw: number): number {
  *   C held crouches (sent on every Tick it is held). F Kicks: one press is one Kick (sent on one Tick), however long it is held. E throws a dagger: a press starts one Throw,
  *   and holding E holds its Wind-up (sent as `throwHeld` on every Tick it is held), let go = the dagger leaves the hand.
  *   R Sheathes the Weapon, or Draws it when Sheathed: one press is one toggle (sent on one Tick), however long it is held.
+ *   Mouse wheel up queues a quick Overhead Attack and wheel down a quick Thrust (a Wheel Attack, `wheel`).
  *   The number keys equip an inventory item (with Shift only select it) and X drops the one selected last, once each (`inventoryKeys.ts`); so does a click on the inventory screen.
  */
 export class LocalController implements Controller {
@@ -110,8 +121,16 @@ export class LocalController implements Controller {
   private pitchRadians = 0;
   /** The inventory keys pressed since the last sample (`inventoryKeys.ts`), and the item the drop key drops. */
   private equipAsked: InventoryRef | undefined;
+  /** The Troop a fallen Player in a Battle asked to come back as (`askTroop`), sent on the next Tick's Intent. */
+  private troopAsked: number | undefined;
   private dropAsked: InventoryRef | undefined;
   private selected: InventoryRef | null = null;
+  /** The Wheel Attack waiting to start, and the Ticks it may still wait (`WHEEL_QUEUE_SECONDS`). */
+  private wheelQueued: { readonly direction: Direction; ticksLeft: number } | null = null;
+  /** The Direction of the Wheel Attack whose Wind-up is playing (attack is let go so it Releases at once), or null. */
+  private wheelFiring: Direction | null = null;
+  /** The last sample held attack for the queued Wheel Attack from outside a Wind-up: a Wind-up now is that Attack starting. */
+  private wheelPressed = false;
 
   /** The camera yaw (radians, 0 looks along +z, same convention as Fighter facing). */
   get yaw(): number {
@@ -154,8 +173,22 @@ export class LocalController implements Controller {
     this.travel = { x: 0, y: 0 };
   }
 
+  /**
+   * A mouse wheel notch: up (`'Overhead'`) or down (`'Thrust'`) queues a Wheel Attack in that Direction, a quick
+   * Attack (its Wind-up plays to the held pose and Releases at once) that starts as soon as the Fighter can Attack:
+   * at once when Idle, as a Whiff Chain or Chain from a swing's Release or Recovery, or once a Stagger, Kick, Block
+   * and the like are over, if that is within `WHEEL_QUEUE_SECONDS`. A newer notch replaces one still waiting. It
+   * ignores the aim of mouse gestures and leaves it as it was. Ignored while left mouse is held.
+   */
+  wheel(direction: Direction): void {
+    if (this.held.attack) return;
+    this.wheelQueued = { direction, ticksLeft: secondsToTicks(WHEEL_QUEUE_SECONDS) };
+  }
+
   buttonDown(button: LocalButton): void {
     if (this.held[button]) return;
+    // Left mouse takes over from any Wheel Attack.
+    if (button === 'attack') this.wheelQueued = this.wheelFiring = null;
     this.held[button] = true;
     this.pressed[button] = true;
     if (button === 'jump' || button === 'crouch' || button === 'kick' || button === 'throw' || button === 'sheathe') return;
@@ -197,6 +230,11 @@ export class LocalController implements Controller {
     if (key.drop) this.dropAsked = key.drop;
   }
 
+  /** In a Battle, choose the Troop to come back as after a fall (an index into `battle.troops`, or -1 for whichever ally is nearest): asked on one Tick. */
+  askTroop(troop: number): void {
+    this.troopAsked = troop;
+  }
+
   keyUp(code: string): void {
     const move = MOVE_KEYS[code];
     if (move) this.moving[move] = false;
@@ -220,11 +258,74 @@ export class LocalController implements Controller {
   releaseAll(): void {
     this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
-    this.equipAsked = this.dropAsked = undefined;
+    this.equipAsked = this.dropAsked = this.troopAsked = undefined;
+    this.wheelQueued = this.wheelFiring = null;
+    this.wheelPressed = false;
   }
 
-  /** The Intent for the coming Tick. Call exactly once per Tick. */
-  sample(): Intent {
+  /**
+   * The Intent for the coming Tick. Call exactly once per Tick, with the local Fighter as it is now (before this
+   * Intent is stepped), so a queued Wheel Attack starts at the right Tick; without it a Wheel Attack is a one-Tick
+   * press, which starts an Attack only from Idle.
+   */
+  sample(self?: WheelView): Intent {
+    const intent = this.sampleButtons();
+    const wheel = this.wheelIntent(self);
+    return wheel ? { ...intent, ...wheel } : intent;
+  }
+
+  /**
+   * The attack and Direction a Wheel Attack asks for this Tick, or null when none is under way. Holding attack in
+   * its Direction starts it from Idle (and from a Fall), Whiff Chains or Chains it from a swing's Release or Recovery,
+   * and starts it the Tick a Stagger or the like ends; once its Wind-up is seen, attack is let go so it Releases as
+   * soon as the Wind-up reaches its held pose. Attack is never held in someone else's Wind-up (that would hold or Feint it).
+   */
+  private wheelIntent(self: WheelView | undefined): Pick<Intent, 'attack' | 'direction'> | null {
+    const action = self?.action;
+    const inWindUp = action?.kind === 'Attack' && action.phase === 'Wind-up';
+    if (this.wheelFiring) {
+      const direction = this.wheelFiring;
+      if (inWindUp) return { attack: false, direction };
+      this.wheelFiring = null;
+    }
+    const queued = this.wheelQueued;
+    if (!queued) return null;
+    if (!self) {
+      this.wheelQueued = null;
+      return { attack: true, direction: queued.direction };
+    }
+    if (inWindUp) {
+      if (this.wheelPressed) {
+        // The Wind-up our hold started: let it go so it Releases at once.
+        this.wheelPressed = false;
+        this.wheelQueued = null;
+        this.wheelFiring = queued.direction;
+        return { attack: false, direction: queued.direction };
+      }
+      // Someone else's Wind-up (a left click): let it Release, and wait.
+      return this.wheelWait(queued, false, false);
+    }
+    const following = action?.kind === 'Attack' && (action.phase === 'Release' || action.phase === 'Recovery');
+    const idle = action?.kind === 'Idle' || action?.kind === 'Fall';
+    return this.wheelWait(queued, following || idle, true);
+  }
+
+  /**
+   * Wait on the queued Wheel Attack, holding attack for it if `hold`; time it out unless the Fighter is on its way
+   * to starting it (`starting`: Idle, or in a swing's Release or Recovery).
+   */
+  private wheelWait(queued: { readonly direction: Direction; ticksLeft: number }, starting: boolean, hold: boolean): Pick<Intent, 'attack' | 'direction'> | null {
+    this.wheelPressed = false;
+    if (!starting && --queued.ticksLeft < 0) {
+      this.wheelQueued = null;
+      return null;
+    }
+    if (!hold) return null;
+    this.wheelPressed = true;
+    return { attack: true, direction: queued.direction };
+  }
+
+  private sampleButtons(): Intent {
     const attack = this.held.attack || this.pressed.attack;
     const block = this.held.block || this.pressed.block;
     const jump = this.pressed.jump;
@@ -235,7 +336,8 @@ export class LocalController implements Controller {
     const sheathe = this.pressed.sheathe;
     const equip = this.equipAsked;
     const drop = this.dropAsked;
-    this.equipAsked = this.dropAsked = undefined;
+    const troop = this.troopAsked;
+    this.equipAsked = this.dropAsked = this.troopAsked = undefined;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
@@ -248,11 +350,11 @@ export class LocalController implements Controller {
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }) };
+    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }), ...(troop !== undefined && { troop }) };
   }
 
-  intent(): Intent {
-    return this.sample();
+  intent(state?: SimState, fighter?: number): Intent {
+    return this.sample(state && fighter !== undefined ? state.fighters[fighter] : undefined);
   }
 
   /** World-space walk direction for the held WASD keys, relative to the aim `yaw`. */

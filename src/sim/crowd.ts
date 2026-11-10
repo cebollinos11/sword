@@ -133,6 +133,11 @@ export interface BattlePlayer {
    */
   readonly next?: number;
   /**
+   * The Troop (an index into `battle.troops`) it chose to come back as when it falls (Intent `troop`): the Soldier it takes over is the one of that
+   * Troop nearest a spawn, or of any Troop while none of it is left. Absent: whichever ally is nearest a spawn. Kept from one fall to the next.
+   */
+  readonly troop?: number;
+  /**
    * Set once the Player has left an online Battle (docs/plans/big-battle.md, Stage 6; `takeOverFighter`): an AI drives its Fighter from
    * then on, as an ally of its Team. It has no Bubble, takes over no Soldier when it falls, and counts no more kills. Absent while it plays.
    */

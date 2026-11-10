@@ -88,7 +88,7 @@ describe('Arena ground', () => {
   it('a Wall stops the body and turns a slanted walk into a slide along it', () => {
     const states = run({ position: { x: 0, z: -3 }, facing: 0 }, walk(120, { x: 1, z: -1 }), 120);
     for (const s of states) expect(s.fighters[0]!.position.z).toBeGreaterThanOrEqual(-5 + repo.fighter.radius - 1e-9);
-    expect(states.at(-1)!.fighters[0]!.position.x).toBeGreaterThan(3);
+    expect(states.at(-1)!.fighters[0]!.position.x).toBeGreaterThan(2);
   });
 
   it('walking off a ledge goes airborne with the walk, and lands on the floor below', () => {

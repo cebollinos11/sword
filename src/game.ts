@@ -158,6 +158,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const renderer = new Renderer(container, tuning, arenaWorld);
   const audio = createBrowserAudio(tuning.audio);
   renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena), at: point });
+  renderer.onSplatter = (point, strength) => audio.playCue({ sound: 'Splatter', point, strength, at: point });
   const local = new LocalController();
   const mouseInput = bindLocalInput(local, renderer.canvas);
   const touchInput = isTouchDevice() ? bindTouchInput(local, container) : null;
@@ -785,7 +786,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const d = driver;
       if (!d || !battleOn || !battle?.ready) return 'no Battle running';
       for (let k = 0; k < ticks && resultAt === null; k++) {
-        d.tick(local.sample());
+        d.tick(local.sample(d.state?.duel.fighters[d.localFighter]));
         prev = curr;
         curr = d.state!;
         renderer.impacts.onTick(curr.tick, curr.duel);
@@ -887,7 +888,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       accumulator -= TICK_SECONDS;
       const d = driver;
       // A Hall's Final Blow Shot holds the Player (sampled all the same, so a press during it is spent).
-      const { advanced } = d.tick(shotIntent(finalBlow, local.sample()));
+      const { advanced } = d.tick(shotIntent(finalBlow, local.sample(d.state?.duel.fighters[d.localFighter])));
       if (d.failure) {
         matchFailed(d.failure);
         break;

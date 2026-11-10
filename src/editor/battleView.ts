@@ -12,14 +12,14 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ATTACK, battlefieldHeight, battleMapOf, groundHeight, battleNameFor, COLUMN, createMatch, crowdAlive, DEFEND, descend, formationSpot, LINE, LOOSE, orderSpot, owned, routTicks, squadNarrows, squadsPerTeam, stepMatch, TICK_SECONDS, type BattleMap, type Heightfield, type MatchState } from '../sim';
 import { applyBattleKnobs, type TuningData } from '../tuning';
 
-const TEAM_COLOURS = [0x3d7bd9, 0xd94a3d];
+const TEAM_COLOURS = [0x3d7bd9, 0xf1c40f];
 const FALLEN_COLOUR = 0x555555;
 /** A Squad's anchor by Formation (column, line, loose), and while it falls back. */
 const SHAPE_COLOURS = [0x66cc66, 0xffaa33, 0xcc66ff] as const;
 const FALLING_COLOUR = 0xff3366;
 /** Orders: attack (red), defend (blue-green), respawn (yellow). An Objective's ring by its Owner, its pole by its progress. */
 const ORDER_COLOURS = [0xff5544, 0x33ddaa, 0xffee44] as const;
-const OWNER_COLOURS = [0x3d7bd9, 0xd94a3d] as const;
+const OWNER_COLOURS = [0x3d7bd9, 0xf1c40f] as const;
 const UNOWNED_COLOUR = 0xcccccc;
 const SPEEDS = [0, 1, 2, 4, 8];
 /** Ticks stepped at most per frame, so a slow frame never spirals. */
@@ -288,7 +288,7 @@ export function startBattleView(container: HTMLElement, base: TuningData): void 
     const ticketsLine = `Tickets ${c.tickets.map((t) => t.toFixed(0)).join(' / ')}  Objectives ${owned(c.objectives, 0)} v ${owned(c.objectives, 1)}  Orders: attack ${kinds[0]} defend ${kinds[1]}, empty ${c.squads.living.filter((l) => l === 0).length}`;
     const narrowed = squadNarrows(tuning.battle, map, c.squads).filter((w, k) => w > 0 && c.squads.living[k]! > 0).length;
     const squadsLine = `${ticketsLine}\n${objectivesLine}\nSquads column ${formations[0]} line ${formations[1]} loose ${formations[2]}, narrowed ${narrowed}, falling ${c.squads.fall.reduce((a, b) => a + b, 0)}, empty ${c.squads.living.filter((l) => l === 0).length}`;
-    status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (red)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${squadsLine}\n${rout}${over}`;
+    status.textContent = `${match.arena}  Tick ${match.tick} (${(match.tick * TICK_SECONDS).toFixed(1)} s)\nTeam 0 (blue) ${a} / ${tuning.battle.armySize}\nTeam 1 (yellow)  ${b} / ${tuning.battle.armySize}\nengaged ${engaged}\n${squadsLine}\n${rout}${over}`;
   };
 
   const resize = () => {

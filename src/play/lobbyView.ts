@@ -221,7 +221,7 @@ export function battleCard(tuning: Pick<TuningData, 'battle'>, knobs?: BattleKno
   return {
     count: `${armySize} v ${armySize}`,
     note:
-      `Two armies of ${armySize} meet ${where} and fight over ${n === 1 ? 'one Objective' : `${COUNT_WORDS[n] ?? n} Objectives`}. Each Player fights in their Team's army (Team 1 is red, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
+      `Two armies of ${armySize} meet ${where} and fight over ${n === 1 ? 'one Objective' : `${COUNT_WORDS[n] ?? n} Objectives`}. Each Player fights in their Team's army (Team 1 is yellow, Team 2 blue) with their own Body and Weapon; soldiers near you ` +
       `fight you blade to blade, a few at once, and your allies close by join in. Each army has ${Math.round(startingTickets(tuning.battle))} Tickets: every death costs one, and an army that holds more Objectives than the enemy drains the enemy's. ` +
       `With none left an army stops sending reinforcements, and once it is below ${Math.round(rout.threshold * 100)}% of its soldiers it breaks and flees: the other wins. ` +
       `If you fall, you take over the nearest soldier of your army and fight on; you are out only when your army has none left.`,

@@ -527,9 +527,9 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
     expect(parseNetMessage(resync(stocked))).toEqual(resync(stocked));
   });
 
-  it('accepts an Intent that equips or drops, refuses malformed ones, and the protocol is 25', () => {
-    expect(PROTOCOL_VERSION).toBe(25);
-    for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }]) {
+  it('accepts an Intent that equips, drops or chooses a Troop, refuses malformed ones, and the protocol is 26', () => {
+    expect(PROTOCOL_VERSION).toBe(26);
+    for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
     }
@@ -546,6 +546,9 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage
       { drop: true },
       { drop: { kind: 'relic', slot: null } },
       { drop: [] },
+      { troop: 1.5 },
+      { troop: 'Brute' },
+      { troop: null },
     ]) {
       expect(parseNetMessage(intents([{ ...IDLE_INTENT, ...bad }])), JSON.stringify(bad)).toBeNull();
     }

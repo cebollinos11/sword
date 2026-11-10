@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, TICK_RATE, type CrowdState, type MatchState } from '../sim';
-import { armyPlan, armyStrengths, battleResult, battleResultLine, objectiveName, playersBySlot, playerStatus, takeoverCountdown } from './battleHud';
+import { armyPlan, armyStrengths, battleResult, battleResultLine, objectiveName, playersBySlot, playerStatus, takeoverCountdown, troopCards, troopKey } from './battleHud';
 import { battlefieldOf, RESPAWN } from '../sim';
 import { startingTickets } from '../tuning';
 import { join, lobbyLineup, moveMember, newLobby, setFormat, startMatch } from '../lobby/lobby';
@@ -93,7 +93,7 @@ describe("The Battle's HUD", () => {
     const r = battleResult(over, 0)!;
     const start = startingTickets(tuning.battle);
     expect(r).toEqual({ victory: true, winner: 0, kills: 5, taken: 2, left: [army, army], tickets: [start, start], held: [1, 1], seconds: 50 });
-    expect(battleResultLine(r)).toBe(`Victory: the red army won · ${start} v ${start} Tickets · 5 kills · 2 soldiers taken over`);
+    expect(battleResultLine(r)).toBe(`Victory: the yellow army won · ${start} v ${start} Tickets · 5 kills · 2 soldiers taken over`);
     expect(battleResult({ ...over, status: { status: 'Over', winner: 1, tick: 3000 } }, 0)!.victory).toBe(false);
   });
 
@@ -107,6 +107,31 @@ describe("The Battle's HUD", () => {
     expect(b.player).toBe('female');
     expect(b.others[2]).toBe('male');
     expect(b.others[3]).toBe('female');
+  });
+});
+
+describe('The Troop choice while fallen', () => {
+  it('maps number keys to Troops, 0 to the nearest ally, and ignores the rest', () => {
+    expect(troopKey('Digit1', 4)).toBe(0);
+    expect(troopKey('Numpad4', 4)).toBe(3);
+    expect(troopKey('Digit5', 4)).toBeUndefined();
+    expect(troopKey('Digit0', 4)).toBe(-1);
+    expect(troopKey('KeyQ', 4)).toBeUndefined();
+  });
+
+  it('shows a card for each Troop and the nearest ally only while the Player lies fallen and may choose', () => {
+    expect(troopCards(battle().duel, 0, tuning.battle)).toBeNull();
+    const down = fallen(battle());
+    const cards = troopCards(down.duel, 0, tuning.battle)!;
+    expect(cards.map((c) => c.name)).toEqual([...tuning.battle.troops.map((t) => t.name), 'Nearest']);
+    // To begin with, the Troop that wields the Weapon chosen in the Lobby.
+    const lobby = tuning.battle.troops.findIndex((t) => t.weapon === down.config.weapons[0]);
+    expect(cards.findIndex((c) => c.chosen)).toBe(lobby < 0 ? cards.length - 1 : lobby);
+    expect(cards.at(-1)!.left).toBe(cards.slice(0, -1).reduce((a, c) => a + c.left, 0));
+    const chose = withPlayers(down, [{ ...down.duel.crowd!.players[0]!, troop: 1 }]);
+    expect(troopCards(chose.duel, 0, tuning.battle)!.findIndex((c) => c.chosen)).toBe(1);
+    const late = { ...down, duel: { ...down.duel, tick: Math.round(tuning.battle.takeover.pickSeconds * TICK_RATE) } };
+    expect(troopCards(late.duel, 0, tuning.battle)).toBeNull();
   });
 });
 

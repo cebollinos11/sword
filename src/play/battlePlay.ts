@@ -111,7 +111,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
   const tickMs: number[] = [];
   /** One Tick: every Controller decides, the Match steps. */
   const tick = () => {
-    pending = local.sample();
+    pending = local.sample(match.duel.fighters[0]);
     const t0 = performance.now();
     const intents = controllers.map((c, i) => c.intent(match.duel, i));
     prev = match.duel;
@@ -216,7 +216,7 @@ export async function startBattlePlay(container: HTMLElement, tuning: TuningData
     const over = match.status.status === 'Over' ? `\nTeam ${match.status.winner} wins` : '';
     panel.textContent =
       `${match.arena}  ${(match.duel.tick * TICK_SECONDS).toFixed(1)} s   ${inDuel(me) ? `HP ${me.hp.toFixed(0)} / ${me.maxHp}` : 'You fell'}\n` +
-      `Team 0 (red)  ${a} / ${tuning.battle.armySize}\nTeam 1 (blue) ${b} / ${tuning.battle.armySize}${over}\n` +
+      `Team 0 (yellow)  ${a} / ${tuning.battle.armySize}\nTeam 1 (blue) ${b} / ${tuning.battle.armySize}${over}\n` +
       `Pool ${bound.length + 1} / ${match.duel.fighters.length} bound (${bound.filter((f) => f.death).length} fallen): ${rolesText(match.duel)}\n` +
       `tick ${recent(tickMs).mean.toFixed(2)} ms (p99 ${recent(tickMs).p99.toFixed(1)}), render ${recent(cpu).mean.toFixed(2)} ms, frame ${recent(intervals).mean.toFixed(1)} ms, ${r.calls} draws\n` +
       `click: take the mouse · Esc: free it`;

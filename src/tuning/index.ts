@@ -99,6 +99,8 @@ export interface FighterTuning {
   readonly crouchWalkFactor: number;
   /** How many times `walkSpeed` a Sheathed Fighter walks at on the ground (not in a Jump: ADR 0017). Multiplies with crouch, Slow and a Throw's walk. */
   readonly sheathedWalkFactor: number;
+  /** The share of speed a Fighter keeps walking straight backwards (relative to its facing); it blends in with the backward part of the move, so strafing is unaffected. Multiplies with the other walk factors. */
+  readonly backwardWalkFactor: number;
 }
 
 /** Height, falling and jumping (data/fall.json): how Fighters stand on, step between and fall onto Walk Surfaces. */
@@ -791,6 +793,7 @@ export function parseTuningData(raw: unknown): TuningData {
       crouchSpeed: positiveNumber(f, 'crouchSpeed', 'fighter'),
       crouchWalkFactor: positiveNumber(f, 'crouchWalkFactor', 'fighter'),
       sheathedWalkFactor: positiveNumber(f, 'sheathedWalkFactor', 'fighter'),
+      backwardWalkFactor: positiveNumber(f, 'backwardWalkFactor', 'fighter'),
       lyingHitFactor: positiveNumber(f, 'lyingHitFactor', 'fighter'),
     },
     arena: parseArenaSelection(root.arena, arenas),
