@@ -417,7 +417,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   let heard = ui.tick;
   const hear = (t: number) => {
     audio.onTick(t, run.duel(t).events, run.duel(t));
-    impacts.onTick(t, run.duel(t));
+    impacts.onTick(t, run.duel(t), tuning);
     shake.onTick(t, run.duel(t).events, 0);
     heard = t;
   };
@@ -681,8 +681,10 @@ saved ${file} (${result})`),
       shake.apply(stage.camera, session.tuning.camera.shake);
     } else controls.update();
 
+    const poses = curr.fighters.map((_, i) => drawnPose(from, to, i, alpha, tuning, true));
     curr.fighters.forEach((f, i) => {
-      const pose = drawnPose(from, to, i, alpha, tuning, true);
+      const pose = poses[i]!;
+      views[i]!.setBlood(impacts.blades.marksOf(i));
       views[i]!.update(pose, weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size, pose.pieces);
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;
@@ -739,6 +741,8 @@ saved ${file} (${result})`),
     if (scrubMax() !== scrubBuiltMax) rebuildScrub(); // a live run outgrew (or a branch shrank) the slider
     pane.refresh();
     const seconds = ui.playing ? ((now - drawn) / 1000) * ui.speed : 0;
+    // Bloody blades and the stumps of a body in pieces drip, as in the game.
+    impacts.drip(poses, seconds);
     impacts.update(seconds);
     shake.update(seconds);
     drawn = now;

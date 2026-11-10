@@ -561,9 +561,11 @@ function sameCut(a: Pieces, b: Pieces): boolean {
   return JOINT_NAMES.every((n) => sameVec(a.fellIn.joints[n], b.fellIn.joints[n]));
 }
 
-/** A pose as `drawnPose` draws it: a Death Ragdoll in pieces (Dismemberment) has its `pieces`. */
+/** A pose as `drawnPose` draws it: a Death Ragdoll in pieces (Dismemberment) has its `pieces`, and how long ago it fell. */
 export interface DrawnPose extends SkeletonPose {
   readonly pieces?: Pieces;
+  /** With `pieces`: seconds of Duel time since the Death (its stumps bleed for a while, `stumpDrops`). */
+  readonly since?: number;
 }
 
 /** Each Death Ragdoll pose's pieces, so a body lying still is not taken apart again every frame. */
@@ -592,7 +594,7 @@ export function drawnPose(from: SimState, to: SimState, i: number, alpha: number
       pieces = piecesOfFall(f.sheathed ? { ...fellIn, blade: sheathedBlade(fellIn, weapon) } : fellIn, fall, severed, sized);
       piecesCache.set(fall, pieces);
     }
-    return { ...fall, pieces };
+    return { ...fall, pieces, since: ticks * TICK_SECONDS };
   }
   const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
   return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;

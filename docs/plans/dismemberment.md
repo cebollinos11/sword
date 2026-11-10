@@ -2,7 +2,7 @@
 
 > Built one Stage per session with `docs/plans/dismemberment-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask.
 
-Status: Stages 1 to 4 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces; the bare Skeleton drawn in pieces; the skinned Body models split along the cut and capped with flesh, in the game, the sandbox and the bench). Stage 5 (blood from the stumps, and the docs) next.
+Status: all five Stages built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces; the bare Skeleton drawn in pieces; the skinned Body models split along the cut and capped with flesh; blood spurting and dripping from the stumps, and the docs). Left to playtest.
 
 ## Progress
 
@@ -10,7 +10,7 @@ Status: Stages 1 to 4 built (the Simulation records the cut; which bones it seve
 - [x] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
 - [x] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
 - [x] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
-- [ ] Stage 5: blood from the stumps, and the docs (sections 5 and 6)
+- [x] Stage 5: blood from the stumps, and the docs (sections 5 and 6)
 
 ## Context
 
@@ -157,6 +157,22 @@ Built as section 4's skinned Body part. Every Body model now falls in pieces, cu
 - **Known limits:** (1) a long robe or skirt on the hips' half after a thigh or waist cut can crumple into short spikes: that half has no hip limits (Stage 2), so its legs fold further than in life. (2) Where the weights and the plane disagree (an armpit under a high chest cut, a very steep cut on a wide sleeve) the edge is ragged and has no flesh. (3) Separate hollow shells (a sleeve, a boot top) are each closed with their own flesh disc.
 - **Tests:** `meshCut.test.ts` (18: area kept, every vertex in one piece on its side, own-piece weights, clipped UV/normal/weights, caps closed, several meshes, two cuts, reach, beside, stumps, scraps, open chains, `skinned`), `bodyCut.test.ts` (2: `cutPlan`; the pieces make up the whole body on the Death's Tick, then part without stretching), `dismember.test.ts` +1 (the roll). Fast suite 2241 passed, 5 skipped. Nothing in `src/sim` or `src/net` changed.
 - **Try in `npm run dev`:** Editor → Duel sandbox → script "Kill" with `?body=monk`, `duelist`, `asturian`...; vary Direction, distance, Weapon and Sizes; scrub over the Death. In a Duel, Run or Battle a sword's killing Left or Right cuts the body in two.
+
+### Stage 5 result
+
+Built as section 5, and section 6's `CONTEXT.md` (ADR 0024 was written in Stage 1). Nothing in `src/sim` or `src/net` changed.
+
+- **`stumpSpurts(duel, tuning) → BloodSpurt[]`** (`src/render/blood.ts`, pure): on the Tick of a Death whose cut severs bones, one full-strength spurt from each cut end of each severed bone (`severing` of the pose it fell in, at the Fighter's Size), at the cut (`Severed.at`), out of its own piece along the cut's normal: the end on the bone's first joint's side toward its second joint, the other the opposite way. `ImpactEffects.onTick` sprays them after the wound's own spurt; the existing droplets then stain the floor and Walls as before.
+- **`BloodSpurt.rise?`**: how steeply a spurt sprays up or down (the sine of its tilt). Absent on a wound's spurt, which sprays exactly as before (same velocities, same random draws). **Deviation:** a cut whose plane lies nearly level (a neck or a level torso cut: the normal's level part under `LEVEL_CUT`, 0.2) does not spray straight up and straight down; it sprays along the blow, tilted up or down by `LEVEL_RISE` (0.7), found by the review.
+- **Silent spurts. Deviation:** `BloodEffects.spurt(spurt, heard = true)`; stump spurts pass `false`, so a cut that severs three bones does not play six more Splatter sounds on top of the wound's.
+- **Drips:** `stumpDrops(before, after)` (pure) is how many drops each cut end sheds while the Death Ragdoll goes from `before` to `after` seconds after the Death: `STUMP_DROPS` (8) over `STUMP_BLEED_SECONDS` (2 s of Duel time), most at first, none after. It is a difference of whole drops of one curve, so however the time is cut into frames the drops add up to the same, and none fall while paused or scrubbing back. `stumpDrips(stumps, before, after)` gives where they fall from (each cut end as it lies). No `Math.random` decides when or where.
+- **`DrawnPose.since`** (`fighterView.ts`): with `pieces`, the Duel seconds since the Death. `ImpactEffects.drip(poses, seconds)` now takes `DrawnPose`s and drips the stumps for the time gone by since each body was last drawn (`bled`, one number per Fighter, cleared by `seek`; a body first seen in pieces right after a jump drips from then on, otherwise from its Death). `floorUnder(pose)` (`bladeBlood.ts`) is the fallback floor for both blade and stump drips.
+- **Editor sandbox:** it now calls `impacts.drip` and draws each Weapon's blood (`setBlood`), as the game does (**deviation:** before, its blades stayed clean and nothing dripped). `ImpactEffects.onTick` takes an optional `tuning`, which the sandbox passes so the stumps bleed under its live-edited Tuning Data, as they are drawn.
+- **Split time:** the mesh split is Stage 4's, unchanged (13 to 23 ms once per Death on the heaviest Bodies). Stage 5 adds one `severing` per cutting Death on its Tick, and per frame only a subtraction for a body in pieces, nothing once it has stopped bleeding.
+- **Checked in the browser** (sandbox "Kill", screenshots at the Death, 1 s and 4 s on, and scrubbed back to 2 Ticks before the Death): `?body=skeleton`, monk, duelist, female and templar; Arming Sword Left, Right and Overhead, a neck cut (a shorter blue, Left), an arm and a thigh (a taller blue, Right), Longsword Left and Right, Halberd Left and Right; Thrust and Sledge Hammer kills only bleed from the wound, as before. Spurts come out of the cut both ways, the floor under and around the pieces is stained, drops fall while the pieces fall, and scrubbing back washes the stains and shows the body whole. No console errors.
+- **Known limits:** (1) a cutting kill now stains a much larger area than a plain kill (up to six full spurts on top of the wound's), on the generous side; `STUMP_DROPS`, `LEVEL_RISE` and the spurt strength are the knobs. (2) Several drops shed by one end in one frame (a long frame, a stepped Tick) fall from the same point together.
+- **Tests:** `blood.test.ts` +4 (`stumpSpurts`: both ends of every severed bone, at the cut, full strength, away from each other and out of their own pieces, on the Death's Tick only, the same every time; none for a Thrust, a Sledge Hammer, a Fall or no Death. `stumpDrops`: stops after `STUMP_BLEED_SECONDS`, slows, the same however the time is cut into frames, none when time stands still or runs back). Fast suite 2245 passed, 5 skipped. `test:slow` not run: nothing in `src/sim` or `src/net` changed.
+- **Try in `npm run dev`:** Editor → Duel sandbox → script "Kill" (Left or Right, distance 1.1) on any `?body=`, play at slow motion to watch the spurts and drips; scrub back over the Death. In a Duel, Run or Battle, a sword's killing Left or Right.
 
 ## Verification
 

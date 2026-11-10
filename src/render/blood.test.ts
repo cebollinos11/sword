@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { attack, runDuel, createInitialState, duelPlacements } from '../sim';
-import { bloodSpurts, RUN_SECONDS, SPLAT_SECONDS, stainShape } from './blood';
+import { loadTuningData, sizedTuning, withWeapon } from '../tuning';
+import { attack, runDuel, createInitialState, duelPlacements, fighterPose } from '../sim';
+import { bloodSpurts, RUN_SECONDS, SPLAT_SECONDS, stainShape, STUMP_BLEED_SECONDS, stumpDrops, stumpSpurts } from './blood';
+import { severing } from './dismember';
 
 const tuning = loadTuningData();
 
@@ -54,5 +55,83 @@ describe('stainShape', () => {
     const early = stainShape(true, RUN_SECONDS / 4, 0.8).height - 1;
     expect(early).toBeGreaterThan(0.8 / 2);
     expect(stainShape(true, 99, 0.8)).toEqual(end);
+  });
+});
+
+describe('stumpSpurts', () => {
+  const deadly = Object.keys(tuning.weapons).reduce((t, name) => withWeapon(t, { damage: 10_000 }, name), tuning);
+  const kill = (weapon: string, direction: 'Left' | 'Right' | 'Overhead' | 'Thrust') =>
+    runDuel(deadly, { placements: duelPlacements(1.3), weapons: [weapon, 'Arming Sword'], a: attack(direction), b: [] });
+
+  it('a cutting kill sprays from both cut ends of every severed bone, on the Death’s Tick only, at full strength', () => {
+    const run = kill('Arming Sword', 'Left');
+    const at = run.states.findIndex((s) => s.fighters[1]!.death);
+    const fallen = run.states[at]!.fighters[1]!;
+    const severed = severing(fighterPose(fallen, deadly), fallen.death!.blow, sizedTuning(deadly, fallen.size));
+    expect(severed.length).toBeGreaterThan(0);
+    const spurts = stumpSpurts(run.states[at]!, deadly);
+    expect(spurts).toHaveLength(2 * severed.length);
+    severed.forEach((s, k) => {
+      for (const side of [0, 1]) {
+        const spurt = spurts[2 * k + side]!;
+        expect(spurt.point).toEqual(s.at);
+        expect(spurt.strength).toBe(1);
+        expect(spurt.floorY).toBe(fallen.y);
+        expect(Math.hypot(spurt.dir.x, spurt.dir.z)).toBeCloseTo(1);
+        expect(Math.abs(spurt.rise!)).toBeLessThanOrEqual(1);
+      }
+      // The two ends of a cut spray away from each other: each out of its own piece, across the cut.
+      const [a, b] = [spurts[2 * k]!, spurts[2 * k + 1]!];
+      const out = (p: typeof a) => {
+        const flat = Math.sqrt(1 - p.rise! ** 2);
+        return { x: p.dir.x * flat, y: p.rise!, z: p.dir.z * flat };
+      };
+      const [u, v] = [out(a), out(b)];
+      expect(u.x * v.x + u.y * v.y + u.z * v.z).toBeLessThan(0);
+      // The end on the bone's first joint's side sprays toward its second joint.
+      const pose = fighterPose(fallen, deadly);
+      const [j0, j1] = [pose.joints[s.bone[0]], pose.joints[s.bone[1]]];
+      const along = (j1.x - j0.x) * s.normal.x + (j1.y - j0.y) * s.normal.y + (j1.z - j0.z) * s.normal.z;
+      const toward = Math.sign(along);
+      const n = { x: s.normal.x * toward, y: s.normal.y * toward, z: s.normal.z * toward };
+      expect(u.x * n.x + u.y * n.y + u.z * n.z).toBeGreaterThan(0);
+      expect(v.x * n.x + v.y * n.y + v.z * n.z).toBeLessThan(0);
+    });
+    // Not before the Death, nor after it.
+    expect(stumpSpurts(run.states[at - 1]!, deadly)).toEqual([]);
+    expect(stumpSpurts(run.states[at + 1]!, deadly)).toEqual([]);
+    expect(stumpSpurts(run.states[at]!, deadly)).toEqual(spurts);
+  });
+
+  it('a kill that does not cut sprays nothing from stumps: a Thrust, a Sledge Hammer, a Fall', () => {
+    for (const [weapon, direction] of [['Arming Sword', 'Thrust'], ['Sledge Hammer', 'Overhead']] as const) {
+      const run = kill(weapon, direction);
+      expect(run.states.some((s) => s.fighters[1]!.death)).toBe(true);
+      expect(run.states.flatMap((s) => stumpSpurts(s, deadly)), `${weapon} ${direction}`).toEqual([]);
+    }
+    const fighters = createInitialState(tuning, 1, duelPlacements(1.3)).fighters;
+    expect(stumpSpurts({ tick: 0, fighters }, tuning)).toEqual([]);
+    const fell = fighters.map((f, i) => (i === 1 ? { ...f, hp: 0, death: { tick: 7, cause: 'Fall' as const, blow: null } } : f));
+    expect(stumpSpurts({ tick: 7, fighters: fell }, tuning)).toEqual([]);
+  });
+});
+
+describe('stumpDrops', () => {
+  it('drips from the Death for STUMP_BLEED_SECONDS, slowing, then stops', () => {
+    expect(stumpDrops(0, STUMP_BLEED_SECONDS)).toBeGreaterThan(3);
+    expect(stumpDrops(STUMP_BLEED_SECONDS, STUMP_BLEED_SECONDS + 5)).toBe(0);
+    expect(stumpDrops(0, STUMP_BLEED_SECONDS / 2)).toBeGreaterThan(stumpDrops(STUMP_BLEED_SECONDS / 2, STUMP_BLEED_SECONDS));
+  });
+
+  it('is the same however the time is cut into frames, and nothing when time stands still or runs back', () => {
+    const whole = stumpDrops(0, STUMP_BLEED_SECONDS);
+    for (const frame of [1 / 144, 1 / 60, 1 / 23, 0.1]) {
+      let total = 0;
+      for (let t = 0; t < STUMP_BLEED_SECONDS + 1; t += frame) total += stumpDrops(t, t + frame);
+      expect(total, `${frame}`).toBe(whole);
+    }
+    expect(stumpDrops(0.5, 0.5)).toBe(0);
+    expect(stumpDrops(1, 0.2)).toBe(0);
+    expect(stumpDrops(-1, 0)).toBe(0);
   });
 });
