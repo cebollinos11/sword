@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { ArenaGeometry } from '../tuning';
 import { walkFans } from './colliderView';
+import { applyTriplanar } from './triplanar';
 
 /** Floors are tinted from the first colour (lowest) to the second (GREYBOX_TOP metres up and higher), so levels read at a glance. */
 const LOW_TINT = new THREE.Color(0x8fa3b8);
@@ -49,12 +50,15 @@ function fanMesh(name: string, positions: number[], material: THREE.Material): T
 }
 
 /** The floors: tinted by each vertex's height, with the grid laid on in world metres (u, v follow x, z). */
-function floors(arena: ArenaGeometry): THREE.Mesh {
+function floors(arena: ArenaGeometry, textured = false): THREE.Mesh {
   const positions = walkFans(
-    arena.walk.filter((s) => !s.abyss),
+    arena.walk.filter((s) => !s.abyss && !(textured && (s.lava || s.water))),
     0.01,
   );
-  const mesh = fanMesh('greybox-walk', positions, new THREE.MeshLambertMaterial({ vertexColors: true, map: gridTexture(), side: THREE.DoubleSide }));
+  // A Battle map's floor takes the triplanar stone in place of the metre grid (the grid is for judging a Generated Arena's dimensions).
+  const material = new THREE.MeshLambertMaterial({ vertexColors: true, ...(textured ? {} : { map: gridTexture() }), side: THREE.DoubleSide });
+  if (textured) applyTriplanar(material, 'stone');
+  const mesh = fanMesh('greybox-walk', positions, material);
   const colors: number[] = [];
   const uvs: number[] = [];
   const c = new THREE.Color();
@@ -70,7 +74,7 @@ function floors(arena: ArenaGeometry): THREE.Mesh {
 }
 
 /** Each Wall as a thin box from its bottom to its top, centred on its line. */
-function walls(arena: ArenaGeometry): THREE.Mesh {
+function walls(arena: ArenaGeometry, textured = false): THREE.Mesh {
   const positions: number[] = [];
   for (const w of arena.walls) {
     const dx = w.b.x - w.a.x;
@@ -94,8 +98,9 @@ function walls(arena: ArenaGeometry): THREE.Mesh {
     ];
     for (const [a, b, c, d] of faces) for (const k of [a, b, c, a, c, d]) positions.push(...corner(k!));
   }
-  const mesh = fanMesh('greybox-walls', positions, new THREE.MeshLambertMaterial({ color: WALL_COLOR, flatShading: true, side: THREE.DoubleSide }));
-  return mesh;
+  const material = new THREE.MeshLambertMaterial({ color: WALL_COLOR, flatShading: true, side: THREE.DoubleSide });
+  if (textured) applyTriplanar(material, 'stone');
+  return fanMesh('greybox-walls', positions, material);
 }
 
 /** The Arena's Abyss, drawn dark, if it has one (shared with a Kit's look). */
@@ -119,4 +124,28 @@ export function greybox(arena: ArenaGeometry): { root: THREE.Group; background: 
   if (pit) root.add(pit);
   if (arena.walls.length > 0) root.add(walls(arena));
   return { root, background: new THREE.Color(BACKGROUND), fog: new THREE.Fog(BACKGROUND, 40, 120) };
+}
+
+/** Lava glows, water is a flat blue: a Battle map's hazards, drawn over the floor they lie on. */
+const LAVA_COLOR = 0xff5a1f;
+const WATER_COLOR = 0x2f7fe0;
+
+/**
+ * A hand-built Battle map with no model (docs/plans/map-editor.md, Stage 4: a map from the Map Editor, until it has one), drawn from its
+ * Walk Surfaces and Walls: floors tinted by height under the triplanar stone, Walls as thin triplanar boxes, lava and water coloured, the
+ * Abyss dark. Only the map itself: the sky and light are the Battlefield's (`battlefieldSetting`). Render-only.
+ */
+export function battleGreybox(arena: ArenaGeometry): THREE.Group {
+  const root = new THREE.Group();
+  root.add(floors(arena, true));
+  for (const [kind, color] of [['lava', LAVA_COLOR], ['water', WATER_COLOR]] as const) {
+    const surfaces = arena.walk.filter((s) => s[kind]);
+    if (surfaces.length === 0) continue;
+    const material = new THREE.MeshLambertMaterial({ color, emissive: kind === 'lava' ? color : 0, emissiveIntensity: 0.6, side: THREE.DoubleSide });
+    root.add(fanMesh(`greybox-${kind}`, walkFans(surfaces, 0.01), material));
+  }
+  const pit = abyss(arena);
+  if (pit) root.add(pit);
+  if (arena.walls.length > 0) root.add(walls(arena, true));
+  return root;
 }

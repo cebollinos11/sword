@@ -32,6 +32,8 @@ export function surfaceOf(name: string): Surface | null {
   const [map = '', part = ''] = name.split('_', 2);
   if (/Fire|Gold|Rune|Lava|Crust|Window|Banner|Awning|Leaf|DeckLine|Beam/.test(part)) return null;
   if (map === 'Cavern' && /^(Floor|Plat|Wall|Deck)/.test(part)) return 'dungeon';
+  // A Map Editor map's dark stone (`Map_Dungeon`, src/mapEditor/look.ts); no generator's material is named so.
+  if (/Dungeon/.test(part)) return 'dungeon';
   if (/Rock|Rubble/.test(part)) return 'rock';
   if (/Grass|Moss/.test(part)) return 'grass';
   if (/Dirt/.test(part)) return 'dirt';

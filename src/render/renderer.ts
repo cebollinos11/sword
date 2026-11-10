@@ -114,6 +114,11 @@ export class Renderer {
     return this.stage.canvas;
   }
 
+  /** Take the canvas out of the page and let go of the WebGL context (see `Stage.dispose`). */
+  dispose(): void {
+    this.stage.dispose();
+  }
+
   /** The WebGL renderer drawing it (e.g. to bake a Battle's impostor atlas with). */
   get gl(): THREE.WebGLRenderer {
     return this.stage.renderer;

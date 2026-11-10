@@ -60,7 +60,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
-export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
+export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
 export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
@@ -869,8 +869,8 @@ const overrideFiles = import.meta.glob<unknown>('../../data/motions/*/*.json', {
 const weaponFiles = import.meta.glob<unknown>('../../data/weapons/*.json', { eager: true, import: 'default' });
 /** Raw Arena files bundled from `data/arenas/`, keyed by repo path. */
 const arenaFiles = import.meta.glob<unknown>('../../data/arenas/*.json', { eager: true, import: 'default' });
-/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path. */
-const battleMapFiles = import.meta.glob<unknown>('../../data/battlemaps/*.json', { eager: true, import: 'default' });
+/** Raw Battle map files bundled from `data/battlemaps/`, keyed by repo path: not the Map Sources beside them (`<map>.source.json`, the Map Editor's, not Tuning Data). */
+const battleMapFiles = import.meta.glob<unknown>(['../../data/battlemaps/*.json', '!../../data/battlemaps/*.source.json'], { eager: true, import: 'default' });
 /** Raw Kit files bundled from `data/kits/`, keyed by repo path. */
 const kitFiles = import.meta.glob<unknown>('../../data/kits/*.json', { eager: true, import: 'default' });
 
@@ -888,8 +888,12 @@ function namedMotionFile(path: string, raw: unknown): unknown {
   return raw;
 }
 
-/** Load and validate the Tuning Data bundled from the repo's `data/` folder. */
-export function loadTuningData(): TuningData {
+/**
+ * Load and validate the Tuning Data bundled from the repo's `data/` folder. `battleMapFiles` adds raw Battle map files beside the bundled
+ * ones, keyed by path as the glob keys them (`../../data/battlemaps/<map>.json`), and read by the same rules: a test reads a map the Map
+ * Editor saves as the game will once it is in `data/battlemaps/`.
+ */
+export function loadTuningData({ battleMapFiles: added = {} }: { readonly battleMapFiles?: Readonly<Record<string, unknown>> } = {}): TuningData {
   const motions = inFileOrder(motionFiles).map(([path, raw]) => namedMotionFile(path, raw));
   // Weapon files are named after their Weapon; override folders after their Weapon's file.
   const weaponByStem = new Map<string, string>();
@@ -937,7 +941,7 @@ export function loadTuningData(): TuningData {
     battle: {
       ...battleJson,
       maps: Object.fromEntries(
-        inFileOrder(battleMapFiles).map(([path, raw]) => {
+        inFileOrder({ ...battleMapFiles, ...added }).map(([path, raw]) => {
           const file = path.slice(path.lastIndexOf('/') + 1);
           const name = record(raw, `data/battlemaps/${file}`).name;
           if (typeof name !== 'string' || `${name}.json` !== file) throw new TuningDataError(`data/battlemaps/${file}: a Battle map must live in <its name>.json`);

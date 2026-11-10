@@ -369,7 +369,7 @@ function entrySide(b: WallBlock, radius: number, fx: number, fz: number, x: numb
 }
 
 /** The four Walls round a block, each solid from below the floor to the block's top. */
-function blockWalls(b: WallBlock): WallSegment[] {
+export function blockWalls(b: WallBlock): WallSegment[] {
   const corners = [
     { x: b.minX, z: b.minZ },
     { x: b.maxX, z: b.minZ },
@@ -379,6 +379,15 @@ function blockWalls(b: WallBlock): WallSegment[] {
   return corners.map((a, k) => ({ id: `${b.id}_${k}`, a, b: corners[(k + 1) % 4]!, bottom: -1, top: b.top }));
 }
 
+/** The lowest floor of a hand-built Battle map that is not deadly (where its Players spawn), and whether it has several levels (`Battlefield.layered`). */
+export function mapFloor(map: Pick<BattleMapTuning, 'walk'>): number {
+  return Math.min(...map.walk.filter((w) => !deadly(w)).flatMap((w) => w.points.map((p) => p.y)));
+}
+export const isLayered = (map: Pick<BattleMapTuning, 'walk'>): boolean => {
+  const floor = mapFloor(map);
+  return map.walk.some((w) => w.points.some((p) => p.y !== floor));
+};
+
 /**
  * A hand-built Battle map's Battlefield: its floor and Walls (its own, and each block's four) with no jump Links, its spawns behind its
  * armies, its Objectives and Bases where it puts them. Throws when its Walk Surfaces are not all joined by walking and dropping (`walkCheck`).
@@ -386,7 +395,7 @@ function blockWalls(b: WallBlock): WallSegment[] {
 function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Battlefield {
   const size = battle.field.size;
   // The floor is the lowest ground that is not deadly: a lava river far below it (the Cavern) is no place for the Players to spawn.
-  const floor = Math.min(...map.walk.filter((w) => !deadly(w)).flatMap((w) => w.points.map((p) => p.y)));
+  const floor = mapFloor(map);
   const flat: Heightfield = { size, cell: size, side: 2, heights: [floor, floor, floor, floor] };
   // The Players spawn at the floor's height (on one level, where they stand).
   const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: false };
@@ -403,7 +412,7 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
     front: map.front,
     blocks: map.blocks,
     blockCells: blockCellsOf(map.blocks, size),
-    layered: map.walk.some((w) => w.points.some((p) => p.y !== floor)),
+    layered: isLayered(map),
     objectiveSurfaces: map.objectives.map(highest),
     baseSurfaces: [highest(map.bases[0]), highest(map.bases[1])],
   };
@@ -411,11 +420,17 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
 
 /** How many Battlefields one Battle Tuning Data keeps built; one dropped is built again (the same field). */
 const KEPT = 4;
-const built = new WeakMap<BattleTuning, Map<string, Battlefield>>();
+/** A built Battlefield and the map it was built from (null: the open field), so a map put in a name's place is not answered with the old field. */
+interface Kept {
+  readonly map: BattleMapTuning | null;
+  readonly field: Battlefield;
+}
+const built = new WeakMap<BattleTuning, Map<string, Kept>>();
 
 /**
  * Battlefield `name` (`battle:<seed>`, or `battle:<map>` for a map of `battle.maps`) built from `battle`, once and then reused while it stays
- * among the last few. Null for a name that is not battle:, or a map `battle` does not have.
+ * among the last few and its map is the one it was built from (the Map Editor's play-test puts each draft in a copy of the Tuning Data, but a
+ * map swapped under one name in the same `battle` is built again too). Null for a name that is not battle:, or a map `battle` does not have.
  */
 export function battlefieldOf(battle: BattleTuning, name: string): Battlefield | null {
   const seed = parseBattleName(name);
@@ -424,12 +439,13 @@ export function battlefieldOf(battle: BattleTuning, name: string): Battlefield |
   if (seed === null && !map) return null;
   let kept = built.get(battle);
   if (!kept) built.set(battle, (kept = new Map()));
-  let field = kept.get(name);
-  if (field) kept.delete(name);
-  else {
-    field = map ? buildMap(battle, name, map) : build(battle, name, seed!);
+  let entry = kept.get(name);
+  if (entry) kept.delete(name);
+  if (entry && entry.map !== map) entry = undefined;
+  if (!entry) {
+    entry = { map, field: map ? buildMap(battle, name, map) : build(battle, name, seed!) };
     if (kept.size >= KEPT) kept.delete(kept.keys().next().value!);
   }
-  kept.set(name, field);
-  return field;
+  kept.set(name, entry);
+  return entry.field;
 }
