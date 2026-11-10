@@ -103,6 +103,8 @@ export interface WeaponTuning {
   readonly head: number;
   /** Damage multiplier (0..1) for Hits behind the Head (the shaft). */
   readonly shaftDamage: number;
+  /** Whether its Head cuts: a killing Overhead, Left or Right with it records the cut in the Death (Dismemberment). False for a blunt Head (the Sledge Hammer). */
+  readonly cuts: boolean;
   readonly blockImpact: WeaponBlockImpact;
   readonly heavyBlow: WeaponHeavyBlow;
   readonly tempo: WeaponTempo;
@@ -157,6 +159,8 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
   if (head > length) throw new TuningDataError(`${at}.head must be at most length (${length}), got ${head}`);
   const shaftDamage = o.shaftDamage === undefined ? 1 : finiteNumber(o, 'shaftDamage', at);
   if (shaftDamage < 0 || shaftDamage > 1) throw new TuningDataError(`${at}.shaftDamage must be between 0 and 1, got ${shaftDamage}`);
+  if (o.cuts !== undefined && typeof o.cuts !== 'boolean') throw new TuningDataError(`${at}.cuts must be true or false, got ${JSON.stringify(o.cuts)}`);
+  const cuts = o.cuts ?? true;
   let blockImpact: WeaponBlockImpact = { dealt: 1, taken: 1 };
   if (o.blockImpact !== undefined) {
     const b = record(o.blockImpact, `${at}.blockImpact`);
@@ -211,6 +215,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     ...(offHandGrip ? { offHandGrip } : {}),
     head,
     shaftDamage,
+    cuts,
     blockImpact,
     heavyBlow,
     tempo,
@@ -230,7 +235,10 @@ export function serializeWeapon(w: WeaponTuning): string {
     gripLength: w.gripLength,
   };
   if (w.offHandGrip) out.offHandGrip = { along: w.offHandGrip.along, around: w.offHandGrip.around, radial: w.offHandGrip.radial };
-  Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage, blockImpact: { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken } });
+  Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage });
+  // Written only for a Weapon that does not cut, like a missing `heavyBlow`: the cutting default stays out of the file.
+  if (!w.cuts) out.cuts = false;
+  out.blockImpact = { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken };
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
   out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
   out.sheathe = { slot: w.sheathe.slot, offset: { ...w.sheathe.offset }, rotation: { ...w.sheathe.rotation } };

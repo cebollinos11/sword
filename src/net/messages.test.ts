@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { arenaOf, createMatch, doorTicksNeeded, exitDoor, floorGraph, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, NO_MODS, restFire, runSeed, secondsToTicks, stepMatch, takeOverFighter, throwTimings, type HallRef, type Intent, type Inventory, type MatchState } from '../sim';
+import { loadTuningData, withWeapon } from '../tuning';
+import { arenaOf, attack, createMatch, doorTicksNeeded, exitDoor, floorGraph, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, NO_MODS, restFire, runDuel, runSeed, secondsToTicks, stepMatch, takeOverFighter, throwTimings, type HallRef, type Intent, type Inventory, type MatchState } from '../sim';
 import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
@@ -183,6 +183,29 @@ describe('Peer message validation', () => {
     expect(parseNetMessage(resync(slow({})))).toBeNull();
     expect(parseNetMessage(resync(slow({ ticks: -1 })))).toBeNull();
     expect(parseNetMessage(resync(slow({ ticks: 'long' })))).toBeNull();
+  });
+
+  it("carries a Death's cut through a resync, and refuses a malformed one", () => {
+    // A real cutting Death (a killing Overhead), on Fighter 1 of a real Match state.
+    const felled = runDuel(withWeapon(tuning, { damage: 10_000 }), { distance: 1.3, a: attack('Overhead'), b: [] }).final.fighters[1]!;
+    const m = matchState();
+    const state = JSON.parse(JSON.stringify({ ...m, duel: { ...m.duel, fighters: [m.duel.fighters[0], { ...m.duel.fighters[1]!, hp: 0, death: felled.death }] } })) as MatchState;
+    const death = state.duel.fighters[1]!.death!;
+    expect(death.blow!.cut).toBeDefined();
+    expect(parseNetMessage(resync(state))).toEqual(resync(state));
+    const cut = death.blow!.cut!;
+    const withCut = (c: unknown) => ({ ...state, duel: { ...state.duel, fighters: [state.duel.fighters[0], { ...state.duel.fighters[1]!, death: { ...death, blow: { ...death.blow, cut: c } } }] } });
+    for (const bad of [
+      null,
+      {},
+      { ...cut, hilt: undefined },
+      { ...cut, tip: { x: 0, y: 'up', z: 0 } },
+      { ...cut, tip: cut.hilt },
+      { ...cut, travel: { x: 0, y: 0, z: 0 } },
+      { ...cut, travel: { x: 2, y: 0, z: 0 } },
+    ]) expect(parseNetMessage(resync(withCut(bad)))).toBeNull();
+    const thrust = { ...state, duel: { ...state.duel, fighters: [state.duel.fighters[0], { ...state.duel.fighters[1]!, death: { ...death, blow: { ...death.blow, direction: 'Thrust' } } }] } };
+    expect(parseNetMessage(resync(thrust))).toBeNull();
   });
 
   it('refuses a resync whose Match state is malformed', () => {

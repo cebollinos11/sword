@@ -48,6 +48,10 @@ export interface HitEvent {
   /** A Heavy Blow on an enemy (the Weapon's `heavyBlow`): it knocks the defender down and pushes it away. */
   readonly heavy: boolean;
   readonly damage: number;
+  /** The blade (main hand to tip) at the moment of contact: last Tick's blade moved to this Tick's as far as the contact's moment in the Tick. Set on every Hit the Simulation emits. */
+  readonly blade?: { readonly hilt: Vec3; readonly tip: Vec3 };
+  /** Unit direction the contact point of the blade was moving. Set on every Hit the Simulation emits. */
+  readonly travel?: Vec3;
 }
 
 /** A Kick's leg sweep connected: a Knockdown (the victim moved) or a Shove (it gave no movement input, or was already down). Teammates take no damage. */

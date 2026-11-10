@@ -2,11 +2,11 @@
 
 > Built one Stage per session with `docs/plans/dismemberment-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask.
 
-Status: planned, nothing built yet.
+Status: Stage 1 built (the Simulation records the cut); Stage 2 next. Nothing is drawn differently yet.
 
 ## Progress
 
-- [ ] Stage 1: the Simulation records the cut (sections 1 and 6's ADR)
+- [x] Stage 1: the Simulation records the cut (sections 1 and 6's ADR)
 - [ ] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
 - [ ] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
 - [ ] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
@@ -90,6 +90,21 @@ Each Stage ends green (`npm run typecheck`, `npm test`) and leaves the game play
 ## Results
 
 (Each Stage adds a `### Stage N result` here: what was built, names chosen, deviations and why, test counts, measured timings, what to try in `npm run dev`.)
+
+### Stage 1 result
+
+Built as section 1. What the later Stages build on:
+
+- **Weapon `cuts`** (`src/tuning/weapon.ts`): boolean, default true. Only `data/weapons/sledge-hammer.json` has `"cuts": false`. `serializeWeapon` writes it only when false (like a missing `heavyBlow`), so the other files are unchanged. The Editor's Weapon panel has a `cuts (Dismemberment)` toggle.
+- **`BladeContact.blade` / `travel`** (`src/sim/combat.ts`, `findContacts`): `blade = { hilt, tip }` is last Tick's blade lerped to this Tick's at the contact's `s`. `travel` is the unit direction the contact point (at `along`) moved this Tick. When that point did not move at all, `travel` falls back to the blade's `edge`, never to +y. They are computed in `findContacts` because only it holds last Tick's blade; `resolveContact` passes them on to the `HitEvent`.
+- **`HitEvent.blade?` / `travel?`** (`src/sim/events.ts`): the Simulation sets them on every Hit. **Deviation:** they are optional in the type, so the hand-written Hit literals in existing tests (`audio/cues`, `render/bladeBlood`, `render/cameraShake`) still compile unchanged.
+- **`DeathBlow.cut?: Cut`** with `Cut = { hilt, tip, travel }` (`src/sim/state.ts`, type `Cut` exported from it). `fellingBlow` (`src/sim/step.ts`) sets it only for a blade Hit with `head`, a Direction other than Thrust, and an attacker Weapon that `cuts`. A blow without a cut has no `cut` key at all (not `cut: undefined`), so its hash is exactly as before. Daggers, Kicks, Falls, Lava and Water never have one.
+- **`isDeath`** (`src/net/messages.ts`): accepts an optional `cut`. It needs three Vec3s, hilt and tip apart, and `travel` of unit length; it refuses a cut on a Thrust. `PROTOCOL_VERSION` stays 26: peers on different builds are already refused by the Tuning Data hash, which now includes `cuts`.
+- **ADR 0024** written.
+- **Deviation, the AI golden fixture re-recorded** (`src/controllers/aiGolden.testdata.json`): its per-Tick hash covers the Tick's events, so every Hit Tick changed. Before re-recording, all 9 Matches were replayed with `blade`, `travel` and `cut` stripped from the state. They hashed exactly as the old recording at every Tick (356 Hits and cutting Deaths on hundreds of Ticks across them), so no outcome changed. The test code itself is untouched.
+- **Deviation, one existing assertion amended:** `death.test.ts`'s "records the blow that felled a Fighter" now expects the `cut` in its `toEqual`, because its Overhead Arming Sword kill now cuts, as the plan decides.
+- **Tests:** `death.test.ts` gained 11: Overhead, Left and Right Arming Sword, Longsword and Halberd Head kills cut, with the blade on the Blade Sweep at one `s`, the point on it, and `travel` along the point's path. These do not cut: Thrust, Sledge Hammer (Head), Halberd shaft, Throwing Dagger, Fall, a Weapon with `cuts: false`. Also `messages.test.ts` (a real cut through a resync, malformed ones and a Thrust refused) and `weapons.test.ts` (`cuts` defaults, file round trip, bad value). Fast suite 2144 passed, 5 skipped; slow suite 28 passed.
+- **Nothing is drawn differently yet**, so there is nothing to try in `npm run dev` beyond the Editor toggle.
 
 ## Verification
 

@@ -328,7 +328,11 @@ function felled(events: readonly SimEvent[], i: number, fighters: readonly Fight
   return { tick, cause: fall ? 'Fall' : 'Hit', blow };
 }
 
-/** The last Hit this Tick on Fighter `defender` (a blade's or a dagger's), as the blow that felled it. A dagger drives the body at its launch speed, along a Thrust. */
+/**
+ * The last Hit this Tick on Fighter `defender` (a blade's or a dagger's), as the blow that felled it. A dagger drives the body at its launch speed, along a Thrust.
+ * A blade's Overhead, Left or Right that landed with the Head of a Weapon that `cuts` records the cut (the blade at contact and its travel). It is decided
+ * here, from the Weapon the attacker holds on this Tick, because that Weapon may change later (a Run's Inventory).
+ */
 function fellingBlow(events: readonly SimEvent[], defender: number, fighters: readonly FighterState[], tuning: TuningData): DeathBlow | null {
   for (let k = events.length - 1; k >= 0; k--) {
     const e = events[k]!;
@@ -337,8 +341,11 @@ function fellingBlow(events: readonly SimEvent[], defender: number, fighters: re
       return { point: e.point, bladeSpeed: tuning.dagger.speed, direction: 'Thrust', from: { x, z } };
     }
     if (e.type !== 'Hit' || e.defender !== defender) continue;
-    const { x, z } = fighters[e.attacker]!.position;
-    return { point: e.point, bladeSpeed: e.bladeSpeed, direction: e.direction, from: { x, z } };
+    const attacker = fighters[e.attacker]!;
+    const { x, z } = attacker.position;
+    const blow: DeathBlow = { point: e.point, bladeSpeed: e.bladeSpeed, direction: e.direction, from: { x, z } };
+    const cuts = e.head && e.direction !== 'Thrust' && e.blade && e.travel && weaponByName(tuning, attacker.weapon).cuts;
+    return cuts ? { ...blow, cut: { hilt: e.blade!.hilt, tip: e.blade!.tip, travel: e.travel! } } : blow;
   }
   return null;
 }

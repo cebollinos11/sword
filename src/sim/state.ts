@@ -292,6 +292,20 @@ export interface DeathBlow {
   readonly direction: Direction;
   /** Where the attacker stood on that Tick (the blow drives the body away from it). */
   readonly from: Vec2;
+  /**
+   * The cut (Dismemberment): present only when the blow was an Overhead, Left or Right that landed with the Head of a
+   * Weapon that `cuts`. The Simulation only records it; which parts it severs is drawn outside the Tick (ADR 0024).
+   */
+  readonly cut?: Cut;
+}
+
+/** The blade at the moment it struck, and which way it was going: where a killing blow cut through the body. */
+export interface Cut {
+  /** The blade (main hand to tip) at the contact, between last Tick's blade and this Tick's. */
+  readonly hilt: Vec3;
+  readonly tip: Vec3;
+  /** Unit direction the contact point of the blade was moving. */
+  readonly travel: Vec3;
 }
 
 /**

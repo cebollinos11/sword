@@ -52,6 +52,15 @@ describe('Weapon roster', () => {
     expect(parseWeapon(JSON.parse(serializeWeapon(w)))).toEqual(w);
   });
 
+  it('every Weapon cuts but the Sledge Hammer, which writes `cuts: false` to its file and reads it back', () => {
+    expect(Object.values(tuning.weapons).filter((w) => !w.cuts).map((w) => w.name)).toEqual(['Sledge Hammer']);
+    const hammer = tuning.weapons['Sledge Hammer']!;
+    expect(JSON.parse(serializeWeapon(hammer)).cuts).toBe(false);
+    expect(JSON.parse(serializeWeapon(tuning.weapons.Halberd!)).cuts).toBeUndefined();
+    expect(parseWeapon(JSON.parse(serializeWeapon(hammer)))).toEqual(hammer);
+    expect(() => parseWeapon(halberd({ cuts: 'yes' }))).toThrow(/^weapons\/Halberd\.cuts must be true or false/);
+  });
+
   it('refuses invalid Weapons, naming the full path', () => {
     const { offHandGrip: _grip, ...noGrip } = tuning.weapons.Halberd!;
     expect(() => parseTuningData(raw(tuning, { weapons: [noGrip] }))).toThrow(/^weapons\/Halberd\.offHandGrip is required for a two-handed Weapon/);

@@ -48,6 +48,9 @@ export type BladeContact = {
   readonly bladeSpeed: number;
   /** Whether the contact point is on the attacker's Head (see `onHead`). */
   readonly onHead: boolean;
+  /** The blade at the moment of contact (last Tick's blade to this Tick's, at the contact's `s`), and the unit direction the contact point was moving. */
+  readonly blade: { readonly hilt: Vec3; readonly tip: Vec3 };
+  readonly travel: Vec3;
 } & (
   | { readonly blocked: true; readonly chambered?: undefined }
   | { readonly blocked: false; readonly chambered: true }
@@ -151,7 +154,10 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
       const c = sweepContact(before.blade, attacker.blade, blocked || chambered ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
       if (!c) return;
-      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed, onHead: onHead(weapon, c.along) };
+      const blade = { hilt: lerp(before.blade.hilt, attacker.blade.hilt, c.s), tip: lerp(before.blade.tip, attacker.blade.tip, c.s) };
+      // A contact point that did not move this Tick (the blade already in the body) is taken to travel the way the edge faces.
+      const travel = normalize(sub(lerp(attacker.blade.hilt, attacker.blade.tip, c.along), lerp(before.blade.hilt, before.blade.tip, c.along)), attacker.blade.edge);
+      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed, onHead: onHead(weapon, c.along), blade, travel };
       const contact: BladeContact = blocked
         ? { ...at, blocked }
         : chambered
@@ -405,8 +411,8 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   // A Trade: the attacker may already be Staggered by the other hit this Tick; leave that be.
   if (current.action.kind === 'Attack') out[c.attacker] = { ...current, action: { ...current.action, landed: true, lodge: LODGE_TICKS } };
   const hurt = out[c.defender]!;
-  const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head } = c;
-  emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage });
+  const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head, blade, travel } = c;
+  emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage, blade, travel });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
   healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   if (heavy) {

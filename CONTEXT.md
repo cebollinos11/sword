@@ -211,7 +211,7 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. No shields. In a Run a Player's Fighter may carry several (its Inventory) and wields one: it changes by equipping, only in a Cleared Hall and never mid-Action, so a Weapon is never swapped in a fight.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. Whether its Head cuts (`cuts`, Dismemberment): every Weapon but the Sledge Hammer. No shields. In a Run a Player's Fighter may carry several (its Inventory) and wields one: it changes by equipping, only in a Cleared Hall and never mid-Action, so a Weapon is never swapped in a fight.
 
 **Weapon roster**:
 Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
@@ -237,8 +237,12 @@ One round between two Teams, ending when the last Fighter of a Team falls; the o
 _Avoid_: Fight, round (as a synonym), match
 
 **Death**:
-How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell. In a Run, a fallen Team 0 Fighter sits out the rest of its Hall and is back on the next Hall at `dungeon.revive` of its max HP (at full HP when that Hall is the next Floor's entrance).
+How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and the Hit that did it: a blade, or a Throwing Dagger), a Fall (a Knockdown Landing whose fall damage took its last HP, or a Landing on an Abyss), Lava or Water, even while its Team fights on. From then on the Fighter is no longer simulated, hits and is hit by nothing, and no longer blocks other bodies; its state stays as it fell. In a Run, a fallen Team 0 Fighter sits out the rest of its Hall and is back on the next Hall at `dungeon.revive` of its max HP (at full HP when that Hall is the next Floor's entrance). A blade's felling Hit may also leave the cut (Dismemberment).
 _Avoid_: KO, kill
+
+**Dismemberment**:
+A killing Overhead, Left or Right that lands with the Head of a Weapon that `cuts` records the cut in the Death: the blade at the moment it struck (between last Tick's blade and this Tick's) and the way it was going. No cut for a Thrust, a Hit with the shaft, the Sledge Hammer, a Throwing Dagger, a Kick, a Fall, Lava or Water. The Simulation only records it (ADR 0024); which parts come off is drawn outside it, a pure function of the Death and the pose it fell in.
+_Avoid_: Gore, slice, decapitation (in code)
 
 **Death Ragdoll**:
 A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
