@@ -405,6 +405,13 @@ export class Menu {
     return this.navItem('Battle, playing (dev)', 'Walk into 200 v 200 and fight whoever comes near', () => (location.hash = '#/battle/1/play?dev=1'));
   }
 
+  /** Opens the Map Editor (docs/plans/map-editor.md) to author a Battle map's Map Source. Null without ?dev=1 (the route needs it too). */
+  private mapEditorItem(): HTMLButtonElement | null {
+    if (!devMode()) return null;
+    // A hash change reloads the page into the Map Editor (main.ts).
+    return this.navItem('Map Editor (dev)', 'Author a Battle map', () => (location.hash = '#/mapeditor?dev=1'));
+  }
+
   /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
@@ -445,6 +452,7 @@ export class Menu {
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
       this.battleItem(),
       this.battlePlayItem(),
+      this.mapEditorItem(),
       this.ps1Item(),
       this.colliderItem(),
       editor,
