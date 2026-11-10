@@ -4,7 +4,7 @@
  * internal Gait state.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, parseArena } from '../tuning';
 import {
   attack,
   createInitialState,
@@ -19,7 +19,9 @@ import {
   runScript,
   secondsToTicks,
   SHEATHED_IDLE_MOTION,
+  SHEATHED_RUN_MOTION,
   snapshot,
+  step,
   wait,
   walk,
   type HitEvent,
@@ -58,9 +60,9 @@ const steps = (run: ScriptRun, fighter = 0) =>
 /**
  * Over ticks [from, to]: each foot's ankle, whenever it is on the floor, stays at
  * exactly the same ground position until it next lifts; and no foot stays in
- * the air longer than one step.
+ * the air for `maxAir` Ticks (default: one step) or longer.
  */
-function expectPlantedFeetFixed(run: ScriptRun, from: number, to: number, fighter = 0) {
+function expectPlantedFeetFixed(run: ScriptRun, from: number, to: number, fighter = 0, maxAir = STEP_TICKS) {
   for (const foot of FEET) {
     let plantedAt: Vec3 | null = null;
     let airborne = 0;
@@ -69,7 +71,7 @@ function expectPlantedFeetFixed(run: ScriptRun, from: number, to: number, fighte
       if (lifted(a)) {
         plantedAt = null;
         airborne++;
-        expect(airborne, `${foot} foot in the air too long at Tick ${t}`).toBeLessThan(STEP_TICKS);
+        expect(airborne, `${foot} foot in the air too long at Tick ${t}`).toBeLessThan(maxAir);
         continue;
       }
       airborne = 0;
@@ -528,37 +530,120 @@ describe('Gait: the hips turn with the stride', () => {
   });
 });
 
-describe('Gait: a Sheathed walk', () => {
+describe('Gait: a Sheathed run', () => {
+  const RUN_STEP = secondsToTicks(tuning.gait.runStepDuration);
+  /** A foot of a run is in the air for less than two run steps (it lands one run step after the other foot). */
+  const RUN_AIR = 2 * RUN_STEP + 1;
+  const FORWARD = { x: 0, z: 1 };
+  /** The repo's Arenas plus a long strip that climbs a Kit ramp's slope (3 m over 6 m), crosses a landing and comes back down. */
+  const hilly: typeof tuning = {
+    ...tuning,
+    arenas: {
+      ...tuning.arenas,
+      hill: parseArena(
+        {
+          name: 'hill',
+          walk: [
+            { id: 'WALK_a', points: [[-3, 0, -40], [3, 0, -40], [3, 0, 4], [-3, 0, 4]] },
+            { id: 'WALK_up', points: [[-3, 0, 4], [3, 0, 4], [3, 3, 10], [-3, 3, 10]] },
+            { id: 'WALK_top', points: [[-3, 3, 10], [3, 3, 10], [3, 3, 14], [-3, 3, 14]] },
+            { id: 'WALK_down', points: [[-3, 3, 14], [3, 3, 14], [3, 0, 20], [-3, 0, 20]] },
+            { id: 'WALK_b', points: [[-3, 0, 20], [3, 0, 20], [3, 0, 60], [-3, 0, 60]] },
+          ],
+          walls: [],
+        },
+        'hill',
+      ),
+    },
+  };
+  /** A clear path forward: Fighter 1 parked off to the side, behind. */
+  const open = [{ position: { x: 0, z: -5 }, facing: 0 }, { position: { x: 6, z: -6 }, facing: Math.PI }];
   /** Fighter 0 at the Arena centre facing +z, Sheathed or drawn (Fighter 1 parked far away, facing it). */
-  const sheathedAt = (sheathed: boolean, placements = lone.placements) => {
-    const s = createInitialState(tuning, 1, placements);
-    return { ...s, fighters: [{ ...s.fighters[0]!, sheathed, motion: { name: sheathed ? SHEATHED_IDLE_MOTION : 'Idle', tick: 0 } }, s.fighters[1]!] };
+  const sheathedAt = (sheathed: boolean, placements = lone.placements, data = tuning, arena?: string) => {
+    const s = createInitialState(data, 1, placements, [], [], arena);
+    return { ...s, fighters: [{ ...s.fighters[0]!, sheathed, motion: { name: sheathed ? SHEATHED_IDLE_MOTION : 'Idle', tick: 0 } }, ...s.fighters.slice(1)] };
   };
-  /** Metres per step over a steady full-speed walk forward. */
-  const strideLength = (run: ScriptRun) => {
-    const late = steps(run).filter((e) => e.tick > 40);
-    const [a, b] = [run.states[late[0]!.tick]!.fighters[0]!.position, run.states[late[late.length - 1]!.tick]!.fighters[0]!.position];
-    return Math.hypot(b.x - a.x, b.z - a.z) / (late.length - 1);
+  const pelvis = (data: typeof tuning, run: ScriptRun, tick: number) => {
+    const f = run.states[tick]!.fighters[0]!;
+    return fighterPose(f, data).joints.pelvis.y - f.y;
   };
+  const inAir = (run: ScriptRun, tick: number, foot: Foot) => run.states[tick]!.fighters[0]!.gait[foot].step !== null;
 
   for (const [name, move] of Object.entries(DIRECTIONS)) {
-    it(`walking ${name} Sheathed (faster), planted feet never slide and the feet step`, () => {
+    it(`running ${name} Sheathed (faster), planted feet never slide and the feet step`, () => {
       const run = runScript(tuning, sheathedAt(true), [walk(30, move)], 30);
       const at = run.states[30]!.fighters[0]!.position;
       const back = Math.max(0, -move.z / Math.hypot(move.x, move.z));
       expect(Math.hypot(at.x, at.z)).toBeCloseTo(30 * (tuning.fighter.walkSpeed / 60) * tuning.fighter.sheathedWalkFactor * (1 - (1 - tuning.fighter.backwardWalkFactor) * back), 6);
-      expectPlantedFeetFixed(run, 0, 30);
+      expectPlantedFeetFixed(run, 0, 30, 0, RUN_AIR);
       expect(steps(run).length).toBeGreaterThan(1);
     });
   }
 
-  it('a Sheathed walk takes longer strides and steps a little more often, and the pelvis sinks only a little more for them', () => {
-    // A clear path forward: Fighter 1 parked off to the side, behind.
-    const open = [{ position: { x: 0, z: -5 }, facing: 0 }, { position: { x: 6, z: -6 }, facing: Math.PI }];
-    const [drawn, sheathed] = [false, true].map((s) => runScript(tuning, sheathedAt(s, open), [walk(100, { x: 0, z: 1 })], 100));
-    // The lead grows with √speed: strides about √1.6 longer than at full walk speed, short of 1.6 times (which would hold the cadence).
-    expect(strideLength(sheathed!)).toBeGreaterThan(strideLength(drawn!) * Math.sqrt(tuning.fighter.sheathedWalkFactor));
-    expect(strideLength(sheathed!)).toBeLessThan(strideLength(drawn!) * tuning.fighter.sheathedWalkFactor * 0.9);
-    for (const s of sheathed!.states) expect(fighterPose(s.fighters[0]!, tuning).joints.pelvis.y, `Tick ${s.tick}`).toBeGreaterThan(homeAnkle(sheathed!, s.tick, 'left').y + 0.7);
+  it('footfalls come one run step apart, left and right in turn, with both feet off the ground between them', () => {
+    const run = runScript(tuning, sheathedAt(true, open), [walk(120, FORWARD)], 120);
+    const late = steps(run).filter((e) => e.tick > 30);
+    expect(late.length).toBeGreaterThan(5);
+    for (let k = 1; k < late.length; k++) {
+      expect(late[k]!.tick - late[k - 1]!.tick, `footfall ${k}`).toBe(RUN_STEP);
+      expect(late[k]!.foot).not.toBe(late[k - 1]!.foot);
+      // The Tick before a foot lands, the other has already lifted: a flight.
+      expect(FEET.every((foot) => inAir(run, late[k]!.tick - 1, foot)), `flight before footfall ${k}`).toBe(true);
+    }
+    // The feet land ahead of the hips and lift behind them.
+    const z = (tick: number, foot: Foot) => ankle(run, tick, foot).z - run.states[tick]!.fighters[0]!.position.z;
+    for (const e of late) expect(z(e.tick, e.foot)).toBeGreaterThan(0.1);
+  });
+
+  it('the pelvis keeps its height through every stride, on the flat and up and down a ramp', () => {
+    // From z = -8 at 0.1 m a Tick: the ramp up from Tick 120 to 180, the ramp down from 220 to 280.
+    const run = runScript(hilly, sheathedAt(true, [{ position: { x: 0, z: -8 }, facing: 0 }, { position: { x: 2, z: -39 }, facing: 0 }], hilly, 'hill'), [walk(320, FORWARD)], 320);
+    expect(run.states[150]!.fighters[0]!.y).toBeGreaterThan(1);
+    const heights = run.states.slice(30).map((s) => pelvis(hilly, run, s.tick));
+    expect(Math.max(...heights) - Math.min(...heights)).toBeLessThan(0.12);
+    expect(Math.min(...heights)).toBeGreaterThan(0.75);
+    expect(run.states.every((s) => !s.fighters[0]!.air)).toBe(true);
+  });
+
+  it('running forward plays the Sheathed run (leaning in, both hands behind the hips); standing, sidestepping and backing away stay upright', () => {
+    const run = runScript(tuning, sheathedAt(true, open), [[...walk(60, FORWARD), ...wait(30)]], 90);
+    const f = (tick: number) => run.states[tick]!.fighters[0]!;
+    expect(f(1).motion.name).toBe(SHEATHED_RUN_MOTION);
+    expect(f(1).motion.blend).toBeDefined(); // eased into, not snapped
+    const pose = fighterPose(f(60), tuning);
+    const ahead = (joint: Vec3) => joint.z - f(60).position.z;
+    expect(ahead(pose.joints.head)).toBeGreaterThan(0.3);
+    expect(ahead(pose.joints.leftHand)).toBeLessThan(ahead(pose.joints.pelvis) - 0.1);
+    expect(ahead(pose.joints.rightHand)).toBeLessThan(ahead(pose.joints.pelvis) - 0.1);
+    // Stopping hands back to the Sheathed Idle, whose playhead carries on.
+    expect(f(61).motion.name).toBe(SHEATHED_IDLE_MOTION);
+    expect(f(61).motion.tick).toBe(f(60).motion.tick + 1);
+    expect(ahead(fighterPose(f(90), tuning).joints.head)).toBeLessThan(0.1 + f(90).position.z - f(60).position.z);
+    for (const move of [DIRECTIONS['sideways left'], DIRECTIONS.backwards, DIRECTIONS['diagonally back-right']]) {
+      const aside = runScript(tuning, sheathedAt(true), [walk(20, move)], 20);
+      expect(aside.states.every((s) => s.fighters[0]!.motion.name === SHEATHED_IDLE_MOTION)).toBe(true);
+    }
+  });
+
+  it('a drawn Fighter never runs, nor does a Sheathed one creeping along crouched', () => {
+    const drawn = runScript(tuning, sheathedAt(false, open), [walk(60, FORWARD)], 60);
+    const crouched = runScript(tuning, sheathedAt(true, open), [hold(60, { move: FORWARD, crouch: true })], 60);
+    // (The crouch takes a few Ticks to slow it to a walk, and the running steps under way then land.)
+    for (const states of [drawn.states, crouched.states.slice(40)]) {
+      for (const s of states) {
+        expect(s.fighters[0]!.motion.name).not.toBe(SHEATHED_RUN_MOTION);
+        for (const foot of FEET) expect(s.fighters[0]!.gait[foot].step?.run).toBeUndefined();
+      }
+    }
+  });
+
+  it('a run is deterministic and survives a snapshot mid-stride', () => {
+    const script: Track[] = [walk(80, { x: 0.3, z: 1 })];
+    const whole = runScript(tuning, sheathedAt(true, open), script, 80);
+    const mid = whole.states[37]!;
+    expect(FEET.some((foot) => mid.fighters[0]!.gait[foot].step?.run)).toBe(true);
+    let s = restore(snapshot(mid));
+    for (let t = 37; t < 80; t++) s = step(s, [intentAt(script[0]!, t)], tuning);
+    expect(hashState(s)).toBe(hashState(whole.final));
   });
 });

@@ -104,6 +104,7 @@ export {
   idleMotionFor,
   offHandFree,
   SHEATHED_IDLE_MOTION,
+  SHEATHED_RUN_MOTION,
   sheatheMotionName,
   sheatheTimings,
   type SheatheKind,

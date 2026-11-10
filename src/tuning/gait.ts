@@ -25,6 +25,16 @@ export interface GaitTuning {
   readonly hipTwist: number;
   /** How far (degrees) a stepping foot rolls off its toes and then raises them to land heel first. 0 keeps feet flat. */
   readonly toeRoll: number;
+  /** The speed (m/s) over the floor from which the body runs instead of walking: quick footfalls with both feet off the ground between them. Above full walk speed, so only a Sheathed Fighter reaches it. */
+  readonly runSpeed: number;
+  /** How long (s) from one footfall of a run to the next (the other foot's). */
+  readonly runStepDuration: number;
+  /** How far (m) the body travels over a planted foot in a run: it lands half of this ahead of its home and lifts as far behind. */
+  readonly runContact: number;
+  /** How high (m) the ankle rises above ankle height in a running step, the heel kicking up behind. */
+  readonly runStepHeight: number;
+  /** How far (m) the pelvis rises at the middle of a run's flight, with both feet off the ground. 0 turns it off. */
+  readonly runBob: number;
 }
 
 /**
@@ -43,6 +53,11 @@ export const GAIT_FIELDS: Readonly<Record<keyof GaitTuning, { readonly min: numb
   hipSway: { min: 0, max: 0.2, minExclusive: false, step: 0.001 },
   hipTwist: { min: 0, max: 45, minExclusive: false, step: 0.5 },
   toeRoll: { min: 0, max: 60, minExclusive: false, step: 1 },
+  runSpeed: { min: 0, max: 20, minExclusive: true, step: 0.1 },
+  runStepDuration: { min: 0, max: 1, minExclusive: true, step: 1 / 60 }, // one Tick: footfalls come whole Ticks apart
+  runContact: { min: 0, max: 1.5, minExclusive: true, step: 0.01 },
+  runStepHeight: { min: 0, max: 0.6, minExclusive: false, step: 0.005 },
+  runBob: { min: 0, max: 0.2, minExclusive: false, step: 0.001 },
 };
 
 export function parseGait(raw: unknown): GaitTuning {
@@ -65,5 +80,10 @@ export function parseGait(raw: unknown): GaitTuning {
     hipSway: field('hipSway'),
     hipTwist: field('hipTwist'),
     toeRoll: field('toeRoll'),
+    runSpeed: field('runSpeed'),
+    runStepDuration: field('runStepDuration'),
+    runContact: field('runContact'),
+    runStepHeight: field('runStepHeight'),
+    runBob: field('runBob'),
   };
 }

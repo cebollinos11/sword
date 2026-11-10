@@ -1,8 +1,8 @@
 /**
  * What the Editor's preview of a Motion shows of Sheathing, as play would: the Weapon in its slot once a Sheathe passes its `swap` marker
- * (and before a Draw reaches it, and all through the Sheathed Idle), and the two-handed off hand letting go as `offHandFree` does in play.
+ * (and before a Draw reaches it, and all through the Sheathed Idle and the Sheathed run), and the two-handed off hand letting go as `offHandFree` does in play.
  */
-import { SHEATHED_IDLE_MOTION, sheatheMotionName, type SheatheKind } from '../sim';
+import { SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION, sheatheMotionName, type SheatheKind } from '../sim';
 import type { Motion, TuningData } from '../tuning';
 
 export interface SheathePreview {
@@ -17,7 +17,7 @@ const kindOf = (name: string): SheatheKind | undefined =>
 
 /** The preview of `motion` at `seconds` (authored time). */
 export function sheathePreview(motion: Motion, seconds: number, tuning: TuningData): SheathePreview {
-  if (motion.name === SHEATHED_IDLE_MOTION) return { sheathed: true, offHandFree: 1 };
+  if (motion.name === SHEATHED_IDLE_MOTION || motion.name === SHEATHED_RUN_MOTION) return { sheathed: true, offHandFree: 1 };
   const kind = kindOf(motion.name);
   if (!kind) return { sheathed: false, offHandFree: 0 };
   const swap = motion.markers.swap ?? 0;

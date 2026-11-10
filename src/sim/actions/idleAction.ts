@@ -10,8 +10,15 @@ export const LAND_SOFT_MOTION = 'LandSoft';
 /** The Motion a Sheathed Fighter plays while Idle: empty hands, relaxed. */
 export const SHEATHED_IDLE_MOTION = 'SheathedIdle';
 
+/** The Motion a Sheathed Fighter plays while Idle and running forward: leaning into it, both arms trailing straight back. */
+export const SHEATHED_RUN_MOTION = 'SheathedRun';
+
+/** Whether `name` is a Motion an Idle Fighter in `f`'s state plays on its own: its Idle, or (Sheathed) the Sheathed run. */
+export const isIdleMotion = (f: Pick<FighterState, 'sheathed'>, name: string): boolean => name === idleMotionFor(f) || (f.sheathed && name === SHEATHED_RUN_MOTION);
+
 /**
  * The Motion an Idle Fighter plays: the Idle, or the Sheathed Idle while Sheathed. Handlers end their Actions on `IDLE_MOTION`, and the
- * Simulation swaps in the Sheathed Idle here (`stepFighter`, `land`), so no handler needs to know.
+ * Simulation swaps in the Sheathed Idle here (`stepFighter`, `land`), so no handler needs to know. `stepFighter` swaps in the Sheathed
+ * run instead while the Fighter runs forward.
  */
 export const idleMotionFor = (f: Pick<FighterState, 'sheathed'>): string => (f.sheathed ? SHEATHED_IDLE_MOTION : IDLE_MOTION.name);

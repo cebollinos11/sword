@@ -1,0 +1,127 @@
+{
+  "name": "SheathedRun",
+  "duration": 0.4,
+  "loop": true,
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": 0.33,
+          "y": 1.12,
+          "z": -0.27
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.33,
+          "y": 1.08,
+          "z": -0.27
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 40
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.86,
+        "z": -0.05
+      },
+      "leftFoot": {
+        "x": -0.1,
+        "z": 0
+      },
+      "rightFoot": {
+        "x": 0.1,
+        "z": 0
+      }
+    },
+    {
+      "time": 0.2,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": 0.33,
+          "y": 1.08,
+          "z": -0.27
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.33,
+          "y": 1.12,
+          "z": -0.27
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 42
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.86,
+        "z": -0.05
+      },
+      "leftFoot": {
+        "x": -0.1,
+        "z": 0
+      },
+      "rightFoot": {
+        "x": 0.1,
+        "z": 0
+      }
+    },
+    {
+      "time": 0.4,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": 0.33,
+          "y": 1.12,
+          "z": -0.27
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.33,
+          "y": 1.08,
+          "z": -0.27
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 40
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.86,
+        "z": -0.05
+      },
+      "leftFoot": {
+        "x": -0.1,
+        "z": 0
+      },
+      "rightFoot": {
+        "x": 0.1,
+        "z": 0
+      }
+    }
+  ]
+}

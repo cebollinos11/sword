@@ -1,5 +1,5 @@
 import { defaultWeaponName, sizedTuning, storedSize, weaponByName, type ArenaGeometry, type Size, type TuningData } from '../tuning';
-import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, updateAction, type ActionUpdate } from './actions';
+import { advanceBlockImpact, fall, IDLE_MOTION, IDLE_ACTION, idleMotionFor, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION, updateAction, type ActionUpdate } from './actions';
 import { advanceSlide } from './slide';
 import { resolveChambers } from './chamber';
 import { advanceDaggers, launchDagger } from './dagger';
@@ -204,8 +204,23 @@ function fly(f: FighterState, air: Airborne, intent: Intent, tuning: TuningData)
 /** What a ledge Fall does not replace: a Fall already, a forced Action (Stagger, Knockdown), or a Sheathe or Draw, which carries on in the air. */
 const keepsOnFalling = (update: ActionUpdate): boolean => ['Fall', 'Stagger', 'Knockdown', 'Sheathe', 'Draw'].includes(update.action.kind);
 
-/** A playback of the Idle Motion as the Fighter's own Idle plays it (the Sheathed Idle while `sheathed`); any other Motion as it is. */
-const idleAs = (m: MotionPlayback, sheathed: boolean): MotionPlayback => (m.name === IDLE_MOTION.name ? { ...m, name: idleMotionFor({ sheathed }) } : m);
+/**
+ * A playback of the Idle Motion as the Fighter's own Idle plays it (the Sheathed Idle while `sheathed`, or the Sheathed run while it also
+ * `running`, the playhead carrying on from one to the other); any other Motion as it is.
+ */
+function idleAs(m: MotionPlayback, sheathed: boolean, running = false): MotionPlayback {
+  if (m.name !== IDLE_MOTION.name && !(sheathed && (m.name === SHEATHED_IDLE_MOTION || m.name === SHEATHED_RUN_MOTION))) return m;
+  return { ...m, name: sheathed && running ? SHEATHED_RUN_MOTION : idleMotionFor({ sheathed }) };
+}
+
+/**
+ * Whether a Fighter walking from where it stands to `to` this Tick (before collision) runs forward: on the ground, the way it faces,
+ * at the Gait's run speed or more (which only a Sheathed Fighter reaches). Sideways and backward it keeps upright, however fast.
+ */
+function runsForward(f: FighterState, to: FighterState['position'], tuning: TuningData): boolean {
+  const forward = (to.x - f.position.x) * Math.sin(f.facing) + (to.z - f.position.z) * Math.cos(f.facing);
+  return forward >= tuning.gait.runSpeed * TICK_SECONDS - 1e-9;
+}
 
 /** Whether the Fighter jumps this Tick: Jump pressed while standing on the ground, Idle, Blocking or Attacking. */
 const jumps = (f: FighterState, intent: Intent): boolean =>
@@ -250,7 +265,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
     action: update.action,
     daggers: released ? f.daggers - 1 : f.daggers,
     sheathed,
-    motion: followMotion(tuning, f.weapon, f.motion, idleAs(update.motion, sheathed), update.blendTicks),
+    motion: followMotion(tuning, f.weapon, f.motion, idleAs(update.motion, sheathed, update.action.kind === 'Idle' && walked !== undefined && runsForward(f, walked, tuning)), update.blendTicks),
   };
   // The Slow counts down every Tick, in Stagger and in the air too; it is stripped, never stored, at zero.
   return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}), ...(slow && slow.ticks > 1 ? { slow: { ticks: slow.ticks - 1 } } : {}) };

@@ -8,5 +8,10 @@
   "hipBob": 0.03,
   "hipSway": 0.025,
   "hipTwist": 8,
-  "toeRoll": 25
+  "toeRoll": 25,
+  "runSpeed": 3.2,
+  "runStepDuration": 0.2,
+  "runContact": 0.65,
+  "runStepHeight": 0.3,
+  "runBob": 0.04
 }
