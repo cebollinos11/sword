@@ -181,8 +181,14 @@ export class Renderer {
 
   /** A new Match: every Fighter no player chose a Body for is dressed afresh in a random model. */
   recast(): void {
-    for (const slot of this.views) if (slot) this.stage.scene.remove(slot.view.root);
+    for (const slot of this.views) if (slot) this.drop(slot.view);
     this.views.length = 0;
+  }
+
+  /** Take a Fighter's view out of the scene and free what it made (its materials, and the pieces of a cut Body). */
+  private drop(view: FighterView): void {
+    this.stage.scene.remove(view.root);
+    view.dispose();
   }
 
   /**
@@ -211,7 +217,7 @@ export class Renderer {
       // A slot fading out keeps the view it was drawn with.
       if (!slot || (poses[i] && (slot.colour !== colours[i] || slot.body !== body))) {
         // First sight of this Fighter, a new Match put another team in its slot, or it changed Body.
-        if (slot) this.stage.scene.remove(slot.view.root);
+        if (slot) this.drop(slot.view);
         slot = { view: new FighterView(colours[i]!, this.tuning, body), colour: colours[i]!, body, chosen };
         this.views[i] = slot;
         this.stage.scene.add(slot.view.root);

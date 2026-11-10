@@ -2,14 +2,14 @@
 
 > Built one Stage per session with `docs/plans/dismemberment-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask.
 
-Status: Stages 1 to 3 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces; the bare Skeleton drawn in pieces in the game, the sandbox and the bench). Skinned Bodies still fall whole (following the piece with the pelvis); Stage 4 next.
+Status: Stages 1 to 4 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces; the bare Skeleton drawn in pieces; the skinned Body models split along the cut and capped with flesh, in the game, the sandbox and the bench). Stage 5 (blood from the stumps, and the docs) next.
 
 ## Progress
 
 - [x] Stage 1: the Simulation records the cut (sections 1 and 6's ADR)
 - [x] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
 - [x] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
-- [ ] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
+- [x] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
 - [ ] Stage 5: blood from the stumps, and the docs (sections 5 and 6)
 
 ## Context
@@ -136,6 +136,27 @@ Built as section 4's bare Skeleton part, plus `piecePoses` from section 3. Visib
 - **Split time:** nothing is split yet (Stage 4); `piecePoses` is a few hundred multiplications per new ragdoll step.
 - **Tests:** `dismember.test.ts` +6 (`piecePoses`: whole body, own joints where they lie, the rebuilt end along its stump at its length, every bone of every piece keeps its length, the pose it fell in on the Death's Tick, the same every time), `ragdoll.test.ts` +5 (still whole before the Death). Fast suite 2220 passed, 5 skipped. Nothing in `src/sim` or `src/net` changed.
 - **Try in `npm run dev`:** `?body=skeleton`, Editor → Duel sandbox → script "Kill", vary Direction, distance, Weapon and Sizes; scrub back and forth over the Death. In a Duel or Run at `?body=skeleton`, a sword's killing Left or Right cuts.
+
+### Stage 4 result
+
+Built as section 4's skinned Body part. Every Body model now falls in pieces, cut along the plane, with flesh over the cut ends.
+
+- **`src/render/meshCut.ts`** (pure, plain arrays, no three.js): `skinned` (CPU skinning), `cutMesh(mesh, plan) → PieceMesh[]`, `dropScraps`, `capOf`. `CutPlan = { pieceOfBone, cuts: BoneCut[], pieces }`, `BoneCut = { bone, beside?, at, normal, along, reach, pieces }`.
+- **Which piece a vertex goes to:** its heaviest bone's. On the severed bone itself the plane decides within `reach` of the cut; beyond it, how far along the bone the vertex is (a bent limb may come back across the plane). A vertex of another bone goes across only if it has at least `ON_BONE` (0.3) of its weight on the severed bone and is within reach. **Deviations:** (1) `reach` is 3 girths (`REACH` in `bodyCut.ts`, girth = the bone's Hit Zone radius, `girth()` in `dismember.ts`), not one: an oblique cut meets the surface further out. (2) The hips are `beside` the spine: a waist cut parts their vertices by the plane too, else a low cut left a ragged edge all round.
+- **Triangles:** all in one piece, or clipped by the cut that parts their corners (new vertices take interpolated position, normal, UV and weights). Where no plane parts a triangle (weights and plane disagree, off the limb), it goes whole to the piece most of it is in, the odd corner skinned as one of the others, so it cannot stretch.
+- **Weights:** a vertex is weighted only to bones of its own piece (a severed bone belongs to both its pieces); weight on a bone of another piece moves onto the severed bone toward it. What is left of a severed bone holds nothing beyond its cut end (a robe hanging between the legs does not swing with a thigh's stump).
+- **Deviation, posed space instead of bind space:** the pieces keep their vertices where they stood in the pose the Fighter fell in, and are bound to the bones as they stood then (`THREE.Skeleton` with those inverses). Same result as writing them back into bind space, with no per-vertex matrix inverse, and on the Death's Tick the pieces make up exactly the whole body (no pop).
+- **Scraps (`dropScraps`, deviation: some surface is dropped):** a part joined to nothing else across all the Body's meshes, clipped by a cut and lying within a girth of its plane, is dropped. Found by eye: the hem of the monk's cowl hung in the air as a ring.
+- **Flesh (`capOf`):** the clipped edges of all the Body's meshes, chained where their ends meet, each chain fanned from its middle and facing out of its piece. A chain open by more than a quarter of its length (a tabard's edge) gets none. Material: the view's `fleshMaterial()`.
+- **`src/render/bodyCut.ts`:** `cutPlan(boneNames, pieces)` (pure) and `BodyCut` (one `SkeletonUtils.clone` of the model per piece, its meshes' geometry replaced, a `BodyRig` each, posed by `pieces.poses[p]`). `BodyRig`'s constructor takes `like`, the rig a posed copy takes its bones' turns from.
+- **`Pieces`** gained `fellIn` (the pose as drawn on the Death's Tick) and `severed` (each with its `girth`); `piecesOfFall(fellIn, fall, severed, tuning)`.
+- **`FighterView`:** cuts its model the first time it is asked for a cut and keeps it while the cut is the same (compared by value: bones, places, pose, Size), so scrubbing over a Death cuts once; before the Death the whole model is shown again. `Renderer` now disposes a view it drops (it never did), which frees the pieces.
+- **`piecePoses` amended:** joints that ride along with a severed bone are now also rolled about it as the piece rolled (measured on the piece's own joint nearest the cut, off the bone's line). Before, a Body's stump could be wrung against its piece; the bare Skeleton never showed it.
+- **Split time:** 13 to 23 ms per Death (median of 20, 3 pieces) on asturian and duelist, 9 to 16 ms on monk, in headless software-GL Chromium: about one frame, once per Death. Not spread over the lodge Ticks.
+- **Checked in the browser** (sandbox "Kill", screenshots at the Death, 10 Ticks on and settled from four sides, scrubbed back): monk, duelist, female, templar and asturian; Arming Sword Left, Right and Overhead, a neck cut, a thigh cut, Longsword Left and Right, Halberd Left and Right; Thrust and Sledge Hammer whole. Caps closed, pieces on the floor, whole again before the Death, no console errors.
+- **Known limits:** (1) a long robe or skirt on the hips' half after a thigh or waist cut can crumple into short spikes: that half has no hip limits (Stage 2), so its legs fold further than in life. (2) Where the weights and the plane disagree (an armpit under a high chest cut, a very steep cut on a wide sleeve) the edge is ragged and has no flesh. (3) Separate hollow shells (a sleeve, a boot top) are each closed with their own flesh disc.
+- **Tests:** `meshCut.test.ts` (19: area kept, every vertex in one piece on its side, own-piece weights, clipped UV/normal/weights, caps closed, several meshes, two cuts, reach, beside, stumps, scraps, open chains, `skinned`), `bodyCut.test.ts` (2: `cutPlan`; the pieces make up the whole body on the Death's Tick, then part without stretching), `dismember.test.ts` +1 (the roll). Fast suite 2241 passed, 5 skipped. Nothing in `src/sim` or `src/net` changed.
+- **Try in `npm run dev`:** Editor → Duel sandbox → script "Kill" with `?body=monk`, `duelist`, `asturian`...; vary Direction, distance, Weapon and Sizes; scrub over the Death. In a Duel, Run or Battle a sword's killing Left or Right cuts the body in two.
 
 ## Verification
 

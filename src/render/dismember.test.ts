@@ -210,3 +210,21 @@ describe('piecePoses', () => {
     expect(piecePoses(pose, fallOf(down, 1.1))).toEqual(piecePoses(pose, fallOf(down, 1.1)));
   });
 });
+
+describe('piecePoses, a piece that rolls', () => {
+  it('rolls the joints that ride along about the severed bone as the piece itself rolled', () => {
+    // The hips' half of a body cut at the waist, turned a quarter round the spine (which is upright): what rides along turns with it.
+    const severed = severing(pose, level(1.2, -0.36), tuning).filter((s) => s.bone[0] === 'pelvis');
+    expect(severed).toHaveLength(1);
+    const { pelvis } = pose.joints;
+    const quarter = (p: Vec3): Vec3 => ({ x: pelvis.x + (p.z - pelvis.z), y: p.y, z: pelvis.z - (p.x - pelvis.x) });
+    const piece = pieceOf(severed);
+    const joints = Object.fromEntries(JOINT_NAMES.map((n) => [n, piece[n] === 0 ? quarter(pose.joints[n]) : pose.joints[n]])) as typeof pose.joints;
+    const fall = { joints, blade: pose.blade, stumps: [{ bone: severed[0]!.bone, ends: [quarter(severed[0]!.at), severed[0]!.at] as const }] };
+    const [hips] = piecePoses(pose, fall);
+    for (const n of JOINT_NAMES) {
+      const want = quarter(pose.joints[n]);
+      expect(Math.hypot(hips!.joints[n].x - want.x, hips!.joints[n].y - want.y, hips!.joints[n].z - want.z)).toBeLessThan(1e-9);
+    }
+  });
+});

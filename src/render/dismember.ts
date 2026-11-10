@@ -162,6 +162,9 @@ export function piecesOf(severed: readonly Severed[], stumpsFrom: number): { pie
   return { piece, pieces };
 }
 
+/** A joint this far (m) off a severed bone's line tells how its piece has rolled about that bone. */
+const OFF_AXIS = 0.03;
+
 /** Every link of the Skeleton, severable or not: a tree over `JOINT_NAMES`. */
 const LINKS: readonly (readonly [JointName, JointName])[] = [...SEVERABLE.map(([a, b]) => [a, b] as const), ...WHOLE];
 
@@ -188,7 +191,8 @@ function turn(from: Vec3, to: Vec3, v: Vec3): Vec3 {
  * The Death Ragdoll `fall` of a Fighter that fell in `fellIn`, as one whole Skeleton pose per piece (numbered as
  * `pieceOf`), so a skinned Body's piece can be posed by its own: the piece's joints where they lie, and each severed
  * bone's missing end rebuilt from its stump (its own joint, out through the cut end, at the bone's length). The joints of
- * the other pieces ride along with that rebuilt bone rigidly, as they were in `fellIn`, so every bone keeps its length.
+ * the other pieces ride along with that rebuilt bone rigidly, as they were in `fellIn` (turned as the bone turned, and
+ * rolled about it as the piece rolled, so a Body's stump is not wrung against its piece), so every bone keeps its length.
  * All share the fall's Weapon. A whole body (no `stumps`) is one piece: `[fall]`.
  */
 export function piecePoses(fellIn: SkeletonPose, fall: RagdollPose, piece: Readonly<Record<JointName, number>> = pieceOf(fall.stumps ?? [])): SkeletonPose[] {
@@ -229,9 +233,26 @@ export function piecePoses(fellIn: SkeletonPose, fall: RagdollPose, piece: Reado
           const end = along(joints[j], dir, len);
           const unit = { x: from.x / len, y: from.y / len, z: from.z / len };
           const base = was[other];
+          // The piece may also have rolled about the bone: as far as its own joint nearest the cut, off the bone's line, has swung round it.
+          let roll = 0;
+          let nearest = Infinity;
+          for (const n of JOINT_NAMES) {
+            if (piece[n] !== k || n === j) continue;
+            const off = sub(was[n], was[j]);
+            const across = along(off, unit, -dot(off, unit));
+            if (length(across) < OFF_AXIS || length(off) >= nearest) continue;
+            nearest = length(off);
+            const now = sub(fall.joints[n], joints[j]);
+            const lies = along(now, dir, -dot(now, dir));
+            const stood = turn(unit, dir, across);
+            roll = Math.atan2(dot(cross(stood, lies), dir), dot(stood, lies));
+          }
+          const [c, sn] = [Math.cos(roll), Math.sin(roll)];
           carry = (p: Vec3) => {
-            const r = turn(unit, dir, sub(p, base));
-            return { x: end.x + r.x, y: end.y + r.y, z: end.z + r.z };
+            const t = turn(unit, dir, sub(p, base));
+            const side = cross(dir, t);
+            const up = dot(dir, t) * (1 - c);
+            return { x: end.x + t.x * c + side.x * sn + dir.x * up, y: end.y + t.y * c + side.y * sn + dir.y * up, z: end.z + t.z * c + side.z * sn + dir.z * up };
           };
         }
         joints[other] = carry(was[other]);
@@ -243,19 +264,36 @@ export function piecePoses(fellIn: SkeletonPose, fall: RagdollPose, piece: Reado
   });
 }
 
+/** How thick a severable bone is: its Hit Zone's radius in `tuning` (the Fighter's own, `sizedTuning`); a limb's for any other bone. */
+export function girth(bone: readonly [JointName, JointName], tuning: TuningData): number {
+  const zone = SEVERABLE.find(([a, b]) => a === bone[0] && b === bone[1])?.[2] ?? 'limbs';
+  return tuning.hitZones[zone].radius;
+}
+
+/** A severed bone as a skinned Body's mesh is cut by it: with how thick the bone is (`girth`). */
+export interface SeveredLimb extends Severed {
+  readonly girth: number;
+}
+
 /**
  * A Fighter's Death Ragdoll in pieces, as drawn: which piece each joint is in (`pieceOf`), the cut ends as they lie,
- * and one pose per piece (`piecePoses`).
+ * and one pose per piece (`piecePoses`). For a skinned Body, whose mesh is cut once as it stood on the Death's Tick
+ * (`bodyCut.ts`): the pose it fell in, and its severed bones as cut in that pose (in the order of `stumps`).
  */
 export interface Pieces {
   readonly piece: Readonly<Record<JointName, number>>;
   readonly stumps: readonly Stump[];
   readonly poses: readonly SkeletonPose[];
+  readonly fellIn: SkeletonPose;
+  readonly severed: readonly SeveredLimb[];
 }
 
-/** The pieces of `fall`, the Death Ragdoll of a Fighter that fell in `fellIn` (one piece if it has no `stumps`). */
-export function piecesOfFall(fellIn: SkeletonPose, fall: RagdollPose): Pieces {
+/**
+ * The pieces of `fall`, the Death Ragdoll of a Fighter that fell in `fellIn` with `severed` bones (as given to
+ * `ragdollPose`); `tuning` is the Fighter's own (`sizedTuning`).
+ */
+export function piecesOfFall(fellIn: SkeletonPose, fall: RagdollPose, severed: readonly Severed[], tuning: TuningData): Pieces {
   const stumps = fall.stumps ?? [];
   const piece = pieceOf(stumps);
-  return { piece, stumps, poses: piecePoses(fellIn, fall, piece) };
+  return { piece, stumps, poses: piecePoses(fellIn, fall, piece), fellIn, severed: severed.map((s) => ({ ...s, girth: girth(s.bone, tuning) })) };
 }
