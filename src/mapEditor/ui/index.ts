@@ -43,10 +43,12 @@ import { BATTLE_SKIES, BRUSH_KINDS, MAP_MATERIALS, PROP_KINDS, SIDES, type Battl
 import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
-import { TopView, type Tool } from './topView';
+import { PANEL_PX, TopView, type Tool } from './topView';
 import { View3D } from './view3d';
 
 /** How long (ms) after an edit the source is checked again, and the navmesh and the fields' clearance built (they are slower). */
+/** The views the editor can show: the top view, the 3D view, or both side by side. */
+type ViewMode = 'top' | '3d' | 'split';
 const CHECK_AFTER = 120;
 const MEASURE_AFTER = 700;
 
@@ -162,7 +164,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     example: '',
     status: 'Pick a tool and drag on the grid to draw a Brush. Select: click to pick, drag to move (an Objective, a Base or a front line too), drag a yellow handle to resize. Right-drag or drag empty ground to pan, wheel to zoom.',
     cursor: '',
-    view: 'top' as 'top' | '3d',
+    view: 'top' as ViewMode,
     cost: '',
     mode: 'spectate' as PlaytestMode,
     speed: 1,
@@ -204,6 +206,23 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
 
   view.objectiveRadii = tuning.battle.objectives;
   const view3d = new View3D(container);
+  /**
+   * Lay the views out for `mode`: one of them over the whole container, or (split) the top view on the left half and the 3D view on the
+   * right half, left of the panel. Editing stays in the top view; the 3D view follows the checks as they run.
+   */
+  const layoutViews = (mode: ViewMode) => {
+    const split = mode === 'split';
+    // A canvas sizes by its width, not its left and right edges: each is given one.
+    view3d.canvas.style.left = split ? '50%' : '0';
+    view3d.canvas.style.width = split ? `calc(50% - ${PANEL_PX}px)` : '100%';
+    view.canvas.style.width = split ? '50%' : '100%';
+    view.canvas.style.visibility = mode === '3d' ? 'hidden' : 'visible';
+    view.shown = mode !== '3d';
+    view.panelPx = split ? 0 : PANEL_PX;
+    list.style.width = split ? 'min(620px,calc(50% - 16px))' : 'min(620px,calc(100% - 370px))';
+    view3d.show(mode !== 'top');
+    view.frame(session.source);
+  };
 
   // --- The live checks ----------------------------------------------------
   /** The checks of the source as it last was, how long they took, and the fields' clearance and navmesh time for them once measured. */
@@ -293,7 +312,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view.clearance = overlays.clearance ? clearance : null;
     view.levels = tuning.battle.levels;
     view.redraw();
-    if (ui.view === '3d' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels, ui.look3d ? lookModel(checks) : null);
+    if (ui.view !== 'top' && checks) view3d.update(checks, overlays, overlays.clearance ? clearance : null, tuning.battle.levels, ui.look3d ? lookModel(checks) : null);
   };
   const runChecks = () => {
     window.clearTimeout(checkTimer);
@@ -919,11 +938,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
 
   // --- Checks and overlays ------------------------------------------------
   const checksFolder = pane.addFolder({ title: 'Checks', index: 4 });
-  checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d' } }).on('change', (e) => {
+  checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d', 'split (top | 3D)': 'split' } }).on('change', (e) => {
     if (syncing) return;
-    view3d.show(e.value === '3d');
-    view.shown = e.value !== '3d';
-    view.canvas.style.visibility = e.value === '3d' ? 'hidden' : 'visible';
+    layoutViews(e.value);
     drawChecks();
   });
   const overlayChanged = () => {

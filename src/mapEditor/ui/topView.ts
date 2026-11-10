@@ -53,7 +53,7 @@ const TWIN = '#5ee0ff';
 /** The Teams' colours (Team 0, Team 1), as the markers are drawn. */
 const TEAM = ['#e0c040', '#4080e0'];
 /** The width (px) the panel covers on the right, and the share of the height the list of checks may cover at the bottom. */
-const PANEL_PX = 340;
+export const PANEL_PX = 340;
 const LIST_SHARE = 0.36;
 
 interface Gesture {
@@ -88,6 +88,8 @@ export class TopView {
   private flashing = false;
   /** False while the 3D view covers it: nothing is drawn, nor flashes. */
   shown = true;
+  /** How much of the canvas's right side (px) the panel covers, which framing leaves clear (none when the 3D view sits beside it, in split). */
+  panelPx = PANEL_PX;
   /** Each Walk Surface's lowest and highest point, and their order from the lowest top, for the checks they were worked out for. */
   private spans: { readonly of: MapChecks; readonly span: readonly { lo: number; hi: number }[]; readonly order: readonly number[] } | null = null;
 
@@ -119,22 +121,22 @@ export class TopView {
 
   /** Fit the whole field in the view, left of the panel and above the list of checks (so Team 0's Base and front line are in reach). */
   frame(source: MapSource): void {
-    const w = Math.max(200, (this.canvas.clientWidth || 800) - PANEL_PX);
+    const w = Math.max(200, (this.canvas.clientWidth || 800) - this.panelPx);
     const h = this.canvas.clientHeight || 600;
     const open = h * (1 - LIST_SHARE);
     const scale = (0.94 * Math.min(w, open)) / source.size;
-    this.view = { cx: -PANEL_PX / 2 / scale, cz: -(h / 2 - open / 2) / scale, scale };
+    this.view = { cx: -this.panelPx / 2 / scale, cz: -(h / 2 - open / 2) / scale, scale };
     this.redraw();
   }
 
   /** Fit `rect` (an issue's Brushes) in the view, left of the panel and above the list of checks (`LIST_SHARE` of the height), with room round it. */
   frameRect(rect: Rect): void {
-    const w = Math.max(200, (this.canvas.clientWidth || 800) - PANEL_PX);
+    const w = Math.max(200, (this.canvas.clientWidth || 800) - this.panelPx);
     const h = this.canvas.clientHeight || 600;
     const open = h * (1 - LIST_SHARE);
     const span = Math.max(8, rect.x1 - rect.x0, rect.z1 - rect.z0) * 1.4;
     const scale = Math.min(200, Math.min(w, open) / span);
-    this.view = { cx: (rect.x0 + rect.x1) / 2 - PANEL_PX / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
+    this.view = { cx: (rect.x0 + rect.x1) / 2 - this.panelPx / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
     this.redraw();
   }
 
