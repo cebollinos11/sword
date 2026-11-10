@@ -57,8 +57,8 @@ export interface MapIssue {
   readonly at?: GroundPoint;
 }
 
-/** How the walk check sees a Walk Surface: reached both ways, not walked to from the first, walked to but no way back, or deadly (never walked to). */
-export type SurfaceReach = 'reached' | 'unreached' | 'stranded' | 'deadly';
+/** How the walk check sees a Walk Surface: reached both ways, not walked to from the first, walked to but no way back, deadly (never walked to), or a roof (Soldiers need not reach it). */
+export type SurfaceReach = 'reached' | 'unreached' | 'stranded' | 'deadly' | 'roof';
 
 /** How a Soldier crosses a Walk Surface's edge (see the file's head). */
 export type EdgeKind = 'walk' | 'drop' | 'wall' | 'ledge';
@@ -183,7 +183,7 @@ export function checkMap(source: MapSource, tuning: Pick<TuningData, 'battle' | 
   close();
 
   // Reachability, one error a Brush.
-  const reachOf: SurfaceReach[] = map.walk.map((w, i) => (deadly(w) ? 'deadly' : !reach.there[i] ? 'unreached' : !reach.home[i] ? 'stranded' : 'reached'));
+  const reachOf: SurfaceReach[] = map.walk.map((w, i) => (deadly(w) ? 'deadly' : w.roof ? 'roof' : !reach.there[i] ? 'unreached' : !reach.home[i] ? 'stranded' : 'reached'));
   const firstId = reach.first >= 0 ? map.walk[reach.first]!.id : '';
   const lost = new Map<string, { unreached: string[]; stranded: string[] }>();
   reachOf.forEach((r, i) => {
@@ -276,7 +276,7 @@ export function checkMap(source: MapSource, tuning: Pick<TuningData, 'battle' | 
     return [...out].sort((p, q) => order.get(p)! - order.get(q)!);
   };
   for (const o of source.objectives) {
-    const s = groundNear(arena, lv, o.x, o.z, o.y ?? Infinity);
+    const s = groundNear(arena, lv, o.x, o.z, o.y ?? Infinity, true);
     const at = { x: o.x, z: o.z };
     const say = (message: string, severity: MapIssue['severity'] = 'warning') => {
       // The floor it stands on first (the one to select), then the others there.
@@ -298,11 +298,11 @@ export function checkMap(source: MapSource, tuning: Pick<TuningData, 'battle' | 
       if (Math.abs(h - o.y) > lv.stepUp + EPS) say(`names its floor at y ${o.y}, but there is none there: it stands on ${surfaceBrush[s]} at ${round(h)} m.`);
       continue;
     }
-    const others = surfacesAt(arena, o.x, o.z).filter((t) => !deadly(map.walk[t]!) && Math.abs(surfaceHeight(arena, t, o.x, o.z) - h) > lv.stepUp + EPS);
+    const others = surfacesAt(arena, o.x, o.z).filter((t) => !deadly(map.walk[t]!) && !map.walk[t]!.roof && Math.abs(surfaceHeight(arena, t, o.x, o.z) - h) > lv.stepUp + EPS);
     if (others.length > 0) say(`stands over ${others.length + 1} levels without its y: it takes the highest (${surfaceBrush[s]} at ${round(h)} m), and only Soldiers on that level take it. Set its y to choose another.`, 'note');
   }
   map.bases.forEach((p, t) => {
-    const s = groundNear(arena, lv, p.x, p.z, Infinity);
+    const s = groundNear(arena, lv, p.x, p.z, Infinity, true);
     if (s >= 0 && !deadly(map.walk[s]!)) return;
     issues.push({ severity: 'warning', kind: 'base', message: `Team ${t}'s Base ${s < 0 ? 'has no floor under it' : `stands on deadly ground (${surfaceBrush[s]})`}: its Squads fall back and respawn there.`, brushes: brushesAt(p.x, p.z), base: t as 0 | 1, at: { x: p.x, z: p.z } });
   });
@@ -450,7 +450,7 @@ export function fieldClearance(checks: MapChecks, battle: BattleTuning): { reado
       if (fields.blocked[c]) continue;
       const x = ((c % side) - mid) * cell;
       const z = (Math.floor(c / side) - mid) * cell;
-      const s = groundNear(field.arena, battle.levels, x, z, Infinity);
+      const s = groundNear(field.arena, battle.levels, x, z, Infinity, true);
       node(c, s >= 0 ? surfaceHeight(field.arena, s, x, z) : 0, fields.clearance ? fields.clearance[c]! : Infinity);
     }
   return { cell, nodes };

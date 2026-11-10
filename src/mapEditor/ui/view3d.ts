@@ -151,7 +151,7 @@ export class View3D {
     }
     // The Objectives and the Bases, standing where the Battlefield stands them.
     const post = (x: number, z: number, y: number | undefined, colour: number, height: number) => {
-      const s = groundNear(draft.arena, lv, x, z, y ?? Infinity);
+      const s = groundNear(draft.arena, lv, x, z, y ?? Infinity, true);
       const at = s >= 0 ? surfaceHeight(draft.arena, s, x, z) : 0;
       const m = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, height, 10), new THREE.MeshLambertMaterial({ color: colour }));
       m.position.set(x, at + height / 2, z);

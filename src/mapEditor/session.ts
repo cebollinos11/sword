@@ -31,7 +31,7 @@ import type { RepoFile } from '../editor/session';
 import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
 import { compileMap, list, mapFileText, MapCompileError, type CompileWarning } from './compile';
 import { brushesTwin, inMirrorOrder, objectivesTwin, propsTwin, turnBrush, turnObjective, turnPoint, turnProp } from './mirror';
-import { parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
+import { DOOR_WIDTH, enclosureTop, parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
 
 /** The most undo steps kept. */
 const UNDO_DEPTH = 200;
@@ -72,7 +72,7 @@ export function blankSource(name = 'newmap'): MapSource {
   };
 }
 
-/** The levels a Brush is drawn at: its floor's, both of a Ramp's, and a Wall's or Block's floor (the highest level under its top, at or under a Wall's foot + 1 m). */
+/** The levels a Brush is drawn at: its floor's, both of a Ramp's or an Enclosure's (its floor and its roof), and a Wall's or Block's floor (the highest level under its top, at or under a Wall's foot + 1 m). */
 export function brushLevels(b: Brush, levels: readonly number[]): number[] {
   switch (b.kind) {
     case 'floor':
@@ -83,6 +83,10 @@ export function brushLevels(b: Brush, levels: readonly number[]): number[] {
       return [b.y];
     case 'platform':
       return [b.top];
+    case 'enclosure': {
+      const top = enclosureTop(b, levels);
+      return top === null ? [b.y] : [b.y, top];
+    }
     case 'ramp':
       return levels.filter((y) => y === b.lo || y === b.hi);
     case 'wall':
@@ -487,6 +491,15 @@ export class MapEditorSession {
         case 'platform':
           brush = { kind, id, rect, top: this.rise().hi };
           break;
+        case 'enclosure': {
+          if (enclosureTop({ y }, this.current.levels) === null) throw new TuningDataError(`an Enclosure's ceiling is the level above its floor: draw it on a lower level, or add a level above ${y} m`);
+          // A doorway on every side, as wide as the side allows.
+          const width = (len: number) => Math.min(DOOR_WIDTH, len);
+          const ns = width(rect.x1 - rect.x0);
+          const ew = width(rect.z1 - rect.z0);
+          brush = { kind, id, rect, y, doors: { n: ns, e: ew, s: ns, w: ew } };
+          break;
+        }
         case 'block':
           // The Simulation stands a Block's Walls from -1 m to its top: its top is a height over 0.
           if (y + NEW_HEIGHT <= 0) throw new TuningDataError(`a Block's top is a height over 0 (its Walls stand from -1 m): draw it on a level over ${-NEW_HEIGHT} m, or draw a Platform`);

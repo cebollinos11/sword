@@ -4,7 +4,7 @@
  * (`stage.ts` `battle()`). Render-only: the compiled map is what the Simulation reads; this only draws it.
  *
  * Built from the compiled draft (`compileDraft`), so it stands exactly where the Walk Surfaces and Walls do, each part in its Brush's material
- * (`look.ts`): every Walk Surface (a Hazard's in its own look), a Deck as a slab, each Wall the compiler stood (a Platform's and a raised
+ * (`look.ts`): every Walk Surface (a Hazard's in its own look), a Deck and an Enclosure's roof as a slab, each Wall the compiler stood (a Platform's and a raised
  * floor's faces, the skirts under raised edges, Rails, Walls) as a box on its line, each bank with no Wall (over lava) down to the floor beyond, each Ramp's open sides as its wedge (in place of the
  * stepped skirt the Simulation stands there), each Block as its box, the ground run on beyond the field's edge into the haze, then the props
  * (`mapProps.ts`) and their torches' lights. One mesh per material. The root carries the map's sky (`userData.sky`), read back once loaded.
@@ -56,6 +56,9 @@ const sideLook = (look: MaterialLook): MaterialLook => (look === MATERIAL_LOOKS.
 /** Whether the Wall `id` (owned by the Ramp `ramp`) is one step of its stepped skirt (`WALL_<ramp>_<side><n>`; its rail has no number). */
 const isSkirt = (id: string, ramp: string): boolean => new RegExp(`^WALL_${ramp}_[nesw]\\d+$`).test(id);
 
+/** Whether the floor at `y` that Brush `b` lays is drawn as a slab over open space: a Deck's, and an Enclosure's roof. */
+const isSlab = (b: Brush, y: number): boolean => b.kind === 'deck' || (b.kind === 'enclosure' && y > b.y + LEVEL_EPS);
+
 /** The model of `source` as compiled (`draft`, from `compileDraft(source, …)`): a group of one mesh per material, the torches' lights, and its sky. */
 export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   const buckets = new MeshBuckets();
@@ -71,7 +74,7 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     const owner = brushes.get(draft.surfaceBrush[i]!);
     const look = w.lava ? HAZARD_LOOKS.lava : w.water ? HAZARD_LOOKS.water : w.abyss ? HAZARD_LOOKS.abyss : lookOf(draft.surfaceBrush[i]!);
     buckets.polygon(look, w.points);
-    if (owner?.kind !== 'deck') return;
+    if (!owner || !isSlab(owner, w.points[0]!.y)) return;
     const under = w.points.map((p) => ({ x: p.x, y: p.y - DECK_SLAB, z: p.z }));
     buckets.polygon(look, [...under].reverse());
     w.points.forEach((p, k) => {
@@ -84,7 +87,7 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   // up), its side down to the floor beyond, so no gap shows under it. Not a Ramp's (its wedge) nor a Deck's (its slab, over open space).
   map.walk.forEach((w, i) => {
     const owner = brushes.get(draft.surfaceBrush[i]!);
-    if (!owner || owner.kind === 'ramp' || owner.kind === 'deck' || w.lava || w.water || w.abyss) return;
+    if (!owner || owner.kind === 'ramp' || isSlab(owner, w.points[0]!.y) || w.lava || w.water || w.abyss) return;
     const look = sideLook(lookOf(owner.id));
     const cx = w.points.reduce((t, p) => t + p.x, 0) / w.points.length;
     const cz = w.points.reduce((t, p) => t + p.z, 0) / w.points.length;
@@ -129,7 +132,7 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     const owner = brushes.get(id);
     if (!owner) return;
     if (owner.kind === 'ramp' && isSkirt(w.id, owner.id)) return;
-    const thick = owner.kind === 'wall' ? THICKNESS.wall : owner.kind === 'rail' || owner.kind === 'ramp' ? THICKNESS.rail : THICKNESS.face;
+    const thick = owner.kind === 'wall' || owner.kind === 'enclosure' ? THICKNESS.wall : owner.kind === 'rail' || owner.kind === 'ramp' ? THICKNESS.rail : THICKNESS.face;
     buckets.slab(lookOf(id), w.a, w.b, w.bottom, w.top, thick);
   });
 

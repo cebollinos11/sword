@@ -39,7 +39,7 @@ import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
 import { fortPortSource } from '../fortPort.testdata';
 import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
-import { BATTLE_SKIES, BRUSH_KINDS, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
+import { BATTLE_SKIES, BRUSH_KINDS, DOOR_WIDTH, enclosureTop, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
 import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
@@ -66,10 +66,11 @@ const TOOL_LABELS: Record<Tool, string> = {
   rail: 'Rail (L)',
   wall: 'Wall (W)',
   block: 'Block (B)',
+  enclosure: 'Enclosure (E): a room',
   objective: 'Objective (O): click to place',
   prop: 'Prop (T): click to place',
 };
-const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', o: 'objective', t: 'prop' };
+const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', e: 'enclosure', o: 'objective', t: 'prop' };
 
 /** The sky choices as the Look folder shows them: each the look of an existing Arena or of the Battlefield. */
 const SKY_LABELS: Record<BattleSky, string> = { dusk: 'dusk (the Battlefield)', mystic: 'mystic space (the Kit)', sunset: 'wasteland sunset (the train)', fog: 'sea fog (the ship)', snow: 'snowstorm (the summit)', ember: 'lava glow (the chamber)' };
@@ -95,6 +96,15 @@ interface BrushProps {
   hazard: HazardKind;
   height: number;
   bottom: number;
+  /** An Enclosure's doorways: whether each side has one, and its width (m). */
+  doorN: boolean;
+  doorE: boolean;
+  doorS: boolean;
+  doorW: boolean;
+  widthN: number;
+  widthE: number;
+  widthS: number;
+  widthW: number;
   /** The Brush's material, or '' for its kind's own. */
   material: MapMaterial | '';
 }
@@ -112,6 +122,14 @@ function propsOf(b: Brush, into: BrushProps): BrushProps {
   if (b.kind === 'hazard') into.hazard = b.hazard;
   if (b.kind === 'rail') into.height = b.height;
   if (b.kind === 'wall') into.bottom = b.bottom;
+  if (b.kind === 'enclosure')
+    for (const s of SIDES) {
+      const k = DOOR_KEYS[s];
+      into[k.door] = b.doors[s] !== undefined;
+      // A side with no doorway keeps the width it last had (or a new one's), for when it is opened again.
+      if (b.doors[s] !== undefined) into[k.width] = b.doors[s];
+      else if (!(into[k.width] > 0)) into[k.width] = DOOR_WIDTH;
+    }
   into.material = b.material ?? '';
   return into;
 }
@@ -145,8 +163,18 @@ function shapeFromProps(kind: BrushKind, p: BrushProps): Brush {
       return { kind, id: p.id, a, b, y: p.y, height: p.height };
     case 'wall':
       return { kind, id: p.id, a, b, bottom: p.bottom, top: p.top };
+    case 'enclosure':
+      return { kind, id: p.id, rect, y: p.y, doors: Object.fromEntries(SIDES.filter((s) => p[DOOR_KEYS[s].door]).map((s) => [s, p[DOOR_KEYS[s].width]])) };
   }
 }
+
+/** The panel's keys for each side's doorway (an Enclosure's). */
+const DOOR_KEYS: Readonly<Record<Side, { door: 'doorN' | 'doorE' | 'doorS' | 'doorW'; width: 'widthN' | 'widthE' | 'widthS' | 'widthW' }>> = {
+  n: { door: 'doorN', width: 'widthN' },
+  e: { door: 'doorE', width: 'widthE' },
+  s: { door: 'doorS', width: 'widthS' },
+  w: { door: 'doorW', width: 'widthW' },
+};
 
 const SIDE_LABELS: Record<Side, string> = { n: 'north (+z)', e: 'east (+x)', s: 'south (-z)', w: 'west (-x)' };
 
@@ -641,7 +669,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const buildBrush = () => {
     const sel = session.selection;
     const levels = session.source.levels;
-    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : ''}|${levels.join(',')}|${session.source.grid.step}|${sel.twin ?? ''}` : '';
+    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : sel.kind === 'enclosure' ? sel.y : ''}|${levels.join(',')}|${session.source.grid.step}|${sel.twin ?? ''}` : '';
     if (key === brushKey && brushFolder) {
       if (sel) propsOf(sel, props);
       syncing = true;
@@ -706,6 +734,15 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
         f.addBinding(props, 'bottom', { label: 'bottom (m)', step: 0.5 });
         f.addBinding(props, 'top', { label: 'top (m)', step: 0.5 });
         break;
+      case 'enclosure': {
+        const top = enclosureTop(sel, levels);
+        f.addBinding(props, 'y', { label: `floor level (ceiling ${top === null ? 'none' : `${top} m`})`, ...level });
+        for (const s of SIDES) {
+          f.addBinding(props, DOOR_KEYS[s].door, { label: `doorway ${SIDE_LABELS[s]}` });
+          f.addBinding(props, DOOR_KEYS[s].width, { label: `  width (m)`, step, min: step });
+        }
+        break;
+      }
     }
     // Its material (render-only): a Hole and a Hazard have none of their own.
     if (sel.kind !== 'hole' && sel.kind !== 'hazard') {

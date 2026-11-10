@@ -15,6 +15,11 @@
  *    the ground beside it is higher than a step (so nobody walks under a raised floor or into a Platform's side), owned by the higher Brush
  *    (`WALL_<brush>_<side><n>`, merged along each line); on each Ramp's long sides a rail, or else a skirt stepped up the slope (each step
  *    no higher than `battle.levels.stepUp`, so nobody on the ramp is stopped by it and nobody beside it walks under); each Rail and Wall.
+ *  - **Enclosures**: each lays its floor at its level and its roof (a walkable floor, the floor under it kept, tagged `roof`: Soldiers need
+ *    never reach it, a Player's Jump gets onto it) at the next level up, and stands
+ *    a Wall on each side from under its floor to its roof, with a doorway (open `DOOR_HEIGHT` over its floor, a lintel above) centred where
+ *    its `doors` name one. The Walls are stood line by line, so where Enclosures meet edge to edge one Wall stands (the earlier Brush's,
+ *    as high as the higher roof) and a doorway in either opens through it (`WALL_<brush>_<side>d<n>`).
  *  - **Blocks**, Objectives, Bases, the settings and the Lobby's card carry straight through.
  *
  * A mirrored source (`mirror: true`, Stage 6, `mirror.ts`) compiles so that its map can be its own half turn (ADR 0022): each Brush's
@@ -28,7 +33,7 @@ import { LOBBY_KEYS, parseBattleMap, type ArenaGeometry, type ArenaPoint, type B
 import { TuningDataError } from '../tuning/validate';
 import { blockWalls } from '../sim/battlefield';
 import { walkCheck, type WalkReach } from '../sim/levels';
-import { RAIL, SIDES, type Brush, type MapSource, type RampBrush, type Rect, type Side } from './source';
+import { DOOR_HEIGHT, enclosureTop, RAIL, SIDES, type Brush, type EnclosureBrush, type MapSource, type RampBrush, type Rect, type Side } from './source';
 import { inMirrorOrder } from './mirror';
 
 /** Something the compiler noticed that the game accepts but the author likely did not mean. */
@@ -107,8 +112,16 @@ interface FacePiece {
   readonly top: number;
 }
 
-/** The height a Brush lays its floor at, for the kinds that lay one. */
-const floorLevel = (b: Brush): number | null => (b.kind === 'floor' || b.kind === 'deck' || b.kind === 'hazard' ? b.y : b.kind === 'platform' ? b.top : null);
+/** The heights a Brush lays its floors at, for the kinds that lay one (an Enclosure two: its floor and its roof). */
+function floorLevels(b: Brush, levels: readonly number[]): number[] {
+  if (b.kind === 'floor' || b.kind === 'deck' || b.kind === 'hazard') return [b.y];
+  if (b.kind === 'platform') return [b.top];
+  if (b.kind === 'enclosure') {
+    const top = enclosureTop(b, levels);
+    return top === null ? [b.y] : [b.y, top];
+  }
+  return [];
+}
 
 const overlaps = (a: Rect, b: Rect): boolean => a.x0 < b.x1 && b.x0 < a.x1 && a.z0 < b.z1 && b.z0 < a.z1;
 
@@ -174,34 +187,40 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     });
   });
 
-  // What later Holes take away from each Brush that lays a floor: its cells (rect-local, 1 = taken) where a Hole at its level comes after it.
-  const masks = new Map<number, Uint8Array>();
+  brushes.forEach((b) => {
+    if (b.kind === 'enclosure' && enclosureTop(b, levels) === null) throw new MapCompileError(`Enclosure ${b.id}'s ceiling is the level above its floor (${b.y}), but there is none: add a level above it`, [b.id]);
+  });
+
+  // What later Holes take away from each Brush that lays a floor: its cells (rect-local, 1 = taken) where a Hole at its level comes after it, by `<brush>:<level>`.
+  const masks = new Map<string, Uint8Array>();
   brushes.forEach((b, k) => {
-    const y = floorLevel(b);
-    if (y === null || !('rect' in b)) return;
-    const cr = cellsOf(b.rect);
-    const w = cr.i1 - cr.i0;
-    for (let h = k + 1; h < brushes.length; h++) {
-      const hole = brushes[h]!;
-      if (hole.kind !== 'hole' || hole.y !== y || !overlaps(hole.rect, b.rect)) continue;
-      let mask = masks.get(k);
-      if (!mask) masks.set(k, (mask = new Uint8Array(w * (cr.j1 - cr.j0))));
-      const hr = cellsOf(hole.rect);
-      for (let j = Math.max(cr.j0, hr.j0); j < Math.min(cr.j1, hr.j1); j++) for (let i = Math.max(cr.i0, hr.i0); i < Math.min(cr.i1, hr.i1); i++) mask[(j - cr.j0) * w + (i - cr.i0)] = 1;
+    if (!('rect' in b)) return;
+    for (const y of floorLevels(b, levels)) {
+      const cr = cellsOf(b.rect);
+      const w = cr.i1 - cr.i0;
+      for (let h = k + 1; h < brushes.length; h++) {
+        const hole = brushes[h]!;
+        if (hole.kind !== 'hole' || hole.y !== y || !overlaps(hole.rect, b.rect)) continue;
+        let mask = masks.get(`${k}:${y}`);
+        if (!mask) masks.set(`${k}:${y}`, (mask = new Uint8Array(w * (cr.j1 - cr.j0))));
+        const hr = cellsOf(hole.rect);
+        for (let j = Math.max(cr.j0, hr.j0); j < Math.min(cr.j1, hr.j1); j++) for (let i = Math.max(cr.i0, hr.i0); i < Math.min(cr.i1, hr.i1); i++) mask[(j - cr.j0) * w + (i - cr.i0)] = 1;
+      }
     }
   });
   brushes.forEach((hole, h) => {
     if (hole.kind !== 'hole') return;
-    if (!brushes.some((b, k) => k < h && floorLevel(b) === hole.y && 'rect' in b && overlaps(b.rect, hole.rect)))
+    if (!brushes.some((b, k) => k < h && floorLevels(b, levels).includes(hole.y) && 'rect' in b && overlaps(b.rect, hole.rect)))
       warnings.push({ message: `Hole ${hole.id} takes nothing away: no Brush before it lays floor at ${hole.y} under it`, brush: hole.id });
   });
 
   // Paint. `own[l][c]` is 1 + the Brush whose floor stands at level l in cell c (0: none); `ramp[c]` the Ramp over cell c (-1: none).
   const own = levels.map(() => new Int32Array(N * N));
   const ramp = new Int32Array(N * N).fill(-1);
-  const each = (r: Rect, k: number, f: (c: number) => void) => {
+  /** Each cell of `r` for Brush k, but those a later Hole takes away from its floor at `y` (every cell when no `y`). */
+  const each = (r: Rect, k: number, f: (c: number) => void, y?: number) => {
     const cr = cellsOf(r);
-    const mask = masks.get(k);
+    const mask = y === undefined ? undefined : masks.get(`${k}:${y}`);
     const w = cr.i1 - cr.i0;
     for (let j = cr.j0; j < cr.j1; j++)
       for (let i = cr.i0; i < cr.i1; i++) if (!mask || !mask[(j - cr.j0) * w + (i - cr.i0)]) f(j * N + i);
@@ -215,17 +234,29 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
       case 'deck':
       case 'hazard': {
         const l = levelOf.get(b.y)!;
-        each(b.rect, k, (c) => (own[l]![c] = k + 1));
+        each(b.rect, k, (c) => (own[l]![c] = k + 1), b.y);
         break;
       }
       case 'platform': {
         const l = levelOf.get(b.top)!;
-        each(b.rect, k, (c) => {
-          cutBelow(c, b.top);
-          own[l]![c] = k + 1;
-        });
+        each(
+          b.rect,
+          k,
+          (c) => {
+            cutBelow(c, b.top);
+            own[l]![c] = k + 1;
+          },
+          b.top,
+        );
         break;
       }
+      case 'enclosure':
+        // Its floor, then its roof as a Deck lays one (the floor under it stays: that is the room).
+        for (const y of floorLevels(b, levels)) {
+          const l = levelOf.get(y)!;
+          each(b.rect, k, (c) => (own[l]![c] = k + 1), y);
+        }
+        break;
       default:
         break;
     }
@@ -310,7 +341,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
       surfaceBrush.push(b.id);
       return;
     }
-    if (floorLevel(b) === null) return;
+    if (floorLevels(b, levels).length === 0) return;
     if (rects[k]!.length === 0) warnings.push({ message: `${b.id} lays no floor: every cell of it is painted over or taken away`, brush: b.id });
     rects[k]!.forEach((r, n) => {
       const y = levels[r.l]!;
@@ -320,7 +351,9 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
         { x: xAt(r.i1), y, z: zAt(r.j1) },
         { x: xAt(r.i0), y, z: zAt(r.j1) },
       ];
-      walk.push(b.kind === 'hazard' ? { id: `WALK_${b.id}_${n}`, points, [b.hazard]: true } : { id: `WALK_${b.id}_${n}`, points });
+      const id = `WALK_${b.id}_${n}`;
+      // An Enclosure's roof: a floor Soldiers need never reach (a Player's Jump gets onto it).
+      walk.push(b.kind === 'hazard' ? { id, points, [b.hazard]: true } : b.kind === 'enclosure' && y > b.y ? { id, points, roof: true } : { id, points });
       surfaceBrush.push(b.id);
     });
   });
@@ -453,6 +486,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
       }
     }
   });
+  const enclosureWalls = standEnclosures(brushes, levels, stepUp, warnings);
   for (const k of [...overNothing].sort((a, b) => a - b)) warnings.push({ message: `${brushes[k - 1]!.id} has an open edge over nothing: a body that walks off it falls out of the map (lay a Hazard or a floor under it)`, brush: brushes[k - 1]!.id });
 
   // Merge the faces along each line, per owner, side, height range; number them per owner and side.
@@ -491,7 +525,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
   const wallBrush: string[] = walls.map(() => '');
   const blocks: WallBlock[] = [];
   brushes.forEach((b, k) => {
-    const own = [...faceWalls[k]!, ...rampWalls[k]!];
+    const own = [...faceWalls[k]!, ...rampWalls[k]!, ...enclosureWalls[k]!];
     if (b.kind === 'rail') own.push({ id: `WALL_${b.id}`, a: b.a, b: b.b, bottom: b.y, top: b.y + b.height });
     if (b.kind === 'wall') own.push({ id: `WALL_${b.id}`, a: b.a, b: b.b, bottom: b.bottom, top: b.top });
     if (b.kind === 'block') blocks.push({ id: `BLOCK_${b.id}`, minX: b.rect.x0, minZ: b.rect.z0, maxX: b.rect.x1, maxZ: b.rect.z1, top: b.top });
@@ -536,6 +570,140 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
   }
   const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: false };
   return { map, warnings, surfaceBrush, wallBrush, blockBrush, arena };
+}
+
+/** One side of an Enclosure as its Wall stands: on the line `axis` = `line` (m), from `a` to `b` along it, its doorway's span (if any). */
+interface EnclosureSide {
+  readonly owner: number;
+  readonly side: Side;
+  readonly axis: 'x' | 'z';
+  readonly line: number;
+  readonly a: number;
+  readonly b: number;
+  readonly y: number;
+  readonly top: number;
+  readonly door: readonly [number, number] | null;
+}
+
+/**
+ * The Enclosures' Walls, by Brush (Brush order, as `brushes`): each side from under its floor (`y` - BELOW) to its roof, less its doorway
+ * (open from under the floor to `DOOR_HEIGHT` over it, the lintel standing over that to the roof). Stood line by line, so sides on one line
+ * (Enclosures edge to edge) stand one Wall: where any of them stands solid it is solid, as high as the highest roof, and a doorway in any
+ * of them opens through it. The earliest Enclosure on a stretch owns it (`WALL_<brush>_<side>d<n>`, merged along the line).
+ */
+function standEnclosures(brushes: readonly Brush[], levels: readonly number[], stepUp: number, warnings: CompileWarning[]): WallSegment[][] {
+  const out: WallSegment[][] = brushes.map(() => []);
+  const sides: EnclosureSide[] = [];
+  brushes.forEach((b, k) => {
+    if (b.kind !== 'enclosure') return;
+    const top = enclosureTop(b, levels)!;
+    if (top - b.y < DOOR_HEIGHT - EPS) warnings.push({ message: `Enclosure ${b.id} is ${top - b.y} m high: under ${DOOR_HEIGHT} m the tallest Fighters cannot stand in it (raise the level above its floor)`, brush: b.id });
+    for (const side of SIDES) sides.push(enclosureSide(b, k, side, top));
+  });
+  if (sides.length === 0) return out;
+  // The lines, in one order: x lines (east and west sides) then z lines, each by its coordinate.
+  const lines = new Map<string, EnclosureSide[]>();
+  for (const s of sides) {
+    const key = `${s.axis}:${s.line}`;
+    const on = lines.get(key);
+    if (on) on.push(s);
+    else lines.set(key, [s]);
+  }
+  const keys = [...lines.keys()].sort((p, q) => {
+    const [pa, pl] = p.split(':');
+    const [qa, ql] = q.split(':');
+    return pa! < qa! ? -1 : pa! > qa! ? 1 : Number(pl) - Number(ql);
+  });
+  const counts = new Map<string, number>();
+  for (const key of keys) {
+    const on = lines.get(key)!;
+    const cuts = [...new Set(on.flatMap((s) => [s.a, s.b, ...(s.door ?? [])]))].sort((p, q) => p - q);
+    // Each stretch between two cuts: who owns it and the heights it stands solid over.
+    type Stretch = { a: number; b: number; owner: number; side: Side; solid: [number, number][] };
+    const stretches: Stretch[] = [];
+    for (let n = 0; n + 1 < cuts.length; n++) {
+      const a = cuts[n]!;
+      const b = cuts[n + 1]!;
+      const mid = (a + b) / 2;
+      const here = on.filter((s) => s.a < mid && mid < s.b);
+      if (here.length === 0) continue;
+      const owner = here.reduce((p, q) => (q.owner < p.owner ? q : p));
+      const solid: [number, number][] = [];
+      const open: [number, number][] = [];
+      for (const s of here) {
+        const inDoor = s.door !== null && s.door[0] < mid && mid < s.door[1];
+        if (!inDoor) solid.push([s.y - BELOW, s.top]);
+        else {
+          // From under its floor, but not into the Wall of a room under this one (whose roof is this floor).
+          const under = here.filter((o) => o !== s && o.top <= s.y + EPS).map((o) => o.top);
+          open.push([Math.max(s.y - BELOW, ...under), s.y + DOOR_HEIGHT]);
+          if (s.top > s.y + DOOR_HEIGHT + stepUp + EPS) solid.push([s.y + DOOR_HEIGHT, s.top]);
+        }
+      }
+      stretches.push({ a, b, owner: owner.owner, side: owner.side, solid: subtract(union(solid), open) });
+    }
+    // Merge neighbouring stretches alike, then stand a Wall for each height range.
+    for (let s = 0; s < stretches.length; ) {
+      const p = stretches[s]!;
+      let e = s + 1;
+      let b = p.b;
+      while (e < stretches.length && stretches[e]!.a === b && stretches[e]!.owner === p.owner && stretches[e]!.side === p.side && JSON.stringify(stretches[e]!.solid) === JSON.stringify(p.solid)) b = stretches[e++]!.b;
+      const id = brushes[p.owner]!.id;
+      const axis = on[0]!.axis;
+      const line = on[0]!.line;
+      for (const [bottom, top] of p.solid) {
+        const ck = `${p.owner}${p.side}`;
+        const n = counts.get(ck) ?? 0;
+        counts.set(ck, n + 1);
+        const [wa, wb] = axis === 'x' ? [{ x: line, z: p.a }, { x: line, z: b }] : [{ x: p.a, z: line }, { x: b, z: line }];
+        out[p.owner]!.push({ id: `WALL_${id}_${p.side}d${n}`, a: wa, b: wb, bottom, top });
+      }
+      s = e;
+    }
+  }
+  return out;
+}
+
+/** The side `side` of Enclosure `b` (Brush k), its doorway centred along it and cut to it. */
+function enclosureSide(b: EnclosureBrush, k: number, side: Side, top: number): EnclosureSide {
+  const { x0, z0, x1, z1 } = b.rect;
+  const axis = side === 'e' || side === 'w' ? 'x' : 'z';
+  const line = side === 'e' ? x1 : side === 'w' ? x0 : side === 'n' ? z1 : z0;
+  const [a, e] = axis === 'x' ? [z0, z1] : [x0, x1];
+  const width = b.doors[side];
+  const mid = (a + e) / 2;
+  const door: [number, number] | null = width === undefined ? null : [Math.max(a, mid - width / 2), Math.min(e, mid + width / 2)];
+  return { owner: k, side, axis, line, a, b: e, y: b.y, top, door };
+}
+
+/** Height ranges merged where they overlap or touch, ascending. */
+function union(ranges: readonly [number, number][]): [number, number][] {
+  const sorted = [...ranges].sort((p, q) => p[0] - q[0] || p[1] - q[1]);
+  const out: [number, number][] = [];
+  for (const [lo, hi] of sorted) {
+    const last = out[out.length - 1];
+    if (last && lo <= last[1] + EPS) last[1] = Math.max(last[1], hi);
+    else out.push([lo, hi]);
+  }
+  return out;
+}
+
+/** `ranges` (ascending, apart) less every range of `cut`, dropping slivers. */
+function subtract(ranges: readonly [number, number][], cut: readonly [number, number][]): [number, number][] {
+  let out = ranges.map(([lo, hi]) => [lo, hi] as [number, number]);
+  for (const [clo, chi] of cut) {
+    const next: [number, number][] = [];
+    for (const [lo, hi] of out) {
+      if (chi <= lo + EPS || clo >= hi - EPS) {
+        next.push([lo, hi]);
+        continue;
+      }
+      if (clo > lo + EPS) next.push([lo, clo]);
+      if (chi < hi - EPS) next.push([chi, hi]);
+    }
+    out = next;
+  }
+  return out;
 }
 
 /**

@@ -15,7 +15,7 @@ export interface Overlays {
   centres: boolean;
 }
 
-export const REACH_COLOURS: Readonly<Record<SurfaceReach, string>> = { reached: '#3fbf5f', unreached: '#ff3b3b', stranded: '#ff9a2f', deadly: '#ff5a1f' };
+export const REACH_COLOURS: Readonly<Record<SurfaceReach, string>> = { reached: '#3fbf5f', unreached: '#ff3b3b', stranded: '#ff9a2f', deadly: '#ff5a1f', roof: '#5fb0ff' };
 export const EDGE_COLOURS: Readonly<Record<EdgeKind, string>> = { walk: '#5fd07a', drop: '#ffd23f', wall: '#e8e8e8', ledge: '#ff3b8a' };
 export const EDGE_LABELS: Readonly<Record<EdgeKind, string>> = { walk: 'walk (a step)', drop: 'drop (one way)', wall: 'Wall', ledge: 'ledge (no way off)' };
 

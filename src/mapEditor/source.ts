@@ -13,6 +13,9 @@
  *  - **Hazard**: deadly floor (`lava`, `water` or `abyss`) at a height, in place of the floor the Brushes before it laid at that height.
  *  - **Rail** and **Wall**: a segment with a bottom and a top (a Rail stands `height` over the floor `y`).
  *  - **Block**: the one-level solid box of `blocks` (a wall or a tower Soldiers are pushed out of); never under a Deck.
+ *  - **Enclosure**: a room: a rectangle of floor at `y`, a walkable roof at the next level up (its ceiling), and a Wall round each side from
+ *    floor to ceiling, with a doorway centred in each side `doors` names (its width, m). Two Enclosures edge to edge share one Wall, and a
+ *    doorway in either opens through it; an Enclosure with two opposite doorways is a corridor.
  *
  * Stage 5, the look (render-only: none of it reaches the compiled map, nor the Tuning Data hash): each Brush that lays a floor or stands a
  * Wall may name a `material` from the Map Editor's palette (`MAP_MATERIALS`; absent, its kind's own, `look.ts`), and the optional `look`
@@ -159,9 +162,30 @@ export interface BlockBrush extends BrushBase {
   readonly top: number;
 }
 
-export type Brush = FloorBrush | DeckBrush | PlatformBrush | RampBrush | HoleBrush | HazardBrush | RailBrush | WallBrush | BlockBrush;
+/** An Enclosure's doorways: for each side that has one, its width (m), centred along that side; a side left out is solid Wall. */
+export type Doors = Readonly<Partial<Record<Side, number>>>;
+export interface EnclosureBrush extends BrushBase {
+  readonly kind: 'enclosure';
+  readonly rect: Rect;
+  /** Its floor's level; its ceiling (a walkable roof) is the next level up (`enclosureTop`). */
+  readonly y: number;
+  readonly doors: Doors;
+}
+
+export type Brush = FloorBrush | DeckBrush | PlatformBrush | RampBrush | HoleBrush | HazardBrush | RailBrush | WallBrush | BlockBrush | EnclosureBrush;
 export type BrushKind = Brush['kind'];
-export const BRUSH_KINDS: readonly BrushKind[] = ['floor', 'deck', 'platform', 'ramp', 'hole', 'hazard', 'rail', 'wall', 'block'];
+export const BRUSH_KINDS: readonly BrushKind[] = ['floor', 'deck', 'platform', 'ramp', 'hole', 'hazard', 'rail', 'wall', 'block', 'enclosure'];
+
+/** How high (m) an Enclosure's doorway stands over its floor (under a Wall that stops a body, `Size` 1.4 included): a lintel spans the rest up to its ceiling. */
+export const DOOR_HEIGHT = 3;
+/** A new Enclosure's doorway width (m). */
+export const DOOR_WIDTH = 2;
+
+/** An Enclosure's ceiling: the level next above its floor's (null when there is none). */
+export function enclosureTop(b: Pick<EnclosureBrush, 'y'>, levels: readonly number[]): number | null {
+  const above = levels.find((v) => v > b.y);
+  return above === undefined ? null : above;
+}
 
 /** A Rail's height over its floor when the source leaves it out (m), and a Ramp's rail over its top. */
 export const RAIL = 1;
@@ -238,8 +262,8 @@ function side(v: unknown, where: string): Side {
 }
 
 /** A Brush with its `material`, if the source names one (render-only: the compiler never reads it). */
-function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
-  const shape = parseShape(raw, where, step, half, level);
+function parseBrush(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number, levels: readonly number[]): Brush {
+  const shape = parseShape(raw, where, step, half, level, levels);
   const m = (raw as Record<string, unknown>).material;
   let brush = shape;
   if (m !== undefined) {
@@ -272,7 +296,7 @@ function checkTwins(items: readonly { readonly id: string; readonly twin?: strin
   });
 }
 
-function parseShape(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number): Brush {
+function parseShape(raw: unknown, where: string, step: number, half: number, level: (v: number, at: string) => number, levels: readonly number[]): Brush {
   const o = record(raw, where);
   const id = nonEmptyString(o, 'id', where);
   if (!ID.test(id)) throw new TuningDataError(`${where}.id "${id}" may hold only letters, digits and -`);
@@ -315,6 +339,15 @@ function parseShape(raw: unknown, where: string, step: number, half: number, lev
       const top = finiteNumber(o, 'top', at);
       if (top <= bottom) throw new TuningDataError(`${at}.top must be above its bottom`);
       return { kind: 'wall', id, a, b, bottom, top };
+    }
+    case 'enclosure': {
+      const y = lv('y');
+      if (!levels.some((v) => v > y)) throw new TuningDataError(`${at}: an Enclosure's ceiling is the level above its floor (${y}): add a level above it`);
+      const raw = o.doors === undefined ? {} : record(o.doors, `${at}.doors`);
+      const doors: Partial<Record<Side, number>> = {};
+      for (const k of Object.keys(raw)) side(k, `${at}.doors key`);
+      for (const s of SIDES) if (raw[s] !== undefined) doors[s] = positiveNumber(raw, s, `${at}.doors`);
+      return { kind: 'enclosure', id, rect: rect(), y, doors };
     }
     default:
       throw new TuningDataError(`${at}.kind must be one of ${BRUSH_KINDS.join(', ')}, got ${JSON.stringify(o.kind)}`);
@@ -401,7 +434,7 @@ export function parseMapSource(raw: unknown): MapSource {
     return v;
   };
   const half = size / 2;
-  const brushes = array(r.brushes, 'source.brushes').map((b, i) => parseBrush(b, `source.brushes[${i}]`, step, half, level));
+  const brushes = array(r.brushes, 'source.brushes').map((b, i) => parseBrush(b, `source.brushes[${i}]`, step, half, level, levels));
   const ids = new Set<string>();
   brushes.forEach((b, i) => {
     if (ids.has(b.id)) throw new TuningDataError(`source.brushes[${i}]: another Brush is already "${b.id}"`);

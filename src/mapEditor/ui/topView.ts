@@ -611,6 +611,31 @@ export class TopView {
         }
         ctx.stroke();
       }
+    } else if (b.kind === 'enclosure') {
+      // Its Walls, white and thick, broken where each doorway is (centred along its side).
+      ctx.strokeStyle = '#e8e8e8';
+      ctx.lineWidth = 4;
+      const s = this.view.scale;
+      const line = (ax: number, ay: number, bx: number, by: number) => {
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+      };
+      ctx.beginPath();
+      for (const side of ['n', 'e', 's', 'w'] as const) {
+        const along = side === 'n' || side === 's';
+        const len = along ? w : h;
+        const door = Math.min(len, (b.doors[side] ?? 0) * s);
+        const gap0 = (len - door) / 2;
+        const gap1 = (len + door) / 2;
+        const sy = side === 'n' ? y : y + h;
+        const sx = side === 'e' ? x + w : x;
+        for (const [p0, p1] of door > 0 ? [[0, gap0], [gap1, len]] : [[0, len]]) {
+          if (p1! - p0! <= 0) continue;
+          if (along) line(x + p0!, sy, x + p1!, sy);
+          else line(sx, y + p0!, sx, y + p1!);
+        }
+      }
+      ctx.stroke();
     }
     if (w > 40 && h > 16) {
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
@@ -791,6 +816,8 @@ function heightLabel(b: Brush): string {
     case 'rail':
     case 'wall':
       return '';
+    case 'enclosure':
+      return ` ⌂@${b.y}`;
     default:
       return ` @${b.y}`;
   }
