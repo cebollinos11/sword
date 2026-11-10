@@ -14,7 +14,7 @@ import { startBlock, updateBlock } from './block';
 import { updateFall } from './fall';
 import { feint } from './feint';
 import { startKick, updateKick } from './kick';
-import { IDLE_ACTION, IDLE_MOTION, idleMotionFor, LAND_SOFT_MOTION } from './idleAction';
+import { IDLE_ACTION, IDLE_MOTION, isIdleMotion, LAND_SOFT_MOTION } from './idleAction';
 import { updateKnockdown } from './knockdown';
 import { startSheathe, updateSheathe } from './sheathe';
 import { updateStagger } from './stagger';
@@ -44,7 +44,7 @@ const updateIdle: ActionHandler<Extract<Action, { kind: 'Idle' }>> = (f, intent,
  * reached had it started on the Landing, so its sway carries on in step; any other Motion gives way to Idle at once.
  */
 function idleMotion(f: FighterState, tuning: TuningData): MotionPlayback {
-  if (f.motion.name === idleMotionFor(f)) return advance(f.motion);
+  if (isIdleMotion(f, f.motion.name)) return advance(f.motion);
   if (f.motion.name !== LAND_SOFT_MOTION) return IDLE_MOTION;
   const next = advance(f.motion);
   return next.tick < secondsToTicks(weaponMotion(tuning, f.weapon, LAND_SOFT_MOTION)!.duration) ? next : { ...IDLE_MOTION, tick: next.tick };
@@ -76,7 +76,7 @@ export function updateAction(f: FighterState, intent: Intent, ctx: ActionContext
 
 export { attackSweepLive, attackTimings, attackMotionName, type AttackTimings } from './attack';
 export { advanceBlockImpact, applyBlockImpact, applyGuard, blockMotionName, blocksAttack, guardDirection, roughlyFaces, startBlockImpact } from './block';
-export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION } from './idleAction';
+export { IDLE_ACTION, IDLE_MOTION, idleMotionFor, isIdleMotion, LAND_SOFT_MOTION, SHEATHED_IDLE_MOTION, SHEATHED_RUN_MOTION } from './idleAction';
 export { KICK_MAX_CROUCH, KICK_MOTION, kickSweepLive, kickTimings, type KickTimings } from './kick';
 export { THROW_MOTION, throwTimings, type ThrowTimings } from './throw';
 export { offHandFree, sheatheMotionName, sheatheTimings, type SheatheKind, type SheatheTimings } from './sheathe';

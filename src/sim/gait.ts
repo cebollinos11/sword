@@ -17,7 +17,7 @@
  *   - The place a foot belongs is its home led along the body's motion this
  *     Tick: where the home will be half a stance from now if the body keeps
  *     moving (half a step for a turn), at most the max lead ahead (above full
- *     walk speed, as a Sheathed Fighter walks, the max lead grows with the
+ *     walk speed, as a Sheathed Fighter short of a run goes, the max lead grows with the
  *     square root of the speed, so the stride lengthens and the cadence rises
  *     a little, keeping the hips from sinking into a lunge). A standing
  *     body has no lead. So a walking foot lands as far ahead of its home as
@@ -40,6 +40,16 @@
  *   - While the body stands still, a planted foot within the stride threshold
  *     glides along the floor toward its home (so authored foot keys and the
  *     settle after a walk stay smooth); further off, it steps.
+ *
+ * At the run speed and above (a Sheathed Fighter going flat out; never a body a Slide is carrying) the body runs instead of walking (`runGait`):
+ *   - Footfalls come one run step duration apart, left and right in turn, however fast the body goes.
+ *   - A foot lands half the run contact ahead of its home and lifts once the body has carried it the whole
+ *     run contact back, whatever the other foot is doing: so between footfalls both feet are off the ground
+ *     (the flight), and the hips never have to sink to straddle a stride.
+ *   - A lifted foot is timed to land one run step after the other foot does (which keeps the two in turn),
+ *     rising to the run step height early in its swing, the heel kicking up behind.
+ *   - The pelvis rises by the run bob over each flight; a run has no step bob or sway.
+ * A run step under way carries on when the body slows to a walk or stops, and lands like any other.
  *
  * A foot the Motion owns is not stepped: the right foot while the Motion sets `kickFoot`, and
  * both feet while the Motion tilts the body (`body.tilt`, lying down). An owned foot stays planted
@@ -74,8 +84,11 @@ export interface FootState {
   readonly planted: Vec2;
   /** Height (m) of the ground the planted foot stands on. */
   readonly y: number;
-  /** The step in progress, or null while planted. `tick` counts Ticks since lift-off, of the `ticks` it lasts; `y` is the target's ground height. */
-  readonly step: { readonly tick: number; readonly ticks: number; readonly target: Vec2; readonly y: number } | null;
+  /**
+   * The step in progress, or null while planted. `tick` counts Ticks since lift-off, of the `ticks` it lasts; `y` is the target's ground height.
+   * `run` marks a running step (absent on a walking one): it rises to the run step height, early in the swing.
+   */
+  readonly step: { readonly tick: number; readonly ticks: number; readonly target: Vec2; readonly y: number; readonly run?: true } | null;
 }
 
 export type GaitState = Readonly<Record<Foot, FootState>>;
@@ -107,6 +120,15 @@ const stepProgress = (step: NonNullable<FootState['step']>): number => Math.min(
 
 /** The step's arc at progress u: 0 at lift-off and landing, 1 mid-step. */
 const arc = (u: number): number => 4 * u * (1 - u);
+
+/** A running step's arc: the same, peaking earlier (a little past a third of the way), as the heel kicks up behind before the knee drives through. */
+const runArc = (u: number): number => arc(u ** 0.7);
+
+/** How high (m) a stepping foot's ankle is lifted at progress u. */
+const stepLift = (step: NonNullable<FootState['step']>, u: number, tuning: TuningData): number => (step.run ? tuning.gait.runStepHeight * runArc(u) : tuning.gait.stepHeight * arc(u));
+
+/** Whether a body moving `speed` (m per Tick) over the floor runs rather than walks. */
+const runs = (speed: number, tuning: TuningData): boolean => speed >= tuning.gait.runSpeed * TICK_SECONDS;
 
 /** Fighter-local ground point → world, matching solveSkeleton's frame. */
 function toWorld(local: Vec2, at: Placement): Vec2 {
@@ -171,7 +193,7 @@ export function footPose(foot: FootState, tuning: TuningData): FootPose {
   if (!foot.step) return { ground: foot.planted, y: foot.y, lift: 0 };
   const u = stepProgress(foot.step);
   const k = smooth(u);
-  return { ground: lerp2(foot.planted, foot.step.target, k), y: foot.y + (foot.step.y - foot.y) * k, lift: tuning.gait.stepHeight * arc(u) };
+  return { ground: lerp2(foot.planted, foot.step.target, k), y: foot.y + (foot.step.y - foot.y) * k, lift: stepLift(foot.step, u, tuning) };
 }
 
 /**
@@ -198,16 +220,20 @@ const REACH = 0.97;
  * mid-step and zero at lift-off and landing. On top of that, whenever the Gait
  * has a foot further from its hip than the leg reaches from the Motion's hip
  * height, the pelvis sinks until it reaches (only by what the Gait adds: a
- * Motion's own feet out of reach are left as authored). And the pelvis turns
+ * Motion's own feet out of reach are left as authored; nor does a foot in the air
+ * of a running step pull it down). In a run the pelvis instead rises by the run bob
+ * over each flight, with no step bob or sway. And the pelvis turns
  * toward whichever foot the Gait has further forward of its home, by the hip
  * twist when they are a full-speed stride apart (no more beyond that).
  */
 export function hipShift(gait: GaitState, at: Placement, hip: Vec3, home: Record<Foot, Vec2>, tuning: TuningData): HipShift {
-  const stepping = FEET.find((foot) => gait[foot].step);
+  // A run has no step bob or sway: the pelvis rises over each flight instead (a negative bob).
+  const running = FEET.some((foot) => gait[foot].step?.run);
+  const stepping = running ? undefined : FEET.find((foot) => gait[foot].step);
   const h = stepping ? arc(stepProgress(gait[stepping].step!)) : 0;
   const planted = stepping && toLocal(gait[stepping === 'left' ? 'right' : 'left'].planted, at);
   const sideways = planted ? Math.sign(planted.x - hip.x) * tuning.gait.hipSway * h : 0;
-  const bob = tuning.gait.hipBob * h;
+  const bob = running ? -tuning.gait.runBob * arc(flightProgress(gait)) : tuning.gait.hipBob * h;
   const forward = (foot: Foot) => toLocal(footPose(gait[foot], tuning).ground, at).z - home[foot].z;
   const twist = tuning.gait.hipTwist * Math.max(-1, Math.min(1, (forward('right') - forward('left')) / tuning.gait.strideLength));
   const { thigh, shin, hipWidth, ankleHeight } = tuning.skeleton;
@@ -220,6 +246,8 @@ export function hipShift(gait: GaitState, at: Placement, hip: Vec3, home: Record
   let reach = 0;
   for (const foot of FEET) {
     const side = foot === 'left' ? -1 : 1;
+    // A foot swinging through a running step is in the air: nothing to reach for.
+    if (gait[foot].step?.run) continue;
     const pose = footPose(gait[foot], tuning);
     const p = toLocal(pose.ground, at);
     const gaitSink = sink(Math.hypot(p.x - (hip.x + sideways + side * half * Math.cos(t)), p.z - (hip.z + side * half * Math.sin(t))), pose.y - (at.y ?? 0) + pose.lift);
@@ -227,6 +255,18 @@ export function hipShift(gait: GaitState, at: Placement, hip: Vec3, home: Record
     reach = Math.max(reach, gaitSink - motionSink);
   }
   return { sideways, drop: bob + reach, twist };
+}
+
+/**
+ * How far through a flight the Gait is: 0 while a foot is planted (and as the second foot lifts), 1 as the first lands. Both feet
+ * are in the air from the later lift-off to the earlier landing.
+ */
+function flightProgress(gait: GaitState): number {
+  const [l, r] = [gait.left.step, gait.right.step];
+  if (!l || !r) return 0;
+  const since = Math.min(l.tick, r.tick);
+  const left = Math.min(l.ticks - l.tick, r.ticks - r.tick);
+  return since / (since + left);
 }
 
 /** Wrap a yaw difference into (-π, π]. */
@@ -250,8 +290,10 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
   const owned = ownedFeet(tuning, after.weapon, after.motion);
   const body: BodyMotion = { x: after.position.x - before.position.x, z: after.position.z - before.position.z, yaw: wrapYaw(after.facing - before.facing) };
   const still = body.x === 0 && body.z === 0 && body.yaw === 0;
-  const here = footHome(tuning, after.weapon, after.motion, after);
   const { stanceTravel, squareUp } = pace(body, after, ticks, tuning);
+  // Only a body going that fast under its own steam runs: one a Slide carries steps as it always did.
+  if (runs(Math.hypot(body.x, body.z), tuning) && !before.slide && !after.slide && !owned.left && !owned.right) return runGait(before.gait, after, body, squareUp, fighter, tuning, ground, emit);
+  const here = footHome(tuning, after.weapon, after.motion, after);
   /** Where each foot will belong `inTicks` from now (the body's lead added), or its home while the body stands. */
   const belongs = (inTicks: number) => (still ? here : ledFootHome(after, body, inTicks, stanceTravel / 2, ticks / 2, squareUp, tuning));
   const ahead = belongs(0);
@@ -268,7 +310,7 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
     } else {
       // Aim where the foot will belong when it lands, so it holds still in the world while the body keeps a steady pace.
       const target = belongs(f.step.ticks - t)[foot];
-      next[foot] = { planted: f.planted, y: f.y, step: { tick: t, ticks: f.step.ticks, target, y: ground(target) } };
+      next[foot] = { planted: f.planted, y: f.y, step: { ...f.step, tick: t, target, y: ground(target) } };
     }
   }
   // 2. A standing body lets planted feet glide toward their home (at most a stride per step duration).
@@ -328,8 +370,57 @@ export function updateGait(before: FighterState, after: FighterState, fighter: n
 }
 
 /**
+ * The Gait of a running body, one Tick on (see the rules at the top): each foot lands half the run contact ahead of its home,
+ * lifts once the body has carried it the whole contact back, and is timed to land one run step after the other foot.
+ */
+function runGait(gait: GaitState, after: FighterState, body: BodyMotion, squareUp: number, fighter: number, tuning: TuningData, ground: (p: Vec2) => number, emit: Emit): GaitState {
+  const speed = Math.hypot(body.x, body.z);
+  const interval = Math.max(2, secondsToTicks(tuning.gait.runStepDuration));
+  // Never on the ground for longer than three quarters of a run step, so even the slowest run has a flight.
+  const contact = Math.min(tuning.gait.runContact, speed * interval * 0.75);
+  const lead = contact / 2 / speed;
+  /** Where each foot lands if it comes down `inTicks` from now: its home then, half the contact further along the body's path. */
+  const landing = (inTicks: number) =>
+    footHome(
+      tuning,
+      after.weapon,
+      after.motion,
+      { position: { x: after.position.x + body.x * (inTicks + lead), z: after.position.z + body.z * (inTicks + lead) }, facing: after.facing + body.yaw * inTicks },
+      squareUp,
+    );
+  const now = landing(0);
+  const next: Record<Foot, FootState> = { ...gait };
+  // 1. Feet in the air swing on; one that reaches the end of its step lands.
+  for (const foot of FEET) {
+    const f = next[foot];
+    if (!f.step) continue;
+    const t = f.step.tick + 1;
+    if (t >= f.step.ticks) {
+      next[foot] = { planted: now[foot], y: ground(now[foot]), step: null };
+      emit({ type: 'Step', fighter, foot, position: now[foot] });
+    } else {
+      const target = landing(f.step.ticks - t)[foot];
+      next[foot] = { planted: f.planted, y: f.y, step: { ...f.step, tick: t, target, y: ground(target) } };
+    }
+  }
+  // 2. A planted foot the body has carried a whole contact back lifts (the further-off one first), to land one run step after the other foot.
+  const off = (foot: Foot) => dist(next[foot].planted, now[foot]);
+  const quickest = Math.max(2, Math.round(interval / 2));
+  for (const foot of off('right') > off('left') + TIE ? (['right', 'left'] as const) : FEET) {
+    if (next[foot].step || off(foot) < contact) continue;
+    const other = next[foot === 'left' ? 'right' : 'left'];
+    // The other foot lands when its step ends, or landed as long ago as the body took to carry it this far.
+    const otherLands = other.step ? other.step.ticks - other.step.tick : -dist(other.planted, now[foot === 'left' ? 'right' : 'left']) / speed;
+    const ticks = Math.max(quickest, Math.min(2 * interval, Math.round(otherLands + interval)));
+    const target = landing(ticks)[foot];
+    next[foot] = { planted: next[foot].planted, y: next[foot].y, step: { tick: 0, ticks, target, y: ground(target), run: true } };
+  }
+  return next;
+}
+
+/**
  * How far (m) a foot may lead its home at this speed (m per Tick): the max lead, grown with the square root of the speed above
- * full walk speed (a Sheathed walk), so a faster walk lengthens its stride and steps a little more often, rather than only taking
+ * full walk speed (a Sheathed Fighter short of a run), so a faster walk lengthens its stride and steps a little more often, rather than only taking
  * strides so long the hips sink into a lunge.
  */
 const maxLead = (speed: number, tuning: TuningData): number => tuning.gait.maxLead * Math.sqrt(Math.max(1, speed / (tuning.fighter.walkSpeed * TICK_SECONDS)));

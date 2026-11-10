@@ -19,6 +19,7 @@ describe('the Editor preview of a Sheathe, Draw or Sheathed Idle', () => {
       expect(sheathePreview(motion(name), swap, tuning).sheathed).toBe(false);
     }
     expect(sheathePreview(motion('SheathedIdle'), 1, tuning)).toEqual({ sheathed: true, offHandFree: 1 });
+    expect(sheathePreview(motion('SheathedRun'), 0.1, tuning)).toEqual({ sheathed: true, offHandFree: 1 });
     expect(sheathePreview(motion('Idle'), 1, tuning)).toEqual({ sheathed: false, offHandFree: 0 });
     expect(sheathePreview(motion('Throw'), 0.2, tuning).sheathed).toBe(false);
   });

@@ -49,7 +49,7 @@ function goodRaw() {
       takeover: { seconds: 1.5, pickSeconds: 0.5, hp: 100 },
       levels: { stepUp: 0.35, drop: 3, height: 1.8, promote: 2.5 },
     },
-    gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25 },
+    gait: { strideThreshold: 0.2, strideLength: 0.6, squareUp: 0.8, maxLead: 0.3, stepDuration: 0.1, stepHeight: 0.08, hipBob: 0.02, hipSway: 0.02, hipTwist: 8, toeRoll: 25, runSpeed: 3.2, runStepDuration: 0.2, runContact: 0.65, runStepHeight: 0.3, runBob: 0.04 },
     camera: { back: 3, shoulder: 0.7, eyeHeight: 2, ahead: 2.5, lookHeight: 1.2, orbitDistance: 7, orbitHeight: 5, finalBlowLead: 0.35, finalBlowTail: 0.55, finalBlowSpeed: 0.3, finalBlowDistance: 3.4, finalBlowHeight: 1.6, finalBlowSpin: 0.35, shake: 1 },
     skeleton: {
       pelvisHeight: 0.95,
@@ -233,6 +233,10 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData(withGait({ stepHeight: -0.01 }))).toThrow(/gait\.stepHeight/);
     expect(() => parseTuningData(withGait({ stepHeight: 2 }))).toThrow(/gait\.stepHeight/);
     expect(parseTuningData(withGait({ stepHeight: 0 })).gait.stepHeight).toBe(0);
+    expect(() => parseTuningData(withGait({ runSpeed: 0 }))).toThrow(/gait\.runSpeed/);
+    expect(() => parseTuningData(withGait({ runStepDuration: 0 }))).toThrow(/gait\.runStepDuration/);
+    expect(() => parseTuningData(withGait({ runContact: undefined }))).toThrow(/gait\.runContact/);
+    expect(parseTuningData(withGait({ runBob: 0 })).gait.runBob).toBe(0);
     expect(() => parseTuningData(withGait({ hipBob: undefined }))).toThrow(/gait\.hipBob/);
     expect(() => parseTuningData(withGait({ hipBob: -0.01 }))).toThrow(/gait\.hipBob/);
     expect(() => parseTuningData(withGait({ hipBob: 1 }))).toThrow(/gait\.hipBob/);

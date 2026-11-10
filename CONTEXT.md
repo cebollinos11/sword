@@ -74,7 +74,7 @@ The short crossfade (Tuning Data `fighter.motionBlend`) from the pose a Fighter 
 _Avoid_: Transition, tween
 
 **Gait**:
-The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. A faster walk takes longer strides: up to full walk speed it also steps more often, and beyond it (a Sheathed walk) its stride keeps lengthening and its cadence rises only a little, so the hips do not sink into a lunge. It is not a Motion: it runs alongside whatever Action is current.
+The procedural stepping of a Fighter's legs whenever its body moves over the floor (walking, turning in place, being pushed). It owns the feet while the body moves, so feet never slide, and settles them back where the current Motion puts them when the body stops. A faster walk takes longer strides: up to full walk speed it also steps more often, and beyond it its stride keeps lengthening and its cadence rises only a little, so the hips do not sink into a lunge. From the run speed (`gait.runSpeed`, which only a Sheathed Fighter reaches under its own steam) it runs instead: quick footfalls a fixed time apart, left and right in turn, each foot on the ground only briefly, so both feet are in the air between footfalls and the hips keep their height, up and down a ramp too. A body a Slide carries never runs. It is not a Motion: it runs alongside whatever Action is current.
 _Avoid_: Walk animation, walk cycle, locomotion
 
 **Tuning Data**:
@@ -179,7 +179,7 @@ The Action that takes a Sheathed Weapon back into the hand, the reverse of a She
 _Avoid_: Unsheathe
 
 **Sheathed**:
-A Fighter whose Weapon is put away in its slot (Fighter state `sheathed`). It walks faster (`fighter.sheathedWalkFactor`, multiplying with Crouch, Slow and a Throw's walk, with longer strides), except during a Sheathe or Draw, and a Jump takes off and steers at its drawn walk speed (ADR 0017). It can still Jump, Crouch, Kick and Throw, but cannot Attack or Block, so it has no Blade Sweep, Block or Chamber, and a Knockdown holds no guard. Its sheathed Weapon is render-only: nothing in the Simulation touches it (ADR 0017). Every Duel starts drawn.
+A Fighter whose Weapon is put away in its slot (Fighter state `sheathed`). It walks faster (`fighter.sheathedWalkFactor`, multiplying with Crouch, Slow and a Throw's walk), fast enough that its Gait runs, except during a Sheathe or Draw, and a Jump takes off and steers at its drawn walk speed (ADR 0017). It can still Jump, Crouch, Kick and Throw, but cannot Attack or Block, so it has no Blade Sweep, Block or Chamber, and a Knockdown holds no guard. Its sheathed Weapon is render-only: nothing in the Simulation touches it (ADR 0017). While it is Idle and runs forward (the way it faces, at the Gait's run speed or more) it plays the `SheathedRun` Motion in place of its Sheathed Idle: leaning far forward, both arms trailing straight back; sideways, backward, crouched slow or standing it stays upright. Every Duel starts drawn.
 _Avoid_: Holstered, stowed
 
 **Slow**:
