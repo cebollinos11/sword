@@ -128,7 +128,10 @@ export function startBench(container: HTMLElement, tuning: TuningData): void {
           const tick = k++ % (states.length - 1);
           const from = states[tick]!.duel;
           const to = states[tick + 1]!.duel;
-          for (let i = 0; i < n; i++) views[i]!.update(drawnPose(from, to, i, 0.5, tuning), weaponByName(tuning, to.fighters[i]!.weapon));
+          for (let i = 0; i < n; i++) {
+            const pose = drawnPose(from, to, i, 0.5, tuning, true);
+            views[i]!.update(pose, weaponByName(tuning, to.fighters[i]!.weapon), undefined, pose.pieces);
+          }
           const f0 = to.fighters[0]!;
           // Behind Fighter 0, looking across the melee and out over the crowd.
           placeThirdPersonCamera(stage.camera, tuning.camera, { x: f0.position.x, y: f0.y, z: f0.position.z }, f0.facing + Math.PI, 0.1, stage.collider);

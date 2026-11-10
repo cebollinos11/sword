@@ -101,6 +101,29 @@ export interface FighterTuning {
   readonly sheathedWalkFactor: number;
   /** The share of speed a Fighter keeps walking straight backwards (relative to its facing); it blends in with the backward part of the move, so strafing is unaffected. Multiplies with the other walk factors. */
   readonly backwardWalkFactor: number;
+  /** How far a cut reaches through a body it fells (Dismemberment). Render-only: it never changes an outcome. */
+  readonly dismember: DismemberTuning;
+}
+
+/** Dismemberment (data/fighter.json `dismember`): which bones the cut recorded in a Death severs. */
+export interface DismemberTuning {
+  /** How far (m) the blade carries on through the body from where it struck, at a Blade Speed of `speed`; in proportion to the Blade Speed otherwise. */
+  readonly carry: number;
+  /** The Blade Speed (m/s) at which the blade carries `carry`. */
+  readonly speed: number;
+  /** The most bones one cut severs (the nearest to the contact first). */
+  readonly maxCuts: number;
+}
+
+/** A cut's reach when `fighter.dismember` is absent from the Tuning Data. */
+export const DEFAULT_DISMEMBER: DismemberTuning = { carry: 0.25, speed: 22, maxCuts: 3 };
+
+function parseDismember(raw: unknown): DismemberTuning {
+  if (raw === undefined) return DEFAULT_DISMEMBER;
+  const d = record(raw, 'fighter.dismember');
+  const maxCuts = positiveNumber(d, 'maxCuts', 'fighter.dismember');
+  if (!Number.isInteger(maxCuts)) throw new TuningDataError('fighter.dismember: "maxCuts" must be a whole number');
+  return { carry: positiveNumber(d, 'carry', 'fighter.dismember'), speed: positiveNumber(d, 'speed', 'fighter.dismember'), maxCuts };
 }
 
 /** Height, falling and jumping (data/fall.json): how Fighters stand on, step between and fall onto Walk Surfaces. */
@@ -795,6 +818,7 @@ export function parseTuningData(raw: unknown): TuningData {
       sheathedWalkFactor: positiveNumber(f, 'sheathedWalkFactor', 'fighter'),
       backwardWalkFactor: positiveNumber(f, 'backwardWalkFactor', 'fighter'),
       lyingHitFactor: positiveNumber(f, 'lyingHitFactor', 'fighter'),
+      dismember: parseDismember(f.dismember),
     },
     arena: parseArenaSelection(root.arena, arenas),
     arenas,

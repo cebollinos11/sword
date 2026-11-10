@@ -166,11 +166,17 @@ export class BladeBlood {
       }
       const b = pose.blade;
       const t = from.t;
-      let floor = Infinity;
-      for (const j of Object.values(pose.joints)) floor = Math.min(floor, j.y);
+      const floor = floorUnder(pose);
       drip({ x: b.hilt.x + (b.tip.x - b.hilt.x) * t, y: b.hilt.y + (b.tip.y - b.hilt.y) * t, z: b.hilt.z + (b.tip.z - b.hilt.z) * t }, floor);
     }
   }
 }
 
 const NONE: readonly BladeMark[] = [];
+
+/** The floor a drop off a Fighter falls to when the Arena's geometry is unknown: as low as its lowest joint. */
+export function floorUnder(pose: SkeletonPose): number {
+  let floor = Infinity;
+  for (const n in pose.joints) floor = Math.min(floor, pose.joints[n as keyof SkeletonPose['joints']].y);
+  return floor;
+}

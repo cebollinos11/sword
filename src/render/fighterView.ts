@@ -1,7 +1,9 @@
 import * as THREE from 'three';
 import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
-import { sizedTuning, weaponByName, type Size, type TuningData, type WeaponTuning } from '../tuning';
+import { sizedTuning, weaponByName, type Size, type SkeletonTuning, type TuningData, type WeaponTuning } from '../tuning';
+import { BodyCut } from './bodyCut';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
+import { piecesOfFall, severing, type Pieces } from './dismember';
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
@@ -52,7 +54,19 @@ export class FighterView {
   readonly root = new THREE.Group();
   private readonly skeleton = new THREE.Group();
   private model: BodyModel | undefined;
+  /** The model in pieces (Dismemberment), kept for as long as it is asked for the same cut: scrubbing over a Death cuts it once. */
+  private cut: { readonly body: BodyCut; readonly of: Pieces; readonly size: Size } | undefined;
+  /** Whether the body is drawn at all (`bodyVisible`), and whether the model was last drawn in pieces. */
+  private bodyOn = true;
+  private inPieces = false;
+  private readonly built: SkeletonTuning;
   private readonly bones: { mesh: THREE.Mesh; a: JointName; b: JointName }[] = [];
+  /** A severed bone's far half on the bare Skeleton (its stump to its second joint), one per severed bone, made as needed. */
+  private readonly stubs: THREE.Mesh[] = [];
+  /** The flesh on each cut end of the bare Skeleton, two per severed bone, made as needed, sharing `fleshMaterial`. */
+  private readonly caps: THREE.Mesh[] = [];
+  private flesh: THREE.MeshLambertMaterial | undefined;
+  private readonly primitive: { readonly material: THREE.Material; readonly cylinder: THREE.BufferGeometry };
   private readonly joints = new Map<JointName, THREE.Mesh>();
   private readonly head: THREE.Mesh;
   private readonly headRadius: number;
@@ -83,6 +97,7 @@ export class FighterView {
     // A four-sided pyramid whose base is the unit box's end face, so a sword's point meets its blade flush.
     const point = new THREE.ConeGeometry(Math.SQRT1_2, 1, 4, 1, false, Math.PI / 4);
     this.shapes = { box, point, cone };
+    this.primitive = { material: body, cylinder };
     this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone, point);
 
     for (const [a, b] of BONES) {
@@ -100,6 +115,7 @@ export class FighterView {
     }
     this.head = new THREE.Mesh(sphere, body);
     this.headRadius = tuning.skeleton.headRadius;
+    this.built = tuning.skeleton;
     this.head.scale.setScalar(this.headRadius);
     this.skeleton.add(this.head);
     this.root.add(this.skeleton);
@@ -110,6 +126,7 @@ export class FighterView {
         (model) => {
           if (this.disposed) return;
           this.model = model;
+          model.root.visible = this.bodyOn;
           this.skeleton.visible = false;
           this.root.add(model.root);
         },
@@ -144,10 +161,11 @@ export class FighterView {
     this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
   }
 
-  /** Free what this view made: the primitives' geometries and materials, and a loaded model's own materials (its geometry and textures are the shared template's). */
+  /** Free what this view made: the primitives' geometries and materials, a loaded model's own materials (its geometry and textures are the shared template's), and its pieces. */
   dispose(): void {
     this.disposed = true;
     for (const o of this.owned) o.dispose();
+    this.cut?.body.dispose();
     this.model?.root.traverse((o) => {
       if (o instanceof THREE.SkinnedMesh) (o.material as THREE.Material).dispose();
     });
@@ -160,8 +178,10 @@ export class FighterView {
 
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
   set bodyVisible(on: boolean) {
+    this.bodyOn = on;
     this.skeleton.visible = on && !this.model;
-    if (this.model) this.model.root.visible = on;
+    if (this.model) this.model.root.visible = on && !this.inPieces;
+    if (this.cut) this.cut.body.root.visible = on && this.inPieces;
   }
 
   /** How much of it shows, 0 (none) to 1 (all): between them it is dithered (`dither.ts`), crossfading with a Soldier's impostor. */
@@ -173,10 +193,28 @@ export class FighterView {
   /**
    * Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data, at the Fighter's Size when it has one), in a body
    * `size` tall and thick (default: the standard body): limbs, joints and the head are drawn that much thicker.
+   * `pieces`: its Death Ragdoll is in pieces (Dismemberment, `drawnPose`). On the bare Skeleton each severed bone is drawn
+   * as its two halves, joint to cut end, with flesh on each cut end; a model's mesh is cut where the bones are (`BodyCut`),
+   * once per Death, and each piece follows its own pose.
    */
-  update(pose: SkeletonPose, weapon: WeaponTuning, size: Size = STANDARD): void {
+  update(pose: SkeletonPose, weapon: WeaponTuning, size: Size = STANDARD, pieces?: Pieces): void {
     const p = pose.joints;
-    for (const { mesh, a, b } of this.bones) placeCylinder(mesh, p[a], p[b], (mesh.userData.radius as number) * size.thick);
+    let cut = 0;
+    for (const { mesh, a, b } of this.bones) {
+      const radius = (mesh.userData.radius as number) * size.thick;
+      const stump = pieces?.stumps.find((s) => s.bone[0] === a && s.bone[1] === b);
+      if (!stump) {
+        placeCylinder(mesh, p[a], p[b], radius);
+        continue;
+      }
+      placeCylinder(mesh, p[a], stump.ends[0], radius);
+      placeCylinder(this.stub(cut), stump.ends[1], p[b], radius);
+      placeCap(this.cap(2 * cut), p[a], stump.ends[0], radius);
+      placeCap(this.cap(2 * cut + 1), p[b], stump.ends[1], radius);
+      cut++;
+    }
+    for (let k = 0; k < this.stubs.length; k++) this.stubs[k]!.visible = k < cut;
+    for (let k = 0; k < this.caps.length; k++) this.caps[k]!.visible = k < 2 * cut;
     for (const [name, mesh] of this.joints) {
       mesh.position.set(p[name].x, p[name].y, p[name].z);
       // No wider than the body is tall, so a short wide Fighter's ankles stay above the floor.
@@ -184,7 +222,14 @@ export class FighterView {
     }
     this.head.position.set(p.head.x, p.head.y, p.head.z);
     this.head.scale.setScalar(this.headRadius * size.height);
-    this.model?.rig.pose(p, pose.blade, size);
+    if (this.model) {
+      const cut = pieces && pieces.severed.length > 0 ? this.cutBody(this.model, pieces, size) : undefined;
+      this.inPieces = cut !== undefined;
+      if (this.cut) this.cut.body.root.visible = this.bodyOn && this.inPieces;
+      this.model.root.visible = this.bodyOn && !this.inPieces;
+      if (cut) cut.pose(pieces!, pose.blade, size);
+      else this.model.rig.pose(p, pose.blade, size);
+    }
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
@@ -192,6 +237,53 @@ export class FighterView {
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
     else placeSword(this.sword, pose.blade, weapon);
     this.placeBlood(pose.blade, weapon);
+  }
+
+  /** The model cut into `pieces`: the one already made, if it is of the same cut (the same bones, cut at the same places of the same pose). */
+  private cutBody(model: BodyModel, pieces: Pieces, size: Size): BodyCut {
+    if (this.cut && this.cut.size.height === size.height && this.cut.size.thick === size.thick && sameCut(this.cut.of, pieces)) return this.cut.body;
+    if (this.cut) {
+      this.root.remove(this.cut.body.root);
+      this.cut.body.dispose();
+    }
+    const body = new BodyCut(model, this.built, pieces, size, this.fleshOf());
+    this.cut = { body, of: pieces, size };
+    this.root.add(body.root);
+    // Faded with the rest of the view, if it is fading.
+    if (this.root.userData.fade !== undefined) setDitherFade(this.root, (this.root.userData.fade as { value: number }).value);
+    return body;
+  }
+
+  /** The view's flesh material, made the first time something is cut. */
+  private fleshOf(): THREE.MeshLambertMaterial {
+    if (!this.flesh) {
+      this.flesh = fleshMaterial();
+      this.owned.push(this.flesh);
+    }
+    return this.flesh;
+  }
+
+  /** The `k`-th severed bone's far half on the bare Skeleton, made the first time it is needed. */
+  private stub(k: number): THREE.Mesh {
+    while (this.stubs.length <= k) {
+      const mesh = new THREE.Mesh(this.primitive.cylinder, this.primitive.material);
+      this.stubs.push(mesh);
+      this.skeleton.add(mesh);
+    }
+    return this.stubs[k]!;
+  }
+
+  /** The `k`-th cut end's flesh on the bare Skeleton, made the first time it is needed. */
+  private cap(k: number): THREE.Mesh {
+    if (this.caps.length > k) return this.caps[k]!;
+    while (this.caps.length <= k) {
+      const mesh = new THREE.Mesh(this.primitive.cylinder, this.fleshOf());
+      this.caps.push(mesh);
+      this.skeleton.add(mesh);
+    }
+    // Faded with the rest of the view, if it is fading.
+    if (this.root.userData.fade !== undefined) setDitherFade(this.root, (this.root.userData.fade as { value: number }).value);
+    return this.caps[k]!;
   }
 
   /** Lay each blood mark on the striking part nearest where it struck. */
@@ -320,6 +412,14 @@ function bladeBloodMaterial(): THREE.MeshLambertMaterial {
   });
 }
 
+/**
+ * The flesh of a cut (Dismemberment): dark red, a little emissive so it reads in shadow, like the blood on a blade
+ * (`bladeBloodMaterial`) but darker and without its smear. A view's own, so its Fighter's dither fade reaches it.
+ */
+export function fleshMaterial(): THREE.MeshLambertMaterial {
+  return new THREE.MeshLambertMaterial({ color: 0x8e0e14, emissive: 0x3a0000, flatShading: true });
+}
+
 interface SwordMeshes {
   readonly group: THREE.Group;
   readonly blade: THREE.Mesh;
@@ -354,6 +454,21 @@ function placeCylinder(mesh: THREE.Mesh, a: Vec3, b: Vec3, radius: number): void
   mesh.position.copy(tmpA).add(tmpB).multiplyScalar(0.5);
   mesh.scale.set(radius, Math.max(len, 1e-4), radius);
   if (len > 1e-6) mesh.quaternion.setFromUnitVectors(UP, tmpB.sub(tmpA).divideScalar(len));
+}
+
+/** How thick (m) the flesh on a cut end of the bare Skeleton is, and how much wider than its bone. */
+const CAP_THICKNESS = 0.012;
+const CAP_WIDEN = 1.08;
+
+/** A cut end's flesh: a disc square to the bone from `joint` to the cut end `end`, flush with that end. */
+function placeCap(mesh: THREE.Mesh, joint: Vec3, end: Vec3, radius: number): void {
+  tmpA.set(end.x - joint.x, end.y - joint.y, end.z - joint.z);
+  const len = tmpA.length();
+  if (len > 1e-6) tmpA.divideScalar(len);
+  else tmpA.copy(UP);
+  mesh.quaternion.setFromUnitVectors(UP, tmpA);
+  mesh.position.set(end.x, end.y, end.z).addScaledVector(tmpA, -CAP_THICKNESS / 2 + 0.002);
+  mesh.scale.set(radius * CAP_WIDEN, CAP_THICKNESS, radius * CAP_WIDEN);
 }
 
 const basis = new THREE.Matrix4();
@@ -433,18 +548,53 @@ export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonP
   return { joints, blade: { hilt: l(a.blade.hilt, b.blade.hilt), tip: l(a.blade.tip, b.blade.tip), edge: l(a.blade.edge, b.blade.edge) } };
 }
 
+const sameVec = (a: Vec3, b: Vec3): boolean => a.x === b.x && a.y === b.y && a.z === b.z;
+
+/** Whether two bodies in pieces are of one cut: the same bones severed at the same places, of the same pose. */
+function sameCut(a: Pieces, b: Pieces): boolean {
+  if (a === b) return true;
+  if (a.severed.length !== b.severed.length) return false;
+  for (let k = 0; k < a.severed.length; k++) {
+    const [s, t] = [a.severed[k]!, b.severed[k]!];
+    if (s.bone[0] !== t.bone[0] || s.bone[1] !== t.bone[1] || s.girth !== t.girth || !sameVec(s.at, t.at) || !sameVec(s.normal, t.normal)) return false;
+  }
+  return JOINT_NAMES.every((n) => sameVec(a.fellIn.joints[n], b.fellIn.joints[n]));
+}
+
+/** A pose as `drawnPose` draws it: a Death Ragdoll in pieces (Dismemberment) has its `pieces`, and how long ago it fell. */
+export interface DrawnPose extends SkeletonPose {
+  readonly pieces?: Pieces;
+  /** With `pieces`: seconds of Duel time since the Death (its stumps bleed for a while, `stumpDrops`). */
+  readonly since?: number;
+}
+
+/** Each Death Ragdoll pose's pieces, so a body lying still is not taken apart again every frame. */
+const piecesCache = new WeakMap<SkeletonPose, Pieces>();
+
 /**
  * The pose to draw for Fighter `i` a share `alpha` of the way from Tick `from` to Tick `to` (the same Duel):
  * its solved Skeletons interpolated, or once it has fallen, its Death Ragdoll at that moment. While it is Sheathed (as of `to`),
  * the Weapon is in its slot on the body, not in the hand (ADR 0017: only drawing moves it there).
+ * `dismember`: a Death whose cut severs bones falls in pieces, and the pose has its `pieces` (pass them on to
+ * `FighterView.update`); off (a thumbnail, a Soldier's impostor clip), every Death falls whole.
  */
-export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData): SkeletonPose {
+export function drawnPose(from: SimState, to: SimState, i: number, alpha: number, tuning: TuningData, dismember = false): DrawnPose {
   const f = to.fighters[i]!;
   const sized = sizedTuning(tuning, f.size);
   const weapon = weaponByName(sized, f.weapon);
   if (f.death) {
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
-    return ragdollPose(fighterPose(f, tuning), f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed);
+    const fellIn = fighterPose(f, tuning);
+    const severed = dismember ? severing(fellIn, f.death.blow, sized) : [];
+    const fall = ragdollPose(fellIn, f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed, severed);
+    // Whole, or still whole before the Death's own Tick.
+    if (!fall.stumps) return fall;
+    let pieces = piecesCache.get(fall);
+    if (!pieces) {
+      pieces = piecesOfFall(f.sheathed ? { ...fellIn, blade: sheathedBlade(fellIn, weapon) } : fellIn, fall, severed, sized);
+      piecesCache.set(fall, pieces);
+    }
+    return { ...fall, pieces, since: ticks * TICK_SECONDS };
   }
   const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
   return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;

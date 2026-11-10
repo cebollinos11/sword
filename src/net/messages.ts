@@ -1,4 +1,4 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { MAX_PLAYERS, type Lineup } from '../controllers';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
@@ -680,7 +680,14 @@ function isBattle(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
 function isDeath(v: unknown): boolean {
   if (!isObject(v) || !isTick(v.tick) || (v.cause !== 'Hit' && v.cause !== 'Fall' && v.cause !== 'Lava' && v.cause !== 'Water')) return false;
   const b = v.blow;
-  return b === null || (isObject(b) && isVec3(b.point) && isNum(b.bladeSpeed) && isDirection(b.direction) && isVec2(b.from));
+  return b === null || (isObject(b) && isVec3(b.point) && isNum(b.bladeSpeed) && isDirection(b.direction) && isVec2(b.from) && (b.cut === undefined || (b.direction !== 'Thrust' && isCut(b.cut))));
+}
+
+/** A Death's cut: the blade at contact (hilt and tip apart) and the unit direction it was moving. A Thrust never has one. */
+function isCut(v: unknown): boolean {
+  if (!isObject(v) || !isVec3(v.hilt) || !isVec3(v.tip) || !isVec3(v.travel)) return false;
+  const [h, t, d] = [v.hilt, v.tip, v.travel] as [Vec3, Vec3, Vec3];
+  return Math.hypot(t.x - h.x, t.y - h.y, t.z - h.z) > 0 && Math.abs(Math.hypot(d.x, d.y, d.z) - 1) < 1e-6;
 }
 
 /** What an AI saw of one Fighter on one Tick. */

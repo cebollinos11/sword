@@ -83,6 +83,7 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     on(f.addBinding(w, 'gripLength', { min: 0.01, max: 1.5, step: 0.01, label: 'grip length (m)' }));
     on(f.addBinding(w, 'head', { min: 0.01, max: 2.5, step: 0.01, label: 'head (m)' }));
     on(f.addBinding(w, 'shaftDamage', { min: 0, max: 1, step: 0.05, label: 'shaft damage ×' }));
+    on(f.addBinding(w, 'cuts', { label: 'cuts (Dismemberment)' }));
     const grip = f.addFolder({ title: 'Off-hand Grip (two-handed)' });
     on(grip.addBinding(w.offHandGrip, 'along', { min: 0, max: 1.5, step: 0.01, label: 'along (m)' }));
     on(grip.addBinding(w.offHandGrip, 'around', { min: -180, max: 180, step: 1, label: 'around (°)' }));

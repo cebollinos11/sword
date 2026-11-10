@@ -4,10 +4,11 @@
  * events (ADR 0001); which burst or puff each event makes is pure, so it is tested headlessly.
  */
 import * as THREE from 'three';
-import type { SimState, SkeletonPose, Vec3 } from '../sim';
+import type { SimState, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
-import { BladeBlood } from './bladeBlood';
-import { BloodEffects, bloodSpurts } from './blood';
+import { BladeBlood, floorUnder } from './bladeBlood';
+import { BloodEffects, bloodSpurts, stumpDrips, stumpDrops, stumpSpurts } from './blood';
+import type { DrawnPose } from './fighterView';
 
 /** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
@@ -199,6 +200,10 @@ export class ImpactEffects {
   /** The blood on each Fighter's Weapon (the Renderer draws it on the Weapon). */
   readonly blades: BladeBlood;
   private lastTick = -Infinity;
+  /** Each body in pieces' time since its Death as last drawn (`DrawnPose.since`), so its stumps drip for the time gone by since. */
+  private readonly bled: (number | undefined)[] = [];
+  /** The loop jumped since the last `drip`: a body first seen in pieces now was already fallen, and drips from now on. */
+  private sought = true;
   /** Effect time, seconds. */
   private clock = 0;
 
@@ -211,11 +216,13 @@ export class ImpactEffects {
     this.blades = new BladeBlood(tuning);
   }
 
-  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters' | 'tick'> & Partial<Pick<SimState, 'arena'>>): void {
+  /** `tuning`: the Tuning Data the Duel is played with, if not the one this was made with (the Editor's live edits), so the stumps bleed where they are drawn. */
+  onTick(tick: number, duel: Pick<SimState, 'events' | 'fighters' | 'tick'> & Partial<Pick<SimState, 'arena'>>, tuning: TuningData = this.tuning): void {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
     this.blood.setArena(duel.arena);
     for (const s of bloodSpurts(duel)) this.blood.spurt(s);
+    for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
     this.blades.onTick(tick, duel);
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
@@ -226,6 +233,8 @@ export class ImpactEffects {
     this.blood.seek(tick < this.lastTick);
     this.blades.seek(tick);
     this.lastTick = tick;
+    this.bled.length = 0;
+    this.sought = true;
     for (const p of this.live.splice(0)) this.remove(p);
   }
 
@@ -234,9 +243,22 @@ export class ImpactEffects {
     this.blood.onSplatter = play;
   }
 
-  /** Bloody Weapons, as drawn this frame (`poses`, by Fighter), drip now and then over `seconds`. */
-  drip(poses: readonly (SkeletonPose | undefined)[], seconds: number): void {
+  /**
+   * Bloody Weapons, as drawn this frame (`poses`, by Fighter), drip now and then over `seconds`; the stumps of a body in
+   * pieces (Dismemberment) drip as it falls, for the Duel time gone by since it was last drawn (`stumpDrops`).
+   */
+  drip(poses: readonly (DrawnPose | undefined)[], seconds: number): void {
     this.blades.drip(poses, seconds, (point, floorY) => this.blood.drip(point, floorY));
+    poses.forEach((pose, i) => {
+      const since = pose?.pieces ? pose.since : undefined;
+      // First seen in pieces: from its Death, unless the loop just jumped there (then it drips from now on).
+      const before = this.bled[i] ?? (this.sought ? since : 0);
+      this.bled[i] = since;
+      if (since === undefined || before === undefined || stumpDrops(before, since) === 0) return;
+      const floor = floorUnder(pose!);
+      for (const point of stumpDrips(pose!.pieces!.stumps, before, since)) this.blood.drip(point, floor);
+    });
+    this.sought = false;
   }
 
   /** Advance the particles by `seconds`. */

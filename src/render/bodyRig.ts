@@ -184,22 +184,25 @@ export class BodyRig {
 
   /**
    * `model` is the model's scene in its bind pose, at the origin; `skeleton`
-   * is the Skeleton's tuning the model was built for.
+   * is the Skeleton's tuning the model was built for. `like`: `model` is a copy of that rig's model, posed however it
+   * was when copied, so its bones' own turns are that rig's (they cannot be read off a posed model).
    */
   constructor(
     private readonly model: THREE.Object3D,
     skeleton: SkeletonTuning,
+    like?: BodyRig,
   ) {
     this.rest = boneFrames(restJoints(skeleton));
     model.updateMatrixWorld(true);
     const world = new THREE.Quaternion();
-    this.bones = BODY_BONES.map((name) => {
+    this.bones = BODY_BONES.map((name, i) => {
       const bone = model.getObjectByName(name);
       if (!(bone instanceof THREE.Bone)) throw new Error(`Body model has no bone "${name}"`);
-      bone.matrixWorld.decompose(new THREE.Vector3(), world, new THREE.Vector3());
-      // The bone's own turn relative to its rest frame, kept as the frame moves.
       // Posed by matrix (a stretched bone's matrix carries shear its position, rotation and scale could not hold), so three.js must not rebuild it.
       bone.matrixAutoUpdate = false;
+      if (like) return { name, bone, turn: like.bones[i]!.turn };
+      bone.matrixWorld.decompose(new THREE.Vector3(), world, new THREE.Vector3());
+      // The bone's own turn relative to its rest frame, kept as the frame moves.
       return { name, bone, turn: new THREE.Matrix4().makeRotationFromQuaternion(this.rest[name].rotation.clone().invert().multiply(world)) };
     });
   }

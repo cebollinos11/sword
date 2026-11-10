@@ -8,8 +8,10 @@
  * draw calls and no per-frame allocation.
  */
 import * as THREE from 'three';
-import { arenaOf, battlefieldHeight, battlefieldOf, deadlyGround, groundBelow, wallHit, type Heightfield, type SimState, type Vec3 } from '../sim';
-import type { ArenaGeometry, TuningData } from '../tuning';
+import { arenaOf, battlefieldHeight, battlefieldOf, deadlyGround, fighterPose, groundBelow, wallHit, type Heightfield, type SimState, type Vec3 } from '../sim';
+import { sizedTuning, type ArenaGeometry, type TuningData } from '../tuning';
+import { severing } from './dismember';
+import type { Stump } from './ragdoll';
 
 /** Blood sprayed by one Hit: where, which way (a unit vector on the floor plane: from the attacker through the defender) and how much. */
 export interface BloodSpurt {
@@ -19,6 +21,11 @@ export interface BloodSpurt {
   readonly strength: number;
   /** The defender's feet: the floor to land on when the Arena's geometry is unknown. */
   readonly floorY: number;
+  /**
+   * How steeply it sprays up (+) or down (−): the sine of its angle off the floor plane, `dir` being the rest (a stump's
+   * spurt, out along the cut). None: a wound's spray, flung out level.
+   */
+  readonly rise?: number;
 }
 
 /** A Hit of this much damage sprays at full strength (a head Hit with repo Tuning Data: 5 x the head multiplier). */
@@ -47,6 +54,76 @@ export function bloodSpurts(duel: Pick<SimState, 'events' | 'fighters'>): BloodS
     spurts.push({ point: e.point, dir: { x, z }, strength, floorY: to.y });
   }
   return spurts;
+}
+
+/**
+ * A cut end whose plane lies nearly level (its normal's level part under this) does not spray straight up or down: it
+ * sprays along the blow, the way the blade went, tilted up or down out of the cut by `LEVEL_RISE` (the sine of the tilt).
+ */
+const LEVEL_CUT = 0.2;
+const LEVEL_RISE = 0.7;
+
+/**
+ * The blood sprayed from the stumps of a body in pieces (Dismemberment) on the Tick of its Death: one full-strength spurt
+ * from each cut end of each bone its cut severs (`severing`), out of its own piece along the cut's normal, in the order of
+ * the severed bones (the end on its bone's first joint's side first). Pure: the Death and the pose it fell in decide it.
+ */
+export function stumpSpurts(duel: Pick<SimState, 'tick' | 'fighters'>, tuning: TuningData): BloodSpurt[] {
+  const spurts: BloodSpurt[] = [];
+  for (const f of duel.fighters) {
+    const death = f.death;
+    if (!death || death.tick !== duel.tick || !death.blow?.cut) continue;
+    const pose = fighterPose(f, tuning);
+    for (const { bone, at, normal } of severing(pose, death.blow, sizedTuning(tuning, f.size))) {
+      const [a, b] = [pose.joints[bone[0]], pose.joints[bone[1]]];
+      // The end on the first joint's side faces the second joint, across the cut.
+      const toward = (b.x - a.x) * normal.x + (b.y - a.y) * normal.y + (b.z - a.z) * normal.z < 0 ? -1 : 1;
+      for (const sign of [toward, -toward]) {
+        const out = { x: normal.x * sign, y: normal.y * sign, z: normal.z * sign };
+        const flat = Math.hypot(out.x, out.z);
+        if (flat >= LEVEL_CUT) {
+          spurts.push({ point: at, dir: { x: out.x / flat, z: out.z / flat }, strength: 1, floorY: f.y, rise: Math.max(-1, Math.min(1, out.y)) });
+          continue;
+        }
+        const x = f.position.x - death.blow.from.x;
+        const z = f.position.z - death.blow.from.z;
+        const len = Math.hypot(x, z);
+        const dir = len < 1e-6 ? { x: 0, z: 1 } : { x: x / len, z: z / len };
+        spurts.push({ point: at, dir, strength: 1, floorY: f.y, rise: Math.sign(out.y) * LEVEL_RISE });
+      }
+    }
+  }
+  return spurts;
+}
+
+/** For this long after the Death (seconds of Duel time) a body in pieces bleeds from its stumps as they fall. */
+export const STUMP_BLEED_SECONDS = 2;
+/** Drops shed from each cut end over `STUMP_BLEED_SECONDS`: most at once, fewer and fewer until it stops. */
+const STUMP_DROPS = 8;
+
+/** Drops shed from one cut end in the first `t` seconds after the Death. */
+function shed(t: number): number {
+  const u = Math.min(1, Math.max(0, t / STUMP_BLEED_SECONDS));
+  return STUMP_DROPS * u * (2 - u);
+}
+
+/**
+ * How many drops each cut end of a body in pieces sheds while the Death Ragdoll goes from `before` to `after` seconds
+ * after the Death. Pure in the two times: however a stretch of time is cut into frames, the drops add up to the same,
+ * and none fall while time stands still (paused) or runs back (scrubbing).
+ */
+export function stumpDrops(before: number, after: number): number {
+  return after > before ? Math.floor(shed(after)) - Math.floor(shed(before)) : 0;
+}
+
+/**
+ * Where the drops fall from this frame: each cut end of `stumps` (as they lie), as many times as `stumpDrops` says.
+ */
+export function stumpDrips(stumps: readonly Stump[], before: number, after: number): Vec3[] {
+  const n = stumpDrops(before, after);
+  const points: Vec3[] = [];
+  for (let k = 0; k < n; k++) for (const s of stumps) points.push(...s.ends);
+  return points;
 }
 
 /** Seconds a floor stain takes to splat out to its full size. */
@@ -234,11 +311,11 @@ export class BloodEffects {
     scene.add(this.root);
   }
 
-  /** Spray `spurt`: droplets fan out away from the attacker, up and down, with a spread. */
-  spurt(spurt: BloodSpurt): void {
+  /** Spray `spurt`: droplets fan out away from the attacker, up and down, with a spread. `heard`: its first droplet to land splatters aloud (a stump's spurt is silent: the wound's own is heard). */
+  spurt(spurt: BloodSpurt, heard = true): void {
     const n = Math.round(DROPLETS * (0.4 + 0.6 * spurt.strength));
     const serial = this.nextSpurt++;
-    if (this.live < MAX_DROPLETS) this.unheard.set(serial, { strength: spurt.strength, at: this.clock });
+    if (heard && this.live < MAX_DROPLETS) this.unheard.set(serial, { strength: spurt.strength, at: this.clock });
     for (let k = 0; k < n && this.live < MAX_DROPLETS; k++) {
       const i = this.live++;
       const speed = SPEED * (0.35 + 0.65 * spurt.strength) * (0.35 + 0.65 * Math.random());
@@ -246,12 +323,14 @@ export class BloodEffects {
       const side = (Math.random() - 0.5) * 1.1;
       const dx = spurt.dir.x - spurt.dir.z * side;
       const dz = spurt.dir.z + spurt.dir.x * side;
-      const norm = 1 / Math.hypot(dx, dz);
+      // A stump's spurt is tilted up or down out of the cut; a wound's stays level.
+      const rise = spurt.rise ?? 0;
+      const norm = Math.sqrt(1 - rise * rise) / Math.hypot(dx, dz);
       this.pos[i * 3] = spurt.point.x;
       this.pos[i * 3 + 1] = spurt.point.y;
       this.pos[i * 3 + 2] = spurt.point.z;
       this.vel[i * 3] = dx * norm * speed;
-      this.vel[i * 3 + 1] = (Math.random() - 0.3) * 0.5 * speed + 0.6;
+      this.vel[i * 3 + 1] = (Math.random() - 0.3) * 0.5 * speed + 0.6 + rise * speed;
       this.vel[i * 3 + 2] = dz * norm * speed;
       this.life[i] = DROPLET_LIFE;
       this.floor[i] = spurt.floorY;
