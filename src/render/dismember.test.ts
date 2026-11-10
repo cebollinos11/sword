@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { attack, createInitialState, duelPlacements, fighterPose, JOINT_NAMES, runDuel, type DeathBlow, type Vec3 } from '../sim';
-import { loadTuningData, sizedTuning, withWeapon } from '../tuning';
-import { pieceOf, severing } from './dismember';
+import { attack, BONES, createInitialState, duelPlacements, fighterPose, JOINT_NAMES, runDuel, type Death, type DeathBlow, type Vec3 } from '../sim';
+import { loadTuningData, sizedTuning, weaponByName, withWeapon } from '../tuning';
+import { pieceOf, piecePoses, severing } from './dismember';
+import { ragdollPose } from './ragdoll';
 
 const tuning = loadTuningData();
 /** Standing at +z, facing -z: its left side is at -x. */
 const pose = fighterPose(createInitialState(tuning, 1, duelPlacements(2)).fighters[1]!, tuning);
 const { carry, speed } = tuning.fighter.dismember;
+const weapon = weaponByName(tuning, createInitialState(tuning, 1, duelPlacements(2)).fighters[1]!.weapon);
 
 /** A blow whose blade lay from `hilt` to `tip` and was going along `travel` (made unit), struck at `point` (default: the middle of the blade). */
 function blow(hilt: Vec3, tip: Vec3, travel: Vec3, bladeSpeed = speed, point?: Vec3): DeathBlow {
@@ -143,5 +145,68 @@ describe('pieceOf', () => {
     // Two cuts on one arm leave the elbow a piece of its own.
     const twice = cut(['leftShoulder', 'leftElbow'], ['leftElbow', 'leftHand']);
     expect(new Set([twice.leftShoulder, twice.leftElbow, twice.leftHand]).size).toBe(3);
+  });
+});
+
+describe('piecePoses', () => {
+  const death = (b: DeathBlow): Death => ({ tick: 10, cause: 'Hit', blow: b });
+  const down = blow({ x: 0.6, y: 1.3, z: 0.82 }, { x: 0, y: 1.3, z: 0.82 }, { x: 0, y: -1, z: 0 });
+  const kills: [name: string, blow: DeathBlow][] = [
+    ['neck', level(1.5, -0.15)],
+    ['waist', level(1.2, -0.36)],
+    ['thighs', level(0.72, -0.25, speed * 2)],
+    ['forearm', down],
+  ];
+  const fallOf = (b: DeathBlow, t: number) => ragdollPose(pose, death(b), t, weapon, tuning, undefined, false, severing(pose, b, tuning));
+  const d = (a: Vec3, b: Vec3) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  const LINKS = [...BONES, ['chest', 'leftShoulder'], ['chest', 'rightShoulder'], ['pelvis', 'leftHip'], ['pelvis', 'rightHip']] as const;
+
+  it('is the whole pose, one piece, when nothing is severed', () => {
+    const whole = ragdollPose(pose, death(level(1.2, -0.36)), 1, weapon, tuning);
+    expect(piecePoses(pose, whole)).toEqual([whole]);
+  });
+
+  it.each(kills)('has one pose per piece, each piece’s own joints where they lie: %s', (_, b) => {
+    for (const t of [0, 0.6, 3]) {
+      const fall = fallOf(b, t);
+      const piece = pieceOf(fall.stumps!);
+      const poses = piecePoses(pose, fall);
+      expect(poses).toHaveLength(Math.max(...Object.values(piece)) + 1);
+      poses.forEach((p, k) => {
+        expect(p.blade).toEqual(fall.blade);
+        for (const n of JOINT_NAMES) if (piece[n] === k) expect(p.joints[n]).toEqual(fall.joints[n]);
+      });
+    }
+  });
+
+  it.each(kills)('rebuilds a severed bone’s missing end along its stump, at its length: %s', (_, b) => {
+    const fall = fallOf(b, 3);
+    const piece = pieceOf(fall.stumps!);
+    for (const { bone, ends } of fall.stumps!) {
+      bone.forEach((own, side) => {
+        const other = bone[1 - side]!;
+        const p = piecePoses(pose, fall)[piece[own]]!;
+        const len = d(pose.joints[own], pose.joints[other]);
+        expect(d(p.joints[own], p.joints[other])).toBeCloseTo(len, 6);
+        // On the line from the joint through its cut end, beyond it.
+        const stub = d(p.joints[own], ends[side]!);
+        expect(stub + d(ends[side]!, p.joints[other])).toBeCloseTo(len, 6);
+      });
+    }
+  });
+
+  it.each(kills)('carries the other pieces along rigidly, so every bone keeps its length: %s', (_, b) => {
+    const fall = fallOf(b, 3);
+    for (const p of piecePoses(pose, fall))
+      for (const [a, c] of LINKS) expect(d(p.joints[a], p.joints[c]), `${a}>${c}`).toBeCloseTo(d(pose.joints[a], pose.joints[c]), 1);
+  });
+
+  it('is the pose it fell in, for every piece, on the Tick of the Death', () => {
+    const fall = fallOf(level(1.2, -0.36), 0);
+    for (const p of piecePoses(pose, fall)) for (const n of JOINT_NAMES) for (const c of ['x', 'y', 'z'] as const) expect(p.joints[n][c]).toBeCloseTo(pose.joints[n][c], 9);
+  });
+
+  it('is the same every time', () => {
+    expect(piecePoses(pose, fallOf(down, 1.1))).toEqual(piecePoses(pose, fallOf(down, 1.1)));
   });
 });

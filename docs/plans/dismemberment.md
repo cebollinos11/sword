@@ -2,13 +2,13 @@
 
 > Built one Stage per session with `docs/plans/dismemberment-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask.
 
-Status: Stages 1 and 2 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces are worked out and tested, but not yet wired to anything drawn); Stage 3 next. Nothing is drawn differently yet.
+Status: Stages 1 to 3 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces; the bare Skeleton drawn in pieces in the game, the sandbox and the bench). Skinned Bodies still fall whole (following the piece with the pelvis); Stage 4 next.
 
 ## Progress
 
 - [x] Stage 1: the Simulation records the cut (sections 1 and 6's ADR)
 - [x] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
-- [ ] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
+- [x] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
 - [ ] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
 - [ ] Stage 5: blood from the stumps, and the docs (sections 5 and 6)
 
@@ -120,6 +120,22 @@ Built as sections 2 and 3, pure and unit-tested. Nothing calls it from the game 
 - **Known limits, left as they are:** (1) the whole blade from hand to tip cuts, so a Halberd's shaft can sever a bone it sweeps although only a Head Hit records a cut; the Death does not say where the Head begins. (2) Pieces, like the whole ragdoll, are not stopped by Walls, and they are flung a little further. (3) A plane that runs along the body (an Overhead straight down onto a shoulder or the crown, or a tip that only grazes the front) crosses no severable bone and leaves the body whole, as the plan says. With the real Motions: Left and Right sword kills at 0.9 to 1.3 m sever an upper arm and the spine; sword Overheads at that range sever the left upper arm; a Longsword or Halberd Overhead at 1.7 m severs nothing.
 - **Tests:** `dismember.test.ts` (12: no cut, arm, neck, waist, shallow and deep reach, `maxCuts`, a blade along a bone, off the joints, a thicker Fighter, real sword kills, `pieceOf`), `ragdoll.test.ts` (+43: for a neck, waist, thigh, shin and forearm cut: starts in the pose, same fall every time and when scrubbed, comes apart, other bones whole, settles and comes to rest, gains no height; plus a sweep of 30+ cuts at every height, the knees, the Weapon, a Sheathed Weapon on a body cut in two, and the uncut fall), `tuning.test.ts` (+1). Fast suite 2200 passed, 5 skipped; slow suite 28 passed.
 - **Nothing to see in `npm run dev` yet.**
+
+### Stage 3 result
+
+Built as section 4's bare Skeleton part, plus `piecePoses` from section 3. Visible at `?body=skeleton`.
+
+- **`piecePoses(fellIn, fall, piece?)`** (`src/render/dismember.ts`): one whole `SkeletonPose` per piece, numbered as `pieceOf`. A piece's own joints are where the fall left them; a severed bone's missing end is rebuilt from its own joint out through its stump at the bone's length (taken from `fellIn`, the pose the Fighter fell in); every joint beyond it rides along rigidly, turned as that bone turned. So every bone of every piece pose keeps its length (the limp piece's own within the ragdoll's give). All pieces share the fall's Weapon. **Deviation:** it takes `fellIn` as well as the fall, for the bone lengths and the far joints' shape.
+- **`Pieces = { piece, stumps, poses }`** and `piecesOfFall(fellIn, fall)` (`dismember.ts`): what a view needs to draw a body in pieces. Stage 4 will likely add what the mesh cut needs (the severed bones as cut in `fellIn`).
+- **`drawnPose(…, dismember = false)` returns `DrawnPose`** (`SkeletonPose` plus optional `pieces`). Only with `dismember` does it sever (`severing` of the Fighter's own `sizedTuning`) and fall in pieces. **Deviation:** opt-in rather than always on, so the callers the plan says stay whole (`thumbs`, `soldierClips`, which bakes a Soldier's struck-down clip from a cutting Overhead) need no change and do not fall in pieces at all. The game's `renderer.ts`, `editor/sandbox.ts` and `editor/bench.ts` pass `true` and hand `pose.pieces` to `FighterView.update`. Pieces are memoised per ragdoll pose object (a `WeakMap`), so a body lying still is not taken apart every frame; a pure cache, nothing a scrub or Rollback can leave wrong.
+- **`FighterView.update(pose, weapon, size, pieces?)`**: on the bare Skeleton a severed bone's cylinder runs from its first joint to its cut end, and a second one (`stubs`, made as needed) from the other cut end to its second joint; each cut end gets a flesh disc (`caps`, two per cut, a thin cylinder 8% wider than the bone, flush with the end). `fleshMaterial()` (exported for Stage 4's caps): dark red Lambert, a little emissive, like `bladeBloodMaterial` without the smear; it takes the view's dither fade.
+- **Before the Death it is whole.** Found by eye: the frame drawn between the Tick before the Death and the Death's own (alpha toward the Death's Tick) showed the caps on a whole body. `ragdollPose` now gives no `stumps` for a negative time (the Death's own Tick still has them, both ends at the cut).
+- **Deviation, skinned Bodies:** until Stage 4 cuts their mesh, a skinned Body with `pieces` is posed by `pieces.poses[0]` (the piece with the pelvis, the others riding along with it): it falls whole, nothing stretches between pieces. Checked on monk, duelist, female and templar. Blob shadows use that piece's pose too (`renderer.ts`).
+- **Editor: a "Kill" script** in the Duel sandbox (folder "Kill": Direction and distance): yellow swings once at blue, standing still on 1 HP, so the first Hit fells it. With the Weapons and Sizes folders it makes any cutting or non-cutting kill to look at.
+- **Checked in the browser** (sandbox, Playwright, screenshots before, during, after and scrubbed back): Arming Sword Left and Right (torso in two, with an arm), Overhead (an upper arm), neck (head off: a shorter blue, or a taller yellow), thighs (a taller blue, a shorter yellow, Right); Longsword Left, Right (body in two) and Overhead (whole, as Stage 2 found); Halberd Left, Right (upper body off) and Overhead (whole); Thrust and Sledge Hammer kills whole. Caps closed, pieces lying on the floor, the body whole when scrubbed back. No console errors. An Overhead onto the thighs leaves them whole (the plane runs along them, Stage 2's known limit).
+- **Split time:** nothing is split yet (Stage 4); `piecePoses` is a few hundred multiplications per new ragdoll step.
+- **Tests:** `dismember.test.ts` +6 (`piecePoses`: whole body, own joints where they lie, the rebuilt end along its stump at its length, every bone of every piece keeps its length, the pose it fell in on the Death's Tick, the same every time), `ragdoll.test.ts` +5 (still whole before the Death). Fast suite 2220 passed, 5 skipped. Nothing in `src/sim` or `src/net` changed.
+- **Try in `npm run dev`:** `?body=skeleton`, Editor → Duel sandbox → script "Kill", vary Direction, distance, Weapon and Sizes; scrub back and forth over the Death. In a Duel or Run at `?body=skeleton`, a sword's killing Left or Right cuts.
 
 ## Verification
 

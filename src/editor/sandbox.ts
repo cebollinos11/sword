@@ -3,7 +3,8 @@
  * Duel run through the real Simulation, with play/pause, step-one-Tick,
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
- * Movement, an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
+ * Movement, a Kill (yellow swings at blue until it falls, to see the Death Ragdoll and Dismemberment; Direction
+ * and distance in the "Kill" folder), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play yellow with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
@@ -169,6 +170,20 @@ function movementDuel(tuning: TuningData): SandboxRun {
   return scripted(tuning, 3, a, b, 600);
 }
 
+/** Settings of the Kill script (the "Kill" folder edits these). */
+const killPicks = { direction: 'Right' as Direction, distance: 1.1 };
+
+/**
+ * A kill, to see how a Death falls (and, for a cutting one, comes apart: Dismemberment): Fighter 0 swings
+ * `killPicks.direction` from `killPicks.distance` at Fighter 1, standing still on its last HP, so the first Hit fells it.
+ */
+function killDuel(tuning: TuningData): SandboxRun {
+  const a: Track = [...wait(20), ...attack(killPicks.direction)];
+  const initial = createInitialState(tuning, 1, duelPlacements(killPicks.distance), pickedWeapons(), undefined, undefined, pickedSizes());
+  const lastHp = { ...initial, fighters: initial.fighters.map((f, i) => (i === 1 ? { ...f, hp: 1 } : f)) };
+  return precompute(duelSandbox(tuning), lastHp, [scriptedController(a), scriptedController(wait(1))], a.length + 240);
+}
+
 /**
  * AI vs AI: a best-of-N Match between two AI Controllers. The scrub index is
  * the Match Tick; the Duel shown at each is `match.duel` (each new Duel restarts
@@ -218,6 +233,7 @@ function playerVsAiMatch(tuning: TuningData, local: LocalController): SandboxRun
 const SCRIPTS: Record<string, (tuning: TuningData, local: LocalController) => SandboxRun> = {
   Exchange: scriptedDuel,
   Movement: movementDuel,
+  Kill: killDuel,
   'AI vs AI Match': aiVsAiMatch,
   [PLAYER_VS_AI]: playerVsAiMatch,
 };
@@ -475,6 +491,10 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const sizes = pane.addFolder({ title: 'Sizes', expanded: false });
   const range = { min: MIN_SIZE, max: MAX_SIZE, step: SIZE_STEP };
   for (const key of ['redHeight', 'redThick', 'blueHeight', 'blueThick'] as const) sizes.addBinding(sizePicks, key, { ...range, label: key.replace(/([A-Z])/g, ' $1').toLowerCase() }).on('change', rerun);
+  const kill = pane.addFolder({ title: 'Kill', expanded: false });
+  const rerunKill = () => switchTo('Kill');
+  kill.addBinding(killPicks, 'direction', { options: { Overhead: 'Overhead', Left: 'Left', Right: 'Right', Thrust: 'Thrust' } }).on('change', rerunKill);
+  kill.addBinding(killPicks, 'distance', { min: 0.6, max: 2.4, step: 0.05 }).on('change', rerunKill);
   const ai = pane.addFolder({ title: 'AI vs AI', expanded: true });
   const difficulties = Object.fromEntries(Object.keys(tuning.ai.difficulties).map((k) => [k, k]));
   /** Changing an AI setting switches to (and re-runs) the AI vs AI Match. */
@@ -662,7 +682,8 @@ saved ${file} (${result})`),
     } else controls.update();
 
     curr.fighters.forEach((f, i) => {
-      views[i]!.update(drawnPose(from, to, i, alpha, tuning), weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size);
+      const pose = drawnPose(from, to, i, alpha, tuning, true);
+      views[i]!.update(pose, weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size, pose.pieces);
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;
       if (ui.hitZones && !f.death) zones[i]!.update(hitZoneCapsules(fighterPose(f, tuning), tuning, f.action.kind === 'Knockdown' ? tuning.fighter.lyingHitFactor : 1));

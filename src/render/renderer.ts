@@ -11,8 +11,7 @@ import type { DoorMarkView } from '../play/doorMarks';
 import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
 import type { FireState } from './restFire';
-import { drawnPose, fighterColours, FighterView } from './fighterView';
-import type { SkeletonPose } from '../sim';
+import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighterView';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
@@ -57,7 +56,7 @@ export class Renderer {
   /** Each Fighter's share of its model to show (`setFades`); null: all of every one. */
   private fades: ((fighter: number) => number) | null = null;
   /** The pose each Fighter was last drawn in, held for a slot fading out once it is no longer drawn. */
-  private readonly lastPoses: (SkeletonPose | undefined)[] = [];
+  private readonly lastPoses: (DrawnPose | undefined)[] = [];
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -195,7 +194,7 @@ export class Renderer {
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
     const colours = curr.crowd ? curr.fighters.map((f) => world.tuning.battle.soldier.colours[f.team] ?? 0xffffff) : fighterColours(curr.fighters.map((f) => f.team));
-    const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning)));
+    const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning, true)));
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
       const fade = this.fades ? this.fades(i) : 1;
@@ -220,14 +219,15 @@ export class Renderer {
       slot.view.root.visible = true;
       slot.view.setFade(fade);
       slot.view.setBlood(this.impacts.blades.marksOf(i));
-      slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size);
+      slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size, pose.pieces);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
     const arena = arenaOf(world.tuning, curr.arena);
     this.hallMarks.update(arena, curr.hall, this.fire);
     this.doorMarks.update(arena, curr.hall, this.doors);
-    this.shadows.update(poses, arena);
+    // A body in pieces casts its shadow from the piece with the pelvis.
+    this.shadows.update(poses.map((p) => p?.pieces?.poses[0] ?? p), arena);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     this.hallMarks.animate(seconds);

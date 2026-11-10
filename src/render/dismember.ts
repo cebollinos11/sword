@@ -9,6 +9,7 @@
  */
 import { JOINT_NAMES, type DeathBlow, type JointName, type SkeletonPose, type Vec3 } from '../sim';
 import type { HitZone, TuningData } from '../tuning';
+import type { RagdollPose, Stump } from './ragdoll';
 
 /** A severed bone: where its axis is cut, and the cut plane's normal (the blade's axis crossed with its travel; the same for every bone of one cut). */
 export interface Severed {
@@ -124,7 +125,7 @@ const WHOLE: readonly (readonly [JointName, JointName])[] = [
  * Which piece of the body each joint belongs to once `severed` are cut: piece 0 is the one with the pelvis, the others
  * are numbered in joint order (`JOINT_NAMES`). Nothing severed: one piece, 0.
  */
-export function pieceOf(severed: readonly Severed[]): Record<JointName, number> {
+export function pieceOf(severed: readonly Pick<Severed, 'bone'>[]): Record<JointName, number> {
   const cutBone = (a: JointName, b: JointName) => severed.some((s) => s.bone[0] === a && s.bone[1] === b);
   const links = [...SEVERABLE.filter(([a, b]) => !cutBone(a, b)), ...WHOLE];
   const piece = {} as Record<JointName, number>;
@@ -159,4 +160,102 @@ export function piecesOf(severed: readonly Severed[], stumpsFrom: number): { pie
   JOINT_NAMES.forEach((n, i) => (pieces[piece[n]] ??= []).push(i));
   severed.forEach(({ bone }, k) => bone.forEach((n, side) => pieces[piece[n]]!.push(stumpsFrom + 2 * k + side)));
   return { piece, pieces };
+}
+
+/** Every link of the Skeleton, severable or not: a tree over `JOINT_NAMES`. */
+const LINKS: readonly (readonly [JointName, JointName])[] = [...SEVERABLE.map(([a, b]) => [a, b] as const), ...WHOLE];
+
+/** The rotation turning unit vector `from` onto unit vector `to` (the shortest one), applied to `v`. */
+function turn(from: Vec3, to: Vec3, v: Vec3): Vec3 {
+  const axis = cross(from, to);
+  const c = dot(from, to);
+  // Turned right round: any axis square to `from` will do.
+  if (c < -1 + 1e-9) {
+    const side = Math.abs(from.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+    const a = cross(from, side);
+    const l = length(a);
+    const n = { x: a.x / l, y: a.y / l, z: a.z / l };
+    return along(along({ x: 0, y: 0, z: 0 }, n, 2 * dot(n, v)), v, -1);
+  }
+  // Rodrigues' formula, with sin θ · axis = `axis` and 1 − cos θ over sin² θ = 1 / (1 + cos θ).
+  const k = 1 / (1 + c);
+  const av = cross(axis, v);
+  const aav = cross(axis, av);
+  return { x: v.x + av.x + aav.x * k, y: v.y + av.y + aav.y * k, z: v.z + av.z + aav.z * k };
+}
+
+/**
+ * The Death Ragdoll `fall` of a Fighter that fell in `fellIn`, as one whole Skeleton pose per piece (numbered as
+ * `pieceOf`), so a skinned Body's piece can be posed by its own: the piece's joints where they lie, and each severed
+ * bone's missing end rebuilt from its stump (its own joint, out through the cut end, at the bone's length). The joints of
+ * the other pieces ride along with that rebuilt bone rigidly, as they were in `fellIn`, so every bone keeps its length.
+ * All share the fall's Weapon. A whole body (no `stumps`) is one piece: `[fall]`.
+ */
+export function piecePoses(fellIn: SkeletonPose, fall: RagdollPose, piece: Readonly<Record<JointName, number>> = pieceOf(fall.stumps ?? [])): SkeletonPose[] {
+  const stumps = fall.stumps;
+  if (!stumps || stumps.length === 0) return [fall];
+  const count = Math.max(...JOINT_NAMES.map((n) => piece[n])) + 1;
+  const cutAt = (a: JointName, b: JointName): { stump: Stump; side: number } | undefined => {
+    for (const stump of stumps) {
+      if (stump.bone[0] === a && stump.bone[1] === b) return { stump, side: 0 };
+      if (stump.bone[0] === b && stump.bone[1] === a) return { stump, side: 1 };
+    }
+    return undefined;
+  };
+  const was = fellIn.joints;
+  return Array.from({ length: count }, (_, k) => {
+    const joints = {} as Record<JointName, Vec3>;
+    // How each joint outside this piece is carried: turned as its bone across the cut turned, about that bone's far end.
+    const carried = new Map<JointName, (p: Vec3) => Vec3>();
+    const open: JointName[] = [];
+    for (const n of JOINT_NAMES) if (piece[n] === k) {
+      joints[n] = fall.joints[n];
+      open.push(n);
+    }
+    while (open.length > 0) {
+      const j = open.pop()!;
+      for (const [a, b] of LINKS) {
+        const other = a === j ? b : b === j ? a : undefined;
+        if (other === undefined || joints[other] !== undefined) continue;
+        let carry = carried.get(j);
+        if (!carry) {
+          // Across a cut from this piece: out from the joint through its stump, as long as the bone was.
+          const { stump, side } = cutAt(j, other)!;
+          const from = sub(was[other], was[j]);
+          const len = length(from);
+          const stub = sub(stump.ends[side]!, joints[j]);
+          const l = length(stub);
+          const dir = l > 1e-9 ? { x: stub.x / l, y: stub.y / l, z: stub.z / l } : { x: from.x / len, y: from.y / len, z: from.z / len };
+          const end = along(joints[j], dir, len);
+          const unit = { x: from.x / len, y: from.y / len, z: from.z / len };
+          const base = was[other];
+          carry = (p: Vec3) => {
+            const r = turn(unit, dir, sub(p, base));
+            return { x: end.x + r.x, y: end.y + r.y, z: end.z + r.z };
+          };
+        }
+        joints[other] = carry(was[other]);
+        carried.set(other, carry);
+        open.push(other);
+      }
+    }
+    return { joints, blade: fall.blade };
+  });
+}
+
+/**
+ * A Fighter's Death Ragdoll in pieces, as drawn: which piece each joint is in (`pieceOf`), the cut ends as they lie,
+ * and one pose per piece (`piecePoses`).
+ */
+export interface Pieces {
+  readonly piece: Readonly<Record<JointName, number>>;
+  readonly stumps: readonly Stump[];
+  readonly poses: readonly SkeletonPose[];
+}
+
+/** The pieces of `fall`, the Death Ragdoll of a Fighter that fell in `fellIn` (one piece if it has no `stumps`). */
+export function piecesOfFall(fellIn: SkeletonPose, fall: RagdollPose): Pieces {
+  const stumps = fall.stumps ?? [];
+  const piece = pieceOf(stumps);
+  return { piece, stumps, poses: piecePoses(fellIn, fall, piece) };
 }

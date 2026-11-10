@@ -180,6 +180,12 @@ describe('Death Ragdoll in pieces (Dismemberment)', () => {
     expect(fall(death, 1).stumps!.map((s) => s.bone)).toEqual(severed.map((s) => s.bone));
   });
 
+  it.each(cuts)('is still whole before the Death: %s', (_, death) => {
+    const p = fall(death, -0.5 / 60);
+    expect(p).not.toHaveProperty('stumps');
+    expect(p.joints).toEqual(pose.joints);
+  });
+
   it.each(cuts)('is the same fall every time, frame by frame as in one go, and when scrubbed back: %s', (_, death) => {
     const fresh = ragdollPose(pose, death, 1.3, { ...weapon }, tuning, undefined, false, severing(pose, death.blow, tuning));
     for (let t = 0; t <= 1.3; t += 1 / 60) fall(death, t);

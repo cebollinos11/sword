@@ -456,7 +456,7 @@ function limit(p: Float64Array, j: number, root: number, dir: Vec3, least: numbe
  * wielding `weapon`, in `arena` (default: on a flat floor at y 0). Pure and deterministic; after a few seconds the body lies still.
  * `sheathed`: it fell Sheathed, so its Weapon starts (and stays) in its slot instead of leaving the hand.
  * `severed`: the bones its Death's cut severed (`severing`, of this `pose` and `death`), so it falls in pieces and the pose
- * has their `stumps`. With none it is the whole body's fall, with no `stumps`.
+ * has their `stumps` (from the Death on: a negative `seconds` is still the whole body). With none it is the whole body's fall, with no `stumps`.
  */
 export function ragdollPose(
   pose: SkeletonPose,
@@ -471,7 +471,8 @@ export function ragdollPose(
   const steps = Math.round(Math.min(Math.max(seconds, 0), SETTLE_SECONDS) / STEP);
   if (steps === 0) {
     const whole = sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;
-    return severed.length > 0 ? { ...whole, stumps: severed.map((s) => ({ bone: s.bone, ends: [s.at, s.at] })) } : whole;
+    // Before the Death (drawn between the Tick before it and its own) the body is still whole.
+    return severed.length > 0 && seconds >= 0 ? { ...whole, stumps: severed.map((s) => ({ bone: s.bone, ends: [s.at, s.at] })) } : whole;
   }
   const fall = fallFor(pose, death, weapon, tuning, arena, steps, sheathed, severed);
   if (fall.steps === steps && fall.drawn) return fall.drawn;
