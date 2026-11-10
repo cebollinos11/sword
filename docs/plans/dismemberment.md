@@ -2,12 +2,12 @@
 
 > Built one Stage per session with `docs/plans/dismemberment-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask.
 
-Status: Stage 1 built (the Simulation records the cut); Stage 2 next. Nothing is drawn differently yet.
+Status: Stages 1 and 2 built (the Simulation records the cut; which bones it severs and the Death Ragdoll in pieces are worked out and tested, but not yet wired to anything drawn); Stage 3 next. Nothing is drawn differently yet.
 
 ## Progress
 
 - [x] Stage 1: the Simulation records the cut (sections 1 and 6's ADR)
-- [ ] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
+- [x] Stage 2: which parts are severed, and the Death Ragdoll in pieces (sections 2 and 3)
 - [ ] Stage 3: the bare Skeleton drawn in pieces, wired through `drawnPose` and its callers (section 4, bare Skeleton)
 - [ ] Stage 4: splitting and capping the skinned Body models (section 4, skinned Body)
 - [ ] Stage 5: blood from the stumps, and the docs (sections 5 and 6)
@@ -105,6 +105,21 @@ Built as section 1. What the later Stages build on:
 - **Deviation, one existing assertion amended:** `death.test.ts`'s "records the blow that felled a Fighter" now expects the `cut` in its `toEqual`, because its Overhead Arming Sword kill now cuts, as the plan decides.
 - **Tests:** `death.test.ts` gained 11: Overhead, Left and Right Arming Sword, Longsword and Halberd Head kills cut, with the blade on the Blade Sweep at one `s`, the point on it, and `travel` along the point's path. These do not cut: Thrust, Sledge Hammer (Head), Halberd shaft, Throwing Dagger, Fall, a Weapon with `cuts: false`. Also `messages.test.ts` (a real cut through a resync, malformed ones and a Thrust refused) and `weapons.test.ts` (`cuts` defaults, file round trip, bad value). Fast suite 2144 passed, 5 skipped; slow suite 28 passed.
 - **Nothing is drawn differently yet**, so there is nothing to try in `npm run dev` beyond the Editor toggle.
+
+### Stage 2 result
+
+Built as sections 2 and 3, pure and unit-tested. Nothing calls it from the game yet: `drawnPose` still passes no severed bones, so every Death falls and draws as before. Stage 3 wires it.
+
+- **`severing(pose, blow, tuning) → Severed[]`** (`src/render/dismember.ts`), `Severed = { bone, at, normal }`. **Deviation:** it takes the whole `DeathBlow`, not just its `cut`, because it needs the Blade Speed (reach) and the contact point (nearest first). `tuning` is the fallen Fighter's own (`sizedTuning`). The plane goes through the recorded blade, normal `blade × travel`; the reach is the parallelogram of the blade (hilt to tip) carried along `travel`. A bone is severed when its axis crosses the plane within its Hit Zone radius of that parallelogram (spine: torso; neck: head; arms: limbs; legs: legs), and it lies at least `MIN_CROSSING` (sine 0.3, about 17°) off the plane. `at` is kept 10% to 90% along the bone.
+- **The neck** (`chest>head`): the head joint is the middle of the head, so the neck's bone is tested as far up as the top of the head, and `at` is always kept within the neck itself. A cut anywhere through the head takes it off at the neck.
+- **Tuning Data `fighter.dismember`** (`data/fighter.json`): `{ carry: 0.25, speed: 22, maxCuts: 3 }`. **Deviation:** the plan scales `carry` by Blade Speed over the attacker's Weapon's reference speed, but the Death does not record the attacker's Weapon (and Stage 1 decided the renderer must not look it up later). So `dismember.speed` is the Blade Speed at which the blade carries `carry`. Optional in the raw data (`DEFAULT_DISMEMBER`), so hand-written Tuning Data in tests is unchanged. It is part of the Tuning Data hash.
+- **`pieceOf(severed)`**: joint → piece number; piece 0 has the pelvis, the others are numbered in `JOINT_NAMES` order. **`piecesOf(severed, stumpsFrom)`** adds each piece's ragdoll particles. Stage 3's `piecePoses` should build on these.
+- **`ragdollPose(…, sheathed, severed = [])` returns `RagdollPose`** (`SkeletonPose` plus optional `stumps: Stump[]`, `Stump = { bone, ends: [Vec3, Vec3] }`; `ends[0]` rides with `bone[0]`'s piece). With nothing severed there is no `stumps` key and the fall is the old one: checked bit for bit against the Stage 1 `ragdoll.ts` over 2048 falls (every Weapon, Direction, Sheathed or not, two Sizes, with and without an Arena, with and without a blow). The existing ragdoll tests are untouched.
+- **How a body in pieces is held together** (`rig` in `ragdoll.ts`): two stump particles per severed bone after the Weapon's. A constraint between two pieces is dropped, unless one end is just across a cut, where that side's stump stands in (so a cut forearm's elbow still hinges on the stub). A stump on the torso (spine, neck, shoulder, hip) is rodded to the whole torso. A torso cut in two has a frame per half (the chest's across the shoulders, each half's stump as the lost end of the spine). **Deviations:** (1) a piece with neither pelvis nor chest (a head, an arm, a leg, a foot) is one rigid body, since it has no torso to tell its hinges which way to bend; (2) the hips' half of a torso cut in two has no hip limits: with so little above the hips they fought the floor and the legs never came to rest.
+- **How pieces come away:** every piece but piece 0 gets `SEVER_FLING` (1.2 m/s) along `travel` and `SEVER_SPIN` (3 rad/s) about its own middle, round the cut's normal. A cut-off sword hand still lets go of the Weapon; a Sheathed Weapon stays on the half its slot is on.
+- **Known limits, left as they are:** (1) the whole blade from hand to tip cuts, so a Halberd's shaft can sever a bone it sweeps although only a Head Hit records a cut; the Death does not say where the Head begins. (2) Pieces, like the whole ragdoll, are not stopped by Walls, and they are flung a little further. (3) A plane that runs along the body (an Overhead straight down onto a shoulder or the crown, or a tip that only grazes the front) crosses no severable bone and leaves the body whole, as the plan says. With the real Motions: Left and Right sword kills at 0.9 to 1.3 m sever an upper arm and the spine; sword Overheads at that range sever the left upper arm; a Longsword or Halberd Overhead at 1.7 m severs nothing.
+- **Tests:** `dismember.test.ts` (12: no cut, arm, neck, waist, shallow and deep reach, `maxCuts`, a blade along a bone, off the joints, a thicker Fighter, real sword kills, `pieceOf`), `ragdoll.test.ts` (+43: for a neck, waist, thigh, shin and forearm cut: starts in the pose, same fall every time and when scrubbed, comes apart, other bones whole, settles and comes to rest, gains no height; plus a sweep of 30+ cuts at every height, the knees, the Weapon, a Sheathed Weapon on a body cut in two, and the uncut fall), `tuning.test.ts` (+1). Fast suite 2200 passed, 5 skipped; slow suite 28 passed.
+- **Nothing to see in `npm run dev` yet.**
 
 ## Verification
 

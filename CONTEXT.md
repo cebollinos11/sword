@@ -241,11 +241,11 @@ How a Fighter fell: the Duel Tick its HP reached zero, and its cause: a Hit (and
 _Avoid_: KO, kill
 
 **Dismemberment**:
-A killing Overhead, Left or Right that lands with the Head of a Weapon that `cuts` records the cut in the Death: the blade at the moment it struck (between last Tick's blade and this Tick's) and the way it was going. No cut for a Thrust, a Hit with the shaft, the Sledge Hammer, a Throwing Dagger, a Kick, a Fall, Lava or Water. The Simulation only records it (ADR 0024); which parts come off is drawn outside it, a pure function of the Death and the pose it fell in.
+A killing Overhead, Left or Right that lands with the Head of a Weapon that `cuts` records the cut in the Death: the blade at the moment it struck (between last Tick's blade and this Tick's) and the way it was going. No cut for a Thrust, a Hit with the shaft, the Sledge Hammer, a Throwing Dagger, a Kick, a Fall, Lava or Water. The Simulation only records it (ADR 0024); which parts come off is drawn outside it, a pure function of the Death and the pose it fell in. A bone is severed where the plane the blade was moving in crosses it, within reach of the blade carried on along its travel (Tuning Data `fighter.dismember`: `carry` metres at a Blade Speed of `speed`, at most `maxCuts` bones, the nearest to the contact first): the spine, the neck, an upper arm, a forearm, a thigh or a shin. A bone the blade runs along is not severed, and a cut that crosses none leaves the body whole. The severed bones part the body into pieces; a stump is a cut end.
 _Avoid_: Gore, slice, decapitation (in code)
 
 **Death Ragdoll**:
-A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree).
+A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree). With severed bones (Dismemberment) it falls in pieces: nothing holds one piece to another, each piece but the one with the pelvis is carried on along the blade's travel, and a piece with neither pelvis nor chest (a head, an arm, a leg) keeps its shape.
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, motionFileName, parseMotion, parseTuningData, serializeMotion, TuningDataError } from './index';
+import { DEFAULT_DISMEMBER, loadTuningData, motionFileName, parseMotion, parseTuningData, serializeMotion, TuningDataError } from './index';
 
 /** A minimal valid raw Tuning Data set (independent of the repo files). */
 function goodRaw() {
@@ -102,6 +102,16 @@ describe('Tuning Data', () => {
   it('accepts a minimal valid set', () => {
     const t = parseTuningData(goodRaw());
     expect(t.motions.Idle?.poseKeys[0]?.hip).toEqual({ x: 0, y: 0.9, z: 0 });
+  });
+
+  it('loads how far a cut reaches (Dismemberment) from data/fighter.json, with a default when absent', () => {
+    expect(loadTuningData().fighter.dismember).toEqual({ carry: 0.25, speed: 22, maxCuts: 3 });
+    expect(parseTuningData(goodRaw()).fighter.dismember).toEqual(DEFAULT_DISMEMBER);
+    const withCut = (dismember: unknown) => ({ ...goodRaw(), fighter: { ...goodRaw().fighter, dismember } });
+    expect(parseTuningData(withCut({ carry: 0.4, speed: 30, maxCuts: 1 })).fighter.dismember).toEqual({ carry: 0.4, speed: 30, maxCuts: 1 });
+    expect(() => parseTuningData(withCut({ carry: 0, speed: 30, maxCuts: 1 }))).toThrow(/fighter\.dismember/);
+    expect(() => parseTuningData(withCut({ carry: 0.4, speed: 30 }))).toThrow(/maxCuts/);
+    expect(() => parseTuningData(withCut({ carry: 0.4, speed: 30, maxCuts: 1.5 }))).toThrow(/whole number/);
   });
 
   it('rejects invalid data on load', () => {
