@@ -260,14 +260,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       leave();
       menu.showTitle();
     },
-    onPs1(on) {
-      renderer.setPs1(on);
-    },
     onColliders(on) {
       renderer.setColliders(on);
     },
   });
-  renderer.setPs1(menu.ps1);
   renderer.setColliders(menu.colliders);
 
   function lobbyOptions(online: boolean): NewLobbyOptions {

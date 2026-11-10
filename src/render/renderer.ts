@@ -136,11 +136,6 @@ export class Renderer {
     this.fades = fades;
   }
 
-  /** Draw at PlayStation resolution (the screen's aspect ratio kept), or the usual one. */
-  setPs1(on: boolean): void {
-    this.stage.setPs1(on);
-  }
-
   /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
   setColliders(on: boolean): void {
     this.stage.setColliders(on);
