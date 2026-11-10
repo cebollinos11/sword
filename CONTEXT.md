@@ -96,6 +96,10 @@ Rewinding the simulation to an earlier Tick when a remote peer's real Intent dif
 **Rollback session**:
 One peer's side of a Player vs Player Match: it runs the Match (AI Fighters included, on every peer: ADR 0005), exchanges Intents (a guest with the host only; the host relays each guest's to the others: ADR 0010), predicts and corrects the other Players' Fighters' Intents by Rollback, and compares state checksums with the host's. Not the Room (which only gets the peers connected).
 
+**Input Delay**:
+The Ticks between a Player making an Intent and the Tick that plays it, in a Rollback session: 3 (50 ms) in an online Battle, none in a Duel or a Run (ADR 0025). The Intent is sent at once, so it has those Ticks to reach the other peers before they need it, and one that arrives in time is never rolled back; a Battle's Tick (the Crowd and a whole Fighter Pool) is too dear to re-simulate several times a frame. The camera still follows the mouse at once. Each peer's own: peers need not agree on it.
+_Avoid_: Input lag, frame delay, buffer
+
 **AI Takeover**:
 A guest leaving mid-Match (its link closed, it went silent, or it was refused): from the Tick after the last of its Intents the host holds, an AI Controller (Normal; in a Run an Ally AI) drives its Fighter on every peer, and the Match goes on (ADR 0010). In a Run the Fighter is also marked away at the Takeover Tick on every peer (a Simulation step, so it rolls back and resyncs): it keeps its Inventory and `mods`, but no longer counts at Doors and takes no pickup or Rest fire (ADR 0019). In a Battle the Player's record is marked away the same way (`BattlePlayer.away`): its Fighter fights on as an ally of its Team with no Bubble, takes over no Soldier when it falls, and counts no more kills. The host announces the Tick; the others roll back to it. The guest stays out of the Match until the next start.
 _Avoid_: Bot fill, substitute

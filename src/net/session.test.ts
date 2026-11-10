@@ -163,6 +163,61 @@ describe('Rollback session: play', () => {
   });
 });
 
+describe('Rollback session: Input Delay', () => {
+  const DELAY = 3;
+  const TICKS = 600;
+  /** The Match with each peer's Intents played `DELAY` Ticks after the Tick they were made on (idle before the first). */
+  function delayedHashes(hostDelay: number, guestDelay: number): Map<number, string> {
+    let m = createMatch(tuning, MATCH);
+    const hashes = new Map<number, string>();
+    for (let t = 1; t <= TICKS; t++) {
+      m = stepMatch(m, [t > hostDelay ? HOST_INTENTS(t - hostDelay) : IDLE_INTENT, t > guestDelay ? GUEST_INTENTS(t - guestDelay) : IDLE_INTENT], tuning);
+      if (t % CHECKSUM_INTERVAL === 0) hashes.set(t, hashValue(m));
+    }
+    return hashes;
+  }
+  function connectDelayed(net: MemoryTransportOptions, hostDelay: number, guestDelay: number) {
+    const pair = createMemoryTransportPair(net);
+    const guestEvents: SessionEvent[] = [];
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, inputDelay: hostDelay });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, inputDelay: guestDelay });
+    guest.onEvent((e) => guestEvents.push(e));
+    return { pair, host, guest, hostEvents: [] as SessionEvent[], guestEvents };
+  }
+
+  it.each([
+    ['latency', { latencyMs: 60 }, DELAY, DELAY],
+    ['latency + jitter + 20% loss', { latencyMs: 50, jitterMs: 40, loss: 0.2, seed: 9 }, DELAY, DELAY],
+    ['each peer its own delay', { latencyMs: 40, jitterMs: 50, seed: 2 }, 2, 5],
+  ])('each Intent plays its delay later on both peers, as in the offline Match (%s)', (_name, net: MemoryTransportOptions, hostDelay: number, guestDelay: number) => {
+    const s = connectDelayed(net, hostDelay, guestDelay);
+    playUntilConfirmed(s, TICKS);
+    const expected = delayedHashes(hostDelay, guestDelay);
+    for (const [tick, hash] of expected) {
+      expect(s.host.checksumAt(tick), `host @${tick}`).toBe(hash);
+      expect(s.guest.checksumAt(tick), `guest @${tick}`).toBe(hash);
+    }
+    expect(s.guestEvents.some((e) => e.type === 'Desync')).toBe(false);
+  });
+
+  it('Intents that arrive within the delay are never rolled back, and the peers do not wait on each other for it', () => {
+    // 20 ms each way is under two Ticks; with the Tick a message waits to be read, well inside three.
+    const s = connectDelayed({ latencyMs: 20 }, DELAY, DELAY);
+    playUntilConfirmed(s, TICKS);
+    // Only the host's first Ticks roll back, while it still runs a hop ahead of the guest (time sync evens that out).
+    const startUp = s.host.stats.rollbacks + s.guest.stats.rollbacks;
+    expect(startUp).toBeLessThan(20);
+    playUntilConfirmed(s, 2 * TICKS);
+    expect(s.host.stats.rollbacks + s.guest.stats.rollbacks).toBe(startUp);
+    expect(s.host.stats.stalls + s.guest.stats.stalls).toBe(0);
+    // Time sync still only evens out the guest's late start: the delay itself is not read as a lead.
+    expect(s.host.stats.waits + s.guest.stats.waits).toBeLessThan(10);
+    const plain = connect({ latencyMs: 20 });
+    playUntilConfirmed(plain, 2 * TICKS);
+    expect(plain.host.stats.rollbacks + plain.guest.stats.rollbacks).toBeGreaterThan(100);
+  });
+});
+
 describe('Rollback session: time sync', () => {
   /**
    * Each peer on its own wall clock, as in two browsers: a steady 60 fps desktop and a phone with uneven
