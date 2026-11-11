@@ -30,7 +30,7 @@ import { fighterPose, withPose } from './pose';
 import { startSlide } from './slide';
 import type { Airborne, AttackAction, FighterState, StaggerCause } from './state';
 import type { BladeTransform } from './skeleton';
-import { bladeSamples, closestSegmentSegment, sweepContact, type Capsule } from './sweep';
+import { apart, bladeSamples, boxOf, boxOfCapsules, closestSegmentSegment, sweepContact, type Box, type Capsule } from './sweep';
 import type { DaggerSweep } from './dagger';
 import { lerp, length, normalize, scale, sub, type Vec3 } from './vec';
 
@@ -106,16 +106,31 @@ export function hitDamage(tuning: TuningData, weapon: WeaponTuning, zone: HitZon
 
 /** The Hit Zone capsules a blade or dagger meets on `f`: a Fighter in Knockdown lies flat, so its zones are `fighter.lyingHitFactor` times as thick. */
 function bodyCapsules(f: FighterState, tuning: TuningData): readonly HitCapsule[] {
+  return bodyOf(f, tuning).zones;
+}
+
+/** A Fighter's Hit Zone capsules with the box around their axes (every joint of its Skeleton) and the thickest one's radius, for `apart`. */
+interface BodyZones {
+  readonly tuning: TuningData;
+  readonly zones: readonly HitCapsule[];
+  readonly box: Box;
+  readonly maxRadius: number;
+}
+
+function bodyOf(f: FighterState, tuning: TuningData): BodyZones {
   const known = bodyZones.get(f);
-  if (known && known.tuning === tuning) return known.zones;
+  if (known && known.tuning === tuning) return known;
   const own = sizedTuning(tuning, f.size);
   const zones = hitZoneCapsules(fighterPose(f, tuning), own, f.action.kind === 'Knockdown' ? own.fighter.lyingHitFactor : 1);
-  bodyZones.set(f, { tuning, zones });
-  return zones;
+  let maxRadius = 0;
+  for (const z of zones) maxRadius = Math.max(maxRadius, z.radius);
+  const body = { tuning, zones, box: boxOfCapsules(zones), maxRadius };
+  bodyZones.set(f, body);
+  return body;
 }
 
 /** Each Fighter's Hit Zone capsules, by the state object they were built from: a cache like `fighterPose`'s, so every Attack on a Tick shares them. */
-const bodyZones = new WeakMap<FighterState, { readonly tuning: TuningData; readonly zones: readonly HitCapsule[] }>();
+const bodyZones = new WeakMap<FighterState, BodyZones>();
 
 /**
  * The first point the Blade Sweep from `from` to `to` meets an Arena Wall, or null: a blade already through a
@@ -146,13 +161,17 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
+    const sweepBox = boxOf(before.blade.hilt, before.blade.tip, attacker.blade.hilt, attacker.blade.tip);
     next.forEach((defender, j) => {
       if (j === i || !inDuel(defender)) return;
-      const zones: readonly Capsule[] = bodyCapsules(defender, tuning);
+      const body = bodyOf(defender, tuning);
+      const zones: readonly Capsule[] = body.zones;
       const blocked = blocksAttack(defender, attacker, direction, tuning);
       const chambered = !blocked && (chamberedBy?.includes(j) ?? false) && chamberHolds(defender, direction);
+      // A body the whole sweep stays clear of cannot be touched (exact: `apart`); its Weapon, where it counts, is tested below.
+      if (!blocked && !chambered && apart(sweepBox, body.box, body.maxRadius)) return;
       // Whichever the sweep reaches first lands: a Blocking (or Chambering) blade stops the Attack where the blades meet.
-      const c = sweepContact(before.blade, attacker.blade, blocked || chambered ? [weaponCapsule(defender, tuning), ...zones] : zones, samples);
+      const c = sweepContact(before.blade, attacker.blade, blocked || chambered ? [weaponCapsule(defender, tuning), ...zones] : zones, samples, sweepBox);
       if (!c) return;
       const blade = { hilt: lerp(before.blade.hilt, attacker.blade.hilt, c.s), tip: lerp(before.blade.tip, attacker.blade.tip, c.s) };
       // A contact point that did not move this Tick (the blade already in the body) is taken to travel the way the edge faces.
@@ -173,6 +192,12 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
   return contacts;
 }
 
+/** The radius of the thickest Hit Zone (at its Tuning Data radius). */
+function thickestZone(tuning: TuningData): number {
+  const z = tuning.hitZones;
+  return Math.max(z.head.radius, z.torso.radius, z.limbs.radius, z.legs.radius);
+}
+
 /**
  * The first Hit Zone the kicking leg's sweep (last Tick's knee-toe segment to this Tick's, padded by
  * `kick.legRadius`) reaches on any other living Fighter. A Kick lands once, so only the earliest contact counts.
@@ -181,10 +206,14 @@ function findKickContacts(before: FighterState, kicker: FighterState, i: number,
   const leg = (l: FighterState['kickLeg']) => ({ hilt: l.knee, tip: l.toe, edge: l.toe });
   const samples = bladeSamples(length(sub(kicker.kickLeg.toe, kicker.kickLeg.knee)));
   let best: { contact: KickContact; travelled: number } | null = null;
+  const sweepBox = boxOf(before.kickLeg.knee, before.kickLeg.toe, kicker.kickLeg.knee, kicker.kickLeg.toe);
   next.forEach((defender, j) => {
     if (j === i || !inDuel(defender)) return;
-    const zones = hitZoneCapsules(fighterPose(defender, tuning), sizedTuning(tuning, defender.size)).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
-    const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples);
+    const own = sizedTuning(tuning, defender.size);
+    // A body the whole sweep stays clear of cannot be touched (exact: `apart`). Its capsules run between the same joints as `bodyOf`'s, so that box bounds them.
+    if (apart(sweepBox, bodyOf(defender, tuning).box, thickestZone(own) + tuning.kick.legRadius)) return;
+    const zones = hitZoneCapsules(fighterPose(defender, tuning), own).map((z) => ({ ...z, radius: z.radius + tuning.kick.legRadius }));
+    const c = sweepContact(leg(before.kickLeg), leg(kicker.kickLeg), zones, samples, sweepBox);
     if (!c) return;
     const travelled = length(sub(c.point, before.kickLeg.toe));
     if (best && travelled >= best.travelled) return;

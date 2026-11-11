@@ -224,6 +224,23 @@ export const motionBlendTicks = (tuning: TuningData): number => Math.max(1, seco
  * a Motion that just took over eases in from where the last one left off.
  */
 export function playbackTargets(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
+  const known = sampledPlaybacks.get(playback);
+  if (known && known.tuning === tuning && known.weapon === weapon) return known.targets;
+  const targets = samplePlayback(tuning, weapon, playback);
+  sampledPlaybacks.set(playback, { tuning, weapon, targets });
+  return targets;
+}
+
+/**
+ * Each playback's Pose targets, by the very playback object they were sampled from (and the Tuning Data and Weapon they were
+ * sampled with). A playback is never changed in place and Tuning Data is treated as immutable, so the targets stay its own; a
+ * cache, not state: a miss (a restored snapshot, another Weapon) just samples again, to the same targets. A Tick asks for one
+ * Fighter's targets many times over (the Gait's homes and leads, the pose, the next Motion's blend). An entry holds only the
+ * targets, never another playback, so it keeps no other Tick alive.
+ */
+const sampledPlaybacks = new WeakMap<MotionPlayback, { readonly tuning: TuningData; readonly weapon: string; readonly targets: PoseTargets }>();
+
+function samplePlayback(tuning: TuningData, weapon: string, playback: MotionPlayback): PoseTargets {
   const targets = holdUpperBody(motionTargets(tuning, weapon, playback.name, playback.tick), playback.hold);
   const blend = playback.blend;
   if (!blend) return targets;
