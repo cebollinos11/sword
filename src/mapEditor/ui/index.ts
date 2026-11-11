@@ -23,6 +23,12 @@
  * it, the play-test draws it, and Save exports it as `public/models/arenas/battle_<map>.glb` after the two JSON files, so the game draws the
  * saved map from it with no Blender step.
  *
+ * The quick edits (fewer clicks): a toolbar over the view (`toolbar.ts`: the tools, undo, the levels, mirror mode, the view, Play-test), a
+ * right-click menu of what lies under the pointer (`contextMenu.ts`, built here by `menuAt`: a Brush's copy, turn, paint order, level, kind,
+ * material, rails, doorways and the Brushes under it; an Objective's spawn, Owner and weight; a prop's kind and turn; and on any ground,
+ * paste, a cell of any Brush, an Objective or a prop there), and keys for the rest (`?` lists them): 1 to 9 and PageUp/PageDown the level,
+ * A every level, Q a quarter turn, Ctrl+C/X/V copy, cut and paste under the pointer, Home the whole field, Space held to pan.
+ *
  * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
 import type * as THREE from 'three';
@@ -38,11 +44,13 @@ import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../
 import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
 import { fortPortSource } from '../fortPort.testdata';
-import { blankSource, brushLevels, isSegment, MapEditorSession, rampLongSides } from '../session';
-import { BATTLE_SKIES, BRUSH_KINDS, DOOR_WIDTH, enclosureTop, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
+import { blankSource, boundsOf, brushLevels, isSegment, MapEditorSession, rampLongSides, type Marker } from '../session';
+import { BATTLE_SKIES, BRUSH_KINDS, DOOR_WIDTH, enclosureTop, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type GroundPoint, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
 import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
+import { closeMenu, showMenu, type MenuItem } from './contextMenu';
+import { Toolbar } from './toolbar';
 import { PANEL_PX, TopView, type Tool } from './topView';
 import { View3D } from './view3d';
 
@@ -190,7 +198,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     newLevel: 4,
     name: session.source.name,
     example: '',
-    status: 'Pick a tool and drag on the grid to draw a Brush. Select: click to pick, drag to move (an Objective, a Base or a front line too), drag a yellow handle to resize. Right-drag or drag empty ground to pan, wheel to zoom.',
+    status: 'Pick a tool (the toolbar, or its key) and drag on the grid to draw a Brush. Select: click to pick (again to pick the one under it), drag to move, Alt-drag to copy, drag a yellow handle to resize. Right-click for what you can do there; right-drag, Space-drag or drag empty ground to pan, wheel to zoom. ? lists the keys.',
     cursor: '',
     view: 'top' as ViewMode,
     cost: '',
@@ -205,6 +213,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const overlays: Overlays = { reach: true, edges: false, edgeKinds: { walk: false, drop: true, wall: true, ledge: true }, clearance: false, centres: true };
   /** True while the panel is being brought up to the session: Tweakpane reports the values it refreshes as changes, which are not edits. */
   let syncing = false;
+  /** The toolbar, once made (it reads the panel's state, so it follows every refresh). */
+  let toolbar: Toolbar | null = null;
   const refreshPane = () => {
     syncing = true;
     try {
@@ -212,6 +222,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     } finally {
       syncing = false;
     }
+    toolbar?.update();
   };
   const say = (text: string) => {
     ui.status = text;
@@ -507,6 +518,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     const draftMs = performance.now() - t0;
     paneBox.style.display = 'none';
     list.style.display = 'none';
+    toolbar!.element.style.display = 'none';
+    closeMenu();
     const model = modelFile(session.source);
     playtesting = startPlaytest(draft, { mode: ui.mode, seed: ui.seed, speed: ui.speed, onBack, model }, (ms) => {
       // Dev only: the last play-test's timings, for the cycle measure (the draft compiled and put in Tuning Data, then until the Battle was drawing).
@@ -516,6 +529,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       playtesting = null;
       paneBox.style.display = '';
       list.style.display = '';
+      toolbar!.element.style.display = '';
       view.redraw();
       say(`Back from the play-test (${PLAYTEST_MODES[ui.mode]}; the draft took ${draftMs.toFixed(0)} ms to build).`);
     }
@@ -544,6 +558,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     const seeds = Array.from({ length: Math.max(1, Math.floor(ui.quickBattles)) }, (_, k) => k + 1);
     const battles: BattleReport[] = [];
     quickBox.style.display = 'block';
+    quickBox.style.top = `${(toolbar?.element.offsetHeight ?? 0) + 16}px`;
     for (const seed of seeds) {
       const run = new QuickBattle(draft.tuning, draft.map, seed);
       // A few hundred Ticks at a time, so the page stays alive.
@@ -570,7 +585,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   playFolder.addButton({ title: 'Quick check (headless Battles)' }).on('click', () => void quickCheckNow());
 
   // --- Tools and edits ----------------------------------------------------
-  pane.addBinding(ui, 'tool', { label: 'tool', options: Object.fromEntries((['select', ...BRUSH_KINDS] as Tool[]).map((t) => [TOOL_LABELS[t], t])) });
+  pane.addBinding(ui, 'tool', { label: 'tool', options: Object.fromEntries((['select', ...BRUSH_KINDS] as Tool[]).map((t) => [TOOL_LABELS[t], t])) }).on('change', () => toolbar?.update());
   const edits = pane.addFolder({ title: 'Edit' });
   const undoButton = edits.addButton({ title: 'Undo (Ctrl+Z)' });
   const redoButton = edits.addButton({ title: 'Redo (Ctrl+Shift+Z)' });
@@ -623,12 +638,12 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     ui.level = session.level;
     ui.showAll = session.showAll;
     f.addBinding(ui, 'level', { label: 'editing', options: Object.fromEntries(session.source.levels.map((y) => [`${y} m`, y])) }).on('change', (e) => {
-      session.level = e.value;
-      view.redraw();
+      if (syncing) return;
+      setLevel(e.value);
     });
     f.addBinding(ui, 'showAll', { label: 'show all levels' }).on('change', (e) => {
-      session.showAll = e.value;
-      view.redraw();
+      if (syncing) return;
+      setShowAll(e.value);
     });
     f.addBinding(ui, 'newLevel', { label: 'height (m)', step: 0.5 });
     f.addButton({ title: 'Add level' }).on('click', () => {
@@ -911,10 +926,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
         of.addButton({ title: 'Later in the order' }).on('click', () => settingsEdit(() => session.reorderObjective(id, 1)));
         of.addButton({ title: 'Remove' }).on('click', () => settingsEdit(() => session.removeObjective(id)));
       });
-      f.addButton({ title: 'Place an Objective (O, then click)' }).on('click', () => {
-        ui.tool = 'objective';
-        refreshPane();
-      });
+      f.addButton({ title: 'Place an Objective (O, then click)' }).on('click', () => setTool('objective'));
     } finally {
       syncing = false;
     }
@@ -930,10 +942,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   lookFolder.addBinding(lookUi, 'propKind', { label: 'prop tool places', options: Object.fromEntries(PROP_KINDS.map((k) => [k, k])) }).on('change', (e) => {
     view.propKind = e.value;
   });
-  lookFolder.addButton({ title: 'Place props (T, then click)' }).on('click', () => {
-    ui.tool = 'prop';
-    refreshPane();
-  });
+  lookFolder.addButton({ title: 'Place props (T, then click)' }).on('click', () => setTool('prop'));
   lookFolder.addBinding(ui, 'look3d', { label: '3D view shows the look' }).on('change', () => !syncing && drawChecks());
   let propFolder: FolderApi | undefined;
   let propKey = '';
@@ -977,8 +986,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const checksFolder = pane.addFolder({ title: 'Checks', index: 4 });
   checksFolder.addBinding(ui, 'view', { label: 'view', options: { 'top (2D, edit)': 'top', '3D (orbit)': '3d', 'split (top | 3D)': 'split' } }).on('change', (e) => {
     if (syncing) return;
-    layoutViews(e.value);
-    drawChecks();
+    setView(e.value);
   });
   const overlayChanged = () => {
     if (syncing) return;
@@ -1010,8 +1018,314 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   pane.addBinding(ui, 'status', { readonly: true, multiline: true, rows: 5, label: 'status' });
   const cursorBinding = pane.addBinding(ui, 'cursor', { readonly: true, label: 'pointer' });
 
+  // --- The quick edits: the toolbar, the shortcuts and the right-click menu --
+  const setTool = (t: Tool) => {
+    ui.tool = t;
+    refreshPane();
+    view.redraw();
+  };
+  const setLevel = (y: number) => {
+    session.level = y;
+    ui.level = y;
+    refreshPane();
+    view.redraw();
+  };
+  const setShowAll = (on: boolean) => {
+    session.showAll = on;
+    ui.showAll = on;
+    refreshPane();
+    view.redraw();
+  };
+  const setView = (mode: ViewMode) => {
+    ui.view = mode;
+    layoutViews(mode);
+    drawChecks();
+    refreshPane();
+  };
+  /** The editor's clipboard: a Brush as it was copied (Ctrl+C, or the menu), pasted under the pointer with Ctrl+V. */
+  let clipboard: Brush | null = null;
+  const copy = (): boolean => {
+    const b = session.selection;
+    if (!b) {
+      say('Select a Brush to copy');
+      return false;
+    }
+    clipboard = b;
+    say(`Copied ${b.kind} ${b.id}: Ctrl+V (or right-click, Paste here) puts a copy under the pointer`);
+    return true;
+  };
+  const paste = (at: GroundPoint | null) => {
+    const b = clipboard;
+    if (!b) return say('Copy a Brush first (Ctrl+C)');
+    // Off the view, a coarse cell east of where it was copied from.
+    const r = boundsOf(b);
+    const to = at ?? { x: (r.x0 + r.x1) / 2 + session.source.grid.cell, z: (r.z0 + r.z1) / 2 };
+    settingsEdit(() => session.pasteBrush(b, to));
+  };
+  const deleteSelected = () => {
+    const m = session.marker;
+    if (m?.kind === 'objective') settingsEdit(() => session.removeObjective(m.id));
+    else if (m?.kind === 'prop') settingsEdit(() => session.removeProp(m.id));
+    else remove();
+  };
+  /** A quarter turn (Q): the selected Brush about its middle, or the selected prop. */
+  const rotateSelected = () => {
+    const p = session.prop;
+    if (p) return settingsEdit(() => session.replaceProp(p.id, { ...p, turn: (p.turn + 90) % 360 }));
+    withSelection((id) => session.rotateBrush(id))();
+  };
+
+  const toolbarState = () => ({
+    tool: ui.tool,
+    levels: session.source.levels,
+    level: session.level,
+    showAll: session.showAll,
+    mirror: session.source.mirror === true,
+    view: ui.view,
+    canUndo: session.canUndo,
+    canRedo: session.canRedo,
+  });
+  toolbar = new Toolbar(container, toolbarState, {
+    tool: setTool,
+    undo: () => {
+      session.undo();
+      rebuild();
+    },
+    redo: () => {
+      session.redo();
+      rebuild();
+    },
+    level: setLevel,
+    showAll: setShowAll,
+    mirror: (on) => setMirror(on),
+    view: setView,
+    playtest,
+    help: () => toggleHelp(),
+  });
+
+  const helpBox = document.createElement('div');
+  helpBox.style.cssText =
+    'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:min(640px,calc(100% - 32px));max-height:80vh;overflow:auto;padding:12px 16px;background:rgba(18,20,26,0.96);color:#ddd;font:12px/1.5 system-ui,sans-serif;border:1px solid #444;border-radius:6px;z-index:8;display:none';
+  const SHORTCUTS: readonly (readonly [string, string])[] = [
+    ['V F D P R H Z L W B E O T', 'tools: select, Floor, Deck, Platform, Ramp, Hole, Hazard, Rail, Wall, Block, Enclosure, Objective, prop'],
+    ['Right-click', 'what you can do with what is there (a Brush, an Objective, a prop, or the ground)'],
+    ['Click again', 'on the selected Brush, without moving: the Brush under it'],
+    ['Alt-drag', 'a copy of the Brush'],
+    ['Double-click', 'a faded Brush: edit its level'],
+    ['1 … 9, PageUp / PageDown', 'the level being edited'],
+    ['A', 'show every level (the others faded), or only the one being edited'],
+    ['Q', 'turn the selected Brush (or prop) a quarter clockwise'],
+    ['Ctrl+C / Ctrl+X / Ctrl+V', 'copy, cut, paste under the pointer'],
+    ['Ctrl+D', 'duplicate (a coarse cell east)'],
+    ['Del', 'delete the selection'],
+    ['[ / ]', 'paint earlier, later'],
+    ['Arrows (Shift: a coarse cell)', 'nudge the selection'],
+    ['Ctrl+Z / Ctrl+Shift+Z', 'undo, redo'],
+    ['M', 'mirror mode'],
+    ['Home', 'frame the whole field'],
+    ['Space-drag, right-drag', 'pan (the wheel zooms)'],
+    ['Ctrl+S / Ctrl+Enter', 'save, play-test'],
+    ['Esc', 'the select tool, nothing selected'],
+  ];
+  helpBox.innerHTML = `<div style="font-weight:600;margin-bottom:6px">Map Editor keys <span style="color:#888;font-weight:400">(? or Esc closes)</span></div><table style="border-collapse:collapse">${SHORTCUTS.map(([k, v]) => `<tr><td style="padding:2px 14px 2px 0;color:#ffe14d;white-space:nowrap;vertical-align:top">${k}</td><td>${v}</td></tr>`).join('')}</table>`;
+  helpBox.addEventListener('pointerdown', () => (helpBox.style.display = 'none'));
+  container.appendChild(helpBox);
+  const toggleHelp = () => {
+    helpBox.style.display = helpBox.style.display === 'none' ? 'block' : 'none';
+  };
+
+  /** A menu item that runs a session edit (refused edits are shown in the status, as the panel's are). */
+  const act = (label: string, f: () => void, extra: Partial<Exclude<MenuItem, 'separator'>> = {}): MenuItem => ({ label, action: () => settingsEdit(f), ...extra });
+  const levelLabel = (y: number) => `${y} m`;
+  const brushItems = (b: Brush, stack: readonly Brush[]): MenuItem[] => {
+    const levels = session.source.levels;
+    const items: MenuItem[] = [
+      { label: `${b.kind} ${b.id}${b.twin === undefined ? '' : b.twin === b.id ? ' (its own twin)' : ` (twin ${b.twin})`}`, header: true },
+      act('Duplicate', () => session.duplicateBrush(b.id), { hint: 'Ctrl+D' }),
+      { label: 'Copy', hint: 'Ctrl+C', action: () => copy() },
+      { label: 'Cut', hint: 'Ctrl+X', action: () => copy() && remove() },
+      act('Delete', () => session.deleteBrush(b.id), { hint: 'Del' }),
+      act('Turn a quarter clockwise', () => session.rotateBrush(b.id), { hint: 'Q' }),
+      {
+        label: 'Paint order',
+        submenu: [
+          act('Paint last (over everything)', () => session.reorder(b.id, session.source.brushes.length)),
+          act('Paint later', () => session.reorder(b.id, 1), { hint: ']' }),
+          act('Paint earlier', () => session.reorder(b.id, -1), { hint: '[' }),
+          act('Paint first (under everything)', () => session.reorder(b.id, -session.source.brushes.length)),
+        ],
+      },
+    ];
+    // Its level, for the kinds that stand at one.
+    if ('y' in b && b.kind !== 'rail' && b.kind !== 'enclosure') items.push({ label: 'Level', submenu: levels.map((y) => act(levelLabel(y), () => session.replaceBrush(b.id, { ...b, y }), { checked: b.y === y })) });
+    if (b.kind === 'rail' || b.kind === 'enclosure') items.push({ label: b.kind === 'rail' ? 'Stands on' : 'Floor level', submenu: levels.map((y) => act(levelLabel(y), () => session.replaceBrush(b.id, { ...b, y }), { checked: b.y === y })) });
+    if (b.kind === 'platform') items.push({ label: 'Top level', submenu: levels.map((y) => act(levelLabel(y), () => session.replaceBrush(b.id, { ...b, top: y }), { checked: b.top === y })) });
+    if (b.kind === 'floor' || b.kind === 'deck' || b.kind === 'hole' || b.kind === 'hazard') {
+      const kinds = ['floor', 'deck', 'hole', 'hazard'] as const;
+      items.push({
+        label: 'Kind',
+        submenu: kinds.map((k) =>
+          act(k, () => {
+            const base = { kind: k, id: b.id, rect: b.rect, y: b.y };
+            const material = k === 'hole' || k === 'hazard' || b.kind === 'hole' || b.kind === 'hazard' ? {} : b.material ? { material: b.material } : {};
+            session.replaceBrush(b.id, (k === 'hazard' ? { ...base, hazard: 'lava' } : { ...base, ...material }) as Brush);
+          }, { checked: b.kind === k }),
+        ),
+      });
+    }
+    if (b.kind === 'hazard') items.push({ label: 'Hazard', submenu: (['lava', 'water', 'abyss'] as const).map((h) => act(h, () => session.replaceBrush(b.id, { ...b, hazard: h }), { checked: b.hazard === h })) });
+    if (b.kind === 'ramp') {
+      items.push({
+        label: 'Rises toward',
+        submenu: SIDES.map((side) =>
+          act(SIDE_LABELS[side], () => {
+            const long = rampLongSides(side);
+            const rails = b.rails.length === 0 ? [] : b.rails.length === 2 ? [...long] : [long[0]!];
+            session.replaceBrush(b.id, { ...b, up: side, rails });
+          }, { checked: b.up === side }),
+        ),
+      });
+      items.push({
+        label: 'Rails',
+        submenu: rampLongSides(b.up).map((side) =>
+          act(`rail ${SIDE_LABELS[side]}`, () => session.replaceBrush(b.id, { ...b, rails: b.rails.includes(side) ? b.rails.filter((x) => x !== side) : [...b.rails, side] }), { checked: b.rails.includes(side) }),
+        ),
+      });
+    }
+    if (b.kind === 'enclosure') {
+      items.push({
+        label: 'Doorways',
+        submenu: SIDES.map((side) =>
+          act(SIDE_LABELS[side], () => {
+            const doors = { ...b.doors };
+            const len = side === 'n' || side === 's' ? b.rect.x1 - b.rect.x0 : b.rect.z1 - b.rect.z0;
+            if (doors[side] !== undefined) delete doors[side];
+            else doors[side] = Math.min(DOOR_WIDTH, len);
+            session.replaceBrush(b.id, { ...b, doors });
+          }, { checked: b.doors[side] !== undefined }),
+        ),
+      });
+    }
+    if (b.kind !== 'hole' && b.kind !== 'hazard') {
+      const { material: _m, ...plain } = b;
+      items.push({
+        label: 'Material',
+        submenu: [
+          act(`its kind's (${materialOf(plain as Brush, session.source)})`, () => session.replaceBrush(b.id, plain as Brush), { checked: b.material === undefined }),
+          'separator',
+          ...MAP_MATERIALS.map((m) => act(m, () => session.replaceBrush(b.id, { ...b, material: m } as Brush), { checked: b.material === m })),
+        ],
+      });
+    }
+    items.push('separator');
+    const own = brushLevels(b, levels);
+    if (!own.includes(session.level)) items.push({ label: `Edit its level (${levelLabel(own[0]!)})`, hint: 'double-click', action: () => setLevel(own[0]!) });
+    items.push({
+      label: 'Frame it',
+      action: () => {
+        const r = boundsOf(b);
+        view.frameRect(r);
+        if (ui.view !== 'top') view3d.focus(r, session.level, session.source.name);
+      },
+    });
+    if (b.twin !== undefined) items.push(act('Unlink its twin', () => session.unlink(b.id)));
+    if (stack.length > 1)
+      items.push({
+        label: 'Select under the pointer',
+        submenu: stack.map((x) => ({ label: `${x.kind} ${x.id}`, checked: x.id === b.id, action: () => {
+          session.select(x.id);
+          sync();
+          view.redraw();
+        } })),
+      });
+    return items;
+  };
+  const markerItems = (m: Marker): MenuItem[] => {
+    const s = session.source;
+    if (m.kind === 'objective') {
+      const o = s.objectives.find((x) => x.id === m.id);
+      if (!o) return [];
+      const items: MenuItem[] = [
+        { label: `Objective ${o.id}${o.twin === undefined ? '' : o.twin === o.id ? ' (its own twin)' : ` (twin ${o.twin})`}`, header: true },
+        act('A spawn', () => session.replaceObjective(o.id, { ...o, spawn: !o.spawn }), { checked: o.spawn }),
+        { label: 'Starts owned by', submenu: ([[-1, 'nobody'], [0, 'Team 0'], [1, 'Team 1']] as const).map(([v, t]) => act(t, () => session.replaceObjective(o.id, { ...o, owner: v }), { checked: o.owner === v })) },
+        { label: 'Weight', submenu: [0.5, 1, 1.4, 2, 3].map((w) => act(String(w), () => session.replaceObjective(o.id, { ...o, weight: w }), { checked: o.weight === w })) },
+      ];
+      if (s.levels.length > 1) items.push({ label: 'Level (y)', submenu: s.levels.map((y) => act(levelLabel(y), () => session.replaceObjective(o.id, { ...o, y }), { checked: o.y === y })) });
+      items.push(act('Earlier in the order', () => session.reorderObjective(o.id, -1)), act('Later in the order', () => session.reorderObjective(o.id, 1)));
+      if (o.twin !== undefined) items.push(act('Unlink its twin', () => session.unlink(m)));
+      items.push('separator', act('Remove', () => session.removeObjective(o.id), { hint: 'Del' }));
+      return items;
+    }
+    if (m.kind === 'prop') {
+      const p = session.prop;
+      if (!p) return [];
+      const { team: _t, ...plain } = p;
+      const items: MenuItem[] = [
+        { label: `Prop: ${p.kind} ${p.id}`, header: true },
+        { label: 'Kind', submenu: PROP_KINDS.map((k) => act(k, () => session.replaceProp(p.id, k === 'banner' ? { ...p, kind: k } : { ...plain, kind: k }), { checked: p.kind === k })) },
+        act('Turn a quarter', () => session.replaceProp(p.id, { ...p, turn: (p.turn + 90) % 360 }), { hint: 'Q' }),
+      ];
+      if (p.kind === 'banner') items.push({ label: 'Colour', submenu: ([[-1, 'plain'], [0, 'Team 0'], [1, 'Team 1']] as const).map(([v, t]) => act(t, () => session.replaceProp(p.id, v === -1 ? plain : { ...p, team: v }), { checked: (p.team ?? -1) === v })) });
+      if (p.y !== session.level) items.push(act(`Stand it on the level being edited (${levelLabel(session.level)})`, () => session.replaceProp(p.id, { ...p, y: session.level })));
+      if (p.twin !== undefined) items.push(act('Unlink its twin', () => session.unlink(m)));
+      items.push('separator', act('Remove', () => session.removeProp(p.id), { hint: 'Del' }));
+      return items;
+    }
+    return [{ label: m.kind === 'base' ? `Team ${m.team}'s Base (drag it)` : `Team ${m.team}'s front line (drag it)`, header: true }];
+  };
+  const hereItems = (at: GroundPoint): MenuItem[] => {
+    const half = session.source.size / 2;
+    const off = Math.abs(at.x) >= half || Math.abs(at.z) >= half;
+    const levels = session.source.levels;
+    return [
+      act('Paste here', () => session.pasteBrush(clipboard!, at), { hint: 'Ctrl+V', disabled: clipboard === null || off }),
+      { label: 'Add a cell here', disabled: off, submenu: BRUSH_KINDS.map((k) => act(TOOL_LABELS[k].replace(/ \(.*$/, ''), () => session.addBrush(k, at, at))) },
+      act('Place an Objective here', () => session.addObjective(at), { disabled: off }),
+      {
+        label: 'Place a prop here',
+        disabled: off,
+        submenu: PROP_KINDS.map((k) =>
+          act(k, () => {
+            lookUi.propKind = k;
+            view.propKind = k;
+            session.addProp(k, at);
+          }),
+        ),
+      },
+      'separator',
+      { label: 'Edit level', submenu: levels.map((y, k) => ({ label: levelLabel(y), hint: k < 9 ? String(k + 1) : '', checked: y === session.level, action: () => setLevel(y) })) },
+      { label: 'Show every level', hint: 'A', checked: session.showAll, action: () => setShowAll(!session.showAll) },
+      { label: 'Frame the whole field', hint: 'Home', action: () => view.frame(session.source) },
+    ];
+  };
+  /** The right-click menu: what is under the pointer is selected, its own items first, then what can be done on the ground there. */
+  const menuAt = (at: GroundPoint, x: number, y: number) => {
+    const marker = view.markerUnder(at.x, at.z);
+    const stack = view.pickStack(at.x, at.z);
+    let items: MenuItem[] = [];
+    if (marker) {
+      session.selectMarker(marker);
+      items = markerItems(marker);
+    } else if (stack.length > 0) {
+      const b = stack.find((v) => v.id === session.selected) ?? stack[0]!;
+      session.select(b.id);
+      items = brushItems(b, stack);
+    } else {
+      session.select(null);
+      session.selectMarker(null);
+    }
+    sync();
+    view.redraw();
+    if (items.length > 0) items.push('separator');
+    showMenu(x, y, [...items, ...hereItems(at)]);
+  };
+  view.onContext = menuAt;
+
   /** Bring the panel up to the session: the Brush folder for the selection, the undo buttons, the title. */
   const sync = () => {
+    ui.level = session.level;
+    ui.showAll = session.showAll;
     scheduleChecks();
     buildBrush();
     buildProp();
@@ -1036,10 +1350,15 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();
   });
+  const typing = (e: Event) => e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
+  window.addEventListener('keyup', (e) => {
+    if (e.key === ' ') view.panHeld = false;
+  });
+  window.addEventListener('blur', () => (view.panHeld = false));
   window.addEventListener('keydown', (e) => {
     // The play-test has the keyboard (WASD would otherwise pick tools, the arrows nudge a Brush, Ctrl+Z undo an edit under it).
     if (playtesting) return;
-    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) return;
+    if (typing(e)) return;
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
     if (mod && key === 'z') {
@@ -1051,21 +1370,29 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       rebuild();
     } else if (mod && key === 'd') {
       duplicate();
+    } else if (mod && key === 'c') {
+      copy();
+    } else if (mod && key === 'x') {
+      if (copy()) remove();
+    } else if (mod && key === 'v') {
+      paste(view.pointerAt);
     } else if (mod && key === 's') {
       void save();
     } else if (mod && e.key === 'Enter') {
       playtest();
+    } else if (!mod && e.key === ' ') {
+      view.panHeld = true;
     } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
-      const m = session.marker;
-      if (m?.kind === 'objective') settingsEdit(() => session.removeObjective(m.id));
-      else if (m?.kind === 'prop') settingsEdit(() => session.removeProp(m.id));
-      else remove();
+      deleteSelected();
     } else if (!mod && e.key === 'Escape') {
-      ui.tool = 'select';
-      session.select(null);
-      session.selectMarker(null);
-      sync();
-      view.redraw();
+      if (helpBox.style.display !== 'none') helpBox.style.display = 'none';
+      else {
+        ui.tool = 'select';
+        session.select(null);
+        session.selectMarker(null);
+        sync();
+        view.redraw();
+      }
     } else if (!mod && (e.key === '[' || e.key === ']')) {
       withSelection((id) => session.reorder(id, e.key === '[' ? -1 : 1))();
     } else if (!mod && e.key.startsWith('Arrow') && (session.selected !== null || session.marker !== null)) {
@@ -1075,11 +1402,26 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       const m = session.marker;
       if (m) settingsEdit(() => session.moveMarker(m, dx!, dz!));
       else withSelection((id) => session.moveBrush(id, dx!, dz!))();
+    } else if (!mod && !e.altKey && /^[1-9]$/.test(e.key)) {
+      const y = session.source.levels[Number(e.key) - 1];
+      if (y === undefined) return say(`This map has ${session.source.levels.length} level${session.source.levels.length === 1 ? '' : 's'}: add one in the Levels folder`);
+      setLevel(y);
+    } else if (!mod && (e.key === 'PageUp' || e.key === 'PageDown')) {
+      const levels = session.source.levels;
+      const k = levels.indexOf(session.level) + (e.key === 'PageUp' ? 1 : -1);
+      if (k >= 0 && k < levels.length) setLevel(levels[k]!);
+    } else if (!mod && e.key === 'Home') {
+      view.frame(session.source);
+    } else if (!mod && e.key === '?') {
+      toggleHelp();
+    } else if (!mod && !e.altKey && key === 'q') {
+      rotateSelected();
+    } else if (!mod && !e.altKey && key === 'a') {
+      setShowAll(!session.showAll);
     } else if (!mod && !e.altKey && key === 'm') {
       setMirror(!session.source.mirror);
     } else if (!mod && !e.altKey && TOOL_KEYS[key]) {
-      ui.tool = TOOL_KEYS[key]!;
-      refreshPane();
+      setTool(TOOL_KEYS[key]!);
     } else {
       return;
     }
