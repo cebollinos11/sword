@@ -16,6 +16,13 @@ const PASSES = 4;
 /** Tolerance for "touching the Arena edge". */
 const EPS = 1e-9;
 
+/**
+ * How much further than the gap two bodies must be apart along one axis before the pair is skipped without measuring the
+ * distance (m). The distance is never less than its part along an axis (but for rounding in its last place), so with this to
+ * spare the skipped pair is one the distance test would skip too. A shortcut only; a NaN is never skipped.
+ */
+const FAR_MARGIN = 1e-6;
+
 /** A Fighter body as collision sees it: where it stands and how high its feet are. */
 export interface Body {
   readonly position: Vec2;
@@ -48,19 +55,29 @@ export function resolveBodies(bodies: readonly Body[], arena: ArenaGeometry, tun
     return bound === undefined ? walled : clampToArena(walled, bound, own[i]!);
   };
   const out = bodies.map((b, i) => contain(b.position, b.y, i));
+  // Each body's height of feet, radius and height, read once: the pair loop below runs for every two bodies, up to PASSES times.
+  const ys = bodies.map((b) => b.y);
+  const radii = own.map((t) => t.fighter.radius);
+  const heights = own.map((t) => t.fighter.height);
   for (let pass = 0; pass < PASSES; pass++) {
     let moved = false;
     for (let i = 0; i < out.length; i++) {
+      const yi = ys[i]!;
+      const ri = radii[i]!;
       for (let j = i + 1; j < out.length; j++) {
         // Bodies at different heights (one on a gallery above the other) pass over each other.
         // Two bodies pass over each other unless the lower one reaches the higher one's feet.
-        if (Math.abs(bodies[i]!.y - bodies[j]!.y) >= (bodies[i]!.y < bodies[j]!.y ? own[i]! : own[j]!).fighter.height) continue;
+        const yj = ys[j]!;
+        if (Math.abs(yi - yj) >= (yi < yj ? heights[i]! : heights[j]!)) continue;
         const a = out[i]!;
         const b = out[j]!;
         let dx = b.x - a.x;
         let dz = b.z - a.z;
+        const minGap = ri + radii[j]!;
+        // Further apart along one axis than the gap (with FAR_MARGIN to spare) is further apart than it: the distance is not needed.
+        const far = minGap + FAR_MARGIN;
+        if (dx > far || -dx > far || dz > far || -dz > far) continue;
         let d = Math.hypot(dx, dz);
-        const minGap = own[i]!.fighter.radius + own[j]!.fighter.radius;
         if (d >= minGap) continue;
         if (d === 0) {
           // Exactly on top of each other: split along x, lower index to -x.

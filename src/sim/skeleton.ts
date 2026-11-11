@@ -6,7 +6,7 @@
 import type { OffHandGrip, SkeletonTuning, WeaponTuning } from '../tuning';
 import type { PoseTargets } from './motion';
 import type { Vec2 } from './state';
-import { add, cross, dot, length, lerp, normalize, rotateEuler, rotateX, rotateY, scale, sub, vec3, type Vec3 } from './vec';
+import { add, cross, dot, length, lerp, normalize, scale, sub, turnOf, turnX, turnY, turnZ, vec3, type Turn, type Vec3 } from './vec';
 
 export const JOINT_NAMES = [
   'pelvis',
@@ -184,10 +184,13 @@ export function offHandPull(shoulder: Vec3, spot: Vec3, reach: number): Vec3 {
  */
 export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: WeaponTuning, at: Placement, gait: GaitOffsets = NO_GAIT): SkeletonPose {
   // Everything is solved in the Fighter-local frame (x right, y up, z forward), then placed.
-  const spine = (v: Vec3, twist = 0) => rotateY(rotateX(v, targets.torso.lean), targets.torso.twist + twist);
+  // Each angle's cosine and sine are worked out once and shared by every vector turned by it (the same values `rotateX` and `rotateY` work out).
+  const leanTurn = turnOf(targets.torso.lean);
+  const twistTurn = turnOf(targets.torso.twist + 0);
+  const spine = (v: Vec3, twist: Turn = twistTurn) => turnY(turnX(v, leanTurn), twist);
   const halfShoulder = s.shoulderWidth / 2;
-  /** The chest, head and shoulders on a pelvis, the spine turned a further `twist` degrees. */
-  const upperBody = (pelvis: Vec3, twist = 0) => {
+  /** The chest, head and shoulders on a pelvis, the spine turned to `twist` (default: the Motion's own). */
+  const upperBody = (pelvis: Vec3, twist: Turn = twistTurn) => {
     const chest = add(pelvis, spine(vec3(0, s.spine, 0), twist));
     return {
       chest,
@@ -204,10 +207,15 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   // Aiming up/down swings hands and Weapon about the chest (rotateX is positive downward).
   const aimDeg = -((gait.aim ?? 0) * 180) / Math.PI;
   const aimPivot = add(targets.hip, vec3(0, s.spine, 0));
-  const aimed = (v: Vec3) => (aimDeg === 0 ? v : add(aimPivot, rotateX(sub(v, aimPivot), aimDeg)));
-  const aimedDir = (v: Vec3) => (aimDeg === 0 ? v : rotateX(v, aimDeg));
-  const bladeDir = aimedDir(rotateEuler(vec3(0, 0, 1), targets.rightHand.rotation));
-  const edge = aimedDir(rotateEuler(vec3(0, -1, 0), targets.rightHand.rotation));
+  const aimTurn = turnOf(aimDeg);
+  const aimed = (v: Vec3) => (aimDeg === 0 ? v : add(aimPivot, turnX(sub(v, aimPivot), aimTurn)));
+  const aimedDir = (v: Vec3) => (aimDeg === 0 ? v : turnX(v, aimTurn));
+  // The sword hand's rotation (`rotateEuler`: roll, then pitch, then yaw), its three angles worked out once for both vectors.
+  const { rotation } = targets.rightHand;
+  const [roll, pitchTurn, yaw] = [turnOf(rotation.z), turnOf(rotation.x), turnOf(rotation.y)];
+  const handTurned = (v: Vec3) => turnY(turnX(turnZ(v, roll), pitchTurn), yaw);
+  const bladeDir = aimedDir(handTurned(vec3(0, 0, 1)));
+  const edge = aimedDir(handTurned(vec3(0, -1, 0)));
   // The hands are where the Motion puts them, reached from the Motion's own hip target...
   const motionBody = upperBody(targets.hip);
   const grip = weapon.grip === 'twoHanded' ? weapon.offHandGrip : undefined;
@@ -225,14 +233,14 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const { sideways, drop, twist = 0 } = gait.hipShift;
   const shifted = sideways !== 0 || drop !== 0 || twist !== 0;
   const pelvis = shifted ? add(targets.hip, vec3(sideways, -drop, 0)) : targets.hip;
-  const { chest, head, rightShoulder, leftShoulder } = shifted ? upperBody(pelvis, twist / 2) : motionBody;
+  const { chest, head, rightShoulder, leftShoulder } = shifted ? upperBody(pelvis, turnOf(targets.torso.twist + twist / 2)) : motionBody;
   const rightElbow = shifted ? twoBoneIk(rightShoulder, rightHand, s.upperArm, s.forearm, rightPole)[0] : motionRightElbow;
   const leftElbow = shifted ? twoBoneIk(leftShoulder, leftHand, s.upperArm, s.forearm, leftPole)[0] : motionLeftElbow;
   const { lift } = gait;
   const ground = gait.ground ?? { left: 0, right: 0 };
 
   // A pelvis turned by `twist` brings the right hip forward (rotateY turns +x toward -z, so it turns the other way).
-  const halfHip = rotateY(vec3(s.hipWidth / 2, 0, 0), -twist);
+  const halfHip = turnY(vec3(s.hipWidth / 2, 0, 0), turnOf(-twist));
   const rightHip = add(pelvis, halfHip);
   const leftHip = sub(pelvis, halfHip);
   const knee = vec3(0, 0, 1);
@@ -247,7 +255,7 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const toe = (ankle: Vec3, floor: number, footLift: number, footPitch: number) => {
     const flat = vec3(ankle.x, floor + footLift, ankle.z + TOE_LENGTH);
     if (footPitch === 0) return flat;
-    const rolled = add(ankle, rotateX(sub(flat, ankle), -footPitch));
+    const rolled = add(ankle, turnX(sub(flat, ankle), turnOf(-footPitch)));
     return { ...rolled, y: Math.max(rolled.y, floor) };
   };
   // A foot the Motion owns points along the shin instead.
@@ -277,11 +285,12 @@ export function solveSkeleton(targets: PoseTargets, s: SkeletonTuning, weapon: W
   const { tilt, drop: bodyDrop, pivot: pivotHeight = 0 } = targets.body ?? { tilt: 0, drop: 0 };
   const laid = tilt !== 0 || bodyDrop !== 0;
   const pivot = vec3(pelvis.x, pivotHeight, pelvis.z);
+  const layTurn = turnOf(-tilt);
   const lay = (v: Vec3): Vec3 => {
-    const r = add(pivot, rotateX(sub(v, pivot), -tilt));
+    const r = add(pivot, turnX(sub(v, pivot), layTurn));
     return { x: r.x, y: r.y - bodyDrop, z: r.z };
   };
-  const layDir = (v: Vec3): Vec3 => (tilt === 0 ? v : rotateX(v, -tilt));
+  const layDir = (v: Vec3): Vec3 => (tilt === 0 ? v : turnX(v, layTurn));
   if (laid) for (const name of JOINT_NAMES) local[name] = lay(local[name]);
   const bladeTip = laid ? add(local.rightHand, scale(layDir(bladeDir), weapon.length)) : add(rightHand, scale(bladeDir, weapon.length));
 
