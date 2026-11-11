@@ -8,7 +8,7 @@ import type { Pieces } from './dismember';
 import { capOf, cutMesh, dropScraps, skinned, type CutPlan, type PieceMesh } from './meshCut';
 
 /** The joint each bone of a Body model starts at and, for one that runs along a bone of the Skeleton, the joint it reaches. */
-const BONE_JOINTS: Record<BodyBone, readonly [JointName, JointName?]> = {
+export const BONE_JOINTS: Record<BodyBone, readonly [JointName, JointName?]> = {
   hips: ['pelvis'],
   spine: ['pelvis', 'chest'],
   head: ['chest', 'head'],

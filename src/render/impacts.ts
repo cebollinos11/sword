@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { SimState, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { BladeBlood, floorUnder } from './bladeBlood';
+import { BodyBlood } from './bodyBlood';
 import { BloodEffects, bloodSpurts, stumpDrips, stumpDrops, stumpSpurts } from './blood';
 import type { DrawnPose } from './fighterView';
 
@@ -199,6 +200,8 @@ export class ImpactEffects {
   private readonly blood: BloodEffects;
   /** The blood on each Fighter's Weapon (the Renderer draws it on the Weapon). */
   readonly blades: BladeBlood;
+  /** The blood on each Fighter's body (the Renderer draws it on the body). */
+  readonly bodies: BodyBlood;
   private lastTick = -Infinity;
   /** Each body in pieces' time since its Death as last drawn (`DrawnPose.since`), so its stumps drip for the time gone by since. */
   private readonly bled: (number | undefined)[] = [];
@@ -214,6 +217,7 @@ export class ImpactEffects {
     scene.add(this.root);
     this.blood = new BloodEffects(scene, tuning);
     this.blades = new BladeBlood(tuning);
+    this.bodies = new BodyBlood(tuning);
   }
 
   /** `tuning`: the Tuning Data the Duel is played with, if not the one this was made with (the Editor's live edits), so the stumps bleed where they are drawn. */
@@ -224,6 +228,7 @@ export class ImpactEffects {
     for (const s of bloodSpurts(duel)) this.blood.spurt(s);
     for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
     this.blades.onTick(tick, duel);
+    this.bodies.onTick(tick, duel, tuning);
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
@@ -232,6 +237,7 @@ export class ImpactEffects {
   seek(tick: number): void {
     this.blood.seek(tick < this.lastTick);
     this.blades.seek(tick);
+    this.bodies.seek(tick);
     this.lastTick = tick;
     this.bled.length = 0;
     this.sought = true;
