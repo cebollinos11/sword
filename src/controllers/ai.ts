@@ -141,6 +141,10 @@
  * so scrubbing back or re-simulating the same state gives the same Intents
  * given the same memory (`save`/`load`). It only draws for the parts of its
  * repertoire its difficulty uses.
+ *
+ * Cost: what does not depend on which AI asks is worked out once per Tick for all the AIs of a Duel, not once each: the
+ * Observation of every Fighter (`observation`), and how near each ally's nearest enemy is (`nearestOf`). Only shortcuts:
+ * every AI decides exactly as it would working it all out alone, so its Intents and its memory are the same either way.
  */
 import {
   battlefieldOf,
@@ -648,6 +652,78 @@ const defenceless = (o: Sighting): boolean => o.sheathed || o.action.kind === 'S
 /** The Direction a visible Fighter guards in: its Block's, or a Knockdown's guard. */
 const guardOf = (a: Action): Direction | null => (a.kind === 'Block' ? a.direction : a.kind === 'Knockdown' ? a.guard : null);
 
+/** What is seen of every Fighter in `state`, by one who saw `prev` the Tick before (nothing, when undefined). */
+function sightings(prev: Observation | undefined, state: SimState): Observation {
+  const fighters = state.fighters.map((o, i): Sighting => {
+    // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
+    const last = prev?.fighters[i];
+    const before = last?.fallen && inDuel(o) ? undefined : last;
+    // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
+    const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
+    const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
+    const velocity = before ? { x: o.position.x - before.position.x, z: o.position.z - before.position.z } : ZERO;
+    const rise = before ? o.y - before.y : 0;
+    const airStart = o.air === undefined ? null : before?.airborne && before.airStart !== null ? before.airStart : state.tick;
+    const moving = velocity.x !== 0 || velocity.z !== 0;
+    return {
+      position: o.position,
+      y: o.y,
+      velocity,
+      rise,
+      action: o.action,
+      motionTick: o.motion.tick,
+      crouch: o.crouch,
+      airborne: o.air !== undefined,
+      hp: o.hp,
+      weapon: o.weapon,
+      ...(o.size && { size: o.size }),
+      team: o.team,
+      fallen: !inDuel(o),
+      facing: o.facing,
+      pitch: o.pitch,
+      moving,
+      attackStart,
+      airStart,
+      sheathed: o.sheathed,
+    };
+  });
+  return { tick: state.tick, fighters };
+}
+
+/**
+ * Observations already made of a Tick's Fighters, so the AIs of one Duel share them instead of each making its own
+ * (a Sighting of every Fighter, for every AI, every Tick). An Observation depends only on the Fighters seen and on what
+ * its AI saw the Tick before, so those who shared the last one share the next; and one who saw something else before
+ * (it began watching later: an AI Takeover, a Promotion, memory from a resync) joins the others as soon as what it sees
+ * is the same. Only a shortcut: every AI gets exactly the Observation it would have made itself, and none is ever changed.
+ * Kept with the Fighters observed and no longer (not with the Observation before, which would keep every later one
+ * alive; nor through a WeakRef, which holds its target until the running job ends: a whole headless Match).
+ */
+const sighted = new WeakMap<readonly FighterState[], { readonly prev: Observation | undefined; readonly seen: Observation }[]>();
+
+/** Whether two Observations of the same Fighters on the same Tick say the same: only what comes from the Tick before can differ. */
+function sameSightings(a: Observation, b: Observation): boolean {
+  if (a.fighters.length !== b.fighters.length) return false;
+  for (let i = 0; i < a.fighters.length; i++) {
+    const p = a.fighters[i]!;
+    const q = b.fighters[i]!;
+    if (!Object.is(p.velocity.x, q.velocity.x) || !Object.is(p.velocity.z, q.velocity.z) || !Object.is(p.rise, q.rise) || p.attackStart !== q.attackStart || p.airStart !== q.airStart) return false;
+  }
+  return true;
+}
+
+/** The Observation of `state` for an AI that saw `prev` the Tick before (`sightings`), shared with every AI it is the same for. */
+function observation(prev: Observation | undefined, state: SimState): Observation {
+  let made = sighted.get(state.fighters);
+  // The same Fighters on another Tick (a state that kept its array): nothing made of them then is of use now.
+  if (made?.[0]?.seen.tick !== state.tick) sighted.set(state.fighters, (made = []));
+  for (const m of made) if (m.prev === prev) return m.seen;
+  const own = sightings(prev, state);
+  const seen = made.find((m) => sameSightings(m.seen, own))?.seen ?? own;
+  made.push({ prev, seen });
+  return seen;
+}
+
 /** murmur3's 32-bit finaliser: spreads nearby seeds (consecutive Ticks, Fighter indices) over the whole range. */
 function mix32(h: number): number {
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -717,6 +793,52 @@ interface Enemy {
   readonly near: boolean;
 }
 
+/**
+ * For the Fighters of one Team in one Observation: how far (in 3D) each one's nearest enemy is (NaN until asked: `nearest`),
+ * whether another enemy is exactly as near (`tied`), and how many enemies (seen standing, of another Team) there are.
+ */
+interface Nearest {
+  readonly enemies: number;
+  readonly dist: number[];
+  readonly tied: boolean[];
+}
+/** Per Observation and Team (`nearestOf`): kept only as long as the Observation is. */
+const nearestSeen = new WeakMap<Observation, Map<number, Nearest>>();
+
+function nearestOf(seen: Observation, team: number): Nearest {
+  let byTeam = nearestSeen.get(seen);
+  if (!byTeam) nearestSeen.set(seen, (byTeam = new Map()));
+  let near = byTeam.get(team);
+  if (!near) {
+    let enemies = 0;
+    for (const o of seen.fighters) if (!o.fallen && o.team !== team) enemies++;
+    near = { enemies, dist: new Array<number>(seen.fighters.length).fill(NaN), tied: new Array<boolean>(seen.fighters.length).fill(false) };
+    byTeam.set(team, near);
+  }
+  return near;
+}
+
+/** Fill in `near` for Fighter `i` of `team` as seen: its nearest enemy's distance, and whether two are exactly that near. */
+function nearest(seen: Observation, team: number, i: number, near: Nearest): void {
+  const o = seen.fighters[i]!;
+  let best = Infinity;
+  let tied = false;
+  for (const e of seen.fighters) {
+    if (e.fallen || e.team === team) continue;
+    const d = Math.hypot(e.position.x - o.position.x, e.position.z - o.position.z, e.y - o.y);
+    if (d < best) {
+      best = d;
+      tied = false;
+    } else if (d === best) tied = true;
+  }
+  near.dist[i] = best;
+  near.tied[i] = tied;
+}
+
+/** Scratch for `spreadPick` (never read between calls): per enemy, how many took it and how far it is. */
+let spreadTaken = new Int32Array(16);
+let spreadFar = new Float64Array(16);
+
 /** How far (m) past touching a Fighter ahead stands in its way, walking to a spot (`sidestep`). */
 const WAY_AHEAD = 0.6;
 /** How much room (m) it leaves passing a Fighter, walking to a spot (`sidestep`). */
@@ -766,6 +888,10 @@ class RuleAi implements AiController {
   private beat: Beat | null = null;
   private jitter: Jitter | null = null;
   private shaken = -1;
+  /** Worked out once from its Tuning Data and difficulty (never memory): its jumping Attacks' holds and longest carry, and the default Weapon's length. */
+  private holds: readonly number[] | undefined;
+  private leapFar: number | undefined;
+  private standardLength: number | undefined;
   /** This Tick's view of its team around its target and the way to it (`decide` sets it; never carried between Ticks). */
   private view: { readonly team: TeamView; readonly toward: Vec2 } | null = null;
 
@@ -861,48 +987,15 @@ class RuleAi implements AiController {
       this.shaken = -1;
     }
     this.lastTick = state.tick;
-    const prev = this.seen[this.seen.length - 1];
-    const fighters = state.fighters.map((o, i): Sighting => {
-      // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
-      const last = prev?.fighters[i];
-      const before = last?.fallen && inDuel(o) ? undefined : last;
-      // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
-      const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
-      const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
-      const velocity = before ? { x: o.position.x - before.position.x, z: o.position.z - before.position.z } : ZERO;
-      const rise = before ? o.y - before.y : 0;
-      const airStart = o.air === undefined ? null : before?.airborne && before.airStart !== null ? before.airStart : state.tick;
-      const moving = velocity.x !== 0 || velocity.z !== 0;
-      return {
-        position: o.position,
-        y: o.y,
-        velocity,
-        rise,
-        action: o.action,
-        motionTick: o.motion.tick,
-        crouch: o.crouch,
-        airborne: o.air !== undefined,
-        hp: o.hp,
-        weapon: o.weapon,
-        ...(o.size && { size: o.size }),
-        team: o.team,
-        fallen: !inDuel(o),
-        facing: o.facing,
-        pitch: o.pitch,
-        moving,
-        attackStart,
-        airStart,
-        sheathed: o.sheathed,
-      };
-    });
-    this.seen.push({ tick: state.tick, fighters });
+    this.seen.push(observation(this.seen[this.seen.length - 1], state));
     if (this.seen.length > this.reactionTicks + this.jitterTicks + 1) this.seen.shift();
   }
 
   /** How far (m) a Fighter reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one, and in proportion to its height. */
   private reach(f: { readonly weapon: string; readonly size?: Size | undefined }): number {
     const { attackRange } = this.tuning.ai;
-    return (attackRange + weaponByName(this.tuning, f.weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length) * (f.size?.height ?? 1);
+    const standard = (this.standardLength ??= weaponByName(this.tuning, defaultWeaponName(this.tuning)).length);
+    return (attackRange + weaponByName(this.tuning, f.weapon).length - standard) * (f.size?.height ?? 1);
   }
 
   /**
@@ -1051,11 +1144,23 @@ class RuleAi implements AiController {
     const self = state.fighters[fighter]!;
     // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, and a Player's Fighter an AI took over, never a Player).
     const role = state.crowd ? self.soldier?.role : undefined;
-    const enemies = seen.fighters
-      .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
-      .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
-      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || !bubblePlayer(state, i)))
-      .sort((a, b) => a.dist - b.dist || a.i - b.i);
+    // Its allies as seen (only with `teamwork`: without it, it never looks at them).
+    const enemies: Enemy[] = [];
+    const allies: Ally[] = [];
+    const teamwork = this.skill.teamwork > 0;
+    for (let i = 0; i < seen.fighters.length; i++) {
+      const o = seen.fighters[i]!;
+      if (i === fighter || o.fallen) continue;
+      if (o.team === self.team) {
+        if (teamwork) allies.push({ o, i });
+        continue;
+      }
+      if (role === 'Waiting' && bubblePlayer(state, i)) continue;
+      const flat = Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z);
+      const up = o.y - self.y;
+      enemies.push({ o, i, flat, level: Math.abs(up) < LEVEL, dist: Math.hypot(flat, up), near: Math.abs(up) < DEFEND_LEVEL });
+    }
+    enemies.sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
       this.forget();
@@ -1065,12 +1170,10 @@ class RuleAi implements AiController {
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    // Its allies as seen (only with `teamwork`: without it, it never looks at them).
-    const allies: Ally[] = this.skill.teamwork > 0 ? seen.fighters.map((o, i) => ({ o, i })).filter(({ o, i }) => i !== fighter && !o.fallen && o.team === self.team) : [];
     const focused = this.chooseFocus(state, self, fighter, enemies, reach, allies);
 
     this.think(state.tick, self, focused.o, role === 'Attack');
-    const team = allies.length > 0 ? this.teamView(self, fighter, focused, enemies, allies) : null;
+    const team = allies.length > 0 ? this.teamView(seen, self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
     const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
@@ -1291,18 +1394,38 @@ class RuleAi implements AiController {
    * however many took it. The same sharing for every one of the team, so each takes its own.
    */
   private spreadPick(state: SimState, self: FighterState, fighter: number, enemies: readonly Enemy[], allies: readonly Ally[]): Enemy {
-    const free = (e: Enemy) => enemies.length === 1 || e.o.hp < LOW_HP * state.fighters[e.i]!.maxHp;
-    const taken = new Map<number, number>();
-    const load = (e: Enemy) => (free(e) ? 0 : (taken.get(e.i) ?? 0));
-    const members = [...allies.map(({ o, i }) => ({ i, at: o.position, y: o.y })), { i: fighter, at: self.position, y: self.y }].sort((a, b) => a.i - b.i);
-    for (const m of members) {
-      const near = enemies.map((e) => ({ e, d: Math.hypot(e.o.position.x - m.at.x, e.o.position.z - m.at.z, e.o.y - m.y) }));
-      const closest = Math.min(...near.map((n) => n.d));
-      const best = near.filter((n) => n.d <= closest + SPREAD_RANGE).sort((a, b) => load(a.e) - load(b.e) || a.d - b.d || a.e.i - b.e.i)[0]!.e;
-      if (m.i === fighter) return best;
-      taken.set(best.i, (taken.get(best.i) ?? 0) + 1);
+    const n = enemies.length;
+    // Per enemy (as `enemies` orders them): how many of the team before it took it (-1: free, never counted), and how far this member is from it.
+    const taken = n <= spreadTaken.length ? spreadTaken : (spreadTaken = new Int32Array(n * 2));
+    const far = n <= spreadFar.length ? spreadFar : (spreadFar = new Float64Array(n * 2));
+    for (let j = 0; j < n; j++) taken[j] = n === 1 || enemies[j]!.o.hp < LOW_HP * state.fighters[enemies[j]!.i]!.maxHp ? -1 : 0;
+    /** The pick of a member standing at (`at`, `y`): of the enemies within SPREAD_RANGE of its nearest, the least taken, then the nearest, then the lowest index. */
+    const pickOf = (at: Vec2, y: number): number => {
+      let closest = Infinity;
+      for (let j = 0; j < n; j++) {
+        const e = enemies[j]!.o;
+        const d = (far[j] = Math.hypot(e.position.x - at.x, e.position.z - at.z, e.y - y));
+        if (d < closest) closest = d;
+      }
+      let best = -1;
+      for (let j = 0; j < n; j++) {
+        if (!(far[j]! <= closest + SPREAD_RANGE)) continue;
+        if (best < 0) {
+          best = j;
+          continue;
+        }
+        const order = Math.max(0, taken[j]!) - Math.max(0, taken[best]!) || far[j]! - far[best]! || enemies[j]!.i - enemies[best]!.i;
+        if (order < 0) best = j;
+      }
+      return best;
+    };
+    // In Fighter-index order (as `allies` is): only those before it have taken theirs when its own turn comes.
+    for (const { o, i } of allies) {
+      if (i > fighter) break;
+      const best = pickOf(o.position, o.y);
+      if (taken[best]! >= 0) taken[best]!++;
     }
-    return enemies[0]!;
+    return enemies[pickOf(self.position, self.y)]!;
   }
 
   /**
@@ -1310,18 +1433,31 @@ class RuleAi implements AiController {
    * on a tie), its own flank slot among them (FLANKS, ranked by Fighter index, about the mean bearing of the team from
    * the target), whether an ally on it is seen swinging, and whether the target faces one of them and not itself.
    */
-  private teamView(self: FighterState, fighter: number, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[]): TeamView {
+  private teamView(seen: Observation, self: FighterState, fighter: number, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[]): TeamView {
     const t = focused.o;
     const nearestEnemy = (o: Sighting) => {
       let best = -1;
       let bestDist = Infinity;
       for (const e of enemies) {
         const d = Math.hypot(e.o.position.x - o.position.x, e.o.position.z - o.position.z, e.o.y - o.y);
-        if (d < bestDist) [best, bestDist] = [e.i, d];
+        if (d < bestDist) {
+          best = e.i;
+          bestDist = d;
+        }
       }
       return best;
     };
-    const onIt = allies.filter(({ o }) => nearestEnemy(o) === focused.i);
+    // How near each ally's nearest enemy is, is the same for every AI of the team acting on this Observation: worked out
+    // once for them all (`nearestOf`), when its enemies are all of them as seen (not a Waiting Fighter's fewer).
+    const shared = nearestOf(seen, self.team);
+    const near = shared.enemies === enemies.length ? shared : null;
+    const onIt = allies.filter(({ o, i }) => {
+      if (!near) return nearestEnemy(o) === focused.i;
+      if (Number.isNaN(near.dist[i]!)) nearest(seen, self.team, i, near);
+      // Its target is the ally's nearest when none is nearer; where several are exactly as near, the first as it orders them.
+      if (Math.hypot(t.position.x - o.position.x, t.position.z - o.position.z, t.y - o.y) !== near.dist[i]) return false;
+      return !near.tied[i] || nearestEnemy(o) === focused.i;
+    });
     const on = [fighter, ...onIt.map(({ i }) => i)].sort((a, b) => a - b);
     const rank = on.indexOf(fighter);
     let slot: number | null = null;
@@ -1765,14 +1901,14 @@ class RuleAi implements AiController {
   }
 
   /** The holds (Ticks) a jumping Attack may use, shortest first: up to its `jumpNav`, or a tap without one. */
-  private leapHolds(): number[] {
-    return JUMP_HOLDS.filter((h) => h <= Math.max(0, this.skill.jumpNav));
+  private leapHolds(): readonly number[] {
+    return (this.holds ??= JUMP_HOLDS.filter((h) => h <= Math.max(0, this.skill.jumpNav)));
   }
 
   /** How far (m) its longest jumping Attack carries it on level ground. */
   private leapRange(): number {
     const holds = this.leapHolds();
-    return levelJump(this.tuning, holds[holds.length - 1]!).distance;
+    return (this.leapFar ??= levelJump(this.tuning, holds[holds.length - 1]!).distance);
   }
 
   /**
@@ -1825,13 +1961,10 @@ class RuleAi implements AiController {
     const reachOf = (o: Sighting) => this.reach(o) + THRUST_REACH;
     // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
     const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
-    const coming = fresh.fighters.some(
-      (o, i) =>
-        enemies.some((e) => e.i === i) &&
-        (isThreat(o.action) || isKickThreat(o.action)) &&
-        Math.abs(o.y - self.y) < DEFEND_LEVEL &&
-        Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT,
-    );
+    const coming = enemies.some(({ i }) => {
+      const o = fresh.fighters[i];
+      return o !== undefined && (isThreat(o.action) || isKickThreat(o.action)) && Math.abs(o.y - self.y) < DEFEND_LEVEL && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT;
+    });
     if (coming) return null;
     const arena = arenaOf(this.tuning, state.arena);
     const at = self.position;

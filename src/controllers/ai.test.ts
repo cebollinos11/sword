@@ -1668,3 +1668,37 @@ describe('AI Stage 3: feel (docs/plans/ai-behaviour.md)', { timeout: 300_000 }, 
   });
 });
 
+describe('AI Controller: shared Observations', { timeout: 120_000 }, () => {
+  it('the AIs of a Duel sharing what they see decide exactly as each would alone, through an AI Takeover and a resync', () => {
+    const placements = [-1.8, -0.6, 0.6, 1.8].flatMap((x) => [{ position: { x, z: -1.5 }, facing: 0 }, { position: { x, z: 1.5 }, facing: Math.PI }]);
+    const teams = placements.map((_, i) => i % 2);
+    const weapons = teams.map((_, i) => Object.keys(repo.weapons)[i % Object.keys(repo.weapons).length]!);
+    const difficulties = ['Expert', 'Expert', 'Skilled', 'Expert', 'Expert', 'Beginner', 'Expert', 'Expert'];
+    /** 500 Ticks of the melee; `alone` hands each AI its own copy of the Fighters, so none shares an Observation with another. */
+    const play = (alone: boolean) => {
+      const ais = difficulties.map((d) => createAiController(repo, d));
+      const controllers = ais.map((_, k) => ({
+        intent: (st: SimState, i: number) => ais[k]!.intent(alone ? { ...st, fighters: [...st.fighters] } : st, i),
+      }));
+      let s = createInitialState(repo, 11, placements, weapons, teams);
+      const hashes: string[] = [];
+      for (let t = 0; t < 500; t++) {
+        // An AI Takeover: a new AI, which has seen nothing yet, mid-fight. A resync: memory that came over the wire.
+        if (t === 150) ais[2] = createAiController(repo, 'Expert');
+        if (t === 300) ais.forEach((ai) => ai.load!(JSON.parse(JSON.stringify(ai.save!()))));
+        const run = runControllers(repo, s, controllers, 1);
+        s = run.final;
+        hashes.push(hashValue(s));
+      }
+      const newest = ais.map((ai) => (ai.save!() as { seen: unknown[] }).seen.at(-1));
+      return { hashes, memory: hashValue(ais.map((ai) => ai.save!())), newest };
+    };
+    const shared = play(false);
+    const alone = play(true);
+    expect(shared.hashes).toEqual(alone.hashes);
+    expect(shared.memory).toBe(alone.memory);
+    // And they do share: by the end every AI holds the one Observation of the last Tick, the newcomer and the resynced ones too.
+    expect(shared.newest.every((o) => o === shared.newest[0])).toBe(true);
+    expect(alone.newest[1]).not.toBe(alone.newest[0]);
+  });
+});
