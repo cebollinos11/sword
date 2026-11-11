@@ -4,12 +4,12 @@
  * Pure DOM; it carries its own styles.
  */
 const CSS = `
-.loading-bar { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(12, 10, 8, 0.82); color: #f3e6c8; font-family: inherit; pointer-events: auto; transition: opacity 0.25s; }
+.loading-bar { position: absolute; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: #0d0a14; color: #f3e6c8; font-family: var(--font-body); pointer-events: auto; transition: opacity 0.25s steps(4, end); }
 .loading-bar.done { opacity: 0; pointer-events: none; }
-.loading-bar .loading-title { font-size: 20px; letter-spacing: 0.08em; text-transform: uppercase; }
-.loading-bar .loading-track { width: min(360px, 70vw); height: 10px; border-radius: 5px; background: rgba(255, 255, 255, 0.14); overflow: hidden; }
-.loading-bar .loading-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #d9a441, #f5cd7a); transition: width 0.15s ease-out; }
-.loading-bar .loading-detail { font-size: 13px; opacity: 0.7; min-height: 1.2em; }
+.loading-bar .loading-title { font-family: var(--font-display); font-size: 16px; letter-spacing: 0.08em; text-transform: uppercase; }
+.loading-bar .loading-track { width: min(360px, 70vw); height: 14px; background: #000; border: 2px solid #f3e6c8; overflow: hidden; }
+.loading-bar .loading-fill { width: 0%; height: 100%; background: repeating-linear-gradient(90deg, #f2b632 0 6px, #0d0a14 6px 8px); transition: width 0.15s steps(4, end); }
+.loading-bar .loading-detail { font-size: 18px; opacity: 0.7; min-height: 1.2em; }
 `;
 
 let injected = false;
