@@ -2,14 +2,14 @@
 
 > Built one Stage per session with `docs/plans/flail-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask. File and function names below were read from the code when the plan was written; numbers are starting values to tune.
 
-Status: Stages 1 to 3 built (the Flail is a playable Weapon with no Thrust, its Spin-up scales its Blade Speed in the Simulation, and it is drawn with a loose chain that whirls with the charge, with its own sounds); Stage 4 (the AI spins up and reads a spin) next.
+Status: Stages 1 to 4 built (the Flail is a playable Weapon with no Thrust, its Spin-up scales its Blade Speed in the Simulation, it is drawn with a loose chain that whirls with the charge, with its own sounds, and the newer AI tiers spin it up and read a spin); Stage 5 (docs and a full verification pass) next.
 
 ## Progress
 
 - [x] Stage 1: the Flail as a plain Weapon (sections 1 and 2): data, Motions, rigid look, icon, no Thrust
 - [x] Stage 2: the Spin-up in the Simulation (section 3), its ADR, the tuning panel
 - [x] Stage 3: the loose chain, the whirl and the sounds (sections 4 and 5)
-- [ ] Stage 4: the AI spins up and reads a spin (section 6)
+- [x] Stage 4: the AI spins up and reads a spin (section 6)
 - [ ] Stage 5: docs and a full verification pass (sections 7 and Verification)
 
 ## Context
@@ -191,6 +191,66 @@ Each Stage ends with `npm run typecheck` and `npm test` clean (`npm run test:slo
 **Numbers worth tuning** (render and sound only, code constants): `WHIRL_TURNS_PER_SECOND` 0.8 → 2.6 turns a second (a tap's Wind-up turns about a third of a turn; a full spin about 2.4 turns while charging, then 2.6 a second); `WHIRL_CONE` 62° (circle radius about 0.41 m, centre 0.22 m beyond the shaft's end at standard Size), `WHIRL_TILT` 1 (the axis halfway between shaft and swing axis); `WHIRL_BLEND` 12 Ticks, `WHIRL_LOW`/`WHIRL_HIGH` shaft height 0 to 0.35; `RELEASE_BLEND` 2 Ticks; `HANG_BLEND` 20 Ticks; head 0.12 m and torso 0.17 m keep-out radii (× Size). Sounds (`synth.ts`): `WHIRL_LEVEL` 0.9, `RATTLE_LEVEL` 0.8, the Ball's stock rate 0.78 and level 0.8 + 0.4 × strength (`stock.ts`). Measured: the held whirl clears the head by 0.35 m (Size 0.6) to 0.8 m and more (1.4).
 
 **Playtest.** In the Editor sandbox (`#/editor/sandbox`, Weapons → yellow Flail, script Spin-up), play at speed 1 with sound on, then scrub: does each Direction's whirl read at a glance from behind and from the side, and does the whoosh quicken and rise convincingly toward full? Is 2.6 turns a second at full too frantic or too lazy? Does the Release blend (2 Ticks) look like the ball flying off the whirl, or like a snap? Kill script (Right, 2.0 m): the ball on the body, the spiked thud. In a Duel against an AI: hold a spin and Release into a Block (the rattle), Feint across Directions mid-spin (the whirl reverses its sense), Block-Feint out of a full spin (the accepted snap to hanging: is it acceptable?), Chain and Whiff Chain, Sheathe and Draw (the ball on the back). Try Size 0.6 and 1.4 and a few Body models.
+
+### Stage 4 result
+
+**Built** (`src/controllers/ai.ts`; nothing in `src/sim`, `src/render` or `src/audio` changed).
+- Two optional `AiDifficulty` knobs in `data/ai.json`, off in `skillOf`, in `AI_DIFFICULTY_EXTRAS` (so the Editor's AI panel shows them as sliders for the tiers that set them, and a Style may scale them): `spinHold` and `spinRespect`, 0.4 / 0.7 / 0.9 on Beginner / Skilled / Expert, absent on Easy / Normal / Hard. New optional `ai.spinThreat` (0.6, the share of full charge from which a spin is read; absent means 1), parsed as a fraction, with an Editor slider at the top of the AI panel.
+- **Spinning up** (`spinAim`, `spinOn`, `spinRoom`, `spinUnder`). `startAttack` gives a Flail Attack an aim of `spinHold` × full charge (`AttackPlan.spin`), plus a deadline (`spinUntil`: the aim plus SPIN_PATIENCE, 60 Ticks). A timed Attack (a leap or a Landing punish) gets no aim. In the Wind-up, short of the aim:
+  - it holds while it has room: the target is beyond the ball's reach, Staggered for longer than the spin left plus the way to contact, lying in a Knockdown, Sheathed, or facing an ally on it and not itself;
+  - it also holds against a target Blocking in the Direction that meets it;
+  - a target open in the ball's reach, it lets go;
+  - where only the shaft lands, it backs out while it holds, or lets go if it has no safe way back.
+  
+  Once spun up, it walks in to the ball's reach and lets go there. At the deadline, out of the ball's reach or inside the shaft's range, it lets the spin go into a Block. With an enemy Wind-up coming (`spinUnder`, from `defend`), it spins on while the enemy's blow would land after its own spin's, or while the enemy is busy with an ally. Otherwise, at its held pose with the attacker in the ball's reach (and, in a team, no ally in its swing line), it lets go at once (an Outpace). Failing that, it defends as ever. A spinning Flail AI stands its ground through its Release instead of walking on into shaft range, and pressing it keeps out of shaft range (a spacing floor at the ball's reach).
+- **Reading a spin** (`readSpin`, `backOut`). The first time the charge it sees in a Flail's Wind-up reaches `spinThreat` of full, it rolls `chance(spinRespect)` once per Attack (`DefencePlan.spinRead`). An Attack Feint is a new Attack, so it is read again. When it reads the spin, in order:
+  1. it hits first (Outpace) if its own Wind-up plus its way to contact lands before the spin's earliest Release, way to contact and walk into the ball's reach;
+  2. it Chambers a Wind-up still rising to its held pose (a spin Feinted into a new Direction), if its Weapon attacks in the Direction that meets it (a Flail's Attack is never a Thrust);
+  3. otherwise it steps out (`Back`): it backs out to twice SPIN_OUT (0.15 m) beyond where the ball lands, keeping its Block up until it is SPIN_OUT clear, then stands Idle and lets the Release whiff. `breakHold` is skipped for a Back plan.
+  
+  A tap (under the threshold) is met exactly as before.
+- New memory is plain data in plans already saved: `AttackPlan.spin` and `spinUntil`, `DefencePlan.spinRead` and the `Back` kind. Randomness: only the `spinRespect` roll, and only for a Flail's spin. The spinner draws nothing new.
+- Tests (`src/controllers/ai.test.ts`, "AI Stage 4", written first, each under 1 s):
+  - the knob values per tier and Style;
+  - an Expert with a far target Releases at 0.9 of full or more and lands a Heavy Blow, a Beginner much less, and the same Expert without the knob taps;
+  - it lets go early when the target winds up in reach or steps in open;
+  - it never stands spinning where only the shaft lands, and never Releases a spin there;
+  - an Expert facing a full spin clears or Chambers it more often than it Blocks over seeds 1 to 10 (without the knob it Blocks 9 of 10 or more);
+  - against taps it plays hash for hash as without the knob;
+  - Hard Blocks every full spin and does not spin;
+  - Expert and Skilled Matches with every other Weapon hash the same with the knobs zeroed;
+  - a Flail AI saved mid-spin restores and plays on to the same hashes.
+
+**Deviations.**
+- **The ball's reach is per Direction, not `reach`.** A spin pays only where the ball lands, and the measured Head Hit distances (Stage 2: Overhead 2.1 to 2.2 m, Left 1.7 to 2.1, Right 1.9 to 2.1) differ by Direction and run past the AI's `reach` (2.0). A first cut Released at `reach` and walked on through the Release, so most full spins landed with the shaft. Now `SPIN_BALL` holds the measured band per Direction as offsets from `reach`, scaled with Size: a code constant tied to the Flail's Motions, to update if they change. The plan said `reach` and `attackTimings` need nothing, and they still need nothing.
+- **Chamber against a spin** works only on a Wind-up still rising (a spin Feinted into a new Direction). A held spin's Release cannot be timed: the Chamber window is 9 Ticks, and even an Expert's Reaction Time is 10.
+- **One existing test changed**: "Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on" destructures the new tiers' knobs before comparing the rest with the old tiers. It now lists `spinHold` and `spinRespect` too. A tier knob in `data/ai.json` cannot be added without this. No other test changed, and no golden hash was re-recorded.
+
+**Measured** (headless, the sandbox's AI vs AI Match, Expert vs Expert, best of 3, seeds 1 to 6, the editor Arena; "full" means a Release at 0.6 of full or more):
+
+| Match | Wins | Flail Releases spun | Median charge | Full spins: Blocked / Hit / Chambered / whiffed | Heavy Hits / Blocks | Longest hold | Spins let go into a Block |
+|---|---|---|---|---|---|---|---|
+| Flail v Longsword | 3–3 | 75 of 126 (60%) | 60 | 32 / 11 / 1 / 4 | 6 / 12 | 69 Ticks | 7 |
+| knobs off | 0–6 | 39 of 117 (33%, swing-in holds) | 32 | 2 / 1 / 0 / 0 | 0 / 0 | — | — |
+| Flail v Flail | 3–3 | 238 of 428 (56%) | 87 | 138 / 35 / 2 / 0 | 32 / 90 | 117 Ticks | 9 |
+| knobs off | 1–1 (4 hit the time cap) | 539 of 1804 (30%) | 32 | 32 / 8 / 0 / 0 | 0 / 0 | — | — |
+
+A defender that reads a spin backs off under its Block. The spinner walks after it faster than it can back off (the backward walk is 0.6×), so many reads still end in a Block, but a pushed one rather than a Heavy Hit. No AI was stuck spinning: the longest hold was 117 Ticks, then the deadline. In the sandbox (`#/editor/sandbox?dev=1`, yellow Expert Flail, blue Expert Longsword, seed 1) there were no page errors. Around Match Tick 1608 to 1624 the Flail holds its spin while the Longsword steps back under its Block. Before the review's fixes, the Flail won 6–0 against the Longsword (5–1 after the Block margin fix). Without the knobs it loses 0–6, and with them it is even.
+
+**Numbers worth tuning.**
+- Tier values `spinHold` and `spinRespect` 0.4 / 0.7 / 0.9. Beginner's 0.4 aim (36 Ticks) is never Heavy.
+- `ai.spinThreat` 0.6: about where a spin starts to be Heavy at contact.
+- Code constants: `SPIN_BALL` (the ball's band per Direction), SPIN_PATIENCE 60 Ticks, SPIN_OUT 0.15 m.
+
+**Playtest.**
+- In the sandbox, watch Expert Flail vs Expert Longsword, and Flail vs Flail, over a few seeds. Does a spin read as a threat, and does the Flail AI's let-go timing feel fair: early when you step in or wind up, late when you keep away?
+- Play against an Expert with the Flail from about 2 m:
+  - stay out of reach (it spins and comes in);
+  - step in during its spin (it lets go);
+  - wind up inside its spin (it lets go first if it is at its held pose);
+  - Block a full spin (the push).
+- Play with the Flail against an Expert: spin up in front of it (it backs off under its Block), spin and Feint into another Direction (it may Chamber), and tap (it Blocks as ever).
+- Is a 3–3 Expert Flail against a Longsword the balance wanted? Is the backing-off defender too passive?
 
 ## Verification
 

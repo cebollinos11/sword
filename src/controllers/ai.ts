@@ -185,7 +185,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -243,7 +243,7 @@ interface Observation {
 interface DefencePlan {
   readonly attacker: number;
   readonly attackStart: number;
-  readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace';
+  readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace' | 'Back';
   readonly direction: Direction;
   readonly pressAt: number;
   /** It rolled to read the attacker's look (`lowSwingRead`): a Duck switches to a Block while the look is low. */
@@ -252,6 +252,11 @@ interface DefencePlan {
   readonly holdBreak?: { readonly go: boolean; readonly at: number };
   /** A late Block (`humanMistakes`): it raises it no sooner than this Tick. */
   readonly raiseAt?: number;
+  /**
+   * Whether it read this Attack's Spin-up as a Heavy Blow coming (`spinRespect`, rolled once the charge it sees reaches
+   * `ai.spinThreat` of full; absent before then). Read, its plan is to hit first (Outpace), Chamber, or step out of reach (Back).
+   */
+  readonly spinRead?: boolean;
 }
 
 /** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
@@ -282,6 +287,12 @@ interface AttackPlan {
   readonly team: boolean;
   /** A double threat (`rhythm`): it Chains this Attack whatever its `chainRate`. */
   readonly double?: boolean;
+  /**
+   * With a Spin-up (`spinHold`): the charge (Ticks) it spins this Attack up to while it has room, and the Tick it stops
+   * waiting for a target to come into the ball's reach (`spinOn`). Absent: it swings the Attack like any other.
+   */
+  readonly spin?: number;
+  readonly spinUntil?: number;
 }
 
 type Mode = 'Neutral' | 'Pressure' | 'Disengage';
@@ -570,6 +581,22 @@ const PINCER_NEAR = 0.3;
 /** A late notice (`reactionJitter`) is at most this many Ticks (0.1 s): more, on a slow Reaction Time, and it Blocks almost nothing in time. */
 const JITTER_MAX = 6;
 
+/**
+ * With a Spin-up (the Flail), where the ball lands on a body, per Direction: from `lo` to `hi` (m, × Size) beyond its reach
+ * (`reach`; negative: inside it), as `src/sim/flail.test.ts` measures its swings standing (Overhead 2.1 to 2.2 m, Left 1.7 to
+ * 2.1 m, Right 1.9 to 2.1 m at standard Size). Closer only the shaft lands, and a spin pays nothing; further it whiffs.
+ */
+const SPIN_BALL: Readonly<Record<Direction, { readonly lo: number; readonly hi: number }>> = {
+  Overhead: { lo: 0.08, hi: 0.22 },
+  Left: { lo: -0.3, hi: 0.1 },
+  Right: { lo: -0.1, hi: 0.1 },
+  Thrust: { lo: -0.3, hi: 0.1 },
+};
+/** Spun up as far as it aims, it walks in to Release for at most this many Ticks more, then lets the spin go into a Block. */
+const SPIN_PATIENCE = 60;
+/** Reading a spin, it keeps its Block up until this far (m, × the spinner's Size) beyond where the spinner's ball lands, and backs out to twice that. */
+const SPIN_OUT = 0.15;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -620,6 +647,8 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     idleLife: 0,
     jumpStep: 0,
     pressAhead: 0,
+    spinHold: 0,
+    spinRespect: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -1644,7 +1673,9 @@ class RuleAi implements AiController {
    */
   private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number, team: TeamView | null = null): Vec2 {
     const { mode } = this.tactic;
-    const spacing = this.spacing(myReach, theirReach);
+    // Pressing with a spin (`spinHold`), it keeps out of the range where only its shaft lands.
+    const floor = this.spinAim(self) > 0 ? Math.max(...this.attacksOf(self).map((d) => this.ballBand(self, d).lo)) : 0;
+    const spacing = this.spacing(myReach, theirReach, floor);
     // Idle life: a short pause, out of their reach.
     if (mode === 'Neutral' && state.tick < this.strafe.pause && dist > theirReach) return ZERO;
     const radial = Math.max(-1, Math.min(1, (dist - spacing) * 2.5));
@@ -1679,12 +1710,12 @@ class RuleAi implements AiController {
   }
 
   /** How far (m) from its target it hovers, for its tactic (and in Neutral, its idle life's spacing). */
-  private spacing(myReach: number, theirReach: number): number {
+  private spacing(myReach: number, theirReach: number, floor = 0): number {
     const { mode } = this.tactic;
     const longer = Math.max(myReach, theirReach);
     // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
     const poke = myReach > theirReach + 0.2 ? myReach - 0.1 : longer + HOVER_MARGIN;
-    if (mode === 'Pressure') return (this.tuning.ai.retreatRange + myReach) / 2;
+    if (mode === 'Pressure') return Math.max((this.tuning.ai.retreatRange + myReach) / 2, floor);
     return mode === 'Disengage' ? longer + DISENGAGE_MARGIN : this.strafe.spacing === 0 ? poke : poke + this.strafe.spacing;
   }
 
@@ -2189,10 +2220,23 @@ class RuleAi implements AiController {
     const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
     const team = this.turn === true;
     this.turn = null;
-    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team || opts.double;
+    const spin = opts.timed ? 0 : this.spinAim(self);
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team || opts.double || spin > 0;
     const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
     this.attackPlan = planned
-      ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff, team, ...(opts.double ? { double: true } : {}) }
+      ? {
+          direction,
+          holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1,
+          reFeintRolled: false,
+          chainRolled: false,
+          chain: null,
+          chainHeld: false,
+          holdJumpUntil,
+          whiff,
+          team,
+          ...(opts.double ? { double: true } : {}),
+          ...(spin > 0 ? { spin, spinUntil: tick + spin + SPIN_PATIENCE } : {}),
+        }
       : null;
     return { ...base, attack: true, direction };
   }
@@ -2229,6 +2273,8 @@ class RuleAi implements AiController {
           return { ...base, attack: true, direction: into, move: closeIn };
         }
       }
+      const spun = plan?.spin !== undefined ? this.spinOn(state, self, a, plan, target, dist, toward, base, team) : null;
+      if (spun) return spun;
       if (plan && tick < plan.holdUntil && dist > myReach - 0.05) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
       // About to Release at a target seen backing out of reach: hold on while it may close in, else Feint into a Block.
       if (plan?.whiff && !self.air && this.backingOut(self, target, dist, toward, a.direction, myReach)) {
@@ -2237,7 +2283,9 @@ class RuleAi implements AiController {
       }
       return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
     }
-    if (a.phase === 'Release') return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
+    // A spin pays only at the ball's reach: it stands its ground through the Release rather than walk on into shaft range.
+    const spinning = plan?.spin !== undefined && dist <= this.ballBand(self, a.direction).hi;
+    if (a.phase === 'Release') return { ...base, move: self.air ? toward : spinning ? ZERO : this.safeMove(state, self, closeIn) };
     // Recovery.
     if (plan && (this.skill.chainRate > 0 || plan.double)) {
       if (!plan.chainRolled) {
@@ -2258,6 +2306,149 @@ class RuleAi implements AiController {
       return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
     }
     return base;
+  }
+
+  /** The charge (Ticks) it spins an Attack of its own up to (`spinHold` of full), or 0: no Spin-up, or no knob. */
+  private spinAim(self: FighterState): number {
+    if (this.skill.spinHold <= 0) return 0;
+    return Math.round(this.skill.spinHold * spinUpChargeTicks(weaponByName(this.tuning, self.weapon)));
+  }
+
+  /**
+   * Its own Wind-up with a Spin-up planned (`AttackPlan.spin`), no enemy Attack coming (`spinUnder` has those). Short of
+   * its aim, it spins on (holds the Wind-up) while it has room (`spinRoom`), and while the target stands behind a Block that
+   * meets it; a target open in the ball's reach, it lets go. It never stands spinning where only the shaft lands: it backs out
+   * to the ball's reach (or, with no safe way back, lets go). Spun up, it walks in and Releases at the ball's reach; a target
+   * still out of reach SPIN_PATIENCE Ticks after, it lets the spin go into a Block rather than swing at air. Null: Release (or
+   * whatever `pressOn` does next).
+   */
+  private spinOn(state: SimState, self: FighterState, a: Extract<Action, { kind: 'Attack' }>, plan: AttackPlan, target: Sighting, dist: number, toward: Vec2, base: Intent, team: TeamView | null): Intent | null {
+    if (self.air || plan.spin === undefined || plan.spinUntil === undefined) return null;
+    const { lo, hi } = this.ballBand(self, a.direction);
+    const hold = (move: Vec2): Intent => ({ ...base, attack: true, direction: a.direction, move });
+    // Spun as long as it will: it lets the spin go into a Block rather than swing at air or with the shaft.
+    if (state.tick >= plan.spinUntil) return dist > hi || dist < lo ? { ...base, block: true, direction: a.direction } : null;
+    // Where only the shaft lands: back out to the ball's reach (with no safe way back, let go).
+    if (dist < lo) {
+      const back = this.safeMove(state, self, { x: -toward.x, z: -toward.z });
+      return back.x === 0 && back.z === 0 ? null : hold(back);
+    }
+    const charge = a.charge ?? 0;
+    if (charge >= plan.spin) return dist > hi ? hold(this.safeMove(state, self, toward)) : null;
+    if (dist > hi) return hold(dist > hi + SWING_IN ? this.safeMove(state, self, toward) : ZERO);
+    if (this.spinRoom(self, a, plan.spin - charge, target, team)) return hold(ZERO);
+    return guardOf(target.action) === mirrorDirection(a.direction) ? hold(ZERO) : null;
+  }
+
+  /** Where its ball lands in `direction` (`SPIN_BALL`), as distances (m) from its target. */
+  private ballBand(self: { readonly weapon: string; readonly size?: Size | undefined }, direction: Direction): { lo: number; hi: number } {
+    const reach = this.reach(self);
+    const k = self.size?.height ?? 1;
+    return { lo: reach + SPIN_BALL[direction].lo * k, hi: reach + SPIN_BALL[direction].hi * k };
+  }
+
+  /**
+   * Whether `target`, in its reach, leaves it room to spin `left` Ticks more and still land: Staggered for longer than that and
+   * the Release's way to contact, lying in a Knockdown (not yet Rising), Sheathed (or Sheathing, Drawing), or facing an ally
+   * on it and not itself.
+   */
+  private spinRoom(self: FighterState, a: Extract<Action, { kind: 'Attack' }>, left: number, target: Sighting, team: TeamView | null): boolean {
+    const t = target.action;
+    if (t.kind === 'Stagger') {
+      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, a.direction);
+      return this.openingLeft(target) > left + Math.ceil((releaseEnd - windUpEnd) / 2);
+    }
+    return (t.kind === 'Knockdown' && t.phase !== 'Rising') || defenceless(target) || team?.exposed === true;
+  }
+
+  /**
+   * Its own spin under way (`AttackPlan.spin`) against `seen`'s Attack coming: one busy with an ally (not aimed at it), or
+   * whose Release (as far as its pose shows) comes after its spin is done, it spins on through; one that would Release inside
+   * what is left of its spin, it lets go at once if it is at its held pose with the attacker in its reach (an Outpace). Null:
+   * defend as ever (it may still Outpace, or Feint into a Block, which drops the spin).
+   */
+  private spinUnder(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent, team: TeamView | null): Intent | null {
+    const own = self.action;
+    const plan = this.attackPlan;
+    if (own.kind !== 'Attack' || own.phase !== 'Wind-up' || plan?.spin === undefined || plan.spinUntil === undefined || self.air || state.tick >= plan.spinUntil) return null;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    if (atk.phase !== 'Wind-up') return null;
+    const left = plan.spin - (own.charge ?? 0);
+    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
+    const mine = attackTimings(this.tuning, self.weapon, own.direction);
+    // Each blow lands about half its Release after it lets go: its own after the spin it has left, theirs after their Release.
+    const myContact = Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2);
+    const theirContact = Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2);
+    if (left > 0 && (theirRelease + theirContact > left + myContact || !this.aimedAt(seen, self))) return { ...base, attack: true, direction: own.direction };
+    if (self.motion.tick < mine.windUpEnd || flat > this.ballBand(self, own.direction).hi) return null;
+    // Played as one of a team, it lets no spin go with an ally in its swing line.
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    if (team !== null && this.teamRoll() && this.allyInLine(self, team, toward, this.reach(self), own.direction)) return null;
+    this.defencePlan = { attacker, attackStart: seen.attackStart!, kind: 'Outpace', direction: mirrorDirection(atk.direction), pressAt: -1 };
+    return base;
+  }
+
+  /**
+   * Reading the spin of `seen`'s Attack (a Weapon with a Spin-up): once the charge it sees reaches `ai.spinThreat` of full in
+   * the Wind-up, it rolls once (`spinRespect`) to read it. Read, rather than stand and Block a Heavy Blow, it hits first if its
+   * own Wind-up Releases before the spin could land (Outpace), Chambers a Wind-up still rising to its held pose (a spin Feinted
+   * into a new Direction) if its Weapon can answer it, and otherwise steps out of the spinner's reach (Back).
+   */
+  private readSpin(state: SimState, self: FighterState, seen: Sighting, flat: number, meets: Direction, team: TeamView | null): void {
+    const plan = this.defencePlan!;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    if (plan.spinRead !== undefined || this.skill.spinRespect <= 0 || atk.phase !== 'Wind-up') return;
+    const full = spinUpChargeTicks(weaponByName(this.tuning, seen.weapon));
+    if (full === 0 || (atk.charge ?? 0) < (this.tuning.ai.spinThreat ?? 1) * full) return;
+    if (!this.chance(this.skill.spinRespect)) {
+      this.defencePlan = { ...plan, spinRead: false };
+      return;
+    }
+    const { raiseAt: _late, ...rest } = plan;
+    const read = (kind: DefencePlan['kind'], pressAt = -1): void => {
+      this.defencePlan = { ...rest, kind, direction: meets, pressAt, spinRead: true };
+      if (kind !== 'Outpace') this.attackPlan = null;
+    };
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
+    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
+    const own = self.action;
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self) + (own.direction === 'Thrust' ? THRUST_REACH : 0)) {
+      // The spin lands no sooner than its Release's way to contact, and its walk into reach.
+      const walk = Math.max(0, flat - this.ballBand(seen, atk.direction).hi) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
+      const lands = theirRelease + Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2) + walk;
+      // Its own blow lands its Wind-up's rest and about half its Release from now.
+      const mine = attackTimings(this.tuning, self.weapon, own.direction);
+      if (Math.max(0, mine.windUpEnd - self.motion.tick) + Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2) < lands) return read('Outpace');
+    }
+    const canChamber = attackDirection(weaponByName(this.tuning, self.weapon), meets) === meets;
+    if (seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && canChamber) {
+      const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
+      if (pressAt > state.tick) return read('Chamber', pressAt);
+    }
+    read('Back');
+  }
+
+  /**
+   * Stepping out of a spin it read (`readSpin`): it backs out to twice SPIN_OUT beyond where the spinner's ball lands, its Block
+   * up until it is SPIN_OUT beyond it; out there it stands Idle (ready to punish the whiff), and lets a Release seen from there go by.
+   */
+  private backOut(state: SimState, self: FighterState, seen: Sighting, flat: number, base: Intent, meets: Direction): Intent {
+    const own = self.action;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    const theirReach = this.ballBand(seen, atk.direction).hi;
+    const out = SPIN_OUT * (seen.size?.height ?? 1);
+    // Its Block stays up until it stands clear of the ball's edge (which the measured band only roughly gives).
+    const inReach = flat <= theirReach + out;
+    if (atk.phase === 'Release') return inReach ? this.guard(own, base, meets) : base;
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    const radial = Math.max(-1, Math.min(0, (flat - theirReach - 2 * out) * 2.5));
+    const move = radial > -0.15 ? ZERO : this.safeMove(state, self, { x: toward.x * radial, z: toward.z * radial });
+    // In its reach, or with a Wind-up of its own that would Release at nothing out there: its Block (a Block Feint) up.
+    if (inReach || (own.kind === 'Attack' && own.phase === 'Wind-up')) return { ...this.guard(own, base, meets), move: own.kind === 'Block' && own.direction !== meets ? ZERO : move };
+    return { ...base, move: own.kind === 'Block' ? ZERO : move };
   }
 
   /**
@@ -2300,18 +2491,25 @@ class RuleAi implements AiController {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const attackStart = seen.attackStart!;
     const meets = mirrorDirection(atk.direction);
-    if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
+    const fresh = this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart;
+    // Its own spin under way: spin on through an Attack that Releases after it, or let it go first.
+    const spun = fresh ? this.spinUnder(state, self, attacker, seen, flat, base, team) : null;
+    if (spun) return spun;
+    if (fresh) {
       // Played as one of a team, it swings into no Attack (a Chamber, an Outpace) with an ally in its swing line.
       const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
       const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
+    if (atk.charge !== undefined) this.readSpin(state, self, seen, flat, meets, team);
     const own = self.action;
-    const broken = this.breakHold(state, self, seen, flat, base, meets);
+    const broken = this.defencePlan!.kind === 'Back' ? null : this.breakHold(state, self, seen, flat, base, meets);
     if (broken) return broken;
-    let plan = this.defencePlan;
+    let plan = this.defencePlan!;
     switch (plan.kind) {
+      case 'Back':
+        return this.backOut(state, self, seen, flat, base, meets);
       case 'Duck':
         // Reading the look: a Left or Right swung looking down hits a Crouch, so Block it instead.
         if (!plan.reads || !this.lowLook(seen)) return { ...base, crouch: true };

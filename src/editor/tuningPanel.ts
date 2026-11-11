@@ -139,6 +139,8 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
 
   folder('ai', (f) => {
     const ai = session.draftSection('ai');
+    // The share of a full Spin-up from which an AI with `spinRespect` reads a spin (the Flail's) as a Heavy Blow coming.
+    if (ai.spinThreat !== undefined) f.addBinding(ai, 'spinThreat', { min: 0, max: 1, step: 0.01, label: 'spin threat (× full)' }).on('change', () => apply('ai'));
     for (const [name, d] of Object.entries(ai.difficulties)) {
       const g = f.addFolder({ title: name });
       g.addBinding(d, 'reactionTime', { min: 0, max: 1, step: 0.01, label: 'Reaction Time (s)' }).on('change', () => apply('ai'));
