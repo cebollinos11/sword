@@ -231,6 +231,9 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, position: { x: 0 } }),
       withFighter({ ...fighter, action: { kind: 'Dance' } }),
       withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Overhead', phase: 'Twirl', landed: false } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: -1 } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: 2.5 } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: '90' } }),
       withFighter({ ...fighter, action: { kind: 'Stagger', cause: 'Tired' } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Twirl', landed: false } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Release' } }),
@@ -254,6 +257,9 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, gait: { ...fighter.gait, right: { planted: { x: 0, z: 0 }, step: { tick: 2, target: 'there' } } } }),
     ];
     for (const state of broken) expect(parseNetMessage(resync(state)), JSON.stringify(state)?.slice(0, 120)).toBeNull();
+    // A spinning Flail's Attack carries its Spin-up charge, a whole number of Ticks.
+    const spinning = withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: 40 } });
+    expect(parseNetMessage(resync(spinning))).toEqual(resync(spinning));
     expect(parseNetMessage({ ...resync(good), streams: [{ player: 0, from: 1, intents: [{}] }] })).toBeNull();
   });
 });

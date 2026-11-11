@@ -274,7 +274,8 @@ function isAction(v: unknown): boolean {
         isBool(v.landed) &&
         (v.chain === undefined || (isObject(v.chain) && isDirection(v.chain.direction) && isTick(v.chain.tick))) &&
         (v.whiffChain === undefined || isDirection(v.whiffChain)) &&
-        (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isFighterIndex))
+        (v.chamberedBy === undefined || isArrayOf(v.chamberedBy, isFighterIndex)) &&
+        (v.charge === undefined || isTick(v.charge))
       );
     case 'Block':
       return isDirection(v.direction);

@@ -4,14 +4,14 @@
  * `releaseEnd` markers; Recovery ends with the Motion. The Weapon's Tempo
  * stretches each phase (see tempo.ts).
  */
-import { attackDirection, UNIT_TEMPO, weaponByName, weaponMotion, type TuningData } from '../../tuning';
+import { attackDirection, spinUpChargeTicks, UNIT_TEMPO, weaponByName, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { Direction, Intent } from '../intent';
 import { motionBlendTicks } from '../motion';
 import { motionTempo, playedSeconds } from '../tempo';
 import type { Action, AttackAction, AttackPhase, FighterState } from '../state';
 import { IDLE_ACTION, IDLE_MOTION } from './idleAction';
-import type { ActionContext, ActionHandler, ActionStarter, ActionUpdate } from './types';
+import type { ActionContext, ActionHandler, ActionUpdate } from './types';
 
 /** How long (Ticks) a Weapon stays lodged in the victim after a Hit. */
 export const LODGE_TICKS = 18;
@@ -56,10 +56,20 @@ function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: Acti
 export const attackDirectionOf = (f: FighterState, direction: Direction, tuning: TuningData): Direction =>
   attackDirection(weaponByName(tuning, f.weapon), direction);
 
-/** Pressing attack starts a Wind-up in the Intent's Direction (as the Weapon has it). Never while Sheathed: that Draws instead (startSheathe). */
-export const startAttack: ActionStarter = (f, intent, ctx) => {
+/** The Spin-up's charge after one more Wind-up Tick of `f`'s Attack at `charge`: one more, up to its Weapon's full charge. */
+export const windUpCharge = (f: FighterState, charge: number, tuning: TuningData): number =>
+  Math.min(charge + 1, spinUpChargeTicks(weaponByName(tuning, f.weapon)));
+
+/**
+ * Pressing attack starts a Wind-up in the Intent's Direction (as the Weapon has it). Never while Sheathed: that Draws instead (startSheathe).
+ * A Weapon with a Spin-up starts it at no charge (so does a Chain or Whiff Chain, which start here); `charge` carries an Attack
+ * Feint's on. Every other Weapon's Attack carries no `charge` at all, so its state is as it always was.
+ */
+export const startAttack = (f: FighterState, intent: Intent, ctx: ActionContext, charge = 0): ActionUpdate | null => {
   if (!intent.attack || f.sheathed) return null;
-  const action: AttackAction = { kind: 'Attack', direction: attackDirectionOf(f, intent.direction, ctx.tuning), phase: 'Wind-up', landed: false };
+  const weapon = weaponByName(ctx.tuning, f.weapon);
+  const direction = attackDirection(weapon, intent.direction);
+  const action: AttackAction = { kind: 'Attack', direction, phase: 'Wind-up', landed: false, ...(weapon.spinUp ? { charge } : {}) };
   ctx.emit({ type: 'AttackPhase', fighter: ctx.fighter, direction: action.direction, phase: 'Wind-up' });
   return { action, motion: { name: attackMotionName(action.direction), tick: 0 } };
 };
@@ -71,12 +81,15 @@ export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
   // The Weapon is lodged in the victim after a Hit: hold the pose, then play out the rest of the swing.
   if (a.lodge) return { action: { ...a, lodge: a.lodge - 1 }, motion: { name: attackMotionName(a.direction), tick } };
   switch (a.phase) {
-    case 'Wind-up':
+    case 'Wind-up': {
       // Wind-up always plays to its held pose; it then holds (playhead frozen) while attack is held.
-      // A held Wind-up looks and swings exactly like a short one: no damage bonus for holding.
-      if (tick < t.windUpEnd) return enter(a, 'Wind-up', tick + 1, ctx);
-      if (intent.attack) return enter(a, 'Wind-up', tick, ctx);
+      // A held Wind-up looks and swings exactly like a short one; only a Weapon with a Spin-up gains by it (its charge).
+      const spun = a.charge === undefined ? a : { ...a, charge: windUpCharge(f, a.charge, ctx.tuning) };
+      if (tick < t.windUpEnd) return enter(spun, 'Wind-up', tick + 1, ctx);
+      if (intent.attack) return enter(spun, 'Wind-up', tick, ctx);
+      // The Tick that lets go is Release's first: the charge Released with is the last Wind-up Tick's.
       return enter(a, 'Release', tick + 1, ctx);
+    }
     case 'Release': {
       if (tick + 1 < t.releaseEnd) return enter(a, 'Release', tick + 1, ctx);
       // Attack pressed again during Release, the swing having found nothing yet: queue a Whiff Chain in the Direction held now.

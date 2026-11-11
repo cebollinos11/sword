@@ -7,6 +7,8 @@ import {
   parseTuningData,
   parseWeapon,
   serializeWeapon,
+  spinUpChargeTicks,
+  spinUpSpeed,
   tuningDataHash,
   TuningDataError,
   weaponFileName,
@@ -58,6 +60,33 @@ describe('Weapon roster', () => {
     // Kept (and drawn only once the look is flail), so turning a look in the Editor never strands a draft.
     expect(parseWeapon(halberd({ chain: 0.3 })).chain).toBe(0.3);
     expect(() => parseWeapon({ ...flail, chain: 1.3 })).toThrow(/^weapons\/Flail\.chain plus head must be shorter than length/);
+  });
+
+  it('only the Flail has a Spin-up: parsed, validated, written to its file and read back', () => {
+    const flail = tuning.weapons.Flail!;
+    expect(flail.spinUp).toEqual({ seconds: 1.5, from: 0.7, to: 1.4 });
+    expect(JSON.parse(serializeWeapon(flail)).spinUp).toEqual({ seconds: 1.5, from: 0.7, to: 1.4 });
+    for (const w of Object.values(tuning.weapons).filter((w) => w !== flail)) {
+      expect(w.spinUp, w.name).toBeUndefined();
+      expect('spinUp' in JSON.parse(serializeWeapon(w)), w.name).toBe(false);
+    }
+    expect(parseWeapon(halberd({ spinUp: { seconds: 1, from: 1, to: 1 } })).spinUp).toEqual({ seconds: 1, from: 1, to: 1 });
+    expect(() => parseWeapon(halberd({ spinUp: { seconds: 0, from: 0.7, to: 1.4 } }))).toThrow(/^weapons\/Halberd\.spinUp\.seconds/);
+    expect(() => parseWeapon(halberd({ spinUp: { seconds: 1, from: 0, to: 1.4 } }))).toThrow(/^weapons\/Halberd\.spinUp\.from/);
+    expect(() => parseWeapon(halberd({ spinUp: { seconds: 1, from: 1.5, to: 1.4 } }))).toThrow(/^weapons\/Halberd\.spinUp\.to must be >= from/);
+    expect(() => parseWeapon(halberd({ spinUp: 2 }))).toThrow(/^weapons\/Halberd\.spinUp/);
+  });
+
+  it('spinUpSpeed: 1 without a Spin-up; from `from` at no charge to `to` at full, holding there', () => {
+    const flail = tuning.weapons.Flail!;
+    const full = Math.round(1.5 * 60);
+    expect(spinUpSpeed(tuning.weapons.Longsword!, 500)).toBe(1);
+    expect(spinUpSpeed(flail, 0)).toBe(0.7);
+    expect(spinUpSpeed(flail, full / 2)).toBeCloseTo(1.05, 12);
+    expect(spinUpSpeed(flail, full)).toBe(1.4);
+    expect(spinUpSpeed(flail, full * 3)).toBe(1.4);
+    expect(spinUpChargeTicks(flail)).toBe(full);
+    expect(spinUpChargeTicks(tuning.weapons.Longsword!)).toBe(0);
   });
 
   it('names each Weapon file after its Weapon', () => {

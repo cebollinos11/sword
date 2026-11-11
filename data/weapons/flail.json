@@ -28,6 +28,11 @@
     "release": 1,
     "recovery": 1.2
   },
+  "spinUp": {
+    "seconds": 1.5,
+    "from": 0.7,
+    "to": 1.4
+  },
   "sheathe": {
     "slot": "back",
     "offset": {

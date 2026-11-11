@@ -2,12 +2,12 @@
 
 > Built one Stage per session with `docs/plans/flail-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask. File and function names below were read from the code when the plan was written; numbers are starting values to tune.
 
-Status: Stage 1 built (the Flail is a plain, playable Weapon with no Thrust); Stage 2 (the Spin-up) next.
+Status: Stages 1 and 2 built (the Flail is a playable Weapon with no Thrust, and its Spin-up scales its Blade Speed in the Simulation); Stage 3 (the loose chain, the whirl and the sounds) next.
 
 ## Progress
 
 - [x] Stage 1: the Flail as a plain Weapon (sections 1 and 2): data, Motions, rigid look, icon, no Thrust
-- [ ] Stage 2: the Spin-up in the Simulation (section 3), its ADR, the tuning panel
+- [x] Stage 2: the Spin-up in the Simulation (section 3), its ADR, the tuning panel
 - [ ] Stage 3: the loose chain, the whirl and the sounds (sections 4 and 5)
 - [ ] Stage 4: the AI spins up and reads a spin (section 6)
 - [ ] Stage 5: docs and a full verification pass (sections 7 and Verification)
@@ -145,6 +145,28 @@ Each Stage ends with `npm run typecheck` and `npm test` clean (`npm run test:slo
 **Numbers worth tuning.** `speed` 45 and `damage` 45 (a Head Hit ≈ 45 to 52, against the Halberd's ≈ 95 to 120 and the Longsword's ≈ 45 to 65); `shaftDamage` 0.15 (up close, 1.0 to 1.6 m, only the shaft lands, for 2 to 7); `tempo` 1.1 / 1 / 1.2; `chain` 0.35 and `head` 0.22 (the ball is 60% of the Head, its spikes the rest).
 
 **Playtest.** Pick the Flail in the menu and in a Lobby Seat (its card and icon), and in the Editor's sandbox (Weapons folder). Swing each Direction from about 2 m; press Thrust and wheel down (an Overhead); hold Thrust through an Overhead, then Feint to Left and back; Chain and Whiff Chain holding Thrust; Block all four Directions, Thrust included; Sheathe and Draw (the ball stands up over the shoulder for now). Fight a Hard or Expert AI with it, and against an AI that has it. Start a Run with it from the Lineup and check no enemy and no drop is a Flail. Feel whether it is usable up close.
+
+### Stage 2 result
+
+**Built.**
+- `data/weapons/flail.json` gains `spinUp: { seconds: 1.5, from: 0.7, to: 1.4 }`; no other Weapon file changed. `src/tuning/weapon.ts`: optional `spinUp` (parsed, validated `seconds > 0`, `0 < from <= to`, written to the file only when present), `spinUpChargeTicks(weapon)` (full charge in Ticks, 90; 0 without one) and `spinUpSpeed(weapon, charge)` (1 without one, else `from + (to - from) × min(1, charge / full)`).
+- `AttackAction.charge` (`src/sim/state.ts`), present only for a Weapon with `spinUp`. `startAttack` sets it to 0 (so do a Chain and a Whiff Chain, which start through it); each Wind-up Tick adds one, capped at full (`windUpCharge`); the Tick that lets go is Release's first and adds nothing; it is kept, frozen, through Release, Recovery and a lodge. An Attack Feint carries it into the new Wind-up (`feint.ts`); a Block Feint, a Stagger, a Knockdown or anything else that replaces the Action drops it with the Action.
+- `findContacts` (`src/sim/combat.ts`) multiplies the contact's Blade Speed by `spinUpSpeed` for Fighter contacts and the Wall contact, where it is produced. `hitDamage` and `isHeavyBlow` are untouched; damage, Heavy Blows, Block Impact and the `Hit` / `Block` / `WallStrike` events (and so a Death's recorded blow) all see the spun speed.
+- Resync validation (`src/net/messages.ts`) accepts an optional `charge`, a non-negative whole number (`messages.test.ts`: a negative, fractional or string charge is refused; a spinning Attack round-trips).
+- The Editor's Weapon panel: a Spin-up folder (to full (s), no charge ×, full charge ×) for a Weapon with one, and Attacks toggles (Left, Right, Thrust; Overhead always) for a Weapon that lacks a Direction or has the flail look. Checked in the sandbox (`#/editor/sandbox?dev=1`, Weapons → Flail): it fights, both folders are there, no page errors.
+- ADR 0026; CONTEXT.md: **Spin-up**, and the Spin-up sentences in **Blade Speed**, **Weapon**, **Heavy Blow**, **Feint**, **Chain** and **Whiff Chain**.
+- Tests (`src/sim/flail.test.ts`, written first): the charge per Tick and its cap, frozen through Release and Recovery; Hits at zero, half and full charge for `from`, the midpoint and `to` × the same swing unspun (Blade Speed and damage, every Direction); a full charge Heavy at every distance the ball lands on a body, in every Direction, a tap never; a full Hit knocks down and Slides, a full Block pushes and holds, a tapped Block does not; an Attack Feint keeps it (and a Feint every Tick still builds it), a Block Feint and a Stagger drop it; a Chain and a Whiff Chain start at zero; no other Weapon's states carry `charge`, and a Longsword Duel recorded on the code before Stage 2 hashes the same (`3d3fe12b`); a state saved mid-spin restores and re-simulates to the same hash. `src/tuning/weapons.test.ts` (parse, validate, serialize, `spinUpSpeed`) and `src/editor/tuningSections.test.ts` (Spin-up and Attacks edited, saved and reloaded; an invalid Spin-up refused).
+
+**Deviations.**
+- **A Feint's Tick adds one.** The plan has an Attack Feint carry the old charge. The Feint Tick is a Wind-up Tick of the new Attack, so it also adds one, as any Wind-up Tick does: otherwise a Player whose aim crosses a Direction boundary every Tick would hold the Wind-up and never build a charge.
+- **Two Stage 1 Flail tests changed**: two `toEqual`s on a Flail's Attack Action in `flail.test.ts` now include `charge: 0` (a Flail's Attack carries it, by design). No other existing test changed; `npm test` and `npm run test:slow` pass, the AI golden test unchanged.
+- `startAttack` takes an optional fourth argument (the charge to start with), used only by the Feint.
+
+**Checked against the measured contact speeds.** Head Hits on an idle body land at 2.1 to 2.2 m (Overhead), 1.7 to 2.1 m (Left) and 1.9 to 2.1 m (Right). A tap Releases with the charge its Wind-up built (23 Ticks of 90 in every Direction): 0.88×, so its Head Hits meet at 0.85 to 1.01× the reference Blade Speed (38 to 45 damage) and are never Heavy. Unspun (0.7×) is lower still. A full charge meets at 1.32 to 1.60× (59 to 72 damage), always over `heavyBlow.speed` 1.25. Closer in, only the shaft lands (never Heavy, 3 to 10 damage). On a Block, a full spin is Heavy only where the ball meets the Blocking blade: from about 2.2 m for an Overhead or a Left, 1.8 m or 2.3 m and more for a Right; closer, the blades meet slower down the Weapon and the Block is not Heavy.
+
+**Numbers worth tuning.** `spinUp.seconds` 1.5 (full charge after 90 Ticks of Wind-up, about 67 Ticks past the held pose); `spinUp.from` 0.7 (a tap is 0.88×, since its Wind-up already builds 23 Ticks; lower `from` to make taps weaker still); `spinUp.to` 1.4 (with `heavyBlow.speed` 1.25 every full Head Hit is Heavy; at 1.3 a Left or Right near the edge of reach would not be); `blockImpact.dealt` 1.6, which now multiplies with the spun Blade Speed: a full spin's Block Impact is up to 1.6× a tap's (1.4 / 0.88), until the clamp in `startBlockImpact` (Blade Speed over the reference at most 1.5) caps it.
+
+**Playtest.** In the Editor's sandbox (Weapons → Flail, Tuning Data → Weapons → Flail → Spin-up) or against an AI: tap each Direction from 2 m (it Staggers, never knocks down); hold the Wind-up about 1.5 s and Release (Knockdown and a Slide on a Hit at reach; a Blocker pushed back from 2.2 m); hold then Feint Left to Right and Release (still full); hold then Block-Feint, then attack again (back to a tap's strength); hold while being hit (the Stagger drops it); Chain and Whiff Chain after a full spin (the next swing is a tap's). Feel whether holding 1.5 s is worth the risk, and whether a tap is too weak up close. There is no whirl yet: the charge cannot be seen until Stage 3, so the AI and the opponent read nothing.
 
 ## Verification
 

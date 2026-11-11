@@ -78,6 +78,23 @@ describe('EditorSession Weapons', () => {
   });
 });
 
+describe('EditorSession: the Flail’s Spin-up and Attack Directions', () => {
+  it('saves an edited Spin-up and Attacks list to flail.json, which reloads to the live values; an invalid Spin-up is refused', () => {
+    const session = new EditorSession(tuning);
+    const w = session.draftWeapon('Flail');
+    w.spinUp!.seconds = 2;
+    w.spinUp!.to = 1.6;
+    w.attacks = ['Overhead', 'Right'];
+    expect(session.commitWeapon('Flail')).toMatchObject({ spinUp: { seconds: 2, from: 0.7, to: 1.6 }, attacks: ['Overhead', 'Right'] });
+    const file = session.weaponFile('Flail');
+    expect(JSON.parse(file.text)).toEqual({ ...flailJson, spinUp: { seconds: 2, from: 0.7, to: 1.6 }, attacks: ['Overhead', 'Right'] });
+    expect(parseWeapon(JSON.parse(file.text))).toEqual(session.tuning.weapons.Flail);
+    w.spinUp!.from = 1.8;
+    expect(() => session.commitWeapon('Flail')).toThrow(/^weapons\/Flail\.spinUp\.to must be >= from/);
+    expect(session.tuning.weapons.Flail!.spinUp).toEqual({ seconds: 2, from: 0.7, to: 1.6 });
+  });
+});
+
 describe('EditorSession Tuning Data sections (Hit Zones, AI, Gait, Block)', () => {
   it('saves every section unchanged when nothing was edited', () => {
     const session = new EditorSession(tuning);

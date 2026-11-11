@@ -8,6 +8,7 @@
  * perpendicular to the axis. A two-handed Weapon's off hand holds the
  * Off-hand Grip, a spot on the grip or shaft behind the main hand.
  */
+import { secondsToTicks } from '../sim/constants';
 import { DIRECTIONS, type Direction } from '../sim/intent';
 import type { Vec3 } from '../sim/vec';
 import { finiteNumber, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
@@ -60,6 +61,17 @@ export interface WeaponTempo {
   readonly recovery: number;
 }
 
+/**
+ * A Weapon's Spin-up (the Flail's): holding the Wind-up builds a charge, one per Wind-up Tick, up to full in `seconds`,
+ * which multiplies its Blade Speed at contact from `from` (no charge) to `to` (full). Damage and the Heavy Blow follow
+ * from that speed through the usual rules (ADR 0026).
+ */
+export interface WeaponSpinUp {
+  readonly seconds: number;
+  readonly from: number;
+  readonly to: number;
+}
+
 export const SHEATHE_SLOTS = ['hip', 'back'] as const;
 /** Where a Weapon rides while Sheathed: on the left hip, or across the back. It also picks the Sheathe and Draw Motions. */
 export type SheatheSlot = (typeof SHEATHE_SLOTS)[number];
@@ -109,6 +121,8 @@ export interface WeaponTuning {
   readonly blockImpact: WeaponBlockImpact;
   readonly heavyBlow: WeaponHeavyBlow;
   readonly tempo: WeaponTempo;
+  /** Its Spin-up, if it has one (only the Flail): absent, an Attack carries no charge and its Blade Speed is as swung. */
+  readonly spinUp?: WeaponSpinUp;
   /** Where it rides while Sheathed. */
   readonly sheathe: WeaponSheathe;
   /**
@@ -124,6 +138,21 @@ export interface WeaponTuning {
 /** The Direction an Attack asked for in `direction` has with `weapon`: `direction` if the Weapon Attacks in it, else Overhead. */
 export function attackDirection(weapon: Pick<WeaponTuning, 'attacks'>, direction: Direction): Direction {
   return !weapon.attacks || weapon.attacks.includes(direction) ? direction : 'Overhead';
+}
+
+/** The Ticks of Wind-up a Weapon's Spin-up takes to reach full charge (0 without one). */
+export function spinUpChargeTicks(weapon: Pick<WeaponTuning, 'spinUp'>): number {
+  return weapon.spinUp ? Math.max(1, secondsToTicks(weapon.spinUp.seconds)) : 0;
+}
+
+/**
+ * The Blade Speed multiplier of an Attack with `charge` Ticks of Spin-up: 1 for a Weapon without a Spin-up, else from
+ * `spinUp.from` at no charge rising evenly to `spinUp.to` at full charge, and holding there.
+ */
+export function spinUpSpeed(weapon: Pick<WeaponTuning, 'spinUp'>, charge: number): number {
+  const s = weapon.spinUp;
+  if (!s) return 1;
+  return s.from + (s.to - s.from) * Math.min(1, charge / spinUpChargeTicks(weapon));
 }
 
 /** Whether a Head contact at `bladeSpeed` is a Heavy Blow of `weapon` (never for a Weapon without one, or a shaft contact). */
@@ -209,6 +238,16 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     tempo = { windUp: positiveNumber(t, 'windUp', where), release: positiveNumber(t, 'release', where), recovery: positiveNumber(t, 'recovery', where) };
   }
 
+  let spinUp: WeaponSpinUp | undefined;
+  if (o.spinUp !== undefined) {
+    const where = `${at}.spinUp`;
+    const sp = record(o.spinUp, where);
+    const from = positiveNumber(sp, 'from', where);
+    const to = positiveNumber(sp, 'to', where);
+    if (to < from) throw new TuningDataError(`${where}.to must be >= from (${from}), got ${to}`);
+    spinUp = { seconds: positiveNumber(sp, 'seconds', where), from, to };
+  }
+
   const sheatheAt = `${at}.sheathe`;
   if (o.sheathe === undefined) throw new TuningDataError(`${sheatheAt} is required`);
   const sh = record(o.sheathe, sheatheAt);
@@ -249,6 +288,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     blockImpact,
     heavyBlow,
     tempo,
+    ...(spinUp ? { spinUp } : {}),
     sheathe,
     ...(attacks ? { attacks } : {}),
     look,
@@ -273,6 +313,8 @@ export function serializeWeapon(w: WeaponTuning): string {
   out.blockImpact = { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken };
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
   out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
+  // Written only for a Weapon that has one (the Flail), so the other Weapon files stay as they are.
+  if (w.spinUp) out.spinUp = { seconds: w.spinUp.seconds, from: w.spinUp.from, to: w.spinUp.to };
   out.sheathe = { slot: w.sheathe.slot, offset: { ...w.sheathe.offset }, rotation: { ...w.sheathe.rotation } };
   // Written only for a Weapon that lacks a Direction, so the other Weapon files stay as they are.
   if (w.attacks && w.attacks.length < DIRECTIONS.length) out.attacks = [...w.attacks];
