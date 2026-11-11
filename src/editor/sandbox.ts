@@ -685,6 +685,7 @@ saved ${file} (${result})`),
     curr.fighters.forEach((f, i) => {
       const pose = poses[i]!;
       views[i]!.setBlood(impacts.blades.marksOf(i));
+      views[i]!.setWounds(impacts.bodies.marksOf(i));
       views[i]!.update(pose, weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size, pose.pieces);
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;

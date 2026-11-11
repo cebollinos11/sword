@@ -8,6 +8,8 @@ import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { bladeSteel } from './steel';
 import { MAX_MARKS, type BladeMark } from './bladeBlood';
+import { bodyBloodShader, bodyBloodUniforms, restFrames, setBodyBlood, type BodyMark } from './bodyBlood';
+import { boneFrames, type BodyBone, type BoneFrame } from './bodyRig';
 import { setDitherFade } from './dither';
 
 export const FIGHTER_COLOURS = [0xf1c40f, 0x2e86c1];
@@ -79,6 +81,11 @@ export class FighterView {
   private bloodMaterial: THREE.MeshLambertMaterial | undefined;
   private readonly shapes: { readonly box: THREE.BufferGeometry; readonly point: THREE.BufferGeometry; readonly cone: THREE.BufferGeometry };
   private blood: readonly BladeMark[] = [];
+  /** Blood on the body (`setWounds`), drawn by the body's own materials, which all read `woundUniforms`. */
+  private wounds: readonly BodyMark[] = [];
+  private readonly woundUniforms = bodyBloodUniforms();
+  /** The frames of the pose the model is built in: where its shader sees its vertices. */
+  private readonly rest: Record<BodyBone, BoneFrame>;
   /** The geometries and materials the primitives share (made in the constructor). */
   private readonly owned: { dispose(): void }[] = [];
   private disposed = false;
@@ -99,6 +106,8 @@ export class FighterView {
     this.shapes = { box, point, cone };
     this.primitive = { material: body, cylinder };
     this.owned.push(body, steel, dark, wood, cylinder, sphere, box, cone, point);
+    bodyBloodShader(body, this.woundUniforms);
+    this.rest = restFrames(tuning.skeleton);
 
     for (const [a, b] of BONES) {
       const mesh = new THREE.Mesh(cylinder, body);
@@ -126,6 +135,9 @@ export class FighterView {
         (model) => {
           if (this.disposed) return;
           this.model = model;
+          model.root.traverse((o) => {
+            if (o instanceof THREE.SkinnedMesh) bodyBloodShader(o.material as THREE.Material, this.woundUniforms);
+          });
           model.root.visible = this.bodyOn;
           this.skeleton.visible = false;
           this.root.add(model.root);
@@ -174,6 +186,11 @@ export class FighterView {
   /** The blood on its Weapon (`BladeBlood`), drawn from the next `update` on: none, a clean Weapon. */
   setBlood(marks: readonly BladeMark[]): void {
     this.blood = marks;
+  }
+
+  /** The blood on its body (`BodyBlood`), drawn from the next `update` on: none, a clean body. */
+  setWounds(marks: readonly BodyMark[]): void {
+    this.wounds = marks;
   }
 
   /** Draw the body (Skeleton or model) at all; off leaves only the Weapon, e.g. for a picture of it. */
@@ -237,6 +254,12 @@ export class FighterView {
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
     else placeSword(this.sword, pose.blade, weapon);
     this.placeBlood(pose.blade, weapon);
+    // The shader bloodies a model's skin where it stands before its bones move it (the rest pose; in pieces, the pose it was
+    // cut in), and the bare Skeleton's primitives where they are drawn.
+    if (this.wounds.length === 0) this.woundUniforms.uBloodCount.value = 0;
+    else if (!this.model) setBodyBlood(this.woundUniforms, this.wounds, boneFrames(p), size);
+    else if (this.inPieces) setBodyBlood(this.woundUniforms, this.wounds, boneFrames(pieces!.fellIn.joints), size);
+    else setBodyBlood(this.woundUniforms, this.wounds, this.rest);
   }
 
   /** The model cut into `pieces`: the one already made, if it is of the same cut (the same bones, cut at the same places of the same pose). */

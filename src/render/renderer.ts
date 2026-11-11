@@ -220,6 +220,7 @@ export class Renderer {
       slot.view.root.visible = true;
       slot.view.setFade(fade);
       slot.view.setBlood(this.impacts.blades.marksOf(i));
+      slot.view.setWounds(this.impacts.bodies.marksOf(i));
       slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size, pose.pieces);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
