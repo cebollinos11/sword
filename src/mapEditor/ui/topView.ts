@@ -18,24 +18,22 @@
  *
  * Stage 6: in mirror mode the field's centre is marked (the half turn's), and the twin of the selected Brush, Objective or prop is outlined
  * dashed in cyan, so the part an edit also changes is in sight.
+ *
+ * The quick edits: a right click (a right press let go where it was pressed; a right drag still pans) asks `onContext` for the menu of what
+ * lies there; Space held makes a left drag pan; in the select tool the Brush or marker a click would take is outlined under the pointer and
+ * the cursor says what a drag does; a click again on the selected Brush, without moving, takes the next one under it (`brushesAt`); an
+ * Alt-drag on a Brush moves a copy of it; a double click on a Brush drawn faded edits its level.
  */
 import type { LevelsTuning, ObjectivesTuning } from '../../tuning';
 import type { ClearanceNode, MapChecks } from '../checks';
-import { boundsOf, brushAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, propsOf, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
+import { boundsOf, brushesAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, propsOf, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
 import type { Brush, BrushKind, GroundPoint, MapSource, PropKind, Rect } from '../source';
+import { PROP_MARKS } from './icons';
 import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
 
 /** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective or a prop. */
 export type Tool = 'select' | BrushKind | 'objective' | 'prop';
 
-/** How a prop is marked in the top view: its colour and a letter. */
-const PROP_MARKS: Readonly<Record<PropKind, { readonly colour: string; readonly letter: string }>> = {
-  tree: { colour: '#3f9a3a', letter: 'T' },
-  rubble: { colour: '#9a948a', letter: 'R' },
-  banner: { colour: '#d04a4a', letter: 'B' },
-  crate: { colour: '#b0844c', letter: 'C' },
-  torch: { colour: '#ff9a30', letter: 'F' },
-};
 /** A prop's drawn size (px). */
 const PROP_PX = 6;
 
@@ -64,7 +62,15 @@ interface Gesture {
   readonly handle?: Handle;
   readonly marker?: Marker;
   readonly view?: { cx: number; cz: number };
+  /** The pointer button that began it. */
+  readonly button?: number;
+  /** A move: whether its Brush was already selected when it was pressed (a still click then steps down the Brushes under it). */
+  readonly reselect?: boolean;
 }
+
+/** How far (px) a press may wander and still be a click (a right click opens the menu; a click again steps down the Brushes). */
+const CLICK_PX = 4;
+const HANDLE_CURSORS: Readonly<Record<Handle, string>> = { n: 'ns-resize', s: 'ns-resize', e: 'ew-resize', w: 'ew-resize', ne: 'nesw-resize', sw: 'nesw-resize', nw: 'nwse-resize', se: 'nwse-resize', a: 'move', b: 'move' };
 
 export class TopView {
   readonly canvas = document.createElement('canvas');
@@ -90,6 +96,12 @@ export class TopView {
   shown = true;
   /** How much of the canvas's right side (px) the panel covers, which framing leaves clear (none when the 3D view sits beside it, in split). */
   panelPx = PANEL_PX;
+  /** Held (Space): a left drag pans whatever the tool. */
+  panHeld = false;
+  /** A right click on the view, with the ground point under it (not snapped) and the screen point to open the menu at. */
+  onContext: ((at: GroundPoint, clientX: number, clientY: number) => void) | null = null;
+  /** The Brush or marker a click would take, outlined under the pointer (the select tool). */
+  private hovered: { readonly brush?: string; readonly marker?: Marker } | null = null;
   /** Each Walk Surface's lowest and highest point, and their order from the lowest top, for the checks they were worked out for. */
   private spans: { readonly of: MapChecks; readonly span: readonly { lo: number; hi: number }[]; readonly order: readonly number[] } | null = null;
 
@@ -113,8 +125,11 @@ export class TopView {
     this.canvas.addEventListener('pointercancel', () => this.cancel());
     this.canvas.addEventListener('pointerleave', () => {
       this.pointer = null;
+      this.hovered = null;
       this.hover(null);
+      this.redraw();
     });
+    this.canvas.addEventListener('dblclick', (e) => this.double(e));
     this.canvas.addEventListener('wheel', (e) => this.wheel(e), { passive: false });
     this.frame(this.session.source);
   }
@@ -138,6 +153,24 @@ export class TopView {
     const scale = Math.min(200, Math.min(w, open) / span);
     this.view = { cx: (rect.x0 + rect.x1) / 2 - this.panelPx / 2 / scale, cz: (rect.z0 + rect.z1) / 2 - (h / 2 - open / 2) / scale, scale };
     this.redraw();
+  }
+
+  /** The ground point under the pointer (not snapped), or null when it is off the view. */
+  get pointerAt(): GroundPoint | null {
+    return this.pointer;
+  }
+
+  /** The Brushes a click at (x, z) picks from, top first: those at the level being edited, else (all levels shown) any level's. */
+  pickStack(x: number, z: number): Brush[] {
+    const s = this.session;
+    const here = brushesAt(s.source, x, z, s.level, this.reach());
+    if (here.length > 0 || !s.showAll) return here;
+    return brushesAt(s.source, x, z, null, this.reach());
+  }
+
+  /** The marker a click at (x, z) takes, if one is there. */
+  markerUnder(x: number, z: number): Marker | null {
+    return markerAt(this.session.source, x, z, MARKER_PX / this.view.scale, this.reach());
   }
 
   /** Draw again at the next frame. */
@@ -203,8 +236,8 @@ export class TopView {
     const p = this.toGround(e.clientX, e.clientY);
     const screen = { x: e.clientX, y: e.clientY };
     const pan: Gesture = { kind: 'pan', start: p, screen, view: { cx: this.view.cx, cz: this.view.cz } };
-    if (e.button !== 0) {
-      this.gesture = pan;
+    if (e.button !== 0 || this.panHeld) {
+      this.gesture = { ...pan, button: e.button };
       return;
     }
     const tool = this.tool();
@@ -247,7 +280,7 @@ export class TopView {
       return;
     }
     // The markers are drawn over the Brushes, so they are picked first.
-    const marker = markerAt(s.source, p.x, p.z, MARKER_PX / this.view.scale, this.reach());
+    const marker = this.markerUnder(p.x, p.z);
     if (marker) {
       s.selectMarker(marker);
       s.beginDrag();
@@ -256,7 +289,9 @@ export class TopView {
       this.redraw();
       return;
     }
-    const picked = brushAt(s.source, p.x, p.z, s.level, this.reach()) ?? (s.showAll ? brushAt(s.source, p.x, p.z, null, this.reach()) : null);
+    // The selected Brush keeps the press when it is under it (one picked from under another stays the one dragged).
+    const stack = this.pickStack(p.x, p.z);
+    const picked = stack.find((b) => b.id === s.selected) ?? stack[0] ?? null;
     if (!picked) {
       s.select(null);
       s.selectMarker(null);
@@ -265,16 +300,27 @@ export class TopView {
       this.redraw();
       return;
     }
+    const reselect = s.selected === picked.id;
     s.select(picked.id);
     // A Brush that is its own twin stays centred (Stage 6): a drag on it pans, as one on the ground did before.
-    if (picked.twin === picked.id) {
-      this.gesture = pan;
+    if (picked.twin === picked.id && !e.altKey) {
+      this.gesture = { ...pan, button: 0, id: picked.id, reselect };
       this.changed();
       this.redraw();
       return;
     }
+    // Alt: drag a copy of it away, leaving it where it is (the copy is one undo step, the drag another).
+    let id = picked.id;
+    if (e.altKey) {
+      try {
+        id = s.duplicateBrush(picked.id, true).id;
+      } catch (err) {
+        this.changed(err instanceof Error ? err.message : String(err));
+        return;
+      }
+    }
     s.beginDrag();
-    this.gesture = { kind: 'move', start: p, screen, id: picked.id };
+    this.gesture = { kind: 'move', start: p, screen, id, reselect: reselect && !e.altKey };
     this.changed();
     this.redraw();
   }
@@ -285,6 +331,7 @@ export class TopView {
     this.hover({ x: this.session.snap(p.x), z: this.session.snap(p.z) });
     const g = this.gesture;
     if (!g) {
+      this.updateHover(p, e.altKey);
       this.redraw();
       return;
     }
@@ -305,8 +352,17 @@ export class TopView {
     const g = this.gesture;
     this.gesture = null;
     if (!g) return;
-    if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'marker') {
-      this.session.endDrag();
+    const still = Math.hypot(e.clientX - g.screen.x, e.clientY - g.screen.y) <= CLICK_PX;
+    if (g.kind === 'pan' && g.button === 2 && still) {
+      this.onContext?.(this.toGround(e.clientX, e.clientY), e.clientX, e.clientY);
+    } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'marker' || (g.kind === 'pan' && g.reselect !== undefined)) {
+      if (g.kind !== 'pan') this.session.endDrag();
+      // A click again on the selected Brush, without moving it: the next Brush under the pointer.
+      if (still && g.reselect && g.id !== undefined) {
+        const stack = this.pickStack(g.start.x, g.start.z);
+        const k = stack.findIndex((b) => b.id === g.id);
+        if (stack.length > 1 && k >= 0) this.session.select(stack[(k + 1) % stack.length]!.id);
+      }
       this.changed();
     } else if (g.kind === 'draw') {
       const p = this.toGround(e.clientX, e.clientY);
@@ -325,6 +381,55 @@ export class TopView {
       this.changed();
     }
     this.redraw();
+  }
+
+  /** A double click on a Brush shown faded (another level's): select it and edit its level. */
+  private double(e: MouseEvent): void {
+    if (this.tool() !== 'select') return;
+    const p = this.toGround(e.clientX, e.clientY);
+    const s = this.session;
+    // Only another level's Brushes are under it (the level being edited's are picked first): the top one of them.
+    const b = this.pickStack(p.x, p.z)[0];
+    if (!b) return;
+    const levels = brushLevels(b, s.source.levels);
+    if (levels.includes(s.level)) return;
+    s.select(b.id);
+    s.level = levels[0]!;
+    this.changed();
+    this.redraw();
+  }
+
+  /** The select tool's hover: what a press would take, outlined, and the cursor for what a drag does. */
+  private updateHover(p: GroundPoint, alt: boolean): void {
+    const tool = this.tool();
+    if (this.panHeld) {
+      this.canvas.style.cursor = 'grab';
+      this.hovered = null;
+      return;
+    }
+    if (tool !== 'select') {
+      this.canvas.style.cursor = 'crosshair';
+      this.hovered = null;
+      return;
+    }
+    const s = this.session;
+    const sel = s.selection;
+    const handle = sel ? handleAt(sel, p.x, p.z, this.reach()) : null;
+    if (sel && handle) {
+      this.canvas.style.cursor = HANDLE_CURSORS[handle];
+      this.hovered = null;
+      return;
+    }
+    const marker = this.markerUnder(p.x, p.z);
+    if (marker) {
+      this.canvas.style.cursor = marker.kind === 'front' ? 'ns-resize' : 'move';
+      this.hovered = { marker };
+      return;
+    }
+    const stack = this.pickStack(p.x, p.z);
+    const b = stack.find((x) => x.id === s.selected) ?? stack[0];
+    this.hovered = b ? { brush: b.id } : null;
+    this.canvas.style.cursor = !b ? 'grab' : alt ? 'copy' : b.twin === b.id ? 'pointer' : 'move';
   }
 
   private wheel(e: WheelEvent): void {
@@ -358,6 +463,15 @@ export class TopView {
     this.drawMarkers(source);
 
     const sel = session.selection;
+    const hb = this.hovered?.brush;
+    if (hb !== undefined && hb !== sel?.id && !this.gesture) {
+      const b = source.brushes.find((x) => x.id === hb);
+      if (b) {
+        ctx.globalAlpha = 0.8;
+        this.outline(b, '#ffffff', 1.5);
+        ctx.globalAlpha = 1;
+      }
+    }
     for (const id of this.flagged) {
       const b = source.brushes.find((x) => x.id === id);
       if (b) this.outline(b, '#ff3b3b', 3);

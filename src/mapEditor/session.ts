@@ -128,17 +128,30 @@ function segmentDistance(a: GroundPoint, b: GroundPoint, x: number, z: number): 
  * `reach` (m), among those drawn at `level` (every Brush when null). Segments are picked before rectangles, as they are drawn over them.
  */
 export function brushAt(source: MapSource, x: number, z: number, level: number | null, reach: number): Brush | null {
-  const shown = source.brushes.filter((b) => level === null || brushLevels(b, source.levels).includes(level));
-  for (let k = shown.length - 1; k >= 0; k--) {
-    const b = shown[k]!;
-    if (isSegment(b) && segmentDistance(b.a, b.b, x, z) <= reach) return b;
-  }
-  for (let k = shown.length - 1; k >= 0; k--) {
-    const b = shown[k]!;
-    if (!isSegment(b) && x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1) return b;
-  }
-  return null;
+  return brushesAt(source, x, z, level, reach)[0] ?? null;
 }
+
+/**
+ * Every Brush the point (x, z) would pick, in the order `brushAt` prefers them: segments within `reach` (m) from the one painted last, then
+ * rectangles holding it from the one painted last. A click again on the same spot steps down this stack (the top view), and the context
+ * menu lists it, so a Brush under another is in reach.
+ */
+export function brushesAt(source: MapSource, x: number, z: number, level: number | null, reach: number): Brush[] {
+  const shown = source.brushes.filter((b) => level === null || brushLevels(b, source.levels).includes(level));
+  const out: Brush[] = [];
+  for (let k = shown.length - 1; k >= 0; k--) {
+    const b = shown[k]!;
+    if (isSegment(b) && segmentDistance(b.a, b.b, x, z) <= reach) out.push(b);
+  }
+  for (let k = shown.length - 1; k >= 0; k--) {
+    const b = shown[k]!;
+    if (!isSegment(b) && x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1) out.push(b);
+  }
+  return out;
+}
+
+/** A side turned a quarter clockwise as the top view draws the field (north up, east on the left): north to west, west to south… */
+export const TURN_SIDE: Readonly<Record<Side, Side>> = { n: 'w', w: 's', s: 'e', e: 'n' };
 
 /** The handle of `b` within `reach` (m) of (x, z), the nearest when several are. */
 export function handleAt(b: Brush, x: number, z: number, reach: number): Handle | null {
@@ -573,14 +586,17 @@ export class MapEditorSession {
     if (this.selected === id) this.selected = null;
   }
 
-  /** A copy of the Brush `id`, a coarse cell east (west at the field's east edge; in place where neither fits), painted right after it and selected. */
-  duplicateBrush(id: string): Brush {
+  /**
+   * A copy of the Brush `id`, a coarse cell east (west at the field's east edge; in place where neither fits), painted right after it and
+   * selected. `inPlace`: right over it (the top view's Alt-drag, which then moves the copy).
+   */
+  duplicateBrush(id: string, inPlace = false): Brush {
     const k = this.indexOf(id);
     const b = this.current.brushes[k]!;
     const cell = this.current.grid.cell;
     const r = boundsOf(b);
     const half = this.current.size / 2;
-    const dx = r.x1 + cell <= half ? cell : r.x0 - cell >= -half ? -cell : 0;
+    const dx = inPlace ? 0 : r.x1 + cell <= half ? cell : r.x0 - cell >= -half ? -cell : 0;
     const copy = linkedTo({ ...shifted(b, dx, 0), id: this.freshId(b.kind) } as Brush, undefined);
     // A twin's copy gets a twin of its own (a centred Brush's copy too, once it is off the centre), painted right after the pair.
     const t = twinOf(this.current.brushes, k);
@@ -597,6 +613,55 @@ export class MapEditorSession {
     if (brushesTwin(b, b)) return [linkedTo(b, b.id)];
     const id = this.freshId(b.kind, [...this.current.brushes, b]);
     return [linkedTo(b, id), linkedTo({ ...turnBrush(b), id }, b.id)];
+  }
+
+  /**
+   * Paste a copy of `brush` (the editor's clipboard: a Brush copied from this map, perhaps since changed or taken away) centred on `at`,
+   * snapped to the grid and kept inside the field, with its own heights, a fresh id and no twin (in mirror mode it gets one of its own, as a
+   * Brush drawn does); painted last and selected. Throws TuningDataError, changing nothing, where the parser refuses it (a level gone).
+   */
+  pasteBrush(brush: Brush, at: GroundPoint): Brush {
+    const r = boundsOf(brush);
+    const half = this.current.size / 2;
+    const { step } = this.current.grid;
+    const along = (to: number, lo: number, hi: number) => Math.max(-half - lo, Math.min(half - hi, Math.round((to - (lo + hi) / 2) / step) * step));
+    const copy = linkedTo({ ...shifted(brush, along(at.x, r.x0, r.x1), along(at.z, r.z0, r.z1)), id: this.freshId(brush.kind) } as Brush, undefined);
+    this.apply({ ...this.current, brushes: [...this.current.brushes, ...this.withNewTwin(copy, this.current.brushes)] });
+    this.select(copy.id);
+    return copy;
+  }
+
+  /**
+   * Turn the Brush `id` a quarter clockwise as the top view draws it, about its middle: a rectangle's sides swap (snapped, kept inside the
+   * field), a Ramp rises toward the next side round with its rails, an Enclosure's doorways go round with it, a segment turns about its
+   * midpoint. Its twin turns with it. Throws TuningDataError, changing nothing, where the parser refuses the result.
+   */
+  rotateBrush(id: string): void {
+    const b = this.current.brushes[this.indexOf(id)]!;
+    const half = this.current.size / 2;
+    let next: Brush;
+    if (isSegment(b)) {
+      const cx = (b.a.x + b.b.x) / 2;
+      const cz = (b.a.z + b.b.z) / 2;
+      // A quarter clockwise on screen (east drawn on the left): north turns to west, (dx, dz) to (-dz, dx).
+      const turn = (p: GroundPoint) => ({ x: this.snap(cx - (p.z - cz)), z: this.snap(cz + (p.x - cx)) });
+      const a = turn(b.a);
+      const e = turn(b.b);
+      if (a.x === e.x && a.z === e.z) throw new TuningDataError(`${id} is too short to turn on this grid`);
+      next = { ...b, a, b: e };
+    } else {
+      const { x0, z0, x1, z1 } = b.rect;
+      const w = z1 - z0;
+      const h = x1 - x0;
+      const fit = (lo: number, len: number) => Math.max(-half, Math.min(half - len, lo));
+      const nx0 = fit(this.snap((x0 + x1) / 2 - w / 2), w);
+      const nz0 = fit(this.snap((z0 + z1) / 2 - h / 2), h);
+      const rect = { x0: nx0, z0: nz0, x1: nx0 + w, z1: nz0 + h };
+      if (b.kind === 'ramp') next = { ...b, rect, up: TURN_SIDE[b.up], rails: b.rails.map((s) => TURN_SIDE[s]) };
+      else if (b.kind === 'enclosure') next = { ...b, rect, doors: Object.fromEntries(Object.entries(b.doors).map(([s, v]) => [TURN_SIDE[s as Side], v])) };
+      else next = { ...b, rect };
+    }
+    this.replaceBrush(id, next);
   }
 
   /** Move the Brush `id` `delta` places in paint order (later paints over earlier); clamped to the list. */
