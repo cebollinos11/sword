@@ -712,7 +712,7 @@ function isSighting(v: unknown): boolean {
   );
 }
 
-const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace'];
+const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back'];
 const MODES = ['Neutral', 'Pressure', 'Disengage'];
 
 /** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its plans. */
@@ -731,12 +731,13 @@ function isAiMemory(v: unknown): boolean {
       isInt(d.pressAt) &&
       (d.reads === undefined || isBool(d.reads)) &&
       (d.holdBreak === undefined || holdBreak(d.holdBreak)) &&
-      (d.raiseAt === undefined || isInt(d.raiseAt)));
+      (d.raiseAt === undefined || isInt(d.raiseAt)) &&
+      (d.spinRead === undefined || isBool(d.spinRead)));
   const feint = v.feintPlan === null || (isObject(v.feintPlan) && isDirection(v.feintPlan.from) && isDirection(v.feintPlan.into) && isInt(v.feintPlan.at));
   const a = v.attackPlan;
   const attack =
     a === null ||
-    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team) && (a.double === undefined || isBool(a.double)));
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team) && (a.double === undefined || isBool(a.double)) && (a.spin === undefined ? a.spinUntil === undefined : isInt(a.spin) && a.spin > 0 && isInt(a.spinUntil)));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));

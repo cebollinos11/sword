@@ -387,6 +387,43 @@ describe('Peer message validation: the Stage 3 AI memory (docs/plans/ai-behaviou
   });
 });
 
+describe('Peer message validation: the Flail AI memory (docs/plans/flail.md, Stage 4)', () => {
+  /** Fighter 0 (`weapons[0]`) holds an Overhead Wind-up from Tick 10 and Fighter 1, an Expert AI (`weapons[1]`), watches it from 1.9 m. */
+  function memoryFacing(weapons: [string, string], until: (memory: Record<string, any>) => boolean): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Expert');
+    let m = createMatch(tuning, { bestOf: 1, seed: 1, distance: 1.9, weapons });
+    for (let t = 0; t < 400; t++) {
+      m = stepMatch(m, [{ ...IDLE_INTENT, attack: t >= 10, direction: 'Overhead' }, ai.intent(m.duel, 1)], tuning);
+      if (until(ai.save!() as Record<string, any>)) break;
+    }
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it("accepts an AI's memory as it steps back from a spin it reads (a Back plan), and refuses a Defence kind it does not know", () => {
+    const good = memoryFacing(['Flail', 'Arming Sword'], (mem) => mem.defencePlan?.kind === 'Back');
+    expect(good.defencePlan).toEqual(expect.objectContaining({ kind: 'Back', spinRead: true }));
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const plan = good.defencePlan as Record<string, unknown>;
+    for (const bad of [{ ...good, defencePlan: { ...plan, kind: 'Flee' } }, { ...good, defencePlan: { ...plan, spinRead: 'yes' } }]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad.defencePlan)).toBeNull();
+    }
+  });
+
+  it("accepts a spinning Flail AI's memory (its aim and deadline), and refuses malformed ones", () => {
+    const ai = createAiController(tuning, 'Expert');
+    let m = createMatch(tuning, { bestOf: 1, seed: 1, distance: 2.8, weapons: ['Arming Sword', 'Flail'] });
+    for (let t = 0; t < 200 && (ai.save!() as { attackPlan: { spin?: number } | null }).attackPlan?.spin === undefined; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    const good = JSON.parse(JSON.stringify(ai.save!())) as Record<string, unknown>;
+    const plan = good.attackPlan as Record<string, unknown>;
+    expect(plan).toEqual(expect.objectContaining({ spin: expect.any(Number), spinUntil: expect.any(Number) }));
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const { spin: _spin, ...noSpin } = plan;
+    for (const bad of [{ ...plan, spin: 'full' }, { ...plan, spin: 1.5 }, { ...plan, spin: 0 }, { ...plan, spin: -5 }, { ...plan, spinUntil: null }, noSpin]) {
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, attackPlan: bad }])), JSON.stringify(bad)).toBeNull();
+    }
+  });
+});
+
 describe('Peer message validation: a Gauntlet Run (docs/plans/gauntlet.md, Stage 4)', () => {
   const RUN = 'gen:greybox:4242';
   const lineup: Lineup = [

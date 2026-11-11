@@ -2,7 +2,7 @@
 
 > Built one Stage per session with `docs/plans/flail-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask. File and function names below were read from the code when the plan was written; numbers are starting values to tune.
 
-Status: Stages 1 to 4 built (the Flail is a playable Weapon with no Thrust, its Spin-up scales its Blade Speed in the Simulation, it is drawn with a loose chain that whirls with the charge, with its own sounds, and the newer AI tiers spin it up and read a spin); Stage 5 (docs and a full verification pass) next.
+Status: built; awaiting playtest.
 
 ## Progress
 
@@ -10,7 +10,7 @@ Status: Stages 1 to 4 built (the Flail is a playable Weapon with no Thrust, its 
 - [x] Stage 2: the Spin-up in the Simulation (section 3), its ADR, the tuning panel
 - [x] Stage 3: the loose chain, the whirl and the sounds (sections 4 and 5)
 - [x] Stage 4: the AI spins up and reads a spin (section 6)
-- [ ] Stage 5: docs and a full verification pass (sections 7 and Verification)
+- [x] Stage 5: docs and a full verification pass (sections 7 and Verification)
 
 ## Context
 
@@ -33,13 +33,13 @@ Decisions taken with the user:
 
 ## 1. Tuning Data: the Weapon, its look, its Motions
 
-- `data/weapons/flail.json`, modelled on `halberd.json`. Starting values: `grip` twoHanded, `length` 1.5 (sword hand to the ball's centre), `gripLength` 0.6, `offHandGrip.along` 0.45, `head` 0.22 (the ball), `shaftDamage` 0.15 (shaft and chain), `damage` 45, `speed` 20, `cuts` true, `blockImpact` { dealt 1.6, taken 1.0 }, `heavyBlow` { speed 1.25, knockdownSlide 1.2, knockdownSlideTicks 26, blockSlide 0.4, blockSlideTicks 7 }, `tempo` { windUp 1.1, release 1, recovery 1.2 }, `sheathe.slot` back, `look` flail. The roster loads by glob (`src/tuning/index.ts`, `weaponFiles`), so the file alone registers it; the Arming Sword stays first and so the default.
+- `data/weapons/flail.json`, modelled on `halberd.json`. Starting values: `grip` twoHanded, `length` 1.5 (sword hand to the ball's centre), `gripLength` 0.6, `offHandGrip.along` 0.45, `head` 0.22 (the ball), `shaftDamage` 0.15 (shaft and chain), `damage` 45, `speed` 20 _(superseded: 45, see Stage 1 result)_, `cuts` true, `blockImpact` { dealt 1.6, taken 1.0 }, `heavyBlow` { speed 1.25, knockdownSlide 1.2, knockdownSlideTicks 26, blockSlide 0.4, blockSlideTicks 7 }, `tempo` { windUp 1.1, release 1, recovery 1.2 }, `sheathe.slot` back, `look` flail. The roster loads by glob (`src/tuning/index.ts`, `weaponFiles`), so the file alone registers it; the Arming Sword stays first and so the default.
 - `src/tuning/weapon.ts`:
   - `WEAPON_LOOKS` gains `'flail'`.
   - New optional field `attacks`: the Directions the Weapon attacks in (default all four; the Flail: Overhead, Left, Right; must include Overhead). Parse, validate and `serializeWeapon` it; omit it from the file when it is all four, so the other Weapon files do not change.
   - New helper `attackDirection(weapon, direction)`: `direction` if the Weapon attacks in it, else Overhead.
   - New field `chain` (metres of chain between the shaft's end and the ball, render-only, 0 for other looks) if the look needs it.
-- Motion overrides in `data/motions/flail/`, generated like the Halberd's: add the Flail to `tools/two-handed-motions/choreo.mjs` and run `npm run motions:two-handed` (do not hand-edit generated files). At least `overhead`, `left`, `right`, `blockoverhead`, `drawback`, `sheatheback`, and an `idle` if the default guard does not suit the long shaft. Swings are wide and round; the held Wind-up poses hold the shaft high and clear of the body so the whirl (Stage 3) has room. Every override keeps `windUpEnd` and `releaseEnd` (`checkMotionOverride`) and the guard links (`checkIdleLinks`). No `thrust` override: the default is never played.
+- _(Superseded in part: the Flail copies the Halberd's Overhead, Left, BlockOverhead, DrawBack and SheatheBack, its Right is the default and only its Idle is generated; see Stage 1 result, Motions.)_ Motion overrides in `data/motions/flail/`, generated like the Halberd's: add the Flail to `tools/two-handed-motions/choreo.mjs` and run `npm run motions:two-handed` (do not hand-edit generated files). At least `overhead`, `left`, `right`, `blockoverhead`, `drawback`, `sheatheback`, and an `idle` if the default guard does not suit the long shaft. Swings are wide and round; the held Wind-up poses hold the shaft high and clear of the body so the whirl (Stage 3) has room. Every override keeps `windUpEnd` and `releaseEnd` (`checkMotionOverride`) and the guard links (`checkIdleLinks`). No `thrust` override: the default is never played.
 - `src/play/icons.ts`: a Flail icon beside `Halberd` and `'Sledge Hammer'`.
 
 ## 2. No Thrust: the fallback, in one place
@@ -48,9 +48,9 @@ A naive mapping in `startAttack` alone would break Feints: `feint()` compares `i
 
 - `src/sim/actions/attack.ts`: `startAttack`, the Whiff Chain's queued Direction (`whiffChain: intent.direction`, `startWhiffChain`), the Chain's Direction in `recover`.
 - `src/sim/actions/feint.ts`: compare against the mapped Direction (Thrust held during an Overhead Wind-up is no Feint; the emitted `Feint` event carries the mapped Direction).
-- `src/sim/chamber.ts`: a Chamber is judged on the Direction the Attack really has. Consequence, accepted: a Flail cannot Chamber a Thrust (it has no Thrust to answer with); it must Block it.
+- `src/sim/chamber.ts` _(needed no change: it already judges the Attack's own Direction; see Stage 1 result)_: a Chamber is judged on the Direction the Attack really has. Consequence, accepted: a Flail cannot Chamber a Thrust (it has no Thrust to answer with); it must Block it.
 - Blocks are untouched: a Block reads `intent.direction` as before.
-- `src/controllers/ai.ts` (`chooseDirection`, the `THRUST_REACH` sums at the four `reach(...) + (direction === 'Thrust' ? ...)` sites, `BESIDE`): an AI with a Flail never picks Thrust and never counts Thrust reach for itself or for a Flail it sees. Only when a Flail is involved: with the other Weapons every choice and every random draw stays exactly as it is (the AI golden test, `src/controllers/aiGolden.test.ts`, must pass unchanged).
+- `src/controllers/ai.ts` _(only the hop's threat reach needed the change; the other three `THRUST_REACH` sites read the Attack's own Direction; see Stage 1 result)_ (`chooseDirection`, the `THRUST_REACH` sums at the four `reach(...) + (direction === 'Thrust' ? ...)` sites, `BESIDE`): an AI with a Flail never picks Thrust and never counts Thrust reach for itself or for a Flail it sees. Only when a Flail is involved: with the other Weapons every choice and every random draw stays exactly as it is (the AI golden test, `src/controllers/aiGolden.test.ts`, must pass unchanged).
 - Controllers and the Wheel Attack (`src/controllers/local.ts`) need no change: wheel down asks for a Thrust and gets an Overhead.
 
 Tests (new `src/sim/flail.test.ts`, or beside `directions.test.ts` / `feint.test.ts` / `chamber.test.ts`): a Thrust press with a Flail starts an Overhead; holding Thrust through the Wind-up does not Feint; Overhead to Left still Feints; a Chain and a Whiff Chain held in Thrust start an Overhead; a Flail still Blocks a Thrust in the Thrust Direction; every other Weapon still Thrusts.
@@ -77,14 +77,14 @@ Tests (test-first, in `flail.test.ts`): the charge grows per Wind-up Tick and ca
 
 Render-only and a pure function of what the Simulation holds (the Fighter's pose this Tick and last, its Action, `charge`, the Motion playhead): no `Math.random`, no wall clock, no state kept between frames that a Rollback, the Editor's scrubbing or the Final Blow Shot would leave wrong.
 
-- New pure module `src/render/flailChain.ts` (unit-tested, no DOM): `flailBall(blade, action, motionTick, timings, weapon, alpha) → { ball: Vec3, links: Vec3[] }`:
+- New pure module `src/render/flailChain.ts` (unit-tested, no DOM): `flailBall(blade, action, motionTick, timings, weapon, alpha) → { ball: Vec3, links: Vec3[] }` _(superseded: `flailBall(input)` and `flailChainOf(from, to, i, alpha, tuning, drawnPose?)`; the whirl's angle is `whirlTurns` of the state Tick and the charge; see Stage 3 result)_:
   - **Wind-up**: the ball circles the shaft's end on a cone. Its angle is a pure function of `charge`: the sum of a turn rate that rises from slow to fast with the charge (closed form, so scrubbing works), and keeps turning at the top rate while held at the cap (use the Motion's held Ticks or the state Tick, whichever the code makes available without new state; if neither is, add the smallest thing to the Simulation and note it).
   - **Release**: over the first part of the phase the ball blends from the whirl onto the simulated tip, and is exactly on it from then to `releaseEnd`, so the ball that is seen is the ball that hits.
   - **Recovery, Idle, Block, anything else**: the ball hangs from the shaft's end, straight down under gravity, blended in from where the swing left it; kept out of the floor and, as far as cheap, the Fighter's own body.
   - The swing's turn sense matches the Release's Direction (a Left spins the way a Left swings), so the whirl is also the read of the Direction.
 - `src/render/fighterView.ts`: the Stage 1 `placeFlail` takes the chain from `flailBall`; links are instanced or a handful of small meshes. A lodged Weapon (`AttackAction.lodge`) holds the ball in the victim.
-- `src/render/swingTrail.ts`: the trail follows the drawn ball. `src/render/colliderView.ts` keeps showing the true rigid Weapon (that is what it is for). `src/render/bladeBlood.ts`: blood on the ball if the look allows it cheaply.
-- `src/render/sheathed.ts`: on the back, chain wrapped or hanging, static.
+- `src/render/swingTrail.ts`: the trail follows the drawn ball. `src/render/colliderView.ts` keeps showing the true rigid Weapon (that is what it is for) _(superseded: it draws Arena colliders only; the sandbox's Blade Sweep and Hit Zone overlays show the rigid Weapon; see Stage 3 result)_. `src/render/bladeBlood.ts`: blood on the ball if the look allows it cheaply.
+- `src/render/sheathed.ts`: on the back, chain wrapped or hanging, static _(built as `sheathedFlail`: the ball hangs down the outside of the shaft from its end; see Stage 3 result)_.
 - Dismemberment (`src/render/dismember.ts`) reads the Death's recorded cut, which comes from the simulated blade: nothing to change, but check a Flail kill cuts sensibly.
 
 ## 5. Audio
@@ -98,16 +98,16 @@ Render-only and a pure function of what the Simulation holds (the Fighter's pose
 
 `src/controllers/ai.ts`. Every new behaviour is an optional `AiDifficulty` knob in `data/ai.json`, off by default in `skillOf`, drawing randomness only through `chance()` and **only when a Flail is in play**, so Easy, Normal and Hard and every existing golden hash stay exactly as they are. New memory goes in `AiMemory` / `save()` / `load()` as small plain data. The AI uses only what it sees, Reaction Time ago (a Sighting's Action carries the `charge`).
 
-- **Spinning up** (attacker with a Flail): `spinHold`, 0..1, how much of the full charge it aims for when it has room: its target out of its reach, Staggered, knocked down, Sheathed, or busy with an ally. It lets go early when an enemy Wind-up it sees would Release inside its own remaining spin, or when the target steps into reach and is open. The newer tiers (Beginner, Skilled, Expert) get rising values; Easy, Normal and Hard get none (they swing it like any Weapon).
+- **Spinning up** (attacker with a Flail): `spinHold`, 0..1, how much of the full charge it aims for when it has room: its target out of its reach (_the ball's reach, per Direction, `SPIN_BALL`; see Stage 4 result_), Staggered, knocked down, Sheathed, or busy with an ally. It lets go early when an enemy Wind-up it sees would Release inside its own remaining spin, or when the target steps into reach and is open. The newer tiers (Beginner, Skilled, Expert) get rising values; Easy, Normal and Hard get none (they swing it like any Weapon).
 - **Reading a spin** (defender facing a Flail): `spinRespect`, 0..1: against a charge above a threshold it prefers to step out of reach, Chamber, or hit first if its own Wind-up Releases before the spin could land, rather than stand and Block a Heavy Blow (which pushes it back). Same tiers.
-- Reach and timing helpers (`reach`, `attackTimings`) need nothing: the Flail is rigid.
+- Reach and timing helpers (`reach`, `attackTimings`) need nothing: the Flail is rigid. _(Still true, but the AI also needs where the ball lands per Direction: the code constant `SPIN_BALL`; see Stage 4 result.)_
 
 Tests in `src/controllers/ai.test.ts` with the existing helpers (`vsAi`, `scriptedController`, `runControllers`): an Expert with a Flail and a far target holds toward full charge; it Releases early when the target winds up in reach; an Expert facing a full spin backs off or Chambers more often than it Blocks; Hard does none of this; the golden test passes unchanged.
 
 ## 7. Docs
 
 - `CONTEXT.md`: **Weapon roster** gains the Flail; **Weapon** gains `attacks` and `spinUp`; new terms **Spin-up** (charge, what keeps and drops it; _Avoid_: charge attack, power-up) and, under Weapon or its own entry, the Flail's missing Thrust; **Heavy Blow** ("today the Halberd's, the Sledge Hammer's and a spun-up Flail's"); **Feint**, **Chain**, **Whiff Chain** and **Chamber** each gain their one Flail sentence; **Direction** notes a Weapon may lack an Attack Direction; **Reaction Time** gains the two AI behaviours.
-- ADR 0026 (written in Stage 2); amend it if Stage 3 had to add anything to the Simulation.
+- ADR 0026 (written in Stage 2); amend it if Stage 3 had to add anything to the Simulation (it added nothing; see Stage 3 and Stage 5 results).
 - `README.md` if it lists the Weapons.
 
 ## Stages
@@ -251,6 +251,73 @@ A defender that reads a spin backs off under its Block. The spinner walks after 
   - Block a full spin (the push).
 - Play with the Flail against an Expert: spin up in front of it (it backs off under its Block), spin and Feint into another Direction (it may Chamber), and tap (it Blocks as ever).
 - Is a 3–3 Expert Flail against a Longsword the balance wanted? Is the backing-off defender too passive?
+
+### Stage 5 result
+
+**Docs.**
+- CONTEXT.md, checked term by term against the code. The Stage 2 to 4 sentences were right: **Weapon roster**, **Spin-up**, **Direction**, **Heavy Blow**, **Feint**, **Chain**, **Whiff Chain**, **Chamber**, **Blade Speed** and **Reaction Time**. **Weapon** lacked `chain`: it now names it (render-only, drawn only by the Flail's look). **Wheel Attack** gains its one Flail sentence (down is an Overhead).
+- ADR 0026, re-read against the code: still true (nothing in `src/sim` changed after Stage 2; the whirl's closed form `whirlTurns` sits in `src/tuning` and only the Renderer and the audio read it). Not amended.
+- README.md lists no Weapons: unchanged.
+- This plan: the lines the Results overrode are marked superseded in place, each pointing to its Result. They cover `speed` 20, the generated Motions, `chamber.ts`, the `THRUST_REACH` sites, `flailBall`'s signature, `colliderView.ts`, the Sheathed look and the AI's reach. A Tuning notes section collects every number from Stages 1 to 4.
+
+**A bug found and fixed** (`src/net/messages.ts`, test-first). Stage 4's `Back` Defence plan (an AI stepping out of a spin it read) was missing from the resync validator's `DEFENCE_KINDS`. A resync whose AI memory held one was refused without a word: the guest dropped it, stayed diverged and asked again at the next checksum. The new online test showed it: without the fix the resync slipped past the spin. The fix adds `Back`. It also validates the other new memory fields Stage 4 left unchecked: `DefencePlan.spinRead` (a boolean), and `AttackPlan.spin` and `spinUntil` (both or neither, `spin` a whole number above 0). Tests: `messages.test.ts`, "the Flail AI memory": a real Expert's memory while it backs out of a spin, and a real spinning Flail AI's memory, both accepted; malformed ones refused. These are AI-memory checks only, so no Simulation rule, Tuning Data or hash changed and the protocol version is unchanged: peers that differ here already differ in Tuning Data (the Flail), which the hello refuses.
+
+**Verification.**
+
+| Item | Outcome | How |
+|---|---|---|
+| Menu, Lobby and a Run's Inventory offer the Flail with its icon | Passed | Playwright on `npm run dev`. Skirmish: the Flail card with its thumbnail, and in every AI Seat's Weapon select. The Inventory, in a Gauntlet started with the Flail: "Flail, Wielded" with its icon. `icons.test.ts` checks every roster Weapon has its own icon. |
+| A Duel, a Run Hall and a Battle (as a Player) play with it | Passed | Each started from Skirmish with the Flail picked, its ball hanging in the Player's hands; no page errors. |
+| A Soldier a Player takes over behaves as today | Passed | Nothing a Soldier carries changed (no Battle Troop names a Flail, and `src/sim` is untouched since Stage 2). The Battle takeover and Battle Rollback slow tests pass unchanged. |
+| No Run Encounter, loot or Battle Troop has a Flail | Passed | `data/battle.json` Troops name only the Arming Sword, Halberd, Longsword and Sledge Hammer. `data/dungeon.json`'s 37 `random` Weapons and its loot draw from `runWeapons` (`leftOutWeapons: ["Flail"]`); `runWeapons.test.ts` passes. |
+| Each Direction at no, half and full charge against an idle, a Blocking and a Chambering opponent | Passed | Headless on the sandbox's Simulation: Longsword at 2.05 m, released at 23, 44 and 90 Ticks of charge. **Idle:** Overhead Hits for 39 / 46 / 57, Left 45 / 54 / 72, Right 37 / 45 / 69; only full is Heavy (a Knockdown and a 1.2 m Slide). **Blocking:** Blocked every time. **Chambering** (pressing the mirrored Direction a Tick after the Release begins): Chambered every time, full spins included. |
+| Thrust presses and wheel-down give an Overhead | Passed | The Thrust rows of the matrix are Overheads at all three charges. Wheel-down is a Thrust Intent (`wheelAttack.test.ts`). The online test's host presses Thrust: no Flail Attack is ever a Thrust. |
+| Feints keep the whirl going; Chains restart it | Passed | `flail.test.ts` (an Attack Feint keeps the charge, a Chain and a Whiff Chain start at 0), `flailChain.test.ts` (no pop through a Feint, a Chain or a Whiff Chain) and `cues.test.ts` (the whoosh carries on through a Feint). In the online test the host's Left spin Feints into a Right and the charge carries on (one more on the Feint's Tick). |
+| A full charge knocks down and pushes a Blocker back | Passed, with a caveat to playtest | A full Hit knocks down and Slides 1.2 m. A full Block is Heavy and pushes the Blocker 0.4 m, but only from 2.25 m (Overhead, Left) or 2.35 m (Right). At 2.05 m, where the ball lands on an idle body, the Blocking blade meets the shaft and the Block is not Heavy (as Stage 2 measured). |
+| The Spin-up, Kill and AI vs AI scripts | Passed | Spin-up and Kill: the screenshots below. AI vs AI: Expert Flail vs Expert Longsword, seed 1, played 20 s; around Tick 1612 the Flail holds an Overhead spin while the Longsword Blocks. No page errors in any run. |
+| Screenshots: the whirl at three charges, the ball on the contact point at a Hit, the hang at Idle and in a Block, Sheathed on the back | Passed | `?body=skeleton`, `female` and `monk`, at Size 0.6 and 1.4. Spin-up Ticks 50 / 75 / 150 (charge 20, 45, 90), 590 (Block), 650 (Idle), 760 (Sheathed). Kill, Right, at 2.0 × Size (2.4 at 1.4): Ticks 53 and 56. At Size 1.4 the camera is pulled back so the whirling ball stays in frame (Stage 4's shots lost it). |
+| Scrub back and forth across a spin: the same Tick, the same chain | Passed | Every body and Size: Tick 140 reached from 60, from 260 and from 139/141 gives identical pixels. |
+| Online: two peers, one with a Flail, through spins, Feints, Heavy Blows and a Rollback, no checksum mismatch | Passed (after the fix) | New `src/net/flailRollback.slow.test.ts`. The host's Player and an Expert AI with Flails against the guest's Longsword Player and an Expert Longsword AI. Input Delay 2 and 3 Ticks; 60 ms latency, 30 ms jitter, 10% loss; Rollbacks on both peers. Spins, a Left Feinted into a Right keeping its charge, Thrust presses, Block-Feints, and Heavy Blows from both Flails. A forced drift on the guest at Tick 320 gives one Desync at 330 and a resync at the host's confirmed Tick: the AI Flail letting go of its spin (charge 45, its spin aim still in memory) and the Longsword AI in a `Back` plan. Every checksum on both peers matches the offline Match over 1500 Ticks, except the guest's own between the drift and the resync. |
+| Every test that existed before passes unchanged, the AI golden test above all | Passed | `npm run typecheck` clean; `npm test` 2339 passed (5 skipped, as before); `npm run test:slow` 30 passed. No existing test changed and no hash was re-recorded. |
+
+**Found, not fixed (for you to decide).**
+- The Lobby's Weapon cards draw "Speed" from `speed`, the reference Blade Speed (`lobbyView.ts`). The Flail's 45 (Stage 1) gives it the fullest Speed bar of the roster, though it is the slowest to swing. Fixing it means choosing what the bar should show (Tempo, say) for every Weapon.
+- The code review noted the resync validator keeps its own copy of the AI's Defence kinds (the copy Stage 4 missed). It also never checks some older AI memory fields (`holdJumpUntil`, `throwPlan`, `failedJumps` and a few more). Both predate the Flail; deriving the list from `ai.ts` would touch `src/controllers`.
+
+**Screenshots** (in the session scratchpad, not committed): `/tmp/claude-0/-home-user-sword/e99c9e7c-4629-5f13-9ffc-a61378eafb49/scratchpad/shots5/`. One sheet per body and Size (`sheet-skeleton-0.6.png`, `sheet-skeleton-1.4.png`, `sheet-female-0.6.png`, `sheet-female-1.4.png`, `sheet-monk-0.6.png`, `sheet-monk-1.4.png`), each with the three whirls, two Hit frames, the hangs and Sheathed. The single frames sit beside them. Also `skirmish.png`, `runs-grid.png` (a Run Hall, its Inventory, a Duel, a Battle) and `aivs-1612.png`.
+
+### Tuning notes
+
+Every number from Stages 1 to 4 worth tuning, in one place. Tuning Data reloads in the Editor (Tuning Data → Weapons → Flail, and the AI panel); code constants need a rebuild. The Simulation reads only the Tuning Data rows and none of the render or sound constants, so those can be tuned freely without touching a hash.
+
+| Name | Where | Value | What it changes | What to try |
+|---|---|---|---|---|
+| `speed` | `data/weapons/flail.json` | 45 | Reference Blade Speed: damage and the Heavy Blow are read against it. Set so an unspun Head Hit deals about `damage` (the Halberd's swings meet at 44 to 52 m/s). | Leave it unless the Motions change. Lowering it makes every Hit stronger and, below about 36, makes taps Heavy. The Lobby card's Speed bar shows this number (see Stage 5 result). |
+| `damage` | `data/weapons/flail.json` | 45 | A Head Hit at the reference speed: a tap is about 38 to 45, a full spin 57 to 72. | Raise it if a tap should matter more; a full spin already takes two body Hits to kill from full HP. |
+| `shaftDamage` | `data/weapons/flail.json` | 0.15 | Up close (1.0 to 1.6 m) only the shaft lands, for 2 to 10. | 0.25 to 0.3 if the Flail feels helpless up close. |
+| `head`, `chain`, `length` | `data/weapons/flail.json` | 0.22, 0.35, 1.5 | The ball (60% of the Head; the spikes are the rest), the drawn chain and the reach. `head` and `length` are the Simulation's; `chain` is render-only. | A shorter `length` moves every distance below (and `SPIN_BALL`). |
+| `tempo` | `data/weapons/flail.json` | 1.1 / 1 / 1.2 | Wind-up, Release and Recovery lengths: each Wind-up reaches its held pose in 23 Ticks. | `windUp` 1.0 for a quicker tap; `recovery` 1.3 to punish a whiffed spin harder. |
+| `spinUp.seconds` | `data/weapons/flail.json` | 1.5 | Wind-up to full charge: 90 Ticks, about 67 past the held pose. | 1.2 makes the spin less of a commitment; 1.8 makes the AI's aim (0.9 × full) longer to read. |
+| `spinUp.from` | `data/weapons/flail.json` | 0.7 | Blade Speed × at no charge. A tap Releases with 23 Ticks of charge, so it swings at 0.88×. | 0.6 makes a tap weaker still; 0.8 makes it about a Halberd's. |
+| `spinUp.to` | `data/weapons/flail.json` | 1.4 | Blade Speed × at full charge. With `heavyBlow.speed` 1.25 every full Head Hit is Heavy (1.32 to 1.60× the reference at contact). | 1.3 leaves a full Left or Right near the edge of reach not Heavy. |
+| `heavyBlow.speed` | `data/weapons/flail.json` | 1.25 | The Heavy Blow threshold, × `speed`. | Moves with `to`: keep `to` × the slowest full contact (about 0.94) above it. |
+| `heavyBlow.knockdownSlide` / `Ticks` | `data/weapons/flail.json` | 1.2 m / 26 | The push after a Heavy Hit (measured: 1.2 m). | 0.9 if Knockdowns throw the victim out of the fight. |
+| `heavyBlow.blockSlide` / `Ticks` | `data/weapons/flail.json` | 0.4 m / 7 | The push on a Heavy Block. A full spin's Block is Heavy only from about 2.2 m (Overhead, Left) or 2.3 m (Right): where the ball meets the Blocking blade. Closer, it meets the shaft. | If Blocking a spin should cost more, raise this; the band where it applies is set by the Motions, not here. |
+| `blockImpact.dealt` | `data/weapons/flail.json` | 1.6 | How hard its Block Impact knocks the defender's hand. It multiplies with the spun Blade Speed, up to the clamp in `startBlockImpact` (`IMPACT_STRENGTH_MAX`). | 1.3 if a full spin's Block looks too violent. |
+| `spinHold` | `data/ai.json`, Beginner / Skilled / Expert | 0.4 / 0.7 / 0.9 | The share of full charge an AI aims for when it has room. Beginner's 36 Ticks are never Heavy. | 0.5 for Beginner if its spins should sometimes land Heavy; Expert 1.0 for longer holds. |
+| `spinRespect` | `data/ai.json`, Beginner / Skilled / Expert | 0.4 / 0.7 / 0.9 | How often an AI reads a spin it sees (rolled once per Attack) and steps out, Chambers or hits first rather than Block. | Lower if the AI backs off too much (it was 3–3 against a Longsword with these). |
+| `ai.spinThreat` | `data/ai.json` | 0.6 | The share of full charge from which a spin is read: about where it starts to be Heavy at contact. | 0.5 to read earlier; 0.75 to read only real threats. |
+| `dungeon.leftOutWeapons` | `data/dungeon.json` | `["Flail"]` | Keeps the Flail out of a Run's random enemies and loot. | Remove the Flail to let Runs use it (every seeded Run then moves). |
+| `SPIN_BALL` | code constant, `src/controllers/ai.ts` | Overhead +0.08..+0.22, Left −0.30..+0.10, Right −0.10..+0.10 (Thrust as Left) m from `reach` (2.0), × Size | Where the AI thinks its ball lands on a body, per Direction: closer only the shaft lands. | **Re-measure whenever the Flail's Motions, `length`, `head` or `tempo` change**: run the distance sweeps in `src/sim/flail.test.ts` (the Head Hits at each distance per Direction; Stage 2 measured Overhead 2.1 to 2.2 m, Left 1.7 to 2.1, Right 1.9 to 2.1), then set each band as offsets from `reach`, and rerun the "AI Stage 4" tests in `src/controllers/ai.test.ts`. |
+| `SPIN_PATIENCE` | code constant, `src/controllers/ai.ts` | 60 Ticks | After reaching its aim, how long the AI walks in to Release before letting the spin go into a Block. | 40 if spinning AIs chase too long. |
+| `SPIN_OUT` | code constant, `src/controllers/ai.ts` | 0.15 m × Size | A defender reading a spin keeps its Block up until this far beyond the ball and backs out to twice it. | 0.1 for a less passive defender. |
+| `WHIRL_TURNS_PER_SECOND` | code constant, `src/tuning/weapon.ts` | 0.8 → 2.6 | How fast the drawn ball turns, rising with the charge (render and sound only). | 2.2 at full if it looks frantic, 3.0 if lazy. |
+| `WHIRL_CONE`, `WHIRL_TILT` | code constants, `src/render/flailChain.ts` | 62°, 1 | The whirl's cone (circle radius about 0.41 m) and how far its axis leans toward the swing's axis. | A smaller cone if it clips allies; tilt 0.5 if the Direction reads poorly. |
+| `WHIRL_BLEND`, `WHIRL_LOW` / `WHIRL_HIGH` | code constants, `src/render/flailChain.ts` | 12 Ticks, 0 / 0.35 | How the ball is carried out of the hang into the whirl, and only as far as the shaft is raised. | |
+| `RELEASE_BLEND`, `HANG_BLEND` | code constants, `src/render/flailChain.ts` | 2 Ticks, 20 Ticks | Whirl to the simulated ball as Release starts; simulated ball to hanging in Recovery. | `RELEASE_BLEND` 3 or 4 if the Release looks like a snap (the ball is exact again by `releaseEnd`). |
+| `HEAD_RADIUS`, `TORSO_RADIUS` | code constants, `src/render/flailChain.ts` | 0.12 m, 0.17 m × Size | The drawn ball's keep-out round its own Fighter's head and torso. | |
+| `WHIRL_LEVEL`, `RATTLE_LEVEL` | code constants, `src/audio/synth.ts` | 0.9, 0.8 | The whoosh (pitch 0.75× to 1.5×, level 35% to 100% with the charge) and the chain's rattle on a Block or Wall. | |
+| The Ball's Hit sound | `src/audio/stock.ts` | rate 0.78, level 0.8 + 0.4 × strength | The stock heavy blow pitched down, with the synthesised spikes over it. | |
 
 ## Verification
 
