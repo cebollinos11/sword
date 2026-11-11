@@ -693,14 +693,13 @@ function sightings(prev: Observation | undefined, state: SimState): Observation 
 /**
  * Observations already made of a Tick's Fighters, so the AIs of one Duel share them instead of each making its own
  * (a Sighting of every Fighter, for every AI, every Tick). An Observation depends only on the Fighters seen and on what
- * its AI saw the Tick before, so those who shared the last one share the next (`sightedAfter`, or `sightedFirst` with
- * nothing before); and one who saw something else before (it began watching later: an AI Takeover, a Promotion, memory
- * from a resync) joins the others as soon as what it sees is the same (`sightedLast`). Only a shortcut: every AI gets
- * exactly the Observation it would have made itself, and none is ever changed. Keyed weakly, so nothing is kept alive.
+ * its AI saw the Tick before, so those who shared the last one share the next; and one who saw something else before
+ * (it began watching later: an AI Takeover, a Promotion, memory from a resync) joins the others as soon as what it sees
+ * is the same. Only a shortcut: every AI gets exactly the Observation it would have made itself, and none is ever changed.
+ * Kept with the Fighters observed and no longer (not with the Observation before, which would keep every later one
+ * alive; nor through a WeakRef, which holds its target until the running job ends: a whole headless Match).
  */
-const sightedFirst = new WeakMap<readonly FighterState[], Observation>();
-const sightedAfter = new WeakMap<Observation, { readonly of: readonly FighterState[]; readonly seen: WeakRef<Observation> }>();
-const sightedLast = new WeakMap<readonly FighterState[], Observation>();
+const sighted = new WeakMap<readonly FighterState[], { readonly prev: Observation | undefined; readonly seen: Observation }[]>();
 
 /** Whether two Observations of the same Fighters on the same Tick say the same: only what comes from the Tick before can differ. */
 function sameSightings(a: Observation, b: Observation): boolean {
@@ -715,21 +714,13 @@ function sameSightings(a: Observation, b: Observation): boolean {
 
 /** The Observation of `state` for an AI that saw `prev` the Tick before (`sightings`), shared with every AI it is the same for. */
 function observation(prev: Observation | undefined, state: SimState): Observation {
-  const of = state.fighters;
-  if (prev) {
-    const next = sightedAfter.get(prev);
-    const hit = next?.of === of ? next.seen.deref() : undefined;
-    if (hit && hit.tick === state.tick) return hit;
-  } else {
-    const hit = sightedFirst.get(of);
-    if (hit && hit.tick === state.tick) return hit;
-  }
-  let seen = sightings(prev, state);
-  const last = sightedLast.get(of);
-  if (last && last.tick === state.tick && sameSightings(last, seen)) seen = last;
-  else sightedLast.set(of, seen);
-  if (prev) sightedAfter.set(prev, { of, seen: new WeakRef(seen) });
-  else sightedFirst.set(of, seen);
+  let made = sighted.get(state.fighters);
+  // The same Fighters on another Tick (a state that kept its array): nothing made of them then is of use now.
+  if (made?.[0]?.seen.tick !== state.tick) sighted.set(state.fighters, (made = []));
+  for (const m of made) if (m.prev === prev) return m.seen;
+  const own = sightings(prev, state);
+  const seen = made.find((m) => sameSightings(m.seen, own))?.seen ?? own;
+  made.push({ prev, seen });
   return seen;
 }
 
@@ -808,8 +799,8 @@ interface Enemy {
  */
 interface Nearest {
   readonly enemies: number;
-  readonly dist: Float64Array;
-  readonly tied: Uint8Array;
+  readonly dist: number[];
+  readonly tied: boolean[];
 }
 /** Per Observation and Team (`nearestOf`): kept only as long as the Observation is. */
 const nearestSeen = new WeakMap<Observation, Map<number, Nearest>>();
@@ -821,7 +812,7 @@ function nearestOf(seen: Observation, team: number): Nearest {
   if (!near) {
     let enemies = 0;
     for (const o of seen.fighters) if (!o.fallen && o.team !== team) enemies++;
-    near = { enemies, dist: new Float64Array(seen.fighters.length).fill(NaN), tied: new Uint8Array(seen.fighters.length) };
+    near = { enemies, dist: new Array<number>(seen.fighters.length).fill(NaN), tied: new Array<boolean>(seen.fighters.length).fill(false) };
     byTeam.set(team, near);
   }
   return near;
@@ -831,14 +822,14 @@ function nearestOf(seen: Observation, team: number): Nearest {
 function nearest(seen: Observation, team: number, i: number, near: Nearest): void {
   const o = seen.fighters[i]!;
   let best = Infinity;
-  let tied = 0;
+  let tied = false;
   for (const e of seen.fighters) {
     if (e.fallen || e.team === team) continue;
     const d = Math.hypot(e.position.x - o.position.x, e.position.z - o.position.z, e.y - o.y);
     if (d < best) {
       best = d;
-      tied = 0;
-    } else if (d === best) tied = 1;
+      tied = false;
+    } else if (d === best) tied = true;
   }
   near.dist[i] = best;
   near.tied[i] = tied;
@@ -1465,7 +1456,7 @@ class RuleAi implements AiController {
       if (Number.isNaN(near.dist[i]!)) nearest(seen, self.team, i, near);
       // Its target is the ally's nearest when none is nearer; where several are exactly as near, the first as it orders them.
       if (Math.hypot(t.position.x - o.position.x, t.position.z - o.position.z, t.y - o.y) !== near.dist[i]) return false;
-      return near.tied[i] === 0 || nearestEnemy(o) === focused.i;
+      return !near.tied[i] || nearestEnemy(o) === focused.i;
     });
     const on = [fighter, ...onIt.map(({ i }) => i)].sort((a, b) => a - b);
     const rank = on.indexOf(fighter);
