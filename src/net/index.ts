@@ -6,6 +6,7 @@ export type { Transport } from './transport';
 export { splitTransport, type Channels } from './channels';
 export { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 export {
+  BATTLE_INPUT_DELAY,
   CHECKSUM_INTERVAL,
   createRollbackSession,
   DEFAULT_TIMEOUT_TICKS,
