@@ -237,7 +237,8 @@ export class Renderer {
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.drip(poses, seconds);
     this.impacts.update(seconds);
-    this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
+    // A flail's trail follows its drawn ball (on the simulated one through Release, so it traces what hits).
+    this.trails.update(prev, curr, poses.map((p) => p && (p.flail ? { ...p.blade, tip: p.flail.ball } : p.blade)), seconds);
     this.lastDraw = now;
     this.stage.draw();
   }

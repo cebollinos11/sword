@@ -23,6 +23,22 @@ describe('SimAudio', () => {
     expect(player.played).toEqual(['Swing', 'Block']);
   });
 
+  it('hears a flail’s whirl with the Tuning Data it was given, the same whooshes after a scrub back, and none without', () => {
+    const run = runDuel(tuning, { placements: [{ position: { x: 0, z: 0 }, facing: 0 }], weapons: ['Flail'], a: attack('Left', 200) });
+    const heard = (audio: SimAudio, player: ReturnType<typeof recorder>) => {
+      for (const s of run.states) audio.onTick(s.tick, s.events, s);
+      return player.played.filter((p) => p === 'Whirl').length;
+    };
+    const player = recorder();
+    const audio = new SimAudio(player, tuning);
+    const first = heard(audio, player);
+    expect(first).toBeGreaterThan(5);
+    audio.seek(-1);
+    expect(heard(audio, player)).toBe(2 * first);
+    const plain = recorder();
+    expect(heard(new SimAudio(plain), plain)).toBe(0);
+  });
+
   it('plays a Tick only once, even if it is simulated again (rollback re-simulation)', () => {
     const player = recorder();
     const audio = new SimAudio(player);

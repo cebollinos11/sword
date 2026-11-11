@@ -157,7 +157,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** The Tuning Data a Match on an Arena is played with, and a Random Map's Layout (`createArenaWorlds`). */
   const arenaWorld = createArenaWorlds(tuning);
   const renderer = new Renderer(container, tuning, arenaWorld);
-  const audio = createBrowserAudio(tuning.audio);
+  const audio = createBrowserAudio(tuning.audio, tuning);
   renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena), at: point });
   renderer.onSplatter = (point, strength) => audio.playCue({ sound: 'Splatter', point, strength, at: point });
   const local = new LocalController();

@@ -1,4 +1,5 @@
 import type { CrowdState, MatchState, SimEvent, SimState, Vec3 } from '../sim';
+import type { TuningData } from '../tuning';
 import { crowdCues, crowdFighting, matchCues, soundCues, type SoundCue } from './cues';
 import type { Ears } from './spatial';
 
@@ -30,12 +31,19 @@ export class SimAudio {
   /** The Crowd as of the last Tick played, to hear its blows and falls against (undefined after a seek, or outside a Battle). */
   private lastCrowd: CrowdState | undefined;
 
-  constructor(private readonly player: SoundPlayer) {}
+  /**
+   * `tuning`: the Tuning Data the Simulation runs on, so the sounds tell the Weapons apart by their look (a flail's whirl and blows);
+   * without it every Weapon sounds as a plain blade. A loop whose Tuning Data changes (the Editor) passes its own to `onTick`.
+   */
+  constructor(
+    private readonly player: SoundPlayer,
+    private readonly tuning?: TuningData,
+  ) {}
 
-  /** Plays one Tick. `state` (the state it produced) lets the sounds follow the Weapons and the floor. */
-  onTick(tick: number, events: readonly SimEvent[], state?: SimState): void {
+  /** Plays one Tick. `state` (the state it produced) lets the sounds follow the Weapons and the floor; `tuning` overrides the constructor's. */
+  onTick(tick: number, events: readonly SimEvent[], state?: SimState, tuning: TuningData | undefined = this.tuning): void {
     if (!this.reach(tick)) return;
-    this.play(soundCues(events, state));
+    this.play(soundCues(events, state, tuning));
   }
 
   /** For a loop driving a Match: the Match Tick keeps counting across Duels, the Duel's own Tick does not. */
@@ -43,7 +51,7 @@ export class SimAudio {
     if (!this.reach(match.tick)) return;
     const own = matchCues(match.events);
     const won = own.filter((c) => c.sound === 'MatchEnd');
-    let cues = soundCues(match.duel.events, match.duel);
+    let cues = soundCues(match.duel.events, match.duel, this.tuning);
     // A Match won this Tick plays its fanfare instead of the Duel's gong.
     if (won.length > 0) cues = cues.filter((c) => c.sound !== 'DuelEnd');
     this.play([...own.filter((c) => c.sound !== 'MatchEnd'), ...cues, ...won]);

@@ -8,7 +8,7 @@
  * perpendicular to the axis. A two-handed Weapon's off hand holds the
  * Off-hand Grip, a spot on the grip or shaft behind the main hand.
  */
-import { secondsToTicks } from '../sim/constants';
+import { secondsToTicks, TICK_SECONDS } from '../sim/constants';
 import { DIRECTIONS, type Direction } from '../sim/intent';
 import type { Vec3 } from '../sim/vec';
 import { finiteNumber, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
@@ -153,6 +153,32 @@ export function spinUpSpeed(weapon: Pick<WeaponTuning, 'spinUp'>, charge: number
   const s = weapon.spinUp;
   if (!s) return 1;
   return s.from + (s.to - s.from) * Math.min(1, charge / spinUpChargeTicks(weapon));
+}
+
+/**
+ * How fast a Spin-up's drawn whirl turns (turns a second): `from` as the Wind-up starts, rising evenly with the charge to `to` at full,
+ * and holding there for as long as the Wind-up is held. Render and sound only (docs/plans/flail.md, Stage 3): the Simulation never
+ * reads it, so it is a code constant to tune, not Tuning Data.
+ */
+export const WHIRL_TURNS_PER_SECOND = { from: 0.8, to: 2.6 } as const;
+
+/**
+ * The turn (in whole turns) a Spin-up's drawn ball is at on state Tick `tick` (`SimState.tick`), its Attack at `charge`: the top rate
+ * times the Tick plus, over the charge so far, how much slower than the top rate it turned, `to·tick + ∫₀^charge (rate(c) − to) dc`, the
+ * rate rising evenly from `from` to `to` over the charge. As each Wind-up Tick adds one to both the Tick and the charge, the ball turns
+ * at the rate for its charge; held at full, only the Tick moves and it turns on at the top rate. A closed form of what the state holds
+ * (no count of its own in the Simulation, ADR 0026), continuous through an Attack Feint (which carries the charge on), so scrubbing,
+ * Rollback and the Final Blow Shot draw and sound the same whirl on the same Tick, and drawing between Ticks (fractional Tick and
+ * charge) lies between them. Where the circle starts depends on the Tick; the ball is carried out of the hang into it. A Weapon without
+ * a Spin-up turns at `from` throughout. The Renderer draws the ball at this angle and the audio sounds a whoosh as it passes each whole turn.
+ */
+export function whirlTurns(weapon: Pick<WeaponTuning, 'spinUp'>, tick: number, charge: number): number {
+  const a = WHIRL_TURNS_PER_SECOND.from * TICK_SECONDS;
+  const full = spinUpChargeTicks(weapon);
+  if (full === 0) return a * tick;
+  const b = WHIRL_TURNS_PER_SECOND.to * TICK_SECONDS;
+  const c = Math.min(Math.max(0, charge), full);
+  return b * tick + (a - b) * c + ((b - a) * c * c) / (2 * full);
 }
 
 /** Whether a Head contact at `bladeSpeed` is a Heavy Blow of `weapon` (never for a Weapon without one, or a shaft contact). */

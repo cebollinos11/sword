@@ -9,6 +9,7 @@
  */
 import { fighterPose, type BladeTransform, type SimState, type SkeletonPose, type Vec3 } from '../sim';
 import type { TuningData } from '../tuning';
+import type { FlailChain } from './flailChain';
 
 /** Blood left on a Weapon by one Hit (or several close together, merged). */
 export interface BladeMark {
@@ -135,7 +136,7 @@ export class BladeBlood {
    * Let `seconds` of wall time pass: the blood dries a little, and each Weapon still very wet now and then drips, `drip` being
    * called with where the drop leaves the blade and the floor under its Fighter. `poses` are as drawn this frame (none: not drawn).
    */
-  drip(poses: readonly (SkeletonPose | undefined)[], seconds: number, drip: (point: Vec3, floorY: number) => void): void {
+  drip(poses: readonly ((SkeletonPose & { readonly flail?: FlailChain }) | undefined)[], seconds: number, drip: (point: Vec3, floorY: number) => void): void {
     const dt = Math.min(0.1, Math.max(0, seconds));
     if (dt <= 0) return;
     const dry = Math.exp(-dt / DRY_SECONDS);
@@ -167,7 +168,12 @@ export class BladeBlood {
       const b = pose.blade;
       const t = from.t;
       const floor = floorUnder(pose);
-      drip({ x: b.hilt.x + (b.tip.x - b.hilt.x) * t, y: b.hilt.y + (b.tip.y - b.hilt.y) * t, z: b.hilt.z + (b.tip.z - b.hilt.z) * t }, floor);
+      // A flail's ball is drawn loose (`flail`): a mark past the shaft's end (where its chain starts) drips from the ball where it is drawn.
+      const chain = pose.flail;
+      const len = Math.hypot(b.tip.x - b.hilt.x, b.tip.y - b.hilt.y, b.tip.z - b.hilt.z);
+      const start = chain?.links[0];
+      if (chain && start && t * len > Math.hypot(start.x - b.hilt.x, start.y - b.hilt.y, start.z - b.hilt.z)) drip(chain.ball, floor);
+      else drip({ x: b.hilt.x + (b.tip.x - b.hilt.x) * t, y: b.hilt.y + (b.tip.y - b.hilt.y) * t, z: b.hilt.z + (b.tip.z - b.hilt.z) * t }, floor);
     }
   }
 }

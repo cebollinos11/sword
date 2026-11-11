@@ -68,7 +68,7 @@ export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponSpinUp, WeaponTempo, WeaponTuning } from './weapon';
-export { attackDirection, isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, spinUpChargeTicks, spinUpSpeed, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
+export { attackDirection, isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, spinUpChargeTicks, spinUpSpeed, UNIT_TEMPO, WHIRL_TURNS_PER_SECOND, whirlTurns, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */
