@@ -10,22 +10,20 @@ import { floorMapLayout } from './floorMap';
 export const FLOOR_MAP_CSS = `
 /* z-index: over the HUD's buttons (menu, map, Items), so a tap anywhere closes it. The board's margin keeps the nodes off the title and hint. */
 .floor-map { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem;
-  background: #000d; color: #fff; pointer-events: auto; z-index: 5; }
+  background: #0d0a14ee; color: #fff; pointer-events: auto; z-index: 5; }
 .floor-map[hidden] { display: none; }
-.floor-map-title { font-size: 1.1rem; font-weight: 700; text-shadow: 0 1px 2px #000a; }
+.floor-map-title { font-family: var(--font-display); font-size: 0.9rem; font-weight: 700; text-transform: uppercase; text-shadow: var(--px) var(--px) 0 #000; }
 .floor-map-title span { opacity: 0.7; font-weight: 400; margin-left: 0.6rem; }
 .floor-map-board { position: relative; width: min(22rem, 86vw); height: min(30rem, 50vh); margin: 1.8rem 0; }
 .floor-map-edges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-.floor-map-edges line { stroke: #fff4; stroke-width: 2; vector-effect: non-scaling-stroke; }
-.floor-map-edges line.visited { stroke: #ffd56a; stroke-width: 4; }
-.floor-map-node { position: absolute; width: 3rem; height: 3rem; margin: -1.5rem 0 0 -1.5rem; padding: 0.35rem; box-sizing: border-box; border-radius: 50%;
-  background: #1a1d24; border: 2px solid #fff3; opacity: 0.55; }
-.floor-map-node.reachable { opacity: 0.9; border-color: #fff8; }
-.floor-map-node.visited { opacity: 1; border-color: #ffd56a; background: #3a3320; }
-.floor-map-node.current { opacity: 1; border-color: #6fd8ff; box-shadow: 0 0 0 3px #6fd8ff66, 0 0 14px #6fd8ffaa; transform: scale(1.15); }
-.floor-map-hint { font-size: 0.8rem; opacity: 0.7; }
-.hud-map { pointer-events: auto; position: absolute; left: calc(50% + 2rem); bottom: max(0.8rem, env(safe-area-inset-bottom)); width: 2.4rem; height: 2.4rem;
-  border-radius: 50%; font-size: 1.1rem; color: #fff; background: #0007; border: 1px solid #fff6; cursor: pointer; opacity: 0.75; }
+.floor-map-edges line { stroke: #6d5f8c; stroke-width: 2; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }
+.floor-map-edges line.visited { stroke: #ffd56a; stroke-width: 4; stroke-dasharray: none; }
+.floor-map-node { position: absolute; width: 3rem; height: 3rem; margin: -1.5rem 0 0 -1.5rem; padding: 0.35rem; box-sizing: border-box; background: var(--panel); border: calc(var(--px) * 2) solid #000; box-shadow: inset var(--px) var(--px) 0 var(--line); opacity: 0.55; }
+.floor-map-node.reachable { opacity: 0.95; box-shadow: inset var(--px) var(--px) 0 var(--line-2); }
+.floor-map-node.visited { opacity: 1; background: #3a3320; box-shadow: inset var(--px) var(--px) 0 #ffd56a; }
+.floor-map-node.current { opacity: 1; border-color: #6fd8ff; box-shadow: 0 0 0 var(--px) #000, inset var(--px) var(--px) 0 #6fd8ff; transform: scale(1.1); }
+.floor-map-hint { font-size: 1.2rem; opacity: 0.7; }
+.hud-map { pointer-events: auto; position: absolute; left: calc(50% + 2rem); bottom: max(0.8rem, env(safe-area-inset-bottom)); width: 2.4rem; height: 2.4rem; font-size: 1.4rem; color: #fff; background: var(--panel-2); border: calc(var(--px) * 2) solid #000; box-shadow: inset var(--px) var(--px) 0 var(--line-2); cursor: pointer; opacity: 0.85; }
 .hud-map[hidden] { display: none; }
 @media (pointer: fine) { .hud-map { display: none; } }
 `;

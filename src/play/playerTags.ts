@@ -12,7 +12,7 @@ const TAG_HEIGHT = 2.35;
 
 export const PLAYER_TAGS_CSS = `
 .player-tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-.player-tag { position: absolute; left: 0; top: 0; padding: 0.05rem 0.4rem; font-size: 0.72rem; line-height: 1.1rem; white-space: nowrap; border-radius: 4px; background: #000a; color: #fff; border-bottom: 2px solid var(--army); text-shadow: 0 1px 2px #000; will-change: transform; }
+.player-tag { position: absolute; left: 0; top: 0; padding: 0.05rem 0.4rem; font-size: 1.15rem; line-height: 1.1rem; white-space: nowrap; background: #0d0a14; color: #fff; border-bottom: calc(var(--px) * 2) solid var(--army); font-family: var(--font-body); text-shadow: var(--px) var(--px) 0 #000; will-change: transform; }
 `;
 
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
