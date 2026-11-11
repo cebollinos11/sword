@@ -1,0 +1,776 @@
+{
+  "version": 1,
+  "name": "catacombs",
+  "size": 200,
+  "grid": {
+    "step": 0.5,
+    "cell": 5
+  },
+  "levels": [
+    -8,
+    -3,
+    0,
+    10
+  ],
+  "brushes": [
+    {
+      "kind": "hazard",
+      "id": "abyss",
+      "rect": {
+        "x0": -100,
+        "z0": -100,
+        "x1": 100,
+        "z1": 100
+      },
+      "y": -8,
+      "hazard": "abyss"
+    },
+    {
+      "kind": "enclosure",
+      "id": "nave",
+      "rect": {
+        "x0": -24,
+        "z0": -10,
+        "x1": 24,
+        "z1": 10
+      },
+      "y": 0,
+      "doors": {},
+      "material": "brick"
+    },
+    {
+      "kind": "hole",
+      "id": "court",
+      "rect": {
+        "x0": -10,
+        "z0": -7,
+        "x1": 10,
+        "z1": 7
+      },
+      "y": 0
+    },
+    {
+      "kind": "floor",
+      "id": "ledge",
+      "rect": {
+        "x0": -10,
+        "z0": -7,
+        "x1": 10,
+        "z1": 7
+      },
+      "y": -3,
+      "material": "dungeon"
+    },
+    {
+      "kind": "hole",
+      "id": "pit",
+      "rect": {
+        "x0": -3,
+        "z0": -4,
+        "x1": 3,
+        "z1": 4
+      },
+      "y": -3
+    },
+    {
+      "kind": "hazard",
+      "id": "water",
+      "rect": {
+        "x0": -3,
+        "z0": -4,
+        "x1": 3,
+        "z1": 4
+      },
+      "y": -8,
+      "hazard": "water"
+    },
+    {
+      "kind": "ramp",
+      "id": "rampE",
+      "rect": {
+        "x0": 4,
+        "z0": -2,
+        "x1": 10,
+        "z1": 2
+      },
+      "lo": -3,
+      "hi": 0,
+      "up": "e",
+      "rails": [
+        "n",
+        "s"
+      ],
+      "material": "stone"
+    },
+    {
+      "kind": "ramp",
+      "id": "rampW",
+      "rect": {
+        "x0": -10,
+        "z0": -2,
+        "x1": -4,
+        "z1": 2
+      },
+      "lo": -3,
+      "hi": 0,
+      "up": "w",
+      "rails": [
+        "n",
+        "s"
+      ],
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col00-0",
+      "a": {
+        "x": -18,
+        "z": -6
+      },
+      "b": {
+        "x": -16,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col00-1",
+      "a": {
+        "x": -16,
+        "z": -6
+      },
+      "b": {
+        "x": -16,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col00-2",
+      "a": {
+        "x": -16,
+        "z": -4
+      },
+      "b": {
+        "x": -18,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col00-3",
+      "a": {
+        "x": -18,
+        "z": -4
+      },
+      "b": {
+        "x": -18,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col01-0",
+      "a": {
+        "x": -18,
+        "z": 4
+      },
+      "b": {
+        "x": -16,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col01-1",
+      "a": {
+        "x": -16,
+        "z": 4
+      },
+      "b": {
+        "x": -16,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col01-2",
+      "a": {
+        "x": -16,
+        "z": 6
+      },
+      "b": {
+        "x": -18,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col01-3",
+      "a": {
+        "x": -18,
+        "z": 6
+      },
+      "b": {
+        "x": -18,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col10-0",
+      "a": {
+        "x": -13,
+        "z": -6
+      },
+      "b": {
+        "x": -11,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col10-1",
+      "a": {
+        "x": -11,
+        "z": -6
+      },
+      "b": {
+        "x": -11,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col10-2",
+      "a": {
+        "x": -11,
+        "z": -4
+      },
+      "b": {
+        "x": -13,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col10-3",
+      "a": {
+        "x": -13,
+        "z": -4
+      },
+      "b": {
+        "x": -13,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col11-0",
+      "a": {
+        "x": -13,
+        "z": 4
+      },
+      "b": {
+        "x": -11,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col11-1",
+      "a": {
+        "x": -11,
+        "z": 4
+      },
+      "b": {
+        "x": -11,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col11-2",
+      "a": {
+        "x": -11,
+        "z": 6
+      },
+      "b": {
+        "x": -13,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col11-3",
+      "a": {
+        "x": -13,
+        "z": 6
+      },
+      "b": {
+        "x": -13,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col20-0",
+      "a": {
+        "x": 11,
+        "z": -6
+      },
+      "b": {
+        "x": 13,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col20-1",
+      "a": {
+        "x": 13,
+        "z": -6
+      },
+      "b": {
+        "x": 13,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col20-2",
+      "a": {
+        "x": 13,
+        "z": -4
+      },
+      "b": {
+        "x": 11,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col20-3",
+      "a": {
+        "x": 11,
+        "z": -4
+      },
+      "b": {
+        "x": 11,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col21-0",
+      "a": {
+        "x": 11,
+        "z": 4
+      },
+      "b": {
+        "x": 13,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col21-1",
+      "a": {
+        "x": 13,
+        "z": 4
+      },
+      "b": {
+        "x": 13,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col21-2",
+      "a": {
+        "x": 13,
+        "z": 6
+      },
+      "b": {
+        "x": 11,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col21-3",
+      "a": {
+        "x": 11,
+        "z": 6
+      },
+      "b": {
+        "x": 11,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col30-0",
+      "a": {
+        "x": 16,
+        "z": -6
+      },
+      "b": {
+        "x": 18,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col30-1",
+      "a": {
+        "x": 18,
+        "z": -6
+      },
+      "b": {
+        "x": 18,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col30-2",
+      "a": {
+        "x": 18,
+        "z": -4
+      },
+      "b": {
+        "x": 16,
+        "z": -4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col30-3",
+      "a": {
+        "x": 16,
+        "z": -4
+      },
+      "b": {
+        "x": 16,
+        "z": -6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col31-0",
+      "a": {
+        "x": 16,
+        "z": 4
+      },
+      "b": {
+        "x": 18,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col31-1",
+      "a": {
+        "x": 18,
+        "z": 4
+      },
+      "b": {
+        "x": 18,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col31-2",
+      "a": {
+        "x": 18,
+        "z": 6
+      },
+      "b": {
+        "x": 16,
+        "z": 6
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    },
+    {
+      "kind": "wall",
+      "id": "col31-3",
+      "a": {
+        "x": 16,
+        "z": 6
+      },
+      "b": {
+        "x": 16,
+        "z": 4
+      },
+      "bottom": -1,
+      "top": 10,
+      "material": "stone"
+    }
+  ],
+  "objectives": [
+    {
+      "id": "A",
+      "x": -21,
+      "z": 0,
+      "weight": 1,
+      "owner": -1,
+      "spawn": true
+    },
+    {
+      "id": "B",
+      "x": 21,
+      "z": 0,
+      "weight": 1,
+      "owner": -1,
+      "spawn": true
+    }
+  ],
+  "bases": [
+    {
+      "x": -21,
+      "z": 0
+    },
+    {
+      "x": 21,
+      "z": 0
+    }
+  ],
+  "front": 8,
+  "armySize": {
+    "standard": 4,
+    "max": 8
+  },
+  "lobby": {
+    "label": "Drowned catacombs",
+    "where": "in a flooded crypt nave,",
+    "blurb": "Columns and torchlight round a sunken, flooded pit",
+    "art": "radial-gradient(circle at 50% 70%, #2f7f8f88, transparent 50%), linear-gradient(180deg, #1a2528, #0a1012 70%)"
+  },
+  "look": {
+    "sky": "fog",
+    "props": [
+      {
+        "id": "t-col00",
+        "kind": "torch",
+        "x": -17,
+        "z": -3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col01",
+        "kind": "torch",
+        "x": -17,
+        "z": 3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col10",
+        "kind": "torch",
+        "x": -12,
+        "z": -3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col11",
+        "kind": "torch",
+        "x": -12,
+        "z": 3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col20",
+        "kind": "torch",
+        "x": 12,
+        "z": -3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col21",
+        "kind": "torch",
+        "x": 12,
+        "z": 3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col30",
+        "kind": "torch",
+        "x": 17,
+        "z": -3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "t-col31",
+        "kind": "torch",
+        "x": 17,
+        "z": 3.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "twm20m9m5",
+        "kind": "torch",
+        "x": -20,
+        "z": -9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "twm209m5",
+        "kind": "torch",
+        "x": -20,
+        "z": 9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "twm6m9m5",
+        "kind": "torch",
+        "x": -6,
+        "z": -9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "twm69m5",
+        "kind": "torch",
+        "x": -6,
+        "z": 9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "tw6m9m5",
+        "kind": "torch",
+        "x": 6,
+        "z": -9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "tw69m5",
+        "kind": "torch",
+        "x": 6,
+        "z": 9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "tw20m9m5",
+        "kind": "torch",
+        "x": 20,
+        "z": -9.5,
+        "y": 0,
+        "turn": 0
+      },
+      {
+        "id": "tw209m5",
+        "kind": "torch",
+        "x": 20,
+        "z": 9.5,
+        "y": 0,
+        "turn": 0
+      }
+    ]
+  }
+}

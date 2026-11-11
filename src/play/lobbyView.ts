@@ -61,6 +61,11 @@ export const ARENA_INFO: Readonly<Record<string, { label: string; blurb: string;
     blurb: 'Bevelled roofs, open gaps, a long way down',
     art: 'radial-gradient(circle at 50% 60%, #ffd08acc, transparent 16%), linear-gradient(180deg, #241c26, #94463e 38%, #c98a56 60%, #4a3236 61%, #8f7f6c 66%, #5a4a3e)',
   },
+  catacombs: {
+    label: 'Drowned catacombs',
+    blurb: 'Columns, torchlight and a flooded pit',
+    art: 'radial-gradient(circle at 50% 70%, #2f7f8f88, transparent 50%), linear-gradient(180deg, #1a2528, #0a1012 70%)',
+  },
   circle: {
     label: 'Training circle',
     blurb: 'Open ground, nowhere to hide',
