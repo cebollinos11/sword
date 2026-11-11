@@ -37,6 +37,15 @@ import { DOOR_WIDTH, enclosureTop, parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS
 const UNDO_DEPTH = 200;
 /** How far over the level it stands at a new Wall rises, and a new Block's top (m). */
 const NEW_HEIGHT = 3;
+/** How far apart a new level is put when the map has only one to measure from (m): the Fort's keep deck. */
+export const LEVEL_STEP = 4;
+
+/** The height between levels a new one is put at: the gap between the top two (or the bottom two, `below`), else LEVEL_STEP. */
+export function levelStep(levels: readonly number[], below = false): number {
+  if (levels.length < 2) return LEVEL_STEP;
+  const gap = below ? levels[1]! - levels[0]! : levels[levels.length - 1]! - levels[levels.length - 2]!;
+  return gap > 0 ? gap : LEVEL_STEP;
+}
 
 /** A grip on a Brush the top view drags to resize it: a corner or a side's middle of a rectangle, or an end of a segment. */
 export type Handle = 'sw' | 's' | 'se' | 'e' | 'ne' | 'n' | 'nw' | 'w' | 'a' | 'b';
@@ -461,9 +470,8 @@ export class MapEditorSession {
     return `${kind}${n}`;
   }
 
-  /** The level above `level` (or, on the top level, `level` itself, with the one below as its foot): where a Platform or Ramp drawn on it reaches. */
-  private rise(): { lo: number; hi: number } {
-    const { levels } = this.current;
+  /** The level above `level` among `levels` (or, on the top level, `level` itself, with the one below as its foot): where a Platform or Ramp drawn on it reaches. */
+  private rise(levels: readonly number[]): { lo: number; hi: number } {
     const i = levels.indexOf(this.level);
     if (i + 1 < levels.length) return { lo: this.level, hi: levels[i + 1]! };
     if (i > 0) return { lo: levels[i - 1]!, hi: this.level };
@@ -473,9 +481,14 @@ export class MapEditorSession {
   /**
    * Draw a new Brush of `kind` from `from` to `to` (the corners of a rectangle, the ends of a segment), snapped to the grid, at the level
    * being edited; it is painted last and selected. A click (from = to) makes one coarse cell of it there (a segment one cell long, east).
+   * A Platform or Ramp drawn on a map of one level, or an Enclosure drawn on the top level, needs a level above: it is added with it
+   * (`levelStep` over the top), in the same undo step.
    */
   addBrush(kind: BrushKind, from: GroundPoint, to: GroundPoint): Brush {
     const cell = this.current.grid.cell;
+    const top = this.current.levels[this.current.levels.length - 1]!;
+    const needsAbove = ((kind === 'platform' || kind === 'ramp') && this.current.levels.length === 1) || (kind === 'enclosure' && this.level === top);
+    const levels = needsAbove ? [...this.current.levels, top + levelStep(this.current.levels)] : this.current.levels;
     const id = this.freshId(kind);
     const y = this.level;
     let brush: Brush;
@@ -502,10 +515,10 @@ export class MapEditorSession {
           brush = { kind, id, rect, y, hazard: 'lava' };
           break;
         case 'platform':
-          brush = { kind, id, rect, top: this.rise().hi };
+          brush = { kind, id, rect, top: this.rise(levels).hi };
           break;
         case 'enclosure': {
-          if (enclosureTop({ y }, this.current.levels) === null) throw new TuningDataError(`an Enclosure's ceiling is the level above its floor: draw it on a lower level, or add a level above ${y} m`);
+          if (enclosureTop({ y }, levels) === null) throw new TuningDataError(`an Enclosure's ceiling is the level above its floor: draw it on a lower level, or add a level above ${y} m`);
           // A doorway on every side, as wide as the side allows.
           const width = (len: number) => Math.min(DOOR_WIDTH, len);
           const ns = width(rect.x1 - rect.x0);
@@ -519,7 +532,7 @@ export class MapEditorSession {
           brush = { kind, id, rect, top: y + NEW_HEIGHT };
           break;
         case 'ramp': {
-          const { lo, hi } = this.rise();
+          const { lo, hi } = this.rise(levels);
           // It rises along its long side, north or east; both long sides railed.
           const up: Side = rect.z1 - rect.z0 >= rect.x1 - rect.x0 ? 'n' : 'e';
           brush = { kind, id, rect, lo, hi, up, rails: rampLongSides(up) };
@@ -527,7 +540,7 @@ export class MapEditorSession {
         }
       }
     }
-    this.apply({ ...this.current, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
+    this.apply({ ...this.current, levels, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
     this.select(id);
     return brush;
   }
@@ -800,6 +813,24 @@ export class MapEditorSession {
     }
     this.apply({ ...this.current, levels: [...this.current.levels, y].sort((a, b) => a - b) });
     this.level = y;
+  }
+
+  /**
+   * Add a level `levelStep` over the top one (`where` 'above') or under the bottom one ('below'), or halfway between the level being edited
+   * and the next one up ('between', snapped to the grid; on the top level, as 'above'), and edit it. Returns its height.
+   */
+  addLevelNear(where: 'above' | 'below' | 'between'): number {
+    const levels = this.current.levels;
+    const i = levels.indexOf(this.level);
+    let y: number;
+    if (where === 'below') y = levels[0]! - levelStep(levels, true);
+    else if (where === 'between' && i + 1 < levels.length) {
+      const { step } = this.current.grid;
+      y = Math.round((levels[i]! + levels[i + 1]!) / 2 / step) * step;
+      if (levels.includes(y)) throw new TuningDataError(`${levels[i]} m and ${levels[i + 1]} m are too close for a level between them`);
+    } else y = levels[levels.length - 1]! + levelStep(levels);
+    this.addLevel(y);
+    return y;
   }
 
   /** Take the height `y` out of the levels; refused while a Brush stands at it (the parser names it). */

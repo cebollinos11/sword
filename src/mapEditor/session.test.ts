@@ -92,7 +92,9 @@ describe('the Map Editor session', () => {
 
   it('stands a new Brush at the level being edited: Platforms and Ramps rise to the level above', () => {
     const s = new MapEditorSession();
-    expect(() => s.addBrush('ramp', { x: 0, z: 0 }, { x: 4, z: 10 })).toThrow(/add a second level/);
+    // On a map of one level, the level above comes with it (and goes with an undo).
+    expect(s.addBrush('ramp', { x: 0, z: 0 }, { x: 4, z: 10 })).toMatchObject({ lo: 0, hi: 4 });
+    s.undo();
     expect(s.source.brushes).toHaveLength(1);
     s.addLevel(4);
     s.level = 0;
@@ -403,5 +405,36 @@ describe('the quick edits (the toolbar, the context menu and the shortcuts)', ()
     s.rotateBrush(e.id);
     const turned = s.selection!;
     expect(turned.kind === 'enclosure' && turned.doors).toEqual({ w: 3 });
+  });
+});
+
+describe('making levels', () => {
+  it('adds a level above, below or between, one step apart, and edits it', () => {
+    const s = new MapEditorSession();
+    expect(s.addLevelNear('above')).toBe(4);
+    expect(s.level).toBe(4);
+    expect(s.addLevelNear('above')).toBe(8);
+    expect(s.addLevelNear('below')).toBe(-4);
+    s.level = 0;
+    expect(s.addLevelNear('between')).toBe(2);
+    expect(s.source.levels).toEqual([-4, 0, 2, 4, 8]);
+    s.level = 8;
+    expect(s.addLevelNear('between')).toBe(12);
+  });
+
+  it('adds the level above a Platform, Ramp or Enclosure needs with it, in one undo step', () => {
+    const s = new MapEditorSession();
+    const p = s.addBrush('platform', { x: 0, z: 0 }, { x: 10, z: 10 });
+    expect(p.kind === 'platform' && p.top).toBe(4);
+    expect(s.source.levels).toEqual([0, 4]);
+    s.undo();
+    expect(s.source.levels).toEqual([0]);
+    expect(s.source.brushes.map((b) => b.id)).toEqual(['ground']);
+    s.level = 0;
+    s.addLevel(4);
+    s.level = 4;
+    const e = s.addBrush('enclosure', { x: 0, z: 0 }, { x: 10, z: 10 });
+    expect(e.kind === 'enclosure' && e.y).toBe(4);
+    expect(s.source.levels).toEqual([0, 4, 8]);
   });
 });

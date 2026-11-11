@@ -1,7 +1,7 @@
 /**
  * The Map Editor's toolbar, over the top left of the view: one click to a tool (each with its key), undo and redo, the level being edited
- * (a chip a level, its key 1 to 9) and whether every level is shown, mirror mode, the view (top, 3D, split), the play-test and the
- * shortcut sheet. It holds no state of its own: `update` reads what it shows from its `state` callback, and each button calls back.
+ * (a chip a level, its key 1 to 9; + adds one over the top, and a right click on a chip or + offers the rest) and whether every level is
+ * shown, mirror mode, the view (top, 3D, split), the play-test, the shortcut sheet, and whether the side panel is shown. It holds no state of its own: `update` reads what it shows from its `state` callback, and each button calls back.
  */
 import { TOOL_ICONS } from './icons';
 import type { Tool } from './topView';
@@ -15,6 +15,8 @@ export interface ToolbarState {
   readonly view: 'top' | '3d' | 'split';
   readonly canUndo: boolean;
   readonly canRedo: boolean;
+  /** Whether the side panel (Tweakpane) is shown. */
+  readonly panel: boolean;
 }
 
 export interface ToolbarActions {
@@ -27,6 +29,11 @@ export interface ToolbarActions {
   readonly view: (v: ToolbarState['view']) => void;
   readonly playtest: () => void;
   readonly help: () => void;
+  /** + : a level over the top one. */
+  readonly addLevel: () => void;
+  /** A right click on a level's chip (or on +, null): the menu of what can be done with the levels, at the screen point (x, y). */
+  readonly levelMenu: (level: number | null, x: number, y: number) => void;
+  readonly panel: (on: boolean) => void;
 }
 
 /** The tools as the toolbar shows them: a short name, its key, and what it does (the tooltip). */
@@ -47,7 +54,7 @@ const TOOLS: readonly { readonly tool: Tool; readonly name: string; readonly key
 ];
 
 const BAR_CSS =
-  'position:absolute;left:8px;top:8px;max-width:calc(100% - 370px);box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px;background:rgba(18,20,26,0.9);border-radius:5px;z-index:7;font:12px/1 system-ui,sans-serif;user-select:none';
+  'position:absolute;left:8px;top:8px;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:4px;background:rgba(18,20,26,0.9);border-radius:5px;z-index:7;font:12px/1 system-ui,sans-serif;user-select:none';
 const BUTTON_CSS = 'border:1px solid #3a3f4a;background:#262a32;color:#ddd;border-radius:3px;padding:4px 6px;cursor:pointer;font:inherit;white-space:nowrap';
 const ON = { background: '#4a5a2a', borderColor: '#ffe14d', color: '#fff' };
 const OFF = { background: '#262a32', borderColor: '#3a3f4a', color: '#ddd' };
@@ -59,6 +66,7 @@ export class Toolbar {
   private readonly redo: HTMLButtonElement;
   private readonly levelBox = document.createElement('span');
   private readonly all: HTMLButtonElement;
+  private readonly panel: HTMLButtonElement;
   private readonly mirror: HTMLButtonElement;
   private readonly views = new Map<ToolbarState['view'], HTMLButtonElement>();
   private levelsShown = '';
@@ -95,6 +103,8 @@ export class Toolbar {
     levelLabel.style.cssText = 'color:#999;margin:0 2px';
     this.levelBox.style.cssText = 'display:flex;gap:2px';
     this.element.append(levelLabel, this.levelBox);
+    const add = this.button('+', 'Add a level over the top one (+); right-click for below, between or at a height', act.addLevel);
+    add.addEventListener('contextmenu', (e) => act.levelMenu(null, e.clientX, e.clientY));
     this.all = this.button('all', 'Show and pick every level, the others faded (A)', () => act.showAll(!this.state().showAll));
     this.gap();
     this.mirror = this.button('⇅ mirror', 'Mirror mode: what you place gets its half-turn twin (M)', () => act.mirror(!this.state().mirror));
@@ -108,6 +118,7 @@ export class Toolbar {
     this.gap();
     this.button('▶ Play-test', 'Play-test the draft (Ctrl+Enter)', act.playtest);
     this.button('?', 'Shortcuts (?)', act.help);
+    this.panel = this.button('◨ panel', 'Show or hide the side panel (\\)', () => act.panel(!this.state().panel));
     parent.appendChild(this.element);
     this.update();
   }
@@ -151,17 +162,20 @@ export class Toolbar {
           const b = document.createElement('button');
           b.type = 'button';
           b.textContent = `${y} m`;
-          b.title = k < 9 ? `Edit the level at ${y} m (${k + 1}; PageUp/PageDown step)` : `Edit the level at ${y} m`;
+          b.title = `${k < 9 ? `Edit the level at ${y} m (${k + 1}; PageUp/PageDown step)` : `Edit the level at ${y} m`}; right-click to add or remove levels`;
           b.style.cssText = BUTTON_CSS;
           b.dataset.level = String(y);
           b.addEventListener('mousedown', (e) => e.preventDefault());
           b.addEventListener('click', () => this.act.level(y));
+          b.addEventListener('contextmenu', (e) => this.act.levelMenu(y, e.clientX, e.clientY));
           return b;
         }),
       );
     }
     for (const b of this.levelBox.children) Toolbar.mark(b as HTMLButtonElement, Number((b as HTMLElement).dataset.level) === s.level);
     Toolbar.mark(this.all, s.showAll);
+    Toolbar.mark(this.panel, s.panel);
+    this.element.style.maxWidth = s.panel ? 'calc(100% - 370px)' : 'calc(100% - 16px)';
     Toolbar.mark(this.mirror, s.mirror);
     for (const [v, b] of this.views) Toolbar.mark(b, v === s.view);
   }

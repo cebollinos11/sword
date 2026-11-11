@@ -105,11 +105,13 @@ describe('an Enclosure', () => {
     expect(() => parseMapSource(withBrushes([GROUND, room({ up: 2 } as never)]))).toThrow(/must be one of n, e, s, w/);
   });
 
-  it('is drawn in the editor with a doorway on every side, and refused on the top level', () => {
+  it('is drawn in the editor with a doorway on every side, and on the top level adds the level above for its ceiling', () => {
     const s = new MapEditorSession(withBrushes([GROUND]));
     const b = s.addBrush('enclosure', { x: -5, z: -5 }, { x: 5, z: 5 });
     expect(b).toEqual({ kind: 'enclosure', id: 'enclosure1', rect: { x0: -5, z0: -5, x1: 5, z1: 5 }, y: 0, doors: { n: 2, e: 2, s: 2, w: 2 } });
-    s.level = 4;
-    expect(() => s.addBrush('enclosure', { x: 20, z: 20 }, { x: 30, z: 30 })).toThrow(/level above/);
+    const top = s.source.levels[s.source.levels.length - 1]!;
+    s.level = top;
+    expect(s.addBrush('enclosure', { x: 20, z: 20 }, { x: 30, z: 30 })).toMatchObject({ y: top });
+    expect(s.source.levels[s.source.levels.length - 1]).toBeGreaterThan(top);
   });
 });

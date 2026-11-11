@@ -27,7 +27,10 @@
  * right-click menu of what lies under the pointer (`contextMenu.ts`, built here by `menuAt`: a Brush's copy, turn, paint order, level, kind,
  * material, rails, doorways and the Brushes under it; an Objective's spawn, Owner and weight; a prop's kind and turn; and on any ground,
  * paste, a cell of any Brush, an Objective or a prop there), and keys for the rest (`?` lists them): 1 to 9 and PageUp/PageDown the level,
- * A every level, Q a quarter turn, Ctrl+C/X/V copy, cut and paste under the pointer, Home the whole field, Space held to pan.
+ * A every level, Q a quarter turn, Ctrl+C/X/V copy, cut and paste under the pointer, Home the whole field, Space held to pan. Levels are made
+ * in one click (the toolbar's +, or +: one step over the top; a right click on a level's chip for below, between or at a height), and a
+ * Platform, Ramp or Enclosure drawn where it needs a level above adds it. The side panel can be hidden (the toolbar, or \\), giving the views
+ * its room (the 3D view in split takes the whole right half).
  *
  * `MapEditorSession` holds the source and every operation on it (unit-tested); this file only calls it and the checks.
  */
@@ -44,7 +47,7 @@ import { formatQuickCheck, QuickBattle, summarise, type BattleReport } from '../
 import { battleMapCard } from '../../play/lobbyView';
 import { dressedSampleSource, sampleSource } from '../sample.testdata';
 import { fortPortSource } from '../fortPort.testdata';
-import { blankSource, boundsOf, brushLevels, isSegment, MapEditorSession, rampLongSides, type Marker } from '../session';
+import { blankSource, boundsOf, brushLevels, isSegment, levelStep, MapEditorSession, rampLongSides, type Marker } from '../session';
 import { BATTLE_SKIES, BRUSH_KINDS, DOOR_WIDTH, enclosureTop, MAP_MATERIALS, PROP_KINDS, SIDES, type BattleSky, type Brush, type BrushKind, type GroundPoint, type HazardKind, type MapMaterial, type PropKind, type Side, type SourceLobby, type SourceObjective, type SourceProp } from '../source';
 import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
@@ -192,6 +195,15 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   // Dev server only: the session in the console (`mapEditor.source`), to look at or script a map by hand.
   if (import.meta.env.DEV) (window as unknown as { mapEditor: MapEditorSession }).mapEditor = session;
   container.style.position = 'relative';
+  /** Whether the side panel is shown (remembered in this browser; the views take its room when it is not). */
+  let panelShown = true;
+  try {
+    panelShown = localStorage.getItem('mapEditor.panel') !== 'hidden';
+  } catch {
+    // Storage blocked: shown.
+  }
+  /** The width (px) the panel covers on the right, now. */
+  const panelPx = () => (panelShown ? PANEL_PX : 0);
   const ui = {
     tool: 'select' as Tool,
     level: session.level,
@@ -254,12 +266,12 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     const split = mode === 'split';
     // A canvas sizes by its width, not its left and right edges: each is given one.
     view3d.canvas.style.left = split ? '50%' : '0';
-    view3d.canvas.style.width = split ? `calc(50% - ${PANEL_PX}px)` : '100%';
+    view3d.canvas.style.width = split ? `calc(50% - ${panelPx()}px)` : '100%';
     view.canvas.style.width = split ? '50%' : '100%';
     view.canvas.style.visibility = mode === '3d' ? 'hidden' : 'visible';
     view.shown = mode !== '3d';
-    view.panelPx = split ? 0 : PANEL_PX;
-    list.style.width = split ? 'min(620px,calc(50% - 16px))' : 'min(620px,calc(100% - 370px))';
+    view.panelPx = split ? 0 : panelPx();
+    list.style.width = split ? 'min(620px,calc(50% - 16px))' : `min(620px,calc(100% - ${panelPx() + 30}px))`;
     view3d.show(mode !== 'top');
     view.frame(session.source);
   };
@@ -398,6 +410,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
 
   const pane = new Pane({ title: 'Map Editor' });
   const paneBox = pane.element.parentElement!;
+  if (!panelShown) paneBox.style.display = 'none';
   paneBox.style.width = '320px';
   paneBox.style.maxHeight = 'calc(100vh - 16px)';
   paneBox.style.overflowY = 'auto';
@@ -528,7 +541,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     });
     function onBack(): void {
       playtesting = null;
-      paneBox.style.display = '';
+      paneBox.style.display = panelShown ? '' : 'none';
       list.style.display = '';
       toolbar!.element.style.display = '';
       view.redraw();
@@ -646,8 +659,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       if (syncing) return;
       setShowAll(e.value);
     });
+    f.addButton({ title: 'Add a level above (+)' }).on('click', () => levelEdit(() => session.addLevelNear('above')));
+    f.addButton({ title: 'Add a level below' }).on('click', () => levelEdit(() => session.addLevelNear('below')));
     f.addBinding(ui, 'newLevel', { label: 'height (m)', step: 0.5 });
-    f.addButton({ title: 'Add level' }).on('click', () => {
+    f.addButton({ title: 'Add level at this height' }).on('click', () => {
       try {
         session.addLevel(ui.newLevel);
       } catch (e) {
@@ -1119,6 +1134,63 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     withSelection((id) => session.rotateBrush(id))();
   };
 
+  /** A change to the levels (they shape the panel): refused with its reason, then the panel rebuilt for them. */
+  const levelEdit = (f: () => unknown) => {
+    try {
+      const y = f();
+      if (typeof y === 'number') say(`Editing the new level at ${y} m (1 … 9 or PageUp/PageDown to change level)`);
+    } catch (e) {
+      say(e instanceof Error ? e.message : String(e));
+    }
+    rebuild();
+  };
+  const addLevelAt = () => {
+    const top = session.source.levels[session.source.levels.length - 1]!;
+    const raw = prompt('Height of the new level (m)', String(top + levelStep(session.source.levels)));
+    if (raw === null || raw.trim() === '') return;
+    const y = Number(raw);
+    levelEdit(() => {
+      session.addLevel(y);
+      return y;
+    });
+  };
+  /** The levels' items: add one above the top, below the bottom, between `at` and the next, or at a typed height; remove `at`. */
+  const levelItems = (at: number | null): MenuItem[] => {
+    const levels = session.source.levels;
+    const top = levels[levels.length - 1]!;
+    const k = at === null ? -1 : levels.indexOf(at);
+    const items: MenuItem[] = [];
+    if (at !== null) items.push({ label: `Level ${at} m`, header: true }, { label: 'Edit it', checked: session.level === at, action: () => setLevel(at) });
+    items.push(
+      { label: `Add a level above (${top + levelStep(levels)} m)`, hint: '+', action: () => levelEdit(() => session.addLevelNear('above')) },
+      { label: `Add a level below (${levels[0]! - levelStep(levels, true)} m)`, action: () => levelEdit(() => session.addLevelNear('below')) },
+    );
+    if (at !== null && k + 1 < levels.length)
+      items.push({
+        label: `Add a level between ${at} m and ${levels[k + 1]} m`,
+        action: () =>
+          levelEdit(() => {
+            session.level = at;
+            return session.addLevelNear('between');
+          }),
+      });
+    items.push({ label: 'Add a level at a height…', action: addLevelAt });
+    if (at !== null) items.push('separator', { label: 'Remove this level', disabled: levels.length === 1, action: () => levelEdit(() => session.removeLevel(at)) });
+    return items;
+  };
+  const setPanel = (on: boolean) => {
+    panelShown = on;
+    try {
+      localStorage.setItem('mapEditor.panel', on ? 'shown' : 'hidden');
+    } catch {
+      // Not remembered.
+    }
+    paneBox.style.display = on ? '' : 'none';
+    layoutViews(ui.view);
+    drawChecks();
+    refreshPane();
+  };
+
   const toolbarState = () => ({
     tool: ui.tool,
     levels: session.source.levels,
@@ -1128,6 +1200,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view: ui.view,
     canUndo: session.canUndo,
     canRedo: session.canRedo,
+    panel: panelShown,
   });
   toolbar = new Toolbar(container, toolbarState, {
     tool: setTool,
@@ -1145,6 +1218,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     view: setView,
     playtest,
     help: () => toggleHelp(),
+    addLevel: () => levelEdit(() => session.addLevelNear('above')),
+    levelMenu: (y, x, yy) => showMenu(x, yy, levelItems(y)),
+    panel: setPanel,
   });
 
   const helpBox = document.createElement('div');
@@ -1157,6 +1233,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     ['Alt-drag', 'a copy of the Brush'],
     ['Double-click', 'a faded Brush: edit its level'],
     ['1 … 9, PageUp / PageDown', 'the level being edited'],
+    ['+', 'add a level over the top one (right-click a level on the toolbar for more)'],
     ['A', 'show every level (the others faded), or only the one being edited'],
     ['Q', 'turn the selected Brush (or prop) a quarter clockwise'],
     ['Ctrl+C / Ctrl+X / Ctrl+V', 'copy, cut, paste under the pointer'],
@@ -1167,6 +1244,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     ['Ctrl+Z / Ctrl+Shift+Z', 'undo, redo'],
     ['M', 'mirror mode'],
     ['Home', 'frame the whole field'],
+    ['\\', 'show or hide the side panel'],
     ['Space-drag, right-drag', 'pan (the wheel zooms)'],
     ['Ctrl+S / Ctrl+Enter', 'save, play-test'],
     ['Esc', 'the select tool, nothing selected'],
@@ -1339,7 +1417,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
         ),
       },
       'separator',
-      { label: 'Edit level', submenu: levels.map((y, k) => ({ label: levelLabel(y), hint: k < 9 ? String(k + 1) : '', checked: y === session.level, action: () => setLevel(y) })) },
+      { label: 'Edit level', submenu: [...levels.map((y, k): MenuItem => ({ label: levelLabel(y), hint: k < 9 ? String(k + 1) : '', checked: y === session.level, action: () => setLevel(y) })), 'separator', ...levelItems(null)] },
       { label: 'Show every level', hint: 'A', checked: session.showAll, action: () => setShowAll(!session.showAll) },
       { label: 'Frame the whole field', hint: 'Home', action: () => view.frame(session.source) },
     ];
@@ -1391,6 +1469,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   };
   rebuild();
   runChecks();
+  // The panel hidden last time: the views take its room from the start.
+  if (!panelShown) layoutViews(ui.view);
   // The material swatches show the textures once they are read (until then, flat colours).
   void loadSwatches().then(() => materialGrid?.refresh());
 
@@ -1459,6 +1539,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       if (k >= 0 && k < levels.length) setLevel(levels[k]!);
     } else if (!mod && e.key === 'Home') {
       view.frame(session.source);
+    } else if (!mod && (e.key === '+' || e.key === '=')) {
+      levelEdit(() => session.addLevelNear('above'));
+    } else if (!mod && e.key === '\\') {
+      setPanel(!panelShown);
     } else if (!mod && e.key === '?') {
       toggleHelp();
     } else if (!mod && !e.altKey && key === 'q') {
