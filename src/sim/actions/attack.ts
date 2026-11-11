@@ -4,7 +4,7 @@
  * `releaseEnd` markers; Recovery ends with the Motion. The Weapon's Tempo
  * stretches each phase (see tempo.ts).
  */
-import { UNIT_TEMPO, weaponMotion, type TuningData } from '../../tuning';
+import { attackDirection, UNIT_TEMPO, weaponByName, weaponMotion, type TuningData } from '../../tuning';
 import { secondsToTicks } from '../constants';
 import type { Direction, Intent } from '../intent';
 import { motionBlendTicks } from '../motion';
@@ -48,10 +48,18 @@ function enter(action: AttackAction, phase: AttackPhase, tick: number, ctx: Acti
   return { action: { ...action, phase }, motion: { name: attackMotionName(action.direction), tick } };
 }
 
-/** Pressing attack starts a Wind-up in the Intent's Direction. Never while Sheathed: that Draws instead (startSheathe). */
+/**
+ * The Direction an Intent asking for `direction` Attacks in with `f`'s Weapon: Overhead for a Direction the Weapon
+ * lacks (the Flail's Thrust). Every place an Intent's Direction becomes an Attack's goes through here, so a held Thrust
+ * is never read as a Feint away from the Overhead it gave.
+ */
+export const attackDirectionOf = (f: FighterState, direction: Direction, tuning: TuningData): Direction =>
+  attackDirection(weaponByName(tuning, f.weapon), direction);
+
+/** Pressing attack starts a Wind-up in the Intent's Direction (as the Weapon has it). Never while Sheathed: that Draws instead (startSheathe). */
 export const startAttack: ActionStarter = (f, intent, ctx) => {
   if (!intent.attack || f.sheathed) return null;
-  const action: AttackAction = { kind: 'Attack', direction: intent.direction, phase: 'Wind-up', landed: false };
+  const action: AttackAction = { kind: 'Attack', direction: attackDirectionOf(f, intent.direction, ctx.tuning), phase: 'Wind-up', landed: false };
   ctx.emit({ type: 'AttackPhase', fighter: ctx.fighter, direction: action.direction, phase: 'Wind-up' });
   return { action, motion: { name: attackMotionName(action.direction), tick: 0 } };
 };
@@ -72,7 +80,7 @@ export const updateAttack: ActionHandler<AttackAction> = (f, intent, ctx) => {
     case 'Release': {
       if (tick + 1 < t.releaseEnd) return enter(a, 'Release', tick + 1, ctx);
       // Attack pressed again during Release, the swing having found nothing yet: queue a Whiff Chain in the Direction held now.
-      const queued = intent.attack && !a.landed ? { ...a, whiffChain: intent.direction } : a;
+      const queued = intent.attack && !a.landed ? { ...a, whiffChain: attackDirectionOf(f, intent.direction, ctx.tuning) } : a;
       return enter(queued, 'Recovery', tick + 1, ctx);
     }
     case 'Recovery': {
@@ -119,7 +127,7 @@ function recover(f: FighterState & { readonly action: AttackAction }, t: AttackT
     // Dropping the Chain: blend back into the Recovery where it has got to.
     return { ...enter(unchained, 'Recovery', tick + 1, ctx), blendTicks: motionBlendTicks(ctx.tuning) };
   }
-  const direction = chain?.direction ?? intent.direction;
+  const direction = chain?.direction ?? attackDirectionOf(f, intent.direction, ctx.tuning);
   const action: AttackAction = { ...unchained, chain: { direction, tick: tick + 1 } };
   const motion = { name: attackMotionName(direction), tick: 0 };
   if (chain) return { action, motion };

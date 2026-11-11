@@ -6,7 +6,7 @@
  * sent, and where each lies is Team 1's spawn cell, ground the generator's judge guarantees every Door can walk to. They are plain data,
  * hashed and snapshotted with the Run, and gone when the Hall changes. The AI allies never take loot: only `runPlayers`' Fighters do.
  */
-import type { TuningData } from '../tuning';
+import { runWeapons, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { hallSlot, runPick, runSeed, type Hall } from './dungeon';
 import { inDuel } from './duel';
@@ -65,7 +65,7 @@ function pickItem(tuning: TuningData, seed: number, at: HallRef, player: number,
   const slot = (hallSlot(at.row, at.index) * 8 + player) * 8 + k;
   const { Relic, Weapon } = tuning.dungeon.loot.weights;
   const relics = tuning.relics.map((r) => r.name);
-  const weapons = Object.keys(tuning.weapons);
+  const weapons = runWeapons(tuning);
   const u = (runPick(seed, at.floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
   const kind: Dropped['kind'] = relics.length > 0 && (u < Relic || weapons.length === 0) ? 'relic' : 'weapon';
   const names = kind === 'relic' ? relics : weapons;

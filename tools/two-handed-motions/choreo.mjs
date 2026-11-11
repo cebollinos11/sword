@@ -1,8 +1,8 @@
 /**
  * Two-handed choreography, turned into Motion override files by gen.mjs (see there). Fighter-local: x right, y up, z forward.
  *
- * A Weapon lists `motions` (written whole) and `patches` (a default Motion with only its hands replaced, keyed by the
- * times of its Pose Keys that set them). A Pose Key: t (s), ease, path, idle (channels linked to the guard), and
+ * A Weapon lists `motions` (written whole), `patches` (a default Motion with only its hands replaced, keyed by the
+ * times of its Pose Keys that set them) and `copies` (another Weapon's override written as it is, by Motion name). A Pose Key: t (s), ease, path, idle (channels linked to the guard), and
  *   c: grip centre, midway between the hands    d: Weapon direction, hands → tip (any length)
  *   rear: the off (rear) hand instead of c, for a Weapon levered about it
  *   e: where the edge should face (squared to the Weapon; default down)
@@ -201,6 +201,27 @@ const halberd = {
 };
 
 
+// The Flail: the Halberd's grip (the same length, the hands as far apart), and its Attacks. No Thrust (it Attacks Overhead
+// instead). Its Overhead, Left, Overhead Block, Sheathe and Draw are the Halberd's as tuned in the Editor (`copies`; its
+// Right, like the Halberd's, the default): wide and round, fast through the middle, the ball at chest height through a side
+// swing's Release, low enough to hit and high enough for a Crouch to duck (ai.duckMaxPitch), and each held Wind-up high and
+// clear of the body in its own line (behind the head, over one shoulder, over the other). Its guard is its own.
+const flail = {
+  motions: [
+    {
+      name: 'Idle', duration: 2, loop: true,
+      keys: [
+        { t: 0, rear: [-0.18, 1.0, 0.16], d: [0.4, 0.35, 0.85], e: [0, -1, 0], torso: [-25, 8], hip: [0, 0.88, 0.04], ...FEET },
+        { t: 1, rear: [-0.18, 0.99, 0.155], d: [0.4, 0.33, 0.86], hip: [0, 0.865, 0.04] },
+        { t: 2, rear: [-0.18, 1.0, 0.16], d: [0.4, 0.35, 0.85], hip: [0, 0.88, 0.04] },
+      ],
+    },
+  ],
+  // On the back as the Halberd is (the same slot, offset and rotation), so its Sheathe and Draw too.
+  copies: { Overhead: 'Halberd', Left: 'Halberd', BlockOverhead: 'Halberd', DrawBack: 'Halberd', SheatheBack: 'Halberd' },
+};
+
+
 // The Sledge Hammer: the Longsword's lines with the hands 0.41 m apart, a heavier, bigger wind-up and a lower finish.
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const hammer = clone(longsword);
@@ -236,7 +257,7 @@ for (const side of ['Right', 'Left']) {
 }
 Object.assign(key('Left', 0.75), { c: [0.24, 0.95, 0.24], d: [0.7, -0.6, -0.1] });
 
-export const CHOREO = { Longsword: longsword, Halberd: halberd, 'Sledge Hammer': hammer };
+export const CHOREO = { Longsword: longsword, Halberd: halberd, 'Sledge Hammer': hammer, Flail: flail };
 
 // Reactions: the default Motions with both hands kept on the Weapon. `fwd` pushes the grip forward for a longer Weapon.
 const reactions = (fwd = 0, up = 0) => [

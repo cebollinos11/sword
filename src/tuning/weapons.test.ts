@@ -30,13 +30,34 @@ const halberd = (patch: Record<string, unknown>) => ({ ...tuning.weapons.Halberd
 
 describe('Weapon roster', () => {
   it('loads every Weapon from data/weapons/, the Arming Sword first (the default)', () => {
-    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Halberd', 'Longsword', 'Sledge Hammer']);
+    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Flail', 'Halberd', 'Longsword', 'Sledge Hammer']);
     expect(defaultWeaponName(tuning)).toBe('Arming Sword');
     expect(tuning.weapons['Arming Sword']).toMatchObject({ grip: 'oneHanded', length: 0.9, damage: 30, speed: 25, gripLength: 0.12, head: 0.9, look: 'sword' });
     expect(tuning.weapons['Arming Sword']!.offHandGrip).toBeUndefined();
     expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 22, gripLength: 0.28, offHandGrip: { along: 0.14 } });
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.45 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
     expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.15 } });
+  });
+
+  it('the Flail Attacks Overhead, Left and Right, writes them to its file and reads them back; the others list none', () => {
+    const flail = tuning.weapons.Flail!;
+    expect(flail).toMatchObject({ grip: 'twoHanded', look: 'flail', chain: 0.35, attacks: ['Overhead', 'Left', 'Right'], cuts: true });
+    expect(JSON.parse(serializeWeapon(flail)).attacks).toEqual(['Overhead', 'Left', 'Right']);
+    expect(parseWeapon(JSON.parse(serializeWeapon(flail)))).toEqual(flail);
+    for (const w of Object.values(tuning.weapons).filter((w) => w !== flail)) {
+      expect(w.attacks, w.name).toBeUndefined();
+      expect(w.chain, w.name).toBeUndefined();
+      expect(JSON.parse(serializeWeapon(w)).attacks, w.name).toBeUndefined();
+    }
+    // All four listed reads as none listed; any order reads in the roster's Direction order.
+    expect(parseWeapon(halberd({ attacks: ['Thrust', 'Right', 'Left', 'Overhead'] })).attacks).toBeUndefined();
+    expect(parseWeapon(halberd({ attacks: ['Right', 'Overhead'] })).attacks).toEqual(['Overhead', 'Right']);
+    expect(() => parseWeapon(halberd({ attacks: ['Left', 'Right'] }))).toThrow(/^weapons\/Halberd\.attacks must include Overhead/);
+    expect(() => parseWeapon(halberd({ attacks: ['Overhead', 'Overhead'] }))).toThrow(/^weapons\/Halberd\.attacks must list distinct Directions/);
+    expect(() => parseWeapon(halberd({ attacks: ['Overhead', 'Up'] }))).toThrow(/^weapons\/Halberd\.attacks/);
+    // Kept (and drawn only once the look is flail), so turning a look in the Editor never strands a draft.
+    expect(parseWeapon(halberd({ chain: 0.3 })).chain).toBe(0.3);
+    expect(() => parseWeapon({ ...flail, chain: 1.3 })).toThrow(/^weapons\/Flail\.chain plus head must be shorter than length/);
   });
 
   it('names each Weapon file after its Weapon', () => {

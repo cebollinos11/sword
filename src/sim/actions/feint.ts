@@ -8,10 +8,11 @@
  * - Block Feint: press block during Wind-up. The Wind-up is cancelled and a
  *   Block is raised in the Intent's `direction`.
  *
- * Only Wind-up can be cancelled: Release and Recovery are committed.
+ * Only Wind-up can be cancelled: Release and Recovery are committed. An Attack Feint compares the Direction the
+ * Weapon would Attack in (`attackDirectionOf`): with a Flail, Thrust held through an Overhead is no Feint.
  */
 import type { AttackAction } from '../state';
-import { startAttack } from './attack';
+import { attackDirectionOf, startAttack } from './attack';
 import { startBlock } from './block';
 import type { ActionHandler, ActionUpdate } from './types';
 
@@ -19,13 +20,14 @@ import type { ActionHandler, ActionUpdate } from './types';
 export const feint: (...args: Parameters<ActionHandler<AttackAction>>) => ActionUpdate | null = (f, intent, ctx) => {
   const a = f.action;
   if (a.phase !== 'Wind-up') return null;
-  const into = intent.block ? startBlock : intent.attack && intent.direction !== a.direction ? startAttack : null;
+  const attackIn = attackDirectionOf(f, intent.direction, ctx.tuning);
+  const into = intent.block ? startBlock : intent.attack && attackIn !== a.direction ? startAttack : null;
   if (!into) return null;
   ctx.emit({
     type: 'Feint',
     fighter: ctx.fighter,
     from: a.direction,
-    into: { kind: into === startBlock ? 'Block' : 'Attack', direction: intent.direction },
+    into: into === startBlock ? { kind: 'Block', direction: intent.direction } : { kind: 'Attack', direction: attackIn },
   });
   return into(f, intent, ctx);
 };

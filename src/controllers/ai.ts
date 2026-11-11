@@ -185,7 +185,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -955,6 +955,16 @@ class RuleAi implements AiController {
 
   private randomDirection(except?: Direction): Direction {
     return this.pick(DIRECTIONS.filter((d) => d !== except));
+  }
+
+  /** The Directions `f`'s Weapon Attacks in: all four but for a Weapon that lacks one (the Flail's Thrust). */
+  private attacksOf(f: { readonly weapon: string }): readonly Direction[] {
+    return weaponByName(this.tuning, f.weapon).attacks ?? DIRECTIONS;
+  }
+
+  /** A random Direction its own Weapon Attacks in, but `except`: with every Direction, the same draw as `randomDirection`. */
+  private randomAttack(self: FighterState, except?: Direction): Direction {
+    return this.pick(this.attacksOf(self).filter((d) => d !== except));
   }
 
   private forget(): void {
@@ -1958,7 +1968,8 @@ class RuleAi implements AiController {
    */
   private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
     if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
-    const reachOf = (o: Sighting) => this.reach(o) + THRUST_REACH;
+    // The longest it could reach: Thrusting, if its Weapon has a Thrust.
+    const reachOf = (o: Sighting) => this.reach(o) + (this.attacksOf(o).includes('Thrust') ? THRUST_REACH : 0);
     // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
     const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
     const coming = enemies.some(({ i }) => {
@@ -2153,9 +2164,9 @@ class RuleAi implements AiController {
    * its reach; a random one on a mistake.
    */
   private chooseDirection(self: FighterState, target: Sighting, dist: number, narrow = false): Direction {
-    if (this.chance(this.skill.mistakeRate)) return this.randomDirection();
+    if (this.chance(this.skill.mistakeRate)) return this.randomAttack(self);
     const guard = guardOf(target.action);
-    let options = DIRECTIONS.filter((d) => guard === null || mirrorDirection(d) !== guard);
+    let options = this.attacksOf(self).filter((d) => guard === null || mirrorDirection(d) !== guard);
     if (narrow || target.crouch > 0.5 || target.airborne || target.action.kind === 'Knockdown') {
       const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
       if (high.length > 0) options = high;
@@ -2173,7 +2184,7 @@ class RuleAi implements AiController {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist, this.narrowLine(self));
     if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
-      this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
+      this.feintPlan = { from: direction, into: this.chooseFeint(self, target, direction), at };
     }
     const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
     const team = this.turn === true;
@@ -2186,11 +2197,11 @@ class RuleAi implements AiController {
     return { ...base, attack: true, direction };
   }
 
-  /** The Direction to Feint `from` into: around the target's guard, never `from` itself. */
-  private chooseFeint(target: Sighting, from: Direction): Direction {
+  /** The Direction to Feint `from` into: one its Weapon Attacks in, around the target's guard, never `from` itself. */
+  private chooseFeint(self: FighterState, target: Sighting, from: Direction): Direction {
     const guard = guardOf(target.action);
-    const options = DIRECTIONS.filter((d) => d !== from && (guard === null || mirrorDirection(d) !== guard));
-    return options.length > 0 ? this.pick(options) : this.randomDirection(from);
+    const options = this.attacksOf(self).filter((d) => d !== from && (guard === null || mirrorDirection(d) !== guard));
+    return options.length > 0 ? this.pick(options) : this.randomAttack(self, from);
   }
 
   /**
@@ -2213,7 +2224,7 @@ class RuleAi implements AiController {
         const go = this.chance(Math.min(1, this.skill.feintRate * 2));
         plan = this.attackPlan = { ...plan, reFeintRolled: true };
         if (go) {
-          const into = this.chooseFeint(target, a.direction);
+          const into = this.chooseFeint(self, target, a.direction);
           this.attackPlan = { ...plan, direction: into };
           return { ...base, attack: true, direction: into, move: closeIn };
         }
@@ -2411,8 +2422,9 @@ class RuleAi implements AiController {
       if (!this.chance(this.skill.lowSwingRead)) return plan('Duck');
       return this.lowLook(seen) ? { ...plan('Block'), reads: true } : { ...plan('Duck'), reads: true };
     }
-    // Sheathed, its press would only Draw: no Chamber.
-    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && this.skill.chamberRate > 0) {
+    // Sheathed, its press would only Draw: no Chamber. Nor in a Direction its Weapon lacks (a Flail against a Thrust): the press would Attack Overhead.
+    const canChamber = attackDirection(weaponByName(this.tuning, self.weapon), meets) === meets;
+    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && canChamber && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
       const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
       if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);

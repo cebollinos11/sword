@@ -1,7 +1,11 @@
 /**
  * Generates the two-handed Weapons' Motion overrides (data/motions/<Weapon file>/) from the choreography in choreo.mjs.
  *
- *   npm run motions:two-handed
+ *   npm run motions:two-handed -- Flail
+ *
+ * With Weapon names (as choreo.mjs keys them), only those Weapons' files are written; with none, every choreographed
+ * Weapon's. The Longsword's, the Halberd's and the Sledge Hammer's overrides have been tuned in the Editor since they were
+ * generated, so name the Weapon you changed rather than regenerate them all.
  *
  * A two-handed Weapon's off hand always holds its Off-hand Grip (ADR 0004), so its Motions are easier to author as
  * where the grip is and where the Weapon points than as a sword-hand position and Euler angles. Each choreographed
@@ -256,7 +260,16 @@ function poseAt(keys, time, guard) {
 }
 
 
-for (const [weapon, spec] of Object.entries(CHOREO)) {
+const only = process.argv.slice(2);
+for (const name of only) if (!CHOREO[name]) throw new Error(`No choreography for "${name}" (have: ${Object.keys(CHOREO).join(', ')})`);
+const chosen = Object.entries(CHOREO).filter(([weapon]) => only.length === 0 || only.includes(weapon));
+// Copied overrides are read before anything is written, so a full run copies the tuned files, not this run's choreography.
+const copied = new Map(chosen.flatMap(([, spec]) => Object.entries(spec.copies ?? {}).map(([name, from]) => {
+  const path = data(`motions/${WEAPONS[from].folder}/${name.toLowerCase()}.json`);
+  return [path, readFileSync(path, 'utf8')];
+})));
+
+for (const [weapon, spec] of chosen) {
   const w = WEAPONS[weapon];
   if (w?.along === undefined) throw new Error(`${weapon} is not a two-handed Weapon in data/weapons/`);
   mkdirSync(data(`motions/${w.folder}`), { recursive: true });
@@ -404,5 +417,11 @@ for (const [weapon, spec] of Object.entries(CHOREO)) {
     clearPath(`${weapon}/${patch.name}`, base, guard.key);
     writeFileSync(data(`motions/${w.folder}/${patch.name.toLowerCase()}.json`), JSON.stringify(base, null, 2) + '\n');
   }
+
+  // Another Weapon's override taken as it is (a Sheathe for the same slot, offset and rotation).
+  for (const [name, from] of Object.entries(spec.copies ?? {})) {
+    const file = `${name.toLowerCase()}.json`;
+    writeFileSync(data(`motions/${w.folder}/${file}`), copied.get(data(`motions/${WEAPONS[from].folder}/${file}`)));
+  }
 }
-console.log(`Wrote the Motion overrides for ${Object.keys(CHOREO).join(', ')}.`);
+console.log(`Wrote the Motion overrides for ${chosen.map(([weapon]) => weapon).join(', ')}.`);

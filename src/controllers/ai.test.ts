@@ -1702,3 +1702,25 @@ describe('AI Controller: shared Observations', { timeout: 120_000 }, () => {
     expect(alone.newest[1]).not.toBe(alone.newest[0]);
   });
 });
+
+describe('AI Controller: a Weapon without a Thrust (the Flail)', () => {
+  for (const difficulty of ['Hard', 'Expert']) {
+    it(`a ${difficulty} AI with a Flail never asks for a Thrust Attack, and still fights`, () => {
+      const asked: Intent[] = [];
+      const ai = createAiController(repo, difficulty);
+      const flail = {
+        intent: (s: Parameters<typeof ai.intent>[0], i: number) => {
+          const intent = ai.intent(s, i);
+          if (intent.attack && !intent.block && intent.direction === 'Thrust') asked.push(intent);
+          return intent;
+        },
+      };
+      const { final, matches } = runMatch(repo, createMatch(repo, { bestOf: 1, seed: 7, weapons: ['Flail', 'Longsword'] }), [flail, createAiController(repo, difficulty)], 30_000);
+      expect(final.status.status).toBe('Over');
+      expect(asked).toEqual([]);
+      const attacks = matches.flatMap((m) => m.duel.fighters.slice(0, 1).map((f) => f.action)).filter((a) => a.kind === 'Attack');
+      expect(attacks.length).toBeGreaterThan(0);
+      expect(attacks.filter((a) => a.kind === 'Attack' && a.direction === 'Thrust')).toEqual([]);
+    });
+  }
+});

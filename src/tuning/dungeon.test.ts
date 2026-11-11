@@ -20,6 +20,14 @@ const easy = (more: Record<string, unknown> = {}) => ({ difficulty: 'Easy', weap
 const fight = (enemies: unknown[]) => withFloor({ encounters: { ...raw().floors[0]!.encounters, Fight: [{ enemies }] } });
 
 describe('Dungeon Tuning Data (data/dungeon.json)', () => {
+  it('leftOutWeapons: Weapons of the roster a Run never picks or drops (absent: none); refuses an unknown name, or leaving out every Weapon', () => {
+    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail']);
+    const { leftOutWeapons: _left, ...without } = raw();
+    expect(parse(without).leftOutWeapons).toEqual([]);
+    expect(() => parse({ ...raw(), leftOutWeapons: ['Spoon'] })).toThrow(/^dungeon\.leftOutWeapons\[0\]: unknown Weapon "Spoon"/);
+    expect(() => parse({ ...raw(), leftOutWeapons: WEAPONS })).toThrow(/^dungeon\.leftOutWeapons must leave at least one Weapon/);
+  });
+
   it('loads the repo file: 3 Floors, each with its rows, weights, pools and Boss, and the Run numbers', () => {
     const d = tuning.dungeon;
     expect(d.floors.length).toBe(3);

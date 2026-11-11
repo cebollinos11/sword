@@ -2,11 +2,11 @@
 
 > Built one Stage per session with `docs/plans/flail-prompt.md`. The decisions under **Context** are agreed with the user and fixed: if a Stage cannot be built as written, take the smallest deviation that keeps them and note it in the Stage's Result; if it would change them, stop and ask. File and function names below were read from the code when the plan was written; numbers are starting values to tune.
 
-Status: planned, nothing built.
+Status: Stage 1 built (the Flail is a plain, playable Weapon with no Thrust); Stage 2 (the Spin-up) next.
 
 ## Progress
 
-- [ ] Stage 1: the Flail as a plain Weapon (sections 1 and 2): data, Motions, rigid look, icon, no Thrust
+- [x] Stage 1: the Flail as a plain Weapon (sections 1 and 2): data, Motions, rigid look, icon, no Thrust
 - [ ] Stage 2: the Spin-up in the Simulation (section 3), its ADR, the tuning panel
 - [ ] Stage 3: the loose chain, the whirl and the sounds (sections 4 and 5)
 - [ ] Stage 4: the AI spins up and reads a spin (section 6)
@@ -123,6 +123,28 @@ Each Stage ends with `npm run typecheck` and `npm test` clean (`npm run test:slo
 ## Results
 
 (One "### Stage N result" per Stage: what was built, any deviation from the plan and why, what to playtest.)
+
+### Stage 1 result
+
+**Built.**
+- `data/weapons/flail.json`: the plan's values but `speed` (below), plus `attacks: ["Overhead", "Left", "Right"]`, `look: "flail"` and `chain: 0.35`. It loads second in the roster (file order), after the Arming Sword, which stays the default.
+- `src/tuning/weapon.ts`: the `flail` look; optional `attacks` (parsed into Direction order, absent when all four, written to the file only when fewer, must hold Overhead); `attackDirection(weapon, direction)`; optional render-only `chain` (any look may carry it, only the flail look draws it, so switching a look in the Editor never strands a draft). `sizedTuning` scales `chain` with height. No other Weapon file changed.
+- The fallback, in one place per site: `attackDirectionOf` (`src/sim/actions/attack.ts`) maps the Intent's Direction in `startAttack`, the Whiff Chain's queued Direction and the Chain's Direction; `feint` compares against the mapped Direction (an Attack Feint's event carries it; a Block Feint keeps the Intent's). `src/sim/chamber.ts` needed no change: it already judges the Attack's own Direction, so a Flail cannot Chamber a Thrust.
+- AI (`src/controllers/ai.ts`): `chooseDirection`, its mistake pick and `chooseFeint` draw from the Weapon's `attacks` (the same draws as before for every other Weapon: the same option lists, the same `pick`); the hop's threat reach counts `THRUST_REACH` only for a Weapon with a Thrust; it never plans a Chamber in a Direction its Weapon lacks. The three other `THRUST_REACH` sites read the Attack's own Direction, which is never Thrust for a Flail, so they needed nothing. `BESIDE` is a Block's and stays.
+- Rigid look (`src/render/fighterView.ts`, `placeFlail`): shaft to `length - chain - head`, an iron cap, seven interlocked torus links, a ball of 60% of the Head with fourteen spikes reaching the tip (the Head's centre is the ball's). Blood: a shaft contact smears the shaft, a ball contact patches the ball. `src/render/sheathed.ts` needed nothing (it is Weapon-generic): on the back the rigid ball stands up above the shoulder until Stage 3 hangs it.
+- Icon (`src/play/icons.ts`), the menu thumbnail (`public/thumbs/weapons/flail.webp`, from `#/thumbs/weapons/flail`), and a `chain` slider in the Editor's Weapon panel.
+- Tests: `src/sim/flail.test.ts` (the Feint loop first: it fails without the `feint` mapping; Thrust press, Thrust held, Overhead→Left and Left→Thrust Feints, Block Feint in Thrust, Chain and Whiff Chain in Thrust, Blocking a Thrust, no Chamber of a Thrust, Hits by the ball at reach and by the shaft up close, never Heavy unspun, every other Weapon still Thrusts), `src/sim/runWeapons.test.ts`, `attacks`/`chain` in `src/tuning/weapons.test.ts`, `leftOutWeapons` in `src/tuning/dungeon.test.ts`, and two AI vs AI Matches in `src/controllers/ai.test.ts` (a Hard and an Expert Flail AI never ask for a Thrust Attack and still fight).
+
+**Deviations.**
+- **`"random"` in a Run.** Run Encounters' `"random"` Weapon (`hallRoster`) and Weapon loot (`pickItem`) drew from the whole roster, so the Flail would have entered Runs (against the scope) and every seeded Run would have moved. New Tuning Data `dungeon.leftOutWeapons: ["Flail"]` and `runWeapons(tuning)` (the roster without them, in file order): both draws read it, so their pools are exactly the old roster in the old order and no recorded hash moved. Nothing was re-recorded; the AI golden test passes unchanged. Battle Troops name their Weapons, so nothing changes there.
+- **Motions.** The plan wanted the Flail's own wide, round swings. Choreographed side swings came out of the generator's body clearance either lifted over a standing head, or level but low enough to hit a Crouch looking up 24° (the AI's Duck rule, `ai.duckMaxPitch`, assumes no side swing does at -1° or more: `ai.test.ts` checks every Weapon), and slow through contact (0.6× the Halberd's Blade Speed). The Halberd has the same length and hand spacing and its Editor-tuned swings pass all of that, so the Flail takes them: `copies` in `choreo.mjs` writes the Halberd's Overhead, Left, BlockOverhead, DrawBack and SheatheBack into `data/motions/flail/`; its Right is the default, as the Halberd's is (so there is no `right` override). Its Idle is its own, generated (a two-handed guard). The three held Wind-ups read apart from behind at a glance (high over the left shoulder, high behind the head, high over the right).
+- **`gen.mjs` takes Weapon names** (`npm run motions:two-handed -- Flail`) and `copies`. The Longsword's, the Halberd's and the Sledge Hammer's committed overrides have been tuned in the Editor since they were generated (a full run rewrites some of their files and adds dozens they do not have), so the Flail is generated alone. Copied files are read before anything is written.
+- **`speed` 45, not 20.** With the Halberd's swings the ball meets a body at 44 to 52 m/s. At 20 every Head Hit would be a Heavy Blow (2.2 to 2.6× the reference, over `heavyBlow.speed` 1.25) and deal over 100. At 45 a Head Hit deals about `damage` (44 to 52) and none is Heavy, so Stage 2's `spinUp` behaves as section 3 means it: `from` 0.7 never Heavy, `to` 1.4 always (about 1.4 to 1.6× the reference).
+- **Two existing tests changed, both roster listings:** the roster's names in `src/tuning/weapons.test.ts` and `src/editor/tuningSections.test.ts` gained the Flail, and `src/sim/tempo.test.ts`'s "the unit Tempo is every Weapon today" leaves the Flail out (its Tempo is the plan's 1.1 / 1 / 1.2).
+
+**Numbers worth tuning.** `speed` 45 and `damage` 45 (a Head Hit ≈ 45 to 52, against the Halberd's ≈ 95 to 120 and the Longsword's ≈ 45 to 65); `shaftDamage` 0.15 (up close, 1.0 to 1.6 m, only the shaft lands, for 2 to 7); `tempo` 1.1 / 1 / 1.2; `chain` 0.35 and `head` 0.22 (the ball is 60% of the Head, its spikes the rest).
+
+**Playtest.** Pick the Flail in the menu and in a Lobby Seat (its card and icon), and in the Editor's sandbox (Weapons folder). Swing each Direction from about 2 m; press Thrust and wheel down (an Overhead); hold Thrust through an Overhead, then Feint to Left and back; Chain and Whiff Chain holding Thrust; Block all four Directions, Thrust included; Sheathe and Draw (the ball stands up over the shoulder for now). Fight a Hard or Expert AI with it, and against an AI that has it. Start a Run with it from the Lineup and check no enemy and no drop is a Flail. Feel whether it is usable up close.
 
 ## Verification
 

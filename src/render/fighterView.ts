@@ -50,7 +50,8 @@ function boneRadius(a: JointName, b: JointName): number {
  * model whose bones follow the Skeleton, shown in place of the primitives once
  * it has loaded. Its Weapon is drawn to the Weapon's dimensions (a sword:
  * blade, crossguard, grip and pommel; a polearm: shaft, axe blade, spike and
- * back hook over the Head; a hammer: shaft and a rectangular head across the tip). It only reads poses.
+ * back hook over the Head; a hammer: shaft and a rectangular head across the tip; a flail: shaft, chain and a spiked
+ * ball, the ball's centre on the Head's). It only reads poses.
  */
 export class FighterView {
   readonly root = new THREE.Group();
@@ -75,6 +76,7 @@ export class FighterView {
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  private readonly flail: FlailMeshes;
   /** Blood on the Weapon (`setBlood`): one mesh per mark, made as needed, sharing `bloodMaterial`. */
   private readonly bloodMeshes: THREE.Mesh[] = [];
   /** Made with the first mark (so a view that never bloodies draws no smear texture). */
@@ -170,7 +172,18 @@ export class FighterView {
       collar: new THREE.Mesh(cylinder, dark),
     };
     this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
-    this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
+    const link = new THREE.TorusGeometry(1, 0.28, 4, 8);
+    this.owned.push(link);
+    this.flail = {
+      group: new THREE.Group(),
+      shaft: new THREE.Mesh(cylinder, wood),
+      cap: new THREE.Mesh(cylinder, dark),
+      links: Array.from({ length: FLAIL_LINKS }, () => new THREE.Mesh(link, dark)),
+      ball: new THREE.Mesh(sphere, steel),
+      spikes: FLAIL_SPIKES.map(() => new THREE.Mesh(cone, steel)),
+    };
+    this.flail.group.add(this.flail.shaft, this.flail.cap, ...this.flail.links, this.flail.ball, ...this.flail.spikes);
+    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.flail.group);
   }
 
   /** Free what this view made: the primitives' geometries and materials, a loaded model's own materials (its geometry and textures are the shared template's), and its pieces. */
@@ -250,8 +263,10 @@ export class FighterView {
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
+    this.flail.group.visible = weapon.look === 'flail';
     if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
+    else if (weapon.look === 'flail') placeFlail(this.flail, pose.blade, weapon);
     else placeSword(this.sword, pose.blade, weapon);
     this.placeBlood(pose.blade, weapon);
     // The shader bloodies a model's skin where it stands before its bones move it (the rest pose; in pieces, the pose it was
@@ -336,7 +351,20 @@ export class FighterView {
       // Mirrored by its look, so the one smear does not repeat.
       const flipX = m.look < 0.5 ? -1 : 1;
       const flipY = (m.look * 4) % 1 < 0.5 ? -1 : 1;
-      if (w.look === 'hammer') {
+      if (w.look === 'flail') {
+        const r = flailBallRadius(w);
+        const shaftEnd = len - (w.chain ?? 0) - w.head;
+        mesh.geometry = this.shapes.box;
+        if (at < shaftEnd) {
+          // A shaft contact: a smear round the shaft where it struck.
+          const l = Math.min(shaftEnd, markLength(m));
+          placeInFrame(mesh, clampCentre(at, 0, shaftEnd, l), 0, [0.022 * proud * flipX, l * flipY, 0.022 * proud]);
+        } else {
+          // On the ball: a patch on its leading face, moved round it by its look.
+          const l = r * (0.5 + 0.6 * m.strength);
+          placeInFrame(mesh, len - w.head / 2 + (m.look - 0.5) * r, r * 0.92 * proud, [l * flipX, l * flipY, r * 0.25]);
+        }
+      } else if (w.look === 'hammer') {
         const head = Math.max(w.head, 0.05);
         const l = head * (0.45 + 0.55 * m.strength);
         mesh.geometry = this.shapes.box;
@@ -467,6 +495,26 @@ interface HammerMeshes {
   readonly collar: THREE.Mesh;
 }
 
+interface FlailMeshes {
+  readonly group: THREE.Group;
+  readonly shaft: THREE.Mesh;
+  /** The iron cap on the shaft's end, which the chain hangs from. */
+  readonly cap: THREE.Mesh;
+  readonly links: readonly THREE.Mesh[];
+  readonly ball: THREE.Mesh;
+  readonly spikes: readonly THREE.Mesh[];
+}
+
+/** Links drawn along a flail's chain. */
+const FLAIL_LINKS = 7;
+/** A flail ball's spikes, as directions in the Weapon's frame: the six faces and the eight corners. */
+const FLAIL_SPIKES: readonly (readonly [number, number, number])[] = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ...[-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => [x, y, z] as const))),
+];
+/** A flail ball's radius: its Head (the ball, measured back from the tip) is its diameter with the spikes, the ball itself 60% of it. */
+const flailBallRadius = (w: WeaponTuning): number => (w.head / 2) * 0.6;
+
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 
@@ -561,6 +609,47 @@ function placeHammer(m: HammerMeshes, b: BladeTransform, w: WeaponTuning): void 
   placeInFrame(m.shaft, (len - w.gripLength) / 2, 0, [0.02, len + w.gripLength, 0.02]);
   placeInFrame(m.head, len - head / 2, 0, [head * 0.85, head, head * 2.4]);
   placeInFrame(m.collar, len - head - 0.04, 0, [0.026, 0.08, 0.026]);
+}
+
+const linkTurn = new THREE.Quaternion();
+const spikeDir = new THREE.Vector3();
+
+/**
+ * A flail, rigid along the Weapon as the Simulation has it (docs/plans/flail.md, Stage 1): the shaft from the butt to
+ * `length - chain - head`, a straight chain from there, the ball's centre where the Head's is, so its spikes reach the tip.
+ */
+function placeFlail(m: FlailMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  const chain = w.chain ?? 0;
+  const end = Math.max(len - chain - w.head, 0.05);
+  const r = flailBallRadius(w);
+  placeInFrame(m.shaft, (end - w.gripLength) / 2, 0, [0.02, end + w.gripLength, 0.02]);
+  placeInFrame(m.cap, end - 0.02, 0, [0.026, 0.06, 0.026]);
+  // The links from the cap to the ball, each turned a quarter about the chain from the last, so they read as interlocked.
+  // A link (a torus of tube 0.28) is 2.56 × its scale long and the next hangs 1.44 × it on (its inside length), so the
+  // first starts at the cap and the last ends in the ball.
+  const from = end;
+  const to = len - w.head / 2 - r;
+  const step = (to - from) / (m.links.length - 1 + 2.56 / 1.44);
+  const size = Math.max(step / 1.44, 0.005);
+  m.links.forEach((link, k) => {
+    placeInFrame(link, from + 1.28 * size + step * k, 0, [size * 0.45, size, size * 0.45]);
+    // A torus lies in its own xy plane: stand it along the chain, then a quarter turn every other link.
+    linkTurn.setFromAxisAngle(yAxis, k % 2 === 0 ? 0 : Math.PI / 2);
+    link.quaternion.premultiply(linkTurn);
+  });
+  const centre = len - w.head / 2;
+  placeInFrame(m.ball, centre, 0, [r, r, r]);
+  const spike = w.head / 2 - r;
+  m.spikes.forEach((mesh, k) => {
+    const [x, y, z] = FLAIL_SPIKES[k]!;
+    spikeDir.set(x, y, z).normalize();
+    // From the ball's surface outward: frame directions to world.
+    spikeDir.applyQuaternion(orientation);
+    mesh.position.copy(hilt).addScaledVector(yAxis, centre).addScaledVector(spikeDir, r + spike / 2 - 0.004);
+    mesh.quaternion.setFromUnitVectors(UP, spikeDir);
+    mesh.scale.set(r * 0.32, spike + 0.008, r * 0.32);
+  });
 }
 
 /** Interpolate two solved poses (render-only smoothing between Ticks). */

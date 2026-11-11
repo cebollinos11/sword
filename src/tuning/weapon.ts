@@ -8,14 +8,15 @@
  * perpendicular to the axis. A two-handed Weapon's off hand holds the
  * Off-hand Grip, a spot on the grip or shaft behind the main hand.
  */
+import { DIRECTIONS, type Direction } from '../sim/intent';
 import type { Vec3 } from '../sim/vec';
-import { finiteNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
+import { finiteNumber, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
 /** One-handed: the off hand follows its Pose Keys. Two-handed: it holds the Off-hand Grip. */
 export type WeaponGrip = (typeof WEAPON_GRIPS)[number];
 
-export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer'] as const;
+export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer', 'flail'] as const;
 /** How the Renderer draws the Weapon. */
 export type WeaponLook = (typeof WEAPON_LOOKS)[number];
 
@@ -110,7 +111,19 @@ export interface WeaponTuning {
   readonly tempo: WeaponTempo;
   /** Where it rides while Sheathed. */
   readonly sheathe: WeaponSheathe;
+  /**
+   * The Directions it Attacks in, Overhead always among them (absent: all four). An Attack asked for in another
+   * Direction is an Overhead (`attackDirection`), so no press is dead; it still Blocks in all four.
+   */
+  readonly attacks?: readonly Direction[];
   readonly look: WeaponLook;
+  /** Metres of chain between the shaft's end and the ball (the Head), drawn by the flail look only. Render-only: the Simulation's Weapon is rigid. */
+  readonly chain?: number;
+}
+
+/** The Direction an Attack asked for in `direction` has with `weapon`: `direction` if the Weapon Attacks in it, else Overhead. */
+export function attackDirection(weapon: Pick<WeaponTuning, 'attacks'>, direction: Direction): Direction {
+  return !weapon.attacks || weapon.attacks.includes(direction) ? direction : 'Overhead';
 }
 
 /** Whether a Head contact at `bladeSpeed` is a Heavy Blow of `weapon` (never for a Weapon without one, or a shaft contact). */
@@ -205,6 +218,23 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
   };
   const sheathe: WeaponSheathe = { slot: oneOf(sh, 'slot', sheatheAt, SHEATHE_SLOTS), offset: vec3('offset'), rotation: vec3('rotation') };
 
+  let attacks: Direction[] | undefined;
+  if (o.attacks !== undefined) {
+    const list = o.attacks;
+    if (!Array.isArray(list) || list.some((d) => !(DIRECTIONS as readonly unknown[]).includes(d)) || new Set(list).size !== list.length) {
+      throw new TuningDataError(`${at}.attacks must list distinct Directions (${DIRECTIONS.join(', ')}), got ${JSON.stringify(list)}`);
+    }
+    if (!list.includes('Overhead')) throw new TuningDataError(`${at}.attacks must include Overhead (an Attack it lacks falls back to it)`);
+    // In the roster's Direction order, and absent when it is all four, so a file listing them all reads as one that lists none.
+    attacks = list.length === DIRECTIONS.length ? undefined : DIRECTIONS.filter((d) => list.includes(d));
+  }
+  const look = oneOf(o, 'look', at, WEAPON_LOOKS, 'sword');
+  let chain: number | undefined;
+  if (o.chain !== undefined) {
+    chain = nonNegativeNumber(o, 'chain', at);
+    if (chain + head >= length) throw new TuningDataError(`${at}.chain plus head must be shorter than length (${length}), got ${chain} + ${head}`);
+  }
+
   return {
     name,
     grip,
@@ -220,7 +250,9 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     heavyBlow,
     tempo,
     sheathe,
-    look: oneOf(o, 'look', at, WEAPON_LOOKS, 'sword'),
+    ...(attacks ? { attacks } : {}),
+    look,
+    ...(chain === undefined ? {} : { chain }),
   };
 }
 
@@ -242,6 +274,9 @@ export function serializeWeapon(w: WeaponTuning): string {
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
   out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
   out.sheathe = { slot: w.sheathe.slot, offset: { ...w.sheathe.offset }, rotation: { ...w.sheathe.rotation } };
+  // Written only for a Weapon that lacks a Direction, so the other Weapon files stay as they are.
+  if (w.attacks && w.attacks.length < DIRECTIONS.length) out.attacks = [...w.attacks];
   out.look = w.look;
+  if (w.chain !== undefined) out.chain = w.chain;
   return `${JSON.stringify(out, null, 2)}\n`;
 }

@@ -122,11 +122,11 @@ _Avoid_: Swing phase, active frames
 The committed phase after Release, before the Fighter can act again. Its Motion first carries the swing on past its line (the follow-through: the blade overshoots, the torso over-rotates, the hips settle) and then eases back to guard. The Blade Sweep is live only up to the pose at the end of Release, so the follow-through can never hit.
 
 **Chain**:
-Holding attack during Recovery: the pose blends straight from where it is to the next Attack's held Wind-up pose instead of back to guard, and that Attack starts when Recovery ends. Pose only: Recovery, the Idle Tick after it and the Wind-up last as long as ever. Letting go during Recovery drops the Chain.
+Holding attack during Recovery: the pose blends straight from where it is to the next Attack's held Wind-up pose instead of back to guard, and that Attack starts when Recovery ends. Pose only: Recovery, the Idle Tick after it and the Wind-up last as long as ever. Letting go during Recovery drops the Chain. With a Flail, a Chain held in Thrust is an Overhead.
 _Avoid_: Combo, cancel, buffer
 
 **Whiff Chain**:
-Pressing attack again during Release, and still holding it as Release ends, with an Attack that has landed nothing (a Blocked one Staggers instead): the Recovery is skipped. After one Tick of Recovery (the last Blade Sweep segment, into the end-of-Release pose, still belongs to the old swing), the next Attack starts in the Direction held as Release ended, its pose blending from the end of the swing straight to its held Wind-up pose, which it reaches on the usual Wind-up Tick. It then holds and Releases like any Attack, and may Whiff Chain again. Letting go on that Tick, or a press only in Recovery, gives the ordinary Recovery (or Chain). The AI does not use it yet: it never presses attack during Release.
+Pressing attack again during Release, and still holding it as Release ends, with an Attack that has landed nothing (a Blocked one Staggers instead): the Recovery is skipped. After one Tick of Recovery (the last Blade Sweep segment, into the end-of-Release pose, still belongs to the old swing), the next Attack starts in the Direction held as Release ended, its pose blending from the end of the swing straight to its held Wind-up pose, which it reaches on the usual Wind-up Tick. It then holds and Releases like any Attack, and may Whiff Chain again. With a Flail, one held in Thrust is an Overhead. Letting go on that Tick, or a press only in Recovery, gives the ordinary Recovery (or Chain). The AI does not use it yet: it never presses attack during Release.
 
 **Wheel Attack**:
 A quick Attack queued by a mouse wheel notch: up for Overhead, down for Thrust. The Local Controller holds attack in that Direction until the Attack starts (at once from Idle, as a Whiff Chain or Chain from a swing's Release or Recovery, or as soon as a Stagger, Kick, Block or the like is over, if within `WHEEL_QUEUE_SECONDS`), then lets go so its Wind-up Releases as soon as it reaches its held pose. Only Intents: the Simulation knows nothing of it. A newer notch replaces one still waiting; it ignores (and leaves) the aim of mouse gestures, and does nothing while left mouse is held (pressing left mouse drops it).
@@ -144,7 +144,7 @@ A coarse region of the Skeleton (head, torso, limbs (arms), legs (thigh, shin an
 _Avoid_: Hitbox, body part
 
 **Direction**:
-One of four attack/block directions: Overhead, Left, Right, Thrust. Chosen by the most recent mouse movement before the attack/block button is pressed; it is read from the Fighter's pose, never from a HUD indicator.
+One of four attack/block directions: Overhead, Left, Right, Thrust. Chosen by the most recent mouse movement before the attack/block button is pressed; it is read from the Fighter's pose, never from a HUD indicator. A Weapon may lack an Attack Direction (the Flail has no Thrust): an Attack asked for in it is an Overhead, so no press is dead. Every Weapon Blocks in all four.
 _Avoid_: Stance, angle
 
 **Attack**:
@@ -202,10 +202,10 @@ A push the simulation gives a Fighter over a few Ticks, decelerating, along the 
 _Avoid_: Knockback, pushback
 
 **Feint**:
-Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block.
+Cancelling an Attack's wind-up into a different Action: an Attack in another Direction, or a Block. The Direction is the one the Weapon would Attack in: with a Flail, holding Thrust through an Overhead's Wind-up is no Feint.
 
 **Chamber**:
-Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. That only makes the Chamber pending: it lands where the blades meet, when the incoming Blade Sweep reaches the chamberer's Weapon (or, failing that, its body) while the chamberer is still in that Attack (ADR 0018). The incoming Attack is then cancelled (its attacker Staggers) and the chamberer's own Attack continues. An Attack that reaches nothing (the chamberer out of its reach) is no Chamber: it whiffs.
+Countering an incoming Attack by starting an Attack in the Direction a Block would need (mirrored for Left and Right) early in its Release (within the Chamber window, Tuning Data), roughly facing the attacker. That only makes the Chamber pending: it lands where the blades meet, when the incoming Blade Sweep reaches the chamberer's Weapon (or, failing that, its body) while the chamberer is still in that Attack (ADR 0018). The incoming Attack is then cancelled (its attacker Staggers) and the chamberer's own Attack continues. An Attack that reaches nothing (the chamberer out of its reach) is no Chamber: it whiffs. A Flail cannot Chamber a Thrust (it has no Thrust to answer with: its press is an Overhead), so it Blocks it; the AI does not try.
 
 **Blade Sweep**:
 The volume the Weapon's blade traces between ticks; whatever it intersects is hit, unless a Wall stops it first. Hits are physical, never abstract.
@@ -215,10 +215,10 @@ _Avoid_: Hitbox, hit check
 The speed of the blade at the point of contact; it scales damage.
 
 **Weapon**:
-A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. Whether its Head cuts (`cuts`, Dismemberment): every Weapon but the Sledge Hammer. No shields. In a Run a Player's Fighter may carry several (its Inventory) and wields one: it changes by equipping, only in a Cleared Hall and never mid-Action, so a Weapon is never swapped in a fight.
+A data definition of a held weapon: its Grip, length (sword hand to tip), grip or shaft behind the sword hand, damage, reference Blade Speed, Head, how hard its Block Impact hits and is taken, its Heavy Blow (if any), its Tempo and its sheathe slot (`sheathe.slot`: the left hip for the Arming Sword, the back for the others) where it rides while Sheathed, placed by `sheathe.offset` and `sheathe.rotation` from the pelvis (hip, turning with the hips) or the chest (back, turning with the shoulders). Only the Renderer draws it there. Whether its Head cuts (`cuts`, Dismemberment): every Weapon but the Sledge Hammer (the Flail's spiked ball cuts). The Directions it Attacks in (`attacks`, all four unless it lists fewer, Overhead always among them: the Flail lists Overhead, Left and Right). No shields. In a Run a Player's Fighter may carry several (its Inventory) and wields one: it changes by equipping, only in a Cleared Hall and never mid-Action, so a Weapon is never swapped in a fight.
 
 **Weapon roster**:
-Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Longsword, the Halberd and the Sledge Hammer.
+Every Weapon in Tuning Data, one file each (`data/weapons/`): today the Arming Sword (the default), the Flail, the Longsword, the Halberd and the Sledge Hammer. The Flail is a two-handed shaft with a chain and a spiked ball on its end (its Head): rigid in the Simulation, so it sweeps, Blocks and reaches like any Weapon, its chain only drawn (`chain`, render-only). A Run leaves out the Weapons in `dungeon.leftOutWeapons` (the Flail): no `random` enemy gets one and no loot is one, though a Player may bring it in from the Lineup.
 _Avoid_: Loadout, inventory
 
 **Grip**:

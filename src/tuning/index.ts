@@ -68,7 +68,7 @@ export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
 export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponTempo, WeaponTuning } from './weapon';
-export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
+export { attackDirection, isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */
@@ -530,6 +530,11 @@ export interface TuningData {
 /** The default Weapon: the first in the roster. */
 export function defaultWeaponName(tuning: Pick<TuningData, 'weapons'>): string {
   return Object.keys(tuning.weapons)[0]!;
+}
+
+/** The Weapons a Run picks a `"random"` enemy's Weapon and its Weapon loot from: the roster, in file order, without `dungeon.leftOutWeapons`. */
+export function runWeapons(tuning: Pick<TuningData, 'weapons' | 'dungeon'>): string[] {
+  return Object.keys(tuning.weapons).filter((w) => !tuning.dungeon.leftOutWeapons.includes(w));
 }
 
 /** A Weapon of the roster by name. Throws on an unknown name. */
