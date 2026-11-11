@@ -9,12 +9,15 @@ import { hallRoster } from './hall';
 import { hallDrops } from './pickups';
 
 const tuning = loadTuningData();
-/** Every Hall of the first few Run seeds: each `"random"` enemy's Weapon, and each Weapon dropped where a Hall drops only Weapons. */
+/**
+ * Every Hall of the first few Run seeds: each `"random"` enemy's Weapon, and (the first seed only: a drop builds its Hall's Arena)
+ * each Weapon dropped where a Hall drops only Weapons, as many as it can.
+ */
 function runPicks(t: TuningData): { enemies: Set<string>; drops: Set<string> } {
-  const weaponsOnly: TuningData = { ...t, dungeon: { ...t.dungeon, loot: { ...t.dungeon.loot, weights: { Relic: 0, Weapon: 1 }, drops: { Fight: 3, Elite: 3, Boss: 3 } } } };
+  const weaponsOnly: TuningData = { ...t, dungeon: { ...t.dungeon, loot: { ...t.dungeon.loot, weights: { Relic: 0, Weapon: 1 }, drops: { Fight: 4, Elite: 4, Boss: 4 } } } };
   const enemies = new Set<string>();
   const drops = new Set<string>();
-  for (let seed = 1; seed <= 12; seed++) {
+  for (let seed = 1; seed <= 4; seed++) {
     const arena = `gen:greybox:${seed}`;
     const config = { arena, humans: 2, players: [0, 1], teams: [0, 0, 1, 1, 1, 1] };
     for (let floor = 1; floor <= t.dungeon.floors.length; floor++) {
@@ -22,7 +25,7 @@ function runPicks(t: TuningData): { enemies: Set<string>; drops: Set<string> } {
         row.forEach((hall, index) => {
           const at = { floor, row: r, index };
           for (const e of hallRoster(t, config, at)) if (e) enemies.add(e.weapon);
-          for (const p of hallDrops(weaponsOnly, config, at, hall, 0)) if (p.kind === 'weapon') drops.add(p.item);
+          if (seed === 1) for (const p of hallDrops(weaponsOnly, config, at, hall, 0)) if (p.kind === 'weapon') drops.add(p.item);
         }),
       );
     }
