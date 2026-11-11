@@ -721,7 +721,7 @@ function isSighting(v: unknown): boolean {
 const isOneOf = (list: readonly string[], v: unknown): boolean => list.includes(v as string);
 
 /** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its plans. */
-function isAiMemory(v: unknown): boolean {
+export function isAiMemory(v: unknown): boolean {
   if (!isObject(v) || !isInt(v.lastTick) || !isNum(v.lastHp)) return false;
   const seen = isArrayOf(v.seen, (o) => isObject(o) && isTick(o.tick) && isPerSlot(o.fighters, isSighting));
   const d = v.defencePlan;
