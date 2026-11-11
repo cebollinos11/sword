@@ -301,7 +301,7 @@ A defender that reads a spin backs off under its Block. The spinner walks after 
 
 **Tests changed.** None of the existing ones. The new tests are listed above.
 
-**Checks.** `npm run typecheck` clean; `npm test` and `npm run test:slow` pass (counts in the commit's session). No golden hash was re-recorded. `/code-review` (high): no correctness bug. Fixed from it: the two more copied lists (B), the `attacks ?? DIRECTIONS` read, the cached bars, a test that assumed the Arming Sword is the fastest, and the `DefencePlan` comment, which now names Back. Open: the Link-id range check above.
+**Checks.** `npm run typecheck` clean; `npm test` 2347 passed (5 skipped, as before), `npm run test:slow` 30 passed. No golden hash was re-recorded. `/code-review` (high): no correctness bug. Fixed from it: the two more copied lists (B), the `attacks ?? DIRECTIONS` read, the cached bars, a test that assumed the Arming Sword is the fastest, and the `DefencePlan` comment, which now names Back. Open: the Link-id range check above.
 
 **Screenshots** (session scratchpad, not committed): `/tmp/claude-0/-home-user-sword/238d9093-a736-4480-b0f9-921a62e40efd/scratchpad/shots6/lobby-weapons.png` (the Skirmish Weapon cards) and `skirmish.png` (the whole screen). Nothing in the Renderer or audio changed, so the sandbox scripts were not re-shot.
 
