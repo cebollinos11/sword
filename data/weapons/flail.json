@@ -1,7 +1,7 @@
 {
   "name": "Flail",
   "grip": "twoHanded",
-  "length": 1.5,
+  "length": 1.29,
   "damage": 45,
   "speed": 45,
   "gripLength": 0.6,
@@ -52,5 +52,5 @@
     "Right"
   ],
   "look": "flail",
-  "chain": 0.35
+  "chain": 0.87
 }

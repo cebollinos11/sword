@@ -43,7 +43,7 @@ describe('Weapon roster', () => {
 
   it('the Flail Attacks Overhead, Left and Right, writes them to its file and reads them back; the others list none', () => {
     const flail = tuning.weapons.Flail!;
-    expect(flail).toMatchObject({ grip: 'twoHanded', look: 'flail', chain: 0.35, attacks: ['Overhead', 'Left', 'Right'], cuts: true });
+    expect(flail).toMatchObject({ grip: 'twoHanded', look: 'flail', chain: 0.87, attacks: ['Overhead', 'Left', 'Right'], cuts: true });
     expect(JSON.parse(serializeWeapon(flail)).attacks).toEqual(['Overhead', 'Left', 'Right']);
     expect(parseWeapon(JSON.parse(serializeWeapon(flail)))).toEqual(flail);
     for (const w of Object.values(tuning.weapons).filter((w) => w !== flail)) {

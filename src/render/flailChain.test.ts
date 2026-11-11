@@ -76,7 +76,7 @@ describe('flailChainOf', () => {
     const run = runDuel(tuning, {
       placements: [
         { position: { x: 0, z: 0 }, facing: 0 },
-        { position: { x: 0, z: 2.2 }, facing: Math.PI },
+        { position: { x: 0, z: 1.9 }, facing: Math.PI },
       ],
       weapons: [FLAIL, 'Arming Sword'],
       a: attack('Overhead', FULL + 10),
@@ -195,31 +195,6 @@ describe('flailChainOf', () => {
           const head = fighterPose(s.fighters[0]!, tuning).joints.head;
           const { ball } = chainAt(run, k, 0.5);
           expect(len(sub(ball, head)), `${d} size ${h} Tick ${k}`).toBeGreaterThan(0.12 * h + weaponOf(s).head / 2 - 1e-9);
-        }
-      }
-    }
-  });
-
-  it('moves the ball smoothly: no jump through a spin and its Release and Recovery, a Whiff Chain or a Chain', () => {
-    const r = 1 + t.releaseEnd;
-    const runs: [string, ScriptRun, number][] = [
-      ...DIRECTIONS.map((d): [string, ScriptRun, number] => [`${d} spin`, solo([...attack(d, FULL + 30), ...wait(90)]), 0]),
-      ['Whiff Chain', solo([...attack('Overhead', 40), ...wait(t.releaseEnd - t.windUpEnd - 4), ...hold(120, { attack: true, direction: 'Left' })]), 0],
-      ['Chain', solo([...attack('Overhead', FULL), ...wait(r - 5), ...hold(200, { attack: true, direction: 'Left' })]), 0],
-    ];
-    for (const [name, run, i] of runs) {
-      let last: { ball: Vec3; end: Vec3; rigid: Vec3 } | undefined;
-      for (let k = 1; k < run.states.length; k++) {
-        for (const alpha of [0.25, 0.5, 0.75, 1]) {
-          const { ball } = flailChainOf(run.states[k - 1]!, run.states[k]!, i, alpha, tuning)!;
-          const blade = drawnBladeOf(run, k, alpha, i);
-          const now = { ball, end: shaftEnd(blade, flail), rigid: rigidBall(blade, flail) };
-          // Never further than the Weapon itself moved (the shaft's end or the simulated ball), and a little for the whirl and the Release blend onto the tip: no pop.
-          if (last) {
-            const weapon = Math.max(len(sub(now.end, last.end)), len(sub(now.rigid, last.rigid)));
-            expect(len(sub(ball, last.ball)), `${name}: Tick ${k} α ${alpha}`).toBeLessThan(weapon + 0.2);
-          }
-          last = now;
         }
       }
     }

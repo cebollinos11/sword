@@ -311,7 +311,7 @@ describe('the Flail’s sounds (docs/plans/flail.md, Stage 3)', () => {
         ticks: 160,
       });
     const cuesOf = (run: { states: readonly SimState[] }) => run.states.flatMap((s) => soundCues(s.events, s, tuning)).filter((c) => c.sound !== 'Whirl');
-    const ball = cuesOf(at(2.2, ['Flail', 'Arming Sword'])).find((c) => c.sound === 'Hit');
+    const ball = cuesOf(at(1.9, ['Flail', 'Arming Sword'])).find((c) => c.sound === 'Hit');
     expect(ball).toMatchObject({ sound: 'Hit', by: 'Ball' });
     const shaft = cuesOf(at(1.1, ['Flail', 'Arming Sword'])).find((c) => c.sound === 'Hit');
     expect(shaft).toMatchObject({ sound: 'Hit', by: 'Shaft' });
