@@ -13,6 +13,9 @@
  * Wherever it is not on the simulated ball it is kept out of the floor and the Fighter's own head and torso. Pure, with no DOM: a
  * function of the two states drawn between, alpha and Tuning Data, holding nothing between frames, so scrubbing, Rollback and the
  * Final Blow Shot always draw the same chain for the same Tick.
+ *
+ * Each chain also says how `free` its ball is: how far a swinging ball (`FlailSwing`, src/render/flailSwing.ts, which does keep
+ * state) may take over from the one drawn here, so the hanging ball swings with the Fighter's inertia. Without one it hangs as here.
  */
 import {
   attackTimings,
@@ -49,15 +52,31 @@ const WHIRL_HIGH = 0.35;
 export const RELEASE_BLEND = 2;
 /** Ticks over which the ball falls from where a swing left it to hanging. */
 export const HANG_BLEND = 20;
+/** Ticks after a swing ends (Recovery, a stopped swing, a Death) over which the swinging ball takes over, carrying the swing on. */
+export const FREE_BLEND = 4;
 
 /** The head's and torso's radii (m, at standard Size) the ball is kept out of. */
 const HEAD_RADIUS = 0.12;
 const TORSO_RADIUS = 0.17;
 
+/** What a swinging ball needs to hang from the chain: how far it may take over, and what it hangs from and is kept out of. */
+export interface FreeHang {
+  /** 0: the ball is where this chain draws it (whirling, on the tip); 1: hanging, wholly the swinging ball's. */
+  readonly weight: number;
+  /** The shaft's end the chain hangs from, and the chain's reach from there to the ball's centre. */
+  readonly end: Vec3;
+  readonly reach: number;
+  readonly floor: number;
+  readonly body?: FlailInput['body'];
+  readonly size?: Size;
+}
+
 /** The chain as drawn: the ball's centre and each link's centre, from the shaft's end to the ball. */
 export interface FlailChain {
   readonly ball: Vec3;
   readonly links: readonly Vec3[];
+  /** How a swinging ball may hang from it (absent: it may not; the ball stays where this chain has it). */
+  readonly free?: FreeHang;
 }
 
 /** What the chain is drawn from: one Fighter between two Ticks. */
@@ -185,7 +204,7 @@ export function hangingBall(b: BladeTransform, w: Pick<WeaponTuning, 'chain' | '
 }
 
 /** `ball` kept out of the floor and, when given, the Fighter's head (a sphere) and torso (a capsule, pelvis to chest). */
-function keepOut(ball: Vec3, w: Pick<WeaponTuning, 'head'>, floor: number, body: FlailInput['body'], size: Size | undefined): Vec3 {
+export function keepOut(ball: Vec3, w: Pick<WeaponTuning, 'head'>, floor: number, body: FlailInput['body'], size: Size | undefined): Vec3 {
   const r = w.head / 2;
   let p = ball;
   if (body) {
@@ -237,6 +256,10 @@ export function chainLinks(end: Vec3, ball: Vec3, w: Pick<WeaponTuning, 'chain' 
   });
 }
 
+function freeHang(weight: number, end: Vec3, reach: number, floor: number, body: FlailInput['body'], size: Size | undefined): FreeHang {
+  return { weight, end, reach, floor, ...(body ? { body } : {}), ...(size ? { size } : {}) };
+}
+
 /** The drawn chain for one Fighter (see the module comment). */
 export function flailBall(input: FlailInput): FlailChain {
   const { blade, weapon: w, action, tick, charge, motionTick, blendTicks, timings, alpha, facing, floor, body, size } = input;
@@ -249,11 +272,15 @@ export function flailBall(input: FlailInput): FlailChain {
    * Chain (whose pose blends from the end of the swing over the Wind-up, `windUpEnd + 1` Ticks), out of the simulated ball where the
    * swing left it; and only as far as the shaft is raised.
    */
+  let free = 0;
   const whirl = (direction: Direction): Vec3 => {
     const spun = keepOut(whirlBall(blade, w, direction, facing, whirlTurns(w, tick, charge ?? 0)), w, floor, body, size);
     const whiffChained = timings !== undefined && blendTicks === timings.windUpEnd + 1;
     const raised = ease((axis(blade).s.y - WHIRL_LOW) / (WHIRL_HIGH - WHIRL_LOW));
-    return lerp(whiffChained ? rigid : hang(), spun, ease((charge ?? motionTick) / WHIRL_BLEND) * raised);
+    const into = ease((charge ?? motionTick) / WHIRL_BLEND) * raised;
+    // Hanging, the swinging ball is carried into the whirl as it builds; out of a swing's end it is the whirl's from the start.
+    free = whiffChained ? 0 : 1 - into;
+    return lerp(whiffChained ? rigid : hang(), spun, into);
   };
   let ball: Vec3;
   if (action.kind === 'Attack') {
@@ -267,6 +294,7 @@ export function flailBall(input: FlailInput): FlailChain {
         const into = motionTick - t.windUpEnd - 1 + alpha;
         const onTip = action.landed || action.lodge !== undefined ? 1 : ease(into / RELEASE_BLEND);
         ball = onTip >= 1 ? rigid : lerp(whirl(action.direction), rigid, onTip);
+        free = 0;
         break;
       }
       case 'Recovery': {
@@ -274,16 +302,19 @@ export function flailBall(input: FlailInput): FlailChain {
         // releaseEnd), and falls from the Tick after.
         const into = (action.chain?.tick ?? motionTick) - t.releaseEnd + alpha - 1;
         ball = lerp(rigid, hang(), ease(into / HANG_BLEND));
+        free = ease(into / FREE_BLEND);
         break;
       }
     }
   } else if (action.kind === 'Stagger' && (action.cause === 'Blocked' || action.cause === 'Chambered')) {
     // A stopped swing: the ball falls from where the blade was stopped.
     ball = lerp(rigid, hang(), ease((motionTick - 1 + alpha) / HANG_BLEND));
+    free = ease((motionTick - 1 + alpha) / FREE_BLEND);
   } else {
     ball = hang();
+    free = 1;
   }
-  return { ball, links: chainLinks(end, ball, w, reach) };
+  return { ball, links: chainLinks(end, ball, w, reach), free: freeHang(free, end, reach, floor, body, size) };
 }
 
 /**
@@ -308,7 +339,11 @@ export function flailChainOf(from: SimState, to: SimState, i: number, alpha: num
     const hanging = flailBall({ blade: pose.blade, weapon: w, action: { kind: 'Idle' }, tick: 0, motionTick: 0, alpha, facing: f.facing, floor });
     const since = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
     const ball = lerp(fell.ball, hanging.ball, ease(since / HANG_BLEND));
-    return { ball, links: chainLinks(shaftEnd(pose.blade, w), ball, w, reachOf(pose.blade, w)) };
+    const end = shaftEnd(pose.blade, w);
+    const reach = reachOf(pose.blade, w);
+    // The swinging ball takes over as it falls, so it swings and drops onto the floor with the falling Weapon.
+    const free = Math.max(fell.free?.weight ?? 0, ease(since / FREE_BLEND));
+    return { ball, links: chainLinks(end, ball, w, reach), free: freeHang(free, end, reach, floor, undefined, undefined) };
   }
   const turn = Math.atan2(Math.sin(f.facing - p.facing), Math.cos(f.facing - p.facing));
   const j = pose.joints;
