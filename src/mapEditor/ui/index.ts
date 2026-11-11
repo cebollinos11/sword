@@ -50,6 +50,7 @@ import { materialOf } from '../look';
 import { EDGE_COLOURS, EDGE_LABELS, type Overlays } from './overlays';
 import { PLAYTEST_MODES, startPlaytest, type PlaytestMode } from './playtest';
 import { closeMenu, showMenu, type MenuItem } from './contextMenu';
+import { hazardSwatch, loadSwatches, materialSwatch, pictureGrid, PROP_ICONS, TOOL_ICONS, type PictureGrid } from './icons';
 import { Toolbar } from './toolbar';
 import { PANEL_PX, TopView, type Tool } from './topView';
 import { View3D } from './view3d';
@@ -668,6 +669,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   let brushFolder: FolderApi | undefined;
   /** What the Brush folder was built for: rebuilt when this changes, otherwise only refreshed (so a field being dragged keeps its grip). */
   let brushKey = '';
+  /** The selected Brush's material, picked from swatches (its texture as the map is drawn). */
+  let materialGrid: PictureGrid | null = null;
   const props = {} as BrushProps;
   const commitProps = () => {
     const sel = session.selection;
@@ -684,9 +687,10 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const buildBrush = () => {
     const sel = session.selection;
     const levels = session.source.levels;
-    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : sel.kind === 'enclosure' ? sel.y : ''}|${levels.join(',')}|${session.source.grid.step}|${sel.twin ?? ''}` : '';
+    const key = sel ? `${sel.id}|${sel.kind}|${sel.kind === 'ramp' ? sel.up : sel.kind === 'enclosure' ? sel.y : sel.kind === 'hazard' ? sel.hazard : ''}|${levels.join(',')}|${session.source.grid.step}|${sel.twin ?? ''}` : '';
     if (key === brushKey && brushFolder) {
       if (sel) propsOf(sel, props);
+      materialGrid?.set(props.material);
       syncing = true;
       brushFolder.refresh();
       syncing = false;
@@ -695,6 +699,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     brushKey = key;
     if (brushFolder) pane.remove(brushFolder);
     brushFolder = undefined;
+    materialGrid = null;
     if (!sel) return;
     propsOf(sel, props);
     const twin = sel.twin === undefined ? '' : sel.twin === sel.id ? ' (its own twin)' : ` (twin ${sel.twin})`;
@@ -759,10 +764,35 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
         break;
       }
     }
-    // Its material (render-only): a Hole and a Hazard have none of their own.
-    if (sel.kind !== 'hole' && sel.kind !== 'hazard') {
+    // Its material (render-only), picked from swatches: a Hole and a Hazard have none of their own (a Hazard's kind is picked the same way).
+    if (sel.kind === 'hazard') {
+      const grid = pictureGrid(
+        (['lava', 'water', 'abyss'] as const).map((h) => ({ value: h, label: h, picture: () => hazardSwatch(h) })),
+        props.hazard,
+        (h) => {
+          const b = session.selection;
+          if (b?.kind === 'hazard') settingsEdit(() => session.replaceBrush(b.id, { ...b, hazard: h as HazardKind }));
+        },
+      );
+      f.element.appendChild(grid.element);
+    } else if (sel.kind !== 'hole') {
       const { material: _m, ...plain } = sel;
-      f.addBinding(props, 'material', { label: 'material', options: { [`its kind's (${materialOf(plain as Brush, session.source)})`]: '', ...Object.fromEntries(MAP_MATERIALS.map((m) => [m, m])) } });
+      const own = materialOf(plain as Brush, session.source);
+      const grid = pictureGrid(
+        [{ value: '', label: 'default', title: `its kind's own (${own})`, picture: () => materialSwatch(own) }, ...MAP_MATERIALS.map((m) => ({ value: m, label: m, picture: () => materialSwatch(m) }))],
+        props.material,
+        (m) => {
+          const b = session.selection;
+          if (!b || b.kind === 'hole' || b.kind === 'hazard') return;
+          const { material: _old, ...rest } = b;
+          settingsEdit(() => session.replaceBrush(b.id, (m === '' ? rest : { ...rest, material: m }) as Brush));
+        },
+      );
+      const head = document.createElement('div');
+      head.textContent = 'material';
+      head.style.cssText = 'padding:6px 8px 0;color:#999;font:11px system-ui,sans-serif';
+      f.element.append(head, grid.element);
+      materialGrid = grid;
     }
     f.on('change', (e) => {
       if (e.last) commitProps();
@@ -941,8 +971,22 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   });
   lookFolder.addBinding(lookUi, 'propKind', { label: 'prop tool places', options: Object.fromEntries(PROP_KINDS.map((k) => [k, k])) }).on('change', (e) => {
     view.propKind = e.value;
+    propGrid.set(e.value);
   });
   lookFolder.addButton({ title: 'Place props (T, then click)' }).on('click', () => setTool('prop'));
+  // The prop tool's kind by its mark: a click picks it and takes the prop tool, so the next click on the field places one.
+  const propGrid = pictureGrid(
+    PROP_KINDS.map((k) => ({ value: k, label: k, title: `Place ${k}s (then click on the field)`, picture: () => PROP_ICONS[k] })),
+    lookUi.propKind,
+    (k) => {
+      lookUi.propKind = k as PropKind;
+      view.propKind = k as PropKind;
+      propGrid.set(k);
+      setTool('prop');
+    },
+    24,
+  );
+  lookFolder.element.appendChild(propGrid.element);
   lookFolder.addBinding(ui, 'look3d', { label: '3D view shows the look' }).on('change', () => !syncing && drawChecks());
   let propFolder: FolderApi | undefined;
   let propKey = '';
@@ -1169,11 +1213,11 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
             const base = { kind: k, id: b.id, rect: b.rect, y: b.y };
             const material = k === 'hole' || k === 'hazard' || b.kind === 'hole' || b.kind === 'hazard' ? {} : b.material ? { material: b.material } : {};
             session.replaceBrush(b.id, (k === 'hazard' ? { ...base, hazard: 'lava' } : { ...base, ...material }) as Brush);
-          }, { checked: b.kind === k }),
+          }, { checked: b.kind === k, icon: TOOL_ICONS[k] }),
         ),
       });
     }
-    if (b.kind === 'hazard') items.push({ label: 'Hazard', submenu: (['lava', 'water', 'abyss'] as const).map((h) => act(h, () => session.replaceBrush(b.id, { ...b, hazard: h }), { checked: b.hazard === h })) });
+    if (b.kind === 'hazard') items.push({ label: 'Hazard', submenu: (['lava', 'water', 'abyss'] as const).map((h) => act(h, () => session.replaceBrush(b.id, { ...b, hazard: h }), { checked: b.hazard === h, icon: hazardSwatch(h) })) });
     if (b.kind === 'ramp') {
       items.push({
         label: 'Rises toward',
@@ -1211,9 +1255,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       items.push({
         label: 'Material',
         submenu: [
-          act(`its kind's (${materialOf(plain as Brush, session.source)})`, () => session.replaceBrush(b.id, plain as Brush), { checked: b.material === undefined }),
+          act(`its kind's (${materialOf(plain as Brush, session.source)})`, () => session.replaceBrush(b.id, plain as Brush), { checked: b.material === undefined, icon: materialSwatch(materialOf(plain as Brush, session.source)) }),
           'separator',
-          ...MAP_MATERIALS.map((m) => act(m, () => session.replaceBrush(b.id, { ...b, material: m } as Brush), { checked: b.material === m })),
+          ...MAP_MATERIALS.map((m) => act(m, () => session.replaceBrush(b.id, { ...b, material: m } as Brush), { checked: b.material === m, icon: materialSwatch(m) })),
         ],
       });
     }
@@ -1263,7 +1307,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       const { team: _t, ...plain } = p;
       const items: MenuItem[] = [
         { label: `Prop: ${p.kind} ${p.id}`, header: true },
-        { label: 'Kind', submenu: PROP_KINDS.map((k) => act(k, () => session.replaceProp(p.id, k === 'banner' ? { ...p, kind: k } : { ...plain, kind: k }), { checked: p.kind === k })) },
+        { label: 'Kind', submenu: PROP_KINDS.map((k) => act(k, () => session.replaceProp(p.id, k === 'banner' ? { ...p, kind: k } : { ...plain, kind: k }), { checked: p.kind === k, icon: PROP_ICONS[k] })) },
         act('Turn a quarter', () => session.replaceProp(p.id, { ...p, turn: (p.turn + 90) % 360 }), { hint: 'Q' }),
       ];
       if (p.kind === 'banner') items.push({ label: 'Colour', submenu: ([[-1, 'plain'], [0, 'Team 0'], [1, 'Team 1']] as const).map(([v, t]) => act(t, () => session.replaceProp(p.id, v === -1 ? plain : { ...p, team: v }), { checked: (p.team ?? -1) === v })) });
@@ -1280,8 +1324,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     const levels = session.source.levels;
     return [
       act('Paste here', () => session.pasteBrush(clipboard!, at), { hint: 'Ctrl+V', disabled: clipboard === null || off }),
-      { label: 'Add a cell here', disabled: off, submenu: BRUSH_KINDS.map((k) => act(TOOL_LABELS[k].replace(/ \(.*$/, ''), () => session.addBrush(k, at, at))) },
-      act('Place an Objective here', () => session.addObjective(at), { disabled: off }),
+      { label: 'Add a cell here', disabled: off, submenu: BRUSH_KINDS.map((k) => act(TOOL_LABELS[k].replace(/ \(.*$/, ''), () => session.addBrush(k, at, at), { icon: TOOL_ICONS[k] })) },
+      act('Place an Objective here', () => session.addObjective(at), { disabled: off, icon: TOOL_ICONS.objective }),
       {
         label: 'Place a prop here',
         disabled: off,
@@ -1289,8 +1333,9 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
           act(k, () => {
             lookUi.propKind = k;
             view.propKind = k;
+            propGrid.set(k);
             session.addProp(k, at);
-          }),
+          }, { icon: PROP_ICONS[k] }),
         ),
       },
       'separator',
@@ -1346,6 +1391,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   };
   rebuild();
   runChecks();
+  // The material swatches show the textures once they are read (until then, flat colours).
+  void loadSwatches().then(() => materialGrid?.refresh());
 
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();

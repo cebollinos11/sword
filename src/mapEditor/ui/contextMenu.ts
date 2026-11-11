@@ -15,6 +15,8 @@ export type MenuItem =
       readonly disabled?: boolean;
       /** A heading: drawn dim and bold, never clicked. */
       readonly header?: boolean;
+      /** A picture before the label (an image URL: a tool's icon, a material's swatch). */
+      readonly icon?: string;
       readonly action?: () => void;
       readonly submenu?: readonly MenuItem[];
     };
@@ -82,7 +84,16 @@ export function showMenu(x: number, y: number, items: readonly MenuItem[]): void
       const hint = document.createElement('span');
       hint.style.cssText = 'color:#888;margin-left:16px';
       hint.textContent = item.submenu ? '▸' : (item.hint ?? '');
-      row.append(tick, label, hint);
+      row.append(tick);
+      if (item.icon) {
+        const img = document.createElement('img');
+        img.src = item.icon;
+        img.width = img.height = 18;
+        img.alt = '';
+        img.style.cssText = 'flex:none;image-rendering:pixelated;border-radius:2px';
+        row.append(img);
+      }
+      row.append(label, hint);
       row.addEventListener('pointerenter', () => {
         // Hovering a row closes the submenus deeper than this menu, then opens its own.
         for (const m of menus.splice(depth + 1)) m.remove();

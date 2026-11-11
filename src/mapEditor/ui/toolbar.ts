@@ -3,6 +3,7 @@
  * (a chip a level, its key 1 to 9) and whether every level is shown, mirror mode, the view (top, 3D, split), the play-test and the
  * shortcut sheet. It holds no state of its own: `update` reads what it shows from its `state` callback, and each button calls back.
  */
+import { TOOL_ICONS } from './icons';
 import type { Tool } from './topView';
 
 export interface ToolbarState {
@@ -73,6 +74,12 @@ export class Toolbar {
     this.element.addEventListener('contextmenu', (e) => e.preventDefault());
     for (const t of TOOLS) {
       const b = this.button(`${t.name}`, `${t.tip} (${t.key})`, () => act.tool(t.tool));
+      const icon = document.createElement('img');
+      icon.src = TOOL_ICONS[t.tool];
+      icon.width = icon.height = 16;
+      icon.alt = '';
+      icon.style.cssText = 'vertical-align:-3px;margin-right:4px';
+      b.prepend(icon);
       const key = document.createElement('sup');
       key.textContent = t.key;
       key.style.cssText = 'color:#999;margin-left:2px;font-size:9px';

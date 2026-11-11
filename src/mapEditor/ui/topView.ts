@@ -28,19 +28,12 @@ import type { LevelsTuning, ObjectivesTuning } from '../../tuning';
 import type { ClearanceNode, MapChecks } from '../checks';
 import { boundsOf, brushesAt, brushLevels, FRONT_GRIP, handleAt, handlesOf, isSegment, markerAt, propsOf, sameMarker, type Handle, type MapEditorSession, type Marker } from '../session';
 import type { Brush, BrushKind, GroundPoint, MapSource, PropKind, Rect } from '../source';
+import { PROP_MARKS } from './icons';
 import { clearanceColour, EDGE_COLOURS, REACH_COLOURS, type Overlays } from './overlays';
 
 /** The palette's tool: pick, move and resize Brushes and markers, draw a Brush of a kind, or place an Objective or a prop. */
 export type Tool = 'select' | BrushKind | 'objective' | 'prop';
 
-/** How a prop is marked in the top view: its colour and a letter. */
-const PROP_MARKS: Readonly<Record<PropKind, { readonly colour: string; readonly letter: string }>> = {
-  tree: { colour: '#3f9a3a', letter: 'T' },
-  rubble: { colour: '#9a948a', letter: 'R' },
-  banner: { colour: '#d04a4a', letter: 'B' },
-  crate: { colour: '#b0844c', letter: 'C' },
-  torch: { colour: '#ff9a30', letter: 'F' },
-};
 /** A prop's drawn size (px). */
 const PROP_PX = 6;
 
