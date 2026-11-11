@@ -11,6 +11,7 @@ Status: built; awaiting playtest.
 - [x] Stage 3: the loose chain, the whirl and the sounds (sections 4 and 5)
 - [x] Stage 4: the AI spins up and reads a spin (section 6)
 - [x] Stage 5: docs and a full verification pass (sections 7 and Verification)
+- [x] Stage 6: playtest follow-up
 
 ## Context
 
@@ -281,18 +282,36 @@ A defender that reads a spin backs off under its Block. The spinner walks after 
 | Every test that existed before passes unchanged, the AI golden test above all | Passed | `npm run typecheck` clean; `npm test` 2339 passed (5 skipped, as before); `npm run test:slow` 30 passed. No existing test changed and no hash was re-recorded. |
 
 **Found, not fixed (for you to decide).**
-- The Lobby's Weapon cards draw "Speed" from `speed`, the reference Blade Speed (`lobbyView.ts`). The Flail's 45 (Stage 1) gives it the fullest Speed bar of the roster, though it is the slowest to swing. Fixing it means choosing what the bar should show (Tempo, say) for every Weapon.
-- The code review noted the resync validator keeps its own copy of the AI's Defence kinds (the copy Stage 4 missed). It also never checks some older AI memory fields (`holdJumpUntil`, `throwPlan`, `failedJumps` and a few more). Both predate the Flail; deriving the list from `ai.ts` would touch `src/controllers`.
+- _(Fixed in Stage 6.)_ The Lobby's Weapon cards draw "Speed" from `speed`, the reference Blade Speed (`lobbyView.ts`). The Flail's 45 (Stage 1) gives it the fullest Speed bar of the roster, though it is the slowest to swing. Fixing it means choosing what the bar should show (Tempo, say) for every Weapon.
+- _(Fixed in Stage 6.)_ The code review noted the resync validator keeps its own copy of the AI's Defence kinds (the copy Stage 4 missed). It also never checks some older AI memory fields (`holdJumpUntil`, `throwPlan`, `failedJumps` and a few more). Both predate the Flail; deriving the list from `ai.ts` would touch `src/controllers`.
 
 **Screenshots** (in the session scratchpad, not committed): `/tmp/claude-0/-home-user-sword/e99c9e7c-4629-5f13-9ffc-a61378eafb49/scratchpad/shots5/`. One sheet per body and Size (`sheet-skeleton-0.6.png`, `sheet-skeleton-1.4.png`, `sheet-female-0.6.png`, `sheet-female-1.4.png`, `sheet-monk-0.6.png`, `sheet-monk-1.4.png`), each with the three whirls, two Hit frames, the hangs and Sheathed. The single frames sit beside them. Also `skirmish.png`, `runs-grid.png` (a Run Hall, its Inventory, a Duel, a Battle) and `aivs-1612.png`.
 
+### Stage 6 result
+
+**Playtest notes.** The prompt for this Stage carried the template's placeholders (`<what felt wrong, where, how to reproduce ...>`), not notes. With nothing to reproduce, nothing was measured or changed for them: no Tuning Data, no code constant, no Motion. `SPIN_BALL` needed no re-measuring, and since no AI number changed, the Stage 4 table was not re-run. Send the notes and they become the next Stage.
+
+**A. The Lobby's Speed bar** (`src/play/lobbyView.ts`, display only). `swingSpeedBars(tuning)` gives each Weapon's bar as the inverse of its mean Wind-up plus Release Ticks: `attackTimings(...).releaseEnd`, so its Motions and Tempo, averaged over the Directions it attacks in (`attacks`, else all four), with the fastest Weapon full. The bars are cached per Tuning Data object. A held Spin-up is not counted, so this is the swing at its quickest. Measured: the Arming Sword, Halberd, Longsword and Sledge Hammer all swing in 36 Ticks for Overhead, Left and Right and 27 for Thrust (mean 33.8; they all have unit Tempo and the same marker Ticks), and the Flail in 38 for each (`tempo.windUp` 1.1, no Thrust). So the bars read 100% for four Weapons and **89%** for the Flail (it was 100% from `speed` 45; the others were 44 to 56%). Under this measure the bar no longer tells the other four apart: today they really do swing in the same Ticks. Tests: `lobbyView.test.ts` (every Weapon has a bar, the fastest is full, the Flail's is below every other and equals the fastest's mean over its own; a slower `tempo.windUp` shortens a bar). Checked in Skirmish with Playwright: `shots6/lobby-weapons.png`, no page errors.
+
+**B. One source for the AI's Defence kinds.** `src/controllers/ai.ts` exports `DEFENCE_KINDS` as a const array and `DefencePlan['kind']` is derived from it (`DefenceKind`). `src/net/messages.ts` imports it through `src/controllers/index.ts`, and its own copy is gone. The code review found the same copy pattern for the tactic modes and the new jump stages, so `MODES` (exported from the index as `AI_MODES`) and `JUMP_STAGES` follow the same rule. These are type and import changes only: no AI behaviour, draw or hash changed, and the AI golden test and every AI test pass unchanged.
+
+**C. AI memory load() reads, now validated** (`isAiMemory`, test-first). These were unchecked before: `attackPlan.holdJumpUntil` (an integer), `throwPlan` (null, or a thrower slot, a start Tick and `react`), `aimError` (a finite number), `jumpRun` (null, or a Link id, a stage, an integer deadline and `flew`, and `escape`), `failedJumps` (an array of `{ link, at }`) and `landing` (null, or a fighter slot, `airStart` and `go`). Each Sighting kept in `seen` was also missing checks on `rise`, `facing`, `airStart`, `sheathed` and the optional `size`, so those are checked now too. Tests (`messages.test.ts`, "the AI memory load() reads"): each test runs a real AI until its memory holds the field and checks that the resync is accepted. The cases are a leaping Attack, a dagger thrown at it, its own throw with a mistake rate, a jump Link on the summit, a jump Link given up while held in place, and an enemy's Landing with its airborne Sighting. Malformed versions of each are refused (wrong type, out of range, missing). The failing run came first: every malformed memory was accepted.
+
+**Found, not fixed (for you to decide).** The validator checks shape, not meaning. A well-formed `jumpRun.link` or `route.links` id that names no jump Link in the Arena's navmesh would still throw inside the AI (`navMesh(...).links[id]` read without a guard). Refusing it needs the Tuning Data and the Arena, which `parseNetMessage` does not have. It could be done in `session.ts`'s `applyResync`, or with a guard in the AI. A resync comes only from the host after the Tuning Data hash matched, and `route.links` has had the same gap since before the Flail.
+
+**Tests changed.** None of the existing ones. The new tests are listed above.
+
+**Checks.** `npm run typecheck` clean; `npm test` and `npm run test:slow` pass (counts in the commit's session). No golden hash was re-recorded. `/code-review` (high): no correctness bug. Fixed from it: the two more copied lists (B), the `attacks ?? DIRECTIONS` read, the cached bars, a test that assumed the Arming Sword is the fastest, and the `DefencePlan` comment, which now names Back. Open: the Link-id range check above.
+
+**Screenshots** (session scratchpad, not committed): `/tmp/claude-0/-home-user-sword/238d9093-a736-4480-b0f9-921a62e40efd/scratchpad/shots6/lobby-weapons.png` (the Skirmish Weapon cards) and `skirmish.png` (the whole screen). Nothing in the Renderer or audio changed, so the sandbox scripts were not re-shot.
+
 ### Tuning notes
 
-Every number from Stages 1 to 4 worth tuning, in one place. Tuning Data reloads in the Editor (Tuning Data → Weapons → Flail, and the AI panel); code constants need a rebuild. The Simulation reads only the Tuning Data rows and none of the render or sound constants, so those can be tuned freely without touching a hash.
+Every number from Stages 1 to 4 worth tuning, in one place (Stage 6 changed none). Tuning Data reloads in the Editor (Tuning Data → Weapons → Flail, and the AI panel); code constants need a rebuild. The Simulation reads only the Tuning Data rows and none of the render or sound constants, so those can be tuned freely without touching a hash.
 
 | Name | Where | Value | What it changes | What to try |
 |---|---|---|---|---|
-| `speed` | `data/weapons/flail.json` | 45 | Reference Blade Speed: damage and the Heavy Blow are read against it. Set so an unspun Head Hit deals about `damage` (the Halberd's swings meet at 44 to 52 m/s). | Leave it unless the Motions change. Lowering it makes every Hit stronger and, below about 36, makes taps Heavy. The Lobby card's Speed bar shows this number (see Stage 5 result). |
+| `speed` | `data/weapons/flail.json` | 45 | Reference Blade Speed: damage and the Heavy Blow are read against it. Set so an unspun Head Hit deals about `damage` (the Halberd's swings meet at 44 to 52 m/s). | Leave it unless the Motions change. Lowering it makes every Hit stronger and, below about 36, makes taps Heavy. The Lobby card's Speed bar no longer shows it: it shows how fast the Weapon swings (Stage 6 result). |
 | `damage` | `data/weapons/flail.json` | 45 | A Head Hit at the reference speed: a tap is about 38 to 45, a full spin 57 to 72. | Raise it if a tap should matter more; a full spin already takes two body Hits to kill from full HP. |
 | `shaftDamage` | `data/weapons/flail.json` | 0.15 | Up close (1.0 to 1.6 m) only the shaft lands, for 2 to 10. | 0.25 to 0.3 if the Flail feels helpless up close. |
 | `head`, `chain`, `length` | `data/weapons/flail.json` | 0.22, 0.35, 1.5 | The ball (60% of the Head; the spikes are the rest), the drawn chain and the reach. `head` and `length` are the Simulation's; `chain` is render-only. | A shorter `length` moves every distance below (and `SPIN_BALL`). |

@@ -1,5 +1,5 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
-import { MAX_PLAYERS, type Lineup } from '../controllers';
+import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
@@ -708,12 +708,17 @@ function isSighting(v: unknown): boolean {
     isBool(v.fallen) &&
     isNum(v.pitch) &&
     isBool(v.moving) &&
-    (v.attackStart === null || isTick(v.attackStart))
+    (v.attackStart === null || isTick(v.attackStart)) &&
+    isNum(v.rise) &&
+    isNum(v.facing) &&
+    (v.airStart === null || isTick(v.airStart)) &&
+    isBool(v.sheathed) &&
+    (v.size === undefined || isSize(v.size))
   );
 }
 
-const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back'];
-const MODES = ['Neutral', 'Pressure', 'Disengage'];
+/** One of `list` (a const array exported by the AI, so the validator never keeps its own copy). */
+const isOneOf = (list: readonly string[], v: unknown): boolean => list.includes(v as string);
 
 /** An AI Controller's memory (its `save()`): what it saw of every Fighter on its last Ticks, and its plans. */
 function isAiMemory(v: unknown): boolean {
@@ -726,7 +731,7 @@ function isAiMemory(v: unknown): boolean {
     (isObject(d) &&
       isTick(d.attacker) &&
       isTick(d.attackStart) &&
-      DEFENCE_KINDS.includes(d.kind as string) &&
+      isOneOf(DEFENCE_KINDS, d.kind) &&
       isDirection(d.direction) &&
       isInt(d.pressAt) &&
       (d.reads === undefined || isBool(d.reads)) &&
@@ -737,11 +742,18 @@ function isAiMemory(v: unknown): boolean {
   const a = v.attackPlan;
   const attack =
     a === null ||
-    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isBool(a.whiff) && isBool(a.team) && (a.double === undefined || isBool(a.double)) && (a.spin === undefined ? a.spinUntil === undefined : isInt(a.spin) && a.spin > 0 && isInt(a.spinUntil)));
+    (isObject(a) && isDirection(a.direction) && isInt(a.holdUntil) && isBool(a.reFeintRolled) && isBool(a.chainRolled) && (a.chain === null || isDirection(a.chain)) && isBool(a.chainHeld) && isInt(a.holdJumpUntil) && isBool(a.whiff) && isBool(a.team) && (a.double === undefined || isBool(a.double)) && (a.spin === undefined ? a.spinUntil === undefined : isInt(a.spin) && a.spin > 0 && isInt(a.spinUntil)));
+  const t = v.throwPlan;
+  const throwPlan = t === null || (isObject(t) && isTick(t.thrower) && isTick(t.startTick) && isBool(t.react));
+  const r = v.jumpRun;
+  const jumpRun = r === null || (isObject(r) && isTick(r.link) && isOneOf(JUMP_STAGES, r.stage) && isInt(r.deadline) && isInt(r.flew) && isBool(r.escape));
+  const failedJumps = isArrayOf(v.failedJumps, (f) => isObject(f) && isTick(f.link) && isTick(f.at));
+  const l = v.landing;
+  const landing = l === null || (isObject(l) && isTick(l.fighter) && isTick(l.airStart) && isBool(l.go));
   const route =
     v.route === null ||
     (isObject(v.route) && isInt(v.route.from) && isInt(v.route.to) && isTick(v.route.at) && (v.route.links === null || isArrayOf(v.route.links, isTick)));
-  const tactic = isObject(v.tactic) && MODES.includes(v.tactic.mode as string) && isInt(v.tactic.until);
+  const tactic = isObject(v.tactic) && isOneOf(AI_MODES, v.tactic.mode) && isInt(v.tactic.until);
   const st = v.strafe;
   const strafe = isObject(st) && (st.sign === 1 || st.sign === -1) && isInt(st.until) && isBool(st.flank) && isNum(st.spacing) && isBool(st.still) && isInt(st.pause) && isBool(st.hop);
   const o = v.opening;
@@ -752,7 +764,7 @@ function isAiMemory(v: unknown): boolean {
   const beat = b === null || (isObject(b) && isBool(b.timed) && isNum(b.need) && isNum(b.done) && isBool(b.double) && isBool(b.wild));
   const j = v.jitter;
   const jitter = j === null || (isObject(j) && isTick(j.from) && isInt(j.until) && isInt(j.at));
-  return seen && defence && feint && attack && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
+  return seen && defence && feint && attack && throwPlan && isNum(v.aimError) && jumpRun && failedJumps && landing && route && tactic && strafe && opening && focus && turn && beat && jitter && isInt(v.shaken);
 }
 
 /**

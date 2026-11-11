@@ -237,13 +237,21 @@ interface Observation {
 }
 
 /**
+ * The ways a Defence plan meets an Attack (`DefencePlan.kind`). The one list: the resync validator (`src/net/messages.ts`)
+ * reads it too, so a new kind cannot be left out there.
+ */
+export const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back'] as const;
+export type DefenceKind = (typeof DEFENCE_KINDS)[number];
+
+/**
  * How it means to meet one enemy Attack (rolled once, so a mistake sticks): Block it in `direction`, Crouch
- * under it (Duck), attack into it on Tick `pressAt` (Chamber), or swing on with its own faster Attack (Outpace).
+ * under it (Duck), attack into it on Tick `pressAt` (Chamber), swing on with its own faster Attack (Outpace), or step
+ * out of a spin's reach (Back).
  */
 interface DefencePlan {
   readonly attacker: number;
   readonly attackStart: number;
-  readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace' | 'Back';
+  readonly kind: DefenceKind;
   readonly direction: Direction;
   readonly pressAt: number;
   /** It rolled to read the attacker's look (`lowSwingRead`): a Duck switches to a Block while the look is low. */
@@ -295,7 +303,9 @@ interface AttackPlan {
   readonly spinUntil?: number;
 }
 
-type Mode = 'Neutral' | 'Pressure' | 'Disengage';
+/** Its tactics (`Tactic.mode`); the resync validator reads the list too. */
+export const MODES = ['Neutral', 'Pressure', 'Disengage'] as const;
+type Mode = (typeof MODES)[number];
 
 /** Its current tactic, until Duel Tick `until`. */
 interface Tactic {
@@ -354,6 +364,9 @@ interface Route {
   readonly links: readonly number[] | null;
 }
 
+/** The stages of a jump it carries out (`JumpRun.stage`); the resync validator reads the list too. */
+export const JUMP_STAGES = ['LineUp', 'RunIn', 'Fly'] as const;
+
 /**
  * A jump Link of its route it is carrying out (`link`, its id): walking to the run-up point behind the takeoff
  * (LineUp), running in along the heading (RunIn), or in the air since it pressed Jump on Tick `flew` (Fly). Not airborne by
@@ -361,7 +374,7 @@ interface Route {
  */
 interface JumpRun {
   readonly link: number;
-  readonly stage: 'LineUp' | 'RunIn' | 'Fly';
+  readonly stage: (typeof JUMP_STAGES)[number];
   readonly deadline: number;
   readonly flew: number;
   /** Taken to get away from its enemy (`escapeLink`), not as part of a route: it carries it out whatever its route says. */
