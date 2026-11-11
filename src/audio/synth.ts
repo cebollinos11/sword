@@ -37,6 +37,7 @@ import type {
   SwingCue,
   ThunkCue,
   WallStrikeCue,
+  WhirlCue,
 } from './cues';
 import type { AudioTuning } from '../tuning';
 import type { Vec3 } from '../sim';
@@ -53,6 +54,9 @@ const INAUDIBLE = 0.005;
 const DIN_EVERY = 0.1;
 /** How loud each war cry in the din plays (before distance). */
 const SHOUT_LEVEL = 0.6;
+/** How loud a flail's whirl whooshes at full charge, and its chain rattles on a stopped blow (the bus level). */
+const WHIRL_LEVEL = 0.9;
+const RATTLE_LEVEL = 0.8;
 
 /** Seconds the gong or fanfare waits after the blow that ended the Duel, so the Death boom is heard first. */
 const ENDING_DELAY = 0.55;
@@ -204,12 +208,18 @@ export class WebAudioPlayer implements SoundPlayer {
 
   private sound(cue: SoundCue): void {
     const stock = stockFor(cue);
-    if (stock && this.clip(cue, stock)) return;
+    const recorded = !!stock && this.clip(cue, stock);
+    // A flail's blows carry their own layers over whatever plays for the blow itself: the spikes biting, the chain rattling.
+    if (cue.sound === 'Hit' && cue.by === 'Ball') this.spikes(cue.strength);
+    if ((cue.sound === 'Block' || cue.sound === 'WallStrike') && cue.chain) this.rattle(cue.strength);
+    if (recorded) return;
     switch (cue.sound) {
       case 'Swing':
         return this.swing(cue);
       case 'Block':
         return this.block(cue);
+      case 'Whirl':
+        return this.whirl(cue);
       case 'Hit':
         return this.hit(cue);
       case 'Chamber':
@@ -518,6 +528,12 @@ export class WebAudioPlayer implements SoundPlayer {
         this.tone(out, { freq: (cue.zone === 'head' ? 160 : 120) * p, to: 42, dur: 0.24, peak: 0.95 * s, attack: 0.003 });
         break;
       }
+      case 'Ball':
+        // A flail's spiked ball: a deep, heavy thud through the body (the spikes' crunch is layered on by `spikes`).
+        this.hiss(out, { filter: 'lowpass', freq: 700 * p, to: 220, q: 1, dur: 0.12, peak: 0.9, attack: 0.002 });
+        this.tone(out, { type: 'triangle', freq: 150 * p, to: 60, dur: 0.16, peak: 0.7 * s });
+        this.tone(out, { freq: 78 * p, to: 30, dur: 0.38, peak: 1, attack: 0.003 });
+        break;
       case 'Shaft':
         // A blunt, wooden whack.
         this.hiss(out, { filter: 'bandpass', freq: 900 * p, q: 3, dur: 0.06, peak: 0.8, attack: 0.001 });
@@ -535,6 +551,43 @@ export class WebAudioPlayer implements SoundPlayer {
     if (cue.zone === 'head') this.hiss(out, { filter: 'bandpass', freq: 1800 * p, q: 5, dur: 0.05, peak: 0.6 * s, attack: 0.001 });
     // A heavy blow lands with a sub-bass punch.
     if (s > 0.55) this.tone(out, { freq: 58, to: 32, dur: 0.35, peak: 0.9 * (s - 0.4), attack: 0.004 });
+  }
+
+  /**
+   * One turn of a flail's whirl: a round whoosh of air past the ears, higher, shorter and louder the more the Spin-up is charged (the
+   * opponent reads the charge by ear), with a faint rattle of the chain on top.
+   */
+  private whirl(cue: WhirlCue): void {
+    const c = cue.charge;
+    const pitch = (0.75 + 0.75 * c) * vary(0.04);
+    const dur = 0.3 - 0.12 * c;
+    const out = this.bus(0.1, WHIRL_LEVEL * (0.35 + 0.65 * c));
+    // The ball through the air: a broad band of noise swelling and fading as it passes.
+    this.hiss(out, { filter: 'bandpass', freq: 260 * pitch, to: 700 * pitch, q: 1.4, dur, peak: 0.6, attack: dur * 0.5 });
+    // Its spikes whistling, only once it is really going.
+    this.hiss(out, { filter: 'bandpass', freq: 1600 * pitch, to: 2600 * pitch, q: 7, dur: dur * 0.8, peak: 0.25 * c, attack: dur * 0.5 });
+    // The weight of it: a low rush.
+    this.hiss(out, { filter: 'lowpass', freq: 220, to: 380, q: 0.8, dur: dur * 1.1, peak: 0.35 + 0.25 * c, attack: dur * 0.45 });
+  }
+
+  /** A flail's spikes biting: a short crunch of points going in, over the blow itself. */
+  private spikes(strength: number): void {
+    const out = this.bus(0.15, 0.6 + 0.4 * strength);
+    for (const [at, peak] of [[0, 0.7], [0.007, 0.5], [0.016, 0.4]] as const) {
+      this.hiss(out, { filter: 'bandpass', freq: 2600 * vary(0.15), q: 3, at, dur: 0.03, peak, attack: 0.001 });
+    }
+    this.hiss(out, { filter: 'bandpass', freq: 1100 * vary(0.1), to: 500, q: 1.6, at: 0.004, dur: 0.1, peak: 0.45 * strength, attack: 0.002, flutter: 45 });
+  }
+
+  /** A flail's chain rattling as its blow is stopped (a Block, a Wall): a quick run of small iron links knocking, fading. */
+  private rattle(strength: number): void {
+    const out = this.bus(0.25, RATTLE_LEVEL * (0.5 + 0.5 * strength));
+    for (let k = 0; k < 7; k++) {
+      const at = 0.012 + k * 0.022 * vary(0.3);
+      const peak = 0.45 * 0.78 ** k;
+      this.hiss(out, { filter: 'bandpass', freq: 3400 * vary(0.2), q: 6, at, dur: 0.025, peak, attack: 0.001 });
+      this.tone(out, { freq: 2300 * vary(0.12), at, dur: 0.05, peak: peak * 0.18, attack: 0.001 });
+    }
   }
 
   private chamber(): void {

@@ -66,6 +66,7 @@ function build(tuning: TuningData, h: number, t: number): TuningData {
         length: w.length * h,
         gripLength: w.gripLength * h,
         head: w.head * h,
+        ...(w.chain !== undefined && { chain: w.chain * h }),
         ...(w.offHandGrip && { offHandGrip: { ...w.offHandGrip, along: w.offHandGrip.along * h, radial: w.offHandGrip.radial * h } }),
         sheathe: { ...w.sheathe, offset: { x: w.sheathe.offset.x * t, y: w.sheathe.offset.y * h, z: w.sheathe.offset.z * h } },
       },

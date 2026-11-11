@@ -1,6 +1,6 @@
 /**
  * Tuning panels for the Duel sandbox: Weapons (pick one from the roster; every field,
- * the Off-hand Grip included), Hit Zone
+ * the Off-hand Grip included, and the Attack Directions and Spin-up of a Weapon that has them), Hit Zone
  * multipliers, AI difficulty (Reaction Time, mistake rate and the rest of each preset's repertoire, and each Style's multipliers) and the
  * Gait (every `gait` value, bound from GAIT_FIELDS so new fields appear here) and
  * Block (the facing rule and the Block Impact's give and bounce) and Fall (gravity, the Jump, Landing damage, steps) and Camera (where the
@@ -11,6 +11,7 @@
  * Save writes the validated section to `data/<section>.json`, a Weapon to `data/weapons/<file>`.
  */
 import type { FolderApi, Pane } from 'tweakpane';
+import { DIRECTIONS } from '../sim';
 import { AI_DIFFICULTY_EXTRAS, AI_STYLE_KEYS, GAIT_FIELDS, HIT_ZONES, WEAPON_GRIPS, WEAPON_LOOKS } from '../tuning';
 import { saveJsonFile } from './save';
 import type { EditorSession, RepoFile, TuningSection } from './session';
@@ -84,6 +85,30 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     on(f.addBinding(w, 'head', { min: 0.01, max: 2.5, step: 0.01, label: 'head (m)' }));
     on(f.addBinding(w, 'shaftDamage', { min: 0, max: 1, step: 0.05, label: 'shaft damage ×' }));
     on(f.addBinding(w, 'cuts', { label: 'cuts (Dismemberment)' }));
+    if (w.look === 'flail' || w.chain !== undefined) {
+      (w as { chain: number }).chain ??= 0;
+      on(f.addBinding(w as { chain: number }, 'chain', { min: 0, max: 1, step: 0.01, label: 'chain (m, flail look)' }));
+    }
+    // The Directions it Attacks in, for a Weapon that lacks some or has the flail look (so turning all four on never hides the toggles):
+    // Overhead always stays (a missing one falls back to it). All four on saves as none listed.
+    if (w.attacks || w.look === 'flail') {
+      const attacks = w.attacks ?? [...DIRECTIONS];
+      const g = f.addFolder({ title: 'Attacks (Overhead always)' });
+      const toggles = Object.fromEntries(DIRECTIONS.filter((d) => d !== 'Overhead').map((d) => [d, attacks.includes(d)]));
+      for (const d of Object.keys(toggles)) {
+        g.addBinding(toggles, d).on('change', () => {
+          w.attacks = DIRECTIONS.filter((x) => x === 'Overhead' || toggles[x]);
+          applyWeapon();
+        });
+      }
+    }
+    // The Spin-up, for a Weapon that has one (the Flail): time to full charge and the Blade Speed multiplier at none and at full.
+    if (w.spinUp) {
+      const spin = f.addFolder({ title: 'Spin-up (Blade Speed ×)' });
+      on(spin.addBinding(w.spinUp, 'seconds', { min: 0.1, max: 5, step: 0.05, label: 'to full (s)' }));
+      on(spin.addBinding(w.spinUp, 'from', { min: 0.1, max: 3, step: 0.05, label: 'no charge ×' }));
+      on(spin.addBinding(w.spinUp, 'to', { min: 0.1, max: 3, step: 0.05, label: 'full charge ×' }));
+    }
     const grip = f.addFolder({ title: 'Off-hand Grip (two-handed)' });
     on(grip.addBinding(w.offHandGrip, 'along', { min: 0, max: 1.5, step: 0.01, label: 'along (m)' }));
     on(grip.addBinding(w.offHandGrip, 'around', { min: -180, max: 180, step: 1, label: 'around (°)' }));
@@ -114,6 +139,8 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
 
   folder('ai', (f) => {
     const ai = session.draftSection('ai');
+    // The share of a full Spin-up from which an AI with `spinRespect` reads a spin (the Flail's) as a Heavy Blow coming.
+    if (ai.spinThreat !== undefined) f.addBinding(ai, 'spinThreat', { min: 0, max: 1, step: 0.01, label: 'spin threat (× full)' }).on('change', () => apply('ai'));
     for (const [name, d] of Object.entries(ai.difficulties)) {
       const g = f.addFolder({ title: name });
       g.addBinding(d, 'reactionTime', { min: 0, max: 1, step: 0.01, label: 'Reaction Time (s)' }).on('change', () => apply('ai'));

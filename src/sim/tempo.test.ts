@@ -19,8 +19,8 @@ const SLOW: WeaponTempo = { windUp: 2, release: 1.5, recovery: 3 };
 const slow = withTempo(SLOW);
 
 describe('The unit Tempo', () => {
-  it('is every Weapon in the roster today, so Attacks play as authored', () => {
-    for (const w of Object.values(tuning.weapons)) expect(w.tempo).toEqual(UNIT_TEMPO);
+  it('is every Weapon in the roster today but the Flail, so Attacks play as authored', () => {
+    for (const w of Object.values(tuning.weapons).filter((w) => w.name !== 'Flail')) expect(w.tempo).toEqual(UNIT_TEMPO);
   });
 
   it('leaves every time unchanged, bit for bit', () => {
@@ -32,7 +32,7 @@ describe('The unit Tempo', () => {
   });
 
   it('gives every Attack the Tick counts of its authored markers', () => {
-    for (const weapon of Object.keys(tuning.weapons)) {
+    for (const weapon of Object.keys(tuning.weapons).filter((w) => w !== 'Flail')) {
       for (const d of DIRECTIONS) {
         const m = tuning.motions[d]!;
         expect(attackTimings(tuning, weapon, d)).toEqual({

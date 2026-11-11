@@ -6,6 +6,7 @@ import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyMod
 import { piecesOfFall, severing, type Pieces } from './dismember';
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
+import { chainLinks, FLAIL_LINKS, flailBallRadius, flailChainOf, linkSpacing, reachOf, rigidBall, sheathedFlail, shaftEnd, shaftLength, type FlailChain } from './flailChain';
 import { bladeSteel } from './steel';
 import { MAX_MARKS, type BladeMark } from './bladeBlood';
 import { bodyBloodShader, bodyBloodUniforms, restFrames, setBodyBlood, type BodyMark } from './bodyBlood';
@@ -50,7 +51,8 @@ function boneRadius(a: JointName, b: JointName): number {
  * model whose bones follow the Skeleton, shown in place of the primitives once
  * it has loaded. Its Weapon is drawn to the Weapon's dimensions (a sword:
  * blade, crossguard, grip and pommel; a polearm: shaft, axe blade, spike and
- * back hook over the Head; a hammer: shaft and a rectangular head across the tip). It only reads poses.
+ * back hook over the Head; a hammer: shaft and a rectangular head across the tip; a flail: shaft, chain and a spiked
+ * ball, the ball's centre on the Head's). It only reads poses.
  */
 export class FighterView {
   readonly root = new THREE.Group();
@@ -75,6 +77,7 @@ export class FighterView {
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  private readonly flail: FlailMeshes;
   /** Blood on the Weapon (`setBlood`): one mesh per mark, made as needed, sharing `bloodMaterial`. */
   private readonly bloodMeshes: THREE.Mesh[] = [];
   /** Made with the first mark (so a view that never bloodies draws no smear texture). */
@@ -170,7 +173,18 @@ export class FighterView {
       collar: new THREE.Mesh(cylinder, dark),
     };
     this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
-    this.root.add(this.sword.group, this.polearm.group, this.hammer.group);
+    const link = new THREE.TorusGeometry(1, 0.28, 4, 8);
+    this.owned.push(link);
+    this.flail = {
+      group: new THREE.Group(),
+      shaft: new THREE.Mesh(cylinder, wood),
+      cap: new THREE.Mesh(cylinder, dark),
+      links: Array.from({ length: FLAIL_LINKS }, () => new THREE.Mesh(link, dark)),
+      ball: new THREE.Mesh(sphere, steel),
+      spikes: FLAIL_SPIKES.map(() => new THREE.Mesh(cone, steel)),
+    };
+    this.flail.group.add(this.flail.shaft, this.flail.cap, ...this.flail.links, this.flail.ball, ...this.flail.spikes);
+    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.flail.group);
   }
 
   /** Free what this view made: the primitives' geometries and materials, a loaded model's own materials (its geometry and textures are the shared template's), and its pieces. */
@@ -250,10 +264,12 @@ export class FighterView {
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
+    this.flail.group.visible = weapon.look === 'flail';
     if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
+    else if (weapon.look === 'flail') placeFlail(this.flail, pose.blade, weapon, (pose as DrawnPose).flail);
     else placeSword(this.sword, pose.blade, weapon);
-    this.placeBlood(pose.blade, weapon);
+    this.placeBlood(pose.blade, weapon, (pose as DrawnPose).flail);
     // The shader bloodies a model's skin where it stands before its bones move it (the rest pose; in pieces, the pose it was
     // cut in), and the bare Skeleton's primitives where they are drawn.
     if (this.wounds.length === 0) this.woundUniforms.uBloodCount.value = 0;
@@ -310,7 +326,7 @@ export class FighterView {
   }
 
   /** Lay each blood mark on the striking part nearest where it struck. */
-  private placeBlood(b: BladeTransform, w: WeaponTuning): void {
+  private placeBlood(b: BladeTransform, w: WeaponTuning, chain?: FlailChain): void {
     const marks = this.blood;
     const n = Math.min(marks.length, MAX_MARKS);
     if (n > 0 && !this.bloodMaterial) {
@@ -336,7 +352,30 @@ export class FighterView {
       // Mirrored by its look, so the one smear does not repeat.
       const flipX = m.look < 0.5 ? -1 : 1;
       const flipY = (m.look * 4) % 1 < 0.5 ? -1 : 1;
-      if (w.look === 'hammer') {
+      if (w.look === 'flail') {
+        const r = flailBallRadius(w);
+        const end = shaftLength(w, len);
+        mesh.geometry = this.shapes.box;
+        if (at < end) {
+          // A shaft contact: a smear round the shaft where it struck.
+          const l = Math.min(end, markLength(m));
+          placeInFrame(mesh, clampCentre(at, 0, end, l), 0, [0.022 * proud * flipX, l * flipY, 0.022 * proud]);
+        } else {
+          // On the ball: a patch on its leading face, moved round it by its look; it rides the ball where it is drawn.
+          const l = r * (0.5 + 0.6 * m.strength);
+          placeInFrame(mesh, len - w.head / 2 + (m.look - 0.5) * r, r * 0.92 * proud, [l * flipX, l * flipY, r * 0.25]);
+          if (chain) {
+            // Carried from the rigid ball to the drawn one and turned with it, as `placeFlail` turns the ball and its spikes.
+            const rigid = rigidBall(b, w);
+            const last = chain.links[chain.links.length - 1] ?? shaftEnd(b, w);
+            chainDir.set(chain.ball.x - last.x, chain.ball.y - last.y, chain.ball.z - last.z);
+            if (chainDir.lengthSq() < 1e-12) chainDir.copy(yAxis);
+            ballTurn.setFromUnitVectors(yAxis, chainDir.normalize());
+            mesh.position.sub(tmpA.set(rigid.x, rigid.y, rigid.z)).applyQuaternion(ballTurn).add(tmpB.set(chain.ball.x, chain.ball.y, chain.ball.z));
+            mesh.quaternion.premultiply(ballTurn);
+          }
+        }
+      } else if (w.look === 'hammer') {
         const head = Math.max(w.head, 0.05);
         const l = head * (0.45 + 0.55 * m.strength);
         mesh.geometry = this.shapes.box;
@@ -467,6 +506,22 @@ interface HammerMeshes {
   readonly collar: THREE.Mesh;
 }
 
+interface FlailMeshes {
+  readonly group: THREE.Group;
+  readonly shaft: THREE.Mesh;
+  /** The iron cap on the shaft's end, which the chain hangs from. */
+  readonly cap: THREE.Mesh;
+  readonly links: readonly THREE.Mesh[];
+  readonly ball: THREE.Mesh;
+  readonly spikes: readonly THREE.Mesh[];
+}
+
+/** A flail ball's spikes, as directions in the Weapon's frame: the six faces and the eight corners. */
+const FLAIL_SPIKES: readonly (readonly [number, number, number])[] = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+  ...[-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => [x, y, z] as const))),
+];
+
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
 
@@ -563,6 +618,64 @@ function placeHammer(m: HammerMeshes, b: BladeTransform, w: WeaponTuning): void 
   placeInFrame(m.collar, len - head - 0.04, 0, [0.026, 0.08, 0.026]);
 }
 
+const linkTurn = new THREE.Quaternion();
+const spikeDir = new THREE.Vector3();
+const chainDir = new THREE.Vector3();
+const ballTurn = new THREE.Quaternion();
+const ballOrientation = new THREE.Quaternion();
+
+/**
+ * A flail: the shaft from the butt to `length - chain - head` along the Weapon, an iron cap on its end, and the chain and ball from there
+ * where `chain` has them (`flailChainOf`, docs/plans/flail.md Stage 3: whirling, on the simulated ball in Release, hanging otherwise).
+ * Without one (the Motion Editor, a thumbnail) the chain runs straight on along the Weapon, the ball's centre where the Head's is, as
+ * the Simulation has it.
+ */
+function placeFlail(m: FlailMeshes, b: BladeTransform, w: WeaponTuning, chain?: FlailChain): void {
+  const len = weaponFrame(b);
+  const end = shaftLength(w, len);
+  const r = flailBallRadius(w);
+  placeInFrame(m.shaft, (end - w.gripLength) / 2, 0, [0.02, end + w.gripLength, 0.02]);
+  placeInFrame(m.cap, end - 0.02, 0, [0.026, 0.06, 0.026]);
+  const from = shaftEnd(b, w);
+  const reach = reachOf(b, w);
+  const drawn = chain ?? { ball: rigidBall(b, w), links: chainLinks(from, rigidBall(b, w), w, reach) };
+  // The links from the cap to the ball, each along the chain where it is and turned a quarter from the last, so they read as interlocked.
+  const size = Math.max(linkSpacing(reach, w).size, 0.005);
+  m.links.forEach((link, k) => {
+    const at = drawn.links[k]!;
+    const before = k === 0 ? from : drawn.links[k - 1]!;
+    const after = k === drawn.links.length - 1 ? drawn.ball : drawn.links[k + 1]!;
+    chainDir.set(after.x - before.x, after.y - before.y, after.z - before.z);
+    if (chainDir.lengthSq() < 1e-12) chainDir.copy(yAxis);
+    chainDir.normalize();
+    // A torus lies in its own xy plane: stand it along the chain, then a quarter turn every other link.
+    link.quaternion.setFromUnitVectors(yAxis, chainDir).multiply(orientation);
+    linkTurn.setFromAxisAngle(chainDir, k % 2 === 0 ? 0 : Math.PI / 2);
+    link.quaternion.premultiply(linkTurn);
+    link.position.set(at.x, at.y, at.z);
+    link.scale.set(size * 0.45, size, size * 0.45);
+  });
+  // The ball, turned with the chain's last stretch (so its spikes and blood ride round with it).
+  const last = drawn.links[drawn.links.length - 1] ?? from;
+  chainDir.set(drawn.ball.x - last.x, drawn.ball.y - last.y, drawn.ball.z - last.z);
+  if (chainDir.lengthSq() < 1e-12) chainDir.copy(yAxis);
+  chainDir.normalize();
+  ballTurn.setFromUnitVectors(yAxis, chainDir);
+  ballOrientation.copy(ballTurn).multiply(orientation);
+  m.ball.quaternion.copy(ballOrientation);
+  m.ball.position.set(drawn.ball.x, drawn.ball.y, drawn.ball.z);
+  m.ball.scale.set(r, r, r);
+  const spike = w.head / 2 - r;
+  m.spikes.forEach((mesh, k) => {
+    const [x, y, z] = FLAIL_SPIKES[k]!;
+    // From the ball's surface outward: the ball's frame to world.
+    spikeDir.set(x, y, z).normalize().applyQuaternion(ballOrientation);
+    mesh.position.set(drawn.ball.x, drawn.ball.y, drawn.ball.z).addScaledVector(spikeDir, r + spike / 2 - 0.004);
+    mesh.quaternion.setFromUnitVectors(UP, spikeDir);
+    mesh.scale.set(r * 0.32, spike + 0.008, r * 0.32);
+  });
+}
+
 /** Interpolate two solved poses (render-only smoothing between Ticks). */
 export function lerpPose(a: SkeletonPose, b: SkeletonPose, t: number): SkeletonPose {
   const l = (u: Vec3, v: Vec3): Vec3 => ({ x: u.x + (v.x - u.x) * t, y: u.y + (v.y - u.y) * t, z: u.z + (v.z - u.z) * t });
@@ -589,6 +702,8 @@ export interface DrawnPose extends SkeletonPose {
   readonly pieces?: Pieces;
   /** With `pieces`: seconds of Duel time since the Death (its stumps bleed for a while, `stumpDrops`). */
   readonly since?: number;
+  /** A Weapon drawn as a flail: its loose chain and ball where they are drawn (`flailChainOf`; absent: rigid, as the Simulation has it). */
+  readonly flail?: FlailChain;
 }
 
 /** Each Death Ragdoll pose's pieces, so a body lying still is not taken apart again every frame. */
@@ -610,15 +725,23 @@ export function drawnPose(from: SimState, to: SimState, i: number, alpha: number
     const fellIn = fighterPose(f, tuning);
     const severed = dismember ? severing(fellIn, f.death.blow, sized) : [];
     const fall = ragdollPose(fellIn, f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed, severed);
+    // A flail's ball hangs from the falling Weapon onto the floor, or stays on the back with it.
+    const flail = weapon.look !== 'flail' ? undefined : f.sheathed ? sheathedFlail(fall.blade, weapon, fall.joints.chest) : flailChainOf(from, to, i, alpha, tuning, fall);
     // Whole, or still whole before the Death's own Tick.
-    if (!fall.stumps) return fall;
+    if (!fall.stumps) return flail ? { ...fall, flail } : fall;
     let pieces = piecesCache.get(fall);
     if (!pieces) {
       pieces = piecesOfFall(f.sheathed ? { ...fellIn, blade: sheathedBlade(fellIn, weapon) } : fellIn, fall, severed, sized);
       piecesCache.set(fall, pieces);
     }
-    return { ...fall, pieces, since: ticks * TICK_SECONDS };
+    return { ...fall, pieces, since: ticks * TICK_SECONDS, ...(flail ? { flail } : {}) };
   }
   const pose = lerpPose(fighterPose(from.fighters[i] ?? f, tuning), fighterPose(f, tuning), alpha);
-  return f.sheathed ? { ...pose, blade: sheathedBlade(pose, weapon) } : pose;
+  if (f.sheathed) {
+    const blade = sheathedBlade(pose, weapon);
+    return weapon.look === 'flail' ? { ...pose, blade, flail: sheathedFlail(blade, weapon, pose.joints.chest) } : { ...pose, blade };
+  }
+  if (weapon.look !== 'flail') return pose;
+  const flail = flailChainOf(from, to, i, alpha, tuning, pose);
+  return flail ? { ...pose, flail } : pose;
 }

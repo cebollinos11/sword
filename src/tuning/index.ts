@@ -67,8 +67,8 @@ export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Ski
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
-export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponTempo, WeaponTuning } from './weapon';
-export { isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, UNIT_TEMPO, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
+export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponSpinUp, WeaponTempo, WeaponTuning } from './weapon';
+export { attackDirection, isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, spinUpChargeTicks, spinUpSpeed, UNIT_TEMPO, WHIRL_TURNS_PER_SECOND, whirlTurns, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
   /** Starting HP of a Fighter. */
@@ -442,10 +442,23 @@ export interface AiDifficulty {
    * (Releasing at least 10 Ticks before the attacker can), whatever `preempt` says, rather than Feint into a Block.
    */
   readonly pressAhead?: number;
+  /**
+   * 0..1: with a Weapon that has a Spin-up (the Flail), how much of the full charge it aims for when it has room (its target
+   * out of its reach, Staggered, knocked down, Sheathed or busy with an ally). It lets go early when an enemy Wind-up it sees
+   * would Release inside its remaining spin, or when the target steps into the ball's reach open, and spins only where the
+   * ball lands. 0 = it swings a Flail like any Weapon.
+   */
+  readonly spinHold?: number;
+  /**
+   * 0..1: chance, rolled once per Attack it defends when the attacker's Spin-up charge it sees reaches `ai.spinThreat` of full,
+   * that it reads the spin: it hits first if its own Wind-up lands before the spin can, Chambers it if it can time it, or steps
+   * out of reach, rather than stand and Block a Heavy Blow.
+   */
+  readonly spinRespect?: number;
 }
 
 /** The optional AI difficulty parameters (each a chance 0..1), in the order the Editor shows them. */
-export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead'] as const satisfies readonly (keyof AiDifficulty)[];
+export const AI_DIFFICULTY_EXTRAS = ['aggression', 'kickRate', 'throwRate', 'footwork', 'pressure', 'caution', 'punish', 'chainRate', 'preempt', 'jumpAttackRate', 'duckRate', 'chamberRate', 'landingPunish', 'jumpEscapeRate', 'lowSwingRead', 'holdBreak', 'whiffCheck', 'punishFits', 'teamwork', 'rhythm', 'reactionJitter', 'humanMistakes', 'idleLife', 'jumpStep', 'pressAhead', 'spinHold', 'spinRespect'] as const satisfies readonly (keyof AiDifficulty)[];
 
 /** The parts of a difficulty preset a Style scales: its chances, never its Reaction Time, mistake rate or `jumpNav` (a Style is how it fights, not how well). */
 export const AI_STYLE_KEYS = ['feintRate', ...AI_DIFFICULTY_EXTRAS] as const satisfies readonly (keyof AiDifficulty)[];
@@ -475,6 +488,8 @@ export interface AiTuning {
   readonly aggression: number;
   /** A Left or Right swung by a Fighter looking down more than this (degrees, negative: down) hits a Crouch (`lowSwingRead`). */
   readonly duckMaxPitch: number;
+  /** The share (0..1) of a full Spin-up charge, as seen, from which an AI with `spinRespect` reads a spin as a Heavy Blow coming. Absent: 1 (only a full one). */
+  readonly spinThreat?: number;
   /** Difficulty presets by name (e.g. Easy, Normal, Hard), in file order. */
   readonly difficulties: Readonly<Record<string, AiDifficulty>>;
   /** Styles by name, in file order: how an AI fights, chosen apart from its difficulty. DEFAULT_STYLE is the identity. */
@@ -530,6 +545,11 @@ export interface TuningData {
 /** The default Weapon: the first in the roster. */
 export function defaultWeaponName(tuning: Pick<TuningData, 'weapons'>): string {
   return Object.keys(tuning.weapons)[0]!;
+}
+
+/** The Weapons a Run picks a `"random"` enemy's Weapon and its Weapon loot from: the roster, in file order, without `dungeon.leftOutWeapons`. */
+export function runWeapons(tuning: Pick<TuningData, 'weapons' | 'dungeon'>): string[] {
+  return Object.keys(tuning.weapons).filter((w) => !tuning.dungeon.leftOutWeapons.includes(w));
 }
 
 /** A Weapon of the roster by name. Throws on an unknown name. */
@@ -700,6 +720,7 @@ function parseAi(raw: unknown): AiTuning {
     throwRate: fraction(ai, 'throwRate', 'ai'),
     aggression: fraction(ai, 'aggression', 'ai'),
     duckMaxPitch: finiteNumber(ai, 'duckMaxPitch', 'ai'),
+    ...(ai.spinThreat !== undefined && { spinThreat: fraction(ai, 'spinThreat', 'ai') }),
     difficulties,
     styles,
   };

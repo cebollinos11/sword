@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, parseArena, type AiDifficulty, type TuningData } from '../tuning';
-import { attack, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Direction, type Intent, type SimState, type Track } from '../sim';
+import { loadTuningData, parseArena, spinUpChargeTicks, type AiDifficulty, type TuningData } from '../tuning';
+import { attack, attackTimings, IDLE_INTENT, SHEATHED_IDLE_MOTION, createInitialState, createMatch, DIRECTIONS, duelPlacements, groundBelow, hashValue, jumpArc, hold, TICK_RATE, wait, walk, type Action, type Direction, type Intent, type SimState, type Track } from '../sim';
 import { JUMP_SPOTS } from '../sim/jumpSpots.testdata';
 import { aiDifficulty, aiStyle, createAiController, runControllers, runMatch, scriptedController } from './index';
 import { skillOf, stepIsSafe } from './ai';
@@ -1067,7 +1067,7 @@ describe('AI Stage 1: new tiers and Styles (docs/plans/ai-behaviour.md)', () => 
 
   it('Beginner, Skilled and Expert play Easy, Normal and Hard with every new knob on, climbing the same ladder', () => {
     for (const [old, tier, knob] of ladder) {
-      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, ...rest } = aiDifficulty(repo, tier);
+      const { lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork, rhythm: _r, reactionJitter: _j, humanMistakes: _h, idleLife: _i, jumpStep: _s, pressAhead, spinHold: _sh, spinRespect: _sr, ...rest } = aiDifficulty(repo, tier);
       expect(rest, tier).toEqual(aiDifficulty(repo, old));
       expect(pressAhead, tier).toBe(1);
       expect([lowSwingRead, holdBreak, whiffCheck, punishFits, teamwork], tier).toEqual([knob, knob, knob, knob, knob]);
@@ -1700,5 +1700,201 @@ describe('AI Controller: shared Observations', { timeout: 120_000 }, () => {
     // And they do share: by the end every AI holds the one Observation of the last Tick, the newcomer and the resynced ones too.
     expect(shared.newest.every((o) => o === shared.newest[0])).toBe(true);
     expect(alone.newest[1]).not.toBe(alone.newest[0]);
+  });
+});
+
+describe('AI Controller: a Weapon without a Thrust (the Flail)', () => {
+  for (const difficulty of ['Hard', 'Expert']) {
+    it(`a ${difficulty} AI with a Flail never asks for a Thrust Attack, and still fights`, () => {
+      const asked: Intent[] = [];
+      const ai = createAiController(repo, difficulty);
+      const flail = {
+        intent: (s: Parameters<typeof ai.intent>[0], i: number) => {
+          const intent = ai.intent(s, i);
+          if (intent.attack && !intent.block && intent.direction === 'Thrust') asked.push(intent);
+          return intent;
+        },
+      };
+      const { final, matches } = runMatch(repo, createMatch(repo, { bestOf: 1, seed: 7, weapons: ['Flail', 'Longsword'] }), [flail, createAiController(repo, difficulty)], 30_000);
+      expect(final.status.status).toBe('Over');
+      expect(asked).toEqual([]);
+      const attacks = matches.flatMap((m) => m.duel.fighters.slice(0, 1).map((f) => f.action)).filter((a) => a.kind === 'Attack');
+      expect(attacks.length).toBeGreaterThan(0);
+      expect(attacks.filter((a) => a.kind === 'Attack' && a.direction === 'Thrust')).toEqual([]);
+    });
+  }
+});
+
+describe('AI Stage 4: the Flail spins up and reads a spin (docs/plans/flail.md)', { timeout: 60_000 }, () => {
+  const FLAIL = 'Flail';
+  const FULL = spinUpChargeTicks(repo.weapons[FLAIL]!);
+  const windUp = attackTimings(repo, FLAIL, 'Overhead').windUpEnd;
+  /** The AI's own Flail reach (ai.ts `reach`): `ai.attackRange` plus how much longer the Flail is than the default Weapon. */
+  const REACH = repo.ai.attackRange + repo.weapons[FLAIL]!.length - repo.weapons[defaultWeapon]!.length;
+  /** Closer than this only the shaft lands, per Direction (ai.ts SPIN_BALL, from the distances flail.test.ts measures). */
+  const BALL_FROM: Readonly<Record<Direction, number>> = { Overhead: REACH + 0.08, Left: REACH - 0.3, Right: REACH - 0.1, Thrust: REACH - 0.3 };
+  const gap = (s: SimState) => Math.hypot(s.fighters[0]!.position.x - s.fighters[1]!.position.x, s.fighters[0]!.position.z - s.fighters[1]!.position.z);
+  /** Nothing but its swings: no Kicks, throws, Feints, Chains, leaps, mistakes or feel, and it attacks the moment it may. */
+  const swinger = (tier: string, extra: Partial<AiDifficulty> = {}): AiDifficulty => ({
+    ...aiDifficulty(repo, tier),
+    ...NO_FEEL,
+    mistakeRate: 0,
+    feintRate: 0,
+    chainRate: 0,
+    jumpAttackRate: 0,
+    kickRate: 0,
+    throwRate: 0,
+    aggression: 1,
+    ...extra,
+  });
+  /** Scripted Fighter 0 (`weapons[0]`) at the origin looking at Fighter 1, an AI (`weapons[1]`) `d` m away looking back. */
+  function duel(difficulty: AiDifficulty, script: Track, d: number, ticks: number, weapons: readonly string[], seed = 1) {
+    const initial = createInitialState(repo, seed, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: d }, facing: Math.PI }], [...weapons]);
+    return runControllers(repo, initial, [scriptedController(script), createAiController(repo, difficulty)], ticks);
+  }
+  type Run = ReturnType<typeof duel>;
+  /** Each Release of Fighter `k`: the Tick it began and the charge it carries. */
+  const releases = (run: Run, k: number) =>
+    run.states.flatMap((s, t) => {
+      const a = s.fighters[k]!.action;
+      const before = run.states[t - 1]?.fighters[k]!.action;
+      return t > 0 && a.kind === 'Attack' && a.phase === 'Release' && !(before?.kind === 'Attack' && before.phase === 'Release') ? [{ tick: t, charge: a.charge ?? 0 }] : [];
+    });
+  const still = (ticks: number) => hold(ticks, { face: 0 });
+
+  it('Beginner, Skilled and Expert spin and read a spin at 0.4 / 0.7 / 0.9; Easy, Normal and Hard do neither, whatever the Style', () => {
+    const knobs = (tier: string, style = 'Balanced') => {
+      const s = skillOf(repo, aiDifficulty(repo, tier), aiStyle(repo, style));
+      return [s.spinHold, s.spinRespect];
+    };
+    expect(['Beginner', 'Skilled', 'Expert'].map((t) => knobs(t))).toEqual([[0.4, 0.4], [0.7, 0.7], [0.9, 0.9]]);
+    for (const tier of ['Easy', 'Normal', 'Hard']) for (const style of Object.keys(repo.ai.styles)) expect(knobs(tier, style), `${tier} ${style}`).toEqual([0, 0]);
+    expect(repo.ai.spinThreat).toBe(0.6);
+  });
+
+  it('with a Flail and a target out of its reach it holds toward full charge before it Releases; a Beginner holds less', () => {
+    const first = (tier: string) => {
+      const run = duel(swinger(tier), still(400), 2.6, 400, [defaultWeapon, FLAIL]);
+      const r = releases(run, 1)[0];
+      expect(r, tier).toBeDefined();
+      expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 1), `${tier} lands it`).toBe(true);
+      return r!.charge;
+    };
+    const expert = first('Expert');
+    const beginner = first('Beginner');
+    expect(expert).toBeGreaterThanOrEqual(Math.round(0.9 * FULL));
+    expect(beginner).toBeGreaterThanOrEqual(Math.round(0.4 * FULL));
+    expect(beginner).toBeLessThan(expert - 20);
+    // Expert's full spin lands as a Heavy Blow; without the knob the same AI taps (no more than a swing-in's hold).
+    const run = duel(swinger('Expert'), still(400), 2.6, 400, [defaultWeapon, FLAIL]);
+    expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 1 && e.heavy)).toBe(true);
+    const plain = releases(duel(swinger('Expert', { spinHold: 0 }), still(400), 2.6, 400, [defaultWeapon, FLAIL]), 1)[0]!;
+    expect(plain.charge).toBeLessThan(0.5 * FULL);
+  });
+
+  it('it lets go early when the target winds up in its reach, or steps into it open', () => {
+    const spun = releases(duel(swinger('Expert'), still(400), 2.6, 400, [defaultWeapon, FLAIL]), 1)[0]!;
+    // The target walks into the ball's reach a little into the spin and winds up there (held), or just stands there open.
+    const step = [...still(30), ...walk(18, { x: 0, z: 1 })];
+    for (const [what, script] of [
+      ['winds up', [...step, ...hold(300, { attack: true, direction: 'Overhead' })]],
+      ['steps in', [...step, ...still(300)]],
+    ] as const) {
+      const run = duel(swinger('Expert'), script, 2.6, 300, [defaultWeapon, FLAIL]);
+      const r = releases(run, 1)[0];
+      expect(r, what).toBeDefined();
+      expect(r!.charge, what).toBeLessThan(Math.round(0.9 * FULL));
+      expect(r!.tick, what).toBeLessThan(spun.tick);
+      expect(run.events.some((e) => e.type === 'Hit' && e.attacker === 1), `${what}: it lands`).toBe(true);
+    }
+  });
+
+  it('it does not stand spinning inside shaft-only range: it backs out to where the ball lands', () => {
+    let backedOut = 0;
+    for (const tier of ['Beginner', 'Skilled', 'Expert']) {
+      const run = duel(swinger(tier), still(300), 1.2, 300, [defaultWeapon, FLAIL]);
+      run.states.forEach((s, t) => {
+        const a = s.fighters[1]!.action;
+        const next = run.states[t + 1];
+        if (!next || a.kind !== 'Attack' || a.phase !== 'Wind-up' || gap(s) >= BALL_FROM[a.direction]) return;
+        // Its Wind-up rising there, it is already backing out; held at the pose there, it never stands.
+        if (gap(next) > gap(s)) backedOut++;
+        else expect(s.fighters[1]!.motion.tick, `${tier} Tick ${t}: stands spinning at ${gap(s).toFixed(2)} m`).toBeLessThan(windUp);
+      });
+      // A spun Release (more than a tap's charge) never starts where only the shaft lands.
+      const spun = releases(run, 1).filter((r) => r.charge > windUp + 2);
+      expect(releases(run, 1).length, tier).toBeGreaterThan(0);
+      for (const r of spun) {
+        const a = run.states[r.tick]!.fighters[1]!.action as Extract<Action, { kind: 'Attack' }>;
+        expect(gap(run.states[r.tick]!), `${tier} ${a.direction} Tick ${r.tick}`).toBeGreaterThanOrEqual(BALL_FROM[a.direction] - 0.05);
+      }
+    }
+    expect(backedOut).toBeGreaterThan(0);
+  });
+
+  /** A Flail (Fighter 0) at `d` m spinning to full and on for a while, then Releasing; how the AI (Fighter 1) met it, over seeds 1..10. */
+  function facingSpins(difficulty: AiDifficulty, hold_ = 150, d = 1.9) {
+    const outcome = { block: 0, hit: 0, chamber: 0, clear: 0 };
+    for (let seed = 1; seed <= 10; seed++) {
+      const run = duel(difficulty, [...still(10), ...attack('Overhead', hold_), ...still(120)], d, 10 + hold_ + 100, [FLAIL, defaultWeapon], seed);
+      if (run.events.some((e) => e.type === 'Chamber' && e.chamberer === 1)) outcome.chamber++;
+      else if (run.events.some((e) => e.type === 'Block' && e.defender === 1)) outcome.block++;
+      else if (run.events.some((e) => e.type === 'Hit' && e.defender === 1)) outcome.hit++;
+      else outcome.clear++;
+    }
+    return outcome;
+  }
+  const defender = (tier: string, extra: Partial<AiDifficulty> = {}) => swinger(tier, { aggression: 0, holdBreak: 0, ...extra });
+
+  it('an Expert facing a full spin backs off or Chambers more often than it Blocks, over a fixed set of seeds', () => {
+    const read = facingSpins(defender('Expert'));
+    expect(read.chamber + read.clear, JSON.stringify(read)).toBeGreaterThan(read.block + read.hit);
+    // Without the knob it stands and Blocks the Heavy Blow.
+    const blind = facingSpins(defender('Expert', { spinRespect: 0 }));
+    expect(blind.block, JSON.stringify(blind)).toBeGreaterThanOrEqual(9);
+  });
+
+  it('a defender facing a tap does not over-react: it plays exactly as without the knob', () => {
+    const taps: Track = Array.from({ length: 5 }, () => [...still(50), ...attack('Overhead')]).flat();
+    const play = (spinRespect: number) => duel(defender('Expert', { spinRespect }), taps, 1.9, 500, [FLAIL, defaultWeapon]).states.map((s) => hashValue(s));
+    expect(play(1)).toEqual(play(0));
+  });
+
+  it('Hard does none of this: it Blocks a full spin every time, and swings a Flail as before the knobs', () => {
+    expect(facingSpins(defender('Hard')).block).toBeGreaterThanOrEqual(9);
+    // Against the same far target an Expert spins to full; Hard lets go once its swing-in hold is done.
+    const hard = releases(duel(swinger('Hard'), still(400), 2.6, 400, [defaultWeapon, FLAIL]), 1)[0]!;
+    expect(hard.charge).toBeLessThan(0.5 * FULL);
+  });
+
+  it("every other Weapon's AI vs AI Match is unchanged by the knobs", () => {
+    const off = (tier: string): AiDifficulty => ({ ...aiDifficulty(repo, tier), spinHold: 0, spinRespect: 0 });
+    for (const [tier, weapons] of [
+      ['Expert', ['Longsword', 'Halberd']],
+      ['Skilled', ['Sledge Hammer', 'Arming Sword']],
+    ] as const) {
+      const play = (d: AiDifficulty | string) => hashValue(runMatch(repo, createMatch(repo, { bestOf: 1, seed: 5, weapons: [...weapons] }), [createAiController(repo, d), createAiController(repo, d)], 1500).final);
+      expect(play(tier), tier).toBe(play(off(tier)));
+    }
+  });
+
+  it('an AI with a Flail saves and restores its memory mid-spin and plays on to the same hash', () => {
+    const expert = aiDifficulty(repo, 'Expert');
+    const ai = createAiController(repo, expert);
+    const script = scriptedController(still(600));
+    let s = createInitialState(repo, 3, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 2.6 }, facing: Math.PI }], [defaultWeapon, FLAIL]);
+    let saved: unknown = null;
+    for (let t = 0; t < 600 && saved === null; t++) {
+      s = runControllers(repo, s, [script, ai], 1).final;
+      const a = s.fighters[1]!.action;
+      const memory = ai.save!() as { attackPlan: { spin?: number } | null };
+      if (a.kind === 'Attack' && a.phase === 'Wind-up' && (a.charge ?? 0) > 40 && memory.attackPlan?.spin !== undefined) saved = JSON.parse(JSON.stringify(memory));
+    }
+    expect(saved, 'it never spun').not.toBeNull();
+    const restored = createAiController(repo, expert);
+    restored.load!(saved);
+    const a = runControllers(repo, s, [script, ai], 200);
+    const b = runControllers(repo, s, [script, restored], 200);
+    expect(b.states.map((x) => hashValue(x))).toEqual(a.states.map((x) => hashValue(x)));
   });
 });

@@ -8,7 +8,7 @@
  * follows the Lobby (the host edits Seats and settings, everyone their own
  * Weapon and Seat).
  */
-import { ARENA_SEED_RANGE, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
+import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
 import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type RunKnobs, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
@@ -651,12 +651,35 @@ function battleKnobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement
 
 // --- Your Weapon ---
 
+/**
+ * Each Weapon's Speed bar on its card (0..1, the fastest 1): how fast it swings, the inverse of its mean Wind-up plus
+ * Release Ticks (`attackTimings`, so its Motions and Tempo) over the Directions it attacks in. Not `speed`, the reference
+ * Blade Speed damage is read against, which says nothing of how soon a swing lands (the Flail's is the roster's highest).
+ * A Spin-up held longer is not counted: this is the swing at its quickest.
+ */
+export function swingSpeedBars(tuning: TuningData): Readonly<Record<string, number>> {
+  const known = swingBars.get(tuning);
+  if (known) return known;
+  const swing = (name: string): number => {
+    const ticks = (tuning.weapons[name]!.attacks ?? DIRECTIONS).map((d) => attackTimings(tuning, name, d).releaseEnd);
+    return 1 / (ticks.reduce((a, b) => a + b, 0) / ticks.length);
+  };
+  const speeds = Object.keys(tuning.weapons).map((name) => [name, swing(name)] as const);
+  const top = Math.max(...speeds.map(([, v]) => v));
+  const bars = Object.fromEntries(speeds.map(([name, v]) => [name, v / top]));
+  swingBars.set(tuning, bars);
+  return bars;
+}
+/** The bars for each Tuning Data seen: they depend on nothing else, and the Lobby redraws on every pick. */
+const swingBars = new WeakMap<TuningData, Readonly<Record<string, number>>>();
+
 function weaponBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | null {
   const me = ctx.lobby.me;
   const mine = me === null ? undefined : member(state, me);
   if (!mine) return null;
   const roster = Object.values(ctx.tuning.weapons);
-  const top = (k: 'length' | 'damage' | 'speed') => Math.max(...roster.map((w) => w[k]));
+  const top = (k: 'length' | 'damage') => Math.max(...roster.map((w) => w[k]));
+  const swing = swingSpeedBars(ctx.tuning);
   const grid = h('div', 'weapon-grid');
   for (const w of roster) {
     const stat = (label: string, value: number, max: number) => {
@@ -673,7 +696,7 @@ function weaponBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | nu
       h('span', 'weapon-grip', w.grip === 'twoHanded' ? 'Two-handed' : 'One-handed'),
       stat('Reach', w.length, top('length')),
       stat('Damage', w.damage, top('damage')),
-      stat('Speed', w.speed, top('speed')),
+      stat('Speed', swing[w.name]!, 1),
     );
     card.setAttribute('aria-pressed', String(w.name === mine.weapon));
     card.addEventListener('click', () => ctx.lobby.setMine({ weapon: w.name }));

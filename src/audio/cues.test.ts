@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, withWeapon } from '../tuning';
-import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, type Intent, type SimState } from '../sim';
+import { loadTuningData, spinUpChargeTicks, weaponByName, whirlTurns, withWeapon } from '../tuning';
+import { attack, createInitialState, duelPlacements, hold, IDLE_INTENT, runDuel, step, wait, type Intent, type SimState, type Track } from '../sim';
 import { arenaSurface, matchCues, soundCues, type SoundCue } from './cues';
 import { CHEST } from './spatial';
+import { stockFor } from './stock';
 
 const tuning = loadTuningData();
 
@@ -246,5 +247,100 @@ describe('Sheathe and Draw sounds', () => {
       { sound: 'Sheathe', fighter: 1, weight: 0.3 },
       { sound: 'Draw', fighter: 0, weight: 0.3 },
     ]);
+  });
+});
+
+describe('the Flail’s sounds (docs/plans/flail.md, Stage 3)', () => {
+  const flail = weaponByName(tuning, 'Flail');
+  const FULL = spinUpChargeTicks(flail);
+  const solo = (a: Track, weapon = 'Flail') => runDuel(tuning, { placements: [{ position: { x: 0, z: 0 }, facing: 0 }], weapons: [weapon], a });
+  const whirls = (run: { states: readonly SimState[] }) =>
+    run.states.flatMap((s, k) => soundCues(s.events, s, tuning).flatMap((c) => (c.sound === 'Whirl' ? [{ ...c, k }] : [])));
+
+  it('whooshes once each time the whirl passes a whole turn, on the Tick it does, louder and higher with the charge', () => {
+    const held = FULL + 150;
+    const run = solo([...attack('Left', held), ...wait(80)]);
+    const cues = whirls(run);
+    // Wind-up state k (Tick k) has charge k - 1 (to full): a whoosh wherever its angle passes a whole turn from the last Tick's, and
+    // nowhere else (not as the Wind-up starts, not in Release or Recovery).
+    const turns = (k: number) => whirlTurns(flail, run.states[k]!.tick, Math.min(k - 1, FULL));
+    const expected = Array.from({ length: held + 1 }, (_, k) => k).filter((k) => k >= 2 && Math.floor(turns(k)) > Math.floor(turns(k - 1)));
+    expect(cues.map((c) => c.k)).toEqual(expected);
+    expect(cues.length).toBe(Math.floor(turns(held)) - Math.floor(turns(1)));
+    expect(cues.length).toBeGreaterThan(5);
+    // Its charge is the Spin-up's share of full: rising, then held at 1.
+    for (const c of cues) {
+      const a = run.states[c.k]!.fighters[0]!.action;
+      expect(c.charge).toBeCloseTo(Math.min(1, (a.kind === 'Attack' ? a.charge! : 0) / FULL), 12);
+      expect(c).toMatchObject({ sound: 'Whirl', fighter: 0 });
+    }
+    for (let j = 1; j < cues.length; j++) expect(cues[j]!.charge).toBeGreaterThanOrEqual(cues[j - 1]!.charge);
+    expect(cues[0]!.charge).toBeLessThan(0.6);
+    expect(cues[cues.length - 1]!.charge).toBe(1);
+    // The whooshes come quicker as the charge builds, and evenly once full.
+    const gaps = cues.slice(1).map((c, j) => c.k - cues[j]!.k);
+    expect(gaps[0]!).toBeGreaterThan(gaps[gaps.length - 1]!);
+    const full = cues.filter((c) => c.charge === 1).slice(1);
+    const fullGaps = full.slice(1).map((c, j) => c.k - full[j]!.k);
+    expect(Math.max(...fullGaps) - Math.min(...fullGaps)).toBeLessThanOrEqual(1);
+  });
+
+  it('a tap whirls less than a turn and makes no whoosh; an Attack Feint carries the whirl on without a stray whoosh', () => {
+    expect(whirls(solo([...attack('Overhead', 1), ...wait(80)]))).toEqual([]);
+    const straight = whirls(solo([...attack('Left', FULL + 40), ...wait(60)]));
+    const feinted = whirls(solo([...hold(50, { attack: true, direction: 'Left' }), ...hold(FULL - 10, { attack: true, direction: 'Right' }), ...wait(60)]));
+    expect(feinted.map((c) => c.k)).toEqual(straight.map((c) => c.k));
+  });
+
+  it('is heard only with the Tuning Data to know the Weapon by, and never from another Weapon', () => {
+    const run = solo([...attack('Left', FULL + 60), ...wait(20)]);
+    expect(run.states.flatMap((s) => soundCues(s.events, s)).filter((c) => c.sound === 'Whirl')).toEqual([]);
+    for (const weapon of Object.keys(tuning.weapons).filter((w) => w !== 'Flail')) expect(whirls(solo([...attack('Left', 200), ...wait(20)], weapon)), weapon).toEqual([]);
+  });
+
+  it('its ball lands with a heavy spiked thud, its shaft as any shaft; its Block and WallStrike rattle its chain', () => {
+    const at = (d: number, weapons: [string, string], b: Track = wait(1)) =>
+      runDuel(tuning, {
+        placements: [
+          { position: { x: 0, z: 0 }, facing: 0 },
+          { position: { x: 0, z: d }, facing: Math.PI },
+        ],
+        weapons,
+        a: attack('Overhead', 30),
+        b,
+        ticks: 160,
+      });
+    const cuesOf = (run: { states: readonly SimState[] }) => run.states.flatMap((s) => soundCues(s.events, s, tuning)).filter((c) => c.sound !== 'Whirl');
+    const ball = cuesOf(at(2.2, ['Flail', 'Arming Sword'])).find((c) => c.sound === 'Hit');
+    expect(ball).toMatchObject({ sound: 'Hit', by: 'Ball' });
+    const shaft = cuesOf(at(1.1, ['Flail', 'Arming Sword'])).find((c) => c.sound === 'Hit');
+    expect(shaft).toMatchObject({ sound: 'Hit', by: 'Shaft' });
+    const blocked = cuesOf(at(2.2, ['Flail', 'Arming Sword'], hold(150, { block: true, direction: 'Overhead' }))).find((c) => c.sound === 'Block');
+    expect(blocked).toMatchObject({ sound: 'Block', chain: true });
+    // A WallStrike by the Flail (its event, against the Flail's state).
+    const state = at(2.2, ['Flail', 'Arming Sword']).final;
+    const wall = soundCues([{ type: 'WallStrike', attacker: 0, direction: 'Left', point: { x: 0, y: 1, z: 1 }, bladeSpeed: 8 }], state, tuning);
+    expect(wall).toEqual([{ sound: 'WallStrike', strength: expect.any(Number), surface: 'stone', at: { x: 0, y: 1, z: 1 }, chain: true }]);
+    // Defending with a Flail is no Flail blow: the attacker's Weapon decides.
+    const defended = cuesOf(at(1.3, ['Arming Sword', 'Flail'], hold(150, { block: true, direction: 'Overhead' }))).find((c) => c.sound === 'Block');
+    expect(defended && 'chain' in defended).toBe(false);
+    // Played: the ball's thud from the deep stock blow, pitched down; its shaft as before.
+    expect(stockFor(ball!)).toMatchObject({ clip: 'heavy-hit' });
+    expect(stockFor(ball!)!.rate).toBeLessThan(1);
+  });
+
+  it('every other Weapon sounds exactly as before, with the Tuning Data or without', () => {
+    for (const weapon of Object.keys(tuning.weapons).filter((w) => w !== 'Flail')) {
+      const runs = [
+        runDuel(tuning, { distance: 1.3, weapons: [weapon, 'Arming Sword'], a: [...attack('Overhead', 40), ...wait(40), ...attack('Left', 10)], b: [...wait(70), ...hold(60, { block: true, direction: 'Right' })] }),
+        runDuel(tuning, { distance: 1.3, weapons: [weapon, 'Flail'], a: attack('Right', 20), b: [] }),
+      ];
+      for (const run of runs) {
+        const plain = run.states.flatMap((s) => soundCues(s.events, s));
+        expect(run.states.flatMap((s) => soundCues(s.events, s, tuning)), weapon).toEqual(plain);
+        expect(plain.length, weapon).toBeGreaterThan(0);
+        expect(plain.some((c) => 'chain' in c || (c.sound === 'Hit' && c.by === 'Ball')), weapon).toBe(false);
+      }
+    }
   });
 });

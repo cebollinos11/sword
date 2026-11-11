@@ -50,6 +50,12 @@ export interface AttackAction {
    * Chamber lands only if the Blade Sweep then reaches that Fighter's Weapon or body (see `src/sim/chamber.ts`).
    */
   readonly chamberedBy?: readonly number[];
+  /**
+   * The Spin-up's charge (whole Ticks), present only for a Weapon with a Spin-up (the Flail): 0 as the Attack starts, one
+   * more each Wind-up Tick up to full (`spinUpChargeTicks`), then frozen through Release and Recovery. It scales the
+   * Blade Speed at contact (`spinUpSpeed`). An Attack Feint carries it on; anything else that ends the Attack drops it.
+   */
+  readonly charge?: number;
 }
 
 /** A Chain: attack held during Recovery (see AttackAction.chain). */

@@ -7,7 +7,7 @@
  * ending come from the Match's own events.
  */
 import type { CrowdState, DeathCause, Direction, FighterState, MatchEvent, SimEvent, SimState, Vec3 } from '../sim';
-import type { HitZone } from '../tuning';
+import { spinUpChargeTicks, weaponByName, whirlTurns, type HitZone, type TuningData } from '../tuning';
 import { CHEST } from './spatial';
 
 /**
@@ -37,18 +37,30 @@ export interface BlockCue extends Placed {
   readonly defender: number;
   readonly strength: number;
   readonly weight: number;
+  /** The attacker's Weapon is a flail: its chain rattles too. Absent for every other Weapon. */
+  readonly chain?: true;
+}
+
+/**
+ * A Spin-up's ball whirled past a whole turn this Tick (`whirlTurns` of the state Tick and the charge, the angle the Renderer draws it at): one
+ * whoosh. `charge` is 0..1, the Spin-up's share of full: the whoosh is higher and louder the more it is charged.
+ */
+export interface WhirlCue extends Placed {
+  readonly sound: 'Whirl';
+  readonly fighter: number;
+  readonly charge: number;
 }
 
 /**
  * Something wounded a Fighter. `strength` is 0..1, from the damage dealt. `by` is what landed: a blade's
- * cutting Head, the shaft behind it, a Kick or a Throwing Dagger.
+ * cutting Head, a flail's spiked ball (its Head), the shaft behind it, a Kick or a Throwing Dagger.
  */
 export interface HitCue extends Placed {
   readonly sound: 'Hit';
   readonly defender: number;
   readonly zone: HitZone;
   readonly strength: number;
-  readonly by: 'Edge' | 'Shaft' | 'Kick' | 'Dagger';
+  readonly by: 'Edge' | 'Ball' | 'Shaft' | 'Kick' | 'Dagger';
 }
 
 /** An Attack was Chambered: a ringing clash, the counter's blade sliding along the other's. */
@@ -158,6 +170,8 @@ export interface WallStrikeCue extends Placed {
   readonly sound: 'WallStrike';
   readonly strength: number;
   readonly surface: Surface;
+  /** The Weapon is a flail: its chain rattles too. Absent for every other Weapon. */
+  readonly chain?: true;
 }
 
 /**
@@ -207,6 +221,7 @@ export interface CrowdFallCue extends Placed {
 export type SoundCue =
   | SwingCue
   | BlockCue
+  | WhirlCue
   | HitCue
   | ChamberCue
   | FeintCue
@@ -270,13 +285,19 @@ function weaponWeight(fighter: FighterState | undefined): number {
 }
 
 /**
- * The sounds triggered by one Tick, in event order. `now` is the state the Tick produced: it gives
- * the Weapons and the floor (without it, a middling Weapon on stone).
+ * The sounds triggered by one Tick, in event order, then each Spin-up's whirl. `now` is the state the Tick produced: it gives
+ * the Weapons and the floor (without it, a middling Weapon on stone). `tuning` tells the Weapons apart by their look (a flail's
+ * blows and its whirl); without it every Weapon sounds as a plain blade.
  */
-export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue[] {
+export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: TuningData): SoundCue[] {
   const cues: SoundCue[] = [];
   const surface = arenaSurface(now?.arena);
   const fighter = (i: number) => now?.fighters[i];
+  /** Whether Fighter `i` wields a Weapon drawn as a flail (known only with the Tuning Data). */
+  const flail = (i: number): boolean => {
+    const f = fighter(i);
+    return !!f && !!tuning && weaponByName(tuning, f.weapon).look === 'flail';
+  };
   /** Where a Fighter's sounds come from: its chest. */
   const body = (i: number): Vec3 | undefined => {
     const f = fighter(i);
@@ -294,13 +315,20 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
           strength: clamp(e.bladeSpeed / FULL_STRENGTH_BLOCK_SPEED, 0.3, 1),
           weight: weaponWeight(fighter(e.attacker)),
           at: e.point,
+          ...(flail(e.attacker) ? { chain: true as const } : {}),
         });
         break;
       case 'WallStrike':
-        cues.push({ sound: 'WallStrike', strength: clamp(e.bladeSpeed / FULL_STRENGTH_WALL_SPEED, 0.25, 1), surface, at: e.point });
+        cues.push({
+          sound: 'WallStrike',
+          strength: clamp(e.bladeSpeed / FULL_STRENGTH_WALL_SPEED, 0.25, 1),
+          surface,
+          at: e.point,
+          ...(flail(e.attacker) ? { chain: true as const } : {}),
+        });
         break;
       case 'Hit':
-        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? 'Edge' : 'Shaft', at: e.point });
+        cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: e.head ? (flail(e.attacker) ? 'Ball' : 'Edge') : 'Shaft', at: e.point });
         if (e.heavy) cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
       case 'Chamber':
@@ -351,7 +379,30 @@ export function soundCues(events: readonly SimEvent[], now?: SimState): SoundCue
         break;
     }
   }
+  if (now && tuning) now.fighters.forEach((_, i) => {
+    const charge = whirled(now, i, tuning);
+    if (charge !== undefined) cues.push({ sound: 'Whirl', fighter: i, charge, at: body(i) });
+  });
   return cues;
+}
+
+/**
+ * Whether Fighter `i`'s flail whirled past a whole turn on the Tick that made `now`, and if so its charge (0..1 of full). Each Wind-up
+ * Tick adds one to the charge until it is full (an Attack Feint carries it on and adds one too), so last Tick's angle is `whirlTurns` of
+ * one Tick and one charge fewer (at full, of the same charge): whether it passed a turn is a function of this state alone, and a
+ * Rollback, a scrub or a replay hears the same whooshes on the same Ticks, with no loop left running. A fresh Wind-up (no charge yet)
+ * starts the whirl and sounds nothing.
+ */
+function whirled(now: SimState, i: number, tuning: TuningData): number | undefined {
+  const f = now.fighters[i]!;
+  const a = f.action;
+  if (f.death || a.kind !== 'Attack' || a.phase !== 'Wind-up' || a.charge === undefined || a.charge < 1) return undefined;
+  const w = weaponByName(tuning, f.weapon);
+  if (w.look !== 'flail') return undefined;
+  const full = spinUpChargeTicks(w);
+  const before = a.charge < full ? a.charge - 1 : a.charge;
+  if (Math.floor(whirlTurns(w, now.tick, a.charge)) <= Math.floor(whirlTurns(w, now.tick - 1, before))) return undefined;
+  return Math.min(1, a.charge / Math.max(1, full));
 }
 
 /** The sounds of a Match's own events in one Match Tick: a Duel starting, the Match won. */

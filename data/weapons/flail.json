@@ -1,0 +1,56 @@
+{
+  "name": "Flail",
+  "grip": "twoHanded",
+  "length": 1.5,
+  "damage": 45,
+  "speed": 45,
+  "gripLength": 0.6,
+  "offHandGrip": {
+    "along": 0.45,
+    "around": 0,
+    "radial": 0
+  },
+  "head": 0.22,
+  "shaftDamage": 0.15,
+  "blockImpact": {
+    "dealt": 1.6,
+    "taken": 1
+  },
+  "heavyBlow": {
+    "speed": 1.25,
+    "knockdownSlide": 1.2,
+    "knockdownSlideTicks": 26,
+    "blockSlide": 0.4,
+    "blockSlideTicks": 7
+  },
+  "tempo": {
+    "windUp": 1.1,
+    "release": 1,
+    "recovery": 1.2
+  },
+  "spinUp": {
+    "seconds": 1.5,
+    "from": 0.7,
+    "to": 1.4
+  },
+  "sheathe": {
+    "slot": "back",
+    "offset": {
+      "x": 0.14,
+      "y": -0.05,
+      "z": -0.17
+    },
+    "rotation": {
+      "x": -75,
+      "y": 90,
+      "z": 0
+    }
+  },
+  "attacks": [
+    "Overhead",
+    "Left",
+    "Right"
+  ],
+  "look": "flail",
+  "chain": 0.35
+}

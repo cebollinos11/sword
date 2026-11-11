@@ -14,7 +14,7 @@
  *   3. resolveContact: a Block, a Chamber (the attacker Staggers, cause Chambered), a hit that Staggers the victim (or, in the air or
  *      from a Heavy Blow, knocks it down and pushes it), or a blade stopped by a Wall, which makes the attacker recoil.
  */
-import { isHeavyBlow, sizedTuning, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
+import { isHeavyBlow, sizedTuning, spinUpSpeed, weaponByName, type ArenaGeometry, type HitZone, type TuningData, type WeaponTuning } from '../tuning';
 import { wallCrossing } from './arena';
 import { TICK_SECONDS } from './constants';
 import { inDuel } from './duel';
@@ -157,8 +157,11 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     const before = prev[i];
     if (before && inDuel(attacker) && kickSweepLive(before.action, attacker.action)) findKickContacts(before, attacker, i, next, tuning, contacts);
     if (!before || !inDuel(attacker) || !attackSweepLive(before.action, attacker.action)) return;
-    const { direction, chamberedBy } = attacker.action;
+    const { direction, chamberedBy, charge } = attacker.action;
     const weapon = weaponByName(sizedTuning(tuning, attacker.size), attacker.weapon);
+    // The Spin-up scales the Blade Speed here, where every contact's is produced, so damage, the Heavy Blow, Block Impact and the
+    // events all see the same speed (ADR 0026). A Weapon without one carries no charge and keeps the swept speed as it is.
+    const spin = charge === undefined ? 1 : spinUpSpeed(weapon, charge);
     const samples = bladeSamples(weapon.length);
     const found: { s: number; contact: BladeContact }[] = [];
     const sweepBox = boxOf(before.blade.hilt, before.blade.tip, attacker.blade.hilt, attacker.blade.tip);
@@ -176,7 +179,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
       const blade = { hilt: lerp(before.blade.hilt, attacker.blade.hilt, c.s), tip: lerp(before.blade.tip, attacker.blade.tip, c.s) };
       // A contact point that did not move this Tick (the blade already in the body) is taken to travel the way the edge faces.
       const travel = normalize(sub(lerp(attacker.blade.hilt, attacker.blade.tip, c.along), lerp(before.blade.hilt, before.blade.tip, c.along)), attacker.blade.edge);
-      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed, onHead: onHead(weapon, c.along), blade, travel };
+      const at = { attacker: i, defender: j, direction, point: c.point, bladeSpeed: c.bladeSpeed * spin, onHead: onHead(weapon, c.along), blade, travel };
       const contact: BladeContact = blocked
         ? { ...at, blocked }
         : chambered
@@ -186,7 +189,7 @@ export function findContacts(prev: readonly FighterState[], next: readonly Fight
     });
     // A Wall the blade reaches before any Fighter stops it there; one it reaches after a Fighter does not matter (the Attack has landed).
     const wall = wallContact(before.blade, attacker.blade, arena, samples);
-    if (wall && found.every((f) => f.s > wall.s)) contacts.push({ wall: true, attacker: i, direction, point: wall.point, bladeSpeed: wall.bladeSpeed });
+    if (wall && found.every((f) => f.s > wall.s)) contacts.push({ wall: true, attacker: i, direction, point: wall.point, bladeSpeed: wall.bladeSpeed * spin });
     else contacts.push(...found.filter((f) => !wall || f.s <= wall.s).map((f) => f.contact));
   });
   return contacts;

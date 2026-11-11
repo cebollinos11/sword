@@ -7,6 +7,7 @@
   "throwRate": 0.04,
   "aggression": 0.02,
   "duckMaxPitch": -1,
+  "spinThreat": 0.6,
   "difficulties": {
     "Easy": {
       "reactionTime": 0.4,
@@ -97,7 +98,9 @@
       "humanMistakes": 0.4,
       "idleLife": 0.4,
       "jumpStep": 0.2,
-      "pressAhead": 1
+      "pressAhead": 1,
+      "spinHold": 0.4,
+      "spinRespect": 0.4
     },
     "Skilled": {
       "reactionTime": 0.26,
@@ -128,7 +131,9 @@
       "humanMistakes": 0.7,
       "idleLife": 0.7,
       "jumpStep": 0.35,
-      "pressAhead": 1
+      "pressAhead": 1,
+      "spinHold": 0.7,
+      "spinRespect": 0.7
     },
     "Expert": {
       "reactionTime": 0.16,
@@ -159,7 +164,9 @@
       "humanMistakes": 0.9,
       "idleLife": 0.9,
       "jumpStep": 0.5,
-      "pressAhead": 1
+      "pressAhead": 1,
+      "spinHold": 0.9,
+      "spinRespect": 0.9
     }
   },
   "styles": {

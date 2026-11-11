@@ -90,6 +90,11 @@ export interface DungeonTuning {
   readonly inventory: { readonly weapons: number; readonly relics: number; readonly equippedRelics: number };
   /** What Halls drop and Treasure Halls offer (Stage 2). */
   readonly loot: DungeonLoot;
+  /**
+   * Weapons a Run never picks for a `"random"` enemy and never drops as loot (the Flail, for now): the pool is the roster without them,
+   * in file order (`runWeapons`). An Encounter may still name one.
+   */
+  readonly leftOutWeapons: readonly string[];
   /** The Run's Floors in order; clearing the last Floor's Boss wins the Run. */
   readonly floors: readonly DungeonFloor[];
 }
@@ -200,6 +205,12 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
   const lootDrops = record(loot.drops, 'dungeon.loot.drops');
   const weights = { Relic: nonNegativeNumber(lootWeights, 'Relic', 'dungeon.loot.weights'), Weapon: nonNegativeNumber(lootWeights, 'Weapon', 'dungeon.loot.weights') };
   if (weights.Relic + weights.Weapon <= 0) throw new TuningDataError('dungeon.loot.weights must give Relic or Weapon a weight above 0');
+  const leftOutWeapons = d.leftOutWeapons === undefined ? [] : array(d.leftOutWeapons, 'dungeon.leftOutWeapons').map((w, i) => {
+    if (typeof w !== 'string' || !weapons.includes(w)) throw new TuningDataError(`dungeon.leftOutWeapons[${i}]: unknown Weapon ${JSON.stringify(w)} (have: ${weapons.join(', ')})`);
+    return w;
+  });
+  if (weapons.length > 0 && weapons.every((w) => leftOutWeapons.includes(w))) throw new TuningDataError('dungeon.leftOutWeapons must leave at least one Weapon for a Run');
+
   return {
     doorSeconds: positiveNumber(d, 'doorSeconds', 'dungeon'),
     hallFadeSeconds: nonNegativeNumber(d, 'hallFadeSeconds', 'dungeon'),
@@ -221,6 +232,7 @@ export function parseDungeon(raw: unknown, weapons: readonly string[], difficult
       },
       pedestals: wholeNumber(loot, 'pedestals', 'dungeon.loot', 1, MAX_LOOT_SPOTS),
     },
+    leftOutWeapons,
     floors,
   };
 }

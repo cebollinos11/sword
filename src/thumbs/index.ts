@@ -217,7 +217,8 @@ function weaponShot(tuning: TuningData, weapon: WeaponTuning): HTMLCanvasElement
   // Lying almost level, rising a little to the right, its flat facing the camera.
   const up = new THREE.Vector3(Math.cos(WEAPON_TILT), Math.sin(WEAPON_TILT), 0);
   const length = weapon.length;
-  view.update({ ...pose, blade: { hilt: { x: 0, y: 0, z: 0 }, tip: { x: up.x * length, y: up.y * length, z: 0 }, edge: { x: -up.y, y: up.x, z: 0 } } }, weapon);
+  // The Weapon laid out alone, rigid (no drawn chain: it is posed afresh here).
+  view.update({ joints: pose.joints, blade: { hilt: { x: 0, y: 0, z: 0 }, tip: { x: up.x * length, y: up.y * length, z: 0 }, edge: { x: -up.y, y: up.x, z: 0 } } }, weapon);
   view.bodyVisible = false;
   scene.add(view.root);
   // Fit an orthographic camera round what shows.
