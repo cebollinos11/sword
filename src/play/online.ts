@@ -15,7 +15,7 @@
  */
 import type { Intent } from '../sim';
 import type { Autopilot, Controller } from '../controllers';
-import type { RefuseReason, RollbackSession, SessionEvent, SessionStats } from '../net';
+import type { Ping, RefuseReason, RollbackSession, SessionEvent, SessionStats } from '../net';
 import type { MatchDriver } from './driver';
 
 export interface PlayerVsPlayerDriver extends MatchDriver {
@@ -23,7 +23,7 @@ export interface PlayerVsPlayerDriver extends MatchDriver {
   readonly remote: Controller;
   readonly failure: string | null;
   readonly waiting: string | null;
-  readonly ping: number | null;
+  readonly ping: Ping | null;
   /** The session's counts (Rollbacks, stalls, resyncs), for the dev page's measurements. */
   readonly stats: SessionStats;
   /** The oldest notice not yet shown (e.g. a Player left), or null. */

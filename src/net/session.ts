@@ -165,6 +165,15 @@ export interface RollbackSessionOptions {
   readonly connectTimeoutTicks?: number;
   /** The Tick function. Defaults to `stepMatch`; tests swap it to inject divergence. */
   readonly step?: typeof stepMatch;
+  /** How long (ms) a message waits on this peer's main thread before it is handled (`mainThreadLag.estimate` in the browser). Default 0. */
+  readonly lag?: () => number;
+}
+
+/** A smoothed round trip (ms) split into its parts: `network` (the wire) and `cpu` (waiting on both peers' busy main threads). */
+export interface Ping {
+  readonly total: number;
+  readonly network: number;
+  readonly cpu: number;
 }
 
 export interface RollbackSession {
@@ -185,8 +194,8 @@ export interface RollbackSession {
   /** The last Tick for which every Player's real Intents are known. */
   readonly confirmedTick: number;
   readonly stats: SessionStats;
-  /** Round-trip time in milliseconds (smoothed): a guest's to the host; the host's to its slowest guest. Null until the first answer. Cosmetic: never feeds the Simulation. */
-  readonly ping: number | null;
+  /** Round-trip time (smoothed), split into network and CPU: a guest's to the host; the host's to its slowest guest. Null until the first answer. Cosmetic: never feeds the Simulation. */
+  readonly ping: Ping | null;
   /** Advance one Tick with this peer's local Intent (ignored while stalled or not Running). */
   tick(localIntent: Intent): TickResult;
   /** The state hash this peer recorded for a confirmed checksum Tick (a multiple of CHECKSUM_INTERVAL), if any. */
@@ -251,6 +260,8 @@ interface Link {
   /** Time sync: recent estimates of how many Ticks this peer runs ahead of that one. */
   readonly leads: number[];
   ping: number | null;
+  /** The smoothed part of `ping` spent waiting on the two main threads. */
+  cpu: number;
   /** The peer's Intents have arrived: it is Running, so hello need not be resent. */
   heardIntents: boolean;
   /** Host: the guest's Weapon pick, once its hello has arrived. */
@@ -298,6 +309,7 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly timeoutTicks: number;
   private readonly connectTimeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
+  private readonly lag: () => number;
   private readonly listeners: ((e: SessionEvent) => void)[] = [];
   private inbox: { link: Link; message: NetMessage }[] = [];
   /** Links that closed since the last Tick. */
@@ -334,6 +346,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.timeoutTicks = o.timeoutTicks ?? DEFAULT_TIMEOUT_TICKS;
     this.connectTimeoutTicks = Math.max(this.timeoutTicks, o.connectTimeoutTicks ?? DEFAULT_CONNECT_TIMEOUT_TICKS);
     this.stepFn = o.step ?? stepMatch;
+    this.lag = o.lag ?? (() => 0);
     this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     if (o.role === 'host') {
@@ -370,6 +383,7 @@ class Session implements RollbackSession, PeerIntentSource {
       silentTicks: 0,
       leads: [],
       ping: null,
+      cpu: 0,
       heardIntents: false,
       weapon: null,
       refused: null,
@@ -381,9 +395,12 @@ class Session implements RollbackSession, PeerIntentSource {
       // A refused guest's hello is still answered (with the refusal again); nothing else from a gone peer counts.
       if (!message || (link.gone && !(link.refused && message.type === 'hello'))) return;
       // Answered at once, not at the next Tick, so the Tick rate does not inflate the measurement.
-      if (message.type === 'ping') transport.send({ type: 'pong', sent: message.sent });
+      if (message.type === 'ping') transport.send({ type: 'pong', sent: message.sent, lag: this.lag() });
       else if (message.type === 'pong') {
         const rtt = Math.max(0, performance.now() - message.sent);
+        // The ping waited on the peer's main thread, the pong on this one's: the rest of the round trip was the network.
+        const cpu = Math.min(rtt, this.lag() + (message.lag ?? 0));
+        link.cpu = link.ping === null ? cpu : link.cpu * 0.7 + cpu * 0.3;
         link.ping = link.ping === null ? rtt : link.ping * 0.7 + rtt * 0.3;
       } else this.inbox.push({ link, message });
     });
@@ -402,10 +419,13 @@ class Session implements RollbackSession, PeerIntentSource {
     return Math.min(this.currentTick, this.othersConfirmed());
   }
 
-  get ping(): number | null {
-    let worst: number | null = null;
-    for (const l of this.live()) if (l.ping !== null) worst = Math.max(worst ?? 0, l.ping);
-    return worst;
+  get ping(): Ping | null {
+    let worst: Link | null = null;
+    for (const l of this.live()) if (l.ping !== null && (worst === null || l.ping > worst.ping!)) worst = l;
+    if (!worst) return null;
+    const total = worst.ping!;
+    const cpu = Math.min(total, worst.cpu);
+    return { total, network: total - cpu, cpu };
   }
 
   onEvent(listener: (event: SessionEvent) => void): void {

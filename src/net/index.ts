@@ -10,6 +10,7 @@ export {
   createRollbackSession,
   DEFAULT_TIMEOUT_TICKS,
   ROLLBACK_WINDOW,
+  type Ping,
   type RollbackSession,
   type RollbackSessionOptions,
   type SessionEvent,
@@ -19,6 +20,7 @@ export {
   type TickResult,
 } from './session';
 export { isFormatOnMap, isLobbyFormatOnMap, isRandomMapName, PROTOCOL_VERSION, type NetMessage, type RefuseReason } from './messages';
+export { MainThreadLag, mainThreadLag } from './mainThreadLag';
 export { createPeerTransport, type DataConnectionLike } from './peerTransport';
 export { hostRoom, joinRoom, RoomError, type HostedRoom, type PendingRoom } from './peerRoom';
 export {

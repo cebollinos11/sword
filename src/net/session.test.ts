@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { defaultWeaponName, loadTuningData, tuningDataHash, withWeapon, type TuningData } from '../tuning';
 import { createMatch, DIRECTIONS, hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent } from '../sim';
 import { createMemoryTransportPair, type MemoryTransportOptions } from './memoryTransport';
@@ -159,6 +159,32 @@ describe('Rollback session: play', () => {
       frame(s, HOST_INTENTS, GUEST_INTENTS);
       expect(s.host.currentTick - s.host.confirmedTick).toBeLessThanOrEqual(ROLLBACK_WINDOW);
       expect(s.guest.currentTick - s.guest.confirmedTick).toBeLessThanOrEqual(ROLLBACK_WINDOW);
+    }
+  });
+});
+
+describe('Rollback session: ping', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it('splits the round trip into the network and the two main threads it waited on', () => {
+    // performance.now follows the virtual network clock, so the round trip is the transport's 40 + 40 ms.
+    let clock = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => clock);
+    const pair = createMemoryTransportPair({ latencyMs: 40 });
+    const host = createRollbackSession({ role: 'host', transport: pair.a, tuning, match: MATCH, lag: () => 6 });
+    const guest = createRollbackSession({ role: 'guest', transport: pair.b, tuning, lag: () => 9 });
+    for (let i = 0; i < TICK_RATE * 4; i++) {
+      clock += TICK_MS;
+      pair.advance(TICK_MS);
+      host.tick(IDLE_INTENT);
+      guest.tick(IDLE_INTENT);
+    }
+    for (const ping of [host.ping, guest.ping]) {
+      expect(ping).not.toBeNull();
+      expect(ping!.cpu).toBeCloseTo(15, 5);
+      expect(ping!.network + ping!.cpu).toBeCloseTo(ping!.total, 5);
+      expect(ping!.total).toBeGreaterThanOrEqual(80);
+      expect(ping!.total).toBeLessThan(80 + 2 * TICK_MS + 1);
     }
   });
 });

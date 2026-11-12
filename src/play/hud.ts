@@ -1,6 +1,7 @@
 import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
+import type { Ping } from '../net';
 import { fighterColours } from '../render/fighterView';
 import { pickupLabels, type PickupView } from '../render/pickupView';
 import { FloorMapView } from './floorMapView';
@@ -14,8 +15,8 @@ export interface HudView {
   readonly localFighter: number;
   /** Who fights, for the labels (null while unknown). */
   readonly lineup: Lineup | null;
-  /** Round-trip time in ms (a guest's to the host, the host's to its slowest guest); null offline or until measured. */
-  readonly ping?: number | null;
+  /** Round-trip time, split into network and CPU (a guest's to the host, the host's to its slowest guest); null offline or until measured. */
+  readonly ping?: Ping | null;
   /** Each Player's name (index = Player number), from the Lobby. */
   readonly names?: readonly string[] | null;
   /** The Tuning Data the Match is played with, when not the HUD's own (a Run with knobs: its enemies' difficulties). */
@@ -67,6 +68,12 @@ export function hallScore(at: HallAt, floors: number): string {
  * The HP a bar shows: rounded up, so a Fighter still standing never reads 0. Rounded to a millionth first, so a max HP
  * scaled by depth (100 × 1.1 = 110.00000000000001) reads 110, not 111.
  */
+/** The HUD's corner counter: frames per second, and online the ping with its network and CPU parts (ms). */
+export function statsText(fps: number, ping: Ping | null | undefined): string {
+  if (ping == null) return `${fps} fps`;
+  return `${fps} fps · ${Math.round(ping.total)} ms (net ${Math.round(ping.network)} · cpu ${Math.round(ping.cpu)})`;
+}
+
 export function hpText(hp: number): string {
   return String(Math.ceil(Math.round(Math.max(0, hp) * 1e6) / 1e6));
 }
@@ -317,7 +324,7 @@ export class Hud {
       this.fps = Math.round((this.frames * 1000) / (now - this.statsAt));
       this.frames = 0;
       this.statsAt = now;
-      this.stats.textContent = view.ping == null ? `${this.fps} fps` : `${this.fps} fps · ${Math.round(view.ping)} ms`;
+      this.stats.textContent = statsText(this.fps, view.ping);
     }
     if (this.bannerUntil && performance.now() > this.bannerUntil) {
       this.banner.classList.remove('visible');

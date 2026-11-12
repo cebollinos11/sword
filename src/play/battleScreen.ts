@@ -18,6 +18,7 @@
 import * as THREE from 'three';
 import { battlefieldHeight, battlefieldOf, groundHeight, soldierBody, takeoverTarget, type Heightfield, type MatchState, type SimState, type Vec3 } from '../sim';
 import type { SoundCue } from '../audio';
+import type { Ping } from '../net';
 import { PlayerTags } from './playerTags';
 import type { TuningData } from '../tuning';
 import type { LocalController } from '../controllers';
@@ -207,7 +208,7 @@ export class BattleScreen {
   }
 
   /** Draw the frame between Ticks `prev` and `curr` (`alpha` of the way), `seconds` of wall time after the last. */
-  draw(prev: MatchState, curr: MatchState, me: number, alpha: number, seconds: number, ping: number | null = null): void {
+  draw(prev: MatchState, curr: MatchState, me: number, alpha: number, seconds: number, ping: Ping | null = null): void {
     const duel = curr.duel;
     const crowd = duel.crowd;
     if (!crowd || !this.crowdView || !duel.fighters[me]) return;

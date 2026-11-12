@@ -7,6 +7,7 @@
  */
 import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { Size, TuningData } from '../tuning';
+import type { Ping } from '../net';
 import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
@@ -22,8 +23,8 @@ export interface MatchDriver {
   readonly failure?: string | null;
   /** A status line while there is nothing to play yet (e.g. connecting to the opponent). */
   readonly waiting?: string | null;
-  /** Round-trip time in milliseconds (online only: a guest's to the host, the host's to its slowest guest; null until measured). */
-  readonly ping?: number | null;
+  /** Round-trip time, split into network and CPU (online only: a guest's to the host, the host's to its slowest guest; null until measured). */
+  readonly ping?: Ping | null;
   /** The oldest notice for the HUD not yet shown (online: a Player left and the AI took over), or null. */
   takeNotice?(): string | null;
   /** The loop is done with this driver (Match over or abandoned): release its connection. */

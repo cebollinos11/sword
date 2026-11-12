@@ -34,6 +34,7 @@ import {
   createRollbackSession,
   hostRoom,
   joinRoom,
+  mainThreadLag,
   parseBrokerUrl,
   parseRoomInput,
   RoomError,
@@ -41,6 +42,9 @@ import {
   type BrokerOptions,
   type HostedRoom,
 } from './net';
+
+/** How long a message waits on this page's main thread, for the online sessions' pongs (the CPU part of the ping). */
+const lag = () => mainThreadLag.estimate;
 
 /** Scratch for the camera's direction each frame. */
 const cameraDir = new Vector3();
@@ -401,11 +405,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
       // Duels restart on their own; a Run has no Rematch (the host starts the next one from the in-game menu).
       const rematch = match.format === 'Gauntlet' ? {} : { rematchTicks: secondsToTicks(REMATCH_SECONDS) };
-      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup });
+      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup, lag });
     } else {
       const transport = l.matchTransport(s.generation, 0);
       if (!transport) return;
-      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon });
+      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, lag });
     }
     // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run.
     const doors = match.format ? devAutopilot() : null;
@@ -444,14 +448,14 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       let session;
       if (l.isHost) {
         const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup });
+        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup, lag });
       } else {
         const transport = l.matchTransport(s.generation, 0);
         if (!transport) {
           bar.dispose();
           return;
         }
-        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]! });
+        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]!, lag });
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
       const battlePilot = pilot ? createBattlePilot(battleTuning, pilot) : null;
@@ -864,6 +868,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let lastFailure = '';
   function frame(now: number): void {
     requestAnimationFrame(frame);
+    const start = performance.now();
     try {
       runFrame(now);
     } catch (e) {
@@ -872,6 +877,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       lastFailure = why;
       if (driver) matchFailed(`The Match stopped on an error: ${why}`);
     }
+    // How long this frame held the main thread: the CPU part of the ping (see MainThreadLag).
+    mainThreadLag.work(start, performance.now());
   }
 
   function runFrame(now: number): void {

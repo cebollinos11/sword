@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { arenaOf, createMatch, exitDoor, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
-import { hallBanner, hallFade, hallScore, hpText, runResultLine, runTime } from './hud';
+import { hallBanner, hallFade, hallScore, hpText, runResultLine, runTime, statsText } from './hud';
 
 describe('the Run’s HUD text', () => {
   it('names the Floor, the Hall’s row of five and the Run seed; the Boss Hall by its Floor', () => {
@@ -79,5 +79,12 @@ describe('the HP shown on a bar', () => {
     const hp = tuning.fighter.maxHp * (1 + tuning.dungeon.depthHp * 1);
     expect(hp).not.toBe(110);
     expect(hpText(hp)).toBe('110');
+  });
+});
+
+describe('the fps and ping counter', () => {
+  it('shows the fps alone offline, and online the ping split into network and CPU', () => {
+    expect(statsText(60, null)).toBe('60 fps');
+    expect(statsText(58, { total: 84.4, network: 30.2, cpu: 54.2 })).toBe('58 fps · 84 ms (net 30 · cpu 54)');
   });
 });

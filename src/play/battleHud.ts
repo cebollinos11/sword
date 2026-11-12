@@ -23,6 +23,8 @@ import {
 } from '../sim';
 import { startingTickets, type BattleTuning } from '../tuning';
 import { Minimap } from '../render/minimap';
+import type { Ping } from '../net';
+import { statsText } from './hud';
 import { objectiveLetter } from '../render/objectiveMarks';
 
 /** One army's strength: its Tickets (and their share of the start), Soldiers living (and their share of the army), and whether it has routed. */
@@ -327,7 +329,7 @@ export class BattleHud {
   }
 
   /** Redraw from `match`, Fighter `me` being the Player's slot. */
-  update(match: MatchState, me: number, ping: number | null = null): void {
+  update(match: MatchState, me: number, ping: Ping | null = null): void {
     const duel = match.duel;
     const crowd = duel.crowd;
     if (!crowd) return;
@@ -367,7 +369,7 @@ export class BattleHud {
       const fps = Math.round((this.frames * 1000) / (now - this.statsAt));
       this.frames = 0;
       this.statsAt = now;
-      this.stats.textContent = ping == null ? `${fps} fps` : `${fps} fps · ${Math.round(ping)} ms`;
+      this.stats.textContent = statsText(fps, ping);
     }
     if (this.bannerUntil && performance.now() > this.bannerUntil) {
       this.banner.classList.remove('visible');

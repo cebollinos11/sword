@@ -90,10 +90,15 @@ export interface ResyncMessage {
   readonly streams: readonly IntentStream[];
 }
 
-/** Round-trip probe: the peer answers with a `pong` carrying the same `sent` stamp (the sender's own clock). */
+/**
+ * Round-trip probe: the peer answers with a `pong` carrying the same `sent` stamp (the sender's own clock), and how long a
+ * message waits on its main thread before it is handled (`lag`, ms: see MainThreadLag), so the round trip splits into network and CPU.
+ */
 export interface PingMessage {
   readonly type: 'ping' | 'pong';
   readonly sent: number;
+  /** Pong only; absent from an older peer. */
+  readonly lag?: number;
 }
 
 export type RefuseReason = 'TuningDataMismatch' | 'ProtocolMismatch';
@@ -139,7 +144,7 @@ export function parseNetMessage(m: unknown): NetMessage | null {
         : null;
     case 'ping':
     case 'pong':
-      return isNum(m.sent) ? (m as unknown as PingMessage) : null;
+      return isNum(m.sent) && (m.lag === undefined || (isNum(m.lag) && m.lag >= 0)) ? (m as unknown as PingMessage) : null;
     default:
       return null;
   }
