@@ -292,33 +292,79 @@ function layeredFields(battle: BattleTuning, field: Battlefield): DestinationFie
         if (b >= 0 && sameLevel(arena, lv, to, levels.surface[b]!, tx, tz)) levels.next[a * 8 + k] = b;
       }
     }
-  // Backward: the joins into each node (node × 8 + step), in node then step order.
-  const into: number[][] = Array.from({ length: nodes }, () => []);
-  for (let j = 0; j < nodes * 8; j++) if (levels.next[j]! >= 0) into[levels.next[j]!]!.push(j);
-  const diagonal = cell * Math.SQRT2;
   const places = [...field.objectives.map((o, k) => ({ x: o.x, z: o.z, s: field.objectiveSurfaces[k]! })), ...field.bases.map((b, k) => ({ x: b.x, z: b.z, s: field.baseSurfaces[k]! }))];
-  const dist = places.map((p) => {
-    const out = new Float64Array(nodes).fill(-1);
-    const from = nodeAt(shell, p.x, p.z, p.s);
-    if (from < 0) return out;
-    const heap = new Heap();
-    out[from] = 0;
-    heap.push(0, from);
-    while (heap.size > 0) {
-      const b = heap.pop();
-      const here = out[b]!;
-      for (const j of into[b]!) {
-        const a = j >> 3;
-        const d = here + (j % 8 >= 4 ? diagonal : cell);
-        if (out[a]! < 0 || d < out[a]!) {
-          out[a] = d;
-          heap.push(d, a);
-        }
+  const dist = places.map((p) => backward(levels, cell, nodeAt(shell, p.x, p.z, p.s)));
+  return { ...shell, dist, clearance: levelClearance(field, lv, levels, side, cell) };
+}
+
+/** The joins into each node of a map of several levels, in compact form: node n's are `joins[offsets[n]]` to `joins[offsets[n + 1] - 1]` (node × 8 + step, in node then step order). */
+interface Backward {
+  readonly offsets: Int32Array;
+  readonly joins: Int32Array;
+}
+
+/** Derived from a `FieldLevels`' static joins, so built once per object and kept here, never in the state. */
+const backwards = new WeakMap<FieldLevels, Backward>();
+
+/** The joins into each node of `levels` (node × 8 + step), in node then step order, built once. */
+function backwardOf(levels: FieldLevels): Backward {
+  const kept = backwards.get(levels);
+  if (kept) return kept;
+  const next = levels.next;
+  const nodes = levels.y.length;
+  const offsets = new Int32Array(nodes + 1);
+  for (let j = 0; j < next.length; j++) if (next[j]! >= 0) offsets[next[j]! + 1]!++;
+  for (let n = 0; n < nodes; n++) offsets[n + 1]! += offsets[n]!;
+  const joins = new Int32Array(offsets[nodes]!);
+  const fillAt = offsets.slice(0, nodes);
+  for (let j = 0; j < next.length; j++) if (next[j]! >= 0) joins[fillAt[next[j]!]!++] = j;
+  const made = { offsets, joins };
+  backwards.set(levels, made);
+  return made;
+}
+
+/**
+ * The path length (m) from every node of a map of several levels to node `from`, or -1: a Dijkstra backward over the joins (a join costing a
+ * cell, a diagonal one √2 of it). All -1 where `from` is -1 (no node there). The one place `layeredFields` and `distanceTo` build a field.
+ */
+function backward(levels: FieldLevels, cell: number, from: number): Float64Array {
+  const nodes = levels.y.length;
+  const out = new Float64Array(nodes).fill(-1);
+  if (from < 0) return out;
+  const { offsets, joins } = backwardOf(levels);
+  const diagonal = cell * Math.SQRT2;
+  const heap = new Heap();
+  out[from] = 0;
+  heap.push(0, from);
+  while (heap.size > 0) {
+    const b = heap.pop();
+    const here = out[b]!;
+    for (let i = offsets[b]!; i < offsets[b + 1]!; i++) {
+      const j = joins[i]!;
+      const a = j >> 3;
+      const d = here + (j % 8 >= 4 ? diagonal : cell);
+      if (out[a]! < 0 || d < out[a]!) {
+        out[a] = d;
+        heap.push(d, a);
       }
     }
-    return out;
-  });
-  return { ...shell, dist, clearance: levelClearance(field, lv, levels, side, cell) };
+  }
+  return out;
+}
+
+/**
+ * A destination field to any one point (x, z) on Walk Surface `s` (-1: its cell's highest node), not only to an Objective or a Base, over the
+ * same cells (on a map of several levels, nodes) as `f`: per cell (node) the path length (m) to the point, or -1. It is the field
+ * `destinationFields` builds for an Objective standing there, entry for entry: a Squad or a Warband post, or a Player chased, is as
+ * far from a cell as that. On a map of one level, `s` does not matter and the point's cell is the destination; on a map of several levels the
+ * destination is the point's node on its level (`s`), and every entry is -1 where its cell has none there (a point inside a block). Built fresh
+ * on every call and never kept (the point moves), so the result is the caller's; only the joins it runs over are, for they are static.
+ */
+export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): Float64Array {
+  if (f.levels) return backward(f.levels, f.cell, nodeAt(f, x, z, s));
+  const field = fill(f.side, f.cell, f.blocked, cellAt(f, x, z));
+  if (f.blocks.length > 0) fillBlocked(field, f.side, f.cell, f.blocked);
+  return field;
 }
 
 /**
