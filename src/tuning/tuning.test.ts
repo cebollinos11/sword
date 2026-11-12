@@ -31,6 +31,7 @@ function goodRaw() {
       loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3 },
       floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
     },
+    delver: { flowCell: 2, floor: { cols: 2, rows: 2, rooms: 2, gaps: [20], halfSize: [4, 6], minPassage: 4, passage: 3, farPercent: 25, loops: [0, 1], rests: [1, 1], treasures: 0, emptyPercent: 30, patrols: 0, follow: 1.5, maxAttempts: 3 } },
     relics: [],
     battle: {
       armySize: 20,

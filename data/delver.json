@@ -1,0 +1,20 @@
+{
+  "flowCell": 2,
+  "floor": {
+    "cols": 7,
+    "rows": 6,
+    "rooms": 22,
+    "gaps": [22, 24, 26, 28],
+    "halfSize": [5, 11],
+    "minPassage": 4,
+    "passage": 3,
+    "farPercent": 25,
+    "loops": [3, 5],
+    "rests": [1, 2],
+    "treasures": 1,
+    "emptyPercent": 30,
+    "patrols": 2,
+    "follow": 1.5,
+    "maxAttempts": 10
+  }
+}

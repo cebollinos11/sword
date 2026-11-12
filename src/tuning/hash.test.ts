@@ -11,7 +11,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera, audio: tuning.audio };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, delver: tuning.delver, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera, audio: tuning.audio };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
