@@ -13,6 +13,7 @@ import type { PickupView } from './pickupView';
 import type { FireState } from './restFire';
 import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighterView';
 import { FlailSwing } from './flailSwing';
+import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
@@ -202,9 +203,11 @@ export class Renderer {
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;
+    // Blood & gore off: a fallen body drops whole.
+    const dismember = goreEnabled();
     const poses = curr.fighters.map((f, i) => {
       if (f.benched) return undefined;
-      const pose = drawnPose(prev, curr, i, alpha, world.tuning, true);
+      const pose = drawnPose(prev, curr, i, alpha, world.tuning, dismember);
       if (!pose.flail) {
         this.swings[i]?.reset();
         return pose;

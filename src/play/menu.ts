@@ -38,6 +38,7 @@ type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lob
 
 import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
 import { getMasterVolume, setMasterVolume } from '../audio/volume';
+import { goreEnabled, setGoreEnabled } from '../render/gore';
 
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
@@ -396,6 +397,17 @@ export class Menu {
   }
 
   /** Toggles the collider view; stays on this screen. Null without ?dev=1. */
+  /** Blood & gore toggle (on by default): blood and Dismemberment, drawn or not from the next frame on; remembered. */
+  private goreItem(): HTMLButtonElement {
+    const on = goreEnabled();
+    const b = this.navItem(`Blood & Gore: ${on ? 'On' : 'Off'}`, on ? 'Blood and dismemberment shown' : 'No blood, bodies fall whole', () => {
+      setGoreEnabled(!goreEnabled());
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  }
+
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
     const b = this.navItem(`Show Colliders: ${this.colliders ? 'On' : 'Off'}`, 'Walk Surfaces and Walls over a see-through Arena', () => {
@@ -433,6 +445,7 @@ export class Menu {
       this.navItem('Play Online', 'Host or join a Room with a friend', () => this.open('online')),
       this.navItem('Character', 'Your name and how you look', () => this.open('settings')),
       this.navItem('How to Play', 'Directions, Blocks, Kicks and daggers', () => this.open('controls')),
+      this.goreItem(),
       this.battleItem(),
       this.battlePlayItem(),
       this.mapEditorItem(),
@@ -684,6 +697,7 @@ export class Menu {
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
     nav.append(this.volumeItem());
     nav.append(this.sensitivityItem());
+    nav.append(this.goreItem());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
