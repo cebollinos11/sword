@@ -3,7 +3,7 @@ import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { deadly } from '../arena';
 import { groundOf } from '../battlefield';
-import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
+import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
 const t = tuning.delver.floor;
@@ -65,6 +65,16 @@ describe('the Delver Floor judge', () => {
     expect(built).toBeUndefined();
     expect(judgement.reasons).toHaveLength(1);
     expect(judgement.reasons[0]).toMatch(/^compile: /);
+  });
+
+  it('rooms: a plan rule 1 refuses is not built (no built Floor, no compile line)', () => {
+    const b = good();
+    const cut = { ...b.plan, halls: b.plan.halls.slice(0, t.rooms - 1) };
+    const { reasons, built } = judgeAttempt(tuning, cut);
+    expect(built).toBeUndefined();
+    expect(reasons.length).toBeGreaterThan(0);
+    expect(reasons.every((r) => r.startsWith('rooms: '))).toBe(true);
+    expect(judgeAttempt(tuning, b.plan)).toMatchObject({ reasons: [], built: expect.anything() });
   });
 
   it('halls: refuses a Hall whose centre is in the abyss', () => {

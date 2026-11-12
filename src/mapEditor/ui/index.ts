@@ -515,8 +515,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addButton({ title: 'Open example' }).on('click', () => discardOk() && openRaw(examples[ui.example]!(), ui.example));
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
   // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
-  file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0 });
-  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: 9 });
+  file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0, max: 4294967295 });
+  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1 });
   /** Builds and opens Floor `floor` of `seed`. The build takes a few hundred ms, so the status shows first and it runs on the next task. */
   const openDelverFloor = (seed: number, floor: number) => {
     say(`Building Floor ${floor} of seed ${seed}…`);

@@ -22,9 +22,10 @@ const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Empty: 'basalt',
 };
 
-/** The Floor's Map Source: the abyss under everything, an Enclosure for each Hall and each Passage, and the markers for the eye. */
-export function floorSource(plan: FloorPlan): MapSource {
-  const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
+/** The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each Passage, and the markers for the eye. */
+export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
+  const half = fieldSize / 2;
+  const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -half, z0: -half, x1: half, z1: half }, y: -8, hazard: 'abyss' };
   const halls: Brush[] = plan.halls.map((h) => ({ kind: 'enclosure', id: h.id, rect: h.rect, y: 0, doors: h.doors, material: HALL_MATERIAL[h.kind] }));
   const passages: Brush[] = plan.passages.map((p) => ({
     kind: 'enclosure',
@@ -48,7 +49,7 @@ export function floorSource(plan: FloorPlan): MapSource {
   return {
     version: 1,
     name: floorName(plan.seed, plan.floor),
-    size: 200,
+    size: fieldSize,
     grid: { step: 0.5, cell: 2 },
     levels: [-8, 0, 4],
     brushes: [abyss, ...halls, ...passages],

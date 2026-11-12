@@ -14,11 +14,11 @@ export interface DelverFloorTuning {
   readonly rooms: number;
   /** The metres between neighbouring lattice columns (rows), one picked per gap; each even and positive. */
   readonly gaps: readonly number[];
-  /** [min, max] of a Hall's half-width and half-depth (whole m; min >= 1). */
+  /** [min, max] of a Hall's half-width and half-depth (whole m; min >= 4, a pedestal, the Stairs zone or a spawn and the judge's 1 m margin). */
   readonly halfSize: readonly [number, number];
-  /** The shortest Passage between lattice neighbours (m). */
+  /** The shortest Passage between lattice neighbours (whole m, >= 1). */
   readonly minPassage: number;
-  /** A Passage's width and its doorways' (m); at most twice the smallest half size. */
+  /** A Passage's width and its doorways' (whole m); wider than `flowCell`, at most twice the smallest half size. */
   readonly passage: number;
   /** The chance (in 100) that a growth step joins a Hall two lattice steps away over an empty cell. */
   readonly farPercent: number;
@@ -43,6 +43,12 @@ export interface DelverTuning {
   readonly flowCell: number;
   readonly floor: DelverFloorTuning;
 }
+
+/**
+ * The smallest Hall half-width: a pedestal 3 m from the centre plus the judge's 1 m margin, which also covers the Stairs' 2 m half
+ * zone and a spawn 1.5 m out, each plus that margin. (The Floor generator's constants live in `sim/delver`, which tuning must not import.)
+ */
+const MIN_HALL_HALF = 4;
 
 function fail(where: string, what: string, v: unknown): never {
   throw new TuningDataError(`${where} must be ${what}, got ${JSON.stringify(v)}`);
@@ -91,13 +97,14 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
     return g;
   });
 
-  const halfSize = range(f, 'halfSize', w, 1);
-  const minPassage = whole(f, 'minPassage', w, 0);
+  const halfSize = range(f, 'halfSize', w, MIN_HALL_HALF);
+  const minPassage = whole(f, 'minPassage', w, 1);
   const passage = whole(f, 'passage', w, 1);
   const minGap = Math.min(...gaps);
   const maxGap = Math.max(...gaps);
   if (minGap - minPassage < 2 * halfSize[0]) fail(`${w}.minPassage`, `at most min(gaps) - 2 * halfSize[0] (${minGap - 2 * halfSize[0]})`, minPassage);
   if (passage > 2 * halfSize[0]) fail(`${w}.passage`, `at most 2 * halfSize[0] (${2 * halfSize[0]})`, passage);
+  if (passage <= flowCell) fail(`${w}.passage`, `wider than delver.flowCell (${flowCell}), so a field node always lies inside a Passage`, passage);
   for (const [key, n] of [['cols', cols], ['rows', rows]] as const) {
     if (((n - 1) * maxGap) / 2 + halfSize[1] + 2 > fieldSize / 2) fail(`${w}.${key}`, `small enough that the lattice fits the ${fieldSize} m field`, n);
   }

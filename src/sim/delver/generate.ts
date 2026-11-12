@@ -3,11 +3,10 @@
  * from a salted attempt seed (`attemptSeed`) until one passes or `maxAttempts` is reached, as the Arena generator does
  * (`arenaGen/generate.ts`). Deterministic from (seed, Floor) alone: there is no clock, so every peer deals the same Floor.
  */
-import { MapCompileError } from '../../mapEditor/compile';
 import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
-import { buildFloor, type BuiltFloor } from './build';
-import { judgeBuilt, type FloorJudgement } from './judge';
+import type { BuiltFloor } from './build';
+import { judgeAttempt, type FloorJudgement } from './judge';
 import { planFloor } from './plan';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
@@ -18,9 +17,9 @@ export interface DelverFloor extends BuiltFloor {
 
 /**
  * The first layout of Floor `floor` of `seed` that builds and passes the judge. Failing all `maxAttempts` (default
- * `delver.floor.maxAttempts`), the built one with the fewest reasons (ties: the first) comes back with `judgement.ok` false and
- * `attempts` = `maxAttempts`. Throws, naming the seed, the Floor and the last reason, if none even compiled. `opts.judge` stands
- * in for `judgeBuilt` (a test's refusals); a source that does not compile is refused all the same.
+ * `delver.floor.maxAttempts`), the built one (rule 1 passed, the source compiled) with the fewest reasons (ties: the first) comes back with `judgement.ok` false and
+ * `attempts` = `maxAttempts`. Throws, naming the seed, the Floor and the last reason, if none even built. `opts.judge` stands
+ * in for rules 3 to 6 (a test's refusals); a plan rule 1 refuses, or a source that does not compile, is refused all the same.
  */
 export function delverFloor(
   tuning: Pick<TuningData, 'battle' | 'delver'>,
@@ -30,24 +29,19 @@ export function delverFloor(
 ): DelverFloor {
   const t = tuning.delver.floor;
   const maxAttempts = opts.maxAttempts ?? t.maxAttempts;
-  const judge = opts.judge ?? judgeBuilt;
   let best: { built: BuiltFloor; reasons: string[] } | null = null;
-  let lastCompile = '';
+  let last = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const plan = planFloor(t, seed, floor, attempt);
-    let built: BuiltFloor;
-    try {
-      built = buildFloor(tuning, plan);
-    } catch (e) {
-      if (!(e instanceof MapCompileError)) throw e;
-      lastCompile = `compile: ${e.message}`;
+    const { reasons, built } = judgeAttempt(tuning, plan, opts.judge);
+    if (!built) {
+      last = reasons[reasons.length - 1]!;
       continue;
     }
-    const reasons = judge(t, built);
     if (reasons.length === 0) return { ...built, attempts: attempt + 1, judgement: { ok: true, reasons } };
     if (!best || reasons.length < best.reasons.length) best = { built, reasons };
   }
-  if (!best) throw new Error(`No Floor ${floor} of seed ${seed >>> 0} compiled in ${maxAttempts} attempts: ${lastCompile}`);
+  if (!best) throw new Error(`No Floor ${floor} of seed ${seed >>> 0} built in ${maxAttempts} attempts: ${last}`);
   return { ...best.built, attempts: maxAttempts, judgement: { ok: false, reasons: best.reasons } };
 }
 

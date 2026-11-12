@@ -44,5 +44,5 @@ export function buildFromSource(tuning: Pick<TuningData, 'battle' | 'delver'>, p
 
 /** The Floor's source compiled (its parse and walk check included), its Battlefield and its destination fields. Throws MapCompileError. */
 export function buildFloor(tuning: Pick<TuningData, 'battle' | 'delver'>, plan: FloorPlan): BuiltFloor {
-  return buildFromSource(tuning, plan, floorSource(plan));
+  return buildFromSource(tuning, plan, floorSource(plan, tuning.battle.field.size));
 }

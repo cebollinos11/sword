@@ -4,7 +4,7 @@
  * plan's tests do. The rules, in order:
  *
  *  1. `rooms`: the plan has the Halls wanted, one Entrance, one Stairs, Rests within range and a Fight (checkable without a build).
- *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped).
+ *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped; a plan rule 1 refused is not built).
  *  3. `halls`: the field from the Entrance's centre reaches every Hall's centre.
  *  4. `passages` (Stage 0's check): the field to one Hall's centre, read at its neighbour's, follows the Passage between them.
  *  5. `markers`: each marker stands in its Hall, on the floor, off any hazard, and is reached from the Entrance.
@@ -55,8 +55,9 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan): string[] {
   return out;
 }
 
-/** A marker to judge: its name, its Hall and where it stands. */
+/** A marker to judge: its kind, its name, its Hall and where it stands. */
 interface Marker {
+  readonly kind: 'spawn' | 'stairs' | 'fire' | 'pedestal' | 'post' | 'patrol';
   readonly name: string;
   readonly hall: number;
   readonly x: number;
@@ -67,25 +68,26 @@ function markersOf(plan: FloorPlan): Marker[] {
   const m = plan.markers;
   const zone = m.stairs.zone;
   return [
-    ...m.spawns.map((p, k): Marker => ({ name: `spawn${k}`, hall: p.hall, x: p.x, z: p.z })),
-    { name: 'stairs', hall: m.stairs.hall, x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 },
-    ...m.fires.map((p, k): Marker => ({ name: `fire${k}`, hall: p.hall, x: p.x, z: p.z })),
-    ...m.pedestals.map((p, k): Marker => ({ name: `pedestal${k}`, hall: p.hall, x: p.x, z: p.z })),
-    ...m.posts.map((p, k): Marker => ({ name: `post${k}`, hall: p.hall, x: p.x, z: p.z })),
-    ...m.patrols.flatMap((patrol, k) => patrol.points.map((p, n): Marker => ({ name: `patrol${k}.${n}`, hall: patrol.halls[n]!, x: p.x, z: p.z }))),
+    ...m.spawns.map((p, k): Marker => ({ kind: 'spawn', name: `spawn${k}`, hall: p.hall, x: p.x, z: p.z })),
+    { kind: 'stairs', name: 'stairs', hall: m.stairs.hall, x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 },
+    ...m.fires.map((p, k): Marker => ({ kind: 'fire', name: `fire${k}`, hall: p.hall, x: p.x, z: p.z })),
+    ...m.pedestals.map((p, k): Marker => ({ kind: 'pedestal', name: `pedestal${k}`, hall: p.hall, x: p.x, z: p.z })),
+    ...m.posts.map((p, k): Marker => ({ kind: 'post', name: `post${k}`, hall: p.hall, x: p.x, z: p.z })),
+    ...m.patrols.flatMap((patrol, k) => patrol.points.map((p, n): Marker => ({ kind: 'patrol', name: `patrol${k}.${n}`, hall: patrol.halls[n]!, x: p.x, z: p.z }))),
   ];
 }
 
 /** Rules 3 to 6 on a built Floor. */
-function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
+export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   const { plan, battle, field, fields } = b;
   const halls = plan.halls;
   const out: string[] = [];
   const surfaceOf = (x: number, z: number) => groundOf(battle, field, x, z);
-  // One field to each Hall's centre, shared by rules 3 to 5.
   const centre = halls.map((h) => ({ x: h.cx, z: h.cz, s: surfaceOf(h.cx, h.cz) }));
-  const to = centre.map((c) => distanceTo(fields, c.x, c.z, c.s));
-  const fromEntrance = to[plan.entrance]!;
+  // A field to a Hall's centre, built when first asked and kept: rules 3 to 5 need only the Entrance's and each Passage's `a` Hall's.
+  const cache: (Float64Array | undefined)[] = [];
+  const to = (k: number): Float64Array => (cache[k] ??= distanceTo(fields, centre[k]!.x, centre[k]!.z, centre[k]!.s));
+  const fromEntrance = to(plan.entrance);
 
   halls.forEach((h, k) => {
     if (fieldAt(fields, fromEntrance, centre[k]!.x, centre[k]!.z, centre[k]!.s) < 0) out.push(`halls: ${h.id} is not reached from the Entrance (${halls[plan.entrance]!.id})`);
@@ -93,7 +95,7 @@ function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
 
   plan.passages.forEach((p) => {
     const c = centre[p.b]!;
-    const d = fieldAt(fields, to[p.a]!, c.x, c.z, c.s);
+    const d = fieldAt(fields, to(p.a), c.x, c.z, c.s);
     if (d < 0 || d > t.follow * p.length) {
       out.push(`passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id}) is not followed: ${d < 0 ? 'no way' : `${m(d)} m`} against ${p.length} m`);
     }
@@ -117,7 +119,7 @@ function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
 
   const spawns = plan.markers.spawns;
   for (const mk of markers) {
-    if (!/^(post|patrol)/.test(mk.name)) continue;
+    if (mk.kind !== 'post' && mk.kind !== 'patrol') continue;
     const seen = spawns.findIndex((sp) => inSight(fields, sp.x, sp.z, mk.x, mk.z, 0, 0, 0));
     if (seen >= 0) out.push(`sight: ${mk.name} (${halls[mk.hall]!.id}) is in sight of spawn${seen}`);
   }
@@ -129,18 +131,31 @@ export function judgeBuilt(t: DelverFloorTuning, b: BuiltFloor): string[] {
   return [...judgePlan(t, b.plan), ...judgeFields(t, b)];
 }
 
-/** All the rules on a plan: rule 1, then the build (a throw is rule 2 and ends it), then rules 3 to 6. `built` is absent when it did not compile. */
-export function judgeFloor(tuning: Pick<TuningData, 'battle' | 'delver'>, plan: FloorPlan): { judgement: FloorJudgement; built?: BuiltFloor } {
+/**
+ * One attempt's judging, the only path to a verdict: rule 1 on the plan, and if it refuses, nothing is built (`built` absent). Else the
+ * plan is built (a Map Source that does not compile is the `compile:` line, rule 2, and ends it) and rules 3 to 6 run: `judge` stands
+ * in for them (a test's refusals). `reasons` are in the rules' order, none when the plan passes.
+ */
+export function judgeAttempt(
+  tuning: Pick<TuningData, 'battle' | 'delver'>,
+  plan: FloorPlan,
+  judge: (t: DelverFloorTuning, b: BuiltFloor) => string[] = judgeFields,
+): { reasons: string[]; built: BuiltFloor | undefined } {
   const t = tuning.delver.floor;
   const reasons = judgePlan(t, plan);
+  if (reasons.length > 0) return { reasons, built: undefined };
   let built: BuiltFloor;
   try {
     built = buildFloor(tuning, plan);
   } catch (e) {
     if (!(e instanceof MapCompileError)) throw e;
-    reasons.push(`compile: ${e.message}`);
-    return { judgement: { ok: false, reasons } };
+    return { reasons: [`compile: ${e.message}`], built: undefined };
   }
-  reasons.push(...judgeFields(t, built));
-  return { judgement: { ok: reasons.length === 0, reasons }, built };
+  return { reasons: judge(t, built), built };
+}
+
+/** All the rules on a plan (`judgeAttempt`). `built` is absent when rule 1 refused or it did not compile. */
+export function judgeFloor(tuning: Pick<TuningData, 'battle' | 'delver'>, plan: FloorPlan): { judgement: FloorJudgement; built?: BuiltFloor } {
+  const { reasons, built } = judgeAttempt(tuning, plan);
+  return { judgement: { ok: reasons.length === 0, reasons }, ...(built ? { built } : {}) };
 }
