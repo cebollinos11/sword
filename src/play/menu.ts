@@ -24,8 +24,6 @@ export interface MenuHandlers {
   onBackToLobby(): void;
   /** In game: stop playing and leave (the Room too) for the title screen. */
   onQuit(): void;
-  /** PlayStation resolution turned on or off (see Menu.ps1). */
-  onPs1(on: boolean): void;
   /** The collider view turned on or off (see Menu.colliders; offered only with ?dev=1). */
   onColliders(on: boolean): void;
 }
@@ -45,7 +43,6 @@ const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
 const SIZE_STORAGE_KEY = 'sword.size';
 const NAME_STORAGE_KEY = 'sword.name';
-const PS1_STORAGE_KEY = 'sword.ps1';
 const COLLIDERS_STORAGE_KEY = 'sword.colliders';
 
 
@@ -163,8 +160,6 @@ export class Menu {
   size: Size = storedSizePick();
   /** Your name in Rooms. */
   name: string = cleanName(stored(NAME_STORAGE_KEY) ?? 'Player');
-  /** Draw the game at PlayStation resolution (240 lines, the screen's aspect ratio kept). */
-  ps1: boolean = stored(PS1_STORAGE_KEY) === '1';
   /** Draw the Arena's collision geometry over a see-through model (a developer view: only with ?dev=1). */
   colliders: boolean = devMode() && stored(COLLIDERS_STORAGE_KEY) === '1';
   /** The broker URL as typed (blank = the public PeerJS broker). */
@@ -380,18 +375,6 @@ export class Menu {
     return h('div', 'nav-item sens', null, h('span', 'nav-label', 'Volume'), input, value);
   }
 
-  /** Toggles PlayStation resolution; stays on this screen. */
-  private ps1Item(): HTMLButtonElement {
-    const b = this.navItem(`PS1 Resolution: ${this.ps1 ? 'On' : 'Off'}`, 'Play in 240 chunky lines, at your screen\'s shape', () => {
-      this.ps1 = !this.ps1;
-      store(PS1_STORAGE_KEY, this.ps1 ? '1' : null);
-      this.handlers.onPs1(this.ps1);
-      this.render();
-    });
-    b.setAttribute('aria-pressed', String(this.ps1));
-    return b;
-  }
-
   /** Watches an AI-vs-AI Battle (docs/plans/big-battle.md, Stage 2) until the Lobby offers it. Null without ?dev=1. */
   private battleItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
@@ -453,7 +436,6 @@ export class Menu {
       this.battleItem(),
       this.battlePlayItem(),
       this.mapEditorItem(),
-      this.ps1Item(),
       this.colliderItem(),
       editor,
     );
@@ -702,7 +684,6 @@ export class Menu {
     nav.append(this.navItem('How to Play', 'Controls and tips', () => this.open('controls')));
     nav.append(this.volumeItem());
     nav.append(this.sensitivityItem());
-    nav.append(this.ps1Item());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));

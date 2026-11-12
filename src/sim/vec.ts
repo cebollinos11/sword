@@ -47,25 +47,33 @@ export function normalize(a: Vec3, fallback: Vec3 = { x: 0, y: 1, z: 0 }): Vec3 
 
 const DEG = Math.PI / 180;
 
+/** The cosine and sine of an angle in degrees, as the rotations below take them: worked out once for an angle many vectors turn by. */
+export interface Turn {
+  readonly c: number;
+  readonly s: number;
+}
+export const turnOf = (deg: number): Turn => ({ c: Math.cos(deg * DEG), s: Math.sin(deg * DEG) });
+
+/** `rotateX` by an angle whose cosine and sine are already known. */
+export const turnX = (v: Vec3, { c, s }: Turn): Vec3 => ({ x: v.x, y: v.y * c - v.z * s, z: v.y * s + v.z * c });
+/** `rotateY` by an angle whose cosine and sine are already known. */
+export const turnY = (v: Vec3, { c, s }: Turn): Vec3 => ({ x: v.x * c + v.z * s, y: v.y, z: -v.x * s + v.z * c });
+/** `rotateZ` by an angle whose cosine and sine are already known. */
+export const turnZ = (v: Vec3, { c, s }: Turn): Vec3 => ({ x: v.x * c - v.y * s, y: v.x * s + v.y * c, z: v.z });
+
 /** Rotate about the x axis (pitch). Angles in degrees. */
 export function rotateX(v: Vec3, deg: number): Vec3 {
-  const c = Math.cos(deg * DEG);
-  const s = Math.sin(deg * DEG);
-  return { x: v.x, y: v.y * c - v.z * s, z: v.y * s + v.z * c };
+  return turnX(v, turnOf(deg));
 }
 
 /** Rotate about the y axis (yaw). Angles in degrees. */
 export function rotateY(v: Vec3, deg: number): Vec3 {
-  const c = Math.cos(deg * DEG);
-  const s = Math.sin(deg * DEG);
-  return { x: v.x * c + v.z * s, y: v.y, z: -v.x * s + v.z * c };
+  return turnY(v, turnOf(deg));
 }
 
 /** Rotate about the z axis (roll). Angles in degrees. */
 export function rotateZ(v: Vec3, deg: number): Vec3 {
-  const c = Math.cos(deg * DEG);
-  const s = Math.sin(deg * DEG);
-  return { x: v.x * c - v.y * s, y: v.x * s + v.y * c, z: v.z };
+  return turnZ(v, turnOf(deg));
 }
 
 /** Euler rotation in degrees, applied roll (z), then pitch (x), then yaw (y). */

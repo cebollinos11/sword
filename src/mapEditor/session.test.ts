@@ -8,7 +8,7 @@ import { loadTuningData } from '../tuning';
 import { TuningDataError } from '../tuning/validate';
 import { compileMap, mapFileText, MapCompileError } from './compile';
 import { GROUND, sampleSource, withBrushes } from './sample.testdata';
-import { blankSource, brushAt, brushLevels, handleAt, handlesOf, MapEditorSession, sourceFileText } from './session';
+import { blankSource, brushAt, brushesAt, brushLevels, handleAt, handlesOf, MapEditorSession, sourceFileText } from './session';
 import { parseMapSource, type Brush, type MapSource } from './source';
 
 const battle = loadTuningData().battle;
@@ -92,7 +92,9 @@ describe('the Map Editor session', () => {
 
   it('stands a new Brush at the level being edited: Platforms and Ramps rise to the level above', () => {
     const s = new MapEditorSession();
-    expect(() => s.addBrush('ramp', { x: 0, z: 0 }, { x: 4, z: 10 })).toThrow(/add a second level/);
+    // On a map of one level, the level above comes with it (and goes with an undo).
+    expect(s.addBrush('ramp', { x: 0, z: 0 }, { x: 4, z: 10 })).toMatchObject({ lo: 0, hi: 4 });
+    s.undo();
     expect(s.source.brushes).toHaveLength(1);
     s.addLevel(4);
     s.level = 0;
@@ -338,5 +340,101 @@ describe('picking in the top view', () => {
     expect(handleAt(keep, 6, 0, 1)).toBe(null);
     const rail = source.brushes.find((b) => b.id === 'bridgeRailN')!;
     expect(handleAt(rail, 44, 3.2, 1)).toBe('b');
+  });
+});
+
+describe('the quick edits (the toolbar, the context menu and the shortcuts)', () => {
+  it('lists every Brush under a point, top first, so a click again steps down to the one under it', () => {
+    const source = parseMapSource(sampleSource());
+    expect(brushesAt(source, 0, 0, null, 0.5).map((b) => b.id)).toEqual(['keep', 'ground']);
+    expect(brushesAt(source, 30, -3.3, null, 0.5)[0]?.id).toBe('bridgeRailS');
+    expect(brushAt(source, 0, 0, null, 0.5)?.id).toBe('keep');
+  });
+
+  it('pastes a copy centred on the point, snapped and inside the field, as one undo step', () => {
+    const s = new MapEditorSession();
+    const b = s.addBrush('deck', { x: 0, z: 0 }, { x: 10, z: 4 });
+    const pasted = s.pasteBrush(b, { x: 30.2, z: -20.1 });
+    expect(pasted.id).toBe('deck2');
+    expect(s.selected).toBe('deck2');
+    expect('rect' in pasted && pasted.rect).toEqual({ x0: 25, z0: -22, x1: 35, z1: -18 });
+    // At the field's edge it stays inside.
+    const edge = s.pasteBrush(b, { x: 99, z: 99 });
+    expect('rect' in edge && edge.rect).toEqual({ x0: 90, z0: 96, x1: 100, z1: 100 });
+    s.undo();
+    s.undo();
+    expect(s.source.brushes.map((x) => x.id)).toEqual(['ground', 'deck1']);
+  });
+
+  it('duplicates in place for an Alt-drag', () => {
+    const s = new MapEditorSession();
+    s.addBrush('floor', { x: 0, z: 0 }, { x: 10, z: 10 });
+    const copy = s.duplicateBrush('floor1', true);
+    expect('rect' in copy && copy.rect).toEqual({ x0: 0, z0: 0, x1: 10, z1: 10 });
+  });
+
+  it('turns a Ramp a quarter clockwise as drawn, its rails and slope with it', () => {
+    const s = new MapEditorSession();
+    s.addLevel(4);
+    s.level = 0;
+    s.addBrush('ramp', { x: 0, z: 0 }, { x: 4, z: 12 });
+    const before = s.selection!;
+    expect(before.kind === 'ramp' && [before.up, before.rails]).toEqual(['n', ['e', 'w']]);
+    s.rotateBrush('ramp1');
+    const r = s.selection!;
+    expect(r.kind === 'ramp' && r.up).toBe('w');
+    expect(r.kind === 'ramp' && [...r.rails].sort()).toEqual(['n', 's']);
+    expect('rect' in r && r.rect).toEqual({ x0: -4, z0: 4, x1: 8, z1: 8 });
+    for (let k = 0; k < 3; k++) s.rotateBrush('ramp1');
+    expect(s.selection).toEqual(before);
+  });
+
+  it('turns a Wall about its midpoint, and turns the doorways of an Enclosure round', () => {
+    const s = new MapEditorSession();
+    s.addBrush('wall', { x: 0, z: 0 }, { x: 10, z: 0 });
+    s.rotateBrush('wall1');
+    const w = s.selection!;
+    expect(w.kind === 'wall' && [w.a, w.b]).toEqual([
+      { x: 5, z: -5 },
+      { x: 5, z: 5 },
+    ]);
+    s.addLevel(4);
+    s.level = 0;
+    const e = s.addBrush('enclosure', { x: 0, z: 0 }, { x: 20, z: 10 });
+    s.replaceBrush(e.id, { ...e, doors: { n: 3 } } as Brush);
+    s.rotateBrush(e.id);
+    const turned = s.selection!;
+    expect(turned.kind === 'enclosure' && turned.doors).toEqual({ w: 3 });
+  });
+});
+
+describe('making levels', () => {
+  it('adds a level above, below or between, one step apart, and edits it', () => {
+    const s = new MapEditorSession();
+    expect(s.addLevelNear('above')).toBe(4);
+    expect(s.level).toBe(4);
+    expect(s.addLevelNear('above')).toBe(8);
+    expect(s.addLevelNear('below')).toBe(-4);
+    s.level = 0;
+    expect(s.addLevelNear('between')).toBe(2);
+    expect(s.source.levels).toEqual([-4, 0, 2, 4, 8]);
+    s.level = 8;
+    expect(s.addLevelNear('between')).toBe(12);
+  });
+
+  it('adds the level above a Platform, Ramp or Enclosure needs with it, in one undo step', () => {
+    const s = new MapEditorSession();
+    const p = s.addBrush('platform', { x: 0, z: 0 }, { x: 10, z: 10 });
+    expect(p.kind === 'platform' && p.top).toBe(4);
+    expect(s.source.levels).toEqual([0, 4]);
+    s.undo();
+    expect(s.source.levels).toEqual([0]);
+    expect(s.source.brushes.map((b) => b.id)).toEqual(['ground']);
+    s.level = 0;
+    s.addLevel(4);
+    s.level = 4;
+    const e = s.addBrush('enclosure', { x: 0, z: 0 }, { x: 10, z: 10 });
+    expect(e.kind === 'enclosure' && e.y).toBe(4);
+    expect(s.source.levels).toEqual([0, 4, 8]);
   });
 });

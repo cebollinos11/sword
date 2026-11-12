@@ -343,6 +343,24 @@ To try in `npm run dev` at `#/mapeditor?dev=1`:
 
 Left open: the Node-against-browser difference above. The port's look is Stage 5's, plainer than the Blender Fort's (no merlons, gate arches or courtyard earth). Turning mirror mode on or off switches the Walk Surface merge, so a saved map's Walk Surface ids all change once. `setSettings({ objectives })` (used by tests, not the panel) does not sync twins. A mirrored map's checks list nothing of its half turn while the compiler refuses it.
 
+## After Stage 6: the Enclosure Brush (a room)
+
+A room as one Brush (`kind: 'enclosure'`, tool E): a rectangle of floor at its level, a roof at the next level up, a Wall round each side
+from under its floor to its roof, and a doorway centred on each side `doors` names (its width; a side left out is solid, so two doorways
+opposite make a corridor). Decisions:
+
+- **One Brush**, moved, resized and edited as a whole; the compiler expands it (`standEnclosures`, `compile.ts`). Its ceiling is not stored:
+  it is always the level next above its floor (`enclosureTop`), so it is refused on the top level.
+- **Doorways** are centred, `DOOR_HEIGHT` (3 m, over the tallest Size) high, with a lintel up to the roof; a doorway wider than its side opens
+  it all.
+- **Shared Walls**: the Walls are stood line by line, so Enclosures edge to edge stand one Wall (the earlier Brush's), solid where either is,
+  open where either has a doorway; a room stacked on another's roof keeps the lower room's Wall under its doorway.
+- **Roofs Soldiers need not reach**: the roof is a Walk Surface tagged `roof` in the compiled map (a new, optional key: maps without one
+  compile and hash as before). The game's walk check leaves roofs out, as it does deadly ground, so a room needs no Ramp to its roof; a
+  Soldier put down (deployment, respawn) and every Objective and Base take the floor under a roof, never the roof; a Fighter whose feet
+  are on one stands on it. A full Jump (`docs/jump-reach.md`) lands on a ledge about 4.3 m up, so a 4 m roof is a Player's to climb.
+  A Soldier (or a promoted one's Fighter handed back) is never sent onto a roof, but one left there by a Fighter stays until it drops off.
+
 ## Later
 - Duel and Run Arenas from the editor (spawns, jump Links, `data/arenas/`).
 - Free polygon Brushes (non-rectangular floors), arcs and stairs.

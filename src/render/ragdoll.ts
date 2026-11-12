@@ -42,9 +42,19 @@ const BUCKLE = 0.8;
 const TOSS_ALONG = 0.6;
 const TOSS_UP = 1.2;
 const TOSS_SPIN = 2.5;
-/** How a severed piece comes away from the body: carried along the blade's travel (m/s) and turning in the cut's plane (rad/s). */
-const SEVER_FLING = 1.2;
-const SEVER_SPIN = 3;
+/**
+ * How a severed piece comes away from the body. A head, arm or leg is sent flying: along the blade's travel and out from
+ * the body (level), at this speed per m/s of Blade Speed between the least and the most (m/s), popped up (m/s), and tumbling in
+ * the cut's plane (rad/s). Half a torso is heavier: it is only carried a little along the travel and turns slowly.
+ */
+const SEVER_FLING = 0.2;
+const SEVER_FLING_MIN = 2.5;
+const SEVER_FLING_MAX = 5.5;
+const SEVER_OUT = 0.6;
+const SEVER_POP = 2.2;
+const SEVER_SPIN = 6;
+const TORSO_FLING = 1.2;
+const TORSO_SPIN = 3;
 
 /** Weapon particles after the joints: butt (pommel end), tip, and one off the edge to keep it from rolling freely. */
 const BUTT = JOINT_NAMES.length;
@@ -314,21 +324,30 @@ function start(pose: SkeletonPose, death: Death, weapon: WeaponTuning, sheathed:
 }
 
 /**
- * Every severed piece but the one with the pelvis comes away from the body: carried on along the blade's travel, and
- * turning about its own middle in the plane of the cut.
+ * Every severed piece but the one with the pelvis comes away from the body, turning about its own middle in the plane of
+ * the cut: a head or limb flies off along the blade's travel, out from the body and up; the chest's half of a torso is
+ * only carried on along the travel.
  */
 function comeAway(pos: Float64Array, vel: Float64Array, pieces: readonly number[][], severed: readonly Severed[], death: Death): void {
-  const travel = death.blow?.cut?.travel;
-  if (!travel || severed.length === 0) return;
-  const spin = scale(severed[0]!.normal, SEVER_SPIN);
+  const blow = death.blow;
+  const travel = blow?.cut?.travel;
+  if (!blow || !travel || severed.length === 0) return;
+  const fling = Math.min(SEVER_FLING_MAX, Math.max(SEVER_FLING_MIN, blow.bladeSpeed * SEVER_FLING));
+  const body = [0, 1, 2].map((c) => pos[3 * J.pelvis + c]!);
   pieces.forEach((own, q) => {
     if (q === 0) return;
     const middle = [0, 1, 2].map((c) => own.reduce((sum, i) => sum + pos[3 * i + c]!, 0) / own.length);
+    const torso = own.includes(J.chest);
+    const spin = scale(severed[0]!.normal, torso ? TORSO_SPIN : SEVER_SPIN);
+    const out = flat(middle[0]! - body[0]!, middle[2]! - body[2]!, flat(travel.x, travel.z));
+    // Flung level (a downward cut would only drive it into the floor), then popped up.
+    const flies = flat(travel.x + out.x * SEVER_OUT, travel.z + out.z * SEVER_OUT, out);
+    const away = torso ? scale(travel, TORSO_FLING) : { x: flies.x * fling, y: SEVER_POP, z: flies.z * fling };
     for (const i of own) {
       const turn = cross(spin, { x: pos[3 * i]! - middle[0]!, y: pos[3 * i + 1]! - middle[1]!, z: pos[3 * i + 2]! - middle[2]! });
-      vel[3 * i] = vel[3 * i]! + travel.x * SEVER_FLING + turn.x;
-      vel[3 * i + 1] = vel[3 * i + 1]! + travel.y * SEVER_FLING + turn.y;
-      vel[3 * i + 2] = vel[3 * i + 2]! + travel.z * SEVER_FLING + turn.z;
+      vel[3 * i] = vel[3 * i]! + away.x + turn.x;
+      vel[3 * i + 1] = vel[3 * i + 1]! + away.y + turn.y;
+      vel[3 * i + 2] = vel[3 * i + 2]! + away.z + turn.z;
     }
   });
 }
@@ -509,8 +528,10 @@ interface Fall {
   readonly rig: Rig;
   readonly radius: Float64Array;
   readonly floor: Float64Array;
-  /** The least energy (kinetic and potential, per unit mass of each particle) the fall has had so far: it may never have more. */
-  energy: number;
+  /** The particles that move together: the whole fall, or in pieces each piece (and a Weapon that left the hand) on its own. */
+  readonly groups: readonly (readonly number[])[];
+  /** Each group's least energy (kinetic and potential, per unit mass of each particle) so far: it may never have more. */
+  readonly energy: Float64Array;
   steps: number;
   drawn: RagdollPose | null;
 }
@@ -527,7 +548,8 @@ function fallFor(pose: SkeletonPose, death: Death, weapon: WeaponTuning, tuning:
   if (cached && cached.weapon === weapon && cached.tuning === tuning && cached.arena === arena && cached.steps <= steps) return cached;
   const { pos, prev } = start(pose, death, weapon, sheathed, severed);
   const radius = radii(tuning, severed);
-  const fall: Fall = { key, weapon, tuning, arena, pos, prev, rig: rig(pos, sheathed, weapon, severed), radius, floor: new Float64Array(radius.length), energy: Infinity, steps: 0, drawn: null };
+  const groups = groupsOf(severed, sheathed, weapon, radius.length);
+  const fall: Fall = { key, weapon, tuning, arena, pos, prev, rig: rig(pos, sheathed, weapon, severed), radius, floor: new Float64Array(radius.length), groups, energy: new Float64Array(groups.length).fill(Infinity), steps: 0, drawn: null };
   falls.delete(key);
   falls.set(key, fall);
   if (falls.size > MAX_FALLS) falls.delete(falls.keys().next().value!);
@@ -551,27 +573,42 @@ function advance(f: Fall, steps: number, arena: ArenaGeometry | undefined): void
       }
     }
     satisfy(pos, rig, radius, floor);
-    f.energy = spend(pos, prev, f.energy);
+    f.groups.forEach((g, k) => (f.energy[k] = spend(pos, prev, g, f.energy[k]!)));
   }
 }
 
 /**
- * Keep the fall from gaining energy. The constraints set the body right by moving its particles, and Verlet keeps
- * every such move as speed; when they fight each other (a knee flipped to the wrong side, a limb jammed against the
- * floor) the body would pick up speed from nowhere and tumble or rise off the ground. So whenever it has more energy
- * than it has had before, it is slowed down to that. Returns the new least energy.
+ * The particles whose energy is kept in check together (`spend`). A whole body is one group. In pieces, each piece is
+ * its own (so a piece landing never stops another in the air), and so is a Weapon that left the hand; a Sheathed one
+ * goes with the piece it rides on.
  */
-function spend(pos: Float64Array, prev: Float64Array, most: number): number {
+function groupsOf(severed: readonly Severed[], sheathed: boolean, weapon: WeaponTuning, count: number): number[][] {
+  if (severed.length === 0) return [Array.from({ length: count }, (_, i) => i)];
+  const { piece, pieces } = piecesOf(severed, STUMP);
+  const groups = pieces.map((own) => [...own]);
+  const blade = [BUTT, TIP, EDGE];
+  if (sheathed) groups[piece.pelvis !== piece.chest && weapon.sheathe.slot === 'hip' ? piece.pelvis : piece.chest]!.push(...blade);
+  else groups.push(blade);
+  return groups;
+}
+
+/**
+ * Keep a group of the fall's particles (`groupsOf`) from gaining energy. The constraints set the body right by moving
+ * its particles, and Verlet keeps every such move as speed; when they fight each other (a knee flipped to the wrong
+ * side, a limb jammed against the floor) the body would pick up speed from nowhere and tumble or rise off the ground.
+ * So whenever the group has more energy than it has had before, it is slowed down to that. Returns its new least energy.
+ */
+function spend(pos: Float64Array, prev: Float64Array, group: readonly number[], most: number): number {
   let kinetic = 0;
   let potential = 0;
-  for (let i = 0; i < pos.length / 3; i++) {
+  for (const i of group) {
     const o = 3 * i;
     kinetic += 0.5 * ((pos[o]! - prev[o]!) ** 2 + (pos[o + 1]! - prev[o + 1]!) ** 2 + (pos[o + 2]! - prev[o + 2]!) ** 2) / (STEP * STEP);
     potential += GRAVITY * pos[o + 1]!;
   }
   if (kinetic + potential <= most) return kinetic + potential;
   const keep = kinetic > 0 ? Math.sqrt(Math.max(0, most - potential) / kinetic) : 0;
-  for (let i = 0; i < pos.length; i++) prev[i] = pos[i]! - (pos[i]! - prev[i]!) * keep;
+  for (const i of group) for (let c = 3 * i; c < 3 * i + 3; c++) prev[c] = pos[c]! - (pos[c]! - prev[c]!) * keep;
   return most;
 }
 

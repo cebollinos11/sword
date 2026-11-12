@@ -68,7 +68,9 @@ export function fighterPose(f: FighterState, standard: TuningData): SkeletonPose
  * Fighter it returns, so a later `fighterPose` of it (the Blade Sweep's Hit Zones, the Renderer) does not solve it again.
  */
 export function withPose(f: FighterState, tuning: TuningData): FighterState {
-  const pose = fighterPose(f, tuning);
+  // `f` is usually this Tick's Fighter on its way to the one returned: its pose is remembered for that one only.
+  const known = solvedPoses.get(f);
+  const pose = known && known.tuning === tuning ? known.pose : solveFighter(f, tuning);
   const posed = { ...f, ...bladeAndLeg(pose) };
   solvedPoses.set(posed, { tuning, pose });
   return posed;

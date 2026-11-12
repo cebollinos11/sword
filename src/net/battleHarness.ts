@@ -81,6 +81,10 @@ export interface BattleOptions {
   readonly step?: (player: number) => Step | undefined;
   /** A hand-built Battle map (`battle.maps`) in place of the open field. */
   readonly map?: string;
+  /** Every peer's Input Delay (Ticks; default none). */
+  readonly inputDelay?: number;
+  /** The links' latency and jitter in place of `NET`. */
+  readonly net?: MemoryTransportOptions;
 }
 
 /** The pilot's Intent for the local Fighter, from the session's own (possibly predicted) state. */
@@ -97,7 +101,7 @@ export function startBattle(o: BattleOptions) {
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
   const players = o.teams.length;
   const lineup = battleLineup(o.teams);
-  const pairs: MemoryTransportPair[] = Array.from({ length: players - 1 }, (_, i) => createMemoryTransportPair({ ...NET, seed: 7 + i }));
+  const pairs: MemoryTransportPair[] = Array.from({ length: players - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 7 + i }));
   const tunings = Array.from({ length: players }, () => peerTuning(o.map));
   const traces = tunings.map(() => new Map<number, Snap>());
   // A Rollback re-simulates a Tick several times and only the last version counts, so each step just notes its Match and a Tick is turned
@@ -117,8 +121,8 @@ export function startBattle(o: BattleOptions) {
     latest[k]!.set(next.tick, next);
     return next;
   };
-  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: matchOn(o.map), lineup, weapon: WEAPON, step: stepOf(0) });
-  const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: stepOf(i + 1) }));
+  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: matchOn(o.map), lineup, weapon: WEAPON, step: stepOf(0), inputDelay: o.inputDelay ?? 0 });
+  const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: stepOf(i + 1), inputDelay: o.inputDelay ?? 0 }));
   const peers: Peer[] = [host, ...guests].map((session, k) => {
     const peer: Peer = { player: k, session, pilot: createBattlePilot(tunings[k]!, 'Hard'), sent: new Map(), events: [], sums: new Map(), trace: traces[k]!, gone: false };
     session.onEvent((e) => {
@@ -138,8 +142,8 @@ export function startBattle(o: BattleOptions) {
       const { session } = peer;
       const intent = pilotIntent(peer);
       const r = session.tick(intent);
-      // Recorded as sent: as the other peers read it off the wire (JSON has no -0).
-      if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
+      // Recorded as sent: as the other peers read it off the wire (JSON has no -0), for the Tick that plays it (its Input Delay on).
+      if (r.advanced) peer.sent.set(session.currentTick + (o.inputDelay ?? 0), JSON.parse(JSON.stringify(intent)) as Intent);
       each?.(peer);
       const c = session.confirmedTick;
       settle(peer.player, c);

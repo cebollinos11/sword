@@ -35,8 +35,8 @@ const TRAVEL_EPSILON = 1e-4;
 export const routTicks = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.battle.rout.seconds));
 
 /**
- * The Players' records with this Tick's kills counted: a Fighter that fell to a Hit, Kick or Throwing Dagger of a Player's
- * Fighter (one of the first `players` slots) on another Team is that Player's kill, while it plays (not once it has left).
+ * The Players' records with this Tick's kills counted: a Fighter that fell to a Hit, Kick, Throwing Dagger or Chain Knockdown (one the
+ * Player's blow started) of a Player's Fighter (one of the first `players` slots) on another Team is that Player's kill, while it plays (not once it has left).
  */
 function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[], teams: readonly number[], players: number): readonly BattlePlayer[] {
   let out: BattlePlayer[] | null = null;
@@ -45,6 +45,7 @@ function countKills(records: readonly BattlePlayer[], events: readonly SimEvent[
     let by = -1;
     for (const b of events) {
       if ((b.type === 'Hit' || b.type === 'KickLanded') && b.defender === e.fighter) by = b.attacker;
+      else if (b.type === 'ChainKnockdown' && b.fighter === e.fighter) by = b.source;
       else if (b.type === 'DaggerHit' && b.defender === e.fighter) by = b.thrower;
     }
     if (by < 0 || by >= players || teams[by] === teams[e.fighter] || !records[by] || records[by]!.away) continue;

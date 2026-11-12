@@ -6,7 +6,7 @@ import { advanceDaggers, launchDagger } from './dagger';
 import { arenaOf, deadlyGround, groundBelow } from './arena';
 import { flyBody, landing, settleGround, takeOff } from './air';
 import { resolveBodies } from './collision';
-import { findContacts, findDaggerContacts, resolveContacts, resolveDaggers, staggerFighter } from './combat';
+import { findContacts, findDaggerContacts, resolveChainKnockdowns, resolveContacts, resolveDaggers, staggerFighter } from './combat';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import { DUEL_FIGHTING, inDuel, updateDuel } from './duel';
 import type { SimEvent } from './events';
@@ -248,7 +248,7 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
   const released = update.action.kind === 'Throw' && update.action.phase === 'Release' && !(f.action.kind === 'Throw' && f.action.phase === 'Release');
   if (released) emit({ type: 'DaggerThrown', thrower: index });
   // The Block Impact rings down whatever the Fighter does next, so letting go of the Block never snaps the hand still.
-  const { blockImpact, air: _air, slide: _slide, slow, ...rest } = f;
+  const { blockImpact, air: _air, slide: _slide, slow, knockedBy, ...rest } = f;
   const impact = blockImpact && advanceBlockImpact(blockImpact, tuning);
   // A Slide carries a grounded Fighter along on top of its walk; once airborne its speed lives in `air` instead.
   const sliding = !air && f.slide ? advanceSlide(f.slide) : undefined;
@@ -267,8 +267,16 @@ function stepFighter(f: FighterState, index: number, tick: number, intent: Inten
     sheathed,
     motion: followMotion(tuning, f.weapon, f.motion, idleAs(update.motion, sheathed, update.action.kind === 'Idle' && walked !== undefined && runsForward(f, walked, tuning)), update.blendTicks),
   };
+  // A Knockdown's chain (`knockedBy`) lasts while the Fighter is down and its push still moved it this Tick (a Slide, or its flight).
+  const chain = knockedBy !== undefined && update.action.kind === 'Knockdown' && (f.slide !== undefined || f.air !== undefined);
   // The Slow counts down every Tick, in Stagger and in the air too; it is stripped, never stored, at zero.
-  return { ...next, ...(impact ? { blockImpact: impact } : {}), ...(sliding?.next ? { slide: sliding.next } : {}), ...(slow && slow.ticks > 1 ? { slow: { ticks: slow.ticks - 1 } } : {}) };
+  return {
+    ...next,
+    ...(impact ? { blockImpact: impact } : {}),
+    ...(sliding?.next ? { slide: sliding.next } : {}),
+    ...(slow && slow.ticks > 1 ? { slow: { ticks: slow.ticks - 1 } } : {}),
+    ...(chain ? { knockedBy } : {}),
+  };
 }
 
 /**
@@ -391,6 +399,8 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
       return next && !resolved.spent.has(k) ? [next] : [];
     });
   }
+  // A body knocked down and still pushed knocks down whoever it runs into (a Chain Knockdown), after every blow this Tick has landed.
+  if (fighting) fighters = resolveChainKnockdowns(state.fighters, fighters, tuning, emit);
   const daggers = [...flying, ...thrown];
   if (fighting)
     fighters = fighters.map((f) => {

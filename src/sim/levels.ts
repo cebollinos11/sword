@@ -155,14 +155,16 @@ export const sameLevel = (arena: ArenaGeometry, lv: LevelsTuning, a: number, b: 
 
 /**
  * The Walk Surface a body put down at (x, z) at about height `y` stands on: the highest there no more than a step above `y`, else the lowest
- * above it; -1 where there is none. With `y` Infinity, the highest.
+ * above it; -1 where there is none. With `y` Infinity, the highest. `noRoofs`: leaving out every roof (`WalkSurface.roof`), as for a
+ * Soldier put down, an Objective or a Base.
  */
-export function groundNear(arena: ArenaGeometry, lv: LevelsTuning, x: number, z: number, y: number): number {
+export function groundNear(arena: ArenaGeometry, lv: LevelsTuning, x: number, z: number, y: number, noRoofs = false): number {
   let best = -1;
   let bestY = -Infinity;
   let above = -1;
   let aboveY = Infinity;
   for (const t of surfacesAt(arena, x, z)) {
+    if (noRoofs && arena.walk[t]!.roof) continue;
     const h = surfaceHeight(arena, t, x, z);
     if (h <= y + lv.stepUp + EPS) {
       if (h > bestY) [best, bestY] = [t, h];
@@ -230,7 +232,7 @@ export interface WalkReach {
  */
 export function walkReach(arena: ArenaGeometry, lv: LevelsTuning, each?: (from: number, to: number, x: number, z: number, along: number, edge: number) => void, none?: (from: number, x: number, z: number, along: number, edge: number) => void): WalkReach {
   const n = arena.walk.length;
-  const first = arena.walk.findIndex((w) => !deadly(w));
+  const first = arena.walk.findIndex((w) => !deadly(w) && !w.roof);
   const out = arena.walk.map(() => new Set<number>());
   const back = arena.walk.map(() => new Set<number>());
   probeEdges(arena, lv, true, (from, to, x, z, along, edge) => {
@@ -261,8 +263,9 @@ export function walkCheck(arena: ArenaGeometry, lv: LevelsTuning, reach?: WalkRe
   if (arena.walk.every((w) => deadly(w))) return 'it has no walkable Walk Surface';
   const { first, there, home } = reach ?? walkReach(arena, lv);
   for (let i = 0; i < n; i++) {
-    // Deadly ground (a lava river, far below every ledge) is never walked to or from: Soldiers do not drop that far.
-    if (deadly(arena.walk[i]!)) continue;
+    // Deadly ground (a lava river, far below every ledge) is never walked to or from: Soldiers do not drop that far. A roof Soldiers need
+    // never reach (only a Jump gets onto it).
+    if (deadly(arena.walk[i]!) || arena.walk[i]!.roof) continue;
     if (!there[i]) return `Walk Surface ${arena.walk[i]!.id} cannot be walked to from ${arena.walk[first]!.id}`;
     if (!home[i]) return `Walk Surface ${arena.walk[i]!.id} cannot walk back to ${arena.walk[first]!.id}`;
   }

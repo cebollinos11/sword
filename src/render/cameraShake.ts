@@ -35,6 +35,7 @@ export function shakeFor(events: readonly SimEvent[], me: number): number[] {
     else if (e.type === 'Chamber' && e.attacker === me) impulses.push(CHAMBERED);
     else if (e.type === 'Chamber' && e.chamberer === me) impulses.push(CHAMBERING);
     else if (e.type === 'KickLanded' && e.defender === me && e.outcome === 'Knockdown') impulses.push(KNOCKED_DOWN);
+    else if (e.type === 'ChainKnockdown' && e.fighter === me) impulses.push(KNOCKED_DOWN);
     else if (e.type === 'Land' && e.fighter === me && e.damage > 0) impulses.push(HURT_LANDING);
   }
   return impulses;

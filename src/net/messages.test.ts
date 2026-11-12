@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, withWeapon } from '../tuning';
-import { arenaOf, attack, createMatch, doorTicksNeeded, exitDoor, floorGraph, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, NO_MODS, restFire, runDuel, runSeed, secondsToTicks, stepMatch, takeOverFighter, throwTimings, type HallRef, type Intent, type Inventory, type MatchState } from '../sim';
-import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
+import { loadTuningData, withWeapon, type TuningData } from '../tuning';
+import { arenaOf, attack, createInitialState, createMatch, duelPlacements, hold, wait, walk, type SimState, doorTicksNeeded, exitDoor, floorGraph, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, NO_MODS, restFire, runDuel, runSeed, secondsToTicks, stepMatch, takeOverFighter, throwTimings, type HallRef, type Intent, type Inventory, type MatchState } from '../sim';
+import { aiDifficulty, createAiController, FLOOR_DIFFICULTY, lineupAis, lineupMatch, runControllers, scriptedController, type Controller, type Lineup } from '../controllers';
 import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
@@ -234,6 +234,9 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, position: { x: 0 } }),
       withFighter({ ...fighter, action: { kind: 'Dance' } }),
       withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Overhead', phase: 'Twirl', landed: false } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: -1 } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: 2.5 } }),
+      withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: '90' } }),
       withFighter({ ...fighter, action: { kind: 'Stagger', cause: 'Tired' } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Twirl', landed: false } }),
       withFighter({ ...fighter, action: { kind: 'Kick', phase: 'Release' } }),
@@ -257,6 +260,9 @@ describe('Peer message validation', () => {
       withFighter({ ...fighter, gait: { ...fighter.gait, right: { planted: { x: 0, z: 0 }, step: { tick: 2, target: 'there' } } } }),
     ];
     for (const state of broken) expect(parseNetMessage(resync(state)), JSON.stringify(state)?.slice(0, 120)).toBeNull();
+    // A spinning Flail's Attack carries its Spin-up charge, a whole number of Ticks.
+    const spinning = withFighter({ ...fighter, action: { kind: 'Attack', direction: 'Left', phase: 'Wind-up', landed: false, charge: 40 } });
+    expect(parseNetMessage(resync(spinning))).toEqual(resync(spinning));
     expect(parseNetMessage({ ...resync(good), streams: [{ player: 0, from: 1, intents: [{}] }] })).toBeNull();
   });
 });
@@ -381,6 +387,164 @@ describe('Peer message validation: the Stage 3 AI memory (docs/plans/ai-behaviou
     ]) {
       expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad).slice(0, 80)).toBeNull();
     }
+  });
+});
+
+describe('Peer message validation: the Flail AI memory (docs/plans/flail.md, Stage 4)', () => {
+  /** Fighter 0 (`weapons[0]`) holds an Overhead Wind-up from Tick 10 and Fighter 1, an Expert AI (`weapons[1]`), watches it from 1.9 m. */
+  function memoryFacing(weapons: [string, string], until: (memory: Record<string, any>) => boolean): Record<string, unknown> {
+    const ai = createAiController(tuning, 'Expert');
+    let m = createMatch(tuning, { bestOf: 1, seed: 1, distance: 1.9, weapons });
+    for (let t = 0; t < 400; t++) {
+      m = stepMatch(m, [{ ...IDLE_INTENT, attack: t >= 10, direction: 'Overhead' }, ai.intent(m.duel, 1)], tuning);
+      if (until(ai.save!() as Record<string, any>)) break;
+    }
+    return JSON.parse(JSON.stringify(ai.save!()));
+  }
+
+  it("accepts an AI's memory as it steps back from a spin it reads (a Back plan), and refuses a Defence kind it does not know", () => {
+    const good = memoryFacing(['Flail', 'Arming Sword'], (mem) => mem.defencePlan?.kind === 'Back');
+    expect(good.defencePlan).toEqual(expect.objectContaining({ kind: 'Back', spinRead: true }));
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const plan = good.defencePlan as Record<string, unknown>;
+    for (const bad of [{ ...good, defencePlan: { ...plan, kind: 'Flee' } }, { ...good, defencePlan: { ...plan, spinRead: 'yes' } }]) {
+      expect(parseNetMessage(resync(matchState(), [null, bad])), JSON.stringify(bad.defencePlan)).toBeNull();
+    }
+  });
+
+  it("accepts a spinning Flail AI's memory (its aim and deadline), and refuses malformed ones", () => {
+    const ai = createAiController(tuning, 'Expert');
+    let m = createMatch(tuning, { bestOf: 1, seed: 1, distance: 2.8, weapons: ['Arming Sword', 'Flail'] });
+    for (let t = 0; t < 200 && (ai.save!() as { attackPlan: { spin?: number } | null }).attackPlan?.spin === undefined; t++) m = stepMatch(m, [IDLE_INTENT, ai.intent(m.duel, 1)], tuning);
+    const good = JSON.parse(JSON.stringify(ai.save!())) as Record<string, unknown>;
+    const plan = good.attackPlan as Record<string, unknown>;
+    expect(plan).toEqual(expect.objectContaining({ spin: expect.any(Number), spinUntil: expect.any(Number) }));
+    expect(parseNetMessage(resync(matchState(), [null, good]))).toEqual(resync(matchState(), [null, good]));
+    const { spin: _spin, ...noSpin } = plan;
+    for (const bad of [{ ...plan, spin: 'full' }, { ...plan, spin: 1.5 }, { ...plan, spin: 0 }, { ...plan, spin: -5 }, { ...plan, spinUntil: null }, noSpin]) {
+      expect(parseNetMessage(resync(matchState(), [null, { ...good, attackPlan: bad }])), JSON.stringify(bad)).toBeNull();
+    }
+  });
+});
+
+describe('Peer message validation: the AI memory load() reads (docs/plans/flail.md, Stage 6)', () => {
+  type Memory = Record<string, any>;
+  /**
+   * The memory of `ai` (Fighter `slot` of `initial`, the other Fighters played by `others`) on the first Tick `until` holds,
+   * as JSON (as a resync carries it). `drive` stands in for the AI's own Intent (its memory is still the AI's).
+   */
+  function memoryWhen(t: TuningData, initial: SimState, ai: Controller, others: Controller[], slot: number, until: (m: Memory) => boolean, ticks = 600, drive?: (i: Intent) => Intent): Memory {
+    const self: Controller = { intent: (s, i) => (drive ?? ((x: Intent) => x))(ai.intent(s, i)) };
+    const controllers = [...others];
+    controllers.splice(slot, 0, self);
+    let s = initial;
+    for (let k = 0; k < ticks; k++) {
+      s = runControllers(t, s, controllers, 1).final;
+      const m = ai.save!() as Memory;
+      if (until(m)) return JSON.parse(JSON.stringify(m)) as Memory;
+    }
+    throw new Error('the memory never held what was looked for');
+  }
+  const accepted = (m: Memory) => parseNetMessage(resync(matchState(), [null, m]));
+  const refuses = (bads: Memory[]) => {
+    for (const bad of bads) expect(accepted(bad), JSON.stringify(bad).slice(0, 160)).toBeNull();
+  };
+  const sharp = { reactionTime: 0.1, mistakeRate: 0, feintRate: 0 };
+  const omit = (o: Memory, key: string): Memory => Object.fromEntries(Object.entries(o).filter(([k]) => k !== key));
+
+  it("a leaping Attack's holdJumpUntil", () => {
+    const eager: TuningData = { ...tuning, fighter: { ...tuning.fighter, maxHp: 1e9 }, ai: { ...tuning.ai, kickRate: 0 } };
+    const ai = createAiController(eager, { ...sharp, footwork: 0.5, aggression: 0, jumpAttackRate: 0.05 });
+    const good = memoryWhen(eager, createInitialState(eager, 3, duelPlacements(3.5)), ai, [scriptedController(wait(1))], 1, (m) => (m.attackPlan?.holdJumpUntil ?? -1) >= 0);
+    expect(accepted(good)).not.toBeNull();
+    const plan = good.attackPlan as Memory;
+    refuses([{ ...good, attackPlan: { ...plan, holdJumpUntil: '9' } }, { ...good, attackPlan: { ...plan, holdJumpUntil: 1.5 } }, { ...good, attackPlan: omit(plan, 'holdJumpUntil') }]);
+  });
+
+  it("a throw it means to meet (throwPlan)", () => {
+    const catcher: TuningData = { ...tuning, ai: { ...tuning.ai, aggression: 0, kickRate: 0, throwRate: 0 } };
+    const initial = createInitialState(catcher, 1, [{ position: { x: -0.2, z: 0 }, facing: 0 }, { position: { x: 0, z: 8 }, facing: Math.PI }]);
+    const good = memoryWhen(catcher, initial, createAiController(catcher, sharp), [scriptedController([...wait(10), ...hold(1, { throw: true }), ...wait(200)])], 1, (m) => m.throwPlan !== null, 200);
+    expect(accepted(good)).not.toBeNull();
+    const plan = good.throwPlan as Memory;
+    refuses([
+      { ...good, throwPlan: { ...plan, thrower: -1 } },
+      { ...good, throwPlan: { ...plan, startTick: 'now' } },
+      { ...good, throwPlan: omit(plan, 'react') },
+      { ...good, throwPlan: 'yes' },
+    ]);
+  });
+
+  it("its own throw's aimError", () => {
+    const thrower: TuningData = { ...tuning, ai: { ...tuning.ai, aggression: 0, kickRate: 0, throwRate: 0.5 } };
+    const initial = createInitialState(thrower, 7, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 5 }, facing: Math.PI }]);
+    const ai = createAiController(thrower, { ...sharp, mistakeRate: 0.3, throwRate: 0.5 });
+    const good = memoryWhen(thrower, initial, ai, [scriptedController(walk(400, { x: 0, z: 1 }))], 0, (m) => m.aimError !== 0, 240);
+    expect(accepted(good)).not.toBeNull();
+    refuses([{ ...good, aimError: null }, { ...good, aimError: '0.1' }, omit(good, 'aimError')]);
+  });
+
+  /** A Normal AI on the summit plateau chasing an enemy up on the containers (it takes a jump Link). */
+  const summit = () => createInitialState(tuning, 1, [[0, 2, -8], [3, 2.5, -4.1]].map(([x, y, z]) => ({ position: { x: x!, z: z! }, y: y!, facing: 0 })), [], [0, 1], 'summit');
+
+  it('a jump Link it is carrying out (jumpRun)', () => {
+    const good = memoryWhen(tuning, summit(), createAiController(tuning, 'Normal'), [scriptedController(wait(1))], 0, (m) => m.jumpRun !== null, 600);
+    expect(accepted(good)).not.toBeNull();
+    const run = good.jumpRun as Memory;
+    refuses([
+      { ...good, jumpRun: { ...run, stage: 'Swim' } },
+      { ...good, jumpRun: { ...run, link: -1 } },
+      { ...good, jumpRun: { ...run, deadline: 1.5 } },
+      { ...good, jumpRun: { ...run, flew: 'never' } },
+      { ...good, jumpRun: omit(run, 'escape') },
+    ]);
+  });
+
+  it('a jump Link it gave up on (failedJumps)', () => {
+    // Held where it stands, it never gets airborne and gives the Link up at its deadline.
+    const good = memoryWhen(tuning, summit(), createAiController(tuning, 'Normal'), [scriptedController(wait(1))], 0, (m) => m.failedJumps.length > 0, 1200, () => IDLE_INTENT);
+    expect(accepted(good)).not.toBeNull();
+    const [gave] = good.failedJumps as Memory[];
+    refuses([
+      { ...good, failedJumps: null },
+      { ...good, failedJumps: gave },
+      { ...good, failedJumps: [{ ...gave, at: 'then' }] },
+      { ...good, failedJumps: [{ ...gave, link: 1.5 }] },
+      omit(good, 'failedJumps'),
+    ]);
+  });
+
+  it("an enemy's Landing it rolled to meet (landing), and what it saw of it in the air", () => {
+    const tough: TuningData = { ...tuning, fighter: { ...tuning.fighter, maxHp: 1e9 }, ai: { ...tuning.ai, kickRate: 0, throwRate: 0 } };
+    const toward = { x: 0, z: -1 };
+    const jumper = scriptedController([...wait(40), { ticks: 1, intent: { ...IDLE_INTENT, move: toward, jump: true } }, { ticks: 30, intent: { ...IDLE_INTENT, move: toward } }, ...wait(60)]);
+    const initial = createInitialState(tough, 1, [{ position: { x: 0, z: 0 }, facing: 0 }, { position: { x: 0, z: 4 }, facing: Math.PI }]);
+    const ai = createAiController(tough, { ...aiDifficulty(tuning, 'Hard'), throwRate: 0, kickRate: 0 });
+    const good = memoryWhen(tough, initial, ai, [jumper], 0, (m) => m.landing !== null, 130);
+    expect(accepted(good)).not.toBeNull();
+    const landing = good.landing as Memory;
+    refuses([
+      { ...good, landing: { ...landing, fighter: -1 } },
+      { ...good, landing: { ...landing, airStart: 'up' } },
+      { ...good, landing: omit(landing, 'go') },
+      omit(good, 'landing'),
+    ]);
+    // The Sightings it keeps: the airborne one's airStart, and every Sighting's rise, facing and sheathed.
+    const seen = good.seen as Memory[];
+    const at = seen.findIndex((o) => o.fighters[1].airStart !== null);
+    expect(at).toBeGreaterThanOrEqual(0);
+    const withSighting = (change: (f: Memory) => Memory): Memory => ({
+      ...good,
+      seen: seen.map((o, k) => (k === at ? { ...o, fighters: o.fighters.map((f: Memory, i: number) => (i === 1 ? change(f) : f)) } : o)),
+    });
+    refuses([
+      withSighting((f) => ({ ...f, airStart: 'up' })),
+      withSighting((f) => omit(f, 'airStart')),
+      withSighting((f) => ({ ...f, rise: null })),
+      withSighting((f) => ({ ...f, facing: 'north' })),
+      withSighting((f) => omit(f, 'sheathed')),
+      withSighting((f) => ({ ...f, size: 'huge' })),
+    ]);
   });
 });
 

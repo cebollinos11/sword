@@ -191,28 +191,28 @@ export function battleResultLine(r: BattleResult): string {
 
 export const BATTLE_HUD_CSS = `
 .battle-armies { position: absolute; top: 0.8rem; left: 50%; transform: translateX(-50%); width: min(30rem, 70vw); display: flex; flex-direction: column; gap: 0.3rem; }
-.battle-army { position: relative; height: 1.1rem; background: #0008; border: 1px solid #fff4; border-radius: 4px; overflow: hidden; }
-.battle-army-fill { position: absolute; inset: 0 auto 0 0; background: var(--army); transition: width 200ms; }
+.battle-army { position: relative; height: 1.3rem; background: #0d0a14; border: calc(var(--px) * 2) solid #000; box-shadow: 0 0 0 var(--px) #f3e6c8; overflow: hidden; }
+.battle-army-fill { position: absolute; inset: 0 auto 0 0; background: var(--army); background-image: repeating-linear-gradient(90deg, transparent 0 calc(var(--px) * 5), #0006 calc(var(--px) * 5) calc(var(--px) * 6)); transition: width 200ms steps(4, end); }
 .battle-army.routed .battle-army-fill { opacity: 0.45; }
-.battle-army-men { position: absolute; inset: auto 0 0 0; height: 3px; background: #0006; }
-.battle-army-men-fill { position: absolute; inset: 0 auto 0 0; background: #fffc; transition: width 200ms; }
-.battle-army-rout { position: absolute; top: -2px; bottom: -2px; width: 2px; background: #fff; box-shadow: 0 0 2px #000; }
-.battle-plan { text-align: center; font-size: 0.78rem; text-shadow: 0 1px 2px #000; opacity: 0.9; }
-.battle-army-label { position: absolute; inset: 0; padding: 0 0.4rem; font-size: 0.72rem; line-height: 1.1rem; text-shadow: 0 1px 2px #000; display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
-.battle-me { position: absolute; left: 1rem; bottom: 1rem; width: min(16rem, 40vw); display: flex; flex-direction: column; gap: 0.25rem; text-shadow: 0 1px 2px #000a; }
-.battle-me-who { font-size: 0.8rem; opacity: 0.85; }
-.battle-me .hud-bar { position: relative; height: 1.1rem; background: #0008; border: 1px solid #fff4; border-radius: 4px; overflow: hidden; }
-.battle-me .hud-fill { position: absolute; inset: 0 auto 0 0; background: #e8c547; }
-.battle-map { position: absolute; right: 1rem; bottom: 1rem; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 8px #0008; }
-.battle-map-key { position: absolute; right: 1rem; bottom: calc(1rem + 182px); font-size: 0.65rem; opacity: 0.7; text-shadow: 0 1px 2px #000; }
-.battle-troops { position: absolute; left: 50%; bottom: 5.5rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; pointer-events: auto; text-shadow: 0 1px 2px #000; }
+.battle-army-men { position: absolute; inset: auto 0 0 0; height: calc(var(--px) * 2); background: #0008; }
+.battle-army-men-fill { position: absolute; inset: 0 auto 0 0; background: #fffc; transition: width 200ms steps(4, end); }
+.battle-army-rout { position: absolute; top: -2px; bottom: -2px; width: var(--px); background: #fff; }
+.battle-plan { text-align: center; font-size: 1.15rem; text-shadow: var(--px) var(--px) 0 #000; }
+.battle-army-label { position: absolute; inset: 0; padding: 0 0.4rem; font-size: 1.1rem; line-height: 1.2rem; text-shadow: var(--px) var(--px) 0 #000; display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.battle-me { position: absolute; left: 1rem; bottom: 1rem; width: min(16rem, 40vw); display: flex; flex-direction: column; gap: 0.25rem; text-shadow: var(--px) var(--px) 0 #000; }
+.battle-me-who { font-size: 1.2rem; }
+.battle-me .hud-bar { position: relative; height: 1.3rem; }
+.battle-me .hud-fill { position: absolute; inset: 0 auto 0 0; background-color: #e8c547; }
+.battle-map { position: absolute; right: 1rem; bottom: 1rem; overflow: hidden; border: calc(var(--px) * 2) solid #000; box-shadow: 0 0 0 var(--px) #f3e6c8; }
+.battle-map-key { position: absolute; right: 1rem; bottom: calc(1rem + 182px); font-size: 1.05rem; text-shadow: var(--px) var(--px) 0 #000; }
+.battle-troops { position: absolute; left: 50%; bottom: 5.5rem; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 0.4rem; pointer-events: auto; text-shadow: var(--px) var(--px) 0 #000; }
 .battle-troops[hidden] { display: none; }
-.battle-troops-title { font-size: 0.85rem; opacity: 0.9; }
+.battle-troops-title { font-size: 1.3rem; }
 .battle-troops-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem; max-width: calc(100vw - 2rem); }
-.battle-troop { min-width: 6.5rem; padding: 0.35rem 0.6rem; background: #000a; border: 1px solid #fff4; border-radius: 6px; color: inherit; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 0.1rem; }
-.battle-troop b { font-size: 0.85rem; }
-.battle-troop span { font-size: 0.7rem; opacity: 0.8; }
-.battle-troop.chosen { border-color: #e8c547; box-shadow: 0 0 0 1px #e8c547, 0 0 8px #e8c54788; }
+.battle-troop { min-width: 6.5rem; padding: 0.3rem 0.6rem; background: var(--panel); border: calc(var(--px) * 2) solid #000; color: inherit; font: inherit; text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 0.1rem; box-shadow: inset var(--px) var(--px) 0 var(--line); }
+.battle-troop b { font-size: 1.3rem; font-weight: 400; }
+.battle-troop span { font-size: 1.1rem; opacity: 0.8; }
+.battle-troop.chosen { border-color: #e8c547; box-shadow: inset var(--px) var(--px) 0 #e8c547; }
 .battle-troop.none { opacity: 0.45; }
 @media (max-width: 640px) { .battle-troops { top: 6rem; bottom: auto; width: calc(100vw - 2rem); } .battle-troop { min-width: 0; flex: 1 1 28%; padding: 0.3rem 0.45rem; } .battle-map canvas { width: 120px !important; height: 120px !important; } .battle-map-key { bottom: calc(1rem + 122px); } }
 `;

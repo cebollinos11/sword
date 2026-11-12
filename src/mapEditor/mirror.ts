@@ -1,7 +1,7 @@
 /**
  * Half-turn mirror mode (docs/plans/map-editor.md, Stage 6; ADR 0022, "The map is its own half turn"): a Battle map is fair when it is its
  * own half turn about the field's centre, as the two armies are. In a mirrored Map Source (`mirror: true`) each Brush, Objective and prop
- * placed gets a **twin**, its half turn (x, z → -x, -z: a Ramp's `up` and rails turn with it, an Objective's starting Owner and a banner's
+ * placed gets a **twin**, its half turn (x, z → -x, -z: a Ramp's `up` and rails and an Enclosure's doorways turn with it, an Objective's starting Owner and a banner's
  * Team swap, a prop turns 180°), and the two are edited together; the two Bases are each other's twins. One placed at the centre's own
  * half turn (a centred rectangle, a segment through the centre, a point on it) is its own twin.
  *
@@ -25,6 +25,11 @@ export const turnRect = (r: Rect): Rect => ({ x0: neg(r.x1), z0: neg(r.z1), x1: 
 export function turnBrush<B extends Brush>(b: B): B {
   if (b.kind === 'rail' || b.kind === 'wall') return { ...b, a: turnPoint(b.a), b: turnPoint(b.b) };
   if (b.kind === 'ramp') return { ...b, rect: turnRect(b.rect), up: TURNED[b.up], rails: SIDES.filter((s) => b.rails.includes(TURNED[s])) };
+  if (b.kind === 'enclosure') {
+    // Each doorway to the side it turns to, in the sides' order (so a twin writes the same JSON).
+    const doors = Object.fromEntries(SIDES.filter((s) => b.doors[TURNED[s]] !== undefined).map((s) => [s, b.doors[TURNED[s]]!]));
+    return { ...b, rect: turnRect(b.rect), doors };
+  }
   return { ...b, rect: turnRect((b as Extract<Brush, { rect: Rect }>).rect) };
 }
 

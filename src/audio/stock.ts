@@ -72,6 +72,9 @@ export function stockFor(cue: SoundCue): StockPlay | null {
       switch (cue.by) {
         case 'Edge':
           return play('hit', 0.6 + 0.4 * cue.strength, { wet: 0.18 });
+        case 'Ball':
+          // A flail's spiked ball: the deep blow, pitched down and heavier (the synth adds the spikes' crunch and the chain).
+          return play('heavy-hit', 0.8 + 0.4 * cue.strength, { rate: 0.78, wet: 0.22 });
         case 'Dagger':
           return play('hit', 0.45 + 0.3 * cue.strength, { rate: 1.15, wet: 0.18 });
         case 'Shaft':

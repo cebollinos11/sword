@@ -188,9 +188,12 @@ export function groundHeight(hf: Heightfield, surface: number, x: number, z: num
   return surface >= 0 && hf.walk ? surfaceHeight(hf.walk, surface, x, z) : battlefieldHeight(hf, x, z);
 }
 
-/** The Walk Surface a Soldier put down at (x, z) on `field` stands on: the highest there (`groundNear`), or -1 on the open field (or off the floor). */
+/**
+ * The Walk Surface a Soldier put down at (x, z) on `field` stands on: the highest there (`groundNear`), or -1 on the open field (or off the
+ * floor). Put down anew (no `y`), never a roof; at a Fighter's feet (`y`), the floor under them, a roof too.
+ */
 export function groundOf(battle: BattleTuning, field: Battlefield, x: number, z: number, y = Infinity): number {
-  return field.heights.walk ? groundNear(field.arena, battle.levels, x, z, y) : -1;
+  return field.heights.walk ? groundNear(field.arena, battle.levels, x, z, y, y === Infinity) : -1;
 }
 
 /**
@@ -403,7 +406,7 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
   const unjoined = walkCheck(arena, battle.levels);
   if (unjoined) throw new Error(`Battle map "${map.name}": ${unjoined}`);
   // An Objective that names its level (`y`) stands on the floor there nearest under it, else on the highest.
-  const highest = (p: MapPoint & { readonly y?: number }) => groundNear(arena, battle.levels, p.x, p.z, p.y ?? Infinity);
+  const highest = (p: MapPoint & { readonly y?: number }) => groundNear(arena, battle.levels, p.x, p.z, p.y ?? Infinity, true);
   return {
     arena,
     heights,

@@ -5,6 +5,7 @@
  * of its own fade, so where the two overlap mid-swap they fill the screen between them rather than both showing.
  */
 import * as THREE from 'three';
+import { patchShader } from './shaderPatch';
 
 /** GLSL: the 4 × 4 ordered-dither threshold (in (0, 1)) of a screen pixel. */
 export const BAYER_GLSL = /* glsl */ `
@@ -38,17 +39,13 @@ export function setDitherFade(root: THREE.Object3D, fade: number): void {
     if (!(o instanceof THREE.Mesh)) return;
     for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
       const material = m as THREE.Material;
-      if (material.userData[PATCHED]) continue;
-      material.userData[PATCHED] = true;
-      material.onBeforeCompile = (shader) => {
+      patchShader(material, PATCHED, (shader) => {
         shader.uniforms.uDitherFade = uniform;
         shader.fragmentShader = `uniform float uDitherFade;\n${BAYER_GLSL}\n${shader.fragmentShader}`.replace(
           '#include <clipping_planes_fragment>',
           '#include <clipping_planes_fragment>\n  if (uDitherFade < 1.0 && bayer4(gl_FragCoord.xy) >= uDitherFade) discard;',
         );
-      };
-      material.customProgramCacheKey = () => PATCHED;
-      material.needsUpdate = true;
+      });
     }
   });
 }

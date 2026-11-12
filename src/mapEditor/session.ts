@@ -31,12 +31,21 @@ import type { RepoFile } from '../editor/session';
 import { GENERATED_BATTLE_MAPS } from '../render/battleModels';
 import { compileMap, list, mapFileText, MapCompileError, type CompileWarning } from './compile';
 import { brushesTwin, inMirrorOrder, objectivesTwin, propsTwin, turnBrush, turnObjective, turnPoint, turnProp } from './mirror';
-import { parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
+import { DOOR_WIDTH, enclosureTop, parseMapSource, MAP_SOURCE_VERSION, MAX_PROPS, RAIL, type BattleSky, type Brush, type BrushKind, type GroundPoint, type MapLook, type MapSource, type PropKind, type Rect, type Side, type SourceLobby, type SourceObjective, type SourceProp } from './source';
 
 /** The most undo steps kept. */
 const UNDO_DEPTH = 200;
 /** How far over the level it stands at a new Wall rises, and a new Block's top (m). */
 const NEW_HEIGHT = 3;
+/** How far apart a new level is put when the map has only one to measure from (m): the Fort's keep deck. */
+export const LEVEL_STEP = 4;
+
+/** The height between levels a new one is put at: the gap between the top two (or the bottom two, `below`), else LEVEL_STEP. */
+export function levelStep(levels: readonly number[], below = false): number {
+  if (levels.length < 2) return LEVEL_STEP;
+  const gap = below ? levels[1]! - levels[0]! : levels[levels.length - 1]! - levels[levels.length - 2]!;
+  return gap > 0 ? gap : LEVEL_STEP;
+}
 
 /** A grip on a Brush the top view drags to resize it: a corner or a side's middle of a rectangle, or an end of a segment. */
 export type Handle = 'sw' | 's' | 'se' | 'e' | 'ne' | 'n' | 'nw' | 'w' | 'a' | 'b';
@@ -72,7 +81,7 @@ export function blankSource(name = 'newmap'): MapSource {
   };
 }
 
-/** The levels a Brush is drawn at: its floor's, both of a Ramp's, and a Wall's or Block's floor (the highest level under its top, at or under a Wall's foot + 1 m). */
+/** The levels a Brush is drawn at: its floor's, both of a Ramp's or an Enclosure's (its floor and its roof), and a Wall's or Block's floor (the highest level under its top, at or under a Wall's foot + 1 m). */
 export function brushLevels(b: Brush, levels: readonly number[]): number[] {
   switch (b.kind) {
     case 'floor':
@@ -83,6 +92,10 @@ export function brushLevels(b: Brush, levels: readonly number[]): number[] {
       return [b.y];
     case 'platform':
       return [b.top];
+    case 'enclosure': {
+      const top = enclosureTop(b, levels);
+      return top === null ? [b.y] : [b.y, top];
+    }
     case 'ramp':
       return levels.filter((y) => y === b.lo || y === b.hi);
     case 'wall':
@@ -124,17 +137,30 @@ function segmentDistance(a: GroundPoint, b: GroundPoint, x: number, z: number): 
  * `reach` (m), among those drawn at `level` (every Brush when null). Segments are picked before rectangles, as they are drawn over them.
  */
 export function brushAt(source: MapSource, x: number, z: number, level: number | null, reach: number): Brush | null {
-  const shown = source.brushes.filter((b) => level === null || brushLevels(b, source.levels).includes(level));
-  for (let k = shown.length - 1; k >= 0; k--) {
-    const b = shown[k]!;
-    if (isSegment(b) && segmentDistance(b.a, b.b, x, z) <= reach) return b;
-  }
-  for (let k = shown.length - 1; k >= 0; k--) {
-    const b = shown[k]!;
-    if (!isSegment(b) && x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1) return b;
-  }
-  return null;
+  return brushesAt(source, x, z, level, reach)[0] ?? null;
 }
+
+/**
+ * Every Brush the point (x, z) would pick, in the order `brushAt` prefers them: segments within `reach` (m) from the one painted last, then
+ * rectangles holding it from the one painted last. A click again on the same spot steps down this stack (the top view), and the context
+ * menu lists it, so a Brush under another is in reach.
+ */
+export function brushesAt(source: MapSource, x: number, z: number, level: number | null, reach: number): Brush[] {
+  const shown = source.brushes.filter((b) => level === null || brushLevels(b, source.levels).includes(level));
+  const out: Brush[] = [];
+  for (let k = shown.length - 1; k >= 0; k--) {
+    const b = shown[k]!;
+    if (isSegment(b) && segmentDistance(b.a, b.b, x, z) <= reach) out.push(b);
+  }
+  for (let k = shown.length - 1; k >= 0; k--) {
+    const b = shown[k]!;
+    if (!isSegment(b) && x >= b.rect.x0 && x <= b.rect.x1 && z >= b.rect.z0 && z <= b.rect.z1) out.push(b);
+  }
+  return out;
+}
+
+/** A side turned a quarter clockwise as the top view draws the field (north up, east on the left): north to west, west to south… */
+export const TURN_SIDE: Readonly<Record<Side, Side>> = { n: 'w', w: 's', s: 'e', e: 'n' };
 
 /** The handle of `b` within `reach` (m) of (x, z), the nearest when several are. */
 export function handleAt(b: Brush, x: number, z: number, reach: number): Handle | null {
@@ -444,9 +470,8 @@ export class MapEditorSession {
     return `${kind}${n}`;
   }
 
-  /** The level above `level` (or, on the top level, `level` itself, with the one below as its foot): where a Platform or Ramp drawn on it reaches. */
-  private rise(): { lo: number; hi: number } {
-    const { levels } = this.current;
+  /** The level above `level` among `levels` (or, on the top level, `level` itself, with the one below as its foot): where a Platform or Ramp drawn on it reaches. */
+  private rise(levels: readonly number[]): { lo: number; hi: number } {
     const i = levels.indexOf(this.level);
     if (i + 1 < levels.length) return { lo: this.level, hi: levels[i + 1]! };
     if (i > 0) return { lo: levels[i - 1]!, hi: this.level };
@@ -456,9 +481,14 @@ export class MapEditorSession {
   /**
    * Draw a new Brush of `kind` from `from` to `to` (the corners of a rectangle, the ends of a segment), snapped to the grid, at the level
    * being edited; it is painted last and selected. A click (from = to) makes one coarse cell of it there (a segment one cell long, east).
+   * A Platform or Ramp drawn on a map of one level, or an Enclosure drawn on the top level, needs a level above: it is added with it
+   * (`levelStep` over the top), in the same undo step.
    */
   addBrush(kind: BrushKind, from: GroundPoint, to: GroundPoint): Brush {
     const cell = this.current.grid.cell;
+    const top = this.current.levels[this.current.levels.length - 1]!;
+    const needsAbove = ((kind === 'platform' || kind === 'ramp') && this.current.levels.length === 1) || (kind === 'enclosure' && this.level === top);
+    const levels = needsAbove ? [...this.current.levels, top + levelStep(this.current.levels)] : this.current.levels;
     const id = this.freshId(kind);
     const y = this.level;
     let brush: Brush;
@@ -485,15 +515,24 @@ export class MapEditorSession {
           brush = { kind, id, rect, y, hazard: 'lava' };
           break;
         case 'platform':
-          brush = { kind, id, rect, top: this.rise().hi };
+          brush = { kind, id, rect, top: this.rise(levels).hi };
           break;
+        case 'enclosure': {
+          if (enclosureTop({ y }, levels) === null) throw new TuningDataError(`an Enclosure's ceiling is the level above its floor: draw it on a lower level, or add a level above ${y} m`);
+          // A doorway on every side, as wide as the side allows.
+          const width = (len: number) => Math.min(DOOR_WIDTH, len);
+          const ns = width(rect.x1 - rect.x0);
+          const ew = width(rect.z1 - rect.z0);
+          brush = { kind, id, rect, y, doors: { n: ns, e: ew, s: ns, w: ew } };
+          break;
+        }
         case 'block':
           // The Simulation stands a Block's Walls from -1 m to its top: its top is a height over 0.
           if (y + NEW_HEIGHT <= 0) throw new TuningDataError(`a Block's top is a height over 0 (its Walls stand from -1 m): draw it on a level over ${-NEW_HEIGHT} m, or draw a Platform`);
           brush = { kind, id, rect, top: y + NEW_HEIGHT };
           break;
         case 'ramp': {
-          const { lo, hi } = this.rise();
+          const { lo, hi } = this.rise(levels);
           // It rises along its long side, north or east; both long sides railed.
           const up: Side = rect.z1 - rect.z0 >= rect.x1 - rect.x0 ? 'n' : 'e';
           brush = { kind, id, rect, lo, hi, up, rails: rampLongSides(up) };
@@ -501,7 +540,7 @@ export class MapEditorSession {
         }
       }
     }
-    this.apply({ ...this.current, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
+    this.apply({ ...this.current, levels, brushes: [...this.current.brushes, ...this.withNewTwin(brush, this.current.brushes)] });
     this.select(id);
     return brush;
   }
@@ -560,14 +599,17 @@ export class MapEditorSession {
     if (this.selected === id) this.selected = null;
   }
 
-  /** A copy of the Brush `id`, a coarse cell east (west at the field's east edge; in place where neither fits), painted right after it and selected. */
-  duplicateBrush(id: string): Brush {
+  /**
+   * A copy of the Brush `id`, a coarse cell east (west at the field's east edge; in place where neither fits), painted right after it and
+   * selected. `inPlace`: right over it (the top view's Alt-drag, which then moves the copy).
+   */
+  duplicateBrush(id: string, inPlace = false): Brush {
     const k = this.indexOf(id);
     const b = this.current.brushes[k]!;
     const cell = this.current.grid.cell;
     const r = boundsOf(b);
     const half = this.current.size / 2;
-    const dx = r.x1 + cell <= half ? cell : r.x0 - cell >= -half ? -cell : 0;
+    const dx = inPlace ? 0 : r.x1 + cell <= half ? cell : r.x0 - cell >= -half ? -cell : 0;
     const copy = linkedTo({ ...shifted(b, dx, 0), id: this.freshId(b.kind) } as Brush, undefined);
     // A twin's copy gets a twin of its own (a centred Brush's copy too, once it is off the centre), painted right after the pair.
     const t = twinOf(this.current.brushes, k);
@@ -584,6 +626,55 @@ export class MapEditorSession {
     if (brushesTwin(b, b)) return [linkedTo(b, b.id)];
     const id = this.freshId(b.kind, [...this.current.brushes, b]);
     return [linkedTo(b, id), linkedTo({ ...turnBrush(b), id }, b.id)];
+  }
+
+  /**
+   * Paste a copy of `brush` (the editor's clipboard: a Brush copied from this map, perhaps since changed or taken away) centred on `at`,
+   * snapped to the grid and kept inside the field, with its own heights, a fresh id and no twin (in mirror mode it gets one of its own, as a
+   * Brush drawn does); painted last and selected. Throws TuningDataError, changing nothing, where the parser refuses it (a level gone).
+   */
+  pasteBrush(brush: Brush, at: GroundPoint): Brush {
+    const r = boundsOf(brush);
+    const half = this.current.size / 2;
+    const { step } = this.current.grid;
+    const along = (to: number, lo: number, hi: number) => Math.max(-half - lo, Math.min(half - hi, Math.round((to - (lo + hi) / 2) / step) * step));
+    const copy = linkedTo({ ...shifted(brush, along(at.x, r.x0, r.x1), along(at.z, r.z0, r.z1)), id: this.freshId(brush.kind) } as Brush, undefined);
+    this.apply({ ...this.current, brushes: [...this.current.brushes, ...this.withNewTwin(copy, this.current.brushes)] });
+    this.select(copy.id);
+    return copy;
+  }
+
+  /**
+   * Turn the Brush `id` a quarter clockwise as the top view draws it, about its middle: a rectangle's sides swap (snapped, kept inside the
+   * field), a Ramp rises toward the next side round with its rails, an Enclosure's doorways go round with it, a segment turns about its
+   * midpoint. Its twin turns with it. Throws TuningDataError, changing nothing, where the parser refuses the result.
+   */
+  rotateBrush(id: string): void {
+    const b = this.current.brushes[this.indexOf(id)]!;
+    const half = this.current.size / 2;
+    let next: Brush;
+    if (isSegment(b)) {
+      const cx = (b.a.x + b.b.x) / 2;
+      const cz = (b.a.z + b.b.z) / 2;
+      // A quarter clockwise on screen (east drawn on the left): north turns to west, (dx, dz) to (-dz, dx).
+      const turn = (p: GroundPoint) => ({ x: this.snap(cx - (p.z - cz)), z: this.snap(cz + (p.x - cx)) });
+      const a = turn(b.a);
+      const e = turn(b.b);
+      if (a.x === e.x && a.z === e.z) throw new TuningDataError(`${id} is too short to turn on this grid`);
+      next = { ...b, a, b: e };
+    } else {
+      const { x0, z0, x1, z1 } = b.rect;
+      const w = z1 - z0;
+      const h = x1 - x0;
+      const fit = (lo: number, len: number) => Math.max(-half, Math.min(half - len, lo));
+      const nx0 = fit(this.snap((x0 + x1) / 2 - w / 2), w);
+      const nz0 = fit(this.snap((z0 + z1) / 2 - h / 2), h);
+      const rect = { x0: nx0, z0: nz0, x1: nx0 + w, z1: nz0 + h };
+      if (b.kind === 'ramp') next = { ...b, rect, up: TURN_SIDE[b.up], rails: b.rails.map((s) => TURN_SIDE[s]) };
+      else if (b.kind === 'enclosure') next = { ...b, rect, doors: Object.fromEntries(Object.entries(b.doors).map(([s, v]) => [TURN_SIDE[s as Side], v])) };
+      else next = { ...b, rect };
+    }
+    this.replaceBrush(id, next);
   }
 
   /** Move the Brush `id` `delta` places in paint order (later paints over earlier); clamped to the list. */
@@ -722,6 +813,24 @@ export class MapEditorSession {
     }
     this.apply({ ...this.current, levels: [...this.current.levels, y].sort((a, b) => a - b) });
     this.level = y;
+  }
+
+  /**
+   * Add a level `levelStep` over the top one (`where` 'above') or under the bottom one ('below'), or halfway between the level being edited
+   * and the next one up ('between', snapped to the grid; on the top level, as 'above'), and edit it. Returns its height.
+   */
+  addLevelNear(where: 'above' | 'below' | 'between'): number {
+    const levels = this.current.levels;
+    const i = levels.indexOf(this.level);
+    let y: number;
+    if (where === 'below') y = levels[0]! - levelStep(levels, true);
+    else if (where === 'between' && i + 1 < levels.length) {
+      const { step } = this.current.grid;
+      y = Math.round((levels[i]! + levels[i + 1]!) / 2 / step) * step;
+      if (levels.includes(y)) throw new TuningDataError(`${levels[i]} m and ${levels[i + 1]} m are too close for a level between them`);
+    } else y = levels[levels.length - 1]! + levelStep(levels);
+    this.addLevel(y);
+    return y;
   }
 
   /** Take the height `y` out of the levels; refused while a Brush stands at it (the parser names it). */

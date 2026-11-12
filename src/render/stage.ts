@@ -22,14 +22,7 @@ const MIN_HORIZONTAL_FOV = 62;
 const FAR = 200;
 const BATTLEFIELD_FAR = 600;
 
-const MAX_PIXEL_RATIO = 1.5;
-/** The game lowers its own resolution in steps when frames run slow (a weak or wrong GPU), never below this, and never raises it again. */
-const MIN_PIXEL_RATIO = 0.75;
-const PIXEL_RATIO_STEP = 0.5;
-/** Frames averaged before judging, and the average frame time (ms) above which it steps down (about 45 fps). */
-const ADAPT_FRAMES = 90;
-const SLOW_FRAME_MS = 22;
-/** PlayStation resolution: the picture is drawn this many lines tall (as wide as the screen's aspect ratio makes it) and scaled up in hard-edged pixels. */
+/** PlayStation resolution, always on: the picture is drawn this many lines tall (as wide as the screen's aspect ratio makes it) and scaled up in hard-edged pixels. */
 const PS1_LINES = 240;
 
 /** One lamp of a model, by name prefix: its brightness (candela), how far it reaches (m) and its colour. */
@@ -216,9 +209,6 @@ export class Stage {
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
   private animate: ((seconds: number) => void) | undefined;
-  private pixelRatio: number;
-  /** Drawn at PlayStation resolution (see setPs1). */
-  private ps1 = false;
   /** The collision geometry drawn over a see-through model (see setColliders). */
   private colliders = false;
   private overlay: THREE.Object3D | undefined;
@@ -226,17 +216,13 @@ export class Stage {
   private overlayArena: ArenaGeometry | undefined;
   private overlayJumps = false;
   private seeThrough: ((on: boolean) => void) | undefined;
-  private lastFrame = 0;
-  private slowTime = 0;
-  private slowFrames = 0;
 
   constructor(
     private readonly container: HTMLElement,
     private tuning: TuningData,
   ) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-    // Fill rate is the cost here (per-pixel lights): a 2x display would shade four times the pixels for little visible gain.
-    this.pixelRatio = Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO);
+    this.renderer.domElement.style.imageRendering = 'pixelated';
     container.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(VERTICAL_FOV, 1, 0.05, FAR);
@@ -289,14 +275,6 @@ export class Stage {
     this.collider = new CameraCollider(geometry);
   }
 
-  /** Draw at PlayStation resolution (PS1_LINES tall, the screen's aspect ratio kept) or the usual one. */
-  setPs1(on: boolean): void {
-    if (on === this.ps1) return;
-    this.ps1 = on;
-    this.canvas.style.imageRendering = on ? 'pixelated' : '';
-    this.resize();
-  }
-
   /** Draw the Arena's Walk Surfaces and Walls over its model, made see-through (a developer view), or not. Kept across setArena. */
   setColliders(on: boolean): void {
     if (on === this.colliders) return;
@@ -317,7 +295,7 @@ export class Stage {
   resize(): void {
     const w = this.container.clientWidth || window.innerWidth;
     const h = this.container.clientHeight || window.innerHeight;
-    this.renderer.setPixelRatio(this.ps1 ? PS1_LINES / h : this.pixelRatio);
+    this.renderer.setPixelRatio(PS1_LINES / h);
     this.renderer.setSize(w, h);
     this.camera.aspect = w / h;
     // A tall (portrait) screen keeps at least MIN_HORIZONTAL_FOV across, so the opponent stays in view.
@@ -330,22 +308,6 @@ export class Stage {
     this.animate?.(performance.now() / 1000);
     bakeSkies(this.renderer);
     this.renderer.render(this.scene, this.camera);
-    this.adapt();
-  }
-
-  /** Steps the resolution down once a run of frames averages slow. Long gaps (a hidden tab) are not counted. */
-  private adapt(): void {
-    const now = performance.now();
-    const dt = now - this.lastFrame;
-    this.lastFrame = now;
-    if (dt > 250 || this.ps1 || this.pixelRatio <= MIN_PIXEL_RATIO) return;
-    this.slowTime += dt;
-    if (++this.slowFrames < ADAPT_FRAMES) return;
-    if (this.slowTime / this.slowFrames > SLOW_FRAME_MS) {
-      this.pixelRatio = Math.max(MIN_PIXEL_RATIO, this.pixelRatio - PIXEL_RATIO_STEP);
-      this.resize();
-    }
-    this.slowTime = this.slowFrames = 0;
   }
 
   private build(name: string, geometry: ArenaGeometry): THREE.Object3D {

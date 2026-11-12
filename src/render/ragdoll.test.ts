@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BONES, duelPlacements, fighterPose, createInitialState, type Death, type SkeletonPose, type Vec3 } from '../sim';
 import { loadTuningData, parseArena, weaponByName } from '../tuning';
-import { severing } from './dismember';
+import { pieceOf, severing } from './dismember';
 import { ragdollPose, type RagdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 
@@ -209,14 +209,17 @@ describe('Death Ragdoll in pieces (Dismemberment)', () => {
     for (const [a, b] of BONES) if (!cutBones.includes(`${a}>${b}`)) expect(d(lying.joints[a], lying.joints[b]), `${a}>${b}`).toBeCloseTo(d(pose.joints[a], pose.joints[b]), 1);
   });
 
-  it.each(cuts)('settles every piece on the floor, near where it fell, and lies still: %s', (_, death) => {
+  it.each(cuts)('settles every piece on the floor, the body near where it fell and the severed parts not far off, and lies still: %s', (_, death) => {
     const lying = fall(death, 3);
+    const piece = pieceOf(lying.stumps!);
+    for (const [n, p] of Object.entries(lying.joints)) {
+      expect(Math.hypot(p.x - pose.joints.pelvis.x, p.z - pose.joints.pelvis.z), n).toBeLessThan(piece[n as keyof typeof piece] === 0 ? 3 : 6);
+    }
     // Flat on the floor, but for a knee or elbow propped up as on a whole body.
     expect(all(lying).reduce((sum, p) => sum + p.y, 0) / all(lying).length).toBeLessThan(0.2);
     for (const p of all(lying)) {
       expect(p.y).toBeGreaterThan(0);
       expect(p.y).toBeLessThan(0.5);
-      expect(Math.hypot(p.x - pose.joints.pelvis.x, p.z - pose.joints.pelvis.z)).toBeLessThan(3);
     }
     expect(fall(death, 10)).toEqual(fall(death, 20));
     // It has come to rest by itself, not only been stopped: nothing is still sliding or turning.
@@ -224,12 +227,13 @@ describe('Death Ragdoll in pieces (Dismemberment)', () => {
     all(lying).forEach((p, i) => expect(d(p, before[i]!)).toBeLessThan(0.03));
   });
 
-  it.each(cuts)('gains no height from nowhere: nothing is thrown up, bounces back or floats off the floor: %s', (_, death) => {
+  it.each(cuts)('gains no height from nowhere: nothing but a severed part tossed off goes up, bounces back or floats off the floor: %s', (_, death) => {
     const top = Math.max(...all(fall(death, 0)).map((p) => p.y));
     let last = Infinity;
     for (let t = 1 / 30; t <= 3; t += 1 / 30) {
       const ys = all(fall(death, t)).map((p) => p.y);
-      expect(Math.max(...ys), `at ${t.toFixed(2)}s`).toBeLessThan(top + 0.15);
+      // A severed head or limb is tossed up as it flies off (src/render/ragdoll.ts SEVER_POP), no higher.
+      expect(Math.max(...ys), `at ${t.toFixed(2)}s`).toBeLessThan(top + 0.4);
       const height = ys.reduce((s, y) => s + y, 0) / ys.length;
       // Once down it stays down.
       if (t > 1.5) expect(height, `at ${t.toFixed(2)}s`).toBeLessThan(Math.min(0.35, last + 0.01));
@@ -261,8 +265,19 @@ describe('Death Ragdoll in pieces (Dismemberment)', () => {
     const death = cuts[0]![1];
     const whole = ragdollPose(pose, death, 0.3, weapon, tuning);
     const cut = fall(death, 0.3);
-    // The head goes the way the blade went (+x) faster than it would on the shoulders.
+    // The head goes the way the blade went (+x) faster than it would on the shoulders, tossed up as it goes.
     expect(cut.joints.head.x).toBeGreaterThan(whole.joints.head.x + 0.1);
+    expect(cut.joints.head.y).toBeGreaterThan(pose.joints.head.y);
+    // And it lands well clear of the body, where it is easy to see.
+    const lying = fall(death, 3);
+    expect(Math.hypot(lying.joints.head.x - lying.joints.pelvis.x, lying.joints.head.z - lying.joints.pelvis.z)).toBeGreaterThan(1.5);
+  });
+
+  it('flies a severed limb off level even when the blade came down through it', () => {
+    const death = cuts[4]![1];
+    const whole = ragdollPose(pose, death, 3, weapon, tuning);
+    const lying = fall(death, 3);
+    expect(d(lying.joints.rightHand, lying.joints.rightElbow)).toBeGreaterThan(d(whole.joints.rightHand, whole.joints.rightElbow) + 0.5);
   });
 
   it('never bends a knee backwards on the half that keeps its legs', () => {

@@ -30,6 +30,7 @@ import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
 import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
+  BATTLE_INPUT_DELAY,
   BrokerUrlError,
   createRollbackSession,
   hostRoom,
@@ -160,7 +161,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** The Tuning Data a Match on an Arena is played with, and a Random Map's Layout (`createArenaWorlds`). */
   const arenaWorld = createArenaWorlds(tuning);
   const renderer = new Renderer(container, tuning, arenaWorld);
-  const audio = createBrowserAudio(tuning.audio);
+  const audio = createBrowserAudio(tuning.audio, tuning);
   renderer.onDaggerClatter = (point, arena) => audio.playCue({ sound: 'Clatter', point, surface: arenaSurface(arena), at: point });
   renderer.onSplatter = (point, strength) => audio.playCue({ sound: 'Splatter', point, strength, at: point });
   const local = new LocalController();
@@ -264,14 +265,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       leave();
       menu.showTitle();
     },
-    onPs1(on) {
-      renderer.setPs1(on);
-    },
     onColliders(on) {
       renderer.setColliders(on);
     },
   });
-  renderer.setPs1(menu.ps1);
   renderer.setColliders(menu.colliders);
 
   function lobbyOptions(online: boolean): NewLobbyOptions {
@@ -448,14 +445,16 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       let session;
       if (l.isHost) {
         const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
-        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup, lag });
+        // A Battle's Tick costs many times a Duel's, and so does every Tick a Rollback re-simulates: the Input Delay lets the other Players'
+        // Intents arrive before the Tick they are for (ADR 0025).
+        session = createRollbackSession({ role: 'host', guests, tuning: battleTuning, weapon: picks[me]!, match: { bestOf: 1, format: 'Battle', seed, arena }, lineup, inputDelay: BATTLE_INPUT_DELAY, lag });
       } else {
         const transport = l.matchTransport(s.generation, 0);
         if (!transport) {
           bar.dispose();
           return;
         }
-        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]!, lag });
+        session = createRollbackSession({ role: 'guest', transport, tuning: battleTuning, weapon: picks[me]!, inputDelay: BATTLE_INPUT_DELAY, lag });
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
       const battlePilot = pilot ? createBattlePilot(battleTuning, pilot) : null;

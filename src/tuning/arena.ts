@@ -31,6 +31,11 @@ export interface WalkSurface {
   readonly water?: boolean;
   /** Abyss: ground so far below the fight that a Fighter landing on it dies (a Death by Fall), however it got there, a Jump or not. */
   readonly abyss?: boolean;
+  /**
+   * Roof: a Battle map's floor Soldiers need never walk to (an Enclosure's roof, which a Player's Jump gets onto): the walk check leaves it
+   * out, and no Soldier is put down on it nor any Objective or Base stood on it. Never deadly.
+   */
+  readonly roof?: boolean;
 }
 
 /** A vertical wall segment from `a` to `b` (ground plane), solid between heights `bottom` and `top`. */
@@ -181,7 +186,9 @@ export function parseArena(raw: unknown, where: string): ArenaGeometry {
     });
     if (kinds.length > 1) throw new TuningDataError(`${at} cannot be both ${kinds.join(' and ')}`);
     const points = array(o.points, `${at}.points`).map((p, k) => triple(p, `${at}.points[${k}]`));
-    const surface: WalkSurface = kinds[0] ? { id, points, [kinds[0]]: true } : { id, points };
+    if (o.roof !== undefined && o.roof !== true) throw new TuningDataError(`${at}.roof must be true or left out`);
+    if (o.roof && kinds[0]) throw new TuningDataError(`${at}: a roof is never ${kinds[0]}`);
+    const surface: WalkSurface = kinds[0] ? { id, points, [kinds[0]]: true } : o.roof ? { id, points, roof: true } : { id, points };
     checkSurface(surface, at);
     return surface;
   });

@@ -3,7 +3,7 @@
  * (`hallRoster`), where its exit Doors' zones and a Rest Hall's fire are, and whose standing counts at a Door. Pure
  * functions of Tuning Data, the Run's config and the Hall, so every peer agrees with nothing sent.
  */
-import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, type ArenaGeometry, type ArenaPoint, type Size, type TuningData } from '../tuning';
+import { MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, runWeapons, type ArenaGeometry, type ArenaPoint, type Size, type TuningData } from '../tuning';
 import { insideZone } from './arena';
 import { parseGeneratedName } from './arenaGen/named';
 import { FLOOR_ROWS, floorGraph, hallSlot, runPick, runSeed, type Hall } from './dungeon';
@@ -115,7 +115,7 @@ export function hallRoster(
 ): (HallEnemy | null)[] {
   const seed = runSeed(config.arena);
   const { encounter } = hallOf(tuning, config.arena, at);
-  const weapons = Object.keys(tuning.weapons);
+  const weapons = runWeapons(tuning);
   const styles = Object.keys(tuning.ai.styles);
   const own = config.teams ? config.teams.filter((t) => t === 0).length : MAX_ENCOUNTER_ENEMIES;
   return Array.from({ length: MAX_ENCOUNTER_ENEMIES }, (_, k) => {

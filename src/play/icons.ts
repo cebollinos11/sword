@@ -120,6 +120,14 @@ const WEAPONS: Readonly<Record<string, string>> = {
     path('M15 6 H17 V30 H15 Z', BROWN) + path('M16 1 L18.5 7 H13.5 Z', STEEL) +
       path('M17 8 Q27 8 27 16 Q22 14 17 15 Z', STEEL) + path('M15 10 L9 13 L15 15 Z', STEEL),
   ),
+  // A haft with a chain hanging off its end to a spiked ball.
+  Flail: svg(
+    path('M7 30 L14 14', 'none', 'stroke-width="5"') +
+      path('M7 30 L14 14', 'none', `stroke="${BROWN}" stroke-width="2.6"`) +
+      path('M14 14 Q19 11 20 16', 'none', 'stroke-width="1.4" stroke-dasharray="1.6 1.2"') +
+      path('M21 13 L23 11 L24 14 L27 13 L26 16 L29 18 L26 19.5 L27 23 L24 22 L23 25 L21 22.5 L18 24 L18.5 20.5 L15.5 19 L18.5 17 L18 14 Z', '#7d8590') +
+      circle(22.5, 18.5, 3.6, STEEL),
+  ),
   // A long haft with a heavy square head.
   'Sledge Hammer': svg(rect(14.5, 10, 3, 20, BROWN) + rect(5, 3, 22, 9, '#7d8590') + rect(5, 3, 4, 9, STEEL) + rect(23, 3, 4, 9, STEEL)),
 };

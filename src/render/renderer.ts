@@ -12,6 +12,7 @@ import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
 import type { FireState } from './restFire';
 import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighterView';
+import { FlailSwing } from './flailSwing';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
@@ -57,6 +58,8 @@ export class Renderer {
   private fades: ((fighter: number) => number) | null = null;
   /** The pose each Fighter was last drawn in, held for a slot fading out once it is no longer drawn. */
   private readonly lastPoses: (DrawnPose | undefined)[] = [];
+  /** Each Fighter's flail ball swinging on its chain with the Fighter's inertia (drawing only). */
+  private readonly swings: FlailSwing[] = [];
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -136,11 +139,6 @@ export class Renderer {
     this.fades = fades;
   }
 
-  /** Draw at PlayStation resolution (the screen's aspect ratio kept), or the usual one. */
-  setPs1(on: boolean): void {
-    this.stage.setPs1(on);
-  }
-
   /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
   setColliders(on: boolean): void {
     this.stage.setColliders(on);
@@ -183,6 +181,7 @@ export class Renderer {
   recast(): void {
     for (const slot of this.views) if (slot) this.drop(slot.view);
     this.views.length = 0;
+    for (const swing of this.swings) swing.reset();
   }
 
   /** Take a Fighter's view out of the scene and free what it made (its materials, and the pieces of a cut Body). */
@@ -200,7 +199,19 @@ export class Renderer {
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
     const colours = curr.crowd ? curr.fighters.map((f) => world.tuning.battle.soldier.colours[f.team] ?? 0xffffff) : fighterColours(curr.fighters.map((f) => f.team));
-    const poses = curr.fighters.map((f, i) => (f.benched ? undefined : drawnPose(prev, curr, i, alpha, world.tuning, true)));
+    const now = performance.now();
+    const seconds = ((now - this.lastDraw) / 1000) * timeScale;
+    const tick = prev.tick + (curr.tick - prev.tick) * alpha;
+    const poses = curr.fighters.map((f, i) => {
+      if (f.benched) return undefined;
+      const pose = drawnPose(prev, curr, i, alpha, world.tuning, true);
+      if (!pose.flail) {
+        this.swings[i]?.reset();
+        return pose;
+      }
+      const swing = (this.swings[i] ??= new FlailSwing());
+      return { ...pose, flail: swing.step(pose.flail, weaponByName(sizedTuning(world.tuning, f.size), f.weapon), seconds, tick) };
+    });
     curr.fighters.forEach((f, i) => {
       let slot = this.views[i];
       const fade = this.fades ? this.fades(i) : 1;
@@ -225,6 +236,7 @@ export class Renderer {
       slot.view.root.visible = true;
       slot.view.setFade(fade);
       slot.view.setBlood(this.impacts.blades.marksOf(i));
+      slot.view.setWounds(this.impacts.bodies.marksOf(i));
       slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size, pose.pieces);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
@@ -234,14 +246,13 @@ export class Renderer {
     this.doorMarks.update(arena, curr.hall, this.doors);
     // A body in pieces casts its shadow from the piece with the pelvis.
     this.shadows.update(poses.map((p) => p?.pieces?.poses[0] ?? p), arena);
-    const now = performance.now();
-    const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     this.hallMarks.animate(seconds);
     this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.drip(poses, seconds);
     this.impacts.update(seconds);
-    this.trails.update(prev, curr, poses.map((p) => p?.blade), seconds);
+    // A flail's trail follows its drawn ball (on the simulated one through Release, so it traces what hits).
+    this.trails.update(prev, curr, poses.map((p) => p && (p.flail ? { ...p.blade, tip: p.flail.ball } : p.blade)), seconds);
     this.lastDraw = now;
     this.stage.draw();
   }

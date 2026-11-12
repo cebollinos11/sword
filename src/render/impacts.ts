@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import type { SimState, Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { BladeBlood, floorUnder } from './bladeBlood';
+import { BodyBlood } from './bodyBlood';
 import { BloodEffects, bloodSpurts, stumpDrips, stumpDrops, stumpSpurts } from './blood';
 import type { DrawnPose } from './fighterView';
 
@@ -55,10 +56,14 @@ export interface DustPuff {
   readonly kind: 'Jump' | 'Land' | 'Down' | 'Shove' | 'Scuff' | 'Swap';
   readonly point: Vec3;
   readonly strength: number;
+  /** A running Jump's push-off: the floor velocity (m/s) the dust is kicked back along, opposite the way the Fighter leaps. */
+  readonly kick?: { readonly x: number; readonly z: number };
 }
 
 /** A Land from a drop of this height (m) or more kicks up a full puff. */
 const DUST_FULL_DROP = 2.5;
+/** A Jump kicks its dust back at this share of the Fighter's take-off speed. */
+const JUMP_KICK = 0.45;
 /** A Slide scuffs the floor every this many Ticks. */
 const SCUFF_EVERY = 3;
 
@@ -71,8 +76,15 @@ export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighter
   };
   for (const e of duel.events) {
     if (e.type === 'Jump') {
-      const point = feet(e.fighter);
-      if (point) puffs.push({ kind: 'Jump', point, strength: 0.4 });
+      // By the end of the take-off Tick the Fighter has already left the floor: the dust rises from where it pushed off.
+      const f = duel.fighters[e.fighter];
+      if (!f) continue;
+      const point = { x: f.position.x, y: f.air?.launchY ?? f.y, z: f.position.z };
+      const vx = f.air?.vx ?? 0;
+      const vz = f.air?.vz ?? 0;
+      const run = Math.hypot(vx, vz);
+      // As big as a Knockdown's puff.
+      puffs.push(run > 0.1 ? { kind: 'Jump', point, strength: 1, kick: { x: -vx * JUMP_KICK, z: -vz * JUMP_KICK } } : { kind: 'Jump', point, strength: 1 });
     } else if (e.type === 'Land') {
       const point = feet(e.fighter);
       if (point) puffs.push({ kind: 'Land', point, strength: Math.min(1, 0.3 + e.height / DUST_FULL_DROP) });
@@ -81,6 +93,9 @@ export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighter
       if (point) puffs.push({ kind: 'Down', point, strength: 1 });
     } else if (e.type === 'KickLanded') {
       const point = feet(e.defender);
+      if (point) puffs.push({ kind: 'Shove', point, strength: 0.6 });
+    } else if (e.type === 'ChainKnockdown') {
+      const point = feet(e.fighter);
       if (point) puffs.push({ kind: 'Shove', point, strength: 0.6 });
     }
   }
@@ -163,7 +178,7 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
 const DUST_COLOURS = [0xcdbb9c, 0xb8aa92, 0xa89f90];
 
 const DUST_LOOKS: Record<DustPuff['kind'], { count: number; speed: number; radius: number; life: number }> = {
-  Jump: { count: 5, speed: 0.9, radius: 0.16, life: 0.5 },
+  Jump: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Land: { count: 9, speed: 1.6, radius: 0.22, life: 0.65 },
   Down: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Shove: { count: 7, speed: 1.4, radius: 0.2, life: 0.6 },
@@ -199,6 +214,8 @@ export class ImpactEffects {
   private readonly blood: BloodEffects;
   /** The blood on each Fighter's Weapon (the Renderer draws it on the Weapon). */
   readonly blades: BladeBlood;
+  /** The blood on each Fighter's body (the Renderer draws it on the body). */
+  readonly bodies: BodyBlood;
   private lastTick = -Infinity;
   /** Each body in pieces' time since its Death as last drawn (`DrawnPose.since`), so its stumps drip for the time gone by since. */
   private readonly bled: (number | undefined)[] = [];
@@ -214,6 +231,7 @@ export class ImpactEffects {
     scene.add(this.root);
     this.blood = new BloodEffects(scene, tuning);
     this.blades = new BladeBlood(tuning);
+    this.bodies = new BodyBlood(tuning);
   }
 
   /** `tuning`: the Tuning Data the Duel is played with, if not the one this was made with (the Editor's live edits), so the stumps bleed where they are drawn. */
@@ -224,6 +242,7 @@ export class ImpactEffects {
     for (const s of bloodSpurts(duel)) this.blood.spurt(s);
     for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
     this.blades.onTick(tick, duel);
+    this.bodies.onTick(tick, duel, tuning);
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
@@ -232,6 +251,7 @@ export class ImpactEffects {
   seek(tick: number): void {
     this.blood.seek(tick < this.lastTick);
     this.blades.seek(tick);
+    this.bodies.seek(tick);
     this.lastTick = tick;
     this.bled.length = 0;
     this.sought = true;
@@ -312,7 +332,7 @@ export class ImpactEffects {
     this.puff(puff);
   }
 
-  private puff({ kind, point, strength }: DustPuff): void {
+  private puff({ kind, point, strength, kick }: DustPuff): void {
     const look = DUST_LOOKS[kind];
     const count = Math.max(1, Math.round(look.count * (0.5 + 0.5 * strength)));
     for (let k = 0; k < count; k++) {
@@ -321,7 +341,7 @@ export class ImpactEffects {
       const at = new THREE.Vector3(point.x + Math.cos(angle) * 0.15, point.y + 0.04, point.z + Math.sin(angle) * 0.15);
       const p = this.spawn(this.sphere, colour, at, look.life * (0.7 + 0.3 * Math.random()), 0);
       const speed = look.speed * strength * (0.4 + 0.6 * Math.random());
-      p.velocity.set(Math.cos(angle) * speed, 0.25 + 0.35 * Math.random(), Math.sin(angle) * speed);
+      p.velocity.set(Math.cos(angle) * speed + (kick?.x ?? 0), 0.25 + 0.35 * Math.random(), Math.sin(angle) * speed + (kick?.z ?? 0));
       p.puffRadius = look.radius * (0.6 + 0.4 * strength) * (0.7 + 0.5 * Math.random());
       p.mesh.scale.setScalar(p.puffRadius * 0.35);
     }

@@ -72,6 +72,16 @@ describe('dustPuffs', () => {
     expect(big[0]!.strength).toBeLessThanOrEqual(1);
   });
 
+  it('a Jump puffs from the floor it left, and a running Jump kicks its dust back the other way', () => {
+    const leaping = fighters.map((f, i) => (i === 0 ? { ...f, y: f.y + 0.05, air: { vx: 4, vz: 0, vy: 5, peakY: f.y, ticks: 0, jumped: true, launchY: f.y } } : f));
+    const [puff] = dustPuffs(1, { fighters: leaping, events: [{ type: 'Jump', fighter: 0 }] });
+    expect(puff!.point.y).toBe(feet.y);
+    expect(puff!.kick!.x).toBeLessThan(0);
+    expect(puff!.kick!.z).toBeCloseTo(0);
+    const standing = fighters.map((f, i) => (i === 0 ? { ...f, air: { vx: 0, vz: 0, vy: 5, peakY: f.y, ticks: 0, jumped: true, launchY: f.y } } : f));
+    expect(dustPuffs(1, { fighters: standing, events: [{ type: 'Jump', fighter: 0 }] })[0]!.kick).toBeUndefined();
+  });
+
   it('a Fighter hitting the floor and a Kick landing puff at the victim, not the attacker', () => {
     const down = dustPuffs(1, { fighters, events: [{ type: 'KnockdownPhase', fighter: 1, phase: 'Down' }] });
     expect(down).toEqual([{ kind: 'Down', point: { x: fighters[1]!.position.x, y: fighters[1]!.y, z: fighters[1]!.position.z }, strength: 1 }]);

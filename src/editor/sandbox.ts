@@ -4,7 +4,7 @@
  * scrubbing, slow motion and overlays (Hit Zones, Blade Sweep, Action/phase).
  * A dropdown picks the script (`SCRIPTS`): the Exchange (attacks, Blocks, Trade),
  * Movement, a Kill (yellow swings at blue until it falls, to see the Death Ragdoll and Dismemberment; Direction
- * and distance in the "Kill" folder), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
+ * and distance in the "Kill" folder), the Spin-up (a flail's whirl in each Direction), an AI vs AI Match (two AI Controllers, difficulty and Style per Fighter
  * and seed in the "AI vs AI" folder), or Player vs AI (you play yellow with the
  * Local Controller and the game's third-person camera; "Player vs AI" folder).
  * The "Weapons" folder picks each Fighter's Weapon for every script. In dev (`?dev=1`), the "Generated Arena"
@@ -31,6 +31,7 @@ import {
   hitZoneCapsules,
   hold,
   TICK_SECONDS,
+  trackLength,
   DEFAULT_GEN_PARAMS,
   wait,
   walk,
@@ -185,6 +186,33 @@ function killDuel(tuning: TuningData): SandboxRun {
 }
 
 /**
+ * The Spin-up, to see a flail's whirl, Release, hang and Sheathe (docs/plans/flail.md, Stage 3; pick the Flail for yellow in
+ * "Weapons"): yellow, 2.2 m from blue, holds each Direction's Wind-up past full charge (130 Ticks: no charge on its first Ticks,
+ * half after 45, full after 90) and lets go. Blue Blocks the Overhead (a Heavy Blow pushes it back out of reach); yellow then
+ * spins a Left, Blocks, stands, Sheathes, Draws and spins a Right. (The Kill script shows a flail's Hit.)
+ */
+function spinUpDuel(tuning: TuningData): SandboxRun {
+  const spin = (direction: Direction): Track => hold(130, { attack: true, direction });
+  const a: Track = [
+    ...wait(30),
+    ...spin('Overhead'),
+    ...wait(150),
+    ...spin('Left'),
+    ...wait(120),
+    ...block('Left', 60),
+    ...wait(60),
+    ...hold(1, { sheathe: true }),
+    ...wait(120),
+    ...hold(1, { sheathe: true }),
+    ...wait(90),
+    ...spin('Right'),
+    ...wait(200),
+  ];
+  const b: Track = [...wait(100), ...block('Overhead', 120)];
+  return scripted(tuning, 2.2, a, b, trackLength(a));
+}
+
+/**
  * AI vs AI: a best-of-N Match between two AI Controllers. The scrub index is
  * the Match Tick; the Duel shown at each is `match.duel` (each new Duel restarts
  * its own Tick), and events are tagged with the Match Tick. The AI Controllers'
@@ -234,6 +262,7 @@ const SCRIPTS: Record<string, (tuning: TuningData, local: LocalController) => Sa
   Exchange: scriptedDuel,
   Movement: movementDuel,
   Kill: killDuel,
+  'Spin-up': spinUpDuel,
   'AI vs AI Match': aiVsAiMatch,
   [PLAYER_VS_AI]: playerVsAiMatch,
 };
@@ -416,7 +445,7 @@ export function startSandbox(container: HTMLElement, loaded: TuningData): void {
   const shake = new CameraShake();
   let heard = ui.tick;
   const hear = (t: number) => {
-    audio.onTick(t, run.duel(t).events, run.duel(t));
+    audio.onTick(t, run.duel(t).events, run.duel(t), tuning);
     impacts.onTick(t, run.duel(t), tuning);
     shake.onTick(t, run.duel(t).events, 0);
     heard = t;
@@ -685,6 +714,7 @@ saved ${file} (${result})`),
     curr.fighters.forEach((f, i) => {
       const pose = poses[i]!;
       views[i]!.setBlood(impacts.blades.marksOf(i));
+      views[i]!.setWounds(impacts.bodies.marksOf(i));
       views[i]!.update(pose, weaponByName(sizedTuning(tuning, f.size), f.weapon), f.size, pose.pieces);
       // A fallen Fighter has no Hit Zones left to show: its body is the Death Ragdoll.
       zones[i]!.root.visible = ui.hitZones && !f.death;
@@ -717,6 +747,7 @@ saved ${file} (${result})`),
         if (e.type === 'KnockdownPhase') return `${e.tick} F${e.fighter} Knockdown ${e.phase}`;
         if (e.type === 'Death') return `${e.tick} F${e.fighter} falls (${e.cause})`;
         if (e.type === 'KickLanded') return `${e.tick} Kick ${e.attacker}→${e.defender} ${e.outcome} ${e.zone} −${e.damage.toFixed(1)}`;
+        if (e.type === 'ChainKnockdown') return `${e.tick} Chain F${e.by}→F${e.fighter} Knockdown (from F${e.source}) −${e.damage.toFixed(1)}`;
         if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
         if (e.type === 'WallStrike') return `${e.tick} F${e.attacker}'s ${e.direction} strikes a wall`;
         if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
+import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
 import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
+import { arenaLabel, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -100,5 +100,26 @@ describe("the Lobby's Battle map picker (docs/plans/battle-objectives.md, Stage 
     expect(runTuning(tuning, settings).battle.armySize).toBe(Math.min(300, fort.armySize.max));
     expect(battleCard(runTuning(tuning, settings), settings.battle).note).toMatch(/ruined fort/);
     expect(battleCard(tuning).note).toMatch(/open field/);
+  });
+});
+
+describe("the Weapon cards' Speed bar (docs/plans/flail.md, Stage 6)", () => {
+  it('shows how fast each Weapon swings: the inverse of its Wind-up plus Release Ticks, the fastest full', () => {
+    const bars = swingSpeedBars(tuning);
+    expect(Object.keys(bars).sort()).toEqual(Object.keys(tuning.weapons).sort());
+    expect(Math.max(...Object.values(bars))).toBe(1);
+    // The Flail (`speed` 45, the roster's highest reference Blade Speed) is the slowest to swing: no longer the fullest bar.
+    for (const [name, bar] of Object.entries(bars)) if (name !== 'Flail') expect(bars.Flail!, name).toBeLessThan(bar);
+    // Its bar is the fastest Weapon's mean Wind-up plus Release Ticks over its own (the Flail swings only Overhead, Left and Right).
+    const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+    const ticks = (name: string) => mean((name === 'Flail' ? (['Overhead', 'Left', 'Right'] as const) : DIRECTIONS).map((d) => attackTimings(tuning, name, d).releaseEnd));
+    const fastest = Math.min(...Object.keys(tuning.weapons).map(ticks));
+    expect(bars.Flail).toBeCloseTo(fastest / ticks('Flail'), 9);
+  });
+
+  it('reads Tempo: a slower Wind-up shortens the bar', () => {
+    const sword = tuning.weapons['Arming Sword']!;
+    const slowed = { ...tuning, weapons: { ...tuning.weapons, 'Arming Sword': { ...sword, tempo: { ...sword.tempo, windUp: 2 } } } };
+    expect(swingSpeedBars(slowed)['Arming Sword']).toBeLessThan(swingSpeedBars(tuning)['Arming Sword']!);
   });
 });

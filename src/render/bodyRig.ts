@@ -169,7 +169,7 @@ const scale = new THREE.Vector3();
  * How much each bone is stretched in its own frame (x along the bone, y and z across it) for a body `height` times as tall and `thick`
  * times as wide: along a limb or the spine it follows the height, across it the thickness; the hips run sideways, the head swells with both.
  */
-function boneScale(name: BodyBone, height: number, thick: number, out: THREE.Vector3): THREE.Vector3 {
+export function boneScale(name: BodyBone, height: number, thick: number, out: THREE.Vector3): THREE.Vector3 {
   if (name === 'hips') return out.set(thick, height, thick);
   // Along the neck the head follows the height (so a build is exactly as tall as its height says); across it, it swells with both.
   if (name === 'head') return out.set(height, (height + thick) / 2, (height + thick) / 2);

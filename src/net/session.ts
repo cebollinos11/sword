@@ -6,7 +6,9 @@
  *   link, and the host relays every guest's Intents to the other guests
  *   (ADR 0010). A guest's Intents reach another guest a hop later than the
  *   host's do; Rollback absorbs that like any other latency.
- * - Local Intents apply immediately. Every other Player's Intents are predicted
+ * - Local Intents apply immediately, or `inputDelay` Ticks later (ADR 0025: an online
+ *   Battle's, so the others' arrive before the Tick they are for and nothing is
+ *   re-simulated). Every other Player's Intents are predicted
  *   (repeat their last known one) and corrected by Rollback: when a real Intent
  *   differs from the prediction, the session restores the snapshot before that
  *   Tick and re-simulates forward.
@@ -100,6 +102,14 @@ export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchForm
   const others = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && i !== fighter ? [i] : []));
   return createAllyAi(tuning, difficulty, DEFAULT_STYLE, others);
 }
+/**
+ * The Input Delay (in Ticks) of an online Battle (ADR 0025): a Battle's Tick is many times a Duel's (up to a whole Fighter Pool, each
+ * with its AI), and a Rollback re-simulates one for every Tick an Intent arrived late. Played this many Ticks after they were made,
+ * the Intents of a peer a few Ticks of latency away arrive before the Tick they are for, so there is nothing to re-simulate.
+ */
+export const BATTLE_INPUT_DELAY = 3;
+/** The most Ticks of Input Delay a session takes: more would be felt as lag whatever the latency. */
+export const MAX_INPUT_DELAY = 8;
 /** Time sync: the lead (in Ticks) is averaged over this many Intents messages. */
 const LEAD_SAMPLES = 32;
 /** Time sync: wait a Tick when the averaged lead over a peer is at least this many Ticks... */
@@ -167,6 +177,12 @@ export interface RollbackSessionOptions {
   readonly step?: typeof stepMatch;
   /** How long (ms) a message waits on this peer's main thread before it is handled (`mainThreadLag.estimate` in the browser). Default 0. */
   readonly lag?: () => number;
+  /**
+   * Input Delay: this peer's Intent, given on the call that simulates Tick t, is played on Tick t + `inputDelay` (by every peer: it is
+   * sent at once, so it has that many Ticks to arrive before anyone needs it, and what arrives in time is never rolled back). The first
+   * `inputDelay` Ticks play idle. Each peer's own business: peers need not agree on it. Default 0; at most MAX_INPUT_DELAY.
+   */
+  readonly inputDelay?: number;
 }
 
 /** A smoothed round trip (ms) split into its parts: `network` (the wire) and `cpu` (waiting on both peers' busy main threads). */
@@ -310,6 +326,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly connectTimeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
   private readonly lag: () => number;
+  /** Ticks between this peer making an Intent and the Tick that plays it (`RollbackSessionOptions.inputDelay`). */
+  private readonly inputDelay: number;
   private readonly listeners: ((e: SessionEvent) => void)[] = [];
   private inbox: { link: Link; message: NetMessage }[] = [];
   /** Links that closed since the last Tick. */
@@ -347,6 +365,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.connectTimeoutTicks = Math.max(this.timeoutTicks, o.connectTimeoutTicks ?? DEFAULT_CONNECT_TIMEOUT_TICKS);
     this.stepFn = o.step ?? stepMatch;
     this.lag = o.lag ?? (() => 0);
+    this.inputDelay = Math.min(MAX_INPUT_DELAY, Math.max(0, Math.floor(o.inputDelay ?? 0)));
     this.weapon = o.weapon ?? defaultWeaponName(o.tuning);
     if (!o.tuning.weapons[this.weapon]) throw new Error(`Unknown Weapon "${this.weapon}"`);
     if (o.role === 'host') {
@@ -481,7 +500,7 @@ class Session implements RollbackSession, PeerIntentSource {
     } else if (waited) {
       this.stats.waits++;
     } else {
-      this.intents[this.localPlayer]!.set(next, wireIntent(localIntent));
+      this.intents[this.localPlayer]!.set(next + this.inputDelay, wireIntent(localIntent));
       this.simulateNext();
     }
     this.recordConfirmed();
@@ -574,6 +593,8 @@ class Session implements RollbackSession, PeerIntentSource {
     // Now, while the Match starts, not mid-fight the first time an AI (or an AI Takeover) needs a path: a stalled frame there holds up
     // this peer's Ticks and its replies to the others.
     prepareAi(this.tuning, state.duel);
+    // The Ticks before this peer's first delayed Intent play idle (and are sent, so its stream has no gap).
+    for (let t = 1; t <= this.inputDelay; t++) this.intents[this.localPlayer]!.set(t, wireIntent(IDLE_INTENT));
     this.states.set(0, snapshot(this.state));
     this.aiMemory.set(0, this.saveAis(0));
     this.status = 'Running';
@@ -722,9 +743,9 @@ class Session implements RollbackSession, PeerIntentSource {
     }
   }
 
-  /** What Player p's Intents this peer holds, up to which Tick. */
+  /** What Player p's Intents this peer holds, up to which Tick (its own: made ahead by its Input Delay). */
   private have(p: number): number {
-    return p === this.localPlayer ? this.currentTick : this.confirmed[p]!;
+    return p === this.localPlayer ? this.currentTick + this.inputDelay : this.confirmed[p]!;
   }
 
   /** The Intents of Player p from `from` up to `to` (stopping at a gap). */
@@ -764,7 +785,8 @@ class Session implements RollbackSession, PeerIntentSource {
           const ack = m.acks[p];
           if (ack !== undefined) link.acks[p] = Math.max(link.acks[p]!, Math.min(ack, this.have(p))); // it cannot hold Intents we have not got
         }
-        this.sampleLead(link, m.tick, Math.min(m.acks[this.localPlayer] ?? 0, this.currentTick));
+        // What it holds of ours runs our Input Delay ahead of the Tick we sent it on.
+        this.sampleLead(link, m.tick, Math.min((m.acks[this.localPlayer] ?? 0) - this.inputDelay, this.currentTick));
         if (this.role === 'guest') for (const d of m.dropped ?? []) this.drop(d.player, d.tick);
         for (const s of m.streams) {
           // The host takes only a guest's own Intents; a guest any other Player's, relayed by the host.

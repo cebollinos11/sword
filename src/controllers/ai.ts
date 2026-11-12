@@ -141,6 +141,10 @@
  * so scrubbing back or re-simulating the same state gives the same Intents
  * given the same memory (`save`/`load`). It only draws for the parts of its
  * repertoire its difficulty uses.
+ *
+ * Cost: what does not depend on which AI asks is worked out once per Tick for all the AIs of a Duel, not once each: the
+ * Observation of every Fighter (`observation`), and how near each ally's nearest enemy is (`nearestOf`). Only shortcuts:
+ * every AI decides exactly as it would working it all out alone, so its Intents and its memory are the same either way.
  */
 import {
   battlefieldOf,
@@ -181,7 +185,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
-import { AI_STYLE_KEYS, DEFAULT_STYLE, defaultWeaponName, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
+import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
 /** What the AI saw of one Fighter on one Tick. */
@@ -233,13 +237,21 @@ interface Observation {
 }
 
 /**
+ * The ways a Defence plan meets an Attack (`DefencePlan.kind`). The one list: the resync validator (`src/net/messages.ts`)
+ * reads it too, so a new kind cannot be left out there.
+ */
+export const DEFENCE_KINDS = ['Block', 'Duck', 'Chamber', 'Outpace', 'Back'] as const;
+export type DefenceKind = (typeof DEFENCE_KINDS)[number];
+
+/**
  * How it means to meet one enemy Attack (rolled once, so a mistake sticks): Block it in `direction`, Crouch
- * under it (Duck), attack into it on Tick `pressAt` (Chamber), or swing on with its own faster Attack (Outpace).
+ * under it (Duck), attack into it on Tick `pressAt` (Chamber), swing on with its own faster Attack (Outpace), or step
+ * out of a spin's reach (Back).
  */
 interface DefencePlan {
   readonly attacker: number;
   readonly attackStart: number;
-  readonly kind: 'Block' | 'Duck' | 'Chamber' | 'Outpace';
+  readonly kind: DefenceKind;
   readonly direction: Direction;
   readonly pressAt: number;
   /** It rolled to read the attacker's look (`lowSwingRead`): a Duck switches to a Block while the look is low. */
@@ -248,6 +260,11 @@ interface DefencePlan {
   readonly holdBreak?: { readonly go: boolean; readonly at: number };
   /** A late Block (`humanMistakes`): it raises it no sooner than this Tick. */
   readonly raiseAt?: number;
+  /**
+   * Whether it read this Attack's Spin-up as a Heavy Blow coming (`spinRespect`, rolled once the charge it sees reaches
+   * `ai.spinThreat` of full; absent before then). Read, its plan is to hit first (Outpace), Chamber, or step out of reach (Back).
+   */
+  readonly spinRead?: boolean;
 }
 
 /** An Attack the AI means to Feint: hold the Wind-up in `from`, then switch to `into` on Duel Tick `at`. */
@@ -278,9 +295,17 @@ interface AttackPlan {
   readonly team: boolean;
   /** A double threat (`rhythm`): it Chains this Attack whatever its `chainRate`. */
   readonly double?: boolean;
+  /**
+   * With a Spin-up (`spinHold`): the charge (Ticks) it spins this Attack up to while it has room, and the Tick it stops
+   * waiting for a target to come into the ball's reach (`spinOn`). Absent: it swings the Attack like any other.
+   */
+  readonly spin?: number;
+  readonly spinUntil?: number;
 }
 
-type Mode = 'Neutral' | 'Pressure' | 'Disengage';
+/** Its tactics (`Tactic.mode`); the resync validator reads the list too. */
+export const MODES = ['Neutral', 'Pressure', 'Disengage'] as const;
+type Mode = (typeof MODES)[number];
 
 /** Its current tactic, until Duel Tick `until`. */
 interface Tactic {
@@ -339,6 +364,9 @@ interface Route {
   readonly links: readonly number[] | null;
 }
 
+/** The stages of a jump it carries out (`JumpRun.stage`); the resync validator reads the list too. */
+export const JUMP_STAGES = ['LineUp', 'RunIn', 'Fly'] as const;
+
 /**
  * A jump Link of its route it is carrying out (`link`, its id): walking to the run-up point behind the takeoff
  * (LineUp), running in along the heading (RunIn), or in the air since it pressed Jump on Tick `flew` (Fly). Not airborne by
@@ -346,7 +374,7 @@ interface Route {
  */
 interface JumpRun {
   readonly link: number;
-  readonly stage: 'LineUp' | 'RunIn' | 'Fly';
+  readonly stage: (typeof JUMP_STAGES)[number];
   readonly deadline: number;
   readonly flew: number;
   /** Taken to get away from its enemy (`escapeLink`), not as part of a route: it carries it out whatever its route says. */
@@ -566,6 +594,22 @@ const PINCER_NEAR = 0.3;
 /** A late notice (`reactionJitter`) is at most this many Ticks (0.1 s): more, on a slow Reaction Time, and it Blocks almost nothing in time. */
 const JITTER_MAX = 6;
 
+/**
+ * With a Spin-up (the Flail), where the ball lands on a body, per Direction: from `lo` to `hi` (m, × Size) beyond its reach
+ * (`reach`; negative: inside it), as `src/sim/flail.test.ts` measures its swings standing (Overhead 2.1 to 2.2 m, Left 1.7 to
+ * 2.1 m, Right 1.9 to 2.1 m at standard Size). Closer only the shaft lands, and a spin pays nothing; further it whiffs.
+ */
+const SPIN_BALL: Readonly<Record<Direction, { readonly lo: number; readonly hi: number }>> = {
+  Overhead: { lo: 0.08, hi: 0.22 },
+  Left: { lo: -0.3, hi: 0.1 },
+  Right: { lo: -0.1, hi: 0.1 },
+  Thrust: { lo: -0.3, hi: 0.1 },
+};
+/** Spun up as far as it aims, it walks in to Release for at most this many Ticks more, then lets the spin go into a Block. */
+const SPIN_PATIENCE = 60;
+/** Reading a spin, it keeps its Block up until this far (m, × the spinner's Size) beyond where the spinner's ball lands, and backs out to twice that. */
+const SPIN_OUT = 0.15;
+
 /** A Feint switches Direction this many Ticks after the press, plus up to FEINT_DELAY_SPREAD more (rolled). */
 const FEINT_DELAY_MIN = 4;
 const FEINT_DELAY_SPREAD = 10;
@@ -616,6 +660,8 @@ export function skillOf(tuning: TuningData, d: AiDifficulty, style: AiStyle = {}
     idleLife: 0,
     jumpStep: 0,
     pressAhead: 0,
+    spinHold: 0,
+    spinRespect: 0,
     ...d,
   };
   for (const k of AI_STYLE_KEYS) {
@@ -647,6 +693,78 @@ const isOpening = (a: Action): boolean =>
 const defenceless = (o: Sighting): boolean => o.sheathed || o.action.kind === 'Sheathe' || o.action.kind === 'Draw';
 /** The Direction a visible Fighter guards in: its Block's, or a Knockdown's guard. */
 const guardOf = (a: Action): Direction | null => (a.kind === 'Block' ? a.direction : a.kind === 'Knockdown' ? a.guard : null);
+
+/** What is seen of every Fighter in `state`, by one who saw `prev` the Tick before (nothing, when undefined). */
+function sightings(prev: Observation | undefined, state: SimState): Observation {
+  const fighters = state.fighters.map((o, i): Sighting => {
+    // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
+    const last = prev?.fighters[i];
+    const before = last?.fallen && inDuel(o) ? undefined : last;
+    // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
+    const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
+    const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
+    const velocity = before ? { x: o.position.x - before.position.x, z: o.position.z - before.position.z } : ZERO;
+    const rise = before ? o.y - before.y : 0;
+    const airStart = o.air === undefined ? null : before?.airborne && before.airStart !== null ? before.airStart : state.tick;
+    const moving = velocity.x !== 0 || velocity.z !== 0;
+    return {
+      position: o.position,
+      y: o.y,
+      velocity,
+      rise,
+      action: o.action,
+      motionTick: o.motion.tick,
+      crouch: o.crouch,
+      airborne: o.air !== undefined,
+      hp: o.hp,
+      weapon: o.weapon,
+      ...(o.size && { size: o.size }),
+      team: o.team,
+      fallen: !inDuel(o),
+      facing: o.facing,
+      pitch: o.pitch,
+      moving,
+      attackStart,
+      airStart,
+      sheathed: o.sheathed,
+    };
+  });
+  return { tick: state.tick, fighters };
+}
+
+/**
+ * Observations already made of a Tick's Fighters, so the AIs of one Duel share them instead of each making its own
+ * (a Sighting of every Fighter, for every AI, every Tick). An Observation depends only on the Fighters seen and on what
+ * its AI saw the Tick before, so those who shared the last one share the next; and one who saw something else before
+ * (it began watching later: an AI Takeover, a Promotion, memory from a resync) joins the others as soon as what it sees
+ * is the same. Only a shortcut: every AI gets exactly the Observation it would have made itself, and none is ever changed.
+ * Kept with the Fighters observed and no longer (not with the Observation before, which would keep every later one
+ * alive; nor through a WeakRef, which holds its target until the running job ends: a whole headless Match).
+ */
+const sighted = new WeakMap<readonly FighterState[], { readonly prev: Observation | undefined; readonly seen: Observation }[]>();
+
+/** Whether two Observations of the same Fighters on the same Tick say the same: only what comes from the Tick before can differ. */
+function sameSightings(a: Observation, b: Observation): boolean {
+  if (a.fighters.length !== b.fighters.length) return false;
+  for (let i = 0; i < a.fighters.length; i++) {
+    const p = a.fighters[i]!;
+    const q = b.fighters[i]!;
+    if (!Object.is(p.velocity.x, q.velocity.x) || !Object.is(p.velocity.z, q.velocity.z) || !Object.is(p.rise, q.rise) || p.attackStart !== q.attackStart || p.airStart !== q.airStart) return false;
+  }
+  return true;
+}
+
+/** The Observation of `state` for an AI that saw `prev` the Tick before (`sightings`), shared with every AI it is the same for. */
+function observation(prev: Observation | undefined, state: SimState): Observation {
+  let made = sighted.get(state.fighters);
+  // The same Fighters on another Tick (a state that kept its array): nothing made of them then is of use now.
+  if (made?.[0]?.seen.tick !== state.tick) sighted.set(state.fighters, (made = []));
+  for (const m of made) if (m.prev === prev) return m.seen;
+  const own = sightings(prev, state);
+  const seen = made.find((m) => sameSightings(m.seen, own))?.seen ?? own;
+  made.push({ prev, seen });
+  return seen;
+}
 
 /** murmur3's 32-bit finaliser: spreads nearby seeds (consecutive Ticks, Fighter indices) over the whole range. */
 function mix32(h: number): number {
@@ -717,6 +835,52 @@ interface Enemy {
   readonly near: boolean;
 }
 
+/**
+ * For the Fighters of one Team in one Observation: how far (in 3D) each one's nearest enemy is (NaN until asked: `nearest`),
+ * whether another enemy is exactly as near (`tied`), and how many enemies (seen standing, of another Team) there are.
+ */
+interface Nearest {
+  readonly enemies: number;
+  readonly dist: number[];
+  readonly tied: boolean[];
+}
+/** Per Observation and Team (`nearestOf`): kept only as long as the Observation is. */
+const nearestSeen = new WeakMap<Observation, Map<number, Nearest>>();
+
+function nearestOf(seen: Observation, team: number): Nearest {
+  let byTeam = nearestSeen.get(seen);
+  if (!byTeam) nearestSeen.set(seen, (byTeam = new Map()));
+  let near = byTeam.get(team);
+  if (!near) {
+    let enemies = 0;
+    for (const o of seen.fighters) if (!o.fallen && o.team !== team) enemies++;
+    near = { enemies, dist: new Array<number>(seen.fighters.length).fill(NaN), tied: new Array<boolean>(seen.fighters.length).fill(false) };
+    byTeam.set(team, near);
+  }
+  return near;
+}
+
+/** Fill in `near` for Fighter `i` of `team` as seen: its nearest enemy's distance, and whether two are exactly that near. */
+function nearest(seen: Observation, team: number, i: number, near: Nearest): void {
+  const o = seen.fighters[i]!;
+  let best = Infinity;
+  let tied = false;
+  for (const e of seen.fighters) {
+    if (e.fallen || e.team === team) continue;
+    const d = Math.hypot(e.position.x - o.position.x, e.position.z - o.position.z, e.y - o.y);
+    if (d < best) {
+      best = d;
+      tied = false;
+    } else if (d === best) tied = true;
+  }
+  near.dist[i] = best;
+  near.tied[i] = tied;
+}
+
+/** Scratch for `spreadPick` (never read between calls): per enemy, how many took it and how far it is. */
+let spreadTaken = new Int32Array(16);
+let spreadFar = new Float64Array(16);
+
 /** How far (m) past touching a Fighter ahead stands in its way, walking to a spot (`sidestep`). */
 const WAY_AHEAD = 0.6;
 /** How much room (m) it leaves passing a Fighter, walking to a spot (`sidestep`). */
@@ -766,6 +930,10 @@ class RuleAi implements AiController {
   private beat: Beat | null = null;
   private jitter: Jitter | null = null;
   private shaken = -1;
+  /** Worked out once from its Tuning Data and difficulty (never memory): its jumping Attacks' holds and longest carry, and the default Weapon's length. */
+  private holds: readonly number[] | undefined;
+  private leapFar: number | undefined;
+  private standardLength: number | undefined;
   /** This Tick's view of its team around its target and the way to it (`decide` sets it; never carried between Ticks). */
   private view: { readonly team: TeamView; readonly toward: Vec2 } | null = null;
 
@@ -831,6 +999,16 @@ class RuleAi implements AiController {
     return this.pick(DIRECTIONS.filter((d) => d !== except));
   }
 
+  /** The Directions `f`'s Weapon Attacks in: all four but for a Weapon that lacks one (the Flail's Thrust). */
+  private attacksOf(f: { readonly weapon: string }): readonly Direction[] {
+    return weaponByName(this.tuning, f.weapon).attacks ?? DIRECTIONS;
+  }
+
+  /** A random Direction its own Weapon Attacks in, but `except`: with every Direction, the same draw as `randomDirection`. */
+  private randomAttack(self: FighterState, except?: Direction): Direction {
+    return this.pick(this.attacksOf(self).filter((d) => d !== except));
+  }
+
   private forget(): void {
     this.defencePlan = null;
     this.feintPlan = null;
@@ -861,48 +1039,15 @@ class RuleAi implements AiController {
       this.shaken = -1;
     }
     this.lastTick = state.tick;
-    const prev = this.seen[this.seen.length - 1];
-    const fighters = state.fighters.map((o, i): Sighting => {
-      // A slot back in the Duel (a Battle's Pool slot bound to a new Soldier) is someone new: it was not seen moving there.
-      const last = prev?.fighters[i];
-      const before = last?.fallen && inDuel(o) ? undefined : last;
-      // An Attack Feint (a new Direction mid-Wind-up) is a new Attack to plan a defence for.
-      const sameAttack = o.action.kind === 'Attack' && before?.action.kind === 'Attack' && before.action.direction === o.action.direction;
-      const attackStart = o.action.kind !== 'Attack' ? null : sameAttack && before ? before.attackStart : state.tick;
-      const velocity = before ? { x: o.position.x - before.position.x, z: o.position.z - before.position.z } : ZERO;
-      const rise = before ? o.y - before.y : 0;
-      const airStart = o.air === undefined ? null : before?.airborne && before.airStart !== null ? before.airStart : state.tick;
-      const moving = velocity.x !== 0 || velocity.z !== 0;
-      return {
-        position: o.position,
-        y: o.y,
-        velocity,
-        rise,
-        action: o.action,
-        motionTick: o.motion.tick,
-        crouch: o.crouch,
-        airborne: o.air !== undefined,
-        hp: o.hp,
-        weapon: o.weapon,
-        ...(o.size && { size: o.size }),
-        team: o.team,
-        fallen: !inDuel(o),
-        facing: o.facing,
-        pitch: o.pitch,
-        moving,
-        attackStart,
-        airStart,
-        sheathed: o.sheathed,
-      };
-    });
-    this.seen.push({ tick: state.tick, fighters });
+    this.seen.push(observation(this.seen[this.seen.length - 1], state));
     if (this.seen.length > this.reactionTicks + this.jitterTicks + 1) this.seen.shift();
   }
 
   /** How far (m) a Fighter reaches with a swing: `ai.attackRange` for the default Weapon, more for a longer one, and in proportion to its height. */
   private reach(f: { readonly weapon: string; readonly size?: Size | undefined }): number {
     const { attackRange } = this.tuning.ai;
-    return (attackRange + weaponByName(this.tuning, f.weapon).length - weaponByName(this.tuning, defaultWeaponName(this.tuning)).length) * (f.size?.height ?? 1);
+    const standard = (this.standardLength ??= weaponByName(this.tuning, defaultWeaponName(this.tuning)).length);
+    return (attackRange + weaponByName(this.tuning, f.weapon).length - standard) * (f.size?.height ?? 1);
   }
 
   /**
@@ -1051,11 +1196,23 @@ class RuleAi implements AiController {
     const self = state.fighters[fighter]!;
     // A Battle's promoted Fighter: what it holds in its Bubble (a Waiting one fights promoted allies only, and a Player's Fighter an AI took over, never a Player).
     const role = state.crowd ? self.soldier?.role : undefined;
-    const enemies = seen.fighters
-      .map((o, i) => ({ o, i, flat: Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z), level: Math.abs(o.y - self.y) < LEVEL }))
-      .map((e) => ({ ...e, dist: Math.hypot(e.flat, e.o.y - self.y), near: Math.abs(e.o.y - self.y) < DEFEND_LEVEL }))
-      .filter(({ o, i }) => i !== fighter && !o.fallen && o.team !== self.team && (role !== 'Waiting' || !bubblePlayer(state, i)))
-      .sort((a, b) => a.dist - b.dist || a.i - b.i);
+    // Its allies as seen (only with `teamwork`: without it, it never looks at them).
+    const enemies: Enemy[] = [];
+    const allies: Ally[] = [];
+    const teamwork = this.skill.teamwork > 0;
+    for (let i = 0; i < seen.fighters.length; i++) {
+      const o = seen.fighters[i]!;
+      if (i === fighter || o.fallen) continue;
+      if (o.team === self.team) {
+        if (teamwork) allies.push({ o, i });
+        continue;
+      }
+      if (role === 'Waiting' && bubblePlayer(state, i)) continue;
+      const flat = Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z);
+      const up = o.y - self.y;
+      enemies.push({ o, i, flat, level: Math.abs(up) < LEVEL, dist: Math.hypot(flat, up), near: Math.abs(up) < DEFEND_LEVEL });
+    }
+    enemies.sort((a, b) => a.dist - b.dist || a.i - b.i);
     const nearest = enemies[0];
     if (!nearest) {
       this.forget();
@@ -1065,12 +1222,10 @@ class RuleAi implements AiController {
     const aimAt = (o: Sighting, flat: number): Intent => ({ ...IDLE_INTENT, face: Math.atan2(o.position.x - self.position.x, o.position.z - self.position.z), pitch: this.aim(self, o, flat) });
 
     const reach = THREAT_REACH * this.tuning.ai.attackRange;
-    // Its allies as seen (only with `teamwork`: without it, it never looks at them).
-    const allies: Ally[] = this.skill.teamwork > 0 ? seen.fighters.map((o, i) => ({ o, i })).filter(({ o, i }) => i !== fighter && !o.fallen && o.team === self.team) : [];
     const focused = this.chooseFocus(state, self, fighter, enemies, reach, allies);
 
     this.think(state.tick, self, focused.o, role === 'Attack');
-    const team = allies.length > 0 ? this.teamView(self, fighter, focused, enemies, allies) : null;
+    const team = allies.length > 0 ? this.teamView(seen, self, fighter, focused, enemies, allies) : null;
     if (team) this.view = { team, toward: unit({ x: focused.o.position.x - self.position.x, z: focused.o.position.z - self.position.z }) };
 
     const threat = enemies.find(({ o, i, flat, near }) => near && isThreat(o.action) && o.attackStart !== null && (i === focused.i || flat <= reach));
@@ -1291,18 +1446,38 @@ class RuleAi implements AiController {
    * however many took it. The same sharing for every one of the team, so each takes its own.
    */
   private spreadPick(state: SimState, self: FighterState, fighter: number, enemies: readonly Enemy[], allies: readonly Ally[]): Enemy {
-    const free = (e: Enemy) => enemies.length === 1 || e.o.hp < LOW_HP * state.fighters[e.i]!.maxHp;
-    const taken = new Map<number, number>();
-    const load = (e: Enemy) => (free(e) ? 0 : (taken.get(e.i) ?? 0));
-    const members = [...allies.map(({ o, i }) => ({ i, at: o.position, y: o.y })), { i: fighter, at: self.position, y: self.y }].sort((a, b) => a.i - b.i);
-    for (const m of members) {
-      const near = enemies.map((e) => ({ e, d: Math.hypot(e.o.position.x - m.at.x, e.o.position.z - m.at.z, e.o.y - m.y) }));
-      const closest = Math.min(...near.map((n) => n.d));
-      const best = near.filter((n) => n.d <= closest + SPREAD_RANGE).sort((a, b) => load(a.e) - load(b.e) || a.d - b.d || a.e.i - b.e.i)[0]!.e;
-      if (m.i === fighter) return best;
-      taken.set(best.i, (taken.get(best.i) ?? 0) + 1);
+    const n = enemies.length;
+    // Per enemy (as `enemies` orders them): how many of the team before it took it (-1: free, never counted), and how far this member is from it.
+    const taken = n <= spreadTaken.length ? spreadTaken : (spreadTaken = new Int32Array(n * 2));
+    const far = n <= spreadFar.length ? spreadFar : (spreadFar = new Float64Array(n * 2));
+    for (let j = 0; j < n; j++) taken[j] = n === 1 || enemies[j]!.o.hp < LOW_HP * state.fighters[enemies[j]!.i]!.maxHp ? -1 : 0;
+    /** The pick of a member standing at (`at`, `y`): of the enemies within SPREAD_RANGE of its nearest, the least taken, then the nearest, then the lowest index. */
+    const pickOf = (at: Vec2, y: number): number => {
+      let closest = Infinity;
+      for (let j = 0; j < n; j++) {
+        const e = enemies[j]!.o;
+        const d = (far[j] = Math.hypot(e.position.x - at.x, e.position.z - at.z, e.y - y));
+        if (d < closest) closest = d;
+      }
+      let best = -1;
+      for (let j = 0; j < n; j++) {
+        if (!(far[j]! <= closest + SPREAD_RANGE)) continue;
+        if (best < 0) {
+          best = j;
+          continue;
+        }
+        const order = Math.max(0, taken[j]!) - Math.max(0, taken[best]!) || far[j]! - far[best]! || enemies[j]!.i - enemies[best]!.i;
+        if (order < 0) best = j;
+      }
+      return best;
+    };
+    // In Fighter-index order (as `allies` is): only those before it have taken theirs when its own turn comes.
+    for (const { o, i } of allies) {
+      if (i > fighter) break;
+      const best = pickOf(o.position, o.y);
+      if (taken[best]! >= 0) taken[best]!++;
     }
-    return enemies[0]!;
+    return enemies[pickOf(self.position, self.y)]!;
   }
 
   /**
@@ -1310,18 +1485,31 @@ class RuleAi implements AiController {
    * on a tie), its own flank slot among them (FLANKS, ranked by Fighter index, about the mean bearing of the team from
    * the target), whether an ally on it is seen swinging, and whether the target faces one of them and not itself.
    */
-  private teamView(self: FighterState, fighter: number, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[]): TeamView {
+  private teamView(seen: Observation, self: FighterState, fighter: number, focused: Enemy, enemies: readonly Enemy[], allies: readonly Ally[]): TeamView {
     const t = focused.o;
     const nearestEnemy = (o: Sighting) => {
       let best = -1;
       let bestDist = Infinity;
       for (const e of enemies) {
         const d = Math.hypot(e.o.position.x - o.position.x, e.o.position.z - o.position.z, e.o.y - o.y);
-        if (d < bestDist) [best, bestDist] = [e.i, d];
+        if (d < bestDist) {
+          best = e.i;
+          bestDist = d;
+        }
       }
       return best;
     };
-    const onIt = allies.filter(({ o }) => nearestEnemy(o) === focused.i);
+    // How near each ally's nearest enemy is, is the same for every AI of the team acting on this Observation: worked out
+    // once for them all (`nearestOf`), when its enemies are all of them as seen (not a Waiting Fighter's fewer).
+    const shared = nearestOf(seen, self.team);
+    const near = shared.enemies === enemies.length ? shared : null;
+    const onIt = allies.filter(({ o, i }) => {
+      if (!near) return nearestEnemy(o) === focused.i;
+      if (Number.isNaN(near.dist[i]!)) nearest(seen, self.team, i, near);
+      // Its target is the ally's nearest when none is nearer; where several are exactly as near, the first as it orders them.
+      if (Math.hypot(t.position.x - o.position.x, t.position.z - o.position.z, t.y - o.y) !== near.dist[i]) return false;
+      return !near.tied[i] || nearestEnemy(o) === focused.i;
+    });
     const on = [fighter, ...onIt.map(({ i }) => i)].sort((a, b) => a - b);
     const rank = on.indexOf(fighter);
     let slot: number | null = null;
@@ -1498,7 +1686,9 @@ class RuleAi implements AiController {
    */
   private footwork(state: SimState, self: FighterState, dist: number, toward: Vec2, myReach: number, theirReach: number, team: TeamView | null = null): Vec2 {
     const { mode } = this.tactic;
-    const spacing = this.spacing(myReach, theirReach);
+    // Pressing with a spin (`spinHold`), it keeps out of the range where only its shaft lands.
+    const floor = this.spinAim(self) > 0 ? Math.max(...this.attacksOf(self).map((d) => this.ballBand(self, d).lo)) : 0;
+    const spacing = this.spacing(myReach, theirReach, floor);
     // Idle life: a short pause, out of their reach.
     if (mode === 'Neutral' && state.tick < this.strafe.pause && dist > theirReach) return ZERO;
     const radial = Math.max(-1, Math.min(1, (dist - spacing) * 2.5));
@@ -1533,12 +1723,12 @@ class RuleAi implements AiController {
   }
 
   /** How far (m) from its target it hovers, for its tactic (and in Neutral, its idle life's spacing). */
-  private spacing(myReach: number, theirReach: number): number {
+  private spacing(myReach: number, theirReach: number, floor = 0): number {
     const { mode } = this.tactic;
     const longer = Math.max(myReach, theirReach);
     // Outreached by its own Weapon, it stands in its reach and out of theirs; else just outside the longer reach.
     const poke = myReach > theirReach + 0.2 ? myReach - 0.1 : longer + HOVER_MARGIN;
-    if (mode === 'Pressure') return (this.tuning.ai.retreatRange + myReach) / 2;
+    if (mode === 'Pressure') return Math.max((this.tuning.ai.retreatRange + myReach) / 2, floor);
     return mode === 'Disengage' ? longer + DISENGAGE_MARGIN : this.strafe.spacing === 0 ? poke : poke + this.strafe.spacing;
   }
 
@@ -1765,14 +1955,14 @@ class RuleAi implements AiController {
   }
 
   /** The holds (Ticks) a jumping Attack may use, shortest first: up to its `jumpNav`, or a tap without one. */
-  private leapHolds(): number[] {
-    return JUMP_HOLDS.filter((h) => h <= Math.max(0, this.skill.jumpNav));
+  private leapHolds(): readonly number[] {
+    return (this.holds ??= JUMP_HOLDS.filter((h) => h <= Math.max(0, this.skill.jumpNav)));
   }
 
   /** How far (m) its longest jumping Attack carries it on level ground. */
   private leapRange(): number {
     const holds = this.leapHolds();
-    return levelJump(this.tuning, holds[holds.length - 1]!).distance;
+    return (this.leapFar ??= levelJump(this.tuning, holds[holds.length - 1]!).distance);
   }
 
   /**
@@ -1822,16 +2012,14 @@ class RuleAi implements AiController {
    */
   private hopStep(state: SimState, self: FighterState, enemies: readonly Enemy[], focused: Enemy, team: TeamView | null, base: Intent): Intent | null {
     if (!this.strafe.hop || self.air || self.slow || this.jumpRun || self.action.kind !== 'Idle') return null;
-    const reachOf = (o: Sighting) => this.reach(o) + THRUST_REACH;
+    // The longest it could reach: Thrusting, if its Weapon has a Thrust.
+    const reachOf = (o: Sighting) => this.reach(o) + (this.attacksOf(o).includes('Thrust') ? THRUST_REACH : 0);
     // As seen Reaction Time ago, even an Attack it has yet to notice (`reactionJitter`): in the air it could not Block it.
     const fresh = this.seen.find((o) => o.tick === state.tick - this.reactionTicks)!;
-    const coming = fresh.fighters.some(
-      (o, i) =>
-        enemies.some((e) => e.i === i) &&
-        (isThreat(o.action) || isKickThreat(o.action)) &&
-        Math.abs(o.y - self.y) < DEFEND_LEVEL &&
-        Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT,
-    );
+    const coming = enemies.some(({ i }) => {
+      const o = fresh.fighters[i];
+      return o !== undefined && (isThreat(o.action) || isKickThreat(o.action)) && Math.abs(o.y - self.y) < DEFEND_LEVEL && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT;
+    });
     if (coming) return null;
     const arena = arenaOf(this.tuning, state.arena);
     const at = self.position;
@@ -2020,9 +2208,9 @@ class RuleAi implements AiController {
    * its reach; a random one on a mistake.
    */
   private chooseDirection(self: FighterState, target: Sighting, dist: number, narrow = false): Direction {
-    if (this.chance(this.skill.mistakeRate)) return this.randomDirection();
+    if (this.chance(this.skill.mistakeRate)) return this.randomAttack(self);
     const guard = guardOf(target.action);
-    let options = DIRECTIONS.filter((d) => guard === null || mirrorDirection(d) !== guard);
+    let options = this.attacksOf(self).filter((d) => guard === null || mirrorDirection(d) !== guard);
     if (narrow || target.crouch > 0.5 || target.airborne || target.action.kind === 'Knockdown') {
       const high = options.filter((d) => d === 'Overhead' || d === 'Thrust');
       if (high.length > 0) options = high;
@@ -2040,24 +2228,37 @@ class RuleAi implements AiController {
     const direction = opts.direction ?? this.chooseDirection(self, target, dist, this.narrowLine(self));
     if (!opts.timed && !defenceless(target) && this.chance(this.skill.feintRate)) {
       const at = tick + FEINT_DELAY_MIN + Math.floor(this.random() * (FEINT_DELAY_SPREAD + 1));
-      this.feintPlan = { from: direction, into: this.chooseFeint(target, direction), at };
+      this.feintPlan = { from: direction, into: this.chooseFeint(self, target, direction), at };
     }
     const whiff = !opts.timed && this.chance(this.skill.whiffCheck);
     const team = this.turn === true;
     this.turn = null;
-    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team || opts.double;
+    const spin = opts.timed ? 0 : this.spinAim(self);
+    const planned = opts.swingIn || this.skill.chainRate > 0 || this.skill.feintRate > 0 || whiff || team || opts.double || spin > 0;
     const holdJumpUntil = opts.holdJump === undefined ? -1 : tick + opts.holdJump;
     this.attackPlan = planned
-      ? { direction, holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1, reFeintRolled: false, chainRolled: false, chain: null, chainHeld: false, holdJumpUntil, whiff, team, ...(opts.double ? { double: true } : {}) }
+      ? {
+          direction,
+          holdUntil: opts.swingIn ? tick + SWING_IN_HOLD : -1,
+          reFeintRolled: false,
+          chainRolled: false,
+          chain: null,
+          chainHeld: false,
+          holdJumpUntil,
+          whiff,
+          team,
+          ...(opts.double ? { double: true } : {}),
+          ...(spin > 0 ? { spin, spinUntil: tick + spin + SPIN_PATIENCE } : {}),
+        }
       : null;
     return { ...base, attack: true, direction };
   }
 
-  /** The Direction to Feint `from` into: around the target's guard, never `from` itself. */
-  private chooseFeint(target: Sighting, from: Direction): Direction {
+  /** The Direction to Feint `from` into: one its Weapon Attacks in, around the target's guard, never `from` itself. */
+  private chooseFeint(self: FighterState, target: Sighting, from: Direction): Direction {
     const guard = guardOf(target.action);
-    const options = DIRECTIONS.filter((d) => d !== from && (guard === null || mirrorDirection(d) !== guard));
-    return options.length > 0 ? this.pick(options) : this.randomDirection(from);
+    const options = this.attacksOf(self).filter((d) => d !== from && (guard === null || mirrorDirection(d) !== guard));
+    return options.length > 0 ? this.pick(options) : this.randomAttack(self, from);
   }
 
   /**
@@ -2080,11 +2281,13 @@ class RuleAi implements AiController {
         const go = this.chance(Math.min(1, this.skill.feintRate * 2));
         plan = this.attackPlan = { ...plan, reFeintRolled: true };
         if (go) {
-          const into = this.chooseFeint(target, a.direction);
+          const into = this.chooseFeint(self, target, a.direction);
           this.attackPlan = { ...plan, direction: into };
           return { ...base, attack: true, direction: into, move: closeIn };
         }
       }
+      const spun = plan?.spin !== undefined ? this.spinOn(state, self, a, plan, target, dist, toward, base, team) : null;
+      if (spun) return spun;
       if (plan && tick < plan.holdUntil && dist > myReach - 0.05) return { ...base, attack: true, direction: a.direction, move: self.air ? toward : this.safeMove(state, self, toward) };
       // About to Release at a target seen backing out of reach: hold on while it may close in, else Feint into a Block.
       if (plan?.whiff && !self.air && this.backingOut(self, target, dist, toward, a.direction, myReach)) {
@@ -2093,7 +2296,9 @@ class RuleAi implements AiController {
       }
       return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
     }
-    if (a.phase === 'Release') return { ...base, move: self.air ? toward : this.safeMove(state, self, closeIn) };
+    // A spin pays only at the ball's reach: it stands its ground through the Release rather than walk on into shaft range.
+    const spinning = plan?.spin !== undefined && dist <= this.ballBand(self, a.direction).hi;
+    if (a.phase === 'Release') return { ...base, move: self.air ? toward : spinning ? ZERO : this.safeMove(state, self, closeIn) };
     // Recovery.
     if (plan && (this.skill.chainRate > 0 || plan.double)) {
       if (!plan.chainRolled) {
@@ -2114,6 +2319,149 @@ class RuleAi implements AiController {
       return { ...base, move: this.safeMove(state, self, { x: -toward.x * this.skill.caution, z: -toward.z * this.skill.caution }) };
     }
     return base;
+  }
+
+  /** The charge (Ticks) it spins an Attack of its own up to (`spinHold` of full), or 0: no Spin-up, or no knob. */
+  private spinAim(self: FighterState): number {
+    if (this.skill.spinHold <= 0) return 0;
+    return Math.round(this.skill.spinHold * spinUpChargeTicks(weaponByName(this.tuning, self.weapon)));
+  }
+
+  /**
+   * Its own Wind-up with a Spin-up planned (`AttackPlan.spin`), no enemy Attack coming (`spinUnder` has those). Short of
+   * its aim, it spins on (holds the Wind-up) while it has room (`spinRoom`), and while the target stands behind a Block that
+   * meets it; a target open in the ball's reach, it lets go. It never stands spinning where only the shaft lands: it backs out
+   * to the ball's reach (or, with no safe way back, lets go). Spun up, it walks in and Releases at the ball's reach; a target
+   * still out of reach SPIN_PATIENCE Ticks after, it lets the spin go into a Block rather than swing at air. Null: Release (or
+   * whatever `pressOn` does next).
+   */
+  private spinOn(state: SimState, self: FighterState, a: Extract<Action, { kind: 'Attack' }>, plan: AttackPlan, target: Sighting, dist: number, toward: Vec2, base: Intent, team: TeamView | null): Intent | null {
+    if (self.air || plan.spin === undefined || plan.spinUntil === undefined) return null;
+    const { lo, hi } = this.ballBand(self, a.direction);
+    const hold = (move: Vec2): Intent => ({ ...base, attack: true, direction: a.direction, move });
+    // Spun as long as it will: it lets the spin go into a Block rather than swing at air or with the shaft.
+    if (state.tick >= plan.spinUntil) return dist > hi || dist < lo ? { ...base, block: true, direction: a.direction } : null;
+    // Where only the shaft lands: back out to the ball's reach (with no safe way back, let go).
+    if (dist < lo) {
+      const back = this.safeMove(state, self, { x: -toward.x, z: -toward.z });
+      return back.x === 0 && back.z === 0 ? null : hold(back);
+    }
+    const charge = a.charge ?? 0;
+    if (charge >= plan.spin) return dist > hi ? hold(this.safeMove(state, self, toward)) : null;
+    if (dist > hi) return hold(dist > hi + SWING_IN ? this.safeMove(state, self, toward) : ZERO);
+    if (this.spinRoom(self, a, plan.spin - charge, target, team)) return hold(ZERO);
+    return guardOf(target.action) === mirrorDirection(a.direction) ? hold(ZERO) : null;
+  }
+
+  /** Where its ball lands in `direction` (`SPIN_BALL`), as distances (m) from its target. */
+  private ballBand(self: { readonly weapon: string; readonly size?: Size | undefined }, direction: Direction): { lo: number; hi: number } {
+    const reach = this.reach(self);
+    const k = self.size?.height ?? 1;
+    return { lo: reach + SPIN_BALL[direction].lo * k, hi: reach + SPIN_BALL[direction].hi * k };
+  }
+
+  /**
+   * Whether `target`, in its reach, leaves it room to spin `left` Ticks more and still land: Staggered for longer than that and
+   * the Release's way to contact, lying in a Knockdown (not yet Rising), Sheathed (or Sheathing, Drawing), or facing an ally
+   * on it and not itself.
+   */
+  private spinRoom(self: FighterState, a: Extract<Action, { kind: 'Attack' }>, left: number, target: Sighting, team: TeamView | null): boolean {
+    const t = target.action;
+    if (t.kind === 'Stagger') {
+      const { windUpEnd, releaseEnd } = attackTimings(this.tuning, self.weapon, a.direction);
+      return this.openingLeft(target) > left + Math.ceil((releaseEnd - windUpEnd) / 2);
+    }
+    return (t.kind === 'Knockdown' && t.phase !== 'Rising') || defenceless(target) || team?.exposed === true;
+  }
+
+  /**
+   * Its own spin under way (`AttackPlan.spin`) against `seen`'s Attack coming: one busy with an ally (not aimed at it), or
+   * whose Release (as far as its pose shows) comes after its spin is done, it spins on through; one that would Release inside
+   * what is left of its spin, it lets go at once if it is at its held pose with the attacker in its reach (an Outpace). Null:
+   * defend as ever (it may still Outpace, or Feint into a Block, which drops the spin).
+   */
+  private spinUnder(state: SimState, self: FighterState, attacker: number, seen: Sighting, flat: number, base: Intent, team: TeamView | null): Intent | null {
+    const own = self.action;
+    const plan = this.attackPlan;
+    if (own.kind !== 'Attack' || own.phase !== 'Wind-up' || plan?.spin === undefined || plan.spinUntil === undefined || self.air || state.tick >= plan.spinUntil) return null;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    if (atk.phase !== 'Wind-up') return null;
+    const left = plan.spin - (own.charge ?? 0);
+    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
+    const mine = attackTimings(this.tuning, self.weapon, own.direction);
+    // Each blow lands about half its Release after it lets go: its own after the spin it has left, theirs after their Release.
+    const myContact = Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2);
+    const theirContact = Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2);
+    if (left > 0 && (theirRelease + theirContact > left + myContact || !this.aimedAt(seen, self))) return { ...base, attack: true, direction: own.direction };
+    if (self.motion.tick < mine.windUpEnd || flat > this.ballBand(self, own.direction).hi) return null;
+    // Played as one of a team, it lets no spin go with an ally in its swing line.
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    if (team !== null && this.teamRoll() && this.allyInLine(self, team, toward, this.reach(self), own.direction)) return null;
+    this.defencePlan = { attacker, attackStart: seen.attackStart!, kind: 'Outpace', direction: mirrorDirection(atk.direction), pressAt: -1 };
+    return base;
+  }
+
+  /**
+   * Reading the spin of `seen`'s Attack (a Weapon with a Spin-up): once the charge it sees reaches `ai.spinThreat` of full in
+   * the Wind-up, it rolls once (`spinRespect`) to read it. Read, rather than stand and Block a Heavy Blow, it hits first if its
+   * own Wind-up Releases before the spin could land (Outpace), Chambers a Wind-up still rising to its held pose (a spin Feinted
+   * into a new Direction) if its Weapon can answer it, and otherwise steps out of the spinner's reach (Back).
+   */
+  private readSpin(state: SimState, self: FighterState, seen: Sighting, flat: number, meets: Direction, team: TeamView | null): void {
+    const plan = this.defencePlan!;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    if (plan.spinRead !== undefined || this.skill.spinRespect <= 0 || atk.phase !== 'Wind-up') return;
+    const full = spinUpChargeTicks(weaponByName(this.tuning, seen.weapon));
+    if (full === 0 || (atk.charge ?? 0) < (this.tuning.ai.spinThreat ?? 1) * full) return;
+    if (!this.chance(this.skill.spinRespect)) {
+      this.defencePlan = { ...plan, spinRead: false };
+      return;
+    }
+    const { raiseAt: _late, ...rest } = plan;
+    const read = (kind: DefencePlan['kind'], pressAt = -1): void => {
+      this.defencePlan = { ...rest, kind, direction: meets, pressAt, spinRead: true };
+      if (kind !== 'Outpace') this.attackPlan = null;
+    };
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
+    const theirs = attackTimings(this.tuning, seen.weapon, atk.direction);
+    const theirRelease = Math.max(0, theirs.windUpEnd - seen.motionTick - this.reactionTicks);
+    const own = self.action;
+    if (swings && own.kind === 'Attack' && own.phase === 'Wind-up' && flat <= this.reach(self) + (own.direction === 'Thrust' ? THRUST_REACH : 0)) {
+      // The spin lands no sooner than its Release's way to contact, and its walk into reach.
+      const walk = Math.max(0, flat - this.ballBand(seen, atk.direction).hi) / (this.tuning.fighter.walkSpeed * TICK_SECONDS);
+      const lands = theirRelease + Math.ceil((theirs.releaseEnd - theirs.windUpEnd) / 2) + walk;
+      // Its own blow lands its Wind-up's rest and about half its Release from now.
+      const mine = attackTimings(this.tuning, self.weapon, own.direction);
+      if (Math.max(0, mine.windUpEnd - self.motion.tick) + Math.ceil((mine.releaseEnd - mine.windUpEnd) / 2) < lands) return read('Outpace');
+    }
+    const canChamber = attackDirection(weaponByName(this.tuning, self.weapon), meets) === meets;
+    if (seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && canChamber) {
+      const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
+      if (pressAt > state.tick) return read('Chamber', pressAt);
+    }
+    read('Back');
+  }
+
+  /**
+   * Stepping out of a spin it read (`readSpin`): it backs out to twice SPIN_OUT beyond where the spinner's ball lands, its Block
+   * up until it is SPIN_OUT beyond it; out there it stands Idle (ready to punish the whiff), and lets a Release seen from there go by.
+   */
+  private backOut(state: SimState, self: FighterState, seen: Sighting, flat: number, base: Intent, meets: Direction): Intent {
+    const own = self.action;
+    const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
+    const theirReach = this.ballBand(seen, atk.direction).hi;
+    const out = SPIN_OUT * (seen.size?.height ?? 1);
+    // Its Block stays up until it stands clear of the ball's edge (which the measured band only roughly gives).
+    const inReach = flat <= theirReach + out;
+    if (atk.phase === 'Release') return inReach ? this.guard(own, base, meets) : base;
+    const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
+    const radial = Math.max(-1, Math.min(0, (flat - theirReach - 2 * out) * 2.5));
+    const move = radial > -0.15 ? ZERO : this.safeMove(state, self, { x: toward.x * radial, z: toward.z * radial });
+    // In its reach, or with a Wind-up of its own that would Release at nothing out there: its Block (a Block Feint) up.
+    if (inReach || (own.kind === 'Attack' && own.phase === 'Wind-up')) return { ...this.guard(own, base, meets), move: own.kind === 'Block' && own.direction !== meets ? ZERO : move };
+    return { ...base, move: own.kind === 'Block' ? ZERO : move };
   }
 
   /**
@@ -2156,18 +2504,25 @@ class RuleAi implements AiController {
     const atk = seen.action as Extract<Action, { kind: 'Attack' }>;
     const attackStart = seen.attackStart!;
     const meets = mirrorDirection(atk.direction);
-    if (this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart) {
+    const fresh = this.defencePlan?.attacker !== attacker || this.defencePlan.attackStart !== attackStart;
+    // Its own spin under way: spin on through an Attack that Releases after it, or let it go first.
+    const spun = fresh ? this.spinUnder(state, self, attacker, seen, flat, base, team) : null;
+    if (spun) return spun;
+    if (fresh) {
       // Played as one of a team, it swings into no Attack (a Chamber, an Outpace) with an ally in its swing line.
       const toward = unit({ x: seen.position.x - self.position.x, z: seen.position.z - self.position.z });
       const swings = team === null || !this.teamRoll() || !this.allyInLine(self, team, toward, this.reach(self), 'Left');
       this.defencePlan = this.planDefence(state, self, attacker, seen, flat, attackStart, meets, swings);
       this.attackPlan = this.defencePlan.kind === 'Outpace' ? this.attackPlan : null;
     }
+    if (atk.charge !== undefined) this.readSpin(state, self, seen, flat, meets, team);
     const own = self.action;
-    const broken = this.breakHold(state, self, seen, flat, base, meets);
+    const broken = this.defencePlan!.kind === 'Back' ? null : this.breakHold(state, self, seen, flat, base, meets);
     if (broken) return broken;
-    let plan = this.defencePlan;
+    let plan = this.defencePlan!;
     switch (plan.kind) {
+      case 'Back':
+        return this.backOut(state, self, seen, flat, base, meets);
       case 'Duck':
         // Reading the look: a Left or Right swung looking down hits a Crouch, so Block it instead.
         if (!plan.reads || !this.lowLook(seen)) return { ...base, crouch: true };
@@ -2278,8 +2633,9 @@ class RuleAi implements AiController {
       if (!this.chance(this.skill.lowSwingRead)) return plan('Duck');
       return this.lowLook(seen) ? { ...plan('Block'), reads: true } : { ...plan('Duck'), reads: true };
     }
-    // Sheathed, its press would only Draw: no Chamber.
-    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && this.skill.chamberRate > 0) {
+    // Sheathed, its press would only Draw: no Chamber. Nor in a Direction its Weapon lacks (a Flail against a Thrust): the press would Attack Overhead.
+    const canChamber = attackDirection(weaponByName(this.tuning, self.weapon), meets) === meets;
+    if (atk.phase === 'Wind-up' && seen.motionTick < theirs.windUpEnd && own.kind === 'Idle' && !self.air && !self.sheathed && swings && canChamber && this.skill.chamberRate > 0) {
       // Their first Release Tick is seen.tick + (windUpEnd + 1 - motionTick); press so the Chamber lands CHAMBER_AT Ticks into it.
       const pressAt = state.tick - this.reactionTicks + theirs.windUpEnd + CHAMBER_AT - 1 - seen.motionTick;
       if (pressAt > state.tick && this.chance(this.skill.chamberRate)) return plan('Chamber', meets, pressAt);
