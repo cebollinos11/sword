@@ -77,7 +77,7 @@ Since the Dungeon plan, three things exist that make this possible:
 - **Render**: the Floor's look comes from `mapModel`, as Map Editor maps do. Fog of war belongs on the minimap and the Floor Map, plus perhaps dimming unrevealed Halls in the world (open question 6).
 
 ## Stages
-Each Stage is one chat, solo and offline until Stage 7. Determinism tests run from Stage 1: same seed, same bytes; whole Floors hashed in slow tests.
+Run each Stage with `docs/plans/delver-prompt.md`: an Opus session designs the Stage (a `#### Design` section under it) and Sonnet subagents write the code. A Stage's **Model** line says how much design it needs from the orchestrator. Each Stage is one chat, solo and offline until Stage 7. Determinism tests run from Stage 1: same seed, same bytes; whole Floors hashed in slow tests.
 
 ### Stage 0: spike and ADR
 **Model**: Opus.
