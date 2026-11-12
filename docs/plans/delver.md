@@ -86,6 +86,52 @@ Run each Stage with `docs/plans/delver-prompt.md`: an Opus session designs the S
 - Write ADR 0028 ("A Floor is one continuous Arena with a Crowd"), superseding the relevant part of `dungeon.md`.
 - **Done**: numbers in the Result and the ADR merged; a go or no-go on the large Floors.
 
+#### Design
+Stage 0 ships no game feature. It adds one Simulation helper that Stage 3 will need anyway (a destination field to any point), a hand-written spike Floor, and a slow test that measures it and prints the numbers for the Result. Nothing in `SimState`, the hash or the snapshot changes.
+
+**The spike Floor** (`src/mapEditor/delverSpike.testdata.ts`, `delverSpikeSource(): MapSource` and `SPIKE_ROOMS`). It is a Battle map's Map Source, since that is what `compileMap` takes, laid out the way a Delver Floor would be:
+- **Field**: `withBrushes(brushes, [-8, 0, 4], more)` from `sample.testdata.ts` (200 m field, grid step 0.5). The first Brush is a Hazard `abyss` (`kind: 'hazard'`, `hazard: 'abyss'`) over the whole field at y −8. `parseBattleMap` needs a floor reaching every side of the field, and `walkCheck` skips deadly ground, so the space between rooms is solid rock to the Simulation: an abyss nobody walks to. There is no `GROUND`.
+- **Rooms**: 20 Enclosures at y 0 (roof at 4), ids `room0` to `room19`. Room k = j·5 + i for column i 0..4 and row j 0..3, centred at cx = −60 + 30i, cz = −45 + 30j. Their half-widths along x (`hw`) and half-depths along z (`hd`) in metres, by k:
+  - `hw = [8,6,10,7,9, 7,9,6,10,8, 10,8,7,9,6, 6,10,9,8,7]`
+  - `hd = [7,9,6,10,8, 10,6,8,7,9, 6,8,10,7,9, 9,7,6,10,8]`
+  - rect `{ x0: cx − hw, z0: cz − hd, x1: cx + hw, z1: cz + hd }`. A room has a 3 m doorway (`doors`) on each side a Passage leaves from, and no other. `n` is +z, `e` is +x (as in `enclosure.test.ts`).
+- **Passages**: 23 Enclosures 3 m wide at y 0, ids `pass0` to `pass22` in the order below. Each runs straight between two neighbouring rooms' facing sides, edge to edge with both. Its two ends are doorways as wide as the passage (3), so the end is open, and the room's own 3 m doorway lines up with it (both are centred on the room's side).
+  - Horizontal, from room (i, j) to (i+1, j): rect `{ x0: cx_i + hw_a, x1: cx_{i+1} − hw_b, z0: cz_j − 1.5, z1: cz_j + 1.5 }`, doors `{ e: 3, w: 3 }`.
+  - Vertical, from room (i, j) to (i, j+1): rect `{ z0: cz_j + hd_a, z1: cz_{j+1} − hd_b, x0: cx_i − 1.5, x1: cx_i + 1.5 }`, doors `{ n: 3, s: 3 }`.
+  - The edges, in this order: the 16 horizontal ones, row by row (j 0..3, i 0..3), then the vertical ones (0,0)–(0,1), (4,1)–(4,2) and (0,2)–(0,3). Those 19 are a spanning tree (a serpentine). Then four loops: (2,0)–(2,1), (1,1)–(1,2), (2,2)–(2,3) and (3,2)–(3,3).
+  - Brush order: the abyss, then rooms 0..19, then passages 0..22.
+- **Markers**: Objectives at room centres (posts), all weight 1: `D` at room 0 (spawn, owner 0), `E` at room 19 (spawn, owner 1), and owner −1 at rooms 2, 4, 7, 9, 10, 12, 15 and 17 (ids `F` to `M`). That is 10 Objectives (`MAX_OBJECTIVES` is 12). Bases at (cx₀ − 3, cz₀) and (cx₁₉ + 3, cz₁₉). `front` 52, `armySize { standard: 50, max: 50 }`, `ticketsPerSoldier` 100 (no Rout by Tickets during the measurement), `name: 'delverspike'`.
+- `SPIKE_ROOMS`: per room `{ id, cx, cz, rect }`, so the test can place things in rooms without reparsing.
+
+**`distanceTo`** (`src/sim/destinations.ts`, pure, exported from `src/sim/index.ts` with the other field functions):
+```ts
+/** A destination field to one point (x, z) on Walk Surface s (-1: the cell's highest node), over the same cells (or nodes) as f:
+ *  per cell (node) the path length (m) to it, or -1. Built fresh each call and never cached; equal, entry for entry, to the field
+ *  `destinationFields` builds for an Objective standing at that point. */
+export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): Float64Array
+```
+- One level (`f.levels === null`): `fill(side, cell, blocked, cellAt(f, x, z))`, then `fillBlocked` when `f.blocks.length > 0`, exactly as `destinationFields` does for one place.
+- Several levels: the same backward Dijkstra `layeredFields` runs per place, from `nodeAt(f, x, z, s)` (an all −1 field when that is −1). The backward joins (`into`) are built from `levels.next` once per `FieldLevels` and kept in a module `WeakMap<FieldLevels, …>`, as a cache derived from static data, never in the state. `layeredFields` uses the same helper for its own places, so the two can never drift.
+- The cost to watch is one Dijkstra over the nodes. Stage 3 rebuilds one when a chased Player changes cell.
+
+**The measurement** (`src/mapEditor/delverSpike.slow.test.ts`). Each timing is the median of 5 runs after one warm-up. The cached builds are defeated by a fresh copy each run: `{ ...battle, maps: { ...battle.maps, delverspike: map } }` for the Battlefield and fields, `{ ...tuning, battle }` for the navmesh. It prints one report to stderr, in the same style as `battleSoak.slow.test.ts`:
+- **Build**: (1) `compileMap` (its parse and `walkCheck` included), (2) `walkCheck` alone on the compiled arena, (3) `battlefieldOf`, (4) `destinationFields` (10 Objectives and 2 Bases), (5) `distanceTo` once per room centre (20 posts, on the room floor's surface from `groundOf`), the total and per field, (6) 100 `distanceTo` calls at successive points 1 m apart along a walk from room 0 through `pass0` into room 1 and on (a moving field), mean and max, (7) `navMesh(field.arena, tuning)` with its polygon and link counts. It also prints the node count, the Walk Surface and Wall counts, and the total "Floor ready" time (1 + 3 + 4 + 5 + 7).
+- **Doorways**: steps 3 to 5 again with `crowd.flowCell` 2 (the map is unchanged). At flowCell 4 and at 2, the test prints how many room-centre fields reach room 0's centre node (dist ≥ 0). That tells Stage 1 whether 3 m doorways need a finer field.
+- **Ticks**: three scenarios of 6,000 Ticks (100 s) each. Each is one Battle (`createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 1, teams: [0], arena })` with `applyBattleKnobs` at armySize 50, so 100 Soldiers). The Player is on `createBattlePilot(tuning, 'Hard')` and every other Pool slot on `poolControllers`. Timing is as in the soak (controllers' intents plus `stepMatch`):
+  - **T0 open field**: `battle:1` at armySize 50, default slots. The baseline.
+  - **T1 Floor, Run-sized Bubble**: `battle:delverspike`, default slots (4 enemies, 3 allies).
+  - **T2 Floor, full Pool**: as T1 with `slots.enemies` 12 and `allies` 3 (15 bound at most).
+  - On the Floor, after `createMatch` and before the first Tick, the armies are moved into rooms (`relocate`, a pure function in the test file). Team 0's four Squads go to rooms 1, 5, 6 and 2, and Team 1's to 13, 14, 18 and 19, in Squad order. Each anchor goes to its room's centre, heading 0 for Team 0 and π for Team 1, with `aim` the same and `speed` 0. Soldier p of a Squad goes to anchor + (((p mod 4) − 1.5)·1.5, (⌊p / 4⌋ − (rows − 1)/2)·1.5), where rows = ⌈n / 4⌉, with velocity 0 and the Squad's heading. Every `surface` (Soldier and anchor) comes from `groundOf(battle, field, x, z)` (the floor, never the roof). The Player's Fighter goes to room 0's centre (`position`, `y` 0, and its Walk Surface field if `FighterState` has one, from `groundOf`). Nothing else changes, and the Commander re-plans from there.
+  - Per scenario it prints the mean, p50, p99 and max Tick (ms), the Ticks over 8 ms and over a frame, the most slots bound at once, and the mean Tick by bound slots (0–3, 4–7, 8–11, 12–15).
+  - Then T1's Intents are replayed through `stepMatch` from a fresh `createMatch` and the same `relocate`, and the final `hashValue` must match.
+- **Asserted** (structure, not time): the source parses and compiles twice to the same `mapFileText`; `walkCheck` is null; 20 rooms and 23 passages; `distanceTo` gives equal arrays on two calls; the T1 replay hash matches; every scenario ran 6,000 Ticks. Only one loose time bound: "Floor ready" under 10 s, so a regression to minutes fails.
+- **The machine**: the container is not the MSI laptop in `big-battle.md`'s Stage 0. The orchestrator runs `battleSoak.slow.test.ts` alone on the same machine (1.78 ms mean on the laptop) for the ratio, and scales by it and by the laptop's 1.3× margin to a mid-range laptop.
+
+**Go or no-go** (decided in the Result, from laptop-equivalent numbers):
+- **Floor ready**: within `dungeon.hallFadeSeconds` (1 s) is a go as planned. Within 3 s is a go with a loading banner, and the next Floor built during play (as `warmArena` does). Over 3 s is a no-go for 20-room Floors until the slow part is made cheaper.
+- **Tick**: T2's mean must be within the 8 ms Tick budget (`battleSoak`) and its p99 within 25 ms, or 20-room Floors with Warbands are a no-go. Whether online Runs take an Input Delay follows from how T1 and T2 compare with a Battle's Tick, which needed one (about 2 ms with a dozen bound, ADR 0025).
+- **Doorways**: if room-centre fields do not all reach room 0 at flowCell 4, Stage 1 must use a finer field for Floors (or wider doorways), and the cost at flowCell 2 is the one that counts.
+
 ### Stage 1: the Floor generator
 **Model**: Opus (layout and geometry).
 - `delverGen`: rooms of a few sizes placed on the grid (BSP or a seeded graph of rooms), joined by passages into a spanning tree with a few loops. Kinds assigned: Entrance, Stairs (furthest by walking), Rest (1 or 2, with one about halfway), Treasure (off the main path), Fight posts, Empty. Patrol loops are drawn along cycles. The output is a Map Source with Delver markers.
