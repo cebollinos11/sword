@@ -196,6 +196,106 @@ No shipped map is one level with blocks, so the one-level blocks branch is cover
 - A dev route or Map Editor button opens a generated Floor. Golden-seed tests (bytes stable) and a soak over 500 seeds (all pass the judge within N rerolls).
 - **Done**: any seed gives a valid, varied Floor, viewable in the editor.
 
+#### Design
+Stage 1 ships no game feature. It adds a pure, seeded Floor generator (`src/sim/delver/`), its Tuning Data (`delver`, new), a judge with a capped reroll, and a dev entry that opens a generated Floor in the Map Editor. Nothing in `SimState`, the state hash or the snapshot changes. The Tuning Data hash grows by the `delver` block and a `delverVersion` (below). The Hall graph Run is untouched.
+
+**Where the markers live (decided).** The Map Source format does not change. `compileMap` needs only `battle.field` (the size), `deploy` and `squad` (`parseBattleMap`'s army-fits check) and `levels` (the walk check), and a map needs 1 to 12 Objectives, two Bases, a `front` and an `armySize`. So a Floor is two things, both rebuilt from (Run seed, Floor) on every peer and never stored:
+- a **`FloorPlan`**, plain data, the truth the later Stages read: the Halls, the Passages, and every Delver marker (entrance spawns, Stairs zone, fires, Treasure pedestals, Warband posts, patrol loops);
+- a **Battle map's Map Source** written from it (`floorSource`), so that `compileMap` and the Map Editor take it as they are. It carries the markers for the eye only: Objective `D` (owner 0, spawn) at the Entrance's centre and `E` (owner 1, spawn) at the Stairs' centre, the Bases on the same two points, and render-only props (a torch on each fire, a Team 1 banner on each post, a crate on each pedestal, a Team 0 banner at the Entrance's centre). The Simulation never reads markers back from a map file. A hand-made Floor (Later) would need a Delver section in the source; not now.
+
+**`delver` Tuning Data** (`data/delver.json`, `src/tuning/delver.ts` `parseDelver(raw, fieldSize): DelverTuning`, `TuningData.delver`, loaded and hashed like the others):
+```json
+{ "flowCell": 2,
+  "floor": { "cols": 7, "rows": 6, "rooms": 22, "gaps": [22, 24, 26, 28], "halfSize": [5, 11], "minPassage": 4, "passage": 3,
+             "farPercent": 25, "loops": [3, 5], "rests": [1, 2], "treasures": 1, "emptyPercent": 30, "patrols": 2, "follow": 1.5,
+             "maxAttempts": 10 } }
+```
+- `flowCell`: the destination fields' cell (m) on a Floor. The Battles keep `crowd.flowCell` (4).
+- `floor`: `cols` × `rows` lattice; `rooms` Halls wanted; `gaps`: the metres between neighbouring lattice columns (rows), one picked per gap, all even; `halfSize` [min, max] of a Hall's half-width and half-depth (whole m); `minPassage`: the shortest Passage between lattice neighbours (m); `passage`: a Passage's width and its doorways' (m); `farPercent`: the chance (in 100) that a growth step joins a Hall two lattice steps away over an empty cell; `loops` [min, max] extra Passages after the spanning tree; `rests` [min, max] Rest Halls; `treasures`: Treasure Halls at most; `emptyPercent`: the share (in 100) of the Halls left after the named kinds that are Empty; `patrols`: patrol loops at most; `follow`: the judge's Passage slack (Stage 0's 1.5); `maxAttempts`: the most layouts tried for one (seed, Floor).
+- Parse checks: whole numbers where whole; `gaps` even and `min(gaps) - minPassage >= 2 * halfSize[0]`; `passage <= 2 * halfSize[0]`; `(cols - 1) * max(gaps) / 2 + halfSize[1] + 2 <= fieldSize / 2` and the same for rows (the lattice fits the Battle's field, `battle.field.size`, 200); `rooms <= cols * rows`; ranges ascending; percents 0 to 100; `flowCell` positive.
+- **How the fields pick up `delver.flowCell`**: a Floor's Battle Tuning is `delverBattle(tuning, map) = { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: tuning.delver.flowCell }, maps: { [map.name]: map } }` (`src/sim/delver/build.ts`). Its Battlefield (`battlefieldOf(battle, 'battle:' + map.name)`), its destination fields and `distanceTo` then all run at 2 m with no change to them, and so will the Crowd's density grid and the Squads in Stage 3, since everything reads `battle.crowd.flowCell`. The Battles' Tuning is never touched.
+- **Hash**: `delver` is in the Tuning Data hash like every block. `src/sim/delver/version.ts` exports `DELVER_VERSION = 1` (depends on nothing), and `tuningDataHash` hashes `{ ...simulated, generatorVersion, delverVersion: DELVER_VERSION }`, so peers whose Floor generators differ refuse each other. Bump it on any change to the plan, the source, the judge or the reroll (the golden test says so when its pinned hashes move).
+
+**Picks.** Every choice is `runPick(s, floor, slot, salt, count)` (`src/sim/dungeon.ts`), where `s` is the attempt's seed: `attemptSeed(seed, floor, 0) = seed >>> 0` and, for attempt a ≥ 1, `runPick(seed, floor, a, SALT.reroll, 0x1_0000_0000)`. `SALT` (in `plan.ts`): gapX 1, gapZ 2, start 3, grow 4, far 5, hw 6, hd 7, loopCount 8, loop 9, entrance 10, rests 11, treasure 12, order 13, reroll 14. Lists are arrays in fixed order, every tie goes to the lower index, and all coordinates are whole metres or half metres (a Passage's edges), so nothing hangs on float rounding.
+
+**The plan** (`src/sim/delver/plan.ts`, `planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number): FloorPlan`):
+```ts
+export type DelverHallKind = 'Entrance' | 'Stairs' | 'Rest' | 'Treasure' | 'Fight' | 'Empty';
+export interface DelverHall { id: string /* hall<k> */; i: number; j: number /* lattice cell */; cx: number; cz: number; rect: Rect; doors: Doors; kind: DelverHallKind; depth: number /* m from the Entrance by the Passage graph */ }
+export interface DelverPassage { id: string /* pass<n> */; a: number; b: number /* a west of b ('x') or south of b ('z') */; axis: 'x' | 'z'; rect: Rect; length: number /* centre to centre, m */; loop: boolean }
+export interface MarkerPoint { hall: number; x: number; z: number }
+export interface DelverPatrol { halls: readonly number[]; points: readonly GroundPoint[] }
+export interface DelverMarkers { spawns: readonly MarkerPoint[] /* 4 */; stairs: { hall: number; zone: Rect }; fires: readonly MarkerPoint[]; pedestals: readonly MarkerPoint[]; posts: readonly MarkerPoint[]; patrols: readonly DelverPatrol[] }
+export interface FloorPlan { seed: number; floor: number; attempt: number; halls: readonly DelverHall[]; passages: readonly DelverPassage[]; entrance: number; stairs: number; mainPath: readonly number[]; markers: DelverMarkers }
+```
+(all fields `readonly`). The algorithm, in order:
+1. **Lattice.** Column gaps `gx[k] = gaps[pick(k, gapX, gaps.length)]` for k = 0 .. cols − 2, row gaps `gz[k]` likewise (gapZ). `X[0] = −Σgx / 2`, `X[i+1] = X[i] + gx[i]`; Z the same. All even, so every centre is an even whole metre (and so on a 2 m field cell centre). Cell c = j · cols + i. Directions in fixed order n (0, +1), e (+1, 0), s (0, −1), w (−1, 0).
+2. **A Hall's size** when it is placed in cell (i, j): `limX = floor((min(gx[i−1], gx[i]) − minPassage) / 2)` over the gaps that exist, `hw = min(halfSize[0] + pick(c, hw, halfSize[1] − halfSize[0] + 1), limX)`, hd the same along z (hd salt). Its rect is `cx ± hw, cz ± hd`. So neighbours never touch, and a Passage between lattice neighbours is at least `minPassage` long.
+3. **Growth (the spanning tree).** `occupied[c]` (Hall index or −1) and `reserved[c]` (a cell a long Passage runs through). The first Hall is at cell `pick(0, start, cols · rows)`. Then for step = 1, 2, … while fewer than `rooms` Halls: list the candidates in Hall index order, then direction order: for Hall h and direction d whose side has no Passage yet, c1 = its cell + d inside the lattice, not reserved and empty, gives a *near* candidate (target c1); if also c2 = c1 + d is inside, not reserved and empty, a *far* one (target c2 over c1). No candidate at all: stop (the layout stalled; the judge refuses it). Take the far list when it is not empty and either the near list is empty or `pick(step, far, 100) < farPercent`, else the near list; the candidate is `list[pick(step, grow, list.length)]`. Place the new Hall (index = its order of placement) at the target, join h to it by a Passage (tree), and reserve c1 when far.
+4. **Loops.** Candidates, Hall index order, directions n then e only: side free, c1 inside and not reserved; if c1 holds Hall b, the pair (h, b), else if c2 = c1 + d is inside, not reserved and holds Hall b, the pair (h, b) over c1. A pair counts only if b's facing side is free too, no Passage joins them, and they are at least 3 Passages apart in the tree (so a loop makes a cycle of 4 Halls or more). `count = loops[0] + pick(0, loopCount, loops[1] − loops[0] + 1)`; for n = 0 .. count − 1, re-filter the candidates by the same rules against what is placed so far, stop when none is left, else add `valid[pick(n, loop, valid.length)]` as a loop Passage and reserve its c1 when far.
+   This keeps every rule an Enclosure needs: one doorway centred on a side (a side holds at most one Passage, always to the nearest Hall that way), Passages straight between side centres (Halls in a lattice row share cz, in a column cx), and no Passage through a Hall or across another Passage (a long Passage's middle cell is reserved for good).
+5. **A Passage's geometry.** a is the west (south) Hall, b the east (north). With w = `passage`: along x, `rect = { x0: a.rect.x1, x1: b.rect.x0, z0: cz − w/2, z1: cz + w/2 }`, doors `{ e: w, w: w }`, and Hall a gets door `e: w`, b `w: w`; along z the same with n and s. `length = |cxa − cxb| + |cza − czb|`. Passages are numbered tree ones first (in growth order), then loops.
+6. **Depth.** Dijkstra from the Entrance over the Passages with `length` as the weight (whole numbers, exact), ties by lower Hall index. Computed once the Entrance is known (step 7), stored as each Hall's `depth`.
+7. **Kinds**, in this order:
+   - **Entrance**: `leaves[pick(0, entrance, leaves.length)]`, the leaves being the Halls with one Passage, in index order (all Halls if there is none).
+   - **Stairs**: the Hall of the greatest depth, ties by lower index.
+   - `mainPath`: the Dijkstra path Entrance → Stairs (each Hall's predecessor the one it was first reached from at its final distance, ties by lower index), Entrance first.
+   - **In line**: from the Entrance, follow its Passage(s) straight on: through each Hall reached, the Passage on the side opposite the one entered, until there is none. Those Halls are *in line*: a Warband there could see the entrance spawns through the aligned doorways. They are never posts or patrol Halls.
+   - **Rest**: `count = rests[0] + pick(0, rests, rests[1] − rests[0] + 1)`. The first is the `mainPath` Hall other than Entrance and Stairs that minimises `|2 · depth − D|` (D = the Stairs' depth), ties lower index; with no such Hall, any Hall but those two by the same rule. The second, if any: among the Halls with no kind yet and not joined to the first Rest, minimise `|4 · depth − 3 · D|`, ties lower index.
+   - **Treasure** (up to `treasures`): among the Halls not on `mainPath` and with no kind, those whose walking distance to the nearest `mainPath` Hall (a Dijkstra from all of `mainPath` at once) is greatest; the one at `pick(0, treasure, tied.length)` of them in index order. None off the path: no Treasure.
+   - **Fight / Empty**: the Halls left. Those in line are Empty. The others are ordered by `runPick(s, floor, hall, order, 0x1_0000_0000)`, ties lower index; with `E = max(0, floor(left · emptyPercent / 100) − inLine)`, the first E are Empty and the rest Fight.
+8. **Patrol loops.** For each loop Passage in order: its cycle is the tree path from a to b (Halls in path order, a first), closed by the loop. A cycle through the Entrance or an in-line Hall is dropped. The rest are sorted by Hall count (most first), ties by Passage order, and the first `patrols` kept, each with `points` = its Halls' centres in order.
+9. **Markers** (all on the 0.5 m grid, at least 1 m inside their Hall, since halfSize ≥ 5):
+   - spawns: the Entrance centre ± 1.5 on both axes, in the order (−,−), (+,−), (−,+), (+,+);
+   - Stairs zone: its centre ± 2 (`STAIRS_HALF`);
+   - a fire at each Rest Hall's centre, Rests in index order;
+   - three pedestals per Treasure Hall at (cx − 3, cz), (cx, cz), (cx + 3, cz) (`PEDESTAL_GAP`);
+   - a post at each Fight Hall's centre, in index order;
+   - the patrols of step 8.
+
+**The source** (`src/sim/delver/source.ts`):
+- `floorName(seed, floor) = \`delver${floor}s${seed >>> 0}\`` (at most 19 characters, within `MAX_MAP_NAME`).
+- `floorSource(plan): MapSource`, version 1, `size` 200, `grid { step: 0.5, cell: 2 }`, `levels [-8, 0, 4]`. Brushes in this order: the abyss (`kind: 'hazard'`, `hazard: 'abyss'`, the whole field, y −8, as the spike's), then the Halls in index order (Enclosures at y 0, their `doors`, a render-only `material` by kind: Entrance `plaster`, Stairs `glow`, Rest `brick`, Treasure `tile`, Fight `dungeon`, Empty `basalt`), then the Passages in order (Enclosures at y 0, `material: 'stone'`). Objectives `D` (Entrance centre, owner 0, spawn) and `E` (Stairs centre, owner 1, spawn), both weight 1; `bases` the same two points; `front` 52; `armySize { standard: 50, max: 50 }`; no Tickets. `look.props` in this order: `entrance` (banner, team 0, Entrance centre), `fire<n>` (torch), `post<n>` (banner, team 1), `pedestal<n>` (crate), all y 0, turn 0. No sky, no Lobby card.
+
+**Build and judge** (`src/sim/delver/build.ts`, `src/sim/delver/judge.ts`):
+```ts
+export interface BuiltFloor { plan: FloorPlan; source: MapSource; map: BattleMapTuning; battle: BattleTuning; field: Battlefield; fields: DestinationFields }
+export function delverBattle(tuning: Pick<TuningData, 'battle' | 'delver'>, map: BattleMapTuning): BattleTuning;
+/** compileMap (its parse and walkCheck included), the Battlefield and the destination fields at delver.flowCell. Throws MapCompileError. */
+export function buildFloor(tuning: Pick<TuningData, 'battle' | 'delver'>, plan: FloorPlan): BuiltFloor;
+export interface FloorJudgement { ok: boolean; reasons: readonly string[] }
+/** The rules on a built Floor; each failure one line naming the Hall, Passage or marker. */
+export function judgeBuilt(t: DelverFloorTuning, b: BuiltFloor): string[];
+/** fieldAt: the distance at the node of the cell (x, z) lies in on Walk Surface s's level exactly (-1: none), as the spike's `exactAt`. */
+export function fieldAt(f: DestinationFields, d: Float64Array, x: number, z: number, s: number): number;
+```
+`compileMap` is imported from `src/mapEditor/compile.ts` (pure). The delver modules are not re-exported from `src/sim/index.ts` in Stage 1 (that import would close a cycle through the compiler); they are imported from `src/sim/delver/index.ts`. Every point's Walk Surface is `groundOf(battle, field, x, z)` (put down anew: the floor, never a roof). The rules, in this order, each line prefixed by its rule's name:
+1. **rooms**: the plan has `rooms` Halls (else the layout stalled), exactly one Entrance and one Stairs, Rests within `rests`, at least one Fight.
+2. **compile**: `buildFloor` threw (its message). This is `walkCheck` too. The other rules are skipped.
+3. **halls**: every Hall's centre is reached by the field from the Entrance's centre (`distanceTo` on its floor's surface, read with `fieldAt`, ≥ 0).
+4. **passages** (Stage 0's per-Passage check): for each Passage, the field to Hall a's centre read at Hall b's centre is ≥ 0 and ≤ `follow · length`. One `distanceTo` per Hall, shared by rules 3 to 5.
+5. **markers**: each marker point (spawns, the Stairs zone's centre, fires, pedestals, posts, patrol points) stands inside its Hall's rect shrunk by 1 m, on a Walk Surface that is not deadly, not a roof and at height 0 there, and is reached by the Entrance's field. A marker is named `spawn<k>`, `stairs`, `fire<k>`, `pedestal<k>`, `post<k>`, `patrol<k>.<n>`.
+6. **sight**: no post and no patrol point is in sight of any entrance spawn: `inSight(fields, spawn.x, spawn.z, p.x, p.z, 0, 0, 0)` is false (the Walls at a body's height on its floor, `walled`).
+
+**Generate and reroll** (`src/sim/delver/generate.ts`):
+```ts
+export interface DelverFloor extends BuiltFloor { attempts: number; judgement: FloorJudgement }
+export function delverFloor(tuning: Pick<TuningData, 'battle' | 'delver'>, seed: number, floor: number, opts?: { maxAttempts?: number; judge?: (t: DelverFloorTuning, b: BuiltFloor) => string[] }): DelverFloor;
+export function describeFloor(f: DelverFloor): string;
+```
+Attempts 0, 1, … up to `maxAttempts` (default `delver.floor.maxAttempts`): plan, build, judge; the first with no reasons is returned (`attempts` = its index + 1). If none passes, the built one with the fewest reasons (ties the first) comes back with `judgement.ok` false and `attempts` = maxAttempts; if none even compiled, it throws, naming the seed, Floor and the last reason. Deterministic from (seed, Floor) alone: no clock. `describeFloor` is one line: `Floor F of seed S, attempt A: N Halls (Entrance hallX, Stairs hallY, Rest …, Treasure …, n Fight, n Empty), P Passages (L loops), K patrols; passes the judge | fails: <reasons>`.
+
+**The dev entry**. `src/devMode.ts`: `devDelverFloor(search, hash): { seed: number; floor: number } | null`, from `delverSeed` (a whole number ≥ 0) and `delverFloor` (≥ 1), only with `dev=1`. The Map Editor's File folder (`src/mapEditor/ui/index.ts`) gains a `Delver seed` and a `Delver floor` field and an **Open Delver Floor** button: `delverFloor(tuning, seed, floor)`, then `openRaw(JSON.parse(JSON.stringify(floor.source)), …)` with `describeFloor` in the status line. On start, `devDelverFloor()` opens that Floor at once, so `#/mapeditor?dev=1&delverSeed=7&delverFloor=1` shows Floor 1 of seed 7. Saving it writes it out like any map (a Floor copied out as a source). The editor's checks and overlays stay at `crowd.flowCell`.
+
+**Tests**:
+- `src/tuning/delver.test.ts`: the bundled `delver` parses; each parse check refuses a bad value with its path; `tuningDataHash` changes with `delver.flowCell` and with `delverVersion`.
+- `src/sim/delver/plan.test.ts` (fast, plan only, no compile): the same (seed, Floor, attempt) gives a deep-equal plan twice; over 50 seeds: `rooms` Halls, centres even, rects inside the field and apart, every Passage between side centres with a matching doorway on both Halls, at most one Passage per side, no two Passages or a Passage and a Hall overlapping, the tree plus loops connected, one Entrance (a leaf when any exists) and one Stairs of greatest depth, the first Rest on `mainPath`, any Treasure off it, in-line Halls never Fight, patrols never through the Entrance; and each attempt seed differs.
+- `src/sim/delver/judge.test.ts` (fast, a few real builds): a good Floor has no reasons; then one test per rule on a passing Floor: rooms (a plan cut to 21 Halls; no Stairs), compile (a leaf's only Passage Brush removed from the source: the walk check fails), halls (a Hall's recorded centre moved into the abyss), passages (a loop Passage's Brush removed: its Halls' fields go round), markers (a fire moved into the abyss; a post moved into another Hall), sight (a post moved into the first in-line Hall, or, when the Floor has none, onto the Entrance's spawn line in its neighbour), and the reroll (a judge that refuses attempt 0 gives attempt 1; a judge that refuses all gives the best with `ok` false, and the same call twice gives the same bytes).
+- `src/sim/delver/golden.test.ts` (fast): seeds 1, 7, 123456789 and 4294967295 at Floors 1 and 9: `delverFloor` twice gives the same `mapFileText` bytes; each passes; its `hashValue(mapFileText(map))` and `attempts` equal pinned values (written down on the first run; a change means `DELVER_VERSION` + 1 and new pins).
+- `src/sim/delver/delverGen.slow.test.ts` (slow soak): 500 (seed, Floor) pairs, seed k = `runPick(0x5eed, 0, k, 0, 0x1_0000_0000)`, Floor `1 + k % 9`. Every one passes within `maxAttempts`. It prints the attempts histogram, the failed attempts' reasons by rule, the build time per Floor (compile, fields, judge; mean, p50, p95, max of the passing attempt, and of all attempts summed), a `navMesh` time on 20 of them, and per-kind counts. **It must show it exercised**: every Hall kind on some Floor (Treasure on most), Floors with 1 and with 2 Rests, at least one far Passage, loop Passages, patrol loops, and at least one reroll or else a printed note that none was needed; any of these missing fails the test.
+- `src/devMode.test.ts`: `devDelverFloor` reads both, refuses bad values, and is null without `dev=1`.
+- Existing tests: `src/tuning/hash.test.ts`'s "ignores key order" lists every TuningData key, so it gains `delver: tuning.delver`. No other existing test changes.
+
 ### Stage 2: the Run loop, solo
 **Model**: Sonnet.
 - The Gauntlet Format starts a Delver Run on Floor 1 of the generated Dungeon. Team 0 spawns at the entrance. The Stairs zone takes the party down (fade, next Floor). Rest fires heal once per Player per fire and revive the fallen. Inventory changes only at a fire. A wipe is a Defeat. Taking the last Stairs is a Victory for now, with Bosses in Stage 4.
