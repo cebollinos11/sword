@@ -4,6 +4,7 @@
  * and Player Intents whose aim wobbles every Tick as a mouse does, so the others' predictions miss and frames Roll back.
  * Opt-in, so CI never runs it: `PROBE=1 npx vitest run --project slow src/net/cpuProbe.slow.test.ts`. Options: PROBE_TEAMS (default 0,1,0),
  * PROBE_TICKS (default 4000), PROBE_DELAY (Input Delay, default BATTLE_INPUT_DELAY), PROBE_PROF=<file> (a CPU profile of the melee).
+ * The tests freeze every snapshotted state (ADR 0028), which a production build does not: add VITE_SNAPSHOT_FREEZE=0 to time what it costs.
  */
 import { afterEach, expect, it, vi } from 'vitest';
 import { Session } from 'node:inspector';

@@ -14,7 +14,7 @@
  *
  * Timing reads `performance.now()`: the bench measures the Simulation, it is not part of it.
  */
-import { createInitialState, createMatch, hashValue, restore, snapshot, stepMatch, TICK_SECONDS, type Intent, type MatchState, type Placement, type Snapshot } from '../sim';
+import { createInitialState, createMatch, deepCopy, hashValue, restore, snapshot, stepMatch, TICK_SECONDS, type Intent, type MatchState, type Placement, type Snapshot } from '../sim';
 import { DEFAULT_STYLE, type TuningData } from '../tuning';
 import { createAiController, type Controller } from '../controllers';
 
@@ -435,7 +435,7 @@ export interface CrowdBench {
   readonly hashBytes: Stats;
   /** A snapshot of the typed arrays. */
   readonly snapshotTyped: Stats;
-  /** `snapshot()` (deep copy) of the Crowd as plain arrays. */
+  /** A deep copy (`deepCopy`) of the Crowd as plain arrays. */
   readonly snapshotPlain: Stats;
   readonly alive: [number, number];
   /** Two runs from the same seed ended with the same byte hash. */
@@ -466,7 +466,7 @@ export function benchCrowd(params: CrowdParams, ticks: number, sampleEvery = 30,
       snapshotCrowd(crowd);
       snapTypedMs.push(now() - t0);
       t0 = now();
-      snapshot({ tick: t, crowd: plain });
+      deepCopy({ tick: t, crowd: plain });
       snapPlainMs.push(now() - t0);
     }
   }

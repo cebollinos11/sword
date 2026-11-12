@@ -145,7 +145,7 @@ export { channelValue, ease, motionTime, restTargets, sampleMotion, type PoseTar
 export { authoredSeconds, motionTempo, playedSeconds } from './tempo';
 export { rotateEuler, rotateX, rotateY } from './vec';
 export type { Snapshot } from './snapshot';
-export { snapshot, restore } from './snapshot';
+export { snapshot, restore, deepCopy } from './snapshot';
 export {
   checkRunTeams,
   checkTeams,

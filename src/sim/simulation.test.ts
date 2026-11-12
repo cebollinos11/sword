@@ -117,11 +117,17 @@ describe('Snapshot and restore', () => {
     expect(hashState(replayed)).toBe(hashState(straight));
   });
 
-  it('a snapshot is unaffected by later changes to the restored state', () => {
+  it('keeps the state itself, which cannot be changed once snapshotted (frozen in development and the tests)', () => {
     const s = run(createInitialState(tuning, 5), scriptedIntents(20));
+    const before = hashState(s);
     const snap = snapshot(s);
+    expect(restore(snap)).toBe(s);
     const restored = restore(snap) as unknown as { fighters: { position: { x: number } }[] };
-    restored.fighters[0]!.position.x = 42;
-    expect(hashState(restore(snap))).toBe(hashState(s));
+    expect(() => {
+      restored.fighters[0]!.position.x = 42;
+    }).toThrow(TypeError);
+    // Stepping on from it builds new states and leaves it as it was.
+    run(restore(snap), scriptedIntents(30));
+    expect(hashState(restore(snap))).toBe(before);
   });
 });
