@@ -22,7 +22,8 @@ export class MainThreadLag {
     const span = end - this.windowStart;
     if (span < MainThreadLag.WINDOW_MS) return;
     const wait = this.squares / (2 * span);
-    this.estimate = this.estimate === 0 ? wait : this.estimate * 0.5 + wait * 0.5;
+    this.estimate =
+      this.estimate === 0 ? wait : this.estimate * 0.5 + wait * 0.5;
     this.windowStart = end;
     this.squares = 0;
   }
