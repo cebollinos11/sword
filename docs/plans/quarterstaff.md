@@ -53,3 +53,16 @@ Add `Quarterstaff`: a long diagonal brown pole with grey caps at both ends, in t
 1. **Pick the bar.** Write a throwaway script or test in the scratchpad that runs Quarterstaff Attacks (each Direction, varied ranges) into an idle dummy and logs `bladeSpeed / speed` at each Hit. Set `heavyBlow.speed` so most full swings at normal range land above it and near-hand or late contacts land below. Thrusts might sit lower; report what they do.
 2. Run `npm test` (vitest) and `npx tsc --noEmit`, all green.
 3. Use the `run` skill: start the dev server, pick the Quarterstaff against an AI, and screenshot it held, swinging, sheathed on the back, and an enemy knocked down. Check the icon in the picker.
+
+## Results
+Implemented as planned; what differed or was measured:
+
+- **`heavyBlow.speed` = 0.7 (the plan's starting guess, kept).** Blade Speed / `speed` at the first Hit, Quarterstaff into an idle Arming Sword, 0.3 to 2.2 m:
+  - Overhead: 0.57 up close (0.3–0.7 m), 0.64 at 0.8 m, 0.79 at 0.9 m, then rising to about 2.2 at the tip. So Overhead knocks down from about 0.9 m out and only Staggers near the hand.
+  - Left: 1.11 up close, 1.2 to 2.4 beyond. Always a knockdown.
+  - Right: 1.02 up close, 1.2 to 2.5 beyond. Always a knockdown.
+  - Thrust: 0.36 to 0.38 at every range. Never a knockdown, only a Stagger.
+- **Runs:** adding the roster entry put the Quarterstaff into a Run's `random` enemy picks and Weapon loot (`runWeapons`), which broke `src/net/coop.test.ts` (the seeded co-op Run played out differently). Decision: leave it out of Runs by adding it to `dungeon.leftOutWeapons` (`data/dungeon.json`). The plan said `random` picks draw from the roster automatically; that holds for the menu and Lineup, not for Runs. With it left out, no dungeon, loot or co-op test moves.
+- **Test values changed, all because of the new roster entry or `leftOutWeapons`:** `weapons.test.ts` (roster, non-cutting list), `sim/weapons.test.ts` (`TWO_HANDED`), `dungeon.test.ts` and `runWeapons.test.ts` (`leftOutWeapons`, and the "never turns up" check now covers both), `editor/tuningSections.test.ts` (roster list, and its Weapon file). The AI golden, hash and net tests needed no change.
+- **Weapon thumbnail:** the picker's picture is a pre-rendered file, so `public/thumbs/weapons/quarterstaff.webp` was generated with the dev server's `#/thumbs/weapons/quarterstaff` page. Without it the card is blank. (The plan listed only the icon.)
+- **Staff look:** the shaft is 0.022 thick with 0.06 m iron caps at both ends; its blood mark is a smear round the shaft, as the flail's shaft branch.
