@@ -253,7 +253,7 @@ A killing Overhead, Left or Right that lands with the Head of a Weapon that `cut
 _Avoid_: Gore, slice, decapitation (in code)
 
 **Death Ragdoll**:
-A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree). With severed bones (Dismemberment) it falls in pieces: nothing holds one piece to another, each piece but the one with the pelvis is carried on along the blade's travel, and a piece with neither pelvis nor chest (a head, an arm, a leg) keeps its shape.
+A fallen Fighter's body going limp and dropping to the floor, knocked away by the blow that felled it, as its hand lets go of the Weapon (a Sheathed Weapon stays in its slot, held to the torso, and falls with it). Drawn outside the Simulation from the Death and the pose it fell in, never changing an outcome, and always the same fall for the same Death (scrubbing, replays and Rollback agree). With severed bones (Dismemberment) it falls in pieces: nothing holds one piece to another, a piece with neither pelvis nor chest (a head, an arm, a leg) keeps its shape and is sent flying, tumbling, along the blade's travel and out from the body, tossed up as it goes and landing a few metres off, faster for a faster blade; the chest's half of a body cut in two is only carried on a little along the travel.
 _Avoid_: Death animation, death Motion
 
 **Final Blow Shot**:
