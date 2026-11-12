@@ -45,7 +45,7 @@ export function impactBursts(duel: Pick<SimState, 'events' | 'fighters'>, tuning
     const { speed } = weaponByName(tuning, duel.fighters[e.attacker]!.weapon);
     // A blade stopped by a Wall sparks off it like steel on steel.
     const kind = e.type !== 'Hit' ? 'Block' : e.heavy ? 'Heavy' : 'Hit';
-    bursts.push({ kind, point: e.point, strength: Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
+    bursts.push({ kind, point: e.point, strength: e.type === 'Block' && e.broken ? 1 : Math.min(1, Math.max(0.3, e.bladeSpeed / speed)) });
   }
   return bursts;
 }

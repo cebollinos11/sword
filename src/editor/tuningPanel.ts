@@ -116,6 +116,9 @@ export function addTuningPanels(pane: Pane, session: EditorSession, onApplied: (
     const impact = f.addFolder({ title: 'Block Impact' });
     on(impact.addBinding(w.blockImpact, 'dealt', { min: 0.1, max: 3, step: 0.05, label: 'dealt ×' }));
     on(impact.addBinding(w.blockImpact, 'taken', { min: 0.1, max: 3, step: 0.05, label: 'taken ×' }));
+    on(impact.addBinding(w.blockImpact, 'breakAt', { min: 0, max: 5, step: 0.05, label: 'break at (0: never)' }));
+    on(impact.addBinding(w.blockImpact, 'breakSlide', { min: 0, max: 3, step: 0.05, label: 'break slide (m)' }));
+    on(impact.addBinding(w.blockImpact, 'breakSlideTicks', { min: 1, max: 60, step: 1, label: 'break ticks' }));
     const heavy = f.addFolder({ title: 'Heavy Blow (speed 0: none)' });
     on(heavy.addBinding(w.heavyBlow, 'speed', { min: 0, max: 3, step: 0.05, label: 'speed (× ref)' }));
     on(heavy.addBinding(w.heavyBlow, 'knockdownSlide', { min: 0, max: 5, step: 0.05, label: 'knockdown slide (m)' }));

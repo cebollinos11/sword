@@ -79,6 +79,7 @@ export class FighterView {
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
   private readonly staff: StaffMeshes;
+  private readonly dagger: DaggerMeshes;
   private readonly flail: FlailMeshes;
   /** Blood on the Weapon (`setBlood`): one mesh per mark, made as needed, sharing `bloodMaterial`. */
   private readonly bloodMeshes: THREE.Mesh[] = [];
@@ -182,6 +183,14 @@ export class FighterView {
       tipCap: new THREE.Mesh(cylinder, dark),
     };
     this.staff.group.add(this.staff.shaft, this.staff.buttCap, this.staff.tipCap);
+    this.dagger = {
+      group: new THREE.Group(),
+      blade: Array.from({ length: DAGGER_SEGMENTS }, (_, i) => new THREE.Mesh(i === DAGGER_SEGMENTS - 1 ? point : box, steel)),
+      guard: new THREE.Mesh(box, dark),
+      grip: new THREE.Mesh(cylinder, dark),
+      pommel: new THREE.Mesh(sphere, steel),
+    };
+    this.dagger.group.add(...this.dagger.blade, this.dagger.guard, this.dagger.grip, this.dagger.pommel);
     // Drawn at 240 lines the links are a few pixels each and the ball a dozen across: the chain is one instanced draw and the ball
     // and its spikes one merged mesh, so a flail is four draws (shaft, cap, chain, ball), not two dozen.
     const link = new THREE.TorusGeometry(1, 0.28, 4, 6);
@@ -198,7 +207,7 @@ export class FighterView {
       ball: new THREE.Mesh(spikedBall, steel),
     };
     this.flail.group.add(this.flail.shaft, this.flail.cap, this.flail.links, this.flail.ball);
-    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.staff.group, this.flail.group);
+    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.staff.group, this.dagger.group, this.flail.group);
   }
 
   /** Free what this view made: the primitives' geometries and materials, a loaded model's own materials (its geometry and textures are the shared template's), and its pieces. */
@@ -279,10 +288,12 @@ export class FighterView {
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
     this.staff.group.visible = weapon.look === 'staff';
+    this.dagger.group.visible = weapon.look === 'dagger';
     this.flail.group.visible = weapon.look === 'flail';
     if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
     else if (weapon.look === 'staff') placeStaff(this.staff, pose.blade, weapon);
+    else if (weapon.look === 'dagger') placeDagger(this.dagger, pose.blade, weapon);
     else if (weapon.look === 'flail') placeFlail(this.flail, pose.blade, weapon, (pose as DrawnPose).flail);
     else placeSword(this.sword, pose.blade, weapon);
     this.placeBlood(pose.blade, weapon, (pose as DrawnPose).flail);
@@ -396,6 +407,14 @@ export class FighterView {
         const l = Math.min(len + w.gripLength, markLength(m));
         mesh.geometry = this.shapes.box;
         placeInFrame(mesh, clampCentre(at, -w.gripLength, len, l), 0, [0.026 * proud * flipX, l * flipY, 0.026 * proud]);
+      } else if (w.look === 'dagger') {
+        // On the curved blade: a smear at `at`, bent out with it and tilted along it.
+        const reach = Math.max(len - DAGGER_GUARD, 0.01);
+        const l = Math.min(reach * 0.5, markLength(m));
+        const centre = clampCentre(at, DAGGER_GUARD, len, l);
+        mesh.geometry = this.shapes.box;
+        placeInFrame(mesh, centre, daggerBend(len, centre), [0.012 * proud * flipX, l * flipY, daggerWidth(len, centre) * 1.02]);
+        mesh.quaternion.multiply(daggerTilt.setFromAxisAngle(tiltAxis, daggerSlope(len, centre)));
       } else if (w.look === 'hammer') {
         const head = Math.max(w.head, 0.05);
         const l = head * (0.45 + 0.55 * m.strength);
@@ -508,6 +527,15 @@ interface SwordMeshes {
   readonly blade: THREE.Mesh;
   readonly point: THREE.Mesh;
   readonly crossguard: THREE.Mesh;
+  readonly grip: THREE.Mesh;
+  readonly pommel: THREE.Mesh;
+}
+
+interface DaggerMeshes {
+  readonly group: THREE.Group;
+  /** The curved blade's segments, guard to point; the last is the tapered point. */
+  readonly blade: THREE.Mesh[];
+  readonly guard: THREE.Mesh;
   readonly grip: THREE.Mesh;
   readonly pommel: THREE.Mesh;
 }
@@ -650,6 +678,52 @@ function placeSword(m: SwordMeshes, b: BladeTransform, w: WeaponTuning): void {
   const grip = w.gripLength + GUARD;
   placeInFrame(m.grip, GUARD - grip / 2, 0, [0.016, grip, 0.016]);
   placeInFrame(m.pommel, -w.gripLength, 0, [0.028, 0.028, 0.028]);
+}
+
+/** Where the dagger's guard sits, in front of the sword hand (m). */
+const DAGGER_GUARD = 0.04;
+/** How many boxes make up the curved blade. */
+const DAGGER_SEGMENTS = 5;
+/** How far (m) the blade has bent toward the edge side by its tip: a few cm, so the drawing stays close to the Blade Sweep. */
+const DAGGER_CURVE = 0.03;
+const daggerTilt = new THREE.Quaternion();
+const tiltAxis = new THREE.Vector3(1, 0, 0);
+
+/** The blade's sideways offset (m) at `along` the Weapon: nothing at the guard, `DAGGER_CURVE` at the tip `len`, bending more toward the point. */
+function daggerBend(len: number, along: number): number {
+  const t = Math.min(1, Math.max(0, (along - DAGGER_GUARD) / Math.max(len - DAGGER_GUARD, 0.01)));
+  return DAGGER_CURVE * t * t;
+}
+
+/** The angle (radians) the blade has turned toward the edge side at `along`: the slope of `daggerBend`. */
+function daggerSlope(len: number, along: number): number {
+  const reach = Math.max(len - DAGGER_GUARD, 0.01);
+  const t = Math.min(1, Math.max(0, (along - DAGGER_GUARD) / reach));
+  return Math.atan((2 * DAGGER_CURVE * t) / reach);
+}
+
+/** The blade's width (m) at `along`: broad at the guard, tapering to the point. */
+function daggerWidth(len: number, along: number): number {
+  const t = Math.min(1, Math.max(0, (along - DAGGER_GUARD) / Math.max(len - DAGGER_GUARD, 0.01)));
+  return 0.036 * (1 - 0.85 * t);
+}
+
+/** A dagger: a short blade that curves toward the edge side as it tapers to the tip (`len`), a small guard, a grip and a pommel. */
+function placeDagger(m: DaggerMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  const reach = Math.max(len - DAGGER_GUARD, 0.01);
+  const seg = reach / DAGGER_SEGMENTS;
+  m.blade.forEach((mesh, i) => {
+    const centre = DAGGER_GUARD + seg * (i + 0.5);
+    const last = i === m.blade.length - 1;
+    // Each segment is as wide as the blade at its start; the last one is the point, closing on the tip.
+    placeInFrame(mesh, centre, daggerBend(len, centre), [0.011, seg * 1.12, daggerWidth(len, last ? centre - seg / 2 : centre)]);
+    mesh.quaternion.multiply(daggerTilt.setFromAxisAngle(tiltAxis, daggerSlope(len, centre)));
+  });
+  placeInFrame(m.guard, DAGGER_GUARD, 0, [0.026, 0.02, 0.1]);
+  const grip = w.gripLength + DAGGER_GUARD;
+  placeInFrame(m.grip, DAGGER_GUARD - grip / 2, 0, [0.016, grip, 0.016]);
+  placeInFrame(m.pommel, -w.gripLength, 0, [0.026, 0.026, 0.026]);
 }
 
 function placePolearm(m: PolearmMeshes, b: BladeTransform, w: WeaponTuning): void {

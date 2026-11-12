@@ -17,7 +17,7 @@ export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
 /** One-handed: the off hand follows its Pose Keys. Two-handed: it holds the Off-hand Grip. */
 export type WeaponGrip = (typeof WEAPON_GRIPS)[number];
 
-export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer', 'flail', 'staff'] as const;
+export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer', 'flail', 'staff', 'dagger'] as const;
 /** How the Renderer draws the Weapon. */
 export type WeaponLook = (typeof WEAPON_LOOKS)[number];
 
@@ -35,6 +35,13 @@ export interface OffHandGrip {
 export interface WeaponBlockImpact {
   readonly dealt: number;
   readonly taken: number;
+  /**
+   * The Block Break: a Blocked blow whose Block Impact strength on this Weapon reaches `breakAt` knocks its wielder down
+   * (a Slide of `breakSlide` over `breakSlideTicks`). 0: it never breaks (every Weapon but the Dagger).
+   */
+  readonly breakAt: number;
+  readonly breakSlide: number;
+  readonly breakSlideTicks: number;
 }
 
 /**
@@ -229,10 +236,23 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
   if (shaftDamage < 0 || shaftDamage > 1) throw new TuningDataError(`${at}.shaftDamage must be between 0 and 1, got ${shaftDamage}`);
   if (o.cuts !== undefined && typeof o.cuts !== 'boolean') throw new TuningDataError(`${at}.cuts must be true or false, got ${JSON.stringify(o.cuts)}`);
   const cuts = o.cuts ?? true;
-  let blockImpact: WeaponBlockImpact = { dealt: 1, taken: 1 };
+  let blockImpact: WeaponBlockImpact = { dealt: 1, taken: 1, breakAt: 0, breakSlide: 0, breakSlideTicks: 1 };
   if (o.blockImpact !== undefined) {
-    const b = record(o.blockImpact, `${at}.blockImpact`);
-    blockImpact = { dealt: positiveNumber(b, 'dealt', `${at}.blockImpact`), taken: positiveNumber(b, 'taken', `${at}.blockImpact`) };
+    const where = `${at}.blockImpact`;
+    const b = record(o.blockImpact, where);
+    const nonNegative = (key: string, fallback: number) => {
+      if (b[key] === undefined) return fallback;
+      const v = finiteNumber(b, key, where);
+      if (v < 0) throw new TuningDataError(`${where}.${key} must be >= 0, got ${v}`);
+      return v;
+    };
+    const breakAt = nonNegative('breakAt', 0);
+    const breakSlide = nonNegative('breakSlide', 0);
+    const breakSlideTicks = nonNegative('breakSlideTicks', 1);
+    if (breakAt > 0 && (!Number.isInteger(breakSlideTicks) || breakSlideTicks < 1)) {
+      throw new TuningDataError(`${where}.breakSlideTicks must be an integer >= 1, got ${breakSlideTicks}`);
+    }
+    blockImpact = { dealt: positiveNumber(b, 'dealt', where), taken: positiveNumber(b, 'taken', where), breakAt, breakSlide, breakSlideTicks };
   }
   let heavyBlow = NO_HEAVY_BLOW;
   if (o.heavyBlow !== undefined) {
@@ -336,7 +356,9 @@ export function serializeWeapon(w: WeaponTuning): string {
   Object.assign(out, { head: w.head, shaftDamage: w.shaftDamage });
   // Written only for a Weapon that does not cut, like a missing `heavyBlow`: the cutting default stays out of the file.
   if (!w.cuts) out.cuts = false;
-  out.blockImpact = { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken };
+  // The Block Break fields are written only for a Weapon that has one (the Dagger), so the other Weapon files stay as they are.
+  const { breakAt, breakSlide, breakSlideTicks } = w.blockImpact;
+  out.blockImpact = { dealt: w.blockImpact.dealt, taken: w.blockImpact.taken, ...(breakAt > 0 ? { breakAt, breakSlide, breakSlideTicks } : {}) };
   if (w.heavyBlow.speed > 0) out.heavyBlow = { ...w.heavyBlow };
   out.tempo = { windUp: w.tempo.windUp, release: w.tempo.release, recovery: w.tempo.recovery };
   // Written only for a Weapon that has one (the Flail), so the other Weapon files stay as they are.

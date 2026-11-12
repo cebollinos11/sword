@@ -128,6 +128,13 @@ const WEAPONS: Readonly<Record<string, string>> = {
       path('M21 13 L23 11 L24 14 L27 13 L26 16 L29 18 L26 19.5 L27 23 L24 22 L23 25 L21 22.5 L18 24 L18.5 20.5 L15.5 19 L18.5 17 L18 14 Z', '#7d8590') +
       circle(22.5, 18.5, 3.6, STEEL),
   ),
+  // A short curved blade bending to the point, a small guard across its root, a grip and pommel.
+  Dagger: svg(
+    path('M14 18 Q12 8 22 4 Q20 12 18 18 Z', STEEL) +
+      path('M11 19 L21 19 L21 21 L11 21 Z', '#7d8590') +
+      rect(14.5, 21, 3, 6, BROWN) +
+      circle(16, 28.5, 2, '#7d8590'),
+  ),
   // A long plain pole, slanting, with iron caps on both ends.
   Quarterstaff: svg(path('M24 3 L26 5 L8 29 L6 27 Z', BROWN) + path('M23 2 L27 6 L25.5 7.5 L21.5 3.5 Z', '#7d8590') + path('M9.5 26.5 L5.5 30.5 L4 29 L8 25 Z', '#7d8590')),
   // A long haft with a heavy square head.
