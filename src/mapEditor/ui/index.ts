@@ -40,6 +40,8 @@ import { maxArmySize, type TuningData } from '../../tuning';
 import { saveGlbFile, saveJsonFile } from '../../editor/save';
 import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
+import { delverFloor, describeFloor } from '../../sim/delver';
+import { devDelverFloor } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { compileDraft, MapCompileError, type DraftMap } from '../compile';
 import { draftTuning, type Draft } from '../playtest';
@@ -220,6 +222,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     seed: 1,
     army: 0,
     quickBattles: 4,
+    delverSeed: 1,
+    delverFloor: 1,
     look3d: true,
     mirror: false,
   };
@@ -510,6 +514,22 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addBinding(ui, 'example', { label: 'example', options: Object.fromEntries(Object.keys(examples).map((k) => [k, k])) });
   file.addButton({ title: 'Open example' }).on('click', () => discardOk() && openRaw(examples[ui.example]!(), ui.example));
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
+  // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
+  file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0 });
+  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: 9 });
+  /** Builds and opens Floor `floor` of `seed`. The build takes a few hundred ms, so the status shows first and it runs on the next task. */
+  const openDelverFloor = (seed: number, floor: number) => {
+    say(`Building Floor ${floor} of seed ${seed}…`);
+    setTimeout(() => {
+      try {
+        const f = delverFloor(tuning, seed >>> 0, floor);
+        openRaw(JSON.parse(JSON.stringify(f.source)), describeFloor(f));
+      } catch (e) {
+        say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, 0);
+  };
+  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor));
   file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => void save());
 
   // --- Play-test and the Quick check ---------------------------------------
@@ -1473,6 +1493,14 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   if (!panelShown) layoutViews(ui.view);
   // The material swatches show the textures once they are read (until then, flat colours).
   void loadSwatches().then(() => materialGrid?.refresh());
+  // `?dev=1&delverSeed=S&delverFloor=F`: that Floor opens at once.
+  const asked = devDelverFloor();
+  if (asked) {
+    ui.delverSeed = asked.seed;
+    ui.delverFloor = asked.floor;
+    refreshPane();
+    openDelverFloor(asked.seed, asked.floor);
+  }
 
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();

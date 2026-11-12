@@ -79,3 +79,24 @@ export function devBattlePilot(search: string = location.search, hash: string = 
   if (!devMode(search, hash)) return null;
   return query(search, hash).get('battlePilot') || null;
 }
+
+/** A query parameter that is a whole number from `min` up to 4294967295 (digits only), else null. */
+function whole(params: URLSearchParams, name: string, min: number): number | null {
+  const raw = params.get(name);
+  if (raw === null || !/^\d{1,10}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= min && n <= 4294967295 ? n : null;
+}
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 1): `delverSeed=S&delverFloor=F` asks the Map Editor to open Floor F (from 1) of seed S
+ * (from 0, up to 4294967295) as a generated Delver Floor. Both are needed, as whole numbers in digits; null without `dev=1`
+ * or with either missing or bad.
+ */
+export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number } | null {
+  if (!devMode(search, hash)) return null;
+  const params = query(search, hash);
+  const seed = whole(params, 'delverSeed', 0);
+  const floor = whole(params, 'delverFloor', 1);
+  return seed === null || floor === null ? null : { seed, floor };
+}

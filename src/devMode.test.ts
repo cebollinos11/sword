@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devAutopilotLoot, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devDelverFloor, devMode, devRunRelics, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -99,5 +99,25 @@ describe('devAutopilotLoot: the autopilot takes its loot, only in dev mode', () 
     expect(devAutopilotLoot('?autopilot=1&loot=1', '')).toBeNull();
     expect(devAutopilotLoot('?dev=1&autopilot=1', '')).toBeNull();
     expect(devAutopilotLoot('?dev=1&loot=2', '')).toBeNull();
+  });
+});
+
+describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in dev mode', () => {
+  it('reads the seed and the Floor, in the search or after the route', () => {
+    expect(devDelverFloor('?dev=1&delverSeed=7&delverFloor=1', '')).toEqual({ seed: 7, floor: 1 });
+    expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=0&delverFloor=3')).toEqual({ seed: 0, floor: 3 });
+    expect(devDelverFloor('?delverSeed=4294967295', '#/mapeditor?dev=1&delverFloor=9')).toEqual({ seed: 4294967295, floor: 9 });
+  });
+
+  it('refuses a bad or missing value', () => {
+    for (const bad of ['delverSeed=-1&delverFloor=1', 'delverSeed=1.5&delverFloor=1', 'delverSeed=abc&delverFloor=1', 'delverSeed=4294967296&delverFloor=1',
+      'delverSeed=1&delverFloor=0', 'delverSeed=1&delverFloor=1.5', 'delverSeed=1&delverFloor=x', 'delverSeed=1', 'delverFloor=1', '']) {
+      expect(devDelverFloor(`?dev=1&${bad}`, '')).toBeNull();
+    }
+  });
+
+  it('is null without dev=1', () => {
+    expect(devDelverFloor('?delverSeed=7&delverFloor=1', '')).toBeNull();
+    expect(devDelverFloor('?dev=0&delverSeed=7&delverFloor=1', '')).toBeNull();
   });
 });
