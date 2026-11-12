@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
 import { sizedTuning, weaponByName, type Size, type SkeletonTuning, type TuningData, type WeaponTuning } from '../tuning';
 import { BodyCut } from './bodyCut';
@@ -173,17 +174,22 @@ export class FighterView {
       collar: new THREE.Mesh(cylinder, dark),
     };
     this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
-    const link = new THREE.TorusGeometry(1, 0.28, 4, 8);
-    this.owned.push(link);
+    // Drawn at 240 lines the links are a few pixels each and the ball a dozen across: the chain is one instanced draw and the ball
+    // and its spikes one merged mesh, so a flail is four draws (shaft, cap, chain, ball), not two dozen.
+    const link = new THREE.TorusGeometry(1, 0.28, 4, 6);
+    const spikedBall = spikedBallGeometry();
+    this.owned.push(link, spikedBall);
+    const links = new THREE.InstancedMesh(link, dark, FLAIL_LINKS);
+    // Its bounding sphere is worked out once from where the links first were; they move every frame, so it is never culled.
+    links.frustumCulled = false;
     this.flail = {
       group: new THREE.Group(),
       shaft: new THREE.Mesh(cylinder, wood),
       cap: new THREE.Mesh(cylinder, dark),
-      links: Array.from({ length: FLAIL_LINKS }, () => new THREE.Mesh(link, dark)),
-      ball: new THREE.Mesh(sphere, steel),
-      spikes: FLAIL_SPIKES.map(() => new THREE.Mesh(cone, steel)),
+      links,
+      ball: new THREE.Mesh(spikedBall, steel),
     };
-    this.flail.group.add(this.flail.shaft, this.flail.cap, ...this.flail.links, this.flail.ball, ...this.flail.spikes);
+    this.flail.group.add(this.flail.shaft, this.flail.cap, this.flail.links, this.flail.ball);
     this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.flail.group);
   }
 
@@ -511,16 +517,43 @@ interface FlailMeshes {
   readonly shaft: THREE.Mesh;
   /** The iron cap on the shaft's end, which the chain hangs from. */
   readonly cap: THREE.Mesh;
-  readonly links: readonly THREE.Mesh[];
+  /** One instance per link. */
+  readonly links: THREE.InstancedMesh;
+  /** The ball with its spikes, one mesh (`spikedBallGeometry`). */
   readonly ball: THREE.Mesh;
-  readonly spikes: readonly THREE.Mesh[];
 }
 
-/** A flail ball's spikes, as directions in the Weapon's frame: the six faces and the eight corners. */
+/** A flail ball's spikes, as directions in the ball's frame: the six faces and the eight corners. */
 const FLAIL_SPIKES: readonly (readonly [number, number, number])[] = [
   [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
   ...[-1, 1].flatMap((x) => [-1, 1].flatMap((y) => [-1, 1].map((z) => [x, y, z] as const))),
 ];
+/** The ball's radius, and the bottom of a spike (buried a little in it), as shares of the Head's half (`flailBallRadius`). */
+const BALL_SHARE = 0.6;
+const SPIKE_ROOT = 0.53;
+/** A spike's base radius, as a share of the ball's radius. */
+const SPIKE_WIDTH = 0.32;
+
+/**
+ * The ball and its spikes as one geometry, the Head's half across (scale it by `head / 2`): a low sphere and four-sided spikes, all
+ * that shows of either at 240 lines (the ball a dozen pixels across at most, a spike two to four).
+ */
+function spikedBallGeometry(): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [new THREE.SphereGeometry(BALL_SHARE, 8, 6)];
+  const along = new THREE.Vector3();
+  const turn = new THREE.Quaternion();
+  for (const [x, y, z] of FLAIL_SPIKES) {
+    along.set(x, y, z).normalize();
+    const spike = new THREE.ConeGeometry(BALL_SHARE * SPIKE_WIDTH, 1 - SPIKE_ROOT, 4);
+    turn.setFromUnitVectors(UP, along);
+    spike.applyQuaternion(turn).translate(along.x * ((1 + SPIKE_ROOT) / 2), along.y * ((1 + SPIKE_ROOT) / 2), along.z * ((1 + SPIKE_ROOT) / 2));
+    parts.push(spike);
+  }
+  const merged = mergeGeometries(parts.map((g) => g.toNonIndexed()));
+  for (const g of parts) g.dispose();
+  if (!merged) throw new Error('Could not merge the flail ball');
+  return merged;
+}
 
 const tmpA = new THREE.Vector3();
 const tmpB = new THREE.Vector3();
@@ -619,10 +652,12 @@ function placeHammer(m: HammerMeshes, b: BladeTransform, w: WeaponTuning): void 
 }
 
 const linkTurn = new THREE.Quaternion();
-const spikeDir = new THREE.Vector3();
+const linkOrientation = new THREE.Quaternion();
+const linkPosition = new THREE.Vector3();
+const linkScale = new THREE.Vector3();
+const linkMatrix = new THREE.Matrix4();
 const chainDir = new THREE.Vector3();
 const ballTurn = new THREE.Quaternion();
-const ballOrientation = new THREE.Quaternion();
 
 /**
  * A flail: the shaft from the butt to `length - chain - head` along the Weapon, an iron cap on its end, and the chain and ball from there
@@ -641,7 +676,8 @@ function placeFlail(m: FlailMeshes, b: BladeTransform, w: WeaponTuning, chain?: 
   const drawn = chain ?? { ball: rigidBall(b, w), links: chainLinks(from, rigidBall(b, w), w, reach) };
   // The links from the cap to the ball, each along the chain where it is and turned a quarter from the last, so they read as interlocked.
   const size = Math.max(linkSpacing(reach, w).size, 0.005);
-  m.links.forEach((link, k) => {
+  linkScale.set(size * 0.45, size, size * 0.45);
+  for (let k = 0; k < FLAIL_LINKS; k++) {
     const at = drawn.links[k]!;
     const before = k === 0 ? from : drawn.links[k - 1]!;
     const after = k === drawn.links.length - 1 ? drawn.ball : drawn.links[k + 1]!;
@@ -649,31 +685,22 @@ function placeFlail(m: FlailMeshes, b: BladeTransform, w: WeaponTuning, chain?: 
     if (chainDir.lengthSq() < 1e-12) chainDir.copy(yAxis);
     chainDir.normalize();
     // A torus lies in its own xy plane: stand it along the chain, then a quarter turn every other link.
-    link.quaternion.setFromUnitVectors(yAxis, chainDir).multiply(orientation);
+    linkOrientation.setFromUnitVectors(yAxis, chainDir).multiply(orientation);
     linkTurn.setFromAxisAngle(chainDir, k % 2 === 0 ? 0 : Math.PI / 2);
-    link.quaternion.premultiply(linkTurn);
-    link.position.set(at.x, at.y, at.z);
-    link.scale.set(size * 0.45, size, size * 0.45);
-  });
-  // The ball, turned with the chain's last stretch (so its spikes and blood ride round with it).
+    linkOrientation.premultiply(linkTurn);
+    linkPosition.set(at.x, at.y, at.z);
+    m.links.setMatrixAt(k, linkMatrix.compose(linkPosition, linkOrientation, linkScale));
+  }
+  m.links.instanceMatrix.needsUpdate = true;
+  // The ball and its spikes, turned with the chain's last stretch (so they and its blood ride round with it).
   const last = drawn.links[drawn.links.length - 1] ?? from;
   chainDir.set(drawn.ball.x - last.x, drawn.ball.y - last.y, drawn.ball.z - last.z);
   if (chainDir.lengthSq() < 1e-12) chainDir.copy(yAxis);
   chainDir.normalize();
   ballTurn.setFromUnitVectors(yAxis, chainDir);
-  ballOrientation.copy(ballTurn).multiply(orientation);
-  m.ball.quaternion.copy(ballOrientation);
+  m.ball.quaternion.copy(ballTurn).multiply(orientation);
   m.ball.position.set(drawn.ball.x, drawn.ball.y, drawn.ball.z);
-  m.ball.scale.set(r, r, r);
-  const spike = w.head / 2 - r;
-  m.spikes.forEach((mesh, k) => {
-    const [x, y, z] = FLAIL_SPIKES[k]!;
-    // From the ball's surface outward: the ball's frame to world.
-    spikeDir.set(x, y, z).normalize().applyQuaternion(ballOrientation);
-    mesh.position.set(drawn.ball.x, drawn.ball.y, drawn.ball.z).addScaledVector(spikeDir, r + spike / 2 - 0.004);
-    mesh.quaternion.setFromUnitVectors(UP, spikeDir);
-    mesh.scale.set(r * 0.32, spike + 0.008, r * 0.32);
-  });
+  m.ball.scale.setScalar(r / BALL_SHARE);
 }
 
 /** Interpolate two solved poses (render-only smoothing between Ticks). */
