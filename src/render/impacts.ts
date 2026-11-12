@@ -94,6 +94,9 @@ export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighter
     } else if (e.type === 'KickLanded') {
       const point = feet(e.defender);
       if (point) puffs.push({ kind: 'Shove', point, strength: 0.6 });
+    } else if (e.type === 'ChainKnockdown') {
+      const point = feet(e.fighter);
+      if (point) puffs.push({ kind: 'Shove', point, strength: 0.6 });
     }
   }
   if (tick % SCUFF_EVERY === 0) {

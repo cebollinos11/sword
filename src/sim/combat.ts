@@ -308,7 +308,7 @@ export function resolveDaggers(
     const hurt = out[c.defender]!;
     const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
     healOnKill(out, d.owner, hurt.hp, wounded.hp);
-    out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
+    out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, d.owner, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
   }
   return { fighters: out, spent };
 }
@@ -379,14 +379,17 @@ function pushInAir(f: FighterState, dx: number, dz: number, distance: number, ti
  * and pushed along (dx, dz) as hard as a Kick's Knockdown pushes. Null when it is on the ground or took no damage (a teammate's
  * Hit), so the Hit Staggers as usual.
  */
-function hitInAir(wounded: FighterState, damage: number, dx: number, dz: number, tuning: TuningData): FighterState | null {
+function hitInAir(wounded: FighterState, damage: number, dx: number, dz: number, by: number, tuning: TuningData): FighterState | null {
   if (!wounded.air || damage <= 0) return null;
-  return pushDown(wounded, dx, dz, tuning.kick.knockdownSlide, tuning.kick.knockdownSlideTicks, tuning);
+  return pushDown(wounded, dx, dz, tuning.kick.knockdownSlide, tuning.kick.knockdownSlideTicks, by, tuning);
 }
 
-/** Push `f` along (dx, dz) and knock it down, unless it already is (then it is only pushed again). */
-function pushDown(f: FighterState, dx: number, dz: number, distance: number, ticks: number, tuning: TuningData): FighterState {
-  const pushed = push(f, dx, dz, distance, ticks);
+/**
+ * Push `f` along (dx, dz) and knock it down, unless it already is (then it is only pushed again). Fighter `by` started the push:
+ * while it lasts, `f` knocks down whoever else it runs into (a Chain Knockdown, `resolveChainKnockdowns`).
+ */
+function pushDown(f: FighterState, dx: number, dz: number, distance: number, ticks: number, by: number, tuning: TuningData): FighterState {
+  const pushed = { ...push(f, dx, dz, distance, ticks), knockedBy: by };
   return pushed.action.kind === 'Knockdown' ? pushed : knockDown(pushed, tuning);
 }
 
@@ -448,10 +451,10 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
   healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   if (heavy) {
-    out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, tuning);
+    out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, c.attacker, tuning);
     return;
   }
-  const away = hitInAir(wounded, damage, dx, dz, tuning);
+  const away = hitInAir(wounded, damage, dx, dz, c.attacker, tuning);
   // A Fighter lying down is wounded but not Staggered: it stays down until its Get-up is done.
   // The blow arrives on the defender's side mirrored from the attacker's (a Left swing lands on its right).
   out[c.defender] = away ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit, mirrorDirection(direction)));
@@ -496,9 +499,56 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   healOnKill(out, c.attacker, hurt.hp, wounded.hp);
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
+  // A Shove's short push knocks nobody else down: a Fighter lying down and Shoved stops carrying any chain it was in.
   if (!knocked) {
-    out[c.defender] = wounded;
+    const { knockedBy: _chain, ...shoved } = wounded;
+    out[c.defender] = shoved;
     return;
   }
-  out[c.defender] = knockDown(wounded, tuning);
+  out[c.defender] = knockDown({ ...wounded, knockedBy: c.attacker }, tuning);
+}
+
+/** How much further apart than touching (m) two bodies may stand and still count as meeting for a Chain Knockdown: body collision leaves them just touching. */
+const CHAIN_TOUCH = 0.05;
+
+/**
+ * Chain Knockdowns, after every other contact this Tick: a Fighter in Knockdown that was being pushed this Tick (its Slide, or its flight)
+ * by a Knockdown's blow (`knockedBy`) and meets another body, moving toward it, knocks that Fighter down too, as hard as a Kick's Knockdown:
+ * its damage (by the `mods` of the Fighter whose blow started the chain, and none to that Fighter's teammates) and its long Slide (in the
+ * air, as much speed added to its flight), away from the body that struck it. The Fighter knocked down carries the chain on in turn, so
+ * a chain runs through a crowd like dominoes; it never knocks down the Fighter that started it, nor anyone already down. Bodies meet as
+ * body collision sees them (heights overlapping, the circles touching). Carriers are judged against this Tick's Fighters in index order,
+ * so the outcome never depends on anything but the state.
+ */
+export function resolveChainKnockdowns(before: readonly FighterState[], fighters: readonly FighterState[], standard: TuningData, emit: Emit): FighterState[] {
+  const out = fighters.slice();
+  fighters.forEach((carrier, i) => {
+    const source = carrier.knockedBy;
+    const was = before[i]!;
+    if (source === undefined || !inDuel(carrier) || carrier.action.kind !== 'Knockdown') return;
+    const push = was.slide ?? was.air;
+    if (!push || (push.vx === 0 && push.vz === 0)) return;
+    const own = sizedTuning(standard, carrier.size).fighter;
+    for (let j = 0; j < out.length; j++) {
+      const target = out[j]!;
+      if (j === i || j === source || !inDuel(target) || target.action.kind === 'Knockdown') continue;
+      const other = sizedTuning(standard, target.size).fighter;
+      // Bodies at different heights pass over each other, as body collision has it.
+      if (Math.abs(carrier.y - target.y) >= (carrier.y < target.y ? own.height : other.height)) continue;
+      const dx = target.position.x - carrier.position.x;
+      const dz = target.position.z - carrier.position.z;
+      if (Math.hypot(dx, dz) > own.radius + other.radius + CHAIN_TOUCH) continue;
+      // Only a body the push drives into: one beside or behind a sliding body is not struck.
+      if (dx * push.vx + dz * push.vz <= 0) continue;
+      const starter = fighters[source]!;
+      const damage = starter.team === target.team ? 0 : standard.kick.knockdownDamage * modsOf(starter).kickDamage * modsOf(target).damageTaken;
+      const { dx: ax, dz: az } = awayFrom(carrier, target);
+      const point = { x: carrier.position.x + dx / 2, y: target.y + other.height / 2, z: carrier.position.z + dz / 2 };
+      emit({ type: 'ChainKnockdown', fighter: j, by: i, source, point, damage });
+      const wounded = { ...target, hp: Math.max(0, target.hp - damage) };
+      healOnKill(out, source, target.hp, wounded.hp);
+      out[j] = pushDown(wounded, ax, az, standard.kick.knockdownSlide, standard.kick.knockdownSlideTicks, source, standard);
+    }
+  });
+  return out;
 }

@@ -343,6 +343,7 @@ function isFighter(v: unknown): boolean {
     (v.air === undefined || isAirborne(v.air)) &&
     (v.slide === undefined || isSlide(v.slide)) &&
     (v.slow === undefined || isSlow(v.slow)) &&
+    (v.knockedBy === undefined || isTick(v.knockedBy)) &&
     isNum(v.facing) &&
     isNum(v.pitch) &&
     isNum(v.crouch) &&

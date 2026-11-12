@@ -214,7 +214,7 @@ function charge(ticks: number, seed = 2): { states: MatchState[]; memories: unkn
   return { states, memories };
 }
 
-const HURTS = new Set<SimEvent['type']>(['Hit', 'KickLanded', 'DaggerHit', 'Land']);
+const HURTS = new Set<SimEvent['type']>(['Hit', 'KickLanded', 'ChainKnockdown', 'DaggerHit', 'Land']);
 
 describe('a Player fighting in a Battle', () => {
   const ticks = 1500;
@@ -236,6 +236,8 @@ describe('a Player fighting in a Battle', () => {
         const was = before.fighters[i]!;
         // The same Fighter on both Ticks (not a slot rebound in between).
         if (f.soldier?.since !== was.soldier?.since || f.soldier?.index !== was.soldier?.index || f.benched || was.benched) return;
+        // A fallen Player comes back by taking a Soldier over, at `takeover.hp`: a new body, not a heal.
+        if (was.death) return;
         if (f.hp < was.hp) expect(after.events.some((e) => HURTS.has(e.type) && ('defender' in e ? e.defender === i : 'fighter' in e && e.fighter === i)), `Tick ${after.tick}, slot ${i}`).toBe(true);
         else expect(f.hp, `Tick ${after.tick}, slot ${i}`).toBe(was.hp);
       });

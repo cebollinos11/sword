@@ -66,6 +66,21 @@ export interface KickLandedEvent {
   readonly damage: number;
 }
 
+/**
+ * A Chain Knockdown: Fighter `by`, knocked down and still pushed (its Slide, or its flight), ran into Fighter `fighter` and knocked it
+ * down too, as hard as a Kick's Knockdown. `source` is the Fighter whose blow started the chain (it is never knocked down by its own chain);
+ * the damage is a Kick's Knockdown's, by `source`'s mods, and none to `source`'s teammates.
+ */
+export interface ChainKnockdownEvent {
+  readonly type: 'ChainKnockdown';
+  readonly fighter: number;
+  readonly by: number;
+  readonly source: number;
+  /** World-space point where the two bodies met (between them, at the height of the struck Fighter's waist). */
+  readonly point: Vec3;
+  readonly damage: number;
+}
+
 /** A Throw entered Release: the dagger left the thrower's hand and its count dropped by one. */
 export interface DaggerThrownEvent {
   readonly type: 'DaggerThrown';
@@ -206,7 +221,7 @@ export interface DuelEndEvent {
  * Everything observable that happened during one Tick, in order. Add new
  * members to this union; consumers switch on `type`.
  */
-export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | SheathedEvent | DrawnEvent | DuelEndEvent;
+export type SimEvent = AttackPhaseEvent | KickPhaseEvent | KnockdownPhaseEvent | DeathEvent | HitEvent | KickLandedEvent | ChainKnockdownEvent | DaggerThrownEvent | DaggerStuckEvent | DaggerHitEvent | DaggerBlockedEvent | BlockEvent | WallStrikeEvent | ChamberEvent | StaggerEvent | FeintEvent | StepEvent | JumpEvent | LandEvent | SheathedEvent | DrawnEvent | DuelEndEvent;
 
 /** Collects the events of one Tick. */
 export type Emit = (event: SimEvent) => void;
