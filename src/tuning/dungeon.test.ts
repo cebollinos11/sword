@@ -21,7 +21,7 @@ const fight = (enemies: unknown[]) => withFloor({ encounters: { ...raw().floors[
 
 describe('Dungeon Tuning Data (data/dungeon.json)', () => {
   it('leftOutWeapons: Weapons of the roster a Run never picks or drops (absent: none); refuses an unknown name, or leaving out every Weapon', () => {
-    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail']);
+    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail', 'Quarterstaff']);
     const { leftOutWeapons: _left, ...without } = raw();
     expect(parse(without).leftOutWeapons).toEqual([]);
     expect(() => parse({ ...raw(), leftOutWeapons: ['Spoon'] })).toThrow(/^dungeon\.leftOutWeapons\[0\]: unknown Weapon "Spoon"/);

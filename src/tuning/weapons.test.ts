@@ -32,13 +32,15 @@ const halberd = (patch: Record<string, unknown>) => ({ ...tuning.weapons.Halberd
 
 describe('Weapon roster', () => {
   it('loads every Weapon from data/weapons/, the Arming Sword first (the default)', () => {
-    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Flail', 'Halberd', 'Longsword', 'Sledge Hammer']);
+    expect(Object.keys(tuning.weapons)).toEqual(['Arming Sword', 'Flail', 'Halberd', 'Longsword', 'Quarterstaff', 'Sledge Hammer']);
     expect(defaultWeaponName(tuning)).toBe('Arming Sword');
     expect(tuning.weapons['Arming Sword']).toMatchObject({ grip: 'oneHanded', length: 0.9, damage: 30, speed: 25, gripLength: 0.12, head: 0.9, look: 'sword' });
     expect(tuning.weapons['Arming Sword']!.offHandGrip).toBeUndefined();
     expect(tuning.weapons.Longsword).toMatchObject({ grip: 'twoHanded', length: 1, damage: 40, speed: 22, gripLength: 0.28, offHandGrip: { along: 0.14 } });
     expect(tuning.weapons.Halberd).toMatchObject({ grip: 'twoHanded', length: 1.5, gripLength: 0.8, offHandGrip: { along: 0.45 }, head: 0.35, shaftDamage: 0.3, look: 'polearm' });
     expect(tuning.weapons['Sledge Hammer']).toMatchObject({ grip: 'twoHanded', look: 'hammer', heavyBlow: { speed: 1.15 } });
+    expect(tuning.weapons.Quarterstaff).toMatchObject({ grip: 'twoHanded', length: 1.5, head: 1.5, damage: 35, look: 'staff', cuts: false, heavyBlow: { speed: 0.7 } });
+    expect(tuning.weapons.Quarterstaff!.tempo).toEqual(tuning.weapons.Halberd!.tempo);
   });
 
   it('the Flail Attacks Overhead, Left and Right, writes them to its file and reads them back; the others list none', () => {
@@ -102,8 +104,8 @@ describe('Weapon roster', () => {
     expect(parseWeapon(JSON.parse(serializeWeapon(w)))).toEqual(w);
   });
 
-  it('every Weapon cuts but the Sledge Hammer, which writes `cuts: false` to its file and reads it back', () => {
-    expect(Object.values(tuning.weapons).filter((w) => !w.cuts).map((w) => w.name)).toEqual(['Sledge Hammer']);
+  it('every Weapon cuts but the Quarterstaff and the Sledge Hammer, which write `cuts: false` to its file and reads it back', () => {
+    expect(Object.values(tuning.weapons).filter((w) => !w.cuts).map((w) => w.name)).toEqual(['Quarterstaff', 'Sledge Hammer']);
     const hammer = tuning.weapons['Sledge Hammer']!;
     expect(JSON.parse(serializeWeapon(hammer)).cuts).toBe(false);
     expect(JSON.parse(serializeWeapon(tuning.weapons.Halberd!)).cuts).toBeUndefined();
