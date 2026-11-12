@@ -78,6 +78,7 @@ export class FighterView {
   private readonly sword: SwordMeshes;
   private readonly polearm: PolearmMeshes;
   private readonly hammer: HammerMeshes;
+  private readonly staff: StaffMeshes;
   private readonly flail: FlailMeshes;
   /** Blood on the Weapon (`setBlood`): one mesh per mark, made as needed, sharing `bloodMaterial`. */
   private readonly bloodMeshes: THREE.Mesh[] = [];
@@ -174,6 +175,13 @@ export class FighterView {
       collar: new THREE.Mesh(cylinder, dark),
     };
     this.hammer.group.add(this.hammer.shaft, this.hammer.head, this.hammer.collar);
+    this.staff = {
+      group: new THREE.Group(),
+      shaft: new THREE.Mesh(cylinder, wood),
+      buttCap: new THREE.Mesh(cylinder, dark),
+      tipCap: new THREE.Mesh(cylinder, dark),
+    };
+    this.staff.group.add(this.staff.shaft, this.staff.buttCap, this.staff.tipCap);
     // Drawn at 240 lines the links are a few pixels each and the ball a dozen across: the chain is one instanced draw and the ball
     // and its spikes one merged mesh, so a flail is four draws (shaft, cap, chain, ball), not two dozen.
     const link = new THREE.TorusGeometry(1, 0.28, 4, 6);
@@ -190,7 +198,7 @@ export class FighterView {
       ball: new THREE.Mesh(spikedBall, steel),
     };
     this.flail.group.add(this.flail.shaft, this.flail.cap, this.flail.links, this.flail.ball);
-    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.flail.group);
+    this.root.add(this.sword.group, this.polearm.group, this.hammer.group, this.staff.group, this.flail.group);
   }
 
   /** Free what this view made: the primitives' geometries and materials, a loaded model's own materials (its geometry and textures are the shared template's), and its pieces. */
@@ -270,9 +278,11 @@ export class FighterView {
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';
     this.hammer.group.visible = weapon.look === 'hammer';
+    this.staff.group.visible = weapon.look === 'staff';
     this.flail.group.visible = weapon.look === 'flail';
     if (weapon.look === 'polearm') placePolearm(this.polearm, pose.blade, weapon);
     else if (weapon.look === 'hammer') placeHammer(this.hammer, pose.blade, weapon);
+    else if (weapon.look === 'staff') placeStaff(this.staff, pose.blade, weapon);
     else if (weapon.look === 'flail') placeFlail(this.flail, pose.blade, weapon, (pose as DrawnPose).flail);
     else placeSword(this.sword, pose.blade, weapon);
     this.placeBlood(pose.blade, weapon, (pose as DrawnPose).flail);
@@ -381,6 +391,11 @@ export class FighterView {
             mesh.quaternion.premultiply(ballTurn);
           }
         }
+      } else if (w.look === 'staff') {
+        // A smear round the shaft where it struck.
+        const l = Math.min(len + w.gripLength, markLength(m));
+        mesh.geometry = this.shapes.box;
+        placeInFrame(mesh, clampCentre(at, -w.gripLength, len, l), 0, [0.026 * proud * flipX, l * flipY, 0.026 * proud]);
       } else if (w.look === 'hammer') {
         const head = Math.max(w.head, 0.05);
         const l = head * (0.45 + 0.55 * m.strength);
@@ -503,6 +518,14 @@ interface PolearmMeshes {
   readonly axe: THREE.Mesh;
   readonly hook: THREE.Mesh;
   readonly spike: THREE.Mesh;
+}
+
+interface StaffMeshes {
+  readonly group: THREE.Group;
+  readonly shaft: THREE.Mesh;
+  /** The iron caps on the butt and on the tip. */
+  readonly buttCap: THREE.Mesh;
+  readonly tipCap: THREE.Mesh;
 }
 
 interface HammerMeshes {
@@ -640,6 +663,15 @@ function placePolearm(m: PolearmMeshes, b: BladeTransform, w: WeaponTuning): voi
   const at = len - spike - axe / 2;
   placeInFrame(m.axe, at, 0.09, [0.01, axe, 0.16]);
   placeInFrame(m.hook, at, -0.06, [0.01, 0.04, 0.12]);
+}
+
+/** A quarterstaff: one wooden shaft from the butt to the tip, a little thicker than the polearm's, with an iron cap on each end. */
+function placeStaff(m: StaffMeshes, b: BladeTransform, w: WeaponTuning): void {
+  const len = weaponFrame(b);
+  const cap = 0.06;
+  placeInFrame(m.shaft, (len - w.gripLength) / 2, 0, [0.022, len + w.gripLength, 0.022]);
+  placeInFrame(m.buttCap, -w.gripLength + cap / 2, 0, [0.027, cap, 0.027]);
+  placeInFrame(m.tipCap, len - cap / 2, 0, [0.027, cap, 0.027]);
 }
 
 function placeHammer(m: HammerMeshes, b: BladeTransform, w: WeaponTuning): void {

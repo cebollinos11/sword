@@ -17,7 +17,7 @@ export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
 /** One-handed: the off hand follows its Pose Keys. Two-handed: it holds the Off-hand Grip. */
 export type WeaponGrip = (typeof WEAPON_GRIPS)[number];
 
-export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer', 'flail'] as const;
+export const WEAPON_LOOKS = ['sword', 'polearm', 'hammer', 'flail', 'staff'] as const;
 /** How the Renderer draws the Weapon. */
 export type WeaponLook = (typeof WEAPON_LOOKS)[number];
 
