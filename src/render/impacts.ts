@@ -83,11 +83,8 @@ export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighter
       const vx = f.air?.vx ?? 0;
       const vz = f.air?.vz ?? 0;
       const run = Math.hypot(vx, vz);
-      puffs.push(
-        run > 0.1
-          ? { kind: 'Jump', point, strength: Math.min(1, 0.6 + run / 10), kick: { x: -vx * JUMP_KICK, z: -vz * JUMP_KICK } }
-          : { kind: 'Jump', point, strength: 0.6 },
-      );
+      // As big as a Knockdown's puff.
+      puffs.push(run > 0.1 ? { kind: 'Jump', point, strength: 1, kick: { x: -vx * JUMP_KICK, z: -vz * JUMP_KICK } } : { kind: 'Jump', point, strength: 1 });
     } else if (e.type === 'Land') {
       const point = feet(e.fighter);
       if (point) puffs.push({ kind: 'Land', point, strength: Math.min(1, 0.3 + e.height / DUST_FULL_DROP) });
@@ -178,7 +175,7 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
 const DUST_COLOURS = [0xcdbb9c, 0xb8aa92, 0xa89f90];
 
 const DUST_LOOKS: Record<DustPuff['kind'], { count: number; speed: number; radius: number; life: number }> = {
-  Jump: { count: 12, speed: 1.5, radius: 0.2, life: 0.6 },
+  Jump: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Land: { count: 9, speed: 1.6, radius: 0.22, life: 0.65 },
   Down: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Shove: { count: 7, speed: 1.4, radius: 0.2, life: 0.6 },
