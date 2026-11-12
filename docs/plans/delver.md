@@ -1,9 +1,9 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user; nothing built. Stage 0 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
-- [ ] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
+- [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
 - [ ] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
 - [ ] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
 - [ ] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
@@ -131,6 +131,61 @@ export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): 
 - **Floor ready**: within `dungeon.hallFadeSeconds` (1 s) is a go as planned. Within 3 s is a go with a loading banner, and the next Floor built during play (as `warmArena` does). Over 3 s is a no-go for 20-room Floors until the slow part is made cheaper.
 - **Tick**: T2's mean must be within the 8 ms Tick budget (`battleSoak`) and its p99 within 25 ms, or 20-room Floors with Warbands are a no-go. Whether online Runs take an Input Delay follows from how T1 and T2 compare with a Battle's Tick, which needed one (about 2 ms with a dozen bound, ADR 0025).
 - **Doorways**: if room-centre fields do not all reach room 0 at flowCell 4, Stage 1 must use a finer field for Floors (or wider doorways), and the cost at flowCell 2 is the one that counts.
+
+### Result
+Done 2026-11-12. **Go** on 20-room Floors with Warbands, and ADR 0028 is written. Online Runs should take an Input Delay (Stage 7). Stage 1 must make every Passage visible to the destination fields.
+
+**What was built** (no game feature):
+- **`distanceTo`** (`src/sim/destinations.ts`): a destination field to any point. It is equal, entry for entry, to the field `destinationFields` builds for an Objective standing there. Both now build their fields through one shared helper per kind of map: `backward` for maps of several levels, whose backward joins are cached per `FieldLevels`, and `levelField` for one-level maps. So the two cannot drift, and the existing fields are bit-identical (every existing test and hash unchanged). On an Enclosure map the caller passes the floor's Walk Surface, since −1 means the roof.
+- **The spike Floor** (`src/mapEditor/delverSpike.testdata.ts`), exactly as the Design describes. It is 87 Walk Surfaces (a floor and a roof for each of 43 Enclosures, plus the abyss) and 222 Walls, and it is `layered` because of the roofs.
+- **Its measurements** (`src/mapEditor/delverSpike.slow.test.ts`, 6 slow tests, about 15 s alone).
+
+**Changed from the Design:**
+- **The armies' placement.** The first run put Team 1 far from the Player. The Battle autopilot then stuck on room 0's wall 6.5 m from its doorway, and in 6,000 Ticks no Soldier was promoted, so T1 and T2 measured no Bubble. The Design now starts Team 1 in rooms 1, 2, 5 and 6 and the Player 5 m from room 1's centre.
+- **The doorway check.** The Design's check (does every room's field reach room 0) cannot see a cut passage, since the spanning tree joins everything anyway. The code review caught this. The check now counts the Passages a field follows: room a's field read at room b's exact centre node must be within 1.5 × the 30 m between their centres.
+- **Smaller review fixes:** `walkCheck` is timed cold, `relocate` also moves the Player's `blade` and `kickLeg`, there is no double build, and a warning is printed if a Battle ends early (none did).
+
+**Measured**: the test container, 4 cores, run alone. Timings are medians of 5, ms. This machine runs `battleSoak.slow.test.ts` at **0.79 ms a Tick** (p99 2.85 ms), against 1.78 ms on `big-battle.md`'s Stage 0 laptop. Taking it as 2.25× faster than that laptop, plus the laptop's 1.3× margin to a mid-range one, the **laptop-equivalent figures are ×3**. The code has changed since that laptop run, so the ratio is approximate, and it is meant to err slow.
+
+| Build (flowCell 4) | here | ×3 |
+|---|---|---|
+| `compileMap` (parse and walk check) | 26 to 34 | ~90 |
+| `walkCheck` alone, cold | 5 to 6 | ~18 |
+| `battlefieldOf` | 13 to 22 | ~45 |
+| `destinationFields` (12 fields, 3,429 nodes) | 49 to 80 | ~180 |
+| `distanceTo` × 20 posts | 1.1 to 1.4 (0.06 each) | ~4 |
+| moving `distanceTo` × 100 | 0.05 mean, max 0.5 to 2.7 | ~0.15 |
+| `navMesh` (87 polygons, 184 links) | 21 to 28 | ~75 |
+| **Floor ready** | **110 to 153** | **~0.33 to 0.46 s** |
+
+- **Doorways.** At flowCell 4, 20 of 20 rooms reach room 0, but only **21 of 23 Passages are followed**. pass20 (room 6 to 11) and pass22 (room 13 to 18) are vertical Passages at x = ±30, and no 4 m cell centre falls inside them, so the field goes round by 209 m and 87 m. At **flowCell 2 all 23 are followed**: 13,531 nodes, `destinationFields` 172 to 210 ms, 0.29 to 0.42 ms a `distanceTo`. The whole Floor is then about 240 ms here, about **0.7 s laptop-equivalent**. Either way it fits the 1 s fade (`dungeon.hallFadeSeconds`).
+- **Ticks** (6,000 each, seed 1, 100 Soldiers, the Player on a Hard autopilot, ms):
+
+| Scenario | mean | p99 | max | most bound | mean at 12–15 bound |
+|---|---|---|---|---|---|
+| T0 open field, default slots | 0.69 to 0.94 | 2.3 to 3.5 | 10 to 22 | 12 | 0.89 to 1.12 (83 Ticks) |
+| T1 Floor, default slots | 0.28 to 0.38 | 1.3 to 1.9 | 12 to 15 | 4 | (at 4–7: 0.59 to 0.79, 1,713 Ticks) |
+| T2 Floor, full Pool (12 + 3) | 0.31 to 0.41 | 1.7 to 2.7 | 10 to 12 | 12 | 0.92 to 1.24 (1,300 Ticks) |
+
+  At most 1 Tick per scenario was over 8 ms and none was over a frame. The T1 replay hashes match. On the Floor the Player fell once and 43 of Team 1's 50 lived; the Battles did not end.
+- **Verdicts.**
+  - **Floor ready**: ~0.5 s (0.7 s at a 2 m cell) laptop-equivalent, within the fade, so a go as planned.
+  - **Tick**: T2's full Pool is ~2.8 ms mean and ~5 to 8 ms p99 laptop-equivalent, against 8 and 25. A go.
+  - **Input Delay**: a full Bubble on a Floor costs what it does on the open field. A Battle Tick of that size needed Input Delay online (ADR 0025), so Stage 7 starts online Runs at `BATTLE_INPUT_DELAY` and measures four Players.
+  - **Doorways**: Stage 1 must keep every Passage's centre line on a field cell centre (multiples of `flowCell`), or build Floors at a 2 m cell (a `delver.flowCell` of its own, since `crowd.flowCell` is the Battles'). The generator's Design chooses.
+
+**Tests**: `src/sim/distanceTo.test.ts` (5 fast):
+- it equals the Objective and Base fields on the open field and on the Fort;
+- it is fresh on each call;
+- a point no node stands on gives all −1;
+- it reaches through an Enclosure's doorway.
+
+No shipped map is one level with blocks, so the one-level blocks branch is covered only by sharing `levelField` with `destinationFields`. `src/mapEditor/delverSpike.slow.test.ts` (6 slow): parse and twice-compile to the same `mapFileText`, the build, doorways, T0, T1 with its replay, and T2. `npm run typecheck` is clean. `npm test`: **2393 passed, 5 skipped** (2388 before). The slow file passes alone.
+
+**To watch next**:
+- The Battle autopilot stuck on a wall by a doorway. The navmesh AI (AI allies, promoted enemies) needs watching at Enclosure doorways from Stage 2.
+- 3 m doorways against Formations (`squad.narrow`). The spike's Squads did walk the Passages, but nobody looked at how.
+- A playtest has nothing new to try yet.
 
 ### Stage 1: the Floor generator
 **Model**: Opus (layout and geometry).

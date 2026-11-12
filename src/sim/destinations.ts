@@ -172,6 +172,16 @@ function fillBlocked(field: Float64Array, side: number, cell: number, blocked: U
 }
 
 /**
+ * The field to cell `start` on a map of one level: `fill`, then `fillBlocked` when the map has blocks. `destinationFields` (per place) and
+ * `distanceTo` both build their one-level fields here, so the two cannot drift.
+ */
+function levelField(side: number, cell: number, blocked: Uint8Array, hasBlocks: boolean, start: number): Float64Array {
+  const out = fill(side, cell, blocked, start);
+  if (hasBlocks) fillBlocked(out, side, cell, blocked);
+  return out;
+}
+
+/**
  * The destination fields of `field`, built once and kept with it (so a Rollback, which re-simulates against the same map, never rebuilds them).
  * A cell is blocked when its centre lies inside one of the map's solid blocks (none on the open field).
  */
@@ -189,8 +199,7 @@ export function destinationFields(battle: BattleTuning, field: Battlefield): Des
   const mid = (side - 1) / 2;
   if (field.blocks.length > 0) for (let c = 0; c < side * side; c++) blocked[c] = inBlock(field, ((c % side) - mid) * cell, (Math.floor(c / side) - mid) * cell) ? 1 : 0;
   const places = [...field.objectives, ...field.bases];
-  const dist = places.map((p) => fill(side, cell, blocked, cellOf(p.z, cell, side) * side + cellOf(p.x, cell, side)));
-  if (field.blocks.length > 0) for (const d of dist) fillBlocked(d, side, cell, blocked);
+  const dist = places.map((p) => levelField(side, cell, blocked, field.blocks.length > 0, cellOf(p.z, cell, side) * side + cellOf(p.x, cell, side)));
   const clearance = field.blocks.length > 0 ? clearanceOf(field.blocks, side, cell) : null;
   const fields: DestinationFields = { cell, side, blocked, dist, objectives: field.objectives.length, clearance, blocks: field.blocks, margin: battle.squad.spacing, levels: null };
   built.set(field, fields);
@@ -359,12 +368,12 @@ function backward(levels: FieldLevels, cell: number, from: number): Float64Array
  * far from a cell as that. On a map of one level, `s` does not matter and the point's cell is the destination; on a map of several levels the
  * destination is the point's node on its level (`s`), and every entry is -1 where its cell has none there (a point inside a block). Built fresh
  * on every call and never kept (the point moves), so the result is the caller's; only the joins it runs over are, for they are static.
+ * On a map of Enclosures (rooms with roofs) the caller passes the floor's Walk Surface (`groundOf` at the floor's height), since -1
+ * means the cell's highest node, which there is the roof.
  */
 export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): Float64Array {
   if (f.levels) return backward(f.levels, f.cell, nodeAt(f, x, z, s));
-  const field = fill(f.side, f.cell, f.blocked, cellAt(f, x, z));
-  if (f.blocks.length > 0) fillBlocked(field, f.side, f.cell, f.blocked);
-  return field;
+  return levelField(f.side, f.cell, f.blocked, f.blocks.length > 0, cellAt(f, x, z));
 }
 
 /**

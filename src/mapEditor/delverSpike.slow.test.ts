@@ -18,10 +18,10 @@ import {
   createMatch,
   destinationFields,
   distanceTo,
-  fieldDistance,
   groundOf,
   hashValue,
   navMesh,
+  type NavMesh,
   stepMatch,
   TICK_SECONDS,
   walkCheck,
@@ -31,7 +31,7 @@ import {
   type MatchState,
 } from '../sim';
 import { compileMap, mapFileText } from './compile';
-import { delverSpikeSource, SPIKE_ROOMS } from './delverSpike.testdata';
+import { delverSpikeSource, SPIKE_PASSAGES, SPIKE_ROOMS } from './delverSpike.testdata';
 import { parseMapSource } from './source';
 
 const base = loadTuningData();
@@ -81,7 +81,24 @@ function freshField(flowCell?: number) {
 /** Where each room's centre stands (x, z, and its floor's Walk Surface). */
 const centres = (battle: BattleTuning, field: Battlefield) => SPIKE_ROOMS.map((r) => ({ x: r.cx, z: r.cz, s: groundOf(battle, field, r.cx, r.cz, 0) }));
 
-/** The Build timings at `flowCell` (steps 3 to 5), and how many room-centre fields reach room 0's centre. */
+/** The distance (m) at the node of the cell (x, z) lies in, on the level of Walk Surface `s` exactly (-1: no such node; no neighbour's is borrowed). */
+function exactAt(f: DestinationFields, d: Float64Array, x: number, z: number, s: number): number {
+  const mid = (f.side - 1) / 2;
+  const cellOf = (v: number) => Math.min(f.side - 1, Math.max(0, Math.sign(v) * Math.round(Math.abs(v) / f.cell) + mid));
+  const c = cellOf(z) * f.side + cellOf(x);
+  if (!f.levels) return d[c]!;
+  for (let k = f.levels.start[c]!; k < f.levels.start[c + 1]!; k++) if (f.levels.surface[k] === s) return d[k]!;
+  return -1;
+}
+
+/** A passage is followed when the field to one room's centre reaches the other's within this multiple of the straight distance. */
+const FOLLOW = 1.5;
+
+/**
+ * The Build timings at `flowCell` (steps 3 to 5), how many room-centre fields reach room 0's centre, and how many Passages each field
+ * "follows": the field to room a's centre reads at room b's centre (exactly) within 1.5 times the straight distance, so the way between
+ * them is the Passage and not a way round (or none).
+ */
 function buildAt(flowCell: number) {
   const bf = median(() => floorBattle(flowCell), (b) => battlefieldOf(b, ARENA));
   const df = median(
@@ -96,10 +113,22 @@ function buildAt(flowCell: number) {
     (f) => posts.forEach((p) => distanceTo(f, p.x, p.z, p.s)),
   );
   const room0 = posts[0]!;
-  const reach = posts.map((p) => fieldDistance({ ...fields, dist: [distanceTo(fields, p.x, p.z, p.s)] }, 0, room0.x, room0.z, room0.s));
-  const reaching = reach.filter((d) => d >= 0).length;
-  return { bf, df, dt, reaching, reach, nodes: nodeCount(fields), layered: field.layered };
+  const reach = posts.map((p) => exactAt(fields, distanceTo(fields, p.x, p.z, p.s), room0.x, room0.z, room0.s));
+  const unfollowed = SPIKE_PASSAGES.flatMap(([a, b], n) => {
+    const pa = posts[a]!;
+    const pb = posts[b]!;
+    const d = exactAt(fields, distanceTo(fields, pa.x, pa.z, pa.s), pb.x, pb.z, pb.s);
+    return d >= 0 && d <= FOLLOW * Math.hypot(pa.x - pb.x, pa.z - pb.z) ? [] : [`pass${n} (room${a}-room${b}: ${d < 0 ? 'none' : fmt(d) + ' m'})`];
+  });
+  return { bf, df, dt, reach, reaching: reach.filter((d) => d >= 0).length, unfollowed, nodes: nodeCount(fields), layered: field.layered };
 }
+
+/** `buildAt` once per flowCell, shared by the Build and Doorways tests. */
+const built = new Map<number, ReturnType<typeof buildAt>>();
+const buildOnce = (flowCell: number) => {
+  if (!built.has(flowCell)) built.set(flowCell, buildAt(flowCell));
+  return built.get(flowCell)!;
+};
 
 describe('the Delver spike Floor', () => {
   it('parses, compiles twice to the same map file, passes the walk check and has 20 rooms and 23 passages', () => {
@@ -114,9 +143,8 @@ describe('the Delver spike Floor', () => {
 
   it('builds the Floor: compile, walk check, Battlefield, destination fields, a field per room, a moving field, navmesh', () => {
     const compile = median(() => delverSpikeSource(), (s) => compileMap(s, base.battle));
-    const { field } = freshField();
-    const walk = median(() => field.arena, (a) => walkCheck(a, base.battle.levels));
-    const at4 = buildAt(base.battle.crowd.flowCell);
+    const walk = median(() => freshField().field.arena, (a) => walkCheck(a, base.battle.levels));
+    const at4 = buildOnce(base.battle.crowd.flowCell);
     const { battle: b0, field: f0 } = freshField();
     const fields = destinationFields(b0, f0);
     const posts = centres(b0, f0);
@@ -137,7 +165,7 @@ describe('the Delver spike Floor', () => {
     const movingMean = each.reduce((s, v) => s + v, 0) / each.length;
     const movingMax = Math.max(...each);
 
-    let mesh = navMesh(freshField().field.arena, tuningOf(floorBattle()));
+    let mesh: NavMesh | undefined;
     const nav = median(
       () => ({ arena: freshField().field.arena, tuning: tuningOf(floorBattle()) }),
       ({ arena, tuning }) => {
@@ -148,26 +176,27 @@ describe('the Delver spike Floor', () => {
     report([
       `Delver spike Floor, build (median of ${RUNS} after a warm-up, flowCell ${base.battle.crowd.flowCell}):`,
       `  (1) compileMap (parse and walkCheck included)  ${fmt(compile)} ms`,
-      `  (2) walkCheck alone                            ${fmt(walk)} ms`,
+      `  (2) walkCheck alone, cold                      ${fmt(walk)} ms`,
       `  (3) battlefieldOf                              ${fmt(at4.bf)} ms`,
       `  (4) destinationFields (10 Objectives, 2 Bases) ${fmt(at4.df)} ms`,
       `  (5) distanceTo x 20 room centres               ${fmt(at4.dt)} ms (${fmt(at4.dt / 20)} ms per field)`,
       `  (6) distanceTo x ${steps.length} moving (1 m apart)         mean ${fmt(movingMean)} ms, max ${fmt(movingMax)} ms`,
-      `  (7) navMesh                                    ${fmt(nav)} ms (${mesh.out.length} polygons, ${mesh.links.length} links)`,
+      `  (7) navMesh                                    ${fmt(nav)} ms (${mesh!.out.length} polygons, ${mesh!.links.length} links)`,
       `  nodes ${at4.nodes} (layered ${at4.layered}), ${f0.arena.walk.length} Walk Surfaces, ${f0.arena.walls.length} Walls`,
       `  Floor ready (1+3+4+5+7): ${fmt(ready)} ms`,
     ]);
     expect(ready).toBeLessThan(10_000);
   }, 600_000);
 
-  it('measures the doorways: steps 3 to 5 at flowCell 4 and 2, and how many room-centre fields reach room 0', () => {
-    const lines = [`Delver spike Floor, doorways (3 m doorways and passages):`];
-    for (const cell of [4, 2]) {
-      const r = buildAt(cell);
+  it('measures the doorways: steps 3 to 5 at the Battle’s flowCell and 2, which Passages the fields follow, how many room-centre fields reach room 0', () => {
+    const lines = [`Delver spike Floor, doorways (3 m doorways and passages; a Passage is followed when room a's field reads at room b's centre node within ${FOLLOW} x the straight distance):`];
+    for (const cell of [base.battle.crowd.flowCell, 2]) {
+      const r = buildOnce(cell);
       const lost = r.reach.flatMap((d, k) => (d < 0 ? [`room${k}`] : []));
       lines.push(
-        `  flowCell ${cell}: battlefieldOf ${fmt(r.bf)} ms, destinationFields ${fmt(r.df)} ms, 20 distanceTo ${fmt(r.dt)} ms (${fmt(r.dt / 20)} ms each), ${r.nodes} nodes; ` +
-          `${r.reaching} of 20 room-centre fields reach room 0's centre${lost.length ? ` (not: ${lost.join(', ')})` : ''}`,
+        `  flowCell ${cell}: battlefieldOf ${fmt(r.bf)} ms, destinationFields ${fmt(r.df)} ms, 20 distanceTo ${fmt(r.dt)} ms (${fmt(r.dt / 20)} ms each), ${r.nodes} nodes`,
+        `    ${r.reaching} of 20 room-centre fields reach room 0's centre node${lost.length ? ` (not: ${lost.join(', ')})` : ''}`,
+        `    ${SPIKE_PASSAGES.length - r.unfollowed.length} of ${SPIKE_PASSAGES.length} Passages followed${r.unfollowed.length ? `; not followed: ${r.unfollowed.join(', ')}` : ''}`,
       );
     }
     report(lines);
@@ -195,6 +224,7 @@ export function relocate(match: MatchState, tuning: TuningData, field: Battlefie
     surface: [...sq.surface],
   };
   const taken = [0, 0];
+  for (const t of [0, 1]) if (sq.team.filter((q) => q === t).length > rooms[t]!.length) throw new Error(`Team ${t} has more Squads than the ${rooms[t]!.length} rooms relocate has for them`);
   const room = sq.team.map((t) => SPIKE_ROOMS[rooms[t]![taken[t]!++]!]!);
   room.forEach((r, q) => {
     const turn = sq.team[q] === 0 ? 0 : Math.PI;
@@ -234,7 +264,15 @@ export function relocate(match: MatchState, tuning: TuningData, field: Battlefie
       y: 0,
       step: foot.step ? { ...foot.step, target: { x: foot.step.target.x + dx, z: foot.step.target.z + dz }, y: 0 } : null,
     });
-    return { ...f, position: { x: home.cx, z: home.cz }, y: 0, gait: { left: shift(f.gait.left), right: shift(f.gait.right) } };
+    const at3 = (v: { readonly x: number; readonly y: number; readonly z: number }) => ({ ...v, x: v.x + dx, z: v.z + dz });
+    return {
+      ...f,
+      position: { x: home.cx, z: home.cz },
+      y: 0,
+      gait: { left: shift(f.gait.left), right: shift(f.gait.right) },
+      blade: { ...f.blade, hilt: at3(f.blade.hilt), tip: at3(f.blade.tip) },
+      kickLeg: { knee: at3(f.kickLeg.knee), toe: at3(f.kickLeg.toe) },
+    };
   });
   return {
     ...match,
@@ -296,6 +334,7 @@ function describePlay(label: string, p: Played): string[] {
   });
   return [
     `${label}: ${p.costs.length} Ticks in ${p.battles.length} Battle(s) (${p.battles.map((b) => `seed ${b.seed}: ${b.ticks} Ticks, ${b.winner === null ? 'unfinished' : `Team ${b.winner} won`}`).join('; ')})`,
+    ...(p.battles.length > 1 || p.battles[0]!.ticks < TICKS ? [`  WARNING: a Battle ended before ${TICKS} Ticks and the next seed went on (${p.battles.map((b) => b.ticks).join(' + ')}): not like for like`] : []),
     `  Tick mean ${fmt(mean)} ms, p50 ${fmt(sorted[sorted.length >> 1]!)} ms, p99 ${fmt(sorted[Math.floor(sorted.length * 0.99)]!)} ms, max ${fmt(sorted[sorted.length - 1]!)} ms; ` +
       `${p.costs.filter((c) => c > TICK_BUDGET_MS).length} over ${TICK_BUDGET_MS} ms, ${p.costs.filter((c) => c > FRAME_MS).length} over a frame (${fmt(FRAME_MS)} ms)`,
     `  Player's falls (takeovers) at the end: ${p.battles.map((b) => b.taken).join(', ')}; Team 1's living Soldiers at the end: ${p.battles.map((b) => b.foes).join(', ')}`,

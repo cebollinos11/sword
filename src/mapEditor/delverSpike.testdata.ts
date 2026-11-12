@@ -27,10 +27,10 @@ export const SPIKE_ROOMS: readonly { id: string; cx: number; cz: number; rect: R
 });
 
 /**
- * The passages' edges as [a, b] room pairs, in order: the 16 horizontal ones (b = a + 1) row by row, then verticals (b = a + 5): a spanning
- * tree, a serpentine; then four loops.
+ * The passages' edges as [a, b] room pairs, in order: the 16 horizontal ones (b = a + 1) row by row, then verticals (b = a + 5): a
+ * spanning tree, a serpentine; then four loops.
  */
-const EDGES: readonly (readonly [number, number])[] = [
+export const SPIKE_PASSAGES: readonly (readonly [number, number])[] = [
   ...Array.from({ length: ROWS * (COLS - 1) }, (_, n): [number, number] => {
     const a = Math.floor(n / (COLS - 1)) * COLS + (n % (COLS - 1));
     return [a, a + 1];
@@ -47,7 +47,7 @@ const EDGES: readonly (readonly [number, number])[] = [
 /** The Spike Floor's Map Source. */
 export function delverSpikeSource(): MapSource {
   const doors: Doors[] = SPIKE_ROOMS.map(() => ({}));
-  const passages: Brush[] = EDGES.map(([a, b], n) => {
+  const passages: Brush[] = SPIKE_PASSAGES.map(([a, b], n) => {
     const ra = SPIKE_ROOMS[a]!;
     const rb = SPIKE_ROOMS[b]!;
     const horizontal = b === a + 1;
