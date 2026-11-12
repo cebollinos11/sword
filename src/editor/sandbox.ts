@@ -747,6 +747,7 @@ saved ${file} (${result})`),
         if (e.type === 'KnockdownPhase') return `${e.tick} F${e.fighter} Knockdown ${e.phase}`;
         if (e.type === 'Death') return `${e.tick} F${e.fighter} falls (${e.cause})`;
         if (e.type === 'KickLanded') return `${e.tick} Kick ${e.attacker}→${e.defender} ${e.outcome} ${e.zone} −${e.damage.toFixed(1)}`;
+        if (e.type === 'ChainKnockdown') return `${e.tick} Chain F${e.by}→F${e.fighter} Knockdown (from F${e.source}) −${e.damage.toFixed(1)}`;
         if (e.type === 'Block') return `${e.tick} Block ${e.defender} stops ${e.attacker} (${e.direction})`;
         if (e.type === 'WallStrike') return `${e.tick} F${e.attacker}'s ${e.direction} strikes a wall`;
         if (e.type === 'Stagger') return `${e.tick} F${e.fighter} Stagger (${e.cause})`;

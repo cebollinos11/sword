@@ -238,6 +238,12 @@ export interface FighterState {
   readonly gait: GaitState;
   /** Present while a Kick's push is carrying the Fighter along the floor (a Slide); absent otherwise, and while airborne. */
   readonly slide?: Slide;
+  /**
+   * Present while it is in a Knockdown and still being pushed (its Slide, or its flight) by the blow that knocked it down (a Kick's
+   * Knockdown, a Heavy Blow, a Hit in the air, or a Chain Knockdown): the Fighter whose blow started the chain. Any other Fighter but
+   * that one it runs into while pushed is knocked down too (a Chain Knockdown). Absent otherwise, so a state without one hashes as it always did.
+   */
+  readonly knockedBy?: number;
   /** Present while a dagger Hit's Slow lasts; absent once it has run out. A new dagger Hit restarts it at the same strength. */
   readonly slow?: Slow;
   /** Present while a Blocked blow is still shaking the sword hand (Block Impact); absent once it has settled. */

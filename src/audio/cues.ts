@@ -350,6 +350,10 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
         cues.push({ sound: 'Hit', defender: e.defender, zone: e.zone, strength: hitStrength(e.damage), by: 'Kick', at: e.point });
         if (e.outcome === 'Knockdown') cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
+      case 'ChainKnockdown':
+        cues.push({ sound: 'Hit', defender: e.fighter, zone: 'torso', strength: hitStrength(e.damage), by: 'Kick', at: e.point });
+        cues.push({ sound: 'Knockdown', fighter: e.fighter, at: body(e.fighter) });
+        break;
       case 'DaggerThrown':
         cues.push({ sound: 'Throw', fighter: e.thrower, at: body(e.thrower) });
         break;
