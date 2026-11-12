@@ -1,9 +1,11 @@
 /**
  * Probe (not a regression test): what an online Battle costs each peer per frame, on the real clock, as Soldiers are promoted.
  * Full-size armies, the online Battle's Input Delay, internet-ish latency over the star (guests hear each other through the host),
- * and Player Intents whose aim wobbles every Tick as a mouse does, so the others' predictions miss and frames Roll back.
+ * and each Player's autopilot sending its Intents as a human's Local Controller would (`human`): the aim on the FACE_STEPS grid with a
+ * little hand shake, and the walk as WASD keys turned with the aim, so the others' predictions miss and frames Roll back.
  * Opt-in, so CI never runs it: `PROBE=1 npx vitest run --project slow src/net/cpuProbe.slow.test.ts`. Options: PROBE_TEAMS (default 0,1,0),
- * PROBE_TICKS (default 4000), PROBE_DELAY (Input Delay, default BATTLE_INPUT_DELAY), PROBE_PROF=<file> (a CPU profile of the melee).
+ * PROBE_TICKS (default 4000), PROBE_DELAY (Input Delay, default BATTLE_INPUT_DELAY), PROBE_PROF=<file> (a CPU profile of the melee),
+ * PROBE_SHAKE (the aim's shake in radians, default 0.03).
  * The tests freeze every snapshotted state (ADR 0028), which a production build does not: add VITE_SNAPSHOT_FREEZE=0 to time what it costs.
  */
 import { afterEach, expect, it, vi } from 'vitest';
@@ -11,6 +13,7 @@ import { Session } from 'node:inspector';
 import { writeFileSync } from 'node:fs';
 import { loadTuningData } from '../tuning';
 import { createBattlePilot, type Lineup, type PlayerNumber } from '../controllers';
+import { quantisePitch, quantiseYaw, walkDirection } from '../controllers/local';
 import { IDLE_INTENT, inDuel, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
 import { createMemoryTransportPair } from './memoryTransport';
 import { BATTLE_INPUT_DELAY, createRollbackSession } from './session';
@@ -22,6 +25,25 @@ const TEAMS = (process.env.PROBE_TEAMS ?? '0,1,0').split(',').map(Number);
 const TICKS = Number(process.env.PROBE_TICKS ?? 4000);
 const DELAY = Number(process.env.PROBE_DELAY ?? BATTLE_INPUT_DELAY);
 const TICK_MS = 1000 / TICK_RATE;
+/** How much the aim shakes, as a hand on a mouse does (radians; PROBE_SHAKE, default 0.03). */
+const SHAKE = Number(process.env.PROBE_SHAKE ?? 0.03);
+
+/**
+ * The autopilot's Intent as a human's Local Controller would send it: the aim on the FACE_STEPS grid (shaken a little), and the walk
+ * as WASD keys held relative to that aim (\`walkDirection\`), so \`move\` turns with the camera.
+ */
+function human(base: Intent, n: number, k: number): Intent {
+  const face = quantiseYaw(base.face! + Math.sin(n * 0.7 + k) * SHAKE);
+  const len = Math.hypot(base.move.x, base.move.z);
+  let move = base.move;
+  if (len > 0) {
+    const fwd = (base.move.x * Math.sin(face) + base.move.z * Math.cos(face)) / len;
+    const right = (-base.move.x * Math.cos(face) + base.move.z * Math.sin(face)) / len;
+    const key = (v: number) => (v > 0.38 ? 1 : v < -0.38 ? -1 : 0);
+    move = walkDirection(key(fwd), key(right), face);
+  }
+  return { ...base, face, move, ...(base.pitch === undefined ? {} : { pitch: quantisePitch(base.pitch) }) };
+}
 
 const stats = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -70,7 +92,7 @@ it.skipIf(!process.env.PROBE)('probes per-frame CPU in an online Battle', async 
       let intent: Intent = IDLE_INTENT;
       if (st && s.localFighter >= 0 && st.status.status !== 'Over') {
         const base = pilots[k]!.intent(st.duel, s.localFighter);
-        intent = base.face === null ? base : { ...base, face: base.face + Math.sin(n * 0.7 + k) * 0.03 };
+        intent = base.face === null ? base : human(base, n, k);
       }
       const s0 = steps[k]!.ms;
       const n0 = steps[k]!.n;

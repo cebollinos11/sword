@@ -73,12 +73,12 @@ function wrapAngle(a: number): number {
 }
 
 /** Snap a pitch to the FACE_STEPS grid (same reason as `face`). */
-function quantisePitch(pitch: number): number {
+export function quantisePitch(pitch: number): number {
   return (Math.round((pitch * FACE_STEPS) / TURN) * TURN) / FACE_STEPS + 0;
 }
 
 /** Snap a yaw to the FACE_STEPS grid, wrapped into (-pi, pi]. */
-function quantiseYaw(yaw: number): number {
+export function quantiseYaw(yaw: number): number {
   const steps = Math.round((wrapAngle(yaw) * FACE_STEPS) / TURN);
   return wrapAngle((steps * TURN) / FACE_STEPS);
 }
@@ -359,15 +359,18 @@ export class LocalController implements Controller {
 
   /** World-space walk direction for the held WASD keys, relative to the aim `yaw`. */
   private move(yaw: number): { x: number; z: number } {
-    const fwd = Number(this.moving.forward) - Number(this.moving.back);
-    const right = Number(this.moving.right) - Number(this.moving.left);
-    if (fwd === 0 && right === 0) return { x: 0, z: 0 };
-    // forward = (sin f, cos f); right = (-cos f, sin f)
-    const sin = Math.sin(yaw);
-    const cos = Math.cos(yaw);
-    const x = fwd * sin - right * cos;
-    const z = fwd * cos + right * sin;
-    const len = Math.hypot(x, z);
-    return { x: x / len + 0, z: z / len + 0 };
+    return walkDirection(Number(this.moving.forward) - Number(this.moving.back), Number(this.moving.right) - Number(this.moving.left), yaw);
   }
+}
+
+/** The world-space walk direction (unit length, or zero) of WASD keys held relative to the aim `yaw`: `fwd` and `right` each -1, 0 or 1. */
+export function walkDirection(fwd: number, right: number, yaw: number): { x: number; z: number } {
+  if (fwd === 0 && right === 0) return { x: 0, z: 0 };
+  // forward = (sin f, cos f); right = (-cos f, sin f)
+  const sin = Math.sin(yaw);
+  const cos = Math.cos(yaw);
+  const x = fwd * sin - right * cos;
+  const z = fwd * cos + right * sin;
+  const len = Math.hypot(x, z);
+  return { x: x / len + 0, z: z / len + 0 };
 }
