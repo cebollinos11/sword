@@ -446,6 +446,10 @@ _Avoid_: Piece (that is a Kit's), prefab
 The Brush that is a room (`kind: 'enclosure'`): a rectangle of floor at its level, a roof at the next level up (its ceiling; a Walk Surface tagged `roof`, which Soldiers need never reach and a Player can Jump onto), and a Wall on each side from under its floor to its roof. Each side it names in `doors` has a doorway centred along it, as wide as it says, open `DOOR_HEIGHT` (3 m) over the floor with a lintel above; a side it leaves out is solid. Two doorways opposite and the other sides solid make a corridor. Where two Enclosures meet edge to edge one Wall stands (the earlier Brush's), and a doorway in either opens through it. Drawn on the top level it is refused: it has no ceiling.
 _Avoid_: Room (that is the online link), Chamber (that is a combat term), Hall (that is a Dungeon's)
 
+**Passage**:
+A corridor between two Halls of a generated Delver Floor (`docs/plans/delver.md`): an Enclosure 3 m wide (`delver.floor.passage`) running straight from one Hall's side centre to the facing side centre of the next Hall on its row or column of the Floor's lattice, both its ends open and each Hall's doorway on that side as wide. A side of a Hall holds at most one Passage. The spanning tree's Passages join every Hall; a few more (loops) make the cycles patrols walk.
+_Avoid_: corridor (in code), hallway
+
 **Map Compiler**:
 The pure function from a Map Source to an ordinary Battle map (`compileMap`, `src/mapEditor/compile.ts`): it paints the Brushes on the fine grid one level at a time, merges each Brush's floor into rectangles (`WALK_<brush>_<n>`), stands the Walls the generators would (the field's edges, a face wherever the ground beside a floor is higher than a step, owned by the higher Brush, `WALL_<brush>_<side><n>`, each Ramp's rails or skirt, each Enclosure's Walls with their doorways, `WALL_<brush>_<side>d<n>`), and passes the result through the game's own `parseBattleMap` and `walkCheck`, so it never gives a map the game refuses; an error names the Brushes it concerns. The same source always compiles to the same bytes.
 _Avoid_: Exporter, baker

@@ -1,10 +1,10 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
-- [ ] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
+- [x] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
 - [ ] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
 - [ ] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
 - [ ] Stage 4: loot, Treasure Halls and Boss Floors
@@ -295,6 +295,60 @@ Attempts 0, 1, … up to `maxAttempts` (default `delver.floor.maxAttempts`): pla
 - `src/sim/delver/delverGen.slow.test.ts` (slow soak): 500 (seed, Floor) pairs, seed k = `runPick(0x5eed, 0, k, 0, 0x1_0000_0000)`, Floor `1 + k % 9`. Every one passes within `maxAttempts`. It prints the attempts histogram, the failed attempts' reasons by rule, the build time per Floor (compile, fields, judge; mean, p50, p95, max of the passing attempt, and of all attempts summed), a `navMesh` time on 20 of them, and per-kind counts. **It must show it exercised**: every Hall kind on some Floor (Treasure on most), Floors with 1 and with 2 Rests, at least one far Passage, loop Passages, patrol loops, and at least one reroll or else a printed note that none was needed; any of these missing fails the test.
 - `src/devMode.test.ts`: `devDelverFloor` reads both, refuses bad values, and is null without `dev=1`.
 - Existing tests: `src/tuning/hash.test.ts`'s "ignores key order" lists every TuningData key, so it gains `delver: tuning.delver`. No other existing test changes.
+
+### Result
+Done 2026-11-12. Any (Run seed, Floor) now gives a judged, varied, one-level Floor of 22 Halls in about 0.24 s here, and it can be opened in the Map Editor. Nothing in the Simulation's state changed. The Hall graph Run still ships as before.
+
+**What was built** (`src/sim/delver/`, imported from `src/sim/delver/index.ts`, not from `src/sim/index.ts`):
+- **`delver` Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`): `flowCell` 2 and the `floor` block, as the Design gives them. It is hashed with the rest, and `tuningDataHash` also hashes `DELVER_VERSION` (1).
+- **`planFloor`** (`plan.ts`): the Design's steps 1 to 9, plain data.
+  - Lattice gaps are picked per column and row.
+  - Halls are sized to their gaps and grown into a spanning tree, with about a quarter of the joins far, over an empty cell.
+  - It adds 3 to 5 loops between Halls at least 3 tree Passages apart.
+  - It assigns the kinds, the in-line Halls, patrols along the loops' cycles, and the markers.
+- **`floorSource`** (`source.ts`): a Battle map's Map Source with an abyss, Enclosure Halls (a material by kind) and Enclosure Passages. The Objectives D and E and the Bases stand at the Entrance and the Stairs. Render-only props mark the entrance, fires, posts and pedestals. The field size comes from `battle.field.size`.
+- **`buildFloor` and `delverBattle`** (`build.ts`): `compileMap`, then the Battlefield and destination fields under `{ ...battle, crowd.flowCell: delver.flowCell, maps: { floor } }`.
+- **The judge** (`judge.ts`): rules 1 to 6 by `judgeAttempt`, the only path to a verdict, which `delverFloor` (`generate.ts`) calls once per attempt with a salted attempt seed. `describeFloor` gives the one-line summary.
+- **The dev entry**: `devDelverFloor` (`src/devMode.ts`) and the Map Editor's File folder fields `Delver seed` and `Delver floor`, with the **Open Delver Floor** button. `#/mapeditor?dev=1&delverSeed=7&delverFloor=1` opens that Floor at once.
+
+**Changed from the Design:**
+- **Hall centres are whole metres, not always even.** Σgaps/2 is odd for some seeds. That does no harm: a 3 m Passage on any whole-metre line holds a 2 m field cell centre. The Design is corrected.
+- **Rule 1 runs first and stops the attempt.** A plan with too few Halls, or missing a kind, is not built. This is in `judgeAttempt`, from the code review. An injected judge (tests only) stands in for rules 3 to 6.
+- **Tuning checks the code review added:** `minPassage` ≥ 1, `halfSize[0]` ≥ 4 (the pedestals at ±3 m plus the judge's 1 m margin), and `passage` > `flowCell`.
+- **The golden test pins the plan's hash beside the map's,** since the markers and kinds never reach the compiled map.
+- **Two existing test files changed:** `hash.test.ts` gains `delver` in its key-order literal, and `tuning.test.ts`'s `goodRaw()` gains a small `delver` block, since `parseTuningData` now needs one.
+
+**Measured** (the test container, which is about 3× a mid-range laptop, as Stage 0 measured; 500 Floors, `delverGen.slow.test.ts`):
+- **Attempts:** all 500 passed on the first attempt, so no rule failed and no reroll was needed.
+- **Build per Floor:** plan 0.5 ms, build (compile, Battlefield, fields at 2 m) mean 234 ms (p95 280, max 388), judge 6.5 ms. That is 241 ms in total (p95 288, max 399), or about 0.75 s laptop-equivalent, within the 1 s fade.
+- **Navmesh:** 17 ms mean on 20 Floors (95 polygons, 200 links), which Stage 2 adds.
+- **What the 500 Floors held:**
+  - Every Floor has a Treasure Hall.
+  - 247 Floors have 1 Rest and 253 have 2.
+  - Fight Halls average 12.5 a Floor and Empty Halls 5.
+  - Passages total 12,516: 10,500 tree, 2,016 loop, and 3,083 far.
+  - Patrols per Floor: 413 Floors have 2, 61 have 1 and 26 have none.
+  - In-line Halls average 2.3 a Floor.
+- **The judge:** on Floors `planFloor` makes, it does not fail. The plan avoids every rule by construction: in-line Halls are never posts, markers sit at Hall centres, and every Passage lies on a 2 m node. The fast tests show that each rule fires on a broken Floor. The judge is a guard for Stage 6's levels and for Tuning changes. Its reroll path is tested only with an injected judge.
+
+**Tests**:
+- `src/tuning/delver.test.ts`: 34 tests.
+- `src/sim/delver/plan.test.ts`: 7 tests.
+- `judge.test.ts`: 12 tests, one per rule plus the reroll and the no-build case.
+- `golden.test.ts`: 8 tests, seeds 1, 7, 123456789 and 4294967295 at Floors 1 and 9. Each builds the same bytes twice, and its map and plan hashes are pinned.
+- `devMode.test.ts`: 3 new tests.
+- `delverGen.slow.test.ts`: the soak, about 2 minutes.
+
+`npm run typecheck` is clean. `npm test`: **2464 passed, 5 skipped** (2425 before the Stage). `npm run test:slow`: 21 files and 36 tests passed. `src/net/gauntlet.test.ts`'s four-Player checksum test failed once under full-suite load and passed alone, with and without the Stage's code. It is a flaky test that predates the Stage.
+
+**In the editor** (screenshots taken with the run skill):
+- **The views:** the top view shows the lattice of Halls of varied sizes, straight Passages (long ones over empty cells), loops, a banner on each post, a torch on each fire, three crates in the Treasure Hall, and the Entrance (0) and Stairs (1) markers. The 3D view shows the Enclosures with their roofs and the Stairs Hall in `glow`.
+- **The warnings:** the editor's checks and its field-cell overlay still use the Battles' 4 m `crowd.flowCell`. So a Floor lists warnings that its Walls run through 4 m cell centres. That is harmless on a Floor, whose fields are at 2 m.
+
+**To watch next**:
+- **The Floors look gridded.** Every Hall sits on a 7 × 6 lattice and every Passage is straight, so Floors differ by gaps, sizes, holes and loops, not by shape. L-shaped Passages (a corner Enclosure) or a jittered lattice would loosen that later.
+- **Every Passage is straight, so in-line sight is common.** Each Floor has about 2.3 in-line Halls, which are always Empty. Stage 3 should keep posts out of them, as the plan does.
+- **No playtest yet.** Stage 2 puts the party on these Floors.
 
 ### Stage 2: the Run loop, solo
 **Model**: Sonnet.
