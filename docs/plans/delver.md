@@ -172,7 +172,8 @@ Done 2026-11-12. **Go** on 20-room Floors with Warbands, and ADR 0028 is written
   - **Floor ready**: ~0.5 s (0.7 s at a 2 m cell) laptop-equivalent, within the fade, so a go as planned.
   - **Tick**: T2's full Pool is ~2.8 ms mean and ~5 to 8 ms p99 laptop-equivalent, against 8 and 25. A go.
   - **Input Delay**: a full Bubble on a Floor costs what it does on the open field. A Battle Tick of that size needed Input Delay online (ADR 0025), so Stage 7 starts online Runs at `BATTLE_INPUT_DELAY` and measures four Players.
-  - **Doorways**: Stage 1 must keep every Passage's centre line on a field cell centre (multiples of `flowCell`), or build Floors at a 2 m cell (a `delver.flowCell` of its own, since `crowd.flowCell` is the Battles'). The generator's Design chooses.
+  - **Doorways**: Stage 1 must keep every Passage's centre line on a field cell centre (multiples of `flowCell`), or build Floors at a 2 m cell. **Decided by the user (2026-11-12): a 2 m cell for Floors**, a `delver.flowCell` of their own (2) since `crowd.flowCell` (4) is the Battles'. This leaves the generator's layout free.
+- **ADR 0028** is accepted on the working branch, with no PR (the user's call). "Merged" in the Done above means that.
 
 **Tests**: `src/sim/distanceTo.test.ts` (5 fast):
 - it equals the Objective and Base fields on the open field and on the Fort;
@@ -190,7 +191,8 @@ No shipped map is one level with blocks, so the one-level blocks branch is cover
 ### Stage 1: the Floor generator
 **Model**: Opus (layout and geometry).
 - `delverGen`: rooms of a few sizes placed on the grid (BSP or a seeded graph of rooms), joined by passages into a spanning tree with a few loops. Kinds assigned: Entrance, Stairs (furthest by walking), Rest (1 or 2, with one about halfway), Treasure (off the main path), Fight posts, Empty. Patrol loops are drawn along cycles. The output is a Map Source with Delver markers.
-- Judge: `walkCheck`; every Hall reached from the entrance; Stairs and fires reached; no marker on a hazard; posts not within sight of the entrance spawns. Reroll by a salted seed until it passes.
+- Floors build their destination fields at `delver.flowCell` (2 m, decided after Stage 0), not the Battles' `crowd.flowCell` (4 m), so every 3 m Passage holds a node wherever it lies.
+- Judge: `walkCheck`; every Hall reached from the entrance; every Passage followed by the fields (Stage 0's per-Passage check); Stairs and fires reached; no marker on a hazard; posts not within sight of the entrance spawns. Reroll by a salted seed until it passes.
 - A dev route or Map Editor button opens a generated Floor. Golden-seed tests (bytes stable) and a soak over 500 seeds (all pass the judge within N rerolls).
 - **Done**: any seed gives a valid, varied Floor, viewable in the editor.
 
