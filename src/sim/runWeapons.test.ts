@@ -1,6 +1,6 @@
 /**
  * A Run's Weapons (Tuning Data `dungeon.leftOutWeapons`): a `"random"` enemy's Weapon and a Weapon drop come from the roster without
- * the left-out ones, so neither the Flail nor the Quarterstaff turns up in a Run, and the draws for the rest are the ones they were before it joined.
+ * the left-out ones, so none of the Flail, the Quarterstaff and the Dagger turns up in a Run, and the draws for the rest are the ones they were before it joined.
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, runWeapons, type TuningData } from '../tuning';
@@ -34,14 +34,14 @@ function runPicks(t: TuningData): { enemies: Set<string>; drops: Set<string> } {
 }
 
 describe("a Run's Weapons", () => {
-  it('are the roster without the Flail and the Quarterstaff, in file order', () => {
-    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail', 'Quarterstaff']);
-    expect(runWeapons(tuning)).toEqual(Object.keys(tuning.weapons).filter((w) => w !== 'Flail' && w !== 'Quarterstaff'));
+  it('are the roster without the Flail, the Quarterstaff and the Dagger, in file order', () => {
+    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail', 'Quarterstaff', 'Dagger']);
+    expect(runWeapons(tuning)).toEqual(Object.keys(tuning.weapons).filter((w) => w !== 'Flail' && w !== 'Quarterstaff' && w !== 'Dagger'));
   });
 
-  it('never give the Flail or the Quarterstaff to a random enemy or drop them as loot; every other Weapon turns up', () => {
+  it('never give the Flail, the Quarterstaff or the Dagger to a random enemy or drop them as loot; every other Weapon turns up', () => {
     const { enemies, drops } = runPicks(tuning);
-    for (const w of ['Flail', 'Quarterstaff']) {
+    for (const w of ['Flail', 'Quarterstaff', 'Dagger']) {
       expect(enemies.has(w), w).toBe(false);
       expect(drops.has(w), w).toBe(false);
     }
@@ -50,6 +50,6 @@ describe("a Run's Weapons", () => {
 
   it('would, without the list (so the test above can fail)', () => {
     const { enemies, drops } = runPicks({ ...tuning, dungeon: { ...tuning.dungeon, leftOutWeapons: [] } });
-    for (const w of ['Flail', 'Quarterstaff']) expect(enemies.has(w) || drops.has(w), w).toBe(true);
+    for (const w of ['Flail', 'Quarterstaff', 'Dagger']) expect(enemies.has(w) || drops.has(w), w).toBe(true);
   });
 });

@@ -410,7 +410,8 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
  * One contact. Chambered (`src/sim/chamber.ts`): no damage, the attacker Staggers (cause Chambered), and the
  * chamberer's Attack carries on. Blocked (by rule, ADR 0002): no damage, the attacker recoils
  * into Stagger and the defender's sword hand absorbs the blow (Block Impact); a Heavy Blow also pushes the defender
- * back (its Weapon's `heavyBlow.blockSlide`), the Block holding. Otherwise a hit: the defender takes damage and Staggers,
+ * back (its Weapon's `heavyBlow.blockSlide`), the Block holding, unless the Block Impact reaches the defender's Weapon's `blockImpact.breakAt`:
+ * the Block Break knocks the defender down (`breakSlide`) instead. Otherwise a hit: the defender takes damage and Staggers,
  * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
  * wherever it is and pushes it away (`heavyBlow.knockdownSlide`).
  * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow). The damage is scaled by the Fighters'
@@ -431,10 +432,19 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   }
   if (c.blocked) {
     const heavy = isHeavyBlow(weapon, c.bladeSpeed, c.onHead);
-    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed, heavy });
+    // The same Block Impact the defender's hand would take; a Weapon with a Block Break (`blockImpact.breakAt`) gives way when it reaches the bar.
+    const impact = startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning);
+    const { breakAt, breakSlide, breakSlideTicks } = weaponByName(tuning, defender.weapon).blockImpact;
+    const broken = breakAt > 0 && impact.strength >= breakAt;
+    emit({ type: 'Block', attacker: c.attacker, defender: c.defender, direction: c.direction, point: c.point, bladeSpeed: c.bladeSpeed, heavy, ...(broken ? { broken } : {}) });
     out[c.attacker] = staggerFighter(out[c.attacker]!, c.attacker, 'Blocked', tuning, emit);
+    if (broken) {
+      // The Block still stopped the blade (no damage, the attacker recoils), but the defender is knocked down, away from the attacker; its hand has no Block Impact left to ring.
+      out[c.defender] = pushDown(out[c.defender]!, dx, dz, breakSlide, breakSlideTicks, c.attacker, tuning);
+      return;
+    }
     // The blow still lands on the blade: the defender's hand gives and bounces back (Block Impact). Its first Tick moves nothing, so the blade stands.
-    const guarded = { ...out[c.defender]!, blockImpact: startBlockImpact(attacker, defender, guardDirection(defender)!, c.bladeSpeed, tuning) };
+    const guarded = { ...out[c.defender]!, blockImpact: impact };
     out[c.defender] = heavy ? push(guarded, dx, dz, weapon.heavyBlow.blockSlide, weapon.heavyBlow.blockSlideTicks) : guarded;
     return;
   }
