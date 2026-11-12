@@ -56,10 +56,14 @@ export interface DustPuff {
   readonly kind: 'Jump' | 'Land' | 'Down' | 'Shove' | 'Scuff' | 'Swap';
   readonly point: Vec3;
   readonly strength: number;
+  /** A running Jump's push-off: the floor velocity (m/s) the dust is kicked back along, opposite the way the Fighter leaps. */
+  readonly kick?: { readonly x: number; readonly z: number };
 }
 
 /** A Land from a drop of this height (m) or more kicks up a full puff. */
 const DUST_FULL_DROP = 2.5;
+/** A Jump kicks its dust back at this share of the Fighter's take-off speed. */
+const JUMP_KICK = 0.45;
 /** A Slide scuffs the floor every this many Ticks. */
 const SCUFF_EVERY = 3;
 
@@ -72,8 +76,18 @@ export function dustPuffs(tick: number, duel: Pick<SimState, 'events' | 'fighter
   };
   for (const e of duel.events) {
     if (e.type === 'Jump') {
-      const point = feet(e.fighter);
-      if (point) puffs.push({ kind: 'Jump', point, strength: 0.4 });
+      // By the end of the take-off Tick the Fighter has already left the floor: the dust rises from where it pushed off.
+      const f = duel.fighters[e.fighter];
+      if (!f) continue;
+      const point = { x: f.position.x, y: f.air?.launchY ?? f.y, z: f.position.z };
+      const vx = f.air?.vx ?? 0;
+      const vz = f.air?.vz ?? 0;
+      const run = Math.hypot(vx, vz);
+      puffs.push(
+        run > 0.1
+          ? { kind: 'Jump', point, strength: Math.min(1, 0.6 + run / 10), kick: { x: -vx * JUMP_KICK, z: -vz * JUMP_KICK } }
+          : { kind: 'Jump', point, strength: 0.6 },
+      );
     } else if (e.type === 'Land') {
       const point = feet(e.fighter);
       if (point) puffs.push({ kind: 'Land', point, strength: Math.min(1, 0.3 + e.height / DUST_FULL_DROP) });
@@ -164,7 +178,7 @@ const LOOKS: Record<ImpactBurst['kind'], Look> = {
 const DUST_COLOURS = [0xcdbb9c, 0xb8aa92, 0xa89f90];
 
 const DUST_LOOKS: Record<DustPuff['kind'], { count: number; speed: number; radius: number; life: number }> = {
-  Jump: { count: 5, speed: 0.9, radius: 0.16, life: 0.5 },
+  Jump: { count: 12, speed: 1.5, radius: 0.2, life: 0.6 },
   Land: { count: 9, speed: 1.6, radius: 0.22, life: 0.65 },
   Down: { count: 12, speed: 1.9, radius: 0.26, life: 0.8 },
   Shove: { count: 7, speed: 1.4, radius: 0.2, life: 0.6 },
@@ -318,7 +332,7 @@ export class ImpactEffects {
     this.puff(puff);
   }
 
-  private puff({ kind, point, strength }: DustPuff): void {
+  private puff({ kind, point, strength, kick }: DustPuff): void {
     const look = DUST_LOOKS[kind];
     const count = Math.max(1, Math.round(look.count * (0.5 + 0.5 * strength)));
     for (let k = 0; k < count; k++) {
@@ -327,7 +341,7 @@ export class ImpactEffects {
       const at = new THREE.Vector3(point.x + Math.cos(angle) * 0.15, point.y + 0.04, point.z + Math.sin(angle) * 0.15);
       const p = this.spawn(this.sphere, colour, at, look.life * (0.7 + 0.3 * Math.random()), 0);
       const speed = look.speed * strength * (0.4 + 0.6 * Math.random());
-      p.velocity.set(Math.cos(angle) * speed, 0.25 + 0.35 * Math.random(), Math.sin(angle) * speed);
+      p.velocity.set(Math.cos(angle) * speed + (kick?.x ?? 0), 0.25 + 0.35 * Math.random(), Math.sin(angle) * speed + (kick?.z ?? 0));
       p.puffRadius = look.radius * (0.6 + 0.4 * strength) * (0.7 + 0.5 * Math.random());
       p.mesh.scale.setScalar(p.puffRadius * 0.35);
     }
