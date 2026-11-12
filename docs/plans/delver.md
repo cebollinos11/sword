@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: brainstorm (2026-11-12). Scope agreed with the user, nothing built. Not yet confirmed decision by decision; the Open questions at the end come first. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user; nothing built. Stage 0 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [ ] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -38,15 +38,20 @@ Since the Dungeon plan, three things exist that make this possible:
   - **Return**: past `delver.leash` from its post or patrol loop, or with no Player seen for `delver.forgetSeconds`, it walks back and takes up its post again. A Warband down to its morale threshold falls back toward its post (the Squad's existing fall-back).
   - No "call for help" between Warbands to begin with (Later).
 - **The Stairs are the way down, and they only need to be found.** The Stairs are a zone at the far end of the Floor from the entrance (furthest by walking). When every living Player's Fighter that counts has stood in it for `dungeon.doorSeconds`, the party goes down after a fade. This is the Door rule unchanged (ADR 0019), applied to one zone. There is no key and no kill quota, so a party may skip fights and pay for it later, under-geared.
+- **Party size makes Warbands bigger, not tougher.** Each human after the first adds `delver.perPlayerSoldiers` to every Warband (rounded per Warband by a pure pick, so every peer agrees). Enemy max HP does not scale with the humans (no `perPlayerHp` in a Delver Run). As today, the count is the humans the Run started with, so an AI Takeover never changes a Floor.
 - **Rest places are fires in Rest Halls, 1 or 2 a Floor:**
   - **Heal once**: each Player's Fighter that stands at a fire heals `dungeon.restHeal` of its max HP, once per fire.
-  - **Revive**: the first Player to reach a fire brings back every fallen teammate there at `dungeon.revive` of max HP. A fallen Player watches with the orbit camera until a fire or the Stairs revives them. Taking the Stairs revives everyone too. A wipe ends the Run (a Defeat).
+  - **Revive, once a fire**: the first time a living Player reaches a fire, it brings back every Player fallen at that moment, at the fire, at `dungeon.revive` of max HP. Then that fire's revive is spent (its heal is still there for those who have not taken it). A fallen Player watches with the orbit camera until a fire or the Stairs revives them. Taking the Stairs revives everyone too. A wipe ends the Run (a Defeat). A fallen Fighter keeps its Inventory.
   - **The Inventory changes only at a fire** (within its radius). This stands in for "the Hall is Cleared", since a Floor is never wholly cleared. Picking an item up is allowed anywhere there is room for it.
   - A fire is not a safe zone: Warbands may follow a party into a Rest Hall.
+- **A wiped Warband stays dead for its Floor.** No respawns; a Warband that fell back and still has Soldiers comes back to its post at whatever strength it has.
 - **Loot comes from Warband drops and Treasure Halls.** A wiped Warband drops one item per Player where its last Soldier fell (a pure pick of Run seed, Floor, Warband and Player, weighted by `loot.weights`, more for an elite Warband). A Treasure Hall (about one a Floor, off the path to the Stairs) holds `loot.pedestals` (pick 1 of 3), as a Treasure Hall does now. There are no chests, consumables or Gold yet (Later).
-- **Fixed depth, a Boss at the end of each tier.** For example three tiers of three Floors (Tuning Data), each tier's last Floor a Boss Floor with its Stairs behind the Boss Hall's gate. It opens when the Boss and its guard fall (open question 1). There is a full heal after each Boss, and beating the last Boss wins the Run. That is about 30 to 45 minutes a Run.
+- **Fixed depth: three tiers of three Floors, a Boss at the end of each tier** (Tuning Data, `delver.tiers`, `delver.floorsPerTier`). Each tier's third Floor is a Boss Floor: its Stairs stand in the Boss Hall behind a gate that opens when the Boss Warband is wiped. There is a full heal after each Boss, and beating the third Boss wins the Run. That is about 30 to 45 minutes a Run.
+- **A Boss is a Warband like any other, promoted by the Bubble.** Its Encounter names the Boss (a Troop with its own Weapon, Body, Size, difficulty, Style, Relics and HP scale) and its guard. Two rules keep it a boss fight: the Boss Soldier always takes the first free Attack Slot in its Bubble (ahead of nearer guards), and it never demotes while a Player is in the Boss Hall.
 - **Exploration is fog of war, shared by the party.** A Hall or passage is revealed on the minimap and the Floor Map (`M`) once any present Player's Fighter enters it or sees into it. Revealed parts stay revealed for the Floor. The Stairs, fires and Treasure Halls show once revealed. This reverses `dungeon.md`'s "the whole Floor map is shown", which made sense for a route graph but not for a dungeon you explore.
+  - **The fog is on the maps only.** The 3D view draws the whole Floor as it is; nothing in the world is dimmed or hidden.
   - **What has been revealed is a bitset in `RunState`** (one bit per Hall and passage, hashed and snapshotted), not render-side memory. It costs a few bytes, keeps every peer's map the same, and survives a resync. Revealing never changes an outcome.
+- **The Run seed stays the Random Map's**, as today: the Lobby, its online sync and the results screen already carry it, so a Delver Run needs no new Lobby setting. The Map's name gives the seed (`runSeed`); its arena is never used, since each Floor is generated.
 - **Floors are large and have several levels.** Each Floor has 20 or more rooms, with balconies over halls, stairwells (Ramps) between heights and bridges over passages, using the multi-level walk rule. It takes 5 to 10 minutes. It is built one level first (Stage 1) and grown into levels in Stage 6, so the Run loop and Warbands are proven on flat Floors before verticality adds its own bugs.
 
 ## Glossary (proposed, for `CONTEXT.md` with the code that makes it true)
@@ -54,7 +59,7 @@ Since the Dungeon plan, three things exist that make this possible:
 - **Hall** (changes meaning): one room of a Floor, an Enclosure the generator placed, with a kind: Fight (a post for a Warband), Rest (a fire), Treasure (pedestals), Stairs, Boss, Entrance, or Empty. _Avoid_: room (the online connection), chamber, cell.
 - **Passage**: a corridor between Halls (an Enclosure with two opposite doorways, or several in a line). _Avoid_: corridor (in code), hallway.
 - **Warband**: one Squad of a Floor's enemies, with its post or patrol, its Encounter and its brain's state (Guard, Patrol, Chase, Return). A Battle's Squad with a dungeon brain. _Avoid_: wave, mob, group, pack.
-- **Encounter** (grows): a hand-written Warband template: its Soldiers' Troops (Weapon, Body, difficulty, Style), how many there are, its HP scale, its brain (Guard or Patrol) and its `minTeam`. Each tier has pools of them per Hall kind.
+- **Encounter** (grows): a hand-written Warband template: its Soldiers' Troops (Weapon, Body, difficulty, Style), how many there are, its HP scale and its brain (Guard or Patrol). Each tier has pools of them per Hall kind, and its own Boss Encounter. `minTeam` goes: party size adds Soldiers instead.
 - **Stairs**: a zone in the Stairs Hall. Every counted Player standing in it takes the party to the next Floor. _Avoid_: exit, portal, door.
 - **Reveal**: the shared fog of war of a Floor: the Halls and Passages any Player has entered or seen into. _Avoid_: explored, discovered.
 - **Leash**: how far a chasing Warband follows from its post before it returns.
@@ -99,13 +104,13 @@ Each Stage is one chat, solo and offline until Stage 7. Determinism tests run fr
 - Encounters become Warband templates (`data/dungeon.json`). The generator's posts and loops are filled by a seeded pick per tier. The Crowd is deployed at the posts.
 - Warband brain: Guard, Patrol, Chase, Return, morale fall-back. Destination fields go to posts and waypoints, and toward chased Players.
 - Enemy-only Bubble: Promotion and Demotion and Attack Slots; nobody is promoted through a Wall or floor; and an unpromoted Soldier never hurts a Fighter (existing rule).
-- Enemy max HP is scaled by humans (`perPlayerHp`) and tier.
+- Warband size grows with the humans (`delver.perPlayerSoldiers`); enemy max HP is scaled by tier only.
 - **Done**: a solo Run is playable end to end against Warbands; a slow soak of AI-driven Runs shows no stuck Warbands (time out of place measured, as in battle-objectives Stage 3b).
 
 ### Stage 4: loot, Treasure Halls and Boss Floors
 **Model**: Sonnet.
 - A wiped Warband drops one item per Player where its last Soldier fell. Treasure Halls hold pedestals (pick 1 of 3). Elite Warbands carry Relics and drop them.
-- Boss Floors: the Boss Hall and its gate before the Stairs, the Boss Encounter as full Fighters from the start (open question 1), and a full heal after the Boss.
+- Boss Floors: the Boss Hall with the Stairs behind its gate; the Boss Warband, its Boss Soldier first into an Attack Slot and never demoted while a Player is in the Hall; the gate opens when it is wiped; a full heal after the Boss.
 - **Done**: a full three-tier Run with bosses; loot tests per Player are deterministic.
 
 ### Stage 5: presentation
@@ -122,7 +127,7 @@ Each Stage is one chat, solo and offline until Stage 7. Determinism tests run fr
 
 ### Stage 7: online co-op
 **Model**: Opus.
-- Up to four Players in a Rollback session. Input Delay as a Battle's if Stage 0 says so. AI Takeover marks a Player away (no Stairs count, no fire, no pickups). Loopback tests and a four-Player soak. `PROTOCOL_VERSION` + 1 if the Intent or session messages change.
+- Up to four Players in a Rollback session. Input Delay as a Battle's if Stage 0 says so. AI Takeover marks a Player away (no Stairs count, no fire, no pickups; Warband sizes unchanged). Loopback tests and a four-Player soak. `PROTOCOL_VERSION` + 1 if the Intent or session messages change.
 - **Done**: an online four-Player Run to Victory with no desync in the soak.
 
 ### Stage 8: retire the Hall graph
@@ -136,11 +141,11 @@ Each Stage is one chat, solo and offline until Stage 7. Determinism tests run fr
 - **Squads in passages.** Formations already narrow through gates, but 3 m doorways and long passages are tighter than any Battle map. Expect tuning (`squad.narrow`) and a "loose" Formation for Warbands.
 - **AI navmesh without Jump Links.** Promoted enemies and AI allies never jump on such maps (ADR 0022). That is fine, but generated Floors must never need a jump.
 
-## Open questions
-1. **Boss Floors:** is the Boss a Warband of promoted Soldiers, or always full Fighters (Encounter as today, Benched slots)? Is there a gate on the Stairs until it falls, or a separate small Boss Arena after the last Stairs?
-2. **Difficulty with party size:** besides `perPlayerHp`, should more Players mean more Warbands, bigger ones, or neither?
-3. **Revive pacing:** should a fire revive only once per fire, and should a fallen Player's Inventory stay as it is (yes today)?
-4. **Do Warbands stay dead?** Yes on that Floor, presumably, with no respawns.
-5. **Floor count per tier and tier count**: 3 × 3 to start?
-6. **Fog in the world:** should the 3D view also dim or hide unrevealed Halls, or is the fog only on the maps?
-7. **Lobby:** does the Gauntlet still require the Random Map (its seed is the Run seed), or does it get a seed field of its own?
+## Answered questions (2026-11-12)
+1. A Boss is a promoted Warband, not full Fighters from the start; its Stairs are gated in the Boss Hall.
+2. More Players make Warbands bigger; no HP bonus.
+3. A fire revives once, bringing back everyone fallen at that moment.
+4. Wiped Warbands stay dead for the Floor.
+5. Three tiers of three Floors.
+6. Fog of war on the maps only.
+7. The Run seed stays the Random Map's.
