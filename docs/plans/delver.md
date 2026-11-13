@@ -554,6 +554,20 @@ Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntle
 - **9 Floors at about 2 minutes each** for a pilot that goes straight to the fires and the Stairs. That is about 20 minutes before any fighting, within the plan's 30 to 45.
 - **Stage 3** replaces the four Benched Team 1 slots with the Fighter Pool, and steps the Crowd under the Floor's own Tuning Data (`arenaTuning`: 2 m fields).
 
+#### After the Stage (2026-11-13, the user's calls)
+- **A fire's revive is spent only when it brings someone back.** The first living Player to reach a fire while any Team 0 Fighter has fallen revives them all, and only then is `restUsed[k].revived` set. A party that passes a fire with nobody fallen keeps that fire's revive for later.
+- **A fire revives everyone fallen**: Players and AI allies alike, as built.
+- **Online now, not in Stage 7.** The Delver Run is wired into the Lobby and the Rollback session ahead of its Stage:
+  - **The Lobby**: `LobbySettings.delver?: true`, for the Gauntlet only. The host chooses it with a "Dungeon: Halls | Delver" row in the Map section, which shows only for the Gauntlet. It is synced to guests like the other settings (`src/lobby/messages.ts` checks it) and remembered in storage (`sword.delver`). `?dev=1&delver=1` still turns it on.
+  - **The session**:
+    - The host's Match options carry `delver: true`, and so does every hello a peer sends after the start, as `humans` does today.
+    - `src/net/messages.ts` accepts and checks `MatchOptions.delver`, `MatchConfig.delver`, `MatchState.delver` and `SimState.delver` in a resync. A Delver state has `run` null, its Duel has no `hall`, and `duel.delver` mirrors the Run's floor, phase and away.
+    - `PROTOCOL_VERSION` goes up by 1.
+    - **Input Delay stays 0** for a Run. With no Crowd on a Floor yet, the Tick is a Duel's. Stage 7 measures it with Warbands, as ADR 0028 says.
+  - **Tests**:
+    - Loopback: two peers step a Delver Run with equal checksums. A resync state of a Delver Run passes the message check, and a malformed one fails.
+    - Slow: two peers on Delver pilots go down a Floor with no desync.
+
 ### Stage 3: Warbands
 **Model**: Opus (brains and fields).
 - Encounters become Warband templates (`data/dungeon.json`). The generator's posts and loops are filled by a seeded pick per tier. The Crowd is deployed at the posts.
