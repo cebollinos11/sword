@@ -1,13 +1,13 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
 - [x] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
 - [x] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
 - [x] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
-- [ ] Stage 4: loot, Treasure Halls and Boss Floors
+- [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [ ] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [ ] Stage 6: verticality (balconies, stairwells, bridges over passages)
 - [ ] Stage 7: online co-op (up to four Players, Input Delay, soak)
@@ -1121,6 +1121,133 @@ export function isBossFloor(delver: DelverTuning, floor: number): boolean; // fl
 4. **The Boss rules**: `delverRun.ts` (the gate, heal, revive, Victory, `bossesBeaten`), `match.ts` (`BossBeaten`, `RunEnd.bosses`, `delverStart`), `devMode.ts`, `game.ts`, and `messages.ts` (`delverStart` refused). It also rewrites the Victory tests and `delverRun.slow.test.ts` onto no-Boss Tuning, and adds its tests.
 5. **Render and HUD**: `delverMarks.ts`, the pickup marks, the Floor Crowd's atlases and `floorBodies.ts`, the HUD and announcer, and their tests.
 6. **The soak**: `warbandSoak.slow.test.ts`.
+
+### Result
+Done 2026-11-13. A Delver Run now has loot and Bosses.
+- Every wiped Warband drops items for each present Player where its last Soldier fell.
+- Treasure Halls hold per-Player pedestals from the Floor's start.
+- One guard a Floor is elite and wears Relics.
+- Every tier's last Floor is a Boss Floor. Its Stairs stand in a Boss Hall and count only once the Boss Warband is wiped. The wipe heals and revives the party in full. The third Boss's wipe wins the Run.
+
+Battles, Duels and the Hall-graph Run are unchanged. Non-Boss Floors are byte-identical to Stage 3's: the old Floor 9 golden pins come out exactly under a Tuning with no tier-3 Boss.
+
+**What was built** (as the Design gives it, with the changes below):
+- **Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`):
+  - `elitePosts` (1);
+  - each tier's `elite` pool (templates with 1 or 2 Relics, taken from `dungeon.json`'s Elites);
+  - each tier's optional `boss`: the Warden (Brute, Sledge Hammer, 2.5), the Duelist (Expert, Counter, Arming Sword, 2.5) and the Wraith Lord (Expert, Sledge Hammer, Heavy Gauntlet, 3), each with a small guard.
+  - Drop counts reuse `dungeon.loot.drops`, and Floor Troops are capped at `MAX_FLOOR_TROOPS` (64).
+- **Floor Troops** (`src/sim/delver/troops.ts`):
+  - `floorTroops` and `floorTroopLayout` list the Battles' Troops, then one Boss Troop per tier, then one elite Troop per elite row. `delverBattle` gives a Floor that list.
+  - A Boss Troop has no Mods, so **a promoted Boss does not take the half damage** promoted Soldiers deal. It has its own Style, Relics and fixed Size.
+  - An elite Troop keeps its base's Mods and wears its template's Relics.
+  - `TroopTuning` gains `style`, `relics` and `boss`.
+- **Boss Halls** (`plan.ts`, `source.ts`, `judge.ts`; `DELVER_VERSION` 3):
+  - On a Boss Floor the Stairs Hall is of kind `'Boss'`, grown to the largest its gaps allow, its Passages re-rected, with `markers.boss` at its centre and a Team 1 banner.
+  - The judge checks the Boss Hall and its post like a post.
+  - There is no new pick, and nothing changes when `boss` is false.
+- **Warbands** (`warbands.ts`, `warband.ts`):
+  - `WarbandState.rank`: plain, elite or Boss.
+  - The deepest filled post holds an elite.
+  - On a Boss Floor the Boss Warband is appended last. Its Soldier 0 is the Boss, at `fighter.maxHp × hpScale` (250, 250, 300), followed by its guard.
+  - `warbandsFit` checks ranks, pools and that a Boss Floor holds exactly one Boss.
+- **The Bubble** (`bubble.ts`, `BossHold`):
+  - Promoted Soldiers wear their Troop's Relics.
+  - The Boss Soldier sorts first into a free Attack Slot and is never the one let go.
+  - While a present Player stands in the Boss Hall (by its rect), the Boss is never demoted.
+  - The Pool AI plays a Troop's own Style.
+- **Loot** (`src/sim/delverLoot.ts`):
+  - `lootSlot`, `warbandLoot`, `dropSpots`, `warbandDrops` and `treasurePickups`, all pure.
+  - `pickItemAt` was split out of `pickItem`, and the Hall-graph Run is bit-identical.
+  - `DelverRun.wiped`, a `WarbandWiped` event, and `SimDelver.pickups` (the Run's pickups mirrored for the Controllers).
+  - Drops lie in the Hall or Passage holding the fall point, 0.75 m inside its Walls and at least 1.1 m apart. Every Player's k-th item lies on the same spot, and each sees only its own.
+  - The Delver pilot walks to the pickups it sees and has room for, before its fires.
+- **The Boss rules** (`delverRun.ts`):
+  - `gateOpen` keeps the Stairs from counting until the Boss Warband is wiped.
+  - At that wipe the living party heals to full (`Rested`), the fallen stand up at the Stairs at full HP (`Revived`, fire −1), and `BossBeaten` is sent. The fires share the revive helper.
+  - The last tier's Boss wipe is a Victory at once.
+  - `RunEnd.bosses` comes from `bossesBeaten`.
+  - The dev start Floor: `?dev=1&delver=1&delverStart=N` (`MatchConfig.delverStart`, solo only, refused online).
+- **Online**: `PROTOCOL_VERSION` 29.
+  - The resync checks `rank`, `wiped` and the pickups mirror.
+  - A Floor Crowd's Troop indices are bounded by `MAX_FLOOR_TROOPS`.
+  - The Pool AI's memory records its Style.
+- **Presentation**:
+  - A ring of bars round a Boss Floor's Stairs, standing while the gate is shut and sinking once it opens (`DelverMarks`).
+  - A pedestal's item stands on top of its crate (or its stacked crate, `crateStacked`).
+  - Impostor atlases come from the Floor Troops, and an elite shares its base's.
+  - Promoted Bosses and elites are drawn in their Troop's Body.
+  - "Boss beaten: the gate opens" and "Loot dropped" announcements.
+  - "Bosses b / B" on the results line and screen.
+
+**Changed from the Design:**
+- **A plain template may write `relics: []`.** Parsed Tuning Data is fed back through the parser, and it writes `[]` on every template, so the parse refuses only a non-empty `relics` outside the elite pool. `elite` is optional in the type (absent means none), so hand-made tiers in tests need no `elite` key.
+- **The elite flag is the pool**, as the guard and patrol pools mark a brain. There is no `elite: true` key.
+- **`warbandsFit` takes the Floor's pools** (`warbandPools(delver, floor)`). It also refuses an elite or Boss rank on a patrol, and requires exactly one Boss Warband on a Boss Floor (from the code review).
+- **The Boss's Relics' max HP share is the Boss Soldier's alone**, not its guard's (a code-review bug; latent with the bundled Bosses).
+- **From the code review**:
+  - a one-pass wipe check;
+  - one place for the Floor Troops' order;
+  - cached Troop Mods;
+  - the results read `RunEnd.bosses`;
+  - the pilot's room check without allocating.
+- **Three Stage 3 `warband.test.ts` cases had failed since the user's "shrink Warbands" commits.** Their 1-Soldier guards could not break morale or be walled off. They now run on a test Tuning of 4-Soldier templates, with their expectations unchanged.
+- **The last-Boss Victory ends the Tick there**: no taking, fire or Stairs after it.
+
+**Existing tests changed (only as Design §10 allows):**
+- The golden Floor 9 pins were rewritten, and Floor 3 pins added.
+- Victory and descent tests that reach a Boss Floor's Stairs run on a Tuning with no Bosses. These are in `delverRun.test.ts`, `delverWarbands.test.ts`, `delverRun.slow.test.ts`, `delverCoop.slow.test.ts` and the Stage 3 cases of `warbandSoak.slow.test.ts`.
+- Tests that pin one Warband's Soldiers run with `elitePosts: 0`.
+- Floor-start expectations include the pedestals, `wiped` and the mirror.
+- Two `RunEnd` expectations gained `bosses: 0`.
+- The protocol pins moved to 29.
+- None was removed.
+
+**Measured** (the test container, about 3× a mid-range laptop):
+- **Generator**: 500 Floors, every pair first try. All 166 Boss-Floor pairs have a Boss Hall.
+- **The Boss soak** (`warbandSoak.slow.test.ts`; Run seed 4242, the pilot at Hard with two Hard AI allies):
+  - **On the shipped Tuning it is a Defeat on Floor 6** (tier 2's first Boss Floor) at 1,447 s, with 1 Boss beaten. The party was worn down by plain Warbands before that Boss was promoted. Four other seeds also lost by Floor 6.
+  - On the shipped Tuning, Floor 3's Warden was promoted into Pool slot 3, wiped at Tick 52,151, and its Stairs were taken 271 Ticks later.
+  - **The asserted case runs on a test Tuning, `postFill` 25 and `tierHp` [1, 1, 1].** Each single change, and the Expert pilot, still lost. On it the Run is a Victory at Floor 9's Boss after 1,881 s, with `bosses` 3.
+  - **The Boss lines on the test Tuning**:
+
+    | Floor | Boss promoted (Tick) | Its Pool slot | Another Soldier of its Warband | Wiped and gate open (Tick) | Stairs (Tick) |
+    |---|---|---|---|---|---|
+    | 3 | 48,205 | 3 (the first free) | the same Tick | 51,323 | 51,666 |
+    | 6 | 78,337 | 3 | 2 Ticks later | 83,011 | 83,100 |
+    | 9 | 107,694 | 3 | 37 Ticks later | 112,834 | Victory |
+
+  - **Loot on the test Tuning**: 6 drops taken, 2 pedestals taken, 3 elites wiped (each with its Relic laid), and 1 elite Relic taken.
+  - **The Tick**: mean 0.33 to 0.54 ms, p99 3.5 to 4.7 ms a Floor.
+  - **The Stage 3 cases** (no Bosses, elites in): all five Runs were Victories in 560 to 843 s, and 79 Warbands were wiped with no stuck Warband. Over 214,322 Ticks the mean was 0.43 ms and the p99 3.18 ms.
+  - The slow file takes 4 min 35 s.
+- **Tests**:
+  - `npm run typecheck` is clean.
+  - `npm test`: **2816 passed, 5 skipped** (2679 before the Stage).
+  - `npm run test:slow`: 24 files and 46 tests passed.
+  - The new files are `troops.test.ts`, `delverLoot.test.ts`, `delverBoss.test.ts` and `floorPoolAi.test.ts`. New cases were added in about 15 others.
+
+**In the game** (`npm run dev`, a headless browser at 2 to 5 fps, `?dev=1&delver=1&delverStart=3&autopilot=1`; screenshots looked at):
+- **A drop** after a fight: the label "Berserker Mask" over a fallen Warband's spot (`docs/plans/delver-stage4/drop.png`). "Loot dropped" is announced when one of the local Player's drops is laid.
+- **A Treasure pedestal**: a Weapon standing on its stacked crate (`pedestal.png`).
+- **The Boss Hall's gate closed**: bars round the Stairs, with the Warden and its Sledge Hammer inside. With one Expert ally the pilot fell to it and the Run was a Defeat (`gate-closed.png`).
+- **The gate open**: with three Expert allies the Warden fell, the bars sank, and the whole party stood at full HP in the Boss Hall. They took the Stairs to Floor 4 / 9 (`gate-open.png`).
+- **The camera** still sits inside Walls in many Passage frames (known, Stage 3).
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Dungeon: Delver, add AI allies, Fight. Add `&delverStart=3` (or 6, or 9) to start on a Boss Floor.
+- Fight the Boss in its Hall. It should take the first Attack Slot ahead of its guard and never leave while you are in the Hall. Then see the gate sink and the party healed.
+- Pick up drops after a Warband falls. Take one pedestal of three in a Treasure Hall, and change your Build at a fire.
+- Find the elite guard (the deepest Fight Hall) and see whether its Relic drop is worth the fight.
+
+**To watch next**:
+- **Balance (the user's).** The pilot with two Hard allies does not get past Floor 6 on the shipped Tuning, on five seeds. Tier 2's elites (Heavy Gauntlet and Glass Cannon) and `tierHp` 1.25 meet a party that, as the pilot plays it, has gathered few Relics. The knobs are `postFill`, `tierHp`, `elitePosts`, the Bosses' `hpScale`, `loot.weights` and `loot.drops`.
+- **Drops are mostly Relics** (`loot.weights` 4 : 1), which matches the Hall-graph Run.
+- **A Boss and a guard Soldier may be promoted on the same Tick** when two Attack Slots are free. The Boss always takes the first.
+- **The fallen are revived at the Stairs** when the Boss falls, inside the Boss Hall. Players who fell far away find themselves there.
+
+#### After the Stage (decisions for the user)
+- Balance: the shipped Tuning is not beaten by the pilot past Floor 6 (above).
+- Whether the last Boss should win at its wipe (as built) or on its Stairs.
 
 ### Stage 5: presentation
 **Model**: Sonnet.
