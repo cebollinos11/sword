@@ -5,7 +5,9 @@ import { groundOf, soldierHeight } from './battlefield';
 import { createCrowd, floorRingSpots, ringSpots, stepCrowd, walkDistance, walkField, type CrowdFighter, type CrowdState } from './crowd';
 import { arenaTuning, deployWarbands, floorArenaName, floorOf, warbandHomes } from './delver';
 import { battleMapOf, clearanceAt, fieldDistance, fieldToward, inSight, oneField } from './destinations';
-import { stepBubbles, unboundSlot } from './bubble';
+import { stepBubbles, unboundSlot, type BossHold } from './bubble';
+import { foldMods } from './mods';
+import { BOSS, ELITE } from './warband';
 import { warbandBrain } from './warband';
 import { hashValue } from './hash';
 import { standingFighter } from './step';
@@ -14,13 +16,13 @@ import type { FighterState, SimState } from './state';
 const tuning = loadTuningData();
 const TIMEOUT = 120_000;
 
-/** Floor 1 of Run `seed`, its Crowd deployed, and a way to make a Duel on it: the party's Fighters at the given spots, then unbound Pool slots. */
-function scene(seed = 1) {
-  const name = floorArenaName(seed, 1);
+/** Floor `floor` (1) of Run `seed`, its Crowd deployed, and a way to make a Duel on it: the party's Fighters at the given spots, then unbound Pool slots. */
+function scene(seed = 1, floor = 1) {
+  const name = floorArenaName(seed, floor);
   const built = floorOf(tuning, name)!;
   const t = arenaTuning(tuning, name);
   const map = battleMapOf(t.battle, name);
-  const crowd = deployWarbands(t, built.plan, built.field, seed, 1, 1);
+  const crowd = deployWarbands(t, built.plan, built.field, seed, floor, 1);
   const homes = warbandHomes(built.plan);
   const weapon = defaultWeaponName(t);
   const fighter = (x: number, z: number): FighterState => standingFighter(t, arenaOf(t, name), { position: { x, z }, y: soldierHeight(map.field, groundOf(t.battle, map.field, x, z, 0), x, z), facing: 0 }, weapon, 0);
@@ -254,5 +256,103 @@ describe('Battles unchanged', { timeout: TIMEOUT }, () => {
     expect(Object.keys(a)).not.toContain('maxHp');
     expect(Object.keys(a)).not.toContain('warbands');
     expect(a.tickets).not.toEqual(createCrowd(battle, 1).tickets.map(() => 0));
+  });
+});
+
+/** `t` with a Bubble's Attack Slots `enemies` for one Bubble and `shared` for two (Tuning Data's slots, on the Floor's Battle). */
+const withSlots = (t: ReturnType<typeof scene>['t'], enemies: number, shared: number): typeof t => ({ ...t, battle: { ...t.battle, slots: { ...t.battle.slots, enemies, shared: [{ enemies: shared, allies: 0 }] } } });
+
+describe('the Bubble with elites and a Boss', { timeout: TIMEOUT }, () => {
+  /** Boss Floor 3 of seed 1: the Boss Warband's Soldiers (the Boss first) and the first guard Soldier, all else fallen; a Player spot in the Boss Hall. */
+  function bossScene() {
+    const s = scene(1, 3);
+    const q = s.crowd.warbands!.rank.indexOf(BOSS);
+    const ids = s.crowd.squad.flatMap((sq, i) => (sq === q ? [i] : []));
+    const hall = s.plan.halls[s.plan.stairs]!;
+    const centre = { x: hall.cx, z: hall.cz };
+    const alive = s.crowd.alive.map((a, i) => (ids.includes(i) ? a : 0));
+    /** The Boss and the first guard Soldier at distances (m) east of `centre`; the rest of the Warband fallen. */
+    const stand = (boss: number, guard: number): CrowdState => ({ ...place(s, s.crowd, [ids[0]!, ids[1]!], [{ x: centre.x + boss, z: centre.z }, { x: centre.x + guard, z: centre.z }]), alive: alive.map((a, i) => (i === ids[0] || i === ids[1] ? a : 0)) });
+    return { s, ids, hall, centre, stand };
+  }
+
+  it('gives a promoted elite its Relics\' Mods on top of its base Troop\'s (Whetstone\'s damage folded with the Battle\'s half damage)', () => {
+    const s = scene(1, 1);
+    const w = s.crowd.warbands!;
+    const q = w.rank.indexOf(ELITE);
+    const ids = s.crowd.squad.flatMap((sq, i) => (sq === q ? [i] : []));
+    const post = s.homes.posts[w.post[q]!]!;
+    const crowd: CrowdState = { ...s.crowd, alive: s.crowd.alive.map((a, i) => (i === ids[0] ? a : 0)) };
+    const next = stepBubbles(s.duel([{ x: post.x + 3, z: post.z }], crowd), 1, 1, s.t);
+    const got = promoted(next).find((f) => f.s === ids[0])!;
+    expect(got).toBeDefined();
+    const troop = s.battle.troops[crowd.troop[ids[0]!]!]!;
+    expect(troop.relics).toEqual(['Whetstone']);
+    const base = foldMods([{ effects: troop.mods }]);
+    expect(base.damage).toBeCloseTo(0.5);
+    expect(got.f.mods!.damage).toBeCloseTo(base.damage * 1.1);
+    expect(got.f.mods).toEqual(foldMods([{ effects: troop.mods }, { effects: { damage: 1.1 } }]));
+  });
+
+  it('gives a promoted Boss no half-damage Mod, and a guard of its Warband the Battle\'s', () => {
+    const { s, ids, centre, stand } = bossScene();
+    const next = stepBubbles(s.duel([centre], stand(3, 4)), 1, 1, s.t, [], { soldier: ids[0]!, hold: false });
+    const boss = promoted(next).find((f) => f.s === ids[0])!;
+    const guard = promoted(next).find((f) => f.s === ids[1])!;
+    expect(boss).toBeDefined();
+    expect(s.battle.troops[s.crowd.troop[ids[0]!]!]!.boss).toBe(true);
+    expect(boss.f.mods).toBeUndefined();
+    expect(guard.f.mods!.damage).toBeCloseTo(0.5);
+  });
+
+  it('gives the Boss the one free Attack Slot over a nearer guard Soldier, and the nearer one without a BossHold', () => {
+    const { s, ids, centre, stand } = bossScene();
+    const t = withSlots(s.t, 1, 1);
+    const crowd = stand(7, 3);
+    const first = (boss?: BossHold) => promoted(stepBubbles(s.duel([centre], crowd), 1, 1, t, [], boss)).map((f) => f.s);
+    expect(first()).toEqual([ids[1]]);
+    expect(first({ soldier: -1, hold: true })).toEqual([ids[1]]);
+    expect(first({ soldier: ids[0]!, hold: false })).toEqual([ids[0]]);
+  });
+
+  it('does not let the Boss\' Fighter go when the share shrinks, though a nearer guard Fighter holds a slot too', () => {
+    const { s, ids, centre, stand } = bossScene();
+    const t = withSlots(s.t, 1, 1);
+    // Both promoted at once (2 slots), then the share shrinks to 1: the Boss keeps it though the farther.
+    const two = stepBubbles(s.duel([centre], stand(7, 3)), 1, 1, withSlots(s.t, 2, 1), [], { soldier: ids[0]!, hold: false });
+    expect(promoted(two).map((f) => f.s).sort()).toEqual(ids.slice(0, 2).sort());
+    const after = stepBubbles(two, 1, 2, t, [], { soldier: ids[0]!, hold: false });
+    const roles = Object.fromEntries(promoted(after).map((f) => [f.s, f.role]));
+    expect(roles[ids[0]!]).toBe('Attack');
+    expect(roles[ids[1]!]).toBe('Waiting');
+    // Without the BossHold the farther one lets its slot go.
+    const plain = Object.fromEntries(promoted(stepBubbles(two, 1, 2, t)).map((f) => [f.s, f.role]));
+    expect(plain[ids[0]!]).toBe('Waiting');
+    expect(plain[ids[1]!]).toBe('Attack');
+  });
+
+  it('keeps the Boss\' Fighter promoted past `demote` while a Player holds the Hall, and demotes it when none does', () => {
+    const { s, ids, centre, stand } = bossScene();
+    const first = stepBubbles(s.duel([centre], stand(3, 4)), 1, 1, s.t, [], { soldier: ids[0]!, hold: true });
+    const boss = promoted(first).find((f) => f.s === ids[0])!;
+    expect(boss).toBeDefined();
+    const spots = floorSpots(s);
+    const beyond = spots.find((p) => walkBetween(s, boss.f.position.x, boss.f.position.z, p.x, p.z) > s.battle.bubble.demote + 1)!;
+    expect(beyond).toBeDefined();
+    const late = 1 + Math.round(s.battle.bubble.minPromotedSeconds * 60) + 5;
+    const gone = (hold: BossHold | undefined) => stepBubbles({ ...first, fighters: first.fighters.map((f, k) => (k === 0 ? s.fighter(beyond.x, beyond.z) : f)) }, 1, late, s.t, [], hold);
+    expect(promoted(gone({ soldier: ids[0]!, hold: true })).map((f) => f.s)).toContain(ids[0]);
+    expect(promoted(gone({ soldier: ids[0]!, hold: false })).map((f) => f.s)).not.toContain(ids[0]);
+    expect(promoted(gone(undefined)).map((f) => f.s)).not.toContain(ids[0]);
+    // The guard Soldier is let go either way: only the Boss is held.
+    expect(promoted(gone({ soldier: ids[0]!, hold: true })).map((f) => f.s)).not.toContain(ids[1]);
+  });
+
+  it('steps a Floor the same with no BossHold, with a BossHold of no Soldier, and with an undefined one', () => {
+    const { s, centre, stand } = bossScene();
+    const state = s.duel([centre], stand(3, 4));
+    const plain = stepBubbles(state, 1, 1, s.t);
+    expect(stepBubbles(state, 1, 1, s.t, [], undefined)).toEqual(plain);
+    expect(stepBubbles(state, 1, 1, s.t, [], { soldier: -1, hold: true })).toEqual(plain);
   });
 });

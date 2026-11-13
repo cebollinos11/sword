@@ -55,7 +55,7 @@
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
-import { arenaTuning, floorOf, warbandsFit } from '../sim/delver';
+import { arenaTuning, floorOf, warbandPools, warbandsFit } from '../sim/delver';
 import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type Battlefield, type CrowdState } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, startingTickets, tuningDataHash, weaponMotion, type BattleTuning, type TuningData } from '../tuning';
@@ -933,7 +933,7 @@ class Session implements RollbackSession, PeerIntentSource {
     // A Delver Run's Warbands read their Floor's plan and the Troops: every index must name one (a Warband's post, loop, leg and quarry, a Soldier's Squad and Troop).
     if (this.delver) {
       const floor = floorOf(this.tuning, state.duel.arena);
-      if (!floor || (crowd && !warbandsFit(crowd, floor.plan, state.config.teams.length, arenaTuning(this.tuning, state.duel.arena).battle.troops.length))) return;
+      if (!floor || (crowd && !warbandsFit(crowd, floor.plan, state.config.teams.length, arenaTuning(this.tuning, state.duel.arena).battle.troops.length, warbandPools(this.tuning.delver, state.delver?.floor ?? 1)))) return;
     }
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {

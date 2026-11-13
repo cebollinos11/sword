@@ -16,6 +16,11 @@ export const PATROL = 1;
 export const CHASE = 2;
 export const RETURN = 3;
 
+/** A Warband's rank (docs/plans/delver.md, Stage 4): a plain guard or patrol, an elite guard (its Soldiers wear Relics) or the Boss Warband. */
+export const PLAIN = 0;
+export const ELITE = 1;
+export const BOSS = 2;
+
 /**
  * The Warbands' brains as struct-of-arrays (plain data, hashed and snapshotted with the Match): entry q is Squad q of the Floor's Crowd
  * (`CrowdState.warbands`). A Warband's home is its post (`plan.markers.posts[post]`) for a guard, its loop's point `leg` for a patrol.
@@ -35,8 +40,10 @@ export interface WarbandState {
   readonly seen: readonly number[];
   /** The Soldiers it deployed with (its morale counts from this). */
   readonly size: readonly number[];
-  /** Its template's index in its tier's guard or patrol pool. */
+  /** Its template's index in its tier's guard or patrol pool (rank PLAIN), elite pool (ELITE) or its Boss's guard pool (BOSS). */
   readonly encounter: readonly number[];
+  /** PLAIN, ELITE or BOSS. */
+  readonly rank: readonly number[];
 }
 
 // ------------------------------------------------------------------ the brain

@@ -3,14 +3,14 @@
  * whose `run` is null, whose `delver` is the Floor's progress, and whose Duel names the Floor (`duel.delver`) in place of a Hall.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, MAX_SQUAD_PLACES, type TuningData } from '../tuning';
+import { loadTuningData, MAX_SQUAD_PLACES, MAX_TROOPS, type TuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, runSeed, stepMatch, takeOverFighter, type MatchState } from '../sim';
 import { FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
-import { floorOf, warbandsFit } from '../sim/delver';
+import { arenaTuning, floorOf, warbandPools, warbandsFit } from '../sim/delver';
 import type { CrowdState } from '../sim';
 import { PATROL } from '../sim/warband';
-import { parseNetMessage, PROTOCOL_VERSION } from './messages';
+import { MAX_FLOOR_TROOPS, parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
 const RUN = 'gen:greybox:4242';
@@ -32,8 +32,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 28', () => {
-    expect(PROTOCOL_VERSION).toBe(28);
+  it('is protocol 29', () => {
+    expect(PROTOCOL_VERSION).toBe(29);
   });
 
   it("accepts a Delver Run's start message, and refuses `delver` that is not true or is not a Gauntlet's", () => {
@@ -244,8 +244,9 @@ describe("a Floor's Warbands against its plan (a resync's check)", () => {
   const crowd = state.duel.crowd!;
   const plan = floorOf(tuning, state.duel.arena)!.plan;
   const party = state.config.teams.length;
-  const troops = tuning.battle.troops.length;
-  const fits = (c: CrowdState) => warbandsFit(c, plan, party, troops);
+  const troops = arenaTuning(tuning, state.duel.arena).battle.troops.length;
+  const pools = warbandPools(tuning.delver, 1);
+  const fits = (c: CrowdState) => warbandsFit(c, plan, party, troops, pools);
   const w = crowd.warbands!;
   const guard = w.post.findIndex((p) => p >= 0);
   const patrol = w.patrol.findIndex((p) => p >= 0);
@@ -273,5 +274,37 @@ describe("a Floor's Warbands against its plan (a resync's check)", () => {
     expect(fits({ ...crowd, squad: crowd.squad.map((q, i) => (i === 0 ? crowd.squads.team.length : q)) })).toBe(false);
     expect(fits({ ...crowd, troop: crowd.troop.map((t, i) => (i === 0 ? troops : t)) })).toBe(false);
     expect(fits({ ...crowd, warbands: { ...w, mode: w.mode.slice(1) } })).toBe(false);
+  });
+});
+
+describe('a Floor Crowd\'s Troops and ranks', () => {
+  const { state, ai } = delverResync(10);
+  const crowd = state.duel.crowd!;
+  const withCrowd = (patch: object): MatchState => ({ ...state, duel: { ...state.duel, crowd: { ...crowd, ...patch } } }) as MatchState;
+  const withRank = (rank: unknown): MatchState => withCrowd({ warbands: { ...crowd.warbands!, rank } });
+
+  it('accepts a Troop index of a Floor Troop past the Battles\' 8, and refuses one at MAX_FLOOR_TROOPS or beyond', () => {
+    expect(MAX_TROOPS).toBe(8);
+    for (const troop of [MAX_TROOPS, MAX_TROOPS + 3, MAX_FLOOR_TROOPS - 1]) expect(parseNetMessage(resync(withCrowd({ troop: crowd.troop.map((t, s) => (s === 0 ? troop : t)) }), ai)), `troop ${troop}`).not.toBeNull();
+    for (const troop of [MAX_FLOOR_TROOPS, -1, 1.5]) expect(parseNetMessage(resync(withCrowd({ troop: crowd.troop.map((t, s) => (s === 0 ? troop : t)) }), ai)), `troop ${troop}`).toBeNull();
+  });
+
+  it('keeps a Battle Crowd to the Battles\' MAX_TROOPS', () => {
+    const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+    const two: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, { team: 1, pilot: { kind: 'Player', player: 1 } }];
+    const battle = JSON.parse(JSON.stringify(createMatch(small, lineupMatch(small, two, ['Halberd', 'Halberd'], { format: 'Battle', bestOf: 1, seed: 5 })))) as MatchState;
+    const troop = (v: number): MatchState => ({ ...battle, duel: { ...battle.duel, crowd: { ...battle.duel.crowd!, troop: battle.duel.crowd!.troop.map((t, s) => (s === 0 ? v : t)) } } }) as MatchState;
+    expect(parseNetMessage(resync(troop(MAX_TROOPS - 1)))).not.toBeNull();
+    expect(parseNetMessage(resync(troop(MAX_TROOPS)))).toBeNull();
+  });
+
+  it('accepts the ranks 0 to 2 and refuses a rank that is missing, short, fractional or out of range', () => {
+    const rank = crowd.warbands!.rank;
+    expect(rank.length).toBe(crowd.warbands!.mode.length);
+    for (const v of [0, 1, 2]) expect(parseNetMessage(resync(withRank(rank.map((r, q) => (q === 0 ? v : r))), ai)), `rank ${v}`).not.toBeNull();
+    for (const v of [3, -1, 0.5]) expect(parseNetMessage(resync(withRank(rank.map((r, q) => (q === 0 ? v : r))), ai)), `rank ${v}`).toBeNull();
+    expect(parseNetMessage(resync(withRank(undefined), ai))).toBeNull();
+    expect(parseNetMessage(resync(withRank(rank.slice(1)), ai))).toBeNull();
+    expect(parseNetMessage(resync(withRank(rank.concat(0)), ai))).toBeNull();
   });
 });

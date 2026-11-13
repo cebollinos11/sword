@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 29;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -529,7 +529,7 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.surface, isSurface) &&
     sized(v.sizeHeight, isSizePart) &&
     sized(v.sizeThick, isSizePart) &&
-    sized(v.troop, index(0, MAX_TROOPS)) &&
+    sized(v.troop, index(0, floor ? MAX_FLOOR_TROOPS : MAX_TROOPS)) &&
     sized(v.look, index(0, MAX_LOOKS)) &&
     isSquads(v.squads, n, floor) &&
     isObjectives(v.objectives, floor) &&
@@ -546,13 +546,16 @@ function isCrowd(v: unknown, slots: number): boolean {
   );
 }
 
+/** The most Troops a Floor's Crowd may index (`battle.troops`, then the Bosses' and the elites'; `warbandsFit` checks the exact count at a resync). */
+export const MAX_FLOOR_TROOPS = 64;
+
 /** The most points a Floor's patrol loop may be read to have (a Warband's `leg`; the Floor says how many it has). */
 const MAX_LOOP_POINTS = 65_535;
 
 /**
  * A Floor's Warbands (`WarbandState`, docs/plans/delver.md, Stage 3): one entry per Squad of the Crowd in each array. The mode is GUARD to RETURN (0 to 3),
  * a Warband is a guard (a post) or a patrol (a loop) and never both, its leg and its Fighter chased and last seen are in range, and its size
- * (the Soldiers it deployed with) is a Formation's. Which post, loop and template exist is the Floor's to say.
+ * (the Soldiers it deployed with) is a Formation's, and its rank PLAIN, ELITE or BOSS (0 to 2). Which post, loop and template exist is the Floor's to say.
  */
 function isWarbands(v: unknown, squads: { team: unknown[] }): boolean {
   if (!isObject(v)) return false;
@@ -568,7 +571,8 @@ function isWarbands(v: unknown, squads: { team: unknown[] }): boolean {
     sized(v.chased, from(-1, 3)) &&
     sized(v.seen, from(-1)) &&
     sized(v.size, from(1, MAX_SQUAD_PLACES)) &&
-    sized(v.encounter, from(0))
+    sized(v.encounter, from(0)) &&
+    sized(v.rank, from(0, 2))
   );
 }
 
@@ -881,9 +885,9 @@ export function isHallAiMemory(v: unknown): boolean {
 }
 /**
  * A Pool AI's memory (a Battle's Fighter Pool slot, `src/controllers/poolAi.ts`) while its slot is bound: the binding its AI plays for and
- * that AI's memory, and the AI difficulty it plays (its Troop's). Null while its slot is unbound.
+ * that AI's memory, and the AI difficulty and Style it plays (its Troop's; the Style is '' for the Battle's own). Null while its slot is unbound.
  */
 export function isPoolAiMemory(v: unknown): boolean {
-  return isObject(v) && Object.keys(v).length === 3 && isSoldierBinding(v.bound) && typeof v.difficulty === 'string' && v.difficulty.length > 0 && v.difficulty.length <= 32 && isAiMemory(v.memory);
+  return isObject(v) && Object.keys(v).length === 4 && isSoldierBinding(v.bound) && typeof v.difficulty === 'string' && v.difficulty.length > 0 && v.difficulty.length <= 32 && typeof v.style === 'string' && v.style.length <= 32 && isAiMemory(v.memory);
 }
 const isAiMemoryOrNull = isNullable((v) => isAiMemory(v) || isHallAiMemory(v) || isPoolAiMemory(v));

@@ -7,18 +7,20 @@ import { groundOf } from './battlefield';
 import { walkDistance, walkField, type CrowdState } from './crowd';
 import { arenaTuning, deployWarbands, floorOf, warbandHomes } from './delver';
 import { battleMapOf, clearanceAt, inSight } from './destinations';
-import { floorDuel } from './delverRun';
+import { bossHold, floorDuel } from './delverRun';
 import { runSeed } from './dungeon';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
 import { createMatch, doorTicksNeeded, stepMatch, takeOverFighter, type MatchState } from './match';
 import { restore, snapshot } from './snapshot';
 import type { FighterState } from './state';
-import { CHASE, GUARD, PATROL } from './warband';
+import { BOSS, CHASE, GUARD, PATROL } from './warband';
 
 const base = loadTuningData();
 /** Three Floors, one a tier (so Floor 1 is tier 1, Floor 2 tier 2, Floor 3 tier 3), with Warbands at the Tuning Data's own fill. */
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 3, floorsPerTier: 1 } };
+/** `tuning` with no Boss and no elite posts: the Stage 3 tests that count Warbands or pin their HP to a template run on it (every Floor of `tuning` is a Boss Floor). */
+const plain: TuningData = { ...tuning, delver: { ...tuning.delver, elitePosts: 0, warbands: tuning.delver.warbands.map(({ boss: _b, ...tier }) => tier) } };
 const ARENA = 'gen:greybox:4242';
 const SEED = runSeed(ARENA);
 const { attackSlots } = tuning.delver;
@@ -33,6 +35,7 @@ const idle = (m: MatchState): Intent[] => m.duel.fighters.map(() => IDLE_INTENT)
 /** `m` stepped once with every Fighter idle. */
 const tick = (m: MatchState): MatchState => stepMatch(m, idle(m), tuning);
 const planOf = (m: MatchState) => floorOf(tuning, m.arena)!.plan;
+const planOf2 = (m: MatchState, t: TuningData) => floorOf(t, m.arena)!.plan;
 /** Fighter `i` stood at (x, z) on the ground. */
 const put = (m: MatchState, i: number, x: number, z: number): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, k) => (k === i ? { ...f, position: { x, z }, y: 0 } : f)) } });
 const edit = (m: MatchState, f: (c: CrowdState) => CrowdState): MatchState => ({ ...m, duel: { ...m.duel, crowd: f(m.duel.crowd!) } });
@@ -55,12 +58,12 @@ const maxPromoted = (m: MatchState, ticks: number, role?: string): { m: MatchSta
 
 describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
   it('has its Warbands at their posts and patrols, a guard at each filled post and a patrol on each filled loop', () => {
-    const m = start();
+    const m = start(1, plain);
     const c = m.duel.crowd!;
-    const plan = planOf(m);
+    const plan = planOf2(m, plain);
     const homes = warbandHomes(plan);
     const w = c.warbands!;
-    expect(w.mode.length).toBe(Math.ceil((plan.markers.posts.length * tuning.delver.postFill) / 100) + Math.ceil((plan.markers.patrols.length * tuning.delver.patrolFill) / 100));
+    expect(w.mode.length).toBe(Math.ceil((plan.markers.posts.length * plain.delver.postFill) / 100) + Math.ceil((plan.markers.patrols.length * plain.delver.patrolFill) / 100));
     expect(warbandsIn(c, GUARD).length).toBeGreaterThan(0);
     expect(warbandsIn(c, PATROL).length).toBeGreaterThan(0);
     for (let q = 0; q < w.mode.length; q++) {
@@ -86,23 +89,23 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
   });
 
   it('gives its Soldiers HP by tier alone: a Floor of tier 1 against tier 2 and 3', () => {
-    const m = start();
+    const m = start(1, plain);
     const hpOf = (floor: number): number[] => {
-      const crowd = floorDuel(tuning, m.config, floor, null, m.duel.rng).crowd!;
-      const tier = Math.ceil(floor / tuning.delver.floorsPerTier);
-      const scales = tuning.delver.warbands[tier - 1]!.guard.concat(tuning.delver.warbands[tier - 1]!.patrol).map((t) => t.hpScale);
+      const crowd = floorDuel(plain, m.config, floor, null, m.duel.rng).crowd!;
+      const tier = Math.ceil(floor / plain.delver.floorsPerTier);
+      const scales = plain.delver.warbands[tier - 1]!.guard.concat(plain.delver.warbands[tier - 1]!.patrol).map((t) => t.hpScale);
       expect(crowd.warbands!.mode.length).toBeGreaterThan(0);
       return crowd.maxHp!.map((max, i) => {
         expect(crowd.hp[i]).toBe(max);
-        const ratio = max / (tuning.battle.troops[crowd.troop[i]!]!.hp * tuning.delver.tierHp[tier - 1]!);
+        const ratio = max / (plain.battle.troops[crowd.troop[i]!]!.hp * plain.delver.tierHp[tier - 1]!);
         expect(scales.some((s) => Math.abs(s - ratio) < 1e-9)).toBe(true);
-        return max / tuning.battle.troops[crowd.troop[i]!]!.hp;
+        return max / plain.battle.troops[crowd.troop[i]!]!.hp;
       });
     };
     const [one, two, three] = [1, 2, 3].map(hpOf);
     expect(Math.max(...one!)).toBeLessThan(Math.max(...two!));
     expect(Math.max(...two!)).toBeLessThan(Math.max(...three!));
-    expect(tuning.delver.tierHp[1]).toBeGreaterThan(tuning.delver.tierHp[0]!);
+    expect(plain.delver.tierHp[1]).toBeGreaterThan(plain.delver.tierHp[0]!);
   });
 
   it('does not hurt a full Fighter by an unpromoted Soldier: the Player among a Warband for 600 Ticks (no Promotion possible)', () => {
@@ -400,5 +403,57 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     expect(nb.delver!.floor).toBe(2);
     expect(nb.duel.crowd).toEqual(na.duel.crowd);
     expect(nb.duel.crowd!.warbands!.size).toEqual(na.duel.crowd!.warbands!.size);
+  });
+});
+
+describe("the Bubbles' Boss rule", { timeout: TIMEOUT }, () => {
+  // `tuning` makes every Floor the last of its tier, so Floor 1 is a Boss Floor: its Boss Hall is the Stairs Hall.
+  const m = start(2);
+  const plan = planOf(m);
+  const hall = plan.halls[plan.stairs]!;
+  const hold = (fighters = m.duel.fighters, away?: readonly number[]) => bossHold(plan, m.duel.crowd!, fighters, m.config, away);
+  const standing = (i: number, x: number, z: number, hp?: number) => m.duel.fighters.map((f, k) => (k === i ? { ...f, position: { x, z }, y: 0, ...(hp === undefined ? {} : { hp }) } : f));
+
+  it('names the lowest Crowd index of the rank 2 Warband as the Boss Soldier, and holds nothing while the party is elsewhere', () => {
+    expect(hall.kind).toBe('Boss');
+    const c = m.duel.crowd!;
+    const q = c.warbands!.rank.indexOf(BOSS);
+    expect(q).toBeGreaterThanOrEqual(0);
+    const got = hold()!;
+    expect(got.soldier).toBe(c.squad.findIndex((sq) => sq === q));
+    expect(c.squad[got.soldier]).toBe(q);
+    expect(got.hold).toBe(false);
+  });
+
+  it('holds while a present Player stands in the Boss Hall, edges included, flat', () => {
+    expect(hold(standing(0, hall.cx, hall.cz))!.hold).toBe(true);
+    expect(hold(standing(1, hall.cx, hall.cz))!.hold).toBe(true);
+    expect(hold(standing(0, hall.rect.x0, hall.rect.z1))!.hold).toBe(true);
+    expect(hold(standing(0, hall.rect.x1, hall.rect.z0))!.hold).toBe(true);
+    expect(hold(standing(0, hall.rect.x0 - 0.01, hall.cz))!.hold).toBe(false);
+    expect(hold(standing(0, hall.cx, hall.rect.z1 + 0.01))!.hold).toBe(false);
+  });
+
+  it('does not hold for a fallen Player, an away Player, or a Fighter out of the Duel; holds again for the other Player', () => {
+    expect(hold(standing(0, hall.cx, hall.cz, 0))!.hold).toBe(false);
+    expect(hold(standing(0, hall.cx, hall.cz), [0])!.hold).toBe(false);
+    expect(hold(standing(0, hall.cx, hall.cz), [1])!.hold).toBe(true);
+    const out = m.duel.fighters.map((f, k) => (k === 0 ? { ...f, position: { x: hall.cx, z: hall.cz }, y: 0, benched: true as const } : f));
+    expect(hold(out)!.hold).toBe(false);
+  });
+
+  it('is undefined on a Floor with no Boss Warband', () => {
+    const none: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map(({ boss: _b, ...tier }) => tier) } };
+    const plain = start(1, none);
+    const p = planOf2(plain, none);
+    expect(plain.duel.crowd!.warbands!.rank.includes(BOSS)).toBe(false);
+    expect(bossHold(p, plain.duel.crowd!, plain.duel.fighters, plain.config)).toBeUndefined();
+  });
+
+  it('is passed to the Bubbles by a stepped Floor: the Boss Soldier stood beside a Player in the Boss Hall is promoted', () => {
+    const c = m.duel.crowd!;
+    const boss = bossHold(plan, c, m.duel.fighters, m.config)!.soldier;
+    const next = tick(put(edit(m, (x) => ({ ...x, x: x.x.map((v, i) => (i === boss ? hall.cx + 1 : v)), z: x.z.map((v, i) => (i === boss ? hall.cz : v)) })), 0, hall.cx, hall.cz));
+    expect(next.duel.crowd!.slot[boss]).toBeGreaterThanOrEqual(0);
   });
 });

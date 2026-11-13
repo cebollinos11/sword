@@ -10,12 +10,12 @@ import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { secondsToTicks } from './constants';
 import { crowdFighters } from './battle';
-import { stepBubbles, unboundSlot } from './bubble';
-import { stepCrowd } from './crowd';
+import { stepBubbles, unboundSlot, type BossHold } from './bubble';
+import { stepCrowd, type CrowdState } from './crowd';
 import { battleMapOf } from './destinations';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { deployWarbands, warbandHomes } from './delver/warbands';
-import { warbandBrain } from './warband';
+import { BOSS, warbandBrain } from './warband';
 import type { FloorPlan } from './delver/plan';
 import { runSeed } from './dungeon';
 import { inDuel } from './duel';
@@ -146,6 +146,25 @@ function mirrored(run: DelverRun): SimDelver {
 }
 
 /**
+ * The Bubbles' Boss rule for a Floor (docs/plans/delver.md, Stage 4), or undefined when the Floor has no Boss Warband: `soldier` is the lowest Crowd
+ * index whose Squad is the Warband of rank BOSS, and `hold` is whether some present Player's Fighter (in the Duel, hp above 0) stands inside the Boss
+ * Hall's `rect` (edges included, flat) while that Hall is the Boss Hall. Pure: derived each Tick, never state.
+ */
+export function bossHold(plan: FloorPlan, crowd: CrowdState, fighters: readonly FighterState[], config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, away?: readonly number[]): BossHold | undefined {
+  const q = crowd.warbands?.rank.indexOf(BOSS) ?? -1;
+  if (q < 0) return undefined;
+  const hall = plan.halls[plan.stairs]!;
+  const { x0, x1, z0, z1 } = hall.rect;
+  const hold =
+    hall.kind === 'Boss' &&
+    presentPlayers(config, away).some((i) => {
+      const f = fighters[i]!;
+      return inDuel(f) && f.hp > 0 && f.position.x >= x0 && f.position.x <= x1 && f.position.z >= z0 && f.position.z <= z1;
+    });
+  return { soldier: crowd.squad.indexOf(q), hold };
+}
+
+/**
  * One Tick of a Delver Run in progress (the Delver branch of `stepMatch`): once the fade is over, the next Floor's Duel; else the Floor's Duel
  * stepped under the Floor's Tuning Data, and a wipe of Team 0 is a Defeat in any phase.
  */
@@ -166,7 +185,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
   // brain. No kill count and no Tickets: a Floor has neither.
   const t0 = arenaTuning(tuning, match.duel.arena);
   const k = config.teams.length;
-  const bubbled = stepBubbles(match.duel, k, match.duel.tick + 1, t0, intents);
+  const bubbled = stepBubbles(match.duel, k, match.duel.tick + 1, t0, intents, bossHold(floorOf(tuning, match.duel.arena)!.plan, match.duel.crowd!, match.duel.fighters, config, run.away));
   let duel = step(bubbled, intents, t0);
   const map = battleMapOf(t0.battle, duel.arena);
   const homes = warbandHomes(floorOf(tuning, duel.arena)!.plan);

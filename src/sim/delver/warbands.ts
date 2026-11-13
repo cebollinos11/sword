@@ -3,19 +3,21 @@
  * (a Squad of Team 1 Soldiers from a tier's template) deployed on each filled one. Pure, from (Run seed, Floor, humans): every peer deals
  * the same Crowd with nothing sent. The homes the brain walks back to are derived from the plan and cached, never stored in the Simulation.
  */
-import { clampSize, troopBodies, type TuningData } from '../../tuning';
+import { clampSize, troopBodies, type DelverTuning, type TuningData } from '../../tuning';
 import type { WarbandTemplate } from '../../tuning/delver';
 import { groundOf, type Battlefield } from '../battlefield';
 import type { CrowdState } from '../crowd';
 import { runPick } from '../dungeon';
 import { createObjectives } from '../objectives';
 import { createRng } from '../rng';
+import { relicMods } from '../inventory';
 import { COLUMN, DEFEND, placeOffset } from '../squad';
-import { GUARD, PATROL, RETURN } from '../warband';
+import { BOSS, ELITE, GUARD, PATROL, PLAIN, RETURN } from '../warband';
 import type { FloorPlan } from './plan';
+import { tierOf } from './troops';
 
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
-export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, patrolPick: 23, extra: 24, height: 25, thick: 26, look: 27 } as const;
+export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, patrolPick: 23, extra: 24, height: 25, thick: 26, look: 27, elitePick: 28, bossGuard: 29 } as const;
 
 /** The homes the brain reads (derived from the plan, never state): each post with its guard facing, each patrol loop's points. */
 export interface WarbandHomes {
@@ -55,12 +57,18 @@ function guardFacing(plan: FloorPlan, hall: number): number {
 
 const homes = new WeakMap<FloorPlan, WarbandHomes>();
 
-/** The plan's homes (each post with its guard facing, each loop's points), derived once per plan and kept. Never state. */
+/**
+ * The plan's homes (each post with its guard facing, each loop's points), derived once per plan and kept. Never state. A Boss Floor's
+ * posts gain the Boss post last, at index `plan.markers.posts.length`: the Boss Hall's centre, facing as a guard of that Hall does.
+ */
 export function warbandHomes(plan: FloorPlan): WarbandHomes {
   let kept = homes.get(plan);
   if (!kept) {
+    const posts = plan.markers.posts.map((p) => ({ x: p.x, z: p.z, facing: guardFacing(plan, p.hall) }));
+    const boss = plan.markers.boss;
+    if (boss) posts.push({ x: boss.x, z: boss.z, facing: guardFacing(plan, plan.stairs) });
     kept = {
-      posts: plan.markers.posts.map((p) => ({ x: p.x, z: p.z, facing: guardFacing(plan, p.hall) })),
+      posts,
       patrols: plan.markers.patrols.map((loop) => loop.points.map((p) => ({ x: p.x, z: p.z }))),
     };
     homes.set(plan, kept);
@@ -70,24 +78,58 @@ export function warbandHomes(plan: FloorPlan): WarbandHomes {
 
 /**
  * Whether a Floor's Warbands, as a peer's resync sends them, fit the Floor's plan (a guard of a post of it, a patrol of one of its loops at one of
- * their points; a guard never in PATROL; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots.
- * Pure; a state that fails is refused, since the brain would read past its homes.
+ * their points; a guard never in PATROL; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots and
+ * `troops` how many Troops the Floor has. `pools` says how many templates each rank draws its `encounter` from: the tier's guard and patrol pools
+ * (rank PLAIN, by guard or patrol), its elite pool (ELITE) and its Boss's guard pool (BOSS). At most one Warband is the Boss's (rank BOSS), a guard
+ * at the Boss post (the last) of a Boss Floor. Pure; a state that fails is refused, since the brain would read past its homes.
  */
-export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, troops: number): boolean {
+export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, troops: number, pools: WarbandPools): boolean {
   const w = crowd.warbands;
   if (!w) return true;
   const home = warbandHomes(plan);
   const squads = crowd.squads.team.length;
   const index = (v: number | undefined, below: number, from: number) => v !== undefined && Number.isInteger(v) && v >= from && v < below;
-  for (const a of [w.mode, w.post, w.patrol, w.leg, w.chased, w.seen, w.size, w.encounter]) if (a.length !== squads) return false;
+  for (const a of [w.mode, w.post, w.patrol, w.leg, w.chased, w.seen, w.size, w.encounter, w.rank]) if (a.length !== squads) return false;
+  let bosses = 0;
   for (let q = 0; q < squads; q++) {
     const guard = w.post[q]! >= 0;
-    if (!index(w.mode[q], RETURN + 1, GUARD) || !index(w.chased[q], party, -1)) return false;
+    const rank = w.rank[q]!;
+    if (!index(w.mode[q], RETURN + 1, GUARD) || !index(w.chased[q], party, -1) || !index(rank, BOSS + 1, PLAIN)) return false;
+    if (rank === BOSS && (++bosses > 1 || !plan.markers.boss || !guard || w.post[q] !== home.posts.length - 1)) return false;
+    const pool = rank === BOSS ? pools.boss : rank === ELITE ? pools.elite : guard ? pools.guard : pools.patrol;
+    if (!index(w.encounter[q], pool, 0) || (rank !== PLAIN && !guard)) return false;
     if (guard) {
       if (!index(w.post[q], home.posts.length, 0) || w.patrol[q] !== -1 || w.leg[q] !== 0 || w.mode[q] === PATROL) return false;
     } else if (w.post[q] !== -1 || !index(w.patrol[q], home.patrols.length, 0) || !index(w.leg[q], home.patrols[w.patrol[q]!]!.length, 0)) return false;
   }
   return crowd.squad.every((q) => index(q, squads, -1)) && crowd.troop.every((t) => index(t, troops, 0));
+}
+
+/** How many templates each kind of Warband draws its `encounter` from on a Floor (`warbandPools`). */
+export interface WarbandPools {
+  readonly guard: number;
+  readonly patrol: number;
+  readonly elite: number;
+  readonly boss: number;
+}
+
+/** The pool sizes of Floor `floor`'s tier, for `warbandsFit`. */
+export function warbandPools(delver: DelverTuning, floor: number): WarbandPools {
+  const tier = delver.warbands[tierOf(delver, floor) - 1]!;
+  return { guard: tier.guard.length, patrol: tier.patrol.length, elite: tier.elite?.length ?? 0, boss: tier.boss?.guard.length ?? 0 };
+}
+
+/**
+ * The indices of a Floor's Boss and elite Troops in the Floor's `battle.troops` (`floorTroops(<the base battle>, delver)`): `battle` is the Floor's
+ * Battle Tuning, whose Troops are that very list, so its Troops are counted back from its end rather than built again from a Battle that is not the base.
+ */
+function floorIndices(battle: TuningData['battle'], delver: DelverTuning): { boss: number[]; elite: number[][][] } {
+  let extra = 0;
+  for (const t of delver.warbands) extra += (t.boss ? 1 : 0) + (t.elite ?? []).reduce((n, e) => n + e.troops.length, 0);
+  let next = battle.troops.length - extra;
+  const boss = delver.warbands.map((t) => (t.boss ? next++ : -1));
+  const elite = delver.warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map(() => next++)));
+  return { boss, elite };
 }
 
 /** The slots 0 to `count - 1` that are filled: the first `ceil(count * fill / 100)` by a seeded order (the lower index on a tie), back in slot order. */
@@ -118,6 +160,13 @@ interface Planned {
   readonly post: number;
   readonly patrol: number;
   readonly leg: number;
+  readonly rank: number;
+  /** Each Soldier's Troop (an index into the Floor's `battle.troops`) in place order, before the party's extras. */
+  readonly troops: readonly number[];
+  /** The Troop the party's extras are of. */
+  readonly extra: number;
+  /** The Relics its Soldiers wear (an elite's), whose `maxHp` share the Soldiers' HP carries; a Boss Soldier has its own. */
+  readonly relics: readonly string[];
 }
 
 /**
@@ -128,17 +177,37 @@ interface Planned {
  */
 export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battlefield, seed: number, floor: number, humans: number): CrowdState {
   const { battle, delver } = tuning;
-  const tier = Math.min(delver.tiers, Math.max(1, Math.ceil(floor / delver.floorsPerTier)));
+  const tier = tierOf(delver, floor);
   const pools = delver.warbands[tier - 1]!;
   const hpOfTier = delver.tierHp[tier - 1]!;
   const { posts, patrols } = plan.markers;
   const home = warbandHomes(plan);
+  const indices = floorIndices(battle, delver);
+  const rows = (template: WarbandTemplate): number[] => template.troops.flatMap((row) => Array<number>(row.count).fill(row.troop));
+
+  // The deepest filled posts (their Hall's `depth`, the lower post on a tie) hold the elites, when the tier has any.
+  const guards = filled(seed, floor, posts.length, delver.postFill, WARBAND_SALT.postOrder);
+  const elitePool = pools.elite ?? [];
+  const elites = new Set<number>();
+  if (elitePool.length > 0) {
+    const deepest = guards.slice().sort((a, b) => plan.halls[posts[b]!.hall]!.depth - plan.halls[posts[a]!.hall]!.depth || a - b);
+    for (const k of deepest.slice(0, delver.elitePosts)) elites.add(k);
+  }
 
   const planned: Planned[] = [];
-  for (const k of filled(seed, floor, posts.length, delver.postFill, WARBAND_SALT.postOrder)) {
-    const encounter = runPick(seed, floor, k, WARBAND_SALT.guardPick, pools.guard.length);
+  for (const k of guards) {
     const at = home.posts[k]!;
-    planned.push({ x: at.x, z: at.z, facing: at.facing, template: pools.guard[encounter]!, encounter, post: k, patrol: -1, leg: 0 });
+    if (elites.has(k)) {
+      const encounter = runPick(seed, floor, k, WARBAND_SALT.elitePick, elitePool.length);
+      const template = elitePool[encounter]!;
+      const rowTroops = indices.elite[tier - 1]![encounter]!;
+      const troops = template.troops.flatMap((row, r) => Array<number>(row.count).fill(rowTroops[r]!));
+      planned.push({ x: at.x, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: ELITE, troops, extra: rowTroops[0]!, relics: template.relics });
+      continue;
+    }
+    const encounter = runPick(seed, floor, k, WARBAND_SALT.guardPick, pools.guard.length);
+    const template = pools.guard[encounter]!;
+    planned.push({ x: at.x, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
   }
   for (const k of filled(seed, floor, patrols.length, delver.patrolFill, WARBAND_SALT.patrolOrder)) {
     const encounter = runPick(seed, floor, k, WARBAND_SALT.patrolPick, pools.patrol.length);
@@ -149,7 +218,19 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     if (start < 0) start = 0;
     const leg = (start + 1) % points.length;
     const at = points[start]!;
-    planned.push({ x: at.x, z: at.z, facing: facingToward(at, points[leg]!), template: pools.patrol[encounter]!, encounter, post: -1, patrol: k, leg });
+    const template = pools.patrol[encounter]!;
+    planned.push({ x: at.x, z: at.z, facing: facingToward(at, points[leg]!), template, encounter, post: -1, patrol: k, leg, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
+  }
+  // The Boss Warband, last: the Boss Soldier first, then its guard's rows; the extras are of the guard's first Troop, never another Boss.
+  const boss = pools.boss;
+  if (plan.markers.boss && boss) {
+    const encounter = runPick(seed, floor, 0, WARBAND_SALT.bossGuard, boss.guard.length);
+    const template = boss.guard[encounter]!;
+    const at = home.posts[posts.length]!;
+    planned.push({
+      x: at.x, z: at.z, facing: at.facing, template, encounter, post: posts.length, patrol: -1, leg: 0, rank: BOSS,
+      troops: [indices.boss[tier - 1]!, ...rows(template)], extra: template.troops[0]!.troop, relics: boss.troop.relics,
+    });
   }
 
   const extra = delver.perPlayerSoldiers * Math.max(0, humans - 1);
@@ -170,15 +251,15 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     team: [] as number[], x: [] as number[], z: [] as number[], heading: [] as number[], aim: [] as number[], speed: [] as number[], shape: [] as number[],
     living: [] as number[], fall: [] as number[], order: [] as number[], target: [] as number[], since: [] as number[], respawnAt: [] as number[], surface: [] as number[],
   };
-  const warbands = { mode: [] as number[], post: [] as number[], patrol: [] as number[], leg: [] as number[], chased: [] as number[], seen: [] as number[], size: [] as number[], encounter: [] as number[] };
+  const warbands = { mode: [] as number[], post: [] as number[], patrol: [] as number[], leg: [] as number[], chased: [] as number[], seen: [] as number[], size: [] as number[], encounter: [] as number[], rank: [] as number[] };
 
   planned.forEach((w, q) => {
-    // The template's Troops in list order, then the party's extras, all of the first Troop; the total held to a Squad's size.
-    const troops: number[] = [];
-    for (const row of w.template.troops) for (let c = 0; c < row.count; c++) troops.push(row.troop);
+    // The Soldiers' Troops in place order, then the party's extras, all of the first Troop; the total held to a Squad's size.
+    const troops = w.troops.slice();
     const more = whole + (runPick(seed, floor, q, WARBAND_SALT.extra, 100) < Math.round(100 * (extra - whole)) ? 1 : 0);
-    for (let c = 0; c < more && troops.length < battle.squad.size; c++) troops.push(w.template.troops[0]!.troop);
+    for (let c = 0; c < more && troops.length < battle.squad.size; c++) troops.push(w.extra);
 
+    const relicShare = relicMods(tuning, w.relics).maxHp;
     const anchorSurface = groundOf(battle, field, w.x, w.z, 0);
     troops.forEach((t, p) => {
       const i = x.length;
@@ -193,11 +274,13 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       z.push(pz);
       surface.push(groundOf(battle, field, px, pz, 0));
       heading.push(w.facing);
-      hp.push(troop.hp * w.template.hpScale * hpOfTier);
+      // A Boss Soldier's HP is the Fighter's own scaled by its Troop's `hpScale`, with no tier's; every other Soldier's is its Troop's.
+      const bossSoldier = w.rank === BOSS && p === 0;
+      hp.push(bossSoldier ? tuning.fighter.maxHp * boss!.troop.hpScale * (1 + relicShare) : troop.hp * w.template.hpScale * hpOfTier * (1 + relicShare));
       sizeHeight.push(size.height);
       sizeThick.push(size.thick);
       troopOf.push(t);
-      look.push(runPick(seed, floor, i, WARBAND_SALT.look, troopBodies(troop, 1).length));
+      look.push(bossSoldier ? 0 : runPick(seed, floor, i, WARBAND_SALT.look, troopBodies(troop, 1).length));
       squad.push(q);
       place.push(p);
     });
@@ -224,6 +307,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     warbands.seen.push(-1);
     warbands.size.push(troops.length);
     warbands.encounter.push(w.encounter);
+    warbands.rank.push(w.rank);
   });
 
   const n = x.length;

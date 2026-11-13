@@ -218,10 +218,19 @@ function chooseTroops(duel: SimState, players: number, tick: number, tuning: Tun
 }
 
 /**
+ * A Boss Floor's Boss, for the Bubbles (docs/plans/delver.md, Stage 4): `soldier` is the Boss Soldier's Crowd index (-1: none), and `hold`
+ * whether a Player stands in the Boss Hall, while which the Boss's Fighter is never demoted. Derived each Tick, never state.
+ */
+export interface BossHold {
+  readonly soldier: number;
+  readonly hold: boolean;
+}
+
+/**
  * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
  * Players' Fighters. A state without a Crowd is returned as it is.
  */
-export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[] = []): SimState {
+export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[] = [], boss?: BossHold): SimState {
   const chosen = chooseTroops(duel, players, tick, tuning, intents);
   if (chosen !== duel) duel = chosen;
   const before = duel.crowd;
@@ -287,7 +296,11 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     e.crowd.slot[f.soldier!.index] = -1;
     e.fighters[k] = free();
   };
-  const demotesNow = (f: FighterState) => tick - f.soldier!.since >= minTicks && demotable(f);
+  /** Whether `f` is the Boss's Fighter, and whether it is held (a Player stands in the Boss Hall: it never demotes). */
+  const bossSoldier = boss ? boss.soldier : -1;
+  const isBoss = (f: FighterState) => bossSoldier >= 0 && f.soldier?.index === bossSoldier;
+  const held = (f: FighterState) => boss?.hold === true && isBoss(f);
+  const demotesNow = (f: FighterState) => tick - f.soldier!.since >= minTicks && demotable(f) && !held(f);
   /** The first unbound (Benched) slot after the Players', or -1. A Player's corpse is neither bound nor Benched: never free. */
   const openSlot = () => {
     const p = pool();
@@ -309,9 +322,14 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     const made = standingFighter(tuning, arenaOf(tuning, duel.arena), { position: f.position, y: f.y, facing: f.facing }, f.weapon, f.team, size);
     return { ...made, hp: f.hp, maxHp: f.maxHp };
   };
-  /** A promoted Soldier's Mods (its Troop's), when they change anything: one record per Troop. */
+  /** A promoted Soldier's Mods (its Troop's, with its Relics' on top), when they change anything: one record per Troop. */
   const troopMods = tuning.battle.troops.map((t) => {
-    const folded = foldMods([{ effects: t.mods }]);
+    const relics = (t.relics ?? []).map((name) => {
+      const relic = tuning.relics.find((r) => r.name === name);
+      if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+      return relic;
+    });
+    const folded = foldMods([{ effects: t.mods }, ...relics]);
     return isNoMods(folded) ? {} : { mods: folded };
   });
   const modded = (c: CrowdState, s: number) => troopMods[c.troop[s] ?? 0] ?? troopMods[0]!;
@@ -488,7 +506,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       const far = (k: number) => awayFighter(b, pool()[k]!);
       return promoted()
         .filter((k) => roleOf(k) === role && bubbleOf(k) === b)
-        .sort((p, q) => far(p) - far(q) || p - q);
+        .sort((p, q) => Number(!isBoss(pool()[p]!)) - Number(!isBoss(pool()[q]!)) || far(p) - far(q) || p - q);
     };
     // No Bubble holds more than its share (as when more Bubbles come into use, or a slot-holder comes nearer another Bubble's Player):
     // the slot-holders farthest from its Player let their Attack Slots go.
@@ -509,8 +527,8 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       }
       const c0 = soldiers();
       for (let s = 0; s < c0.x.length; s++) if (promotable(s, b, false)) near.push({ k: -1, s, d: away(b, c0.x[s]!, c0.z[s]!, c0.surface[s]!) });
-      // Nearest first; on a tie a Fighter already promoted, then the lower Soldier.
-      near.sort((p, q) => p.d - q.d || (p.k < 0 ? 1 : 0) - (q.k < 0 ? 1 : 0) || p.s - q.s);
+      // The Boss first, then nearest first; on a tie a Fighter already promoted, then the lower Soldier.
+      near.sort((p, q) => Number(p.s !== bossSoldier) - Number(q.s !== bossSoldier) || p.d - q.d || (p.k < 0 ? 1 : 0) - (q.k < 0 ? 1 : 0) || p.s - q.s);
       for (const n of near) {
         if (open <= 0) break;
         if (n.k >= 0) assign(n.k, 'Attack');

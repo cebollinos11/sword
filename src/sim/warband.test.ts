@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, type TuningData } from '../tuning';
 import type { DelverTuning } from '../tuning/delver';
 import { arenaTuning, deployWarbands, floorArenaName, floorOf, warbandHomes } from './delver';
 import { groundOf, soldierHeight } from './battlefield';
@@ -12,11 +12,27 @@ import { CHASE, GUARD, PATROL, RETURN, type WarbandState } from './warband';
 const tuning = loadTuningData();
 const TIMEOUT = 120_000;
 
+/**
+ * The bundled Tuning with every guard and patrol template four Soldiers strong (of its first Troop), no elites: the size the Warband tests below that
+ * kill part of a Squad, or lead one Soldier off from the rest, assume (the bundled templates are one to five Soldiers now).
+ */
+const bigWarbands: TuningData = {
+  ...tuning,
+  delver: {
+    ...tuning.delver,
+    elitePosts: 0,
+    warbands: tuning.delver.warbands.map((tier) => {
+      const four = (w: DelverTuning['warbands'][number]['guard'][number]) => ({ ...w, troops: [{ troop: w.troops[0]!.troop, count: 4 }] });
+      return { ...tier, guard: tier.guard.map(four), patrol: tier.patrol.map(four) };
+    }),
+  },
+};
+
 /** Floor `floor` of Run `seed` with its Crowd deployed for one human: the Floor's Tuning, map, homes and brain. */
-function scene(seed = 1, floor = 1, humans = 1, override: Partial<DelverTuning> = {}) {
+function scene(seed = 1, floor = 1, humans = 1, override: Partial<DelverTuning> = {}, base: TuningData = tuning) {
   const name = floorArenaName(seed, floor);
-  const built = floorOf(tuning, name)!;
-  const t = arenaTuning(tuning, name);
+  const built = floorOf(base, name)!;
+  const t = arenaTuning(base, name);
   const map = battleMapOf(t.battle, name);
   const homes = warbandHomes(built.plan);
   const rules = { ...t.delver, ...override };
@@ -366,7 +382,7 @@ describe('regrouping', { timeout: TIMEOUT }, () => {
 
 describe('morale and wiping', { timeout: TIMEOUT }, () => {
   it('a chasing Warband killed below the threshold returns loose, falling back, and then guards', () => {
-    const s = scene(1);
+    const s = scene(1, 1, 1, {}, bigWarbands);
     const q = firstOf(s.crowd, GUARD);
     const at = inView(s, s.crowd, q, 10, 13);
     const fighters = () => [party(s, at.x, at.z)];
@@ -393,7 +409,7 @@ describe('morale and wiping', { timeout: TIMEOUT }, () => {
   });
 
   it('a broken Warband does not chase what it sees', () => {
-    const s = scene(1);
+    const s = scene(1, 1, 1, {}, bigWarbands);
     const q = firstOf(s.crowd, GUARD);
     const at = inView(s, s.crowd, q, 6, 9);
     let crowd = s.crowd;
@@ -459,7 +475,7 @@ describe('the brain as a SquadBrain', { timeout: TIMEOUT }, () => {
 
   it("a walled-off Soldier of a Squad walks round by the Squad's lead field", () => {
     // Seed 2 Floor 1: for most posts there is a spot 10 to 16 m away behind a Hall wall, 14 m or more to walk.
-    const s = scene(2);
+    const s = scene(2, 1, 1, {}, bigWarbands);
     let q = -1;
     let at = { x: 0, z: 0 };
     for (let k = 0; k < s.crowd.warbands!.mode.length && q < 0; k++) {
