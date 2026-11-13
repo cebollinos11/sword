@@ -47,8 +47,8 @@ export {
   type WeightedHallKind,
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
-import { parseDelver, type DelverFloorTuning, type DelverTuning } from './delver';
-export { parseDelver, type DelverFloorTuning, type DelverTuning };
+import { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate } from './delver';
+export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
@@ -886,7 +886,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
-    delver: parseDelver(root.delver, battle.field.size, battle),
+    delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),
     battle,
     skeleton,
     ai,

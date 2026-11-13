@@ -12,7 +12,7 @@ import type { DelverFloorTuning } from '../../tuning/delver';
 import type { Doors, GroundPoint, Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
 
-export type DelverHallKind = 'Entrance' | 'Stairs' | 'Rest' | 'Treasure' | 'Fight' | 'Empty';
+export type DelverHallKind = 'Entrance' | 'Stairs' | 'Boss' | 'Rest' | 'Treasure' | 'Fight' | 'Empty';
 
 /** One Hall: a rectangle on a lattice cell, with a doorway on each side a Passage leaves from. */
 export interface DelverHall {
@@ -66,6 +66,8 @@ export interface DelverMarkers {
   /** The Warband posts: one at each Fight Hall's centre. */
   readonly posts: readonly MarkerPoint[];
   readonly patrols: readonly DelverPatrol[];
+  /** A Boss Floor only: the Boss Hall's centre, where the Boss Warband stands (Stage 4). Absent on any other Floor. */
+  readonly boss?: MarkerPoint;
 }
 
 export interface FloorPlan {
@@ -144,13 +146,17 @@ interface WorkHall {
   rect: Rect;
   /** The Passage on each side n, e, s, w, or -1. */
   side: number[];
+  /** The half sizes the gaps leave (`limX`, `limZ` of step 2). */
+  limX: number;
+  limZ: number;
 }
 
 /**
  * Floor `floor`'s layout for one attempt. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
- * assigned as far as possible; the judge refuses such a plan.
+ * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall, grown to the
+ * most the gaps allow, and adds `markers.boss`; it decides nothing by a pick, and with it false the plan has no Boss key anywhere.
  */
-export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number): FloorPlan {
+export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number, boss = false): FloorPlan {
   const s = attemptSeed(seed, floor, attempt);
   const pick = (slot: number, salt: number, count: number) => runPick(s, floor, slot, salt, count);
   const { cols, rows } = t;
@@ -176,6 +182,10 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // 2. A Hall's size when placed in cell (i, j): its half sizes, kept small enough that neighbours leave `minPassage`. Then its Walls
   // are kept off the destination fields' dots: where a Wall (cx + hw, cz + hd and the other three) lies on an even metre it would run
   // through the 2 m cell centres, so that half size moves one metre (down if it stays within `halfSize`, else up within the gap limit).
+  const offDots = (half: number, centre: number, lim: number): number => {
+    if ((((centre + half) % 2) + 2) % 2 !== 0) return half;
+    return half - 1 >= t.halfSize[0] ? half - 1 : half + 1 <= lim ? half + 1 : half;
+  };
   const place = (c: number): number => {
     const i = c % cols;
     const j = Math.floor(c / cols);
@@ -186,13 +196,9 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const span = t.halfSize[1] - t.halfSize[0] + 1;
     const cx = X[i]!;
     const cz = Z[j]!;
-    const offDots = (half: number, centre: number, lim: number): number => {
-      if (((centre + half) % 2 + 2) % 2 !== 0) return half;
-      return half - 1 >= t.halfSize[0] ? half - 1 : half + 1 <= lim ? half + 1 : half;
-    };
     const hw = offDots(Math.min(t.halfSize[0] + pick(c, SALT.hw, span), limX), cx, limX);
     const hd = offDots(Math.min(t.halfSize[0] + pick(c, SALT.hd, span), limZ), cz, limZ);
-    halls.push({ i, j, cx, cz, rect: { x0: cx - hw, z0: cz - hd, x1: cx + hw, z1: cz + hd }, side: [-1, -1, -1, -1] });
+    halls.push({ i, j, cx, cz, rect: { x0: cx - hw, z0: cz - hd, x1: cx + hw, z1: cz + hd }, side: [-1, -1, -1, -1], limX, limZ });
     occupied[c] = halls.length - 1;
     return halls.length - 1;
   };
@@ -306,6 +312,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   // 5. A Passage's geometry: straight between the facing side centres.
   const half = w / 2;
   const doors: Record<Side, number>[] = halls.map(() => ({}) as Record<Side, number>);
+  const passageRect = (p: { a: number; b: number; axis: 'x' | 'z' }): Rect => {
+    const ha = halls[p.a]!;
+    const hb = halls[p.b]!;
+    return p.axis === 'x'
+      ? { x0: ha.rect.x1, z0: ha.cz - half, x1: hb.rect.x0, z1: ha.cz + half }
+      : { x0: ha.cx - half, z0: ha.rect.z1, x1: ha.cx + half, z1: hb.rect.z0 };
+  };
   const plannedPassages: DelverPassage[] = passages.map((p, n) => {
     const ha = halls[p.a]!;
     const hb = halls[p.b]!;
@@ -316,10 +329,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       doors[p.a]!.n = w;
       doors[p.b]!.s = w;
     }
-    const rect: Rect =
-      p.axis === 'x'
-        ? { x0: ha.rect.x1, z0: ha.cz - half, x1: hb.rect.x0, z1: ha.cz + half }
-        : { x0: ha.cx - half, z0: ha.rect.z1, x1: ha.cx + half, z1: hb.rect.z0 };
+    const rect = passageRect(p);
     return { id: `pass${n}`, a: p.a, b: p.b, axis: p.axis, rect, length: Math.abs(ha.cx - hb.cx) + Math.abs(ha.cz - hb.cz), loop: p.loop };
   });
 
@@ -349,7 +359,18 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
 
   const kind = new Array<DelverHallKind | null>(n).fill(null);
   kind[entrance] = 'Entrance';
-  if (stairs !== entrance) kind[stairs] = 'Stairs';
+  // A Boss Floor's Stairs Hall is the Boss Hall, grown to the most its gaps allow (the Passages touching it re-rected by step 5's formula).
+  const bossHall = boss && stairs !== entrance;
+  if (stairs !== entrance) kind[stairs] = bossHall ? 'Boss' : 'Stairs';
+  if (bossHall) {
+    const bh = halls[stairs]!;
+    const hw = offDots(Math.min(t.halfSize[1], bh.limX), bh.cx, bh.limX);
+    const hd = offDots(Math.min(t.halfSize[1], bh.limZ), bh.cz, bh.limZ);
+    bh.rect = { x0: bh.cx - hw, z0: bh.cz - hd, x1: bh.cx + hw, z1: bh.cz + hd };
+    passages.forEach((p, n) => {
+      if (p.a === stairs || p.b === stairs) plannedPassages[n] = { ...plannedPassages[n]!, rect: passageRect(p) };
+    });
+  }
 
   // In line: straight on from the Entrance, through each Hall by the side opposite the one entered.
   const inLine: number[] = [];
@@ -464,6 +485,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     pedestals: hallsOfKind('Treasure').flatMap((h) => [at(h, -PEDESTAL_GAP), at(h), at(h, PEDESTAL_GAP)]),
     posts: hallsOfKind('Fight').map((h) => at(h)),
     patrols,
+    ...(bossHall ? { boss: at(stairs) } : {}),
   };
 
   const outHalls: DelverHall[] = halls.map((h, k) => {

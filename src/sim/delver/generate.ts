@@ -8,6 +8,7 @@ import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
 import { planFloor } from './plan';
+import { isBossFloor } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
 export interface DelverFloor extends BuiltFloor {
@@ -29,10 +30,11 @@ export function delverFloor(
 ): DelverFloor {
   const t = tuning.delver.floor;
   const maxAttempts = opts.maxAttempts ?? t.maxAttempts;
+  const boss = isBossFloor(tuning.delver, floor);
   let best: { built: BuiltFloor; reasons: string[] } | null = null;
   let last = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const plan = planFloor(t, seed, floor, attempt);
+    const plan = planFloor(t, seed, floor, attempt, boss);
     const { reasons, built } = judgeAttempt(tuning, plan, opts.judge);
     if (!built) {
       last = reasons[reasons.length - 1]!;
@@ -53,7 +55,7 @@ export function describeFloor(f: DelverFloor): string {
   const count = (kind: string) => halls.filter((h) => h.kind === kind).length;
   const kinds = [
     `Entrance ${halls[plan.entrance]!.id}`,
-    `Stairs ${halls[plan.stairs]!.id}`,
+    `${halls[plan.stairs]!.kind === 'Boss' ? 'Boss' : 'Stairs'} ${halls[plan.stairs]!.id}`,
     ...(count('Rest') > 0 ? [`Rest ${named('Rest')}`] : []),
     ...(count('Treasure') > 0 ? [`Treasure ${named('Treasure')}`] : []),
     `${count('Fight')} Fight`,

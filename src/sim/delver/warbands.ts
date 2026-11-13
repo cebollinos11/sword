@@ -145,7 +145,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     const loop = patrols[k]!;
     const points = home.patrols[k]!;
     // It starts at the first point whose Hall is neither a Fight Hall nor the Stairs', else the first, walking to the next.
-    let start = loop.halls.findIndex((h) => plan.halls[h]!.kind !== 'Fight' && plan.halls[h]!.kind !== 'Stairs');
+    let start = loop.halls.findIndex((h) => plan.halls[h]!.kind !== 'Fight' && plan.halls[h]!.kind !== 'Stairs' && plan.halls[h]!.kind !== 'Boss');
     if (start < 0) start = 0;
     const leg = (start + 1) % points.length;
     const at = points[start]!;

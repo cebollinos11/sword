@@ -13,11 +13,17 @@ const t = tuning.delver.floor;
 let floors: DelverFloor[];
 /** A Floor whose plan has Halls in line with its Entrance, found by seed. */
 let inLine: DelverFloor;
+/** A Boss Floor (Floor 3 of the bundled Tuning), and one whose Entrance has Halls in line. */
+let bossFloor: DelverFloor;
+let bossInLine: DelverFloor;
 
 beforeAll(() => {
   floors = [1, 2, 3].map((seed) => delverFloor(tuning, seed, 1));
   const seed = Array.from({ length: 60 }, (_, k) => k + 1).find((s) => planFloor(t, s, 1, 0).inLine.length > 0)!;
   inLine = delverFloor(tuning, seed, 1);
+  bossFloor = delverFloor(tuning, 1, 3);
+  const bossSeed = Array.from({ length: 60 }, (_, k) => k + 1).find((s) => planFloor(t, s, 3, 0, true).inLine.length > 0)!;
+  bossInLine = delverFloor(tuning, bossSeed, 3);
 }, 120_000);
 
 const good = () => floors[0]!;
@@ -128,6 +134,46 @@ describe('the Delver Floor judge', () => {
     const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, posts } });
     const reasons = judgeBuilt(t, moved);
     expect(reasons.filter((r) => r.startsWith('sight: post0 ') && r.includes(h.id))).toHaveLength(1);
+    expect(judgeBuilt(t, b)).toEqual([]);
+  });
+});
+
+describe('the judge on a Boss Floor', () => {
+  it('passes a Boss Floor with no reasons: one Boss Hall, which is the Stairs Hall', () => {
+    const b = bossFloor;
+    expect(b.judgement).toEqual({ ok: true, reasons: [] });
+    expect(b.plan.halls[b.plan.stairs]!.kind).toBe('Boss');
+    expect(b.plan.markers.boss).toBeDefined();
+    expect(judgeBuilt(t, b)).toEqual([]);
+    expect(b.source.look!.props!.at(-1)).toMatchObject({ id: 'boss', kind: 'banner', team: 1, x: b.plan.markers.boss!.x, z: b.plan.markers.boss!.z });
+    expect(describeFloor(b)).toContain(`Boss ${b.plan.halls[b.plan.stairs]!.id}`);
+  });
+
+  it('rooms: refuses a Boss Floor with an extra Stairs Hall, or with the Boss Hall not the Stairs Hall', () => {
+    const b = bossFloor;
+    const other = b.plan.halls.findIndex((h) => h.kind === 'Fight' || h.kind === 'Empty');
+    const extra = { ...b.plan, halls: b.plan.halls.map((h, k) => (k === other ? { ...h, kind: 'Stairs' as const } : h)) };
+    expect(judgePlan(t, extra).some((r) => r.startsWith('rooms: 1 Stairs on a Boss Floor'))).toBe(true);
+    const moved = { ...b.plan, stairs: other };
+    expect(judgePlan(t, moved).some((r) => r.startsWith('rooms: the Boss Hall is not the Stairs Hall'))).toBe(true);
+    const twice = { ...b.plan, halls: b.plan.halls.map((h, k) => (k === other ? { ...h, kind: 'Boss' as const } : h)) };
+    expect(judgePlan(t, twice).some((r) => r.startsWith('rooms: 2 Boss Halls'))).toBe(true);
+    expect(judgePlan(t, b.plan)).toEqual([]);
+  });
+
+  it('markers: refuses the boss marker in the abyss', () => {
+    const b = bossFloor;
+    const at = abyssPoint(b);
+    const plan = { ...b.plan, markers: { ...b.plan.markers, boss: { hall: b.plan.markers.boss!.hall, ...at } } };
+    expect(judgeBuilt(t, withPlan(b, plan)).some((r) => r.startsWith('markers: boss '))).toBe(true);
+  });
+
+  it('sight: refuses the boss marker in the first Hall in line with the Entrance, naming it', () => {
+    const b = bossInLine;
+    const k = b.plan.inLine[0]!;
+    const h = b.plan.halls[k]!;
+    const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, boss: { hall: k, x: h.cx, z: h.cz } } });
+    expect(judgeBuilt(t, moved).filter((r) => r.startsWith('sight: boss ') && r.includes(h.id))).toHaveLength(1);
     expect(judgeBuilt(t, b)).toEqual([]);
   });
 });

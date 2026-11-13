@@ -246,6 +246,12 @@ export interface TroopTuning {
   readonly weapon: string;
   /** The AI difficulty a promoted Soldier of it plays (a name from `ai.difficulties`). */
   readonly difficulty: string;
+  /** A Delver Floor's Troop only (never parsed from `battle.json`): the AI Style a Pool AI plays it as, instead of `battle.soldier.style`. */
+  readonly style?: string;
+  /** A Delver Floor's Troop only: the Relics (names, data/relics.json) a promoted Soldier of it wears. */
+  readonly relics?: readonly string[];
+  /** A Delver Floor's Boss Troop only. */
+  readonly boss?: true;
   /** Its HP, in a Fighter's units. */
   readonly hp: number;
   /** A Crowd blow's damage, uniform in [min, max]. */

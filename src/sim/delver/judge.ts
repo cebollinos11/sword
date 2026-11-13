@@ -3,12 +3,12 @@
  * Each failure is one line, prefixed by its rule's name and naming the Hall, Passage or marker, so a reroll's reasons read as the
  * plan's tests do. The rules, in order:
  *
- *  1. `rooms`: the plan has the Halls wanted, one Entrance, one Stairs, Rests within range and a Fight (checkable without a build).
+ *  1. `rooms`: the plan has the Halls wanted, one Entrance, one Stairs (a Boss Floor: one Boss Hall, the Stairs Hall, and no Stairs kind), Rests within range and a Fight (checkable without a build).
  *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped; a plan rule 1 refused is not built).
  *  3. `halls`: the field from the Entrance's centre reaches every Hall's centre.
  *  4. `passages` (Stage 0's check): the field to one Hall's centre, read at its neighbour's, follows the Passage between them.
  *  5. `markers`: each marker stands in its Hall, on the floor, off any hazard, and is reached from the Entrance.
- *  6. `sight`: no Warband post or patrol point is in sight of an Entrance spawn.
+ *  6. `sight`: no Warband post, patrol point or Boss post is in sight of an Entrance spawn.
  *
  * Pure: no clock, so a verdict never hangs on a machine's speed.
  */
@@ -48,7 +48,12 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan): string[] {
   const count = (k: string) => plan.halls.filter((h) => h.kind === k).length;
   if (plan.halls.length !== t.rooms) out.push(`rooms: ${plan.halls.length} Halls, ${t.rooms} wanted (the layout stalled)`);
   if (count('Entrance') !== 1) out.push(`rooms: ${count('Entrance')} Entrances, one wanted`);
-  if (count('Stairs') !== 1) out.push(`rooms: ${count('Stairs')} Stairs, one wanted`);
+  if (count('Boss') > 0 || plan.markers.boss) {
+    // A Boss Floor: exactly one Boss Hall, the Stairs Hall, and no other Stairs.
+    if (count('Boss') !== 1) out.push(`rooms: ${count('Boss')} Boss Halls, one wanted`);
+    else if (plan.halls[plan.stairs]?.kind !== 'Boss') out.push(`rooms: the Boss Hall is not the Stairs Hall (${plan.halls[plan.stairs]?.id})`);
+    if (count('Stairs') !== 0) out.push(`rooms: ${count('Stairs')} Stairs on a Boss Floor, none wanted`);
+  } else if (count('Stairs') !== 1) out.push(`rooms: ${count('Stairs')} Stairs, one wanted`);
   const rests = count('Rest');
   if (rests < t.rests[0] || rests > t.rests[1]) out.push(`rooms: ${rests} Rests, ${t.rests[0]} to ${t.rests[1]} wanted`);
   if (count('Fight') < 1) out.push('rooms: no Fight Hall');
@@ -57,7 +62,7 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan): string[] {
 
 /** A marker to judge: its kind, its name, its Hall and where it stands. */
 interface Marker {
-  readonly kind: 'spawn' | 'stairs' | 'fire' | 'pedestal' | 'post' | 'patrol';
+  readonly kind: 'spawn' | 'stairs' | 'fire' | 'pedestal' | 'post' | 'patrol' | 'boss';
   readonly name: string;
   readonly hall: number;
   readonly x: number;
@@ -74,6 +79,7 @@ function markersOf(plan: FloorPlan): Marker[] {
     ...m.pedestals.map((p, k): Marker => ({ kind: 'pedestal', name: `pedestal${k}`, hall: p.hall, x: p.x, z: p.z })),
     ...m.posts.map((p, k): Marker => ({ kind: 'post', name: `post${k}`, hall: p.hall, x: p.x, z: p.z })),
     ...m.patrols.flatMap((patrol, k) => patrol.points.map((p, n): Marker => ({ kind: 'patrol', name: `patrol${k}.${n}`, hall: patrol.halls[n]!, x: p.x, z: p.z }))),
+    ...(m.boss ? [{ kind: 'boss', name: 'boss', hall: m.boss.hall, x: m.boss.x, z: m.boss.z } as Marker] : []),
   ];
 }
 
@@ -119,7 +125,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
 
   const spawns = plan.markers.spawns;
   for (const mk of markers) {
-    if (mk.kind !== 'post' && mk.kind !== 'patrol') continue;
+    if (mk.kind !== 'post' && mk.kind !== 'patrol' && mk.kind !== 'boss') continue;
     const seen = spawns.findIndex((sp) => inSight(fields, sp.x, sp.z, mk.x, mk.z, 0, 0, 0));
     if (seen >= 0) out.push(`sight: ${mk.name} (${halls[mk.hall]!.id}) is in sight of spawn${seen}`);
   }

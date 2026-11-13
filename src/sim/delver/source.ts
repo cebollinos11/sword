@@ -19,6 +19,7 @@ export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.tes
 const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Entrance: 'plaster',
   Stairs: 'glow',
+  Boss: 'glow',
   Rest: 'brick',
   Treasure: 'tile',
   Fight: 'dungeon',
@@ -47,6 +48,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     ...m.fires.map((p, n): SourceProp => ({ id: `fire${n}`, kind: 'torch', x: p.x, z: p.z, y: 0, turn: 0 })),
     ...m.posts.map((p, n): SourceProp => ({ id: `post${n}`, kind: 'banner', x: p.x, z: p.z, y: 0, turn: 0, team: 1 })),
     ...m.pedestals.map((p, n): SourceProp => ({ id: `pedestal${n}`, kind: 'crate', x: p.x, z: p.z, y: 0, turn: 0 })),
+    ...(m.boss ? [{ id: 'boss', kind: 'banner', x: m.boss.x, z: m.boss.z, y: 0, turn: 0, team: 1 } as SourceProp] : []),
   ];
 
   return {

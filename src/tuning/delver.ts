@@ -4,6 +4,8 @@
  * and the Run seed, so peers with different Delver Tuning Data refuse each other at connect.
  */
 import type { BattleTuning } from './battle';
+import { MAX_ENEMY_RELICS } from './dungeon';
+import { MAX_SIZE, MIN_SIZE } from './size';
 import { array, finiteNumber, record, TuningDataError } from './validate';
 
 export interface DelverFloorTuning {
@@ -45,12 +47,45 @@ export interface WarbandTemplate {
   readonly troops: readonly { readonly troop: number; readonly count: number }[];
   /** Multiplies each Soldier's HP (on top of its tier's `tierHp`); positive. */
   readonly hpScale: number;
+  /** The Relics its Soldiers' promoted Fighters wear (1 or 2 names, an elite template's); `[]` for a guard, patrol or Boss guard template. */
+  readonly relics: readonly string[];
 }
 
-/** One tier's Warband pools: the templates a post's guard and a patrol loop's patrol are picked from. */
+/** A tier's Boss (docs/plans/delver.md, Stage 4): its Soldier's Troop and the guard Warband that stands with it. */
+export interface DelverBoss {
+  readonly troop: {
+    readonly name: string;
+    /** An index into `battle.troops`: it gives the Boss Soldier's Crowd stats. */
+    readonly base: number;
+    readonly weapon: string;
+    readonly body: string;
+    readonly height: number;
+    readonly width: number;
+    readonly difficulty: string;
+    readonly style: string;
+    readonly relics: readonly string[];
+    readonly hpScale: number;
+  };
+  /** The plain templates the Boss Warband's other Soldiers are picked from (with the Boss at most `battle.squad.size`). */
+  readonly guard: readonly WarbandTemplate[];
+}
+
+/** One tier's Warband pools: the templates a post's guard and a patrol loop's patrol are picked from, its elites and its Boss. */
 export interface DelverTier {
   readonly guard: readonly WarbandTemplate[];
   readonly patrol: readonly WarbandTemplate[];
+  /** The elite pool: templates carrying Relics; may be empty or absent (no elites in this tier). */
+  readonly elite?: readonly WarbandTemplate[];
+  /** This tier's Boss; absent: its last Floor is an ordinary Floor. */
+  readonly boss?: DelverBoss;
+}
+
+/** The names a Boss and an elite are checked against (the Weapon roster, `ai.difficulties`, `ai.styles` and the Relics). */
+export interface DelverNames {
+  readonly weapons: readonly string[];
+  readonly difficulties: readonly string[];
+  readonly styles: readonly string[];
+  readonly relics: readonly string[];
 }
 
 /** The most Players in a party (`MAX_TEAM_SIZE`, `sim/match`); a local copy, since tuning must not import the Simulation. */
@@ -79,6 +114,8 @@ export interface DelverTuning {
   readonly arrive: number;
   /** The share (whole percent, 0 to 100) of a Floor's posts that hold a guard. */
   readonly postFill: number;
+  /** How many of a Floor's filled posts hold an elite Warband (whole, >= 0). */
+  readonly elitePosts: number;
   /** The share (whole percent, 0 to 100) of a Floor's patrol loops that hold a patrol. */
   readonly patrolFill: number;
   /** The Soldiers each Warband gains of its first Troop per human beyond the first (0 or more; the fraction is a seeded chance). */
@@ -131,9 +168,27 @@ function positive(obj: Record<string, unknown>, key: string, where: string): num
   return v;
 }
 
-function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'troops' | 'squad'>): WarbandTemplate[] {
+/** `min` to MAX_ENEMY_RELICS names, each a Relic that exists. */
+function relicList(raw: unknown, where: string, relicNames: readonly string[], min: number): string[] {
+  const list = array(raw, where);
+  if (list.length < min || list.length > MAX_ENEMY_RELICS) fail(where, `${min} to ${MAX_ENEMY_RELICS} Relics`, raw);
+  return list.map((name, k) => {
+    if (typeof name !== 'string' || !relicNames.includes(name)) fail(`${where}[${k}]`, `one of the Relics (${relicNames.join(', ')})`, name);
+    return name;
+  });
+}
+
+interface PoolOptions {
+  /** An elite pool: each template names its Relics, and the pool may be empty. */
+  readonly elite?: boolean;
+  /** Soldiers kept back from `battle.squad.size` (the Boss's one). */
+  readonly reserve?: number;
+}
+
+function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'troops' | 'squad'>, relicNames: readonly string[], opts: PoolOptions = {}): WarbandTemplate[] {
   const list = array(raw, path);
-  if (list.length === 0) fail(path, 'a non-empty array', raw);
+  if (list.length === 0 && !opts.elite) fail(path, 'a non-empty array', raw);
+  const room = battle.squad.size - (opts.reserve ?? 0);
   return list.map((item, i) => {
     const where = `${path}[${i}]`;
     const t = record(item, where);
@@ -151,16 +206,48 @@ function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'troop
       total += count;
       return { troop: index, count };
     });
-    if (total > battle.squad.size) fail(`${where}.troops`, `1 to battle.squad.size (${battle.squad.size}) Soldiers in all`, total);
-    return { troops, hpScale: positive(t, 'hpScale', where) };
+    if (total > room) fail(`${where}.troops`, `1 to ${room} Soldiers in all (battle.squad.size ${battle.squad.size}${opts.reserve ? ` less the Boss's ${opts.reserve}` : ''})`, total);
+    let relics: string[] = [];
+    if (opts.elite) relics = relicList(t.relics, `${where}.relics`, relicNames, 1);
+    // Parsed data names a plain template's Relics `[]`, so an empty list is accepted back; anything else is an elite's.
+    else if (t.relics !== undefined && !(Array.isArray(t.relics) && t.relics.length === 0)) fail(`${where}.relics`, 'absent (only an elite template carries Relics)', t.relics);
+    return { troops, hpScale: positive(t, 'hpScale', where), relics };
   });
+}
+
+function parseBoss(raw: unknown, where: string, battle: Pick<BattleTuning, 'troops' | 'squad'>, names: DelverNames): DelverBoss {
+  const b = record(raw, where);
+  const tw = `${where}.troop`;
+  const t = record(b.troop, tw);
+  if (typeof t.name !== 'string' || t.name === '') fail(`${tw}.name`, 'a non-empty string', t.name);
+  const base = typeof t.base === 'number' && Number.isInteger(t.base) && t.base >= 0 && t.base < battle.troops.length ? t.base : battle.troops.findIndex((tr) => tr.name === t.base);
+  if (base < 0) fail(`${tw}.base`, `one of battle.troops (${battle.troops.map((tr) => tr.name).join(', ')})`, t.base);
+  const oneOf = (key: 'weapon' | 'difficulty' | 'style', list: readonly string[], what: string): string => {
+    const v = t[key];
+    if (typeof v !== 'string' || !list.includes(v)) fail(`${tw}.${key}`, `${what} (${list.join(', ')})`, v);
+    return v;
+  };
+  const weapon = oneOf('weapon', names.weapons, 'one of the Weapons');
+  if (typeof t.body !== 'string' || t.body === '') fail(`${tw}.body`, 'a non-empty string', t.body);
+  const size = (key: 'height' | 'width'): number => {
+    const v = finiteNumber(t, key, tw);
+    if (v < MIN_SIZE || v > MAX_SIZE) fail(`${tw}.${key}`, `from ${MIN_SIZE} to ${MAX_SIZE}`, v);
+    return v;
+  };
+  const height = size('height');
+  const width = size('width');
+  const difficulty = oneOf('difficulty', names.difficulties, 'one of the AI difficulties');
+  const style = oneOf('style', names.styles, 'one of the AI Styles');
+  const relics = relicList(t.relics, `${tw}.relics`, names.relics, 0);
+  const hpScale = positive(t, 'hpScale', tw);
+  return { troop: { name: t.name, base, weapon, body: t.body, height, width, difficulty, style, relics, hpScale }, guard: parsePool(b.guard, `${where}.guard`, battle, names.relics, { reserve: 1 }) };
 }
 
 /**
  * Parse and validate `delver`; `fieldSize` is the Battle's field side (`battle.field.size`), which the lattice must fit, and `battle` the parsed
  * Battle Tuning, for the Troop names, `squad.size` and the Pool the Attack Slots must fit.
  */
-export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<BattleTuning, 'troops' | 'squad' | 'bubble'>): DelverTuning {
+export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<BattleTuning, 'troops' | 'squad' | 'bubble'>, names: DelverNames): DelverTuning {
   const root = record(raw, 'delver');
   const flowCell = finiteNumber(root, 'flowCell', 'delver');
   if (flowCell <= 0) fail('delver.flowCell', 'a positive number', flowCell);
@@ -178,6 +265,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const arrive = positive(root, 'arrive', 'delver');
   const postFill = percent(root, 'postFill', 'delver');
   const patrolFill = percent(root, 'patrolFill', 'delver');
+  const elitePosts = root.elitePosts === undefined ? 1 : whole(root, 'elitePosts', 'delver', 0);
   const perPlayerSoldiers = finiteNumber(root, 'perPlayerSoldiers', 'delver');
   if (perPlayerSoldiers < 0) fail('delver.perPlayerSoldiers', 'a number >= 0', perPlayerSoldiers);
   const slotList = array(root.attackSlots, 'delver.attackSlots');
@@ -199,7 +287,10 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const warbands = tierList.map((item, i): DelverTier => {
     const where = `delver.warbands[${i}]`;
     const tier = record(item, where);
-    return { guard: parsePool(tier.guard, `${where}.guard`, battle), patrol: parsePool(tier.patrol, `${where}.patrol`, battle) };
+    const guard = parsePool(tier.guard, `${where}.guard`, battle, names.relics);
+    const patrol = parsePool(tier.patrol, `${where}.patrol`, battle, names.relics);
+    const elite = tier.elite === undefined ? [] : parsePool(tier.elite, `${where}.elite`, battle, names.relics, { elite: true });
+    return { guard, patrol, elite, ...(tier.boss === undefined ? {} : { boss: parseBoss(tier.boss, `${where}.boss`, battle, names) }) };
   });
   const f = record(root.floor, 'delver.floor');
   const w = 'delver.floor';
@@ -252,6 +343,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     closeIn,
     arrive,
     postFill,
+    elitePosts,
     patrolFill,
     perPlayerSoldiers,
     attackSlots,

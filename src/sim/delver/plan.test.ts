@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
 import type { Rect } from '../../mapEditor/source';
-import { attemptSeed, planFloor, type FloorPlan } from './plan';
+import { runPick } from '../dungeon';
+import { attemptSeed, planFloor, SALT, STAIRS_HALF, type FloorPlan } from './plan';
 
 const t = loadTuningData().delver.floor;
 const SEEDS = Array.from({ length: 50 }, (_, k) => k + 1);
@@ -182,5 +183,65 @@ describe('planFloor', () => {
     expect(restCounts.has(1) && restCounts.has(2)).toBe(true);
     expect(full.some((p) => p.halls.some((h) => h.kind === 'Empty'))).toBe(true);
     expect(full.some((p) => p.halls.some((h) => h.kind === 'Fight'))).toBe(true);
+  });
+
+  describe('Boss Halls', () => {
+    const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+    /** What a Boss plan was before its Boss changes: the kind back to Stairs, the Hall's and its Passages' rects, and `markers.boss` removed. */
+    const undone = (boss: FloorPlan, plain: FloorPlan): FloorPlan => {
+      const { boss: _boss, ...markers } = boss.markers;
+      return {
+        ...boss,
+        halls: boss.halls.map((h, k) => (k === boss.stairs ? { ...h, kind: 'Stairs' as const, rect: plain.halls[k]!.rect } : h)),
+        passages: boss.passages.map((p, n) => (p.a === boss.stairs || p.b === boss.stairs ? { ...p, rect: plain.passages[n]!.rect } : p)),
+        markers,
+      };
+    };
+
+    it('boss false is the plan as it was: no Boss key anywhere', () => {
+      for (const { seed, floor } of pairs.slice(0, 40)) {
+        const p = planFloor(t, seed, floor, 0);
+        expect(planFloor(t, seed, floor, 0, false)).toEqual(p);
+        expect(JSON.stringify(p)).not.toMatch(/boss|Boss/);
+      }
+    });
+
+    it('boss true differs from boss false only by the Boss Hall, its Passages\' rects and markers.boss', () => {
+      let bosses = 0;
+      for (const { seed, floor } of pairs) {
+        const plain = planFloor(t, seed, floor, 0, false);
+        const boss = planFloor(t, seed, floor, 0, true);
+        expect(undone(boss, plain)).toEqual(plain);
+        if (boss.stairs === boss.entrance) {
+          // A one-Hall layout has no Stairs apart from its Entrance: nothing changes.
+          expect(boss).toEqual(plain);
+          continue;
+        }
+        bosses++;
+        const h = boss.halls[boss.stairs]!;
+        expect(h.kind).toBe('Boss');
+        expect(boss.halls.filter((x) => x.kind === 'Stairs')).toHaveLength(0);
+        expect(boss.markers.boss).toEqual({ hall: boss.stairs, x: h.cx, z: h.cz });
+        expect(boss.markers.stairs).toEqual({ hall: boss.stairs, zone: { x0: h.cx - STAIRS_HALF, z0: h.cz - STAIRS_HALF, x1: h.cx + STAIRS_HALF, z1: h.cz + STAIRS_HALF } });
+        expect(h.depth).toBe(plain.halls[boss.stairs]!.depth);
+        // As large as its gaps allow: the lattice's gaps by the same picks as the plan's step 1.
+        const gx = Array.from({ length: t.cols - 1 }, (_, k) => t.gaps[runPick(seed >>> 0, floor, k, SALT.gapX, t.gaps.length)]!);
+        const gz = Array.from({ length: t.rows - 1 }, (_, k) => t.gaps[runPick(seed >>> 0, floor, k, SALT.gapZ, t.gaps.length)]!);
+        const limX = Math.floor((Math.min(...[...(h.i > 0 ? [gx[h.i - 1]!] : []), ...(h.i < t.cols - 1 ? [gx[h.i]!] : [])]) - t.minPassage) / 2);
+        const limZ = Math.floor((Math.min(...[...(h.j > 0 ? [gz[h.j - 1]!] : []), ...(h.j < t.rows - 1 ? [gz[h.j]!] : [])]) - t.minPassage) / 2);
+        const dots = (half: number, centre: number, lim: number) => (((centre + half) % 2) + 2) % 2 !== 0 ? half : half - 1 >= t.halfSize[0] ? half - 1 : half + 1 <= lim ? half + 1 : half;
+        expect(h.rect.x1 - h.cx).toBe(dots(Math.min(t.halfSize[1], limX), h.cx, limX));
+        expect(h.rect.z1 - h.cz).toBe(dots(Math.min(t.halfSize[1], limZ), h.cz, limZ));
+        expect(h.rect.x1 - h.cx).toBeLessThanOrEqual(limX);
+        expect(h.rect.z1 - h.cz).toBeLessThanOrEqual(limZ);
+        expect(h.rect.x1 - h.cx).toBeGreaterThanOrEqual(plain.halls[boss.stairs]!.rect.x1 - h.cx);
+        // It touches no other Hall and no Passage but its own.
+        boss.halls.forEach((o, k) => k !== boss.stairs && expect(touches(h.rect, o.rect)).toBe(false));
+        boss.passages.forEach((q) => {
+          if (q.a !== boss.stairs && q.b !== boss.stairs) expect(overlaps(h.rect, q.rect)).toBe(false);
+        });
+      }
+      expect(bosses).toBeGreaterThan(150);
+    });
   });
 });

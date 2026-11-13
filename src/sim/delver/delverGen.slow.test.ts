@@ -15,14 +15,14 @@ import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { navMesh } from '../nav';
 import { runPick } from '../dungeon';
-import { buildFloor, delverFloor, judgeBuilt, planFloor, type DelverHallKind, type FloorPlan } from './index';
+import { buildFloor, delverFloor, isBossFloor, judgeBuilt, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
 const t = tuning.delver.floor;
 const PAIRS = 500;
 const SAMPLE_EVERY = 25;
 const NAV_FLOORS = 20;
-const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Rest', 'Treasure', 'Fight', 'Empty'];
+const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight', 'Empty'];
 const RULES = ['rooms', 'compile', 'halls', 'passages', 'markers', 'sight'];
 /** A Passage longer than this joins Halls two lattice steps apart, over an empty cell. */
 const FAR = Math.max(...t.gaps);
@@ -65,7 +65,7 @@ function deal(k: number, wantNav: boolean): Dealt {
   const d: Dealt = { k, seed, floor, attempts: 0, layout: null, mapText: null, nav: null, ok: false, lastReasons: [], plan: 0, build: 0, judge: 0, sum: 0 };
   for (let attempt = 0; attempt < t.maxAttempts; attempt++) {
     const t0 = performance.now();
-    const plan = planFloor(t, seed, floor, attempt);
+    const plan = planFloor(t, seed, floor, attempt, isBossFloor(tuning.delver, floor));
     const t1 = performance.now();
     d.attempts = attempt + 1;
     d.plan = t1 - t0;
@@ -212,7 +212,14 @@ describe('the Floor generator soak', () => {
       'pairs that did not pass the judge',
     ).toEqual([]);
 
-    // The soak exercised what it should.
+    // The soak exercised what it should. Floors 3, 6 and 9 are Boss Floors: every passing one has a Boss Hall as its Stairs Hall, and no other Floor has one.
+    const bossPairs = passing.filter((d) => isBossFloor(tuning.delver, d.floor));
+    report([`  Boss Floors: ${bossPairs.length}, of which with a Boss Hall: ${bossPairs.filter((d) => d.layout!.halls[d.layout!.stairs]!.kind === 'Boss').length}`]);
+    expect(bossPairs.length, 'no Boss Floors dealt').toBeGreaterThan(0);
+    for (const d of passing) {
+      const kind = d.layout!.halls[d.layout!.stairs]!.kind;
+      expect(kind, `seed ${d.seed} Floor ${d.floor}: its Stairs Hall`).toBe(isBossFloor(tuning.delver, d.floor) ? 'Boss' : 'Stairs');
+    }
     for (const kind of KINDS) expect(kindFloors.get(kind) ?? 0, `no ${kind} Hall on any Floor`).toBeGreaterThan(0);
     expect(kindFloors.get('Treasure') ?? 0, 'Treasure on fewer than half the Floors').toBeGreaterThanOrEqual(floors.length / 2);
     expect(withRests(1), 'no Floor with 1 Rest').toBeGreaterThan(0);

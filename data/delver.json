@@ -9,6 +9,7 @@
   "chaseSpeed": 1,
   "closeIn": 4,
   "arrive": 3,
+  "elitePosts": 1,
   "postFill": 75,
   "patrolFill": 100,
   "perPlayerSoldiers": 1.5,
@@ -26,7 +27,14 @@
         { "troops": [ { "troop": "Levy", "count": 3 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 2 } ], "hpScale": 1 }
-      ]
+      ],
+      "elite": [
+        { "relics": ["Whetstone"], "troops": [{ "troop": "Halberdier", "count": 1 }, { "troop": "Levy", "count": 2 }], "hpScale": 1.5 }
+      ],
+      "boss": {
+        "troop": { "name": "Warden", "base": "Brute", "weapon": "Sledge Hammer", "body": "monk", "height": 1.3, "width": 1.3, "difficulty": "Skilled", "style": "Aggressive", "relics": [], "hpScale": 2.5 },
+        "guard": [ { "troops": [{ "troop": "Levy", "count": 2 }], "hpScale": 1 } ]
+      }
     },
     {
       "guard": [
@@ -38,7 +46,15 @@
         { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 }
-      ]
+      ],
+      "elite": [
+        { "relics": ["Whetstone"], "troops": [{ "troop": "Swordsman", "count": 1 }, { "troop": "Halberdier", "count": 1 }], "hpScale": 1.5 },
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "troop": "Swordsman", "count": 1 }, { "troop": "Levy", "count": 2 }], "hpScale": 2 }
+      ],
+      "boss": {
+        "troop": { "name": "Duelist", "base": "Swordsman", "weapon": "Arming Sword", "body": "prince", "height": 1.1, "width": 1.1, "difficulty": "Expert", "style": "Counter", "relics": [], "hpScale": 2.5 },
+        "guard": [ { "troops": [{ "troop": "Swordsman", "count": 1 }, { "troop": "Halberdier", "count": 1 }], "hpScale": 1 } ]
+      }
     },
     {
       "guard": [
@@ -51,7 +67,14 @@
         { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Brute", "count": 1 } ], "hpScale": 1 }
-      ]
+      ],
+      "elite": [
+        { "relics": ["Heavy Gauntlet", "Glass Cannon"], "troops": [{ "troop": "Swordsman", "count": 1 }, { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 1 }], "hpScale": 2 }
+      ],
+      "boss": {
+        "troop": { "name": "Wraith Lord", "base": "Brute", "weapon": "Sledge Hammer", "body": "wraith", "height": 1.4, "width": 1.4, "difficulty": "Expert", "style": "Aggressive", "relics": ["Heavy Gauntlet"], "hpScale": 3 },
+        "guard": [ { "troops": [{ "troop": "Swordsman", "count": 1 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Brute", "count": 1 }], "hpScale": 1 } ]
+      }
     }
   ],
   "floor": {
