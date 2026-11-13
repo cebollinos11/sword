@@ -433,6 +433,8 @@ interface RunOptions {
   /** The Tuning (default `runTuning()`), and how many Floors it has (default `FLOORS`). */
   tuning?: TuningData;
   floors?: number;
+  /** An immortal party (test harness only): after each Match step every Team 0 Fighter in the Duel and alive is set back to its max HP. */
+  immortal?: boolean;
   /** Called on every Tick with the Match before and after it, and the Tuning. */
   watch?: (at: MatchState, next: MatchState, tuning: TuningData) => void;
 }
@@ -642,7 +644,21 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
     const L = live!;
     const at = m;
     const t0 = performance.now();
-    const next = stepMatch(at, controllerIntents(at.duel, controllers), tuning);
+    let next = stepMatch(at, controllerIntents(at.duel, controllers), tuning);
+    if (options.immortal) {
+      const party = (x: MatchState["duel"]["fighters"][number], i: number) =>
+        i < k && inDuel(x) && x.hp > 0 && x.hp < x.maxHp;
+      if (next.duel.fighters.some(party))
+        next = {
+          ...next,
+          duel: {
+            ...next.duel,
+            fighters: next.duel.fighters.map((x, i) =>
+              party(x, i) ? { ...x, hp: x.maxHp } : x,
+            ),
+          },
+        };
+    }
     const ms = performance.now() - t0;
     options.watch?.(at, next, tuning);
     const bound = next.duel.fighters
@@ -830,7 +846,11 @@ const newBossFloor = (floor: number): BossFloor => ({
 });
 
 /** Plays the full Run on `tuning` and follows the Bosses and the loot. */
-function playBossRun(tuning: TuningData, seconds = FULL_SECONDS) {
+function playBossRun(
+  tuning: TuningData,
+  seconds = FULL_SECONDS,
+  immortal = false,
+) {
   const floors: BossFloor[] = [];
   let runEnd: Extract<MatchEvent, { type: "RunEnd" }> | undefined;
   const total = tuning.delver.tiers * tuning.delver.floorsPerTier;
@@ -842,6 +862,7 @@ function playBossRun(tuning: TuningData, seconds = FULL_SECONDS) {
     tuning,
     floors: total,
     seconds,
+    immortal,
     watch: (at, next) => {
       const events = next.events as readonly MatchEvent[];
       const found = events.find((e) => e.type === "RunEnd");
@@ -928,17 +949,6 @@ function playBossRun(tuning: TuningData, seconds = FULL_SECONDS) {
 }
 
 type BossRun = ReturnType<typeof playBossRun>;
-
-/**
- * The test Tuning of the asserted full Run: the bundled one with two knobs eased, because the Delver pilot (Hard, two Hard allies) does not win the
- * bundled Run (it is worn down by Floor 6 or 9 in every Run tried; the case above prints where). Changed: `postFill` 75 to 25 (a quarter of the
- * guard posts filled instead of three quarters) and `tierHp` [1, 1.25, 1.5] to [1, 1, 1] (the deeper tiers' Soldiers as tough as tier 1's).
- * Neither alone won the Run seed 4242. Bosses, elites, patrols and loot are the bundled ones.
- */
-const LENIENT: TuningData = {
-  ...base,
-  delver: { ...base.delver, postFill: 25, tierHp: [1, 1, 1] },
-};
 
 /** What the full Run did not exercise. */
 function bossProblems(
@@ -1568,10 +1578,10 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     );
   });
 
-  it("a full Run of 3 tiers x 3 Floors on the test Tuning, Bosses on Floors 3, 6 and 9: the Boss promoted first, the Boss Warband wiped, the gate opened, loot taken, to the Victory", () => {
-    const r = playBossRun(LENIENT);
-    printBossRun("Full Run, test Tuning", LENIENT, r);
-    const problems = bossProblems(LENIENT, r);
+  it("a full Run of 3 tiers x 3 Floors on the bundled Tuning with an immortal party, Bosses on Floors 3, 6 and 9: the Boss promoted first, the Boss Warband wiped, the gate opened, loot taken, to the Victory", () => {
+    const r = playBossRun(base, FULL_SECONDS, true);
+    printBossRun("Full Run, bundled Tuning, immortal party", base, r);
+    const problems = bossProblems(base, r);
     expect(
       problems,
       `the full Run did not show:\n${problems.join("\n")}`,

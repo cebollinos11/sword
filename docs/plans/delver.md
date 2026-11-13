@@ -1208,17 +1208,17 @@ Battles, Duels and the Hall-graph Run are unchanged. Non-Boss Floors are byte-id
 - **The Boss soak** (`warbandSoak.slow.test.ts`; Run seed 4242, the pilot at Hard with two Hard AI allies):
   - **On the shipped Tuning it is a Defeat on Floor 6** (tier 2's first Boss Floor) at 1,447 s, with 1 Boss beaten. The party was worn down by plain Warbands before that Boss was promoted. Four other seeds also lost by Floor 6.
   - On the shipped Tuning, Floor 3's Warden was promoted into Pool slot 3, wiped at Tick 52,151, and its Stairs were taken 271 Ticks later.
-  - **The asserted case runs on a test Tuning, `postFill` 25 and `tierHp` [1, 1, 1].** Each single change, and the Expert pilot, still lost. On it the Run is a Victory at Floor 9's Boss after 1,881 s, with `bosses` 3.
-  - **The Boss lines on the test Tuning**:
+  - **The asserted case runs on the shipped Tuning with an immortal party** (after the user's call below): the harness sets every party Fighter back to its max HP after each Tick (test only; no Simulation or Tuning change). The Run is a Victory at Floor 9's Boss after 2,443 s (146,554 Ticks, 91 s wall), with `bosses` 3. An eased Tuning (`postFill` 25, `tierHp` [1, 1, 1]) also won, and was dropped for this.
+  - **The Boss lines** (shipped Tuning, immortal party):
 
-    | Floor | Boss promoted (Tick) | Its Pool slot | Another Soldier of its Warband | Wiped and gate open (Tick) | Stairs (Tick) |
+    | Floor | Boss promoted (Tick) | Its Pool slot | Another Soldier of its Warband promoted | Wiped and gate open (Tick) | Stairs (Tick) |
     |---|---|---|---|---|---|
-    | 3 | 48,205 | 3 (the first free) | the same Tick | 51,323 | 51,666 |
-    | 6 | 78,337 | 3 | 2 Ticks later | 83,011 | 83,100 |
-    | 9 | 107,694 | 3 | 37 Ticks later | 112,834 | Victory |
+    | 3 | 52,554 | 3 (the first free) | 14 Ticks later | 54,728 | 54,969 |
+    | 6 | 89,223 | 3 | 24 Ticks later | 93,676 | 94,011 |
+    | 9 | 140,868 | 3 | 37 Ticks later | 146,554 | Victory |
 
-  - **Loot on the test Tuning**: 6 drops taken, 2 pedestals taken, 3 elites wiped (each with its Relic laid), and 1 elite Relic taken.
-  - **The Tick**: mean 0.33 to 0.54 ms, p99 3.5 to 4.7 ms a Floor.
+  - **Loot** (the same Run): 53 items laid (45 Relics), 6 drops and 3 pedestals taken, 3 elites wiped (each Relic laid, 1 taken). The pilot takes almost nothing after Floor 1: its Inventory's 6 Relic slots are full by then (it never drops one), so it has no room.
+  - **The Tick**: mean 0.37 to 0.64 ms, p99 2.5 to 3.7 ms a Floor.
   - **The Stage 3 cases** (no Bosses, elites in): all five Runs were Victories in 560 to 843 s, and 79 Warbands were wiped with no stuck Warband. Over 214,322 Ticks the mean was 0.43 ms and the p99 3.18 ms.
   - The slow file takes 4 min 35 s.
 - **Tests**:
@@ -1245,9 +1245,9 @@ Battles, Duels and the Hall-graph Run are unchanged. Non-Boss Floors are byte-id
 - **A Boss and a guard Soldier may be promoted on the same Tick** when two Attack Slots are free. The Boss always takes the first.
 - **The fallen are revived at the Stairs** when the Boss falls, inside the Boss Hall. Players who fell far away find themselves there.
 
-#### After the Stage (decisions for the user)
-- Balance: the shipped Tuning is not beaten by the pilot past Floor 6 (above).
-- Whether the last Boss should win at its wipe (as built) or on its Stairs.
+#### After the Stage (2026-11-13, the user's calls)
+- **An unbeatable shipped dungeon is fine**: balance is the user's, by hand, later. So the soak's full Run plays the shipped Tuning with an immortal party (above) instead of an eased Tuning.
+- Open: whether the last Boss should win at its wipe (as built) or on its Stairs, and whether the fallen should stand up at the Stairs after a Boss (as built).
 
 ### Stage 5: presentation
 **Model**: Sonnet.
