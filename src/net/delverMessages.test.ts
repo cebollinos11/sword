@@ -32,8 +32,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 29', () => {
-    expect(PROTOCOL_VERSION).toBe(29);
+  it('is protocol 30', () => {
+    expect(PROTOCOL_VERSION).toBe(30);
   });
 
   it("accepts a Delver Run's start message, and refuses `delver` that is not true or is not a Gauntlet's", () => {
@@ -194,6 +194,31 @@ describe('Peer message validation: a Delver Run', () => {
       lay([], null),
     ]) {
       expect(parseNetMessage(resync(bad, ai)), JSON.stringify([bad.delver!.wiped, bad.duel.delver!.pickups, bad.delver!.pickups])).toBeNull();
+    }
+  });
+
+  it("carries a Delver Run's Reveal and beaten count, and refuses malformed ones", () => {
+    const { state, ai } = delverResync(10);
+    const run = state.delver!;
+    expect(run.revealed.length).toBeGreaterThanOrEqual(1);
+    const lay = (edit: Record<string, unknown>): MatchState => ({ ...state, delver: { ...run, ...edit } }) as unknown as MatchState;
+    for (const good of [lay({}), lay({ revealed: [0xffff_ffff, 1], beaten: 7 }), lay({ revealed: [0] })]) {
+      const message = resync(good, ai);
+      expect(parseNetMessage(message), JSON.stringify(good.delver!.revealed)).toEqual(message);
+    }
+    for (const bad of [
+      lay({ revealed: [] }),
+      lay({ revealed: undefined }),
+      lay({ revealed: 'x' }),
+      lay({ revealed: [-1] }),
+      lay({ revealed: [2 ** 32] }),
+      lay({ revealed: [1.5] }),
+      lay({ revealed: new Array<number>(65).fill(0) }),
+      lay({ beaten: -1 }),
+      lay({ beaten: 1.5 }),
+      lay({ beaten: undefined }),
+    ]) {
+      expect(parseNetMessage(resync(bad, ai)), JSON.stringify([bad.delver!.revealed, bad.delver!.beaten])).toBeNull();
     }
   });
 

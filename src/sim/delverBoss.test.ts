@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { secondsToTicks } from './constants';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { isBossFloor } from './delver/troops';
@@ -118,7 +119,7 @@ describe('the last Boss of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.status.status).toBe('InProgress');
     for (let k = 0; k < NEED + 2 && r.status.status === 'InProgress'; k++) r = tick(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 2, floors: 2, halls: 0, bosses: 2 });
+    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 2, floors: 2, halls: 0, bosses: 2, warbands: 1 });
     expect(r.score).toEqual([2, 0]);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });
@@ -140,14 +141,28 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
   const defeat = (m: MatchState) => tick(withFighters(m, (f) => (f.team === 0 ? fell(f) : f)));
 
   it('is carried by a Defeat: the Boss Floors before it', () => {
-    expect(defeat(delver()).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 0 });
-    expect(defeat(delver({ delverStart: 2 })).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 1 });
+    expect(defeat(delver()).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 0, warbands: 0 });
+    expect(defeat(delver({ delverStart: 2 })).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 1, warbands: 0 });
   });
 
   it('counts the current Floor\'s Boss too once it is wiped (a Defeat after the wipe)', () => {
     const r = tick(slain(atStairs(delver())));
     const lost = defeat(r);
-    expect(lost.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 1 });
+    expect(lost.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 1, warbands: 1 });
+  });
+
+  it('counts the Warbands beaten over every Floor: the earlier Floors\' carried in `beaten`', () => {
+    const FADE = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+    let r = tick(slain(atStairs(delver())));
+    expect(r.delver!.beaten).toBe(0);
+    r = times(r, NEED + 1);
+    expect(r.delver!.phase).toBe('Descending');
+    r = times(r, FADE + 1);
+    expect(r.delver!.floor).toBe(2);
+    expect(r.delver!).toMatchObject({ beaten: 1, wiped: [] });
+    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 1, warbands: 1 });
+    r = tick(slain(atStairs(r)));
+    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 2, warbands: 2 });
   });
 
   it('is a pure count: Boss Floors before the Floor, plus the current one when wiped', () => {

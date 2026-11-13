@@ -52,6 +52,8 @@ export interface DelverRun {
   readonly restUsed: readonly RestUse[];
   /** The Warbands (Squad indices of the Floor's Crowd) whose wipe was seen on this Floor, ascending; `[]` on each new Floor. */
   readonly wiped: readonly number[];
+  /** The Warbands wiped on the Floors before this one (`RunEnd.warbands` counts them with `wiped`); 0 on Floor 1. */
+  readonly beaten: number;
   /** The items lying on the Floor: its Treasure Halls' pedestals from its start, a wiped Warband's drops and inventory drops; only the new Floor's pedestals on each new Floor. */
   readonly pickups: readonly Pickup[];
   /** The Floor's Reveal (`delver/reveal.ts`): 32-bit words, bit h Hall h and bit `halls.length + p` Passage p, set once a present Player's living Fighter has stood inside it. Plain numbers, hashed as they are; nothing in the Simulation reads it. */
@@ -121,7 +123,7 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
  * The Run on entering Floor `floor` (`plan` its plan): Exploring, nothing counted, one unspent fire per fire of the Floor, no Warband wiped, and
  * `pickups` lying (the Floor's pedestals, `treasurePickups`; whatever lay on the Floor before is gone).
  */
-export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>, floor: number, plan: FloorPlan, pickups: readonly Pickup[]): DelverRun {
+export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten'>, floor: number, plan: FloorPlan, pickups: readonly Pickup[]): DelverRun {
   return {
     floor,
     floors: run.floors,
@@ -129,6 +131,7 @@ export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>
     stairsTicks: 0,
     restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
     wiped: [],
+    beaten: run.beaten,
     pickups,
     revealed: withReveal(emptyReveal(plan), plan.entrance),
     startTick: run.startTick,
@@ -185,7 +188,7 @@ export function withMirror(duel: SimState, run: DelverRun): SimState {
 }
 
 /** The Run on entering Floor `floor` with its Duel: the plan's pedestals for each present Player, and the Duel's mirror set. */
-function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>, floor: number, duel: SimState): { run: DelverRun; duel: SimState } {
+function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten'>, floor: number, duel: SimState): { run: DelverRun; duel: SimState } {
   const plan = floorOf(tuning, duel.arena)!.plan;
   const entered = enterFloor(run, floor, plan, treasurePickups(arenaTuning(tuning, duel.arena), config, plan, runSeed(config.arena), floor, run.away));
   return { run: entered, duel: withMirror(duel, entered) };
@@ -193,7 +196,7 @@ function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun
 
 /** The Floor's Run and Duel at its start, for `createMatch` (Floor 1, or the dev `delverStart` Floor; nobody away). */
 export function firstFloor(tuning: TuningData, config: MatchConfig, floors: number, duel: SimState, floor = 1): { run: DelverRun; duel: SimState } {
-  return startFloor(tuning, config, { floors, startTick: 0 }, floor, duel);
+  return startFloor(tuning, config, { floors, startTick: 0, beaten: 0 }, floor, duel);
 }
 
 /** The Boss Warband's index (Squad of the Floor's Crowd), or -1 on a Floor with none. */
@@ -252,7 +255,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const duel = floorDuel(tuning, config, floor, match.duel, match.duel.rng);
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    const started = startFloor(tuning, config, run, floor, duel);
+    const started = startFloor(tuning, config, { ...run, beaten: run.beaten + run.wiped.length }, floor, duel);
     return { ...match, tick, arena: duel.arena, duelNumber, duel: started.duel, nextDuelTick: null, events, delver: started.run };
   }
 
@@ -272,13 +275,13 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     status = { status: 'Over', winner: 0, tick };
     duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
     score = score.map((s, i) => (i === 0 ? s + 1 : s));
-    events.push({ type: 'RunEnd', winner: 0, cleared: score[0]!, floors: next.floors, halls: 0, bosses: bossesBeaten(tuning.delver, next, duel.crowd!) });
+    events.push({ type: 'RunEnd', winner: 0, cleared: score[0]!, floors: next.floors, halls: 0, bosses: bossesBeaten(tuning.delver, next, duel.crowd!), warbands: next.beaten + next.wiped.length });
     nextDuelTick = null;
   };
 
   if (duel.duel.status === 'Over') {
     // Team 0 is wiped out (a Floor's Duel ends on nothing else): a Defeat, in any phase.
-    events.push({ type: 'RunEnd', winner: 1, cleared: score[0]!, floors: run.floors, halls: 0, bosses: bossesBeaten(tuning.delver, run, duel.crowd!) });
+    events.push({ type: 'RunEnd', winner: 1, cleared: score[0]!, floors: run.floors, halls: 0, bosses: bossesBeaten(tuning.delver, run, duel.crowd!), warbands: run.beaten + run.wiped.length });
     return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events };
   }
 

@@ -146,7 +146,7 @@ export interface MatchEndEvent {
   readonly score: readonly number[];
 }
 
-/** A Run ended: Team 0 was wiped out, `winner` 1, or the last Floor's Boss fell, `winner` 0. */
+/** A Run ended: Team 0 was wiped out, `winner` 1, or the party took the last Floor's Stairs, `winner` 0. */
 export interface RunEndEvent {
   readonly type: 'RunEnd';
   readonly winner: number;
@@ -157,6 +157,8 @@ export interface RunEndEvent {
   readonly halls: number;
   /** A Delver Run's Bosses beaten (`bossesBeaten`); absent from a Hall-graph Run's. */
   readonly bosses?: number;
+  /** A Delver Run's Warbands beaten over every Floor (`DelverRun.beaten` and this Floor's `wiped`); absent from a Hall-graph Run's. */
+  readonly warbands?: number;
 }
 
 /** A Run's Hall was cleared: no Team 1 Fighter is left in its Duel (on its first Tick, for a Hall with no Encounter). */

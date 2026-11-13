@@ -57,6 +57,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
       stairsTicks: 0,
       restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
       wiped: [], // Stage 4: no Warband is wiped at the Floor's start.
+      beaten: 0, // Stage 5: no Floor before it.
       pickups: floorPedestals(m), // Stage 4: the Floor's Treasure Halls hold their pedestals from its start.
       revealed: withReveal(emptyReveal(plan), plan.entrance), // Stage 5: the Entrance starts revealed.
       startTick: 0,
@@ -179,7 +180,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     const wiped = withFighters(m, (f) => (f.team === 0 ? fell(f) : f));
     const over = stepMatch(wiped, idle(wiped), tuning);
     expect(over.status).toEqual({ status: 'Over', winner: 1, tick: over.tick });
-    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, halls: 0, bosses: 0 });
+    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, halls: 0, bosses: 0, warbands: 0 });
     expect(over.nextDuelTick).toBeNull();
     // The Run is over: no fade follows.
     const later = stepMatch(over, idle(over), tuning);
@@ -315,7 +316,7 @@ describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.status.status).toBe('InProgress');
     r = go(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0, bosses: 0 });
+    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0, bosses: 0, warbands: 0 });
     expect(r.score[0]).toBe(1);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });

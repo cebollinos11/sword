@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 29;
+export const PROTOCOL_VERSION = 30;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -660,10 +660,12 @@ const isSimDelver = (v: unknown, players: readonly number[] = ANY_FIGHTER): bool
 const ANY_FIGHTER: readonly number[] = [0, 1, 2, 3];
 /** The most Warbands a Floor's `wiped` may name: a sane bound where the Duel's Crowd is not at hand. */
 const MAX_WARBANDS = 256;
+/** The most 32-bit words a Floor's Reveal (`DelverRun.revealed`) may hold: a sane bound where the Floor's plan is not at hand (2,048 Halls and Passages). */
+const MAX_REVEAL_WORDS = 64;
 
 /**
  * A Delver Run's progress (`DelverRun`): a Floor from 1 to `floors`, its phase, the Ticks the party has stood at the Stairs, one record per fire
- * (whether its revive is spent, and which Players took its heal, ascending), the Warbands wiped (ascending, distinct), the pickups lying on the Floor and the Tick it started on.
+ * (whether its revive is spent, and which Players took its heal, ascending), the Warbands wiped (ascending, distinct) and beaten on the Floors before, the Reveal's words, the pickups lying on the Floor and the Tick it started on.
  * `players` are the Run's Player Fighters: the ones that heal, own pickups and drop.
  */
 function isDelverRun(v: unknown, players: readonly number[]): boolean {
@@ -675,6 +677,11 @@ function isDelverRun(v: unknown, players: readonly number[]): boolean {
     (v.floor as number) <= v.floors &&
     isArrayOf(v.wiped, (q) => isInt(q) && q >= 0 && q < MAX_WARBANDS) &&
     (v.wiped as number[]).every((q, k, all) => k === 0 || q > all[k - 1]!) &&
+    isInt(v.beaten) &&
+    v.beaten >= 0 &&
+    isArrayOf(v.revealed, (w) => isInt(w) && w >= 0 && w <= 0xffff_ffff) &&
+    (v.revealed as unknown[]).length >= 1 &&
+    (v.revealed as unknown[]).length <= MAX_REVEAL_WORDS &&
     isTick(v.stairsTicks) &&
     isArrayOf(v.restUsed, (u) => isObject(u) && isBool(u.revived) && isPlayers(u.healed) && (u.healed as number[]).every((i) => players.includes(i))) &&
     (v.restUsed as unknown[]).length <= MAX_FIRES &&
