@@ -25,11 +25,13 @@ export interface BuiltFloor {
 /**
  * A Floor's Battle Tuning: the Battles' with the destination fields' cell at `delver.flowCell` (2 m, so every 3 m Passage holds a
  * node) and the Floor's map the only one. Everything that reads `crowd.flowCell` (the fields, `distanceTo`, the Crowd's density grid)
- * then runs at the Floor's cell; the Battles' own Tuning is never touched.
+ * then runs at the Floor's cell; the Battles' own Tuning is never touched. Its Bubbles' Attack Slots are `delver.attackSlots` (one entry
+ * per number of Bubbles in use) and none for allies: a Floor's Soldiers are all enemies of the party (docs/plans/delver.md, Stage 3).
  */
 export function delverBattle(tuning: Pick<TuningData, 'battle' | 'delver'>, map: BattleMapTuning): BattleTuning {
   const { battle, delver } = tuning;
-  return { ...battle, crowd: { ...battle.crowd, flowCell: delver.flowCell }, maps: { [map.name]: map } };
+  const slots = { enemies: delver.attackSlots[0]!, allies: 0, engaged: battle.slots.engaged, shared: delver.attackSlots.slice(1).map((enemies) => ({ enemies, allies: 0 })) };
+  return { ...battle, crowd: { ...battle.crowd, flowCell: delver.flowCell }, slots, maps: { [map.name]: map } };
 }
 
 /** `buildFloor` of a source other than the plan's own (the judge's tests mutate it). Throws MapCompileError. */

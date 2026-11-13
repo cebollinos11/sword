@@ -6,3 +6,4 @@ export * from './judge';
 export * from './generate';
 export * from './version';
 export * from './world';
+export * from './warbands';

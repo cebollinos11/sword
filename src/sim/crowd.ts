@@ -44,6 +44,7 @@ import { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, lim
 import { sameLevel, trace, walkTo } from './levels';
 import { createRng, nextFloat, type RngState } from './rng';
 import { deploySquads, formationSpot, LINE, SPOKE_POINTS, stepSquads, type SquadState } from './squad';
+import type { WarbandState } from './warband';
 
 /** A Team's Rout: which Team broke, and on which Tick. */
 export interface Rout {
@@ -112,6 +113,13 @@ export interface CrowdState {
   readonly rout: Rout | null;
   /** Each Player's record (docs/plans/big-battle.md, Stage 5), by Player slot (the first slots of the Fighter Pool): none in an AI-vs-AI war. */
   readonly players: readonly BattlePlayer[];
+  /**
+   * Each Soldier's max HP (docs/plans/delver.md, Stage 3), which its promoted Fighter takes; present only on a Delver Run's Floor, where a
+   * Warband's template and tier scale it. Absent: the Soldier's Troop's `hp`.
+   */
+  readonly maxHp?: readonly number[];
+  /** The Warbands' brains, entry q for Squad q; present only on a Delver Run's Floor, where Squads are Warbands. Absent in a Battle. */
+  readonly warbands?: WarbandState;
 }
 
 /**

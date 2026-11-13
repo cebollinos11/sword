@@ -376,6 +376,37 @@ export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): 
   return levelField(f.side, f.cell, f.blocked, f.blocks.length > 0, cellAt(f, x, z));
 }
 
+/** How many fields `fieldToward` keeps per `DestinationFields` (about 7 MB at most on a Floor: 13,500 nodes of 8 bytes each). */
+export const FIELDS_KEPT = 64;
+
+/** The fields `fieldToward` kept per `DestinationFields`, by node, most recently used last. Derived from static data, never state. */
+const kept = new WeakMap<DestinationFields, Map<number, Float64Array>>();
+
+/**
+ * `distanceTo`, kept: the field to the node of (x, z) on Walk Surface `s`, built once per (`f`, node) and kept (`FIELDS_KEPT`, most recently
+ * used last). `distanceTo` depends on the point only through that node (-1 for none: an all -1 field, kept too), so a kept field equals a
+ * fresh one entry for entry. The caller must not change it.
+ */
+export function fieldToward(f: DestinationFields, x: number, z: number, s = -1): Float64Array {
+  let fields = kept.get(f);
+  if (!fields) kept.set(f, (fields = new Map()));
+  const node = nodeAt(f, x, z, s);
+  let field = fields.get(node);
+  if (field) {
+    fields.delete(node);
+  } else {
+    field = distanceTo(f, x, z, s);
+    if (fields.size >= FIELDS_KEPT) fields.delete(fields.keys().next().value!);
+  }
+  fields.set(node, field);
+  return field;
+}
+
+/** `f` with `field` as its only destination (d = 0), for `steerToward`, `descend` and `fieldDistance`. */
+export function oneField(f: DestinationFields, field: Float64Array): DestinationFields {
+  return { ...f, dist: [field], objectives: 0 };
+}
+
 /**
  * Each node's clearance on a map of several levels: its centre's distance to the nearest block (negative inside one) and to the nearest edge
  * of its level a Soldier cannot step off (`probeEdges` without drops: a ledge, the foot of higher ground, a Wall, the field's edge), such an

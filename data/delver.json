@@ -3,6 +3,52 @@
   "floorsPerTier": 3,
   "flowCell": 2,
   "fireRadius": 3,
+  "sight": 16,
+  "leash": 45,
+  "forgetSeconds": 8,
+  "chaseSpeed": 1,
+  "closeIn": 4,
+  "arrive": 3,
+  "postFill": 75,
+  "patrolFill": 100,
+  "perPlayerSoldiers": 1.5,
+  "attackSlots": [4, 3, 3, 3],
+  "tierHp": [1, 1.25, 1.5],
+  "warbands": [
+    {
+      "guard": [
+        { "troops": [ { "troop": "Levy", "count": 4 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 4 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 }
+      ],
+      "patrol": [
+        { "troops": [ { "troop": "Levy", "count": 3 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 2 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 }
+      ]
+    },
+    {
+      "guard": [
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 4 }, { "troop": "Halberdier", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 3 } ], "hpScale": 1 }
+      ],
+      "patrol": [
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 }
+      ]
+    },
+    {
+      "guard": [
+        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 3 }, { "troop": "Brute", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Brute", "count": 2 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Swordsman", "count": 3 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 3 } ], "hpScale": 1 }
+      ],
+      "patrol": [
+        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 }
+      ]
+    }
+  ],
   "floor": {
     "cols": 7,
     "rows": 6,

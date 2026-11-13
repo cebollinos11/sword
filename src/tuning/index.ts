@@ -886,7 +886,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
-    delver: parseDelver(root.delver, battle.field.size),
+    delver: parseDelver(root.delver, battle.field.size, battle),
     battle,
     skeleton,
     ai,
