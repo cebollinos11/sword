@@ -37,13 +37,16 @@
  * where its Soldier stands, facing its heading, with its Team and HP, the generic soldier's Weapon (`battle.soldier`), and a
  * Soldier's max HP. On a hand-built map (docs/plans/battle-objectives.md, Stage 4a) a Soldier more than `levels.promote` above or below a
  * Player's Fighter is never promoted into its Bubble (Promotion goes by the distance across the ground, so nobody is promoted through a
- * floor), and a Demotion stands its Soldier on the Walk Surface its Fighter stood on. Pure.
+ * floor), and a Demotion stands its Soldier on the Walk Surface its Fighter stood on. On a Delver Run's Floor (`crowd.warbands`; docs/plans/delver.md,
+ * Stage 3) every distance to a Bubble's centre is the walk (`walkDistance`: through a Wall is a long way round, Infinity where unreached), a promoted
+ * Soldier's Fighter takes its `crowd.maxHp`, and no Player takes over a Soldier. Pure.
  */
 import { bubbleSlots, type BattleTuning, type Size, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { battlefieldHeight, battlefieldOf, groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
-import { soldierSize, troopOf, type BattlePlayer, type CrowdState } from './crowd';
+import { soldierSize, troopOf, walkDistance, walkField, type BattlePlayer, type CrowdState } from './crowd';
+import { battleMapOf } from './destinations';
 import type { Battlefield, MapPoint } from './battlefield';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
@@ -86,13 +89,16 @@ function bubbleCentres(fighters: readonly FighterState[], players: number, crowd
 /** Whether a promoted Fighter's Action lets it demote: Idle (standing or walking) on the ground. */
 const demotable = (f: FighterState): boolean => f.action.kind === 'Idle' && !f.air;
 
-/** The Bubble (an index into `centres`) nearest (x, z) whose Player is of Team `team` (`ally`) or of the other Team, or -1 with none. */
-function nearestCentre(centres: readonly Centre[], x: number, z: number, team: number, ally: boolean): number {
+/**
+ * The Bubble (an index into `centres`) nearest whose Player is of Team `team` (`ally`) or of the other Team, or -1 with none. `away(i)` is the
+ * distance to Bubble `i` (a Floor's is the walk, Infinity where unreached: such a Bubble is never the nearest).
+ */
+function nearestCentre(centres: readonly Centre[], team: number, ally: boolean, away: (i: number) => number): number {
   let best = -1;
   let bestD = Infinity;
   centres.forEach((c, i) => {
     if ((c.team === team) !== ally) return;
-    const d = Math.hypot(x - c.x, z - c.z);
+    const d = away(i);
     if (d < bestD) [best, bestD] = [i, d];
   });
   return best;
@@ -296,7 +302,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     const at = { x: c.x[s]!, z: c.z[s]! };
     const geometry = arenaOf(tuning, duel.arena);
     const f = standingFighter(tuning, geometry, { position: at, y: soldierHeight(field, c.surface[s]!, at.x, at.z), facing: c.heading[s]! }, troopOf(tuning.battle, c, s).weapon, c.team[s]!, size === undefined ? soldierSize(c, s) : (size ?? undefined));
-    return { ...f, hp: c.hp[s]!, maxHp: troopOf(tuning.battle, c, s).hp };
+    return { ...f, hp: c.hp[s]!, maxHp: c.maxHp?.[s] ?? troopOf(tuning.battle, c, s).hp };
   };
   /** Fighter `f` (a promoted ally a Player takes over) re-made at guard where it stands, with its HP, in a body of `size`. */
   const resized = (f: FighterState, size: Size | undefined): FighterState => {
@@ -371,7 +377,13 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   const centres = bubbleCentres(pool(), players, soldiers());
   // Each Bubble's slots, shrunk while several are in use so they share the Pool.
   const budget = bubbleSlots(slots, centres.length);
-  const farFromAll = (f: FighterState) => centres.every((c) => Math.hypot(f.position.x - c.x, f.position.z - c.z) > bubble.demote);
+  // On a Floor (docs/plans/delver.md, Stage 3) everything the Bubble measures is by walking: each Bubble's field is built once (`fieldToward` keeps it).
+  const walks = before.warbands !== undefined && centres.length > 0 ? centres.map((c) => walkField(tuning.battle, battleMapOf(tuning.battle, duel.arena), c.x, c.z, c.y)) : null;
+  /** The distance from a point on Walk Surface `s` to Bubble `b`'s Player: the walk on a Floor (Infinity unreached), else across the ground. */
+  const away = (b: number, x: number, z: number, s: number): number => (walks ? walkDistance(walks[b]!, x, z, s) : Math.hypot(x - centres[b]!.x, z - centres[b]!.z));
+  /** The same for a promoted Fighter, on the Walk Surface under its feet. */
+  const awayFighter = (b: number, f: FighterState): number => away(b, f.position.x, f.position.z, walks ? groundOf(tuning.battle, field, f.position.x, f.position.z, f.y) : -1);
+  const farFromAll = (f: FighterState) => centres.every((_, b) => awayFighter(b, f) > bubble.demote);
 
   for (let k = players; k < duel.fighters.length; k++) {
     const f = duel.fighters[k]!;
@@ -405,7 +417,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     /** The Bubble a promoted Fighter counts in: an enemy's nearest enemy Player's, an ally's nearest Team-mate's. */
     const bubbleOf = (k: number) => {
       const f = pool()[k]!;
-      return nearestCentre(centres, f.position.x, f.position.z, f.team, f.soldier!.role === 'Ally');
+      return nearestCentre(centres, f.team, f.soldier!.role === 'Ally', (i) => awayFighter(i, f));
     };
     /**
      * The promoted enemies a promoted ally engages, one enemy to an ally: an ally within `slots.engaged` of an enemy, nearer
@@ -458,20 +470,19 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
       const c = soldiers();
       const centre = centres[b]!;
       if (!c.alive[s] || c.slot[s]! >= 0 || c.rout?.team === c.team[s] || (c.team[s] === centre.team) !== ally) return false;
-      if (Math.hypot(c.x[s]! - centre.x, c.z[s]! - centre.z) > bubble.promote) return false;
+      if (away(b, c.x[s]!, c.z[s]!, c.surface[s]!) > bubble.promote) return false;
       if (field.heights.walk && Math.abs(soldierHeight(field, c.surface[s]!, c.x[s]!, c.z[s]!) - centre.y) > tuning.battle.levels.promote) return false;
-      return nearestCentre(centres, c.x[s]!, c.z[s]!, c.team[s]!, ally) === b;
+      return nearestCentre(centres, c.team[s]!, ally, (i) => away(i, c.x[s]!, c.z[s]!, c.surface[s]!)) === b;
     };
 
     // A slot-holding enemy a promoted ally engages lets its Attack Slot go.
     for (const k of promoted()) if (roleOf(k) === 'Attack' && engagedByAlly(k)) assign(k, 'Waiting');
     /** A Bubble's promoted Fighters of `role`, nearest its Player first (the lower slot on a tie). */
     const nearestIn = (b: number, role: SoldierRole) => {
-      const c = centres[b]!;
-      const away = (k: number) => Math.hypot(pool()[k]!.position.x - c.x, pool()[k]!.position.z - c.z);
+      const far = (k: number) => awayFighter(b, pool()[k]!);
       return promoted()
         .filter((k) => roleOf(k) === role && bubbleOf(k) === b)
-        .sort((p, q) => away(p) - away(q) || p - q);
+        .sort((p, q) => far(p) - far(q) || p - q);
     };
     // No Bubble holds more than its share (as when more Bubbles come into use, or a slot-holder comes nearer another Bubble's Player):
     // the slot-holders farthest from its Player let their Attack Slots go.
@@ -480,18 +491,18 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     });
 
     // Each Bubble fills its free Attack Slots, nearest its Player first: a Waiting Fighter no ally engages, or a Soldier.
-    centres.forEach((c, b) => {
+    centres.forEach((_, b) => {
       const mine = promoted().filter((k) => roleOf(k) !== 'Ally' && bubbleOf(k) === b);
       let open = budget.enemies - mine.filter((k) => roleOf(k) === 'Attack').length;
       if (open <= 0) return;
       const near: { k: number; s: number; d: number }[] = [];
       for (const k of mine) {
         const f = pool()[k]!;
-        const d = Math.hypot(f.position.x - c.x, f.position.z - c.z);
+        const d = awayFighter(b, f);
         if (roleOf(k) === 'Waiting' && d <= bubble.promote && !engagedByAlly(k)) near.push({ k, s: f.soldier!.index, d });
       }
       const c0 = soldiers();
-      for (let s = 0; s < c0.x.length; s++) if (promotable(s, b, false)) near.push({ k: -1, s, d: Math.hypot(c0.x[s]! - c.x, c0.z[s]! - c.z) });
+      for (let s = 0; s < c0.x.length; s++) if (promotable(s, b, false)) near.push({ k: -1, s, d: away(b, c0.x[s]!, c0.z[s]!, c0.surface[s]!) });
       // Nearest first; on a tie a Fighter already promoted, then the lower Soldier.
       near.sort((p, q) => p.d - q.d || (p.k < 0 ? 1 : 0) - (q.k < 0 ? 1 : 0) || p.s - q.s);
       for (const n of near) {

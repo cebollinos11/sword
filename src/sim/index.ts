@@ -209,11 +209,11 @@ export {
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, blockWalls, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
-export { CHASE, GUARD, PATROL, RETURN, type WarbandState } from './warband';
-export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
+export { CHASE, GUARD, PATROL, RETURN, stepWarbands, warbandBrain, type WarbandState } from './warband';
+export { ATTACK, brainTicks, closeRanks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, walkAnchors, type Spawned, type SquadState, type SquadStep } from './squad';
 export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, distanceTo, fieldDistance, fieldToward, FIELDS_KEPT, inSight, oneField, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
 export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './levels';
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
-export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { createCrowd, crowdAlive, crowdDue, floorRingSpots, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, walkDistance, walkField, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout, type SquadBrain } from './crowd';
 export { bubblePlayer, canChooseTroop, isBound, stepBubbles, takeoverSpawns, takeoverTarget, takeoverTroops, unboundSlot } from './bubble';

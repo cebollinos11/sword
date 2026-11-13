@@ -427,12 +427,70 @@ export interface SquadStep {
   readonly place: readonly number[];
   readonly spawned: readonly Spawned[];
   readonly narrow: readonly number[];
+  /**
+   * A Floor's brain only (docs/plans/delver.md, Stage 3; never set by `stepSquads`): per Squad, the one destination field its anchor follows this
+   * Tick (home's, a waypoint's or the chased Fighter's, as a one-destination `DestinationFields`), or null while it stands. A Soldier of it that is
+   * walled off from its place descends it instead of the map's nearest destination.
+   */
+  readonly lead?: readonly (DestinationFields | null)[];
 }
 
 /** Each Soldier's height as the brains read it, on a map of several levels (scratch, never state). */
 let levelScratch = new Float64Array(0);
 
 const wrap = (a: number): number => a - Math.PI * 2 * Math.round(a / (Math.PI * 2));
+
+/**
+ * The rear rank steps up: a living Soldier of a Squad (`members`, its Soldiers by index) whose place is past the living count `alive` takes the
+ * lowest free place before it. `editPlace` gives the copy of `crowd.place` to write into, asked for only when something moves.
+ */
+export function closeRanks(members: readonly number[], crowd: Pick<CrowdState, 'alive' | 'place'>, alive: number, editPlace: () => number[]): void {
+  if (!members.some((i) => crowd.alive[i] && crowd.place[i]! >= alive)) return;
+  const nextPlace = editPlace();
+  const taken = new Uint8Array(alive);
+  for (const i of members) if (crowd.alive[i] && crowd.place[i]! < alive) taken[crowd.place[i]!] = 1;
+  let lowest = 0;
+  for (const i of members) {
+    if (!crowd.alive[i] || crowd.place[i]! < alive) continue;
+    while (lowest < alive && taken[lowest]) lowest++;
+    if (lowest >= alive) break;
+    nextPlace[i] = lowest;
+    taken[lowest] = 1;
+  }
+}
+
+/**
+ * Every anchor turns toward its aim (at `squad.turnRate`) and walks at its speed, on the field and out of a map's blocks (sliding along one it
+ * walks into), onto the Walk Surface it walks onto. Writes `heading`, `x`, `z` and `surface` in place (the caller's copies); `team` is each
+ * Squad's Team.
+ */
+export function walkAnchors(battle: BattleTuning, map: BattleMap, team: readonly number[], x: number[], z: number[], heading: number[], surface: number[], aim: readonly number[], speed: readonly number[]): void {
+  const p = battle.squad;
+  const field = map.field;
+  const layered = field.layered;
+  const lv = battle.levels;
+  const half = battle.field.size / 2 - 2;
+  const turn = p.turnRate * TICK_SECONDS;
+  const pushed: [number, number] = [0, 0];
+  for (let q = 0; q < team.length; q++) {
+    const diff = wrap(aim[q]! - heading[q]!);
+    if (diff !== 0) heading[q] = heading[q]! + Math.max(-turn, Math.min(turn, diff));
+    if (speed[q]! === 0) continue;
+    const fromX = x[q]!;
+    const fromZ = z[q]!;
+    x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
+    z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
+    if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, team[q]!, pushed, fromX, fromZ)) [x[q], z[q]] = pushed;
+    // Onto the Walk Surface it walks onto (Stage 4a): by the walk rule where there are levels, else the floor under it.
+    if (layered) {
+      surface[q] = walkTo(field.arena, lv, surface[q]!, fromX, fromZ, x[q]!, z[q]!, pushed);
+      [x[q], z[q]] = pushed;
+    } else if (field.heights.walk && (surface[q]! < 0 || !onSurface(field.arena, surface[q]!, x[q]!, z[q]!))) {
+      const on = groundOf(battle, field, x[q]!, z[q]!);
+      if (on >= 0) surface[q] = on;
+    }
+  }
+}
 
 /**
  * The Squads one Tick on (`tick` is the Tick being stepped): the brains due think (see the file's header), then every anchor
@@ -580,20 +638,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
         cz = old.z[q]!;
       }
 
-      // The rear rank steps up: a living Soldier whose place is past the living count takes the lowest free place before it.
-      if (members[d]!.some((i) => crowd.alive[i] && crowd.place[i]! >= alive)) {
-        const nextPlace = (edit.place ??= crowd.place.slice());
-        const taken = new Uint8Array(alive);
-        for (const i of members[d]!) if (crowd.alive[i] && crowd.place[i]! < alive) taken[crowd.place[i]!] = 1;
-        let lowest = 0;
-        for (const i of members[d]!) {
-          if (!crowd.alive[i] || crowd.place[i]! < alive) continue;
-          while (lowest < alive && taken[lowest]) lowest++;
-          if (lowest >= alive) break;
-          nextPlace[i] = lowest;
-          taken[lowest] = 1;
-        }
-      }
+      closeRanks(members[d]!, crowd, alive, () => (edit.place ??= crowd.place.slice()));
 
       // Morale: down to the threshold, fall back; back above `looseBelow` (merged remnants), rally.
       if (!nextFall[q] && alive < p.moraleThreshold * p.size) nextFall[q] = 1;
@@ -695,27 +740,7 @@ export function stepSquads(crowd: CrowdState, tick: number, battle: BattleTuning
     if (edit.place) place = edit.place;
   }
 
-  // Every anchor turns toward its aim and walks, on the field and out of a map's blocks (sliding along one it walks into).
-  const turn = p.turnRate * TICK_SECONDS;
-  const pushed: [number, number] = [0, 0];
-  for (let q = 0; q < m; q++) {
-    const diff = wrap(aim[q]! - heading[q]!);
-    if (diff !== 0) heading[q] = heading[q]! + Math.max(-turn, Math.min(turn, diff));
-    if (speed[q]! === 0) continue;
-    const fromX = x[q]!;
-    const fromZ = z[q]!;
-    x[q] = Math.max(-half, Math.min(half, x[q]! + Math.sin(heading[q]!) * speed[q]! * TICK_SECONDS));
-    z[q] = Math.max(-half, Math.min(half, z[q]! + Math.cos(heading[q]!) * speed[q]! * TICK_SECONDS));
-    if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, old.team[q]!, pushed, fromX, fromZ)) [x[q], z[q]] = pushed;
-    // Onto the Walk Surface it walks onto (Stage 4a): by the walk rule where there are levels, else the floor under it.
-    if (layered) {
-      surface[q] = walkTo(field.arena, lv, surface[q]!, fromX, fromZ, x[q]!, z[q]!, pushed);
-      [x[q], z[q]] = pushed;
-    } else if (field.heights.walk && (surface[q]! < 0 || !onSurface(field.arena, surface[q]!, x[q]!, z[q]!))) {
-      const on = groundOf(battle, field, x[q]!, z[q]!);
-      if (on >= 0) surface[q] = on;
-    }
-  }
+  walkAnchors(battle, map, old.team, x, z, heading, surface, aim, speed);
   const squads: SquadState = { team: old.team, x, z, heading, aim, speed, shape, living, fall, order, target: old.target, since: old.since, respawnAt, surface };
   return { squads, squad, place, spawned, narrow: squadNarrows(battle, map, squads) };
 }
