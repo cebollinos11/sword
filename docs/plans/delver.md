@@ -363,6 +363,114 @@ Done 2026-11-12. Any (Run seed, Floor) now gives a judged, varied, one-level Flo
 - No enemies yet: the loop, the fade, HP carry-over and revive are tested on empty Floors.
 - **Done**: a solo Run walks three empty Floors to Victory; `dungeonRun` style tests are rewritten for Floors.
 
+#### Design
+Stage 2 puts the party on generated Floors: a Delver Run of `delver.tiers × delver.floorsPerTier` empty Floors, chosen in solo by a dev flag while the Hall-graph Run stays the Gauntlet's default (until Stage 8). Nothing about a Duel, a Battle or a Hall-graph Run changes: every new field is absent outside a Delver Run, so every existing hash, snapshot and test stands.
+
+**Choosing a Delver Run.**
+- **The Match option**: `MatchConfig.delver?: true` (in `MatchOptions` through `Partial<MatchConfig>`). `createMatch` refuses it unless `format` is `'Gauntlet'`, and refuses it with `start` (no dev start Hall). `relics` (dev) still give the first inventory. Absent, a Gauntlet is the Hall-graph Run, as now.
+- **The dev flag**: `devDelverRun(search, hash): boolean` (`src/devMode.ts`), true for `?dev=1&delver=1` only. `game.ts` `launch()` adds `delver: true` to a solo Gauntlet's options (`members.length <= 1`), as it adds `devRunStart`. With `&autopilot=…` it puts the local Fighter on the Delver pilot (below) instead of the Hall autopilot.
+- **The Lobby**: no setting in Stage 2. An online Gauntlet is always the Hall-graph Run (the flag is read only for solo, so no `PROTOCOL_VERSION` change). Stage 7 adds a Lobby knob synced to guests; Stage 8 drops the choice.
+- **The solo menu**: unchanged. The Gauntlet Format plus `?dev=1&delver=1`.
+- **Replays**: `replaySetup` writes `config` as it is, so `delver: true` rides along and a replay rebuilds a Delver Run through `createMatch`. A test replays one.
+
+**Floors from (Run seed, Floor) alone** (`src/sim/delver/world.ts`, pure, imports only from `src/sim/delver/*` and leaf modules, never from `src/sim/index.ts`):
+- **The arena name** is `floorArenaName(seed, floor) = 'battle:' + floorName(seed, floor)`, i.e. `battle:delver<F>s<S>`. `parseFloorArena(name): { seed, floor } | null` reads it back (via `isFloorName`). The Run seed is `runSeed(config.arena)`.
+- **`floorOf(tuning, name): DelverFloor | null`**: `delverFloor(tuning, seed, floor)` for a Floor name, else null. Built once per (base Tuning Data object, name) and kept (`KEPT_FLOORS = 4`: the current, the next warmed, and slack), in a module `WeakMap<TuningData, Map<string, …>>`, most recently used last, exactly as `generatedArena` keeps builds. A copy made by `arenaTuning` maps back to its base (a `WeakMap` of copies), so it shares the builds. A cache derived from static data: never in the state, and a rebuilt one is equal.
+- **`arenaTuning(tuning, name): TuningData`**: for any name that is not a Floor's, `tuning` itself (the same object). For a Floor's, `{ ...base, battle: floor.battle }`, made once per entry and returned as the same object while kept. `floor.battle` is `delverBattle`'s: the Battles' Tuning with `crowd.flowCell` = `delver.flowCell` and the Floor's map as its only `battle.maps` entry. So with that Tuning Data, `arenaOf(t, name)` resolves the Floor (through `battlefieldOf(t.battle, name)`, which finds the map and returns the very Battlefield `buildFloor` built, since the cache is per `BattleTuning` object), the navmesh is `navMesh(arenaOf(t, name), t)` (cached per Arena and Tuning Data), and the destination fields run at 2 m. **The rule**: whoever reads the Arena of a state that may be on a Floor reads it under `arenaTuning(tuning, state.arena)`. In Stage 2 that is `stepDelver` (it steps the Duel under it), `floorDuel`, the AI (`RuleAi`, `prepareAi`), `warmArena`, and the Renderer's world (`createArenaWorlds`). `arenaOf` itself does not learn Floors, so no import cycle reaches the Map Compiler from `arena.ts`.
+- **Build budget**: about 0.24 s here, 0.75 s laptop-equivalent (Stage 1's soak), all in `delverFloor` (compile, Battlefield, fields at 2 m, judge). Floor 1 builds in `createMatch` (behind the menu). Each later Floor is warmed by the game at the start of the Floor before it (`arenasToWarm`), while that Floor's fade-in still darkens the screen, so the Tick that enters it, and any Rollback over that Tick, only reads the cache. A miss (dropped, or not warmed) builds it on that Tick: correct, a hitch. The slow test prints the build of each Floor and fails over 2 s.
+
+**The state** (all plain data, hashed with `hashValue(match)` and snapshotted with the Match; every new field is absent outside a Delver Run):
+```ts
+/** A Delver Run's phase: Exploring the Floor, or Descending (the fade after the Stairs, until `nextDuelTick`). */
+export type DelverPhase = 'Exploring' | 'Descending';
+/** One fire of the current Floor (plan.markers.fires order): whether its revive is spent, and which Players took its heal. */
+export interface RestUse { readonly revived: boolean; readonly healed: readonly number[] /* ascending Fighter indices */ }
+/** `MatchState.delver`: a Delver Run's progress (docs/plans/delver.md). Becomes RunState in Stage 8. */
+export interface DelverRun {
+  readonly floor: number;            // 1-based
+  readonly floors: number;           // delver.tiers × delver.floorsPerTier, fixed at the start
+  readonly phase: DelverPhase;
+  readonly stairsTicks: number;      // Ticks in a row every counted Fighter stood in the Stairs zone; 0 when one is out; kept while Descending
+  readonly restUsed: readonly RestUse[];
+  readonly pickups: readonly Pickup[]; // inventory drops (Stage 4 adds loot); empty on each new Floor
+  readonly startTick: number;
+  readonly away?: readonly number[]; // AI Takeover, as RunState.away
+}
+/** `SimState.delver`: the Run mirrored for the Controllers, which see only SimState. */
+export interface SimDelver { readonly floor: number; readonly phase: DelverPhase; readonly away?: readonly number[] }
+```
+- `MatchState.delver?: DelverRun`; `MatchState.run` is null in a Delver Run, so no Hall-graph code (Doors, `hallOf`, the Floor Map, `runCleared`) ever reads one. `SimState.delver?: SimDelver`; `step` carries it through as it carries `hall`, and a Duel with `hall` or `delver` ends only when Team 0 is wiped out (`updateDuel`'s flag).
+- **What stays until Stage 8**: the whole Hall-graph `RunState` (`row`, `hall`, `path`, `doorTicks`, `rested`, its `phase`) and `SimHall`, for the Hall-graph Run only. Stage 8 deletes them and renames `DelverRun` to `RunState` and `MatchState.delver` to `run`.
+- `score[0]` is the Floors whose Stairs were taken; `duelNumber` the Floor. `MatchState.arena` is the Floor's arena name; `config.arena` stays the Random Map (the Run seed).
+- **Not in the state**: the FloorPlan, BuiltFloor, Battlefield, navmesh, fields and the Floor's Tuning Data copy (all `floorOf`/`arenaTuning` caches).
+
+**A Floor's Duel** (`floorDuel(tuning, config, floor, previous, rng, relics = [])`, `src/sim/delverRun.ts`), replacing `hallDuel` for a Delver Run:
+- The arena is `floorArenaName(runSeed(config.arena), floor)`, built under `t = arenaTuning(tuning, arena)` by `createInitialState(t, 0, placements, weapons, config.teams, arena, sizes)`.
+- **Team 0** (1 to 4 Fighters: Players and AI allies, in Fighter order) stands at `plan.markers.spawns[k]` (k its rank in Team 0), y 0, facing into the Entrance's Passage: its door side in the fixed order n, e, s, w gives facing 0, π/2, π, −π/2 (0 faces +z, π/2 faces +x; constants, no trig).
+- **Team 1**: the four slots are Benched (hp 0, `benched`), standing at the Stairs zone's centre. Stage 3 replaces them with the Fighter Pool.
+- **Inventories, Mods and HP** as `hallDuel`: a Player's inventory carried from `previous` (Floor 1: `startingInventory` plus the dev Relics; `withRelics` moves from `match.ts` to `inventory.ts` as `withStartingRelics` so both use it), `holdInventory` for a Player, `setMods(NO_MODS)` for an AI ally. HP is carried from `previous` (min max HP), and a fallen one (not `inDuel`) comes back at `dungeon.revive` × max HP: **taking the Stairs revives the fallen**. Daggers refill. No full heal (no Bosses yet).
+- `delver: { floor, phase: 'Exploring', away? }` on the SimState.
+- `enterFloor(run, floor, plan)` gives the `DelverRun`: `phase 'Exploring'`, `stairsTicks 0`, `restUsed` one `{ revived: false, healed: [] }` per fire, `pickups []`, `floors`, `startTick` and `away` carried.
+- `createMatch` with `delver`: `floors = tiers × floorsPerTier`, `duel = floorDuel(tuning, config, 1, null, createRng(seed), options.relics)`, `run: null`, `delver: enterFloor(...)`, `arena: duel.arena`, `duelNumber 1`, `score [0, 0]`, events `[DuelStart 1]`.
+
+**The step** (`stepDelver(match, run, intents, tuning, tick)`, `src/sim/delverRun.ts`; `stepMatch` calls it first when `match.delver` and the Match is in progress). `delverRun.ts` imports from `match.ts` only with `import type`; `match.ts` imports `delverRun.ts`. In order:
+1. **The fade is over** (`nextDuelTick !== null && tick >= nextDuelTick`): `floorDuel(…, run.floor + 1, match.duel, match.duel.rng)`, `delver: enterFloor(...)`, `arena`, `duelNumber + 1`, `nextDuelTick null`, event `DuelStart`. Return.
+2. `t = arenaTuning(tuning, match.duel.arena)`; `duel = step(match.duel, intents, t)`.
+3. **A wipe** (`duel.duel.status === 'Over'`, i.e. Team 0 all fallen) is a Defeat in any phase: `status Over, winner 1`, event `RunEnd { winner: 1, cleared: run.floor - 1, floors, halls: 0 }`. Return.
+4. While `Exploring` (none of a to c runs while Descending):
+   a. **The Inventory**: a Player's Fighter's `equip`/`drop` (`useInventory`, as `stepRun` does it) is taken only while it stands **at a fire**: `atFire(plan, f, radius)` = `standsWithin({ x, y: 0, z }, delver.fireRadius, f)` for some fire. Elsewhere it is refused (nothing changes). A drop becomes a shared pickup (`droppedPickup`) and an `ItemDropped` event. Then `takePickups` anywhere (picking up needs no fire), with `ItemTaken` events.
+   b. **The fires**, in plan order. For fire k, the arrivers are the present Players (`presentPlayers(config, run.away)`) that are `inDuel`, hp > 0, and `standsWithin` its radius.
+      - **Revive**: if `!restUsed[k].revived` and there is an arriver, every Team 0 Fighter with `death` at that moment comes back, in Fighter order, the j-th at (fire.x + DX[j mod 4], fire.z + DZ[j mod 4]) with offsets (−1.5, −1.5), (+1.5, −1.5), (−1.5, +1.5), (+1.5, +1.5), y 0, keeping its facing: `standingFighter(t, arena, …, weapon, 0, size)`, then its inventory (`holdInventory`) or `setMods(NO_MODS)` as in `floorDuel`, hp `revive × maxHp`, no `death`. Event `Revived { fighter, fire: k }` each. Then `revived: true`, **spent at the first arrival even when nobody had fallen** (the plan's rule, read literally). A revived Fighter keeps its Inventory.
+      - **Heal**: then every arriver (the just-revived Players among them, who stand within the radius) not in `restUsed[k].healed` heals `dungeon.restHeal × maxHp`, never above max: event `Rested { fighter, healed }`, and joins `healed` (ascending). An AI ally never heals or revives.
+   c. **The Stairs**: `counting = doorCounters(config, duel.fighters, run.away)` (every living present Player; with none alive, the living AI allies). `stairsTicks = counting.length > 0 && counting.every((i) => inStairs(plan, fighters[i])) ? stairsTicks + 1 : 0`, where `inStairs` is inside the zone's rect (edges included) and `y` within (−0.5, ZONE_HEIGHT). At `doorTicksNeeded(tuning)` (`dungeon.doorSeconds`):
+      - on the last Floor (`floor === floors`): **Victory**. `status Over, winner 0`, the Duel ended as `stepRun` ends it on the last Boss (`duel Over winner 0` plus a `DuelEnd` event), event `RunEnd { winner: 0, cleared: floors, floors, halls: 0 }`. No fade.
+      - else `phase 'Descending'`, `nextDuelTick = tick + max(1, secondsToTicks(dungeon.hallFadeSeconds))`, `score[0] + 1`, event `StairsTaken { floor }`.
+5. Mirror `phase` (and `away`) onto `duel.delver`.
+- New Match events: `StairsTaken { type, floor }` and `Revived { type, fighter, fire }`; `Rested`, `ItemDropped`, `ItemTaken`, `DuelStart`, `RunEnd` are reused.
+- **AI Takeover**: `takeOverFighter` marks `delver.away` and `duel.delver.away` as it does `run.away` (idempotent; not a Player: unchanged).
+
+**Tuning Data**: `delver.fireRadius`, default **3** (m; the Hall-graph fire's 1.5 m is too tight for four Players and the Inventory screen), a positive number, parsed in `src/tuning/delver.ts`. `dungeon.doorSeconds` (1.5), `hallFadeSeconds` (1), `restHeal` (0.5) and `revive` (0.25) are read as they are. The Stairs zone is the plan's (±2 m).
+
+**The AI on an empty Floor**:
+- **`RuleAi`** (`src/controllers/ai.ts`) reads every Arena and navmesh under `arenaTuning(this.tuning, state.arena)`, as does `prepareAi`. No other change.
+- **The Ally AI** (`allyAi.ts`), with `state.delver`: while Descending, or fallen, its AI's own Intent (it stands). While Exploring, follow the nearest living present Player (as after a Clear, `FOLLOW_DISTANCE`). With no Player alive, walk to the Stairs: its spot is the zone's centre plus (±1, ±1) by its rank among the living Team 0 Fighters (same order as the spawns), stop 0.3 m, by `walkTo` (the navmesh). It never decides anything a Player could.
+- **The Hall AI** returns `IDLE_INTENT` whenever `state.delver` is present.
+- **The Delver pilot** (`src/controllers/delverPilot.ts`, `createDelverPilot(tuning, difficulty = 'Hard')`, for tests and `&autopilot`): Idle while Descending or fallen. Else it walks (its AI's `walkTo`) to the nearest fire it has not yet reached this Floor (straight-line distance, ties lower index; reached = within 1 m), then to the Stairs zone's centre (stop 0.3). Its memory, `{ floor, reached: number[] }`, is saved and loaded as plain data.
+- **Doorways**: Stage 0's Battle autopilot stuck on a Wall beside a doorway. The slow test measures how far each ally trails when the Stairs are taken, and fails past 8 m.
+
+**Presentation, the least that makes it playable** (Stage 5 does the rest):
+- **The world**: `createArenaWorlds` returns `{ tuning: arenaTuning(tuning, name) }` for a Floor name. `warmArena` builds the navmesh under `arenaTuning`. `arenasToWarm` returns the next Floor's arena name while a Delver Run is Exploring a Floor below the last.
+- **The Floor's look**: in `stage.ts`'s `battle()`, for a Floor's map, `drawnMapModel(mapModel(source, compileDraft(source, battle)))` from `floorOf`. Roofs are drawn as the editor's 3D view draws them. If the camera cannot see under them, Step 5.3 decides.
+- **Marks** (`src/render/delverMarks.ts`): a flat square on the Stairs zone, and a ring of `fireRadius` round each fire, dimmed once the local Player has taken its heal.
+- **The HUD**:
+  - `hallFade` fades for a Delver Run as for a Hall change: dark over the fade, light over the Floor's first `hallFadeSeconds`, none on Floor 1.
+  - A banner on each `DuelStart`: "Floor F / N · Run seed S".
+  - "Revived" and "Rested" announcements.
+  - The results screen on `RunEnd`: Victory or Defeat, Floors reached, time and seed, with no Halls.
+  - The Floor Map button and the minimap stay hidden.
+  - A fallen Player watches with the orbit camera, as a fallen Player in a Hall does.
+- **The Inventory screen** takes input at a fire only: "Only at a fire" elsewhere, "Descending" while Descending.
+
+**Tests**:
+- Fast, `src/sim/delverRun.test.ts` (Fighters moved by editing the state, as `dungeonRun.test.ts` does):
+  - the start: arena, spawns, facing, Benched Team 1, the run fields, and `createMatch` refusing a bad option;
+  - `arenaTuning` and `floorOf`: identity for other names, one object while kept, the Floor's map at `delver.flowCell`;
+  - the Stairs dwell, a reset, an AI ally alone not counting, and the AI allies counting once no Player lives;
+  - the fade to Floor 2: a new arena, HP carried, the fallen revived, pickups and fires reset;
+  - the heal, once per Player per fire, never an AI ally;
+  - the revive, once per fire, at the fire, at `revive` of max HP, spent on the first arrival;
+  - the Inventory gate at the fire's radius, a drop at a fire, and a take anywhere;
+  - a wipe is a Defeat; the last Stairs are a Victory;
+  - a Takeover;
+  - determinism: same Intents give the same hash at every Tick across a Floor change, and a snapshot restored before it re-simulates the same;
+  - a replay;
+  - Hall-graph Runs untouched.
+- Fast, controllers: the Ally AI on a Floor follows, walks to the Stairs with no Player, and idles while Descending; the Hall AI idles; the pilot's target order.
+- Slow, `src/controllers/delverRun.slow.test.ts`: Tuning `delver.tiers 1, floorsPerTier 3`. One Player on the pilot and two Hard AI allies. At each Floor's first Tick the harness sets the Player to half HP and fells ally 1 (a `death` written into the state). It prints each Floor's build time (cold, `floorOf` before the Run), its seconds to the Stairs, the ms per Tick, and the allies' trail when the Stairs are taken.
+  - **It must show it exercised**, on every Floor: a `Rested` with `healed` > 0, a `Revived`, and the Stairs (`StairsTaken` on Floors 1 and 2, then the Victory).
+  - A second case fells the Player at Floor 1's start: the AI allies walk to the Stairs and take them, and the Player stands on Floor 2 at `revive` of max HP.
+- **Existing tests**: none is rewritten or removed. The Hall-graph Run ships until Stage 8, so `dungeonRun.test.ts`, `gauntlet.soak.test.ts`, `takeover.test.ts`, the Door and Floor Map tests and the rest stay as its tests. `delverRun.test.ts` is their Floor counterpart, and Stage 8 removes the Hall-graph ones. `src/tuning/delver.test.ts` gains the `fireRadius` check (a new test, no changed expectation).
+
 ### Stage 3: Warbands
 **Model**: Opus (brains and fields).
 - Encounters become Warband templates (`data/dungeon.json`). The generator's posts and loops are filled by a seeded pick per tier. The Crowd is deployed at the posts.
