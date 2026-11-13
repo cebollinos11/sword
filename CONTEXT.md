@@ -300,6 +300,7 @@ _Avoid_: portal, gate
 
 **Encounter**:
 One hand-written group of 1 to 4 enemies in Tuning Data, each with its difficulty, Style, Weapon and Body (each may be `random`), max HP scale and `minTeam` (it fights only when Team 0 fields at least so many Fighters, its slot Benched otherwise). Each Floor has a pool of Encounters for its Fight Halls, one for its Elite Halls (harder) and its Boss's own. A pure hash of the Run seed, Floor and Hall picks a Hall's from its pool, repeating one within a Floor only once the pool has run out; its `random` picks are made the same way. An Elite's enemy may name Relics (from `data/relics.json`, 1 or 2): it starts its Hall with their `mods` (max HP and Throwing Daggers follow), and the first Relic of the lowest-slot Elite that fights and names any is what the Hall drops for each Player, ahead of the Elite's `loot.drops` picks.
+A Delver Run's Encounters are its Warband templates instead (`delver.warbands`, per tier, a guard pool and a patrol pool; see Warband).
 _Avoid_: Wave, squad, spawn group
 
 **Relic**:
@@ -453,6 +454,14 @@ _Avoid_: corridor (in code), hallway
 **Stairs**:
 The way down from a Delver Floor (`docs/plans/delver.md`, Stage 2): a 4 m square zone at the centre of the Floor's Stairs Hall, the Hall furthest from the Entrance by walking. When every living Player still in the Run (with none alive, every living AI ally) has stood in it for `dungeon.doorSeconds`, the party goes down: a fade, then the next Floor, everyone at the Entrance and the fallen back at `dungeon.revive` of max HP. The last Floor's Stairs win the Run. It needs no key and no kill.
 _Avoid_: exit, portal, door
+
+**Warband**:
+One Squad of a Delver Floor's enemies (`docs/plans/delver.md`, Stage 3): 3 to 12 Team 1 Soldiers of the Crowd, from a tier's guard or patrol template (its Troops, how many of each, its HP scale), at a post (a Fight Hall's centre) or on a patrol loop. Each human after the first adds `delver.perPlayerSoldiers` to every Warband; its Soldiers' max HP is scaled by the tier only. Its brain thinks twice a second: **Guard** holds its post facing the way the party comes; **Patrol** walks its loop's points; **Chase**, once one of its Soldiers sees a party Fighter (in sight past the Walls, on its level, within `delver.sight`), follows that Fighter's destination field; **Return** walks home, deaf, when the Leash or `delver.forgetSeconds` unseen ends a Chase, or when it breaks below its morale. A Warband whose Soldiers lag regroups on them. Warbands walk through one another. The Bubble promotes its Soldiers within walking reach of a party Fighter (never through a Wall) into the Fighter Pool; a Soldier never hurts a full Fighter. A wiped Warband stays dead for its Floor.
+_Avoid_: wave, mob, group, pack
+
+**Leash**:
+How far (`delver.leash`, m, by walking) a chasing Warband follows from its home (its post, or its loop's nearest point) before it Returns.
+_Avoid_: tether, range
 
 **Map Compiler**:
 The pure function from a Map Source to an ordinary Battle map (`compileMap`, `src/mapEditor/compile.ts`): it paints the Brushes on the fine grid one level at a time, merges each Brush's floor into rectangles (`WALK_<brush>_<n>`), stands the Walls the generators would (the field's edges, a face wherever the ground beside a floor is higher than a step, owned by the higher Brush, `WALL_<brush>_<side><n>`, each Ramp's rails or skirt, each Enclosure's Walls with their doorways, `WALL_<brush>_<side>d<n>`), and passes the result through the game's own `parseBattleMap` and `walkCheck`, so it never gives a map the game refuses; an error names the Brushes it concerns. The same source always compiles to the same bytes.

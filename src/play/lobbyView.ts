@@ -203,7 +203,7 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
 }
 
 /** What the Floors card adds for the Delver setting. */
-export const DELVER_NOTE = 'Delver: generated Floors; find the fires and the Stairs. No enemies yet.';
+export const DELVER_NOTE = 'Delver: generated Floors; find the fires and the Stairs, past Warbands that guard and patrol.';
 
 /** What the Gauntlet's Floors card says: how big the Dungeon is, and how a Run walks it. */
 export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly count: string; readonly note: string } {

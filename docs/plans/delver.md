@@ -1,12 +1,12 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
 - [x] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
 - [x] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
-- [ ] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
+- [x] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
 - [ ] Stage 4: loot, Treasure Halls and Boss Floors
 - [ ] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [ ] Stage 6: verticality (balconies, stairwells, bridges over passages)
@@ -761,6 +761,145 @@ export const FIELDS_KEPT = 64;
 4. Online: `messages.ts`, `session.ts`, the harnesses, `PROTOCOL_VERSION` 28, the loopback tests and the slow coop test with its Rollback measurement.
 5. Drawing Warbands in a Delver Run: the Crowd's impostors and the Promotion swaps in the Duel's view (as `battleScreen.ts` does them), and anything in the HUD, camera or minimap that reads a Crowd as a Battle.
 6. The soak.
+
+### Result
+Done 2026-11-13. A Delver Run is now played against Warbands. Every Floor deploys a Crowd of Team 1 Soldiers in Squads at its posts and on its patrol loops. They guard, patrol, chase a party Fighter they see, and walk home past the Leash or once they forget. An enemy-only Bubble promotes the ones within walking reach into the 16-slot Fighter Pool, where they fight as full Fighters. Battles, Duels and the Hall-graph Run are unchanged: every Battle hash and test from before still passes.
+
+**What was built** (as the Design gives it, with the changes below):
+- **Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`):
+  - the brain's keys: `sight`, `leash`, `forgetSeconds`, `chaseSpeed`, `closeIn` and `arrive`;
+  - `postFill`, `patrolFill`, `perPlayerSoldiers`, `attackSlots` and `tierHp`;
+  - `warbands`: three tiers of guard and patrol templates made of the Battle's Troops.
+  `parseDelver` checks them against `battle.troops`, `squad.size` and the Pool's size. `delverBattle` gives a Floor its own Attack Slots and no ally slots.
+- **The Floor's Crowd** (`deployWarbands`, `warbandHomes` in `src/sim/delver/warbands.ts`):
+  - It is a pure deployment from the Run seed, the Floor and `config.humans`.
+  - A seeded share of the posts and loops is filled.
+  - Each Warband's template is picked per tier.
+  - Each Warband is bigger by `perPlayerSoldiers` per human after the first, rounded by a pick.
+  - Max HP is the Troop's × the template's `hpScale` × the tier's `tierHp` (`CrowdState.maxHp`).
+  - Each Soldier's Size and look are picked.
+  - `CrowdState.warbands` holds each brain's mode, post or loop, leg, chased Fighter, last-seen Tick, size and template.
+- **The Warband brain** (`stepWarbands`, `warbandBrain` in `src/sim/warband.ts`):
+  - It thinks at 2 Hz and runs Guard, Patrol, Chase and Return, with sight by `inSight` on its level within `sight`.
+  - A chase follows the chased Fighter's destination field and ends past the Leash (walking from home), after `forgetSeconds` unseen, or when it breaks below morale (Return, loose).
+  - A wiped Warband stays dead.
+  - It steps through `stepCrowd`'s new `brain` hook, which on a Floor replaces `stepSquads` and leaves out the Objectives, Tickets, Commanders, Rout and respawns.
+  - `closeRanks` and `walkAnchors` are shared with `stepSquads` (a pure refactor).
+- **Kept fields** (`fieldToward` in `src/sim/destinations.ts`): `distanceTo` kept per node, 64 per map, least recently used first out. Home, chase and Bubble fields all come from it, as `walkField` and `walkDistance` (`crowd.ts`).
+- **The enemy-only Bubble** (`bubble.ts`, on a Floor):
+  - Every party Fighter has a Bubble.
+  - Every distance the Bubble measures is the walk: Promotion, Demotion, which Bubble a Soldier counts in, the fill order and the waiting ring.
+  - The ring's spots are only those in sight of the Fighter.
+  - A promoted Soldier takes its `maxHp`.
+  - There are no Player records, so no Soldier is taken over.
+- **The Run** (`delverRun.ts`, `match.ts`, `step.ts`, `battle.ts`):
+  - A Delver Run's `config.teams` is the party. `createMatch` drops a Lineup's Team 1 slots, and `checkDelverTeams` checks the rest.
+  - The Duel is the party, then unbound Pool slots, plus the Floor's Crowd.
+  - `stepDelver` steps the Bubbles, the Duel and the Crowd under `arenaTuning`, building the Crowd's view of the Fighters with the shared `crowdFighters`.
+  - A Floor's Duel still ends on a wipe.
+- **The AI**:
+  - `lineupAis` gives a Delver Run Pool AIs past the party and no Hall AI.
+  - The Ally AI and the Delver pilot fight a promoted enemy within `promote` (`promotedNear`), else follow or walk their route.
+- **Online**:
+  - `PROTOCOL_VERSION` 28.
+  - The resync check knows a Floor's Crowd (`isFloorCrowd`, `isWarbands`), and the session checks it against the Floor (`warbandsFit`).
+  - Pool AIs run past the party, and the Lobby Lineup's Team 1 prefix is compared.
+  - **Online Delver Runs take `BATTLE_INPUT_DELAY`** (below).
+- **Drawing** (`src/play/floorCrowd.ts`, `src/play/floorBodies.ts`):
+  - The Crowd is drawn as impostors in the Duel's view, from atlases baked once a Run in the background.
+  - Promotions crossfade (`BubbleSwap`).
+  - Promoted enemies are drawn in their Troop's Body and Team 1's colour.
+
+**Changed from the Design:**
+- **Regroup** (found by the soak): a Warband whose Soldiers lag has its anchor put back on its nearest in-Crowd Soldier. Without it an anchor could walk through a doorway its Soldiers could not follow, and stand there for good.
+- **Warbands walk through one another** (found by the soak):
+  - A patrol's loop point sat on a guard's post, and the guard's single file stood in a Passage doorway.
+  - Soldiers of two Squads of one Team push each other apart, so the patrol queued behind the guard for ever.
+  - On a Floor, Soldiers of different Warbands no longer push each other apart.
+- **Returns happen only before contact**:
+  - A fought Warband has all its Soldiers promoted, and an Attack Slot's Fighter fights until it falls or the party walks out of `demote`, so its anchor stands until it is wiped.
+  - Fighters and Soldiers both walk at 2.5 m/s, so a Warband returns only when the party walks away before it closes.
+  - In the five AI Runs every Warband that chased was wiped. The soak shows Returns with a scenario of its own.
+- **`lead` while standing** is the home field, not null (from the code review).
+- **From the code review**:
+  - the Warbands are checked against the Floor at resync;
+  - promoted enemies are drawn in their Troop's Body;
+  - the pilot marks a fire reached while fighting at it;
+  - the final-blow shot draws the Crowd of the shot's moment;
+  - there is one way to build a walk field, `lead` is lazy, and the Bubble's walks are cached per step.
+- **The slow coop test** runs its Warbands case with `postFill` 25 (below).
+- **The Lobby's Delver note** no longer says "No enemies yet".
+
+**Measured** (the test container, about 3× a mid-range laptop):
+- **The soak** (`src/controllers/warbandSoak.slow.test.ts`):
+  - Setup: 5 Run seeds, 1 tier × 3 Floors, the Delver pilot (Hard) with two Hard AI allies.
+  - All 5 Runs were Victories, in 506 to 838 s.
+  - Warbands: 168 deployed, 67 met (promoted), 73 chases, 67 wiped, 5 returns (from the "chase given up" scenario), 35 whole patrol loops.
+  - Time out of place: 67 excursions, mean 30.5 s, max 64 s. No Return took over 60 s and no patrol leg over 60 s.
+  - The party was held by a promoted enemy for 55 to 85% of each Floor.
+
+  | Bound Pool slots | Tick mean (ms) | p99 | max |
+  |---|---|---|---|
+  | 0 | 0.33 | 2.01 | 61 |
+  | 1–4 | 0.62 | 3.17 | 33 |
+  | 5–8 | 0.98 | 3.55 | 9.9 |
+
+  - Over all 197,147 Ticks: mean 0.51 ms, p99 2.93 ms. `hashValue` 0.75 ms mean (p99 3.3), `snapshot` 0.14 ms (p99 0.3).
+  - A Floor builds cold in 271 ms (max 451). There are about 198 field builds a Floor, at 0.5 ms each.
+- **Formations in 3 m Passages**: no Floor-only `narrow.room` was needed.
+  - The patrols test walked every loop of 9 patrols, 72 legs, with no party. Every leg took 10 to 26 s, within 1 to 3 s of its walking time.
+  - 0 to 5% of Soldier-steps were more than 3 m from their place, and no Soldier was ever more than 6 m out.
+  - The Battles' `narrow.room` 3 puts a Warband in single file in a Passage, and it walks it.
+- **Rollbacks** (`src/net/delverCoop.slow.test.ts`, two peers on the pilot, the harness's 40 ± 20 ms):
+
+  | | ms per Rollback p50 | p99 | max | re-simulated Ticks p50 / p99 |
+  |---|---|---|---|---|
+  | Warbands (`postFill` 25) | 1.33 | 9.26 | 19.7 | 3 / 5 |
+  | Empty Floors | 0.78 | 5.59 | 78.5 | 3 / 5 |
+
+  Both runs had 0 resyncs. A Rollback's p99 is over the Design's 5 ms rule with Warbands, so **online Delver Runs take `BATTLE_INPUT_DELAY`** (3 Ticks), each peer from the Lobby's setting.
+- **Two pilots alone lose.**
+  - In the coop test, two Hard pilots with no AI allies, against Warbands sized for two humans, are worn down on Floor 1, even at `postFill` 25.
+  - The Bubble refills the Attack Slots about as fast as they kill.
+  - With `postFill` 25 they lose at Tick 9,829. On the bundled Tuning they were still fighting at Tick 20,000, and in the soak's replica of that party they lost at 293 s.
+  - That is balance, for the playtest. The coop test still checks the netcode (no desync, equal checksums), and as before it accepts a Run that ends as reaching its end.
+
+**Tests**:
+- `npm run typecheck` is clean.
+- `npm test`: **2679 passed, 5 skipped** (2558 before the Stage). The new files:
+  - `warbands.test.ts` (15)
+  - `fieldToward.test.ts` (6)
+  - `warband.test.ts` (15)
+  - `floorBubble.test.ts` (7)
+  - `delverWarbands.test.ts` (13)
+  - `floorCrowd.test.ts` (5)
+  - `drawColours.test.ts` (3)
+  - `floorBodies.test.ts` (1)
+
+  New cases in `delver.test.ts`, `delverRun.test.ts`, `delverAi.test.ts`, `delverPilot.test.ts`, `delverMessages.test.ts` and the net `delverRun.test.ts`.
+- `npm run test:slow`: 24 files and 44 tests passed, including the new soak (5 tests). Stage 2's empty-Floor slow test now runs on a Tuning with no Warbands (`postFill 0, patrolFill 0`), as do the Stage 2 Run tests that check only the party.
+
+**In the game** (`npm run dev`, a headless browser at 4 to 8 fps, "Slowed"; the Delver pilot with one Expert AI ally; screenshots looked at):
+- A guard Warband stands in its Hall at the end of a Passage, drawn as impostors in Team 1's blue (`docs/plans/delver-stage3/guard.png`).
+- As the party comes into its Hall, it is promoted: full models in their Troops' Bodies, Halberdiers and Levies (`docs/plans/delver-stage3/promoted.png`).
+- Fights happen in the 3 m Passages, single file, the Warband strung along the Passage behind its front (`docs/plans/delver-stage3/passage-fight.png`).
+- The fire in its Rest Hall, ringed (`docs/plans/delver-stage3/fire.png`).
+- The party took Floor 1's Stairs in about 3.5 minutes of real time. On Floor 2 it met a Warband in a Hall, the Player fell at 44 HP after a long fight, the ally fought on alone and fell too: a Defeat at 5:44, "Floors cleared 1 / 9".
+- **Not captured**: a Return (by design it happens only when the party walks away before contact, which the pilot never does; the soak's "chase given up" shows it), and a fire with enemies near.
+- **The camera** (not new, but Warbands make it show): it sits inside a Wall or a doorway post, or in a Fighter's head in a crowded Passage, in about a fifth of the frames, and a fallen Player's orbit camera often sits in the floor.
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Dungeon: Delver, add an AI ally or two, Fight.
+- Walk into a guarded Hall, and fight the Warband in its doorway or out in the Hall.
+- Let a patrol find you in a Passage. Then walk away from a Warband before it reaches you, and see it give up and go home.
+- Find out how many Warbands a Floor can take before you need a fire, and whether to skip some.
+- Try two humans online: Warbands grow by 1 or 2 Soldiers each, and the Input Delay is now 3 Ticks.
+
+**To watch next**:
+- **Balance.** The solo pilot with two Hard allies won all five soak Runs, but with one Expert ally it lost on Floor 2, and two pilots alone lose by attrition: the Bubble refills the Attack Slots about as fast as the party kills, and the party is held by a fight 55 to 85% of a Floor. The knobs are `postFill`, the templates, `attackSlots`, `perPlayerSoldiers`, `tierHp` and the Troops' Mods (promoted Soldiers deal half damage, as in a Battle).
+- **Fought Warbands never return.** All their Soldiers get promoted and fight to the end. If the party should be able to break off, a promoted Fighter whose Warband Returns could be demoted.
+- **The camera in Passages** (above).
+- **A patrol may cross a guard's post**, and the two overlap there (Warbands walk through one another). The generator could keep loop points off posts.
+- **Impostors appear a few seconds into a Run** while the atlases bake.
 
 ### Stage 4: loot, Treasure Halls and Boss Floors
 **Model**: Sonnet.
