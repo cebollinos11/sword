@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
+import { floorOf, isFloorName, parseFloorArena } from '../sim/delver';
+import { compileDraft } from '../mapEditor/compile';
+import { mapModel } from './mapModel';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
 import { colliderView, jumpLinkArcs, seeThrough, walkFans } from './colliderView';
@@ -319,7 +322,7 @@ export class Stage {
     this.camera.far = field ? BATTLEFIELD_FAR : FAR;
     this.camera.updateProjectionMatrix();
     const setting: Setting = field
-      ? battle(name, field, () => this.arena === name)
+      ? battle(name, field, () => this.arena === name, floorModelOf(this.tuning, name))
       : look
         ? modelled(name, look, () => this.arena === name)
         : kit && kitLook && layout
@@ -500,14 +503,15 @@ function modelled(name: string, look: ArenaLook, current: () => boolean): Settin
  * ground once loaded, or, with no model (a draft in the Map Editor), its Walk Surfaces and Walls (`battleGreybox`). A draft being play-tested is
  * drawn from its own model (`setDraftBattleModel`). A Map Editor map's model names its sky and light (`BATTLE_LOOKS`), put in once it has loaded.
  */
-function battle(name: string, field: Battlefield, current: () => boolean): Setting {
+function battle(name: string, field: Battlefield, current: () => boolean, floor: THREE.Object3D | null = null): Setting {
   const map = battleMapName(name);
   // A hand-built map models its own ground; the flat grass plane would only show through it and run on past its edge.
   const setting = battlefieldSetting(field.heights, map === null);
   if (map === null) return setting;
   /** The sky, lights (and snow) dusk put in, taken out again for another look. */
   const dusk = [...setting.root.children];
-  const draft = draftModels.get(map)?.model;
+  // A Delver Floor is drawn from its generated source, made ready at once (no file to load).
+  const draft = floor ? Promise.resolve(floor) : draftModels.get(map)?.model;
   if (!draft && !hasBattleModel(map)) {
     setting.root.add(battleGreybox(field.arena));
     return setting;
@@ -535,6 +539,30 @@ function battle(name: string, field: Battlefield, current: () => boolean): Setti
       if (current()) setting.root.add(battleGreybox(field.arena));
     });
   return { ...setting, loaded };
+}
+
+/** The last few Delver Floors' drawn models, by Arena name (most recently used last): a restart may rebuild a Floor, the model is the same. */
+const KEPT_FLOOR_MODELS = 3;
+const floorModels = new Map<string, THREE.Object3D>();
+
+/**
+ * The drawn model of Delver Floor Arena `name` (docs/plans/delver.md, Stage 2): the Floor's source compiled for its Battle Tuning and drawn as the
+ * Map Editor's 3D view draws it (`mapModel`, `drawnMapModel`), kept per name. Null for any other name. `tuning` is the world's for the Floor
+ * (`arenaTuning`), or its base: `floorOf` reads both.
+ */
+function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
+  if (!parseFloorArena(name) || !isFloorName(battleMapName(name) ?? '')) return null;
+  let model = floorModels.get(name);
+  if (model) {
+    floorModels.delete(name);
+  } else {
+    const floor = floorOf(tuning, name);
+    if (!floor) return null;
+    model = drawnMapModel(mapModel(floor.source, compileDraft(floor.source, floor.battle)));
+    if (floorModels.size >= KEPT_FLOOR_MODELS) floorModels.delete(floorModels.keys().next().value!);
+  }
+  floorModels.set(name, model);
+  return model;
 }
 
 const kitModels = new Map<string, Promise<THREE.Object3D>>();

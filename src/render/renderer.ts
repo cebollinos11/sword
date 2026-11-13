@@ -5,6 +5,7 @@ import { sizedTuning, weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
+import { DelverMarks, type DelverMarksView } from './delverMarks';
 import { DoorMarks } from './doorMarks';
 import { HallMarks } from './hallMarks';
 import type { DoorMarkView } from '../play/doorMarks';
@@ -25,7 +26,7 @@ export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readon
  * solved Skeletons between the previous and current Tick (or draws a fallen
  * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
  * Team 1 slot its Hall leaves empty) is not drawn at all: no model, no shadow,
- * no dagger in hand, no trail. A Run's Hall also draws its Doors and Rest fire (`HallMarks`).
+ * no dagger in hand, no trail. A Run's Hall also draws its Doors and Rest fire (`HallMarks`), a Delver Run's Floor its Stairs and fires (`DelverMarks`).
  *
  * In a Battle (docs/plans/big-battle.md) every Fighter wears its Team's soldier colour (`battle.soldier.colours`), and a
  * Fighter Pool slot can be faded (`setFades`): a slot just freed keeps drawing the pose it last showed while it fades out.
@@ -50,6 +51,8 @@ export class Renderer {
   private readonly trails: SwingTrails;
   private readonly hallMarks = new HallMarks();
   private readonly doorMarks = new DoorMarks();
+  private readonly delverMarks = new DelverMarks();
+  private delver: DelverMarksView | null = null;
   private doors: readonly DoorMarkView[] = [];
   private readonly pickupMarks: PickupMarks;
   private pickups: readonly PickupView[] = [];
@@ -80,6 +83,7 @@ export class Renderer {
     this.stage.scene.add(this.shadows.root);
     this.stage.scene.add(this.hallMarks.root);
     this.stage.scene.add(this.doorMarks.root);
+    this.stage.scene.add(this.delverMarks.root);
     this.stage.scene.add(this.pickupMarks.root);
   }
 
@@ -152,6 +156,11 @@ export class Renderer {
   /** How the Rest fire burns for the local Player (`fireState`), from the next frame on. */
   setFire(state: FireState): void {
     this.fire = state;
+  }
+
+  /** A Delver Run's Floor marks (Stairs, fires and their rings) from the next frame on; null outside a Delver Run. */
+  setDelver(view: DelverMarksView | null): void {
+    this.delver = view;
   }
 
   /** The exit Doors' marks (icon, gate, count) to draw from the next frame on (none: none drawn). */
@@ -244,9 +253,11 @@ export class Renderer {
     const arena = arenaOf(world.tuning, curr.arena);
     this.hallMarks.update(arena, curr.hall, this.fire);
     this.doorMarks.update(arena, curr.hall, this.doors);
+    this.delverMarks.update(curr.delver ? this.delver : null);
     // A body in pieces casts its shadow from the piece with the pelvis.
     this.shadows.update(poses.map((p) => p?.pieces?.poses[0] ?? p), arena);
     this.hallMarks.animate(seconds);
+    this.delverMarks.animate(seconds);
     this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.drip(poses, seconds);

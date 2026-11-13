@@ -33,8 +33,8 @@ export interface RunResult {
   /** Floors cleared (their Boss beaten). */
   readonly cleared: number;
   readonly floors: number;
-  /** Halls cleared, Bosses included. */
-  readonly halls: number;
+  /** Halls cleared, Bosses included; absent in a Delver Run (it has none): no Halls part is shown. */
+  readonly halls?: number;
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
   readonly seconds: number;
   readonly seed: number;
@@ -80,20 +80,22 @@ export function hpText(hp: number): string {
 
 /** A Run's end in one line (the Lobby's note after it): verdict, Floors and Halls cleared, time and seed. */
 export function runResultLine(r: RunResult): string {
-  const halls = `${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`;
-  return `${r.victory ? 'Victory' : 'Defeat'} · ${r.cleared} / ${r.floors} Floors · ${halls} · ${runTime(r.seconds)} · Run seed ${r.seed}`;
+  const halls = r.halls === undefined ? [] : [`${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`];
+  return [r.victory ? 'Victory' : 'Defeat', `${r.cleared} / ${r.floors} Floors`, ...halls, runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
 }
 
 /**
  * How dark the screen is for the fade between Halls, 0 to 1: rising over `dungeon.hallFadeSeconds` once a Door is taken
  * (fully dark on the fade's last Tick), then falling over as long as the next Hall starts. 0 in Duels and in the Hall a Run starts in.
+ * A Delver Run fades the same way between Floors (from `nextDuelTick`, set by the Stairs), and not on its Floor 1.
  */
 export function hallFade(match: MatchState, tuning: TuningData): number {
-  if (!match.run) return 0;
+  const first = match.run?.startTick ?? match.delver?.startTick;
+  if (first === undefined) return 0;
   const ticks = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
   if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (ticks - (match.nextDuelTick - match.tick) + 1) / ticks));
-  // The Run's first Hall (Hall 1, or a dev start's deeper one) began on the Run's start Tick: no fade before it.
-  if (match.tick - match.duel.tick <= match.run.startTick) return 0;
+  // The Run's first Hall (Hall 1, or a dev start's deeper one; a Delver Run's Floor 1) began on the Run's start Tick: no fade before it.
+  if (match.tick - match.duel.tick <= first) return 0;
   return Math.max(0, 1 - match.duel.tick / ticks);
 }
 
@@ -235,7 +237,7 @@ export class Hud {
     const title = document.createElement('div');
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
-    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Halls cleared', String(r.halls)), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
     if (note) {
       const next = document.createElement('p');
@@ -313,7 +315,7 @@ export class Hud {
     const mine = match.duel.fighters[me];
     this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
-    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : match.delver ? `Floor ${match.delver.floor} / ${match.delver.floors}` : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
     this.mapButton.hidden = !match.run;
     this.map.update(match, this.matchTuning ?? this.tuning);
     this.updatePickups(match, view);

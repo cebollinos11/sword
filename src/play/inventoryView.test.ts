@@ -223,3 +223,39 @@ describe('the inventory view for the second Player (Fighter 1)', () => {
     expect(inventoryView(f0, tuning, 'Cleared')!.relics[0]!.item).toBeNull();
   });
 });
+
+describe('the inventory screen in a Delver Run', () => {
+  it('is locked while Descending, and away from every fire while Exploring, whatever else is wrong', () => {
+    const f = fighter();
+    expect(inventoryLock(f, undefined, { phase: 'Descending', atFire: true })).toBe('Descending');
+    expect(inventoryLock(f, undefined, { phase: 'Descending', atFire: false })).toBe('Descending');
+    expect(inventoryLock(f, undefined, { phase: 'Exploring', atFire: false })).toBe('Only at a fire');
+  });
+
+  it('at a fire, the usual checks: free when Idle on the ground, else the reason', () => {
+    const f = fighter();
+    const at = { phase: 'Exploring', atFire: true } as const;
+    expect(inventoryLock(f, undefined, at)).toBeNull();
+    expect(inventoryLock({ ...f, hp: 0, death: { tick: 0, cause: 'Fall', blow: null } }, undefined, at)).toBe('You have fallen');
+    expect(inventoryLock({ ...f, air: { kind: 'Jump' } as unknown as FighterState['air'] }, undefined, at)).toBe('Land first');
+  });
+
+  it('holds the input only at a fire while Exploring; a Run’s Hall phases are unchanged without the context', () => {
+    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: true })).toBe(true);
+    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: false })).toBe(false);
+    expect(inventoryHoldsInput(undefined, { phase: 'Descending', atFire: true })).toBe(false);
+    expect(inventoryHoldsInput('Cleared')).toBe(true);
+    expect(inventoryHoldsInput('Fighting')).toBe(false);
+    expect(inventoryHoldsInput(undefined)).toBe(false);
+  });
+
+  it('gives each item its action the reason of the lock', () => {
+    const v = inventoryView(fighter(), tuning, undefined, { phase: 'Exploring', atFire: false })!;
+    expect(v.lock).toBe('Only at a fire');
+    expect(items(v.relics)[0]!.drop!.available).toBe(false);
+    expect(items(v.relics)[0]!.drop!.reason).toBe('Only at a fire');
+    const at = inventoryView(fighter(), tuning, undefined, { phase: 'Exploring', atFire: true })!;
+    expect(at.lock).toBeNull();
+    expect(items(at.relics)[0]!.drop!.available).toBe(true);
+  });
+});

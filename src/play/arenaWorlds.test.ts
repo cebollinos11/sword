@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
-import { arenaOf, createMatch, DEFAULT_GEN_PARAMS, exitDoor, generateArena, GREYBOX_KIT, hallBehind, hallOf, IDLE_INTENT, inDuel, navMesh, parseGeneratedName, stepMatch, type MatchState } from '../sim';
+import { loadTuningData, type TuningData } from '../tuning';
+import { arenaTuning, floorArenaName, floorOf, parseFloorArena } from '../sim/delver';
+import { arenaOf, createMatch, DEFAULT_GEN_PARAMS, exitDoor, generateArena, GREYBOX_KIT, hallBehind, hallOf, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, navMesh, parseGeneratedName, runSeed, stepMatch, type MatchState } from '../sim';
 import { arenasToWarm, arenaToWarm, createArenaWorlds, warmArena, warmingWaits } from './arenaWorlds';
 
 describe('the Arena the Renderer draws, by the Match state’s Arena name', () => {
@@ -154,5 +155,62 @@ describe('the Arena worlds across a Run’s Hall change', () => {
     expect(arenaToWarm({ ...over, config: { ...over.config, rematchTicks: null } }, matchTuning)).toBeNull();
     const library = createMatch(tuning, { arena: 'library', bestOf: 1, rematchTicks: 3 });
     expect(arenaToWarm({ ...library, status: { status: 'Over', winner: 0, tick: 0 } }, tuning)).toBeNull();
+  });
+});
+
+describe('the Arena worlds across a Delver Run’s Floor change', () => {
+  const base = loadTuningData();
+  /** A short Run: one tier of three Floors. */
+  const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
+  const ARENA = 'gen:greybox:4242';
+  const seed = runSeed(ARENA);
+  const start = () => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
+
+  it('gives a Floor the Tuning Data the Simulation reads it under, the very object, and any other name as before', () => {
+    const world = createArenaWorlds(tuning);
+    const name = floorArenaName(seed, 1);
+    expect(parseFloorArena(name)).not.toBeNull();
+    expect(world(name)).toEqual({ tuning: arenaTuning(tuning, name) });
+    expect(world(name).tuning).toBe(arenaTuning(tuning, name));
+    expect(world(name).tuning).not.toBe(tuning);
+    expect(arenaOf(world(name).tuning, name)).toBe(arenaOf(arenaTuning(tuning, name), name));
+    expect(world('library')).toEqual({ tuning });
+  });
+
+  it('warms the next Floor from a Floor’s first Tick, nothing on the last Floor, in the fade or once Over', () => {
+    let m = start();
+    const next = floorArenaName(seed, 2);
+    expect(arenasToWarm(m, tuning)).toEqual([next]);
+    expect(arenaToWarm(m, tuning)).toBe(next);
+    m = stepMatch(m, idle(m), tuning);
+    expect(arenasToWarm(m, tuning)).toEqual([next]);
+    // Descending (the fade): still the next Floor's, until the Floor changes.
+    const fading: MatchState = { ...m, nextDuelTick: m.tick + 2, delver: { ...m.delver!, phase: 'Descending' } };
+    expect(arenasToWarm(fading, tuning)).toEqual([next]);
+    const two: MatchState = { ...m, delver: { ...m.delver!, floor: 2 } };
+    expect(arenasToWarm(two, tuning)).toEqual([floorArenaName(seed, 3)]);
+    const last: MatchState = { ...m, delver: { ...m.delver!, floor: m.delver!.floors } };
+    expect(arenasToWarm(last, tuning)).toEqual([]);
+    expect(arenaToWarm(last, tuning)).toBeNull();
+    const over: MatchState = { ...m, status: { status: 'Over', winner: 1, tick: m.tick } };
+    expect(arenasToWarm(over, tuning)).toEqual([]);
+  });
+
+  it('never waits for the Final Blow Shot to build ahead', () => {
+    const m = start();
+    expect(warmingWaits(m, true)).toBe(false);
+  });
+
+  it('builds the next Floor ahead: the Floor change reads the caches, the navmesh and the world', () => {
+    const world = createArenaWorlds(tuning);
+    const next = floorArenaName(seed, 2);
+    warmArena(world, tuning, next);
+    const t = arenaTuning(tuning, next);
+    const mesh = navMesh(arenaOf(t, next), t);
+    const drawn = world(next);
+    expect(drawn.tuning).toBe(t);
+    expect(floorOf(tuning, next)).toBe(floorOf(t, next));
+    expect(navMesh(arenaOf(drawn.tuning, next), drawn.tuning)).toBe(mesh);
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devAutopilotLoot, devDelverFloor, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devDelverFloor, devDelverRun, devMode, devRunRelics, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -119,5 +119,22 @@ describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in
   it('is null without dev=1', () => {
     expect(devDelverFloor('?delverSeed=7&delverFloor=1', '')).toBeNull();
     expect(devDelverFloor('?dev=0&delverSeed=7&delverFloor=1', '')).toBeNull();
+  });
+});
+
+describe('devDelverRun: a solo Gauntlet is a Delver Run only in dev mode', () => {
+  it('is true with dev=1 and delver=1, in the search or after the route', () => {
+    expect(devDelverRun('?dev=1&delver=1', '')).toBe(true);
+    expect(devDelverRun('', '#/play?dev=1&delver=1')).toBe(true);
+    expect(devDelverRun('?dev=1', '#/play?delver=1')).toBe(true);
+  });
+
+  it('is false without dev=1, or with delver absent, 0 or anything but 1', () => {
+    expect(devDelverRun('?delver=1', '')).toBe(false);
+    expect(devDelverRun('?dev=0&delver=1', '')).toBe(false);
+    expect(devDelverRun('?dev=1', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=0', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=true', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=1', '#/editor?dev=0')).toBe(false);
   });
 });

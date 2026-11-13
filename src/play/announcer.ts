@@ -9,6 +9,8 @@ export type Milestone =
   | { readonly type: 'HallCleared'; readonly duelNumber: number; readonly kind: string }
   /** The watched Fighter took a Rest Hall's fire. */
   | { readonly type: 'Rested'; readonly duelNumber: number }
+  /** The watched Fighter came back at a Delver Floor's fire. */
+  | { readonly type: 'Revived'; readonly duelNumber: number }
   /** The watched Fighter fell while its team fought on. */
   | { readonly type: 'Fell'; readonly duelNumber: number }
   | { readonly type: 'MatchEnd'; readonly winner: number; readonly score: readonly number[] };
@@ -26,6 +28,8 @@ export class MatchAnnouncer {
   private duelEnded = false;
   private hallCleared = false;
   private rested = false;
+  /** The Delver Floor's fires the watched Fighter has taken the heal of. */
+  private fires = 0;
   private fell = false;
   private matchEnded = false;
 
@@ -43,10 +47,16 @@ export class MatchAnnouncer {
       this.duelEnded = false;
       this.hallCleared = false;
       this.rested = false;
+      this.fires = 0;
       this.fell = false;
       out.push({ type: 'DuelStart', duelNumber: match.duelNumber });
     }
     const duel = match.duel.duel;
+    // A Delver Run's fire brings the fallen back: the watched Fighter fell, and now stands.
+    if (this.fell && match.delver && match.duel.fighters[me] && !match.duel.fighters[me]!.death) {
+      this.fell = false;
+      out.push({ type: 'Revived', duelNumber: match.duelNumber });
+    }
     if (!this.fell && duel.status === 'Fighting' && match.duel.fighters[me]?.death) {
       this.fell = true;
       out.push({ type: 'Fell', duelNumber: match.duelNumber });
@@ -58,6 +68,11 @@ export class MatchAnnouncer {
     }
     if (!this.rested && run?.rested.includes(me)) {
       this.rested = true;
+      out.push({ type: 'Rested', duelNumber: match.duelNumber });
+    }
+    const fires = match.delver?.restUsed.filter((u) => u.healed.includes(me)).length ?? 0;
+    if (fires > this.fires) {
+      this.fires = fires;
       out.push({ type: 'Rested', duelNumber: match.duelNumber });
     }
     if (!this.duelEnded && duel.status === 'Over') {

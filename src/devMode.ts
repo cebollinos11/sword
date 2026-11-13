@@ -100,3 +100,11 @@ export function devDelverFloor(search: string = location.search, hash: string = 
   const floor = whole(params, 'delverFloor', 1);
   return seed === null || floor === null ? null : { seed, floor };
 }
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 2): `delver=1` starts a solo Gauntlet as a Delver Run on generated Floors, in place of
+ * the Hall-graph Run. False without `dev=1`, and for any other value.
+ */
+export function devDelverRun(search: string = location.search, hash: string = location.hash): boolean {
+  return devMode(search, hash) && query(search, hash).get('delver') === '1';
+}

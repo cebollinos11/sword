@@ -3,7 +3,7 @@
  * effects in words, the Fighter's resulting numbers, and for each action whether the Simulation would act on it now, and if not why. Pure and
  * render only (ADR 0001): the screen (`inventoryScreen.ts`) draws it, and a click becomes the Local Controller's `equip` or `drop`.
  */
-import { canChangeInventory, inDuel, modsOf, type FighterState, type HallPhase, type InventoryRef } from '../sim';
+import { canChangeInventory, inDuel, modsOf, type DelverPhase, type FighterState, type HallPhase, type InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
 import { relicIcon, weaponIcon } from './icons';
 import { relicWords } from './loot';
@@ -45,15 +45,25 @@ export interface InventoryView {
   readonly lock: string | null;
 }
 
+/** A Delver Run's context for the inventory screen: its phase, and whether the Fighter stands at a fire (`fireAt` within `delver.fireRadius`). */
+export interface DelverContext {
+  readonly phase: DelverPhase;
+  readonly atFire: boolean;
+}
+
 /**
  * Why the Fighter may not change its inventory now, or null when it may. Mirrors the Simulation's rule (`stepMatch` acts on `equip` and
  * `drop` only in a Cleared Hall, and `canChangeInventory`: the Fighter has an inventory, still fights, lives, is Idle and on the ground);
- * the order of the reasons is the order a player would clear them in.
+ * the order of the reasons is the order a player would clear them in. In a Delver Run (`delver`) the phase is the Run's: 'Descending' while the
+ * party goes down, 'Only at a fire' elsewhere while Exploring, and at a fire the usual checks.
  */
-export function inventoryLock(f: FighterState, phase: HallPhase | undefined): string | null {
-  if (phase === 'Fighting') return 'Enemies remain';
-  if (phase === 'Leaving') return 'Leaving the Hall';
-  if (phase !== 'Cleared') return 'Only in a Run';
+export function inventoryLock(f: FighterState, phase: HallPhase | undefined, delver?: DelverContext): string | null {
+  if (delver) {
+    if (delver.phase === 'Descending') return 'Descending';
+    if (!delver.atFire) return 'Only at a fire';
+  } else if (phase === 'Fighting') return 'Enemies remain';
+  else if (phase === 'Leaving') return 'Leaving the Hall';
+  else if (phase !== 'Cleared') return 'Only in a Run';
   if (!inDuel(f) || f.hp <= 0) return 'You have fallen';
   if (f.action.kind !== 'Idle') return 'Finish your move';
   if (f.air) return 'Land first';
@@ -64,9 +74,10 @@ export function inventoryLock(f: FighterState, phase: HallPhase | undefined): st
 /**
  * Whether the open screen takes over the Local Controller's input (and lets go of its held keys), as the menu does: only once the Hall is
  * not being fought. In a fight (a Hall `Fighting`, or a Duel) the screen is a read-only view and the Fighter keeps its keys: the Simulation
- * runs on, and opening the screen must never leave a Fighter defenceless.
+ * runs on, and opening the screen must never leave a Fighter defenceless. In a Delver Run it holds input only at a fire while Exploring.
  */
-export function inventoryHoldsInput(phase: HallPhase | undefined): boolean {
+export function inventoryHoldsInput(phase: HallPhase | undefined, delver?: DelverContext): boolean {
+  if (delver) return delver.phase === 'Exploring' && delver.atFire;
   return phase === 'Cleared' || phase === 'Leaving';
 }
 
@@ -83,11 +94,12 @@ export function inventoryView(
   fighter: FighterState | undefined,
   tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>,
   phase: HallPhase | undefined,
+  delver?: DelverContext,
 ): InventoryView | null {
   const inv = fighter?.inventory;
   if (!fighter || !inv) return null;
   const sizes = tuning.dungeon.inventory;
-  const lock = inventoryLock(fighter, phase);
+  const lock = inventoryLock(fighter, phase, delver);
   const full = inv.equipped.length >= sizes.equippedRelics;
 
   const weapons: SlotView[] = Array.from({ length: sizes.weapons }, (_, slot) => {

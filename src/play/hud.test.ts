@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, type TuningData } from '../tuning';
+import { floorOf } from '../sim/delver';
 import { arenaOf, createMatch, exitDoor, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
 import { hallBanner, hallFade, hallScore, hpText, runResultLine, runTime, statsText } from './hud';
 
@@ -63,6 +64,53 @@ describe('the fade between Halls', () => {
     expect(hallFade(deeper, tuning)).toBe(0);
     expect(hallFade(stepMatch(deeper, idle(deeper), tuning), tuning)).toBe(0);
     expect(hallFade(createMatch(tuning, { arena: 'library', bestOf: 3 }), tuning)).toBe(0);
+  });
+});
+
+describe('the Run’s results line without Halls', () => {
+  it('leaves the Halls part out when the Run has none (a Delver Run)', () => {
+    expect(runResultLine({ victory: true, cleared: 3, floors: 3, seconds: 125, seed: 9 })).toBe('Victory · 3 / 3 Floors · 2:05 · Run seed 9');
+    expect(runResultLine({ victory: false, cleared: 1, floors: 3, halls: 0, seconds: 5, seed: 1 })).toBe('Defeat · 1 / 3 Floors · 0 Halls cleared · 0:05 · Run seed 1');
+  });
+});
+
+describe('the fade between a Delver Run’s Floors', () => {
+  const base = loadTuningData();
+  const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
+  const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
+  const start = () => createMatch(tuning, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  /** The only Player stands in the Stairs zone's centre. */
+  const onStairs = (m: MatchState): MatchState => {
+    const { zone } = floorOf(tuning, m.arena)!.plan.markers.stairs;
+    const position = { x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 };
+    return { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, position, y: 0 } : f)) } };
+  };
+
+  it('is 0 on Floor 1, rises over the fade to 1 on its last Tick, and falls over the next Floor’s start', () => {
+    let m = start();
+    expect(hallFade(m, tuning)).toBe(0);
+    expect(hallFade(stepMatch(m, idle(m), tuning), tuning)).toBe(0);
+    while (m.delver!.phase === 'Exploring') m = stepMatch(onStairs(m), idle(m), tuning);
+    const fade = secondsToTicks(tuning.dungeon.hallFadeSeconds);
+    expect(hallFade(m, tuning)).toBeCloseTo(1 / fade);
+    let last = 0;
+    while (m.duelNumber === 1) {
+      const f = hallFade(m, tuning);
+      expect(f).toBeGreaterThanOrEqual(last);
+      last = f;
+      m = stepMatch(m, idle(m), tuning);
+    }
+    expect(last).toBe(1);
+    expect(m.delver!.floor).toBe(2);
+    expect(hallFade(m, tuning)).toBe(1);
+    let prior = 1;
+    for (let k = 0; k < fade; k++) {
+      m = stepMatch(m, idle(m), tuning);
+      const f = hallFade(m, tuning);
+      expect(f).toBeLessThanOrEqual(prior);
+      prior = f;
+    }
+    expect(hallFade(m, tuning)).toBe(0);
   });
 });
 

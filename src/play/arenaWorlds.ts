@@ -1,4 +1,5 @@
-import { arenaOf, hallBehind, hallOf, navMesh, nextArenaName, runHall, secondsToTicks, takenExit, withGeneratedArena, type Layout, type MatchState } from '../sim';
+import { arenaOf, hallBehind, hallOf, navMesh, nextArenaName, runHall, runSeed, secondsToTicks, takenExit, withGeneratedArena, type Layout, type MatchState } from '../sim';
+import { arenaTuning, floorArenaName, parseFloorArena } from '../sim/delver';
 import type { TuningData } from '../tuning';
 
 /**
@@ -29,7 +30,8 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
       // Used again: kept the longest (the Hall drawn every frame is never dropped for the exits warmed after it).
       worlds.delete(name);
     } else {
-      world = withGeneratedArena(tuning, name);
+      // A Delver Floor is read under its own Tuning Data copy (the one `stepDelver` and the AI read it under); it has no Layout.
+      world = parseFloorArena(name) ? { tuning: arenaTuning(tuning, name) } : withGeneratedArena(tuning, name);
       if (worlds.size >= KEPT_WORLDS) worlds.delete(worlds.keys().next().value!);
     }
     worlds.set(name, world);
@@ -37,12 +39,20 @@ export function createArenaWorlds(tuning: TuningData): (name: string) => ArenaWo
   };
 }
 
+/** A Delver Run's next Floor's Arena name from the Floor's first Tick (so it builds while the fade-in still darkens the screen), or null on the last Floor or once the Run is Over. */
+function nextFloor(match: MatchState): string | null {
+  const run = match.delver;
+  if (!run || match.status.status === 'Over' || run.floor >= run.floors) return null;
+  return floorArenaName(runSeed(match.config.arena), run.floor + 1);
+}
+
 /**
- * The Arena the game should build ahead for this Match state, or null for none: in a Run, the next Hall's once the party
+ * The Arena the game should build ahead for this Match state, or null for none: in a Delver Run, the next Floor's (`arenasToWarm`); in a Run, the next Hall's once the party
  * has taken a Door (during the fade before it, `nextDuelTick`; `tuning` the Match's); in Duels, the Rematch's while the
  * result shows (none without a Rematch, or when it is the same hand-made Arena).
  */
 export function arenaToWarm(match: MatchState, tuning: TuningData): string | null {
+  if (match.delver) return nextFloor(match);
   if (match.run) {
     const exit = match.nextDuelTick !== null ? takenExit(match.run, tuning) : null;
     const next = exit === null ? null : hallBehind(tuning, match.config, match.run, exit);
@@ -59,6 +69,10 @@ export function arenaToWarm(match: MatchState, tuning: TuningData): string | nul
  * party takes; in Duels, `arenaToWarm`'s. Empty while a Hall is fought, and once the Run is over.
  */
 export function arenasToWarm(match: MatchState, tuning: TuningData): string[] {
+  if (match.delver) {
+    const next = nextFloor(match);
+    return next === null ? [] : [next];
+  }
   const run = match.run;
   if (!run) {
     const next = arenaToWarm(match, tuning);
@@ -77,16 +91,17 @@ export function arenasToWarm(match: MatchState, tuning: TuningData): string[] {
  * WARM_LEAD_SECONDS. A Door is taken no sooner than `doorSeconds` after the party starts gathering, which covers it.
  */
 export function warmingWaits(match: MatchState, shotPlaying: boolean): boolean {
-  if (!match.run || !shotPlaying) return false;
+  if (match.delver || !match.run || !shotPlaying) return false;
   return match.nextDuelTick === null || match.nextDuelTick - match.tick > secondsToTicks(WARM_LEAD_SECONDS);
 }
 
 /**
  * Build Arena `name` ahead of the Tick that moves onto it: the Arena itself and its navmesh for the Match's Tuning Data
- * (`matchTuning`, both cached by the Simulation), and the world the Renderer draws it from. That Tick, and any Rollback
+ * (`matchTuning`, both cached by the Simulation; a Delver Floor under its own, `arenaTuning`), and the world the Renderer draws it from. That Tick, and any Rollback
  * re-simulating it, then only reads the caches.
  */
 export function warmArena(worlds: (name: string) => ArenaWorld, matchTuning: TuningData, name: string): void {
-  navMesh(arenaOf(matchTuning, name), matchTuning);
+  const t = arenaTuning(matchTuning, name);
+  navMesh(arenaOf(t, name), t);
   worlds(name);
 }

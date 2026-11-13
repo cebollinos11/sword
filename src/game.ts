@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -12,15 +12,17 @@ import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
 import { playersBySlot } from './play/battleHud';
-import { devAutopilot, devAutopilotLoot, devBattlePilot, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devMode, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
-import { inventoryHoldsInput } from './play/inventoryView';
+import { inventoryHoldsInput, type DelverContext } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { doorMarkView, doorRun } from './play/doorMarks';
 import { mapKeyAction } from './play/floorMap';
 import { pickupViews, type PickupView } from './render/pickupView';
+import type { DelverMarksView } from './render/delverMarks';
 import { fireState } from './render/restFire';
+import { floorOf } from './sim/delver';
 import { playerName, runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
@@ -391,7 +393,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // In dev mode a Run may start deeper in (`?dev=1&floor=F&row=R`), for tuning: only a Run stepped here, never an online one.
       // ...and the player's Fighter may be on an AI (`?dev=1&autopilot=1,2`), to check a Run in a headless browser.
       const autopilot = match.format ? devAutopilot() : null;
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...devRunStart(), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
+      // ...or a Delver Run on generated Floors (`?dev=1&delver=1`), which refuses a start Hall; then the autopilot is the Delver pilot.
+      const delver = match.format === 'Gauntlet' && devDelverRun();
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(delver ? { delver: true as const } : {}), ...(match.format ? { ...(delver ? {} : devRunStart()), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
@@ -607,6 +611,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       hud.setMapOpen(false);
       if (!touchInput) resume();
     } else if (curr.run) {
+      // (A Delver Run has no Floor map: `curr.run` is null there.)
       if (inventoryScreen.open) toggleInventory();
       hud.setMapOpen(true);
       if (document.pointerLockElement) document.exitPointerLock();
@@ -659,10 +664,26 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
   }
 
+  /** What the Renderer draws a Delver Run's Floor marks from, or null outside a Delver Run. */
+  function delverMarksOf(match: MatchState, me: number): DelverMarksView | null {
+    const run = match.delver;
+    const plan = run && floorOf(matchTuning, match.arena)?.plan;
+    return run && plan ? { plan, restUsed: run.restUsed, me, fireRadius: matchTuning.delver.fireRadius } : null;
+  }
+
+  /** A Delver Run's context for the inventory screen: its phase, and whether the local Fighter stands at a fire. Undefined outside a Delver Run. */
+  function delverContext(match: MatchState): DelverContext | undefined {
+    const run = match.delver;
+    if (!run || !driver) return undefined;
+    const f = match.duel.fighters[driver.localFighter];
+    const plan = floorOf(matchTuning, match.arena)?.plan;
+    return { phase: run.phase, atFire: Boolean(f && plan && fireAt(plan, f, matchTuning.delver.fireRadius) >= 0) };
+  }
+
   /** While the screen is open, the input follows the Hall: held in a cleared Hall, the Fighter's own again when the next fight begins. */
   function syncInventoryInput(): void {
     if (!inventoryScreen.open || menu.visible) return;
-    const hold = inventoryHoldsInput(curr.run?.phase);
+    const hold = inventoryHoldsInput(curr.run?.phase, delverContext(curr));
     if (hold !== mouseInput.enabled) return;
     input.enabled = !hold;
     if (hold) local.releaseAll();
@@ -717,6 +738,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   function present(match: MatchState, me: number): void {
     const myTeam = match.config.teams[me] ?? 0;
     const run = match.run;
+    const delver = match.delver;
     for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
         // A Run's Duel ends only with the Run (a wipe, or the last Boss): the results screen says so.
@@ -728,8 +750,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         hud.announce('Hall cleared', 2);
       } else if (e.type === 'Rested') {
         hud.announce('Rested', 1.5);
+      } else if (e.type === 'Revived') {
+        hud.announce('Revived', 1.5);
       } else if (e.type === 'DuelStart') {
         const seed = parseGeneratedName(match.arena)?.seed;
+        if (delver) {
+          hud.announce(`Floor ${delver.floor} / ${delver.floors} · Run seed ${runSeed(match.config.arena)}`, 2.5);
+          aimAtDuelStart(match);
+          continue;
+        }
         if (run) {
           const kind = match.duel.hall?.kind;
           const banner = hallBanner(run, run.floors, runSeed(match.config.arena));
@@ -743,6 +772,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         aimAtDuelStart(match);
       } else if (e.type === 'Fell') {
         hud.announce('You fell', 1.5);
+      } else if (e.type === 'MatchEnd' && delver && match.status.status === 'Over') {
+        // A Delver Run's results screen follows the Final Blow Shot, if any (a Defeat has one), then the Lobby: Floors cleared, with no Halls.
+        const victory = e.winner === myTeam;
+        runResult = {
+          victory,
+          cleared: victory ? delver.floors : delver.floor - 1,
+          floors: delver.floors,
+          seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
+          seed: runSeed(match.config.arena),
+          builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
+        };
+        resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd' && run && match.status.status === 'Over') {
         // The Run's results screen follows the Final Blow Shot (see the loop), then the Lobby.
         const cleared = runCleared(run);
@@ -968,7 +1009,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // The camera as last placed: a frame behind is fine for choosing what to label.
       const mine = curr.duel.fighters[me];
       const pickups: PickupView[] = mine
-        ? pickupViews(curr.run?.pickups ?? [], me, {
+        ? pickupViews(curr.run?.pickups ?? curr.delver?.pickups ?? [], me, {
             at: renderer.camera.position,
             dir: renderer.camera.getWorldDirection(cameraDir),
             near: { x: mine.position.x, y: mine.y, z: mine.position.z },
@@ -976,6 +1017,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         : [];
       renderer.setPickups(pickups);
       renderer.setFire(fireState(curr.run?.rested ?? [], me));
+      renderer.setDelver(delverMarksOf(curr, me));
       const doorRunNow = doorRun(curr, matchTuning);
       renderer.setDoors(doorRunNow ? doorMarkView(curr.duel.hall, doorRunNow.exits, doorRunNow.players) : []);
       renderer.setChosenBodies(fighterBodies(matchTuning, driver.lineup, bodies, curr));
@@ -999,7 +1041,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
       syncInventoryInput();
-      inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase);
+      inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase, delverContext(curr));
     } else {
       renderer.setPickups([]);
       renderer.setDoors([]);
