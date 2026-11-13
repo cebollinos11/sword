@@ -52,6 +52,8 @@ class HallAi implements Controller {
   }
 
   intent(state: SimState, fighter: number): Intent {
+    // A Delver Run's Floors have no enemies yet (Stage 2): its Team 1 slots are Benched.
+    if (state.delver) return IDLE_INTENT;
     const at = state.hall ?? { floor: 1, row: 0, index: 0 };
     const key = hallKey(at);
     if (key !== this.hall) {

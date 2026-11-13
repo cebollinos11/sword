@@ -185,6 +185,7 @@ import {
   type SimState,
   type Vec2,
 } from '../sim';
+import { arenaTuning } from '../sim/delver';
 import { AI_STYLE_KEYS, attackDirection, DEFAULT_STYLE, defaultWeaponName, spinUpChargeTicks, weaponByName, weaponMotion, type AiDifficulty, type AiStyle, type ArenaGeometry, type Size, type TuningData } from '../tuning';
 import type { Controller } from './controller';
 
@@ -1099,7 +1100,7 @@ class RuleAi implements AiController {
   private holdForLanding(state: SimState, self: FighterState, fighter: number, move: Vec2): Vec2 {
     const link = this.route?.links?.[0];
     if (link === undefined || self.air || (move.x === 0 && move.z === 0)) return move;
-    const l = navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[link]!;
+    const l = navMesh(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena)).links[link]!;
     if (l.kind !== 'drop') return move;
     const toEdge = (p: Vec2): number => {
       const e = { x: l.right.x - l.left.x, z: l.right.z - l.left.z };
@@ -1376,7 +1377,7 @@ class RuleAi implements AiController {
     if (this.tactic.mode === 'Disengage' && !self.air && !this.jumpRun && this.skill.jumpEscapeRate > 0) {
       const escape = this.escapeLink(state, self, target);
       if (escape !== null && this.chance(this.skill.jumpEscapeRate)) {
-        const link = navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[escape] as JumpLink;
+        const link = navMesh(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena)).links[escape] as JumpLink;
         this.jumpRun = this.newJumpRun(state.tick, self, escape, link, true);
         const way = this.takeJump(state, self, escape, link);
         return { ...base, ...way, face: Math.atan2(way.move.x, way.move.z) };
@@ -1385,7 +1386,7 @@ class RuleAi implements AiController {
 
     // Disengaging and crowded: hop back out of reach.
     if (this.tactic.mode === 'Disengage' && !self.air && dist < theirReach + 0.2 && notBusy && this.chance(this.skill.jumpAttackRate * 0.5)) {
-      if (jumpIsSafe(arenaOf(this.tuning, state.arena), this.tuning, { at: self.position, y: self.y, heading: away, holdTicks: 0 })) return { ...base, move: away, jump: true };
+      if (jumpIsSafe(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena), { at: self.position, y: self.y, heading: away, holdTicks: 0 })) return { ...base, move: away, jump: true };
     }
 
     // From its spacing: step in and swing (or swing from where it stands, in reach), on its beat (`rhythm`) or at a coin flip every Tick.
@@ -1752,11 +1753,12 @@ class RuleAi implements AiController {
       this.route = null;
       return null;
     }
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const me = { x: self.position.x, z: self.position.z, y: self.y };
     const it = { x: target.position.x, z: target.position.z, y: target.y };
-    const from = navPolygon(arena, this.tuning, me);
-    const to = navPolygon(arena, this.tuning, it);
+    const from = navPolygon(arena, tn, me);
+    const to = navPolygon(arena, tn, it);
     if (from < 0 || to < 0 || from === to || self.air) {
       if (from === to) this.route = null;
       return null;
@@ -1766,7 +1768,7 @@ class RuleAi implements AiController {
       this.failedJumps = this.failedJumps.filter((f) => state.tick - f.at < JUMP_RETRY);
       const { jumpNav } = this.skill;
       const options: PathOptions = { jumps: jumpNav >= 0 && !self.slow, maxJumpHold: jumpNav, exclude: this.failedJumps.map((f) => f.link) };
-      this.route = { from, to, at: state.tick, links: findPath(arena, this.tuning, me, it, options) };
+      this.route = { from, to, at: state.tick, links: findPath(arena, tn, me, it, options) };
     }
     return this.route!.links;
   }
@@ -1774,7 +1776,7 @@ class RuleAi implements AiController {
   /** Whether the next Link of its route to `target` is a jump Link. */
   private jumpFirst(state: SimState, self: FighterState, target: Waypoint): boolean {
     const first = this.routeTo(state, self, target)?.[0];
-    return first !== undefined && navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[first]!.kind === 'jump';
+    return first !== undefined && navMesh(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena)).links[first]!.kind === 'jump';
   }
 
   /**
@@ -1783,11 +1785,12 @@ class RuleAi implements AiController {
    * no way there, as near as it safely can.
    */
   private approach(state: SimState, self: FighterState, target: Waypoint): Pick<Intent, 'move' | 'jump' | 'jumpHeld'> {
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const run = this.jumpRun;
-    if (run?.escape && run.stage !== 'Fly') return this.takeJump(state, self, run.link, navMesh(arena, this.tuning).links[run.link] as JumpLink);
+    if (run?.escape && run.stage !== 'Fly') return this.takeJump(state, self, run.link, navMesh(arena, tn).links[run.link] as JumpLink);
     const links = this.routeTo(state, self, target);
-    const first = links?.[0] === undefined ? undefined : navMesh(arena, this.tuning).links[links[0]]!;
+    const first = links?.[0] === undefined ? undefined : navMesh(arena, tn).links[links[0]]!;
     if (first?.kind === 'jump') {
       // Its enemy in the air may be on its way here: wait to see where it lands, rather than both taking the Links at once
       // and swapping levels, again and again. The wait does not count against the run.
@@ -1798,7 +1801,7 @@ class RuleAi implements AiController {
       return this.takeJump(state, self, links![0]!, first);
     }
     if (this.jumpRun?.stage !== 'Fly') this.jumpRun = null;
-    const goal = links ? steer(arena, this.tuning, links, self.position, target.position) : target.position;
+    const goal = links ? steer(arena, tn, links, self.position, target.position) : target.position;
     const move = unit({ x: goal.x - self.position.x, z: goal.z - self.position.z });
     // No way there it can take: go as near as it safely can, never off a ledge or into Lava or Water.
     return { move: this.route && !this.route.links ? this.safeMove(state, self, move) : move };
@@ -1852,11 +1855,12 @@ class RuleAi implements AiController {
   private escapeLink(state: SimState, self: FighterState, target: Sighting): number | null {
     // No Battle has jump Links: the open field has no Links at all (`routeTo`), a Battle map no jump Links (`jumpLinks: false`).
     if (state.crowd) return null;
-    const arena = arenaOf(this.tuning, state.arena);
-    const mesh = navMesh(arena, this.tuning);
-    const from = navPolygon(arena, this.tuning, { x: self.position.x, z: self.position.z, y: self.y });
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
+    const mesh = navMesh(arena, tn);
+    const from = navPolygon(arena, tn, { x: self.position.x, z: self.position.z, y: self.y });
     if (from < 0) return null;
-    const theirs = navPolygon(arena, this.tuning, { x: target.position.x, z: target.position.z, y: target.y });
+    const theirs = navPolygon(arena, tn, { x: target.position.x, z: target.position.z, y: target.y });
     const fromThem = (p: Vec2) => Math.hypot(p.x - target.position.x, p.z - target.position.z);
     let best: number | null = null;
     let bestDist = Infinity;
@@ -1886,7 +1890,7 @@ class RuleAi implements AiController {
     if (!this.landing.go) return null;
     const { walkSpeed } = this.tuning.fighter;
     const air = { vx: target.velocity.x / TICK_SECONDS, vz: target.velocity.z / TICK_SECONDS, vy: target.rise / TICK_SECONDS, peakY: target.y, ticks: 0, jumped: true };
-    const arc = jumpArcFrom(arenaOf(this.tuning, state.arena), this.tuning, { at: target.position, y: target.y, air, move: { x: air.vx / walkSpeed, z: air.vz / walkSpeed } });
+    const arc = jumpArcFrom(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena), { at: target.position, y: target.y, air, move: { x: air.vx / walkSpeed, z: air.vz / walkSpeed } });
     const lands = arc.lands;
     if (!lands || Math.abs(lands.y - self.y) >= LEVEL) return null;
     const landTick = seenTick + arc.ticks;
@@ -1928,13 +1932,13 @@ class RuleAi implements AiController {
       }
       return intent;
     }
-    const link = navMesh(arenaOf(this.tuning, state.arena), this.tuning).links[run.link] as JumpLink;
+    const link = navMesh(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena)).links[run.link] as JumpLink;
     return { ...intent, move: link.heading, jump: false, jumpHeld: state.tick - run.flew < link.holdTicks, attack: false, kick: false, throw: false };
   }
 
   /** Whether a step along `dir` (a unit vector) keeps it on safe ground: no ledge, no Lava or Water, no higher ground in the way. */
   private safe(state: SimState, self: FighterState, dir: Vec2): boolean {
-    return stepIsSafe(arenaOf(this.tuning, state.arena), this.tuning, self.position, self.y, dir);
+    return stepIsSafe(arenaOf(arenaTuning(this.tuning, state.arena), state.arena), arenaTuning(this.tuning, state.arena), self.position, self.y, dir);
   }
 
   /** `m` if it walks onto safe ground, else the nearest safe heading turned up to 135° aside (keeping its speed), else standing still. */
@@ -1973,13 +1977,14 @@ class RuleAi implements AiController {
    * arc was picked for this Release. Null when none does. It covers leaping down onto lower ground too.
    */
   private leap(state: SimState, self: FighterState, target: Sighting, dist: number, toward: Vec2, base: Intent): Intent | null {
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const reach = this.reach(self);
     const { windUpEnd: windUp, releaseEnd } = attackTimings(this.tuning, self.weapon, 'Overhead');
     const release = releaseEnd - windUp;
     for (const hold of this.leapHolds()) {
       const plan = { at: self.position, y: self.y, heading: toward, holdTicks: hold };
-      const arc = jumpArc(arena, this.tuning, plan);
+      const arc = jumpArc(arena, tn, plan);
       if (!arc.lands) continue;
       /** Where it is `k` Ticks after the press (on the ground where it lands, once down), and how far from where the target will be then. */
       const at = (k: number) => arc.path[Math.min(k, arc.ticks) - 1]!;
@@ -1994,7 +1999,7 @@ class RuleAi implements AiController {
       // ...and its blade comes down in the second half of the Release: it must be within reach all through it, counting the height between them.
       let meets = true;
       for (let k = released + Math.ceil(release / 2); k <= released + release && meets; k++) meets = Math.hypot(off(k), target.y - at(k).y) <= reach;
-      if (!meets || !jumpIsSafe(arena, this.tuning, plan)) continue;
+      if (!meets || !jumpIsSafe(arena, tn, plan)) continue;
       return this.startAttack(state.tick, self, target, dist, { ...base, move: toward, jump: true, jumpHeld: hold > 0 }, { direction: 'Overhead', swingIn: true, holdJump: hold, timed: true });
     }
     return null;
@@ -2021,7 +2026,8 @@ class RuleAi implements AiController {
       return o !== undefined && (isThreat(o.action) || isKickThreat(o.action)) && Math.abs(o.y - self.y) < DEFEND_LEVEL && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= reachOf(o) + HOP_THREAT;
     });
     if (coming) return null;
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const at = self.position;
     const t = focused.o.position;
     const tries: { heading: Vec2; pincer: boolean }[] = [];
@@ -2052,7 +2058,7 @@ class RuleAi implements AiController {
     const lead = this.reactionTicks;
     for (const { heading, pincer } of tries) {
       const plan = { at, y: self.y, heading, holdTicks: 0 };
-      const arc = jumpArc(arena, this.tuning, plan);
+      const arc = jumpArc(arena, tn, plan);
       if (!arc.lands) continue;
       let clear = true;
       for (let k = pincer ? Math.ceil((arc.ticks * 3) / 4) : 1; k <= arc.ticks && clear; k++) {
@@ -2060,7 +2066,7 @@ class RuleAi implements AiController {
         const off = (o: Sighting) => Math.hypot(o.position.x + o.velocity.x * (lead + k) - p.x, o.position.z + o.velocity.z * (lead + k) - p.z);
         clear = enemies.every(({ o }) => off(o) > reachOf(o) + HOP_CLEAR) && (team?.allies ?? []).every(({ o }) => off(o) > ALLY_CLEAR);
       }
-      if (!clear || !jumpIsSafe(arena, this.tuning, plan)) continue;
+      if (!clear || !jumpIsSafe(arena, tn, plan)) continue;
       this.strafe = { ...this.strafe, hop: false };
       return { ...base, move: heading, jump: true };
     }
@@ -2118,12 +2124,13 @@ class RuleAi implements AiController {
 
   /** Whether no ground rises in the way between it and `target` (sampled along the line). */
   private clearLine(state: SimState, self: FighterState, target: Sighting): boolean {
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const dx = target.position.x - self.position.x;
     const dz = target.position.z - self.position.z;
     const steps = Math.ceil(Math.hypot(dx, dz) / SIGHT_SPACING);
     for (let k = 1; k < steps; k++) {
-      if (blockedAt(arena, self.position.x + (dx * k) / steps, self.position.z + (dz * k) / steps, self.y, this.tuning)) return false;
+      if (blockedAt(arena, self.position.x + (dx * k) / steps, self.position.z + (dz * k) / steps, self.y, tn)) return false;
     }
     return true;
   }
@@ -2191,7 +2198,8 @@ class RuleAi implements AiController {
 
   /** Whether a Knockdown's Slide along `dir` would carry `target` off a ledge, or into Lava or Water. */
   private hazardBehind(state: SimState, target: Sighting, dir: Vec2): boolean {
-    const arena = arenaOf(this.tuning, state.arena);
+    const tn = arenaTuning(this.tuning, state.arena);
+    const arena = arenaOf(tn, state.arena);
     const { stepUp } = this.tuning.fall;
     for (const k of [0.8, 1.6, 2.4]) {
       const x = target.position.x + dir.x * k;
@@ -2673,7 +2681,7 @@ export function stepIsSafe(arena: ArenaGeometry, tuning: TuningData, at: Vec2, y
 /** A rule-based AI Controller with the given difficulty, playing `style` (a Style from `tuning.ai.styles`, or explicit multipliers; default DEFAULT_STYLE). */
 /** Whether the AI routes over a navmesh in this Duel's Arena: everywhere but a Battle's open field (a Crowd and no Walls, `routeTo`). */
 function routesOnNavMesh(tuning: TuningData, state: SimState): boolean {
-  return !(state.crowd && !battlefieldOf(tuning.battle, state.arena)?.heights.walk);
+  return !(state.crowd && !battlefieldOf(arenaTuning(tuning, state.arena).battle, state.arena)?.heights.walk);
 }
 
 /**
@@ -2682,7 +2690,10 @@ function routesOnNavMesh(tuning: TuningData, state: SimState): boolean {
  * replies to the others with it). Nothing on a Battle's open field, where the AI never routes.
  */
 export function prepareAi(tuning: TuningData, state: SimState): void {
-  if (routesOnNavMesh(tuning, state)) navMesh(arenaOf(tuning, state.arena), tuning);
+  if (routesOnNavMesh(tuning, state)) {
+    const t = arenaTuning(tuning, state.arena);
+    navMesh(arenaOf(t, state.arena), t);
+  }
 }
 
 export function createAiController(tuning: TuningData, difficulty: AiDifficulty | string, style: AiStyle | string = DEFAULT_STYLE): AiController {
