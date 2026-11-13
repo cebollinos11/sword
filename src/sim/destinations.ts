@@ -395,11 +395,29 @@ export function fieldToward(f: DestinationFields, x: number, z: number, s = -1):
   if (field) {
     fields.delete(node);
   } else {
+    const t0 = clock?.();
     field = distanceTo(f, x, z, s);
+    fieldTally.count++;
+    if (clock) fieldTally.ms += clock() - t0!;
     if (fields.size >= FIELDS_KEPT) fields.delete(fields.keys().next().value!);
   }
   fields.set(node, field);
   return field;
+}
+
+/** The `distanceTo` builds `fieldToward` has made, and their time by `clock`. Only counted, never read by the Simulation, kept out of the state and the hash. */
+const fieldTally = { count: 0, ms: 0 };
+/** The clock (ms) a test installs with `timeFieldBuilds` to time the builds; none in the game (the Simulation reads no wall-clock). */
+let clock: (() => number) | null = null;
+
+/** Time the `fieldToward` builds from now on by `now` (a wall-clock in ms, for the soaks' measurements), or stop timing with null. Counts and times only; no state. */
+export function timeFieldBuilds(now: (() => number) | null): void {
+  clock = now;
+}
+
+/** How many `distanceTo` builds `fieldToward` has made so far (kept fields found again are not counted), and their total time (ms) by the clock `timeFieldBuilds` installed (0 with none). For the soaks' measurements. */
+export function fieldBuilds(): { readonly count: number; readonly ms: number } {
+  return { count: fieldTally.count, ms: fieldTally.ms };
 }
 
 /** `f` with `field` as its only destination (d = 0), for `steerToward`, `descend` and `fieldDistance`. */

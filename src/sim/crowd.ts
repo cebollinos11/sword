@@ -658,6 +658,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
   let struck = false;
 
   const army = battle.armySize;
+  const warbanded = crowd.warbands !== undefined;
   // The due Soldiers in index order (`crowdDue`): in a Battle Team 0's, then Team 1's. A Floor's Crowd, of any size, steps a 1/stagger share a Tick.
   for (let i = 0; i < n; i++) {
     if (!crowdDue(i, tick, p.stagger, army) || !inCrowd(crowd, i)) continue;
@@ -691,6 +692,9 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
             if (j === i) continue;
             // Another level (above on the bridge, below in the tunnel): neither pushed apart from nor seen.
             if (ys && Math.abs(ys[i]! - ys[j]!) >= lv.height) continue;
+            // On a Floor, a Soldier of another Warband of its own Team is no one's to be pushed apart from: Warbands walk through one another (a patrol
+            // loop may cross a guard's post, and in a one-file Passage the guard's Soldiers would hold the patrol's for ever).
+            if (warbanded && team[j] === own && crowd.squad[j] !== sq) continue;
             const ox = xi - crowd.x[j]!;
             const oz = zi - crowd.z[j]!;
             const d2 = ox * ox + oz * oz;

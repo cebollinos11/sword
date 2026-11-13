@@ -66,6 +66,7 @@ export function warbandBrain(homes: WarbandHomes, rules: DelverTuning): SquadBra
  * anchor turns and walks (`walkAnchors`). `fighters` are the full Fighters in play; those of Team 0 are the party, `slot` being their Pool slot.
  *  - A Warband with none living is wiped: it stands and never thinks again (nothing respawns on a Floor). It is `broken` below
  *    `squad.moraleThreshold` of the Soldiers it deployed with (`WarbandState.size`).
+ *  - A Warband whose Soldiers lag (`squad.lag`) regroups first: its anchor is put where its nearest in-Crowd Soldier stands, on that Soldier's Walk Surface.
  *  - It sees a party Fighter when one of its living Soldiers has it within `sight` flat, on its level and in sight past the Floor's Walls.
  *  - GUARD holds its post (walks back to it when away, facing its guard facing there); PATROL walks its loop, the leg advancing at each point.
  *    Either, not broken, that sees the party CHASES the nearest it sees (to its anchor). A broken PATROL becomes a GUARD at its point.
@@ -131,9 +132,9 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
     }
 
     due.forEach((q, d) => {
-      const ax = old.x[q]!;
-      const az = old.z[q]!;
-      const as = old.surface[q]!;
+      let ax = old.x[q]!;
+      let az = old.z[q]!;
+      let as = old.surface[q]!;
       let alive = 0;
       let inCrowd = 0;
       let cx = 0;
@@ -159,6 +160,19 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
       closeRanks(members[d]!, crowd, alive, editPlace);
       const broken = alive < p.moraleThreshold * w.size[q]!;
       const lagging = inCrowd === 0 || Math.hypot(cx - ax, cz - az) > p.lag;
+      if (lagging && inCrowd > 0) {
+        // Regroup: a Warband whose Soldiers lag has its anchor put back where the in-Crowd Soldier nearest it stands (the lower index on a tie), on
+        // that Soldier's Walk Surface, so it never leaves them behind a Wall. It still does not walk this step.
+        let best = -1;
+        let bestD = Infinity;
+        for (const i of members[d]!) {
+          if (!crowd.alive[i] || crowd.slot[i]! >= 0) continue;
+          const d2 = (crowd.x[i]! - ax) ** 2 + (crowd.z[i]! - az) ** 2;
+          if (d2 < bestD) [best, bestD] = [i, d2];
+        }
+        [ax, az, as] = [crowd.x[best]!, crowd.z[best]!, crowd.surface[best]!];
+        [x[q], z[q], surface[q]] = [ax, az, as];
+      }
       const walk = battle.crowd.walkSpeed;
       const team = old.team[q]!;
       const ay = soldierHeight(field, as, ax, az);

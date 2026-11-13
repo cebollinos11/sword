@@ -13,6 +13,14 @@ import { startRun } from './coopHarness';
 afterEach(() => vi.restoreAllMocks());
 
 const TWO_FLOORS = (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 2 } });
+/**
+ * The Warbands case's Floors: a quarter of the posts filled (`postFill` 25, `patrolFill` as bundled). Two pilots with no AI allies against Warbands sized
+ * for two humans lose by attrition on the full Floor (the Warband soak); that is balance, a playtest question, not the netcode this test checks.
+ */
+const QUARTER_POSTS = (t: TuningData): TuningData => {
+  const two = TWO_FLOORS(t);
+  return { ...two, delver: { ...two.delver, postFill: 25 } };
+};
 const EMPTY_FLOORS = (t: TuningData): TuningData => {
   const two = TWO_FLOORS(t);
   return { ...two, delver: { ...two.delver, postFill: 0, patrolFill: 0 } };
@@ -83,7 +91,7 @@ function expectInStep(run: ReturnType<typeof play>): void {
 
 describe('a Delver Run over the memory transport, slow', () => {
   it('two Delver pilots go down Floor 1 to Floor 2 (or Victory) through Warbands with no desync, and the Rollbacks are measured', () => {
-    const warbands = play(TWO_FLOORS);
+    const warbands = play(QUARTER_POSTS);
     const empty = play(EMPTY_FLOORS);
     // eslint-disable-next-line no-console
     console.log(`\n${describeRun('Delver Run with Warbands, 2 peers', warbands)}\n${describeRun('Delver Run on empty Floors, 2 peers', empty)}\n`);

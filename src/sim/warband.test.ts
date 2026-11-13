@@ -299,6 +299,71 @@ describe('the Warband brain', { timeout: TIMEOUT }, () => {
   });
 });
 
+describe('regrouping', { timeout: TIMEOUT }, () => {
+  it("a patrol walks through a guard's file standing in its way: gen:greybox:4242 Floor 3, patrol 10 and the guard of post 8 in the doorway", () => {
+    // The loop's second point is the guard's post, and the guard's single file reaches into the 3 m doorway of the Passage the patrol is bound for.
+    // Soldiers of two Warbands of one Team used to push each other apart there, and the patrol's Soldiers stood behind the guard's for ever.
+    const s = scene(4242, 3);
+    const q = 10;
+    const guard = 6;
+    const w = s.crowd.warbands!;
+    expect([w.patrol[q], w.post[guard]]).toEqual([0, 8]);
+    const mine = members(s.crowd, q);
+    const theirs = members(s.crowd, guard);
+    const surfaceAt = (z: number) => groundOf(s.battle, s.field, -75, z, 0);
+    const x = s.crowd.x.slice();
+    const z = s.crowd.z.slice();
+    const surface = s.crowd.surface.slice();
+    mine.forEach((i, k) => ([x[i], z[i], surface[i]] = [-75, -6.2 - 0.9 * k, 29]));
+    theirs.forEach((i, k) => ([x[i], z[i], surface[i]] = [-75, -5.3 + 0.9 * k, surfaceAt(-5.3 + 0.9 * k)]));
+    const place = (a: readonly number[], at: Record<number, number>) => a.map((v, k) => at[k] ?? v);
+    const crowd: CrowdState = {
+      ...s.crowd,
+      x,
+      z,
+      surface,
+      squads: {
+        ...s.crowd.squads,
+        x: place(s.crowd.squads.x, { [q]: -75, [guard]: -75 }),
+        z: place(s.crowd.squads.z, { [q]: -1.4, [guard]: -8.8 }),
+        surface: place(s.crowd.squads.surface, { [q]: surfaceAt(-1.4), [guard]: 29 }),
+        heading: place(s.crowd.squads.heading, { [q]: 0, [guard]: Math.PI }),
+      },
+      warbands: { ...w, leg: w.leg.map((l, k) => (k === q ? 2 : l)) },
+    };
+    const run = advance(s, crowd, 1, 30 * 60, () => [], (c) => c.warbands!.leg[q] !== 2);
+    expect(run.crowd.warbands!.leg[q]).toBe(3);
+    expect(run.tick).toBeLessThan(1 + 20 * 60);
+  });
+
+  it('a Warband whose anchor is 8 m from its Soldiers (round a Wall) regroups onto its nearest Soldier at its next brain step, and then walks on to its next patrol point', () => {
+    const s = scene(1);
+    const q = firstOf(s.crowd, PATROL);
+    const ax = s.crowd.squads.x[q]!;
+    const az = s.crowd.squads.z[q]!;
+    // A spot 8 to 10 m from the anchor, preferably out of sight of it (round a doorway post), standing on the floor.
+    const around = spots(s, s.crowd, q, ax, az, 10).filter((p) => Math.hypot(p.x - ax, p.z - az) >= 8);
+    const hidden = around.find((p) => !inSight(s.map.fields, ax, az, p.x, p.z, 0, 0, 0)) ?? around[0]!;
+    const on = groundOf(s.battle, s.field, hidden.x, hidden.z, 0);
+    const edited = { ...s.crowd, squads: { ...s.crowd.squads, x: s.crowd.squads.x.map((v, k) => (k === q ? hidden.x : v)), z: s.crowd.squads.z.map((v, k) => (k === q ? hidden.z : v)), surface: s.crowd.squads.surface.map((v, k) => (k === q ? on : v)) } };
+    const soldiers = members(edited, q);
+    const nearest = (c: CrowdState) => Math.min(...soldiers.map((i) => Math.hypot(c.x[i]! - c.squads.x[q]!, c.z[i]! - c.squads.z[q]!)));
+    expect(nearest(edited)).toBeGreaterThan(s.battle.squad.lag);
+    // Its next brain step (within PERIOD Ticks): the anchor stands on a Soldier's spot, and walked nowhere this step.
+    let regrouped = -1;
+    const run = advance(s, edited, 1, PERIOD(s), () => [], (c, tick) => {
+      if (nearest(c) < 1.5 && regrouped < 0) regrouped = tick;
+    });
+    expect(regrouped).toBeGreaterThan(0);
+    expect(nearest(run.crowd)).toBeLessThan(s.battle.squad.lag);
+    // Then it walks its loop again: the leg advances within a minute and a half.
+    const leg = run.crowd.warbands!.leg[q]!;
+    const on2 = advance(s, run.crowd, run.tick, 90 * 60, () => [], (c) => c.warbands!.leg[q] !== leg);
+    expect(on2.crowd.warbands!.leg[q]).not.toBe(leg);
+    expect(on2.crowd.warbands!.mode[q]).toBe(PATROL);
+  });
+});
+
 describe('morale and wiping', { timeout: TIMEOUT }, () => {
   it('a chasing Warband killed below the threshold returns loose, falling back, and then guards', () => {
     const s = scene(1);
