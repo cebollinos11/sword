@@ -1,7 +1,8 @@
 /**
  * The Delver pilot: a Player's Fighter on an AI for tests and the dev `?autopilot` on a Delver Run (docs/plans/delver.md, Stage 2). On a
  * Floor it walks to the Rest fires nearest first, one after another, then into the Stairs zone, so the Run takes the party down. While
- * the Run is Descending, or its Fighter has fallen, it stands. It needs no Hall, no Door and no enemy: Floors have none yet.
+ * the Run is Descending, or its Fighter has fallen, it stands. A promoted enemy near (`promotedNear`) it fights with its AI before it walks its
+ * route: it does not go round Warbands, it walks through, and fights those the Bubble promotes beside it.
  *
  * Its memory (the Floor and which fires it has reached) is plain data in `save`, with its AI's, so Rollback and the Editor sandbox
  * give the same Intents again.
@@ -10,6 +11,7 @@ import { IDLE_INTENT, inDuel, type Intent, type SimState } from '../sim';
 import { floorOf } from '../sim/delver';
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
+import { promotedNear } from './allyAi';
 import type { Controller } from './controller';
 
 /** How near (m, on the ground) the pilot must come for a fire to count as reached. */
@@ -38,6 +40,7 @@ class DelverPilot implements Controller {
     const self = state.fighters[fighter]!;
     if (!run || run.phase === 'Descending' || !inDuel(self)) return IDLE_INTENT;
     if (this.memory.floor !== run.floor) this.memory = { floor: run.floor, reached: [] };
+    if (promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
     const { markers } = floorOf(this.tuning, state.arena)!.plan;
     const dist = (p: { readonly x: number; readonly z: number }): number => Math.hypot(p.x - self.position.x, p.z - self.position.z);
     markers.fires.forEach((fire, k) => {

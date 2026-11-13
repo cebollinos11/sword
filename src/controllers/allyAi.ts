@@ -19,6 +19,20 @@ import { exitDoorWalk } from './doorSpot';
 /** How near (m, across the ground) an Ally AI following a Player stops. */
 export const FOLLOW_DISTANCE = 1.5;
 
+/**
+ * Whether a promoted enemy (a Team 1 Fighter in play bound to a Soldier) stands within `bubble.promote` of Fighter `fighter` flat and less than
+ * `battle.levels.height` above or below it: on a Floor, the Ally AI and the Delver pilot then fight it with their AI instead of following or walking
+ * their route. Reads the state alone.
+ */
+export function promotedNear(tuning: TuningData, state: SimState, fighter: number): boolean {
+  const self = state.fighters[fighter]!;
+  const { promote } = tuning.battle.bubble;
+  const { height } = tuning.battle.levels;
+  return state.fighters.some(
+    (o) => o.team === 1 && o.soldier !== undefined && inDuel(o) && Math.abs(o.y - self.y) < height && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= promote,
+  );
+}
+
 /** Where the j-th living Team 0 Fighter stands from the Stairs zone's centre (m) when no Player lives. */
 const STAIRS_DX = [-1, 1, -1, 1];
 const STAIRS_DZ = [-1, -1, 1, 1];
@@ -66,13 +80,14 @@ class AllyAi implements Controller {
   }
 
   /**
-   * On a Delver Run's Floor (no enemies yet): while Exploring it follows the nearest living Player still in the Run, else (none lives)
-   * walks to its own spot in the Stairs zone so the Run takes the party down. While Descending, or fallen, it is its AI (it stands).
+   * On a Delver Run's Floor, while Exploring and in play: a promoted enemy near (`promotedNear`) and it is its AI (it fights). Else it follows the
+   * nearest living Player still in the Run, or (none lives) walks to its own spot in the Stairs zone so the Run takes the party down. While
+   * Descending, or fallen, it is its AI (it stands).
    */
   private onFloor(state: SimState, fighter: number): Intent {
     const self = state.fighters[fighter]!;
     const run = state.delver!;
-    if (run.phase === 'Descending' || !inDuel(self)) return this.ai.intent(state, fighter);
+    if (run.phase === 'Descending' || !inDuel(self) || promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
     const away = run.away ?? [];
     const living = this.players.filter((i) => !away.includes(i) && state.fighters[i] !== undefined && inDuel(state.fighters[i]!));
     const nearest = living

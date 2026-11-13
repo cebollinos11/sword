@@ -13,6 +13,7 @@ import { inDuel } from './duel';
 import type { Intent } from './intent';
 import type { MatchEvent, MatchState } from './match';
 import type { SimEvent } from './events';
+import type { SimState } from './state';
 import { step } from './step';
 
 /** A Team routed: its Soldiers fell below `battle.rout.threshold` of the army and flee toward their edge. */
@@ -69,6 +70,27 @@ function chargeDeaths(crowd: CrowdState, prev: CrowdState, bubbled: CrowdState, 
 }
 
 /**
+ * The full Fighters in play as the Crowd sees them (`CrowdFighter`), after the Duel's step: each one's way of travel over the Tick (from where
+ * `bubbled` had it: the Bubbles step before the Fighters), its Pool `slot`, and, for each of the first `players` slots that is not `away`, its
+ * Bubble's centre (`ahead`: the way it moves, or its facing standing). A Battle passes `(k) => crowd.players[k]?.away === true`; a Floor
+ * `() => false` (every party Fighter has a Bubble, an AI Takeover changing nothing). `layered` is the map's (`map.field.layered`): where it is,
+ * each Fighter's feet's height goes too. Pure.
+ */
+export function crowdFighters(duel: SimState, bubbled: SimState, players: number, away: (k: number) => boolean, layered: boolean): CrowdFighter[] {
+  return duel.fighters.flatMap((f, k) => {
+    if (!inDuel(f)) return [];
+    const was = bubbled.fighters[k]!.position;
+    const ox = f.position.x - was.x;
+    const oz = f.position.z - was.z;
+    const d = Math.hypot(ox, oz);
+    const moving = d > TRAVEL_EPSILON;
+    const dx = moving ? ox / d : 0;
+    const dz = moving ? oz / d : 0;
+    return [{ x: f.position.x, z: f.position.z, ...(layered ? { y: f.y } : {}), team: f.team, dx, dz, slot: k, ...(k < players && !away(k) ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
+  });
+}
+
+/**
  * One Tick of a Battle in progress (the Battle branch of `stepMatch`): the Bubbles promote and demote (`stepBubbles`, the
  * Players' Fighters being the Match's `teams`), the Fighters' Duel is stepped (it carries the Crowd through), then the
  * Crowd; a new Rout is reported, and `routTicks` after it the Battle is over, won by the other Team (the Duel ends with
@@ -80,21 +102,8 @@ export function stepBattle(match: MatchState, intents: readonly Intent[], tuning
   const bubbled = stepBubbles(match.duel, players, match.duel.tick + 1, tuning, intents);
   let duel = step(bubbled, intents, tuning);
   const before = chargeDeaths(duel.crowd!, match.duel.crowd!, bubbled.crowd!, duel.events, duel.fighters.map((f) => f.team), players);
-  // Each full Fighter's way of travel over this Tick (the same Fighter: the Bubbles stepped before it), and each Player's ring ahead (none for one who left).
-  // On a map of several levels, its feet's height too (the Crowd's level tests; Stage 4a).
   const map = battleMapOf(tuning.battle, match.arena);
-  const layered = map.field.layered;
-  const fighters: CrowdFighter[] = duel.fighters.flatMap((f, k) => {
-    if (!inDuel(f)) return [];
-    const was = bubbled.fighters[k]!.position;
-    const ox = f.position.x - was.x;
-    const oz = f.position.z - was.z;
-    const d = Math.hypot(ox, oz);
-    const moving = d > TRAVEL_EPSILON;
-    const dx = moving ? ox / d : 0;
-    const dz = moving ? oz / d : 0;
-    return [{ x: f.position.x, z: f.position.z, ...(layered ? { y: f.y } : {}), team: f.team, dx, dz, ...(k < players && !before.players[k]?.away ? { ahead: moving ? Math.atan2(dx, dz) : f.facing } : {}) }];
-  });
+  const fighters = crowdFighters(duel, bubbled, players, (k) => before.players[k]?.away === true, map.field.layered);
   const stepped: CrowdState = stepCrowd(before, duel.tick, tuning.battle, fighters, map);
   const tally = countKills(stepped.players, duel.events, duel.fighters.map((f) => f.team), players);
   const crowd = tally === stepped.players ? stepped : { ...stepped, players: tally };

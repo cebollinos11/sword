@@ -13,8 +13,10 @@ import { holdInventory, startingInventory, withStartingRelics, wieldedWeapon } f
 import type { FighterState } from './state';
 
 const base = loadTuningData();
-/** A short Run: one tier of three Floors. */
-const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
+/** A short Run: one tier of three Floors, with Warbands (the Tuning Data's own). */
+const warbanded: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
+/** The same on an empty Floor (`postFill` and `patrolFill` 0: still a Crowd, of no Soldiers), for the cases that assert on the party alone. */
+const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3, postFill: 0, patrolFill: 0 } };
 const ARENA = 'gen:greybox:4242';
 const MAX = tuning.fighter.maxHp;
 const { revive } = tuning.dungeon;
@@ -55,22 +57,56 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     expect(m.duel.hall).toBeUndefined();
   });
 
-  it('puts Team 0 at the spawns in order, facing into the Entrance Passage, and Benches Team 1', () => {
-    const { doors } = plan.halls[plan.entrance]!;
+  it('puts the party at the spawns in order, facing into the Entrance Passage, then the Fighter Pool unbound, and the Floor Crowd deployed', () => {
+    const w = createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1] });
+    const wplan = floorOf(warbanded, w.arena)!.plan;
+    const { doors } = wplan.halls[wplan.entrance]!;
     const side = (['n', 'e', 's', 'w'] as const).find((s) => (doors[s] ?? 0) > 0)!;
     const facing = { n: 0, e: Math.PI / 2, s: Math.PI, w: -Math.PI / 2 }[side];
-    team0(m).forEach((f, k) => {
-      expect(f.position).toEqual({ x: plan.markers.spawns[k]!.x, z: plan.markers.spawns[k]!.z });
+    const { poolSize } = warbanded.battle.bubble;
+    expect(w.config.teams).toEqual([0, 0, 0]);
+    expect(w.config.weapons).toHaveLength(3);
+    expect(w.duel.fighters).toHaveLength(poolSize);
+    w.duel.fighters.slice(0, 3).forEach((f, k) => {
+      expect(f.team).toBe(0);
+      expect(f.position).toEqual({ x: wplan.markers.spawns[k]!.x, z: wplan.markers.spawns[k]!.z });
       expect(f.y).toBe(0);
       expect(f.facing).toBe(facing);
+      expect(f.benched).toBeUndefined();
     });
-    expect(team0(m)).toHaveLength(3);
-    const { zone } = plan.markers.stairs;
-    for (const f of m.duel.fighters.filter((x) => x.team === 1)) {
+    for (const f of w.duel.fighters.slice(3)) {
+      expect(f.team).toBe(1);
       expect(f.benched).toBe(true);
       expect(f.hp).toBe(0);
-      expect(f.position).toEqual({ x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 });
+      expect(f.soldier).toBeUndefined();
     }
+    const crowd = w.duel.crowd!;
+    expect(crowd.warbands).toBeDefined();
+    expect(crowd.squads.team.length).toBe(crowd.warbands!.mode.length);
+    expect(crowd.squads.team.length).toBeGreaterThan(0);
+    expect(crowd.team.every((t) => t === 1)).toBe(true);
+    expect(crowd.players).toEqual([]);
+    expect(crowd.maxHp).toHaveLength(crowd.x.length);
+    // The empty Floor still has a Crowd, of no Soldiers.
+    const empty = m.duel.crowd!;
+    expect(empty.x).toHaveLength(0);
+    expect(empty.squads.team).toHaveLength(0);
+    expect(team0(m)).toHaveLength(3);
+    expect(m.duel.fighters).toHaveLength(poolSize);
+  });
+
+  it('drops the Team 1 slots of the teams it is given, and refuses Team 1 Fighters inside the party', () => {
+    expect(m.config.teams).toEqual([0, 0, 0]);
+    expect(m.config.weapons).toHaveLength(3);
+    const alone = delver({ teams: [0, 0, 0] });
+    expect(alone.config.teams).toEqual([0, 0, 0]);
+    expect(alone.duel.fighters).toHaveLength(tuning.battle.bubble.poolSize);
+    expect(delver({ teams: [0, 1, 1, 1, 1] }, 1).config.teams).toEqual([0]);
+    expect(() => delver({ teams: [0, 1, 0, 1, 1, 1, 1] })).toThrow(RangeError);
+    expect(() => delver({ teams: [0, 0, 1] })).toThrow(RangeError);
+    expect(() => delver({ teams: [0, 0, 0, 0, 0] })).toThrow(RangeError);
+    expect(() => delver({ teams: [1, 1, 1, 1] })).toThrow(RangeError);
+    expect(() => delver({ teams: [] })).toThrow(RangeError);
   });
 
   it('is refused with Duels, with Battle and with a start Hall', () => {

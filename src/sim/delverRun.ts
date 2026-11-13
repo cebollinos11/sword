@@ -1,14 +1,21 @@
 /**
  * A Delver Run (docs/plans/delver.md, Stage 2): the Gauntlet Format's Run on generated Floors, one Duel a Floor. Team 0 spawns at the
  * Floor's Entrance and the Floor is `floorArenaName(runSeed(config.arena), floor)`, built from that name alone (`floorOf`), so every peer
- * deals the same Floor with nothing sent. `floorDuel` makes a Floor's Duel (Team 0's HP, Inventory and Mods carried, the fallen revived,
- * Team 1's slots Benched), `enterFloor` the Run's state on it, and `stepDelver` steps it: the fade to the next Floor, the Duel under the
- * Floor's Tuning Data (`arenaTuning`), and a wipe of Team 0, a Defeat. This file imports `match.ts` for types only.
+ * deals the same Floor with nothing sent. `floorDuel` makes a Floor's Duel (Team 0's HP, Inventory and Mods carried, the fallen revived, then
+ * the Fighter Pool's unbound slots and the Floor's Crowd of Warbands), `enterFloor` the Run's state on it, and `stepDelver` steps it: the fade
+ * to the next Floor, the Bubbles, the Duel and the Crowd under the Floor's Tuning Data (`arenaTuning`), and a wipe of Team 0, a Defeat. This
+ * file imports `match.ts` for types only.
  */
 import type { TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { secondsToTicks } from './constants';
+import { crowdFighters } from './battle';
+import { stepBubbles, unboundSlot } from './bubble';
+import { stepCrowd } from './crowd';
+import { battleMapOf } from './destinations';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
+import { deployWarbands, warbandHomes } from './delver/warbands';
+import { warbandBrain } from './warband';
 import type { FloorPlan } from './delver/plan';
 import { runSeed } from './dungeon';
 import { inDuel } from './duel';
@@ -64,28 +71,25 @@ function entranceFacing(plan: FloorPlan): number {
 }
 
 /**
- * A Delver Run's Duel on Floor `floor`: Team 0's k-th Fighter at the Entrance's k-th spawn, facing into its Passage, and Team 1's four slots Benched
- * at the Stairs zone's centre (Stage 3 fills them). Team 0 keeps its HP, Inventory and Mods from `previous` (the Floor before; null for the first:
+ * A Delver Run's Duel on Floor `floor`: the party (`config.teams`, all Team 0) in slots 0 to k - 1, the k-th at the Entrance's k-th spawn facing
+ * into its Passage, then the Fighter Pool's other slots unbound (`bubble.poolSize` in all), and the Floor's Crowd of Warbands deployed at its posts
+ * and loops (`deployWarbands`, sized by `config.humans`). Team 0 keeps its HP, Inventory and Mods from `previous` (the Floor before; null for the first:
  * full HP, a Player holding `startingInventory` and the dev `relics`), a fallen Fighter back at `dungeon.revive` of its max HP: taking the Stairs
  * revives the fallen, and nobody is healed. Pure.
  */
 export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number, previous: SimState | null, rng: SimState['rng'], relics: readonly string[] = []): SimState {
   const arena = floorArenaName(runSeed(config.arena), floor);
   const t = arenaTuning(tuning, arena);
-  const { plan } = floorOf(tuning, arena)!;
+  const floorBuilt = floorOf(tuning, arena)!;
+  const { plan } = floorBuilt;
   const { spawns } = plan.markers;
-  const { zone } = plan.markers.stairs;
-  const centre = { x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2 };
   const facing = entranceFacing(plan);
-  let rank = 0;
-  const placements = config.teams.map((team): Placement => {
-    if (team !== 0) return { position: centre, y: 0, facing: 0 };
-    const spawn = spawns[rank++]!;
+  const placements = config.teams.map((_, k): Placement => {
+    const spawn = spawns[k]!;
     return { position: { x: spawn.x, z: spawn.z }, y: 0, facing };
   });
   const players = runPlayers(config);
-  const inventories = config.teams.map((team, i) => {
-    if (team !== 0) return undefined;
+  const inventories = config.teams.map((_, i) => {
     const held = previous?.fighters[i]?.inventory;
     return held ?? (players.includes(i) ? withStartingRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
   });
@@ -93,7 +97,6 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
   const base = createInitialState(t, 0, placements, weapons, config.teams, arena, config.sizes);
   const { revive } = tuning.dungeon;
   const fighters = base.fighters.map((f, i) => {
-    if (f.team === 1) return { ...f, hp: 0, benched: true as const };
     const before = previous?.fighters[i];
     const inventory = inventories[i];
     const armed = inventory ? holdInventory(f, inventory, tuning) : setMods(f, NO_MODS, tuning.fighter.maxHp);
@@ -101,7 +104,10 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
     return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
   });
   const away = previous?.delver?.away;
-  return { ...base, rng, fighters, delver: { floor, phase: 'Exploring', ...(away === undefined ? {} : { away }) } };
+  const pool = t.battle.bubble.poolSize - fighters.length;
+  const unbound = unboundSlot(t, arena);
+  const crowd = deployWarbands(t, plan, floorBuilt.field, runSeed(config.arena), floor, config.humans);
+  return { ...base, rng, fighters: [...fighters, ...new Array<FighterState>(pool).fill(unbound)], crowd, delver: { floor, phase: 'Exploring', ...(away === undefined ? {} : { away }) } };
 }
 
 /** The Run on entering Floor `floor` (`plan` its plan): Exploring, nothing counted, one unspent fire per fire of the Floor, no pickups. */
@@ -156,7 +162,15 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     return { ...match, tick, arena: duel.arena, duelNumber, duel, nextDuelTick: null, events, delver: enterFloor(run, floor, floorOf(tuning, duel.arena)!.plan) };
   }
 
-  let duel = step(match.duel, intents, arenaTuning(tuning, match.duel.arena));
+  // The Floor as a Battle steps: the Bubbles promote and demote (every party Fighter has one), the Fighters' Duel, then the Crowd under its Warband
+  // brain. No kill count and no Tickets: a Floor has neither.
+  const t0 = arenaTuning(tuning, match.duel.arena);
+  const k = config.teams.length;
+  const bubbled = stepBubbles(match.duel, k, match.duel.tick + 1, t0, intents);
+  let duel = step(bubbled, intents, t0);
+  const map = battleMapOf(t0.battle, duel.arena);
+  const homes = warbandHomes(floorOf(tuning, duel.arena)!.plan);
+  duel = { ...duel, crowd: stepCrowd(duel.crowd!, duel.tick, t0.battle, crowdFighters(duel, bubbled, k, () => false, map.field.layered), map, warbandBrain(homes, tuning.delver)) };
   let { score, nextDuelTick, status } = match;
   let next = run;
 

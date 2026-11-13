@@ -249,7 +249,8 @@ export interface RunState {
 export function takeOverFighter(match: MatchState, fighter: number): MatchState {
   const { run } = match;
   const crowd = match.duel.crowd;
-  if (crowd) {
+  // A Floor's Crowd has no Player records (`players` is empty): a Delver Run falls through to its own branch below.
+  if (crowd && !match.delver) {
     const record = crowd.players[fighter];
     if (!record || record.away) return match;
     const players = crowd.players.map((p, k) => (k === fighter ? { ...p, away: true as const } : p));
@@ -318,6 +319,23 @@ export function checkRunTeams(teams: readonly number[]): void {
   const own = teams.indexOf(1);
   if (teams.length - own !== MAX_TEAM_SIZE || teams.slice(own).some((t) => t !== 1))
     throw new RangeError(`A Run's teams must be Team 0's Fighters followed by ${MAX_TEAM_SIZE} Team 1 slots, got [${teams.join(', ')}]`);
+}
+
+/** Throws unless `teams` is a Delver Run's party: 1 to MAX_TEAM_SIZE Fighters, all Team 0 (the Floors' enemies are the Crowd's, not slots of `teams`). */
+export function checkDelverTeams(teams: readonly number[]): void {
+  if (teams.length < 1 || teams.length > MAX_TEAM_SIZE || teams.some((t) => t !== 0))
+    throw new RangeError(`A Delver Run's teams must be 1 to ${MAX_TEAM_SIZE} Team 0 Fighters, got [${teams.join(', ')}]`);
+}
+
+/**
+ * A Delver Run's party from the `teams` given: Team 0's Fighters alone, or followed by exactly MAX_TEAM_SIZE Team 1 slots (the Lobby's Gauntlet
+ * Lineup still has them), which are dropped. The party's length is how many of `teams` (and of the Weapons and Sizes) are kept.
+ */
+function delverParty(teams: readonly number[]): readonly number[] {
+  const own = teams.indexOf(1);
+  if (own < 0) return teams;
+  if (teams.length - own !== MAX_TEAM_SIZE || teams.slice(own).some((t) => t !== 1)) throw new RangeError(`A Delver Run's teams must be Team 0's Fighters alone, or followed by ${MAX_TEAM_SIZE} Team 1 slots, got [${teams.join(', ')}]`);
+  return teams.slice(0, own);
 }
 
 /** Where each Fighter starts: team t's k-th Fighter at the Arena's spawn for (t, k), or (if any is missing) in two facing lines. */
@@ -449,8 +467,11 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (options.delver && format !== 'Gauntlet') throw new RangeError('Only a Gauntlet can be a Delver Run');
   if (format === 'Battle') return createBattle(tuning, options);
   const gauntlet = format === 'Gauntlet';
-  const teams = options.teams ?? [0, 1];
-  if (gauntlet) checkRunTeams(teams);
+  const given = options.teams ?? [0, 1];
+  // A Delver Run's `teams` is its party: Team 0's Fighters (any Team 1 slots after them are dropped).
+  const teams = options.delver ? delverParty(given) : given;
+  if (options.delver) checkDelverTeams(teams);
+  else if (gauntlet) checkRunTeams(teams);
   else checkTeams(teams);
   const humans = options.humans ?? options.players?.length ?? 1;
   const config: MatchConfig = {

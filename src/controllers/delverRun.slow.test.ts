@@ -28,8 +28,8 @@ const LINEUP: Lineup = [
   ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI' as const, difficulty: 'Floor' } })),
 ];
 
-/** The Run's Tuning: one tier of three Floors. */
-const runTuning = (): TuningData => ({ ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: FLOORS } });
+/** The Run's Tuning: one tier of three empty Floors (`postFill` and `patrolFill` 0: a Crowd of no Soldiers; Stage 2's walk needs no enemy). */
+const runTuning = (): TuningData => ({ ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: FLOORS, postFill: 0, patrolFill: 0 } });
 
 const edit = (m: MatchState, i: number, f: (x: FighterState) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((x, k) => (k === i ? f(x) : x)) } });
 const felled = (m: MatchState) => (f: FighterState): FighterState => ({ ...f, hp: 0, death: { tick: m.duel.tick, cause: 'Fall', blow: null } });
@@ -56,7 +56,7 @@ interface Played {
 /** Play a Run to its end (or RUN_TICKS), `onFloorStart` editing the state at each Floor's first Tick. */
 function play(tuning: TuningData, onFloorStart: (m: MatchState, floor: number) => MatchState, stopAfterFloor = FLOORS): Played {
   let m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: SEED_NAME, delver: true, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
-  const controllers: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: SEED_NAME }).map((c) => c ?? createDelverPilot(tuning));
+  const controllers: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: SEED_NAME, delver: true }).map((c) => c ?? createDelverPilot(tuning));
   const floors: FloorReport[] = [];
   const costs: number[] = [];
   const begin = (match: MatchState): MatchState => {
