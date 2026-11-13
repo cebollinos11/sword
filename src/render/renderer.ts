@@ -23,6 +23,18 @@ import { arenaTuning } from '../sim/delver';
 export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
 
 /**
+ * Every Fighter's colour in `state`. A Battle's Fighters wear their Team's soldier colour (`soldierColours`); a Delver Run's keep
+ * the Duel's colours for the party (Team 0, shaded by place) and a promoted Soldier of the Warbands wears Team 1's soldier colour,
+ * as its impostor does; any other state has the Duel's.
+ */
+export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[]): number[] {
+  if (!state.crowd) return fighterColours(state.fighters.map((f) => f.team));
+  if (!state.delver) return state.fighters.map((f) => soldierColours[f.team] ?? 0xffffff);
+  const duel = fighterColours(state.fighters.map((f) => f.team));
+  return state.fighters.map((f, i) => (f.team === 0 ? duel[i]! : (soldierColours[f.team] ?? 0xffffff)));
+}
+
+/**
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
  * solved Skeletons between the previous and current Tick (or draws a fallen
  * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
@@ -208,7 +220,7 @@ export class Renderer {
     const world = this.world(curr.arena);
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
-    const colours = curr.crowd ? curr.fighters.map((f) => world.tuning.battle.soldier.colours[f.team] ?? 0xffffff) : fighterColours(curr.fighters.map((f) => f.team));
+    const colours = drawColours(curr, world.tuning.battle.soldier.colours);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;

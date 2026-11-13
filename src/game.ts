@@ -11,6 +11,7 @@ import { createAutopilot, createBattlePilot, createDelverPilot, INVENTORY_LIST_K
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
+import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
 import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devMode, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
@@ -233,6 +234,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** A Battle is being played (docs/plans/big-battle.md): its screen draws it (null while its code loads), not the Duel's loop. */
   let battleOn = false;
   let battle: BattleScreen | null = null;
+  /** A Delver Run's Crowd drawn as impostors, made on the Run's first frame (null while its code loads, and outside a Delver Run). */
+  let floorCrowd: FloorCrowd | null = null;
+  let floorCrowdLoading = false;
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
@@ -384,6 +388,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     battle?.dispose();
     battle = null;
     battleOn = false;
+    dropFloorCrowd();
     if (s.settings.format === 'Battle') return launchBattle(l, s, lineup, picks, playerNames, playerBodies, members);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
@@ -585,6 +590,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     battle?.dispose();
     battle = null;
     battleOn = false;
+    dropFloorCrowd();
     driver?.close?.();
     driver = null;
     playing = 0;
@@ -666,6 +672,31 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       input.enabled = true;
       lockPointer();
     }
+  }
+
+  /** Free a Delver Run's Crowd view (the Run is over, or restarted, or the player left). */
+  function dropFloorCrowd(): void {
+    floorCrowd?.dispose();
+    floorCrowd = null;
+    floorCrowdLoading = false;
+  }
+
+  /**
+   * Draw a Delver Run's Crowd for the frame about to be rendered (`alpha` of the way to the next Tick). Its code loads on the Run's
+   * first frame; the impostors bake in the background and appear once ready.
+   */
+  function drawFloorCrowd(match: MatchState, alpha: number, seconds: number): void {
+    if (!match.delver) return;
+    if (!floorCrowd) {
+      if (floorCrowdLoading) return;
+      floorCrowdLoading = true;
+      const generation = playing;
+      void import('./play/floorCrowd').then(({ FloorCrowd }) => {
+        if (generation === playing && floorCrowdLoading) floorCrowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length);
+      });
+      return;
+    }
+    floorCrowd.update(match.duel, alpha, seconds, renderer.camera);
   }
 
   /** What the Renderer draws a Delver Run's Floor marks from, or null outside a Delver Run. */
@@ -1032,6 +1063,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         }
         const { camera } = tuning;
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
+        drawFloorCrowd(curr, 1, 0);
         renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
       } else {
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
@@ -1040,6 +1072,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
+        drawFloorCrowd(curr, alpha, frozen ? 0 : elapsed);
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
