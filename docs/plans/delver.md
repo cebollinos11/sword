@@ -901,6 +901,12 @@ Done 2026-11-13. A Delver Run is now played against Warbands. Every Floor deploy
 - **A patrol may cross a guard's post**, and the two overlap there (Warbands walk through one another). The generator could keep loop points off posts.
 - **Impostors appear a few seconds into a Run** while the atlases bake.
 
+#### After the Stage (2026-11-13, the user's calls)
+- **Balance is the user's**, by hand. Later Stages make no balance passes: they keep the Tuning Data as it is unless a Stage needs a new key.
+- **A fought Warband fights to the end.** Its promoted Fighters are not pulled back when it Returns.
+- **The camera in Passages** is left as it is for now.
+- **Patrol loops may cross guards' posts**, as now. The two Warbands overlap there.
+
 ### Stage 4: loot, Treasure Halls and Boss Floors
 **Model**: Sonnet.
 - A wiped Warband drops one item per Player where its last Soldier fell. Treasure Halls hold pedestals (pick 1 of 3). Elite Warbands carry Relics and drop them.
