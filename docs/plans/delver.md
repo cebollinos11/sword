@@ -1,11 +1,11 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
 - [x] Stage 1: the Floor generator (rooms and passages on one level → Map Source → compiled Arena)
-- [ ] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
+- [x] Stage 2: the Delver Run loop, solo (entrance, Stairs, Rest fires, revive, no enemies)
 - [ ] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
 - [ ] Stage 4: loot, Treasure Halls and Boss Floors
 - [ ] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
@@ -470,6 +470,89 @@ export interface SimDelver { readonly floor: number; readonly phase: DelverPhase
   - **It must show it exercised**, on every Floor: a `Rested` with `healed` > 0, a `Revived`, and the Stairs (`StairsTaken` on Floors 1 and 2, then the Victory).
   - A second case fells the Player at Floor 1's start: the AI allies walk to the Stairs and take them, and the Player stands on Floor 2 at `revive` of max HP.
 - **Existing tests**: none is rewritten or removed. The Hall-graph Run ships until Stage 8, so `dungeonRun.test.ts`, `gauntlet.soak.test.ts`, `takeover.test.ts`, the Door and Floor Map tests and the rest stay as its tests. `delverRun.test.ts` is their Floor counterpart, and Stage 8 removes the Hall-graph ones. `src/tuning/delver.test.ts` gains the `fireRadius` check (a new test, no changed expectation).
+
+### Result
+Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntlet Format starts one on generated, empty Floors. Team 0 spawns at the Entrance. Fires heal and revive. The Stairs take the party down after a fade, and the last Stairs win the Run. The Hall-graph Run is still the Gauntlet's default, unchanged, and every hash and test from before is unchanged.
+
+**What was built** (as the Design gives it, with the changes below):
+- **Floors from (Run seed, Floor)** (`src/sim/delver/world.ts`): the arena `battle:delver<F>s<S>`, `floorOf` and `arenaTuning`. Whoever reads a Floor's Arena reads it under `arenaTuning`: the Simulation, the AI, `warmArena`, the Renderer's world, blood, Fighter poses and marks.
+- **The state**: `MatchConfig.delver`, `MatchState.delver` (`DelverRun`: floor, floors, phase Exploring or Descending, stairsTicks, restUsed per fire, pickups, startTick, away) and `SimState.delver`. They are hashed and snapshotted, and absent outside a Delver Run. `MatchState.run` is null in a Delver Run.
+- **The Run** (`src/sim/delverRun.ts`):
+  - `floorDuel` and `enterFloor`.
+  - `stepDelver` handles the fade, the wipe (Defeat), the Inventory gate at a fire, pickups anywhere, each fire's revive and heal, the Stairs dwell (`doorCounters`, `doorTicksNeeded`) and the Victory.
+  - New events: `StairsTaken` and `Revived`.
+  - `delver.fireRadius` is 3 m.
+  - `withStartingRelics` moved to `inventory.ts`, `placeDrop` to `pickups.ts`, and `doorTicksNeeded` to `hall.ts`.
+- **The AI**:
+  - `RuleAi` reads Arenas and navmeshes through one `world(state)` helper.
+  - The Ally AI follows the nearest Player on a Floor, and with no Player alive walks to its own spot in the Stairs zone.
+  - The Hall AI idles on a Floor.
+  - The new **Delver pilot** (`createDelverPilot`) walks to the fires, nearest first, then to the Stairs. It is used by the tests and by `&autopilot=1`.
+- **The game**:
+  - `devDelverRun` turns the Run on.
+  - The next Floor is warmed from the current Floor's first Tick.
+  - The Floor is drawn from its source (`mapModel`, cached, old ones disposed).
+  - `DelverMarks` draws the gold Stairs square, and a fire and a `fireRadius` ring at each fire.
+  - The HUD fades as for a Hall change, shows "Floor F / N · Run seed S" at each Floor's start, announces "Rested" and "Revived", and shows "Floor F / N" as its score line.
+  - The results screen has no Halls.
+  - The Inventory screen works at a fire only ("Only at a fire", "Descending").
+  - Replays carry `delver: true`.
+
+**Changed from the Design:**
+- **Built Floors are keyed by the Battle and Delver Tuning objects**, not by the Tuning Data object. The game reads a Floor under two Tuning Data objects (`matchTuning` and the Renderer's base), so the first version built each Floor twice. The code review caught it. The Tuning Data copies are still made per base.
+- **`score[0]`** counts every Floor whose Stairs were taken, the last one included. Both `RunEnd`s give it as `cleared`, from the code review.
+- **The Inventory screen never takes over movement in a Delver Run.** Walking into a fire's ring with the screen open froze the Player at the ring's edge. Its buttons still work at a fire.
+- **A finished Delver Run** steps the generic path under `arenaTuning`, which would otherwise throw on the Floor's name.
+- **The camera** (`cameraCollider.ts`, found in the playtest): Floors are drawn with Walls 0.6 m thick, and the camera stopped 0.25 m from a Wall's centre line, so about a quarter of the frames were inside a Wall. It now stops 0.45 m off the face it hits, measured square to the face, more at a glancing angle. Afterwards about 1 frame in 16 was inside a doorway post. This affects every Arena's camera (render only).
+- **No existing test was rewritten or removed.** The Hall-graph Run ships until Stage 8, so `dungeonRun.test.ts` and the rest stay as its tests, and `delverRun.test.ts` is their Floor counterpart. Two existing files gained a key: `delver.test.ts` and `tuning.test.ts`'s `goodRaw()` have `fireRadius`.
+
+**Measured** (the test container, about 3× a mid-range laptop; `src/controllers/delverRun.slow.test.ts`, Run seed 4242, 1 tier × 3 Floors, one Player on the pilot and two Hard AI allies):
+
+| | Floor 1 | Floor 2 | Floor 3 |
+|---|---|---|---|
+| Build, cold (ms) | 364 to 431 | 301 to 351 | 290 to 355 |
+| To the Stairs (s, simulated) | 128.4 | 136.9 | 126.7 (Victory) |
+| Heal (the Player at 50%) | +50 | +50 | +50 |
+| Revive | ally 1 | ally 1 | ally 1 |
+| Allies' trail at the Stairs (m) | 1.5, 2.0 | 1.5, 2.1 | 1.5, 2.1 |
+
+- **The Tick**, over 23,640 Ticks: mean 0.09 to 0.13 ms, p99 0.34 to 0.44 ms, max 49 to 75 ms. The max is a one-off, about the Floor change.
+- **With the Player felled on Floor 1**, the allies took the Stairs in 90.9 s, and the Player stood on Floor 2 at 25% HP.
+- **The allies never stuck at a doorway**: they trailed by about 2 m at every Stairs.
+- **A build** is about 0.3 to 0.4 s here, about 1 s laptop-equivalent. That is a little over Stage 1's 0.24 s, as the slow test builds under load. It is warmed a Floor ahead, so the fade only reads the cache.
+
+**Tests**:
+- `npm run typecheck` is clean.
+- `npm test`: **2544 passed, 5 skipped** (2464 before the Stage).
+  - `delverRun.test.ts`: 36 tests.
+  - `world.test.ts`: 6.
+  - `delverAi.test.ts`: 5.
+  - `delverPilot.test.ts`: 3.
+  - New Delver cases in `delver.test.ts`, `replay.test.ts`, `devMode.test.ts`, `arenaWorlds.test.ts`, `hud.test.ts`, `inventoryView.test.ts`, `announcer.test.ts` and `delverMarks.test.ts`.
+- `npm run test:slow`: 22 files and 38 tests passed, the new `delverRun.slow.test.ts` (2 tests) among them.
+- The gauntlet flake did not occur in this Stage.
+
+**In the game** (`npm run dev`, a headless browser on the Delver pilot with one AI ally, screenshots looked at):
+- The Entrance faces its Passage.
+- The Passages are 3 m stone corridors with doorway frames.
+- The Rest Hall has its torch and ring, and "Rested" shows.
+- The Stairs Hall glows (flat orange, no texture yet).
+- The fade darkens over the party in the Stairs zone, and Floor 2 opens with its banner.
+- The ally followed through every doorway.
+- The software renderer ran at 8 to 15 fps, so the Run was "Slowed". Floor 1 took about 100 s of real time.
+- The Floor change dropped to 2 fps for a frame. That is the drawn model being built, which happens during the fade.
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, add an AI ally or two, Fight. Add `&autopilot=1` to watch the pilot.
+- Walk the Floor and find a fire. Fall on purpose (or let an ally fall) and see a fire bring them back.
+- Open the Inventory (`I`) at a fire and away from one.
+- Stand in the gold square to go down.
+
+**To watch next**:
+- **The fire's revive is spent at the first arrival, even when nobody has fallen** (the plan's rule, read literally). A party that passes a fire healthy loses its revive. This needs the user's call (below).
+- **The camera still sits inside a doorway post now and then**, and the Stairs Hall's `glow` is a flat colour. Stage 5 does the art.
+- **The Floor's model is built at the Floor change** (a frame's hitch inside the fade). Building it with the warm-ahead would remove it.
+- **9 Floors at about 2 minutes each** for a pilot that goes straight to the fires and the Stairs. That is about 20 minutes before any fighting, within the plan's 30 to 45.
+- **Stage 3** replaces the four Benched Team 1 slots with the Fighter Pool, and steps the Crowd under the Floor's own Tuning Data (`arenaTuning`: 2 m fields).
 
 ### Stage 3: Warbands
 **Model**: Opus (brains and fields).

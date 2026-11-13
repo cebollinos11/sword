@@ -450,6 +450,10 @@ _Avoid_: Room (that is the online link), Chamber (that is a combat term), Hall (
 A corridor between two Halls of a generated Delver Floor (`docs/plans/delver.md`): an Enclosure 3 m wide (`delver.floor.passage`) running straight from one Hall's side centre to the facing side centre of the next Hall on its row or column of the Floor's lattice, both its ends open and each Hall's doorway on that side as wide. A side of a Hall holds at most one Passage. The spanning tree's Passages join every Hall; a few more (loops) make the cycles patrols walk.
 _Avoid_: corridor (in code), hallway
 
+**Stairs**:
+The way down from a Delver Floor (`docs/plans/delver.md`, Stage 2): a 4 m square zone at the centre of the Floor's Stairs Hall, the Hall furthest from the Entrance by walking. When every living Player still in the Run (with none alive, every living AI ally) has stood in it for `dungeon.doorSeconds`, the party goes down: a fade, then the next Floor, everyone at the Entrance and the fallen back at `dungeon.revive` of max HP. The last Floor's Stairs win the Run. It needs no key and no kill.
+_Avoid_: exit, portal, door
+
 **Map Compiler**:
 The pure function from a Map Source to an ordinary Battle map (`compileMap`, `src/mapEditor/compile.ts`): it paints the Brushes on the fine grid one level at a time, merges each Brush's floor into rectangles (`WALK_<brush>_<n>`), stands the Walls the generators would (the field's edges, a face wherever the ground beside a floor is higher than a step, owned by the higher Brush, `WALL_<brush>_<side><n>`, each Ramp's rails or skirt, each Enclosure's Walls with their doorways, `WALL_<brush>_<side>d<n>`), and passes the result through the game's own `parseBattleMap` and `walkCheck`, so it never gives a map the game refuses; an error names the Brushes it concerns. The same source always compiles to the same bytes.
 _Avoid_: Exporter, baker
