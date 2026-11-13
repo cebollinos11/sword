@@ -10,6 +10,7 @@ import { BladeBlood, floorUnder } from './bladeBlood';
 import { BodyBlood } from './bodyBlood';
 import { BloodEffects, bloodSpurts, stumpDrips, stumpDrops, stumpSpurts } from './blood';
 import type { DrawnPose } from './fighterView';
+import { goreEnabled } from './gore';
 
 /** A burst at a contact point (a Heavy Blow's Hit bursts bigger). `strength` is 0..1, from the Blade Speed at contact. */
 export interface ImpactBurst {
@@ -123,6 +124,9 @@ interface Look {
   readonly flashLife: number;
 }
 
+/** A Hit's or Heavy Blow's look with Blood & gore off (`goreEnabled`): its red bits are pale chips instead. */
+const CLEAN_COLOURS = [0xf2ead8, 0xd8cbb0, 0xb0a48c];
+
 const LOOKS: Record<ImpactBurst['kind'], Look> = {
   // Chunky red bits that fall.
   Hit: {
@@ -223,6 +227,8 @@ export class ImpactEffects {
   private sought = true;
   /** Effect time, seconds. */
   private clock = 0;
+  /** Blood & gore as last looked at (`washed`). */
+  private gore = true;
 
   constructor(
     scene: THREE.Scene,
@@ -239,10 +245,12 @@ export class ImpactEffects {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
     this.blood.setArena(duel.arena);
-    for (const s of bloodSpurts(duel)) this.blood.spurt(s);
-    for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
-    this.blades.onTick(tick, duel);
-    this.bodies.onTick(tick, duel, tuning);
+    if (this.washed()) {
+      for (const s of bloodSpurts(duel)) this.blood.spurt(s);
+      for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
+      this.blades.onTick(tick, duel);
+      this.bodies.onTick(tick, duel, tuning);
+    }
     for (const b of impactBursts(duel, this.tuning)) this.burst(b);
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
@@ -268,6 +276,10 @@ export class ImpactEffects {
    * pieces (Dismemberment) drip as it falls, for the Duel time gone by since it was last drawn (`stumpDrops`).
    */
   drip(poses: readonly (DrawnPose | undefined)[], seconds: number): void {
+    if (!this.washed()) {
+      this.bled.length = 0;
+      return;
+    }
     this.blades.drip(poses, seconds, (point, floorY) => this.blood.drip(point, floorY));
     poses.forEach((pose, i) => {
       const since = pose?.pieces ? pose.since : undefined;
@@ -279,6 +291,21 @@ export class ImpactEffects {
       for (const point of stumpDrips(pose!.pieces!.stumps, before, since)) this.blood.drip(point, floor);
     });
     this.sought = false;
+  }
+
+  /**
+   * Whether blood is drawn (Blood & gore, `goreEnabled`). Turning it off washes away every stain and bloody Weapon and
+   * body at once; blood shed while it is off is never drawn, even once it is back on.
+   */
+  private washed(): boolean {
+    const on = goreEnabled();
+    if (!on && this.gore) {
+      this.blood.clear();
+      this.blades.clear();
+      this.bodies.clear();
+    }
+    this.gore = on;
+    return on;
   }
 
   /** Advance the particles by `seconds`. */
@@ -319,8 +346,9 @@ export class ImpactEffects {
     const flash = this.spawn(this.sphere, look.flashColour, at, look.flashLife, 0);
     flash.flashRadius = look.flashRadius * (0.6 + 0.4 * strength);
     const count = Math.round(look.count * (0.5 + 0.5 * strength));
+    const colours = (kind === 'Hit' || kind === 'Heavy') && !goreEnabled() ? CLEAN_COLOURS : look.colours;
     for (let k = 0; k < count; k++) {
-      const colour = look.colours[Math.floor(Math.random() * look.colours.length)]!;
+      const colour = colours[Math.floor(Math.random() * colours.length)]!;
       const p = this.spawn(this.box, colour, at, look.life * (0.6 + 0.4 * Math.random()), look.gravity);
       p.velocity.randomDirection().multiplyScalar(look.speed * strength * (0.4 + 0.6 * Math.random()));
       p.mesh.scale.set(look.size[0], look.size[0], look.size[1]);
