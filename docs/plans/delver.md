@@ -587,6 +587,175 @@ Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntle
 - Warband size grows with the humans (`delver.perPlayerSoldiers`); enemy max HP is scaled by tier only.
 - **Done**: a solo Run is playable end to end against Warbands; a slow soak of AI-driven Runs shows no stuck Warbands (time out of place measured, as in battle-objectives Stage 3b).
 
+#### Design
+Stage 3 puts Warbands on the Floors: Crowd Squads of Team 1 Soldiers, deployed at the plan's posts and patrol loops, with a dungeon brain, promoted into the Fighter Pool by an enemy-only Bubble. A Battle, a Duel and a Hall-graph Run step exactly as before (every Battle hash and test unchanged): each new field is absent outside a Delver Run, and each shared function changes only where it reads a Floor's Crowd (`crowd.warbands` present).
+
+**The Fighter Pool on a Floor.**
+- **`config.teams`** of a Delver Run is Team 0's 1 to 4 Fighters only (all 0), the party, as a Battle's `teams` names only its Players. `createMatch` with `delver` accepts `teams` as Team 0's Fighters alone, or followed by exactly MAX_TEAM_SIZE Team 1 slots (the Lobby's Gauntlet Lineup still has them): it drops those slots, and cuts `weapons` and `sizes` to the party. `checkDelverTeams(teams)` (`match.ts`): 1 to MAX_TEAM_SIZE entries, all 0. `checkRunTeams` stays the Hall-graph Run's. `humans` and `players` are checked as now.
+- **The Duel's Fighters** are the party in slots 0 to k−1 (k = `config.teams.length`, for good) and then `battle.bubble.poolSize − k` unbound slots (`unboundSlot(t, arena)`), as `createBattle` builds them. The Duel's `crowd` is the Floor's (below). `stepBubbles` is called with `players = k`.
+- **The Lobby Lineup** is unchanged: a Gauntlet's Lineup keeps its 4 Team 1 slots, which a Delver Run ignores (Stage 8 drops them). `lineupMatch` is unchanged (`createMatch` drops the slots). `lineupAis(tuning, lineup, format, match)` takes `delver` in `match` (`Pick<MatchOptions, 'seed' | 'arena' | 'delver'>`): for a Delver Gauntlet it returns the party's entries as now (null for a Player, an Ally AI for an AI) and then a Pool AI (`createPoolAi`) for every slot k to poolSize − 1. No Hall AI. Every caller passes `delver` (`game.ts`, `play/driver.ts`, `net/session.ts`, the harnesses).
+- **Hall AI**: a Delver Run has none (`hallAi.ts` unchanged; its `state.delver` idle branch stays for safety).
+- **Replays**: `replaySetup` writes `config` as it is, so a replay carries the party-only `teams` and rebuilds through `createMatch`. A Stage 2 Delver replay still loads (its Team 1 slots are dropped) but re-simulates differently (no Warbands then): accepted, they were dev artefacts.
+- **Online**: the Match state's shape changes (a Crowd and a Pool on a Delver state, party-only `teams`), so `PROTOCOL_VERSION` goes to 28.
+  - `src/net/messages.ts`: a Delver state's Duel must have a Floor Crowd: `isCrowd(crowd, fighters.length)` (its existing checks, with `players` empty), plus `crowd.maxHp` (n positive numbers), `crowd.warbands` (`isWarbands`, below), `rout` null, `tickets` [0, 0], and the Pool and the Crowd agreeing on who is bound where (`isBattle`'s `boundRight` and `slotRight`, with `players` = the party's size and no Player record). `duel.fighters.length > config.teams.length` and at most `MAX_POOL` (64). A non-Delver, non-Battle state still has no Crowd. `isWarbands(v, squads)`: each array as long as `squads.team`, `mode` in 0..3, `post` and `patrol` ints ≥ −1 with exactly one of them ≥ 0, `leg` an int ≥ 0, `chased` an int in −1..3, `seen` an int ≥ −1, `size` an int 1..`MAX_SQUAD_PLACES`, `encounter` an int ≥ 0.
+  - `src/net/session.ts`: `poolSlot(i)` is also true for a Delver Run's slots i ≥ k; a resync compares `config.teams` with the Lineup's Team 0 prefix for a Delver Run; no slot of a Delver Run holds Hall AI memory.
+
+**The Floor's Crowd** (`SimState.crowd`, a `CrowdState` as a Battle's, every Soldier Team 1):
+- **What it holds**: the Battle's per-Soldier arrays (x, z, surface, vx, vz, heading, hp, team, target, engage, alive, slot, sizeHeight, sizeThick, troop, look, squad, place), `squads` (one Squad per Warband, in Warband order), and:
+  - `maxHp?: readonly number[]` (new, optional on `CrowdState`, present only on a Floor): each Soldier's max HP. A promoted Soldier's Fighter takes it (`fighterOf` in `bubble.ts`: `maxHp: c.maxHp?.[s] ?? troop.hp`).
+  - `warbands?: WarbandState` (new, optional, present only on a Floor): the brains' state, entry q for Squad q.
+  - The Battle-only parts stay off and are never stepped: `objectives` is `createObjectives([])` (none), `tickets` [0, 0], `rout` null, `players` [] (no Player records: no takeover of Soldiers, no Troop choice, no kill count). The Squads' `order` is all `DEFEND`, `target` all −1, `since` all 0, `respawnAt` all −1 (no Orders, no respawning).
+- **`WarbandState`** (`src/sim/warband.ts`, plain arrays):
+  ```ts
+  export const GUARD = 0, PATROL = 1, CHASE = 2, RETURN = 3;
+  export interface WarbandState {
+    readonly mode: readonly number[];      // GUARD, PATROL, CHASE or RETURN
+    readonly post: readonly number[];      // its post (plan.markers.posts index), or -1 for a patrol
+    readonly patrol: readonly number[];    // its loop (plan.markers.patrols index), or -1 for a guard
+    readonly leg: readonly number[];       // a patrol's waypoint (index into its points) it walks to or returns to; 0 for a guard
+    readonly chased: readonly number[];    // the party Fighter (Pool slot) it chases, or -1
+    readonly seen: readonly number[];      // the Tick it last saw `chased`, or -1
+    readonly size: readonly number[];      // Soldiers it deployed with (its morale counts from this)
+    readonly encounter: readonly number[]; // its template's index in its tier's guard or patrol pool
+  }
+  ```
+  A Warband's **home** is its post (`plan.markers.posts[post]`) for a guard, its loop's point `leg` for a patrol. The squads' `fall` (1 while falling back) and `shape` are the Squad's as in a Battle.
+- **Where Warbands deploy** (`deployWarbands`, below): a guard at each filled post (the post's Hall centre), a patrol on each filled patrol loop. The plan's posts are never in sight of the entrance spawns (Stage 1's judge) and its loops avoid the Entrance and the in-line Halls.
+- **The step**: `stepDelver` steps a Floor as `stepBattle` steps a Battle, under `t = arenaTuning(tuning, arena)`: `stepBubbles(duel, k, tick, t, intents)`, then `step(…, t)`, then `stepCrowd(crowd, tick, t.battle, crowdFighters(…), battleMapOf(t.battle, arena), brain)` where `brain` is the Warband brain bound to the Floor's homes and `tuning.delver`. `stepBattle`'s building of the `CrowdFighter` list moves into `crowdFighters(duel, bubbled, players, away)` (`battle.ts`, exported), shared by both. Kills are not counted and Tickets not charged on a Floor (no `countKills`, no `chargeDeaths`).
+- **`step.ts`**: a Duel with a Crowd skips `updateDuel` today. A Floor's Duel must still end on a wipe, so `updateDuel` runs when `!state.crowd || state.delver !== undefined`, with the Hall flag (Team 0 wiped) for a Floor.
+- **`stepCrowd`** (`crowd.ts`) gains a last optional parameter `brain?: SquadBrain`:
+  ```ts
+  export type SquadBrain = (crowd: CrowdState, tick: number, battle: BattleTuning, map: BattleMap, fighters: readonly CrowdFighter[]) => SquadStep & { readonly warbands: WarbandState };
+  ```
+  With a `brain` (a Floor): it replaces `stepSquads`; the Objectives, Tickets, Commanders and Rout block is skipped; nothing respawns; the result carries `maxHp` and the brain's `warbands`. Without one, all is as now.
+  - **The due loop** becomes `for (let i = 0; i < n; i++) if (crowdDue(i, tick, stagger, armySize) && inCrowd(crowd, i))`. For a Battle (n = 2 × armySize) that is the same Soldiers in the same order (Team 0's due ones ascending, then Team 1's), so every Battle hash is unchanged; a Floor's Crowd of any size steps a 1/stagger share per Tick.
+  - **A walled-off Soldier** (its place not walkable from where it stands) walks down `toward`'s best destination field in a Battle. On a Floor the brain's `SquadStep.lead?: readonly (DestinationFields | null)[]` gives, per Squad, the one field its anchor follows this Tick (home's, or the chased Fighter's, as a one-destination `DestinationFields`, d = 0); `stepCrowd` descends that instead when `lead` is present.
+  - **The waiting ring on a Floor** (`fillRings`, when `crowd.warbands`): a Soldier waits for a Bubble only within `bubble.promote` of it by walking (below), and the spots are `ringSpots(…, 3 × waiting)` kept in order only where `inSight(fields, f.x, f.z, sx, sz, crowd.separation / 2, f.y, f.y)`, the first `waiting` of them handed out as now; a waiting Soldier with no spot left keeps its Formation place.
+  - `SquadStep` gains `lead?` (optional; never set in a Battle).
+- **`squad.ts`**: the brain must not copy `stepSquads`. Two parts move out as exported helpers, a pure refactor (Battle bit-identical): `closeRanks(members, crowd, alive, editPlace)` (the rear rank stepping up into the lowest free places) and `walkAnchors(battle, map, team, x, z, heading, surface, aim, speed)` (every anchor turns toward its aim and walks, out of blocks, onto its Walk Surface by the walk rule). `stepSquads` calls them; so does the Warband brain. `squadNarrows`, `formationSpot` and `placeOffset` are reused as they are (a Floor's `target` −1 makes `inCircleShare` 1).
+- **Hashed and snapshotted**: the whole Crowd with the Match, as a Battle's. Its size: about 60 to 120 Soldiers × 19 numbers, 10 to 16 Squads × 14 and × 8 Warband numbers, about 2,500 numbers, a fifth of a 400-Soldier Battle's. The soak prints `hashValue` and `snapshot` times a Tick. Not in the state: the plan, the homes, the static home fields and the chase fields (caches below).
+
+**The fields** (`src/sim/destinations.ts`):
+```ts
+/** distanceTo, kept: the field to the node of (x, z) on Walk Surface s, built once per (f, node) and kept (FIELDS_KEPT, most recently used last). The caller must not change it. */
+export function fieldToward(f: DestinationFields, x: number, z: number, s = -1): Float64Array;
+/** f with `field` as its only destination (d = 0), for steerToward, descend and fieldDistance. */
+export function oneField(f: DestinationFields, field: Float64Array): DestinationFields;
+export const FIELDS_KEPT = 64;
+```
+- Keyed by the point's node (`nodeAt` on a map of several levels, `cellAt` on one level; −1 gives an all −1 field, kept too), in a module `WeakMap<DestinationFields, Map<number, Float64Array>>`, LRU. `distanceTo` depends only on that node, so a kept field equals a fresh `distanceTo` entry for entry: a cache derived from static data, never in the state, and a Rollback reads the same.
+- Used for each Warband's **home field** (static: about 15 posts and 10 loop points a Floor, read every brain step so they stay kept), each **chased** Fighter's field and each **Bubble's** field (rebuilt when that Fighter changes node: about 0.3 ms at 2 m, Stage 0, a few a second).
+- 64 fields × 13,500 nodes × 8 bytes is about 7 MB at most.
+
+**Warbands from Encounters** (Tuning Data `data/delver.json`, `src/tuning/delver.ts`; the Hall-graph Encounters in `data/dungeon.json` stay the Hall-graph Run's):
+```json
+"sight": 16, "leash": 45, "forgetSeconds": 8, "chaseSpeed": 1, "closeIn": 4, "arrive": 3,
+"postFill": 75, "patrolFill": 100, "perPlayerSoldiers": 1.5, "attackSlots": [4, 3, 3, 3], "tierHp": [1, 1.25, 1.5],
+"warbands": [ { "guard": [ <template>, … ], "patrol": [ <template>, … ] }, … one per tier ]
+```
+- A **template** is `{ "troops": [ { "troop": "<battle.troops name>", "count": n }, … ], "hpScale": h }`: its Soldiers are each listed Troop's `count`, in list order, the first Troop its rank and file. Its brain is the pool it is listed in (guard or patrol).
+- The bundled pools (three tiers, two to four templates a pool, 3 to 8 Soldiers each): tier 1 mostly Levy with a Halberdier; tier 2 adds Swordsmen; tier 3 Brutes and Swordsmen. Patrols are 3 to 5 strong, guards 4 to 8.
+- **Parse checks** (`parseDelver(raw, fieldSize, battle)` now takes the parsed Battle Tuning for its Troop names and `squad.size`):
+  - `sight`, `leash`, `forgetSeconds`, `chaseSpeed`, `closeIn`, `arrive` positive;
+  - `postFill`, `patrolFill` whole 0 to 100; `perPlayerSoldiers` ≥ 0;
+  - `attackSlots` exactly MAX_TEAM_SIZE (4) whole numbers ≥ 1, with (b + 1) × attackSlots[b] + (b + 1) ≤ `battle.bubble.poolSize` for each b (the party and its Bubbles' slots fit the Pool);
+  - `tierHp` and `warbands` exactly `tiers` long, `tierHp` positive;
+  - every pool non-empty; every Troop name one of `battle.troops`; every `count` whole ≥ 1; a template's total 1 to `battle.squad.size`; `hpScale` positive.
+- **The Floor's slots**: `delverBattle` (`build.ts`) also sets `slots: { enemies: attackSlots[0], allies: 0, engaged: battle.slots.engaged, shared: attackSlots.slice(1).map((e) => ({ enemies: e, allies: 0 })) }`, so each Bubble holds `attackSlots[bubbles − 1]` Attack Slots and no ally slot.
+- **The pure picks** (`src/sim/delver/warbands.ts`; seed `s = runSeed(config.arena)`, the Floor `f`; salts `WARBAND_SALT` in that file: postOrder 20, patrolOrder 21, guardPick 22, patrolPick 23, extra 24, height 25, thick 26, look 27):
+  - **Which posts and loops**: posts ordered by `runPick(s, f, post, postOrder, 2^32)`, ties the lower index; the first `ceil(posts × postFill / 100)` are filled, taken back in post order. Loops the same with `patrolFill` and `patrolOrder`.
+  - **Warband order**: the filled posts' guards first (post order), then the filled loops' patrols (loop order). q is that index, and Squad q.
+  - **The tier** of Floor f is `ceil(f / floorsPerTier)`. A guard's template is `guard[runPick(s, f, post, guardPick, guard.length)]`, a patrol's `patrol[runPick(s, f, loop, patrolPick, patrol.length)]` of its tier's pools.
+  - **Party size**: `extra = perPlayerSoldiers × (config.humans − 1)`, then per Warband `floor(extra) + (runPick(s, f, q, extra, 100) < round(100 × frac(extra)) ? 1 : 0)` more Soldiers of its first Troop, the total held to `battle.squad.size`. `config.humans` is fixed at the start, so an AI Takeover changes nothing.
+  - **HP**: each Soldier's max HP (and HP) is `troop.hp × template.hpScale × tierHp[tier − 1]`; no `perPlayerHp` and no `depthHp` in a Delver Run.
+  - **Each Soldier** (index i in the Crowd, Warbands in order, each Warband's Soldiers in template order): Size: height `lo + (hi − lo) × runPick(s, f, i, height, 1001) / 1000` over its Troop's `height` range (1 when it has none), thick the same over `width` (`thick`), then `clampSize`. Look: `runPick(s, f, i, look, bodies)` with `bodies` the Troop's Team 1 Bodies (`troopBodies(troop, 1).length`).
+- **Placing them**: a Warband's anchor stands at its home: a guard at its post, facing its **guard facing** (the side of its Hall, in the order n, e, s, w, whose Passage leads to the neighbour Hall of least `depth`: the way the party comes; the facings 0, π/2, π, −π/2 as `SIDE_FACING`); a patrol at its loop's **start point** (the first point whose Hall is not a Fight Hall and not the Stairs, else point 0), `leg` the next point, facing it (the point after is straight along x or z from it, so the facing is one of the four, by sign; no trig). Soldier p stands at the anchor plus `placeOffset(battle, COLUMN, p, facing, out)`, heading the facing. Every `surface` (Soldier and anchor) is `groundOf(battle, field, x, z, 0)` (the floor, never the roof). Mode GUARD or PATROL, `chased` −1, `seen` −1, `size` its count, `fall` 0, shape COLUMN, `living` its count.
+  ```ts
+  /** The homes the brain reads (derived from the plan, never state): each post with its guard facing, each loop's points. */
+  export interface WarbandHomes { readonly posts: readonly { x: number; z: number; facing: number }[]; readonly patrols: readonly (readonly { x: number; z: number }[])[] }
+  export function warbandHomes(plan: FloorPlan): WarbandHomes;
+  /** The Floor's Crowd at its start: its Warbands deployed (pure, from the Run seed, the Floor and `humans`). */
+  export function deployWarbands(tuning: TuningData /* the Floor's arenaTuning */, plan: FloorPlan, field: Battlefield, seed: number, floor: number, humans: number): CrowdState;
+  ```
+  `warbandHomes` is cached per plan (a `WeakMap<FloorPlan, WarbandHomes>`), derived and never stored.
+
+**The Warband brain** (`stepWarbands(crowd, tick, battle, map, fighters, homes, rules)` in `src/sim/warband.ts`, `rules` the `delver` Tuning keys above; it is the Floor's `SquadBrain`):
+- It runs every Tick: the brains due think, then every anchor walks (`walkAnchors`). Warband q thinks on Ticks where `q % brainTicks(battle) === tick % brainTicks(battle)` (2 Hz, `squad.brainSeconds`). It reads the Soldiers and Fighters as they stood at the start of the Tick.
+- **Each due Warband**, in Squad order:
+  1. Count `living` (alive, promoted ones included) and the centroid of its Soldiers in the Crowd; `closeRanks`. A Warband with none living is **wiped**: it stands (speed 0) and never thinks again. Nothing respawns, so it stays dead for its Floor.
+  2. `broken` = `living < squad.moraleThreshold × size[q]`.
+  3. **Sight**: the party Fighters it sees, `S`: each Team 0 Fighter in play (a Player's or an AI ally's: the AI allies are the party too, or an ally walking alone to the Stairs would pass every Warband) that one of its living Soldiers sees: from the Soldier's place (in the Crowd: x, z at `soldierHeight`; promoted: its Fighter's position and y), the Fighter within `rules.sight` flat, its feet less than `levels.height` above or below, and `inSight(fields, sx, sz, fx, fz, 0, sy, fy)` (both heights given, so the Floor's Walls count). Computed only when the mode reads it (step 4).
+  4. **The transitions** (`arrive` = `rules.arrive`, flat, and on its level):
+     - **GUARD**: if `!broken` and S is not empty → **CHASE**: `chased` the Fighter of S nearest its anchor (flat; the lower slot on a tie), `seen` = tick. Else it holds: away from home, it walks back (as in RETURN, but at once GUARD); at home, aim the post's guard facing (a patrol's broken remnant: the facing it has), speed 0.
+     - **PATROL**: if `!broken` and S is not empty → CHASE as above. If `broken` → GUARD (it holds the point `leg`). Else at point `leg` (within `arrive`) `leg = (leg + 1) % points`; it walks to point `leg`.
+     - **CHASE**:
+       - `broken` → **RETURN** with `fall` 1;
+       - else if `chased` is no longer in play (fallen, or no party Fighter) → CHASE the nearest of S if any, else RETURN;
+       - else if `chased` is in S → `seen` = tick; else if S holds another → `chased` = the nearest of S, `seen` = tick;
+       - then `tick − seen ≥ secondsToTicks(forgetSeconds)` → RETURN (**forgetting**);
+       - else the **Leash**: its walking distance from home (the home field read at its anchor, `fieldDistance(oneField(…), 0, ax, az, as)`) over `rules.leash`, or unreached → RETURN. For a patrol, home is the nearest of its loop's points by walking (the least of their fields at the anchor, the lower index on a tie);
+       - else it follows: `field = fieldToward(fields, fx, fz, fs)` for the chased Fighter (fs = `groundOf(battle, field, fx, fz, fy)`); within `rules.closeIn` of it by that field it halts (speed 0) facing it (shape LINE); else `aim = steerToward(oneField(fields, field), 0, ax, az, fx, fz, 1, as, fs)`, speed `crowd.walkSpeed × rules.chaseSpeed` (0 while its Soldiers lag, `squad.lag`, as a Battle's).
+       - On entering RETURN, `chased` −1, `seen` −1, and a patrol's `leg` becomes its loop's nearest point by walking (the lower index on a tie): it rejoins its loop there.
+     - **RETURN**: it is deaf (S is not read). It walks to home by the home field (`steerToward(oneField(fields, home field), 0, …)`) at `crowd.walkSpeed × squad.speed`, LOOSE while `fall`, else COLUMN. At home (within `arrive`): `fall` 0, and GUARD for a guard or a broken patrol, PATROL for a patrol.
+     - Walking home or along a loop it steers the same way at `walkSpeed × squad.speed` and is COLUMN; LOOSE while `fall`.
+  5. `lead[q]` = the one field its anchor followed this step (the home field, the waypoint's or the chased Fighter's), or null while it stands.
+- The home fields, the waypoint fields and the chase fields all come from `fieldToward` (each home's point on the floor's Walk Surface).
+- **The Tuning Data keys and defaults**: `sight` 16 m, `leash` 45 m (walking: about one and a half Halls), `forgetSeconds` 8, `chaseSpeed` 1 (× `crowd.walkSpeed`, 2.5 m/s; Guard, Patrol and Return walk at `squad.speed` 0.8 of it), `closeIn` 4 m, `arrive` 3 m, `postFill` 75, `patrolFill` 100, `perPlayerSoldiers` 1.5, `attackSlots` [4, 3, 3, 3], `tierHp` [1, 1.25, 1.5].
+
+**The enemy-only Bubble** (`bubble.ts`; Floors only, read from `crowd.warbands` being present):
+- **Who has a Bubble**: every party Fighter in play (slots 0 to k − 1: the Players' and the AI allies'). There is no Player record, so nobody takes over a Soldier, and `crowd.players` is empty.
+- **No ally slots**: there are no Team 0 Soldiers, and the Floor's slots give `allies` 0, so the ally loops find nobody. Every other Pool slot is for an enemy.
+- **Attack Slots**: each Bubble holds `attackSlots[bubbles − 1]` (4 solo, 3 each with 2 to 4 Bubbles in use: 12 with a party of four, which with the 4 party slots fills the 16-slot Pool).
+- **Promotion and Demotion go by walking distance on a Floor, not across the ground.** The **walk** from a point to a Bubble is its field (`fieldToward` to the Bubble's Fighter's node, `fs` from `groundOf(…, f.y)`) read at the point on its Walk Surface (`fieldDistance`), Infinity where unreached. On a Floor it stands in for the flat distance everywhere the Bubble measures one: which Bubble a Soldier or promoted Fighter counts in (`nearestCentre`, `bubbleOf`), `promotable` (within `bubble.promote`), a Waiting Fighter taking a slot back (within `promote`), the fill order (nearest first), the slot-holders past a Bubble's share, and Demotion (`farFromAll`: further than `demote` from every Bubble).
+  - **Why walking distance, not line of sight**: a Warband in the next Hall, 8 m away through a Wall, is a long walk away, so it is neither promoted nor sent to the ring, which is the risk the plan names. A Soldier just round a doorway post, out of sight but two steps away, is promoted, as it should be: it is about to reach the Player. Line of sight would leave it a Soldier at sword's length, and a doorway is where Floors fight. The fields are already built for the chase, and Stage 6's floors come with them (a node per level).
+- **An unpromoted Soldier never hurts a full Fighter**: the existing rule (Soldiers strike only Soldiers, and a Floor has no Team 0 Soldier). A test checks it on a Floor.
+- **What the AI allies fight**: promoted enemies only (the AI's enemies are the Fighters in play). The **Ally AI** on a Floor, while Exploring and in play: if a promoted enemy (Team 1, bound, in play) stands within `bubble.promote` of it flat and on its level, it is its AI (`this.ai.intent`: it fights); else it follows the nearest Player, or walks to the Stairs, as in Stage 2.
+- **The Delver pilot** is taught to fight the same way: a promoted enemy within `bubble.promote` flat and on its level → its AI fights; else its route (fires, then Stairs). It does not go round Warbands: it walks through, the Soldiers keep out of its hold, and the Bubble promotes those near it, which it fights until they fall or demote. Its memory is unchanged.
+- **The Pool AI** drives every enemy slot as in a Battle (its Troop's difficulty, `battle.soldier.style`; a Waiting Fighter waits at the ring and demotes, since no ally ever engages it).
+
+**Formations in 3 m Passages and doorways.** `formationNarrow` already narrows a Formation to the files the clearance ahead holds (`narrow.room` 3, `ahead` 6): in a 3 m Passage the clearance at the centre line is 1.5, so a Warband walks it in single file, centred on its anchor (`placeOffset` with `narrow`), a column of 8 about 10.5 m long. Nothing new is added for Warbands to begin with. The measurement decides: the soak's patrol case (below) times each leg of every loop with no party, and prints the share of Soldier-steps more than 3 m from their place, per leg. If a leg takes more than twice its walking time at `squad.speed`, or a Soldier stays more than 6 m from its place for over 10 s, a Floor-only `narrow.room` (in `delverBattle`) is tried at 2 and 1.5 and the best is kept; the Result records which.
+
+**Input Delay online.** Stage 2 left Delver Runs at 0. The soak prints the Tick by bound slots, and the slow coop test (two peers, Warbands) measures each Rollback: the Ticks it re-simulates and its ms (p50, p99, max). **The rule**: a Delver Run takes `BATTLE_INPUT_DELAY` online if a Rollback's p99 there is over 5 ms (a 60 fps frame's third at the ×3 laptop factor), else it stays at 0. The orchestrator applies the outcome (`game.ts`, where the session is made) and records the numbers.
+
+**Tests.**
+- **Existing tests that change**:
+  - `src/sim/delverRun.test.ts`:
+    - "the start" is rewritten: the party in slots 0 to k − 1, unbound slots to the Pool's size, the Floor's Crowd deployed (no Benched Team 1).
+    - Every case that steps a Floor and asserts on the party alone (the Stairs dwell, the fade, the heal, the revive, the Inventory gate, a wipe, the Victory, a Takeover) runs on an empty Floor: a Tuning with `postFill 0` and `patrolFill 0`, which still has a Crowd of no Soldiers. Their expectations stay.
+    - Its `teams` options keep their Team 1 slots, which `createMatch` drops.
+  - `src/controllers/delverAi.test.ts`, `delverPilot.test.ts`: unchanged on an empty-Floor Tuning; new fight cases are added.
+  - `src/controllers/delverRun.slow.test.ts` (Stage 2's empty-Floor walk, which needs a Revive and a Rested on every Floor): kept on the empty-Floor Tuning, with its prints.
+  - `src/net/delverRun.test.ts` and `delverMessages.test.ts`: the malformed-state cases gain Crowd ones; the loopback runs with Warbands (the default Tuning). `src/net/delverCoop.slow.test.ts`: with Warbands, and it measures Rollbacks.
+  - `src/editor/replay.test.ts`: its Delver replay case runs with Warbands.
+  - `src/tuning/delver.test.ts` and `tuning.test.ts`'s `goodRaw()`: the new keys.
+  - Removed: none. The Hall-graph Run's tests (`dungeonRun.test.ts`, `gauntlet.soak.test.ts`, `takeover.test.ts`, the Door and Floor Map tests) stay as they are.
+- **New fast tests** (one or more each):
+  - deploy at posts and patrols;
+  - Warband sizes by party (humans 1 to 4), and HP by tier;
+  - every brain transition;
+  - the Leash, Return and forget rules;
+  - a wiped Warband stays dead;
+  - no Promotion through a Wall, and Promotion round a doorway;
+  - a Soldier does not hurt a Fighter on a Floor;
+  - Attack Slots by Bubbles;
+  - Demotion;
+  - the fires and the Stairs with enemies about;
+  - `fieldToward` equal to `distanceTo`, kept, and evicted;
+  - Battles unchanged (the existing Battle hash tests pass as they are);
+  - a deterministic replay across a Floor change with Warbands (same Intents, same hash every Tick), and a snapshot restored before a Promotion re-simulating the same.
+- **The slow soak** (`src/controllers/warbandSoak.slow.test.ts`), Tuning `tiers 1, floorsPerTier 3`, five Run seeds, one Player on the Delver pilot (Hard) and two Hard AI allies:
+  - It prints, per Floor: Warbands deployed, met (a Soldier of it promoted), chased, wiped and returned (home again after a Chase); each Warband's time out of place (from leaving GUARD or PATROL to being back in it: count, mean, max); the Tick (mean, p99, max) by bound slots (0, 1 to 4, 5 to 8, 9 to 12); `hashValue` and `snapshot` ms a Tick; the Floor build, and the home and chase field builds (count and ms).
+  - A second case, the **patrols**: every loop of the five seeds' Floor 1, no party (the party standing in the Entrance, out of sight), 120 s: each leg's seconds and its walking time at `squad.speed`, and the Soldiers out of place (as in the Formation rule above).
+  - **It must show it exercised**, else fail: Promotions, Chases, Returns, a Warband wiped, a Patrol completing its whole loop, and **no Warband stuck**: no time out of place over 150 s, no RETURN over 60 s, no patrol leg over 60 s.
+
+**Tasks** (one after another; 4 and 5 may run together, their files being disjoint):
+1. Tuning, the Floor's Crowd at its start, and the field cache: `data/delver.json`, `src/tuning/delver.ts` (+ `index.ts` call), `build.ts` slots, `destinations.ts` (`fieldToward`, `oneField`), `src/sim/warband.ts` (types and constants only), `src/sim/delver/warbands.ts` (`warbandHomes`, `deployWarbands`), `CrowdState.maxHp` / `warbands` types.
+2. The Crowd, Squads and Bubble on a Floor, and the brain: `crowd.ts` (due loop, `brain`, `lead`, the Floor's ring), `squad.ts` (`closeRanks`, `walkAnchors`), `bubble.ts` (walking distance, `maxHp`), `warband.ts` (`stepWarbands`), their tests.
+3. The Run with Warbands: `match.ts` (teams), `delverRun.ts` (Pool, Crowd, the step), `battle.ts` (`crowdFighters`), `step.ts` (the wipe), `lineup.ts`, `allyAi.ts`, `delverPilot.ts`, `game.ts` and `play/driver.ts` (passing `delver`), the rewritten and new Run tests, replay and determinism.
+4. Online: `messages.ts`, `session.ts`, the harnesses, `PROTOCOL_VERSION` 28, the loopback tests and the slow coop test with its Rollback measurement.
+5. Drawing Warbands in a Delver Run: the Crowd's impostors and the Promotion swaps in the Duel's view (as `battleScreen.ts` does them), and anything in the HUD, camera or minimap that reads a Crowd as a Battle.
+6. The soak.
+
 ### Stage 4: loot, Treasure Halls and Boss Floors
 **Model**: Sonnet.
 - A wiped Warband drops one item per Player where its last Soldier fell. Treasure Halls hold pedestals (pick 1 of 3). Elite Warbands carry Relics and drop them.
