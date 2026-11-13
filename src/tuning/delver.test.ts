@@ -35,16 +35,16 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(troop('Brute')).toBeGreaterThan(0);
     expect(warbands).toEqual([
       {
-        guard: [template(['Levy', 4]), template(['Levy', 3], ['Halberdier', 1]), template(['Levy', 4], ['Halberdier', 1])],
-        patrol: [template(['Levy', 3]), template(['Levy', 2], ['Halberdier', 1])],
+        guard: [template(['Levy', 1]), template(['Levy', 2]), template(['Levy', 2], ['Halberdier', 1])],
+        patrol: [template(['Levy', 2]), template(['Levy', 3]), template(['Levy', 3], ['Halberdier', 1]), template(['Levy', 3], ['Halberdier', 2])],
       },
       {
-        guard: [template(['Levy', 3], ['Halberdier', 1], ['Swordsman', 1]), template(['Levy', 4], ['Halberdier', 2]), template(['Swordsman', 2], ['Levy', 3])],
-        patrol: [template(['Levy', 3], ['Swordsman', 1]), template(['Halberdier', 2], ['Levy', 2])],
+        guard: [template(['Halberdier', 1], ['Swordsman', 1]), template(['Levy', 2], ['Halberdier', 1]), template(['Levy', 1], ['Halberdier', 1], ['Swordsman', 1])],
+        patrol: [template(['Levy', 3], ['Swordsman', 1]), template(['Halberdier', 2], ['Levy', 2]), template(['Levy', 3], ['Halberdier', 1], ['Swordsman', 1])],
       },
       {
-        guard: [template(['Swordsman', 2], ['Levy', 3], ['Brute', 1]), template(['Brute', 2], ['Halberdier', 2], ['Levy', 2]), template(['Swordsman', 3], ['Halberdier', 2], ['Levy', 3])],
-        patrol: [template(['Swordsman', 2], ['Levy', 2]), template(['Brute', 1], ['Halberdier', 2], ['Levy', 2])],
+        guard: [template(['Brute', 1]), template(['Swordsman', 1], ['Levy', 1]), template(['Swordsman', 2], ['Brute', 1]), template(['Brute', 1], ['Halberdier', 2])],
+        patrol: [template(['Swordsman', 2], ['Levy', 2]), template(['Brute', 1], ['Halberdier', 2], ['Levy', 2]), template(['Swordsman', 2], ['Brute', 1])],
       },
     ]);
     expect(keys).toEqual({

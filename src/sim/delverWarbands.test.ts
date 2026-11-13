@@ -257,7 +257,10 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
   it('heals at a fire with a Warband chasing nearby', () => {
     let m = start();
     const fire = planOf(m).markers.fires[0]!;
-    const q = warbandsIn(m.duel.crowd!, PATROL)[0]!;
+    // The patrol whose loop passes nearest the fire, so the Leash (a walk from its loop) doesn't end the chase the moment it starts.
+    const loops = warbandHomes(planOf(m)).patrols;
+    const loopGap = (q: number) => Math.min(...loops[m.duel.crowd!.warbands!.patrol[q]!]!.map((p) => Math.hypot(p.x - fire.x, p.z - fire.z)));
+    const q = warbandsIn(m.duel.crowd!, PATROL).sort((a, b) => loopGap(a) - loopGap(b))[0]!;
     const them = members(m.duel.crowd!, q);
     const t = arenaTuning(tuning, m.arena);
     const map = battleMapOf(t.battle, m.arena);
