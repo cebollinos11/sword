@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, type Intent, type MatchState } from '../sim';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
+import { BOSS } from '../sim/warband';
 import { MatchAnnouncer, type Milestone } from './announcer';
 
 const base = loadTuningData();
@@ -163,5 +164,37 @@ describe('a Delver Run’s announcements', () => {
     // The next Floor starts afresh: its fires are untouched.
     const next = { ...m, duelNumber: 2, delver: { ...m.delver!, floor: 2 } };
     expect(announcer.update(next, 0)).toEqual([{ type: 'DuelStart', duelNumber: 2 }]);
+  });
+});
+
+describe('a Boss Floor’s announcements', () => {
+  const boss: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
+  const m = createMatch(boss, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const q = m.duel.crowd!.warbands!.rank.indexOf(BOSS);
+  const drop = (id: number, owner: number | null, over: object = {}) => ({ id, owner, kind: 'relic' as const, item: 'Whetstone', at: { x: 0, y: 0, z: 0 }, taken: false, ...over });
+
+  it('announces the Boss beaten once, when the Boss Warband is wiped, and not before', () => {
+    expect(q).toBeGreaterThanOrEqual(0);
+    const announcer = new MatchAnnouncer();
+    expect(announcer.update(m, 0)).toEqual([{ type: 'DuelStart', duelNumber: 1 }]);
+    const other = { ...m, delver: { ...m.delver!, wiped: [q + 1] } };
+    expect(announcer.update(other, 0)).toEqual([]);
+    const beaten = { ...m, delver: { ...m.delver!, wiped: [q] } };
+    expect(announcer.update(beaten, 0)).toEqual([{ type: 'BossBeaten', duelNumber: 1 }]);
+    expect(announcer.update(beaten, 0)).toEqual([]);
+  });
+
+  it('announces loot dropped for the local Player only: its own wipe drops, not another Player’s, a shared inventory drop or a pedestal', () => {
+    const announcer = new MatchAnnouncer();
+    announcer.update(m, 0);
+    const lying = (...more: ReturnType<typeof drop>[]) => ({ ...m, delver: { ...m.delver!, pickups: [...m.delver!.pickups, ...more] } });
+    const n = m.delver!.pickups.length;
+    expect(announcer.update(lying(drop(n, 1)), 0)).toEqual([]);
+    expect(announcer.update(lying(drop(n, 1), drop(n + 1, null, { by: 0 })), 0)).toEqual([]);
+    expect(announcer.update(lying(drop(n, 1), drop(n + 1, null, { by: 0 }), drop(n + 2, 0, { group: n + 2 })), 0)).toEqual([]);
+    const mine = lying(drop(n, 1), drop(n + 1, 0), drop(n + 2, 0));
+    expect(announcer.update(mine, 0)).toEqual([{ type: 'LootDropped', duelNumber: 1 }]);
+    expect(announcer.update(mine, 0)).toEqual([]);
+    expect(announcer.update(lying(), -1)).toEqual([]);
   });
 });

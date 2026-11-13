@@ -1,4 +1,5 @@
 import type { MatchState } from '../sim';
+import { BOSS } from '../sim/warband';
 
 /** Something worth announcing about a Match (HUD banner, camera reset, result screen). */
 export type Milestone =
@@ -11,6 +12,10 @@ export type Milestone =
   | { readonly type: 'Rested'; readonly duelNumber: number }
   /** The watched Fighter came back at a Delver Floor's fire. */
   | { readonly type: 'Revived'; readonly duelNumber: number }
+  /** A Delver Floor's Boss Warband was wiped: the gate is open (the Victory screen instead, on the last Floor). */
+  | { readonly type: 'BossBeaten'; readonly duelNumber: number }
+  /** A Delver Floor's wiped Warband laid an item for the watched Fighter (its Player; none while no Fighter is watched). */
+  | { readonly type: 'LootDropped'; readonly duelNumber: number }
   /** The watched Fighter fell while its team fought on. */
   | { readonly type: 'Fell'; readonly duelNumber: number }
   | { readonly type: 'MatchEnd'; readonly winner: number; readonly score: readonly number[] };
@@ -31,6 +36,9 @@ export class MatchAnnouncer {
   /** The Delver Floor's fires the watched Fighter has taken the heal of. */
   private fires = 0;
   private fell = false;
+  private bossBeaten = false;
+  /** The wipe drops lying for the watched Fighter (`pickups`, ids never reused), counted over the Floor. */
+  private loot = 0;
   private matchEnded = false;
 
   /** `me`: the Fighter whose fall is announced (default none). */
@@ -49,6 +57,8 @@ export class MatchAnnouncer {
       this.rested = false;
       this.fires = 0;
       this.fell = false;
+      this.bossBeaten = false;
+      this.loot = 0;
       out.push({ type: 'DuelStart', duelNumber: match.duelNumber });
     }
     const duel = match.duel.duel;
@@ -74,6 +84,20 @@ export class MatchAnnouncer {
     if (fires > this.fires) {
       this.fires = fires;
       out.push({ type: 'Rested', duelNumber: match.duelNumber });
+    }
+    const delver = match.delver;
+    if (delver && !this.bossBeaten) {
+      const boss = match.duel.crowd?.warbands?.rank.indexOf(BOSS) ?? -1;
+      if (boss >= 0 && delver.wiped.includes(boss)) {
+        this.bossBeaten = true;
+        out.push({ type: 'BossBeaten', duelNumber: match.duelNumber });
+      }
+    }
+    // A wipe's drops are the Floor's pickups with an owner and no pedestal group (an inventory drop is shared and has `by`).
+    const loot = delver?.pickups.filter((p) => p.owner === me && p.group === undefined && p.by === undefined).length ?? 0;
+    if (loot > this.loot) {
+      this.loot = loot;
+      out.push({ type: 'LootDropped', duelNumber: match.duelNumber });
     }
     if (!this.duelEnded && duel.status === 'Over') {
       this.duelEnded = true;

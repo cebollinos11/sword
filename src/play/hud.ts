@@ -33,6 +33,9 @@ export interface RunResult {
   /** Floors cleared (their Boss beaten). */
   readonly cleared: number;
   readonly floors: number;
+  /** A Delver Run's Bosses beaten (`RunEnd.bosses`) of `bossTotal` (the tiers with a Boss); absent in a Hall-graph Run, and in a Delver Run whose Tuning has no Boss: no Bosses part is shown. */
+  readonly bosses?: number;
+  readonly bossTotal?: number;
   /** Halls cleared, Bosses included; absent in a Delver Run (it has none): no Halls part is shown. */
   readonly halls?: number;
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
@@ -78,10 +81,13 @@ export function hpText(hp: number): string {
   return String(Math.ceil(Math.round(Math.max(0, hp) * 1e6) / 1e6));
 }
 
-/** A Run's end in one line (the Lobby's note after it): verdict, Floors and Halls cleared, time and seed. */
+/** A Delver Run's Bosses part of its results, "Bosses b / B", or none (a Hall-graph Run, or a Tuning without a Boss). */
+const bossesPart = (r: RunResult): string[] => (r.bosses === undefined || r.bossTotal === undefined ? [] : [`Bosses ${r.bosses} / ${r.bossTotal}`]);
+
+/** A Run's end in one line (the Lobby's note after it): verdict, Floors, Bosses and Halls cleared, time and seed. */
 export function runResultLine(r: RunResult): string {
   const halls = r.halls === undefined ? [] : [`${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`];
-  return [r.victory ? 'Victory' : 'Defeat', `${r.cleared} / ${r.floors} Floors`, ...halls, runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
+  return [r.victory ? 'Victory' : 'Defeat', `${r.cleared} / ${r.floors} Floors`, ...bossesPart(r), ...halls, runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
 }
 
 /**
@@ -237,7 +243,7 @@ export class Hud {
     const title = document.createElement('div');
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
-    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
     if (note) {
       const next = document.createElement('p');

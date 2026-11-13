@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { createMatch, type SimState } from '../sim';
 import type { ImpostorAtlases } from '../render/impostorAtlas';
-import { FloorCrowd, type CrowdDraw, type CrowdStage } from './floorCrowd';
+import { soldierLooks } from '../render/impostorAtlas';
+import { floorTroops } from '../sim/delver';
+import { FloorCrowd, floorBattle, type CrowdDraw, type CrowdStage } from './floorCrowd';
 
 const tuning = loadTuningData();
 const ARENA = 'gen:greybox:4242';
@@ -102,6 +104,35 @@ describe('a Delver Run’s Crowd view', () => {
     await flush();
     expect(late.atlases.dispose).toHaveBeenCalledTimes(1);
     expect(late.scene.children).toHaveLength(0);
+  });
+});
+
+describe('the atlases a Delver Run’s Crowd is drawn from', () => {
+  const battle = floorBattle(tuning);
+  const { troops, boss, elite } = floorTroops(tuning.battle, tuning.delver);
+  const { looks, index } = soldierLooks(battle);
+
+  it('are baked from the Floor Troops, so a Boss Troop past the Battle’s is drawn as its Body and Weapon', () => {
+    expect(battle.troops).toBe(troops);
+    for (const [tier, t] of boss.entries()) {
+      expect(t).toBeGreaterThanOrEqual(tuning.battle.troops.length);
+      const spec = tuning.delver.warbands[tier]!.boss!.troop;
+      expect(index[1]![t]!.map((k) => looks[k])).toEqual([{ body: spec.body, weapon: spec.weapon }]);
+    }
+  });
+
+  it('share an elite Troop’s atlases with its base Troop (the same Bodies and Weapon), baking only the Bosses’ extra looks', () => {
+    const baseLooks = soldierLooks(tuning.battle).looks;
+    for (const tier of elite)
+      for (const template of tier)
+        for (const t of template) {
+          const baseName = troops[t]!.name.replace(' (elite)', '');
+          const base = tuning.battle.troops.findIndex((x) => x.name === baseName);
+          expect(base).toBeGreaterThanOrEqual(0);
+          for (const team of [0, 1]) expect(index[team]![t]).toEqual(index[team]![base]);
+        }
+    for (const look of baseLooks) expect(looks).toContainEqual(look);
+    expect(looks.length - baseLooks.length).toBeLessThanOrEqual(boss.filter((t) => t >= 0).length);
   });
 });
 

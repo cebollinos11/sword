@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, soldierBody, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -20,15 +20,17 @@ import { inventoryHoldsInput, type DelverContext } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { doorMarkView, doorRun } from './play/doorMarks';
 import { mapKeyAction } from './play/floorMap';
-import { pickupViews, type PickupView } from './render/pickupView';
-import type { DelverMarksView } from './render/delverMarks';
+import { crateTop, pickupViews, type PickupView } from './render/pickupView';
+import { crateStacked } from './render/mapProps';
+import { gateState, type DelverMarksView } from './render/delverMarks';
+import { bossesBeaten } from './sim/delverRun';
 import { fireState } from './render/restFire';
 import { floorOf } from './sim/delver';
 import { playerName, runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
-import { floorBodies } from './play/floorBodies';
+import { floorBodies, floorBodyOf } from './play/floorBodies';
 import { FinalBlowShot, shotIntent } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
@@ -703,11 +705,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     floorCrowd.update(duel, alpha, seconds, renderer.camera);
   }
 
+  /** A Delver Floor's pedestal items stand on its crate props (`pedestal<n>`, in `plan.markers.pedestals` order): the top of each one's stack. False outside a Delver Run. */
+  function crateTops(match: MatchState): false | ((p: Pickup) => number) {
+    const plan = match.delver && floorOf(matchTuning, match.arena)?.plan;
+    if (!plan) return false;
+    return (p) => crateTop(crateStacked(`pedestal${plan.markers.pedestals.findIndex((m) => m.x === p.at.x && m.z === p.at.z)}`));
+  }
+
   /** What the Renderer draws a Delver Run's Floor marks from, or null outside a Delver Run. */
   function delverMarksOf(match: MatchState, me: number): DelverMarksView | null {
     const run = match.delver;
     const plan = run && floorOf(matchTuning, match.arena)?.plan;
-    return run && plan ? { plan, restUsed: run.restUsed, me, fireRadius: matchTuning.delver.fireRadius } : null;
+    return run && plan ? { plan, restUsed: run.restUsed, me, fireRadius: matchTuning.delver.fireRadius, gate: gateState(plan, match.duel.crowd, run.wiped) } : null;
   }
 
   /** A Delver Run's context for the inventory screen: its phase, and whether the local Fighter stands at a fire. Undefined outside a Delver Run. */
@@ -791,6 +800,11 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         hud.announce('Rested', 1.5);
       } else if (e.type === 'Revived') {
         hud.announce('Revived', 1.5);
+      } else if (e.type === 'BossBeaten') {
+        // The last Boss wins the Run: the Victory screen says so.
+        if (match.status.status !== 'Over') hud.announce('Boss beaten: the gate opens', 2.5);
+      } else if (e.type === 'LootDropped') {
+        hud.announce('Loot dropped', 1.5);
       } else if (e.type === 'DuelStart') {
         const seed = parseGeneratedName(match.arena)?.seed;
         if (delver) {
@@ -814,10 +828,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       } else if (e.type === 'MatchEnd' && delver && match.status.status === 'Over') {
         // A Delver Run's results screen follows the Final Blow Shot, if any (a Defeat has one), then the Lobby: Floors cleared, with no Halls.
         const victory = e.winner === myTeam;
+        const bossTotal = matchTuning.delver.warbands.filter((t) => t.boss).length;
         runResult = {
           victory,
           cleared: match.score[0]!,
           floors: delver.floors,
+          ...(bossTotal > 0 && match.duel.crowd ? { bosses: bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
@@ -1052,7 +1068,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
             at: renderer.camera.position,
             dir: renderer.camera.getWorldDirection(cameraDir),
             near: { x: mine.position.x, y: mine.y, z: mine.position.z },
-          })
+          }, crateTops(curr))
         : [];
       renderer.setPickups(pickups);
       renderer.setFire(fireState(curr.run?.rested ?? [], me));
@@ -1143,8 +1159,7 @@ function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readon
   if (match.delver) {
     const party = match.config.teams.length;
     const chosen = (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
-    const crowd = match.duel.crowd;
-    return floorBodies(match.duel, party, chosen, (i) => (crowd ? soldierBody(tuning.battle, crowd, i) : tuning.battle.soldier.body));
+    return floorBodies(match.duel, party, chosen, floorBodyOf(tuning, match.arena, match.duel.crowd));
   }
   const roster = match.run ? hallRoster(tuning, match.config, runHall(match.run), BODY_MODELS) : [];
   let enemy = 0;

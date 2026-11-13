@@ -136,3 +136,13 @@ describe('the fps and ping counter', () => {
     expect(statsText(58, { total: 84.4, network: 30.2, cpu: 54.2 })).toBe('58 fps · 84 ms (net 30 · cpu 54)');
   });
 });
+
+describe('a Delver Run’s results line', () => {
+  it('adds "Bosses b / B" after the Floors, and none for a Hall-graph Run or a Tuning without a Boss', () => {
+    expect(runResultLine({ victory: true, cleared: 9, floors: 9, bosses: 3, bossTotal: 3, seconds: 125, seed: 9 })).toBe('Victory · 9 / 9 Floors · Bosses 3 / 3 · 2:05 · Run seed 9');
+    expect(runResultLine({ victory: false, cleared: 4, floors: 9, bosses: 1, bossTotal: 3, seconds: 5, seed: 1 })).toBe('Defeat · 4 / 9 Floors · Bosses 1 / 3 · 0:05 · Run seed 1');
+    expect(runResultLine({ victory: false, cleared: 1, floors: 3, halls: 7, seconds: 312, seed: 4242 })).toBe('Defeat · 1 / 3 Floors · 7 Halls cleared · 5:12 · Run seed 4242');
+    expect(runResultLine({ victory: true, cleared: 3, floors: 3, seconds: 125, seed: 9 })).toBe('Victory · 3 / 3 Floors · 2:05 · Run seed 9');
+  });
+});
+

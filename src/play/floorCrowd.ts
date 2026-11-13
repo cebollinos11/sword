@@ -1,15 +1,15 @@
 /**
  * A Delver Run's Crowd on screen (docs/plans/delver.md, Stage 3): the Floor's Warbands drawn as a Battle draws its armies, each
  * Soldier an impostor (`CrowdView`) until the Bubble promotes it into the Fighter Pool, when `BubbleSwap` crossfades it with its
- * full model. One `FloorCrowd` lives for the whole Run: the atlases are baked once from the Troops (every Floor shares them, so the
- * base Tuning Data's Battle serves as well as a Floor's `arenaTuning`) and each Floor's new Crowd is just a Crowd of another length.
+ * full model. One `FloorCrowd` lives for the whole Run: the atlases are baked once from the Floor Troops (`floorBattle`; every Floor shares them, so the
+ * base Tuning Data serves as well as a Floor's `arenaTuning`) and each Floor's new Crowd is just a Crowd of another length.
  * The atlases bake in the background, with no loading bar: the Floor plays on with Soldiers undrawn until they are ready (a
  * promoted Soldier is a Fighter, drawn by the Renderer as ever). Render only: it reads the state and never changes an outcome.
  */
 import type * as THREE from 'three';
 import { battlefieldHeight, battlefieldOf, type Heightfield, type SimState } from '../sim';
-import { arenaTuning } from '../sim/delver';
-import type { TuningData } from '../tuning';
+import { arenaTuning, floorTroops } from '../sim/delver';
+import type { BattleTuning, TuningData } from '../tuning';
 import { blobTexture } from '../render/blobShadow';
 import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
@@ -32,6 +32,15 @@ export interface FloorCrowdParts {
   view(atlases: ImpostorAtlases): CrowdDraw;
 }
 
+/**
+ * The Battle Tuning a Delver Run's atlases are baked from and its `CrowdView` indexes: the Battle's, with the Floor Troops (`floorTroops`: the Battle's
+ * Troops, then each tier's Boss and the elites) as its Troops, so a Boss or elite Soldier is drawn as itself. An elite Troop has its base's Bodies and Weapon,
+ * so `soldierLooks` finds its looks already baked and the extra Troops cost only the Bosses' own (at most one new atlas per tier). Every Floor shares it.
+ */
+export function floorBattle(tuning: TuningData): BattleTuning {
+  return { ...tuning.battle, troops: floorTroops(tuning.battle, tuning.delver).troops };
+}
+
 /** A Delver Run's Crowd view: owns the atlases, the `CrowdView` and the `BubbleSwap` from the Run's start to its end. */
 export class FloorCrowd {
   private readonly swap = new BubbleSwap();
@@ -49,9 +58,10 @@ export class FloorCrowd {
     private readonly party: number,
     parts?: FloorCrowdParts,
   ) {
+    const battle = floorBattle(tuning);
     this.parts = parts ?? {
-      bake: () => bakeImpostorAtlases(stage.gl, tuning, tuning.battle),
-      view: (atlases) => new CrowdView(atlases, tuning.battle, blobTexture()),
+      bake: () => bakeImpostorAtlases(stage.gl, tuning, battle),
+      view: (atlases) => new CrowdView(atlases, battle, blobTexture()),
     };
     void this.parts.bake().then((atlases) => {
       if (this.disposed) {
