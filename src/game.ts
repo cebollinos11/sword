@@ -409,17 +409,20 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
     const me = members.indexOf(l.me!);
     const weapon = picks[me]!;
+    // A Delver Run's Floor with its Warbands costs a Battle's Tick, and so does every Tick a Rollback re-simulates (docs/plans/delver.md, Stage 3:
+    // a Rollback's p99 was 11.6 ms with Warbands): it takes a Battle's Input Delay. Each peer's own (peers need not agree), from the Lobby's setting.
+    const inputDelay = s.settings.format === 'Gauntlet' && s.settings.delver ? BATTLE_INPUT_DELAY : 0;
     let session;
     if (l.isHost) {
       // A guest who left between the start and now gets an AI in their place from the first Tick.
       const guests = members.slice(1).map((id) => l.matchTransport(s.generation, id));
       // Duels restart on their own; a Run has no Rematch (the host starts the next one from the in-game menu).
       const rematch = match.format === 'Gauntlet' ? {} : { rematchTicks: secondsToTicks(REMATCH_SECONDS) };
-      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup, lag });
+      session = createRollbackSession({ role: 'host', guests, tuning: matchTuning, weapon, match: { ...match, ...rematch }, lineup, inputDelay, lag });
     } else {
       const transport = l.matchTransport(s.generation, 0);
       if (!transport) return;
-      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, lag });
+      session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, inputDelay, lag });
     }
     // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run (a Delver Run's is the Delver pilot).
     const doors = match.format ? devAutopilot() : null;
