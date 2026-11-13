@@ -40,6 +40,9 @@ import {
   warbandHomes,
   type WarbandHomes,
 } from "../sim/delver";
+import { isBossFloor, tierOf } from "../sim/delver/troops";
+import { gateOpen } from "../sim/delverRun";
+import { BOSS, ELITE } from "../sim/warband";
 import { createAiController } from "./ai";
 import { controllerIntents, type Controller } from "./controller";
 import { promotedNear } from "./allyAi";
@@ -97,7 +100,11 @@ const LINEUP: Lineup = [
   })),
 ];
 
-/** The bundled Tuning cut to one tier of three Floors (`tierHp` and `warbands` to that one tier). A new object each call: its Floors build cold. */
+/**
+ * The bundled Tuning cut to one tier of three Floors (`tierHp` and `warbands` to that one tier), with its tier's `boss` removed: Floor 3 would be a
+ * Boss Floor, and these cases follow Warbands on a Run that ends at the last Stairs (docs/plans/delver.md, Stage 4, §10). Elites stay in. A new
+ * object each call: its Floors build cold.
+ */
 const runTuning = (): TuningData => ({
   ...base,
   delver: {
@@ -105,7 +112,9 @@ const runTuning = (): TuningData => ({
     tiers: 1,
     floorsPerTier: FLOORS,
     tierHp: base.delver.tierHp.slice(0, 1),
-    warbands: base.delver.warbands.slice(0, 1),
+    warbands: base.delver.warbands
+      .slice(0, 1)
+      .map(({ boss: _boss, ...tier }) => tier),
   },
 });
 
@@ -421,6 +430,11 @@ interface RunOptions {
   seconds?: number;
   /** Stop when this Floor has ended (default: play the Run out). */
   stopAfter?: number;
+  /** The Tuning (default `runTuning()`), and how many Floors it has (default `FLOORS`). */
+  tuning?: TuningData;
+  floors?: number;
+  /** Called on every Tick with the Match before and after it, and the Tuning. */
+  watch?: (at: MatchState, next: MatchState, tuning: TuningData) => void;
 }
 
 /** Play one Run to its end or the cap, following it. */
@@ -431,10 +445,10 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
     s.pilot.kind === "Player" ? [i] : [],
   );
   const cap = secondsToTicks(options.seconds ?? RUN_SECONDS);
-  const tuning = runTuning();
+  const tuning = options.tuning ?? runTuning();
   const seed = runSeed(name);
   // A cold tuning object: each Floor is built here for the first time, then the Match reads them from the cache.
-  const builds = Array.from({ length: FLOORS }, (_, k) => {
+  const builds = Array.from({ length: options.floors ?? FLOORS }, (_, k) => {
     const t0 = performance.now();
     floorOf(tuning, floorArenaName(seed, k + 1));
     return performance.now() - t0;
@@ -630,6 +644,7 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
     const t0 = performance.now();
     const next = stepMatch(at, controllerIntents(at.duel, controllers), tuning);
     const ms = performance.now() - t0;
+    options.watch?.(at, next, tuning);
     const bound = next.duel.fighters
       .slice(k)
       .filter((x) => x.soldier !== undefined).length;
@@ -759,6 +774,246 @@ function printFloor(r: FloorReport): string[] {
 }
 
 // ------------------------------------------------------------------ the tests
+
+// ------------------------------------------------------------------ the full Run, with Bosses
+
+/** The full Run's cap of simulated time (s): 60 minutes. */
+const FULL_SECONDS = 60 * 60;
+const FULL_RUN = "gen:greybox:4242";
+const RANKS = ["plain", "elite", "boss"];
+
+/** What one Floor of the full Run showed, followed from the Match states and events. */
+interface BossFloor {
+  floor: number;
+  /** Warbands by rank [PLAIN, ELITE, BOSS]: deployed, met (a Soldier promoted), wiped. */
+  deployed: number[];
+  met: number[];
+  wiped: number[];
+  /** Items laid by WarbandWiped events (and of them Relics), Warband drops taken, pedestals taken. */
+  laid: number;
+  laidRelics: number;
+  dropsTaken: number;
+  pedestalsTaken: number;
+  /** Elite Warbands wiped, and the Relic one carried (its template's first) laid, and taken. */
+  eliteWiped: number;
+  eliteRelicLaid: number;
+  eliteRelicTaken: number;
+  /** A Boss Floor: the Tick the Boss Soldier was first promoted, the Pool slot it took, the Tick another Soldier of its Warband was first promoted, the wipe, the gate opening and StairsTaken. */
+  bossPromoted: number | null;
+  bossSlot: number;
+  otherPromoted: number | null;
+  bossWiped: number | null;
+  beaten: number | null;
+  gate: number | null;
+  stairs: number | null;
+}
+
+const newBossFloor = (floor: number): BossFloor => ({
+  floor,
+  deployed: [0, 0, 0],
+  met: [0, 0, 0],
+  wiped: [0, 0, 0],
+  laid: 0,
+  laidRelics: 0,
+  dropsTaken: 0,
+  pedestalsTaken: 0,
+  eliteWiped: 0,
+  eliteRelicLaid: 0,
+  eliteRelicTaken: 0,
+  bossPromoted: null,
+  bossSlot: -1,
+  otherPromoted: null,
+  bossWiped: null,
+  beaten: null,
+  gate: null,
+  stairs: null,
+});
+
+/** Plays the full Run on `tuning` and follows the Bosses and the loot. */
+function playBossRun(tuning: TuningData, seconds = FULL_SECONDS) {
+  const floors: BossFloor[] = [];
+  let runEnd: Extract<MatchEvent, { type: "RunEnd" }> | undefined;
+  const total = tuning.delver.tiers * tuning.delver.floorsPerTier;
+  /** The Warbands of the Floor in play that already met the party, and the ids of the elite Relics laid on it. */
+  let metQ = new Set<number>();
+  let relicIds = new Set<number>();
+  const wall = performance.now();
+  const run = playRun(FULL_RUN, {
+    tuning,
+    floors: total,
+    seconds,
+    watch: (at, next) => {
+      const events = next.events as readonly MatchEvent[];
+      const found = events.find((e) => e.type === "RunEnd");
+      if (found) runEnd = found as typeof runEnd;
+      if (floors.length === 0 || next.delver!.floor !== at.delver!.floor) {
+        // A new Floor: its Warbands as deployed.
+        const b = newBossFloor(next.delver!.floor);
+        for (const r of next.duel.crowd!.warbands!.rank) b.deployed[r]!++;
+        floors.push(b);
+        metQ = new Set();
+        relicIds = new Set();
+        return;
+      }
+      const b = floors[floors.length - 1]!;
+      const c = next.duel.crowd!;
+      const pc = at.duel.crowd!;
+      const w = c.warbands!;
+      const bq = w.rank.indexOf(BOSS);
+      const boss = bq < 0 ? -1 : c.squad.findIndex((sq) => sq === bq);
+      const plan = floorOf(tuning, next.duel.arena)!.plan;
+      // Promotions: a Soldier whose Pool slot was none and now is one.
+      for (let i = 0; i < c.slot.length; i++) {
+        if (!(pc.slot[i]! < 0 && c.slot[i]! >= 0)) continue;
+        const q = c.squad[i]!;
+        if (!metQ.has(q)) {
+          metQ.add(q);
+          b.met[w.rank[q]!]!++;
+        }
+        if (q !== bq) continue;
+        if (i === boss) {
+          if (b.bossPromoted === null) {
+            b.bossPromoted = next.tick;
+            b.bossSlot = c.slot[i]!;
+          }
+        } else if (b.otherPromoted === null) b.otherPromoted = next.tick;
+      }
+      if (
+        b.gate === null &&
+        plan.halls[plan.stairs]!.kind === "Boss" &&
+        gateOpen(plan, c, next.delver!.wiped)
+      )
+        b.gate = next.tick;
+      const before = at.delver!.pickups;
+      const after = next.delver!.pickups;
+      for (const e of events) {
+        if (e.type === "WarbandWiped") {
+          b.wiped[e.rank]!++;
+          if (e.rank === BOSS) b.bossWiped = next.tick;
+          // The items it laid: appended to the pickups this Tick.
+          const laid = after.slice(before.length);
+          b.laid += laid.length;
+          b.laidRelics += laid.filter((p) => p.kind === "relic").length;
+          if (e.rank === ELITE) {
+            b.eliteWiped++;
+            const carried =
+              tuning.delver.warbands[tierOf(tuning.delver, b.floor) - 1]!
+                .elite?.[w.encounter[e.warband]!]?.relics[0];
+            for (const p of laid)
+              if (p.kind === "relic" && p.item === carried) {
+                b.eliteRelicLaid++;
+                relicIds.add(p.id);
+              }
+          }
+        } else if (e.type === "ItemTaken") {
+          const p = after.find((x) => x.id === e.id);
+          if (p === undefined) continue;
+          if (p.group !== undefined) b.pedestalsTaken++;
+          else if (p.owner !== null && p.by === undefined) {
+            b.dropsTaken++;
+            if (relicIds.has(p.id)) b.eliteRelicTaken++;
+          }
+        } else if (e.type === "BossBeaten") b.beaten = next.tick;
+        else if (e.type === "StairsTaken") b.stairs = next.tick;
+      }
+    },
+  });
+  return {
+    run,
+    floors,
+    runEnd,
+    wall: (performance.now() - wall) / 1000,
+    total,
+  };
+}
+
+type BossRun = ReturnType<typeof playBossRun>;
+
+/**
+ * The test Tuning of the asserted full Run: the bundled one with two knobs eased, because the Delver pilot (Hard, two Hard allies) does not win the
+ * bundled Run (it is worn down by Floor 6 or 9 in every Run tried; the case above prints where). Changed: `postFill` 75 to 25 (a quarter of the
+ * guard posts filled instead of three quarters) and `tierHp` [1, 1.25, 1.5] to [1, 1, 1] (the deeper tiers' Soldiers as tough as tier 1's).
+ * Neither alone won the Run seed 4242. Bosses, elites, patrols and loot are the bundled ones.
+ */
+const LENIENT: TuningData = {
+  ...base,
+  delver: { ...base.delver, postFill: 25, tierHp: [1, 1, 1] },
+};
+
+/** What the full Run did not exercise. */
+function bossProblems(
+  tuning: TuningData,
+  { run, floors, runEnd, total }: BossRun,
+): string[] {
+  const problems: string[] = [];
+  for (let fl = 1; fl <= total; fl++) {
+    if (!isBossFloor(tuning.delver, fl)) continue;
+    const b = floors[fl - 1];
+    if (b === undefined) {
+      problems.push(`Floor ${fl} (a Boss Floor) was never reached`);
+      continue;
+    }
+    if (b.bossPromoted === null)
+      problems.push(`Floor ${fl}: the Boss Soldier was never promoted`);
+    else if (b.otherPromoted !== null && b.otherPromoted < b.bossPromoted)
+      problems.push(
+        `Floor ${fl}: a Soldier of the Boss Warband was promoted at Tick ${b.otherPromoted}, before the Boss's ${b.bossPromoted}`,
+      );
+    if (b.bossWiped === null || b.beaten === null)
+      problems.push(
+        `Floor ${fl}: the Boss Warband was not wiped (no BossBeaten)`,
+      );
+    if (b.gate === null) problems.push(`Floor ${fl}: the gate never opened`);
+    if (fl < total && b.stairs === null)
+      problems.push(`Floor ${fl}: no StairsTaken after the gate`);
+  }
+  const sum = (k: (b: BossFloor) => number) =>
+    floors.reduce((a, b) => a + k(b), 0);
+  if (sum((b) => b.dropsTaken) === 0)
+    problems.push("no Warband drop was taken");
+  if (sum((b) => b.pedestalsTaken) === 0)
+    problems.push("no pedestal was taken");
+  if (sum((b) => b.eliteWiped) === 0)
+    problems.push("no elite Warband was wiped");
+  else if (sum((b) => b.eliteRelicLaid) === 0)
+    problems.push("no elite's carried Relic was laid");
+  if (runEnd === undefined)
+    problems.push(
+      `no RunEnd: the Run hit the cap on Floor ${run.floors.length} at ${f(run.seconds, 0)} s`,
+    );
+  else {
+    if (runEnd.winner !== 0)
+      problems.push(
+        `the Run was a Defeat on Floor ${run.floors.length} at ${f(run.seconds, 0)} s`,
+      );
+    if (runEnd.bosses !== 3)
+      problems.push(`RunEnd.bosses was ${runEnd.bosses}, not 3`);
+  }
+  return problems;
+}
+
+/** The case's measurement: a block a Floor. */
+function printBossRun(label: string, tuning: TuningData, r: BossRun): void {
+  const lines = [
+    `\n${label}: Run ${FULL_RUN}, ${r.run.ticks} Ticks (${f(r.run.seconds, 0)} s simulated, cap ${FULL_SECONDS} s), ended ${r.run.ended}${r.runEnd ? ` (RunEnd winner ${r.runEnd.winner}, bosses ${r.runEnd.bosses})` : ""}, ${f(r.wall, 0)} s wall`,
+  ];
+  const by = (xs: readonly number[]) =>
+    RANKS.map((n, i) => `${xs[i]} ${n}`).join("/");
+  for (const [i, b] of r.floors.entries()) {
+    const fr = r.run.floors[i]!;
+    const costs = fr.costs.flat();
+    lines.push(
+      `  Floor ${b.floor}${isBossFloor(tuning.delver, b.floor) ? " (Boss)" : ""}: ${f(secs(fr.end! - fr.start))} s, ended ${fr.how}; Tick ms mean ${f(mean(costs), 2)} p99 ${f(percentile(costs, 0.99), 2)}; party ${fr.party}`,
+      `    Warbands deployed ${by(b.deployed)}; met ${by(b.met)}; wiped ${by(b.wiped)}`,
+      `    loot: laid ${b.laid} (${b.laidRelics} Relics), drops taken ${b.dropsTaken}, pedestals taken ${b.pedestalsTaken}; elite wiped ${b.eliteWiped}, its Relic laid ${b.eliteRelicLaid} taken ${b.eliteRelicTaken}`,
+    );
+    if (isBossFloor(tuning.delver, b.floor))
+      lines.push(
+        `    Boss: promoted Tick ${b.bossPromoted ?? "-"} into Pool slot ${b.bossSlot}, another of its Warband promoted ${b.otherPromoted === null ? "never" : b.otherPromoted < (b.bossPromoted ?? Infinity) ? `BEFORE at Tick ${b.otherPromoted}` : b.otherPromoted === b.bossPromoted ? "on the same Tick" : `after at Tick ${b.otherPromoted}`}; wiped Tick ${b.bossWiped ?? "-"}; gate open Tick ${b.gate ?? "-"}; Stairs taken Tick ${b.stairs ?? "-"}`,
+      );
+  }
+  console.log(lines.join("\n"));
+}
 
 describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
   beforeAll(() => timeFieldBuilds(() => performance.now()));
@@ -1300,6 +1555,27 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     expect(problems, `a patrol misbehaved:\n${problems.join("\n")}`).toEqual(
       [],
     );
+  });
+
+  it("a full Run on the bundled Tuning (a measurement: where the Delver pilot with two Hard allies ends)", () => {
+    const r = playBossRun(base);
+    printBossRun("Full Run, bundled Tuning", base, r);
+    const problems = bossProblems(base, r);
+    console.log(
+      problems.length === 0
+        ? "The bundled Tuning's full Run showed everything the asserted case checks."
+        : `The bundled Tuning's full Run did not show:\n  ${problems.join("\n  ")}`,
+    );
+  });
+
+  it("a full Run of 3 tiers x 3 Floors on the test Tuning, Bosses on Floors 3, 6 and 9: the Boss promoted first, the Boss Warband wiped, the gate opened, loot taken, to the Victory", () => {
+    const r = playBossRun(LENIENT);
+    printBossRun("Full Run, test Tuning", LENIENT, r);
+    const problems = bossProblems(LENIENT, r);
+    expect(
+      problems,
+      `the full Run did not show:\n${problems.join("\n")}`,
+    ).toEqual([]);
   });
 
   it("exercised what it measures: a Promotion, a Chase, a Return home after a Chase, a Warband wiped, and a patrol walking its whole loop", () => {
