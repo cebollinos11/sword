@@ -13,7 +13,7 @@ import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
 import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
-import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devDelverStart, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devDelverStart, devImmortal, devMode, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { inventoryHoldsInput, type DelverContext } from './play/inventoryView';
@@ -407,7 +407,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // ...and the player's Fighter may be on an AI (`?dev=1&autopilot=1,2`), to check a Run in a headless browser.
       const autopilot = match.format ? devAutopilot() : null;
       // ...a Delver Run (the Lobby's setting) refuses a start Hall; then the autopilot is the Delver pilot.
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...(match.delver ? devDelverStart() : devRunStart()), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...(match.delver ? devDelverStart() : devRunStart()), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}), ...(match.delver && devImmortal() ? { immortal: true } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
@@ -626,8 +626,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (hud.map.open) {
       hud.setMapOpen(false);
       if (!touchInput) resume();
-    } else if (curr.run) {
-      // (A Delver Run has no Floor map: `curr.run` is null there.)
+    } else if (curr.run || curr.delver) {
+      // (A Delver Run's map shows only what the party has revealed.)
       if (inventoryScreen.open) toggleInventory();
       hud.setMapOpen(true);
       if (document.pointerLockElement) document.exitPointerLock();
@@ -803,8 +803,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       } else if (e.type === 'Revived') {
         hud.announce('Revived', 1.5);
       } else if (e.type === 'BossBeaten') {
-        // The last Boss wins the Run: the Victory screen says so.
-        if (match.status.status !== 'Over') hud.announce('Boss beaten: the gate opens', 2.5);
+        hud.announce('Boss beaten — the Stairs are open', 2.5);
       } else if (e.type === 'LootDropped') {
         hud.announce('Loot dropped', 1.5);
       } else if (e.type === 'DuelStart') {
@@ -835,6 +834,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           victory,
           cleared: match.score[0]!,
           floors: delver.floors,
+          reached: delver.floor,
+          warbands: runEnd?.type === 'RunEnd' && runEnd.warbands !== undefined ? runEnd.warbands : delver.beaten + delver.wiped.length,
           ...(bossTotal > 0 && match.duel.crowd ? { bosses: runEnd?.type === 'RunEnd' && runEnd.bosses !== undefined ? runEnd.bosses : bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),

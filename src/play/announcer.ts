@@ -12,7 +12,7 @@ export type Milestone =
   | { readonly type: 'Rested'; readonly duelNumber: number }
   /** The watched Fighter came back at a Delver Floor's fire. */
   | { readonly type: 'Revived'; readonly duelNumber: number }
-  /** A Delver Floor's Boss Warband was wiped: the gate is open (the Victory screen instead, on the last Floor). */
+  /** A Delver Floor's Boss Warband was wiped: the gate is open and the Stairs count (on the last Floor they win the Run). */
   | { readonly type: 'BossBeaten'; readonly duelNumber: number }
   /** A Delver Floor's wiped Warband laid an item for the watched Fighter (its Player; none while no Fighter is watched). */
   | { readonly type: 'LootDropped'; readonly duelNumber: number }

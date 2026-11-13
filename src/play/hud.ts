@@ -1,9 +1,13 @@
 import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
-import type { TuningData } from '../tuning';
+import { floorOf } from '../sim/delver';
+import { isBossFloor, tierOf } from '../sim/delver/troops';
+import type { DelverTuning, TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import type { Ping } from '../net';
 import { fighterColours } from '../render/fighterView';
+import { Minimap } from '../render/minimap';
 import { pickupLabels, type PickupView } from '../render/pickupView';
+import { delverMapStatus } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
@@ -36,6 +40,10 @@ export interface RunResult {
   /** A Delver Run's Bosses beaten (`RunEnd.bosses`) of `bossTotal` (the tiers with a Boss); absent in a Hall-graph Run, and in a Delver Run whose Tuning has no Boss: no Bosses part is shown. */
   readonly bosses?: number;
   readonly bossTotal?: number;
+  /** A Delver Run's Floor the party reached (1-based; the last Floor's, in a Victory): "Floors reached"; absent in a Hall-graph Run. */
+  readonly reached?: number;
+  /** A Delver Run's Warbands beaten (`RunEnd.warbands`); absent in a Hall-graph Run. */
+  readonly warbands?: number;
   /** Halls cleared, Bosses included; absent in a Delver Run (it has none): no Halls part is shown. */
   readonly halls?: number;
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
@@ -81,13 +89,26 @@ export function hpText(hp: number): string {
   return String(Math.ceil(Math.round(Math.max(0, hp) * 1e6) / 1e6));
 }
 
+/**
+ * A Delver Run's line under the top of the screen: `Floor 2 of tier 1 (2 / 9)`, and `Boss Floor` after it on a Boss Floor (the last of a tier
+ * that has a Boss). `floor` is 1-based, the Floors of a tier `delver.floorsPerTier`.
+ */
+export function delverScore(delver: DelverTuning, floor: number, floors: number): string {
+  const inTier = ((floor - 1) % delver.floorsPerTier) + 1;
+  const line = `Floor ${inTier} of tier ${tierOf(delver, floor)} (${floor} / ${floors})`;
+  return isBossFloor(delver, floor) ? `${line} · Boss Floor` : line;
+}
+
 /** A Delver Run's Bosses part of its results, "Bosses b / B", or none (a Hall-graph Run, or a Tuning without a Boss). */
 const bossesPart = (r: RunResult): string[] => (r.bosses === undefined || r.bossTotal === undefined ? [] : [`Bosses ${r.bosses} / ${r.bossTotal}`]);
+/** A Delver Run's Warbands part, "Warbands w" (none in a Hall-graph Run). */
+const warbandsPart = (r: RunResult): string[] => (r.warbands === undefined ? [] : [`Warbands ${r.warbands}`]);
 
 /** A Run's end in one line (the Lobby's note after it): verdict, Floors, Bosses and Halls cleared, time and seed. */
 export function runResultLine(r: RunResult): string {
   const halls = r.halls === undefined ? [] : [`${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`];
-  return [r.victory ? 'Victory' : 'Defeat', `${r.cleared} / ${r.floors} Floors`, ...bossesPart(r), ...halls, runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
+  const floors = r.reached === undefined ? `${r.cleared} / ${r.floors} Floors` : `Floor ${r.reached} / ${r.floors}`;
+  return [r.victory ? 'Victory' : 'Defeat', floors, ...warbandsPart(r), ...bossesPart(r), ...halls, runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
 }
 
 /**
@@ -150,6 +171,10 @@ export class Hud {
   readonly map = new FloorMapView();
   private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
+  /** A Delver Run's minimap (revealed Halls only), drawn in a corner; hidden outside a Delver Run. */
+  private readonly delverMap = document.createElement('div');
+  private minimap: Minimap | null = null;
+  private wasDescending = false;
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
@@ -200,9 +225,11 @@ export class Hud {
     this.results.hidden = true;
     this.pickupLayer.className = 'hud-doors';
     this.fade.className = 'hud-fade';
+    this.delverMap.className = 'hud-delver-map';
+    this.delverMap.hidden = true;
     // The fade between Halls goes over the letterbox, the HP bars and the crosshair (the next Hall's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
+    this.root.append(this.pickupLayer, ...bars, this.top, this.delverMap, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -243,7 +270,7 @@ export class Hud {
     const title = document.createElement('div');
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
-    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    this.results.replaceChildren(title, r.reached === undefined ? line('Floors cleared', `${r.cleared} / ${r.floors}`) : line('Floors reached', `${r.reached} / ${r.floors}`), ...(r.warbands === undefined ? [] : [line('Warbands beaten', String(r.warbands))]), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
     if (note) {
       const next = document.createElement('p');
@@ -321,9 +348,12 @@ export class Hud {
     const mine = match.duel.fighters[me];
     this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
-    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : match.delver ? `Floor ${match.delver.floor} / ${match.delver.floors}` : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
-    this.mapButton.hidden = !match.run;
-    this.map.update(match, this.matchTuning ?? this.tuning);
+    const tuning = this.matchTuning ?? this.tuning;
+    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : match.delver ? delverScore(tuning.delver, match.delver.floor, match.delver.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.mapButton.hidden = !match.run && !match.delver;
+    this.map.setMe(me);
+    this.map.update(match, tuning);
+    this.updateDelverMap(match, me, tuning);
     this.updatePickups(match, view);
     this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
@@ -338,6 +368,23 @@ export class Hud {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;
     }
+  }
+
+  /** A Delver Run's minimap in its corner (drawn from the Reveal), and the "Descending…" banner as the fade to the next Floor begins. */
+  private updateDelverMap(match: MatchState, me: number, tuning: TuningData): void {
+    const run = match.delver;
+    this.delverMap.hidden = !run || match.status.status === 'Over';
+    const descending = run?.phase === 'Descending';
+    if (descending && !this.wasDescending) this.announce('Descending…', Math.max(1, tuning.dungeon.hallFadeSeconds));
+    this.wasDescending = descending;
+    if (!run || this.delverMap.hidden) return;
+    const plan = floorOf(tuning, match.duel.arena)?.plan;
+    if (!plan) return;
+    if (!this.minimap) {
+      this.minimap = new Minimap(tuning.battle, 150);
+      this.delverMap.append(this.minimap.canvas);
+    }
+    this.minimap.drawDelver(plan, run.revealed, match.duel.fighters, me, delverMapStatus(match, plan));
   }
 
   /** A Run's labels over the pickups the local Player sees. */

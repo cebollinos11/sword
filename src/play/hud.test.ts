@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { floorOf } from '../sim/delver';
 import { arenaOf, createMatch, exitDoor, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
-import { hallBanner, hallFade, hallScore, hpText, runResultLine, runTime, statsText } from './hud';
+import { delverScore, hallBanner, hallFade, hallScore, hpText, runResultLine, runTime, statsText } from './hud';
 
 describe('the Run’s HUD text', () => {
   it('names the Floor, the Hall’s row of five and the Run seed; the Boss Hall by its Floor', () => {
@@ -146,3 +146,34 @@ describe('a Delver Run’s results line', () => {
   });
 });
 
+
+describe('a Delver Run’s HUD line', () => {
+  const base = loadTuningData().delver;
+  const three = { ...base, tiers: 3, floorsPerTier: 3 };
+
+  it('names the Floor within its tier, the tier and the Run’s count', () => {
+    expect(delverScore(three, 1, 9)).toBe('Floor 1 of tier 1 (1 / 9)');
+    expect(delverScore(three, 2, 9)).toBe('Floor 2 of tier 1 (2 / 9)');
+    expect(delverScore(three, 4, 9)).toBe('Floor 1 of tier 2 (4 / 9)');
+    expect(delverScore(three, 8, 9)).toBe('Floor 2 of tier 3 (8 / 9)');
+  });
+
+  it('adds "Boss Floor" on the last Floor of a tier that has a Boss, and only there', () => {
+    for (const floor of [3, 6, 9]) expect(delverScore(three, floor, 9)).toBe(`Floor 3 of tier ${floor / 3} (${floor} / 9) · Boss Floor`);
+    const noBoss = { ...three, warbands: three.warbands.map(({ boss: _b, ...tier }) => tier) };
+    expect(delverScore(noBoss, 3, 9)).toBe('Floor 3 of tier 1 (3 / 9)');
+  });
+
+  it('follows floorsPerTier', () => {
+    const two = { ...base, tiers: 2, floorsPerTier: 2 };
+    expect(delverScore(two, 3, 4)).toBe('Floor 1 of tier 2 (3 / 4)');
+    expect(delverScore(two, 4, 4)).toBe('Floor 2 of tier 2 (4 / 4) · Boss Floor');
+  });
+});
+
+describe('a Delver Run’s results line', () => {
+  it('says the Floor reached and the Warbands and Bosses beaten', () => {
+    expect(runResultLine({ victory: false, cleared: 3, floors: 9, reached: 4, warbands: 12, bosses: 1, bossTotal: 3, seconds: 125, seed: 9 })).toBe('Defeat · Floor 4 / 9 · Warbands 12 · Bosses 1 / 3 · 2:05 · Run seed 9');
+    expect(runResultLine({ victory: true, cleared: 9, floors: 9, reached: 9, warbands: 40, seconds: 5, seed: 1 })).toBe('Victory · Floor 9 / 9 · Warbands 40 · 0:05 · Run seed 1');
+  });
+});

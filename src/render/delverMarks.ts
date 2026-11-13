@@ -3,10 +3,8 @@ import type { FloorPlan } from '../sim/delver';
 import type { CrowdState, RestUse } from '../sim';
 import { gateOpen } from '../sim/delverRun';
 import { fireState, RestFire, type FireState } from './restFire';
+import { pedestalRings, StairsStandIn } from './delverStandIns';
 
-/** The Stairs zone's mark, gold as a Hall-graph Door's open zone. */
-const STAIRS_COLOR = 0xffd56a;
-const STAIRS_OPACITY = 0.45;
 /** A fire's ring: warm while its heal is waiting for the local Player, dim once taken. */
 const RING_LIT = 0xffb040;
 const RING_SPENT = 0x6a5a48;
@@ -54,8 +52,8 @@ export interface DelverMarksView {
 export const fireStates = (restUsed: readonly RestUse[], viewer: number): FireState[] => restUsed.map((u) => fireState(u.healed, viewer));
 
 /**
- * Placeholder marks for a Delver Run's Floor (docs/plans/delver.md, Stage 2; Stage 5 brings the art): a flat gold square on the Stairs
- * zone, a `RestFire` at each fire with a flat ring of the heal radius round it (dimmed once the local Player has taken the heal).
+ * Stand-in marks for a Delver Run's Floor (docs/plans/delver.md, Stage 2; Stage 5's stand-ins until #62): the Stairs' pit (`StairsStandIn`),
+ * a ring at each pedestal, a `RestFire` at each fire with a flat ring of the heal radius round it (dimmed once the local Player has taken the heal).
  * Render only; rebuilt when the Floor changes. Nothing outside a Delver Run.
  */
 export class DelverMarks {
@@ -63,6 +61,8 @@ export class DelverMarks {
   private plan: FloorPlan | null = null;
   private radius = 0;
   private fires: RestFire[] = [];
+  /** The Stairs' stand-in (`delverStandIns.ts`), glowing while they count. */
+  private stairs: StairsStandIn | null = null;
   private rings: THREE.MeshBasicMaterial[] = [];
   /** The gate's bars, one group, and how far down they are (0 to 1). */
   private gate: THREE.Group | null = null;
@@ -82,11 +82,13 @@ export class DelverMarks {
       this.sink = gate === 'open' ? 1 : 0;
     }
     this.gateState = gate;
+    this.stairs?.setOpen(gate !== 'closed');
     this.showGate();
     const states = fireStates(view.restUsed, view.me);
     this.fires.forEach((fire, k) => {
       const state = states[k] ?? 'lit';
       fire.setState(state);
+      fire.setSpent(view.restUsed[k]?.revived ?? false);
       this.rings[k]?.color.setHex(state === 'lit' ? RING_LIT : RING_SPENT);
       if (this.rings[k]) this.rings[k]!.opacity = state === 'lit' ? 0.5 : 0.25;
     });
@@ -95,6 +97,7 @@ export class DelverMarks {
   /** Flicker the fires, `seconds` of wall time after the last call. */
   animate(seconds: number): void {
     for (const fire of this.fires) fire.animate(seconds);
+    this.stairs?.animate(seconds);
     this.sink = gateSink(this.sink, this.gateState, seconds);
     this.showGate();
   }
@@ -117,6 +120,8 @@ export class DelverMarks {
       fire.dispose();
     }
     this.fires = [];
+    this.stairs?.dispose();
+    this.stairs = null;
     this.rings = [];
     for (const child of [...this.root.children]) this.root.remove(child);
     for (const r of this.owned) r.dispose();
@@ -132,13 +137,12 @@ export class DelverMarks {
     this.plan = plan;
     this.radius = radius;
     const { zone } = plan.markers.stairs;
-    const square = new THREE.Mesh(
-      this.own(new THREE.PlaneGeometry(zone.x1 - zone.x0, zone.z1 - zone.z0)),
-      this.own(new THREE.MeshBasicMaterial({ color: STAIRS_COLOR, transparent: true, opacity: STAIRS_OPACITY, side: THREE.DoubleSide, depthWrite: false })),
-    );
-    square.rotation.x = -Math.PI / 2;
-    square.position.set((zone.x0 + zone.x1) / 2, LIFT, (zone.z0 + zone.z1) / 2);
-    this.root.add(square);
+    this.stairs = new StairsStandIn(zone);
+    this.stairs.setOpen(gate !== 'closed');
+    this.root.add(this.stairs.root);
+    const rings = pedestalRings(plan.markers.pedestals);
+    this.owned.push(...rings.owned);
+    for (const ring of rings.meshes) this.root.add(ring);
     if (gate !== 'none') this.buildGate(zone);
     const ring = this.own(new THREE.RingGeometry(Math.max(0, radius - RING_WIDTH), radius, 48));
     for (const at of plan.markers.fires) {

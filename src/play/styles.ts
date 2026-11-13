@@ -9,6 +9,9 @@ const CSS = `
 .hud, .menu { position: fixed; inset: 0; color: #fff; }
 .hud { pointer-events: none; }
 .hud[hidden], .menu[hidden] { display: none; }
+.hud-delver-map { position: absolute; right: 0.6rem; top: 3rem; overflow: hidden; border: calc(var(--px) * 2) solid #000; box-shadow: 0 0 0 var(--px) #f3e6c8; pointer-events: none; }
+.hud-delver-map[hidden] { display: none; }
+@media (max-width: 640px) { .hud-delver-map canvas { width: 100px !important; height: 100px !important; } }
 .hud-stats { position: absolute; top: 0.3rem; right: 0.5rem; font-size: 0.85rem; opacity: 0.7; text-shadow: var(--px) var(--px) 0 #000; font-variant-numeric: tabular-nums; }
 .hud-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 0.8rem 1rem; }
 .hud-team { flex: 1; max-width: 22rem; display: flex; flex-direction: column; gap: 0.3rem; }

@@ -118,3 +118,12 @@ export function devDelverStart(search: string = location.search, hash: string = 
   const floor = whole(query(search, hash), 'delverStart', 1);
   return floor === null ? {} : { delverStart: floor };
 }
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 5): `immortal=1` keeps every living Team 0 Fighter of a solo Delver Run at its max HP after each
+ * Tick (`playerVsAi`'s `immortal`), so a playtest or a screenshot Run reaches the later Floors, the Boss Floors and the Victory on the shipped
+ * Tuning. The Simulation's rules and the Tuning are untouched. False without `dev=1`.
+ */
+export function devImmortal(search: string = location.search, hash: string = location.hash): boolean {
+  return devMode(search, hash) && query(search, hash).get('immortal') === '1';
+}
