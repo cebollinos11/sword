@@ -5,3 +5,4 @@ export * from './build';
 export * from './judge';
 export * from './generate';
 export * from './version';
+export * from './world';

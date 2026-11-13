@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -36,6 +36,8 @@ export type {
   MotionPlayback,
   SimState,
   SimHall,
+  SimDelver,
+  DelverPhase,
   HallPhase,
   SoldierBinding,
   SoldierRole,
@@ -177,9 +179,12 @@ export {
   type MatchState,
   type MatchStatus,
   type RestedEvent,
+  type RevivedEvent,
+  type StairsTakenEvent,
   type RunEndEvent,
   type RunState,
 } from './match';
+export { enterFloor, floorDuel, stepDelver, type DelverRun, type RestUse } from './delverRun';
 export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {

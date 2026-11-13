@@ -25,6 +25,15 @@ export interface Inventory {
 /** The inventory of a Player's Fighter at the Run's start: the Weapon the Lineup chose, wielded, and nothing else. */
 export const startingInventory = (weapon: string): Inventory => ({ weapons: [weapon], relics: [], weapon: 0, equipped: [] });
 
+/** `inv` holding `relics`, the first `equippedRelics` of them equipped. Throws on a name Tuning Data lacks or more than `dungeon.inventory.relics`. */
+export function withStartingRelics(inv: Inventory, relics: readonly string[], tuning: TuningData): Inventory {
+  const sizes = tuning.dungeon.inventory;
+  if (relics.length > sizes.relics) throw new RangeError(`A Fighter carries at most ${sizes.relics} Relics, got ${relics.length}`);
+  for (const name of relics)
+    if (!tuning.relics.some((r) => r.name === name)) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return { ...inv, relics: [...relics], equipped: relics.slice(0, sizes.equippedRelics).map((_, k) => k) };
+}
+
 /** The name of the Weapon the inventory has wielded. */
 export const wieldedWeapon = (inv: Inventory): string => inv.weapons[inv.weapon]!;
 

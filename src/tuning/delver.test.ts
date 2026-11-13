@@ -4,7 +4,7 @@ import { loadTuningData, parseDelver, tuningDataHash } from './index';
 
 const tuning = loadTuningData();
 const FIELD = tuning.battle.field.size;
-type Raw = { tiers: unknown; floorsPerTier: unknown; flowCell: unknown; floor: Record<string, unknown> };
+type Raw = { tiers: unknown; floorsPerTier: unknown; flowCell: unknown; fireRadius: unknown; floor: Record<string, unknown> };
 const raw = (): Raw => JSON.parse(JSON.stringify(tuning.delver)) as Raw;
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -18,6 +18,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       tiers: 3,
       floorsPerTier: 3,
       flowCell: 2,
+      fireRadius: 3,
       floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10 },
     });
     expect(parseDelver(raw(), FIELD)).toEqual(tuning.delver);
@@ -31,6 +32,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['flowCell not positive', { ...raw(), flowCell: 0 }, /^delver\.flowCell /],
     ['flowCell not 2 (the Floor rule is written for a 2 m cell)', { ...raw(), flowCell: 4 }, /^delver\.flowCell /],
     ['flowCell missing', { ...raw(), flowCell: undefined }, /^delver\.flowCell /],
+    ['fireRadius 0', { ...raw(), fireRadius: 0 }, /^delver\.fireRadius /],
+    ['fireRadius negative', { ...raw(), fireRadius: -1 }, /^delver\.fireRadius /],
+    ['fireRadius missing', { ...raw(), fireRadius: undefined }, /^delver\.fireRadius /],
     ['cols fractional', withFloor({ cols: 7.5 }), /^delver\.floor\.cols /],
     ['cols below 2', withFloor({ cols: 1 }), /^delver\.floor\.cols /],
     ['rows below 2', withFloor({ rows: 1 }), /^delver\.floor\.rows /],

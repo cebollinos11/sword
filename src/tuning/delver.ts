@@ -45,6 +45,8 @@ export interface DelverTuning {
   readonly floorsPerTier: number;
   /** The destination fields' cell (m) on a Floor; the Battles keep `crowd.flowCell`. */
   readonly flowCell: number;
+  /** How far (m, across the ground) from a fire a Fighter takes its heal and revive, and may change its Inventory (positive). */
+  readonly fireRadius: number;
   readonly floor: DelverFloorTuning;
 }
 
@@ -88,6 +90,8 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
   if (flowCell <= 0) fail('delver.flowCell', 'a positive number', flowCell);
   // The Floor generator keeps every Hall Wall on an odd metre so none runs through a 2 m cell centre; that rule is written for a 2 m cell.
   if (flowCell !== 2) fail('delver.flowCell', 'exactly 2 (the Floor generator keeps Walls off a 2 m field cell\'s centres)', flowCell);
+  const fireRadius = finiteNumber(root, 'fireRadius', 'delver');
+  if (fireRadius <= 0) fail('delver.fireRadius', 'a positive number', fireRadius);
   const tiers = whole(root, 'tiers', 'delver', 1);
   const floorsPerTier = whole(root, 'floorsPerTier', 'delver', 1);
   const f = record(root.floor, 'delver.floor');
@@ -133,6 +137,7 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
     tiers,
     floorsPerTier,
     flowCell,
+    fireRadius,
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts },
   };
 }

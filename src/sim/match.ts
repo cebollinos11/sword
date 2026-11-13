@@ -35,7 +35,7 @@ import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
 import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
-import { holdInventory, relicMods, startingInventory, type Inventory, useInventory, wieldedWeapon, type Dropped } from './inventory';
+import { holdInventory, relicMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
 import { createRng } from './rng';
@@ -45,6 +45,8 @@ import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 import { battleArenaName, battlefieldOf, battleMapName } from './battlefield';
 import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
+import { enterFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
+import { arenaTuning, floorOf } from './delver/world';
 
 /** The most Fighters a team may field. */
 export const MAX_TEAM_SIZE = 4;
@@ -93,6 +95,11 @@ export interface MatchConfig {
    * Absent in Duels.
    */
   readonly players?: readonly number[];
+  /**
+   * Present (true) for a Delver Run (docs/plans/delver.md): a Gauntlet on generated Floors, one Duel a Floor, instead of the Hall-graph Run. Only a
+   * Gauntlet, and never with a start Hall. Absent otherwise, so every other Match's config is as it always was.
+   */
+  readonly delver?: true;
 }
 
 export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
@@ -177,8 +184,21 @@ export interface ItemTakenEvent extends Dropped {
   readonly id: number;
 }
 
+/** A Delver Run's party took the Stairs of Floor `floor`: the next Floor starts after the fade (`nextDuelTick`). */
+export interface StairsTakenEvent {
+  readonly type: 'StairsTaken';
+  readonly floor: number;
+}
+
+/** Fire `fire` (0-based, `plan.markers.fires` order) of a Delver Floor brought Fighter `fighter` back from the fallen. */
+export interface RevivedEvent {
+  readonly type: 'Revived';
+  readonly fighter: number;
+  readonly fire: number;
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | RoutEvent | BattleEndEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | RoutEvent | BattleEndEvent;
 
 /** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
 export interface DroppedItem extends Dropped {
@@ -247,6 +267,12 @@ export function takeOverFighter(match: MatchState, fighter: number): MatchState 
     const players = crowd.players.map((p, k) => (k === fighter ? { ...p, away: true as const } : p));
     return { ...match, duel: { ...match.duel, crowd: { ...crowd, players } } };
   }
+  const { delver } = match;
+  if (delver) {
+    if (!runPlayers(match.config).includes(fighter) || delver.away?.includes(fighter)) return match;
+    const away = [...(delver.away ?? []), fighter].sort((a, b) => a - b);
+    return { ...match, delver: { ...delver, away }, duel: { ...match.duel, delver: { ...match.duel.delver!, away } } };
+  }
   if (!run) return match;
   if (!runPlayers(match.config).includes(fighter) || run.away?.includes(fighter)) return match;
   const away = [...(run.away ?? []), fighter].sort((a, b) => a - b);
@@ -278,8 +304,10 @@ export interface MatchState {
   readonly nextDuelTick: number | null;
   readonly status: MatchStatus;
   readonly events: readonly MatchEvent[];
-  /** The Run, in Gauntlet format; null in Duels. */
+  /** The Run, in Gauntlet format; null in Duels, and in a Delver Run (`delver`). */
   readonly run: RunState | null;
+  /** A Delver Run's progress (`config.delver`); absent otherwise, so every other Match hashes as it always did. */
+  readonly delver?: DelverRun;
 }
 
 /** Duel wins needed to take a best-of-N Match: a strict majority. */
@@ -320,15 +348,6 @@ function initialDuel(tuning: TuningData, config: MatchConfig, arena: string, see
   return createInitialState(tuning, seed, startPlacements(tuning, config, arena), config.weapons, config.teams, arena, config.sizes);
 }
 
-/** `inv` holding `relics`, the first `equippedRelics` of them equipped. Throws on a name Tuning Data lacks or more than `dungeon.inventory.relics`. */
-function withRelics(inv: Inventory, relics: readonly string[], tuning: TuningData): Inventory {
-  const sizes = tuning.dungeon.inventory;
-  if (relics.length > sizes.relics) throw new RangeError(`A Fighter carries at most ${sizes.relics} Relics, got ${relics.length}`);
-  for (const name of relics)
-    if (!tuning.relics.some((r) => r.name === name)) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
-  return { ...inv, relics: [...relics], equipped: relics.slice(0, sizes.equippedRelics).map((_, k) => k) };
-}
-
 function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: SimState['rng']): SimState {
   return { ...initialDuel(tuning, config, arena, 0), rng };
 }
@@ -350,7 +369,7 @@ export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, h
   const inventories = config.teams.map((team, i) => {
     if (team !== 0) return undefined;
     const held = previous?.fighters[i]?.inventory;
-    return held ?? (players.includes(i) ? withRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
+    return held ?? (players.includes(i) ? withStartingRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
   });
   const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? (inventories[i] ? wieldedWeapon(inventories[i]!) : w));
   const sizes = config.teams.map((_, i) => enemies[i]?.size ?? config.sizes?.[i]);
@@ -439,6 +458,7 @@ function sizesOf(count: number, given: readonly (Size | undefined)[] | undefined
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
   const format = options.format ?? 'Duels';
   if (!ALL_FORMATS.includes(format)) throw new RangeError(`format must be one of ${ALL_FORMATS.join(', ')}, got ${String(format)}`);
+  if (options.delver && format !== 'Gauntlet') throw new RangeError('Only a Gauntlet can be a Delver Run');
   if (format === 'Battle') return createBattle(tuning, options);
   const gauntlet = format === 'Gauntlet';
   const teams = options.teams ?? [0, 1];
@@ -458,6 +478,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     arena: gauntlet ? runArena(tuning, options.arena ?? tuning.arena.match) : arenaOf(tuning, options.arena ?? tuning.arena.match).name,
     humans,
     ...(gauntlet ? { players: [...(options.players ?? runPlayers({ teams, humans }))] } : {}),
+    ...(options.delver ? { delver: true as const } : {}),
   };
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
@@ -476,6 +497,26 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   const seed = options.seed ?? 1;
   if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
   if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
+  if (options.delver && options.start) throw new RangeError('A Delver Run has no start Hall');
+  if (config.delver) {
+    // A Delver Run: Floor 1 of the generated Dungeon, built here (behind the menu), Team 0 at its Entrance.
+    const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
+    const duel = floorDuel(tuning, config, 1, null, createRng(seed), options.relics);
+    return {
+      config,
+      matchNumber: 1,
+      arena: duel.arena,
+      tick: 0,
+      duelNumber: 1,
+      score: [0, 0],
+      duel,
+      nextDuelTick: null,
+      status: { status: 'InProgress' },
+      events: [{ type: 'DuelStart', duelNumber: 1 }],
+      run: null,
+      delver: enterFloor({ floors, startTick: 0 }, 1, floorOf(tuning, duel.arena)!.plan),
+    };
+  }
   // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.
   const path: readonly HallRef[] = gauntlet ? (options.start ? runPathTo(tuning, config.arena, options.start) : [{ floor: 1, row: 0, index: 0 }]) : [];
   const first = path[path.length - 1];
@@ -558,6 +599,7 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
   const events: MatchEvent[] = [];
 
   const { status: over, config } = match;
+  if (match.delver && over.status === 'InProgress') return stepDelver(match, match.delver, intents, tuning, tick);
   if (match.run && over.status === 'InProgress') return stepRun(match, match.run, intents, tuning, tick);
   if (config.format === 'Battle' && over.status === 'InProgress') return stepBattle(match, intents, tuning, tick);
 
@@ -586,8 +628,8 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
     return { ...match, tick, duelNumber, duel: freshDuel(tuning, match.config, match.arena, match.duel.rng), nextDuelTick: null, events };
   }
 
-  // A Run that is over steps here too: its Duel is over, so it stands still.
-  const duel = step(match.duel, intents, tuning);
+  // A Run that is over steps here too: its Duel is over, so it stands still (a Delver Run's under its Floor's Tuning Data).
+  const duel = step(match.duel, intents, arenaTuning(tuning, match.duel.arena));
   let { score, status, nextDuelTick } = match;
   if (!match.run && match.duel.duel.status === 'Fighting' && duel.duel.status === 'Over') {
     const { winner } = duel.duel;
