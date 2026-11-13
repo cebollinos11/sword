@@ -135,6 +135,9 @@ export interface DelverTuning {
  */
 const MIN_HALL_HALF = 4;
 
+/** The most Troops a Floor's Crowd may index: `battle.troops`, one Boss Troop per tier with a Boss, and every elite template row (`parseDelver` refuses more; the wire reads a Troop index below it). */
+export const MAX_FLOOR_TROOPS = 64;
+
 function fail(where: string, what: string, v: unknown): never {
   throw new TuningDataError(`${where} must be ${what}, got ${JSON.stringify(v)}`);
 }
@@ -292,6 +295,9 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     const elite = tier.elite === undefined ? [] : parsePool(tier.elite, `${where}.elite`, battle, names.relics, { elite: true });
     return { guard, patrol, elite, ...(tier.boss === undefined ? {} : { boss: parseBoss(tier.boss, `${where}.boss`, battle, names) }) };
   });
+  const floorTroops =
+    battle.troops.length + warbands.reduce((n, t) => n + (t.boss ? 1 : 0) + (t.elite ?? []).reduce((m, e) => m + e.troops.length, 0), 0);
+  if (floorTroops > MAX_FLOOR_TROOPS) fail('delver.warbands', `at most ${MAX_FLOOR_TROOPS} Floor Troops (battle.troops, a Boss per tier with one, every elite template row), got ${floorTroops}`, floorTroops);
   const f = record(root.floor, 'delver.floor');
   const w = 'delver.floor';
 

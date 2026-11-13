@@ -14,7 +14,7 @@ import { relicMods } from '../inventory';
 import { COLUMN, DEFEND, placeOffset } from '../squad';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN, RETURN } from '../warband';
 import type { FloorPlan } from './plan';
-import { tierOf } from './troops';
+import { floorTroopLayout, tierOf } from './troops';
 
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
 export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, patrolPick: 23, extra: 24, height: 25, thick: 26, look: 27, elitePick: 28, bossGuard: 29 } as const;
@@ -80,8 +80,8 @@ export function warbandHomes(plan: FloorPlan): WarbandHomes {
  * Whether a Floor's Warbands, as a peer's resync sends them, fit the Floor's plan (a guard of a post of it, a patrol of one of its loops at one of
  * their points; a guard never in PATROL; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots and
  * `troops` how many Troops the Floor has. `pools` says how many templates each rank draws its `encounter` from: the tier's guard and patrol pools
- * (rank PLAIN, by guard or patrol), its elite pool (ELITE) and its Boss's guard pool (BOSS). At most one Warband is the Boss's (rank BOSS), a guard
- * at the Boss post (the last) of a Boss Floor. Pure; a state that fails is refused, since the brain would read past its homes.
+ * (rank PLAIN, by guard or patrol), its elite pool (ELITE) and its Boss's guard pool (BOSS). Exactly one Warband is the Boss's (rank BOSS) on a Boss Floor, a guard
+ * at the Boss post (the last); on any other Floor none is. Pure; a state that fails is refused, since the brain would read past its homes.
  */
 export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, troops: number, pools: WarbandPools): boolean {
   const w = crowd.warbands;
@@ -102,6 +102,8 @@ export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, t
       if (!index(w.post[q], home.posts.length, 0) || w.patrol[q] !== -1 || w.leg[q] !== 0 || w.mode[q] === PATROL) return false;
     } else if (w.post[q] !== -1 || !index(w.patrol[q], home.patrols.length, 0) || !index(w.leg[q], home.patrols[w.patrol[q]!]!.length, 0)) return false;
   }
+  // A Boss Floor has exactly one Boss Warband, any other Floor none.
+  if (bosses !== (plan.markers.boss ? 1 : 0)) return false;
   return crowd.squad.every((q) => index(q, squads, -1)) && crowd.troop.every((t) => index(t, troops, 0));
 }
 
@@ -120,16 +122,13 @@ export function warbandPools(delver: DelverTuning, floor: number): WarbandPools 
 }
 
 /**
- * The indices of a Floor's Boss and elite Troops in the Floor's `battle.troops` (`floorTroops(<the base battle>, delver)`): `battle` is the Floor's
- * Battle Tuning, whose Troops are that very list, so its Troops are counted back from its end rather than built again from a Battle that is not the base.
+ * How many Troops the Floor's `battle.troops` holds before the Bosses' and the elites' (the base Battle's): a Floor's Battle Tuning carries
+ * `floorTroops`' list as its `troops`, so the base count is that list's length less the extras, rather than a Battle that is not the base.
  */
-function floorIndices(battle: TuningData['battle'], delver: DelverTuning): { boss: number[]; elite: number[][][] } {
+function floorBaseCount(battle: TuningData['battle'], delver: DelverTuning): number {
   let extra = 0;
   for (const t of delver.warbands) extra += (t.boss ? 1 : 0) + (t.elite ?? []).reduce((n, e) => n + e.troops.length, 0);
-  let next = battle.troops.length - extra;
-  const boss = delver.warbands.map((t) => (t.boss ? next++ : -1));
-  const elite = delver.warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map(() => next++)));
-  return { boss, elite };
+  return battle.troops.length - extra;
 }
 
 /** The slots 0 to `count - 1` that are filled: the first `ceil(count * fill / 100)` by a seeded order (the lower index on a tie), back in slot order. */
@@ -182,7 +181,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
   const hpOfTier = delver.tierHp[tier - 1]!;
   const { posts, patrols } = plan.markers;
   const home = warbandHomes(plan);
-  const indices = floorIndices(battle, delver);
+  const indices = floorTroopLayout(floorBaseCount(battle, delver), delver);
   const rows = (template: WarbandTemplate): number[] => template.troops.flatMap((row) => Array<number>(row.count).fill(row.troop));
 
   // The deepest filled posts (their Hall's `depth`, the lower post on a tie) hold the elites, when the tier has any.
@@ -276,7 +275,9 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       heading.push(w.facing);
       // A Boss Soldier's HP is the Fighter's own scaled by its Troop's `hpScale`, with no tier's; every other Soldier's is its Troop's.
       const bossSoldier = w.rank === BOSS && p === 0;
-      hp.push(bossSoldier ? tuning.fighter.maxHp * boss!.troop.hpScale * (1 + relicShare) : troop.hp * w.template.hpScale * hpOfTier * (1 + relicShare));
+      // The Relics' `maxHp` share is the Boss Soldier's own (the Boss Troop's Relics) or an elite Soldier's; a Boss's guards wear none.
+      const worn = w.rank === BOSS && !bossSoldier ? 0 : relicShare;
+      hp.push(bossSoldier ? tuning.fighter.maxHp * boss!.troop.hpScale * (1 + worn) : troop.hp * w.template.hpScale * hpOfTier * (1 + worn));
       sizeHeight.push(size.height);
       sizeThick.push(size.thick);
       troopOf.push(t);

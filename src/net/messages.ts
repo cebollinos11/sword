@@ -1,7 +1,7 @@
 import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
-import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
+import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
 export const PROTOCOL_VERSION = 29;
@@ -548,8 +548,8 @@ function isCrowd(v: unknown, slots: number): boolean {
   );
 }
 
-/** The most Troops a Floor's Crowd may index (`battle.troops`, then the Bosses' and the elites'; `warbandsFit` checks the exact count at a resync). */
-export const MAX_FLOOR_TROOPS = 64;
+// The Floor Troop cap is the Tuning's (`parseDelver` refuses a Tuning above it); re-exported for the wire's tests.
+export { MAX_FLOOR_TROOPS };
 
 /** The most points a Floor's patrol loop may be read to have (a Warband's `leg`; the Floor says how many it has). */
 const MAX_LOOP_POINTS = 65_535;

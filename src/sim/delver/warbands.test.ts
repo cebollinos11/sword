@@ -422,6 +422,16 @@ describe('the Boss Warband', { timeout: TIMEOUT }, () => {
     expect(crowd.hp[members(crowd, q)[0]!]).toBeCloseTo(250 * 1.2);
   });
 
+  it('gives the Boss\'s guard Soldiers none of the Boss Troop\'s Relic share', () => {
+    const vital: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map((tier) => ({ ...tier, boss: { ...tier.boss!, troop: { ...tier.boss!.troop, relics: ['Vital Charm'] } } })) } };
+    const { crowd, t } = deal(7, 3, 1, vital);
+    const q = bossOf(crowd);
+    const ids = members(crowd, q);
+    const guard = t.delver.warbands[0]!.boss!.guard[crowd.warbands!.encounter[q]!]!;
+    expect(ids.length).toBeGreaterThan(1);
+    for (const i of ids.slice(1)) expect(crowd.hp[i]).toBeCloseTo(t.battle.troops[crowd.troop[i]!]!.hp * guard.hpScale * t.delver.tierHp[0]!);
+  });
+
   it('deals none on a non-Boss Floor, and the same Crowd as a Tuning with no Boss (elites aside)', () => {
     const bossless: TuningData = { ...noElites, delver: { ...noElites.delver, warbands: noElites.delver.warbands.map(({ boss: _b, ...tier }) => tier) } };
     for (const seed of SEEDS) {
@@ -472,6 +482,14 @@ describe('warbandsFit and rank', { timeout: TIMEOUT }, () => {
     const guards = crowd.warbands!.post.flatMap((p, q) => (p >= 0 ? [q] : []));
     expect(guards.length).toBeGreaterThan(1);
     expect(fits(withRank((r, q) => (q === guards[0] || q === guards[guards.length - 1] ? 2 : r)))).toBe(false);
+  });
+
+  it('refuses a Boss Floor with no Boss, and a Boss on an ordinary Floor', () => {
+    const boss = fitOf(7, 3);
+    expect(boss.fits(boss.withRank((r) => (r === BOSS ? PLAIN : r)))).toBe(false);
+    const plain = fitOf(7, 1);
+    expect(plain.crowd.warbands!.rank.includes(BOSS)).toBe(false);
+    expect(plain.fits(plain.crowd)).toBe(true);
   });
 
   it('refuses a Boss on an ordinary post, a Boss on a patrol, and a Boss on a Floor with no Boss Hall', () => {

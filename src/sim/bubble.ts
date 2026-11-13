@@ -50,7 +50,8 @@ import { battleMapOf } from './destinations';
 import type { Battlefield, MapPoint } from './battlefield';
 import { inDuel } from './duel';
 import type { Intent } from './intent';
-import { foldMods, isNoMods } from './mods';
+import { relicOf } from './inventory';
+import { foldMods, isNoMods, type Mods } from './mods';
 import type { FighterState, SimState, SoldierRole } from './state';
 import { standingFighter } from './step';
 
@@ -226,6 +227,28 @@ export interface BossHold {
   readonly hold: boolean;
 }
 
+
+const modsCache = new WeakMap<BattleTuning, WeakMap<TuningData['relics'], readonly ({ readonly mods?: Mods })[]>>();
+
+/**
+ * A promoted Soldier's Mods per Troop (its Troop's, with its Relics' on top), when they change anything: one record per Troop of `tuning.battle`.
+ * Folded once per (Battle Tuning, Relics) pair of objects and kept; derived from Tuning Data, never state.
+ */
+function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
+  let byRelics = modsCache.get(tuning.battle);
+  if (!byRelics) modsCache.set(tuning.battle, (byRelics = new WeakMap()));
+  let made = byRelics.get(tuning.relics);
+  if (!made)
+    byRelics.set(
+      tuning.relics,
+      (made = tuning.battle.troops.map((t) => {
+        const folded = foldMods([{ effects: t.mods }, ...(t.relics ?? []).map((name) => relicOf(tuning, name))]);
+        return isNoMods(folded) ? {} : { mods: folded };
+      })),
+    );
+  return made;
+}
+
 /**
  * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
  * Players' Fighters. A state without a Crowd is returned as it is.
@@ -322,16 +345,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
     const made = standingFighter(tuning, arenaOf(tuning, duel.arena), { position: f.position, y: f.y, facing: f.facing }, f.weapon, f.team, size);
     return { ...made, hp: f.hp, maxHp: f.maxHp };
   };
-  /** A promoted Soldier's Mods (its Troop's, with its Relics' on top), when they change anything: one record per Troop. */
-  const troopMods = tuning.battle.troops.map((t) => {
-    const relics = (t.relics ?? []).map((name) => {
-      const relic = tuning.relics.find((r) => r.name === name);
-      if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
-      return relic;
-    });
-    const folded = foldMods([{ effects: t.mods }, ...relics]);
-    return isNoMods(folded) ? {} : { mods: folded };
-  });
+  const troopMods = troopModsOf(tuning);
   const modded = (c: CrowdState, s: number) => troopMods[c.troop[s] ?? 0] ?? troopMods[0]!;
 
   // Taking over an ally: a Player's fallen Fighter kills its Soldier, and later the Player plays on as the nearest living ally.

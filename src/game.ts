@@ -787,6 +787,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const myTeam = match.config.teams[me] ?? 0;
     const run = match.run;
     const delver = match.delver;
+    // The Bosses beaten are the Run's own count, from the RunEnd event the Match's events carry; `bossesBeaten` only when none was seen.
+    const runEnd = match.events.find((e) => e.type === 'RunEnd');
     for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
         // A Run's (or a Delver Run's) Duel ends only with the Run (a wipe, or the last Boss): the results screen says so.
@@ -833,7 +835,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           victory,
           cleared: match.score[0]!,
           floors: delver.floors,
-          ...(bossTotal > 0 && match.duel.crowd ? { bosses: bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
+          ...(bossTotal > 0 && match.duel.crowd ? { bosses: runEnd?.type === 'RunEnd' && runEnd.bosses !== undefined ? runEnd.bosses : bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),

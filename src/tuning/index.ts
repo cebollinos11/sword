@@ -23,6 +23,7 @@ import delverJson from '../../data/delver.json';
 import relicsJson from '../../data/relics.json';
 import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
+export { MAX_FLOOR_TROOPS };
 export {
   applyDungeonKnobs,
   dungeonDifficultyLadder,
@@ -47,7 +48,7 @@ export {
   type WeightedHallKind,
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
-import { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate } from './delver';
+import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseBattle, type BattleTuning } from './battle';

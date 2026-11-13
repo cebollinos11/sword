@@ -9,7 +9,7 @@
  * Its memory (the Floor and which fires it has reached) is plain data in `save`, with its AI's, so Rollback and the Editor sandbox
  * give the same Intents again.
  */
-import { addItem, IDLE_INTENT, inDuel, pickupVisibleTo, type Intent, type SimState } from '../sim';
+import { IDLE_INTENT, inDuel, pickupVisibleTo, type Dropped, type Intent, type Inventory, type SimState } from '../sim';
 import { floorOf } from '../sim/delver';
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
@@ -24,6 +24,10 @@ const FIRE_STOP = 0.5;
 const PICKUP_STOP = 0.2;
 /** Where it stops in the Stairs zone (m from its centre). */
 const STAIRS_STOP = 0.3;
+
+/** Whether `inventory` has room for `item`: `addItem`'s rule (fewer Weapons held than `sizes.weapons`, or fewer Relics than `sizes.relics`), by counts. */
+const hasRoom = (inventory: Inventory, item: Dropped, sizes: TuningData['dungeon']['inventory']): boolean =>
+  item.kind === 'weapon' ? inventory.weapons.length < sizes.weapons : inventory.relics.length < sizes.relics;
 
 /** The pilot's memory: the Floor it is on and the fires (plan order) it has reached. */
 interface PilotMemory {
@@ -56,7 +60,7 @@ class DelverPilot implements Controller {
     let loot: (typeof run.pickups)[number] | undefined;
     if (inventory)
       for (const p of run.pickups)
-        if (pickupVisibleTo(p, fighter) && addItem(inventory, p, this.tuning.dungeon.inventory) !== null && (!loot || dist(p.at) < dist(loot.at))) loot = p;
+        if (pickupVisibleTo(p, fighter) && hasRoom(inventory, p, this.tuning.dungeon.inventory) && (!loot || dist(p.at) < dist(loot.at))) loot = p;
     if (loot) return this.ai.walkTo(state, fighter, { x: loot.at.x, y: loot.at.y, z: loot.at.z }, PICKUP_STOP);
     let target = -1;
     markers.fires.forEach((fire, k) => {

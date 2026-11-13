@@ -26,11 +26,23 @@ export function isBossFloor(delver: DelverTuning, floor: number): boolean {
 
 const cache = new WeakMap<BattleTuning, WeakMap<DelverTuning, FloorTroops>>();
 
+/**
+ * The indices of a Floor's Boss and elite Troops in `floorTroops`' list, for a base Battle of `baseCount` Troops: each tier's Boss Troop first
+ * (-1 for a tier without one), then the elite Troops, tier by tier, template by template, row by row. The one place that order lives.
+ */
+export function floorTroopLayout(baseCount: number, delver: DelverTuning): { boss: number[]; elite: number[][][] } {
+  let next = baseCount;
+  const boss = delver.warbands.map((t) => (t.boss ? next++ : -1));
+  const elite = delver.warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map(() => next++)));
+  return { boss, elite };
+}
+
 function build(battle: BattleTuning, delver: DelverTuning): FloorTroops {
   const troops: TroopTuning[] = [...battle.troops];
-  const boss = delver.warbands.map((tier): number => {
+  const layout = floorTroopLayout(battle.troops.length, delver);
+  for (const tier of delver.warbands) {
     const b = tier.boss;
-    if (!b) return -1;
+    if (!b) continue;
     const { troop: t } = b;
     troops.push({
       ...battle.troops[t.base]!,
@@ -47,18 +59,14 @@ function build(battle: BattleTuning, delver: DelverTuning): FloorTroops {
       relics: t.relics,
       boss: true,
     });
-    return troops.length - 1;
-  });
-  const elite = delver.warbands.map((tier) =>
-    (tier.elite ?? []).map((template) =>
-      template.troops.map((row) => {
+  }
+  for (const tier of delver.warbands)
+    for (const template of tier.elite ?? [])
+      for (const row of template.troops) {
         const base = battle.troops[row.troop]!;
         troops.push({ ...base, name: `${base.name} (elite)`, relics: template.relics });
-        return troops.length - 1;
-      }),
-    ),
-  );
-  return { troops, boss, elite };
+      }
+  return { troops, ...layout };
 }
 
 /** The Troops a Delver Floor's Crowd indexes, for `battle` and `delver` (cached per pair of objects). */

@@ -37,15 +37,16 @@ export function withStartingRelics(inv: Inventory, relics: readonly string[], tu
 /** The name of the Weapon the inventory has wielded. */
 export const wieldedWeapon = (inv: Inventory): string => inv.weapons[inv.weapon]!;
 
+/** The Relic of Tuning Data named `name`. Throws on a Relic Tuning Data lacks. */
+export function relicOf(tuning: Pick<TuningData, 'relics'>, name: string): TuningData['relics'][number] {
+  const relic = tuning.relics.find((r) => r.name === name);
+  if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return relic;
+}
+
 /** The Mods of the Relics named, folded (`foldMods`) in order. Throws on a Relic Tuning Data lacks. */
 export function relicMods(tuning: Pick<TuningData, 'relics'>, names: readonly string[]): Mods {
-  return foldMods(
-    names.map((name) => {
-      const relic = tuning.relics.find((r) => r.name === name);
-      if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
-      return relic;
-    }),
-  );
+  return foldMods(names.map((name) => relicOf(tuning, name)));
 }
 
 /** The Mods of an inventory: its equipped Relics folded (`foldMods`) in `equipped` order. Throws on a Relic Tuning Data lacks. */

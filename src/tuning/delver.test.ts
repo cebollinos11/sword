@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DELVER_VERSION } from '../sim/delver/version';
-import { loadTuningData, parseDelver, tuningDataHash } from './index';
+import { loadTuningData, MAX_FLOOR_TROOPS, parseDelver, tuningDataHash } from './index';
 
 const tuning = loadTuningData();
 const FIELD = tuning.battle.field.size;
@@ -230,6 +230,21 @@ describe('Delver Tuning Data (data/delver.json)', () => {
 
   it('accepts a fractional follow', () => {
     expect(parse(withFloor({ follow: 1.25 })).floor.follow).toBe(1.25);
+  });
+
+  it('refuses a Tuning whose Floor Troops exceed MAX_FLOOR_TROOPS, and accepts one at it', () => {
+    expect(MAX_FLOOR_TROOPS).toBe(64);
+    const floorTroops = tuning.battle.troops.length + tuning.delver.warbands.reduce((n, t) => n + (t.boss ? 1 : 0) + (t.elite ?? []).reduce((m, e) => m + e.troops.length, 0), 0);
+    const elite = (rows: number) => ({ hpScale: 1, relics: ['Vital Charm'], troops: Array.from({ length: rows }, () => ({ troop: tuning.battle.troops[0]!.name, count: 1 })) });
+    const withElite = (rows: number): Raw => {
+      const d = raw();
+      const tiers = d.warbands as { elite: unknown[] }[];
+      // Templates of one row each (a template holds at most a Squad's size of Soldiers).
+      tiers[0]!.elite = [...tiers[0]!.elite, ...Array.from({ length: rows }, () => elite(1))];
+      return d;
+    };
+    expect(() => parse(withElite(MAX_FLOOR_TROOPS - floorTroops))).not.toThrow();
+    expect(() => parse(withElite(MAX_FLOOR_TROOPS - floorTroops + 1))).toThrow(/Floor Troops/);
   });
 
   it('is in the Tuning Data hash, with the Floor generator version', () => {

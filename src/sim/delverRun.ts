@@ -221,7 +221,7 @@ export function bossesBeaten(delver: DelverTuning, run: Pick<DelverRun, 'floor' 
  * Hall's `rect` (edges included, flat) while that Hall is the Boss Hall. Pure: derived each Tick, never state.
  */
 export function bossHold(plan: FloorPlan, crowd: CrowdState, fighters: readonly FighterState[], config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, away?: readonly number[]): BossHold | undefined {
-  const q = crowd.warbands?.rank.indexOf(BOSS) ?? -1;
+  const q = bossWarband(crowd);
   if (q < 0) return undefined;
   const hall = plan.halls[plan.stairs]!;
   const { x0, x1, z0, z1 } = hall.rect;
@@ -290,11 +290,22 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const arena = arenaOf(t, duel.arena);
     const stairsAt = { x: (plan.markers.stairs.zone.x0 + plan.markers.stairs.zone.x1) / 2, z: (plan.markers.stairs.zone.z0 + plan.markers.stairs.zone.z1) / 2 };
     let won = false;
-    for (let q = 0; q < crowd.warbands!.rank.length; q++) {
+    // One pass over the Crowd: each Squad's living Soldiers, its lowest index and its lowest index alive before the Tick (-1 for none).
+    const warbands = crowd.warbands!.rank.length;
+    const living = new Array<number>(warbands).fill(0);
+    const lowest = new Array<number>(warbands).fill(-1);
+    const lowestBefore = new Array<number>(warbands).fill(-1);
+    for (let s = 0; s < crowd.squad.length; s++) {
+      const q = crowd.squad[s]!;
+      if (q < 0 || q >= warbands) continue;
+      if (lowest[q]! < 0) lowest[q] = s;
+      if (crowd.alive[s] === 1) living[q]!++;
+      if (lowestBefore[q]! < 0 && before.alive[s] === 1) lowestBefore[q] = s;
+    }
+    for (let q = 0; q < warbands; q++) {
       if (next.wiped.includes(q)) continue;
-      const members = crowd.squad.flatMap((squad, s) => (squad === q ? [s] : []));
-      if (members.length === 0 || members.some((s) => crowd.alive[s] === 1)) continue;
-      const last = members.find((s) => before.alive[s] === 1) ?? members[0]!;
+      if (lowest[q]! < 0 || living[q]! > 0) continue;
+      const last = lowestBefore[q]! >= 0 ? lowestBefore[q]! : lowest[q]!;
       const fall = { x: crowd.x[last]!, z: crowd.z[last]! };
       const drops = warbandDrops(t, config, plan, crowd, q, fall, runSeed(config.arena), next.floor, next.pickups.length, next.away);
       next = { ...next, wiped: [...next.wiped, q].sort((a, b) => a - b), pickups: [...next.pickups, ...drops] };
