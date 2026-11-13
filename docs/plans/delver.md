@@ -1283,6 +1283,70 @@ Written 2026-11-13 at the Stage's start. Three parts: two Simulation changes (th
 - Stairs, fire and pedestal art (stand-ins until #62 lands); a "descending" banner; a HUD line for the Floor and tier; the results screen lists Floors reached, Warbands beaten and the Build.
 - **Done**: playtest-ready solo.
 
+### Result
+Done 2026-11-13. A Delver Run can now be explored and read: a shared fog of war, maps that show only what the party has entered, stand-in art for the Stairs and pedestals, and a results screen that says how far the party got.
+- The last Boss no longer wins at its wipe: every Boss wipe heals the party and revives the fallen at the Stairs, and the Run is won when the party takes the last Floor's Stairs (the user's call).
+- The Reveal is in the Run's state and is by entering: a Hall or Passage is revealed once any present Player's living Fighter stands inside it.
+- The minimap and the Floor Map (`M`) draw only revealed space, with the markers of revealed Halls and the party. The 3D world is not fogged.
+
+Battles, Duels and the Hall-graph Run are unchanged.
+
+**What was built:**
+- **The last Boss** (`delverRun.ts`): the early `next.floor === next.floors` win and the `won` flag are gone. The Stairs path's `win()` ends the Run, with no fade and a `RunEnd`.
+- **The Reveal** (`src/sim/delver/reveal.ts`): `revealBits`, `emptyReveal`, `isRevealed`, `revealPlace` (Halls first, lower index first, rects inclusive on x0/z0 and exclusive on x1/z1) and `withReveal` (the same array when nothing is new). `DelverRun.revealed` is a plain array of unsigned 32-bit words, set on each Exploring Tick for every present Player whose Fighter is alive and in the Duel, and reset on each Floor with the Entrance set. Nothing reads it.
+- **`RunEnd.warbands`** (`match.ts`): the Warbands beaten over the whole Run. The Run carries `beaten` (the Warbands wiped on earlier Floors) and the Floor's `wiped` is added at the end, so the results screen needs no event history.
+- **Maps** (render and play, read-only):
+  - `delverMapMarks` (`src/render/delverMapMarks.ts`): the Stairs (open or shut), fires (revive spent or not), Treasure Halls (pedestals still lying for the viewer) and the Boss, for revealed Halls only. The Boss mark stands 4 m from the Stairs mark, which sits at the same centre.
+  - `delverMapLayout` and `delverMapStatus` (`floorMap.ts`): revealed rects scaled to fit a square board (at least 40 m across, so a lone Hall is small), the markers and an arrow for each living party Fighter (me white). The orientation is the Battle minimap's, so the map is the Floor seen from above and not its mirror. `floorMapLayout` still serves the Hall-graph Run.
+  - `FloorMapView` draws it as an SVG for a Delver Run; the map button and `M` now open in one.
+  - `Minimap.drawDelver`: the same, in a 24 m window round the local Fighter, with the promoted enemies as dots. The Hud owns one canvas, top right.
+- **Stand-ins** (`src/render/delverStandIns.ts`): a dark stepped pit with a glowing square for the Stairs (gold and pulsing while they count, dull red while a Boss Floor's gate is shut; the existing bars still stand round it), and a gold ring at each pedestal (the item still stands on its crate, as `pickupView` draws it). `RestFire.setSpent` makes a fire's flames smaller once its revive is spent. All of it is one small module plus `DelverMarks` calling it, so #62's art can replace it.
+- **HUD and results** (`hud.ts`, `game.ts`, `announcer.ts`):
+  - `delverScore`: "Floor 2 of tier 1 (2 / 9)" and "· Boss Floor" on a Boss Floor.
+  - A "Descending…" banner when the phase turns to Descending, and "Boss beaten — the Stairs are open".
+  - The results screen shows Floors reached, Warbands beaten, Bosses beaten and each Player's Build; the results line says the same.
+- **Playtest only**: `?dev=1&delver=1&immortal=1` keeps every living Team 0 Fighter of a solo Delver Run at max HP after each Tick (`withImmortalParty` in `driver.ts`), and `speed=N` (1 to 16, dev only) runs the Ticks N times as fast per frame, at 1× during the fade between Floors. Both are ignored without `dev=1`. Neither touches the Simulation or the shipped Tuning.
+
+**Changed from the Design:**
+- **`DelverRun.beaten` was added** (a second new hashed field), for `RunEnd.warbands`: `wiped` resets on each Floor, so a Run-wide count needs state.
+- **The Boss mark is offset 4 m** from the Stairs mark. Found in the playtest: both sit at the Boss Hall's centre and the skull covered the Stairs square, hiding the gate.
+- **The Floor Map's `delverMapLayout` takes a fifth argument**, the status (gate, fires, pickups), since its markers need more than the plan and the Reveal.
+- **The `speed` flag** was not in the Design. A headless browser at 2 to 5 fps runs a Run at half speed or less, so a Boss Floor took half an hour.
+- The Design said "Descending… banner while `phase === 'Descending'`". It shows for the fade's length from the Tick the phase turns, and is replaced by the next Floor's banner.
+
+**Existing tests changed:**
+- `delverBoss.test.ts`: "is a Victory at once" became "does not win at its wipe" (BossBeaten, the heal and the revive, no `RunEnd`) and "is a Victory when the party takes the last Stairs". None was weakened or removed.
+- `RunEnd` expectations gained `warbands`, and the Floor-start expectation gained `revealed` and `beaten`.
+- The protocol pins moved to 30.
+- No slow test needed changing: the soak's pilot walks on to the Stairs after the Boss, so its full Run still ends in a Victory with 3 Bosses.
+
+**`PROTOCOL_VERSION`: 29 to 30.** The resync's `delver` object gains `revealed` and `beaten`. The parser requires them: 1 to 64 words of unsigned 32 bits, and a count of 0 or more. No other message changed.
+
+**Tests:**
+- `npm run typecheck` is clean. The repo has no lint script or ESLint config, so there was no lint to run.
+- `npm test`: **2849 passed, 5 skipped** (2816 before the Stage).
+- `npm run test:slow`: 24 files and 46 tests passed (430 s).
+- New: `reveal.test.ts`; Reveal cases in `delverRun.test.ts` (the Entrance starts revealed, a Passage then the next Hall, an ally or an away or a fallen Player reveals nothing, a quiet Tick allocates nothing, a new Floor resets, same seed same hash, snapshot round trip); `delverMapLayout` in `floorMap.test.ts`; `delverScore` and the results line in `hud.test.ts`; the Reveal on the wire in `delverMessages.test.ts`; `warbands` across Floors in `delverBoss.test.ts`; `RestFire.setSpent`, the stand-ins and the immortal helper.
+
+**In the game** (`npm run dev`, a headless browser, `?dev=1&delver=1&autopilot=1&immortal=1`, one Expert AI ally; screenshots in `docs/plans/delver-stage5/`, all looked at):
+- `fresh-floor.png`: the first seconds of a Floor. The minimap shows the Entrance Hall alone.
+- `explored.png` and `floor-map.png`: after 40 s the Floor Map shows three Halls and two Passages, the Entrance green, the party's arrows (me white). The rest of the Floor is black.
+- `boss-floor-hud.png` and `boss-floor-map.png`: "Floor 3 of tier 1 (3 / 9) · Boss Floor" on a Boss Floor, and its map.
+- `boss-gate-map.png`: the Floor Map on Floor 9 with the Boss Hall revealed: the Stairs mark shut (✕) and the skull beside it; the fires (orange) and a Treasure Hall (a gold diamond) in revealed Halls.
+- `boss-hall-minimap.png`: the minimap in the Boss Hall, the shut Stairs square, the Boss as a red dot.
+- `descending.png`: "Descending…" over the fade, the stepped pit with the gate's bars sunk (the Boss was down).
+- `results.png`: a Victory at Floor 9's Stairs: "Floors reached 9 / 9", "Warbands beaten 6", "Bosses 3 / 3", the run time and the Build. (A Run that starts on Floor 9 counts only that Floor's Warbands.)
+- **Not captured: a 3D view of the shut gate.** The pilot's camera sits inside a Wall in most Boss Hall frames (the known camera issue), so no clean frame came out. The gate's bars are Stage 4's and unchanged; the Stage 4 `gate-closed.png` shows them.
+- A Run from Floor 3 (`delverStart=3&speed=8`) went on through Floors 4 and 5 on the shipped Tuning with the immortal party; a Run from Floor 9 reached the Victory in 212 to 272 s of wall time.
+
+**To watch next**:
+- **The Reveal by entering only.** A Hall is revealed when a Fighter is inside its rect, so a lit room seen from a doorway stays black on the maps until someone steps in. Say if that feels too stingy.
+- **The minimap window** is 24 m with a fixed north. A rotating one (up is where the camera looks) would follow the player better, but it is a different map from the Floor Map.
+- **The stand-ins** are boxes and rings: the Stairs pit reads, the pedestal rings are faint next to the crates. #62 replaces both.
+- **The Descending banner** shows during a 1 s fade. It is short at real speed.
+- **A Treasure Hall's diamond** stays gold while any pedestal item lies for the local Player, and goes hollow once all three are gone (taking one closes the other two for that Player, so it empties at once).
+- **Stage 6** adds levels, so the maps will need a level switch (or a stack): the Floor Map is flat.
+
 ### Stage 6: verticality
 **Model**: Opus.
 - The generator grows levels: a hall with a balcony (a Deck round its walls, a Ramp up), stairwells between a lower and an upper set of Halls, and a bridge over a Passage. Hall heights are a whole number of levels (Enclosure roofs at the next level).
