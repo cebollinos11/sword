@@ -10,6 +10,7 @@ import { FLOOR_ROWS, floorGraph, hallSlot, runPick, runSeed, type Hall } from '.
 import { inDuel } from './duel';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
+import { secondsToTicks } from './constants';
 
 /** A Hall of a Dungeon: its Floor (1-based), its row (0 the entrance, 4 the Boss) and its index in the row. */
 export interface HallRef {
@@ -210,3 +211,6 @@ export function restFire(arena: ArenaGeometry): ArenaPoint {
 export function atRestFire(arena: ArenaGeometry, f: Pick<FighterState, 'position' | 'y'>): boolean {
   return standsWithin(restFire(arena), REST_FIRE_RADIUS, f);
 }
+
+/** Ticks every Fighter whose standing counts must stand in a Door's zone, or a Delver Floor's Stairs zone, to take it (`dungeon.doorSeconds`, at least 1). */
+export const doorTicksNeeded = (tuning: Pick<TuningData, 'dungeon'>): number => Math.max(1, secondsToTicks(tuning.dungeon.doorSeconds));

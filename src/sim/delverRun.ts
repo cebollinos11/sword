@@ -6,19 +6,21 @@
  * Floor's Tuning Data (`arenaTuning`), and a wipe of Team 0, a Defeat. This file imports `match.ts` for types only.
  */
 import type { TuningData } from '../tuning';
+import { arenaOf } from './arena';
+import { secondsToTicks } from './constants';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import type { FloorPlan } from './delver/plan';
 import { runSeed } from './dungeon';
 import { inDuel } from './duel';
-import { runPlayers } from './hall';
-import { holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { doorCounters, doorTicksNeeded, presentPlayers, runPlayers, standsWithin, ZONE_HEIGHT } from './hall';
+import { holdInventory, startingInventory, useInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { Intent } from './intent';
 import type { MatchConfig, MatchEvent, MatchState } from './match';
 import { NO_MODS, setMods } from './mods';
-import type { Pickup } from './pickups';
+import { droppedPickup, takePickups, type Pickup } from './pickups';
 import type { Placement } from './skeleton';
-import type { SimDelver, DelverPhase, SimState } from './state';
-import { createInitialState, step } from './step';
+import type { FighterState, SimDelver, DelverPhase, SimState } from './state';
+import { createInitialState, standingFighter, step } from './step';
 
 /** One fire of the current Floor (`plan.markers.fires` order): whether its revive is spent, and which Players took its heal. */
 export interface RestUse {
@@ -116,6 +118,22 @@ export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>
   };
 }
 
+/** Whether the Fighter stands in the plan's Stairs zone: inside its rect, edges included, y within (-0.5, ZONE_HEIGHT). */
+export function inStairs(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>): boolean {
+  const { x0, x1, z0, z1 } = plan.markers.stairs.zone;
+  const { x, z } = f.position;
+  return f.y > -0.5 && f.y < ZONE_HEIGHT && x >= x0 && x <= x1 && z >= z0 && z <= z1;
+}
+
+/** The index of the first fire (`plan.markers.fires` order) the Fighter stands within `radius` of (ground y 0), or -1. */
+export function fireAt(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>, radius: number): number {
+  return plan.markers.fires.findIndex((fire) => standsWithin({ x: fire.x, y: 0, z: fire.z }, radius, f));
+}
+
+/** Where the j-th Fighter a fire revives stands round it (m): the corners of a 3 m square, so none lands on another. */
+const REVIVE_DX = [-1.5, 1.5, -1.5, 1.5];
+const REVIVE_DZ = [-1.5, -1.5, 1.5, 1.5];
+
 /** The Run mirrored for the Controllers (`SimState.delver`). */
 function mirrored(run: DelverRun): SimDelver {
   return { floor: run.floor, phase: run.phase, ...(run.away === undefined ? {} : { away: run.away }) };
@@ -139,8 +157,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
   }
 
   let duel = step(match.duel, intents, arenaTuning(tuning, match.duel.arena));
-  const { score, nextDuelTick } = match;
-  const next = run;
+  let { score, nextDuelTick, status } = match;
+  let next = run;
 
   if (duel.duel.status === 'Over') {
     // Team 0 is wiped out (a Floor's Duel ends on nothing else): a Defeat, in any phase.
@@ -148,11 +166,103 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events };
   }
 
-  // The Exploring rules (Inventory at a fire, the fires' revive and heal, the Stairs) go here (Stage 2, task 2): while `next.phase` is 'Exploring'.
+  if (next.phase === 'Exploring') {
+    const plan = floorOf(tuning, duel.arena)!.plan;
+    const t = arenaTuning(tuning, duel.arena);
+    const { fireRadius } = tuning.delver;
+
+    // The Inventory: a Player's Fighter changes what it holds only at a fire (refused elsewhere); what it drops is the pickups'. Taking needs no fire.
+    duel = {
+      ...duel,
+      fighters: duel.fighters.map((f, i) => {
+        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop) || fireAt(plan, f, fireRadius) < 0) return f;
+        const used = useInventory(f, intents[i]!, t);
+        if (used.dropped) {
+          const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
+          next = { ...next, pickups: [...next.pickups, droppedPickup(next.pickups.length, drop)] };
+          events.push({ type: 'ItemDropped', ...drop });
+        }
+        return used.fighter;
+      }),
+    };
+    const took = takePickups(next.pickups, duel.fighters, config, t, next.away);
+    if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
+      next = { ...next, pickups: took.pickups };
+      duel = { ...duel, fighters: took.fighters };
+      for (const x of took.taken) events.push({ type: 'ItemTaken', ...x });
+    }
+
+    // The fires, in plan order: the first Player to arrive revives every fallen Team 0 Fighter (once per fire), then each Player at it heals once.
+    const arena = arenaOf(t, duel.arena);
+    plan.markers.fires.forEach((fire, k) => {
+      const point = { x: fire.x, y: 0, z: fire.z };
+      const present = (i: number) => {
+        const f = duel.fighters[i]!;
+        return inDuel(f) && f.hp > 0 && standsWithin(point, fireRadius, f);
+      };
+      const use = next.restUsed[k]!;
+      let revived = use.revived;
+      if (!revived && presentPlayers(config, next.away).some(present)) {
+        revived = true;
+        let j = 0;
+        duel = {
+          ...duel,
+          fighters: duel.fighters.map((f, i): FighterState => {
+            if (f.team !== 0 || f.death === undefined) return f;
+            const at = { x: point.x + REVIVE_DX[j % 4]!, z: point.z + REVIVE_DZ[j % 4]! };
+            j++;
+            const weapon = f.inventory ? wieldedWeapon(f.inventory) : f.weapon;
+            const fresh = standingFighter(t, arena, { position: at, y: 0, facing: f.facing }, weapon, 0, f.size);
+            const armed = f.inventory ? holdInventory(fresh, f.inventory, t) : setMods(fresh, NO_MODS, t.fighter.maxHp);
+            events.push({ type: 'Revived', fighter: i, fire: k });
+            return { ...armed, hp: tuning.dungeon.revive * armed.maxHp };
+          }),
+        };
+      }
+      const healing = presentPlayers(config, next.away).filter((i) => !use.healed.includes(i) && present(i));
+      if (healing.length > 0) {
+        duel = {
+          ...duel,
+          fighters: duel.fighters.map((f, i): FighterState => {
+            if (!healing.includes(i)) return f;
+            const hp = Math.min(f.maxHp, f.hp + tuning.dungeon.restHeal * f.maxHp);
+            events.push({ type: 'Rested', fighter: i, healed: hp - f.hp });
+            return { ...f, hp };
+          }),
+        };
+      }
+      if (revived !== use.revived || healing.length > 0) {
+        next = {
+          ...next,
+          restUsed: next.restUsed.map((u, n) => (n === k ? { revived, healed: [...u.healed, ...healing].sort((a, b) => a - b) } : u)),
+        };
+      }
+    });
+
+    // The Stairs: they count while every Fighter whose standing counts (`doorCounters`) is in the zone; at `doorSeconds` the party takes them.
+    const counting = doorCounters(config, duel.fighters, next.away);
+    const fighters = duel.fighters;
+    const stairsTicks = counting.length > 0 && counting.every((i) => inStairs(plan, fighters[i]!)) ? next.stairsTicks + 1 : 0;
+    next = { ...next, stairsTicks };
+    if (stairsTicks >= doorTicksNeeded(tuning)) {
+      if (next.floor === next.floors) {
+        // The last Stairs: the Run is won, and its Duel ends as a Duel's end would leave it.
+        status = { status: 'Over', winner: 0, tick };
+        duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
+        events.push({ type: 'RunEnd', winner: 0, cleared: next.floors, floors: next.floors, halls: 0 });
+        nextDuelTick = null;
+      } else {
+        next = { ...next, phase: 'Descending' };
+        nextDuelTick = tick + Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+        score = score.map((s, i) => (i === 0 ? s + 1 : s));
+        events.push({ type: 'StairsTaken', floor: next.floor });
+      }
+    }
+  }
 
   // The Controllers see the Floor's phase and who has left.
   const view = mirrored(next);
-  if (duel.delver?.phase !== view.phase || duel.delver?.away !== view.away) duel = { ...duel, delver: view };
-  return { ...match, tick, score, duel, nextDuelTick, events, delver: next };
+  if (duel.delver?.phase !== view.phase || duel.delver?.away?.join() !== view.away?.join()) duel = { ...duel, delver: view };
+  return { ...match, tick, score, duel, nextDuelTick, status, events, delver: next };
 }
 

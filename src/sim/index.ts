@@ -184,7 +184,7 @@ export {
   type RunEndEvent,
   type RunState,
 } from './match';
-export { enterFloor, floorDuel, stepDelver, type DelverRun, type RestUse } from './delverRun';
+export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type DelverRun, type RestUse } from './delverRun';
 export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {

@@ -34,7 +34,7 @@ import { arenaOf } from './arena';
 import { isArenaName, nextArenaName } from './arenaGen/named';
 import { FLOOR_ROWS, type Hall } from './dungeon';
 import { inDuel } from './duel';
-import { atRestFire, doorCounters, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
+import { atRestFire, doorCounters, doorTicksNeeded, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { holdInventory, relicMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
 import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
@@ -415,8 +415,8 @@ function enterHall(run: Pick<RunState, 'floors' | 'startTick' | 'away'>, at: Hal
 /** The Run's current Hall. */
 export const runHall = (run: RunState): HallRef => ({ floor: run.floor, row: run.row, index: run.hall });
 
-/** Ticks every Fighter whose standing counts must stand in a Door's zone to take it (`dungeon.doorSeconds`, at least 1). */
-export const doorTicksNeeded = (tuning: TuningData): number => Math.max(1, secondsToTicks(tuning.dungeon.doorSeconds));
+/** Ticks every Fighter whose standing counts must stand in a Door's zone (or a Delver Floor's Stairs) to take it: `hall.ts`'s. */
+export { doorTicksNeeded };
 
 /** The exit (0-based, as `Hall.exits`) the party took, while `Leaving`: the first whose `doorTicks` reached `doorTicksNeeded`; else null. */
 export function takenExit(run: RunState, tuning: TuningData): number | null {
