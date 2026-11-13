@@ -1,9 +1,10 @@
-import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
+import { ATTACK_PHASES, DIRECTIONS, FLOOR_ROWS, isBattleName, MATCH_FORMATS, MAX_HALL_EXITS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
+import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -263,7 +264,9 @@ function isMatchOptions(v: unknown): boolean {
     (v.teams === undefined || isTeams(v.teams)) &&
     (v.arena === undefined || (isString(v.arena) && v.arena.length > 0)) &&
     isSessionFormatOnMap(v.format, v.arena) &&
-    (v.humans === undefined || isHumans(v.humans))
+    (v.humans === undefined || isHumans(v.humans)) &&
+    // A Delver Run is a Gauntlet on generated Floors (`true`, or absent).
+    (v.delver === undefined || (v.delver === true && v.format === 'Gauntlet'))
   );
 }
 
@@ -431,6 +434,7 @@ function isSimState(v: unknown): boolean {
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent) &&
     (v.hall === undefined || isSimHall(v.hall)) &&
+    (v.delver === undefined || isSimDelver(v.delver)) &&
     (v.crowd === undefined || isCrowd(v.crowd, (v.fighters as unknown[]).length))
   );
 }
@@ -596,13 +600,54 @@ function isRun(v: unknown, players: readonly number[]): boolean {
     (here.row === FLOOR_ROWS - 1 || (v.doorTicks as unknown[]).length >= 1) &&
     (v.phase !== 'Fighting' || (v.doorTicks as number[]).every((t) => t === 0)) &&
     isArrayOf(v.rested, (i) => isInt(i) && players.includes(i)) &&
-    isArrayOf(v.pickups, isPickup) &&
-    (v.pickups as unknown[]).length <= MAX_PICKUPS &&
-    (v.pickups as Obj[]).every((p, k, all) => p.id === k && isPickupOf(p, all, players)) &&
+    isPickups(v.pickups, players) &&
     isTick(v.startTick) &&
     (v.away === undefined || (isAway(v.away) && (v.away as number[]).every((i) => players.includes(i))))
   );
 }
+
+/** The pickups lying in a Hall or on a Floor: a list of at most MAX_PICKUPS, each in its place and fitting the Run's Player Fighters. */
+function isPickups(v: unknown, players: readonly number[]): boolean {
+  return isArrayOf(v, isPickup) && (v as unknown[]).length <= MAX_PICKUPS && (v as Obj[]).every((p, k, all) => p.id === k && isPickupOf(p, all, players));
+}
+
+const DELVER_PHASES: ReadonlySet<unknown> = new Set(['Exploring', 'Descending']);
+/** The most fires a Floor's list may hold: a resync from a peer asking for more is refused. */
+const MAX_FIRES = 64;
+
+/** A Delver Run's Floor and phase as a Duel carries them (`SimDelver`): a Floor from 1, a phase, and the Players away (absent while nobody has left). */
+const isSimDelver = (v: unknown): boolean => isObject(v) && isInt(v.floor) && v.floor >= 1 && DELVER_PHASES.has(v.phase) && (v.away === undefined || isAway(v.away));
+
+/**
+ * A Delver Run's progress (`DelverRun`): a Floor from 1 to `floors`, its phase, the Ticks the party has stood at the Stairs, one record per fire
+ * (whether its revive is spent, and which Players took its heal, ascending), the pickups lying on the Floor and the Tick it started on.
+ * `players` are the Run's Player Fighters: the ones that heal, own pickups and drop.
+ */
+function isDelverRun(v: unknown, players: readonly number[]): boolean {
+  return (
+    isObject(v) &&
+    isInt(v.floors) &&
+    v.floors >= 1 &&
+    isSimDelver({ floor: v.floor, phase: v.phase }) &&
+    (v.floor as number) <= v.floors &&
+    isTick(v.stairsTicks) &&
+    isArrayOf(v.restUsed, (u) => isObject(u) && isBool(u.revived) && isPlayers(u.healed) && (u.healed as number[]).every((i) => players.includes(i))) &&
+    (v.restUsed as unknown[]).length <= MAX_FIRES &&
+    isPickups(v.pickups, players) &&
+    isTick(v.startTick) &&
+    (v.away === undefined || (isAway(v.away) && (v.away as number[]).every((i) => players.includes(i))))
+  );
+}
+
+/** A Delver Run's Match and its Duel are on the Arena of the Floor the Run is on: `battle:delver<F>s<S>` for its Run seed (`config.arena`'s) and Floor. */
+const isFloorOfRun = (v: Obj, config: Obj): boolean => {
+  const floor = (v.delver as Obj).floor as number;
+  return v.arena === floorArenaName(runSeed(config.arena as string), floor) && (v.duel as Obj).arena === v.arena;
+};
+
+/** A Delver Run's Duel names the Run's Floor and phase (and the Players away), and has no Hall. */
+const isDelverFloor = (duel: Obj, run: Obj): boolean =>
+  duel.hall === undefined && isObject(duel.delver) && duel.delver.floor === run.floor && duel.delver.phase === run.phase && JSON.stringify(duel.delver.away) === JSON.stringify(run.away);
 
 /** A Run's `away`, the Player Fighters an AI Takeover has taken (each one of `players`, checked by `isRun`): at least one, distinct, ascending (absent while nobody has left). */
 const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).length > 0 && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);
@@ -644,12 +689,19 @@ function isMatchState(v: unknown): v is MatchState {
     (status.status === 'InProgress' || (status.status === 'Over' && isWinner(status.winner) && isTick(status.tick))) &&
     isArrayOf(v.events, isEvent) &&
     isSessionFormatOnMap(config.format, config.arena) &&
-    isSessionFormatOnMap(config.format, v.arena) &&
+    // (A Delver Run's Arena is its Floor's, not a Random Map's: its branch below judges it.)
+    (config.delver === true || isSessionFormatOnMap(config.format, v.arena)) &&
     (config.humans === undefined || isHumans(config.humans)) &&
     (config.players === undefined || (isPlayers(config.players) && (config.players as number[]).every((p) => (config.teams as number[])[p] === 0))) &&
     // A Run, and only a Run, carries its progress, and each of its Duels names its Hall.
     (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
-    (config.format === 'Gauntlet' ? isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined) &&
+    // ...a Delver Run instead has `run` null, and its Duel names the Floor (`delver`) where a Run's names its Hall.
+    (config.delver === undefined || (config.delver === true && config.format === 'Gauntlet')) &&
+    (config.format === 'Gauntlet'
+      ? config.delver
+        ? v.run === null && isDelverRun(v.delver, runPlayers(config as unknown as MatchConfig)) && isDelverFloor(v.duel as Obj, v.delver as Obj) && config.rematchTicks === null && isFloorOfRun(v, config)
+        : isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null && v.delver === undefined && (v.duel as Obj).delver === undefined
+      : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined && v.delver === undefined && (v.duel as Obj).delver === undefined) &&
     // A Battle, and only a Battle, has a Crowd.
     (config.format === 'Battle' ? isBattle(config, v.duel as Obj & { fighters: Obj[] }) : (v.duel as Obj).crowd === undefined)
   );

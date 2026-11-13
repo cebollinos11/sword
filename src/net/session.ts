@@ -735,9 +735,9 @@ class Session implements RollbackSession, PeerIntentSource {
         l.transport.send(hello);
         continue;
       }
-      // A Run's options also say how many humans it started with (its enemies' HP scales with that).
+      // A Run's options also say how many humans it started with (its enemies' HP scales with that), and a Delver Run's that it is one.
       const { weapons: _picks, teams: _teams, ...options } = this.matchOptions!;
-      const match = state.run ? { ...options, humans: state.config.humans } : options;
+      const match = state.run || state.delver ? { ...options, humans: state.config.humans, ...(state.delver ? { delver: true as const } : {}) } : options;
       const weapons = this.fighterOf.map((i) => state.config.weapons[i]!);
       l.transport.send({ ...hello, match, lineup: this.lineup!, weapons, player: l.peer });
     }
@@ -911,9 +911,11 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
     const teams = this.lineup!.map((s) => s.team);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
-    // The Format and a Run's humans are fixed at the start.
+    // The Format, a Run's humans and whether it is a Delver Run are fixed at the start.
     const config = this.state!.config;
     if ((state.config.format ?? 'Duels') !== config.format || (config.format === 'Gauntlet' && state.config.humans !== config.humans)) return;
+    // ...and so is a Delver Run (a Run's state is not a Delver Run's, nor the other way round).
+    if (state.config.delver !== config.delver) return;
     // One Fighter and one AI entry per slot: in a Battle, the whole Pool.
     if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
     // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).

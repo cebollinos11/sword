@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
-import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
-import { arenaLabel, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
+import { isDelver, newLobby, runTuning, setDelver, setFormat, startMatch, type LobbyState } from '../lobby';
+import { arenaLabel, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, dungeonChoice, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -121,5 +121,26 @@ describe("the Weapon cards' Speed bar (docs/plans/flail.md, Stage 6)", () => {
     const sword = tuning.weapons['Arming Sword']!;
     const slowed = { ...tuning, weapons: { ...tuning.weapons, 'Arming Sword': { ...sword, tempo: { ...sword.tempo, windUp: 2 } } } };
     expect(swingSpeedBars(slowed)['Arming Sword']).toBeLessThan(swingSpeedBars(tuning)['Arming Sword']!);
+  });
+});
+
+describe('the Lobby view: the Dungeon row (docs/plans/delver.md, Stage 2 follow-up)', () => {
+  const weapon = Object.keys(tuning.weapons)[0]!;
+  const lobby = (format: 'Duels' | 'Gauntlet' | 'Battle'): LobbyState =>
+    newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena: 'gen:greybox:42', bestOf: 3, format }, online: true, ai: { difficulty: 'Normal', weapon } });
+
+  it('offers Halls and Delver in a Gauntlet only', () => {
+    expect(dungeonChoice(lobby('Duels'))).toBeNull();
+    expect(dungeonChoice(lobby('Battle'))).toBeNull();
+    expect(dungeonChoice(lobby('Gauntlet'))).toEqual({ choices: ['Halls', 'Delver'], current: 'Halls' });
+  });
+
+  it('shows the one picked, and drops the choice with the Gauntlet while the setting waits for it', () => {
+    const delver = setDelver(lobby('Gauntlet'), true);
+    expect(dungeonChoice(delver)).toEqual({ choices: ['Halls', 'Delver'], current: 'Delver' });
+    const duels = setFormat(delver, 'Duels', 'gen:greybox:7');
+    expect(dungeonChoice(duels)).toBeNull();
+    expect(isDelver(duels)).toBe(false);
+    expect(dungeonChoice(setFormat(duels, 'Gauntlet', 'gen:greybox:7'))?.current).toBe('Delver');
   });
 });

@@ -7,7 +7,7 @@ import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
-import { createAutopilot, createBattlePilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createAutopilot, createBattlePilot, createDelverPilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
@@ -76,6 +76,7 @@ const CLOSE_UP_TURN = 0.38;
 const WEAPON_STORAGE_KEY = 'sword.weapon';
 const ARENA_STORAGE_KEY = 'sword.arena';
 const FORMAT_STORAGE_KEY = 'sword.format';
+const DELVER_STORAGE_KEY = 'sword.delver';
 const RUN_KNOBS_STORAGE_KEY = 'sword.runKnobs';
 const BATTLE_KNOBS_STORAGE_KEY = 'sword.battleKnobs';
 const ROOM_ROUTE = '#/room/';
@@ -187,6 +188,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   const savedWeapon = stored(WEAPON_STORAGE_KEY);
   const savedArena = stored(ARENA_STORAGE_KEY);
   const savedFormat = stored(FORMAT_STORAGE_KEY);
+  // The Delver setting (a Gauntlet on generated Floors): the one picked last, or on from the start with `?dev=1&delver=1`.
+  const savedDelver = stored(DELVER_STORAGE_KEY) === '1' || devDelverRun();
   const savedKnobs = storedKnobs();
   const savedBattleKnobs = storedBattleKnobs();
 
@@ -281,7 +284,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const battleFormat = savedFormat === 'Battle';
     const arena = random || (savedArena !== null && !gauntlet && arenas.includes(savedArena)) ? savedArena! : gauntlet ? randomMap(tuning, Math.floor(Math.random() * ARENA_SEED_RANGE)) : tuning.arena.match;
     const difficulty = difficulties.includes('Skilled') ? 'Skilled' : difficulties[0]!;
-    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}), ...(savedBattleKnobs ? { battle: savedBattleKnobs } : {}) };
+    const settings = { arena, bestOf: 3, ...(gauntlet ? { format: 'Gauntlet' as const } : battleFormat ? { format: 'Battle' as const } : {}), ...(savedKnobs ? { run: savedKnobs } : {}), ...(savedDelver ? { delver: true as const } : {}), ...(savedBattleKnobs ? { battle: savedBattleKnobs } : {}) };
     return { host: { name: menu.name, weapon, body: menu.body, ...sizeOf(menu) }, settings, online, ai: { difficulty, weapon: weapons[0]! } };
   }
 
@@ -342,6 +345,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (l.isHost) {
       store(ARENA_STORAGE_KEY, s.settings.arena);
       store(FORMAT_STORAGE_KEY, s.settings.format ?? 'Duels');
+      store(DELVER_STORAGE_KEY, s.settings.delver ? '1' : '0');
       store(RUN_KNOBS_STORAGE_KEY, JSON.stringify(s.settings.run ?? {}));
       store(BATTLE_KNOBS_STORAGE_KEY, JSON.stringify(s.settings.battle ?? {}));
     }
@@ -383,7 +387,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (s.settings.format === 'Battle') return launchBattle(l, s, lineup, picks, playerNames, playerBodies, members);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
-    const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
+    // A Gauntlet is a Delver Run (generated Floors) when the Lobby says so; every peer's Match options carry it.
+    const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const, ...(s.settings.delver ? { delver: true as const } : {}) } : {}) };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
     matchTuning = runTuning(arenaWorld(arena).tuning, s.settings);
     warmed = new Set();
@@ -393,9 +398,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       // In dev mode a Run may start deeper in (`?dev=1&floor=F&row=R`), for tuning: only a Run stepped here, never an online one.
       // ...and the player's Fighter may be on an AI (`?dev=1&autopilot=1,2`), to check a Run in a headless browser.
       const autopilot = match.format ? devAutopilot() : null;
-      // ...or a Delver Run on generated Floors (`?dev=1&delver=1`), which refuses a start Hall; then the autopilot is the Delver pilot.
-      const delver = match.format === 'Gauntlet' && devDelverRun();
-      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(delver ? { delver: true as const } : {}), ...(match.format ? { ...(delver ? {} : devRunStart()), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
+      // ...a Delver Run (the Lobby's setting) refuses a start Hall; then the autopilot is the Delver pilot.
+      const d = playerVsAi(matchTuning, { lineup, weapon: picks[0]!, ...match, ...(match.format ? { ...(match.delver ? {} : devRunStart()), ...devRunRelics() } : {}), ...(autopilot ? { autopilot, autopilotLoot: devAutopilotLoot() } : {}) });
       return game.play({ driver: d, names: playerNames, bodies: playerBodies });
     }
     const me = members.indexOf(l.me!);
@@ -412,9 +416,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (!transport) return;
       session = createRollbackSession({ role: 'guest', transport, tuning: matchTuning, weapon, lag });
     }
-    // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run.
+    // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run (a Delver Run's is the Delver pilot).
     const doors = match.format ? devAutopilot() : null;
-    const pilot = doors ? createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot()) : undefined;
+    const pilot = doors ? (match.delver ? Object.assign(createDelverPilot(matchTuning, 'Hard'), { watch() {} }) : createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot())) : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 

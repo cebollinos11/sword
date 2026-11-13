@@ -567,6 +567,17 @@ Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntle
   - **Tests**:
     - Loopback: two peers step a Delver Run with equal checksums. A resync state of a Delver Run passes the message check, and a malformed one fails.
     - Slow: two peers on Delver pilots go down a Floor with no desync.
+  - **Done (2026-11-13).**
+    - **What was built**:
+      - The Lobby's "Dungeon: Halls | Delver" row (`LobbySettings.delver`).
+      - `PROTOCOL_VERSION` 27.
+      - The resync check of a Delver state. Its arenas must be the Floor's own, `floorArenaName(runSeed(config.arena), floor)`.
+      - The revive spent only on a revive.
+    - **Measured**:
+      - Loopback: 400 Ticks with equal checksums, and a forced desync resyncs.
+      - `src/net/delverCoop.slow.test.ts`: two peers on the pilot reached Floor 2 at Tick 7,808, with 0 resyncs. About 5,700 Rollbacks a peer at the harness's 40 ± 20 ms.
+    - **Tests**: `npm test` 2558 passed, 5 skipped.
+    - **Left as is**: the menu's preview behind the Lobby still shows a Hall-graph Hall.
 
 ### Stage 3: Warbands
 **Model**: Opus (brains and fields).
