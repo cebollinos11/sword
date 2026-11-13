@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -469,34 +469,35 @@ const MAX_PLACES = MAX_SQUAD_PLACES;
 
 /**
  * A Battle's Squads (`SquadState`, docs/plans/battle-objectives.md): every per-Squad array as long as the others (at most `soldiers` of
- * them, Team 0's half then Team 1's), each entry what it may hold (a Formation is 0 to 2, a count up to `MAX_PLACES`).
+ * them, Team 0's half then Team 1's), each entry what it may hold (a Formation is 0 to 2, a count up to `MAX_PLACES`). A Floor's Squads
+ * (`floor`) are the Warbands': all Team 1, as few as none.
  */
-function isSquads(v: unknown, soldiers: number): boolean {
+function isSquads(v: unknown, soldiers: number, floor: boolean): boolean {
   if (!isObject(v) || !Array.isArray(v.team)) return false;
   const m = v.team.length;
-  if (m < 2 || m % 2 !== 0 || m > soldiers) return false;
+  if (m > soldiers || (floor ? false : m < 2 || m % 2 !== 0)) return false;
   const sized = (a: unknown, item: (x: unknown) => boolean) => isArrayOf(a, item) && (a as unknown[]).length === m;
   return (
-    v.team.every((t, q) => t === (q < m / 2 ? 0 : 1)) &&
+    v.team.every((t, q) => t === (floor || q >= m / 2 ? 1 : 0)) &&
     ['x', 'z', 'heading', 'aim', 'speed'].every((k) => sized(v[k], isNum)) &&
     sized(v.shape, (x) => isInt(x) && x >= 0 && x <= 2) &&
     sized(v.living, (x) => isInt(x) && x >= 0 && x <= MAX_PLACES) &&
     sized(v.fall, isBit) &&
-    // An Order is ATTACK, DEFEND or RESPAWN (0 to 2) to one of the Objectives or Bases; a respawn is due at a Tick, or -1.
+    // An Order is ATTACK, DEFEND or RESPAWN (0 to 2) to one of the Objectives or Bases (none, -1, on a Floor); a respawn is due at a Tick, or -1.
     sized(v.order, (x) => isInt(x) && x >= 0 && x <= 2) &&
-    sized(v.target, (x) => isInt(x) && x >= 0 && x < MAX_OBJECTIVES + 2) &&
+    sized(v.target, (x) => isInt(x) && x >= (floor ? -1 : 0) && x < MAX_OBJECTIVES + 2) &&
     sized(v.since, isInt) &&
     sized(v.respawnAt, (x) => isInt(x) && x >= -1) &&
     sized(v.surface, isSurface)
   );
 }
 
-/** A Battle's Objectives (`ObjectiveState`): a progress from -1 to +1 and an Owner (-1 for none, or a Team) each, as many as the map holds (at most MAX_OBJECTIVES). */
-function isObjectives(v: unknown): boolean {
+/** A Battle's Objectives (`ObjectiveState`; a Floor has none): a progress from -1 to +1 and an Owner (-1 for none, or a Team) each, as many as the map holds (at most MAX_OBJECTIVES). */
+function isObjectives(v: unknown, floor: boolean): boolean {
   if (!isObject(v) || !Array.isArray(v.progress)) return false;
   const k = v.progress.length;
   return (
-    k >= 1 &&
+    (floor ? k === 0 : k >= 1) &&
     k <= MAX_OBJECTIVES &&
     v.progress.every((x) => isNum(x) && x >= -1 && x <= 1) &&
     isArrayOf(v.owner, (x) => x === -1 || x === 0 || x === 1) &&
@@ -508,11 +509,14 @@ function isObjectives(v: unknown): boolean {
  * A Battle's Crowd (`CrowdState`, docs/plans/big-battle.md): every per-Soldier array as long as the others, each entry what it may
  * hold, and every index in range: a target another Soldier, a slot one of the `slots` Fighter Pool slots, a Player's Soldier one
  * of the Crowd. The Crowd's own generator, its Rout, and up to MAX_PLAYERS Players' records. How many Soldiers is Tuning Data's to say.
+ * A Floor's Crowd (it has `warbands`) instead has each Soldier's `maxHp`, its Warbands (`isWarbands`), no Objectives, no tickets, no Rout and no Player records.
  */
 function isCrowd(v: unknown, slots: number): boolean {
   if (!isObject(v) || !Array.isArray(v.x)) return false;
   const n = v.x.length;
   if (n > MAX_SOLDIERS) return false;
+  const floor = v.warbands !== undefined;
+  if (floor !== (v.maxHp !== undefined)) return false;
   const sized = (a: unknown, item: (x: unknown) => boolean) => isArrayOf(a, item) && (a as unknown[]).length === n;
   const index = (lo: number, hi: number) => (x: unknown) => isInt(x) && x >= lo && x < hi;
   return (
@@ -527,17 +531,44 @@ function isCrowd(v: unknown, slots: number): boolean {
     sized(v.sizeThick, isSizePart) &&
     sized(v.troop, index(0, MAX_TROOPS)) &&
     sized(v.look, index(0, MAX_LOOKS)) &&
-    isSquads(v.squads, n) &&
-    isObjectives(v.objectives) &&
-    isArrayOf(v.tickets, (x) => isNum(x) && x >= 0) &&
+    isSquads(v.squads, n, floor) &&
+    isObjectives(v.objectives, floor) &&
+    (!floor || (sized(v.maxHp, (x) => isNum(x) && x > 0) && isWarbands(v.warbands, v.squads as { team: unknown[] }))) &&
+    isArrayOf(v.tickets, (x) => isNum(x) && x >= 0 && (!floor || x === 0)) &&
     (v.tickets as unknown[]).length === 2 &&
     sized(v.squad, index(-1, (v.squads as { team: unknown[] }).team.length)) &&
     sized(v.place, (x) => isInt(x) && x >= 0 && x < MAX_PLACES) &&
     isObject(v.rng) &&
     isInt(v.rng.seed) &&
-    (v.rout === null || (isObject(v.rout) && isTeam(v.rout.team) && isTick(v.rout.tick))) &&
+    (floor ? v.rout === null : v.rout === null || (isObject(v.rout) && isTeam(v.rout.team) && isTick(v.rout.tick))) &&
     isArrayOf(v.players, (p) => isBattlePlayer(p, n, slots)) &&
-    (v.players as unknown[]).length <= MAX_PLAYERS
+    (v.players as unknown[]).length <= (floor ? 0 : MAX_PLAYERS)
+  );
+}
+
+/** The most points a Floor's patrol loop may be read to have (a Warband's `leg`; the Floor says how many it has). */
+const MAX_LOOP_POINTS = 65_535;
+
+/**
+ * A Floor's Warbands (`WarbandState`, docs/plans/delver.md, Stage 3): one entry per Squad of the Crowd in each array. The mode is GUARD to RETURN (0 to 3),
+ * a Warband is a guard (a post) or a patrol (a loop) and never both, its leg and its Fighter chased and last seen are in range, and its size
+ * (the Soldiers it deployed with) is a Formation's. Which post, loop and template exist is the Floor's to say.
+ */
+function isWarbands(v: unknown, squads: { team: unknown[] }): boolean {
+  if (!isObject(v)) return false;
+  const m = squads.team.length;
+  const sized = (a: unknown, item: (x: unknown) => boolean) => isArrayOf(a, item) && (a as unknown[]).length === m;
+  const from = (lo: number, hi = Infinity) => (x: unknown) => isInt(x) && x >= lo && x <= hi;
+  return (
+    sized(v.mode, from(0, 3)) &&
+    sized(v.post, from(-1)) &&
+    sized(v.patrol, from(-1)) &&
+    (v.post as number[]).every((p, q) => p >= 0 !== (v.patrol as number[])[q]! >= 0) &&
+    sized(v.leg, from(0, MAX_LOOP_POINTS)) &&
+    sized(v.chased, from(-1, 3)) &&
+    sized(v.seen, from(-1)) &&
+    sized(v.size, from(1, MAX_SQUAD_PLACES)) &&
+    sized(v.encounter, from(0))
   );
 }
 
@@ -702,18 +733,20 @@ function isMatchState(v: unknown): v is MatchState {
         ? v.run === null && isDelverRun(v.delver, runPlayers(config as unknown as MatchConfig)) && isDelverFloor(v.duel as Obj, v.delver as Obj) && config.rematchTicks === null && isFloorOfRun(v, config)
         : isRun(v.run, runPlayers(config as unknown as MatchConfig)) && isRunHall((v.duel as Obj).hall, v.run as Obj) && config.rematchTicks === null && v.delver === undefined && (v.duel as Obj).delver === undefined
       : (v.run === undefined || v.run === null) && (v.duel as Obj).hall === undefined && v.delver === undefined && (v.duel as Obj).delver === undefined) &&
-    // A Battle, and only a Battle, has a Crowd.
-    (config.format === 'Battle' ? isBattle(config, v.duel as Obj & { fighters: Obj[] }) : (v.duel as Obj).crowd === undefined)
+    // A Battle has a Crowd, a Delver Run a Floor's (with Warbands), and no other Match has one.
+    (config.format === 'Battle' ? isBattle(config, v.duel as Obj & { fighters: Obj[] }) : config.delver ? isFloorCrowd(config, v.duel as Obj & { fighters: Obj[] }) : (v.duel as Obj).crowd === undefined)
   );
 }
 
 /**
  * The Duel's Fighters for the Format: one per Lineup slot (2 to MAX_FIGHTERS), or in a Battle its whole Fighter Pool, the Players' Fighters
- * (`config.teams`) first. How big the Pool is, is Tuning Data's to say.
+ * (`config.teams`) first. How big the Pool is, is Tuning Data's to say. A Delver Run's Fighters are its party (1 to MAX_TEAM_SIZE, all Team 0)
+ * and then Pool slots, as a Battle's.
  */
 function isFormatFighters(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
   const teams = (config.teams as unknown[]).length;
   if (config.format === 'Battle') return duel.fighters.length >= teams;
+  if (config.delver) return duel.fighters.length > teams && duel.fighters.length <= MAX_POOL && teams <= MAX_TEAM_SIZE && (config.teams as number[]).every((t) => t === 0);
   return duel.fighters.length === teams && teams >= 2;
 }
 
@@ -725,13 +758,27 @@ function isFormatFighters(config: Obj, duel: Obj & { fighters: Obj[] }): boolean
 function isBattle(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
   const crowd = duel.crowd as (Obj & { slot: number[]; x: unknown[]; players: Obj[] }) | undefined;
   const players = (config.teams as unknown[]).length;
-  if (!crowd || config.rematchTicks !== null || crowd.players.length !== players) return false;
+  if (!crowd || crowd.warbands !== undefined || config.rematchTicks !== null || crowd.players.length !== players) return false;
+  return isPoolBound(crowd, duel, players);
+}
+
+/**
+ * A Delver Run's Duel: its Crowd is a Floor's (`warbands`, no Player records), and the Pool and the Crowd agree on who is bound where, as a Battle's
+ * do with the party in the Players' place: no party Fighter is bound, and a Soldier's slot is bound to it and back.
+ */
+function isFloorCrowd(config: Obj, duel: Obj & { fighters: Obj[] }): boolean {
+  const crowd = duel.crowd as (Obj & { slot: number[]; x: unknown[]; players: Obj[] }) | undefined;
+  return !!crowd && crowd.warbands !== undefined && crowd.players.length === 0 && isPoolBound(crowd, duel, (config.teams as unknown[]).length);
+}
+
+/** The Pool and the Crowd agree: a slot from `players` on bound to a Soldier is that Soldier's slot, and a Soldier's slot is bound to it (or, in a Battle, is a Player's, who took it over). A Player's Fighter is never bound. */
+function isPoolBound(crowd: Obj & { slot: number[]; x: unknown[]; players: Obj[] }, duel: { fighters: Obj[] }, players: number): boolean {
   const soldiers = crowd.x.length;
   const boundRight = duel.fighters.every((f, k) => {
     const b = f.soldier as { index: number } | undefined;
     return b === undefined || (k >= players && b.index < soldiers && crowd.slot[b.index] === k);
   });
-  const slotRight = crowd.slot.every((k, s) => k < 0 || (k < players ? crowd.players[k]!.soldier === s : (duel.fighters[k]!.soldier as { index: number } | undefined)?.index === s));
+  const slotRight = crowd.slot.every((k, s) => k < 0 || (k < players ? crowd.players[k]?.soldier === s : (duel.fighters[k]!.soldier as { index: number } | undefined)?.index === s));
   return boundRight && slotRight;
 }
 

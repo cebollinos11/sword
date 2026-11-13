@@ -79,7 +79,19 @@ export interface Peer {
   readonly sums: Map<number, string>;
   /** The Match each Tick left, by Tick: the last version this peer simulated (final once the Tick is confirmed). */
   readonly trace: Map<number, Snap>;
+  /** What each of this peer's frames cost (only when the Run is made with `timed`), in order. */
+  readonly frames: FrameCost[];
+  /** How many Ticks this peer's Tick function has been called for (every simulated Tick, a Rollback's re-simulated ones too). */
+  steps: number;
   gone: boolean;
+}
+
+/** One frame of a peer: the wall time of `session.tick` (ms), the Rollbacks it ran, the Ticks it simulated in all, and whether it advanced the Match. */
+export interface FrameCost {
+  readonly ms: number;
+  readonly rollbacks: number;
+  readonly steps: number;
+  readonly advanced: boolean;
 }
 
 export interface RunOptions {
@@ -96,6 +108,8 @@ export interface RunOptions {
    * pilot, and Tuning Data as `tune` makes it (default: as it is). The Run's own checks (`offline`, `disagreements`) are for the Hall-graph Run.
    */
   readonly delver?: { readonly tune?: (t: TuningData) => TuningData };
+  /** Time every frame of every peer into `Peer.frames` (wall clock, not the virtual one). */
+  readonly timed?: boolean;
 }
 
 /** The autopilot's Intent for the local Fighter, as `playerVsPlayer` asks it: from the session's own (possibly predicted) state. */
@@ -116,7 +130,9 @@ export function startRun(o: RunOptions) {
   const match = o.delver ? { ...MATCH, delver: true as const } : MATCH;
   const tunings = Array.from({ length: o.players }, () => (o.delver ? (o.delver.tune ?? ((t: TuningData) => t))(loadTuningData()) : peerTuning()));
   const traces = tunings.map(() => new Map<number, Snap>());
+  const counts = tunings.map(() => 0);
   const stepOf = (k: number): Step => (m, intents, t) => {
+    counts[k]!++;
     const next = (o.step?.(k) ?? stepMatch)(m, intents, t);
     traces[k]!.set(next.tick, snap(next));
     return next;
@@ -135,6 +151,10 @@ export function startRun(o: RunOptions) {
       events: [],
       sums: new Map(),
       trace: traces[k]!,
+      frames: [],
+      get steps() {
+        return counts[k]!;
+      },
       gone: false,
     };
     session.onEvent((e) => peer.events.push(e));
@@ -150,7 +170,10 @@ export function startRun(o: RunOptions) {
       const { session } = peer;
       const tick = session.currentTick + 1;
       const intent = (session.state && o.intent?.(peer.player, session.state, tick)) ?? autopilotIntent(peer);
+      const [before, steps] = [session.stats.rollbacks, peer.steps];
+      const t0 = o.timed ? process.hrtime.bigint() : 0n;
       const r = session.tick(intent);
+      if (o.timed) peer.frames.push({ ms: Number(process.hrtime.bigint() - t0) / 1e6, rollbacks: session.stats.rollbacks - before, steps: peer.steps - steps, advanced: r.advanced });
       // Recorded as sent: as the other peers read it off the wire (JSON has no -0).
       if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
       each?.(peer);

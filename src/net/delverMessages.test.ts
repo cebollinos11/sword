@@ -3,7 +3,7 @@
  * whose `run` is null, whose `delver` is the Floor's progress, and whose Duel names the Floor (`duel.delver`) in place of a Hall.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../tuning';
+import { loadTuningData, MAX_SQUAD_PLACES, type TuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, runSeed, stepMatch, takeOverFighter, type MatchState } from '../sim';
 import { FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
@@ -29,8 +29,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 27', () => {
-    expect(PROTOCOL_VERSION).toBe(27);
+  it('is protocol 28', () => {
+    expect(PROTOCOL_VERSION).toBe(28);
   });
 
   it("accepts a Delver Run's start message, and refuses `delver` that is not true or is not a Gauntlet's", () => {
@@ -159,5 +159,79 @@ describe('Peer message validation: a Delver Run', () => {
     expect(parseNetMessage(resync(halls, lineupAis(tuning, lineup, 'Gauntlet', OPTIONS).map((a) => a?.save?.() ?? null)))).not.toBeNull();
     expect(parseNetMessage(resync({ ...halls, delver: state.delver }, []))).toBeNull();
     expect(parseNetMessage(resync({ ...halls, duel: { ...halls.duel, delver: state.duel.delver } }, []))).toBeNull();
+  });
+
+  it("carries a Delver Run's Floor with Warbands, and refuses a malformed Crowd or Pool", () => {
+    const { state, ai } = delverResync(10);
+    const crowd = state.duel.crowd!;
+    expect(crowd.warbands, 'the Floor has Warbands').toBeDefined();
+    expect(crowd.warbands!.mode.length).toBeGreaterThan(1);
+    expect(state.duel.fighters.length).toBeGreaterThan(state.config.teams.length);
+    const message = resync(state, ai);
+    expect(parseNetMessage(message)).toEqual(message);
+    const crowdOf = (patch: object): MatchState => ({ ...state, duel: { ...state.duel, crowd: { ...crowd, ...patch } } }) as MatchState;
+    const warbands = (patch: object): MatchState => crowdOf({ warbands: { ...crowd.warbands!, ...patch } });
+    const n = crowd.warbands!.mode.length;
+    const soldier = { index: 0, since: 0, role: 'Attack' as const };
+    const withFighter = (k: number, patch: object, slot: Record<number, number> = {}): MatchState => {
+      const slots = crowd.slot.slice();
+      for (const [s, v] of Object.entries(slot)) slots[Number(s)] = v;
+      return { ...state, duel: { ...state.duel, crowd: { ...crowd, slot: slots }, fighters: state.duel.fighters.map((f, i) => (i === k ? { ...f, ...patch } : f)) } } as MatchState;
+    };
+    const k = state.config.teams.length;
+    // A bound Pool slot is fine (Soldier 0 is in slot k, and back).
+    const bound = withFighter(k, { soldier }, { 0: k });
+    expect(parseNetMessage(resync(bound, ai)), 'a Soldier promoted into a Pool slot').not.toBeNull();
+    const { crowd: _crowd, ...bare } = state.duel;
+    const battleCrowd = { ...crowd, warbands: undefined, maxHp: undefined, objectives: { progress: [0], owner: [-1] }, players: [] };
+    const broken: [string, unknown][] = [
+      ['no Crowd', { ...state, duel: bare }],
+      ['no warbands', crowdOf({ warbands: undefined })],
+      ['no maxHp', crowdOf({ maxHp: undefined })],
+      ['a Battle Crowd', crowdOf(battleCrowd)],
+      ['a bad mode', warbands({ mode: crowd.warbands!.mode.map((m, q) => (q === 0 ? 4 : m)) })],
+      ['a fractional mode', warbands({ mode: crowd.warbands!.mode.map((m, q) => (q === 0 ? 0.5 : m)) })],
+      ['post and patrol both -1', warbands({ post: crowd.warbands!.post.map((p, q) => (q === 0 ? -1 : p)), patrol: crowd.warbands!.patrol.map((p, q) => (q === 0 ? -1 : p)) })],
+      ['post and patrol both set', warbands({ post: crowd.warbands!.post.map((p, q) => (q === 0 ? 0 : p)), patrol: crowd.warbands!.patrol.map((p, q) => (q === 0 ? 0 : p)) })],
+      ['a negative leg', warbands({ leg: crowd.warbands!.leg.map((l, q) => (q === 0 ? -1 : l)) })],
+      ['a chased past the party', warbands({ chased: crowd.warbands!.chased.map((c, q) => (q === 0 ? 4 : c)) })],
+      ['a seen below -1', warbands({ seen: crowd.warbands!.seen.map((c, q) => (q === 0 ? -2 : c)) })],
+      ['a size of 0', warbands({ size: crowd.warbands!.size.map((c, q) => (q === 0 ? 0 : c)) })],
+      ['a size past a Formation', warbands({ size: crowd.warbands!.size.map((c, q) => (q === 0 ? MAX_SQUAD_PLACES + 1 : c)) })],
+      ['a negative encounter', warbands({ encounter: crowd.warbands!.encounter.map((c, q) => (q === 0 ? -1 : c)) })],
+      ['a short array', warbands({ size: crowd.warbands!.size.slice(1) })],
+      ['a short mode', warbands({ mode: crowd.warbands!.mode.slice(0, n - 1) })],
+      ['a maxHp of the wrong length', crowdOf({ maxHp: crowd.maxHp!.slice(1) })],
+      ['a maxHp of 0', crowdOf({ maxHp: crowd.maxHp!.map((h, s) => (s === 0 ? 0 : h)) })],
+      ['a Rout', crowdOf({ rout: { team: 1, tick: 5 } })],
+      ['tickets', crowdOf({ tickets: [1, 0] })],
+      ['a Player record', crowdOf({ players: [{ soldier: -1, taken: 0, kills: 0, corpse: -1 }] })],
+      ['an Objective', crowdOf({ objectives: { progress: [0], owner: [-1] } })],
+      ['a Team 0 Squad', crowdOf({ squads: { ...crowd.squads, team: crowd.squads.team.map((t, q) => (q === 0 ? 0 : t)) } })],
+      ['a bound party slot', withFighter(0, { soldier }, { 0: 0 })],
+      ['a bound party slot, one side', withFighter(0, { soldier })],
+      ['a Soldier pointing at an unbound slot', withFighter(k, {}, { 0: k })],
+      ['a Soldier pointing at the wrong slot', withFighter(k, { soldier }, { 0: k + 1 })],
+      ['a slot bound to no Soldier', withFighter(k, { soldier })],
+      ['a Pool as small as the party', { ...state, duel: { ...state.duel, fighters: state.duel.fighters.slice(0, k) } }],
+      ['a Pool past 64', { ...state, duel: { ...state.duel, fighters: [...state.duel.fighters, ...Array.from({ length: 70 }, () => state.duel.fighters[k])] } }],
+      ['a Team 1 in the party', { ...state, config: { ...state.config, teams: state.config.teams.map((t, i) => (i === 0 ? 1 : t)) } }],
+    ];
+    for (const [name, bad] of broken) expect(parseNetMessage(resync(bad, ai)), name).toBeNull();
+  });
+
+  it("refuses a Floor Crowd on a Battle state (and on any other Format's)", () => {
+    const { state } = delverResync(10);
+    const small: TuningData = { ...tuning, battle: { ...tuning.battle, armySize: 40, deploy: { ...tuning.battle.deploy, front: 10, perRank: 10 } } };
+    const two: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, { team: 1, pilot: { kind: 'Player', player: 1 } }];
+    const battle = JSON.parse(JSON.stringify(createMatch(small, lineupMatch(small, two, ['Halberd', 'Halberd'], { format: 'Battle', bestOf: 1, seed: 5 })))) as MatchState;
+    expect(battle.duel.crowd, 'a Battle has a Crowd').toBeDefined();
+    expect(parseNetMessage(resync(battle))).not.toBeNull();
+    const floorCrowd = state.duel.crowd!;
+    expect(parseNetMessage(resync({ ...battle, duel: { ...battle.duel, crowd: floorCrowd } }))).toBeNull();
+    expect(parseNetMessage(resync({ ...battle, duel: { ...battle.duel, crowd: { ...battle.duel.crowd!, warbands: floorCrowd.warbands } } }))).toBeNull();
+    // ...and no other Format has a Crowd.
+    const duels = JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, seed: 3 }))) as MatchState;
+    expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, crowd: floorCrowd } }))).toBeNull();
   });
 });

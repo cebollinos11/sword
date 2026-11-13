@@ -1,12 +1,12 @@
 /**
- * A Delver Run online (docs/plans/delver.md, Stage 2 follow-up): two peers over the memory transport (40 ms ± 20 latency) step the same Delver
+ * A Delver Run online (docs/plans/delver.md, Stage 2 follow-up; with Warbands, Stage 3): two peers over the memory transport (40 ms ± 20 latency) step the same Delver
  * Run through the Rollback session, each Player's Fighter on the Delver pilot, fed the peer's own (possibly predicted) state. Nothing crosses the
  * wire but Intents and the start message: both peers build every Floor from the Run seed and the Floor number. The checksums agree with no resync,
  * and a guest forced to diverge is brought back by a resync of a Delver state.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TuningData } from '../tuning';
-import { stepMatch } from '../sim';
+import { stepMatch, type MatchState } from '../sim';
 import { CHECKSUM_INTERVAL, type SessionEvent } from './session';
 import { startRun, type Step } from './coopHarness';
 
@@ -15,11 +15,33 @@ afterEach(() => vi.restoreAllMocks());
 /** Three Floors of one Tier, the Fighters' default Tuning Data otherwise. */
 const DELVER = { tune: (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 3 } }) };
 
+/** The Tick the party is set down beside the first Warband (the same edit on every peer, so a Rollback over it repeats it). */
+const SET_DOWN = 2;
+/** The party's Fighters stood 3 m from the first Warband's first Soldier: its Bubble promotes the Soldiers about it within a few Ticks. */
+const nearWarband: Step = (m, intents, t) => {
+  const next = stepMatch(m, intents, t);
+  const crowd = next.duel.crowd;
+  if (next.tick !== SET_DOWN || !crowd || crowd.x.length === 0) return next;
+  const party = next.config.teams.length;
+  return { ...next, duel: { ...next.duel, fighters: next.duel.fighters.map((f, i) => (i < party ? { ...f, position: { x: crowd.x[0]! - 3, z: crowd.z[0]! } } : f)) } };
+};
+const both = (): Step => nearWarband;
+
+/** The Pool slots past the party that hold a Soldier (a Promotion's Fighters). */
+const promoted = (m: MatchState | null): number => (m ? m.duel.fighters.filter((f, i) => i >= m.config.teams.length && f.soldier !== undefined).length : 0);
+
 describe('a Delver Run over the memory transport', () => {
-  it('two peers on the Delver pilot step a few hundred Ticks with equal checksums and no resync', () => {
-    const r = startRun({ players: 2, delver: DELVER });
-    r.until(() => r.confirmed() >= 400, undefined, 600);
+  it('two peers on the Delver pilot step a Floor of Warbands for a few hundred Ticks with equal checksums, no resync and a Promotion', () => {
+    const r = startRun({ players: 2, delver: DELVER, step: both });
+    let mostPromoted = 0;
+    r.until(() => r.confirmed() >= 400, () => (mostPromoted = Math.max(mostPromoted, promoted(r.host.session.state))), 600);
     expect(r.confirmed()).toBeGreaterThanOrEqual(400);
+    // Warbands stand on the Floor, in a Pool past the party, and a Warband was promoted into it.
+    const state = r.host.session.state!;
+    expect(state.duel.crowd?.warbands?.mode.length, 'Warbands').toBeGreaterThan(1);
+    expect(state.duel.fighters.length).toBeGreaterThan(state.config.teams.length);
+    expect(state.config.teams).toEqual([0, 0]);
+    expect(mostPromoted, 'a Promotion happened').toBeGreaterThanOrEqual(1);
     for (const p of r.peers) {
       expect(p.session.status).toBe('Running');
       expect(p.session.state!.config).toMatchObject({ format: 'Gauntlet', delver: true, humans: 2 });
@@ -47,12 +69,12 @@ describe('a Delver Run over the memory transport', () => {
     // On the guest only: at one Tick, Fighter 0's HP drifts by 1.
     let driftAt: number | null = null;
     const drift: Step = (m, intents, t) => {
-      const next = stepMatch(m, intents, t);
+      const next = nearWarband(m, intents, t);
       driftAt ??= next.tick >= 120 ? next.tick : null;
       if (next.tick !== driftAt) return next;
       return { ...next, duel: { ...next.duel, fighters: next.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: f.hp - 1 } : f)) } };
     };
-    const r = startRun({ players: 2, delver: DELVER, step: (k) => (k === 1 ? drift : undefined) });
+    const r = startRun({ players: 2, delver: DELVER, step: (k) => (k === 1 ? drift : nearWarband) });
     const guest = r.guests[0]!;
     r.until(() => guest.events.some((e) => e.type === 'Resynced') && r.confirmed() >= (driftAt ?? 0) + 300, undefined, 900);
     const desync = guest.events.find((e) => e.type === 'Desync') as Extract<SessionEvent, { type: 'Desync' }> | undefined;
