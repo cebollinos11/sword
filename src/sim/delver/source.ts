@@ -12,6 +12,9 @@ import type { DelverHallKind, FloorPlan } from './plan';
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
 export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
 
+/** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
+export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
+
 /** How each kind of Hall is drawn (render-only). */
 const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Entrance: 'plaster',

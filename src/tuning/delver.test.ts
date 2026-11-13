@@ -4,7 +4,7 @@ import { loadTuningData, parseDelver, tuningDataHash } from './index';
 
 const tuning = loadTuningData();
 const FIELD = tuning.battle.field.size;
-type Raw = { flowCell: unknown; floor: Record<string, unknown> };
+type Raw = { tiers: unknown; floorsPerTier: unknown; flowCell: unknown; floor: Record<string, unknown> };
 const raw = (): Raw => JSON.parse(JSON.stringify(tuning.delver)) as Raw;
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -15,6 +15,8 @@ const withFloor = (patch: Record<string, unknown>): Raw => {
 describe('Delver Tuning Data (data/delver.json)', () => {
   it('the bundled delver parses to the file values', () => {
     expect(tuning.delver).toEqual({
+      tiers: 3,
+      floorsPerTier: 3,
       flowCell: 2,
       floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10 },
     });
@@ -22,6 +24,10 @@ describe('Delver Tuning Data (data/delver.json)', () => {
   });
 
   const bad: [string, Raw, RegExp][] = [
+    ['tiers 0', { ...raw(), tiers: 0 }, /^delver\.tiers /],
+    ['tiers fractional', { ...raw(), tiers: 1.5 }, /^delver\.tiers /],
+    ['floorsPerTier 0', { ...raw(), floorsPerTier: 0 }, /^delver\.floorsPerTier /],
+    ['floorsPerTier fractional', { ...raw(), floorsPerTier: 1.5 }, /^delver\.floorsPerTier /],
     ['flowCell not positive', { ...raw(), flowCell: 0 }, /^delver\.flowCell /],
     ['flowCell missing', { ...raw(), flowCell: undefined }, /^delver\.flowCell /],
     ['cols fractional', withFloor({ cols: 7.5 }), /^delver\.floor\.cols /],
@@ -65,6 +71,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
   it('is in the Tuning Data hash, with the Floor generator version', () => {
     const base = tuningDataHash(tuning);
     expect(tuningDataHash({ ...tuning, delver: { ...tuning.delver, flowCell: tuning.delver.flowCell + 1 } })).not.toBe(base);
+    expect(tuningDataHash({ ...tuning, delver: { ...tuning.delver, tiers: tuning.delver.tiers + 1 } })).not.toBe(base);
     expect(tuningDataHash(tuning, undefined, DELVER_VERSION + 1)).not.toBe(base);
     expect(tuningDataHash(tuning, undefined, DELVER_VERSION)).toBe(base);
   });

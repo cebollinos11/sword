@@ -39,6 +39,10 @@ export interface DelverFloorTuning {
 }
 
 export interface DelverTuning {
+  /** The tiers in a Run (whole, >= 1); a Boss ends each (docs/plans/delver.md, Decisions). */
+  readonly tiers: number;
+  /** The Floors in each tier (whole, >= 1); a Run is `tiers * floorsPerTier` Floors deep. */
+  readonly floorsPerTier: number;
   /** The destination fields' cell (m) on a Floor; the Battles keep `crowd.flowCell`. */
   readonly flowCell: number;
   readonly floor: DelverFloorTuning;
@@ -82,6 +86,8 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
   const root = record(raw, 'delver');
   const flowCell = finiteNumber(root, 'flowCell', 'delver');
   if (flowCell <= 0) fail('delver.flowCell', 'a positive number', flowCell);
+  const tiers = whole(root, 'tiers', 'delver', 1);
+  const floorsPerTier = whole(root, 'floorsPerTier', 'delver', 1);
   const f = record(root.floor, 'delver.floor');
   const w = 'delver.floor';
 
@@ -120,6 +126,8 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
   const maxAttempts = whole(f, 'maxAttempts', w, 1);
 
   return {
+    tiers,
+    floorsPerTier,
     flowCell,
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts },
   };

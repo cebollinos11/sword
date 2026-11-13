@@ -1,4 +1,6 @@
 {
+  "tiers": 3,
+  "floorsPerTier": 3,
   "flowCell": 2,
   "floor": {
     "cols": 7,

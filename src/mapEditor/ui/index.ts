@@ -41,6 +41,7 @@ import { saveGlbFile, saveJsonFile } from '../../editor/save';
 import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
 import { delverFloor, describeFloor } from '../../sim/delver';
+import { isFloorName } from '../../sim/delver/source';
 import { devDelverFloor } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { compileDraft, MapCompileError, type DraftMap } from '../compile';
@@ -194,6 +195,10 @@ const SIDE_LABELS: Record<Side, string> = { n: 'north (+z)', e: 'east (+x)', s: 
 
 export function startMapEditor(container: HTMLElement, tuning: TuningData): void {
   const session = new MapEditorSession();
+  // A Floor builds its destination fields at delver.flowCell (docs/plans/delver.md), so the checks of an open Floor use that cell;
+  // everything else keeps `tuning`. One object per kind, so caches keyed by object identity keep hitting.
+  const floorTuning: TuningData = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: tuning.delver.flowCell } } };
+  const checkTuning = (): TuningData => (isFloorName(session.source.name) ? floorTuning : tuning);
   // Dev server only: the session in the console (`mapEditor.source`), to look at or script a map by hand.
   if (import.meta.env.DEV) (window as unknown as { mapEditor: MapEditorSession }).mapEditor = session;
   container.style.position = 'relative';
@@ -353,7 +358,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const buildClearance = () => {
     if (!overlays.clearance || !checks || clearance) return;
     const t0 = performance.now();
-    clearance = fieldClearance(checks, tuning.battle)?.nodes ?? null;
+    clearance = fieldClearance(checks, checkTuning().battle)?.nodes ?? null;
     fieldMs = clearance ? performance.now() - t0 : null;
   };
   /** The model the 3D view shows for the checks' source: built once per source (an overlay toggled draws the same one again). */
@@ -374,7 +379,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     window.clearTimeout(checkTimer);
     checkTimer = 0;
     const t0 = performance.now();
-    checks = checkMap(session.source, tuning, { edges: overlays.edges });
+    checks = checkMap(session.source, checkTuning(), { edges: overlays.edges });
     checkMs = performance.now() - t0;
     clearance = null;
     fieldMs = null;
@@ -516,7 +521,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
   // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
   file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0, max: 4294967295 });
-  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1 });
+  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: tuning.delver.tiers * tuning.delver.floorsPerTier });
   /** Builds and opens Floor `floor` of `seed`. The build takes a few hundred ms, so the status shows first and it runs on the next task. */
   const openDelverFloor = (seed: number, floor: number) => {
     say(`Building Floor ${floor} of seed ${seed}…`);
@@ -935,7 +940,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       f.addBinding(settings, 'name', { label: 'name' }).on('change', (e) => settingsEdit(() => session.setSettings({ name: e.value })));
       f.addBinding(settings, 'size', { label: 'size (m)', readonly: true, format: (v: number) => `${v} (the Battle's field)` });
       // The coarse grid: drawn, a click's Brush and a duplicate's offset. The destination fields' cell keeps Walls off its dots (Stage 6).
-      const cells = { [`${tuning.battle.crowd.flowCell} m (the destination fields' cell)`]: tuning.battle.crowd.flowCell, ...(tuning.battle.crowd.flowCell === 5 ? {} : { '5 m': 5 }) };
+      const flowCell = checkTuning().battle.crowd.flowCell;
+      const cells = { [`${flowCell} m (the destination fields' cell)`]: flowCell, ...(flowCell === 5 ? {} : { '5 m': 5 }) };
       f.addBinding(settings, 'cell', { label: 'coarse grid', options: cells }).on('change', (e) => settingsEdit(() => session.setSettings({ grid: { ...session.source.grid, cell: e.value } })));
       f.addBinding(settings, 'front', { label: 'front (m)', step: session.source.grid.step, min: session.source.grid.step }).on('change', (e) => {
         if (e.last) settingsEdit(() => session.setSettings({ front: e.value }));
