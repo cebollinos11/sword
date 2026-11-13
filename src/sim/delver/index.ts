@@ -8,3 +8,4 @@ export * from './version';
 export * from './world';
 export * from './warbands';
 export * from './troops';
+export * from './reveal';

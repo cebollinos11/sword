@@ -17,6 +17,7 @@ import { battleMapOf } from './destinations';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { deployWarbands, warbandHomes } from './delver/warbands';
 import { isBossFloor } from './delver/troops';
+import { emptyReveal, revealPlace, withReveal } from './delver/reveal';
 import { BOSS, warbandBrain } from './warband';
 import type { FloorPlan } from './delver/plan';
 import { runSeed } from './dungeon';
@@ -53,6 +54,8 @@ export interface DelverRun {
   readonly wiped: readonly number[];
   /** The items lying on the Floor: its Treasure Halls' pedestals from its start, a wiped Warband's drops and inventory drops; only the new Floor's pedestals on each new Floor. */
   readonly pickups: readonly Pickup[];
+  /** The Floor's Reveal (`delver/reveal.ts`): 32-bit words, bit h Hall h and bit `halls.length + p` Passage p, set once a present Player's living Fighter has stood inside it. Plain numbers, hashed as they are; nothing in the Simulation reads it. */
+  readonly revealed: readonly number[];
   /** The Match Tick the Run started on. */
   readonly startTick: number;
   /** The Players an AI Takeover has taken (ascending), as `RunState.away`; absent while nobody has left. Mirrored on `SimDelver.away`. */
@@ -127,6 +130,7 @@ export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>
     restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
     wiped: [],
     pickups,
+    revealed: withReveal(emptyReveal(plan), plan.entrance),
     startTick: run.startTick,
     ...(run.away === undefined ? {} : { away: run.away }),
   };
@@ -280,6 +284,13 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
 
   if (next.phase === 'Exploring') {
     const plan = floorOf(tuning, duel.arena)!.plan;
+    // The Reveal: the place each present Player's living Fighter stands in is revealed for the party (AI allies, the away and the fallen reveal nothing).
+    let revealed = next.revealed;
+    for (const i of presentPlayers(config, next.away)) {
+      const f = duel.fighters[i]!;
+      if (inDuel(f) && f.hp > 0) revealed = withReveal(revealed, revealPlace(plan, f.position.x, f.position.z));
+    }
+    if (revealed !== next.revealed) next = { ...next, revealed };
     const t = arenaTuning(tuning, duel.arena);
     const { fireRadius } = tuning.delver;
 
@@ -289,7 +300,6 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const before = match.duel.crowd!;
     const arena = arenaOf(t, duel.arena);
     const stairsAt = { x: (plan.markers.stairs.zone.x0 + plan.markers.stairs.zone.x1) / 2, z: (plan.markers.stairs.zone.z0 + plan.markers.stairs.zone.z1) / 2 };
-    let won = false;
     // One pass over the Crowd: each Squad's living Soldiers, its lowest index and its lowest index alive before the Tick (-1 for none).
     const warbands = crowd.warbands!.rank.length;
     const living = new Array<number>(warbands).fill(0);
@@ -311,12 +321,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       next = { ...next, wiped: [...next.wiped, q].sort((a, b) => a - b), pickups: [...next.pickups, ...drops] };
       events.push({ type: 'WarbandWiped', warband: q, rank: crowd.warbands!.rank[q]!, at: { x: fall.x, y: 0, z: fall.z } });
       if (crowd.warbands!.rank[q] !== BOSS) continue;
-      // The Boss Warband wiped, after its drops. The last tier's Boss wins the Run at once; any other heals the party in full and brings the fallen back at the Stairs.
+      // The Boss Warband wiped, after its drops. Every Boss, the last one too, heals the party in full and brings the fallen back at the Stairs; the Run is won on the last Floor's Stairs.
       events.push({ type: 'BossBeaten', floor: next.floor });
-      if (next.floor === next.floors) {
-        won = true;
-        continue;
-      }
       duel = {
         ...duel,
         fighters: duel.fighters.map((f, i): FighterState => {
@@ -328,80 +334,75 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       duel = reviveFallen(duel, t, arena, stairsAt, 1, -1, events);
     }
 
-    if (won) {
-      // The last Boss fell: the Run is won where it stands, nobody plays on (no taking, no fire, no Stairs).
-      win();
-    } else {
-      // The Inventory: a Player's Fighter changes what it holds only at a fire (refused elsewhere); what it drops is the pickups'. Taking needs no fire.
-      duel = {
-        ...duel,
-        fighters: duel.fighters.map((f, i) => {
-          if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop) || fireAt(plan, f, fireRadius) < 0) return f;
-          const used = useInventory(f, intents[i]!, t);
-          if (used.dropped) {
-            const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
-            next = placeDrop(next, drop);
-            events.push({ type: 'ItemDropped', ...drop });
-          }
-          return used.fighter;
-        }),
+    // The Inventory: a Player's Fighter changes what it holds only at a fire (refused elsewhere); what it drops is the pickups'. Taking needs no fire.
+    duel = {
+      ...duel,
+      fighters: duel.fighters.map((f, i) => {
+        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop) || fireAt(plan, f, fireRadius) < 0) return f;
+        const used = useInventory(f, intents[i]!, t);
+        if (used.dropped) {
+          const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
+          next = placeDrop(next, drop);
+          events.push({ type: 'ItemDropped', ...drop });
+        }
+        return used.fighter;
+      }),
+    };
+    const took = takePickups(next.pickups, duel.fighters, config, t, next.away);
+    if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
+      next = { ...next, pickups: took.pickups };
+      duel = { ...duel, fighters: took.fighters };
+      for (const x of took.taken) events.push({ type: 'ItemTaken', ...x });
+    }
+
+    // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once.
+    plan.markers.fires.forEach((fire, k) => {
+      const point = { x: fire.x, y: 0, z: fire.z };
+      const present = (i: number) => {
+        const f = duel.fighters[i]!;
+        return inDuel(f) && f.hp > 0 && standsWithin(point, fireRadius, f);
       };
-      const took = takePickups(next.pickups, duel.fighters, config, t, next.away);
-      if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
-        next = { ...next, pickups: took.pickups };
-        duel = { ...duel, fighters: took.fighters };
-        for (const x of took.taken) events.push({ type: 'ItemTaken', ...x });
+      const use = next.restUsed[k]!;
+      let revived = use.revived;
+      if (!revived && duel.fighters.some((f) => f.team === 0 && f.death !== undefined) && presentPlayers(config, next.away).some(present)) {
+        revived = true;
+        duel = reviveFallen(duel, t, arena, point, tuning.dungeon.revive, k, events);
       }
-
-      // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once.
-      plan.markers.fires.forEach((fire, k) => {
-        const point = { x: fire.x, y: 0, z: fire.z };
-        const present = (i: number) => {
-          const f = duel.fighters[i]!;
-          return inDuel(f) && f.hp > 0 && standsWithin(point, fireRadius, f);
+      const healing = presentPlayers(config, next.away).filter((i) => !use.healed.includes(i) && present(i));
+      if (healing.length > 0) {
+        duel = {
+          ...duel,
+          fighters: duel.fighters.map((f, i): FighterState => {
+            if (!healing.includes(i)) return f;
+            const hp = Math.min(f.maxHp, f.hp + tuning.dungeon.restHeal * f.maxHp);
+            events.push({ type: 'Rested', fighter: i, healed: hp - f.hp });
+            return { ...f, hp };
+          }),
         };
-        const use = next.restUsed[k]!;
-        let revived = use.revived;
-        if (!revived && duel.fighters.some((f) => f.team === 0 && f.death !== undefined) && presentPlayers(config, next.away).some(present)) {
-          revived = true;
-          duel = reviveFallen(duel, t, arena, point, tuning.dungeon.revive, k, events);
-        }
-        const healing = presentPlayers(config, next.away).filter((i) => !use.healed.includes(i) && present(i));
-        if (healing.length > 0) {
-          duel = {
-            ...duel,
-            fighters: duel.fighters.map((f, i): FighterState => {
-              if (!healing.includes(i)) return f;
-              const hp = Math.min(f.maxHp, f.hp + tuning.dungeon.restHeal * f.maxHp);
-              events.push({ type: 'Rested', fighter: i, healed: hp - f.hp });
-              return { ...f, hp };
-            }),
-          };
-        }
-        if (revived !== use.revived || healing.length > 0) {
-          next = {
-            ...next,
-            restUsed: next.restUsed.map((u, n) => (n === k ? { revived, healed: [...u.healed, ...healing].sort((a, b) => a - b) } : u)),
-          };
-        }
-      });
+      }
+      if (revived !== use.revived || healing.length > 0) {
+        next = {
+          ...next,
+          restUsed: next.restUsed.map((u, n) => (n === k ? { revived, healed: [...u.healed, ...healing].sort((a, b) => a - b) } : u)),
+        };
+      }
+    });
 
-      // The Stairs: on a Boss Floor only once its Boss is down (`gateOpen`), they count while every Fighter whose standing counts (`doorCounters`) is in the zone; at `doorSeconds` the party takes them.
-      const counting = doorCounters(config, duel.fighters, next.away);
-      const fighters = duel.fighters;
-      const open = gateOpen(plan, duel.crowd!, next.wiped);
-      const stairsTicks = open && counting.length > 0 && counting.every((i) => inStairs(plan, fighters[i]!)) ? next.stairsTicks + 1 : 0;
-      next = { ...next, stairsTicks };
-      if (stairsTicks >= doorTicksNeeded(tuning)) {
-        if (next.floor === next.floors) {
-          // The last Stairs (of a last Floor that is no Boss Floor, or whose Boss is down): the Run is won.
-          win();
-        } else {
-          next = { ...next, phase: 'Descending' };
-          nextDuelTick = tick + Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
-          score = score.map((s, i) => (i === 0 ? s + 1 : s));
-          events.push({ type: 'StairsTaken', floor: next.floor });
-        }
+    // The Stairs: on a Boss Floor only once its Boss is down (`gateOpen`), they count while every Fighter whose standing counts (`doorCounters`) is in the zone; at `doorSeconds` the party takes them.
+    const counting = doorCounters(config, duel.fighters, next.away);
+    const fighters = duel.fighters;
+    const open = gateOpen(plan, duel.crowd!, next.wiped);
+    const stairsTicks = open && counting.length > 0 && counting.every((i) => inStairs(plan, fighters[i]!)) ? next.stairsTicks + 1 : 0;
+    next = { ...next, stairsTicks };
+    if (stairsTicks >= doorTicksNeeded(tuning)) {
+      if (next.floor === next.floors) {
+        // The last Stairs (of a last Floor that is no Boss Floor, or whose Boss is down): the Run is won.
+        win();
+      } else {
+        next = { ...next, phase: 'Descending' };
+        nextDuelTick = tick + Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+        score = score.map((s, i) => (i === 0 ? s + 1 : s));
+        events.push({ type: 'StairsTaken', floor: next.floor });
       }
     }
   }

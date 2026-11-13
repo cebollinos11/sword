@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
+import { emptyReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
 import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
 import { fireAt, inStairs } from './delverRun';
 import { hashValue } from './hash';
@@ -57,6 +58,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
       restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
       wiped: [], // Stage 4: no Warband is wiped at the Floor's start.
       pickups: floorPedestals(m), // Stage 4: the Floor's Treasure Halls hold their pedestals from its start.
+      revealed: withReveal(emptyReveal(plan), plan.entrance), // Stage 5: the Entrance starts revealed.
       startTick: 0,
     });
     expect(m.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: m.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
@@ -718,5 +720,71 @@ describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
       r = stepMatch(r, intents, warbanded);
       expect(hashValue(r)).toBe(hashValue(one[k + 1]!));
     }
+  });
+});
+
+describe('the Reveal of a Delver Run', { timeout: 60_000 }, () => {
+  const m = delver();
+  const plan = planOf(m);
+  const bits = (r: MatchState) => Array.from({ length: revealBits(plan) }, (_, b) => b).filter((b) => isRevealed(r.delver!.revealed, b));
+  /** The Passage out of the Entrance Hall: its bit, its middle, and the Hall it leads to. */
+  const out = (() => {
+    const k = plan.passages.findIndex((p) => p.a === plan.entrance || p.b === plan.entrance);
+    const p = plan.passages[k]!;
+    return { bit: plan.halls.length + k, x: (p.rect.x0 + p.rect.x1) / 2, z: (p.rect.z0 + p.rect.z1) / 2, hall: p.a === plan.entrance ? p.b : p.a };
+  })();
+
+  it('starts with only the Entrance Hall revealed', () => {
+    expect(bits(m)).toEqual([plan.entrance]);
+    expect(bits(tick(m))).toEqual([plan.entrance]);
+  });
+
+  it('reveals a Passage, then the next Hall, once a Player\'s Fighter stands inside them, and keeps them revealed', () => {
+    let r = tick(put(m, 0, out.x, out.z));
+    expect(bits(r)).toEqual([plan.entrance, out.bit].sort((a, b) => a - b));
+    const h = plan.halls[out.hall]!;
+    r = tick(put(r, 0, h.cx, h.cz));
+    expect(bits(r)).toEqual([plan.entrance, out.hall, out.bit].sort((a, b) => a - b));
+    r = tick(put(r, 0, plan.halls[plan.entrance]!.cx, plan.halls[plan.entrance]!.cz));
+    expect(bits(r)).toHaveLength(3);
+  });
+
+  it('allocates nothing on a Tick that reveals nothing new', () => {
+    const r = tick(m);
+    expect(tick(r).delver!.revealed).toBe(r.delver!.revealed);
+  });
+
+  it('is revealed by a Player alone: an AI ally walking alone, a Player who is away or fallen, reveal nothing', () => {
+    const ally = tick(put(m, 1, out.x, out.z));
+    expect(bits(ally)).toEqual([plan.entrance]);
+    const gone = tick(put(takeOverFighter(m, 0), 0, out.x, out.z));
+    expect(bits(gone)).toEqual([plan.entrance]);
+    const dead = tick(withFighters(put(m, 0, out.x, out.z), (f, i) => (i === 0 ? fell(f) : f)));
+    expect(bits(dead)).toEqual([plan.entrance]);
+  });
+
+  it('resets on a new Floor, with its Entrance revealed', () => {
+    let r = tick(put(m, 0, out.x, out.z));
+    r = times(put(r, 0, centre(plan).x, centre(plan).z), NEED + 1);
+    expect(r.delver!.phase).toBe('Descending');
+    r = times(r, FADE + 1);
+    expect(r.delver!.floor).toBe(2);
+    const plan2 = planOf(r);
+    expect(r.delver!.revealed).toEqual(withReveal(emptyReveal(plan2), plan2.entrance));
+  });
+
+  it('gives the same bytes for the same seed, and survives a snapshot round trip', () => {
+    const play = (): MatchState[] => {
+      let r = put(m, 0, out.x, out.z);
+      const all: MatchState[] = [];
+      for (let k = 0; k < 20; k++) all.push((r = tick(r, { 0: { move: { x: 1, z: 0 } } })));
+      return all;
+    };
+    const one = play();
+    const two = play();
+    expect(one.map((x) => hashValue(x))).toEqual(two.map((x) => hashValue(x)));
+    const back = restore(snapshot(one[9]!));
+    expect(back.delver!.revealed).toEqual(one[9]!.delver!.revealed);
+    expect(hashValue(back)).toBe(hashValue(one[9]!));
   });
 });

@@ -100,11 +100,24 @@ describe('a Boss Floor of a Delver Run', { timeout: 60_000 }, () => {
 describe('the last Boss of a Delver Run', { timeout: 60_000 }, () => {
   const m = delver({ delverStart: 2 });
 
-  it('is a Victory at once: BossBeaten, then a RunEnd with the Bosses beaten, no Stairs', () => {
-    const r = tick(slain(m));
-    expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events.map((e) => e.type).filter((t) => t === 'BossBeaten' || t === 'RunEnd')).toEqual(['BossBeaten', 'RunEnd']);
+  it('does not win at its wipe: BossBeaten heals and revives at the Stairs, the Run goes on', () => {
+    let r = withFighters(atStairs(m), (f, i) => (i === 1 ? { ...f, hp: 10 } : i === 2 ? fell(f) : f));
+    r = tick(slain(r));
     expect(r.events).toContainEqual({ type: 'BossBeaten', floor: 2 });
+    expect(r.events).toContainEqual({ type: 'Revived', fighter: 2, fire: -1 });
+    expect(r.events.some((e) => e.type === 'RunEnd')).toBe(false);
+    expect(r.status.status).toBe('InProgress');
+    expect(r.duel.duel.status).toBe('Fighting');
+    for (const i of [0, 1, 2]) expect(r.duel.fighters[i]!.hp).toBe(r.duel.fighters[i]!.maxHp);
+    expect(r.duel.fighters[2]!.death).toBeUndefined();
+    expect(r.delver!.phase).toBe('Exploring');
+  });
+
+  it('is a Victory when the party takes the last Stairs for doorSeconds: a RunEnd with the Bosses beaten, no fade', () => {
+    let r = tick(slain(atStairs(m)));
+    expect(r.status.status).toBe('InProgress');
+    for (let k = 0; k < NEED + 2 && r.status.status === 'InProgress'; k++) r = tick(r);
+    expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
     expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 2, floors: 2, halls: 0, bosses: 2 });
     expect(r.score).toEqual([2, 0]);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);

@@ -1247,10 +1247,38 @@ Battles, Duels and the Hall-graph Run are unchanged. Non-Boss Floors are byte-id
 
 #### After the Stage (2026-11-13, the user's calls)
 - **An unbeatable shipped dungeon is fine**: balance is the user's, by hand, later. So the soak's full Run plays the shipped Tuning with an immortal party (above) instead of an eased Tuning.
-- Open: whether the last Boss should win at its wipe (as built) or on its Stairs, and whether the fallen should stand up at the Stairs after a Boss (as built).
+- The last Boss does not win the Run at its wipe: the Run is won when the party takes that Floor's Stairs.
+- The fallen stand up at the Stairs after any Boss, the last one included (as built).
+- The Reveal is by entering: a Hall or Passage is revealed for the whole party once any present Player's living Fighter stands inside it. No line-of-sight "seeing into" a room.
 
 ### Stage 5: presentation
 **Model**: Sonnet.
+#### Design
+Written 2026-11-13 at the Stage's start. Three parts: two Simulation changes (the last Boss, the Reveal) and the render and play work that reads them.
+
+**A. The last Boss wins at its Stairs** (`src/sim/delverRun.ts`)
+- The Boss-wipe loop loses its `next.floor === next.floors` early win and the `won` flag with its "nobody plays on" branch. Every Boss wipe emits `BossBeaten`, heals the living party and revives the fallen at the Stairs. The Stairs path already calls `win()` on the last Floor once the gate is open, so the Run now ends there.
+- Tests changed: `delverBoss.test.ts` ("is a Victory at once" becomes "does not win at its wipe" and "is a Victory on the last Stairs"), and any slow test that expects a Victory at the wipe walks the party onto the Stairs for `doorSeconds`. None weakened or skipped.
+
+**B. The Reveal** (`src/sim/delver/reveal.ts`, `delverRun.ts`)
+- `DelverRun.revealed: readonly number[]`: unsigned 32-bit words, `ceil((halls + passages) / 32)` of them, bit h Hall h and bit `halls.length + p` Passage p. A plain number array, hashed and snapshotted structurally with the rest of `MatchState.delver`; it is the only new hashed state.
+- Pure helpers: `revealBits`, `emptyReveal`, `isRevealed`, `revealPlace(plan, x, z)` (Halls before Passages, lower index first, rect test inclusive on x0/z0 and exclusive on x1/z1) and `withReveal` (the same array when the bit is set, so a quiet Tick allocates nothing).
+- Rule (the user's call: reveal by entering): each Exploring Tick, every present Player (`presentPlayers`) whose Fighter is in the Duel and alive sets the bit of the place it stands in. AI allies, the away and the fallen reveal nothing. `enterFloor` starts `revealed` as `emptyReveal` with the Entrance Hall set. Nothing in the Simulation reads it.
+- Tests: `reveal.test.ts` (helpers, seams, ties) and `delverRun.test.ts` (Entrance starts revealed, a Passage then the next Hall, an ally alone reveals nothing, a new Floor resets, same seed same hash, snapshot round trip).
+- `PROTOCOL_VERSION` rises only if a wire message's shape changes; `DelverRun` rides in the snapshot and the resync, so it is checked with the net tests.
+
+**C. Fog-of-war maps** (render and play, read-only)
+- `delverMapLayout(plan, revealed, fighters, me)` in `src/play/floorMap.ts`: revealed Halls and Passages as rects scaled to fit (with a margin, y flipped so north is up), markers for revealed Halls only (Stairs and whether the gate is open, fires and whether spent, Treasure pedestals still lying, the Boss Hall), and the party's living Fighters as arrows (`me` white). `floorMapLayout` (the Hall graph) stays for the old Run. `floorMapView.ts` draws it as an SVG.
+- Minimap: `Minimap.drawDelver` draws the revealed rects around the local Fighter (the same transform helpers, a fixed window in metres), then the markers, the party and nearby promoted enemies. Nothing for unrevealed space. The Battle drawing is untouched. The Delver HUD owns a Minimap canvas.
+- The 3D world is not fogged.
+
+**D. Stand-in art, banner, HUD, results** (render and play)
+- `src/render/delverStandIns.ts`: Stairs (a dark stepped pit with a glowing square, a shut gate shown as the existing bars), pedestal plinths, and a spent fire as a smaller flame. It reuses `restFire.ts` and `pickupView.ts` and is one small module so #62's art can replace it. `DelverMarks` keeps the fires and the gate and calls it.
+- "Descending…" banner while `phase === 'Descending'`; "Boss beaten — the Stairs are open" for `BossBeaten` (`announcer.ts` and `game.ts`).
+- HUD line `Floor f of tier t (n / N)` from `delver.floorsPerTier`, plus "Boss Floor" on a Boss Floor: a pure `delverScore` in `hud.ts`, tested in `hud.test.ts`.
+- Results: Floors reached, Warbands beaten, Bosses beaten and each Player's Build. Warbands beaten is a `warbands` count on `RunEnd` (`RunEndEvent.warbands`, `WarbandWiped` events being gone with their Tick), so it is exact and the screen needs no event history; `RunEnd` tests gain it.
+- Playtest only: `?dev=1&delver=1&immortal=1` keeps every living Team 0 Fighter at max HP after each step in the game loop, ignored without `dev=1`. The Simulation and the shipped Tuning are untouched.
+
 - The Reveal bitset (Simulation) and the fog-of-war minimap and Floor Map (`M`): Halls, Passages, the party, fires, Treasure, Stairs once revealed.
 - Stairs, fire and pedestal art (stand-ins until #62 lands); a "descending" banner; a HUD line for the Floor and tier; the results screen lists Floors reached, Warbands beaten and the Build.
 - **Done**: playtest-ready solo.
