@@ -71,6 +71,19 @@ describe('planFloor', () => {
     }
   });
 
+  it('keeps every Hall Wall on an odd metre, within the size and gap limits', () => {
+    for (const p of full) {
+      for (const h of p.halls) {
+        for (const v of [h.rect.x0, h.rect.x1, h.rect.z0, h.rect.z1]) expect(((v % 2) + 2) % 2).toBe(1);
+        for (const half of [h.rect.x1 - h.cx, h.rect.z1 - h.cz]) {
+          expect(half).toBeGreaterThanOrEqual(t.halfSize[0]);
+          expect(half).toBeLessThanOrEqual(t.halfSize[1]);
+        }
+      }
+    }
+    // The gap limits (Halls apart, Passages at least minPassage) are checked in the lattice test above, over the same plans.
+  });
+
   it('joins every Hall: a spanning tree plus loops', () => {
     for (const p of full) {
       const seen = new Set<number>([0]);

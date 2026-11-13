@@ -29,6 +29,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['floorsPerTier 0', { ...raw(), floorsPerTier: 0 }, /^delver\.floorsPerTier /],
     ['floorsPerTier fractional', { ...raw(), floorsPerTier: 1.5 }, /^delver\.floorsPerTier /],
     ['flowCell not positive', { ...raw(), flowCell: 0 }, /^delver\.flowCell /],
+    ['flowCell not 2 (the Floor rule is written for a 2 m cell)', { ...raw(), flowCell: 4 }, /^delver\.flowCell /],
     ['flowCell missing', { ...raw(), flowCell: undefined }, /^delver\.flowCell /],
     ['cols fractional', withFloor({ cols: 7.5 }), /^delver\.floor\.cols /],
     ['cols below 2', withFloor({ cols: 1 }), /^delver\.floor\.cols /],
@@ -46,6 +47,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['halfSize fractional', withFloor({ halfSize: [5, 10.5] }), /^delver\.floor\.halfSize\[1\] /],
     ['minPassage too long for the gaps', withFloor({ minPassage: 13 }), /^delver\.floor\.minPassage /],
     ['minPassage below 1', withFloor({ minPassage: 0 }), /^delver\.floor\.minPassage /],
+    ['minPassage leaves no metre for a Hall to grow', withFloor({ minPassage: 11 }), /^delver\.floor\.minPassage /],
     ['passage not wider than flowCell', withFloor({ passage: 2 }), /^delver\.floor\.passage /],
     ['passage wider than the smallest Hall', withFloor({ passage: 11 }), /^delver\.floor\.passage /],
     ['cols overflow the field', withFloor({ cols: 8, rooms: 20 }), /^delver\.floor\.cols /],
@@ -70,7 +72,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
 
   it('is in the Tuning Data hash, with the Floor generator version', () => {
     const base = tuningDataHash(tuning);
-    expect(tuningDataHash({ ...tuning, delver: { ...tuning.delver, flowCell: tuning.delver.flowCell + 1 } })).not.toBe(base);
+    expect(tuningDataHash({ ...tuning, delver: { ...tuning.delver, floorsPerTier: tuning.delver.floorsPerTier + 1 } })).not.toBe(base);
     expect(tuningDataHash({ ...tuning, delver: { ...tuning.delver, tiers: tuning.delver.tiers + 1 } })).not.toBe(base);
     expect(tuningDataHash(tuning, undefined, DELVER_VERSION + 1)).not.toBe(base);
     expect(tuningDataHash(tuning, undefined, DELVER_VERSION)).toBe(base);

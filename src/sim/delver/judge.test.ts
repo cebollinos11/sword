@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { checkMap } from '../../mapEditor/checks';
 import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { deadly } from '../arena';
@@ -43,6 +44,14 @@ describe('the Delver Floor judge', () => {
       expect(judgeFloor(tuning, f.plan).judgement.ok).toBe(true);
     }
   });
+
+  it('no Wall of a real Floor stands on a 2 m destination-field cell centre', () => {
+    const at2 = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: 2 } } };
+    for (const f of floors) {
+      const centres = checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre');
+      expect(centres).toEqual([]);
+    }
+  }, 60_000);
 
   it('rooms: refuses a plan cut to 21 Halls, and one whose Stairs is Empty', () => {
     const b = good();

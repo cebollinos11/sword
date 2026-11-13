@@ -173,7 +173,9 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const halls: WorkHall[] = [];
   const passages: { a: number; b: number; axis: 'x' | 'z'; loop: boolean; far: boolean }[] = [];
 
-  // 2. A Hall's size when placed in cell (i, j): its half sizes, kept small enough that neighbours leave `minPassage`.
+  // 2. A Hall's size when placed in cell (i, j): its half sizes, kept small enough that neighbours leave `minPassage`. Then its Walls
+  // are kept off the destination fields' dots: where a Wall (cx + hw, cz + hd and the other three) lies on an even metre it would run
+  // through the 2 m cell centres, so that half size moves one metre (down if it stays within `halfSize`, else up within the gap limit).
   const place = (c: number): number => {
     const i = c % cols;
     const j = Math.floor(c / cols);
@@ -182,10 +184,14 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const limX = Math.floor((Math.min(...gapsX) - t.minPassage) / 2);
     const limZ = Math.floor((Math.min(...gapsZ) - t.minPassage) / 2);
     const span = t.halfSize[1] - t.halfSize[0] + 1;
-    const hw = Math.min(t.halfSize[0] + pick(c, SALT.hw, span), limX);
-    const hd = Math.min(t.halfSize[0] + pick(c, SALT.hd, span), limZ);
     const cx = X[i]!;
     const cz = Z[j]!;
+    const offDots = (half: number, centre: number, lim: number): number => {
+      if (((centre + half) % 2 + 2) % 2 !== 0) return half;
+      return half - 1 >= t.halfSize[0] ? half - 1 : half + 1 <= lim ? half + 1 : half;
+    };
+    const hw = offDots(Math.min(t.halfSize[0] + pick(c, SALT.hw, span), limX), cx, limX);
+    const hd = offDots(Math.min(t.halfSize[0] + pick(c, SALT.hd, span), limZ), cz, limZ);
     halls.push({ i, j, cx, cz, rect: { x0: cx - hw, z0: cz - hd, x1: cx + hw, z1: cz + hd }, side: [-1, -1, -1, -1] });
     occupied[c] = halls.length - 1;
     return halls.length - 1;

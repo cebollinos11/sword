@@ -86,6 +86,8 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
   const root = record(raw, 'delver');
   const flowCell = finiteNumber(root, 'flowCell', 'delver');
   if (flowCell <= 0) fail('delver.flowCell', 'a positive number', flowCell);
+  // The Floor generator keeps every Hall Wall on an odd metre so none runs through a 2 m cell centre; that rule is written for a 2 m cell.
+  if (flowCell !== 2) fail('delver.flowCell', 'exactly 2 (the Floor generator keeps Walls off a 2 m field cell\'s centres)', flowCell);
   const tiers = whole(root, 'tiers', 'delver', 1);
   const floorsPerTier = whole(root, 'floorsPerTier', 'delver', 1);
   const f = record(root.floor, 'delver.floor');
@@ -109,6 +111,8 @@ export function parseDelver(raw: unknown, fieldSize: number): DelverTuning {
   const minGap = Math.min(...gaps);
   const maxGap = Math.max(...gaps);
   if (minGap - minPassage < 2 * halfSize[0]) fail(`${w}.minPassage`, `at most min(gaps) - 2 * halfSize[0] (${minGap - 2 * halfSize[0]})`, minPassage);
+  // A Hall's half size may move one metre up to dodge an even-metre Wall (plan.ts), so the gaps must leave room for halfSize[0] + 1.
+  if (Math.floor((minGap - minPassage) / 2) < halfSize[0] + 1) fail(`${w}.minPassage`, `at most min(gaps) - 2 * (halfSize[0] + 1) (${minGap - 2 * (halfSize[0] + 1)}), so a Hall can always grow a metre`, minPassage);
   if (passage > 2 * halfSize[0]) fail(`${w}.passage`, `at most 2 * halfSize[0] (${2 * halfSize[0]})`, passage);
   if (passage <= flowCell) fail(`${w}.passage`, `wider than delver.flowCell (${flowCell}), so a field node always lies inside a Passage`, passage);
   for (const [key, n] of [['cols', cols], ['rows', rows]] as const) {
