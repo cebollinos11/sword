@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { fireState, RestFire } from './restFire';
+import { fireState, RestFire, SPENT_SIZE } from './restFire';
 
 const resources = (root: THREE.Object3D) => {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -64,5 +64,17 @@ describe('the Rest fire', () => {
     node.geometry.addEventListener('dispose', () => (disposed = true));
     fire.dispose();
     expect(disposed).toBe(false);
+  });
+
+  it('burns smaller once its revive is spent (a Delver Run), and flickers at that size', () => {
+    const fire = new RestFire({ x: 0, y: 0, z: 0 });
+    fire.setSpent(true);
+    expect(flames(fire).scale.y).toBeCloseTo(SPENT_SIZE);
+    fire.animate(0.1);
+    expect(flames(fire).scale.y).toBeLessThan(SPENT_SIZE * 1.2);
+    expect(flames(fire).scale.y).toBeGreaterThan(SPENT_SIZE * 0.8);
+    fire.setSpent(false);
+    expect(flames(fire).scale.y).toBe(1);
+    fire.dispose();
   });
 });

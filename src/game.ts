@@ -13,7 +13,7 @@ import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
 import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
-import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devDelverStart, devImmortal, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devDelverStart, devImmortal, devMode, devSpeed, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
 import { inventoryHoldsInput, type DelverContext } from './play/inventoryView';
@@ -58,6 +58,8 @@ const cameraDir = new Vector3();
 
 /** Never simulate more than this many Ticks in one rendered frame (e.g. after a background tab). */
 const MAX_TICKS_PER_FRAME = 8;
+/** Dev mode only (`?dev=1&speed=N`): a solo Match's Tick rate multiplier (1 otherwise). */
+const DEV_SPEED = devSpeed();
 /** How long the final result stays on screen before the Lobby returns (seconds, cosmetic). */
 const RESULT_SECONDS = 2.5;
 /** How long a Battle's results screen stays up before the Lobby returns (seconds, cosmetic). */
@@ -981,7 +983,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   function runFrame(now: number): void {
     const elapsed = Math.min((now - last) / 1000, MAX_TICKS_PER_FRAME * TICK_SECONDS);
-    accumulator += elapsed;
+    // Dev `speed=N`: the fade between a Delver Run's Floors plays at 1×, so its banner can be seen.
+    const speed = DEV_SPEED > 1 && !lobby?.online && curr.delver?.phase !== 'Descending' ? DEV_SPEED : 1;
+    accumulator += elapsed * speed;
     last = now;
     // A Skirmish pauses with its menu open; an online Match runs on (the other players are still fighting).
     const frozen = menu.paused && !lobby?.online;

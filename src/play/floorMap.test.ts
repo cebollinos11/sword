@@ -161,4 +161,15 @@ describe('delverMapLayout', () => {
     expect(layout(entrance, fallen).arrows.map((a) => a.fighter)).toEqual([0]);
     for (const a of l.arrows) expect(Math.hypot(a.dx, a.dy)).toBeCloseTo(1);
   });
+
+  it('puts the Boss mark beside the Stairs mark in the Boss Hall, not on it', () => {
+    const boss = createMatch({ ...delverTuning, delver: { ...delverTuning.delver, tiers: 1, floorsPerTier: 1 } }, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+    const bt = { ...delverTuning, delver: { ...delverTuning.delver, tiers: 1, floorsPerTier: 1 } };
+    const bplan = floorOf(bt, boss.arena)!.plan;
+    expect(bplan.markers.boss).toBeDefined();
+    const l = delverMapLayout(bplan, withReveal(emptyReveal(bplan), bplan.stairs), boss.duel.fighters, 0, delverMapStatus(boss, bplan));
+    const stairs = l.marks.find((k) => k.type === 'stairs')!;
+    const skull = l.marks.find((k) => k.type === 'boss')!;
+    expect(Math.hypot(stairs.bx - skull.bx, stairs.by - skull.by)).toBeGreaterThan(0);
+  });
 });

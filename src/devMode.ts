@@ -127,3 +127,13 @@ export function devDelverStart(search: string = location.search, hash: string = 
 export function devImmortal(search: string = location.search, hash: string = location.hash): boolean {
   return devMode(search, hash) && query(search, hash).get('immortal') === '1';
 }
+
+/**
+ * Dev mode only: `speed=N` (1 to 16) runs a solo Match's Ticks N times as fast per frame, for a headless playtest whose frames are slow
+ * (the game loop only; the Simulation's rules are untouched, and a Delver Run's fade between Floors still plays at 1×). 1 without `dev=1`.
+ */
+export function devSpeed(search: string = location.search, hash: string = location.hash): number {
+  if (!devMode(search, hash)) return 1;
+  const n = whole(query(search, hash), 'speed', 1);
+  return n === null ? 1 : Math.min(16, n);
+}

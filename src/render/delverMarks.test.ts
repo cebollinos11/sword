@@ -4,6 +4,7 @@ import { createMatch } from '../sim';
 import { BOSS } from '../sim/warband';
 import { floorOf } from '../sim/delver';
 import { loadTuningData, type TuningData } from '../tuning';
+import { pedestalRings, StairsStandIn } from './delverStandIns';
 import { DelverMarks, fireStates, gateState, type DelverMarksView } from './delverMarks';
 
 describe('the Delver Floor’s fires as the local Player sees them', () => {
@@ -72,5 +73,25 @@ describe('the Boss Hall’s gate', () => {
       expect(bar.position.z).toBeGreaterThanOrEqual(zone.z0 - 0.5);
       expect(bar.position.z).toBeLessThanOrEqual(zone.z1 + 0.5);
     }
+  });
+});
+
+describe('the Delver stand-ins', () => {
+  it('builds the Stairs pit, glows while they count and dulls while the gate is shut, and disposes what it made', () => {
+    const stairs = new StairsStandIn({ x0: 0, x1: 4, z0: 0, z1: 4 });
+    expect(stairs.root.position.toArray()).toEqual([2, 0, 2]);
+    expect(stairs.root.children.length).toBeGreaterThanOrEqual(4);
+    const glow = (stairs.root.children[stairs.root.children.length - 1] as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    stairs.setOpen(true);
+    const open = glow.color.getHex();
+    stairs.setOpen(false);
+    expect(glow.color.getHex()).not.toBe(open);
+    stairs.dispose();
+  });
+
+  it('puts a ring on the ground at each pedestal', () => {
+    const rings = pedestalRings([{ x: 1, z: 2 }, { x: 4, z: 2 }]);
+    expect(rings.meshes.map((m) => [m.position.x, m.position.z])).toEqual([[1, 2], [4, 2]]);
+    for (const r of rings.owned) r.dispose();
   });
 });

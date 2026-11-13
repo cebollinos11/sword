@@ -6,6 +6,9 @@ import { isRevealed } from '../sim/delver/reveal';
 import type { FloorPlan } from '../sim/delver/plan';
 import { pickupVisibleTo, type Pickup, type RestUse } from '../sim';
 
+/** The Boss mark is drawn this far (m, towards +z) from the Boss Hall's centre, so it does not cover the Stairs mark there (the Stairs stand at the Boss Hall's centre). */
+export const BOSS_MARK_OFFSET = 4;
+
 /** One marker on a Delver map. */
 export type DelverMapMark =
   /** The Stairs zone's centre; `open` false while a Boss Floor's gate is shut. */
@@ -14,7 +17,7 @@ export type DelverMapMark =
   | { readonly type: 'fire'; readonly x: number; readonly z: number; readonly spent: boolean }
   /** A Treasure Hall's pedestals; `lying` while any item still lies there for the viewer. */
   | { readonly type: 'treasure'; readonly x: number; readonly z: number; readonly lying: boolean }
-  /** The Boss Hall's centre. */
+  /** The Boss Hall's centre, `BOSS_MARK_OFFSET` aside. */
   | { readonly type: 'boss'; readonly x: number; readonly z: number };
 
 /** The Run's state the markers depend on. */
@@ -32,7 +35,7 @@ export function delverMapMarks(plan: FloorPlan, revealed: readonly number[], sta
   const { zone } = plan.markers.stairs;
   if (seen(plan.stairs)) marks.push({ type: 'stairs', x: (zone.x0 + zone.x1) / 2, z: (zone.z0 + zone.z1) / 2, open: status.gateOpen });
   const { boss } = plan.markers;
-  if (boss && seen(boss.hall)) marks.push({ type: 'boss', x: boss.x, z: boss.z });
+  if (boss && seen(boss.hall)) marks.push({ type: 'boss', x: boss.x, z: boss.z + BOSS_MARK_OFFSET });
   plan.markers.fires.forEach((fire, k) => {
     if (seen(fire.hall)) marks.push({ type: 'fire', x: fire.x, z: fire.z, spent: status.restUsed[k]?.revived ?? false });
   });
