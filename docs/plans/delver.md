@@ -913,6 +913,215 @@ Done 2026-11-13. A Delver Run is now played against Warbands. Every Floor deploy
 - Boss Floors: the Boss Hall with the Stairs behind its gate; the Boss Warband, its Boss Soldier first into an Attack Slot and never demoted while a Player is in the Hall; the gate opens when it is wiped; a full heal after the Boss.
 - **Done**: a full three-tier Run with bosses; loot tests per Player are deterministic.
 
+#### Design
+Stage 4 adds loot and Bosses to a Delver Run. Warbands drop items when they are wiped. Treasure Halls hold pedestals from the Floor's start. Some guards are elite and wear Relics. Every tier's last Floor is a Boss Floor: its Stairs stand in a Boss Hall and count only once the Boss Warband is wiped. A Battle, a Duel and a Hall-graph Run step exactly as before. Non-Boss Floors come out of the generator byte for byte as today.
+
+**Words.**
+- A **Boss Floor** is Floor f with `f % floorsPerTier === 0`, when its tier has a Boss Encounter.
+- The **Boss Hall** is a Boss Floor's Stairs Hall, of kind `'Boss'` instead of `'Stairs'`.
+- The **Boss Warband** is the Warband at its post. Its **Boss Soldier** is that Warband's first Soldier.
+- An **elite** Warband is a guard from its tier's elite pool.
+- A Warband's **rank** is 0 for a plain one, 1 for an elite and 2 for the Boss.
+
+**1. Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`). The new keys and their defaults:
+- **`elitePosts`**: 1. A whole number ≥ 0: how many of a Floor's filled posts hold an elite.
+- **`warbands[i].elite`**: the tier's elite pool, a list of templates. It may be empty, and then that tier has no elites. Each elite template also has `relics`: 1 or 2 names from `data/relics.json`, which its Soldiers' promoted Fighters wear. `WarbandTemplate` gains `relics: readonly string[]`. The parse gives `[]` when the key is absent, and refuses a `relics` key in a guard or patrol pool.
+  - The flag the brief asked for is the pool itself, just as the guard and patrol pools mark a template's brain.
+  - The defaults copy `data/dungeon.json`'s Elites:
+    - tier 1: `[{ relics ["Whetstone"], troops [Halberdier 1, Levy 2], hpScale 1.5 }]`;
+    - tier 2: `[{ ["Whetstone"], [Swordsman 1, Halberdier 1], 1.5 }, { ["Heavy Gauntlet", "Glass Cannon"], [Swordsman 1, Levy 2], 2 }]`;
+    - tier 3: `[{ ["Heavy Gauntlet", "Glass Cannon"], [Swordsman 1, Brute 1, Halberdier 1], 2 }]`.
+- **`warbands[i].boss`** is optional. Absent means that tier has no Boss: its last Floor is an ordinary Floor, and on the last tier its Stairs are the Victory, as in Stage 2. Its shape:
+  ```json
+  "boss": { "troop": { "name": "Warden", "base": "Brute", "weapon": "Sledge Hammer", "body": "monk", "height": 1.3, "width": 1.3,
+                       "difficulty": "Skilled", "style": "Aggressive", "relics": [], "hpScale": 2.5 },
+            "guard": [ { "troops": [ { "troop": "Levy", "count": 2 } ], "hpScale": 1 } ] }
+  ```
+  - `base` is one of `battle.troops`, and gives the Boss Soldier's Crowd stats.
+  - `weapon` is a Weapon roster name, `body` a non-empty string, and `height` and `width` lie in MIN_SIZE to MAX_SIZE.
+  - `difficulty` is one of `ai.difficulties` and `style` a key of `ai.styles` (no `"random"`). `relics` holds 0 to 2 Relic names, and `hpScale` is positive.
+  - `guard` is a non-empty pool of plain templates. A guard's Soldiers plus the Boss may number at most `battle.squad.size`.
+  - The defaults copy `data/dungeon.json`'s Bosses:
+    - tier 1: Warden, `base` Brute, Sledge Hammer, monk, 1.3 × 1.3, Skilled, Aggressive, no Relics, 2.5; its guard is 2 Levy.
+    - tier 2: Duelist, `base` Swordsman, Arming Sword, prince, 1.1 × 1.1, Expert, Counter, no Relics, 2.5; its guard is Swordsman 1 and Halberdier 1.
+    - tier 3: Wraith Lord, `base` Brute, Sledge Hammer, wraith, 1.4 × 1.4, Expert, Aggressive, `["Heavy Gauntlet"]`, 3; its guard is Swordsman 1, Halberdier 1 and Brute 1. Dungeon's tier 3 Style was `"random"`, and Aggressive replaces it.
+  - `parseDelver(raw, fieldSize, battle, names)` gains `names: { weapons, difficulties, styles, relics }`, all string lists, which `src/tuning/index.ts` passes as it does to `parseDungeon`.
+- **Drop counts** reuse `dungeon.loot.drops`: `Fight` (1) for a plain Warband, `Elite` (1) for an elite, `Boss` (2) for the Boss. `loot.weights` and `loot.pedestals` are reused too. No other key is new. There is no balance pass.
+
+**2. Floor Troops** (`src/sim/delver/troops.ts`, pure, cached in a `WeakMap` per `(battle, delver)` objects, never state):
+```ts
+export interface FloorTroops {
+  readonly troops: readonly TroopTuning[];               // battle.troops, then each tier's Boss Troop, then the elite Troops
+  readonly boss: readonly number[];                      // per tier: its Boss Troop's index, or -1
+  readonly elite: readonly (readonly (readonly number[])[])[]; // [tier][elite template][row]: that row's Troop index
+}
+export function floorTroops(battle: BattleTuning, delver: DelverTuning): FloorTroops;
+export function tierOf(delver: DelverTuning, floor: number): number;      // min(tiers, max(1, ceil(floor / floorsPerTier)))
+export function isBossFloor(delver: DelverTuning, floor: number): boolean; // floor % floorsPerTier === 0 && warbands[tierOf - 1].boss !== undefined
+```
+- **The order.** `battle.troops` come first, at their own indices. Then comes one Boss Troop per tier that has a Boss, in tier order. Then the elite Troops: for each tier, each elite template, then each of its rows, one Troop each.
+- **A Boss Troop** is `{ ...base, name, weight: 1, bodies: [body], teamBodies: undefined, height: [h, h], width: [w, w], weapon, difficulty, mods: {}, style, relics, boss: true }`.
+  - `mods: {}` means **a promoted Boss does not take the Battle's "promoted Soldiers deal half damage" Mod** (`battle.soldier.mods`). It fights at a full Fighter's strength, as the Hall-graph Boss did, plus its Relics.
+- **An elite Troop** is `{ ...battle.troops[row.troop], name: name + ' (elite)', relics: template.relics }`. It keeps its base's Mods (the half damage) and wears the Relics on top.
+- `TroopTuning` (`src/tuning/battle.ts`, the type only, never parsed from `battle.json`) gains three optional fields:
+  - `style?: string`, a Style name. A Pool AI plays it instead of `battle.soldier.style`.
+  - `relics?: readonly string[]`, worn by a promoted Soldier.
+  - `boss?: true`.
+- `delverBattle` sets `troops: floorTroops(battle, delver).troops`. A Floor's Crowd indexes its Troops in that list, so `troopOf`, the Bubble, `warbandsFit` and the Pool AI read them through `arenaTuning`. The Battles' `battle.troops` is never touched.
+
+**3. The generator: Boss Halls** (`src/sim/delver/plan.ts`, `source.ts`, `judge.ts`, `generate.ts`, `version.ts`):
+- `planFloor(t, seed, floor, attempt, boss = false)`. `delverFloor` passes `isBossFloor(tuning.delver, floor)`. Everything below happens only when `boss` is true and `stairs !== entrance`, and decides nothing by a new pick. So with `boss` false the plan is the very same object graph as today: no new field and no new key. `DelverHallKind` gains `'Boss'`.
+- **Step 7, Kinds**:
+  - **The kind.** The Stairs Hall (the furthest by walking) gets kind `'Boss'` instead of `'Stairs'`. `plan.stairs` still names it, and every later rule that skips the Stairs Hall (Rest's `other`, Treasure, Fight and Empty) skips it the same way.
+  - **Grown to the largest it may be**, for room to fight a Boss Warband:
+    - `hw = offDots(min(halfSize[1], limX), cx, limX)`, and `hd` the same with `limZ`, computed for its cell as in step 2.
+    - Then each Passage with `a` or `b` the Boss Hall gets its `rect` again by step 5's formula. Doors, `length` and depth are unchanged, since depth is from centre to centre.
+    - This is the step that changes a Boss Floor's bytes, and it never reaches a neighbour, since `limX` and `limZ` already keep every Hall apart.
+- **Step 9, Markers**: `DelverMarkers.boss?: MarkerPoint` is the Boss Hall's centre, present on a Boss Floor only. The Stairs zone is the same centre ± 2. A Boss Floor keeps every other marker. `SALT` is unchanged: the Boss Hall makes no pick. The picks the Boss does need are Warband picks (`WARBAND_SALT.elitePick` 28 and `bossGuard` 29, below). They come after every existing pick, and the Floor number decides first whether any is made.
+- **The source**:
+  - `HALL_MATERIAL.Boss = 'glow'`, since the Boss Hall holds the Stairs.
+  - A `boss` prop (a banner, team 1) at `markers.boss` goes last in `look.props`.
+  - The Objective `E` and the Base still stand at `plan.stairs`'s centre.
+- **The judge**:
+  - **rooms**: a plan with a Boss Hall must have exactly one, it must be `plan.stairs`, and it must have no `'Stairs'` Hall. A plan without one must have one Stairs Hall, as now, with the message unchanged.
+  - **markers** and **sight** treat `markers.boss` as a post named `boss`: inside its Hall, reached, and not in sight of the entrance spawns.
+- `describeFloor` names the Boss Hall `Boss hallY` where it names the Stairs. The patrol start in `deployWarbands` skips `'Boss'` Halls as it skips `'Stairs'`.
+- **`DELVER_VERSION` 3**, since Boss Floors' bytes change.
+- **The golden pins**:
+  - The Floor 9 pins are rewritten. Floor 9 is a Boss Floor under the bundled Tuning.
+  - New pins are added at Floor 3 for the same four seeds.
+  - A new case builds Floor 9 under a Tuning with tier 3's `boss` removed. It must give **the old Floor 9 pins exactly** (`a6bc473c`/`b7ed1574`, `5e7b9eb5`/`2ec47849`, `0ee8578e`/`14e11d8b`, `39a62be6`/`b556e6a8`). That proves non-Boss Floors are byte-identical.
+  - The Floor 1 pins stay as they are.
+- **`plan.test.ts`** gains a case over 200 seeds and Floors 1 to 9: `planFloor(…, true)` equals `planFloor(…, false)` once the Boss changes are undone (the kind put back to Stairs, the Hall's and its Passages' rects, and `markers.boss` removed). On Boss plans it checks that the Boss Hall is `plan.stairs`, holds the Stairs zone and `markers.boss`, has `hw` and `hd` at the most `limX` and `limZ` allow, and touches no other Hall or Passage.
+- **`delverGen.slow.test.ts`** must also show it exercised Boss Halls: its pairs fall on Floors 3, 6 and 9, and every one of them has a Boss Hall.
+
+**4. Warbands: elites and the Boss** (`src/sim/delver/warbands.ts`, `src/sim/warband.ts`):
+- **`WarbandState.rank: readonly number[]`**: 0 plain, 1 elite, 2 Boss, with `PLAIN`, `ELITE` and `BOSS` exported from `warband.ts`. It is hashed and snapshotted with the Crowd. For a rank 1 Warband `encounter` indexes the elite pool, and for rank 2 the Boss's `guard` pool.
+- **Elites**: the filled posts are ordered by their Hall's `depth`, deepest first, the lower post index on a tie. The first `elitePosts` of them take `elite[runPick(s, f, post, WARBAND_SALT.elitePick, elite.length)]` instead of their guard pick, when the pool is not empty, at rank 1.
+  - Each Soldier of row r is of Troop `floorTroops(...).elite[tier − 1][encounter][r]`.
+  - The party's extras are of the first row's elite Troop.
+  - Max HP is `troop.hp × hpScale × tierHp × (1 + relicShare)`, where `relicShare` is the `maxHp` share of the folded Relics (`relicMods(tuning, relics).maxHp`).
+- **The Boss Warband**, on a Boss Floor only, is appended last, after the patrols, so every other Warband keeps its index and its picks:
+  - **Post and home.** Its post is `posts.length`. `warbandHomes(plan).posts` gains the Boss post at that index (its facing `guardFacing` of the Boss Hall) on a Boss Floor only.
+  - **Its Soldiers.** Its guard template is `boss.guard[runPick(s, f, 0, WARBAND_SALT.bossGuard, guard.length)]`. The Boss Soldier is Soldier 0 (place 0), of Troop `boss[tier − 1]`. The guard's rows follow, and the party's extras are of the guard's first Troop, never another Boss.
+  - **Max HP.** The Boss Soldier's is `tuning.fighter.maxHp × boss.hpScale × (1 + relicShare)`, with no `tierHp`: each tier's Boss has its own `hpScale`, so 250, 250 and 300 as in the Hall-graph Run. The guard's is as any guard's.
+  - **Size and look.** The Boss Soldier's Size is its fixed `height` and `width`, and its look is 0.
+  - **Its brain** is a guard's (GUARD, then CHASE on sight, and so on).
+- **`warbandsFit`** also checks:
+  - `rank`'s length, and that each entry is 0 to 2;
+  - at most one rank 2, and only on a guard at post `home.posts.length − 1` on a Boss Floor;
+  - every `encounter` inside its pool.
+
+**5. The Bubble on a Boss Floor** (`src/sim/bubble.ts`):
+- **Relics**: `troopMods` folds a Troop's `relics`' effects (from `tuning.relics`) with its `mods`: `foldMods([{ effects: t.mods }, ...relics])`. Battles are unchanged, since their Troops have no `relics`.
+- **`stepBubbles(duel, players, tick, tuning, intents, boss?: BossHold)`**, where `BossHold` is `{ readonly soldier: number; readonly hold: boolean }`. Absent, or with `soldier` −1, everything is as now. With it:
+  - **First into a slot.** In a Bubble's fill, whoever stands for the Boss Soldier sorts first, ahead of any nearer guard: its Soldier, or its promoted Fighter when that is Waiting. It still must be `promotable` (within `promote`, by walking) into that Bubble.
+  - **Never the one let go.** In the share trimming (`nearestIn(b, 'Attack')`) the Boss's Fighter sorts first, so it is never the one whose slot goes.
+  - **Never demoted while held.** While `hold`, the Boss's Fighter neither demotes as far from every Bubble nor as a Waiting Fighter.
+- **`stepDelver` builds the `BossHold`**:
+  - `soldier` is the lowest Crowd index whose Squad is the Warband of rank 2, or −1.
+  - `hold` is true when some present Player's Fighter (`presentPlayers`, `inDuel`, hp > 0) stands inside the Boss Hall's `rect`, edges included and flat. It is a pure test, and the first such Fighter in index order settles it.
+- **The Pool AI** (`poolAi.ts`) reads Troops under `arenaTuning(tuning, state.arena)`. It plays the Troop's `style` when it has one, else `battle.soldier.style`, and keeps one AI per (difficulty, Style).
+
+**6. Loot** (`src/sim/delverLoot.ts`, pure; `src/sim/pickups.ts`):
+- **`pickItemAt(tuning, seed, floor, slot, avoid): Dropped`** is exported from `pickups.ts`. It is `pickItem`'s body with the slot given. `pickItem` calls it, so the Hall-graph Run is bit-identical.
+- **`lootSlot(source, index, player, k) = ((index × 4 + player) × 16 + k) × 2 + source`**, where `source` is 0 for a Warband's drop and 1 for a Treasure Hall's pedestal, and `index` is the Warband q or the Treasure Hall's ordinal. It throws unless 0 ≤ k < 16 and 0 ≤ player < 4.
+- **`warbandLoot(tuning, crowd, q, player, seed, floor): Dropped[]`** gives one Player's items from Warband q:
+  - **The carried Relic** comes first: the first of the template's `relics` (rank 1) or of the Boss Troop's (rank 2), when there is one, as `carriedRelics` does it.
+  - **Then the picks**: `loot.drops.Fight`, `Elite` or `Boss` by rank. Pick k is `pickItemAt(…, lootSlot(0, q, player, k), items so far)`.
+- **`dropSpots(plan, x, z, count): PickupAt[]`** gives `count` spots near the fall point, y 0 (Floors are one level until Stage 6):
+  - **The rect.** R is the first Hall rect, then Passage rect, holding (x, z), edges included. If none holds it, R is the nearest by clamped distance (Halls first, then the lower index).
+  - **The spots.** Shrink R by `DROP_MARGIN` 0.75 m. The base is (x, z) clamped into it. Candidate j is the base moved along R's longer side by 0, +1.2, −1.2, +2.4, −2.4, … m (`DROP_GAP` 1.2), then clamped. A candidate within 1.1 m of a spot already taken is skipped. After 16 candidates the spots found are reused in turn.
+  - So no drop lies in a Wall or the abyss, and two never share a spot.
+- **`warbandDrops(tuning, config, plan, crowd, q, fall, seed, floor, firstId, away): Pickup[]`**: for each present Player p (`presentPlayers(config, away)`, ascending), its items at `dropSpots(...)[k]`, owner p, ids from `firstId` on. Every Player's k-th item lies on the same spot k, and each sees only its own (`pickupVisibleTo`), as pedestals do. An away Player and the AI allies get none.
+- **`treasurePickups(tuning, config, plan, seed, floor, away): Pickup[]`**, the pedestals:
+  - Treasure Halls go in `markers.pedestals` order, three markers each, and t is a Hall's ordinal.
+  - For each present Player p of each Hall, `loot.pedestals` items lie at that Hall's markers k mod 3, from `pickItemAt(…, lootSlot(1, t, p, k), …)`, in one `group` per (Hall, Player). Taking one closes the rest for that Player only.
+  - They lie from the Floor's start: `enterFloor(run, floor, plan, pickups)` takes them, and both `createMatch` and the fade to the next Floor pass `treasurePickups`.
+- **The wipe** (`stepDelver`, every Tick while Exploring, after the Crowd's step):
+  - **When.** Warband q, not yet in `run.wiped`, is wiped once no Soldier of its Squad is `alive` in the stepped Crowd.
+  - **Where it fell.** The fall point is the Crowd x, z of the lowest-index Soldier of q that was alive in `match.duel.crowd` (before the Tick). With none, it is q's lowest Soldier. The Bubble writes a promoted Fighter's position back to its Soldier when it falls, so this is where the last one fell, Fighter or Soldier.
+  - **Then.** Its drops are appended (`firstId` = `pickups.length`), q joins `wiped` (ascending), and an event `WarbandWiped { type, warband: q, rank, at }` is sent. Warbands are visited in index order.
+- **Lifetime**:
+  - Pickups belong to the Floor. `enterFloor` starts the next Floor with only its pedestals, so whatever lies untaken is gone after the Stairs.
+  - Taking is allowed anywhere while Exploring (`takePickups`, as now). The Inventory still changes only at a fire.
+  - The AI allies never take: they hold no Inventory.
+- **The Delver pilot** (`delverPilot.ts`) walks, before its fires, to the nearest pickup it sees (`pickupVisibleTo`) and has room for (`addItem` not null). Nearness is a straight line, the lower id on a tie, and it stops 0.2 m short. Its fight rule comes first, as now. Its memory is unchanged. It reads the pickups from `SimState.delver.pickups` (below).
+
+**7. The Boss rules** (`stepDelver`):
+- **The gate is a rule.** On a Boss Floor the Stairs count only once the Boss Warband is in `wiped`. Until then `stairsTicks` stays 0. The Arena, navmesh and fields never change at runtime.
+- **The wipe of a Boss Warband** that is not the last tier's:
+  - Every living Team 0 Fighter (Players and AI allies) heals to its max HP (`Rested { fighter, healed }`).
+  - Every fallen Team 0 Fighter is revived at the Stairs zone's centre plus the fire's offsets (`REVIVE_DX` and `REVIVE_DZ` by its rank among the revived), at **full** max HP (`Revived { fighter, fire: -1 }`). This shares a `reviveFallen` helper with the fires.
+  - An event `BossBeaten { type, floor }` is sent.
+  - This is the "full heal after each Boss": at the wipe, so the party goes on full.
+- **The last tier's Boss Warband wiped is a Victory at once**, not on its Stairs, as beating the last Boss won the Hall-graph Run:
+  - `status Over, winner 0`, and the Duel ends with `DuelEnd`;
+  - `score[0] + 1`;
+  - `BossBeaten`, then `RunEnd { winner: 0, cleared: floors, floors, halls: 0, bosses }`.
+  - The drops are still laid in that Tick, but nobody plays on.
+- **`RunEnd.bosses?: number`** (Delver only): the Bosses beaten. That is the Boss Floors before the current Floor, plus 1 when the current Floor's Boss is in `wiped`. A pure `bossesBeaten(delver, run)`. A Defeat carries it too.
+- **The dev start Floor**:
+  - `devDelverStart(search, hash): { delverStart?: number }` (`src/devMode.ts`), from `delverStart` ≥ 1, with `dev=1` only.
+  - `game.ts`'s `launch()` adds it to a solo Delver Gauntlet's options, as it adds `devRunStart`.
+  - `MatchConfig.delverStart?: number`. `createMatch` refuses it without `delver`, or outside 1 to `floors`. It starts the Run on that Floor (`floorDuel(…, delverStart, null, …)`, `duelNumber` = it, `score [delverStart − 1, 0]`). The Floor is built from (Run seed, Floor) as any other.
+  - It is never set online: `src/net/messages.ts` refuses a config or options carrying it.
+
+**8. The state** (all plain data, hashed with the Match and snapshotted; every new field is absent outside a Delver Run):
+- `DelverRun.wiped: readonly number[]`: the Warbands (Squad indices) whose wipe was seen this Floor, ascending. `enterFloor` gives `[]`. The gate reads it.
+- `DelverRun.pickups` now holds the drops and the pedestals too.
+- `WarbandState.rank` (above).
+- `SimDelver.pickups: readonly Pickup[]`: the Run's pickups mirrored for the Controllers (the pilot), the same array object. `mirrored()` carries it, and `stepDelver` re-mirrors when its reference changes.
+- `MatchConfig.delverStart?` (dev, solo).
+- **Not in the state**: `floorTroops`, `warbandHomes`, the drop spots and the `BossHold`, all derived each Tick or cached.
+- **Online**:
+  - `PROTOCOL_VERSION` 29.
+  - `isWarbands` checks `rank`.
+  - `isDelverRun` checks `wiped`: ascending, distinct whole numbers below the Crowd's Squad count.
+  - `isSimDelver` checks `pickups`, and `isDelverFloor` checks that the mirror equals the Run's pickups.
+  - `delverStart` is refused.
+  - The online Delver Run's loopback and resync tests stay green.
+
+**9. Presentation** (render-only; Stage 5 does the art):
+- **The gate.** `DelverMarks` draws a gate round the Stairs square on a Boss Floor: closed bars while the Boss Warband is not in `wiped`, open (sunk) once it is. It reads only the Run.
+- **Pickups.** Drops and pedestals are already drawn (`pickupViews` over `delver.pickups`). A pedestal pickup is drawn on top of its crate prop, not inside it.
+- **Atlases.** The impostor atlases are baked from `floorTroops(...).troops`. An elite Troop shares its base's atlases, since it has the same Bodies and Weapon. A promoted Boss is drawn in its Body and Size.
+- **The HUD**:
+  - announcements "Boss beaten: the gate opens" (`BossBeaten`) and, for the local Player, "Loot dropped" (a `WarbandWiped` that laid one of its items);
+  - the results line adds "Bosses b / B" (B the tiers with a Boss) from `RunEnd.bosses`.
+
+**10. Existing tests this Stage rewrites** (only these, and only as said):
+- **`golden.test.ts`**: the Floor 9 pins, as above.
+- **Tests that take the last Floor's Stairs to a Victory** run on a Tuning with every tier's `boss` removed (`noBosses(tuning)`, a helper in the test). Their expectations stay. These are `delverRun.test.ts` "the last Stairs are a Victory" and any other case that reaches a Boss Floor's Stairs, `src/controllers/delverRun.slow.test.ts`, and the Stage 3 cases of `warbandSoak.slow.test.ts`.
+- **A Stage 3 test that pins one Warband's Soldiers** and breaks only because the deepest post is now elite runs with `elitePosts: 0`. The task lists each one.
+- **`tuning.test.ts`'s `goodRaw()`** gains the new keys.
+- No test is removed.
+
+**11. The soak** (`src/controllers/warbandSoak.slow.test.ts`, a new case): a full Run of the bundled 3 tiers × 3 Floors, one Run seed, one Player on the Delver pilot (Hard) with two Hard AI allies.
+- **What it prints, per Floor**: Warbands deployed, met and wiped, by rank; drops laid and taken; pedestals taken; the Boss's Promotion Tick, the Attack Slot it took, its wipe and the gate; the seconds; the Tick (mean, p99).
+- **It must show it exercised**, else fail:
+  - on each of Floors 3, 6 and 9, the Boss Soldier promoted before any other Soldier of its Warband, and the Boss Warband wiped;
+  - the gate opened (Stairs taken on 3 and 6);
+  - at least one Warband drop taken and one pedestal taken;
+  - at least one elite wiped with its Relic dropped;
+  - the Victory at Floor 9's Boss.
+- **If the pilot cannot win on the shipped Tuning**, the case runs on a test Tuning that says what it changed (`postFill` lower, or an Expert pilot). The Result reports it. There is no rebalance.
+
+**Tasks** (one after another):
+1. **Tuning, Floor Troops and the generator**:
+   - Tuning: `data/delver.json`, `src/tuning/delver.ts` (+ `index.ts`'s call), `TroopTuning`'s optional fields, `tuning.test.ts`'s `goodRaw()`, and `src/tuning/delver.test.ts`.
+   - Floor Troops: `src/sim/delver/troops.ts` and its test, and `build.ts` (`delverBattle`'s troops).
+   - The generator: `plan.ts`, `source.ts`, `judge.ts`, `generate.ts` and `version.ts`, with the plan, judge, golden and slow generator tests.
+2. **Warbands and the Bubble**:
+   - `warbands.ts` (elites, the Boss Warband, homes, `warbandsFit`, the patrol start) and `warband.ts` (`rank`);
+   - `bubble.ts` (Relics, `BossHold`), `poolAi.ts`, and `delverRun.ts`'s call to `stepBubbles`;
+   - `messages.ts` `isWarbands` and `PROTOCOL_VERSION` 29;
+   - their tests.
+3. **Loot**: `delverLoot.ts`, `pickups.ts` (`pickItemAt`), `delverRun.ts` (`wiped`, drops, pedestals, mirror), `match.ts` (`createMatch`'s `enterFloor`, `WarbandWiped`), `state.ts` (`SimDelver.pickups`), `delverPilot.ts`, `messages.ts` (`wiped`, pickups mirror), and their tests.
+4. **The Boss rules**: `delverRun.ts` (the gate, heal, revive, Victory, `bossesBeaten`), `match.ts` (`BossBeaten`, `RunEnd.bosses`, `delverStart`), `devMode.ts`, `game.ts`, and `messages.ts` (`delverStart` refused). It also rewrites the Victory tests and `delverRun.slow.test.ts` onto no-Boss Tuning, and adds its tests.
+5. **Render and HUD**: `delverMarks.ts`, the pickup marks, the Floor Crowd's atlases and `floorBodies.ts`, the HUD and announcer, and their tests.
+6. **The soak**: `warbandSoak.slow.test.ts`.
+
 ### Stage 5: presentation
 **Model**: Sonnet.
 - The Reveal bitset (Simulation) and the fog-of-war minimap and Floor Map (`M`): Halls, Passages, the party, fires, Treasure, Stairs once revealed.
