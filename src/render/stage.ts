@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
-import { floorOf, isFloorName, parseFloorArena } from '../sim/delver';
+import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
 import { mapModel } from './mapModel';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
@@ -268,7 +268,7 @@ export class Stage {
    */
   setArena(name: string, tuning: TuningData = this.tuning, layout?: Layout): void {
     this.tuning = tuning;
-    const geometry = arenaOf(tuning, name);
+    const geometry = arenaOf(arenaTuning(tuning, name), name);
     if (name === this.arena && geometry === this.geometry) return;
     this.scene.remove(this.setting);
     this.arena = name;
@@ -318,7 +318,7 @@ export class Stage {
     const layout = this.layout;
     const kitLook = layout && KIT_LOOKS[layout.kit];
     const kit = layout && kitLook ? this.tuning.kits[layout.kit] : undefined;
-    const field = isBattleName(name) ? battlefieldOf(this.tuning.battle, name) : null;
+    const field = isBattleName(name) ? battlefieldOf(arenaTuning(this.tuning, name).battle, name) : null;
     this.camera.far = field ? BATTLEFIELD_FAR : FAR;
     this.camera.updateProjectionMatrix();
     const setting: Setting = field
@@ -545,13 +545,22 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
 const KEPT_FLOOR_MODELS = 3;
 const floorModels = new Map<string, THREE.Object3D>();
 
+/** Frees a dropped model's geometries and materials (its textures are shared and stay). */
+function disposeModel(model: THREE.Object3D): void {
+  model.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    o.geometry.dispose();
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) m.dispose();
+  });
+}
+
 /**
  * The drawn model of Delver Floor Arena `name` (docs/plans/delver.md, Stage 2): the Floor's source compiled for its Battle Tuning and drawn as the
  * Map Editor's 3D view draws it (`mapModel`, `drawnMapModel`), kept per name. Null for any other name. `tuning` is the world's for the Floor
  * (`arenaTuning`), or its base: `floorOf` reads both.
  */
 function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
-  if (!parseFloorArena(name) || !isFloorName(battleMapName(name) ?? '')) return null;
+  if (!parseFloorArena(name)) return null;
   let model = floorModels.get(name);
   if (model) {
     floorModels.delete(name);
@@ -559,7 +568,12 @@ function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
     const floor = floorOf(tuning, name);
     if (!floor) return null;
     model = drawnMapModel(mapModel(floor.source, compileDraft(floor.source, floor.battle)));
-    if (floorModels.size >= KEPT_FLOOR_MODELS) floorModels.delete(floorModels.keys().next().value!);
+    if (floorModels.size >= KEPT_FLOOR_MODELS) {
+      // The oldest goes: never the one just asked for, nor the one still drawn (the latest before it, as the Stage swaps settings in order).
+      const oldest = floorModels.keys().next().value!;
+      disposeModel(floorModels.get(oldest)!);
+      floorModels.delete(oldest);
+    }
   }
   floorModels.set(name, model);
   return model;

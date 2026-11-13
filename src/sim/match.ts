@@ -37,7 +37,7 @@ import { inDuel } from './duel';
 import { atRestFire, doorCounters, doorTicksNeeded, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { holdInventory, relicMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
-import { droppedPickup, hallDrops, startPickups, takePickups, type Pickup } from './pickups';
+import { hallDrops, placeDrop, startPickups, takePickups, type DroppedItem, type Pickup } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -47,6 +47,9 @@ import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
 import { enterFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
 import { arenaTuning, floorOf } from './delver/world';
+
+/** The drop seam and the item it takes (they live in `pickups`; the Match's callers still find them here). */
+export { placeDrop, type DroppedItem };
 
 /** The most Fighters a team may field. */
 export const MAX_TEAM_SIZE = 4;
@@ -199,21 +202,6 @@ export interface RevivedEvent {
 
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
 export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | RoutEvent | BattleEndEvent;
-
-/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
-export interface DroppedItem extends Dropped {
-  readonly fighter: number;
-  readonly at: { readonly x: number; readonly y: number; readonly z: number };
-}
-
-/**
- * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall) becomes something in the
- * world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `run.pickups`, which the dropper cannot take back until it
- * has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
- */
-export function placeDrop(run: RunState, drop: DroppedItem): RunState {
-  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
-}
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
 export interface RunState {

@@ -272,6 +272,7 @@ describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
     r = go(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
     expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0 });
+    expect(r.score[0]).toBe(1);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });
     expect(r.duel.events).toContainEqual({ type: 'DuelEnd', winner: 0 });

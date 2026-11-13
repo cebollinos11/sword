@@ -741,8 +741,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const delver = match.delver;
     for (const e of announcer.update(match, me)) {
       if (e.type === 'DuelEnd') {
-        // A Run's Duel ends only with the Run (a wipe, or the last Boss): the results screen says so.
-        if (run) continue;
+        // A Run's (or a Delver Run's) Duel ends only with the Run (a wipe, or the last Boss): the results screen says so.
+        if (run || delver) continue;
         hud.announce(e.winner === null ? 'Draw' : e.winner === myTeam ? 'Duel won' : 'Duel lost');
       } else if (e.type === 'HallCleared') {
         // A Hall with no Encounter (Treasure, Rest) is open from the start: its banner said what it is. The last Boss ends the Run.
@@ -777,7 +777,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         const victory = e.winner === myTeam;
         runResult = {
           victory,
-          cleared: victory ? delver.floors : delver.floor - 1,
+          cleared: match.score[0]!,
           floors: delver.floors,
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),

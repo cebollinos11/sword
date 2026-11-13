@@ -240,8 +240,8 @@ describe('the inventory screen in a Delver Run', () => {
     expect(inventoryLock({ ...f, air: { kind: 'Jump' } as unknown as FighterState['air'] }, undefined, at)).toBe('Land first');
   });
 
-  it('holds the input only at a fire while Exploring; a Run’s Hall phases are unchanged without the context', () => {
-    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: true })).toBe(true);
+  it('never holds the input in a Delver Run; a Run’s Hall phases are unchanged without the context', () => {
+    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: true })).toBe(false);
     expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: false })).toBe(false);
     expect(inventoryHoldsInput(undefined, { phase: 'Descending', atFire: true })).toBe(false);
     expect(inventoryHoldsInput('Cleared')).toBe(true);

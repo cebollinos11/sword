@@ -17,7 +17,7 @@ import { holdInventory, startingInventory, useInventory, withStartingRelics, wie
 import type { Intent } from './intent';
 import type { MatchConfig, MatchEvent, MatchState } from './match';
 import { NO_MODS, setMods } from './mods';
-import { droppedPickup, takePickups, type Pickup } from './pickups';
+import { placeDrop, takePickups, type Pickup } from './pickups';
 import type { Placement } from './skeleton';
 import type { FighterState, SimDelver, DelverPhase, SimState } from './state';
 import { createInitialState, standingFighter, step } from './step';
@@ -162,7 +162,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
 
   if (duel.duel.status === 'Over') {
     // Team 0 is wiped out (a Floor's Duel ends on nothing else): a Defeat, in any phase.
-    events.push({ type: 'RunEnd', winner: 1, cleared: run.floor - 1, floors: run.floors, halls: 0 });
+    events.push({ type: 'RunEnd', winner: 1, cleared: score[0]!, floors: run.floors, halls: 0 });
     return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events };
   }
 
@@ -179,7 +179,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
         const used = useInventory(f, intents[i]!, t);
         if (used.dropped) {
           const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
-          next = { ...next, pickups: [...next.pickups, droppedPickup(next.pickups.length, drop)] };
+          next = placeDrop(next, drop);
           events.push({ type: 'ItemDropped', ...drop });
         }
         return used.fighter;
@@ -249,7 +249,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
         // The last Stairs: the Run is won, and its Duel ends as a Duel's end would leave it.
         status = { status: 'Over', winner: 0, tick };
         duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
-        events.push({ type: 'RunEnd', winner: 0, cleared: next.floors, floors: next.floors, halls: 0 });
+        score = score.map((s, i) => (i === 0 ? s + 1 : s));
+        events.push({ type: 'RunEnd', winner: 0, cleared: score[0]!, floors: next.floors, halls: 0 });
         nextDuelTick = null;
       } else {
         next = { ...next, phase: 'Descending' };

@@ -50,4 +50,19 @@ describe('arenaTuning and floorOf', { timeout: 60_000 }, () => {
     expect(arenaTuning(copy, other)).toBe(arenaTuning(tuning, other));
     expect(floorOf(copy, other)).toBe(floorOf(tuning, other));
   });
+
+  it('shares one built Floor between Tuning Data objects with the same battle and delver, each copy carrying its own blocks', () => {
+    const a = { ...tuning };
+    const b = { ...tuning, dungeon: { ...tuning.dungeon } };
+    const fa = floorOf(a, name)!;
+    expect(floorOf(b, name)).toBe(fa);
+    const ca = arenaTuning(a, name);
+    const cb = arenaTuning(b, name);
+    expect(ca).not.toBe(cb);
+    expect(ca.dungeon).toBe(a.dungeon);
+    expect(cb.dungeon).toBe(b.dungeon);
+    expect(ca.battle).toBe(fa.battle);
+    expect(cb.battle).toBe(fa.battle);
+    expect(arenaTuning(b, name)).toBe(cb);
+  });
 });

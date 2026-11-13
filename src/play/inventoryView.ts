@@ -74,10 +74,11 @@ export function inventoryLock(f: FighterState, phase: HallPhase | undefined, del
 /**
  * Whether the open screen takes over the Local Controller's input (and lets go of its held keys), as the menu does: only once the Hall is
  * not being fought. In a fight (a Hall `Fighting`, or a Duel) the screen is a read-only view and the Fighter keeps its keys: the Simulation
- * runs on, and opening the screen must never leave a Fighter defenceless. In a Delver Run it holds input only at a fire while Exploring.
+ * runs on, and opening the screen must never leave a Fighter defenceless. In a Delver Run it never holds input: the screen is
+ * read-only for movement (the Fighter keeps its keys, as a Warband may follow into a Rest Hall), while its item buttons still work at a fire.
  */
 export function inventoryHoldsInput(phase: HallPhase | undefined, delver?: DelverContext): boolean {
-  if (delver) return delver.phase === 'Exploring' && delver.atFire;
+  if (delver) return false;
   return phase === 'Cleared' || phase === 'Leaving';
 }
 

@@ -5,6 +5,8 @@
  * Everything cached here is derived from static data: never stored in the Simulation, and a rebuilt one is equal.
  */
 import type { TuningData } from '../../tuning';
+import type { BattleTuning } from '../../tuning/battle';
+import type { DelverTuning } from '../../tuning/delver';
 import { delverFloor, type DelverFloor } from './generate';
 import { floorName, isFloorName } from './source';
 
@@ -25,36 +27,53 @@ export function parseFloorArena(name: string): { seed: number; floor: number } |
   return { seed: Number(seed), floor: Number(floor) };
 }
 
-/** A kept Floor and the Tuning Data copy that reads it. */
-interface Kept {
-  readonly floor: DelverFloor;
-  readonly tuning: TuningData;
-}
-
-/** Built Floors per base Tuning Data, most recently used last. */
-const builds = new WeakMap<object, Map<string, Kept>>();
+/** Built Floors per (Battles' Tuning, Delver Tuning): a Floor depends on those two alone. Most recently used last. */
+const floors = new WeakMap<BattleTuning, WeakMap<DelverTuning, Map<string, DelverFloor>>>();
+/** The Tuning Data copies per base Tuning Data (they carry that base's other blocks), most recently used last. */
+const copies = new WeakMap<object, Map<string, TuningData>>();
 /** Each copy `arenaTuning` made, to the Tuning Data it copied: the copy shares that one's builds. */
 const bases = new WeakMap<object, TuningData>();
 
-/** The kept entry of Floor arena `name` under `tuning` (its base, for a copy), built if need be; null for a name that is not a Floor's. */
-function entryOf(tuning: TuningData, name: string): Kept | null {
+/** Evicts the oldest entry of `m` if it holds `KEPT_FLOORS`, ready for one more. */
+function makeRoom(m: Map<string, unknown>): void {
+  if (m.size >= KEPT_FLOORS) m.delete(m.keys().next().value!);
+}
+
+/** The built Floor of arena `name` under the base's Battles' and Delver Tuning, built if need be (and marked most recently used). */
+function builtFloor(base: TuningData, name: string, parsed: { seed: number; floor: number }): DelverFloor {
+  let byDelver = floors.get(base.battle);
+  if (!byDelver) floors.set(base.battle, (byDelver = new WeakMap()));
+  let kept = byDelver.get(base.delver);
+  if (!kept) byDelver.set(base.delver, (kept = new Map()));
+  let floor = kept.get(name);
+  if (floor) {
+    kept.delete(name);
+  } else {
+    floor = delverFloor(base, parsed.seed, parsed.floor);
+    makeRoom(kept);
+  }
+  kept.set(name, floor);
+  return floor;
+}
+
+/** The kept entry of Floor arena `name` under `tuning` (its base, for a copy); null for a name that is not a Floor's. */
+function entryOf(tuning: TuningData, name: string): { floor: DelverFloor; tuning: TuningData } | null {
   const parsed = parseFloorArena(name);
   if (!parsed) return null;
   const base = bases.get(tuning) ?? tuning;
-  let kept = builds.get(base);
-  if (!kept) builds.set(base, (kept = new Map()));
-  let entry = kept.get(name);
-  if (entry) {
+  const floor = builtFloor(base, name, parsed);
+  let kept = copies.get(base);
+  if (!kept) copies.set(base, (kept = new Map()));
+  let copy = kept.get(name);
+  if (copy) {
     kept.delete(name);
   } else {
-    const floor = delverFloor(base, parsed.seed, parsed.floor);
-    const copy: TuningData = { ...base, battle: floor.battle };
+    copy = { ...base, battle: floor.battle };
     bases.set(copy, base);
-    entry = { floor, tuning: copy };
-    if (kept.size >= KEPT_FLOORS) kept.delete(kept.keys().next().value!);
+    makeRoom(kept);
   }
-  kept.set(name, entry);
-  return entry;
+  kept.set(name, copy);
+  return { floor, tuning: copy };
 }
 
 /** The built Floor of a Floor's Arena name, else null. Built once per (Tuning Data, name) and kept (`KEPT_FLOORS`, most recently used last). Throws if no layout builds. */

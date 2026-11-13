@@ -176,3 +176,18 @@ export function takePickups(
   }
   return { pickups: next, fighters: held, taken };
 }
+
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+export interface DroppedItem extends Dropped {
+  readonly fighter: number;
+  readonly at: PickupAt;
+}
+
+/**
+ * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall, or `stepDelver` at a fire)
+ * becomes something in the world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `run.pickups`, which the dropper
+ * cannot take back until it has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
+ */
+export function placeDrop<R extends { readonly pickups: readonly Pickup[] }>(run: R, drop: DroppedItem): R {
+  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
+}

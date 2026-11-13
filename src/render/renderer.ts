@@ -17,6 +17,7 @@ import { FlailSwing } from './flailSwing';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
+import { arenaTuning } from '../sim/delver';
 
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
 export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
@@ -250,7 +251,7 @@ export class Renderer {
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
-    const arena = arenaOf(world.tuning, curr.arena);
+    const arena = arenaOf(arenaTuning(world.tuning, curr.arena), curr.arena);
     this.hallMarks.update(arena, curr.hall, this.fire);
     this.doorMarks.update(arena, curr.hall, this.doors);
     this.delverMarks.update(curr.delver ? this.delver : null);
