@@ -433,8 +433,8 @@ describe('morale and wiping', { timeout: TIMEOUT }, () => {
     expect(run.crowd.warbands!.mode[q]).toBe(GUARD);
     // Its lead is null; the others' are fields.
     const step = stepWarbands(run.crowd, run.tick, s.battle, s.map, [], s.homes, s.rules);
-    expect(step.lead![q]).toBeNull();
-    expect(step.lead!.filter((l) => l !== null)).toHaveLength(crowd.squads.team.length - 1);
+    expect(step.lead!(q)).toBeNull();
+    expect(crowd.squads.team.map((_, k) => step.lead!(k)).filter((l) => l !== null)).toHaveLength(crowd.squads.team.length - 1);
     expect(step.spawned).toEqual([]);
   });
 });
@@ -482,7 +482,7 @@ describe('the brain as a SquadBrain', { timeout: TIMEOUT }, () => {
     const elsewhere = spots(s, crowd, q, at.x, at.z, 20).find((p) => fromHome(s, crowd, q, p.x, p.z) > start + 8 && Math.hypot(p.x - at.x, p.z - at.z) > 8 && left(crowd, toward(p)) < 60)!;
     expect(elsewhere).toBeDefined();
     const other = toward(elsewhere);
-    const led = advance({ ...s, brain: (...args) => ({ ...s.brain(...args), lead: s.crowd.squads.team.map((_, k) => (k === q ? other : null)) }) }, crowd, 1, 10 * 60);
+    const led = advance({ ...s, brain: (...args) => ({ ...s.brain(...args), lead: (k: number) => (k === q ? other : null) }) }, crowd, 1, 10 * 60);
     expect(left(led.crowd, other)).toBeLessThan(left(crowd, other) - 4);
     expect(left(led.crowd)).toBeGreaterThan(left(run.crowd) + 4);
   });

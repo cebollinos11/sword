@@ -11,7 +11,7 @@ import { runPick } from '../dungeon';
 import { createObjectives } from '../objectives';
 import { createRng } from '../rng';
 import { COLUMN, DEFEND, placeOffset } from '../squad';
-import { GUARD, PATROL } from '../warband';
+import { GUARD, PATROL, RETURN } from '../warband';
 import type { FloorPlan } from './plan';
 
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
@@ -66,6 +66,28 @@ export function warbandHomes(plan: FloorPlan): WarbandHomes {
     homes.set(plan, kept);
   }
   return kept;
+}
+
+/**
+ * Whether a Floor's Warbands, as a peer's resync sends them, fit the Floor's plan (a guard of a post of it, a patrol of one of its loops at one of
+ * their points; a guard never in PATROL; the chased a party slot or none) and the Tuning Data's Troops. `party` is the number of party slots.
+ * Pure; a state that fails is refused, since the brain would read past its homes.
+ */
+export function warbandsFit(crowd: CrowdState, plan: FloorPlan, party: number, troops: number): boolean {
+  const w = crowd.warbands;
+  if (!w) return true;
+  const home = warbandHomes(plan);
+  const squads = crowd.squads.team.length;
+  const index = (v: number | undefined, below: number, from: number) => v !== undefined && Number.isInteger(v) && v >= from && v < below;
+  for (const a of [w.mode, w.post, w.patrol, w.leg, w.chased, w.seen, w.size, w.encounter]) if (a.length !== squads) return false;
+  for (let q = 0; q < squads; q++) {
+    const guard = w.post[q]! >= 0;
+    if (!index(w.mode[q], RETURN + 1, GUARD) || !index(w.chased[q], party, -1)) return false;
+    if (guard) {
+      if (!index(w.post[q], home.posts.length, 0) || w.patrol[q] !== -1 || w.leg[q] !== 0 || w.mode[q] === PATROL) return false;
+    } else if (w.post[q] !== -1 || !index(w.patrol[q], home.patrols.length, 0) || !index(w.leg[q], home.patrols[w.patrol[q]!]!.length, 0)) return false;
+  }
+  return crowd.squad.every((q) => index(q, squads, -1)) && crowd.troop.every((t) => index(t, troops, 0));
 }
 
 /** The slots 0 to `count - 1` that are filled: the first `ceil(count * fill / 100)` by a seeded order (the lower index on a tie), back in slot order. */

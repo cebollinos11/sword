@@ -435,8 +435,14 @@ export interface CrowdFighter {
  * across the ground, so nothing counts a Wall as nothing.
  */
 export function walkField(battle: BattleTuning, map: BattleMap, x: number, z: number, y = 0): DestinationFields {
-  return oneField(map.fields, fieldToward(map.fields, x, z, groundOf(battle, map.field, x, z, y)));
+  const field = fieldToward(map.fields, x, z, groundOf(battle, map.field, x, z, y));
+  let one = lone.get(field);
+  if (!one || one.cell !== map.fields.cell || one.side !== map.fields.side) lone.set(field, (one = oneField(map.fields, field)));
+  return one;
 }
+
+/** `walkField`'s one-destination objects, kept: a kept field is the one destination of exactly one `DestinationFields`, so it is made once. Derived, never state. */
+const lone = new WeakMap<Float64Array, DestinationFields>();
 
 /** The walking distance (m) from the point (x, z) on Walk Surface `s` to the Fighter `walk` leads to (`walkField`); Infinity where it is not reached. */
 export function walkDistance(walk: DestinationFields, x: number, z: number, s: number): number {
@@ -803,8 +809,8 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
         aside = true;
         if (!reached) {
           // Never at a cell centre on a wall's face when there is another way down; down the field as it is when there is not.
-          const led = lead?.[sq];
-          if (lead && led) way = descend(led, 0, xi, zi, own, p.separation / 2, si) ?? descend(led, 0, xi, zi, own, 0, si);
+          const led = lead?.(sq);
+          if (led) way = descend(led, 0, xi, zi, own, p.separation / 2, si) ?? descend(led, 0, xi, zi, own, 0, si);
           else {
             const d = toward(map.fields, xi, zi, ax, az, own, si, squads.surface[sq]);
             if (d >= 0) way = descend(map.fields, d, xi, zi, own, p.separation / 2, si) ?? descend(map.fields, d, xi, zi, own, 0, si);

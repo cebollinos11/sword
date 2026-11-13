@@ -7,6 +7,9 @@ import { loadTuningData, MAX_SQUAD_PLACES, type TuningData } from '../tuning';
 import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, runSeed, stepMatch, takeOverFighter, type MatchState } from '../sim';
 import { FLOOR_DIFFICULTY, lineupAis, lineupMatch, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
+import { floorOf, warbandsFit } from '../sim/delver';
+import type { CrowdState } from '../sim';
+import { PATROL } from '../sim/warband';
 import { parseNetMessage, PROTOCOL_VERSION } from './messages';
 
 const tuning = loadTuningData();
@@ -233,5 +236,42 @@ describe('Peer message validation: a Delver Run', () => {
     // ...and no other Format has a Crowd.
     const duels = JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, seed: 3 }))) as MatchState;
     expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, crowd: floorCrowd } }))).toBeNull();
+  });
+});
+
+describe("a Floor's Warbands against its plan (a resync's check)", () => {
+  const { state } = delverResync(0);
+  const crowd = state.duel.crowd!;
+  const plan = floorOf(tuning, state.duel.arena)!.plan;
+  const party = state.config.teams.length;
+  const troops = tuning.battle.troops.length;
+  const fits = (c: CrowdState) => warbandsFit(c, plan, party, troops);
+  const w = crowd.warbands!;
+  const guard = w.post.findIndex((p) => p >= 0);
+  const patrol = w.patrol.findIndex((p) => p >= 0);
+  /** The Crowd with Warband `q`'s array `key` set to `v` there. */
+  const warband = (key: keyof typeof w, q: number, v: number): CrowdState => ({ ...crowd, warbands: { ...w, [key]: w[key].map((e, k) => (k === q ? v : e)) } });
+
+  it('accepts the state a Floor deals', () => {
+    expect(guard, 'a guard stands').toBeGreaterThanOrEqual(0);
+    expect(patrol, 'a patrol walks').toBeGreaterThanOrEqual(0);
+    expect(fits(crowd)).toBe(true);
+  });
+
+  it('refuses a post, loop, leg, mode, quarry, Squad or Troop that names nothing', () => {
+    const points = (q: number) => plan.markers.patrols[w.patrol[q]!]!.points.length;
+    expect(fits(warband('post', guard, plan.markers.posts.length))).toBe(false);
+    expect(fits(warband('patrol', patrol, plan.markers.patrols.length))).toBe(false);
+    expect(fits(warband('leg', patrol, points(patrol)))).toBe(false);
+    expect(fits(warband('leg', patrol, -1))).toBe(false);
+    expect(fits(warband('leg', guard, 1))).toBe(false);
+    expect(fits(warband('mode', guard, PATROL))).toBe(false);
+    expect(fits(warband('mode', patrol, 4))).toBe(false);
+    expect(fits(warband('chased', patrol, party))).toBe(false);
+    expect(fits(warband('chased', patrol, -2))).toBe(false);
+    expect(fits(warband('chased', patrol, party - 1))).toBe(true);
+    expect(fits({ ...crowd, squad: crowd.squad.map((q, i) => (i === 0 ? crowd.squads.team.length : q)) })).toBe(false);
+    expect(fits({ ...crowd, troop: crowd.troop.map((t, i) => (i === 0 ? troops : t)) })).toBe(false);
+    expect(fits({ ...crowd, warbands: { ...w, mode: w.mode.slice(1) } })).toBe(false);
   });
 });

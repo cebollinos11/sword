@@ -381,8 +381,14 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   const walks = before.warbands !== undefined && centres.length > 0 ? centres.map((c) => walkField(tuning.battle, battleMapOf(tuning.battle, duel.arena), c.x, c.z, c.y)) : null;
   /** The distance from a point on Walk Surface `s` to Bubble `b`'s Player: the walk on a Floor (Infinity unreached), else across the ground. */
   const away = (b: number, x: number, z: number, s: number): number => (walks ? walkDistance(walks[b]!, x, z, s) : Math.hypot(x - centres[b]!.x, z - centres[b]!.z));
-  /** The same for a promoted Fighter, on the Walk Surface under its feet. */
-  const awayFighter = (b: number, f: FighterState): number => away(b, f.position.x, f.position.z, walks ? groundOf(tuning.battle, field, f.position.x, f.position.z, f.y) : -1);
+  /** The same for a promoted Fighter, on the Walk Surface under its feet. On a Floor each (Fighter, Bubble) walk is found once a step (a Fighter's state is replaced, never edited, so it is the key). */
+  const walked = new WeakMap<FighterState, number[]>();
+  const awayFighter = (b: number, f: FighterState): number => {
+    if (!walks) return away(b, f.position.x, f.position.z, -1);
+    let row = walked.get(f);
+    if (!row) walked.set(f, (row = []));
+    return (row[b] ??= away(b, f.position.x, f.position.z, groundOf(tuning.battle, field, f.position.x, f.position.z, f.y)));
+  };
   const farFromAll = (f: FighterState) => centres.every((_, b) => awayFighter(b, f) > bubble.demote);
 
   for (let k = players; k < duel.fighters.length; k++) {

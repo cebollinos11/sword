@@ -55,6 +55,7 @@
  * Players who left and the rare resync) cross them. Drive it with
  * `tick(localIntent)` once per Tick.
  */
+import { arenaTuning, floorOf, warbandsFit } from '../sim/delver';
 import { battlefieldOf, createMatch, hashValue, IDLE_INTENT, restore, snapshot, squadsPerTeam, stepMatch, takeOverFighter, type Battlefield, type CrowdState } from '../sim';
 import type { Intent, MatchFormat, MatchOptions, MatchState, Snapshot } from '../sim';
 import { DEFAULT_STYLE, defaultWeaponName, startingTickets, tuningDataHash, weaponMotion, type BattleTuning, type TuningData } from '../tuning';
@@ -312,6 +313,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private format: MatchFormat = 'Duels';
   /** Whether the Match is a Delver Run (from the Match options): its Fighter Pool follows the party, and its Lineup's Team 1 slots are dropped. */
   private delver = false;
+  /** A Delver Run's party size: the Lineup's Team 0 (the Pool slots past it are Pool AIs'). */
+  private partySize = 0;
   /** An AI Controller per AI Fighter, the Lineup's (in a Battle, a Pool AI per Pool slot) and those driving a Player who left (null for the Players' Fighters). */
   private ais: (Controller | null)[] = [];
   /** Per Player: the Tick from which the AI drives their Fighter, because they left (null while they play). */
@@ -521,6 +524,7 @@ class Session implements RollbackSession, PeerIntentSource {
     this.lineup = lineup;
     this.format = format;
     this.delver = format === 'Gauntlet' && match.delver === true;
+    this.partySize = lineup.filter((s) => s.team === 0).length;
     this.players = lineupPlayers(lineup);
     // One entry per Fighter: in a Battle the whole Pool, past the Lineup's Players.
     this.ais = lineupAis(this.tuning, lineup, format, match);
@@ -674,7 +678,7 @@ class Session implements RollbackSession, PeerIntentSource {
 
   /** Whether Fighter i is a slot of a Fighter Pool past the Players' (a Pool AI drives it): a Battle's, or a Delver Run's past its party (the Lineup's Team 0). */
   private poolSlot(i: number): boolean {
-    if (this.delver) return i >= this.lineup!.filter((s) => s.team === 0).length;
+    if (this.delver) return i >= this.partySize;
     return this.format === 'Battle' && this.playerOf[i]! < 0;
   }
 
@@ -926,6 +930,11 @@ class Session implements RollbackSession, PeerIntentSource {
     // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
     const crowd = state.duel.crowd;
     if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)))) return;
+    // A Delver Run's Warbands read their Floor's plan and the Troops: every index must name one (a Warband's post, loop, leg and quarry, a Soldier's Squad and Troop).
+    if (this.delver) {
+      const floor = floorOf(this.tuning, state.duel.arena);
+      if (!floor || (crowd && !warbandsFit(crowd, floor.plan, state.config.teams.length, arenaTuning(this.tuning, state.duel.arena).battle.troops.length))) return;
+    }
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;

@@ -429,10 +429,10 @@ export interface SquadStep {
   readonly narrow: readonly number[];
   /**
    * A Floor's brain only (docs/plans/delver.md, Stage 3; never set by `stepSquads`): per Squad, the one destination field its anchor follows this
-   * Tick (home's, a waypoint's or the chased Fighter's, as a one-destination `DestinationFields`), or null while it stands. A Soldier of it that is
-   * walled off from its place descends it instead of the map's nearest destination.
+   * Tick (home's, a waypoint's or the chased Fighter's, as a one-destination `DestinationFields`), or null while it stands; asked only for a Squad
+   * with a Soldier walled off from its place, which descends it instead of the map's nearest destination.
    */
-  readonly lead?: readonly (DestinationFields | null)[];
+  readonly lead?: (q: number) => DestinationFields | null;
 }
 
 /** Each Soldier's height as the brains read it, on a map of several levels (scratch, never state). */

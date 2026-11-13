@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, soldierBody, TICK_SECONDS, type MatchOptions, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -28,6 +28,7 @@ import { playerName, runBuilds } from './play/runBuilds';
 import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
+import { floorBodies } from './play/floorBodies';
 import { FinalBlowShot, shotIntent } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
@@ -685,10 +686,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Draw a Delver Run's Crowd for the frame about to be rendered (`alpha` of the way to the next Tick). Its code loads on the Run's
+   * Draw a Delver Run's Crowd for the frame about to be rendered (`alpha` of the way to the next Tick, of `duel`: the final-blow shot draws its own state). Its code loads on the Run's
    * first frame; the impostors bake in the background and appear once ready.
    */
-  function drawFloorCrowd(match: MatchState, alpha: number, seconds: number): void {
+  function drawFloorCrowd(match: MatchState, duel: SimState, alpha: number, seconds: number): void {
     if (!match.delver) return;
     if (!floorCrowd) {
       if (floorCrowdLoading) return;
@@ -699,7 +700,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       });
       return;
     }
-    floorCrowd.update(match.duel, alpha, seconds, renderer.camera);
+    floorCrowd.update(duel, alpha, seconds, renderer.camera);
   }
 
   /** What the Renderer draws a Delver Run's Floor marks from, or null outside a Delver Run. */
@@ -1066,7 +1067,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         }
         const { camera } = tuning;
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
-        drawFloorCrowd(curr, 1, 0);
+        drawFloorCrowd(curr, shot.to, shot.alpha, 0);
         renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
       } else {
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
@@ -1075,7 +1076,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
-        drawFloorCrowd(curr, alpha, frozen ? 0 : elapsed);
+        drawFloorCrowd(curr, curr.duel, alpha, frozen ? 0 : elapsed);
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
@@ -1139,6 +1140,12 @@ function loadBodiesWithBar(container: HTMLElement): void {
  * Hall's enemy's Body when Tuning Data names one (a `"random"` one picked from the Run seed, `hallRoster`; the last Boss's wraith).
  */
 function fighterBodies(tuning: TuningData, lineup: Lineup | null, bodies: readonly string[] | null, match: MatchState): (string | undefined)[] {
+  if (match.delver) {
+    const party = match.config.teams.length;
+    const chosen = (lineup ?? []).map((slot) => (slot.pilot.kind === 'Player' ? bodies?.[slot.pilot.player] : undefined));
+    const crowd = match.duel.crowd;
+    return floorBodies(match.duel, party, chosen, (i) => (crowd ? soldierBody(tuning.battle, crowd, i) : tuning.battle.soldier.body));
+  }
   const roster = match.run ? hallRoster(tuning, match.config, runHall(match.run), BODY_MODELS) : [];
   let enemy = 0;
   return (lineup ?? []).map((slot) => {

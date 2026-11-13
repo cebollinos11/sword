@@ -40,12 +40,13 @@ class DelverPilot implements Controller {
     const self = state.fighters[fighter]!;
     if (!run || run.phase === 'Descending' || !inDuel(self)) return IDLE_INTENT;
     if (this.memory.floor !== run.floor) this.memory = { floor: run.floor, reached: [] };
-    if (promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
     const { markers } = floorOf(this.tuning, state.arena)!.plan;
     const dist = (p: { readonly x: number; readonly z: number }): number => Math.hypot(p.x - self.position.x, p.z - self.position.z);
+    // A fire it fights at counts as reached, so this comes before it turns to a promoted enemy near.
     markers.fires.forEach((fire, k) => {
       if (!this.memory.reached.includes(k) && dist(fire) <= FIRE_REACH) this.memory.reached.push(k);
     });
+    if (promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
     let target = -1;
     markers.fires.forEach((fire, k) => {
       if (!this.memory.reached.includes(k) && (target < 0 || dist(fire) < dist(markers.fires[target]!))) target = k;

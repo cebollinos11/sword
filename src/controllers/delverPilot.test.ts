@@ -81,4 +81,24 @@ describe('the Delver pilot', { timeout: 60_000 }, () => {
     expect(createDelverPilot(warbanded).intent(withEnemy(promote + 2), 0)).toEqual(route);
     expect(createDelverPilot(warbanded).intent(withEnemy(promote - 1, warbanded.battle.levels.height + 1), 0)).toEqual(route);
   });
+
+  it('marks a fire reached while it fights a promoted enemy near it', () => {
+    const m = createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 1, 1, 1, 1], humans: 1, players: [0] });
+    const fire = floorOf(warbanded, m.arena)!.plan.markers.fires[0]!;
+    const at = m.duel.fighters[0]!;
+    // Standing on the first fire with a promoted enemy beside it: the pilot fights, and the fire counts.
+    const duel = {
+      ...m.duel,
+      fighters: m.duel.fighters.map((f, i) =>
+        i === 0
+          ? { ...f, position: { x: fire.x, z: fire.z } }
+          : i === 3
+            ? { ...f, benched: undefined, hp: f.maxHp, position: { x: fire.x + 1, z: fire.z }, y: at.y, soldier: { index: 0, since: 0, role: 'Attack' as const } }
+            : f,
+      ),
+    };
+    const pilot = createDelverPilot(warbanded);
+    pilot.intent(duel, 0);
+    expect((pilot.save!() as { reached: number[] }).reached).toContain(0);
+  });
 });

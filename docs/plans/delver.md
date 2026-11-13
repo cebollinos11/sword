@@ -698,7 +698,7 @@ export const FIELDS_KEPT = 64;
        - On entering RETURN, `chased` −1, `seen` −1, and a patrol's `leg` becomes its loop's nearest point by walking (the lower index on a tie): it rejoins its loop there.
      - **RETURN**: it is deaf (S is not read). It walks to home by the home field (`steerToward(oneField(fields, home field), 0, …)`) at `crowd.walkSpeed × squad.speed`, LOOSE while `fall`, else COLUMN. At home (within `arrive`): `fall` 0, and GUARD for a guard or a broken patrol, PATROL for a patrol.
      - Walking home or along a loop it steers the same way at `walkSpeed × squad.speed` and is COLUMN; LOOSE while `fall`.
-  5. `lead[q]` = the one field its anchor followed this step (the home field, the waypoint's or the chased Fighter's), or null while it stands.
+  5. `lead[q]` = the one field its anchor followed this step (the home field, the waypoint's or the chased Fighter's); the home field while it stands (it is at home, or halted near its quarry, so that field still leads to it); null once wiped. (Amended in review: the Design first said null while it stands.)
 - The home fields, the waypoint fields and the chase fields all come from `fieldToward` (each home's point on the floor's Walk Surface).
 - **The Tuning Data keys and defaults**: `sight` 16 m, `leash` 45 m (walking: about one and a half Halls), `forgetSeconds` 8, `chaseSpeed` 1 (× `crowd.walkSpeed`, 2.5 m/s; Guard, Patrol and Return walk at `squad.speed` 0.8 of it), `closeIn` 4 m, `arrive` 3 m, `postFill` 75, `patrolFill` 100, `perPlayerSoldiers` 1.5, `attackSlots` [4, 3, 3, 3], `tierHp` [1, 1.25, 1.5].
 
