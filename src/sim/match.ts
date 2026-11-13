@@ -37,7 +37,7 @@ import { inDuel } from './duel';
 import { atRestFire, doorCounters, doorTicksNeeded, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
 import { holdInventory, relicMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped } from './inventory';
 import { modsOf, NO_MODS, setMods } from './mods';
-import { hallDrops, placeDrop, startPickups, takePickups, type DroppedItem, type Pickup } from './pickups';
+import { hallDrops, placeDrop, startPickups, takePickups, type DroppedItem, type Pickup, type PickupAt } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -45,8 +45,8 @@ import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 import { battleArenaName, battlefieldOf, battleMapName } from './battlefield';
 import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
-import { enterFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
-import { arenaTuning, floorOf } from './delver/world';
+import { firstFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
+import { arenaTuning } from './delver/world';
 
 /** The drop seam and the item it takes (they live in `pickups`; the Match's callers still find them here). */
 export { placeDrop, type DroppedItem };
@@ -200,8 +200,16 @@ export interface RevivedEvent {
   readonly fire: number;
 }
 
+/** Warband `warband` (a Squad of the Floor's Crowd) of rank `rank` (PLAIN, ELITE or BOSS) was wiped, its last Soldier falling at `at`, where its items were laid. */
+export interface WarbandWipedEvent {
+  readonly type: 'WarbandWiped';
+  readonly warband: number;
+  readonly rank: number;
+  readonly at: PickupAt;
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | RoutEvent | BattleEndEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | RoutEvent | BattleEndEvent;
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
 export interface RunState {
@@ -510,7 +518,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (config.delver) {
     // A Delver Run: Floor 1 of the generated Dungeon, built here (behind the menu), Team 0 at its Entrance.
     const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
-    const duel = floorDuel(tuning, config, 1, null, createRng(seed), options.relics);
+    const { run: delver, duel } = firstFloor(tuning, config, floors, floorDuel(tuning, config, 1, null, createRng(seed), options.relics));
     return {
       config,
       matchNumber: 1,
@@ -523,7 +531,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
       status: { status: 'InProgress' },
       events: [{ type: 'DuelStart', duelNumber: 1 }],
       run: null,
-      delver: enterFloor({ floors, startTick: 0 }, 1, floorOf(tuning, duel.arena)!.plan),
+      delver,
     };
   }
   // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.

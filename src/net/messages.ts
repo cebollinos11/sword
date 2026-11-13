@@ -650,12 +650,18 @@ const DELVER_PHASES: ReadonlySet<unknown> = new Set(['Exploring', 'Descending'])
 /** The most fires a Floor's list may hold: a resync from a peer asking for more is refused. */
 const MAX_FIRES = 64;
 
-/** A Delver Run's Floor and phase as a Duel carries them (`SimDelver`): a Floor from 1, a phase, and the Players away (absent while nobody has left). */
-const isSimDelver = (v: unknown): boolean => isObject(v) && isInt(v.floor) && v.floor >= 1 && DELVER_PHASES.has(v.phase) && (v.away === undefined || isAway(v.away));
+/** A Delver Run's Floor, phase and pickups as a Duel carries them (`SimDelver`): a Floor from 1, a phase, the Players away (absent while nobody has left) and the pickups lying on the Floor. */
+const isSimDelver = (v: unknown, players: readonly number[] = ANY_FIGHTER): boolean =>
+  isObject(v) && isInt(v.floor) && v.floor >= 1 && DELVER_PHASES.has(v.phase) && (v.away === undefined || isAway(v.away)) && isPickups(v.pickups, players);
+
+/** Every Fighter a Player may be (a Duel does not know the Run's `players`): `isDelverFloor` then holds the mirror to the Run's own, which is checked against them. */
+const ANY_FIGHTER: readonly number[] = [0, 1, 2, 3];
+/** The most Warbands a Floor's `wiped` may name: a sane bound where the Duel's Crowd is not at hand. */
+const MAX_WARBANDS = 256;
 
 /**
  * A Delver Run's progress (`DelverRun`): a Floor from 1 to `floors`, its phase, the Ticks the party has stood at the Stairs, one record per fire
- * (whether its revive is spent, and which Players took its heal, ascending), the pickups lying on the Floor and the Tick it started on.
+ * (whether its revive is spent, and which Players took its heal, ascending), the Warbands wiped (ascending, distinct), the pickups lying on the Floor and the Tick it started on.
  * `players` are the Run's Player Fighters: the ones that heal, own pickups and drop.
  */
 function isDelverRun(v: unknown, players: readonly number[]): boolean {
@@ -663,8 +669,10 @@ function isDelverRun(v: unknown, players: readonly number[]): boolean {
     isObject(v) &&
     isInt(v.floors) &&
     v.floors >= 1 &&
-    isSimDelver({ floor: v.floor, phase: v.phase }) &&
+    isSimDelver({ floor: v.floor, phase: v.phase, pickups: [] }) &&
     (v.floor as number) <= v.floors &&
+    isArrayOf(v.wiped, (q) => isInt(q) && q >= 0 && q < MAX_WARBANDS) &&
+    (v.wiped as number[]).every((q, k, all) => k === 0 || q > all[k - 1]!) &&
     isTick(v.stairsTicks) &&
     isArrayOf(v.restUsed, (u) => isObject(u) && isBool(u.revived) && isPlayers(u.healed) && (u.healed as number[]).every((i) => players.includes(i))) &&
     (v.restUsed as unknown[]).length <= MAX_FIRES &&
@@ -682,7 +690,20 @@ const isFloorOfRun = (v: Obj, config: Obj): boolean => {
 
 /** A Delver Run's Duel names the Run's Floor and phase (and the Players away), and has no Hall. */
 const isDelverFloor = (duel: Obj, run: Obj): boolean =>
-  duel.hall === undefined && isObject(duel.delver) && duel.delver.floor === run.floor && duel.delver.phase === run.phase && JSON.stringify(duel.delver.away) === JSON.stringify(run.away);
+  duel.hall === undefined &&
+  isObject(duel.delver) &&
+  duel.delver.floor === run.floor &&
+  duel.delver.phase === run.phase &&
+  JSON.stringify(duel.delver.away) === JSON.stringify(run.away) &&
+  JSON.stringify(duel.delver.pickups) === JSON.stringify(run.pickups) &&
+  wipedInCrowd(duel, run);
+
+/** Each Warband the Run has seen wiped is a Squad of the Duel's Crowd. */
+function wipedInCrowd(duel: Obj, run: Obj): boolean {
+  const crowd = duel.crowd as { squads?: { team?: unknown[] } } | undefined;
+  const m = crowd?.squads?.team?.length;
+  return m === undefined || (run.wiped as number[]).every((q) => q < m);
+}
 
 /** A Run's `away`, the Player Fighters an AI Takeover has taken (each one of `players`, checked by `isRun`): at least one, distinct, ascending (absent while nobody has left). */
 const isAway = (v: unknown): boolean => isArrayOf(v, (i) => isInt(i) && i >= 0) && (v as number[]).length > 0 && (v as number[]).every((p, k, all) => k === 0 || p > all[k - 1]!);

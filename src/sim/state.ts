@@ -4,6 +4,7 @@ import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { Inventory } from './inventory';
+import type { Pickup } from './pickups';
 import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
@@ -417,6 +418,8 @@ export interface SimDelver {
   /** The Floor (1-based). */
   readonly floor: number;
   readonly phase: DelverPhase;
+  /** The items lying on the Floor: the Run's `pickups`, the very same array (the pilot reads them here). */
+  readonly pickups: readonly Pickup[];
   /** The Players an AI Takeover has taken (ascending), as the Run's `away`; absent while nobody has left. */
   readonly away?: readonly number[];
 }

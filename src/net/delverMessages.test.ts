@@ -78,7 +78,7 @@ describe('Peer message validation: a Delver Run', () => {
       withRun({ phase: 'Descending', stairsTicks: 30 }, { phase: 'Descending' }),
       { ...withRun({ floor: 2 }, { floor: 2 }), arena: second, duel: { ...withRun({ floor: 2 }, { floor: 2 }).duel, arena: second } } as MatchState,
       withRun({ restUsed: [{ revived: true, healed: [0, 1] }, { revived: false, healed: [] }, { revived: false, healed: [1] }] }),
-      withRun({ pickups }),
+      withRun({ pickups }, { pickups }), // Stage 4: the Duel's mirror must carry the Run's pickups.
     ]) {
       const message = resync(m, ai);
       expect(parseNetMessage(message), JSON.stringify(m.delver).slice(0, 80)).toEqual(message);
@@ -149,6 +149,45 @@ describe('Peer message validation: a Delver Run', () => {
       { ...state, config: { ...state.config, delver: undefined } },
     ];
     for (const bad of broken) expect(parseNetMessage(resync(bad, ai)), JSON.stringify(bad).slice(0, 100)).toBeNull();
+  });
+
+  it("carries a Delver Run's wiped Warbands and the pickups its Duel mirrors, and refuses a bad `wiped` or a mirror that differs", () => {
+    const { state, ai } = delverResync(10);
+    const run = state.delver!;
+    const squads = (state.duel.crowd!.squads.team as unknown[]).length;
+    expect(squads).toBeGreaterThan(2);
+    expect(run.wiped).toEqual([]);
+    const at = { x: 1, y: 0, z: 2 };
+    const pickups = [
+      { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at, taken: false },
+      { id: 1, owner: 1, kind: 'relic', item: 'Whetstone', at, taken: true },
+    ];
+    const lay = (wiped: unknown, mirror: unknown = pickups, own: unknown = pickups): MatchState =>
+      ({ ...state, delver: { ...run, wiped, pickups: own }, duel: { ...state.duel, delver: { ...state.duel.delver!, pickups: mirror } } }) as unknown as MatchState;
+    for (const good of [lay([]), lay([0]), lay([0, squads - 1]), lay([1, 2], [], [])]) {
+      const message = resync(good, ai);
+      expect(parseNetMessage(message), JSON.stringify(good.delver).slice(0, 80)).toEqual(message);
+    }
+    for (const bad of [
+      lay([1, 0]),
+      lay([1, 1]),
+      lay([-1]),
+      lay([1.5]),
+      lay(['a']),
+      lay(0),
+      lay(undefined),
+      lay([squads]),
+      lay([256]),
+      // The mirror must be the Run's pickups, and itself well-formed.
+      lay([], []),
+      lay([], pickups.slice(0, 1)),
+      lay([], [{ ...pickups[0], taken: true }, pickups[1]]),
+      lay([], 'loot', 'loot'),
+      lay([], [{ ...pickups[0], id: 1 }], [{ ...pickups[0], id: 1 }]),
+      lay([], null),
+    ]) {
+      expect(parseNetMessage(resync(bad, ai)), JSON.stringify([bad.delver!.wiped, bad.duel.delver!.pickups, bad.delver!.pickups])).toBeNull();
+    }
   });
 
   it('refuses a Delver mark on a Match that is not one: a Duels state, and a Hall-graph Run', () => {

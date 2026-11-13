@@ -4,10 +4,12 @@
  * the Run is Descending, or its Fighter has fallen, it stands. A promoted enemy near (`promotedNear`) it fights with its AI before it walks its
  * route: it does not go round Warbands, it walks through, and fights those the Bubble promotes beside it.
  *
+ * Before its fires it walks to the nearest pickup it sees and has room for (a wiped Warband's drop, a pedestal), its fight rule still first.
+ *
  * Its memory (the Floor and which fires it has reached) is plain data in `save`, with its AI's, so Rollback and the Editor sandbox
  * give the same Intents again.
  */
-import { IDLE_INTENT, inDuel, type Intent, type SimState } from '../sim';
+import { addItem, IDLE_INTENT, inDuel, pickupVisibleTo, type Intent, type SimState } from '../sim';
 import { floorOf } from '../sim/delver';
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
@@ -18,6 +20,8 @@ import type { Controller } from './controller';
 export const FIRE_REACH = 1;
 /** Where it stops short of a fire (m): inside `FIRE_REACH`, so walking to a fire always reaches it. */
 const FIRE_STOP = 0.5;
+/** Where it stops short of a pickup (m): inside `PICKUP_RADIUS`, so walking to one always takes it. */
+const PICKUP_STOP = 0.2;
 /** Where it stops in the Stairs zone (m from its centre). */
 const STAIRS_STOP = 0.3;
 
@@ -47,6 +51,13 @@ class DelverPilot implements Controller {
       if (!this.memory.reached.includes(k) && dist(fire) <= FIRE_REACH) this.memory.reached.push(k);
     });
     if (promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
+    // Loot it sees (its own and shared ones) and has room for comes before its fires: the nearest in a straight line, the lower id on a tie.
+    const inventory = self.inventory;
+    let loot: (typeof run.pickups)[number] | undefined;
+    if (inventory)
+      for (const p of run.pickups)
+        if (pickupVisibleTo(p, fighter) && addItem(inventory, p, this.tuning.dungeon.inventory) !== null && (!loot || dist(p.at) < dist(loot.at))) loot = p;
+    if (loot) return this.ai.walkTo(state, fighter, { x: loot.at.x, y: loot.at.y, z: loot.at.z }, PICKUP_STOP);
     let target = -1;
     markers.fires.forEach((fire, k) => {
       if (!this.memory.reached.includes(k) && (target < 0 || dist(fire) < dist(markers.fires[target]!))) target = k;

@@ -11,6 +11,7 @@ import { arenaOf } from './arena';
 import { secondsToTicks } from './constants';
 import { crowdFighters } from './battle';
 import { stepBubbles, unboundSlot, type BossHold } from './bubble';
+import { treasurePickups, warbandDrops } from './delverLoot';
 import { stepCrowd, type CrowdState } from './crowd';
 import { battleMapOf } from './destinations';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -47,7 +48,9 @@ export interface DelverRun {
   readonly stairsTicks: number;
   /** One per fire of the Floor. */
   readonly restUsed: readonly RestUse[];
-  /** The items lying on the Floor (inventory drops; Stage 4 adds loot); empty again on each new Floor. */
+  /** The Warbands (Squad indices of the Floor's Crowd) whose wipe was seen on this Floor, ascending; `[]` on each new Floor. */
+  readonly wiped: readonly number[];
+  /** The items lying on the Floor: its Treasure Halls' pedestals from its start, a wiped Warband's drops and inventory drops; only the new Floor's pedestals on each new Floor. */
   readonly pickups: readonly Pickup[];
   /** The Match Tick the Run started on. */
   readonly startTick: number;
@@ -107,18 +110,22 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
   const pool = t.battle.bubble.poolSize - fighters.length;
   const unbound = unboundSlot(t, arena);
   const crowd = deployWarbands(t, plan, floorBuilt.field, runSeed(config.arena), floor, config.humans);
-  return { ...base, rng, fighters: [...fighters, ...new Array<FighterState>(pool).fill(unbound)], crowd, delver: { floor, phase: 'Exploring', ...(away === undefined ? {} : { away }) } };
+  return { ...base, rng, fighters: [...fighters, ...new Array<FighterState>(pool).fill(unbound)], crowd, delver: { floor, phase: 'Exploring', pickups: [], ...(away === undefined ? {} : { away }) } };
 }
 
-/** The Run on entering Floor `floor` (`plan` its plan): Exploring, nothing counted, one unspent fire per fire of the Floor, no pickups. */
-export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>, floor: number, plan: FloorPlan): DelverRun {
+/**
+ * The Run on entering Floor `floor` (`plan` its plan): Exploring, nothing counted, one unspent fire per fire of the Floor, no Warband wiped, and
+ * `pickups` lying (the Floor's pedestals, `treasurePickups`; whatever lay on the Floor before is gone).
+ */
+export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>, floor: number, plan: FloorPlan, pickups: readonly Pickup[]): DelverRun {
   return {
     floor,
     floors: run.floors,
     phase: 'Exploring',
     stairsTicks: 0,
     restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
-    pickups: [],
+    wiped: [],
+    pickups,
     startTick: run.startTick,
     ...(run.away === undefined ? {} : { away: run.away }),
   };
@@ -140,9 +147,26 @@ export function fireAt(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>,
 const REVIVE_DX = [-1.5, 1.5, -1.5, 1.5];
 const REVIVE_DZ = [-1.5, -1.5, 1.5, 1.5];
 
-/** The Run mirrored for the Controllers (`SimState.delver`). */
+/** The Run mirrored for the Controllers (`SimState.delver`): the pickups are the very array the Run holds. */
 function mirrored(run: DelverRun): SimDelver {
-  return { floor: run.floor, phase: run.phase, ...(run.away === undefined ? {} : { away: run.away }) };
+  return { floor: run.floor, phase: run.phase, pickups: run.pickups, ...(run.away === undefined ? {} : { away: run.away }) };
+}
+
+/** `duel` with the Run's mirror (`SimState.delver`) set to `run`'s, as the Floor's entry leaves it. */
+export function withMirror(duel: SimState, run: DelverRun): SimState {
+  return { ...duel, delver: mirrored(run) };
+}
+
+/** The Run on entering Floor `floor` with its Duel: the plan's pedestals for each present Player, and the Duel's mirror set. */
+function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun, 'floors' | 'startTick' | 'away'>, floor: number, duel: SimState): { run: DelverRun; duel: SimState } {
+  const plan = floorOf(tuning, duel.arena)!.plan;
+  const entered = enterFloor(run, floor, plan, treasurePickups(arenaTuning(tuning, duel.arena), config, plan, runSeed(config.arena), floor, run.away));
+  return { run: entered, duel: withMirror(duel, entered) };
+}
+
+/** The Floor's Run and Duel at its start, for `createMatch` (Floor 1, nobody away). */
+export function firstFloor(tuning: TuningData, config: MatchConfig, floors: number, duel: SimState): { run: DelverRun; duel: SimState } {
+  return startFloor(tuning, config, { floors, startTick: 0 }, 1, duel);
 }
 
 /**
@@ -178,7 +202,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const duel = floorDuel(tuning, config, floor, match.duel, match.duel.rng);
     const duelNumber = match.duelNumber + 1;
     events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, arena: duel.arena, duelNumber, duel, nextDuelTick: null, events, delver: enterFloor(run, floor, floorOf(tuning, duel.arena)!.plan) };
+    const started = startFloor(tuning, config, run, floor, duel);
+    return { ...match, tick, arena: duel.arena, duelNumber, duel: started.duel, nextDuelTick: null, events, delver: started.run };
   }
 
   // The Floor as a Battle steps: the Bubbles promote and demote (every party Fighter has one), the Fighters' Duel, then the Crowd under its Warband
@@ -203,6 +228,21 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const plan = floorOf(tuning, duel.arena)!.plan;
     const t = arenaTuning(tuning, duel.arena);
     const { fireRadius } = tuning.delver;
+
+    // A Warband wiped: no Soldier of its Squad is alive now. Its drops lie where its last Soldier fell (the lowest-index one alive before this Tick, else its
+    // lowest), for each present Player, from the next free id, and the Warband is `wiped`. Before the Tick's taking, so a Player on the spot takes it this Tick.
+    const crowd = duel.crowd!;
+    const before = match.duel.crowd!;
+    for (let q = 0; q < crowd.warbands!.rank.length; q++) {
+      if (next.wiped.includes(q)) continue;
+      const members = crowd.squad.flatMap((squad, s) => (squad === q ? [s] : []));
+      if (members.length === 0 || members.some((s) => crowd.alive[s] === 1)) continue;
+      const last = members.find((s) => before.alive[s] === 1) ?? members[0]!;
+      const fall = { x: crowd.x[last]!, z: crowd.z[last]! };
+      const drops = warbandDrops(t, config, plan, crowd, q, fall, runSeed(config.arena), next.floor, next.pickups.length, next.away);
+      next = { ...next, wiped: [...next.wiped, q].sort((a, b) => a - b), pickups: [...next.pickups, ...drops] };
+      events.push({ type: 'WarbandWiped', warband: q, rank: crowd.warbands!.rank[q]!, at: { x: fall.x, y: 0, z: fall.z } });
+    }
 
     // The Inventory: a Player's Fighter changes what it holds only at a fire (refused elsewhere); what it drops is the pickups'. Taking needs no fire.
     duel = {
@@ -296,7 +336,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
 
   // The Controllers see the Floor's phase and who has left.
   const view = mirrored(next);
-  if (duel.delver?.phase !== view.phase || duel.delver?.away?.join() !== view.away?.join()) duel = { ...duel, delver: view };
+  if (duel.delver?.phase !== view.phase || duel.delver?.away?.join() !== view.away?.join() || duel.delver?.pickups !== view.pickups) duel = { ...duel, delver: view };
   return { ...match, tick, score, duel, nextDuelTick, status, events, delver: next };
 }
 

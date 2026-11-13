@@ -12,7 +12,11 @@ import { startRun } from './coopHarness';
 
 afterEach(() => vi.restoreAllMocks());
 
-const TWO_FLOORS = (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 2 } });
+// No Boss (docs/plans/delver.md, Stage 4, Design §10): Floor 2 would be a Boss Floor, and this test checks the netcode on the Floors as Stage 3 had them.
+const TWO_FLOORS = (t: TuningData): TuningData => ({
+  ...t,
+  delver: { ...t.delver, tiers: 1, floorsPerTier: 2, warbands: t.delver.warbands.map(({ boss: _boss, ...tier }) => tier) },
+});
 /**
  * The Warbands case's Floors: a quarter of the posts filled (`postFill` 25, `patrolFill` as bundled). Two pilots with no AI allies against Warbands sized
  * for two humans lose by attrition on the full Floor (the Warband soak); that is balance, a playtest question, not the netcode this test checks.

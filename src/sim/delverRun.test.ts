@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { floorArenaName, floorOf } from './delver/world';
+import { arenaTuning, floorArenaName, floorOf } from './delver/world';
+import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
 import { fireAt, inStairs } from './delverRun';
 import { hashValue } from './hash';
 import { restore, snapshot } from './snapshot';
@@ -9,7 +10,7 @@ import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
 import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT, type Intent } from './intent';
-import { holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { addItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
 
 const base = loadTuningData();
@@ -29,6 +30,8 @@ const idle = (m: MatchState): Intent[] => m.duel.fighters.map(() => IDLE_INTENT)
 const planOf = (m: MatchState) => floorOf(tuning, m.arena)!.plan;
 const team0 = (m: MatchState): FighterState[] => m.duel.fighters.filter((f) => f.team === 0);
 const withFighters = (m: MatchState, edit: (f: FighterState, i: number) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map(edit) } });
+/** The pedestals Floor `m` is on holds from its start (`treasurePickups` under the Floor's Tuning Data). */
+const floorPedestals = (m: MatchState) => treasurePickups(arenaTuning(tuning, m.arena), m.config, planOf(m), runSeed(ARENA), m.delver!.floor, m.delver!.away);
 const fell = (f: FighterState): FighterState => ({ ...f, hp: 0, death: { tick: 0, cause: 'Fall', blow: null } });
 
 describe('a Delver Run', { timeout: 60_000 }, () => {
@@ -50,10 +53,11 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
       phase: 'Exploring',
       stairsTicks: 0,
       restUsed: plan.markers.fires.map(() => ({ revived: false, healed: [] })),
-      pickups: [],
+      wiped: [], // Stage 4: no Warband is wiped at the Floor's start.
+      pickups: floorPedestals(m), // Stage 4: the Floor's Treasure Halls hold their pedestals from its start.
       startTick: 0,
     });
-    expect(m.duel.delver).toEqual({ floor: 1, phase: 'Exploring' });
+    expect(m.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: m.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
     expect(m.duel.hall).toBeUndefined();
   });
 
@@ -150,10 +154,10 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     expect(inDuel(next.duel.fighters[1]!)).toBe(true);
     expect(next.duel.fighters[2]!.hp).toBe(MAX);
     expect(next.delver!.floor).toBe(2);
-    expect(next.delver!.pickups).toEqual([]);
+    expect(next.delver!.pickups).toEqual(floorPedestals(next)); // Stage 4: the new Floor starts with its own pedestals only.
     expect(next.delver!.stairsTicks).toBe(0);
     expect(next.delver!.restUsed).toHaveLength(plan2.markers.fires.length);
-    expect(next.duel.delver).toEqual({ floor: 2, phase: 'Exploring' });
+    expect(next.duel.delver).toEqual({ floor: 2, phase: 'Exploring', pickups: next.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
     expect(wieldedWeapon(next.duel.fighters[0]!.inventory!)).toBe(next.duel.fighters[0]!.weapon);
   });
 
@@ -196,7 +200,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
   it('keeps the phase and the Floor on the Duel each Tick', () => {
     const next = stepMatch(m, idle(m), tuning);
     expect(next.tick).toBe(1);
-    expect(next.duel.delver).toEqual({ floor: 1, phase: 'Exploring' });
+    expect(next.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: next.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
     expect(next.delver!.phase).toBe('Exploring');
     expect(secondsToTicks(tuning.dungeon.hallFadeSeconds)).toBeGreaterThan(0);
   });
@@ -492,19 +496,21 @@ describe('the Inventory of a Delver Run', { timeout: 60_000 }, () => {
 
   it('lays a drop at a fire as a shared pickup, taken back anywhere once stepped off and on', () => {
     const drop = { drop: { kind: 'relic' as const, slot: 1 } };
+    // Stage 4: the Floor's pedestals lie first, so the drop is the pickup after them (its id is their count).
+    const lying = m.delver!.pickups.length;
     let r = tick(put(m, 0, fire.x, fire.z), { 0: drop });
     expect(r.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'relic', item: relics[1]!, at: { x: fire.x, y: 0, z: fire.z } });
-    expect(r.delver!.pickups).toHaveLength(1);
-    expect(r.delver!.pickups[0]).toMatchObject({ id: 0, kind: 'relic', item: relics[1], owner: null, taken: false });
+    expect(r.delver!.pickups).toHaveLength(lying + 1);
+    expect(r.delver!.pickups[lying]).toMatchObject({ id: lying, kind: 'relic', item: relics[1], owner: null, taken: false });
     expect(r.duel.fighters[0]!.inventory!.relics).toEqual([relics[0]]);
     // Standing on it does not take it back; stepping off, then on again away from the fire does.
     r = tick(r);
-    expect(r.delver!.pickups[0]!.taken).toBe(false);
+    expect(r.delver!.pickups[lying]!.taken).toBe(false);
     r = tick(put(r, 0, off.x, off.z));
-    expect(r.delver!.pickups[0]!.taken).toBe(false);
+    expect(r.delver!.pickups[lying]!.taken).toBe(false);
     r = tick(put(r, 0, fire.x, fire.z));
-    expect(r.delver!.pickups[0]!.taken).toBe(true);
-    expect(r.events).toContainEqual({ type: 'ItemTaken', fighter: 0, id: 0, kind: 'relic', item: relics[1]! });
+    expect(r.delver!.pickups[lying]!.taken).toBe(true);
+    expect(r.events).toContainEqual({ type: 'ItemTaken', fighter: 0, id: lying, kind: 'relic', item: relics[1]! });
     expect(r.duel.fighters[0]!.inventory!.relics).toEqual([relics[0], relics[1]]);
   });
 
@@ -572,6 +578,143 @@ describe('a Delver Run: deterministic, and Rollback across a Floor change', { ti
         r = stepMatch(r, intents[k]!, tuning);
         expect(hashValue(r)).toBe(hashValue(states[k + 1]!));
       }
+    }
+  });
+});
+
+describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
+  const SEED = runSeed(ARENA);
+  /** Two Players (Fighters 0 and 1) and an AI ally (2) on a Floor with Warbands. */
+  const wdelver = (): MatchState =>
+    createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
+  const wtick = (m: MatchState): MatchState => stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), warbanded);
+  const w = wdelver();
+  const wplan = floorOf(warbanded, w.arena)!.plan;
+  const wt = arenaTuning(warbanded, w.arena);
+  const crowd = w.duel.crowd!;
+  const q = crowd.warbands!.rank.indexOf(0);
+  const soldiers = crowd.squad.flatMap((sq, s) => (sq === q ? [s] : []));
+  /** `m` with every Soldier of Warband `q` dead. */
+  const slain = (m: MatchState): MatchState => {
+    const c = m.duel.crowd!;
+    const dead = (a: readonly number[]) => a.map((v, s) => (soldiers.includes(s) ? 0 : v));
+    return { ...m, duel: { ...m.duel, crowd: { ...c, alive: dead(c.alive), hp: dead(c.hp) } } };
+  };
+  const fallAt = (m: MatchState) => ({ x: m.duel.crowd!.x[soldiers[0]!]!, z: m.duel.crowd!.z[soldiers[0]!]! });
+  const firstId = w.delver!.pickups.length;
+
+  it('starts the Floor with the pedestals for each Player, nobody wiped, and the mirror the Run\'s own pickups', () => {
+    expect(w.delver!.wiped).toEqual([]);
+    expect(w.delver!.pickups).toEqual(treasurePickups(wt, w.config, wplan, SEED, 1));
+    expect(firstId).toBe(2 * warbanded.dungeon.loot.pedestals * (wplan.markers.pedestals.length / 3));
+    expect(w.duel.delver!.pickups).toBe(w.delver!.pickups);
+    expect(q).toBeGreaterThanOrEqual(0);
+    expect(soldiers.length).toBeGreaterThan(0);
+  });
+
+  it('lays a wiped Warband\'s drops for each present Player where its last Soldier fell, once', () => {
+    const quiet = wtick(w);
+    expect(quiet.delver!.wiped).toEqual([]);
+    expect(quiet.events.some((e) => e.type === 'WarbandWiped')).toBe(false);
+
+    const r = wtick(slain(w));
+    const fall = fallAt(r);
+    const expected = warbandDrops(wt, r.config, wplan, r.duel.crowd!, q, fall, SEED, 1, firstId);
+    expect(expected.length).toBeGreaterThan(0);
+    expect(r.delver!.wiped).toEqual([q]);
+    expect(r.events).toContainEqual({ type: 'WarbandWiped', warband: q, rank: 0, at: { x: fall.x, y: 0, z: fall.z } });
+    expect(r.delver!.pickups.slice(firstId)).toEqual(expected);
+    expect(new Set(expected.map((d) => d.owner))).toEqual(new Set([0, 1]));
+    expect(r.duel.delver!.pickups).toBe(r.delver!.pickups);
+
+    const again = wtick(r);
+    expect(again.delver!.wiped).toEqual([q]);
+    expect(again.events.some((e) => e.type === 'WarbandWiped')).toBe(false);
+    expect(again.delver!.pickups).toHaveLength(r.delver!.pickups.length);
+    expect(again.duel.delver!.pickups).toBe(again.delver!.pickups);
+  });
+
+  it('lets a Player standing on its drop take it that Tick, and leaves another Player\'s on the same spot', () => {
+    const sample = wtick(slain(w));
+    const mine = sample.delver!.pickups.slice(firstId).find((p) => p.owner === 0)!;
+    const theirs = sample.delver!.pickups.slice(firstId).find((p) => p.owner === 1 && p.at.x === mine.at.x && p.at.z === mine.at.z)!;
+    expect(theirs).toBeDefined();
+    const inventory = w.duel.fighters[0]!.inventory!;
+    expect(addItem(inventory, mine, warbanded.dungeon.inventory)).not.toBeNull();
+    const r = wtick(put(slain(w), 0, mine.at.x, mine.at.z));
+    expect(r.events).toContainEqual({ type: 'ItemTaken', fighter: 0, id: mine.id, kind: mine.kind, item: mine.item });
+    expect(r.delver!.pickups[mine.id]!.taken).toBe(true);
+    expect(r.delver!.pickups[theirs.id]!.taken).toBe(false);
+    expect(r.duel.fighters[1]!.inventory).toEqual(inventory);
+    expect(r.duel.delver!.pickups).toBe(r.delver!.pickups);
+  });
+
+  it('starts the next Floor with only its pedestals and nobody wiped', () => {
+    const c = centre(wplan);
+    let r = wtick(slain(w));
+    expect(r.delver!.pickups.length).toBeGreaterThan(firstId);
+    r = [0, 1, 2].reduce((m, i) => put(m, i, c.x, c.z), r);
+    for (let k = 0; k < NEED + FADE + 2 && r.duelNumber === 1; k++) r = wtick(r);
+    expect(r.duelNumber).toBe(2);
+    const plan2 = floorOf(warbanded, r.arena)!.plan;
+    expect(r.delver!.wiped).toEqual([]);
+    expect(r.delver!.pickups).toEqual(treasurePickups(arenaTuning(warbanded, r.arena), r.config, plan2, SEED, 2));
+    expect(r.duel.delver!.pickups).toBe(r.delver!.pickups);
+  });
+
+  it('lays the drops where a promoted last Soldier\'s Fighter fell, not where its Soldier stood', () => {
+    // Warband q keeps one Soldier, s; a Player beside it promotes it into the Pool.
+    const s = soldiers[0]!;
+    const c = w.duel.crowd!;
+    const lone = (a: readonly number[]) => a.map((v, i) => (soldiers.includes(i) && i !== s ? 0 : v));
+    let m: MatchState = { ...w, duel: { ...w.duel, crowd: { ...c, alive: lone(c.alive), hp: lone(c.hp) } } };
+    m = put(m, 0, c.x[s]! + 2, c.z[s]!);
+    const slot = (x: MatchState) => x.duel.fighters.findIndex((f) => f.soldier?.index === s);
+    for (let k = 0; k < 20 && slot(m) < 0; k++) m = wtick(m);
+    expect(slot(m), 'promoted').toBeGreaterThanOrEqual(0);
+    expect(m.delver!.wiped).toEqual([]);
+    // It fell a few metres off its Soldier's place: the Bubble writes the Fighter's position back to the Soldier.
+    const at = { x: c.x[s]! - 3, z: c.z[s]! };
+    const j = slot(m);
+    m = withFighters(m, (f, i) => (i === j ? { ...fell(f), position: at } : f));
+    let r = m;
+    for (let k = 0; k < 40 && r.delver!.wiped.length === 0; k++) r = wtick(r);
+    expect(r.delver!.wiped).toEqual([q]);
+    const wipe = r.events.find((e) => e.type === 'WarbandWiped')!;
+    expect(wipe).toMatchObject({ warband: q, at: { x: at.x, z: at.z } });
+    const laid = r.delver!.pickups.slice(firstId);
+    expect(laid.length).toBeGreaterThan(0);
+    const spots = dropSpots(wplan, at.x, at.z, laid.filter((p) => p.owner === 0).length);
+    expect(laid.filter((p) => p.owner === 0).map((p) => p.at)).toEqual(spots);
+  });
+
+  it('gives an away Player nothing', () => {
+    const r = wtick(slain(takeOverFighter(w, 1)));
+    const drops = r.delver!.pickups.slice(firstId);
+    expect(drops.length).toBeGreaterThan(0);
+    expect(drops.every((p) => p.owner === 0)).toBe(true);
+  });
+
+  it('is deterministic across a wipe, and re-simulates from a snapshot taken before it', () => {
+    const play = (): MatchState[] => {
+      let m = slain(w);
+      const out = [m];
+      for (let k = 0; k < 30; k++) {
+        const intents = m.duel.fighters.map((_, i) => (i === 0 ? { ...IDLE_INTENT, move: { x: 1, z: 0 } } : IDLE_INTENT));
+        m = stepMatch(m, intents, warbanded);
+        out.push(m);
+      }
+      return out;
+    };
+    const one = play();
+    const two = play();
+    expect(one.map((x) => hashValue(x))).toEqual(two.map((x) => hashValue(x)));
+    expect(one[1]!.delver!.wiped).toEqual([q]);
+    let r = restore(snapshot(one[0]!));
+    for (let k = 0; k < 30; k++) {
+      const intents = r.duel.fighters.map((_, i) => (i === 0 ? { ...IDLE_INTENT, move: { x: 1, z: 0 } } : IDLE_INTENT));
+      r = stepMatch(r, intents, warbanded);
+      expect(hashValue(r)).toBe(hashValue(one[k + 1]!));
     }
   });
 });
