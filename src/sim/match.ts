@@ -103,6 +103,11 @@ export interface MatchConfig {
    * Gauntlet, and never with a start Hall. Absent otherwise, so every other Match's config is as it always was.
    */
   readonly delver?: true;
+  /**
+   * Dev mode only (`devDelverStart`, solo): a Delver Run starts on this Floor (1 to `floors`) instead of Floor 1, as the Run's start Floor. Absent otherwise.
+   * Refused without `delver`, and online.
+   */
+  readonly delverStart?: number;
 }
 
 export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
@@ -150,6 +155,8 @@ export interface RunEndEvent {
   readonly floors: number;
   /** Halls Team 0 cleared, Bosses included. */
   readonly halls: number;
+  /** A Delver Run's Bosses beaten (`bossesBeaten`); absent from a Hall-graph Run's. */
+  readonly bosses?: number;
 }
 
 /** A Run's Hall was cleared: no Team 1 Fighter is left in its Duel (on its first Tick, for a Hall with no Encounter). */
@@ -208,8 +215,14 @@ export interface WarbandWipedEvent {
   readonly at: PickupAt;
 }
 
+/** A Delver Run's party wiped the Boss Warband of Floor `floor`: the gate is open, and unless it was the last tier's, the party is healed and the fallen revived. */
+export interface BossBeatenEvent {
+  readonly type: 'BossBeaten';
+  readonly floor: number;
+}
+
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | RoutEvent | BattleEndEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | BossBeatenEvent | RoutEvent | BattleEndEvent;
 
 /** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
 export interface RunState {
@@ -496,6 +509,7 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     humans,
     ...(gauntlet ? { players: [...(options.players ?? runPlayers({ teams, humans }))] } : {}),
     ...(options.delver ? { delver: true as const } : {}),
+    ...(options.delverStart === undefined ? {} : { delverStart: options.delverStart }),
   };
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
@@ -515,21 +529,24 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
   if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
   if (options.delver && options.start) throw new RangeError('A Delver Run has no start Hall');
+  if (options.delverStart !== undefined && !config.delver) throw new RangeError('Only a Delver Run has a start Floor');
   if (config.delver) {
-    // A Delver Run: Floor 1 of the generated Dungeon, built here (behind the menu), Team 0 at its Entrance.
+    // A Delver Run: Floor 1 of the generated Dungeon (or the dev `delverStart` Floor), built here (behind the menu), Team 0 at its Entrance.
     const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
-    const { run: delver, duel } = firstFloor(tuning, config, floors, floorDuel(tuning, config, 1, null, createRng(seed), options.relics));
+    const floor = config.delverStart ?? 1;
+    if (!Number.isInteger(floor) || floor < 1 || floor > floors) throw new RangeError(`delverStart must be a Floor from 1 to ${floors}, got ${floor}`);
+    const { run: delver, duel } = firstFloor(tuning, config, floors, floorDuel(tuning, config, floor, null, createRng(seed), options.relics), floor);
     return {
       config,
       matchNumber: 1,
       arena: duel.arena,
       tick: 0,
-      duelNumber: 1,
-      score: [0, 0],
+      duelNumber: floor,
+      score: [floor - 1, 0],
       duel,
       nextDuelTick: null,
       status: { status: 'InProgress' },
-      events: [{ type: 'DuelStart', duelNumber: 1 }],
+      events: [{ type: 'DuelStart', duelNumber: floor }],
       run: null,
       delver,
     };

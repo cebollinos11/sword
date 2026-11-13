@@ -293,13 +293,15 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
   });
 
   it('completes the Stairs dwell while promoted enemies stand by', () => {
-    let m = start();
-    const { zone } = planOf(m).markers.stairs;
+    // On a Floor with no Boss: a Boss Floor's Stairs wait for its Boss (docs/plans/delver.md, Stage 4).
+    const nb: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map(({ boss: _b, ...tier }) => tier) } };
+    let m = start(1, nb);
+    const { zone } = planOf2(m, nb).markers.stairs;
     const cx = (zone.x0 + zone.x1) / 2;
     const cz = (zone.z0 + zone.z1) / 2;
     const q = warbandsIn(m.duel.crowd!, GUARD)[0]!;
     const them = members(m.duel.crowd!, q);
-    const t = arenaTuning(tuning, m.arena);
+    const t = arenaTuning(nb, m.arena);
     const map = battleMapOf(t.battle, m.arena);
     const at = (i: number) => ({ x: cx + 3 + (i % 3) * 0.8, z: cz + 3 + Math.floor(i / 3) * 0.8 });
     expect(groundOf(t.battle, map.field, at(0).x, at(0).z, 0)).toBeGreaterThanOrEqual(0);
@@ -311,8 +313,8 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     }));
     m = put(m, 0, cx, cz);
     let sawPromoted = false;
-    for (let k = 0; k < doorTicksNeeded(tuning) + 5 && m.delver!.phase === 'Exploring'; k++) {
-      m = tick(m);
+    for (let k = 0; k < doorTicksNeeded(nb) + 5 && m.delver!.phase === 'Exploring'; k++) {
+      m = stepMatch(m, idle(m), nb);
       if (bound(m).length > 0) sawPromoted = true;
     }
     expect(sawPromoted).toBe(true);

@@ -14,6 +14,8 @@ import { addItem, holdInventory, startingInventory, withStartingRelics, wieldedW
 import type { FighterState } from './state';
 
 const base = loadTuningData();
+/** `t` with every tier's Boss removed: its last Floor is an ordinary Floor, whose Stairs are the Victory. */
+const noBosses = (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, warbands: t.delver.warbands.map(({ boss: _b, ...tier }) => tier) } });
 /** A short Run: one tier of three Floors, with Warbands (the Tuning Data's own). */
 const warbanded: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
 /** The same on an empty Floor (`postFill` and `patrolFill` 0: still a Crowd, of no Soldiers), for the cases that assert on the party alone. */
@@ -175,7 +177,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     const wiped = withFighters(m, (f) => (f.team === 0 ? fell(f) : f));
     const over = stepMatch(wiped, idle(wiped), tuning);
     expect(over.status).toEqual({ status: 'Over', winner: 1, tick: over.tick });
-    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, halls: 0 });
+    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, halls: 0, bosses: 0 });
     expect(over.nextDuelTick).toBeNull();
     // The Run is over: no fade follows.
     const later = stepMatch(over, idle(over), tuning);
@@ -300,7 +302,7 @@ describe('the Stairs of a Delver Run', { timeout: 60_000 }, () => {
 });
 
 describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
-  const one: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 1 } };
+  const one: TuningData = noBosses({ ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 1 } });
   const m = createMatch(one, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1] });
   const c = centre(floorOf(one, m.arena)!.plan);
   const go = (r: MatchState): MatchState => stepMatch(r, r.duel.fighters.map(() => IDLE_INTENT), one);
@@ -311,7 +313,7 @@ describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.status.status).toBe('InProgress');
     r = go(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0 });
+    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0, bosses: 0 });
     expect(r.score[0]).toBe(1);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });

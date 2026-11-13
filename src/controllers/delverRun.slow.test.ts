@@ -28,8 +28,11 @@ const LINEUP: Lineup = [
   ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI' as const, difficulty: 'Floor' } })),
 ];
 
-/** The Run's Tuning: one tier of three empty Floors (`postFill` and `patrolFill` 0: a Crowd of no Soldiers; Stage 2's walk needs no enemy). */
-const runTuning = (): TuningData => ({ ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: FLOORS, postFill: 0, patrolFill: 0 } });
+/** The Run's Tuning: one tier of three empty Floors (`postFill` and `patrolFill` 0: a Crowd of no Soldiers; Stage 2's walk needs no enemy), with no Boss (its last Stairs are the Victory). */
+const runTuning = (): TuningData => ({
+  ...base,
+  delver: { ...base.delver, tiers: 1, floorsPerTier: FLOORS, postFill: 0, patrolFill: 0, warbands: base.delver.warbands.map(({ boss: _b, ...tier }) => tier) },
+});
 
 const edit = (m: MatchState, i: number, f: (x: FighterState) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((x, k) => (k === i ? f(x) : x)) } });
 const felled = (m: MatchState) => (f: FighterState): FighterState => ({ ...f, hp: 0, death: { tick: m.duel.tick, cause: 'Fall', blow: null } });

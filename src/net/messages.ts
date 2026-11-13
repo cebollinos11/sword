@@ -266,7 +266,9 @@ function isMatchOptions(v: unknown): boolean {
     isSessionFormatOnMap(v.format, v.arena) &&
     (v.humans === undefined || isHumans(v.humans)) &&
     // A Delver Run is a Gauntlet on generated Floors (`true`, or absent).
-    (v.delver === undefined || (v.delver === true && v.format === 'Gauntlet'))
+    (v.delver === undefined || (v.delver === true && v.format === 'Gauntlet')) &&
+    // ...and never with a dev start Floor (`delverStart`: solo, dev mode only).
+    v.delverStart === undefined
   );
 }
 
@@ -753,6 +755,7 @@ function isMatchState(v: unknown): v is MatchState {
     (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
     // ...a Delver Run instead has `run` null, and its Duel names the Floor (`delver`) where a Run's names its Hall.
     (config.delver === undefined || (config.delver === true && config.format === 'Gauntlet')) &&
+    config.delverStart === undefined &&
     (config.format === 'Gauntlet'
       ? config.delver
         ? v.run === null && isDelverRun(v.delver, runPlayers(config as unknown as MatchConfig)) && isDelverFloor(v.duel as Obj, v.delver as Obj) && config.rematchTicks === null && isFloorOfRun(v, config)

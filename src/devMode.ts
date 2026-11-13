@@ -108,3 +108,13 @@ export function devDelverFloor(search: string = location.search, hash: string = 
 export function devDelverRun(search: string = location.search, hash: string = location.hash): boolean {
   return devMode(search, hash) && query(search, hash).get('delver') === '1';
 }
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 4): `delverStart=F` (a whole number from 1) starts a solo Delver Run on Floor F instead of Floor 1
+ * (`MatchOptions.delverStart`; the sim refuses one past the last Floor). Nothing without `dev=1` or with a bad value.
+ */
+export function devDelverStart(search: string = location.search, hash: string = location.hash): { delverStart?: number } {
+  if (!devMode(search, hash)) return {};
+  const floor = whole(query(search, hash), 'delverStart', 1);
+  return floor === null ? {} : { delverStart: floor };
+}

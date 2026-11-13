@@ -52,6 +52,13 @@ describe('Peer message validation: a Delver Run', () => {
     }
   });
 
+  it('refuses a dev start Floor in Match options and in a resynced config', () => {
+    expect(parseNetMessage(hello({ ...OPTIONS, delverStart: 2 }))).toBeNull();
+    const { state, ai } = delverResync(0);
+    const m = resync({ ...state, config: { ...state.config, delverStart: 1 } }, ai);
+    expect(parseNetMessage(m)).toBeNull();
+  });
+
   it("carries a Delver Run's state at Tick 0 and some Ticks in through a resync", () => {
     for (const ticks of [0, 1, 40, 200]) {
       const { state, ai } = delverResync(ticks);
