@@ -17,35 +17,40 @@
   "warbands": [
     {
       "guard": [
-        { "troops": [ { "troop": "Levy", "count": 4 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Levy", "count": 4 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Levy", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 2 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 }
       ],
       "patrol": [
+        { "troops": [ { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
         { "troops": [ { "troop": "Levy", "count": 3 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Levy", "count": 2 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 2 } ], "hpScale": 1 }
       ]
     },
     {
       "guard": [
-        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Levy", "count": 4 }, { "troop": "Halberdier", "count": 2 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 3 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 2 }, { "troop": "Halberdier", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 1 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 }
       ],
       "patrol": [
         { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Levy", "count": 3 }, { "troop": "Halberdier", "count": 1 }, { "troop": "Swordsman", "count": 1 } ], "hpScale": 1 }
       ]
     },
     {
       "guard": [
-        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 3 }, { "troop": "Brute", "count": 1 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Brute", "count": 2 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Swordsman", "count": 3 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 3 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Brute", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Swordsman", "count": 1 }, { "troop": "Levy", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Brute", "count": 1 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 2 } ], "hpScale": 1 }
       ],
       "patrol": [
         { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
-        { "troops": [ { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 }
+        { "troops": [ { "troop": "Brute", "count": 1 }, { "troop": "Halberdier", "count": 2 }, { "troop": "Levy", "count": 2 } ], "hpScale": 1 },
+        { "troops": [ { "troop": "Swordsman", "count": 2 }, { "troop": "Brute", "count": 1 } ], "hpScale": 1 }
       ]
     }
   ],
