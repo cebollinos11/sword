@@ -22,7 +22,7 @@ import type { Placement } from './skeleton';
 import type { FighterState, SimDelver, DelverPhase, SimState } from './state';
 import { createInitialState, standingFighter, step } from './step';
 
-/** One fire of the current Floor (`plan.markers.fires` order): whether its revive is spent, and which Players took its heal. */
+/** One fire of the current Floor (`plan.markers.fires` order): whether its revive is spent (only by reviving someone), and which Players took its heal. */
 export interface RestUse {
   readonly revived: boolean;
   /** Fighter indices, ascending. */
@@ -192,7 +192,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       for (const x of took.taken) events.push({ type: 'ItemTaken', ...x });
     }
 
-    // The fires, in plan order: the first Player to arrive revives every fallen Team 0 Fighter (once per fire), then each Player at it heals once.
+    // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once.
     const arena = arenaOf(t, duel.arena);
     plan.markers.fires.forEach((fire, k) => {
       const point = { x: fire.x, y: 0, z: fire.z };
@@ -202,7 +202,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       };
       const use = next.restUsed[k]!;
       let revived = use.revived;
-      if (!revived && presentPlayers(config, next.away).some(present)) {
+      if (!revived && duel.fighters.some((f) => f.team === 0 && f.death !== undefined) && presentPlayers(config, next.away).some(present)) {
         revived = true;
         let j = 0;
         duel = {

@@ -307,7 +307,7 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     r = tick(r);
     expect(r.duel.fighters[0]!.hp).toBeCloseTo(MAX * (0.4 + RESTED));
     expect(r.events).toContainEqual({ type: 'Rested', fighter: 0, healed: r.duel.fighters[0]!.hp - MAX * 0.4 });
-    expect(r.delver!.restUsed[0]).toEqual({ revived: true, healed: [0] });
+    expect(r.delver!.restUsed[0]).toEqual({ revived: false, healed: [0] });
     // Staying heals nothing more; neither does leaving and coming back.
     const hp = r.duel.fighters[0]!.hp;
     r = hurt(times(r, 3), 0, hp);
@@ -397,8 +397,13 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.events).toContainEqual({ type: 'Revived', fighter: 1, fire: 1 });
   });
 
-  it('is spent by the first arrival even with nobody fallen', () => {
+  it('is not spent by a Player passing with nobody fallen; it revives, and is spent, when an ally has fallen by the next visit', () => {
     let r = tick(at(m, 0));
+    expect(r.delver!.restUsed[0]).toEqual({ revived: false, healed: [0] });
+    r = withFighters(put(r, 0, off.x, off.z), (f, i) => (i === 1 ? fell(f) : f));
+    r = tick(at(r, 0));
+    expect(r.duel.fighters[1]!.death).toBeUndefined();
+    expect(r.events).toContainEqual({ type: 'Revived', fighter: 1, fire: 0 });
     expect(r.delver!.restUsed[0]!.revived).toBe(true);
     r = withFighters(put(r, 0, off.x, off.z), (f, i) => (i === 1 ? fell(f) : f));
     r = tick(at(r, 0));
