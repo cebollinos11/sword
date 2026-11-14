@@ -66,6 +66,8 @@ export class DelverMarks {
   private rings: THREE.MeshBasicMaterial[] = [];
   /** The gate's bars, one group, and how far down they are (0 to 1). */
   private gate: THREE.Group | null = null;
+  /** The floor the gate stands on (m): the Stairs' level. */
+  private gateY = 0;
   private gateState: GateState = 'none';
   private sink = 0;
   private readonly owned: { dispose(): void }[] = [];
@@ -106,7 +108,7 @@ export class DelverMarks {
   private showGate(): void {
     if (!this.gate) return;
     this.gate.visible = this.gateState !== 'none' && this.sink < 1;
-    this.gate.position.y = 0 - GATE_HEIGHT * this.sink;
+    this.gate.position.y = this.gateY - GATE_HEIGHT * this.sink;
   }
 
   private own<T extends { dispose(): void }>(resource: T): T {
@@ -127,6 +129,7 @@ export class DelverMarks {
     for (const r of this.owned) r.dispose();
     this.owned.length = 0;
     this.gate = null;
+    this.gateY = 0;
     this.gateState = 'none';
     this.sink = 0;
     this.plan = null;
@@ -136,8 +139,9 @@ export class DelverMarks {
     this.clear();
     this.plan = plan;
     this.radius = radius;
-    const { zone } = plan.markers.stairs;
-    this.stairs = new StairsStandIn(zone);
+    const { zone, y } = plan.markers.stairs;
+    this.gateY = y;
+    this.stairs = new StairsStandIn(zone, y);
     this.stairs.setOpen(gate !== 'closed');
     this.root.add(this.stairs.root);
     const rings = pedestalRings(plan.markers.pedestals);
@@ -146,14 +150,14 @@ export class DelverMarks {
     if (gate !== 'none') this.buildGate(zone);
     const ring = this.own(new THREE.RingGeometry(Math.max(0, radius - RING_WIDTH), radius, 48));
     for (const at of plan.markers.fires) {
-      const fire = new RestFire({ x: at.x, y: 0, z: at.z });
+      const fire = new RestFire({ x: at.x, y: at.y, z: at.z });
       this.fires.push(fire);
       this.root.add(fire.root);
       const material = this.own(new THREE.MeshBasicMaterial({ color: RING_LIT, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
       this.rings.push(material);
       const mesh = new THREE.Mesh(ring, material);
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(at.x, LIFT, at.z);
+      mesh.position.set(at.x, at.y + LIFT, at.z);
       this.root.add(mesh);
     }
   }

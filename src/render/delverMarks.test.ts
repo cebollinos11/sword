@@ -45,11 +45,11 @@ describe('the Boss Hall’s gate', () => {
     const gate = barsOf(marks)!;
     expect(gate.children.length).toBeGreaterThan(8);
     expect(gate.visible).toBe(true);
-    expect(gate.position.y).toBe(0);
+    expect(gate.position.y).toBe(plan.markers.stairs.y);
     marks.update(view('open'));
     marks.animate(0.3);
     expect(gate.visible).toBe(true);
-    expect(gate.position.y).toBeLessThan(0);
+    expect(gate.position.y).toBeLessThan(plan.markers.stairs.y);
     marks.animate(5);
     expect(gate.visible).toBe(false);
   });
@@ -92,6 +92,45 @@ describe('the Delver stand-ins', () => {
   it('puts a ring on the ground at each pedestal', () => {
     const rings = pedestalRings([{ x: 1, z: 2 }, { x: 4, z: 2 }]);
     expect(rings.meshes.map((m) => [m.position.x, m.position.z])).toEqual([[1, 2], [4, 2]]);
+    for (const r of rings.owned) r.dispose();
+  });
+});
+
+describe('the Delver marks on a levelled Floor', () => {
+  const base = loadTuningData();
+  const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
+  const flat = floorOf(tuning, createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0] }).arena)!.plan;
+  const at4 = <T extends { y: number }>(p: T): T => ({ ...p, y: 4 });
+  const plan = { ...flat, markers: { ...flat.markers, stairs: at4(flat.markers.stairs), fires: flat.markers.fires.map(at4), pedestals: flat.markers.pedestals.map(at4) } };
+  const view: DelverMarksView = { plan, restUsed: [], me: 0, fireRadius: tuning.delver.fireRadius, gate: 'closed' };
+
+  it('stands the Stairs stand-in, the gate, each fire and its ring, and the pedestal rings at their marker’s y', () => {
+    expect(plan.markers.fires.length).toBeGreaterThan(0);
+    const marks = new DelverMarks();
+    marks.update(view);
+    expect(marks.root.getObjectByName('gate')!.position.y).toBe(4);
+    const ys = marks.root.children.map((c) => c.position.y);
+    expect(ys.every((y) => y >= 4)).toBe(true);
+    for (const at of plan.markers.fires) {
+      const near = marks.root.children.filter((c) => c.position.x === at.x && c.position.z === at.z);
+      expect(near.length).toBe(2);
+      for (const c of near) expect(c.position.y).toBeGreaterThanOrEqual(4);
+      expect(near.every((c) => c.position.y < 4.1)).toBe(true);
+    }
+    marks.update({ ...view, gate: 'open' });
+    marks.animate(0.3);
+    expect(marks.root.getObjectByName('gate')!.position.y).toBeLessThan(4);
+    marks.animate(5);
+    expect(marks.root.getObjectByName('gate')!.visible).toBe(false);
+  });
+
+  it('puts the stand-ins at the height given', () => {
+    const stairs = new StairsStandIn({ x0: 0, x1: 4, z0: 0, z1: 4 }, 4);
+    expect(stairs.root.position.toArray()).toEqual([2, 4, 2]);
+    stairs.dispose();
+    const rings = pedestalRings([{ x: 1, y: 2, z: 2 }]);
+    expect(rings.meshes[0]!.position.y).toBeGreaterThan(2);
+    expect(rings.meshes[0]!.position.y).toBeLessThan(2.1);
     for (const r of rings.owned) r.dispose();
   });
 });

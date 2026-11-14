@@ -7,7 +7,7 @@
  * promoted Soldier is a Fighter, drawn by the Renderer as ever). Render only: it reads the state and never changes an outcome.
  */
 import type * as THREE from 'three';
-import { battlefieldHeight, battlefieldOf, type Heightfield, type SimState } from '../sim';
+import { battlefieldHeight, battlefieldOf, soldierHeight, type Heightfield, type SimState } from '../sim';
 import { arenaTuning, floorTroops } from '../sim/delver';
 import type { BattleTuning, TuningData } from '../tuning';
 import { blobTexture } from '../render/blobShadow';
@@ -90,7 +90,9 @@ export class FloorCrowd {
     const floor = arenaTuning(this.tuning, state.arena);
     const field = battlefieldOf(floor.battle, state.arena);
     for (const s of this.swap.update(state, seconds)) {
-      const y = field ? battlefieldHeight(field.heights, s.at.x, s.at.z) : 0;
+      // On the Soldier's own Walk Surface (a gallery's Deck, not the Hall floor under it).
+      const surface = crowd.surface[s.soldier];
+      const y = field ? (surface === undefined ? battlefieldHeight(field.heights, s.at.x, s.at.z) : soldierHeight(field, surface, s.at.x, s.at.z)) : 0;
       this.stage.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y, z: s.at.z }, strength: 1 });
     }
     // The party is always whole; a Pool slot shows its model only while a Soldier is bound to it (or fading).
