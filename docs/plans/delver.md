@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest, in sub-stages 7a to 7e) is next, from 7a. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) runs in sub-stages 7a to 7e. Stage 7a done (2026-11-14): Halls 14 to 28 m on a coarser 6 × 6 lattice, 1 or 2 great halls a Floor (the Boss Hall always one), and L, S and Z Passages of legs and corners. 7b is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -10,7 +10,7 @@
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
-- [ ] Stage 7a: bigger Halls, great halls, L-, S- and Z-shaped Passages
+- [x] Stage 7a: bigger Halls, great halls, L-, S- and Z-shaped Passages
 - [ ] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
 - [ ] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [ ] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
@@ -1793,6 +1793,64 @@ New `SALT` keys: greatCount 40, greatAxis 41, greatLong 42, great 43, turn 44, t
 3. **The consumers**: `reveal.ts`, `delverLoot.ts`, `warbands.ts`, `src/render/minimap.ts`, `src/play/floorMap.ts` and their tests.
 4. **The switch**: the shipped values in `data/delver.json`, `DELVER_VERSION` 6, the golden pins, §7's moves onto `flatRooms`, `rooms7a` removed, `delverGen.slow.test.ts`, and the walk's `rooms` rule.
 5. **The soak**: §9's cases and measurements.
+
+### Result
+Done 2026-11-14. Delver Floors now have bigger Halls (14 to 28 m across) on a coarser 6 × 6 lattice 30 to 32 m apart, 1 or 2 great halls a Floor over two lattice cells (36 to 44 m long; the Boss Hall is always one), and Passages that turn: L, S and Z, built of legs and 3 m corner squares, each its own Enclosure. Battles, Duels and the Hall-graph Run are unchanged. With every 7a knob off (`flatRooms`) a Floor's map and plan are byte for byte Stage 6's. No hashed state is new; `DELVER_VERSION` is 6, `PROTOCOL_VERSION` stays 30.
+
+**What was built** (as the Design gives it, with the changes below):
+- **Tuning Data** (`delver.floor`): `cols` 6, `rows` 6, `rooms` 20, `gaps` [30, 32], `halfSize` [7, 14], `turnPercent` 30, `great` { `count` [1, 2], `half` [18, 22] }, with their parse checks. `flatRooms(tuning)` (tests) is Stage 6's lattice with the knobs off.
+- **The plan** (`plan.ts`): Hall slots; great halls (`cells`, `great`), placed at due growth steps or, on a Boss Floor, as Hall 0 and the Boss Hall; L and S/Z candidates in growth and loops with the clearance check against reach rects; `passagePieces` (legs, corners, the one sloped leg, level corners); `PassagePiece`, `shape`, `sideA`, `sideB`, `pieces`; kinds (the Entrance never great, Treasure prefers a great hall, great halls are Fight unless in line); in line only through straight Passages.
+- **The source**: each piece an Enclosure (`pass<n>` for one piece, `pass<n>-<k>` from 0), its low end's doorway on a sloped leg, a Ramp on each sloped leg.
+- **The judge**: the great-hall `rooms` lines; the plan-only `layout` rule (nothing overlaps from above, everything inside the field); `passages` along every leg, both ways, a straight Passage's line unchanged; `describeFloor` counts great halls and shapes.
+- **The readers**: the Reveal, drops, a guard's facing (by `sideA` and `sideB`), the minimap and the Floor Map go by a Passage's pieces and sides.
+
+**Changed from the Design:**
+- **Growth takes a turn when only turns are left** (code review): a step with no near candidate but a turning one takes the turn instead of stalling. The turning list is built only on a step that will use it (the turn pick passed, or nothing else is left): the same plans, less work.
+- **Drops in a corner** (code review): a fall in a corner square, or on a leg under 4 m, lays its items along the longest neighbouring leg, so they do not stack on two spots.
+- **`great.count[0]` must be at least 1 when `count[1]` is above 0** (code review): a Boss Floor that picked no great hall was always refused.
+- **The judge reports a checkpoint with no floor once per Passage**, and far Passages are counted by cells, not length (a great hall's straight Passage is longer than a gap).
+- **The L's corner cell is not in its own clearance list** (it holds the corner), and a great candidate is one per near candidate (the first second cell that fits).
+- **The S/Z chase scenario runs with a 90 m Leash** (test knob): on the 80 seeds searched, an S or Z's last leg lies 44 to 67 m from the guard's post by walking, beyond the shipped 45 m Leash. So a guard gives up partway along a long S or Z Passage. That is the Leash as tuned (balance is the user's).
+
+**Existing tests changed (as Design §7 allows):**
+- `golden.test.ts`: default pins rewritten; a `flatRooms` case whose map and plan hashes are Stage 6's default pins exactly; the flat and old-Floor-9 cases on `flatFloors(flatRooms)`, map pins unchanged. The plan pins moved once in Task 1, when the plan gained its fields.
+- `tuning.test.ts`'s `goodRaw()` and `delver.test.ts`: the new keys (its bad-value cases on `flatRooms`; one accepted `great.count` [0, 4] became [1, 4] with the code review's rule).
+- On `flatRooms` (or `flatFloors(flatRooms)`), expectations unchanged: the pre-7a cases of `plan.test.ts`, `judge.test.ts`, `reveal.test.ts`, `source.test.ts`'s all-straight case, `floorMap.test.ts`'s layout cases, `fieldToward.test.ts`, `warband.test.ts`, `delverPilot.test.ts` (its pilot takes the Stairs at 171 to 206 s on 7a Floors, against its 180 s window: a longer walk, not a stuck pilot), and the soak's "a chase given up" and full immortal Run (which met no elite on 7a Floors).
+- `plan.test.ts`'s Boss helper restores `pieces` with `rect`; `warbands.test.ts`'s hand-built plan gained `sideA` and `sideB`; `delverLoot.test.ts`'s corner case follows the code review's drop rule.
+- `warbandSoak.slow.test.ts`'s "a chase across a level" searches straight Passages only.
+- None was removed.
+
+**Measured** (the test container, about 3× a mid-range laptop):
+- **The generator** (500 pairs): every pair passed on its first attempt (0 failed attempts; 25 allowed). Plan 4.8 ms, build 350 ms (p95 434, max 568), judge 47.5 ms; total 402 ms (p95 493, max 635), against Stage 6's 272 ms. Navmesh 126 ms mean (Stage 6: 95.5) with 130 jump Links, all shortcuts onto the 130 Decks.
+  - 748 great halls (252 Floors with 1, 248 with 2): 283 Treasure, 181 Fight, 166 Boss (every Boss Floor), 118 Empty in line.
+  - 11,376 Passages: 8,083 straight, 1,721 L, 816 S and 756 Z (590 turning loops); 1,101 sloped turning Passages; 1,548 far.
+  - **The walk**: mean Stairs depth 320 m against Stage 6's 259 m (1.24×, under 1.3), so `rooms` stays 20.
+- **The soak** (`warbandSoak.slow.test.ts`, 14 tests):
+  - **A patrol round corners** (seed 1, Floor 1): one patrol walked its 8-Hall loop in 223.5 s through two L, one S and two Z Passages (one L sloped), each leg within its walking time (19.5 to 22.9 s against 20.0 to 23.5 s), every corner reached, no Soldier more than 2.1 m from its place.
+  - **A chase round an L** (seed 21): the guard chased through the corner, and all its Soldiers stood in the last leg at 15.7 s. **Round an S** (seed 9, 90 m Leash): both corners reached, all Soldiers in the last leg at 23.7 s.
+  - **Levelled Runs** on 7a Floors: 3 or 4 Hall levels a Floor, 306.6 s on Ramps; Tick mean 0.40 ms, p99 2.62 (Stage 6: 0.49); Floor build 479 ms (max 696) and navmesh 173 ms (max 219) cold, under load.
+  - Over the soak's 218,453 Ticks: mean 0.40 ms, p99 2.04.
+- **Stage 2's empty-Floor walk**: 134.6, 235.6 and 150.5 s to the Stairs on Floors 1 to 3 (Stage 6: 148 to 201 s).
+
+**Tests**: `npm run typecheck` is clean. `npm test`: **2977 passed, 5 skipped** (2915 before the Stage). `npm run test:slow`: 24 files and **53 tests** passed (50 before).
+
+**In the game** (`npm run dev`, a headless browser at 3 to 8 fps; `?dev=1&delver=1&autopilot=1&immortal=1&speed=4` with an Expert ally; screenshots in `docs/plans/delver-stage7a/`, all looked at; no console errors):
+- `editor-seed7-floor1.png`: the Map Editor's top view of Floor 1 of seed 7, with two great halls, L Passages and S/Z jogs; "No checks fire".
+- `passage.png`: a 3 m stone Passage leg leading to its next piece.
+- `floor-map-turns.png`: the Floor Map with the revealed Halls, a great Treasure Hall and an L Passage round a corner.
+- `boss-great-hall.png`: the Floor 3 Boss fight in the great Boss Hall (still the flat orange `glow`).
+- The Run played through Floors 1 to 3 to the Boss fight with no error.
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Dungeon: Delver, add an AI ally, Fight. `&delverStart=3` starts on the first Boss Floor.
+- Walk an L or S Passage with a Warband after you, and fight one round a corner.
+- Fight in a great hall (a Treasure Hall or a big Fight post) and in the great Boss Hall.
+- See whether a Floor still takes 5 to 10 minutes.
+
+**To watch next**:
+- **Long S and Z Passages outrun the Leash** (45 m): a guard gives up partway along them.
+- **Floors are a little longer**: 1.24× Stage 6's walk; one empty-Floor walk took 236 s.
+- **Great halls are plain**: one big empty rect. 7b's shapes and pillars and 7e's archetypes fill them.
+- **The navmesh and build are slower** (126 ms and 402 ms here, about 0.4 s and 1.3 s laptop-equivalent). They are warmed a Floor ahead.
 
 ### Stage 7b: Hall shapes, pillars and cover
 **Model**: Opus (geometry).
