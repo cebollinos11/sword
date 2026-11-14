@@ -133,14 +133,14 @@ export const DELVER_MAP_MIN_SPAN = 40;
 const BOARD_MARGIN = 0.06;
 
 /**
- * The Delver Floor Map (docs/plans/delver.md, Stage 5): only the Halls and Passages `revealed` holds (a Passage as each of its pieces' rects), scaled to fit a square board and centred
+ * The Delver Floor Map (docs/plans/delver.md, Stage 5): only the Halls and Passages `revealed` holds (a Hall as each of its `rects`, so an L or a ring shows its shape and no solid or pillar; a Passage as each of its pieces' rects), scaled to fit a square board and centred
  * (`DELVER_MAP_MIN_SPAN` metres at the least), turned as the Battle's minimap is (up is +z, +x to the left: the way the camera looks at the
  * Floor's start, so the map is the world seen from above, not its mirror). With the markers of the revealed Halls (`delverMapMarks`) and an
  * arrow for each living Team 0 Fighter, Fighter `me` marked. Unrevealed space draws nothing. Pure; the Match is never changed.
  */
 export function delverMapLayout(plan: FloorPlan, revealed: readonly number[], fighters: readonly FighterState[], me: number, status: DelverMapStatus): DelverMapLayout {
   const seen: { rect: FloorPlan['halls'][number]['rect']; hall: boolean; kind?: string }[] = [];
-  plan.halls.forEach((h, i) => isRevealed(revealed, i) && seen.push({ rect: h.rect, hall: true, kind: h.kind }));
+  plan.halls.forEach((h, i) => isRevealed(revealed, i) && h.rects.forEach((rect) => seen.push({ rect, hall: true, kind: h.kind })));
   plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && p.pieces.forEach((piece) => seen.push({ rect: piece.rect, hall: false })));
   if (seen.length === 0) return { rects: [], marks: [], arrows: [] };
   // The map's own axes: mx = -x, my = -z. Its bounds, then a scale and offset that centre them on the board.

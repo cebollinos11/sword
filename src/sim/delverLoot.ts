@@ -78,24 +78,30 @@ const lengthOf = (r: Box): number => Math.max(r.x1 - r.x0, r.z1 - r.z0);
 /** The shortest a leg may be (m) to hold the spots itself: below it, or in a corner, a turning Passage's longest neighbouring leg does. */
 const ROOMY_LEG = 4;
 
+/** The rect `rectOf` chose, and `hall`, the index of the Hall it is one of the rects of (-1 for a Passage piece), whose pillars the spots keep clear of. */
+interface Chosen {
+  readonly rect: Box;
+  readonly hall: number;
+}
+
 /**
- * The Hall rect or Passage piece rect (a leg or a corner) a fall point belongs to: the first Hall holding it, then the first Passage's piece, else the nearest (Halls first, then Passages and their pieces in order, the lower index on a tie).
+ * The Hall rect (one of its `rects`: its floor seen from above, in Hall then rect order) or Passage piece rect (a leg or a corner) a fall point belongs to: the first holding it, then the first Passage's piece, else the nearest (Halls first, then Passages and their pieces in order, the lower index on a tie).
  * A Passage piece that is a corner, or a leg shorter than 4 m, is too small for the spots: the longest leg among its chain neighbours stands in (a corner's two neighbouring legs; a short leg's neighbouring legs, or the legs beyond its neighbouring corners), the earlier piece on a tie.
  */
-function rectOf(plan: FloorPlan, x: number, z: number): Box {
+function rectOf(plan: FloorPlan, x: number, z: number): Chosen {
   const entries = [
-    ...plan.halls.map((h) => ({ rect: h.rect as Box, p: -1, k: -1 })),
-    ...plan.passages.flatMap((p, n) => p.pieces.map((piece, k) => ({ rect: piece.rect as Box, p: n, k }))),
+    ...plan.halls.flatMap((h, i) => h.rects.map((rect) => ({ rect: rect as Box, h: i, p: -1, k: -1 }))),
+    ...plan.passages.flatMap((p, n) => p.pieces.map((piece, k) => ({ rect: piece.rect as Box, h: -1, p: n, k }))),
   ];
   let best = entries.find((e) => holds(e.rect, x, z));
   if (!best) {
     best = entries[0]!;
     for (const e of entries) if (gap2(e.rect, x, z) < gap2(best.rect, x, z)) best = e;
   }
-  if (best.p < 0) return best.rect;
+  if (best.p < 0) return { rect: best.rect, hall: best.h };
   const pieces = plan.passages[best.p]!.pieces;
   const self = pieces[best.k]!;
-  if (pieces.length < 2 || (!self.corner && lengthOf(self.rect) >= ROOMY_LEG)) return best.rect;
+  if (pieces.length < 2 || (!self.corner && lengthOf(self.rect) >= ROOMY_LEG)) return { rect: best.rect, hall: -1 };
   let pick = -1;
   for (const k of [best.k - 1, best.k + 1, best.k - 2, best.k + 2]) {
     const q = pieces[k];
@@ -104,18 +110,20 @@ function rectOf(plan: FloorPlan, x: number, z: number): Box {
     if (Math.abs(k - best.k) === 2 && !pieces[(k + best.k) / 2]!.corner) continue;
     if (pick < 0 || lengthOf(q.rect) > lengthOf(pieces[pick]!.rect) || (lengthOf(q.rect) === lengthOf(pieces[pick]!.rect) && k < pick)) pick = k;
   }
-  return pick < 0 ? best.rect : pieces[pick]!.rect;
+  return { rect: pick < 0 ? best.rect : pieces[pick]!.rect, hall: -1 };
 }
 
 /**
- * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the Hall rect holding the point, else the rect of the Passage piece (leg or corner) holding it, else
- * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. The first is the point clamped in; the others
+ * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the rect of a Hall's `rects` holding the point (so a fall in an L's arm lays its spots in that arm), else the rect of the Passage piece (leg or corner) holding it, else
+ * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. A candidate within `DROP_MARGIN` of a pillar of the Hall R belongs to
+ * (nearer than it, or inside it) is skipped, as one too near a taken spot is; if no candidate is left, the one spot is the fall point clamped into R (the first candidate), so there is always one. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
  * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the floor nearest the fall's height `y` (`floorNear` of the Floor's `arena`: neither deadly nor a roof, above or below `y`; so a fall on a Deck lies on the Deck, one beside it on the floor, one on a Ramp on the Ramp), at `y` itself where there is none. Pure.
  */
 export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuning, x: number, z: number, y: number, count: number): PickupAt[] {
   if (count <= 0) return [];
-  const r = rectOf(plan, x, z);
+  const { rect: r, hall } = rectOf(plan, x, z);
+  const pillars = hall >= 0 ? plan.halls[hall]!.pillars : [];
   // A rect narrower than twice the margin shrinks to its middle line.
   const span = (lo: number, hi: number): [number, number] => (lo + DROP_MARGIN > hi - DROP_MARGIN ? [(lo + hi) / 2, (lo + hi) / 2] : [lo + DROP_MARGIN, hi - DROP_MARGIN]);
   const [x0, x1] = span(r.x0, r.x1);
@@ -130,7 +138,12 @@ export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuni
     const sz = alongX ? bz : clamp(bz + along, z0, z1);
     const ground = floorNear(arena, sx, sz, y);
     const spot: PickupAt = { x: sx, y: ground >= 0 ? surfaceHeight(arena, ground, sx, sz) : y, z: sz };
+    if (pillars.some((q) => gap2(q, sx, sz) < DROP_MARGIN * DROP_MARGIN)) continue;
     if (found.every((s) => (s.x - spot.x) ** 2 + (s.z - spot.z) ** 2 >= DROP_APART * DROP_APART)) found.push(spot);
+  }
+  if (found.length === 0) {
+    const ground = floorNear(arena, bx, bz, y);
+    found.push({ x: bx, y: ground >= 0 ? surfaceHeight(arena, ground, bx, bz) : y, z: bz });
   }
   return Array.from({ length: count }, (_, k) => found[k % found.length]!);
 }

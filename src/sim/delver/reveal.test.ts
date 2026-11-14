@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
-import { flatRooms } from './flat.testdata';
+import { flatRooms, rooms7b } from './flat.testdata';
 import { floorArenaName, floorOf } from './world';
 import { emptyReveal, isRevealed, revealBits, revealPlace, withReveal } from './reveal';
 
@@ -114,6 +114,55 @@ describe('revealPlace on turning Passages', () => {
             expect(revealPlace(p, x, z)).toBe(-1);
             found++;
           }
+      });
+    expect(found).toBeGreaterThan(0);
+  });
+});
+
+describe('revealPlace on shaped Halls (Stage 7b)', () => {
+  const shaped = rooms7b(bundled);
+  const inBox = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
+  const plans = Array.from({ length: 40 }, (_, i) => floorOf(shaped, floorArenaName(i + 1, 1 + (i % 3)))!.plan);
+  const halls = (shape: string) => plans.flatMap((p) => p.halls.map((h, i) => ({ p, h, i })).filter((e) => e.h.shape === shape));
+
+  it('gives the Hall\'s bit for a point in each band of an L and of a ring', () => {
+    for (const shape of ['L', 'ring']) {
+      const found = halls(shape);
+      expect(found.length).toBeGreaterThan(0);
+      for (const { p, h, i } of found) {
+        expect(h.rects.length).toBeGreaterThan(1);
+        for (const r of h.rects) expect(revealPlace(p, (r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2)).toBe(i);
+      }
+    }
+  });
+
+  it('never gives a Hall\'s bit for a point in the middle of one of its solids', () => {
+    let found = 0;
+    for (const p of plans)
+      p.halls.forEach((h, i) =>
+        h.solids.forEach((q) => {
+          const x = (q.x0 + q.x1) / 2;
+          const z = (q.z0 + q.z1) / 2;
+          const bit = revealPlace(p, x, z);
+          expect(bit).not.toBe(i);
+          // Another place holding the point is a Passage, or a Hall whose floor does.
+          if (bit >= 0 && bit < p.halls.length) expect(p.halls[bit]!.rects.some((r) => inBox(r, x, z))).toBe(true);
+          else expect(bit === -1 || bit >= p.halls.length).toBe(true);
+          found++;
+        }),
+      );
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it('leaves a rect Hall as it was: its whole rect is its bit', () => {
+    let found = 0;
+    for (const p of plans)
+      p.halls.forEach((h, i) => {
+        if (h.shape !== 'rect') return;
+        expect(h.rects).toEqual([h.rect]);
+        expect(revealPlace(p, h.rect.x0, h.rect.z0)).toBe(i);
+        expect(revealPlace(p, h.cx, h.cz)).toBe(i);
+        found++;
       });
     expect(found).toBeGreaterThan(0);
   });

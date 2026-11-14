@@ -5,7 +5,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
-import { flatRooms } from '../sim/delver/flat.testdata';
+import { flatRooms, rooms7b } from '../sim/delver/flat.testdata';
 import { DELVER_MAP_MIN_SPAN, delverMapLayout, delverMapStatus, floorMapLayout, MAP_KEY, mapKeyAction } from './floorMap';
 
 const tuning = loadTuningData();
@@ -192,4 +192,37 @@ describe('delverMapLayout on turning Passages', () => {
       expect(l.rects).toHaveLength(plan.halls.length + pieces);
     }
   }, 120_000);
+});
+
+describe('delverMapLayout on shaped Halls (Stage 7b)', () => {
+  const shaped = rooms7b(tuning);
+  const t = { ...shaped, delver: { ...shaped.delver, tiers: 1, floorsPerTier: 3 } };
+  const found = Array.from({ length: 40 }, (_, k) => k + 1)
+    .map((k) => {
+      const arena = `gen:greybox:${k}`;
+      const m = createMatch(t, { format: 'Gauntlet', arena, bestOf: 1, seed: 7, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+      return { m, plan: floorOf(t, m.arena)!.plan };
+    })
+    .find((e) => e.plan.halls.some((h) => h.shape === 'L' || h.shape === 'ring'))!;
+
+  it('draws a revealed shaped Hall as one hall rect per rects entry, in rect order, with its kind and the right board coordinates', () => {
+    const { m, plan } = found;
+    const i = plan.halls.findIndex((h) => h.shape === 'L' || h.shape === 'ring');
+    const hall = plan.halls[i]!;
+    expect(hall.rects.length).toBeGreaterThan(1);
+    const l = delverMapLayout(plan, withReveal(emptyReveal(plan), i), m.duel.fighters, 0, delverMapStatus(m, plan));
+    expect(l.rects).toHaveLength(hall.rects.length);
+    for (const r of l.rects) expect(r).toMatchObject({ hall: true, kind: hall.kind });
+    // The board is the map seen from above: x1 of the rect is its left edge. Bounds come from all the rects, here the Hall's rect.
+    const span = Math.max(hall.rect.x1 - hall.rect.x0, hall.rect.z1 - hall.rect.z0, DELVER_MAP_MIN_SPAN);
+    const scale = (1 - 2 * 0.06) / span;
+    const cx = -(hall.rect.x0 + hall.rect.x1) / 2;
+    const cz = -(hall.rect.z0 + hall.rect.z1) / 2;
+    hall.rects.forEach((r, k) => {
+      expect(l.rects[k]!.x0).toBeCloseTo(0.5 + (-r.x1 - cx) * scale);
+      expect(l.rects[k]!.x1).toBeCloseTo(0.5 + (-r.x0 - cx) * scale);
+      expect(l.rects[k]!.y0).toBeCloseTo(0.5 + (-r.z1 - cz) * scale);
+      expect(l.rects[k]!.y1).toBeCloseTo(0.5 + (-r.z0 - cz) * scale);
+    });
+  });
 });

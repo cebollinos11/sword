@@ -112,7 +112,7 @@ export class Minimap {
   }
 
   /**
-   * A Delver Run's minimap (docs/plans/delver.md, Stage 5): the revealed Halls and Passages of `plan` as floor shapes in a window of
+   * A Delver Run's minimap (docs/plans/delver.md, Stage 5): the revealed Halls (each as its `rects`, so no solid or pillar is drawn) and Passages of `plan` as floor shapes in a window of
    * DELVER_MINIMAP_RADIUS metres round Fighter `me` (turned as the Battle's: up is +z, +x to the left), then the markers of the revealed Halls,
    * the promoted enemies in the window, the party's arrows and `me` white. Unrevealed space draws nothing.
    */
@@ -136,7 +136,7 @@ export class Minimap {
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
     };
     plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && p.pieces.forEach((piece) => fill(piece.rect, '#3a3454')));
-    plan.halls.forEach((h, i) => isRevealed(revealed, i) && fill(h.rect, '#4a4468'));
+    plan.halls.forEach((h, i) => isRevealed(revealed, i) && h.rects.forEach((rect) => fill(rect, '#4a4468')));
     for (const m of delverMapMarks(plan, revealed, status, me)) {
       const p = at(m.x, m.z);
       const r = Math.max(3, px / 40);

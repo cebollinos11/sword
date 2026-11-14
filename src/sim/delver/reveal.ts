@@ -1,7 +1,7 @@
 /**
  * A Floor's Reveal (docs/plans/delver.md, Stage 5): the shared fog of war, one bit per Hall (`plan.halls` order) and then one per Passage
  * (`plan.passages` order), in 32-bit words held as a plain number array so the Run's state hashes and snapshots structurally. Pure.
- * A place is revealed by entering it (a living present Player's Fighter stands inside its rect); nothing in the Simulation reads the Reveal.
+ * A place is revealed by entering it (a living present Player's Fighter stands inside one of its rects: a Hall's `rects`, its floor seen from above, never its solids); nothing in the Simulation reads the Reveal.
  */
 import type { Rect } from '../../mapEditor/source';
 import type { FloorPlan } from './plan';
@@ -23,9 +23,9 @@ export function isRevealed(revealed: readonly number[], bit: number): boolean {
 /** Whether (x, z) lies in `r`: inclusive on x0 and z0, exclusive on x1 and z1, so a seam between two rects belongs to exactly one. */
 const inRect = (r: Rect, x: number, z: number): boolean => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
 
-/** The bit of the Hall whose rect holds (x, z), else of the Passage one of whose pieces holds it (never its bounding rect: a turning Passage's corner of that is no place), else -1. Halls first, ties by the lower index. */
+/** The bit of the Hall one of whose `rects` holds (x, z) (a point in a solid, a notch or a ring's core, is in no Hall), else of the Passage one of whose pieces holds it (never its bounding rect: a turning Passage's corner of that is no place), else -1. Halls first, ties by the lower index. */
 export function revealPlace(plan: Pick<FloorPlan, 'halls' | 'passages'>, x: number, z: number): number {
-  const h = plan.halls.findIndex((hall) => inRect(hall.rect, x, z));
+  const h = plan.halls.findIndex((hall) => hall.rects.some((r) => inRect(r, x, z)));
   if (h >= 0) return h;
   const p = plan.passages.findIndex((pass) => pass.pieces.some((piece) => inRect(piece.rect, x, z)));
   return p >= 0 ? plan.halls.length + p : -1;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { flatFloors } from './delver/flat.testdata';
+import { flatFloors, rooms7b } from './delver/flat.testdata';
 import { arenaOf } from './arena';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -261,5 +261,56 @@ describe('dropSpots on a levelled Floor', () => {
     // And a fall on the Deck lies on the Deck.
     const d = centre(g.deck);
     expect(dropSpots(f.plan, f.field.arena, lv, d.x, d.z, g.y, 1)[0]!.y).toBe(g.y);
+  });
+});
+
+describe('dropSpots round pillars and in a shaped Hall (Stage 7b)', () => {
+  const shaped = rooms7b(loadTuningData());
+  const floors = Array.from({ length: 40 }, (_, k) => delverFloor(shaped, k + 1, 1 + (k % 3)));
+  const lv = shaped.battle.levels;
+  const near = (q: { x0: number; z0: number; x1: number; z1: number }, s: { x: number; z: number }) => Math.hypot(s.x - Math.min(q.x1, Math.max(q.x0, s.x)), s.z - Math.min(q.z1, Math.max(q.z0, s.z)));
+
+  it('keeps every spot at least DROP_MARGIN from a pillar of the Hall, and inside its rects shrunk by the margin', () => {
+    let found = 0;
+    for (const f of floors)
+      for (const hall of f.plan.halls) {
+        const q = hall.pillars[0];
+        if (!q) continue;
+        // A fall 1.5 m off the pillar's west face, on the Hall's floor.
+        const x = q.x0 - 1.5;
+        const z = (q.z0 + q.z1) / 2;
+        if (!hall.rects.some((r) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1)) continue;
+        const spots = dropSpots(f.plan, f.field.arena, lv, x, z, 0, 6);
+        expect(spots).toHaveLength(6);
+        for (const s of spots) {
+          for (const p of hall.pillars) expect(near(p, s)).toBeGreaterThanOrEqual(DROP_MARGIN - 1e-9);
+          expect(hall.rects.some((r) => inside(r, s))).toBe(true);
+        }
+        found++;
+      }
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it('keeps the spots of a fall in an L\'s arm in that arm\'s rect', () => {
+    let found = 0;
+    for (const f of floors)
+      for (const hall of f.plan.halls) {
+        if (hall.shape !== 'L') continue;
+        for (const r of hall.rects) {
+          const c = { x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 };
+          const spots = dropSpots(f.plan, f.field.arena, lv, c.x, c.z, 0, 3);
+          for (const s of spots) expect(inside(r, s)).toBe(true);
+          found++;
+        }
+      }
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it('is never empty: a fall point wedged among pillars still gets its spot', () => {
+    const f = floors.find((b) => b.plan.halls.some((h) => h.pillars.length > 0))!;
+    const hall = f.plan.halls.find((h) => h.pillars.length > 0)!;
+    const q = hall.pillars[0]!;
+    const spots = dropSpots(f.plan, f.field.arena, lv, (q.x0 + q.x1) / 2, (q.z0 + q.z1) / 2, 0, 2);
+    expect(spots).toHaveLength(2);
   });
 });
