@@ -115,6 +115,12 @@ STEP 5: CLOSE THE STAGE
 3. From Stage 1 on, use the run skill to play the Stage in `npm run dev` (a solo Gauntlet Run; for
    Stage 1, the generated Floor in the Map Editor at #/mapeditor?dev=1). Take screenshots of what
    the Stage added, and look at them.
+   Test with infinite-HP pilots: in the game, a Delver Run with
+   ?dev=1&delver=1&autopilot=1&immortal=1 (add speed=N to go faster); in soaks and slow tests that
+   drive a party, keep the party at max HP each Tick with withImmortalParty (src/play/driver.ts),
+   so a Run reaches the deep Floors and the Boss Floors instead of ending at a wipe. The immortal
+   party is a test harness only: it never touches the Simulation or the shipped Tuning, and a test
+   of wipes, revives or a Defeat must not use it.
 4. Update docs/plans/delver.md yourself: tick the Stage under Progress, update the Status line, and
    add the Stage's "### Result" (what was built, what changed from the plan and why, test counts,
    measured timings, and what to try in a playtest). Update CONTEXT.md only for terms the code has
