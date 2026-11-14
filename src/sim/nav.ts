@@ -279,6 +279,12 @@ interface FoundJump extends Attempt {
 }
 
 /**
+ * The highest ledge (m) a shortcut jump Link climbs on a shortcuts map: a 2 m Deck, tier edge or rim and a 1 m dais, never a 4 m rim;
+ * the plan's JUMP_SHORTCUT_CAP.
+ */
+export const SHORTCUT_RISE = 2.5;
+
+/**
  * The jump Links: Jumps that land on a Walk Surface the one they leave cannot already get to by walking and dropping,
  * or (a shortcut) that land higher than a step up on one it can, but only by a way at least SHORTCUT_SAVING longer than
  * the Jump (`worth`), found two ways, each from points JUMP_PROBE_STEP apart along an edge:
@@ -289,7 +295,7 @@ interface FoundJump extends Attempt {
  *     JUMP_SLANT either way, where some eligible Walk Surface no higher than a step lies within a full Jump ahead: gaps,
  *     and the far side of them.
  * On a map that asks for `shortcuts` (`ArenaGeometry.jumpLinks`) only the first search runs, and only its tries onto a Walk Surface
- * walking already reaches: ADR 0013's shortcuts, never a roof or anything only a Jump reaches.
+ * walking already reaches and no more than SHORTCUT_RISE above where it takes off: ADR 0013's shortcuts, never a roof, a 4 m rim or anything only a Jump reaches.
  * The first Jump from a point that passes the error check (`jumpHolds`: every variant lands in the walk group it did, none deadly,
  * none dealing more than DROP_DAMAGE_LIMIT) is kept for each Walk Surface it reaches, nearest and shortest hold first.
  * A point next to one already found first tries that one's way and hold, running only its own Jump; neighbouring
@@ -452,7 +458,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
             if (!eligible(k, j)) continue;
             const rise = top - surfaceHeight(arena, k, takeoff.x, takeoff.z);
             const shortcut = reached(k, j);
-            if (shortcutsOnly && !shortcut) continue;
+            if (shortcutsOnly && (!shortcut || rise > SHORTCUT_RISE)) continue;
             if (rise > maxUp || rise < (shortcut ? stepUp : -maxDown)) continue;
             const reach = allHolds.filter((h) => ledgeReach(levels[h]!, rise, tuning) >= standoff);
             // A shortcut tries only the shortest hold that could get there: walking still does if it fails.

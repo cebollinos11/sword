@@ -6,7 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseBattleMap, type BattleMapTuning } from '../tuning';
 import { battlefieldOf, groundOf, navMesh, surfaceHeight, type JumpLink } from '../sim';
 import { walkCheck, walled } from '../sim/levels';
-import { trace } from '../sim';
+import { destinationFields, trace } from '../sim';
+import { nodeIn } from '../sim/destinations';
+import { SHORTCUT_RISE } from '../sim/nav';
 import { compileMap } from './compile';
 import { mapFileText } from './compile';
 import { turnBrush } from './mirror';
@@ -270,5 +272,155 @@ describe('a Block in an Enclosure', () => {
   it('a Block in no Enclosure compiles as before (compile.test.ts: the tower on plain floor)', () => {
     const map = compile([GROUND, { kind: 'block', id: 'tower', rect: { x0: 20, z0: -4, x1: 28, z1: 4 }, top: 6 }], [0, 6]);
     expect(map.blocks).toEqual([{ id: 'BLOCK_tower', minX: 20, minZ: -4, maxX: 28, maxZ: 4, top: 6 }]);
+  });
+});
+
+/** Stage 7c: a Hall's split levels, pits and dais, hand-built as Platforms and Ramps inside an Enclosure, on an abyss field at -8. */
+const ABYSS: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
+const hall7c = (id: string, rect: EnclosureBrush['rect'], y: number, top: number, doors: EnclosureBrush['doors']): EnclosureBrush => ({ kind: 'enclosure', id, rect, y, top, doors });
+const slab = (id: string, x0: number, z0: number, x1: number, z1: number, top: number): Brush => ({ kind: 'platform', id, rect: { x0, z0, x1, z1 }, top });
+const hallSource = (brushes: Brush[], levels: number[], objectives: { x: number; z: number; y?: number }[]) =>
+  withBrushes([ABYSS, ...brushes], levels, {
+    shortcuts: true,
+    objectives: [
+      { id: 'D', ...objectives[0]!, weight: 1, owner: 0, spawn: true },
+      { id: 'E', ...objectives[1]!, weight: 1, owner: 1, spawn: true },
+    ],
+    bases: [{ x: objectives[0]!.x, z: objectives[0]!.z }, { x: objectives[1]!.x, z: objectives[1]!.z }],
+  });
+
+const twoTiers = () =>
+  hallSource(
+    [
+      hall7c('hall', { x0: -9, z0: -11, x1: 9, z1: 11 }, 0, 6, { n: 3 }),
+      hall7c('pn', { x0: -1.5, z0: 11, x1: 1.5, z1: 17 }, 0, 4, { n: 3, s: 3 }),
+      hall7c('pe', { x0: 9, z0: -1.5, x1: 15, z1: 1.5 }, 2, 6, { e: 3, w: 3 }),
+      slab('hall-tier', -9, -11, 9, 5, 2),
+      { kind: 'ramp', id: 'hall-step0', rect: { x0: 5, z0: 5, x1: 9, z1: 9 }, lo: 0, hi: 2, up: 's', rails: ['e', 'w'] },
+    ],
+    [-8, 0, 2, 4, 6],
+    [{ x: 0, z: 0, y: 2 }, { x: 0, z: 9 }],
+  );
+const pit = (D: number) =>
+  hallSource(
+    [
+      hall7c('hall', { x0: -9, z0: -13, x1: 9, z1: 13 }, 0, D + 4, {}),
+      hall7c('pe', { x0: 9, z0: -1.5, x1: 15, z1: 1.5 }, D, D + 4, { e: 3, w: 3 }),
+      slab('hall-rim0', -9, -13, 9, -9, D),
+      slab('hall-rim1', -9, -9, -5, 9, D),
+      slab('hall-rim2', 5, -9, 9, 9, D),
+      slab('hall-rim3', -9, 9, 9, 13, D),
+      { kind: 'ramp', id: 'hall-step0', rect: { x0: -5, z0: -9, x1: -5 + 2 * D, z1: -5 }, lo: 0, hi: D, up: 'w', rails: ['n', 's'] },
+      { kind: 'ramp', id: 'hall-step1', rect: { x0: 5 - 2 * D, z0: 5, x1: 5, z1: 9 }, lo: 0, hi: D, up: 'e', rails: ['n', 's'] },
+    ],
+    [-8, 0, D, D + 4],
+    [{ x: 0, z: 0 }, { x: 12, z: 0, y: D }],
+  );
+const dais = () =>
+  hallSource(
+    [
+      hall7c('hall', { x0: -13, z0: -13, x1: 13, z1: 13 }, 0, 4, { s: 3 }),
+      hall7c('ps', { x0: -1.5, z0: -19, x1: 1.5, z1: -13 }, 0, 4, { n: 3, s: 3 }),
+      slab('hall-dais', -5, 7, 5, 13, 1),
+      { kind: 'ramp', id: 'hall-step0', rect: { x0: -3, z0: 5, x1: 3, z1: 7 }, lo: 0, hi: 1, up: 'n', rails: ['e', 'w'] },
+    ],
+    [-8, 0, 1, 4],
+    [{ x: 0, z: 0 }, { x: 0, z: 10, y: 1 }],
+  );
+
+const built = (source: ReturnType<typeof hallSource>) => {
+  const map = compileMap(source, battle).map;
+  return { map, field: fieldOf(map) };
+};
+const idx = (arena: { walk: readonly { id: string; roof?: boolean }[] }, prefix: string, roof = false) =>
+  arena.walk.findIndex((w) => w.id.startsWith(prefix) && (w.roof ?? false) === roof);
+const jumps = (arena: Parameters<typeof navMesh>[0]) => navMesh(arena, loadTuningData()).links.filter((l): l is JumpLink => l.kind === 'jump');
+
+describe('Platforms in an Enclosure (Stage 7c)', () => {
+  it('two tiers: the main tier cuts the Hall floor, keeps its roof, has a face Wall, and walks from the doorway up to it and up its step', () => {
+    const { map, field } = built(twoTiers());
+    const arena = field.arena;
+    expect(walkCheck(arena, lv)).toBeNull();
+    const underTier = (w: { points: readonly { x: number; z: number }[] }) => w.points.some((p) => p.x > -8 && p.x < 4 && p.z > -10 && p.z < 4);
+    expect(map.walk.filter((w) => w.id.startsWith('WALK_hall_') && !w.roof && w.points[0]!.y === 0 && underTier(w))).toEqual([]);
+    expect(map.walk.some((w) => w.id.startsWith('WALK_hall_') && w.roof && w.points[0]!.y === 6)).toBe(true);
+    const faces = map.walls.filter((w) => w.id.startsWith('WALL_hall-tier_') && w.a.z === 5 && w.b.z === 5 && Math.min(w.a.x, w.b.x) === -9 && Math.max(w.a.x, w.b.x) === 5);
+    expect(faces.length).toBeGreaterThan(0);
+    expect(faces.every((w) => w.bottom === -1 && w.top === 2)).toBe(true);
+    const pe = idx(arena, 'WALK_pe_');
+    const tier = idx(arena, 'WALK_hall-tier');
+    expect(tier).toBeGreaterThanOrEqual(0);
+    expect(trace(arena, lv, pe, 12, 0, 6, 0, false)).toBe(tier);
+    expect(trace(arena, lv, groundOf(battle, field, 7, 10, 0), 7, 10, 7, 4, false)).toBe(tier);
+  });
+
+  it.each([2, 4])('a %i m pit compiles and walks; a Soldier drops into a 2 m pit but never a 4 m one', (D) => {
+    const { field } = built(pit(D));
+    const arena = field.arena;
+    expect(walkCheck(arena, lv)).toBeNull();
+    const rim = idx(arena, 'WALK_hall-rim0');
+    expect(rim).toBeGreaterThanOrEqual(0);
+    const floor = trace(arena, lv, rim, 0, -9.5, 0, -6, false);
+    expect(floor).toBe(-1);
+    const into = trace(arena, lv, rim, 0, -9.5, 0, -3, true);
+    if (D === 4) expect(into).toBe(-1);
+    else expect(into).toBeGreaterThanOrEqual(0);
+  });
+
+  it('a dais compiles and walks; no Soldier walks up its face, anyone steps off it, and each cell on it has one node at 1 m', () => {
+    const { map, field } = built(dais());
+    const arena = field.arena;
+    expect(walkCheck(arena, lv)).toBeNull();
+    const floor = idx(arena, 'WALK_hall_');
+    const top = idx(arena, 'WALK_hall-dais');
+    expect(trace(arena, lv, floor, 4, 4, 4, 8, true)).toBe(-1);
+    expect(trace(arena, lv, floor, -4, 4, -4, 8, true)).toBe(-1);
+    expect(trace(arena, lv, top, 0, 8, 0, 4, true)).toBe(floor);
+    const b = { ...battle, maps: { [map.name]: map } };
+    const f = destinationFields(b, field);
+    expect(f.levels).not.toBeNull();
+    let seen = 0;
+    for (let c = 0; c < f.side * f.side; c++) {
+      const x = ((c % f.side) - (f.side - 1) / 2) * f.cell;
+      const z = (Math.floor(c / f.side) - (f.side - 1) / 2) * f.cell;
+      if (!(x > -5 && x < 5 && z > 7 && z < 13)) continue;
+      seen++;
+      // The Hall's roof, a ledge a Player's Jump gets onto, may have a node of its own overhead; the Soldiers' nodes are the floors'.
+      const ks = Array.from({ length: f.levels!.start[c + 1]! - f.levels!.start[c]! }, (_, i) => f.levels!.start[c]! + i).filter((k) => !arena.walk[f.levels!.surface[k]!]!.roof);
+      expect(ks.map((k) => f.levels!.y[k])).toEqual([1]);
+      expect(nodeIn(f, c, floor)).toBe(-1);
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('shortcut jump Links: onto the tier, onto the dais, out of a 2 m pit, none out of a 4 m pit; every one a shortcut within SHORTCUT_RISE', () => {
+    const tiers = built(twoTiers()).field.arena;
+    const outer = idx(tiers, 'WALK_hall_');
+    const tier = idx(tiers, 'WALK_hall-tier');
+    expect(jumps(tiers).some((l) => l.to === tier && l.from === outer)).toBe(true);
+
+    const d = built(dais()).field.arena;
+    expect(jumps(d).some((l) => l.to === idx(d, 'WALK_hall-dais') && d.walk[l.from]!.id.startsWith('WALK_hall_'))).toBe(true);
+
+    const rims = (a: ReturnType<typeof built>['field']['arena']) => a.walk.flatMap((w, i) => (w.id.startsWith('WALK_hall-rim') ? [i] : []));
+    const p2 = built(pit(2)).field.arena;
+    const floors2 = p2.walk.flatMap((w, i) => (w.id.startsWith('WALK_hall_') && !w.roof ? [i] : []));
+    expect(jumps(p2).some((l) => floors2.includes(l.from) && rims(p2).includes(l.to))).toBe(true);
+    const p4 = built(pit(4)).field.arena;
+    const floors4 = p4.walk.flatMap((w, i) => (w.id.startsWith('WALK_hall_') && !w.roof ? [i] : []));
+    expect(jumps(p4).filter((l) => floors4.includes(l.from) && rims(p4).includes(l.to))).toEqual([]);
+
+    for (const a of [tiers, d, p2, p4])
+      for (const l of jumps(a)) {
+        expect(l.shortcut).toBe(true);
+        expect(l.lands.y - surfaceHeight(a, l.from, l.takeoff.x, l.takeoff.z)).toBeLessThanOrEqual(SHORTCUT_RISE + 1e-9);
+      }
+  });
+
+  it('the rise cap is a shortcuts map\'s only: with every Jump allowed a 4 m pit\'s floor still has a jump Link onto its rim', () => {
+    const { jumpLinks: _shortcuts, ...arena } = built(pit(4)).field.arena; // the field's own (a Battle map's) is every Jump: `jumpLinks` absent
+    const floors = arena.walk.flatMap((w, i) => (w.id.startsWith('WALK_hall_') && !w.roof ? [i] : []));
+    const rimIds = arena.walk.flatMap((w, i) => (w.id.startsWith('WALK_hall-rim') ? [i] : []));
+    expect(jumps(arena).some((l) => floors.includes(l.from) && rimIds.includes(l.to))).toBe(true);
   });
 });
