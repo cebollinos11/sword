@@ -3,6 +3,7 @@ import { loadTuningData, type TuningData } from '../tuning';
 import { floorOf } from '../sim/delver';
 import { arenaOf, createMatch, exitDoor, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, secondsToTicks, stepMatch, type MatchState } from '../sim';
 import { delverScore, hallBanner, hallFade, hallScore, hpText, runResultLine, runTime, statsText } from './hud';
+import { flatFloors } from '../sim/delver/flat.testdata';
 
 describe('the Run’s HUD text', () => {
   it('names the Floor, the Hall’s row of five and the Run seed; the Boss Hall by its Floor', () => {
@@ -75,7 +76,7 @@ describe('the Run’s results line without Halls', () => {
 });
 
 describe('the fade between a Delver Run’s Floors', () => {
-  const base = loadTuningData();
+  const base = flatFloors(loadTuningData());
   const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
   const idle = (m: MatchState) => m.duel.fighters.map(() => IDLE_INTENT);
   const start = () => createMatch(tuning, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });

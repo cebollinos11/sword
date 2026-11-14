@@ -9,11 +9,12 @@ import type { TuningData } from '../tuning';
 import { stepMatch, type MatchState } from '../sim';
 import { CHECKSUM_INTERVAL, type SessionEvent } from './session';
 import { startRun, type Step } from './coopHarness';
+import { flatFloors } from '../sim/delver/flat.testdata';
 
 afterEach(() => vi.restoreAllMocks());
 
 /** Three Floors of one Tier, the Fighters' default Tuning Data otherwise. */
-const DELVER = { tune: (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 3 } }) };
+const DELVER = { tune: (t: TuningData): TuningData => flatFloors({ ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 3 } }) };
 
 /** The Tick the party is set down beside the first Warband (the same edit on every peer, so a Rollback over it repeats it). */
 const SET_DOWN = 2;

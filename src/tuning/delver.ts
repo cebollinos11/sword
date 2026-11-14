@@ -39,6 +39,20 @@ export interface DelverFloorTuning {
   readonly follow: number;
   /** The most layouts tried for one (seed, Floor) (whole, >= 1). */
   readonly maxAttempts: number;
+  /** The Floor's levels (docs/plans/delver.md, Stage 6). */
+  readonly levels: DelverLevelsTuning;
+}
+
+/** How a Floor grows levels: Halls at whole levels of `LEVEL_RISE` (2 m), sloped Passages and galleries. `max` 0 and `galleryPercent` 0 make every Floor flat. */
+export interface DelverLevelsTuning {
+  /** The highest Hall level (whole, 0 to 6; 0: a flat Floor). */
+  readonly max: number;
+  /** The fewest distinct Hall levels a Floor must have (whole, 1 to `max + 1`; the judge's `levels` rule). */
+  readonly min: number;
+  /** The chance (in 100) that a tree Passage rises or falls a level. */
+  readonly changePercent: number;
+  /** The share (in 100) of the Halls with room for a gallery that get one. */
+  readonly galleryPercent: number;
 }
 
 /** A Warband template (docs/plans/delver.md, Stage 3): the Troops a Warband deploys with, in list order (the first its rank and file), and its HP scale. */
@@ -134,6 +148,12 @@ export interface DelverTuning {
  * zone and a spawn 1.5 m out, each plus that margin. (The Floor generator's constants live in `sim/delver`, which tuning must not import.)
  */
 const MIN_HALL_HALF = 4;
+
+/** A level's rise (m): `LEVEL_RISE` of `sim/delver/plan.ts`, copied since tuning must not import the Simulation (a test keeps the two equal). A sloped Passage rises one level over its whole length. */
+const LEVEL_RISE = 2;
+
+/** The highest Hall level `levels.max` may name. */
+const MAX_LEVELS = 6;
 
 /** The most Troops a Floor's Crowd may index: `battle.troops`, one Boss Troop per tier with a Boss, and every elite template row (`parseDelver` refuses more; the wire reads a Troop index below it). */
 export const MAX_FLOOR_TROOPS = 64;
@@ -337,6 +357,17 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   if (follow < 1) fail(`${w}.follow`, 'a number >= 1', follow);
   const maxAttempts = whole(f, 'maxAttempts', w, 1);
 
+  const lv = record(f.levels, `${w}.levels`);
+  const lw = `${w}.levels`;
+  const levelMax = whole(lv, 'max', lw, 0);
+  if (levelMax > MAX_LEVELS) fail(`${lw}.max`, `a whole number 0 to ${MAX_LEVELS}`, levelMax);
+  const levelMin = whole(lv, 'min', lw, 1);
+  if (levelMin > levelMax + 1) fail(`${lw}.min`, `a whole number 1 to max + 1 (${levelMax + 1})`, levelMin);
+  const changePercent = percent(lv, 'changePercent', lw);
+  const galleryPercent = percent(lv, 'galleryPercent', lw);
+  // A sloped Passage rises one level over its whole length, so it is never steeper than 1 in 2 (MAX_SLOPE).
+  if (levelMax > 0 && minPassage < 2 * LEVEL_RISE) fail(`${w}.minPassage`, `at least 2 * LEVEL_RISE (${2 * LEVEL_RISE}) when levels.max is above 0, so a sloped Passage is never steeper than 1 in 2`, minPassage);
+
   return {
     tiers,
     floorsPerTier,
@@ -355,6 +386,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     warbands,
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent } },
   };
 }

@@ -13,8 +13,9 @@ import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter
 import { IDLE_INTENT, type Intent } from './intent';
 import { addItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
+import { flatFloors } from './delver/flat.testdata';
 
-const base = loadTuningData();
+const base = flatFloors(loadTuningData());
 /** `t` with every tier's Boss removed: its last Floor is an ordinary Floor, whose Stairs are the Victory. */
 const noBosses = (t: TuningData): TuningData => ({ ...t, delver: { ...t.delver, warbands: t.delver.warbands.map(({ boss: _b, ...tier }) => tier) } });
 /** A short Run: one tier of three Floors, with Warbands (the Tuning Data's own). */

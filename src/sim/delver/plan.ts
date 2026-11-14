@@ -9,8 +9,15 @@
  * floating-point trig, every tie broken by the lower index.
  */
 import type { DelverFloorTuning } from '../../tuning/delver';
-import type { Doors, GroundPoint, Rect, Side } from '../../mapEditor/source';
+import type { Doors, Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
+
+/** A point on a Floor with its height (m). */
+export interface LevelPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+}
 
 export type DelverHallKind = 'Entrance' | 'Stairs' | 'Boss' | 'Rest' | 'Treasure' | 'Fight' | 'Empty';
 
@@ -28,6 +35,32 @@ export interface DelverHall {
   readonly kind: DelverHallKind;
   /** Metres from the Entrance by the Passage graph. */
   readonly depth: number;
+  /** Its floor's level (0 to `levels.max`): its floor stands at `y` = `level * LEVEL_RISE`. */
+  readonly level: number;
+  readonly y: number;
+  /** Its roof (m): `y + HALL_STOREY`, or `y + GALLERY_STOREY` with a gallery. */
+  readonly top: number;
+  /** A raised walkway along one wall; absent: none. */
+  readonly gallery?: DelverGallery;
+}
+
+/**
+ * A gallery: a Deck one level over its Hall's floor along one wall, reached by a Ramp inside the Hall. It is a stairwell (`high`) when a
+ * Passage leaves through that wall at the Deck's height, else a balcony. Its front edge is open: the Floor's only Jump shortcut.
+ */
+export interface DelverGallery {
+  /** The wall it runs along. */
+  readonly side: Side;
+  /** 0: the Deck at the low-coordinate end of the wall (west for n and s, south for e and w), 1: the other. */
+  readonly end: 0 | 1;
+  /** The Deck's height: the Hall's `y` + `LEVEL_RISE`. */
+  readonly y: number;
+  readonly deck: Rect;
+  readonly ramp: Rect;
+  /** The Ramp's high end, toward the Deck. */
+  readonly up: Side;
+  /** A stairwell: a Passage leaves through `side` at the Deck's height. */
+  readonly high: boolean;
 }
 
 /** A straight Passage between two Halls' facing side centres. */
@@ -43,24 +76,29 @@ export interface DelverPassage {
   readonly length: number;
   /** Whether it is one of the extra Passages after the spanning tree. */
   readonly loop: boolean;
+  /** Its door heights (m) at `a`'s and `b`'s end: the Hall's floor, or the Deck's through a gallery's wall. A sloped Passage has them one level apart. */
+  readonly ya: number;
+  readonly yb: number;
 }
 
 export interface MarkerPoint {
   readonly hall: number;
   readonly x: number;
+  /** The floor it stands on (m): its Hall's, or its Deck's. */
+  readonly y: number;
   readonly z: number;
 }
 
 /** A patrol loop: a cycle of Halls (consecutive ones joined, the last to the first) and their centres. */
 export interface DelverPatrol {
   readonly halls: readonly number[];
-  readonly points: readonly GroundPoint[];
+  readonly points: readonly LevelPoint[];
 }
 
 export interface DelverMarkers {
   /** The four Entrance spawns. */
   readonly spawns: readonly MarkerPoint[];
-  readonly stairs: { readonly hall: number; readonly zone: Rect };
+  readonly stairs: { readonly hall: number; readonly zone: Rect; readonly y: number };
   readonly fires: readonly MarkerPoint[];
   readonly pedestals: readonly MarkerPoint[];
   /** The Warband posts: one at each Fight Hall's centre. */
@@ -86,7 +124,29 @@ export interface FloorPlan {
 }
 
 /** `runPick` salts, so each choice made for one slot is independent of the others. */
-export const SALT = { gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14 } as const;
+export const SALT = {
+  gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14,
+  galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
+} as const;
+/** A level's rise (m): a Hall's floor is a whole number of levels, a Passage rises or falls one at most, a gallery's Deck stands one over its Hall's floor. */
+export const LEVEL_RISE = 2;
+/** A plain Hall's roof over its floor (m). */
+export const HALL_STOREY = 4;
+/** A gallery Hall's roof over its floor (m): the Deck stands `GALLERY_STOREY - LEVEL_RISE` = 4 m under it, more than the tallest Fighter. */
+export const GALLERY_STOREY = 6;
+/** A gallery's strip: its depth across (m), the Ramp's length and as deep as the strip, and the Hall's floor between the Ramp's foot and the side wall. */
+export const GALLERY_DEPTH = 4;
+export const GALLERY_RAMP = 4;
+export const GALLERY_APPROACH = 2;
+/** The clear space (m) a gallery leaves between its strip's inner edge and the Hall's centre. */
+export const CENTRE_CLEAR = 4;
+/** The shortest Deck (m) a gallery has, and the shortest that holds a guard's post. */
+export const DECK_MIN = 4;
+export const DECK_POST = 6;
+/** The steepest Ramp: 1 in 2 (`LEVEL_RISE / GALLERY_RAMP`; a Passage is at least twice `LEVEL_RISE` long). */
+export const MAX_SLOPE = 0.5;
+/** The highest ledge (m) a Jump shortcut may be: the real Jump reaches about 4.3 m and lands on a 2 m ledge from 3.8 m (docs/jump-reach.md). */
+export const JUMP_SHORTCUT_CAP = 2.5;
 /** The Stairs zone's half side (m). */
 export const STAIRS_HALF = 2;
 /** The metres between a Treasure Hall's three pedestals. */
@@ -107,6 +167,7 @@ const DIRS: readonly { readonly side: Side; readonly di: number; readonly dj: nu
   { side: 'w', di: -1, dj: 0 },
 ];
 const opposite = (d: number) => (d + 2) % 4;
+const SIDES: readonly Side[] = ['n', 'e', 's', 'w'];
 
 interface Edge {
   readonly to: number;
@@ -152,7 +213,10 @@ interface WorkHall {
 }
 
 /**
- * Floor `floor`'s layout for one attempt. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
+ * Floor `floor`'s layout for one attempt, with its levels (docs/plans/delver.md, Stage 6): galleries picked on the Halls with room (3b), the
+ * Halls' levels walked down the tree (3c), loops that keep the doors at most a level apart (4), door heights on the Passages (5), each gallery
+ * cut from its Hall's final rect (7) and the markers at their floors' heights (9). With `levels.max` and `galleryPercent` 0 nothing
+ * of that is picked and the plan is Stage 5's plus the new fields (every `y` 0). If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall, grown to the
  * most the gaps allow, and adds `markers.boss`; it decides nothing by a pick, and with it false the plan has no Boss key anywhere.
  */
@@ -177,7 +241,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const occupied = new Array<number>(cells).fill(-1);
   const reserved = new Array<boolean>(cells).fill(false);
   const halls: WorkHall[] = [];
-  const passages: { a: number; b: number; axis: 'x' | 'z'; loop: boolean; far: boolean }[] = [];
+  /** `from` and `d`: a tree Passage's parent Hall and the direction it leaves it by (the loops' are the Hall `h` and direction they were found from). */
+  const passages: { a: number; b: number; axis: 'x' | 'z'; loop: boolean; far: boolean; from: number; d: number }[] = [];
 
   // 2. A Hall's size when placed in cell (i, j): its half sizes, kept small enough that neighbours leave `minPassage`. Then its Walls
   // are kept off the destination fields' dots: where a Wall (cx + hw, cz + hd and the other three) lies on an even metre it would run
@@ -210,7 +275,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const b = forward ? o : h;
     const axis = d % 2 === 1 ? 'x' : 'z';
     const p = passages.length;
-    passages.push({ a, b, axis, loop, far });
+    passages.push({ a, b, axis, loop, far, from: h, d });
     // Facing sides: a's n (or e) and b's s (or w).
     halls[a]!.side[axis === 'x' ? 1 : 0] = p;
     halls[b]!.side[axis === 'x' ? 3 : 2] = p;
@@ -248,6 +313,66 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     if (useFar) reserved[chosen.c1] = true;
     join(chosen.h, o, chosen.d, false, useFar);
   }
+
+  // 3b. Galleries: a Hall's side has room for one when the wall is deep enough across (`GALLERY_DEPTH` and the clear centre) and long enough
+  // along (the Ramp, its approach and the shortest Deck); a side already holding a tree Passage needs the stairwell's room too (its Deck covers
+  // the Passage's door with a metre each side). A seeded share of the Halls with room for one get one (side n, e, s, w order).
+  const spanOf = (h: number, d: number) => {
+    const r = halls[h]!.rect;
+    return d % 2 === 0 ? { across: (r.z1 - r.z0) / 2, par: (r.x1 - r.x0) / 2 } : { across: (r.x1 - r.x0) / 2, par: (r.z1 - r.z0) / 2 };
+  };
+  const roomFor = (h: number, d: number, stairwell: boolean): boolean => {
+    const { across, par } = spanOf(h, d);
+    if (across < GALLERY_DEPTH + CENTRE_CLEAR || par < (GALLERY_RAMP + GALLERY_APPROACH + DECK_MIN) / 2) return false;
+    return !stairwell || par - GALLERY_RAMP - GALLERY_APPROACH >= w / 2 + 1;
+  };
+  const gal: ({ d: number; end: 0 | 1 } | null)[] = halls.map(() => null);
+  if (t.levels.galleryPercent > 0) {
+    const fitting = halls.map((hall, h) => [0, 1, 2, 3].filter((d) => roomFor(h, d, hall.side[d] !== -1)));
+    const withRoom = halls
+      .map((_, h) => ({ h, key: pick(h, SALT.galleryOrder, 0x1_0000_0000) }))
+      .filter((c) => fitting[c.h]!.length > 0)
+      .sort((a, b) => a.key - b.key || a.h - b.h);
+    const wanted = Math.floor((withRoom.length * t.levels.galleryPercent + 99) / 100);
+    for (const { h } of withRoom.slice(0, wanted)) {
+      const sides = fitting[h]!;
+      gal[h] = { d: sides[pick(h, SALT.gallerySide, sides.length)]!, end: pick(h, SALT.galleryEnd, 2) as 0 | 1 };
+    }
+  }
+
+  // 3c. Levels, on the tree in growth order: the first Hall's level is picked; each tree Passage then keeps its child's door at its parent's
+  // door height, or (by `changePercent`) one level up or down. A gallery's wall is flat. The child's level is its door's, less one through its
+  // own gallery's wall; when no option keeps it within 0 to `levels.max`, the gallery on this Passage's wall is dropped and the Passage is flat.
+  const lmax = t.levels.max;
+  const level = new Array<number>(halls.length).fill(0);
+  if (lmax > 0) level[0] = pick(0, SALT.levelBase, lmax + 1);
+  const doorLevel = (h: number, d: number): number => level[h]! + (gal[h]?.d === d ? 1 : 0);
+  passages.forEach((p, n) => {
+    const parent = p.from;
+    const child = p.a === parent ? p.b : p.a;
+    const dp = p.d;
+    const dc = opposite(p.d);
+    const settle = (options: readonly number[]): boolean => {
+      for (const delta of options) {
+        const lc = doorLevel(parent, dp) + delta - (gal[child]?.d === dc ? 1 : 0);
+        if (lc >= 0 && lc <= lmax) {
+          level[child] = lc;
+          return true;
+        }
+      }
+      return false;
+    };
+    let options = [0];
+    if (lmax > 0 && gal[parent]?.d !== dp && gal[child]?.d !== dc && pick(n, SALT.levelChange, 100) < t.levels.changePercent) {
+      const up = pick(n, SALT.levelUp, 2) === 1 ? 1 : -1;
+      options = [up, -up, 0];
+    }
+    if (!settle(options)) {
+      if (gal[parent]?.d === dp) gal[parent] = null;
+      else gal[child] = null;
+      settle([0]);
+    }
+  });
 
   // 4. Loops: extra Passages between Halls at least 3 Passages apart in the tree, to the nearest Hall that way.
   const treeAdj: number[][] = halls.map(() => []);
@@ -295,6 +420,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         if (b < 0 || halls[b]!.side[opposite(d)] !== -1) continue;
         if (passages.some((p) => (p.a === h && p.b === b) || (p.a === b && p.b === h))) continue;
         if (apart[h]![b]! < 3) continue;
+        // Levels: the doors at most one level apart, equal through a gallery's wall, which then needs the stairwell's room.
+        const dh = doorLevel(h, d);
+        const db = doorLevel(b, opposite(d));
+        const wallH = gal[h]?.d === d;
+        const wallB = gal[b]?.d === opposite(d);
+        if (Math.abs(dh - db) > 1 || ((wallH || wallB) && dh !== db)) continue;
+        if ((wallH && !roomFor(h, d, true)) || (wallB && !roomFor(b, opposite(d), true))) continue;
         out.push({ h, b, d, c1, far });
       }
     }
@@ -322,15 +454,16 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const plannedPassages: DelverPassage[] = passages.map((p, n) => {
     const ha = halls[p.a]!;
     const hb = halls[p.b]!;
-    if (p.axis === 'x') {
-      doors[p.a]!.e = w;
-      doors[p.b]!.w = w;
-    } else {
-      doors[p.a]!.n = w;
-      doors[p.b]!.s = w;
-    }
+    // The sides it leaves a (n or e) and b (s or w) by, and its door heights there (a gallery's wall: the Deck's).
+    const sa = p.axis === 'x' ? 1 : 0;
+    const sb = p.axis === 'x' ? 3 : 2;
+    const ya = doorLevel(p.a, sa) * LEVEL_RISE;
+    const yb = doorLevel(p.b, sb) * LEVEL_RISE;
+    // A Hall's doors list only the Passages attached at its floor; a gallery's wall is cut by the Passage's own doorway.
+    if (gal[p.a]?.d !== sa) doors[p.a]![SIDES[sa]!] = w;
+    if (gal[p.b]?.d !== sb) doors[p.b]![SIDES[sb]!] = w;
     const rect = passageRect(p);
-    return { id: `pass${n}`, a: p.a, b: p.b, axis: p.axis, rect, length: Math.abs(ha.cx - hb.cx) + Math.abs(ha.cz - hb.cz), loop: p.loop };
+    return { id: `pass${n}`, a: p.a, b: p.b, axis: p.axis, rect, length: Math.abs(ha.cx - hb.cx) + Math.abs(ha.cz - hb.cz), loop: p.loop, ya, yb };
   });
 
   const n = halls.length;
@@ -371,6 +504,29 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       if (p.a === stairs || p.b === stairs) plannedPassages[n] = { ...plannedPassages[n]!, rect: passageRect(p) };
     });
   }
+
+  /** Hall `h`'s floor height (m). */
+  const hy = (h: number): number => level[h]! * LEVEL_RISE;
+
+  // 7b. Each gallery's geometry from its Hall's final rect (the Boss Hall's grown): a strip `GALLERY_DEPTH` in from its wall, cut along the
+  // wall into the Deck (from one corner), the Ramp (rising toward the Deck) and an approach of the Hall's own floor.
+  const galleryOf = new Array<DelverGallery | undefined>(n).fill(undefined);
+  halls.forEach((hall, h) => {
+    const g = gal[h];
+    if (!g) return;
+    const r = hall.rect;
+    const side = SIDES[g.d]!;
+    const alongX = g.d % 2 === 0;
+    const u0 = alongX ? r.x0 : r.z0;
+    const u1 = alongX ? r.x1 : r.z1;
+    const [d0, d1, r0, r1] = g.end === 0 ? [u0, u1 - GALLERY_APPROACH - GALLERY_RAMP, u1 - GALLERY_APPROACH - GALLERY_RAMP, u1 - GALLERY_APPROACH] : [u0 + GALLERY_APPROACH + GALLERY_RAMP, u1, u0 + GALLERY_APPROACH, u0 + GALLERY_APPROACH + GALLERY_RAMP];
+    // Across the wall the strip is `GALLERY_DEPTH` deep: n and e walls are at the high coordinate, s and w at the low one.
+    const across = (): [number, number] => (g.d <= 1 ? [(alongX ? r.z1 : r.x1) - GALLERY_DEPTH, alongX ? r.z1 : r.x1] : [alongX ? r.z0 : r.x0, (alongX ? r.z0 : r.x0) + GALLERY_DEPTH]);
+    const [c0, c1] = across();
+    const rect = (a: number, b: number): Rect => (alongX ? { x0: a, z0: c0, x1: b, z1: c1 } : { x0: c0, z0: a, x1: c1, z1: b });
+    const up: Side = alongX ? (g.end === 0 ? 'w' : 'e') : g.end === 0 ? 's' : 'n';
+    galleryOf[h] = { side, end: g.end, y: level[h]! * LEVEL_RISE + LEVEL_RISE, deck: rect(d0, d1), ramp: rect(r0, r1), up, high: hall.side[g.d] !== -1 };
+  });
 
   // In line: straight on from the Entrance, through each Hall by the side opposite the one entered.
   const inLine: number[] = [];
@@ -464,26 +620,38 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   cycles.sort((a, b) => b.halls.length - a.halls.length || a.order - b.order);
   const patrols: DelverPatrol[] = cycles.slice(0, t.patrols).map((c) => ({
     halls: c.halls,
-    points: c.halls.map((h) => ({ x: halls[h]!.cx, z: halls[h]!.cz })),
+    points: c.halls.map((h) => ({ x: halls[h]!.cx, y: hy(h), z: halls[h]!.cz })),
   }));
 
   // 9. Markers.
-  const at = (h: number, dx = 0): MarkerPoint => ({ hall: h, x: halls[h]!.cx + dx, z: halls[h]!.cz });
+  const at = (h: number, dx = 0): MarkerPoint => ({ hall: h, x: halls[h]!.cx + dx, y: hy(h), z: halls[h]!.cz });
+  // A Fight Hall whose gallery's Deck is long enough has its post on the Deck: at its centre along the wall, 2 m in from the wall.
+  const postOf = (h: number): MarkerPoint => {
+    const g = galleryOf[h];
+    if (!g) return at(h);
+    const alongX = g.side === 'n' || g.side === 's';
+    if ((alongX ? g.deck.x1 - g.deck.x0 : g.deck.z1 - g.deck.z0) < DECK_POST) return at(h);
+    const r = halls[h]!.rect;
+    const mid = alongX ? (g.deck.x0 + g.deck.x1) / 2 : (g.deck.z0 + g.deck.z1) / 2;
+    const x = alongX ? mid : g.side === 'e' ? r.x1 - 2 : r.x0 + 2;
+    const z = alongX ? (g.side === 'n' ? r.z1 - 2 : r.z0 + 2) : mid;
+    return { hall: h, x, y: g.y, z };
+  };
   const ent = halls[entrance]!;
   const spawns: MarkerPoint[] = [
-    { hall: entrance, x: ent.cx - SPAWN_OFFSET, z: ent.cz - SPAWN_OFFSET },
-    { hall: entrance, x: ent.cx + SPAWN_OFFSET, z: ent.cz - SPAWN_OFFSET },
-    { hall: entrance, x: ent.cx - SPAWN_OFFSET, z: ent.cz + SPAWN_OFFSET },
-    { hall: entrance, x: ent.cx + SPAWN_OFFSET, z: ent.cz + SPAWN_OFFSET },
+    { hall: entrance, x: ent.cx - SPAWN_OFFSET, y: hy(entrance), z: ent.cz - SPAWN_OFFSET },
+    { hall: entrance, x: ent.cx + SPAWN_OFFSET, y: hy(entrance), z: ent.cz - SPAWN_OFFSET },
+    { hall: entrance, x: ent.cx - SPAWN_OFFSET, y: hy(entrance), z: ent.cz + SPAWN_OFFSET },
+    { hall: entrance, x: ent.cx + SPAWN_OFFSET, y: hy(entrance), z: ent.cz + SPAWN_OFFSET },
   ];
   const st = halls[stairs]!;
   const hallsOfKind = (k: DelverHallKind) => halls.flatMap((_, h) => (kind[h] === k ? [h] : []));
   const markers: DelverMarkers = {
     spawns,
-    stairs: { hall: stairs, zone: { x0: st.cx - STAIRS_HALF, z0: st.cz - STAIRS_HALF, x1: st.cx + STAIRS_HALF, z1: st.cz + STAIRS_HALF } },
+    stairs: { hall: stairs, zone: { x0: st.cx - STAIRS_HALF, z0: st.cz - STAIRS_HALF, x1: st.cx + STAIRS_HALF, z1: st.cz + STAIRS_HALF }, y: hy(stairs) },
     fires: hallsOfKind('Rest').map((h) => at(h)),
     pedestals: hallsOfKind('Treasure').flatMap((h) => [at(h, -PEDESTAL_GAP), at(h), at(h, PEDESTAL_GAP)]),
-    posts: hallsOfKind('Fight').map((h) => at(h)),
+    posts: hallsOfKind('Fight').map(postOf),
     patrols,
     ...(bossHall ? { boss: at(stairs) } : {}),
   };
@@ -492,7 +660,11 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const d = doors[k]!;
     const ordered: Record<string, number> = {};
     for (const side of ['n', 'e', 's', 'w'] as const) if (d[side] !== undefined) ordered[side] = d[side];
-    return { id: `hall${k}`, i: h.i, j: h.j, cx: h.cx, cz: h.cz, rect: h.rect, doors: ordered, kind: kind[k]!, depth: depth[k]! };
+    const gallery = galleryOf[k];
+    return {
+      id: `hall${k}`, i: h.i, j: h.j, cx: h.cx, cz: h.cz, rect: h.rect, doors: ordered, kind: kind[k]!, depth: depth[k]!,
+      level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
+    };
   });
   return { seed, floor, attempt, halls: outHalls, passages: plannedPassages, entrance, stairs, mainPath, inLine, markers };
 }

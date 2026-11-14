@@ -6,8 +6,9 @@ import { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
 import { stepMatchWith, type Controller } from './controller';
 import { createHallAi } from './hallAi';
 import { lineupAis, type Lineup } from './lineup';
+import { flatFloors } from '../sim/delver/flat.testdata';
 
-const base = loadTuningData();
+const base = flatFloors(loadTuningData());
 /** A short Run: one tier of three Floors, with Warbands (the Tuning Data's own). */
 const warbanded: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
 /** The same on an empty Floor (`postFill` and `patrolFill` 0: still a Crowd, of no Soldiers), for the cases that need no enemy. */

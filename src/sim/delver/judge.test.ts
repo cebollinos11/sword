@@ -2,8 +2,10 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { checkMap } from '../../mapEditor/checks';
 import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
-import { deadly } from '../arena';
+import { arenaOf, deadly } from '../arena';
 import { groundOf } from '../battlefield';
+import { navMesh, type JumpLink } from '../nav';
+import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
@@ -17,13 +19,31 @@ let inLine: DelverFloor;
 let bossFloor: DelverFloor;
 let bossInLine: DelverFloor;
 
+/** The first Floor of a seed from 1 whose dealt plan has a Hall in line with its Entrance at the Entrance's own height (sight there is not cut by a level). */
+function firstInLine(floor: number, boss: boolean): DelverFloor {
+  for (let seed = 1; seed <= 80; seed++) {
+    if (!planFloor(t, seed, floor, 0, boss).inLine.length && !planFloor(t, seed, floor, 1, boss).inLine.length) continue;
+    const f = delverFloor(tuning, seed, floor);
+    const first = f.plan.inLine[0];
+    if (first !== undefined && f.plan.halls[first]!.y === f.plan.halls[f.plan.entrance]!.y) return f;
+  }
+  throw new Error('no Floor with a Hall in line at the Entrance\'s height');
+}
+
 beforeAll(() => {
   floors = [1, 2, 3].map((seed) => delverFloor(tuning, seed, 1));
-  const seed = Array.from({ length: 60 }, (_, k) => k + 1).find((s) => planFloor(t, s, 1, 0).inLine.length > 0)!;
-  inLine = delverFloor(tuning, seed, 1);
+  inLine = firstInLine(1, false);
   bossFloor = delverFloor(tuning, 1, 3);
-  const bossSeed = Array.from({ length: 60 }, (_, k) => k + 1).find((s) => planFloor(t, s, 3, 0, true).inLine.length > 0)!;
-  bossInLine = delverFloor(tuning, bossSeed, 3);
+  bossInLine = firstInLine(3, true);
+}, 120_000);
+
+/** Levelled Floors found by seed: one with a gallery (a balcony and a stairwell between them) and one with a sloped Passage. */
+let withGallery: DelverFloor;
+let withSlope: DelverFloor;
+beforeAll(() => {
+  const found = Array.from({ length: 40 }, (_, k) => delverFloor(tuning, k + 1, 1));
+  withGallery = found.find((f) => f.plan.halls.some((h) => h.gallery))!;
+  withSlope = found.find((f) => f.plan.passages.some((p) => p.ya !== p.yb))!;
 }, 120_000);
 
 const good = () => floors[0]!;
@@ -45,7 +65,8 @@ describe('the Delver Floor judge', () => {
   it('passes real Floors with no reasons, first try', () => {
     for (const f of floors) {
       expect(f.judgement).toEqual({ ok: true, reasons: [] });
-      expect(f.attempts).toBe(1);
+      // A layout with too few levels is rerolled (the `levels` rule), so a Floor may need a second attempt.
+      expect(f.attempts).toBeGreaterThanOrEqual(1);
       expect(judgeBuilt(t, f)).toEqual([]);
       expect(judgeFloor(tuning, f.plan).judgement.ok).toBe(true);
     }
@@ -101,36 +122,43 @@ describe('the Delver Floor judge', () => {
     expect(reasons.some((r) => r.startsWith(`halls: ${plan.halls[k]!.id} `))).toBe(true);
   });
 
-  it('passages: refuses a loop Passage whose Brush is gone, the Halls then reached the long way round', () => {
+  it('passages: refuses a loop Passage with a Hole Brush across its middle, both ways (a Wall Brush there did not stop the fields, and a removed Brush leaves the abyss to walk on)', () => {
     const b = good();
-    const loop = b.plan.passages.find((p) => p.loop)!;
+    const loop = b.plan.passages.find((p) => p.loop && p.ya === p.yb)!;
     expect(loop).toBeDefined();
-    const source = { ...b.source, brushes: b.source.brushes.filter((br) => br.id !== loop.id) };
-    const cut = buildFromSource(tuning, b.plan, source);
+    const r = loop.rect;
+    const mid = Math.round((loop.axis === 'x' ? r.x0 + r.x1 : r.z0 + r.z1) / 2);
+    const hole = {
+      kind: 'hole' as const,
+      id: 'plug',
+      y: loop.ya,
+      rect: loop.axis === 'x' ? { x0: mid - 2, z0: r.z0, x1: mid + 2, z1: r.z1 } : { x0: r.x0, z0: mid - 2, x1: r.x1, z1: mid + 2 },
+    };
+    const cut = buildFromSource(tuning, b.plan, { ...b.source, brushes: [...b.source.brushes, hole] });
     const reasons = judgeBuilt(t, cut);
-    expect(reasons.some((r) => r.startsWith(`passages: ${loop.id} `))).toBe(true);
-    // The tree's Passages are still followed.
-    expect(reasons.filter((r) => r.startsWith('passages:'))).toHaveLength(1);
-    expect(reasons.filter((r) => r.startsWith('halls:'))).toEqual([]);
+    // The field from either end, read at the other, goes round by hundreds of metres. The tree's Passages are still followed.
+    expect(reasons.filter((r2) => r2.startsWith(`passages: ${loop.id} `))).toHaveLength(2);
+    expect(reasons.filter((r2) => r2.startsWith('passages:'))).toHaveLength(2);
+    expect(reasons.filter((r2) => r2.startsWith('halls:'))).toEqual([]);
   });
 
   it('markers: refuses a fire in the abyss, and a post in another Hall', () => {
     const b = good();
     const at = abyssPoint(b);
     const fire = b.plan.markers.fires[0]!;
-    const inAbyss = { ...b.plan, markers: { ...b.plan.markers, fires: [{ hall: fire.hall, ...at }, ...b.plan.markers.fires.slice(1)] } };
+    const inAbyss = { ...b.plan, markers: { ...b.plan.markers, fires: [{ hall: fire.hall, y: fire.y, ...at }, ...b.plan.markers.fires.slice(1)] } };
     expect(judgeBuilt(t, withPlan(b, inAbyss)).some((r) => r.startsWith('markers: fire0 '))).toBe(true);
 
     const post = b.plan.markers.posts[0]!;
     const other = b.plan.halls[(post.hall + 1) % b.plan.halls.length]!;
-    const wrongHall = { ...b.plan, markers: { ...b.plan.markers, posts: [{ hall: post.hall, x: other.cx, z: other.cz }, ...b.plan.markers.posts.slice(1)] } };
+    const wrongHall = { ...b.plan, markers: { ...b.plan.markers, posts: [{ hall: post.hall, x: other.cx, y: other.y, z: other.cz }, ...b.plan.markers.posts.slice(1)] } };
     expect(judgeBuilt(t, withPlan(b, wrongHall)).some((r) => r.startsWith('markers: post0 ') && r.includes(b.plan.halls[post.hall]!.id))).toBe(true);
   });
 
   it('sight: refuses a post in the first Hall in line with the Entrance, naming it', () => {
     const b = inLine;
     const h = b.plan.halls[b.plan.inLine[0]!]!;
-    const posts = [{ hall: b.plan.inLine[0]!, x: h.cx, z: h.cz }, ...b.plan.markers.posts.slice(1)];
+    const posts = [{ hall: b.plan.inLine[0]!, x: h.cx, y: h.y, z: h.cz }, ...b.plan.markers.posts.slice(1)];
     const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, posts } });
     const reasons = judgeBuilt(t, moved);
     expect(reasons.filter((r) => r.startsWith('sight: post0 ') && r.includes(h.id))).toHaveLength(1);
@@ -164,7 +192,7 @@ describe('the judge on a Boss Floor', () => {
   it('markers: refuses the boss marker in the abyss', () => {
     const b = bossFloor;
     const at = abyssPoint(b);
-    const plan = { ...b.plan, markers: { ...b.plan.markers, boss: { hall: b.plan.markers.boss!.hall, ...at } } };
+    const plan = { ...b.plan, markers: { ...b.plan.markers, boss: { hall: b.plan.markers.boss!.hall, y: b.plan.markers.boss!.y, ...at } } };
     expect(judgeBuilt(t, withPlan(b, plan)).some((r) => r.startsWith('markers: boss '))).toBe(true);
   });
 
@@ -172,7 +200,7 @@ describe('the judge on a Boss Floor', () => {
     const b = bossInLine;
     const k = b.plan.inLine[0]!;
     const h = b.plan.halls[k]!;
-    const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, boss: { hall: k, x: h.cx, z: h.cz } } });
+    const moved = withPlan(b, { ...b.plan, markers: { ...b.plan.markers, boss: { hall: k, x: h.cx, y: h.y, z: h.cz } } });
     expect(judgeBuilt(t, moved).filter((r) => r.startsWith('sight: boss ') && r.includes(h.id))).toHaveLength(1);
     expect(judgeBuilt(t, b)).toEqual([]);
   });
@@ -220,4 +248,95 @@ describe('describeFloor', () => {
     expect(line).toContain('passes the judge');
     expect(describeFloor({ ...f, judgement: { ok: false, reasons: ['a: b'] } })).toContain('fails: a: b');
   });
+});
+
+describe('the judge on a Floor with levels', () => {
+  it('passes levelled Floors, whose Halls stand at several levels, with galleries and sloped Passages', () => {
+    for (const f of [withGallery, withSlope]) {
+      expect(f.judgement).toEqual({ ok: true, reasons: [] });
+      expect(judgeBuilt(t, f)).toEqual([]);
+      expect(new Set(f.plan.halls.map((h) => h.level)).size).toBeGreaterThanOrEqual(t.levels.min);
+    }
+    expect(withGallery.plan.halls.some((h) => h.gallery)).toBe(true);
+    expect(withSlope.plan.passages.some((p) => p.ya !== p.yb)).toBe(true);
+    expect(describeFloor(withGallery)).toMatch(/levels \d to \d \(\d Hall levels\), \d+ galleries \(\d+ balconies, \d+ stairwells\), \d+ sloped Passages/);
+  });
+
+  it('levels: refuses a plan flattened to one level, under levels.min', () => {
+    const b = withGallery;
+    expect(t.levels.min).toBeGreaterThan(1);
+    const flat = { ...b.plan, halls: b.plan.halls.map((h) => ({ ...h, level: 0, y: 0 })) };
+    expect(judgePlan(t, flat)).toEqual([`levels: 1 Hall level, at least ${t.levels.min} wanted`]);
+    expect(judgePlan(t, b.plan)).toEqual([]);
+    expect(judgeAttempt(tuning, flat).built).toBeUndefined();
+  });
+
+  it('passages: refuses a sloped Passage whose Ramp Brush is gone, the way up (or the compile) failing', () => {
+    const b = withSlope;
+    const slope = b.plan.passages.find((p) => p.ya !== p.yb)!;
+    const source = { ...b.source, brushes: b.source.brushes.filter((br) => br.id !== `${slope.id}-ramp`) };
+    expect(b.source.brushes.some((br) => br.id === `${slope.id}-ramp`)).toBe(true);
+    let reasons: string[];
+    try {
+      reasons = judgeBuilt(t, buildFromSource(tuning, b.plan, source));
+    } catch (e) {
+      if (!(e instanceof MapCompileError)) throw e;
+      return;
+    }
+    // Climbing from the low Hall to the high one is the direction that fails (the way down is a drop).
+    const [low, high] = slope.ya < slope.yb ? [slope.a, slope.b] : [slope.b, slope.a];
+    expect(reasons.some((r) => r.startsWith(`passages: ${slope.id} `) && r.includes(`from ${b.plan.halls[low]!.id}'s end to ${b.plan.halls[high]!.id}'s: no way`))).toBe(true);
+  });
+
+  it('markers: refuses a fire whose height is 2 m off its Hall\'s floor', () => {
+    const b = withGallery;
+    const fire = b.plan.markers.fires[0]!;
+    const raised = { ...b.plan, markers: { ...b.plan.markers, fires: [{ ...fire, y: fire.y + 2 }, ...b.plan.markers.fires.slice(1)] } };
+    expect(judgeBuilt(t, withPlan(b, raised)).some((r) => r.startsWith('markers: fire0 '))).toBe(true);
+  });
+
+  it('galleries: refuses a gallery whose Deck height is 2 m off', () => {
+    const b = withGallery;
+    const k = b.plan.halls.findIndex((h) => h.gallery);
+    const g = b.plan.halls[k]!.gallery!;
+    const raised = { ...b.plan, halls: b.plan.halls.map((h, i) => (i === k ? { ...h, gallery: { ...g, y: g.y + 2 } } : h)) };
+    const reasons = judgeBuilt(t, withPlan(b, raised));
+    expect(reasons.some((r) => r.startsWith(`galleries: ${b.plan.halls[k]!.id}'s Deck `))).toBe(true);
+    expect(reasons.filter((r) => !r.startsWith('galleries:'))).toEqual([]);
+  });
+
+  it('sight: takes each marker at its own height, so a post on a Deck is judged as standing there', () => {
+    // A built Floor with a Deck post passes `sight` (no reason), as the judge reads both heights.
+    const f = [withGallery, ...floors].find((x) => x.plan.markers.posts.some((q) => q.y > 0));
+    if (f) expect(judgeBuilt(t, f).filter((r) => r.startsWith('sight:') || r.startsWith('markers:'))).toEqual([]);
+  });
+
+  it('builds a navmesh with a shortcut jump Link from each gallery Hall\'s floor onto its Deck, and no other jump Link', () => {
+    const b = withGallery;
+    expect(b.map.shortcuts).toBe(true);
+    const name = floorArenaName(b.plan.seed, b.plan.floor);
+    const tn = arenaTuning(tuning, name);
+    const mesh = navMesh(arenaOf(tn, name), tn);
+    const jumps = mesh.links.filter((l): l is JumpLink => l.kind === 'jump');
+    expect(jumps.length).toBeGreaterThan(0);
+    expect(jumps.every((l) => l.shortcut)).toBe(true);
+    const arena = arenaOf(tn, name);
+    expect(jumps.every((l) => !arena.walk[l.to]!.roof)).toBe(true);
+    for (const h of b.plan.halls) {
+      const g = h.gallery;
+      if (!g) continue;
+      // The Hall's floor is cut into several Walk Surfaces round the gallery: the Jump leaves the one in front of the Deck.
+      const deck = groundOf(b.battle, b.field, (g.deck.x0 + g.deck.x1) / 2, (g.deck.z0 + g.deck.z1) / 2, g.y);
+      const onFloor = (k: number) => arena.walk[k]!.id.startsWith(`WALK_${h.id}_`) && !arena.walk[k]!.roof;
+      expect(jumps.some((l) => onFloor(l.from) && l.to === deck), `${h.id}: a jump Link from its floor onto its Deck`).toBe(true);
+    }
+    // A Floor without a gallery asks for none.
+    const flat = floors.find((f) => !f.plan.halls.some((h) => h.gallery));
+    if (flat) expect(flat.map.shortcuts).toBeUndefined();
+  });
+
+  it('no Wall of a levelled Floor stands on a 2 m destination-field cell centre', () => {
+    const at2 = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: 2 } } };
+    for (const f of [withGallery, withSlope]) expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+  }, 60_000);
 });

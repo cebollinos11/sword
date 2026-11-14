@@ -3,6 +3,7 @@ import { loadTuningData, type TuningData } from '../tuning';
 import { arenaTuning, floorArenaName, floorOf, parseFloorArena } from '../sim/delver';
 import { arenaOf, createMatch, DEFAULT_GEN_PARAMS, exitDoor, generateArena, GREYBOX_KIT, hallBehind, hallOf, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, navMesh, parseGeneratedName, runSeed, stepMatch, type MatchState } from '../sim';
 import { arenasToWarm, arenaToWarm, createArenaWorlds, warmArena, warmingWaits } from './arenaWorlds';
+import { flatFloors } from '../sim/delver/flat.testdata';
 
 describe('the Arena the Renderer draws, by the Match state’s Arena name', () => {
   const tuning = loadTuningData();
@@ -159,7 +160,7 @@ describe('the Arena worlds across a Run’s Hall change', () => {
 });
 
 describe('the Arena worlds across a Delver Run’s Floor change', () => {
-  const base = loadTuningData();
+  const base = flatFloors(loadTuningData());
   /** A short Run: one tier of three Floors. */
   const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3 } };
   const ARENA = 'gen:greybox:4242';

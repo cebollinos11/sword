@@ -20,7 +20,7 @@ export interface DelverFloor extends BuiltFloor {
  * The first layout of Floor `floor` of `seed` that builds and passes the judge. Failing all `maxAttempts` (default
  * `delver.floor.maxAttempts`), the built one (rule 1 passed, the source compiled) with the fewest reasons (ties: the first) comes back with `judgement.ok` false and
  * `attempts` = `maxAttempts`. Throws, naming the seed, the Floor and the last reason, if none even built. `opts.judge` stands
- * in for rules 3 to 6 (a test's refusals); a plan rule 1 refuses, or a source that does not compile, is refused all the same.
+ * in for rules 3 to 7 (a test's refusals); a plan rule 1 refuses, or a source that does not compile, is refused all the same.
  */
 export function delverFloor(
   tuning: Pick<TuningData, 'battle' | 'delver'>,
@@ -62,6 +62,11 @@ export function describeFloor(f: DelverFloor): string {
     `${count('Empty')} Empty`,
   ];
   const loops = plan.passages.filter((p) => p.loop).length;
+  const levels = halls.map((h) => h.level);
+  const galleries = halls.flatMap((h) => (h.gallery ? [h.gallery] : []));
+  const stairwells = galleries.filter((g) => g.high).length;
+  const sloped = plan.passages.filter((p) => p.ya !== p.yb).length;
+  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages`;
   const verdict = f.judgement.ok ? 'passes the judge' : `fails: ${f.judgement.reasons.join('; ')}`;
-  return `Floor ${plan.floor} of seed ${plan.seed >>> 0}, attempt ${plan.attempt + 1}: ${halls.length} Halls (${kinds.join(', ')}), ${plan.passages.length} Passages (${loops} loops), ${plan.markers.patrols.length} patrols; ${verdict}`;
+  return `Floor ${plan.floor} of seed ${plan.seed >>> 0}, attempt ${plan.attempt + 1}: ${halls.length} Halls (${kinds.join(', ')}), ${plan.passages.length} Passages (${loops} loops), ${plan.markers.patrols.length} patrols, ${vertical}; ${verdict}`;
 }

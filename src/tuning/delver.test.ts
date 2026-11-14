@@ -46,6 +46,7 @@ const withBossTroop = (patch: Record<string, unknown>): Raw => {
 };
 const withBossGuard = (guard: unknown): Raw => withTier({ boss: { ...bossOf(), guard } });
 const eliteOf = (): Record<string, unknown>[] => (raw().warbands as { elite: Record<string, unknown>[] }[])[2]!.elite;
+const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
   d.floor = { ...d.floor, ...patch };
@@ -90,7 +91,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10 },
+      floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 } },
     });
     expect(parse(raw())).toEqual(tuning.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -149,6 +150,16 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['patrols fractional', withFloor({ patrols: 1.5 }), /^delver\.floor\.patrols /],
     ['follow below 1', withFloor({ follow: 0.9 }), /^delver\.floor\.follow /],
     ['maxAttempts 0', withFloor({ maxAttempts: 0 }), /^delver\.floor\.maxAttempts /],
+    ['levels missing', withFloor({ levels: undefined }), /^delver\.floor\.levels /],
+    ['levels.max fractional', withFloor({ levels: { ...LEVELS, max: 1.5 } }), /^delver\.floor\.levels\.max /],
+    ['levels.max negative', withFloor({ levels: { ...LEVELS, max: -1 } }), /^delver\.floor\.levels\.max /],
+    ['levels.max 7', withFloor({ levels: { ...LEVELS, max: 7 } }), /^delver\.floor\.levels\.max /],
+    ['levels.min 0', withFloor({ levels: { ...LEVELS, min: 0 } }), /^delver\.floor\.levels\.min /],
+    ['levels.min above max + 1', withFloor({ levels: { ...LEVELS, min: 6 } }), /^delver\.floor\.levels\.min /],
+    ['levels.changePercent 101', withFloor({ levels: { ...LEVELS, changePercent: 101 } }), /^delver\.floor\.levels\.changePercent /],
+    ['levels.changePercent fractional', withFloor({ levels: { ...LEVELS, changePercent: 0.5 } }), /^delver\.floor\.levels\.changePercent /],
+    ['levels.galleryPercent negative', withFloor({ levels: { ...LEVELS, galleryPercent: -1 } }), /^delver\.floor\.levels\.galleryPercent /],
+    ['minPassage under 2 * LEVEL_RISE with levels', withFloor({ minPassage: 3 }), /^delver\.floor\.minPassage /],
     ...(['sight', 'leash', 'forgetSeconds', 'chaseSpeed', 'closeIn', 'arrive'] as const).flatMap((key): [string, Raw, RegExp][] => [
       [`${key} 0`, withKey({ [key]: 0 }), new RegExp(`^delver\\.${key} `)],
       [`${key} negative`, withKey({ [key]: -1 }), new RegExp(`^delver\\.${key} `)],
@@ -226,6 +237,13 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withTier({ elite: [] })).warbands[2]!.elite).toEqual([]);
     expect(parse({ ...raw(), elitePosts: undefined }).elitePosts).toBe(1);
     expect(parse(withKey({ elitePosts: 0 })).elitePosts).toBe(0);
+  });
+
+  it('a flat Floor (levels.max 0) takes a short Passage; levels.min may be max + 1', () => {
+    const flat = { max: 0, min: 1, changePercent: 0, galleryPercent: 0 };
+    expect(parse(withFloor({ minPassage: 3, levels: flat })).floor.levels).toEqual(flat);
+    expect(parse(withFloor({ levels: { ...LEVELS, min: 5 } })).floor.levels.min).toBe(5);
+    expect(tuning.delver.floor.levels).toEqual(LEVELS);
   });
 
   it('accepts a fractional follow', () => {

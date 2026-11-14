@@ -1425,7 +1425,7 @@ New `SALT` keys (after the Warbands' 20 to 29, so no pick collides): galleryOrde
 1. **rooms**, and new **levels**: a plan with fewer than `levels.min` distinct Hall levels (`levels: N Hall levels, at least M wanted`). Plan-only.
 2. **compile**, unchanged (`walkCheck` covers every Ramp and Deck).
 3. **halls**, unchanged.
-4. **passages**, now **both ways**: the field to a's centre read at b's centre, and to b's read at a's, each ≤ `follow × length`. A sloped Passage must be climbed and walked down.
+4. **passages**, now **both ways and along the Passage itself** (amended in Task 2's review: Hall centre to Hall centre, a stairwell's way round its Ramp and back along its Deck is up to 42 m against a 24 m Passage, and 28% of attempts were rerolled for it): the field to the point 1 m inside b's end of the Passage, on its centre line on the Walk Surface at that end's door height, read at the same point 1 m inside a's end, and the reverse, each ≥ 0 and ≤ `follow × L`, L the Passage's rect length along its axis. A cut Passage (Stage 0's case) still goes round by tens of metres; a sloped one must be climbed and walked down. Rule 3 still checks that every Hall's centre is reached.
 5. **markers**: each stands at its own `y` (was 0), on that Walk Surface (`groundOf(battle, field, x, z, y)`), not a roof, not deadly, reached.
 6. **sight**: `inSight` with both heights (the spawn's and the marker's `y`).
 7. new **galleries**: each gallery's Deck centre has a Walk Surface at the Deck's `y` that is not a roof, reached from the Entrance, and the Hall's centre is reached from it.

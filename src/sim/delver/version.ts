@@ -5,4 +5,4 @@
  * Bump it on any change to the Floor plan (`planFloor`), its Map Source (`floorSource`), the judge or the reroll.
  * Depends on nothing, so Tuning Data may import it.
  */
-export const DELVER_VERSION = 3;
+export const DELVER_VERSION = 4;

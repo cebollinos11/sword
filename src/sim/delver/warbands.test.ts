@@ -6,8 +6,9 @@ import type { FloorPlan } from './plan';
 import { floorTroops } from './troops';
 import { deployWarbands, warbandHomes, warbandPools, warbandsFit } from './warbands';
 import { arenaTuning, floorArenaName, floorOf } from './world';
+import { flatFloors } from './flat.testdata';
 
-const tuning = loadTuningData();
+const tuning = flatFloors(loadTuningData());
 const SEEDS = [1, 7, 42];
 const TIMEOUT = 120_000;
 /** The bundled Tuning with no elite posts: the Stage 3 tests that pin one Warband's Soldiers or HP to its template run on it. */

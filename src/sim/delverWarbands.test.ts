@@ -15,8 +15,9 @@ import { createMatch, doorTicksNeeded, stepMatch, takeOverFighter, type MatchSta
 import { restore, snapshot } from './snapshot';
 import type { FighterState } from './state';
 import { BOSS, CHASE, GUARD, PATROL } from './warband';
+import { flatFloors } from './delver/flat.testdata';
 
-const base = loadTuningData();
+const base = flatFloors(loadTuningData());
 /** Three Floors, one a tier (so Floor 1 is tier 1, Floor 2 tier 2, Floor 3 tier 3), with Warbands at the Tuning Data's own fill. */
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 3, floorsPerTier: 1 } };
 /** `tuning` with no Boss and no elite posts: the Stage 3 tests that count Warbands or pin their HP to a template run on it (every Floor of `tuning` is a Boss Floor). */

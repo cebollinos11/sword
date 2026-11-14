@@ -12,8 +12,9 @@ import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, type MatchOptio
 import { IDLE_INTENT } from './intent';
 import { BOSS } from './warband';
 import type { FighterState } from './state';
+import { flatFloors } from './delver/flat.testdata';
 
-const base = loadTuningData();
+const base = flatFloors(loadTuningData());
 /** Two tiers of one Floor each, each with its Boss (the Tuning Data's own), and the Boss Warband alone on its Floor: Floor 1 and the last Floor 2 are Boss Floors. */
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
 const ARENA = 'gen:greybox:4242';

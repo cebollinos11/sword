@@ -12,8 +12,9 @@ import { warbandBrain } from './warband';
 import { hashValue } from './hash';
 import { standingFighter } from './step';
 import type { FighterState, SimState } from './state';
+import { flatFloors } from './delver/flat.testdata';
 
-const tuning = loadTuningData();
+const tuning = flatFloors(loadTuningData());
 const TIMEOUT = 120_000;
 
 /** Floor `floor` (1) of Run `seed`, its Crowd deployed, and a way to make a Duel on it: the party's Fighters at the given spots, then unbound Pool slots. */

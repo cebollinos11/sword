@@ -92,6 +92,7 @@
     "emptyPercent": 30,
     "patrols": 2,
     "follow": 1.5,
-    "maxAttempts": 10
+    "maxAttempts": 10,
+    "levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 }
   }
 }

@@ -8,8 +8,9 @@ import { stepCrowd, walkDistance, walkField, type CrowdFighter, type CrowdState 
 import { battleMapOf, clearanceAt, fieldDistance, fieldToward, inSight, oneField } from './destinations';
 import { brainTicks, COLUMN, LOOSE, stepWarbands, warbandBrain } from '.';
 import { CHASE, GUARD, PATROL, RETURN, type WarbandState } from './warband';
+import { flatFloors } from './delver/flat.testdata';
 
-const tuning = loadTuningData();
+const tuning = flatFloors(loadTuningData());
 const TIMEOUT = 120_000;
 
 /**
