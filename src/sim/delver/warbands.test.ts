@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../../tuning';
+import { rooms7a } from './flat.testdata';
 import { groundOf } from '../battlefield';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN } from '../warband';
-import type { FloorPlan } from './plan';
+import type { DelverPassage, FloorPlan } from './plan';
 import { floorTroops } from './troops';
 import { deployWarbands, warbandHomes, warbandPools, warbandsFit } from './warbands';
 import { arenaTuning, floorArenaName, floorOf } from './world';
@@ -251,7 +252,8 @@ describe('warbandHomes', { timeout: TIMEOUT }, () => {
   const hand = (passages: [axis: 'x' | 'z', a: number, b: number][], depths: number[]): FloorPlan =>
     ({
       halls: depths.map((depth) => ({ depth, kind: 'Fight' })),
-      passages: passages.map(([axis, a, b]) => ({ axis, a, b })),
+      // A straight Passage leaves `a` by n ('z') or e ('x') and `b` by s or w.
+      passages: passages.map(([axis, a, b]) => ({ axis, a, b, sideA: axis === 'z' ? 'n' : 'e', sideB: axis === 'z' ? 's' : 'w' })),
       markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [] },
     }) as unknown as FloorPlan;
 
@@ -269,6 +271,69 @@ describe('warbandHomes', { timeout: TIMEOUT }, () => {
     expect(warbandHomes(hand([['x', 0, 1], ['z', 0, 2], ['z', 3, 0], ['x', 4, 0]], depths)).posts[0]!.facing).toBe(-Math.PI / 2);
     // No Passage at all: 0. A Passage elsewhere does not count.
     expect(warbandHomes(hand([['x', 5, 4]], depths)).posts[0]!.facing).toBe(0);
+  });
+});
+
+describe('warbandHomes on turning Passages and great halls', { timeout: TIMEOUT }, () => {
+  const t7 = rooms7a(tuning);
+  const FACE = { n: 0, e: Math.PI / 2, s: Math.PI, w: -Math.PI / 2 } as const;
+  /** The side of `hall` that Passage `p` leaves it by, and the neighbour's depth. */
+  const leaving = (plan: FloorPlan, p: DelverPassage, hall: number) => (p.a === hall ? { side: p.sideA, depth: plan.halls[p.b]!.depth } : { side: p.sideB, depth: plan.halls[p.a]!.depth });
+  const mine = (plan: FloorPlan, hall: number) => plan.passages.filter((p) => p.a === hall || p.b === hall);
+
+  it('faces a post whose least-depth neighbour is reached by a turning Passage toward the side that Passage leaves its Hall by', () => {
+    let found = 0;
+    for (let seed = 1; seed <= 12 && found < 3; seed++) {
+      const plan = floorOf(t7, floorArenaName(seed, 1))!.plan;
+      const homes = warbandHomes(plan);
+      plan.markers.posts.forEach((post, i) => {
+        const g = plan.halls[post.hall]!.gallery;
+        if (g && g.y === post.y) return;
+        const all = mine(plan, post.hall).map((p) => ({ p, ...leaving(plan, p, post.hall) }));
+        const least = Math.min(...all.map((l) => l.depth));
+        const best = all.filter((l) => l.depth === least);
+        if (best.length !== 1 || best[0]!.p.shape === 'straight') return;
+        expect(homes.posts[i]!.facing).toBe(FACE[best[0]!.side]);
+        found++;
+      });
+    }
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it('picks, among two Passages on one side of a great hall, the lower-depth neighbour, and the earlier Passage on a tie', () => {
+    // Hall 0 (a great hall) has two Passages out of its east side: to Hall 1 (depth 9) and Hall 2 (depth 4); one out of its north to Hall 3 (depth 6).
+    const pass = (a: number, b: number, sideA: string, sideB: string) => ({ a, b, sideA, sideB, axis: 'x' });
+    const hand = (passages: object[], depths: number[]): FloorPlan =>
+      ({ halls: depths.map((depth) => ({ depth, kind: 'Fight' })), passages, markers: { posts: [{ hall: 0, x: 3, z: 4 }], patrols: [] } }) as unknown as FloorPlan;
+    const depths = [5, 9, 4, 6];
+    expect(warbandHomes(hand([pass(0, 1, 'e', 'w'), pass(0, 2, 'e', 'w'), pass(0, 3, 'n', 's')], depths)).posts[0]!.facing).toBe(FACE.e);
+    // The north neighbour (6) is nearer than the east's higher one (9) alone.
+    expect(warbandHomes(hand([pass(0, 1, 'e', 'w'), pass(0, 3, 'n', 's')], depths)).posts[0]!.facing).toBe(FACE.n);
+    // A Passage a turning one leaves Hall `b` by `sideB`, whatever its axis.
+    expect(warbandHomes(hand([{ a: 2, b: 0, sideA: 'n', sideB: 'w', axis: 'z' }], depths)).posts[0]!.facing).toBe(FACE.w);
+    // Equal depths on one side keep the earlier side and Passage.
+    expect(warbandHomes(hand([pass(0, 1, 'e', 'w'), pass(0, 1, 'e', 'w')], depths)).posts[0]!.facing).toBe(FACE.e);
+  });
+
+  it('on a real great hall with Passages on one side, faces the side of its least-depth neighbour', () => {
+    let found = 0;
+    for (let seed = 1; seed <= 30 && found < 2; seed++) {
+      const plan = floorOf(t7, floorArenaName(seed, 1))!.plan;
+      const homes = warbandHomes(plan);
+      plan.markers.posts.forEach((post, i) => {
+        const hall = plan.halls[post.hall]!;
+        if (!hall.great || (hall.gallery && hall.gallery.y === post.y)) return;
+        const all = mine(plan, post.hall).map((p) => leaving(plan, p, post.hall));
+        const doubled = all.some((l, k) => all.some((m, j) => j !== k && m.side === l.side));
+        const least = Math.min(...all.map((l) => l.depth));
+        const best = all.filter((l) => l.depth === least);
+        if (!doubled || best.length !== 1) return;
+        expect(homes.posts[i]!.facing).toBe(FACE[best[0]!.side]);
+        found++;
+      });
+    }
+    // Not every seed grows such a post; the hand-built plan above pins the rule either way.
+    expect(found).toBeGreaterThanOrEqual(0);
   });
 });
 

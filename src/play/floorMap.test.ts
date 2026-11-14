@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { floorGraph, FLOOR_ROWS, runKit } from '../sim';
 import { loadTuningData } from '../tuning';
+import { rooms7a } from '../sim/delver/flat.testdata';
+import { floorArenaName } from '../sim/delver/world';
 import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
@@ -172,4 +174,20 @@ describe('delverMapLayout', () => {
     const skull = l.marks.find((k) => k.type === 'boss')!;
     expect(Math.hypot(stairs.bx - skull.bx, stairs.by - skull.by)).toBeGreaterThan(0);
   });
+});
+
+describe('delverMapLayout on turning Passages', () => {
+  it('draws a revealed Passage as one rect per piece, in piece order', () => {
+    const t7 = rooms7a(tuning);
+    const m = createMatch(t7, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+    for (let seed = 1; seed <= 3; seed++) {
+      const plan = floorOf(t7, floorArenaName(seed, 1))!.plan;
+      const all = Array.from({ length: plan.halls.length + plan.passages.length }).reduce<readonly number[]>((r, _, b) => withReveal(r, b), emptyReveal(plan));
+      const l = delverMapLayout(plan, all, m.duel.fighters, 0, delverMapStatus(m, plan));
+      const pieces = plan.passages.reduce((n, p) => n + p.pieces.length, 0);
+      expect(plan.passages.some((p) => p.shape !== 'straight')).toBe(true);
+      expect(l.rects.filter((r) => !r.hall)).toHaveLength(pieces);
+      expect(l.rects).toHaveLength(plan.halls.length + pieces);
+    }
+  }, 120_000);
 });

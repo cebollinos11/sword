@@ -23,11 +23,11 @@ export function isRevealed(revealed: readonly number[], bit: number): boolean {
 /** Whether (x, z) lies in `r`: inclusive on x0 and z0, exclusive on x1 and z1, so a seam between two rects belongs to exactly one. */
 const inRect = (r: Rect, x: number, z: number): boolean => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
 
-/** The bit of the Hall whose rect holds (x, z), else of the Passage whose rect holds it, else -1. Halls first, ties by the lower index. */
+/** The bit of the Hall whose rect holds (x, z), else of the Passage one of whose pieces holds it (never its bounding rect: a turning Passage's corner of that is no place), else -1. Halls first, ties by the lower index. */
 export function revealPlace(plan: Pick<FloorPlan, 'halls' | 'passages'>, x: number, z: number): number {
   const h = plan.halls.findIndex((hall) => inRect(hall.rect, x, z));
   if (h >= 0) return h;
-  const p = plan.passages.findIndex((pass) => inRect(pass.rect, x, z));
+  const p = plan.passages.findIndex((pass) => pass.pieces.some((piece) => inRect(piece.rect, x, z)));
   return p >= 0 ? plan.halls.length + p : -1;
 }
 

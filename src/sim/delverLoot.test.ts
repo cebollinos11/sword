@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { flatFloors } from './delver/flat.testdata';
+import { flatFloors, rooms7a } from './delver/flat.testdata';
 import { arenaOf } from './arena';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -116,6 +116,35 @@ describe('dropSpots', () => {
       expect(apart(spots)).toBe(true);
     }
   });
+
+  it('lays a fall in a turning Passage\'s corner piece inside that corner square shrunk by the margin (or on its middle)', () => {
+    const t7 = rooms7a(base);
+    let found = 0;
+    for (let seed = 1; seed <= 12 && found < 4; seed++) {
+      const name = floorArenaName(runSeed(`gen:greybox:${seed}`), 1);
+      const p7 = floorOf(t7, name)!.plan;
+      const at7 = arenaTuning(t7, name);
+      const a7 = arenaOf(at7, name);
+      for (const pass of p7.passages)
+        for (const piece of pass.pieces.filter((q) => q.corner)) {
+          const c = centre(piece.rect);
+          if (p7.halls.some((h) => c.x >= h.rect.x0 && c.x <= h.rect.x1 && c.z >= h.rect.z0 && c.z <= h.rect.z1)) continue;
+          const earlier = p7.passages.flatMap((o) => o.pieces).find((q) => c.x >= q.rect.x0 && c.x <= q.rect.x1 && c.z >= q.rect.z0 && c.z <= q.rect.z1)!;
+          const m = Math.min(DROP_MARGIN, (piece.rect.x1 - piece.rect.x0) / 2);
+          for (const s of dropSpots(p7, a7, at7.battle.levels, c.x, c.z, piece.y0, 3)) {
+            expect(inside(earlier.rect, s)).toBe(true);
+            if (earlier === piece) {
+              expect(s.x).toBeGreaterThanOrEqual(piece.rect.x0 + m - 1e-9);
+              expect(s.x).toBeLessThanOrEqual(piece.rect.x1 - m + 1e-9);
+              expect(s.z).toBeGreaterThanOrEqual(piece.rect.z0 + m - 1e-9);
+              expect(s.z).toBeLessThanOrEqual(piece.rect.z1 - m + 1e-9);
+            }
+          }
+          found++;
+        }
+    }
+    expect(found).toBeGreaterThan(0);
+  }, 120_000);
 
   it('clamps a fall point in a wall corner, or outside every rect, to the nearest rect', () => {
     const hall = plan.halls[0]!;

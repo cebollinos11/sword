@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
+import { rooms7a } from './flat.testdata';
 import { floorArenaName, floorOf } from './world';
 import { emptyReveal, isRevealed, revealBits, revealPlace, withReveal } from './reveal';
 
@@ -74,5 +75,44 @@ describe('revealPlace', () => {
     expect(revealPlace(twin, plan.halls[0]!.cx, plan.halls[0]!.cz)).toBe(0);
     const hallAndPassage = { halls: [plan.halls[0]!], passages: [{ ...plan.passages[0]!, rect: plan.halls[0]!.rect }] };
     expect(revealPlace(hallAndPassage, plan.halls[0]!.cx, plan.halls[0]!.cz)).toBe(0);
+  });
+});
+
+describe('revealPlace on turning Passages', () => {
+  const t7 = rooms7a(tuning);
+  const inBox = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
+  const plans = Array.from({ length: 12 }, (_, i) => floorOf(t7, floorArenaName(i + 1, 1))!.plan);
+
+  it('reveals a Passage by a point in its corner piece', () => {
+    let found = 0;
+    for (const p of plans)
+      p.passages.forEach((pass, k) => {
+        if (pass.shape !== 'L' && pass.shape !== 'S') return;
+        for (const piece of pass.pieces.filter((q) => q.corner)) {
+          const x = (piece.rect.x0 + piece.rect.x1) / 2;
+          const z = (piece.rect.z0 + piece.rect.z1) / 2;
+          if (p.halls.some((h) => inBox(h.rect, x, z))) continue;
+          const earlier = p.passages.findIndex((o) => o.pieces.some((q) => inBox(q.rect, x, z)));
+          expect(revealPlace(p, x, z)).toBe(p.halls.length + earlier);
+          if (earlier === k) found++;
+        }
+      });
+    expect(found).toBeGreaterThan(0);
+  });
+
+  it('reveals nothing for a point in a turning Passage\'s bounding rect but in none of its pieces nor any Hall', () => {
+    let found = 0;
+    for (const p of plans)
+      p.passages.forEach((pass) => {
+        if (pass.shape === 'straight') return;
+        const { x0, x1, z0, z1 } = pass.rect;
+        for (let x = x0 + 0.5; x < x1; x += 1)
+          for (let z = z0 + 0.5; z < z1; z += 1) {
+            if (p.halls.some((h) => inBox(h.rect, x, z)) || p.passages.some((o) => o.pieces.some((q) => inBox(q.rect, x, z)))) continue;
+            expect(revealPlace(p, x, z)).toBe(-1);
+            found++;
+          }
+      });
+    expect(found).toBeGreaterThan(0);
   });
 });

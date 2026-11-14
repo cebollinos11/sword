@@ -135,7 +135,7 @@ export class Minimap {
       ctx.fillStyle = colour;
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
     };
-    plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && fill(p.rect, '#3a3454'));
+    plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && p.pieces.forEach((piece) => fill(piece.rect, '#3a3454')));
     plan.halls.forEach((h, i) => isRevealed(revealed, i) && fill(h.rect, '#4a4468'));
     for (const m of delverMapMarks(plan, revealed, status, me)) {
       const p = at(m.x, m.z);

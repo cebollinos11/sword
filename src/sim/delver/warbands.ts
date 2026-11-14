@@ -32,24 +32,25 @@ const SOUTH = Math.PI;
 const WEST = -Math.PI / 2;
 
 /**
- * A guard's facing at the post in Hall `hall`: the side (n, e, s, w; the earlier on a tie) whose Passage leads to the neighbour Hall of
- * least `depth`, which is the way the party comes. 0 for a Hall with no Passage.
+ * A guard's facing at the post in Hall `hall`: the side (n, e, s, w; the earlier on a tie, and the earlier Passage within a side) whose Passage
+ * leads to the neighbour Hall of least `depth`, which is the way the party comes. A Passage leaves Hall `a` by its `sideA` and Hall `b` by its
+ * `sideB`, so a turning Passage counts for the side it leaves by, not its first leg's axis. 0 for a Hall with no Passage.
  */
 function guardFacing(plan: FloorPlan, hall: number): number {
-  // Passage `a` is west of `b` (axis 'x') or south of it (axis 'z'): a Hall's n and e neighbours are the `b` of its Passages, s and w the `a`.
   const sides = [
-    { axis: 'z', own: 'a', facing: NORTH },
-    { axis: 'x', own: 'a', facing: EAST },
-    { axis: 'z', own: 'b', facing: SOUTH },
-    { axis: 'x', own: 'b', facing: WEST },
+    { side: 'n', facing: NORTH },
+    { side: 'e', facing: EAST },
+    { side: 's', facing: SOUTH },
+    { side: 'w', facing: WEST },
   ] as const;
   let best = Infinity;
   let facing = 0;
-  for (const side of sides) {
+  for (const { side, facing: face } of sides) {
     for (const p of plan.passages) {
-      if (p.axis !== side.axis || p[side.own] !== hall) continue;
-      const depth = plan.halls[side.own === 'a' ? p.b : p.a]!.depth;
-      if (depth < best) [best, facing] = [depth, side.facing];
+      const neighbour = p.a === hall && p.sideA === side ? p.b : p.b === hall && p.sideB === side ? p.a : -1;
+      if (neighbour < 0) continue;
+      const depth = plan.halls[neighbour]!.depth;
+      if (depth < best) [best, facing] = [depth, face];
     }
   }
   return facing;

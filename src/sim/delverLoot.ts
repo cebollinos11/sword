@@ -73,9 +73,9 @@ const gap2 = (b: Box, x: number, z: number): number => {
 };
 const holds = (b: Box, x: number, z: number): boolean => x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1;
 
-/** The Hall or Passage rect a fall point belongs to: the first Hall holding it, then the first Passage, else the nearest (Halls first, the lower index on a tie). */
+/** The Hall rect or Passage piece rect (a leg or a corner) a fall point belongs to: the first Hall holding it, then the first Passage's piece, else the nearest (Halls first, then Passages and their pieces in order, the lower index on a tie). */
 function rectOf(plan: FloorPlan, x: number, z: number): Box {
-  const rects = [...plan.halls.map((h) => h.rect), ...plan.passages.map((p) => p.rect)];
+  const rects = [...plan.halls.map((h) => h.rect), ...plan.passages.flatMap((p) => p.pieces.map((piece) => piece.rect))];
   const inside = rects.find((r) => holds(r, x, z));
   if (inside) return inside;
   let best = rects[0]!;
@@ -84,7 +84,7 @@ function rectOf(plan: FloorPlan, x: number, z: number): Box {
 }
 
 /**
- * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the Hall rect holding the point, else the Passage rect, else
+ * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the Hall rect holding the point, else the rect of the Passage piece (leg or corner) holding it, else
  * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
  * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the floor nearest the fall's height `y` (`floorNear` of the Floor's `arena`: neither deadly nor a roof, above or below `y`; so a fall on a Deck lies on the Deck, one beside it on the floor, one on a Ramp on the Ramp), at `y` itself where there is none. Pure.
