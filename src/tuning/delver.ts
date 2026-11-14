@@ -41,6 +41,8 @@ export interface DelverFloorTuning {
   readonly maxAttempts: number;
   /** The Floor's levels (docs/plans/delver.md, Stage 6). */
   readonly levels: DelverLevelsTuning;
+  /** How galleries wrap and how often they are stairwells (docs/plans/delver.md, Stage 7c). */
+  readonly galleries: DelverGalleriesTuning;
   /** The chance (in 100) that a growth step takes a turning candidate (an L, S or Z Passage) when there is one; 0: no Passage ever turns (docs/plans/delver.md, Stage 7a). */
   readonly turnPercent: number;
   /** The great halls (a Hall over two neighbouring lattice cells). */
@@ -81,6 +83,16 @@ export interface DelverLevelsTuning {
   readonly changePercent: number;
   /** The share (in 100) of the Halls with room for a gallery that get one. */
   readonly galleryPercent: number;
+}
+
+/** Galleries (docs/plans/delver.md, Stage 7c), each a chance in 100. `wrapPercent` 0 and `stairPercent` 0 make every gallery as Stage 6's. */
+export interface DelverGalleriesTuning {
+  /** The chance that a gallery wraps onto the next wall (an L) when an L fits. */
+  readonly wrapPercent: number;
+  /** The chance that a wrapped gallery goes on to the wall after (a U) when a U fits. */
+  readonly uPercent: number;
+  /** The chance that a gallery Hall with a fitting side holding a tree Passage takes its gallery on such a side (a stairwell). */
+  readonly stairPercent: number;
 }
 
 /** A Warband template (docs/plans/delver.md, Stage 3): the Troops a Warband deploys with, in list order (the first its rank and file), and its HP scale. */
@@ -413,6 +425,9 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   // A sloped Passage rises one level over its whole length, so it is never steeper than 1 in 2 (MAX_SLOPE).
   if (levelMax > 0 && minPassage < 2 * LEVEL_RISE) fail(`${w}.minPassage`, `at least 2 * LEVEL_RISE (${2 * LEVEL_RISE}) when levels.max is above 0, so a sloped Passage is never steeper than 1 in 2`, minPassage);
 
+  const ga = record(f.galleries, `${w}.galleries`);
+  const galleries = { wrapPercent: percent(ga, 'wrapPercent', `${w}.galleries`), uPercent: percent(ga, 'uPercent', `${w}.galleries`), stairPercent: percent(ga, 'stairPercent', `${w}.galleries`) };
+
   const turnPercent = percent(f, 'turnPercent', w);
   const gt = record(f.great, `${w}.great`);
   const gw = `${w}.great`;
@@ -449,6 +464,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     warbands,
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };
 }

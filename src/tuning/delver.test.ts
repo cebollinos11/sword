@@ -52,6 +52,7 @@ const eliteOf = (): Record<string, unknown>[] => (raw().warbands as { elite: Rec
 const GREAT = { count: [0, 0], half: [12, 16] };
 const SHAPES = { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } };
 const PILLARS = { percent: 0, weights: { colonnade: 1, grid: 1 } };
+const GALLERIES = { wrapPercent: 0, uPercent: 30, stairPercent: 0 };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -97,7 +98,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -191,6 +192,17 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['shapes.weights negative', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, T: -1 } } }), /^delver\.floor\.shapes\.weights\.T /],
     ['shapes.weights fractional', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, L: 1.5 } } }), /^delver\.floor\.shapes\.weights\.L /],
     ['shapes.weights all 0', withFloor({ shapes: { percent: 0, weights: { L: 0, T: 0, cross: 0, ring: 0 } } }), /^delver\.floor\.shapes\.weights /],
+    ['galleries missing', withFloor({ galleries: undefined }), /^delver\.floor\.galleries /],
+    ['galleries.wrapPercent missing', withFloor({ galleries: { uPercent: 30, stairPercent: 0 } }), /^delver\.floor\.galleries\.wrapPercent /],
+    ['galleries.wrapPercent above 100', withFloor({ galleries: { ...GALLERIES, wrapPercent: 101 } }), /^delver\.floor\.galleries\.wrapPercent /],
+    ['galleries.wrapPercent fractional', withFloor({ galleries: { ...GALLERIES, wrapPercent: 0.5 } }), /^delver\.floor\.galleries\.wrapPercent /],
+    ['galleries.wrapPercent negative', withFloor({ galleries: { ...GALLERIES, wrapPercent: -1 } }), /^delver\.floor\.galleries\.wrapPercent /],
+    ['galleries.uPercent above 100', withFloor({ galleries: { ...GALLERIES, uPercent: 101 } }), /^delver\.floor\.galleries\.uPercent /],
+    ['galleries.uPercent fractional', withFloor({ galleries: { ...GALLERIES, uPercent: 0.5 } }), /^delver\.floor\.galleries\.uPercent /],
+    ['galleries.uPercent negative', withFloor({ galleries: { ...GALLERIES, uPercent: -1 } }), /^delver\.floor\.galleries\.uPercent /],
+    ['galleries.stairPercent above 100', withFloor({ galleries: { ...GALLERIES, stairPercent: 101 } }), /^delver\.floor\.galleries\.stairPercent /],
+    ['galleries.stairPercent fractional', withFloor({ galleries: { ...GALLERIES, stairPercent: 0.5 } }), /^delver\.floor\.galleries\.stairPercent /],
+    ['galleries.stairPercent negative', withFloor({ galleries: { ...GALLERIES, stairPercent: -1 } }), /^delver\.floor\.galleries\.stairPercent /],
     ['pillars missing', withFloor({ pillars: undefined }), /^delver\.floor\.pillars /],
     ['pillars.percent above 100', withFloor({ pillars: { ...PILLARS, percent: 101 } }), /^delver\.floor\.pillars\.percent /],
     ['pillars.percent fractional', withFloor({ pillars: { ...PILLARS, percent: 0.5 } }), /^delver\.floor\.pillars\.percent /],
@@ -300,6 +312,14 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     const f = parse(withFloor({ shapes: { percent: 50, weights: { L: 0, T: 0, cross: 0, ring: 1 } }, pillars: { percent: 100, weights: { colonnade: 0, grid: 2 } } })).floor;
     expect([f.shapes, f.pillars]).toEqual([{ percent: 50, weights: { L: 0, T: 0, cross: 0, ring: 1 } }, { percent: 100, weights: { colonnade: 0, grid: 2 } }]);
     expect([tuning.delver.floor.shapes, tuning.delver.floor.pillars]).toEqual([SHAPES, PILLARS]);
+  });
+
+  it('takes the 7c galleries keys: three whole percents', () => {
+    const g = { wrapPercent: 40, uPercent: 30, stairPercent: 60 };
+    expect(parse(withFloor({ galleries: g })).floor.galleries).toEqual(g);
+    expect(parse(withFloor({ galleries: { wrapPercent: 0, uPercent: 100, stairPercent: 100 } })).floor.galleries).toEqual({ wrapPercent: 0, uPercent: 100, stairPercent: 100 });
+    expect(tuning.delver.floor.galleries).toEqual(GALLERIES);
+    expect(bundled.delver.floor.galleries).toEqual(GALLERIES);
   });
 
   it('accepts a fractional follow', () => {

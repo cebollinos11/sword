@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatRooms, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, plainHalls, rooms7c } from './flat.testdata';
 import { isBossFloor } from './troops';
 import {
   attemptSeed, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
@@ -1066,6 +1066,155 @@ describe('Hall shapes and pillars (Stage 7b)', () => {
         try {
           for (const key of ['shape', 'shapeKind', 'shapeTurn', 'notchX', 'notchZ', 'ringX', 'ringZ', 'pillars', 'pillarLayout', 'colonnadeRow']) salts[key] = 9000 + salts[key]!;
           expect(planFloor(f, seed, floor, 0, boss)).toEqual(p);
+        } finally {
+          Object.assign(salts, saved);
+        }
+      }
+    });
+  });
+});
+
+describe('wrapped galleries and stairwells (Stage 7c)', () => {
+  const bundled7c = loadTuningData();
+  const t7c = rooms7c(bundled7c);
+  const f7c = t7c.delver.floor;
+  const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+  const planned = pairs.map((pr) => ({ ...pr, p: planFloor(f7c, pr.seed, pr.floor, 0, isBossFloor(t7c.delver, pr.floor)) })).filter((x) => x.p.halls.length === f7c.rooms);
+  const w = f7c.passage;
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const within = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  /** The strip `GALLERY_DEPTH` in from a wall of `r`. */
+  const stripOf = (r: Rect, s: Side): Rect =>
+    s === 'n' ? R(r.x0, r.z1 - GALLERY_DEPTH, r.x1, r.z1) : s === 's' ? R(r.x0, r.z0, r.x1, r.z0 + GALLERY_DEPTH) : s === 'e' ? R(r.x1 - GALLERY_DEPTH, r.z0, r.x1, r.z1) : R(r.x0, r.z0, r.x0 + GALLERY_DEPTH, r.z1);
+  /** Whether `q` covers the centre line of wall `s` of Hall `h` with `w / 2 + 1` each side. */
+  const coversCentre = (h: DelverHall, q: Rect, s: Side): boolean => {
+    const along = s === 'n' || s === 's';
+    const c = along ? h.cx : h.cz;
+    return (along ? q.x0 <= c - (w / 2 + 1) && c + (w / 2 + 1) <= q.x1 : q.z0 <= c - (w / 2 + 1) && c + (w / 2 + 1) <= q.z1);
+  };
+  const wallsOf = (h: DelverHall): Side[] => (h.gallery ? [h.gallery.side, ...(h.gallery.wrap?.walls ?? [])] : []);
+  /** Each Passage end through a gallery wall of its Hall: [Passage, Hall, side, door height]. */
+  const ends = (p: FloorPlan) =>
+    p.passages.flatMap((q) => [
+      { q, h: p.halls[q.a]!, side: q.sideA, y: q.ya },
+      { q, h: p.halls[q.b]!, side: q.sideB, y: q.yb },
+    ]).filter((e) => wallsOf(e.h).includes(e.side));
+
+  it('has the shipped 7c values on rooms7c and the knobs off in the data', () => {
+    expect(f7c.galleries).toEqual({ wrapPercent: 40, uPercent: 30, stairPercent: 60 });
+    expect(bundled7c.delver.floor.galleries).toEqual({ wrapPercent: 0, uPercent: 30, stairPercent: 0 });
+    expect(planned.length).toBeGreaterThan(150);
+  });
+
+  it('cuts every wrap Deck inside its wall\'s strip, clear of the other Decks and the Ramp, covering the wall\'s centre line', () => {
+    for (const { p } of planned) {
+      for (const h of p.halls) {
+        const g = h.gallery;
+        if (!g?.wrap) continue;
+        const { walls, decks } = g.wrap;
+        expect([walls.length, decks.length]).toEqual([decks.length, decks.length]);
+        expect(walls.length === 1 || walls.length === 2).toBe(true);
+        if (walls.length === 2) expect(walls[1]).toBe({ n: 's', s: 'n', e: 'w', w: 'e' }[g.side]);
+        const first = g.end === 0 ? (g.side === 'n' || g.side === 's' ? 'w' : 's') : g.side === 'n' || g.side === 's' ? 'e' : 'n';
+        expect(walls[0]).toBe(first);
+        decks.forEach((d, k) => {
+          expect(within(d, stripOf(h.rect, walls[k]!))).toBe(true);
+          expect(coversCentre(h, d, walls[k]!)).toBe(true);
+          expect(overlaps(d, g.deck)).toBe(false);
+          expect(overlaps(d, g.ramp)).toBe(false);
+          decks.slice(0, k).forEach((o) => expect(overlaps(d, o)).toBe(false));
+        });
+        expect(within(g.deck, stripOf(h.rect, g.side))).toBe(true);
+      }
+    }
+  });
+
+  it('cuts an L and a U as the Design draws them (the first wall\'s Deck at the corner, the far corner in the L, both corners in the U\'s second wall)', () => {
+    for (const { p } of planned) {
+      for (const h of p.halls) {
+        const g = h.gallery;
+        if (!g?.wrap || g.side !== 'n' || g.end !== 0) continue;
+        const r = h.rect;
+        const d = g.wrap.decks;
+        expect(g.wrap.walls[0]).toBe('w');
+        expect(d[0]).toEqual(g.wrap.walls.length === 1 ? R(r.x0, r.z0, r.x0 + 4, r.z1 - 4) : R(r.x0, r.z0 + 4, r.x0 + 4, r.z1 - 4));
+        if (g.wrap.walls.length === 2) expect(d[1]).toEqual(R(r.x0, r.z0, r.x1, r.z0 + 4));
+      }
+    }
+  });
+
+  it('keeps every Passage through any gallery wall flat at the Deck\'s height and out of its Hall\'s doors', () => {
+    let through = 0;
+    for (const { p } of planned) {
+      for (const e of ends(p)) {
+        through++;
+        expect(e.y).toBe(e.h.gallery!.y);
+        expect(e.q.ya).toBe(e.q.yb);
+        expect(e.h.doors[e.side]).toBeUndefined();
+      }
+    }
+    expect(through).toBeGreaterThan(50);
+  });
+
+  it('keeps a wrapped Hall a level under levels.max, and `high` true exactly when a gallery wall holds a Passage', () => {
+    for (const { p } of planned) {
+      for (const h of p.halls) {
+        if (!h.gallery) continue;
+        if (h.gallery.wrap) expect(h.level).toBeLessThanOrEqual(f7c.levels.max - 1);
+        expect(h.gallery.y).toBe(h.y + LEVEL_RISE);
+        const holds = p.passages.some((q) => (q.a === p.halls.indexOf(h) && wallsOf(h).includes(q.sideA)) || (q.b === p.halls.indexOf(h) && wallsOf(h).includes(q.sideB)));
+        expect(h.gallery.high).toBe(holds);
+      }
+    }
+  });
+
+  it('shows across the 200: an L, a U, a stairwell on a first wall and one on a wrap wall, and prints the stairwell share (at least 1 in 3)', () => {
+    let galleries = 0;
+    let stairs = 0;
+    let L = 0;
+    let U = 0;
+    let onFirst = 0;
+    let onWrap = 0;
+    for (const { p } of planned) {
+      for (const h of p.halls) {
+        const g = h.gallery;
+        if (!g) continue;
+        galleries++;
+        if (g.high) stairs++;
+        if (g.wrap?.walls.length === 1) L++;
+        if (g.wrap?.walls.length === 2) U++;
+        const i = p.halls.indexOf(h);
+        const holds = (side: Side) => p.passages.some((q) => (q.a === i && q.sideA === side) || (q.b === i && q.sideB === side));
+        if (holds(g.side)) onFirst++;
+        if (g.wrap?.walls.some(holds)) onWrap++;
+      }
+    }
+    console.log(`7c galleries ${galleries}: stairwells ${stairs} (${((100 * stairs) / galleries).toFixed(1)} %), L ${L}, U ${U}, stairwell on a first wall ${onFirst}, on a wrap wall ${onWrap}`);
+    expect([L > 0, U > 0, onFirst > 0, onWrap > 0]).toEqual([true, true, true, true]);
+    expect(stairs / galleries).toBeGreaterThanOrEqual(1 / 3);
+  });
+
+  describe('on flatHalls', () => {
+    const flat = flatHalls(bundled7c);
+    const ff = flat.delver.floor;
+    it('turns the gallery knobs off and keeps the rest', () => {
+      expect([ff.galleries.wrapPercent, ff.galleries.stairPercent]).toEqual([0, 0]);
+      expect(ff.galleries.uPercent).toBe(bundled7c.delver.floor.galleries.uPercent);
+      expect([flatRooms(bundled7c).delver.floor.galleries, plainHalls(bundled7c).delver.floor.galleries]).toEqual([{ wrapPercent: 0, uPercent: 30, stairPercent: 0 }, { wrapPercent: 0, uPercent: 30, stairPercent: 0 }]);
+    });
+    it('plans the bundled tuning\'s Floors byte for byte (the shipped knobs are off), with no wrap and a changed uPercent or 7c salt changing nothing', () => {
+      const salts = SALT as unknown as Record<string, number>;
+      const saved = { ...salts };
+      for (const { seed, floor } of pairs.slice(0, 60)) {
+        const boss = isBossFloor(bundled7c.delver, floor);
+        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
+        const got = planFloor(ff, seed, floor, 0, boss);
+        expect(JSON.stringify(got)).toBe(want);
+        expect(got.halls.some((h) => h.gallery?.wrap)).toBe(false);
+        expect(JSON.stringify(planFloor({ ...ff, galleries: { ...ff.galleries, uPercent: 99 } }, seed, floor, 0, boss))).toBe(want);
+        try {
+          for (const key of ['galleryStair', 'galleryWrap', 'galleryU']) salts[key] = 9000 + salts[key]!;
+          expect(JSON.stringify(planFloor(ff, seed, floor, 0, boss))).toBe(want);
         } finally {
           Object.assign(salts, saved);
         }

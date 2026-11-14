@@ -80,8 +80,13 @@ export interface DelverGallery {
   readonly ramp: Rect;
   /** The Ramp's high end, toward the Deck. */
   readonly up: Side;
-  /** A stairwell: a Passage leaves through `side` at the Deck's height. */
+  /** A stairwell: a Passage leaves through `side` (or a wall of `wrap`) at the Deck's height. */
   readonly high: boolean;
+  /**
+   * The Deck turned a corner (Stage 7c): onto the next wall (an L: `walls` is [the wall at the Deck's end]) or on to the one after (a U: that
+   * wall, then `side`'s opposite). `decks` is the Deck along each wall, in that order. Absent: the gallery runs along `side` only.
+   */
+  readonly wrap?: { readonly walls: readonly Side[]; readonly decks: readonly Rect[] };
 }
 
 /** The shape of a Passage: straight (one leg), or turning at right angles: an L (one corner), an S or a Z (two corners, its two ends parallel and offset). */
@@ -173,6 +178,7 @@ export interface FloorPlan {
 export const SALT = {
   gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14,
   galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
+  galleryStair: 60, galleryWrap: 61, galleryU: 62,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -436,10 +442,13 @@ interface Turn {
 
 /**
  * Floor `floor`'s layout for one attempt, with its levels (docs/plans/delver.md, Stage 6) and its great halls and turning Passages (Stage 7a): galleries
- * picked on the Halls with room (3b), the Halls' levels walked down the tree (3c), loops that keep the doors at most a level apart (4), pieces and door
+ * picked on the Halls with room (3b; with `galleries.stairPercent` a stairwell's side is preferred, and with `galleries.wrapPercent` a gallery's Deck
+ * may turn one corner (an L) or two (a U) onto the next walls), the Halls' levels walked down the tree (3c; a wrapped gallery's Hall keeps a level
+ * under `levels.max`, and every gallery wall is a raised door, flat), loops that keep the doors at most a level apart (4), pieces and door
  * heights on the Passages (5), each gallery cut from its Hall's final rect (7) and the markers at their floors' heights (9). With `levels.max` and
  * `galleryPercent` 0 nothing of that is picked and the plan is Stage 5's plus the new fields (every `y` 0); with `turnPercent` 0 and `great.count` [0, 0] every
- * decision, candidate and rect is Stage 6's and every Passage is straight. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
+ * decision, candidate and rect is Stage 6's and every Passage is straight; with `galleries.wrapPercent` and `stairPercent` 0 no gallery wraps and none
+ * is picked as a stairwell, and no pick is made for either. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall (grown to the
  * most the gaps allow, unless great halls are wanted: then Hall 0 is a great hall and the Boss Hall), and adds `markers.boss`; with it false the plan has no Boss key anywhere.
  */
@@ -756,7 +765,27 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   };
   /** Whether Hall `h` has a Passage leaving by its side `d`. */
   const hasOn = (h: number, d: number): boolean => halls[h]!.slots.some((sl) => sl.d === d && sl.p !== -1);
-  const gal: ({ d: number; end: 0 | 1 } | null)[] = halls.map(() => null);
+  /** A gallery as picked: its first wall's side index, its Deck's end, and the side indices of the walls it wraps onto (none, or an L's, or a U's two). */
+  type Gal = { d: number; end: 0 | 1; wraps: number[] };
+  const gal: (Gal | null)[] = halls.map(() => null);
+  /** The wall at a Deck's end on side `d`: along x (n, s) end 0 is w and end 1 is e; along z (e, w) end 0 is s and end 1 is n. */
+  const endWall = (d: number, end: 0 | 1): number => (d % 2 === 0 ? (end === 0 ? 3 : 1) : end === 0 ? 2 : 0);
+  /** Hall `h`'s gallery walls: its first wall, then its wrap walls. */
+  const galWalls = (h: number): number[] => (gal[h] ? [gal[h]!.d, ...gal[h]!.wraps] : []);
+  /** Whether a door of Hall `h` on side `d` opens on its gallery's Deck (a raised door, a metre over its floor's level). */
+  const isGalWall = (h: number, d: number): boolean => galWalls(h).includes(d);
+  /**
+   * Whether the Deck along wall `d` of Hall `h` covers the wall's centre line with the Passage's width and a metre each side, the strip's
+   * `GALLERY_DEPTH` squares at its low and high ends left out when `trimLo` and `trimHi` (they belong to the walls across).
+   */
+  const wrapCovers = (h: number, d: number, trimLo: boolean, trimHi: boolean): boolean => {
+    const r = halls[h]!.rect;
+    const alongX = d % 2 === 0;
+    const lo = (alongX ? r.x0 : r.z0) + (trimLo ? GALLERY_DEPTH : 0);
+    const hi = (alongX ? r.x1 : r.z1) - (trimHi ? GALLERY_DEPTH : 0);
+    const centre = alongX ? halls[h]!.cx : halls[h]!.cz;
+    return lo <= centre - (w / 2 + 1) && centre + (w / 2 + 1) <= hi;
+  };
   if (t.levels.galleryPercent > 0) {
     const fitting = halls.map((hall, h) => (hall.great ? [] : [0, 1, 2, 3].filter((d) => roomFor(h, d, hasOn(h, d)))));
     const withRoom = halls
@@ -766,18 +795,43 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const wantedGal = Math.floor((withRoom.length * t.levels.galleryPercent + 99) / 100);
     for (const { h } of withRoom.slice(0, wantedGal)) {
       const sides = fitting[h]!;
-      gal[h] = { d: sides[pick(h, SALT.gallerySide, sides.length)]!, end: pick(h, SALT.galleryEnd, 2) as 0 | 1 };
+      // A stairwell's side (one that holds a tree Passage) is taken with `stairPercent`'s chance when there is one.
+      const high = sides.filter((d) => hasOn(h, d));
+      const d = t.galleries.stairPercent > 0 && high.length > 0 && pick(h, SALT.galleryStair, 100) < t.galleries.stairPercent ? high[pick(h, SALT.gallerySide, high.length)]! : sides[pick(h, SALT.gallerySide, sides.length)]!;
+      const end = pick(h, SALT.galleryEnd, 2) as 0 | 1;
+      const wraps: number[] = [];
+      if (t.galleries.wrapPercent > 0 && pick(h, SALT.galleryWrap, 100) < t.galleries.wrapPercent) {
+        const w1 = endWall(d, end);
+        // An L fits when the Hall is deep enough across `w1` and its Deck covers `w1`'s centre line; a U when the opposite wall's Deck covers its own.
+        if (spanOf(h, w1).across >= GALLERY_DEPTH + CENTRE_CLEAR && wrapCovers(h, w1, d > 1, d <= 1)) {
+          wraps.push(w1);
+          const w2 = opposite(d);
+          if (pick(h, SALT.galleryU, 100) < t.galleries.uPercent && wrapCovers(h, w1, true, true) && wrapCovers(h, w2, false, false)) wraps.push(w2);
+        }
+      }
+      gal[h] = { d, end, wraps };
     }
   }
 
   // 3c. Levels, on the tree in growth order: the first Hall's level is picked; each tree Passage then keeps its child's door at its parent's
-  // door height, or (by `changePercent`) one level up or down. A gallery's wall is flat, and so is a great hall's long side. The child's level is its
-  // door's, less one through its own gallery's wall; when no option keeps it within 0 to `levels.max`, the gallery on this Passage's wall is dropped
-  // and the Passage is flat.
+  // door height, or (by `changePercent`) one level up or down. A gallery's wall (each wall of a wrap) is a raised door, flat, and so is a great hall's
+  // long side. The child's level is its door's, less one through its own gallery's wall. A wrapped gallery's Hall needs its level a level under
+  // `levels.max` (its Deck's door level is in range): a wrap that breaks it is dropped (back to its first wall). When no option keeps the child's level
+  // in range, a wrap of the child's is dropped and the options tried again; failing that, the gallery on this Passage's wall is dropped and the
+  // Passage is flat.
   const lmax = t.levels.max;
   const level = new Array<number>(halls.length).fill(0);
   if (lmax > 0) level[0] = pick(0, SALT.levelBase, lmax + 1);
-  const doorLevel = (h: number, d: number): number => level[h]! + (gal[h]?.d === d ? 1 : 0);
+  const lift = (h: number, d: number): number => (isGalWall(h, d) ? 1 : 0);
+  const doorLevel = (h: number, d: number): number => level[h]! + lift(h, d);
+  /** Drops Hall `h`'s wrap (its gallery back to its first wall); whether it had one. */
+  const unwrap = (h: number): boolean => {
+    const g = gal[h];
+    if (!g || g.wraps.length === 0) return false;
+    g.wraps = [];
+    return true;
+  };
+  if (gal[0] && level[0]! + 1 > lmax) unwrap(0);
   passages.forEach((p, n) => {
     const parent = p.from;
     const child = p.to;
@@ -785,8 +839,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const dc = halls[child]!.slots[p.ts]!.d;
     const settle = (options: readonly number[]): boolean => {
       for (const delta of options) {
-        const lc = doorLevel(parent, dp) + delta - (gal[child]?.d === dc ? 1 : 0);
-        if (lc >= 0 && lc <= lmax) {
+        const lc = doorLevel(parent, dp) + delta - lift(child, dc);
+        if (lc >= 0 && lc <= lmax && (!(gal[child]?.wraps.length) || lc + 1 <= lmax)) {
           level[child] = lc;
           return true;
         }
@@ -795,12 +849,12 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     };
     let options = [0];
     const longSide = halls[parent]!.slots[p.fs]!.long || halls[child]!.slots[p.ts]!.long;
-    if (lmax > 0 && !longSide && gal[parent]?.d !== dp && gal[child]?.d !== dc && pick(n, SALT.levelChange, 100) < t.levels.changePercent) {
+    if (lmax > 0 && !longSide && !isGalWall(parent, dp) && !isGalWall(child, dc) && pick(n, SALT.levelChange, 100) < t.levels.changePercent) {
       const up = pick(n, SALT.levelUp, 2) === 1 ? 1 : -1;
       options = [up, -up, 0];
     }
-    if (!settle(options)) {
-      if (gal[parent]?.d === dp) gal[parent] = null;
+    if (!settle(options) && !(unwrap(child) && settle(options))) {
+      if (isGalWall(parent, dp)) gal[parent] = null;
       else gal[child] = null;
       settle([0]);
     }
@@ -838,11 +892,12 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const db = halls[b]!.slots[bs]!.d;
     const lh = doorLevel(h, d);
     const lb = doorLevel(b, db);
-    const wallH = gal[h]?.d === d;
-    const wallB = gal[b]?.d === db;
+    const wallH = isGalWall(h, d);
+    const wallB = isGalWall(b, db);
     const forced = wallH || wallB || halls[h]!.slots[s]!.long || halls[b]!.slots[bs]!.long;
     if (Math.abs(lh - lb) > 1 || (forced && lh !== lb)) return false;
-    if ((wallH && !roomFor(h, d, true)) || (wallB && !roomFor(b, db, true))) return false;
+    // A first wall's Deck needs the stairwell's room; a wrap wall's whole strip is Deck, which covered its centre when the wrap was picked.
+    if ((wallH && gal[h]!.d === d && !roomFor(h, d, true)) || (wallB && gal[b]!.d === db && !roomFor(b, db, true))) return false;
     return true;
   };
   interface LoopCand {
@@ -912,8 +967,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const heights = passages.map((p) => {
     const da = halls[p.a]!.slots[p.sa]!.d;
     const db = halls[p.b]!.slots[p.sb]!.d;
-    if (!halls[p.a]!.slots[p.sa]!.long && gal[p.a]?.d !== da) doors[p.a]![SIDES[da]!] = w;
-    if (!halls[p.b]!.slots[p.sb]!.long && gal[p.b]?.d !== db) doors[p.b]![SIDES[db]!] = w;
+    if (!halls[p.a]!.slots[p.sa]!.long && !isGalWall(p.a, da)) doors[p.a]![SIDES[da]!] = w;
+    if (!halls[p.b]!.slots[p.sb]!.long && !isGalWall(p.b, db)) doors[p.b]![SIDES[db]!] = w;
     return { ya: doorLevel(p.a, da) * LEVEL_RISE, yb: doorLevel(p.b, db) * LEVEL_RISE };
   });
   const planOf = (n: number): DelverPassage => {
@@ -999,7 +1054,25 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const [c0, c1] = across();
     const rect = (a: number, b: number): Rect => (alongX ? { x0: a, z0: c0, x1: b, z1: c1 } : { x0: c0, z0: a, x1: c1, z1: b });
     const up: Side = alongX ? (g.end === 0 ? 'w' : 'e') : g.end === 0 ? 's' : 'n';
-    galleryOf[h] = { side, end: g.end, y: level[h]! * LEVEL_RISE + LEVEL_RISE, deck: rect(d0, d1), ramp: rect(r0, r1), up, high: hasOn(h, g.d) };
+    // A wrap's Decks: the strip along each wrap wall, cut along the wall (`from`, `to`) clear of the strips of the walls across it, the first wall's
+    // and (for a U) the opposite one's. The strip is `GALLERY_DEPTH` in from its wall: n and e at the high coordinate, s and w at the low one.
+    const strip = (wd: number, from: number, to: number): Rect => {
+      const ax = wd % 2 === 0;
+      const lo = ax ? r.x0 : r.z0;
+      const hi = ax ? r.x1 : r.z1;
+      const [a0, a1] = [lo + from, hi - to];
+      const [lo2, hi2] = wd <= 1 ? [(ax ? r.z1 : r.x1) - GALLERY_DEPTH, ax ? r.z1 : r.x1] : [ax ? r.z0 : r.x0, (ax ? r.z0 : r.x0) + GALLERY_DEPTH];
+      return ax ? { x0: a0, z0: lo2, x1: a1, z1: hi2 } : { x0: lo2, z0: a0, x1: hi2, z1: a1 };
+    };
+    const [w1, w2] = g.wraps;
+    const decks: Rect[] = [];
+    if (w1 !== undefined) {
+      const u = w2 !== undefined;
+      decks.push(strip(w1, g.d > 1 || u ? GALLERY_DEPTH : 0, g.d <= 1 || u ? GALLERY_DEPTH : 0));
+      if (w2 !== undefined) decks.push(strip(w2, 0, 0));
+    }
+    const wrap = w1 !== undefined ? { walls: g.wraps.map((x) => SIDES[x]!), decks } : undefined;
+    galleryOf[h] = { side, end: g.end, y: level[h]! * LEVEL_RISE + LEVEL_RISE, deck: rect(d0, d1), ramp: rect(r0, r1), up, high: galWalls(h).some((x) => hasOn(h, x)), ...(wrap ? { wrap } : {}) };
   });
 
   // In line: straight on from the Entrance, through each Hall by its slot on the side opposite the one entered, on the same lattice line, and only
