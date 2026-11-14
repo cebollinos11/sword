@@ -1453,6 +1453,7 @@ New `SALT` keys (after the Warbands' 20 to 29, so no pick collides): galleryOrde
 - `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts`: the `levels` block and its checks.
 - `delverLoot.test.ts`: `dropSpots` calls gain their new arguments, expectations unchanged.
 - **Any other existing Delver test that fails only because its Floor now has levels** (a marker's height, a Warband's place, a Hall's shape) runs on `flatFloors(tuning)`, its expectations unchanged. The task lists each one. A test that still fails on a flat Floor is a bug to report.
+- `warbandSoak.slow.test.ts`'s full Run (amended in Task 5's review): its "the Boss Soldier promoted before any other Soldier of its Warband" held by luck. On levelled Floor 9 a guard stood 10.0 m from the Player by walking and the Boss 10.8 m, so only the guard was promotable (`bubble.promote` 10), as Stage 4's rule says (the Boss sorts first only among the promotable). The check becomes that rule: on no Tick is a Soldier of the Boss Warband promoted into a Bubble while the Boss Soldier is promotable into that Bubble and left unpromoted.
 - No test is removed.
 
 **9. Tests to add**:
