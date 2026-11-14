@@ -2120,13 +2120,29 @@ Done 2026-11-14. Delver Halls now come in five shapes: rect, L, T, cross and rin
 - **No cover lower than the ceiling**: every Block is full height. A low Block would need a walkable top (a Platform), left for later.
 
 ### Stage 7c: verticality inside a Hall
-**Model**: Opus (geometry and levels).
-- **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
-- **Sunken pits**: the doorways at the rim, the floor 2 to 4 m below, Ramps down from the rim.
-- **Daises and Platforms**: a throne or an altar, reached by a step Ramp, to hold or to be knocked off. A Boss or a guard may stand on one.
-- **More stairwells and galleries**: doors at Deck height far more often (now 1 gallery in 9), and Decks on two or more walls.
-- The navmesh, shortcut jump Links, `floorNear`, `levels.promote` and `fieldAt` hold on every tier. No two floors overlap seen from above, except a Deck inside its own Hall (as Stage 6 allows).
-- **Done**: the 500 pairs, with tiers, pits, daises and stairwells counted; the soak, which must show a chase between tiers and a fight on a dais; screenshots of a split-level Hall, a pit and a dais.
+**Model**: Opus (geometry and levels). The user's calls are in "Answered questions (2026-11-14, before Stage 7c)".
+- **Split-level floors**: two or three tiers, each a whole level (2 m) from its neighbour, joined by Ramps, with doorways opening on different tiers. A tier's edge is open (no rail): a 2 m drop down and a Jump shortcut up, as a gallery's Deck front.
+- **Sunken pits**: the doorways at the rim, the pit's floor 2 or 4 m below, Ramps down from the rim, the rim's edge open.
+  - **Depth**: a mix. Most pits are 2 m (a Jump out anywhere, Soldiers drop in when they chase). Some are 4 m, more often on deeper tiers. A fall into one does about 53 damage, twice that when knocked down, so a knock-in is a real hit. Ramps are the only way out, and Soldiers (`levels.drop` 3) never drop in.
+  - A 4 m rim is never a Jump shortcut: the AI must not be given a jump Link up it (`JUMP_SHORTCUT_CAP` 2.5).
+- **Daises**: a throne or an altar **1 m** high, reached by a step Ramp, to hold or to be knocked off. A knock-off does no fall damage (under `safeHeight` 1.6) but costs the high ground. Anyone may Jump onto it from any side.
+  - **Who stands on one**: a Boss Hall with a dais puts the Boss Soldier's post on it (the throne). A Treasure Hall with a dais stands its pedestals on it (the altar). No other marker moves onto a dais.
+  - 1 m is under `levels.height` (1.8), so Soldiers on a dais and beside it count as one level. The Design must check that this holds for `fieldAt`, `levels.promote`, the walk rule and Soldiers stepping off.
+- **More stairwells and galleries**: doors at Deck height far more often (now 1 gallery in 9). A gallery may **wrap round a corner**: one L- or U-shaped Deck along two or three walls, turning at the corners, with one Ramp, so more walls carry a high door.
+- **Where**: rect Halls only. A Hall gets at most one vertical feature (a gallery, a split level, a pit or a dais), and a Hall with one gets no 7b shape and no pillars. **7c picks first**: about **1 Hall in 4** gets a split level, a pit or a dais, picked before 7b's shapes and pillars, which then skip those Halls (as they skip gallery Halls). Split levels and pits change door heights, so they are picked with the galleries, before the levels (Stage 6's steps 3b and 3c). Daises do not, so they may be picked after the kinds (the Boss and Treasure Halls). With every 7c knob off, no 7c pick is made and a Floor is byte for byte 7b's.
+- The navmesh, shortcut jump Links, `floorNear`, `levels.promote` and `fieldAt` hold on every tier. No two floors overlap seen from above, except a Deck inside its own Hall (as Stage 6 allows). A tier, a rim and a dais are solid underneath (the Map Source's Platform), not Decks.
+- **The build budget is raised** (the user's call): `delverGen.slow.test.ts`'s mean goes from 600 ms to **800 ms**, and the 2 s cap stays. No speed work in 7c.
+- **No screenshots** this sub-stage (the user's call).
+- **Done**: the 500 pairs, with tiers, pits (by depth), daises (thrones and altars) and galleries (wrapped, stairwells) counted; the soak, which must show a chase between tiers, a fight on a dais, and a Boss on its throne; Stage 2's walk.
+
+**Tasks** (proposed 2026-11-14 before the sub-stage; the orchestrator's `#### Design` fixes every contract and may move a boundary, writing why). Seven tasks this time, smaller than 7b's, one after another, except that 1 may run beside 2:
+1. **The compiler and the navmesh**: a Platform wholly inside an Enclosure stands on that Enclosure's floor, as 7b's Block does (the abyss and the floor under it cut, the roof kept). Hand-built maps in `enclosure.test.ts` and `nav.test.ts`: a two-tier Enclosure, a 2 m and a 4 m pit with a rim, a 1 m dais with its step Ramp; `walkCheck` passes; doorways at a tier's or a rim's height open (cut by the Passage, as a stairwell's high door); shortcut jump Links up a 2 m tier edge and onto a 1 m dais, and none up a 4 m rim. Files: `src/mapEditor/compile.ts`, `checks.ts` if needed, `src/sim/nav.ts` only if a 4 m rim needs it, their tests.
+2. **Galleries that wrap and more stairwells**: the plan's gallery becomes a list of wall runs (one Deck turning at the corners, one Ramp), with its Tuning (the wrap share and a stairwell knob), off by default in this task. Files: `data/delver.json`, `src/tuning/delver.ts` and its tests, `plan.ts`, `flat.testdata.ts` (the 7c knobs-off helper and a `rooms7c` all-on helper), `plan.test.ts`.
+3. **Split levels and pits in the plan**: `DelverHall.feature` (split: its tiers' rects and levels and Ramps; pit: its depth, rim and Ramps), picked in step 3b, their door levels in step 3c and the loops, the Tuning (percent, weights, the deep-pit share by tier), off by default. Files: as Task 2 (after it).
+4. **Daises in the plan**: picked after the kinds; the Boss post and the Treasure pedestals moved onto them; then 7b's shapes and pillars skip every Hall with a 7c feature. Files: as Task 2 (after Task 3).
+5. **The source and the judge**: each feature's Platforms and Ramps (ids and materials), the levels list, `shortcuts`; the judge's new rule(s) (every tier, rim and dais reached by walking; a pit's floor reached and left by its Ramps; markers on their tier; doorways on their tier; no jump Link up a 4 m rim); `describeFloor`'s counts. Files: `source.ts`, `judge.ts`, `generate.ts`, their tests (on `rooms7c`).
+6. **The consumers and the switch**: drop spots on tiers and in pits (`groundNear`), Warband homes and the Boss's throne post facing, the Reveal and maps checked over tiers; then the shipped values, `DELVER_VERSION` 8, the golden pins (a new knobs-off table equal to 7b's pins exactly), tests that break only because of 7c moved onto the knobs-off helper, `rooms7c` removed, the generator slow test's counts, its must-exercise list and the 800 ms budget. Files: `delverLoot.ts`, `src/sim/delver/warbands.ts`, `reveal.ts`, `src/render/` and `src/play/floorMap.ts` only if they need it, `version.ts`, `golden.test.ts`, `delverGen.slow.test.ts`, and the moved tests.
+7. **The soak**: `warbandSoak.slow.test.ts`'s new cases (a chase between tiers, a fight on a dais, a Boss on its throne, nobody inside a Platform), the Tick, the build and navmesh, and Stage 2's walk.
 
 ### Stage 7d: lava
 **Model**: Opus (the rules and the AI around them).
@@ -2199,3 +2215,13 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 8. **Who it threatens**: everyone, as the AI already plays it: an instant Death by Lava, which a fire can revive.
 9. **L-, S- and Z-shaped Passages** (added afterwards): a Passage may turn one or two corners, as part of Stage 7.
 10. **Stage 7 is split** into sub-stages 7a to 7e. Each is one orchestrator session with Sonnet subagents.
+
+## Answered questions (2026-11-14, before Stage 7c)
+1. **The build budget**: raise it to 800 ms mean (the 2 s cap stays). No speed work first.
+2. **Pit depth**: a mix of 2 m and 4 m, the 4 m pits more often on deeper tiers.
+3. **Dais height**: 1 m.
+4. **Where**: rect Halls only, one vertical feature a Hall; no 7b shape or pillars with one.
+5. **How often**: about 1 Hall in 4 gets a split level, a pit or a dais (7c picks before 7b's shapes and pillars).
+6. **Galleries on two or more walls**: one Deck wrapping round the corners, with one Ramp.
+7. **Who stands on a dais**: the Boss on a throne, and a Treasure Hall's pedestals on an altar.
+8. **Screenshots**: none this sub-stage.
