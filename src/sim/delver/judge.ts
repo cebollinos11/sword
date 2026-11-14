@@ -8,6 +8,8 @@
  *     And `levels` (Stage 6): at least `levels.min` distinct Hall levels (also plan-only).
  *     And `layout` (Stage 7a, plan-only): seen from above, no two Halls share interior, no Passage's piece shares interior with another Passage's piece or with any Hall
  *     (its own end Halls, and its own other pieces, it may only touch), and every Hall and piece is inside the field (when the field's size is known).
+ *     And `shapes` (Stage 7b, plan-only, after `layout`): each Hall's rects and solids tile its rect; its centre is on its floor; every solid and pillar Wall is on an odd metre
+ *     (off the fields' dots); every pillar stands on its Hall's floor; every marker keeps 1 m from its Hall's solids and pillars; and each Passage's doorway into a Hall is clear of them.
  *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped; a plan rule 1 refused is not built).
  *  3. `halls`: the field from the Entrance's centre reaches every Hall's centre.
  *  4. `passages` (Stage 0's check), both ways and along every leg of the Passage itself (Stage 7a): the checkpoints are the point 1 m inside the first piece, each corner's
@@ -27,7 +29,7 @@ import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
-import type { DelverPassage, FloorPlan, PassagePiece } from './plan';
+import type { DelverHall, DelverPassage, FloorPlan, PassagePiece } from './plan';
 import { pieceId } from './source';
 import type { Rect, Side } from '../../mapEditor/source';
 
@@ -81,6 +83,7 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   const levels = new Set(plan.halls.map((h) => h.level)).size;
   if (levels < t.levels.min) out.push(`levels: ${levels} Hall level${levels === 1 ? '' : 's'}, at least ${t.levels.min} wanted`);
   out.push(...judgeLayout(plan, fieldSize));
+  out.push(...judgeShapes(plan));
   return out;
 }
 
@@ -103,6 +106,71 @@ function judgeLayout(plan: FloorPlan, fieldSize: number | undefined): string[] {
     const outside = (r: Rect) => r.x0 < -half || r.z0 < -half || r.x1 > half || r.z1 > half;
     for (const h of halls) if (outside(h.rect)) out.push(`layout: ${h.id} is outside the field`);
     for (const q of pieces) if (outside(q.rect)) out.push(`layout: ${q.id} is outside the field`);
+  }
+  return out;
+}
+
+/** The metres between rect `r` and the point (x, z): 0 inside or on it. */
+const rectDistance = (r: Rect, x: number, z: number): number => Math.hypot(Math.max(r.x0 - x, 0, x - r.x1), Math.max(r.z0 - z, 0, z - r.z1));
+
+/** Whether `v` is on an odd metre (a Wall there stands off the fields' 2 m dots). */
+const odd = (v: number): boolean => Number.isInteger(v) && Math.abs(v % 2) === 1;
+
+/** Whether rect `p` lies inside rect `q`, edges included. */
+const inside = (p: Rect, q: Rect): boolean => p.x0 >= q.x0 && p.z0 >= q.z0 && p.x1 <= q.x1 && p.z1 <= q.z1;
+
+const area = (r: Rect): number => (r.x1 - r.x0) * (r.z1 - r.z0);
+
+/** A Hall's solids and pillars as named Blocks (the Brush ids `floorSource` writes). */
+const blocksOf = (h: DelverHall): { id: string; rect: Rect; pillar: boolean }[] => [
+  ...h.solids.map((rect, n) => ({ id: `${h.id}-solid${n}`, rect, pillar: false })),
+  ...h.pillars.map((rect, n) => ({ id: `${h.id}-pillar${n}`, rect, pillar: true })),
+];
+
+/** How far (m) a doorway's lane is carried into its Hall. */
+const DOORWAY_DEPTH = 3;
+
+/**
+ * The `shapes` rule (Stage 7b): what a plan's shaped and pillared Halls must keep. Each Hall's rects and solids lie inside its rect, share no interior and tile it; its centre is on
+ * its floor (in a rect, in no solid or pillar); every solid and pillar edge is on an odd metre; every pillar stands inside one of its rects, clear of the solids; every marker keeps
+ * 1 m from its Hall's solids and pillars; and each Passage's doorway into a Hall, carried 3 m inward, shares no interior with them.
+ */
+function judgeShapes(plan: FloorPlan): string[] {
+  const out: string[] = [];
+  const halls = plan.halls;
+  for (const h of halls) {
+    const cut = [...h.rects, ...h.solids];
+    const tiles = cut.every((r) => inside(r, h.rect)) && cut.every((r, i) => cut.every((o, j) => j <= i || !overlap(r, o))) && Math.abs(cut.reduce((s, r) => s + area(r), 0) - area(h.rect)) < 1e-6;
+    if (!tiles) out.push(`shapes: ${h.id}'s rects and solids do not tile its rect`);
+    const blocks = blocksOf(h);
+    const strictlyIn = (r: Rect) => h.cx > r.x0 && h.cx < r.x1 && h.cz > r.z0 && h.cz < r.z1;
+    const onRect = h.rects.some((r) => h.cx >= r.x0 && h.cx <= r.x1 && h.cz >= r.z0 && h.cz <= r.z1);
+    if (!onRect || blocks.some((b) => strictlyIn(b.rect))) out.push(`shapes: ${h.id}'s centre (${m(h.cx)}, ${m(h.cz)}) is not on its floor`);
+    for (const b of blocks) {
+      if (![b.rect.x0, b.rect.x1, b.rect.z0, b.rect.z1].every(odd)) out.push(`shapes: ${b.id} has a Wall on the field's dots`);
+    }
+    for (const b of blocks) {
+      if (b.pillar && (!h.rects.some((r) => inside(b.rect, r)) || h.solids.some((s) => overlap(b.rect, s)))) out.push(`shapes: ${b.id} is not on ${h.id}'s floor`);
+    }
+  }
+  for (const mk of markersOf(plan)) {
+    const h = halls[mk.hall];
+    if (!h) continue;
+    for (const b of blocksOf(h)) if (rectDistance(b.rect, mk.x, mk.z) < 1) out.push(`shapes: ${mk.name} is within 1 m of ${b.id}`);
+  }
+  for (const p of plan.passages) {
+    const first = p.pieces[0]!;
+    const last = p.pieces[p.pieces.length - 1]!;
+    for (const [hall, q, side] of [[p.a, first, first.from], [p.b, last, last.to]] as const) {
+      const r = q.rect;
+      const lane: Rect = side === 'w' ? { x0: r.x0 - DOORWAY_DEPTH, z0: r.z0, x1: r.x0, z1: r.z1 }
+        : side === 'e' ? { x0: r.x1, z0: r.z0, x1: r.x1 + DOORWAY_DEPTH, z1: r.z1 }
+        : side === 'n' ? { x0: r.x0, z0: r.z1, x1: r.x1, z1: r.z1 + DOORWAY_DEPTH }
+        : { x0: r.x0, z0: r.z0 - DOORWAY_DEPTH, x1: r.x1, z1: r.z0 };
+      const h = halls[hall];
+      if (!h) continue;
+      for (const b of blocksOf(h)) if (overlap(lane, b.rect)) out.push(`shapes: ${p.id}'s doorway into ${h.id} is blocked by ${b.id}`);
+    }
   }
   return out;
 }

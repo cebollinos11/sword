@@ -2,7 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
-import { flatRooms } from './flat.testdata';
+import { checkMap } from '../../mapEditor/checks';
+import { flatRooms, plainHalls, rooms7b } from './flat.testdata';
 import { HALL_STOREY } from './plan';
 
 describe('isFloorName', () => {
@@ -84,4 +85,63 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
       expect(passIds.filter((id) => !id.endsWith('-ramp'))).toEqual(plan.passages.map((p) => p.id));
     }
   });
+});
+
+describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
+  const tuning = rooms7b(loadTuningData());
+  let floors: DelverFloor[];
+  beforeAll(() => {
+    floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1 + (seed % 3)));
+  }, 300_000);
+
+  const blocksOf = (f: DelverFloor) => f.source.brushes.filter((b) => b.kind === 'block');
+
+  it('writes each Hall\'s solids then its pillars as Blocks to its ceiling, after the slopes, in Hall order', () => {
+    let solids = 0;
+    let pillars = 0;
+    for (const f of floors) {
+      const expected: Brush[] = f.plan.halls.flatMap((h): Brush[] => [
+        ...h.solids.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-solid${n}`, rect, top: h.top, material: ({ Entrance: 'plaster', Stairs: 'glow', Boss: 'glow', Rest: 'brick', Treasure: 'tile', Fight: 'dungeon', Empty: 'basalt' } as const)[h.kind] })),
+        ...h.pillars.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-pillar${n}`, rect, top: h.top, material: 'stone' })),
+      ]);
+      solids += f.plan.halls.reduce((n, h) => n + h.solids.length, 0);
+      pillars += f.plan.halls.reduce((n, h) => n + h.pillars.length, 0);
+      expect(blocksOf(f)).toEqual(expected);
+      // The Blocks are the source's last Brushes, after every slope's Ramp.
+      const brushes = f.source.brushes;
+      expect(brushes.slice(brushes.length - expected.length)).toEqual(expected);
+      expect(brushes.slice(0, brushes.length - expected.length).some((b) => b.kind === 'block')).toBe(false);
+    }
+    expect(solids).toBeGreaterThan(0);
+    expect(pillars).toBeGreaterThan(0);
+  });
+
+  it('compiles (its walk check included) and builds', () => {
+    for (const f of floors) expect(() => buildFloor(tuning, f.plan)).not.toThrow();
+  }, 300_000);
+
+  it('moves Team 0\'s front rank off any Block it would cross, and keeps 52 otherwise', () => {
+    for (const f of floors) {
+      const front = f.source.front;
+      expect(blocksOf(f).some((b) => b.kind === 'block' && b.rect.z0 < -front && b.rect.z1 > -front)).toBe(false);
+      if (!blocksOf(f).some((b) => b.kind === 'block' && b.rect.z0 < -52 && b.rect.z1 > -52)) expect(front).toBe(52);
+    }
+  });
+
+  it('writes no Block, and the same bytes as the bundled data\'s, with the 7b knobs off (`plainHalls`)', () => {
+    const bundled = loadTuningData();
+    const plain = plainHalls(bundled);
+    for (const [seed, floor] of [[1, 1], [2, 2], [3, 3]] as const) {
+      const a = floorSource(planFloor(plain.delver.floor, seed, floor, 0, floor === 3), plain.battle.field.size);
+      const b = floorSource(planFloor(bundled.delver.floor, seed, floor, 0, floor === 3), bundled.battle.field.size);
+      expect(a.brushes.some((br) => br.kind === 'block')).toBe(false);
+      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+      expect(a.front).toBe(52);
+    }
+  });
+
+  it('puts no Wall on a 2 m destination-field cell centre', () => {
+    const at2 = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: 2 } } };
+    for (const f of floors.slice(0, 4)) expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+  }, 120_000);
 });

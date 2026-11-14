@@ -34,7 +34,8 @@ const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's']
 
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
- * piece of each Passage (a turning Passage has several: its legs and corners), a Deck and a Ramp for each gallery, a Ramp along each sloped leg, and the markers for the eye. Levels stand at every height a
+ * piece of each Passage (a turning Passage has several: its legs and corners), a Deck and a Ramp for each gallery, a Ramp along each sloped leg, then (Stage 7b) each Hall's
+ * Blocks (its solids, which cut its shape out of its rect, and then its pillars), each from the Hall's floor to its ceiling, and the markers for the eye. A Hall with no solid or pillar writes no Block. Levels stand at every height a
  * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery asks for shortcut jump Links.
  */
 export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
@@ -77,6 +78,17 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   const slopes: Brush[] = spans.flatMap(({ q, id, lo, hi }): Brush[] =>
     lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
   );
+  // Each Hall in order: its solids (in its material), then its pillars (stone). Each Block's `top` is the Hall's ceiling, which the compiler's Block-in-an-Enclosure rule asks.
+  const blocks: Brush[] = plan.halls.flatMap((h): Brush[] => [
+    ...h.solids.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-solid${n}`, rect, top: h.top, material: HALL_MATERIAL[h.kind] })),
+    ...h.pillars.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-pillar${n}`, rect, top: h.top, material: 'stone' })),
+  ]);
+
+  // Team 0's front rank (z = -front) may not run through a Block (the Battle map's own check). A Floor's Battle never deploys from it, so it is moved off any Block it
+  // would cross: the first of 52, 51, 53, 50, ... that crosses none (52, as always, with no Block across it).
+  const crosses = (front: number) => blocks.some((b) => b.kind === 'block' && b.rect.z0 < -front && b.rect.z1 > -front);
+  let front = 52;
+  for (let d = 1; crosses(front); d++) front = 52 + (d % 2 === 1 ? -(d + 1) >> 1 : d >> 1);
 
   const entrance = plan.halls[plan.entrance]!;
   const stairs = plan.halls[plan.stairs]!;
@@ -95,7 +107,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     size: fieldSize,
     grid: { step: 0.5, cell: 2 },
     levels,
-    brushes: [abyss, ...halls, ...passages, ...galleries, ...slopes],
+    brushes: [abyss, ...halls, ...passages, ...galleries, ...slopes, ...blocks],
     objectives: [
       { id: 'D', x: entrance.cx, z: entrance.cz, ...(entrance.y === 0 ? {} : { y: entrance.y }), weight: 1, owner: 0, spawn: true },
       { id: 'E', x: stairs.cx, z: stairs.cz, ...(stairs.y === 0 ? {} : { y: stairs.y }), weight: 1, owner: 1, spawn: true },
@@ -104,7 +116,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
       { x: entrance.cx, z: entrance.cz },
       { x: stairs.cx, z: stairs.cz },
     ],
-    front: 52,
+    front,
     armySize: { standard: 50, max: 50 },
     look: { props },
     ...(plan.halls.some((h) => h.gallery) ? { shortcuts: true as const } : {}),

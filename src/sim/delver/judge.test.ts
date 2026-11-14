@@ -6,9 +6,10 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, type JumpLink } from '../nav';
-import { flatRooms } from './flat.testdata';
+import { flatRooms, rooms7b } from './flat.testdata';
+import { isBossFloor } from './troops';
 import { arenaTuning, floorArenaName } from './world';
-import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
+import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
 /** The data as shipped (7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
 const bundled = loadTuningData();
@@ -417,7 +418,8 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
     expect(judgePlan(t7, moved, size)).toContain(`layout: ${p.id}-0 overlaps ${hall.id}`);
     const k = 3;
     const r = f.plan.halls[k]!.rect;
-    const out = { ...f.plan, halls: f.plan.halls.map((h, i) => (i === k ? { ...h, rect: { x0: r.x0 + 300, z0: r.z0, x1: r.x1 + 300, z1: r.z1 } } : h)) };
+    const moved300 = (q: typeof r) => ({ x0: q.x0 + 300, z0: q.z0, x1: q.x1 + 300, z1: q.z1 });
+    const out = { ...f.plan, halls: f.plan.halls.map((h, i) => (i === k ? { ...h, rect: moved300(r), rects: [moved300(r)], cx: h.cx + 300 } : h)) };
     expect(judgePlan(t7, out, size)).toContain(`layout: ${f.plan.halls[k]!.id} is outside the field`);
     // Without the field's size, only the field check is skipped.
     expect(judgePlan(t7, out)).toEqual([]);
@@ -430,7 +432,7 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
     const stacked = { ...f.plan, passages: f.plan.passages.map((x) => (x === q ? { ...x, pieces: x.pieces.map((pc, k) => (k === 0 ? { ...pc, rect: p.pieces[0]!.rect } : pc)) } : x)) };
     const reasons = judgePlan(t7, stacked, size);
     expect(reasons.some((r) => r.startsWith('layout: ') && r.includes(' overlaps pass'))).toBe(true);
-    const twin = { ...f.plan, halls: f.plan.halls.map((h, i) => (i === 1 ? { ...h, rect: f.plan.halls[0]!.rect } : h)) };
+    const twin = { ...f.plan, halls: f.plan.halls.map((h, i) => (i === 1 ? { ...h, rect: f.plan.halls[0]!.rect, rects: f.plan.halls[0]!.rects, solids: [], pillars: [] } : h)) };
     expect(judgePlan(t7, twin, size)).toContain('layout: hall0 overlaps hall1');
   });
 
@@ -504,4 +506,127 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
       expect(describeFloor(f)).toContain(`, ${f.plan.halls.filter((h) => h.great).length} great halls, ${count('L')} L, ${count('S')} S and ${count('Z')} Z Passages`);
     }
   });
+});
+
+describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => {
+  const tuning7b = rooms7b(bundled);
+  const tb = tuning7b.delver.floor;
+  const size = tuning7b.battle.field.size;
+  /** The first attempt's plan of each of seeds 1 to 6 of Floors 1 to 9. */
+  const plans: FloorPlan[] = [];
+  for (let seed = 1; seed <= 6; seed++) for (let floor = 1; floor <= 9; floor++) plans.push(planFloor(tb, seed, floor, 0, isBossFloor(tuning7b.delver, floor)));
+  const hallWith = (pred: (h: FloorPlan['halls'][number]) => boolean) => {
+    for (const plan of plans) {
+      const k = plan.halls.findIndex(pred);
+      if (k >= 0) return { plan, k, h: plan.halls[k]! };
+    }
+    throw new Error('no such Hall');
+  };
+  const withHall = (plan: FloorPlan, k: number, patch: Partial<FloorPlan['halls'][number]>): FloorPlan => ({ ...plan, halls: plan.halls.map((h, i) => (i === k ? { ...h, ...patch } : h)) });
+
+  it('passes 7b Floors first try on 54 plans (seeds 1 to 6 of Floors 1 to 9), with every shape and both layouts among them', () => {
+    const shapes = new Set<string>();
+    const layouts = new Set<string>();
+    for (const plan of plans) {
+      for (const h of plan.halls) {
+        shapes.add(h.shape);
+        if (h.layout) layouts.add(h.layout);
+      }
+      expect(judgePlan(tb, plan, size)).toEqual([]);
+      const { reasons } = judgeAttempt(tuning7b, plan);
+      expect(reasons, `Floor ${plan.floor} of seed ${plan.seed}`).toEqual([]);
+    }
+    expect([...shapes].sort()).toEqual(['L', 'T', 'cross', 'rect', 'ring']);
+    expect([...layouts].sort()).toEqual(['colonnade', 'grid']);
+  }, 600_000);
+
+  it('shapes: refuses a pillar moved onto a marker, naming both', () => {
+    const { plan, k, h } = hallWith((x) => x.pillars.length > 0);
+    const p = h.pillars[0]!;
+    const posts = plan.markers.posts.map((q, n) => (n === 0 ? { hall: k, x: (p.x0 + p.x1) / 2 + 0.5, y: h.y, z: (p.z0 + p.z1) / 2 } : q));
+    const moved = { ...plan, markers: { ...plan.markers, posts } };
+    expect(judgePlan(tb, moved, size)).toContain(`shapes: post0 is within 1 m of ${h.id}-pillar0`);
+  });
+
+  it('shapes: refuses a solid moved over a doorway, naming the Passage, the Hall and the solid', () => {
+    const { plan, k, h } = hallWith((x) => x.solids.length > 0);
+    const pass = plan.passages.find((q) => q.a === k)!;
+    const r = pass.pieces[0]!.rect;
+    const over = { x0: r.x0 - 3, z0: r.z0 - 3, x1: r.x1 + 3, z1: r.z1 + 3 };
+    const moved = withHall(plan, k, { solids: [over, ...h.solids.slice(1)] });
+    expect(judgePlan(tb, moved, size)).toContain(`shapes: ${pass.id}'s doorway into ${h.id} is blocked by ${h.id}-solid0`);
+    expect(judgePlan(tb, plan, size)).toEqual([]);
+  });
+
+  it('shapes: refuses a rect dropped from a Hall\'s rects', () => {
+    const { plan, k, h } = hallWith((x) => x.rects.length > 1);
+    const moved = withHall(plan, k, { rects: h.rects.slice(0, -1) });
+    expect(judgePlan(tb, moved, size)).toContain(`shapes: ${h.id}'s rects and solids do not tile its rect`);
+  });
+
+  it('shapes: refuses a pillar moved half a metre (a Wall on the field\'s dots)', () => {
+    const { plan, k, h } = hallWith((x) => x.pillars.length > 1);
+    const p = h.pillars[1]!;
+    const moved = withHall(plan, k, { pillars: h.pillars.map((q, n) => (n === 1 ? { ...p, x0: p.x0 + 0.5, x1: p.x1 + 0.5 } : q)) });
+    expect(judgePlan(tb, moved, size)).toContain(`shapes: ${h.id}-pillar1 has a Wall on the field's dots`);
+  });
+
+  it('shapes: refuses a pillar standing in a solid or off the floor', () => {
+    const { plan, k, h } = hallWith((x) => x.pillars.length > 0 && x.shape !== 'rect');
+    const s = h.solids[0]!;
+    const moved = withHall(plan, k, { pillars: [{ x0: s.x0 + 1, z0: s.z0 + 1, x1: s.x0 + 3, z1: s.z0 + 3 }, ...h.pillars.slice(1)] });
+    expect(judgePlan(tb, moved, size)).toContain(`shapes: ${h.id}-pillar0 is not on ${h.id}'s floor`);
+  });
+
+  it('shapes: refuses a centre moved into a solid', () => {
+    const { plan, k, h } = hallWith((x) => x.solids.length > 0);
+    const s = h.solids[0]!;
+    const moved = withHall(plan, k, { cx: (s.x0 + s.x1) / 2, cz: (s.z0 + s.z1) / 2 });
+    expect(judgePlan(tb, moved, size).some((r) => r.startsWith(`shapes: ${h.id}'s centre (`) && r.endsWith(') is not on its floor'))).toBe(true);
+  });
+
+  it('describeFloor counts the shaped and pillared Halls', () => {
+    const f = delverFloor(tuning7b, 2, 1);
+    const count = (s: string) => f.plan.halls.filter((h) => h.shape === s).length;
+    const pillared = f.plan.halls.filter((h) => h.pillars.length > 0);
+    const shaped = f.plan.halls.filter((h) => h.shape !== 'rect').length;
+    expect(describeFloor(f)).toContain(`, ${shaped} shaped Halls (${count('L')} L, ${count('T')} T, ${count('cross')} cross, ${count('ring')} ring), ${f.plan.halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids)`);
+  }, 120_000);
+
+  it('sight: a post hidden from every spawn only by a pillar passes, and is refused with that pillar\'s Block removed (hand-built on a found Floor)', () => {
+    // Found by search: the Entrance of Floor 1 of seed 3 is a plain rect. Post0 goes 10 m east of spawn0 in that Hall, and a pillar stands between them. Hand-built: the plan's
+    // generator never aims a post at a spawn, so no dealt Floor shows the case.
+    const plan = planFloor(tb, 3, 1, 0, false);
+    const eh = plan.halls[plan.entrance]!;
+    const sp = plan.markers.spawns[0]!;
+    const cx = 2 * Math.round((sp.x + 5) / 2);
+    const cz = 2 * Math.round(sp.z / 2);
+    const rect = { x0: cx - 1, z0: cz - 1, x1: cx + 1, z1: cz + 1 };
+    const pillar = { kind: 'block' as const, id: `${eh.id}-pillar0`, rect, top: eh.top, material: 'stone' as const };
+    const moved = { ...plan, markers: { ...plan.markers, posts: [{ hall: plan.entrance, x: sp.x + 10, y: eh.y, z: sp.z }, ...plan.markers.posts.slice(1)] } };
+    const base = buildFloor(tuning7b, plan);
+    expect(judgeFields(tb, buildFromSource(tuning7b, moved, { ...base.source, brushes: [...base.source.brushes, pillar] }))).toEqual([]);
+    const bare = judgeFields(tb, buildFromSource(tuning7b, moved, base.source));
+    expect(bare.filter((r) => r.startsWith('sight: post0 '))).toHaveLength(1);
+  }, 120_000);
+
+  it('builds a navmesh with a shortcut jump Link from each gallery Hall\'s floor onto its Deck, and no other jump Link, on a 7b Floor', () => {
+    const b = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning7b, seed, 1)).find((f) => f.plan.halls.some((h) => h.gallery) && f.plan.halls.some((h) => h.solids.length + h.pillars.length > 0))!;
+    expect(b.map.shortcuts).toBe(true);
+    const name = floorArenaName(b.plan.seed, b.plan.floor);
+    const tn = arenaTuning(tuning7b, name);
+    const arena = arenaOf(tn, name);
+    const mesh = navMesh(arena, tn);
+    const jumps = mesh.links.filter((l): l is JumpLink => l.kind === 'jump');
+    expect(jumps.length).toBeGreaterThan(0);
+    expect(jumps.every((l) => l.shortcut)).toBe(true);
+    expect(jumps.every((l) => !arena.walk[l.to]!.roof)).toBe(true);
+    for (const h of b.plan.halls) {
+      const g = h.gallery;
+      if (!g) continue;
+      const deck = groundOf(b.battle, b.field, (g.deck.x0 + g.deck.x1) / 2, (g.deck.z0 + g.deck.z1) / 2, g.y);
+      const onFloor = (k: number) => arena.walk[k]!.id.startsWith(`WALK_${h.id}_`) && !arena.walk[k]!.roof;
+      expect(jumps.some((l) => onFloor(l.from) && l.to === deck), `${h.id}: a jump Link from its floor onto its Deck`).toBe(true);
+    }
+  }, 120_000);
 });
