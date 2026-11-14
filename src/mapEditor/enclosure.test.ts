@@ -223,3 +223,47 @@ describe('top and shortcuts in the Map Source and the map file', () => {
     expect(mapFileText(compileMap(hall({}), battle).map)).not.toContain('shortcuts');
   });
 });
+
+describe('a Block in an Enclosure', () => {
+  /** A Delver Floor's ground: an abyss hazard over the whole field at -8, as the generator lays it. */
+  const ABYSS: Brush = { kind: 'hazard', id: 'abyss', rect: GROUND.rect, y: -8, hazard: 'abyss' };
+  const hall = (y: number, id = 'hall'): EnclosureBrush => ({ kind: 'enclosure', id, rect: { x0: -9, z0: -9, x1: 9, z1: 9 }, y, doors: { n: 2, s: 2 } });
+  const pillar = (top: number, rect = { x0: 1, z0: 1, x1: 3, z1: 3 }): Brush => ({ kind: 'block', id: 'pillar', rect, top });
+  const covers = (map: BattleMapTuning, prefix: string, x: number, z: number, y: number) =>
+    map.walk.some((w) => w.id.startsWith(prefix) && w.points[0]!.y === y && w.points[0]!.x <= x && w.points[1]!.x >= x && w.points[0]!.z <= z && w.points[2]!.z >= z);
+
+  for (const [name, y, levels, top] of [
+    ['a pillar (odd-metre edges) in an Enclosure over an abyss', 0, [-8, 0, 4], 4],
+    ['a pillar in a raised Hall', 2, [-8, 2, 6], 6],
+  ] as const) {
+    it(`${name}: the Hall's floor is cut under it, the roof kept, no face Wall stands by the floor, and the map walks`, () => {
+      const map = compile([ABYSS, hall(y), pillar(top)], [...levels]);
+      expect(map.blocks).toEqual([{ id: 'BLOCK_pillar', minX: 1, minZ: 1, maxX: 3, maxZ: 3, top }]);
+      expect(covers(map, 'WALK_hall_', 2, 2, y)).toBe(false);
+      expect(covers(map, 'WALK_hall_', 2, 2, top)).toBe(true);
+      expect(covers(map, 'WALK_hall_', -5, -5, y)).toBe(true);
+      expect(map.walls.filter((w) => w.id.startsWith('WALL_') && !w.id.startsWith('WALL_hall_') && !w.id.startsWith('WALL_edge_'))).toEqual([]);
+      expect(walkCheck(fieldOf(map).arena, lv)).toBeNull();
+    });
+  }
+
+  it('a big solid notch in a corner, touching two of the Enclosure\'s walls, compiles', () => {
+    const map = compile([ABYSS, hall(0), pillar(4, { x0: 3, z0: 3, x1: 9, z1: 9 })], [-8, 0, 4]);
+    expect(map.blocks.map((b) => b.id)).toEqual(['BLOCK_pillar']);
+    expect(covers(map, 'WALK_hall_', 6, 6, 0)).toBe(false);
+    expect(covers(map, 'WALK_hall_', 6, 6, 4)).toBe(true);
+    expect(covers(map, 'WALK_hall_', -5, -5, 0)).toBe(true);
+  });
+
+  it('is still refused when its top is under the ceiling, when it sticks out of the Enclosure, or when a Deck lies over it', () => {
+    expect(() => compile([ABYSS, hall(0), pillar(3)], [-8, 0, 4])).toThrow(/stands under/);
+    expect(() => compile([ABYSS, hall(0), pillar(4, { x0: 7, z0: 1, x1: 11, z1: 3 })], [-8, 0, 4])).toThrow(/stands under/);
+    const deck: Brush = { kind: 'deck', id: 'gallery', rect: { x0: -3, z0: -3, x1: 3, z1: 3 }, y: 2 };
+    expect(() => compile([ABYSS, { ...hall(0), top: 4 }, deck, pillar(4)], [-8, 0, 2, 4])).toThrow(/stands under gallery/);
+  });
+
+  it('a Block in no Enclosure compiles as before (compile.test.ts: the tower on plain floor)', () => {
+    const map = compile([GROUND, { kind: 'block', id: 'tower', rect: { x0: 20, z0: -4, x1: 28, z1: 4 }, top: 6 }], [0, 6]);
+    expect(map.blocks).toEqual([{ id: 'BLOCK_tower', minX: 20, minZ: -4, maxX: 28, maxZ: 4, top: 6 }]);
+  });
+});

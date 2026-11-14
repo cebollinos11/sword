@@ -8,7 +8,8 @@
  *  - **Paint**: each Brush in order paints the cells of its rectangle. A Floor, Deck or Hazard lays its floor at its level; a Platform cuts
  *    out every floor under its top and lays its top. A Hole takes away, at its level, what the Brushes before it laid there (a Platform
  *    wholly, so its ground comes back). Then, whatever their order, each Ramp cuts out the floors from its foot to below its top and each
- *    Block every floor under its top.
+ *    Block every floor under its top. A Block that stands in an Enclosure and reaches exactly its ceiling (a Hall's pillar or solid notch) stands on
+ *    that Enclosure's floor instead: it cuts the floors under its top (the abyss under the Hall, the Hall's floor) and the Enclosure's roof stays over it.
  *  - **Walk Surfaces**: each Brush's cells at its level are merged into rectangles (row by row from the south-west, each as wide and then
  *    as deep as it goes), `WALK_<brush>_<n>`; each Ramp is one sloped quad, `WALK_<ramp>`.
  *  - **Walls** (ADR 0014's and the generators' rules): the field's four edges (`WALL_edge_<side>`); a face under every edge of a floor where
@@ -20,7 +21,7 @@
  *    a Wall on each side from under its floor to its roof, with a doorway (open `DOOR_HEIGHT` over its floor, a lintel above) centred where
  *    its `doors` name one. The Walls are stood line by line, so where Enclosures meet edge to edge one Wall stands (the earlier Brush's,
  *    as high as the higher roof) and a doorway in either opens through it (`WALL_<brush>_<side>d<n>`).
- *  - **Blocks**, Objectives, Bases, the settings and the Lobby's card carry straight through.
+ *  - **Blocks** (a Block stands on one floor, with nothing over it, unless it stands in an Enclosure to its ceiling: see Paint), Objectives, Bases, the settings and the Lobby's card carry straight through.
  *
  * A mirrored source (`mirror: true`, Stage 6, `mirror.ts`) compiles so that its map can be its own half turn (ADR 0022): each Brush's
  * cells are merged in a way the half turn keeps (each row's runs, then runs alike in the rows above them), and its Objectives and Blocks
@@ -271,17 +272,21 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
         ramp[c] = k;
       });
     if (b.kind !== 'block') return;
-    // A Block stands on one floor, and nothing stands over it or inside it (a Deck laid across it is refused, whatever the order).
-    let lowest = Infinity;
-    each(b.rect, k, (c) => {
-      for (let l = 0; l < levels.length; l++) if (own[l]![c]) lowest = Math.min(lowest, levels[l]!);
-    });
+    // A Block in an Enclosure (a pillar or a solid notch of a Hall): the first Enclosure whose rect holds it and whose ceiling is its top. It stands on that
+    // Enclosure's floor: the floors under it below its top (the abyss, the Enclosure's own floor) are cut and the Enclosure's roof over it is kept.
+    const room = brushes.find((e) => e.kind === 'enclosure' && e.rect.x0 <= b.rect.x0 + EPS && e.rect.z0 <= b.rect.z0 + EPS && e.rect.x1 >= b.rect.x1 - EPS && e.rect.z1 >= b.rect.z1 - EPS && Math.abs((enclosureTop(e, levels) ?? NaN) - b.top) <= EPS) as EnclosureBrush | undefined;
+    // Otherwise a Block stands on one floor, and nothing stands over it or inside it (a Deck laid across it is refused, whatever the order).
+    let lowest = room ? room.y : Infinity;
+    if (!room)
+      each(b.rect, k, (c) => {
+        for (let l = 0; l < levels.length; l++) if (own[l]![c]) lowest = Math.min(lowest, levels[l]!);
+      });
     each(b.rect, k, (c) => {
       for (let l = 0; l < levels.length; l++) {
         const o = own[l]![c]!;
-        if (o && levels[l]! > lowest + EPS) throw new MapCompileError(`Block ${b.id} stands under ${brushes[o - 1]!.id} (at ${levels[l]}): nothing may stand over a Block (make it a Platform)`, [b.id, brushes[o - 1]!.id]);
+        if (o && levels[l]! > lowest + EPS && (!room || levels[l]! < b.top - EPS)) throw new MapCompileError(`Block ${b.id} stands under ${brushes[o - 1]!.id} (at ${levels[l]}): nothing may stand over a Block (make it a Platform)`, [b.id, brushes[o - 1]!.id]);
       }
-      cutBelow(c, Infinity);
+      cutBelow(c, room ? b.top : Infinity);
       block[c] = 1;
     });
     // The Simulation stands its Walls from BLOCK_BOTTOM to its top: they must stand across a body on that floor.
