@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -36,6 +36,8 @@ export type {
   MotionPlayback,
   SimState,
   SimHall,
+  SimDelver,
+  DelverPhase,
   HallPhase,
   SoldierBinding,
   SoldierRole,
@@ -177,9 +179,12 @@ export {
   type MatchState,
   type MatchStatus,
   type RestedEvent,
+  type RevivedEvent,
+  type StairsTakenEvent,
   type RunEndEvent,
   type RunState,
 } from './match';
+export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type DelverRun, type RestUse } from './delverRun';
 export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {
@@ -204,10 +209,11 @@ export {
 } from './hall';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, blockWalls, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
-export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
-export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
+export { CHASE, GUARD, PATROL, RETURN, stepWarbands, warbandBrain, type WarbandState } from './warband';
+export { ATTACK, brainTicks, closeRanks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, walkAnchors, type Spawned, type SquadState, type SquadStep } from './squad';
+export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, distanceTo, fieldDistance, fieldToward, FIELDS_KEPT, inSight, oneField, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
 export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './levels';
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
-export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { createCrowd, crowdAlive, crowdDue, floorRingSpots, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, walkDistance, walkField, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout, type SquadBrain } from './crowd';
 export { bubblePlayer, canChooseTroop, isBound, stepBubbles, takeoverSpawns, takeoverTarget, takeoverTroops, unboundSlot } from './bubble';

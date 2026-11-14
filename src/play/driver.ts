@@ -5,10 +5,10 @@
  * the Match locally) and Player vs Player (#23: wrap the Rollback session,
  * which already has this shape) plug into the same loop.
  */
-import { createMatch, type Intent, type MatchOptions, type MatchState } from '../sim';
+import { createMatch, inDuel, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { Size, TuningData } from '../tuning';
 import type { Ping } from '../net';
-import { checkLineup, createAutopilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createAutopilot, createDelverPilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -36,10 +36,19 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly lineup: Lineup;
   /** The player's Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
-  /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored. */
+  /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored; in a Delver Run (`delver`) on the Delver pilot instead (the exits unused). */
   readonly autopilot?: readonly number[];
   /** Dev mode only (`devAutopilotLoot`): the autopilot also picks up and equips its loot, and with 'drop' drops one item and takes it again. */
   readonly autopilotLoot?: AutopilotLoot | null;
+  /** Dev mode only (`devImmortal`): every living Team 0 Fighter is set back to its max HP after each Tick (a playtest harness; no rule or Tuning changes). */
+  readonly immortal?: boolean;
+}
+
+/** `match` with every living Team 0 Fighter of its Duel at its max HP (the fallen and the Soldiers untouched). Playtest only. */
+export function withImmortalParty(match: MatchState): MatchState {
+  const fighters = match.duel.fighters;
+  if (!fighters.some((f) => f.team === 0 && f.death === undefined && f.hp < f.maxHp && inDuel(f))) return match;
+  return { ...match, duel: { ...match.duel, fighters: fighters.map((f) => (f.team === 0 && f.death === undefined && f.hp < f.maxHp && inDuel(f) ? { ...f, hp: f.maxHp } : f)) } };
 }
 
 /**
@@ -47,7 +56,7 @@ export interface PlayerVsAiOptions extends MatchOptions {
  * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { lineup, weapon, autopilot, autopilotLoot, ...matchOptions } = options;
+  const { lineup, weapon, autopilot, autopilotLoot, immortal, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
@@ -55,8 +64,8 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   prepareAi(tuning, match.duel);
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const pilot = autopilot ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;
-  const local: Controller = pilot ?? { intent: () => pending! };
+  const pilot = autopilot && !matchOptions.delver ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;
+  const local: Controller = pilot ?? (autopilot && matchOptions.delver ? createDelverPilot(tuning, 'Hard') : { intent: () => pending! });
   const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,
@@ -68,6 +77,7 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
       pending = localIntent;
       pilot?.watch(match);
       match = stepMatchWith(match, controllers, tuning);
+      if (immortal) match = withImmortalParty(match);
       return { advanced: true };
     },
   };

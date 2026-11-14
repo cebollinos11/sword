@@ -19,9 +19,11 @@ import audioJson from '../../data/audio.json';
 import cameraJson from '../../data/camera.json';
 import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
+import delverJson from '../../data/delver.json';
 import relicsJson from '../../data/relics.json';
 import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
+export { MAX_FLOOR_TROOPS };
 export {
   applyDungeonKnobs,
   dungeonDifficultyLadder,
@@ -46,6 +48,8 @@ export {
   type WeightedHallKind,
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
+import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate } from './delver';
+export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
@@ -516,6 +520,8 @@ export interface TuningData {
   readonly match: MatchTuning;
   /** A Dungeon Run's Floors (each a graph of Halls, rebuilt from the Run seed), their Encounters, and how HP carries between Halls. */
   readonly dungeon: DungeonTuning;
+  /** A Delver Run's Floor generator (data/delver.json): the lattice of rooms, passages and kinds, and the Floors' flow cell (docs/plans/delver.md). */
+  readonly delver: DelverTuning;
   /** Every Relic, in file order (data/relics.json); an Encounter's enemies name theirs. */
   readonly relics: readonly RelicTuning[];
   /** A Battle's armies, Battlefield, Crowd and Rout (data/battle.json): docs/plans/big-battle.md. */
@@ -821,6 +827,7 @@ export function parseTuningData(raw: unknown): TuningData {
   }
   checkIdleLinks({ weapons, motions, motionOverrides });
   const ai = parseAi(root.ai);
+  const battle = parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS);
 
   return {
     fighter: {
@@ -880,7 +887,8 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
     relics,
-    battle: parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS),
+    delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),
+    battle,
     skeleton,
     ai,
     gait: parseGait(root.gait),
@@ -982,6 +990,7 @@ export function loadTuningData({ battleMapFiles: added = {} }: { readonly battle
     block: blockJson,
     match: matchJson,
     dungeon: dungeonJson,
+    delver: delverJson,
     relics: relicsJson,
     battle: {
       ...battleJson,

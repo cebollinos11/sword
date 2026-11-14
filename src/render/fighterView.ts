@@ -13,6 +13,7 @@ import { MAX_MARKS, type BladeMark } from './bladeBlood';
 import { bodyBloodShader, bodyBloodUniforms, restFrames, setBodyBlood, type BodyMark } from './bodyBlood';
 import { boneFrames, type BodyBone, type BoneFrame } from './bodyRig';
 import { setDitherFade } from './dither';
+import { arenaTuning } from '../sim/delver';
 
 export const FIGHTER_COLOURS = [0xf1c40f, 0x2e86c1];
 
@@ -857,7 +858,7 @@ export function drawnPose(from: SimState, to: SimState, i: number, alpha: number
     const ticks = from.tick + (to.tick - from.tick) * alpha - f.death.tick;
     const fellIn = fighterPose(f, tuning);
     const severed = dismember ? severing(fellIn, f.death.blow, sized) : [];
-    const fall = ragdollPose(fellIn, f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(tuning, to.arena), f.sheathed, severed);
+    const fall = ragdollPose(fellIn, f.death, ticks * TICK_SECONDS, weapon, sized, arenaOf(arenaTuning(tuning, to.arena), to.arena), f.sheathed, severed);
     // A flail's ball hangs from the falling Weapon onto the floor, or stays on the back with it.
     const flail = weapon.look !== 'flail' ? undefined : f.sheathed ? sheathedFlail(fall.blade, weapon, fall.joints.chest) : flailChainOf(from, to, i, alpha, tuning, fall);
     // Whole, or still whole before the Death's own Tick.

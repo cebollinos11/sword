@@ -3,8 +3,13 @@ import type { ArenaGeometry } from '../tuning';
 
 /** Walls lower than this (balustrades) do not stop the camera: it looks over and through them. */
 const MIN_WALL_HEIGHT = 1.5;
-/** How far short of what it hit the camera stops (m). */
-const MARGIN = 0.25;
+/**
+ * How far off what it hit the camera stops (m), measured square to the face it hit: clear of a Wall drawn 0.6 m thick round its line
+ * (a Map Editor map's, a Delver Floor's: `mapModel`), plus the camera's near plane.
+ */
+const MARGIN = 0.45;
+/** The shallowest angle's cosine the margin is scaled by, so a glancing hit does not pull the camera all the way in. */
+const MIN_COS = 0.25;
 
 /**
  * Keeps the third-person camera inside the Arena: a ray from the pivot (over
@@ -48,6 +53,9 @@ export class CameraCollider {
     this.ray.set(pivot, this.dir);
     this.ray.far = length;
     const hit = this.ray.intersectObject(this.mesh, false)[0];
-    if (hit) eye.copy(pivot).addScaledVector(this.dir, Math.max(0.05, hit.distance - MARGIN));
+    if (!hit) return;
+    // Back off along the ray far enough to stand MARGIN off the face it hit (further at a glancing angle, within reason).
+    const cos = hit.face ? Math.abs(hit.face.normal.dot(this.dir)) : 1;
+    eye.copy(pivot).addScaledVector(this.dir, Math.max(0.05, hit.distance - MARGIN / Math.max(cos, MIN_COS)));
   }
 }

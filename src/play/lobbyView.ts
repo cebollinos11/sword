@@ -16,6 +16,7 @@ import {
   canSetSeat,
   formatProblem,
   isBattle,
+  isDelver,
   isGauntlet,
   lobbyFormats,
   MAX_PLAYERS,
@@ -23,6 +24,7 @@ import {
   nextMatchArena,
   runTuning,
   seatOf,
+  setDelver,
   setFormat,
   setSeat,
   teamSize,
@@ -174,7 +176,7 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle));
   const shown = shownTeams(state, ctx.lobby.online);
-  const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
+  const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx, state)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
   const grid = h('div', 'lb-teams', null, teams[0]!, vs, teams[1]!);
   const humans = state.members.length;
@@ -199,6 +201,9 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   }
   return card;
 }
+
+/** What the Floors card adds for the Delver setting. */
+export const DELVER_NOTE = 'Delver: generated Floors; find the fires and the Stairs, past Warbands that guard and patrol.';
 
 /** What the Gauntlet's Floors card says: how big the Dungeon is, and how a Run walks it. */
 export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly count: string; readonly note: string } {
@@ -241,11 +246,12 @@ function armiesCard(tuning: TuningData, knobs: BattleKnobs | undefined): HTMLEle
 }
 
 /** In a Gauntlet, Team 1's place: the Dungeon the Run walks. */
-function floorsCard(ctx: LobbyViewContext): HTMLElement {
+function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const card = h('div', 'lb-team lb-team-1');
   card.style.setProperty('--team', hex(teamColour(1, 0)));
   const { count, note } = dungeonCard(ctx.tuning);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
+  if (isDelver(state)) card.append(h('p', 'lb-note', DELVER_NOTE));
   return card;
 }
 
@@ -402,7 +408,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
   const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
   const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
-  return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
+  return section('Map', formatRow(ctx, state, editable), dungeonRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
 }
 
 /** In a Battle, one picture card per map (`battleMaps`): the host picks, everyone sees the pick (offline, you are the host). */
@@ -443,6 +449,28 @@ function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean):
   const refusal = editable ? formatRefusal(state) : null;
   const row = h('div', 'lb-row', null, h('span', 'lb-label', 'Format'), group);
   return refusal ? h('div', '', null, row, h('p', 'lb-note', refusal)) : row;
+}
+
+/** The Dungeon a Gauntlet is played in (the Delver setting): its choices and the one picked, or null outside a Gauntlet, which has no such choice. */
+export function dungeonChoice(state: LobbyState): { readonly choices: readonly ['Halls', 'Delver']; readonly current: 'Halls' | 'Delver' } | null {
+  return isGauntlet(state) ? { choices: ['Halls', 'Delver'], current: isDelver(state) ? 'Delver' : 'Halls' } : null;
+}
+
+/** The Dungeon row (Gauntlet only): Halls, or the Delver's generated Floors; the host picks, guests see it read-only. */
+function dungeonRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
+  const dungeon = dungeonChoice(state);
+  if (!dungeon) return null;
+  const group = h('div', 'segmented');
+  group.setAttribute('role', 'radiogroup');
+  group.setAttribute('aria-label', 'Dungeon');
+  for (const choice of dungeon.choices) {
+    const b = button('', choice, () => ctx.lobby.edit((s) => setDelver(s, choice === 'Delver')));
+    b.setAttribute('role', 'radio');
+    b.setAttribute('aria-checked', String(choice === dungeon.current));
+    b.disabled = !editable;
+    group.append(b);
+  }
+  return h('div', 'lb-row', null, h('span', 'lb-label', 'Dungeon'), group);
 }
 
 /** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next), or the Run seed. */

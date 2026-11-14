@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devAutopilotLoot, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devAutopilotLoot, devDelverFloor, devDelverRun, devDelverStart, devMode, devRunRelics, devRunStart } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -99,5 +99,61 @@ describe('devAutopilotLoot: the autopilot takes its loot, only in dev mode', () 
     expect(devAutopilotLoot('?autopilot=1&loot=1', '')).toBeNull();
     expect(devAutopilotLoot('?dev=1&autopilot=1', '')).toBeNull();
     expect(devAutopilotLoot('?dev=1&loot=2', '')).toBeNull();
+  });
+});
+
+describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in dev mode', () => {
+  it('reads the seed and the Floor, in the search or after the route', () => {
+    expect(devDelverFloor('?dev=1&delverSeed=7&delverFloor=1', '')).toEqual({ seed: 7, floor: 1 });
+    expect(devDelverFloor('', '#/mapeditor?dev=1&delverSeed=0&delverFloor=3')).toEqual({ seed: 0, floor: 3 });
+    expect(devDelverFloor('?delverSeed=4294967295', '#/mapeditor?dev=1&delverFloor=9')).toEqual({ seed: 4294967295, floor: 9 });
+  });
+
+  it('refuses a bad or missing value', () => {
+    for (const bad of ['delverSeed=-1&delverFloor=1', 'delverSeed=1.5&delverFloor=1', 'delverSeed=abc&delverFloor=1', 'delverSeed=4294967296&delverFloor=1',
+      'delverSeed=1&delverFloor=0', 'delverSeed=1&delverFloor=1.5', 'delverSeed=1&delverFloor=x', 'delverSeed=1', 'delverFloor=1', '']) {
+      expect(devDelverFloor(`?dev=1&${bad}`, '')).toBeNull();
+    }
+  });
+
+  it('is null without dev=1', () => {
+    expect(devDelverFloor('?delverSeed=7&delverFloor=1', '')).toBeNull();
+    expect(devDelverFloor('?dev=0&delverSeed=7&delverFloor=1', '')).toBeNull();
+  });
+});
+
+describe('devDelverRun: a solo Gauntlet is a Delver Run only in dev mode', () => {
+  it('is true with dev=1 and delver=1, in the search or after the route', () => {
+    expect(devDelverRun('?dev=1&delver=1', '')).toBe(true);
+    expect(devDelverRun('', '#/play?dev=1&delver=1')).toBe(true);
+    expect(devDelverRun('?dev=1', '#/play?delver=1')).toBe(true);
+  });
+
+  it('is false without dev=1, or with delver absent, 0 or anything but 1', () => {
+    expect(devDelverRun('?delver=1', '')).toBe(false);
+    expect(devDelverRun('?dev=0&delver=1', '')).toBe(false);
+    expect(devDelverRun('?dev=1', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=0', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=true', '')).toBe(false);
+    expect(devDelverRun('?dev=1&delver=1', '#/editor?dev=0')).toBe(false);
+  });
+});
+
+describe('devDelverStart: a Delver Run starts on a chosen Floor only in dev mode', () => {
+  it('reads delverStart as a whole number from 1', () => {
+    expect(devDelverStart('?dev=1&delverStart=3', '')).toEqual({ delverStart: 3 });
+    expect(devDelverStart('', '#/play?dev=1&delverStart=9')).toEqual({ delverStart: 9 });
+  });
+
+  it('is nothing without dev=1, or with a bad value', () => {
+    for (const q of ['?delverStart=3', '?dev=0&delverStart=3', '?dev=1', '?dev=1&delverStart=0', '?dev=1&delverStart=x', '?dev=1&delverStart=-2', '?dev=1&delverStart=2.5'])
+      expect(devDelverStart(q, ''), q).toEqual({});
+  });
+
+  it('outside dev mode a Delver Run built with it starts on Floor 1', () => {
+    const tuning = loadTuningData();
+    const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1], delver: true as const };
+    expect(createMatch(tuning, { ...options, ...devDelverStart('?delverStart=3', '') })).toEqual(createMatch(tuning, options));
+    expect(createMatch(tuning, { ...options, ...devDelverStart('?dev=1&delverStart=3', '') }).delver).toMatchObject({ floor: 3 });
   });
 });

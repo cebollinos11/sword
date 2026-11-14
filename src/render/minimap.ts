@@ -15,6 +15,13 @@
 import { ATTACK, inDuel, RESPAWN, type MapObjective, type SimState } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { objectiveLetter } from './objectiveMarks';
+import { delverMapMarks, type DelverMapStatus } from './delverMapMarks';
+import { isRevealed } from '../sim/delver/reveal';
+import type { FloorPlan } from '../sim/delver/plan';
+import type { FighterState } from '../sim';
+
+/** How many metres a Delver minimap shows from its centre (the local Fighter) to its edge. */
+export const DELVER_MINIMAP_RADIUS = 24;
 
 /**
  * Where world (x, z) lies on a map `px` pixels square of a field `size` metres square: pixels from the map's top-left.
@@ -102,6 +109,73 @@ export class Minimap {
     const f = state.fighters[me];
     if (!f || !inDuel(f)) return;
     this.arrow(minimapPoint(f.position.x, f.position.z, size, px, turned), minimapHeading(f.facing, turned), '#fff', '#000', 1);
+  }
+
+  /**
+   * A Delver Run's minimap (docs/plans/delver.md, Stage 5): the revealed Halls (each as its `rects`, so no solid or pillar is drawn) and Passages of `plan` as floor shapes in a window of
+   * DELVER_MINIMAP_RADIUS metres round Fighter `me` (turned as the Battle's: up is +z, +x to the left), then the markers of the revealed Halls,
+   * the promoted enemies in the window, the party's arrows and `me` white. Unrevealed space draws nothing.
+   */
+  drawDelver(plan: FloorPlan, revealed: readonly number[], fighters: readonly FighterState[], me: number, status: DelverMapStatus): void {
+    const { ctx, px } = this;
+    ctx.clearRect(0, 0, px, px);
+    ctx.fillStyle = 'rgba(12, 10, 18, 0.82)';
+    ctx.fillRect(0, 0, px, px);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.strokeRect(0.5, 0.5, px - 1, px - 1);
+    const f = fighters[me];
+    // Without a living Fighter to follow, the map rests on the Entrance Hall.
+    const home = plan.halls[plan.entrance]!;
+    const centre = f && inDuel(f) ? { x: f.position.x, z: f.position.z } : { x: home.cx, z: home.cz };
+    const scale = px / (2 * DELVER_MINIMAP_RADIUS);
+    const at = (x: number, z: number) => ({ x: px / 2 - (x - centre.x) * scale, y: px / 2 - (z - centre.z) * scale });
+    const fill = (rect: FloorPlan['halls'][number]['rect'], colour: string) => {
+      const a = at(rect.x1, rect.z1);
+      const b = at(rect.x0, rect.z0);
+      ctx.fillStyle = colour;
+      ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    };
+    plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && p.pieces.forEach((piece) => fill(piece.rect, '#3a3454')));
+    plan.halls.forEach((h, i) => isRevealed(revealed, i) && h.rects.forEach((rect) => fill(rect, '#4a4468')));
+    for (const m of delverMapMarks(plan, revealed, status, me)) {
+      const p = at(m.x, m.z);
+      const r = Math.max(3, px / 40);
+      ctx.beginPath();
+      if (m.type === 'stairs') {
+        ctx.rect(p.x - r, p.y - r, r * 2, r * 2);
+        ctx.fillStyle = m.open ? '#ffd56a' : '#7a3a30';
+      } else if (m.type === 'fire') {
+        ctx.arc(p.x, p.y, m.spent ? r * 0.65 : r * 0.9, 0, Math.PI * 2);
+        ctx.fillStyle = m.spent ? '#8a6a52' : '#ff9a2a';
+      } else if (m.type === 'treasure') {
+        ctx.moveTo(p.x, p.y - r);
+        ctx.lineTo(p.x + r, p.y);
+        ctx.lineTo(p.x, p.y + r);
+        ctx.lineTo(p.x - r, p.y);
+        ctx.closePath();
+        ctx.fillStyle = m.lying ? '#ffd56a' : 'rgba(168, 154, 106, 0.5)';
+      } else {
+        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        ctx.fillStyle = '#ff4a3a';
+      }
+      ctx.fill();
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+    }
+    const dot = Math.max(2, px / 70);
+    ctx.fillStyle = css(this.battle.soldier.colours[1]!);
+    fighters.forEach((e) => {
+      if (e.team === 0 || !inDuel(e)) return;
+      const p = at(e.position.x, e.position.z);
+      if (p.x < 0 || p.y < 0 || p.x > px || p.y > px) return;
+      ctx.fillRect(p.x - dot / 2, p.y - dot / 2, dot, dot);
+    });
+    fighters.forEach((a, i) => {
+      if (a.team !== 0 || !inDuel(a) || a.hp <= 0) return;
+      const p = at(a.position.x, a.position.z);
+      this.arrow(p, minimapHeading(a.facing), i === me ? '#fff' : '#6fd8ff', '#000', i === me ? 1 : 0.7);
+    });
   }
 
   /** An Objective: a faint disc, a ring in the Owner's colour (grey for none), an arc inside it filled toward the Team winning it, and its letter. */

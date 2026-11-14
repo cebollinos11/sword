@@ -173,6 +173,23 @@ export function groundNear(arena: ArenaGeometry, lv: LevelsTuning, x: number, z:
   return best >= 0 ? best : above;
 }
 
+/**
+ * The floor under (x, z) nearest height `y`: the Walk Surface there that is neither deadly nor a roof whose height at the place is closest to `y`
+ * (the lower index on a tie); -1 where there is none. Unlike `groundNear` it looks both ways, so a place whose real ground lies more than a step
+ * over `y` (a Ramp's high part) is still found, and never falls to the abyss under it.
+ */
+export function floorNear(arena: ArenaGeometry, x: number, z: number, y: number): number {
+  let best = -1;
+  let bestGap = Infinity;
+  for (const t of surfacesAt(arena, x, z)) {
+    const w = arena.walk[t]!;
+    if (w.roof || deadly(w)) continue;
+    const gap = Math.abs(surfaceHeight(arena, t, x, z) - y);
+    if (gap < bestGap - EPS || (gap < bestGap + EPS && t < best)) [best, bestGap] = [t, gap];
+  }
+  return best;
+}
+
 /** A Walk Surface's edges from above, each with its outward unit normal. */
 export function edgesOf(arena: ArenaGeometry, i: number): { px: number; pz: number; qx: number; qz: number; length: number; nx: number; nz: number }[] {
   const pts = arena.walk[i]!.points;

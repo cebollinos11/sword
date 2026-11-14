@@ -12,6 +12,7 @@ import { arenaOf, battlefieldHeight, battlefieldOf, deadlyGround, fighterPose, g
 import { sizedTuning, type ArenaGeometry, type TuningData } from '../tuning';
 import { severing } from './dismember';
 import type { Stump } from './ragdoll';
+import { arenaTuning } from '../sim/delver';
 
 /** Blood sprayed by one Hit: where, which way (a unit vector on the floor plane: from the attacker through the defender) and how much. */
 export interface BloodSpurt {
@@ -368,8 +369,9 @@ export class BloodEffects {
     this.clear();
     this.world = null;
     try {
-      const field = this.tuning.battle ? battlefieldOf(this.tuning.battle, name) : null;
-      this.world = { arena: arenaOf(this.tuning, name), field: field && !field.heights.walk ? field.heights : null };
+      const tuning = arenaTuning(this.tuning, name);
+      const field = tuning.battle ? battlefieldOf(tuning.battle, name) : null;
+      this.world = { arena: arenaOf(tuning, name), field: field && !field.heights.walk ? field.heights : null };
     } catch {
       // An Arena this Tuning Data does not hold (a Generated Arena's Kit lives elsewhere): droplets land on the Fighter's floor.
     }

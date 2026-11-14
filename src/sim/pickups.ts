@@ -62,16 +62,23 @@ function pickupSpots(tuning: TuningData, hall: Hall): PickupAt[] {
  * others remain. A Tuning Data with no Relics gives only Weapons.
  */
 function pickItem(tuning: TuningData, seed: number, at: HallRef, player: number, k: number, avoid: readonly Dropped[]): Dropped {
-  const slot = (hallSlot(at.row, at.index) * 8 + player) * 8 + k;
+  return pickItemAt(tuning, seed, at.floor, (hallSlot(at.row, at.index) * 8 + player) * 8 + k, avoid);
+}
+
+/**
+ * The item for pick slot `slot` of Floor `floor` (the slot is the caller's one number for a Hall, a Player and a k; a Delver Floor's loot makes its own,
+ * `lootSlot`): a Relic or a Weapon by `dungeon.loot.weights`, then a name, both by `runPick` on (Run seed, Floor, slot). `avoid` as `pickItem`.
+ */
+export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[]): Dropped {
   const { Relic, Weapon } = tuning.dungeon.loot.weights;
   const relics = tuning.relics.map((r) => r.name);
   const weapons = runWeapons(tuning);
-  const u = (runPick(seed, at.floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
+  const u = (runPick(seed, floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
   const kind: Dropped['kind'] = relics.length > 0 && (u < Relic || weapons.length === 0) ? 'relic' : 'weapon';
   const names = kind === 'relic' ? relics : weapons;
   const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item === n));
   const from = fresh.length > 0 ? fresh : names;
-  return { kind, item: from[runPick(seed, at.floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
+  return { kind, item: from[runPick(seed, floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
 }
 
 /**
@@ -175,4 +182,19 @@ export function takePickups(
     }
   }
   return { pickups: next, fighters: held, taken };
+}
+
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+export interface DroppedItem extends Dropped {
+  readonly fighter: number;
+  readonly at: PickupAt;
+}
+
+/**
+ * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepRun` in a Cleared Hall, or `stepDelver` at a fire)
+ * becomes something in the world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `run.pickups`, which the dropper
+ * cannot take back until it has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
+ */
+export function placeDrop<R extends { readonly pickups: readonly Pickup[] }>(run: R, drop: DroppedItem): R {
+  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
 }

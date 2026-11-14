@@ -288,6 +288,8 @@ interface FoundJump extends Attempt {
  *   - off a source: from MARGIN beyond a Fighter's radius inside each of its edges, along the edge's normal and turned
  *     JUMP_SLANT either way, where some eligible Walk Surface no higher than a step lies within a full Jump ahead: gaps,
  *     and the far side of them.
+ * On a map that asks for `shortcuts` (`ArenaGeometry.jumpLinks`) only the first search runs, and only its tries onto a Walk Surface
+ * walking already reaches: ADR 0013's shortcuts, never a roof or anything only a Jump reaches.
  * The first Jump from a point that passes the error check (`jumpHolds`: every variant lands in the walk group it did, none deadly,
  * none dealing more than DROP_DAMAGE_LIMIT) is kept for each Walk Surface it reaches, nearest and shortest hold first.
  * A point next to one already found first tries that one's way and hold, running only its own Jump; neighbouring
@@ -357,6 +359,8 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
       return h > y + stepUp && h - tuning.fighter.height < top;
     });
   const out: JumpLink[] = [];
+  /** A map that asks for `shortcuts`: only the tries onto a Walk Surface walking already reaches, none onto a roof or off a source. */
+  const shortcutsOnly = arena.jumpLinks === 'shortcuts';
 
   /** Search one edge (of `length`), trying `attempts(u)` at each point along it, and add its Links. */
   const search = (length: number, attempts: (u: number) => readonly Attempt[]) => {
@@ -432,7 +436,8 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
 
   // Onto each target, straight at its edges from further and further out.
   arena.walk.forEach((surface, j) => {
-    if (deadly(surface)) return;
+    // A roof is reached by no walk, so on a shortcuts-only map it is no shortcut's target: its tries would all be dropped.
+    if (deadly(surface) || (shortcutsOnly && surface.roof)) return;
     for (const e of edges[j]!) {
       const heading = { x: -e.n.x, z: -e.n.z };
       search(e.length, (u) => {
@@ -447,6 +452,7 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
             if (!eligible(k, j)) continue;
             const rise = top - surfaceHeight(arena, k, takeoff.x, takeoff.z);
             const shortcut = reached(k, j);
+            if (shortcutsOnly && !shortcut) continue;
             if (rise > maxUp || rise < (shortcut ? stepUp : -maxDown)) continue;
             const reach = allHolds.filter((h) => ledgeReach(levels[h]!, rise, tuning) >= standoff);
             // A shortcut tries only the shortest hold that could get there: walking still does if it fails.
@@ -463,9 +469,9 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
     }
   });
 
-  // Off each source, out over its edges.
+  // Off each source, out over its edges (not on a shortcuts-only map: gaps and the far side of them are no shortcut).
   arena.walk.forEach((surface, k) => {
-    if (deadly(surface)) return;
+    if (shortcutsOnly || deadly(surface)) return;
     for (const e of edges[k]!) {
       search(e.length, (u) => {
         const o = at(e, u);

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { IDLE_INTENT, type Intent } from '../sim';
+import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, type Intent } from '../sim';
 import { loadTuningData } from '../tuning';
 import type { Lineup } from '../controllers';
-import { playerVsAi } from './driver';
+import { playerVsAi, withImmortalParty } from './driver';
 
 const tuning = loadTuningData();
 const weapon = 'Arming Sword';
@@ -83,5 +83,21 @@ describe('Player vs AI Match driver', () => {
     expect(() => playerVsAi(tuning, { arena: 'circle', lineup: noPlayer, weapon, bestOf: 1 })).toThrow(/Player 0/);
     const five: Lineup = [...versus('Normal'), ...Array.from({ length: 4 }, () => versus('Normal').slice(1)).flat()];
     expect(() => playerVsAi(tuning, { arena: 'circle', lineup: five, weapon, bestOf: 1 })).toThrow(/Team 1/);
+  });
+});
+
+describe('the immortal party (a dev playtest harness)', () => {
+  const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const hurt = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: 3 } : i === 1 ? { ...f, hp: 0, death: { tick: 0, cause: 'Fall' as const, blow: null } } : f)) } };
+
+  it('sets a living Team 0 Fighter back to max HP and leaves the fallen alone', () => {
+    const r = withImmortalParty(hurt);
+    expect(r.duel.fighters[0]!.hp).toBe(r.duel.fighters[0]!.maxHp);
+    expect(r.duel.fighters[1]!.hp).toBe(0);
+    expect(r.duel.fighters[1]!.death).toBeDefined();
+  });
+
+  it('allocates nothing when nobody is hurt', () => {
+    expect(withImmortalParty(m)).toBe(m);
   });
 });

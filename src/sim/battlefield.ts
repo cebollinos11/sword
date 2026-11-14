@@ -401,7 +401,7 @@ function buildMap(battle: BattleTuning, name: string, map: BattleMapTuning): Bat
   const floor = mapFloor(map);
   const flat: Heightfield = { size, cell: size, side: 2, heights: [floor, floor, floor, floor] };
   // The Players spawn at the floor's height (on one level, where they stand).
-  const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: false };
+  const arena: ArenaGeometry = { name, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: spawnsOf(battle, flat, map.front), doors: [], jumpLinks: map.shortcuts ? 'shortcuts' : false };
   const heights: Heightfield = { ...flat, walk: arena };
   const unjoined = walkCheck(arena, battle.levels);
   if (unjoined) throw new Error(`Battle map "${map.name}": ${unjoined}`);

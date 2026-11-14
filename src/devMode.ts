@@ -79,3 +79,61 @@ export function devBattlePilot(search: string = location.search, hash: string = 
   if (!devMode(search, hash)) return null;
   return query(search, hash).get('battlePilot') || null;
 }
+
+/** A query parameter that is a whole number from `min` up to 4294967295 (digits only), else null. */
+function whole(params: URLSearchParams, name: string, min: number): number | null {
+  const raw = params.get(name);
+  if (raw === null || !/^\d{1,10}$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= min && n <= 4294967295 ? n : null;
+}
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 1): `delverSeed=S&delverFloor=F` asks the Map Editor to open Floor F (from 1) of seed S
+ * (from 0, up to 4294967295) as a generated Delver Floor. Both are needed, as whole numbers in digits; null without `dev=1`
+ * or with either missing or bad.
+ */
+export function devDelverFloor(search: string = location.search, hash: string = location.hash): { seed: number; floor: number } | null {
+  if (!devMode(search, hash)) return null;
+  const params = query(search, hash);
+  const seed = whole(params, 'delverSeed', 0);
+  const floor = whole(params, 'delverFloor', 1);
+  return seed === null || floor === null ? null : { seed, floor };
+}
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 2): `delver=1` starts a solo Gauntlet as a Delver Run on generated Floors, in place of
+ * the Hall-graph Run. False without `dev=1`, and for any other value.
+ */
+export function devDelverRun(search: string = location.search, hash: string = location.hash): boolean {
+  return devMode(search, hash) && query(search, hash).get('delver') === '1';
+}
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 4): `delverStart=F` (a whole number from 1) starts a solo Delver Run on Floor F instead of Floor 1
+ * (`MatchOptions.delverStart`; the sim refuses one past the last Floor). Nothing without `dev=1` or with a bad value.
+ */
+export function devDelverStart(search: string = location.search, hash: string = location.hash): { delverStart?: number } {
+  if (!devMode(search, hash)) return {};
+  const floor = whole(query(search, hash), 'delverStart', 1);
+  return floor === null ? {} : { delverStart: floor };
+}
+
+/**
+ * Dev mode only (docs/plans/delver.md, Stage 5): `immortal=1` keeps every living Team 0 Fighter of a solo Delver Run at its max HP after each
+ * Tick (`playerVsAi`'s `immortal`), so a playtest or a screenshot Run reaches the later Floors, the Boss Floors and the Victory on the shipped
+ * Tuning. The Simulation's rules and the Tuning are untouched. False without `dev=1`.
+ */
+export function devImmortal(search: string = location.search, hash: string = location.hash): boolean {
+  return devMode(search, hash) && query(search, hash).get('immortal') === '1';
+}
+
+/**
+ * Dev mode only: `speed=N` (1 to 16) runs a solo Match's Ticks N times as fast per frame, for a headless playtest whose frames are slow
+ * (the game loop only; the Simulation's rules are untouched, and a Delver Run's fade between Floors still plays at 1×). 1 without `dev=1`.
+ */
+export function devSpeed(search: string = location.search, hash: string = location.hash): number {
+  if (!devMode(search, hash)) return 1;
+  const n = whole(query(search, hash), 'speed', 1);
+  return n === null ? 1 : Math.min(16, n);
+}

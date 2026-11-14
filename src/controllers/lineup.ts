@@ -128,13 +128,21 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
  * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Hall AI
  * instead (its Halls decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order, and each Team 0 AI
  * an Ally AI (its own AI, walking with the Players once a Hall is cleared). In a Battle, one entry per Fighter Pool slot: the
- * Players' (null), then a Pool AI on every other slot (`poolControllers`). `match` is the Match's options: its seed picks
+ * Players' (null), then a Pool AI on every other slot (`poolControllers`). In a Delver Gauntlet (`match.delver`) the Lineup's Team 1 slots get no
+ * Hall AI (the Floors' enemies are the Crowd's): the party's entries as above, then a Pool AI on every Pool slot from the party's size to
+ * `bubble.poolSize`. `match` is the Match's options: its seed picks
  * each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
  */
-export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
+export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena' | 'delver'> = {}): (Controller | null)[] {
   if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
   let slot = 0;
   const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
+  if (format === 'Gauntlet' && match.delver) {
+    // A Delver Run: the party's entries (the Lineup's Team 1 slots are dropped: no Hall AI), then a Pool AI for each of the Fighter Pool's other slots.
+    const party = lineup.filter((s) => s.team === 0);
+    const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), players)));
+    return [...ais, ...Array.from({ length: tuning.battle.bubble.poolSize - ais.length }, () => createPoolAi(tuning))];
+  }
   return lineup.map((s, i) => {
     if (format === 'Gauntlet' && s.team === 1) return createHallAi(tuning, slot++, match.arena);
     if (s.pilot.kind !== 'AI') return null;

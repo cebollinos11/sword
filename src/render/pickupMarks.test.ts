@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { PickupMarks } from './pickupMarks';
-import type { PickupView } from './pickupView';
+import { CRATE_HEIGHT, PEDESTAL_HEIGHT, type PickupView } from './pickupView';
 
 const tuning = loadTuningData();
 const view = (id: number, form: PickupView['form'], over: Partial<PickupView> = {}): PickupView => ({ id, at: { x: id, y: 0, z: 0 }, form, pedestal: false, shown: true, label: false, distance: 1, ...over });
@@ -47,3 +47,27 @@ describe('the pickup marks', () => {
     }
   });
 });
+
+describe('a pedestal on a crate', () => {
+  const relic = { kind: 'relic', relic: tuning.relics[0]!.name } as const;
+  const parts = (marks: PickupMarks) => {
+    const root = marks.root.children[0] as THREE.Group;
+    const [pedestal, , sprite] = root.children as [THREE.Mesh, THREE.Mesh, THREE.Sprite];
+    return { pedestal, sprite };
+  };
+
+  it('draws no cylinder and raises the item to the crate’s top, where a Hall-graph pedestal keeps its cylinder', () => {
+    const crate = new PickupMarks(tuning);
+    crate.update([view(0, relic, { pedestal: true, crate: true })], 0.1);
+    expect(parts(crate).pedestal.visible).toBe(false);
+    expect(parts(crate).sprite.position.y).toBeGreaterThan(CRATE_HEIGHT);
+    const stand = new PickupMarks(tuning);
+    stand.update([view(0, relic, { pedestal: true })], 0.1);
+    expect(parts(stand).pedestal.visible).toBe(true);
+    expect(parts(stand).sprite.position.y).toBeGreaterThan(PEDESTAL_HEIGHT);
+    expect(parts(stand).sprite.position.y).toBeLessThan(CRATE_HEIGHT);
+    crate.dispose();
+    stand.dispose();
+  });
+});
+

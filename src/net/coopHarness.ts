@@ -4,7 +4,7 @@
  */
 import { expect, vi } from 'vitest';
 import { loadTuningData, type DungeonEncounter, type TuningData } from '../tuning';
-import { createAutopilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Controller, type Lineup, type PlayerNumber } from '../controllers';
+import { createAutopilot, createDelverPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Controller, type Lineup, type PlayerNumber } from '../controllers';
 import { createMatch, doorCounters, doorTicksNeeded, dropItem, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type Inventory, type InventoryRef, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup, type RunState } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -44,7 +44,10 @@ export type Step = typeof stepMatch;
 /** What is kept of the Match each Tick leaves (a long Run would not fit in memory whole): its Run, its events, the Fighters' Inventories and Mods, and who the Doors count. */
 export interface Snap {
   readonly tick: number;
+  /** The Hall-graph Run's progress (undefined in a Delver Run: see `delver`). */
   readonly run: RunState;
+  /** A Delver Run's progress (`MatchState.delver`); absent otherwise. */
+  readonly delver?: MatchState['delver'];
   readonly events: readonly MatchEvent[];
   readonly fighters: readonly { readonly inventory?: Inventory; readonly mods?: Mods }[];
   /** `doorCounters` with the Takeovers (`run.away`) taken into account, and without. */
@@ -55,9 +58,10 @@ export interface Snap {
 export const snap = (m: MatchState): Snap => ({
   tick: m.tick,
   run: m.run!,
+  ...(m.delver ? { delver: m.delver } : {}),
   events: m.events,
   fighters: m.duel.fighters.map((f) => ({ inventory: f.inventory, mods: f.mods })),
-  counting: doorCounters(m.config, m.duel.fighters, m.run!.away),
+  counting: doorCounters(m.config, m.duel.fighters, (m.run ?? m.delver)?.away),
   countingEveryone: doorCounters(m.config, m.duel.fighters),
 });
 
@@ -75,7 +79,19 @@ export interface Peer {
   readonly sums: Map<number, string>;
   /** The Match each Tick left, by Tick: the last version this peer simulated (final once the Tick is confirmed). */
   readonly trace: Map<number, Snap>;
+  /** What each of this peer's frames cost (only when the Run is made with `timed`), in order. */
+  readonly frames: FrameCost[];
+  /** How many Ticks this peer's Tick function has been called for (every simulated Tick, a Rollback's re-simulated ones too). */
+  steps: number;
   gone: boolean;
+}
+
+/** One frame of a peer: the wall time of `session.tick` (ms), the Rollbacks it ran, the Ticks it simulated in all, and whether it advanced the Match. */
+export interface FrameCost {
+  readonly ms: number;
+  readonly rollbacks: number;
+  readonly steps: number;
+  readonly advanced: boolean;
 }
 
 export interface RunOptions {
@@ -87,6 +103,13 @@ export interface RunOptions {
   readonly step?: (player: number) => Step | undefined;
   /** Per Player: the Intent for Tick `tick` instead of the autopilot's (null: the autopilot's). Reads the peer's own state. */
   readonly intent?: (player: number, state: MatchState, tick: number) => Intent | null;
+  /**
+   * A Delver Run instead of the Hall-graph Run (docs/plans/delver.md): Match options with `delver: true`, each peer's Fighter on the Delver
+   * pilot, and Tuning Data as `tune` makes it (default: as it is). The Run's own checks (`offline`, `disagreements`) are for the Hall-graph Run.
+   */
+  readonly delver?: { readonly tune?: (t: TuningData) => TuningData };
+  /** Time every frame of every peer into `Peer.frames` (wall clock, not the virtual one). */
+  readonly timed?: boolean;
 }
 
 /** The autopilot's Intent for the local Fighter, as `playerVsPlayer` asks it: from the session's own (possibly predicted) state. */
@@ -104,14 +127,17 @@ export function startRun(o: RunOptions) {
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
   const lineup = runLineup(o.players);
   const pairs: MemoryTransportPair[] = Array.from({ length: o.players - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
-  const tunings = Array.from({ length: o.players }, () => peerTuning());
+  const match = o.delver ? { ...MATCH, delver: true as const } : MATCH;
+  const tunings = Array.from({ length: o.players }, () => (o.delver ? (o.delver.tune ?? ((t: TuningData) => t))(loadTuningData()) : peerTuning()));
   const traces = tunings.map(() => new Map<number, Snap>());
+  const counts = tunings.map(() => 0);
   const stepOf = (k: number): Step => (m, intents, t) => {
+    counts[k]!++;
     const next = (o.step?.(k) ?? stepMatch)(m, intents, t);
     traces[k]!.set(next.tick, snap(next));
     return next;
   };
-  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match: MATCH, lineup, weapon: WEAPON, step: stepOf(0) });
+  const host = createRollbackSession({ role: 'host', guests: pairs.map((p) => p.a), tuning: tunings[0]!, match, lineup, weapon: WEAPON, step: stepOf(0) });
   const guests = pairs.map((p, i) => createRollbackSession({ role: 'guest', transport: p.b, tuning: tunings[i + 1]!, weapon: WEAPON, step: stepOf(i + 1) }));
   const peers: Peer[] = [host, ...guests].map((session, k) => {
     const peer: Peer = {
@@ -120,11 +146,15 @@ export function startRun(o: RunOptions) {
       tuning: tunings[k]!,
       worlds: createArenaWorlds(tunings[k]!),
       warmed: new Set(),
-      autopilot: createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
+      autopilot: o.delver ? Object.assign(createDelverPilot(tunings[k]!, 'Hard'), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
       sent: new Map(),
       events: [],
       sums: new Map(),
       trace: traces[k]!,
+      frames: [],
+      get steps() {
+        return counts[k]!;
+      },
       gone: false,
     };
     session.onEvent((e) => peer.events.push(e));
@@ -140,7 +170,10 @@ export function startRun(o: RunOptions) {
       const { session } = peer;
       const tick = session.currentTick + 1;
       const intent = (session.state && o.intent?.(peer.player, session.state, tick)) ?? autopilotIntent(peer);
+      const [before, steps] = [session.stats.rollbacks, peer.steps];
+      const t0 = o.timed ? process.hrtime.bigint() : 0n;
       const r = session.tick(intent);
+      if (o.timed) peer.frames.push({ ms: Number(process.hrtime.bigint() - t0) / 1e6, rollbacks: session.stats.rollbacks - before, steps: peer.steps - steps, advanced: r.advanced });
       // Recorded as sent: as the other peers read it off the wire (JSON has no -0).
       if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
       each?.(peer);

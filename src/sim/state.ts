@@ -4,6 +4,7 @@ import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { Inventory } from './inventory';
+import type { Pickup } from './pickups';
 import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
@@ -409,6 +410,20 @@ export interface SimHall {
   readonly away?: readonly number[];
 }
 
+/** A Delver Run's phase: Exploring the Floor, or Descending (the fade after the Stairs, until `nextDuelTick`). */
+export type DelverPhase = 'Exploring' | 'Descending';
+
+/** `SimState.delver`: a Delver Run's Floor and phase, mirrored from `MatchState.delver` for the Controllers, which see only SimState. */
+export interface SimDelver {
+  /** The Floor (1-based). */
+  readonly floor: number;
+  readonly phase: DelverPhase;
+  /** The items lying on the Floor: the Run's `pickups`, the very same array (the pilot reads them here). */
+  readonly pickups: readonly Pickup[];
+  /** The Players an AI Takeover has taken (ascending), as the Run's `away`; absent while nobody has left. */
+  readonly away?: readonly number[];
+}
+
 /**
  * The complete Simulation state. Plain, JSON-like data only: everything that
  * influences the next Tick lives here so snapshot/restore and hashing are exact.
@@ -428,6 +443,11 @@ export interface SimState {
    * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
    */
   readonly hall?: SimHall;
+  /**
+   * In a Delver Run, the Floor this Duel is fought on and its phase (mirroring `MatchState.delver`); absent otherwise, so every other
+   * state hashes as it always did. While present, the Duel ends only when Team 0 is wiped out.
+   */
+  readonly delver?: SimDelver;
   /**
    * In a Battle (docs/plans/big-battle.md), its Soldiers: the Crowd, stepped by `stepMatch` after the Fighters (`stepCrowd`);
    * absent otherwise, so a Duel's state hashes as it always did. `step` carries it through unchanged.

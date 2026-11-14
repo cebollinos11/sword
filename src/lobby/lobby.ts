@@ -64,6 +64,8 @@ export interface LobbySettings {
   readonly run?: RunKnobs;
   /** A Battle's options: army size and hit rate (Battle only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly battle?: BattleKnobs;
+  /** Present (true) for a Delver Run (docs/plans/delver.md): the Gauntlet on generated Floors instead of Halls. Gauntlet only; any other Format ignores it, as it does the `run` knobs. */
+  readonly delver?: true;
 }
 
 export interface LobbyState {
@@ -173,6 +175,18 @@ export function isBattle(state: LobbyState): boolean {
 /** The Lobby plays a Gauntlet Run (not Duels). */
 export function isGauntlet(state: LobbyState): boolean {
   return state.settings.format === 'Gauntlet';
+}
+
+/** The Lobby plays a Delver Run: a Gauntlet with the Delver setting on (the setting is ignored in any other Format). */
+export function isDelver(state: LobbyState): boolean {
+  return isGauntlet(state) && state.settings.delver === true;
+}
+
+/** Choose the Dungeon a Gauntlet is played in: the Delver's generated Floors (`on`) or the Halls. Host only; unchanged when already so. */
+export function setDelver(state: LobbyState, on: boolean): LobbyState {
+  if ((state.settings.delver === true) === on) return state;
+  const { delver: _old, ...rest } = state.settings;
+  return { ...state, settings: on ? { ...rest, delver: true } : rest };
 }
 
 /** A Random Map's name (`gen:<kit>:<seed>`), not a hand-made Arena. */

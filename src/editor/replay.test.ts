@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { attack, createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, TICK_RATE, wait } from '../sim';
+import { attack, createInitialState, createMatch, duelPlacements, hashValue, hold, IDLE_INTENT, stepMatch, TICK_RATE, wait, type MatchState } from '../sim';
 import { createAiController, scriptedController, type Controller } from '../controllers';
 import { createSandboxSession, duelSandbox, matchSandbox, type Sandbox } from './sandboxSession';
 import { compareReplay, parseReplay, recordingSandbox, recordReplay, ReplayError, runReplay, serializeReplay } from './replay';
@@ -129,5 +129,26 @@ describe('Replay files', () => {
     const { replay } = scriptedDuel();
     const file = JSON.parse(serializeReplay(replay));
     expect(file.intents.length).toBeLessThan(40);
+  });
+});
+
+describe('Replaying a Delver Run', { timeout: 60_000 }, () => {
+  const delverTuning: TuningData = { ...tuning, delver: { ...tuning.delver, tiers: 1, floorsPerTier: 2 } };
+
+  it('rebuilds the Run through createMatch and reaches the same final hash', () => {
+    let m: MatchState = createMatch(delverTuning, { format: 'Gauntlet', bestOf: 1, seed: 5, arena: 'gen:greybox:99', delver: true, teams: [0, 0, 1, 1, 1, 1] });
+    const history = [m];
+    const intents: (typeof IDLE_INTENT)[][] = [];
+    for (let k = 0; k < 120; k++) {
+      const these = m.duel.fighters.map((_, i) => (i === 0 ? { ...IDLE_INTENT, move: { x: 0, z: 1 }, face: k < 60 ? 0 : 1 } : IDLE_INTENT));
+      intents.push(these);
+      m = stepMatch(m, these, delverTuning);
+      history.push(m);
+    }
+    expect(m.duel.fighters[0]!.position).not.toEqual(history[0]!.duel.fighters[0]!.position);
+    const replay = recordReplay(delverTuning, history, intents);
+    expect(replay.setup.kind === 'Match' && replay.setup.config.delver).toBe(true);
+    const run = runReplay(parseReplay(serializeReplay(replay)), delverTuning);
+    expect(hashValue(run.final)).toBe(hashValue(m));
   });
 });

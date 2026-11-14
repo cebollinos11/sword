@@ -86,6 +86,8 @@ function isLobbyState(v: unknown): v is LobbyState {
     isLobbyFormatOnMap(settings.format, settings.arena) &&
     (settings.run === undefined || isRunKnobs(settings.run)) &&
     (settings.battle === undefined || isBattleKnobs(settings.battle)) &&
+    // A Delver Run (Gauntlet only: any other Format ignores it): true, or absent.
+    (settings.delver === undefined || settings.delver === true) &&
     Array.isArray(members) &&
     members.length >= 1 &&
     members.length <= MAX_PLAYERS &&

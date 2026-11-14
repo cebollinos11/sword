@@ -170,6 +170,8 @@ export interface EnclosureBrush extends BrushBase {
   /** Its floor's level; its ceiling (a walkable roof) is the next level up (`enclosureTop`). */
   readonly y: number;
   readonly doors: Doors;
+  /** Its ceiling's level (one of the source's `levels`, above `y`): a stairwell is taller than the next level up. Absent: the next level up. */
+  readonly top?: number;
 }
 
 export type Brush = FloorBrush | DeckBrush | PlatformBrush | RampBrush | HoleBrush | HazardBrush | RailBrush | WallBrush | BlockBrush | EnclosureBrush;
@@ -181,8 +183,9 @@ export const DOOR_HEIGHT = 3;
 /** A new Enclosure's doorway width (m). */
 export const DOOR_WIDTH = 2;
 
-/** An Enclosure's ceiling: the level next above its floor's (null when there is none). */
-export function enclosureTop(b: Pick<EnclosureBrush, 'y'>, levels: readonly number[]): number | null {
+/** An Enclosure's ceiling: its own `top` when it names one, else the level next above its floor's (null when there is none). */
+export function enclosureTop(b: Pick<EnclosureBrush, 'y' | 'top'>, levels: readonly number[]): number | null {
+  if (b.top !== undefined) return b.top;
   const above = levels.find((v) => v > b.y);
   return above === undefined ? null : above;
 }
@@ -229,6 +232,8 @@ export interface MapSource {
   readonly look?: MapLook;
   /** Stage 6: the map is meant to be its own half turn (mirror mode): the Bases are twins, and the compiler and checks mirror it. */
   readonly mirror?: true;
+  /** Stage 6: the map's navmesh builds shortcut jump Links only (`ArenaGeometry.jumpLinks`): the Delver's Floors. */
+  readonly shortcuts?: true;
 }
 
 /** Brush ids: letters, digits and `-`. No `_`, which the compiled ids put between a Brush's id and the rest, so none can collide. */
@@ -347,7 +352,12 @@ function parseShape(raw: unknown, where: string, step: number, half: number, lev
       const doors: Partial<Record<Side, number>> = {};
       for (const k of Object.keys(raw)) side(k, `${at}.doors key`);
       for (const s of SIDES) if (raw[s] !== undefined) doors[s] = positiveNumber(raw, s, `${at}.doors`);
-      return { kind: 'enclosure', id, rect: rect(), y, doors };
+      let top: number | undefined;
+      if (o.top !== undefined) {
+        top = lv('top');
+        if (top <= y) throw new TuningDataError(`${at}.top (${top}) must be above its floor (${y})`);
+      }
+      return { kind: 'enclosure', id, rect: rect(), y, doors, ...(top === undefined ? {} : { top }) };
     }
     default:
       throw new TuningDataError(`${at}.kind must be one of ${BRUSH_KINDS.join(', ')}, got ${JSON.stringify(o.kind)}`);
@@ -470,5 +480,6 @@ export function parseMapSource(raw: unknown): MapSource {
   const lobby = parseMapLobby(r.lobby, 'source.lobby');
   const look = parseLook(r.look, step, half);
   if (r.mirror !== undefined && r.mirror !== true) throw new TuningDataError(`source.mirror must be true (a map meant to be its own half turn) or left out, got ${JSON.stringify(r.mirror)}`);
-  return { ...source, ...(lobby ? { lobby } : {}), ...(look ? { look } : {}), ...(r.mirror ? { mirror: true as const } : {}) };
+  if (r.shortcuts !== undefined && r.shortcuts !== true) throw new TuningDataError(`source.shortcuts must be true (a map whose navmesh builds shortcut jump Links only) or left out, got ${JSON.stringify(r.shortcuts)}`);
+  return { ...source, ...(lobby ? { lobby } : {}), ...(look ? { look } : {}), ...(r.mirror ? { mirror: true as const } : {}), ...(r.shortcuts ? { shortcuts: true as const } : {}) };
 }

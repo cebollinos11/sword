@@ -9,7 +9,7 @@
  */
 import type { FighterState, HallPhase, InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
-import { inventoryView, inventoryViewKey, type ActionView, type InventoryView, type ItemView, type SlotView } from './inventoryView';
+import { inventoryView, inventoryViewKey, type ActionView, type DelverContext, type InventoryView, type ItemView, type SlotView } from './inventoryView';
 
 export type InventoryScreenAction = 'equip' | 'drop';
 
@@ -114,9 +114,9 @@ export class InventoryScreen {
   }
 
   /** Draw the local Player's inventory (every frame; the DOM is rebuilt only when the view changes, so a press is never lost to a rebuild). */
-  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>, phase: HallPhase | undefined): void {
+  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>, phase: HallPhase | undefined, delver?: DelverContext): void {
     if (!this.isOpen) return;
-    const view = inventoryView(fighter, tuning, phase);
+    const view = inventoryView(fighter, tuning, phase, delver);
     const key = inventoryViewKey(view);
     if (key === this.shown) return;
     this.shown = key;
