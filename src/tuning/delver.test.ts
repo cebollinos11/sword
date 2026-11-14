@@ -46,6 +46,7 @@ const withBossTroop = (patch: Record<string, unknown>): Raw => {
 };
 const withBossGuard = (guard: unknown): Raw => withTier({ boss: { ...bossOf(), guard } });
 const eliteOf = (): Record<string, unknown>[] => (raw().warbands as { elite: Record<string, unknown>[] }[])[2]!.elite;
+const GREAT = { count: [0, 0], half: [12, 16] };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -91,7 +92,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 } },
+      floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 0, great: { count: [0, 0], half: [12, 16] } },
     });
     expect(parse(raw())).toEqual(tuning.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -160,6 +161,21 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['levels.changePercent fractional', withFloor({ levels: { ...LEVELS, changePercent: 0.5 } }), /^delver\.floor\.levels\.changePercent /],
     ['levels.galleryPercent negative', withFloor({ levels: { ...LEVELS, galleryPercent: -1 } }), /^delver\.floor\.levels\.galleryPercent /],
     ['minPassage under 2 * LEVEL_RISE with levels', withFloor({ minPassage: 3 }), /^delver\.floor\.minPassage /],
+    ['turnPercent missing', withFloor({ turnPercent: undefined }), /^delver\.floor\.turnPercent /],
+    ['turnPercent above 100', withFloor({ turnPercent: 101 }), /^delver\.floor\.turnPercent /],
+    ['turnPercent fractional', withFloor({ turnPercent: 0.5 }), /^delver\.floor\.turnPercent /],
+    ['turnPercent negative', withFloor({ turnPercent: -1 }), /^delver\.floor\.turnPercent /],
+    ['great missing', withFloor({ great: undefined }), /^delver\.floor\.great /],
+    ['great.count not a pair', withFloor({ great: { ...GREAT, count: [1] } }), /^delver\.floor\.great\.count /],
+    ['great.count negative', withFloor({ great: { ...GREAT, count: [-1, 1] } }), /^delver\.floor\.great\.count\[0\] /],
+    ['great.count fractional', withFloor({ great: { ...GREAT, count: [0, 1.5] } }), /^delver\.floor\.great\.count\[1\] /],
+    ['great.count descending', withFloor({ great: { ...GREAT, count: [2, 1] } }), /^delver\.floor\.great\.count\[1\] /],
+    ['great.count above 4', withFloor({ great: { ...GREAT, count: [1, 5] } }), /^delver\.floor\.great\.count\[1\] /],
+    ['great.half not a pair', withFloor({ great: { ...GREAT, half: [12] } }), /^delver\.floor\.great\.half /],
+    ['great.half descending', withFloor({ great: { ...GREAT, half: [16, 12] } }), /^delver\.floor\.great\.half\[1\] /],
+    ['great.half fractional', withFloor({ great: { ...GREAT, half: [12, 15.5] } }), /^delver\.floor\.great\.half\[1\] /],
+    ['great.half[0] not above halfSize[1]', withFloor({ great: { ...GREAT, half: [11, 16] } }), /^delver\.floor\.great\.half\[0\] /],
+    ['great.half[1] too long for the gaps', withFloor({ great: { ...GREAT, half: [12, 20] } }), /^delver\.floor\.great\.half\[1\] /],
     ...(['sight', 'leash', 'forgetSeconds', 'chaseSpeed', 'closeIn', 'arrive'] as const).flatMap((key): [string, Raw, RegExp][] => [
       [`${key} 0`, withKey({ [key]: 0 }), new RegExp(`^delver\\.${key} `)],
       [`${key} negative`, withKey({ [key]: -1 }), new RegExp(`^delver\\.${key} `)],
@@ -244,6 +260,17 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ minPassage: 3, levels: flat })).floor.levels).toEqual(flat);
     expect(parse(withFloor({ levels: { ...LEVELS, min: 5 } })).floor.levels.min).toBe(5);
     expect(tuning.delver.floor.levels).toEqual(LEVELS);
+  });
+
+  it('takes the 7a keys: a turnPercent, great halls, and the largest half the gaps allow', () => {
+    const f = parse(withFloor({ turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, cols: 6, gaps: [30, 32], halfSize: [7, 14] })).floor;
+    expect([f.turnPercent, f.great]).toEqual([30, { count: [1, 2], half: [18, 22] }]);
+    // min(gaps) 22, minPassage 4: 11 + min(9, 11) = 20, so a half of 19 passes and 20 does not.
+    expect(parse(withFloor({ great: { ...GREAT, half: [12, 19] } })).floor.great.half).toEqual([12, 19]);
+    expect(() => parse(withFloor({ great: { ...GREAT, half: [12, 20] } }))).toThrow(/great\.half\[1\]/);
+    expect(parse(withFloor({ great: { count: [0, 4], half: [12, 16] } })).floor.great.count).toEqual([0, 4]);
+    expect(tuning.delver.floor.turnPercent).toBe(0);
+    expect(tuning.delver.floor.great).toEqual(GREAT);
   });
 
   it('accepts a fractional follow', () => {

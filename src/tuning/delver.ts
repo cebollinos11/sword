@@ -41,6 +41,18 @@ export interface DelverFloorTuning {
   readonly maxAttempts: number;
   /** The Floor's levels (docs/plans/delver.md, Stage 6). */
   readonly levels: DelverLevelsTuning;
+  /** The chance (in 100) that a growth step takes a turning candidate (an L, S or Z Passage) when there is one; 0: no Passage ever turns (docs/plans/delver.md, Stage 7a). */
+  readonly turnPercent: number;
+  /** The great halls (a Hall over two neighbouring lattice cells). */
+  readonly great: DelverGreatTuning;
+}
+
+/** A Floor's great halls: how many, and how long (docs/plans/delver.md, Stage 7a). `count` [0, 0] makes a Floor have none. */
+export interface DelverGreatTuning {
+  /** [min, max] great halls a Floor wants (whole, 0 to 4). */
+  readonly count: readonly [number, number];
+  /** [min, max] of a great hall's half length along its two cells (whole m; min above `halfSize[1]`). */
+  readonly half: readonly [number, number];
 }
 
 /** How a Floor grows levels: Halls at whole levels of `LEVEL_RISE` (2 m), sloped Passages and galleries. `max` 0 and `galleryPercent` 0 make every Floor flat. */
@@ -151,6 +163,9 @@ const MIN_HALL_HALF = 4;
 
 /** A level's rise (m): `LEVEL_RISE` of `sim/delver/plan.ts`, copied since tuning must not import the Simulation (a test keeps the two equal). A sloped Passage rises one level over its whole length. */
 const LEVEL_RISE = 2;
+
+/** The most great halls `great.count` may name. */
+const MAX_GREAT = 4;
 
 /** The highest Hall level `levels.max` may name. */
 const MAX_LEVELS = 6;
@@ -368,6 +383,17 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   // A sloped Passage rises one level over its whole length, so it is never steeper than 1 in 2 (MAX_SLOPE).
   if (levelMax > 0 && minPassage < 2 * LEVEL_RISE) fail(`${w}.minPassage`, `at least 2 * LEVEL_RISE (${2 * LEVEL_RISE}) when levels.max is above 0, so a sloped Passage is never steeper than 1 in 2`, minPassage);
 
+  const turnPercent = percent(f, 'turnPercent', w);
+  const gt = record(f.great, `${w}.great`);
+  const gw = `${w}.great`;
+  const greatCount = range(gt, 'count', gw, 0);
+  if (greatCount[1] > MAX_GREAT) fail(`${gw}.count[1]`, `a whole number at most ${MAX_GREAT}`, greatCount[1]);
+  const greatHalf = range(gt, 'half', gw, 0);
+  if (greatHalf[0] <= halfSize[1]) fail(`${gw}.half[0]`, `above halfSize[1] (${halfSize[1]}), so a great hall is larger than any Hall`, greatHalf[0]);
+  // A great hall's long half may move one metre up to dodge an even-metre Wall and must keep `minPassage` from the cells beyond it (plan.ts).
+  const greatMax = minGap / 2 + Math.min(Math.floor((minGap - minPassage) / 2), halfSize[1]);
+  if (greatHalf[1] + 1 > greatMax) fail(`${gw}.half[1]`, `at most min(gaps) / 2 + min(floor((min(gaps) - minPassage) / 2), halfSize[1]) - 1 (${greatMax - 1}), so a great hall can always take its size and dodge an even-metre Wall`, greatHalf[1]);
+
   return {
     tiers,
     floorsPerTier,
@@ -386,6 +412,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     warbands,
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent } },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, turnPercent, great: { count: greatCount, half: greatHalf } },
   };
 }

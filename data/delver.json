@@ -93,6 +93,8 @@
     "patrols": 2,
     "follow": 1.5,
     "maxAttempts": 10,
-    "levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 }
+    "levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 },
+    "turnPercent": 0,
+    "great": { "count": [0, 0], "half": [12, 16] }
   }
 }
