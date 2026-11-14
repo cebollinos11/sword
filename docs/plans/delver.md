@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -10,8 +10,9 @@
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
-- [ ] Stage 7: online co-op (up to four Players, Input Delay, soak)
-- [ ] Stage 8: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
+- [ ] Stage 7: rooms (bigger Halls, great halls, shapes, split levels, pits, daises, lava, pillars, archetypes)
+- [ ] Stage 8: online co-op (up to four Players, Input Delay, soak)
+- [ ] Stage 9: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
 
 ## Context
 A Run today is a walk through a Floor graph of Halls. Each Hall is its own small Generated Arena (7 × 7 cells) holding one Duel against one Encounter of at most four enemies. Doors chosen by walking lead to the next Hall (ADR 0019). It plays well, but it feels like a string of separate duels with a fade between them.
@@ -24,7 +25,7 @@ Since the Dungeon plan, three things exist that make this possible:
 - **Battle maps of several levels.** The walk rule, per-level destination fields and Promotion across floors (ADR 0022).
 
 ## Decisions (agreed in the brainstorm)
-- **It replaces the Gauntlet's Hall graph and keeps the Run's meta.** It is still the Gauntlet Format and still a Run: Team 0 has 1 to 4 Fighters (Players and AI allies), HP carries over, Relics, the Inventory, per-Player loot, AI Takeover, the Run seed from the Random Map, a results screen, and no Rematch. What changes is the inside of a Floor. It stops being a graph of Halls and becomes one continuous Arena. The Hall/Door graph code is retired in Stage 8, as the Dungeon retired the v1 Run.
+- **It replaces the Gauntlet's Hall graph and keeps the Run's meta.** It is still the Gauntlet Format and still a Run: Team 0 has 1 to 4 Fighters (Players and AI allies), HP carries over, Relics, the Inventory, per-Player loot, AI Takeover, the Run seed from the Random Map, a results screen, and no Rematch. What changes is the inside of a Floor. It stops being a graph of Halls and becomes one continuous Arena. The Hall/Door graph code is retired in Stage 9, as the Dungeon retired the v1 Run.
   - **This reverses `dungeon.md`'s first Decision** ("Rooms are separate Arenas joined by doors, not one continuous Arena"). The things it named as blockers are now answered: the four-slot Team 1 by the Crowd and Bubble; the 7 × 7 footprint by the Map Compiler; the jump Link budget by building the navmesh without Jump Links, as Battle maps do (ADR 0022); and one navmesh for the whole map by the Battle maps' own. Stage 0 writes this up as ADR 0028.
 - **Floors are generated procedurally: rooms and passages as Enclosures, written as a Map Source and compiled.** A pure, seeded Floor generator lays out rooms and passages, writes a Map Source, and `compileMap` builds the Arena. Every peer builds it from the Run seed and the Floor number alone (as `floorGraph` and Generated Arenas are built today), so nothing new crosses the wire. The judge rerolls a Floor that fails `walkCheck` or the Delver checks (below), as ADR 0014's judge does.
   - A generated Floor can be opened in the Map Editor (a dev button, "open Floor N of seed S"), so a bad layout can be looked at, and copied out as a source for a hand-made Floor.
@@ -63,11 +64,11 @@ Since the Dungeon plan, three things exist that make this possible:
 - **Stairs**: a zone in the Stairs Hall. Every counted Player standing in it takes the party to the next Floor. _Avoid_: exit, portal, door.
 - **Reveal**: the shared fog of war of a Floor: the Halls and Passages any Player has entered or seen into. _Avoid_: explored, discovered.
 - **Leash**: how far a chasing Warband follows from its post before it returns.
-- **Door**, **Floor graph**: retired in Stage 8.
+- **Door**, **Floor graph**: retired in Stage 9.
 
 ## How it fits the existing code
 - **A Floor's Duel is a Battle-shaped Duel inside a Run.** `SimState.crowd` holds the Warbands' Soldiers. `fighters` is the Fighter Pool, with the party in slots 0 to 3 for good and the rest bound by the Bubble. `stepMatch`'s Gauntlet branch keeps `RunState` and steps the Crowd and Bubbles as the Battle branch does. What a Battle has and a Floor does not: Objectives, Commanders, Tickets, respawning Squads, Troop choice and takeover of Soldiers. Split them behind the Format instead of copying the Battle branch.
-- **`RunState`** becomes `{ floor, phase, stairsTicks, restUsed, revealed, startTick, ... }`. `row`, `hall`, `path` and `doorTicks` go (in Stage 8). `phase` is `Exploring` or `Descending` (the fade).
+- **`RunState`** becomes `{ floor, phase, stairsTicks, restUsed, revealed, startTick, ... }`. `row`, `hall`, `path` and `doorTicks` go (in Stage 9). `phase` is `Exploring` or `Descending` (the fade).
 - **Floor generator** (`src/sim/delverGen.ts`, pure, Opus): seed → Hall layout → Map Source, then `compileMap` → Arena. The current Map Source is a Battle map's (Objectives, Bases, `front`). It needs a Delver variant, or a section of markers: entrance spawns, Stairs zone, fires, Treasure pedestals, Warband posts and patrol loops. `compileMap` takes `BattleTuning` fields today, so check what it really needs.
 - **Destination fields**: a Battle builds one per Objective. A Floor needs one per post and patrol waypoint (static, built with the Floor) plus one toward each chased Player, rebuilt when that Player changes cell. These are caches derived from state, never stored. Measure their cost in Stage 0.
 - **Squad brain**: `stepSquads` follows a Commander's Order. A Floor's Squads follow their Warband brain instead. Keep Formation, narrowing, morale and the walk rule; replace the Order.
@@ -77,7 +78,7 @@ Since the Dungeon plan, three things exist that make this possible:
 - **Render**: the Floor's look comes from `mapModel`, as Map Editor maps do. Fog of war belongs on the minimap and the Floor Map, plus perhaps dimming unrevealed Halls in the world (open question 6).
 
 ## Stages
-Run each Stage with `docs/plans/delver-prompt.md`: an Opus session designs the Stage (a `#### Design` section under it) and Sonnet subagents write the code. A Stage's **Model** line says how much design it needs from the orchestrator. Each Stage is one chat, solo and offline until Stage 7. Determinism tests run from Stage 1: same seed, same bytes; whole Floors hashed in slow tests.
+Run each Stage with `docs/plans/delver-prompt.md`: an Opus session designs the Stage (a `#### Design` section under it) and Sonnet subagents write the code. A Stage's **Model** line says how much design it needs from the orchestrator. Each Stage is one chat, solo and offline until Stage 8. Determinism tests run from Stage 1: same seed, same bytes; whole Floors hashed in slow tests.
 
 ### Stage 0: spike and ADR
 **Model**: Opus.
@@ -133,7 +134,7 @@ export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): 
 - **Doorways**: if room-centre fields do not all reach room 0 at flowCell 4, Stage 1 must use a finer field for Floors (or wider doorways), and the cost at flowCell 2 is the one that counts.
 
 ### Result
-Done 2026-11-12. **Go** on 20-room Floors with Warbands, and ADR 0028 is written. Online Runs should take an Input Delay (Stage 7). Stage 1 must make every Passage visible to the destination fields.
+Done 2026-11-12. **Go** on 20-room Floors with Warbands, and ADR 0028 is written. Online Runs should take an Input Delay (Stage 8). Stage 1 must make every Passage visible to the destination fields.
 
 **What was built** (no game feature):
 - **`distanceTo`** (`src/sim/destinations.ts`): a destination field to any point. It is equal, entry for entry, to the field `destinationFields` builds for an Objective standing there. Both now build their fields through one shared helper per kind of map: `backward` for maps of several levels, whose backward joins are cached per `FieldLevels`, and `levelField` for one-level maps. So the two cannot drift, and the existing fields are bit-identical (every existing test and hash unchanged). On an Enclosure map the caller passes the floor's Walk Surface, since −1 means the roof.
@@ -171,7 +172,7 @@ Done 2026-11-12. **Go** on 20-room Floors with Warbands, and ADR 0028 is written
 - **Verdicts.**
   - **Floor ready**: ~0.5 s (0.7 s at a 2 m cell) laptop-equivalent, within the fade, so a go as planned.
   - **Tick**: T2's full Pool is ~2.8 ms mean and ~5 to 8 ms p99 laptop-equivalent, against 8 and 25. A go.
-  - **Input Delay**: a full Bubble on a Floor costs what it does on the open field. A Battle Tick of that size needed Input Delay online (ADR 0025), so Stage 7 starts online Runs at `BATTLE_INPUT_DELAY` and measures four Players.
+  - **Input Delay**: a full Bubble on a Floor costs what it does on the open field. A Battle Tick of that size needed Input Delay online (ADR 0025), so Stage 8 starts online Runs at `BATTLE_INPUT_DELAY` and measures four Players.
   - **Doorways**: Stage 1 must keep every Passage's centre line on a field cell centre (multiples of `flowCell`), or build Floors at a 2 m cell. **Decided by the user (2026-11-12): a 2 m cell for Floors**, a `delver.flowCell` of their own (2) since `crowd.flowCell` (4) is the Battles'. This leaves the generator's layout free.
 - **ADR 0028** is accepted on the working branch, with no PR (the user's call). "Merged" in the Done above means that.
 
@@ -364,12 +365,12 @@ Done 2026-11-12. Any (Run seed, Floor) now gives a judged, varied, one-level Flo
 - **Done**: a solo Run walks three empty Floors to Victory; `dungeonRun` style tests are rewritten for Floors.
 
 #### Design
-Stage 2 puts the party on generated Floors: a Delver Run of `delver.tiers × delver.floorsPerTier` empty Floors, chosen in solo by a dev flag while the Hall-graph Run stays the Gauntlet's default (until Stage 8). Nothing about a Duel, a Battle or a Hall-graph Run changes: every new field is absent outside a Delver Run, so every existing hash, snapshot and test stands.
+Stage 2 puts the party on generated Floors: a Delver Run of `delver.tiers × delver.floorsPerTier` empty Floors, chosen in solo by a dev flag while the Hall-graph Run stays the Gauntlet's default (until Stage 9). Nothing about a Duel, a Battle or a Hall-graph Run changes: every new field is absent outside a Delver Run, so every existing hash, snapshot and test stands.
 
 **Choosing a Delver Run.**
 - **The Match option**: `MatchConfig.delver?: true` (in `MatchOptions` through `Partial<MatchConfig>`). `createMatch` refuses it unless `format` is `'Gauntlet'`, and refuses it with `start` (no dev start Hall). `relics` (dev) still give the first inventory. Absent, a Gauntlet is the Hall-graph Run, as now.
 - **The dev flag**: `devDelverRun(search, hash): boolean` (`src/devMode.ts`), true for `?dev=1&delver=1` only. `game.ts` `launch()` adds `delver: true` to a solo Gauntlet's options (`members.length <= 1`), as it adds `devRunStart`. With `&autopilot=…` it puts the local Fighter on the Delver pilot (below) instead of the Hall autopilot.
-- **The Lobby**: no setting in Stage 2. An online Gauntlet is always the Hall-graph Run (the flag is read only for solo, so no `PROTOCOL_VERSION` change). Stage 7 adds a Lobby knob synced to guests; Stage 8 drops the choice.
+- **The Lobby**: no setting in Stage 2. An online Gauntlet is always the Hall-graph Run (the flag is read only for solo, so no `PROTOCOL_VERSION` change). Stage 8 adds a Lobby knob synced to guests; Stage 9 drops the choice.
 - **The solo menu**: unchanged. The Gauntlet Format plus `?dev=1&delver=1`.
 - **Replays**: `replaySetup` writes `config` as it is, so `delver: true` rides along and a replay rebuilds a Delver Run through `createMatch`. A test replays one.
 
@@ -385,7 +386,7 @@ Stage 2 puts the party on generated Floors: a Delver Run of `delver.tiers × del
 export type DelverPhase = 'Exploring' | 'Descending';
 /** One fire of the current Floor (plan.markers.fires order): whether its revive is spent, and which Players took its heal. */
 export interface RestUse { readonly revived: boolean; readonly healed: readonly number[] /* ascending Fighter indices */ }
-/** `MatchState.delver`: a Delver Run's progress (docs/plans/delver.md). Becomes RunState in Stage 8. */
+/** `MatchState.delver`: a Delver Run's progress (docs/plans/delver.md). Becomes RunState in Stage 9. */
 export interface DelverRun {
   readonly floor: number;            // 1-based
   readonly floors: number;           // delver.tiers × delver.floorsPerTier, fixed at the start
@@ -400,7 +401,7 @@ export interface DelverRun {
 export interface SimDelver { readonly floor: number; readonly phase: DelverPhase; readonly away?: readonly number[] }
 ```
 - `MatchState.delver?: DelverRun`; `MatchState.run` is null in a Delver Run, so no Hall-graph code (Doors, `hallOf`, the Floor Map, `runCleared`) ever reads one. `SimState.delver?: SimDelver`; `step` carries it through as it carries `hall`, and a Duel with `hall` or `delver` ends only when Team 0 is wiped out (`updateDuel`'s flag).
-- **What stays until Stage 8**: the whole Hall-graph `RunState` (`row`, `hall`, `path`, `doorTicks`, `rested`, its `phase`) and `SimHall`, for the Hall-graph Run only. Stage 8 deletes them and renames `DelverRun` to `RunState` and `MatchState.delver` to `run`.
+- **What stays until Stage 9**: the whole Hall-graph `RunState` (`row`, `hall`, `path`, `doorTicks`, `rested`, its `phase`) and `SimHall`, for the Hall-graph Run only. Stage 9 deletes them and renames `DelverRun` to `RunState` and `MatchState.delver` to `run`.
 - `score[0]` is the Floors whose Stairs were taken; `duelNumber` the Floor. `MatchState.arena` is the Floor's arena name; `config.arena` stays the Random Map (the Run seed).
 - **Not in the state**: the FloorPlan, BuiltFloor, Battlefield, navmesh, fields and the Floor's Tuning Data copy (all `floorOf`/`arenaTuning` caches).
 
@@ -469,7 +470,7 @@ export interface SimDelver { readonly floor: number; readonly phase: DelverPhase
 - Slow, `src/controllers/delverRun.slow.test.ts`: Tuning `delver.tiers 1, floorsPerTier 3`. One Player on the pilot and two Hard AI allies. At each Floor's first Tick the harness sets the Player to half HP and fells ally 1 (a `death` written into the state). It prints each Floor's build time (cold, `floorOf` before the Run), its seconds to the Stairs, the ms per Tick, and the allies' trail when the Stairs are taken.
   - **It must show it exercised**, on every Floor: a `Rested` with `healed` > 0, a `Revived`, and the Stairs (`StairsTaken` on Floors 1 and 2, then the Victory).
   - A second case fells the Player at Floor 1's start: the AI allies walk to the Stairs and take them, and the Player stands on Floor 2 at `revive` of max HP.
-- **Existing tests**: none is rewritten or removed. The Hall-graph Run ships until Stage 8, so `dungeonRun.test.ts`, `gauntlet.soak.test.ts`, `takeover.test.ts`, the Door and Floor Map tests and the rest stay as its tests. `delverRun.test.ts` is their Floor counterpart, and Stage 8 removes the Hall-graph ones. `src/tuning/delver.test.ts` gains the `fireRadius` check (a new test, no changed expectation).
+- **Existing tests**: none is rewritten or removed. The Hall-graph Run ships until Stage 9, so `dungeonRun.test.ts`, `gauntlet.soak.test.ts`, `takeover.test.ts`, the Door and Floor Map tests and the rest stay as its tests. `delverRun.test.ts` is their Floor counterpart, and Stage 9 removes the Hall-graph ones. `src/tuning/delver.test.ts` gains the `fireRadius` check (a new test, no changed expectation).
 
 ### Result
 Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntlet Format starts one on generated, empty Floors. Team 0 spawns at the Entrance. Fires heal and revive. The Stairs take the party down after a fade, and the last Stairs win the Run. The Hall-graph Run is still the Gauntlet's default, unchanged, and every hash and test from before is unchanged.
@@ -504,7 +505,7 @@ Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntle
 - **The Inventory screen never takes over movement in a Delver Run.** Walking into a fire's ring with the screen open froze the Player at the ring's edge. Its buttons still work at a fire.
 - **A finished Delver Run** steps the generic path under `arenaTuning`, which would otherwise throw on the Floor's name.
 - **The camera** (`cameraCollider.ts`, found in the playtest): Floors are drawn with Walls 0.6 m thick, and the camera stopped 0.25 m from a Wall's centre line, so about a quarter of the frames were inside a Wall. It now stops 0.45 m off the face it hits, measured square to the face, more at a glancing angle. Afterwards about 1 frame in 16 was inside a doorway post. This affects every Arena's camera (render only).
-- **No existing test was rewritten or removed.** The Hall-graph Run ships until Stage 8, so `dungeonRun.test.ts` and the rest stay as its tests, and `delverRun.test.ts` is their Floor counterpart. Two existing files gained a key: `delver.test.ts` and `tuning.test.ts`'s `goodRaw()` have `fireRadius`.
+- **No existing test was rewritten or removed.** The Hall-graph Run ships until Stage 9, so `dungeonRun.test.ts` and the rest stay as its tests, and `delverRun.test.ts` is their Floor counterpart. Two existing files gained a key: `delver.test.ts` and `tuning.test.ts`'s `goodRaw()` have `fireRadius`.
 
 **Measured** (the test container, about 3× a mid-range laptop; `src/controllers/delverRun.slow.test.ts`, Run seed 4242, 1 tier × 3 Floors, one Player on the pilot and two Hard AI allies):
 
@@ -557,13 +558,13 @@ Done 2026-11-13. A solo Delver Run now plays: `?dev=1&delver=1` with the Gauntle
 #### After the Stage (2026-11-13, the user's calls)
 - **A fire's revive is spent only when it brings someone back.** The first living Player to reach a fire while any Team 0 Fighter has fallen revives them all, and only then is `restUsed[k].revived` set. A party that passes a fire with nobody fallen keeps that fire's revive for later.
 - **A fire revives everyone fallen**: Players and AI allies alike, as built.
-- **Online now, not in Stage 7.** The Delver Run is wired into the Lobby and the Rollback session ahead of its Stage:
+- **Online now, not in Stage 8.** The Delver Run is wired into the Lobby and the Rollback session ahead of its Stage:
   - **The Lobby**: `LobbySettings.delver?: true`, for the Gauntlet only. The host chooses it with a "Dungeon: Halls | Delver" row in the Map section, which shows only for the Gauntlet. It is synced to guests like the other settings (`src/lobby/messages.ts` checks it) and remembered in storage (`sword.delver`). `?dev=1&delver=1` still turns it on.
   - **The session**:
     - The host's Match options carry `delver: true`, and so does every hello a peer sends after the start, as `humans` does today.
     - `src/net/messages.ts` accepts and checks `MatchOptions.delver`, `MatchConfig.delver`, `MatchState.delver` and `SimState.delver` in a resync. A Delver state has `run` null, its Duel has no `hall`, and `duel.delver` mirrors the Run's floor, phase and away.
     - `PROTOCOL_VERSION` goes up by 1.
-    - **Input Delay stays 0** for a Run. With no Crowd on a Floor yet, the Tick is a Duel's. Stage 7 measures it with Warbands, as ADR 0028 says.
+    - **Input Delay stays 0** for a Run. With no Crowd on a Floor yet, the Tick is a Duel's. Stage 8 measures it with Warbands, as ADR 0028 says.
   - **Tests**:
     - Loopback: two peers step a Delver Run with equal checksums. A resync state of a Delver Run passes the message check, and a malformed one fails.
     - Slow: two peers on Delver pilots go down a Floor with no desync.
@@ -593,7 +594,7 @@ Stage 3 puts Warbands on the Floors: Crowd Squads of Team 1 Soldiers, deployed a
 **The Fighter Pool on a Floor.**
 - **`config.teams`** of a Delver Run is Team 0's 1 to 4 Fighters only (all 0), the party, as a Battle's `teams` names only its Players. `createMatch` with `delver` accepts `teams` as Team 0's Fighters alone, or followed by exactly MAX_TEAM_SIZE Team 1 slots (the Lobby's Gauntlet Lineup still has them): it drops those slots, and cuts `weapons` and `sizes` to the party. `checkDelverTeams(teams)` (`match.ts`): 1 to MAX_TEAM_SIZE entries, all 0. `checkRunTeams` stays the Hall-graph Run's. `humans` and `players` are checked as now.
 - **The Duel's Fighters** are the party in slots 0 to k−1 (k = `config.teams.length`, for good) and then `battle.bubble.poolSize − k` unbound slots (`unboundSlot(t, arena)`), as `createBattle` builds them. The Duel's `crowd` is the Floor's (below). `stepBubbles` is called with `players = k`.
-- **The Lobby Lineup** is unchanged: a Gauntlet's Lineup keeps its 4 Team 1 slots, which a Delver Run ignores (Stage 8 drops them). `lineupMatch` is unchanged (`createMatch` drops the slots). `lineupAis(tuning, lineup, format, match)` takes `delver` in `match` (`Pick<MatchOptions, 'seed' | 'arena' | 'delver'>`): for a Delver Gauntlet it returns the party's entries as now (null for a Player, an Ally AI for an AI) and then a Pool AI (`createPoolAi`) for every slot k to poolSize − 1. No Hall AI. Every caller passes `delver` (`game.ts`, `play/driver.ts`, `net/session.ts`, the harnesses).
+- **The Lobby Lineup** is unchanged: a Gauntlet's Lineup keeps its 4 Team 1 slots, which a Delver Run ignores (Stage 9 drops them). `lineupMatch` is unchanged (`createMatch` drops the slots). `lineupAis(tuning, lineup, format, match)` takes `delver` in `match` (`Pick<MatchOptions, 'seed' | 'arena' | 'delver'>`): for a Delver Gauntlet it returns the party's entries as now (null for a Player, an Ally AI for an AI) and then a Pool AI (`createPoolAi`) for every slot k to poolSize − 1. No Hall AI. Every caller passes `delver` (`game.ts`, `play/driver.ts`, `net/session.ts`, the harnesses).
 - **Hall AI**: a Delver Run has none (`hallAi.ts` unchanged; its `state.delver` idle branch stays for safety).
 - **Replays**: `replaySetup` writes `config` as it is, so a replay carries the party-only `teams` and rebuilds through `createMatch`. A Stage 2 Delver replay still loads (its Team 1 slots are dropped) but re-simulates differently (no Warbands then): accepted, they were dev artefacts.
 - **Online**: the Match state's shape changes (a Crowd and a Pool on a Delver state, party-only `teams`), so `PROTOCOL_VERSION` goes to 28.
@@ -1583,12 +1584,32 @@ Done 2026-11-14. Delver Floors now have levels. Halls stand at 0 to 8 m. About a
 - **The Deck's look** is a plain board. #62's art could give it supports and a railing.
 - **The navmesh is 5 to 6 times Stage 1's** (about 0.3 s laptop-equivalent). It is warmed a Floor ahead, but a cold first Floor pays it behind the menu.
 
-### Stage 7: online co-op
+### Stage 7: rooms
+**Model**: Opus (layout and geometry).
+Added 2026-11-14 after Stage 6's playtest. The user's feedback: rooms should be bigger and more interesting, some should have more verticality (doorways at different heights), and some should have lava pits to push enemies into. The calls are in "Answered questions (2026-11-14, after Stage 6)". The Stage's `#### Design` settles the numbers.
+- **Bigger Halls and great halls**: most Halls 14 to 28 m across (now 10 to 22). Add 1 or 2 great halls of 35 to 45 m a Floor, kept for the Boss Hall, Treasure Halls and the big fight posts. The grid gaps grow to fit them. Stage 2's empty-Floor walk time is measured again.
+- **Shapes**: L, T, cross and ring Halls (a ring goes round a central Block), each built from several rects into one Hall. The Reveal, the minimap and the Floor Map draw them as their rects.
+- **Verticality inside a Hall**:
+  - **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
+  - **Sunken pits**: the doorways at the rim, the floor 2 to 4 m below, Ramps down.
+  - **Daises and Platforms**: a throne or an altar to hold or be knocked off.
+  - **More stairwells and galleries**: doors at Deck height far more often (now 1 gallery in 9), and Decks on two or more walls.
+- **Lava** (the kit's `lava` Hazard, a Death by Lava for anyone):
+  - **Shapes**: a central pit ringed by floor; a river crossed by one or two narrow bridges with no rails; troughs along a wall or under a Deck's open front.
+  - **Amount**: it grows with the tier, about 1 Hall in 6 on tier 1 and 1 in 3 on tier 3. Never in the Entrance, and never on the walk to a Rest Hall's fire.
+  - **Who it threatens**: everyone, as the AI already plays it. Enemies kick toward a hazard more readily, and so do allies; allies and the pilot avoid stepping in. A fire still revives a Player who died in it.
+  - **Rules**: the judge must check that no post, spawn, fire, pedestal, drop spot or the Stairs is on lava or within a Knockdown's Slide of it. A Warband's home and patrol keep off it, and the walk between any two doorways never needs a bridge narrower than a Formation can file through.
+- **Pillars and cover**: Blocks and colonnades that break sight lines and Formations. `sight` is judged through them.
+- **Archetypes**: seeded procedural recipes that scale to a Hall's size and its door sides, such as the arena pit, throne room, bridge hall, colonnade, crypt and lava hall. No hand-made templates. Each Hall kind has its own set of archetypes, and the judge checks every archetype over the 500-seed run.
+- **Unchanged**: Battles, Duels and the Hall-graph Run. With every new knob off, a Floor is byte-identical to Stage 6's (a `flatRooms` case in `golden.test.ts`). `DELVER_VERSION` + 1.
+- **Done**: 500 seed pairs judged with the new rules; the soak and Stage 2's walk measured on the new Floors; screenshots of each archetype, of lava kills by a kick and by a Knockdown, and of a split-level Hall.
+
+### Stage 8: online co-op
 **Model**: Opus.
 - Up to four Players in a Rollback session. Input Delay as a Battle's if Stage 0 says so. AI Takeover marks a Player away (no Stairs count, no fire, no pickups; Warband sizes unchanged). Loopback tests and a four-Player soak. `PROTOCOL_VERSION` + 1 if the Intent or session messages change.
 - **Done**: an online four-Player Run to Victory with no desync in the soak.
 
-### Stage 8: retire the Hall graph
+### Stage 9: retire the Hall graph
 **Model**: Sonnet.
 - Remove `floorGraph`, Doors, Hall rows, the `:d` Arena names in Runs, and their tests. Update `CONTEXT.md` (Floor, Hall, Door, Run, Inventory, Floor Map) and mark the superseded parts of ADR 0019 and `dungeon.md`.
 
@@ -1613,3 +1634,14 @@ Done 2026-11-14. Delver Floors now have levels. Halls stand at 0 to 8 m. About a
 2. A balcony inside its own Hall is allowed.
 3. Heights change by sloped Passages, stairwell Halls and Jumps (a Player Jumps up to 4 m); a Jump is only ever a shortcut.
 4. The minimap and Floor Map are not changed in Stage 6.
+
+## Answered questions (2026-11-14, after Stage 6)
+The user's playtest feedback: rooms bigger and more interesting, more verticality (doorways at different heights), lava pits to push enemies into. It becomes Stage 7.
+1. **Size**: a mix. Most Halls are bigger, with 1 or 2 great halls a Floor (the Boss, Treasure and big fights).
+2. **Verticality**: all four kinds: split-level floors, sunken pits, daises and Platforms, and more stairwells and galleries.
+3. **Lava**: central pits, rivers with bridges and edge troughs. No Abyss chasms.
+4. **Also**: pillars and cover, non-rectangular shapes and themed archetypes. No low walls or rails splitting lanes.
+5. **Where**: a new Stage 7. Online co-op moves to Stage 8, and retiring the Hall graph moves to Stage 9.
+6. **Archetypes**: procedural recipes in code, not hand-made Map Sources.
+7. **How much lava**: it grows with the tier (about 1 Hall in 6 to 1 in 3). None in the Entrance, and none on the way to a fire.
+8. **Who it threatens**: everyone, as the AI already plays it: an instant Death by Lava, which a fire can revive.

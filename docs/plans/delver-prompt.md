@@ -124,7 +124,7 @@ STEP 5: CLOSE THE STAGE
 4. Update docs/plans/delver.md yourself: tick the Stage under Progress, update the Status line, and
    add the Stage's "### Result" (what was built, what changed from the plan and why, test counts,
    measured timings, and what to try in a playtest). Update CONTEXT.md only for terms the code has
-   now made true (the plan's Glossary says which). Stage 0 writes ADR 0028; Stage 8 marks what it
+   now made true (the plan's Glossary says which). Stage 0 writes ADR 0028; Stage 9 marks what it
    supersedes.
 5. Commit the review fixes, the Result and any ADR ("Delver Stage N: ...") and push to the working
    branch. Do not open a PR unless I ask: an ADR the plan says is "merged" counts as accepted once

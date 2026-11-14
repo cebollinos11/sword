@@ -40,7 +40,7 @@ export interface RestUse {
   readonly healed: readonly number[];
 }
 
-/** A Delver Run's progress (`MatchState.delver`, docs/plans/delver.md). Becomes `RunState` in Stage 8. */
+/** A Delver Run's progress (`MatchState.delver`, docs/plans/delver.md). Becomes `RunState` in Stage 9. */
 export interface DelverRun {
   /** The Floor (1-based). */
   readonly floor: number;

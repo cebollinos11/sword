@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-11-12, `docs/plans/delver.md`, Stage 0). Supersedes `docs/plans/dungeon.md`'s first Decision ("Rooms are separate Arenas joined by doors, not one continuous Arena") and the part of ADR 0019 that makes each Hall its own Generated Arena with alcove Doors. ADR 0019's rule that every choice is simulated from walking stands: the Stairs, the fires and the pickups are places in the Floor, and equip and drop stay Intent fields. Until the Delver's Stage 8 retires it, the Hall graph still ships.
+Accepted (2026-11-12, `docs/plans/delver.md`, Stage 0). Supersedes `docs/plans/dungeon.md`'s first Decision ("Rooms are separate Arenas joined by doors, not one continuous Arena") and the part of ADR 0019 that makes each Hall its own Generated Arena with alcove Doors. ADR 0019's rule that every choice is simulated from walking stands: the Stairs, the fires and the pickups are places in the Floor, and equip and drop stay Intent fields. Until the Delver's Stage 9 retires it, the Hall graph still ships.
 
 ## Context
 
@@ -36,10 +36,10 @@ The Delver's Stage 0 measured what that costs, on a hand-written Floor of 20 Enc
 ## Consequences
 
 - The Delver plan goes ahead with large Floors: Stage 0 is a go on build time and Tick cost.
-- **Online Runs should take an Input Delay.** A Floor Tick with a full Bubble costs what a Battle Tick does, and online Battles needed Input Delay to stop the Rollback cliff (ADR 0025). Stage 7 starts from `BATTLE_INPUT_DELAY` (3 Ticks) for Runs and measures it with four Players. A Duel stays at 0.
+- **Online Runs should take an Input Delay.** A Floor Tick with a full Bubble costs what a Battle Tick does, and online Battles needed Input Delay to stop the Rollback cliff (ADR 0025). Stage 8 starts from `BATTLE_INPUT_DELAY` (3 Ticks) for Runs and measures it with four Players. A Duel stays at 0.
 - The Battle autopilot got stuck on a room's wall next to a doorway, so in the first spike run no Soldier was ever promoted. The navmesh AI (AI allies, promoted enemies) must be watched on Enclosure Floors from Stage 2 on, at doorways especially.
 - A Floor is `layered`, because the roofs are Walk Surfaces at the level above, even when every room is on one level. Its fields have a node per level and its Soldiers use the multi-level walk rule from the start, which Stage 6 needs anyway.
-- `dungeon.md`'s first Decision and the Hall-graph part of ADR 0019 are superseded once Stage 8 lands. Until then both kinds of Run are in the code.
+- `dungeon.md`'s first Decision and the Hall-graph part of ADR 0019 are superseded once Stage 9 lands. Until then both kinds of Run are in the code.
 
 ## Amended (2026-11-14, the Delver's Stage 6)
 
