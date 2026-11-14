@@ -173,6 +173,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
   const N = Math.round(source.size / step);
   const levelOf = new Map(levels.map((y, l) => [y, l]));
   const cellsOf = (r: Rect): CellRect => ({ i0: Math.round((r.x0 + half) / step), j0: Math.round((r.z0 + half) / step), i1: Math.round((r.x1 + half) / step), j1: Math.round((r.z1 + half) / step) });
+  const withinCells = (c: CellRect, i: number, j: number) => i >= c.i0 && i < c.i1 && j >= c.j0 && j < c.j1;
   const xAt = (i: number) => i * step - half;
   const zAt = (j: number) => j * step - half;
 
@@ -386,8 +387,10 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     let owner = 0;
     for (const [h, o] of seen) {
       if (Math.abs(h - y) <= stepUp + EPS) return;
-      // An Enclosure's roof is no ledge to wall: its own Walls stand to it, and a Deck under it (a gallery) has an open edge.
-      const roof = brushes[o - 1]!.kind === 'enclosure' && h > (brushes[o - 1] as EnclosureBrush).y;
+      // An Enclosure's roof is no ledge to wall for a body inside its own rect: its own Walls stand to it, and a Deck under it (a gallery) has an open edge.
+      // A body beside the Enclosure still meets its roof as a ledge, as before.
+      const e = brushes[o - 1]!;
+      const roof = e.kind === 'enclosure' && h > e.y && withinCells(cellsOf(e.rect), i, j);
       if (h > y && h < top && !roof) [top, owner] = [h, o];
     }
     if (seen.length === 0 && !block[nj * N + ni]) overNothing.add(from);

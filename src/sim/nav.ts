@@ -436,7 +436,8 @@ function jumpLinks(arena: ArenaGeometry, tuning: TuningData, edges: readonly (re
 
   // Onto each target, straight at its edges from further and further out.
   arena.walk.forEach((surface, j) => {
-    if (deadly(surface)) return;
+    // A roof is reached by no walk, so on a shortcuts-only map it is no shortcut's target: its tries would all be dropped.
+    if (deadly(surface) || (shortcutsOnly && surface.roof)) return;
     for (const e of edges[j]!) {
       const heading = { x: -e.n.x, z: -e.n.z };
       search(e.length, (u) => {

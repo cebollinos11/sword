@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { flatFloors } from './delver/flat.testdata';
 import { arenaOf } from './arena';
+import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { DROP_MARGIN, dropSpots, lootSlot, treasurePickups, warbandDrops, warbandLoot } from './delverLoot';
 import { floorDuel } from './delverRun';
@@ -192,5 +193,44 @@ describe('treasurePickups', () => {
     expect(away.every((p) => p.owner === 0)).toBe(true);
     expect(away.map((p) => p.id)).toEqual(away.map((_, k) => k));
     expect(treasurePickups(tuning, config, plan, SEED, 1)).toEqual(treasurePickups(tuning, config, plan, SEED, 1));
+  });
+});
+
+describe('dropSpots on a levelled Floor', () => {
+  const real = loadTuningData();
+  const found = Array.from({ length: 30 }, (_, k) => delverFloor(real, k + 1, 1));
+  const lv = real.battle.levels;
+  const centre = (r: { x0: number; z0: number; x1: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
+
+  it('a fall on a sloped Passage lands every spot on its Ramp, never in the abyss under it', () => {
+    const f = found.find((b) => b.plan.passages.some((p) => p.ya !== p.yb))!;
+    expect(f).toBeDefined();
+    const p = f.plan.passages.find((q) => q.ya !== q.yb)!;
+    const lo = Math.min(p.ya, p.yb);
+    const hi = Math.max(p.ya, p.yb);
+    const c = centre(p.rect);
+    const spots = dropSpots(f.plan, f.field.arena, lv, c.x, c.z, lo, 16);
+    for (const s of spots) {
+      expect(s.y).toBeGreaterThanOrEqual(lo - 1e-9);
+      expect(s.y).toBeLessThanOrEqual(hi + 1e-9);
+      expect(s.y).toBeGreaterThanOrEqual(0);
+    }
+    // Spread along the Passage, so some lie more than a step over the fall.
+    expect(Math.max(...spots.map((s) => s.y))).toBeGreaterThan(lo + lv.stepUp);
+  });
+
+  it('a spot that lands on a gallery Ramp gets the Ramp\'s height', () => {
+    const f = found.find((b) => b.plan.halls.some((h) => h.gallery))!;
+    expect(f).toBeDefined();
+    const h = f.plan.halls.find((q) => q.gallery)!;
+    const g = h.gallery!;
+    const c = centre(g.ramp);
+    const [spot] = dropSpots(f.plan, f.field.arena, lv, c.x, c.z, h.y, 1);
+    expect(spot!.y).toBeGreaterThan(h.y + 0.5);
+    expect(spot!.y).toBeLessThan(g.y);
+    expect(spot!.y).toBeCloseTo((h.y + g.y) / 2, 6);
+    // And a fall on the Deck lies on the Deck.
+    const d = centre(g.deck);
+    expect(dropSpots(f.plan, f.field.arena, lv, d.x, d.z, g.y, 1)[0]!.y).toBe(g.y);
   });
 });

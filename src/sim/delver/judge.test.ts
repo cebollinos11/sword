@@ -2,8 +2,9 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { checkMap } from '../../mapEditor/checks';
 import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
-import { arenaOf, deadly } from '../arena';
+import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
+import { floorNear } from '../levels';
 import { navMesh, type JumpLink } from '../nav';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
@@ -47,6 +48,7 @@ beforeAll(() => {
 }, 120_000);
 
 const good = () => floors[0]!;
+const surfaceHeightAt = (b: BuiltFloor, s: number, x: number, z: number) => surfaceHeight(b.field.arena, s, x, z);
 /** The same Floor, built, with another plan (the field and the source stay the good Floor's). */
 const withPlan = (b: BuiltFloor, plan: FloorPlan): BuiltFloor => ({ ...b, plan });
 
@@ -140,6 +142,39 @@ describe('the Delver Floor judge', () => {
     expect(reasons.filter((r2) => r2.startsWith(`passages: ${loop.id} `))).toHaveLength(2);
     expect(reasons.filter((r2) => r2.startsWith('passages:'))).toHaveLength(2);
     expect(reasons.filter((r2) => r2.startsWith('halls:'))).toEqual([]);
+  });
+
+  it('passages: refuses a loop Passage whose Brush is removed (its ends stand on no floor), and only that Passage', () => {
+    const b = good();
+    const loop = b.plan.passages.find((p) => p.loop && p.ya === p.yb)!;
+    expect(loop).toBeDefined();
+    const source = { ...b.source, brushes: b.source.brushes.filter((br) => br.id !== loop.id) };
+    expect(source.brushes).toHaveLength(b.source.brushes.length - 1);
+    const reasons = judgeBuilt(t, buildFromSource(tuning, b.plan, source));
+    const mine = reasons.filter((r) => r.startsWith(`passages: ${loop.id} `));
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatch(/stands on no floor/);
+    expect(reasons.filter((r) => r.startsWith('passages:'))).toHaveLength(1);
+  });
+
+  it('floorNear: both ends of every sloped Passage stand on a floor within the Passage\'s heights, short ones included', () => {
+    let sloped = 0;
+    for (const f of [...floors, withSlope]) {
+      for (const p of f.plan.passages) {
+        if (p.ya === p.yb) continue;
+        sloped++;
+        const r = p.rect;
+        const cx = (r.x0 + r.x1) / 2;
+        const cz = (r.z0 + r.z1) / 2;
+        const ends = p.axis === 'x' ? [{ x: r.x0 + 1, z: cz, y: p.ya }, { x: r.x1 - 1, z: cz, y: p.yb }] : [{ x: cx, z: r.z0 + 1, y: p.ya }, { x: cx, z: r.z1 - 1, y: p.yb }];
+        for (const e of ends) {
+          const s = floorNear(f.field.arena, e.x, e.z, e.y);
+          expect(s).toBeGreaterThanOrEqual(0);
+          expect(Math.abs(surfaceHeightAt(f, s, e.x, e.z) - e.y)).toBeLessThanOrEqual(1.01);
+        }
+      }
+    }
+    expect(sloped).toBeGreaterThan(0);
   });
 
   it('markers: refuses a fire in the abyss, and a post in another Hall', () => {

@@ -8,7 +8,7 @@ import type { ArenaGeometry, LevelsTuning, TuningData } from '../tuning';
 import type { CrowdState } from './crowd';
 import type { FloorPlan } from './delver/plan';
 import { surfaceHeight } from './arena';
-import { groundNear } from './levels';
+import { floorNear } from './levels';
 import { tierOf } from './delver/troops';
 import { presentPlayers } from './hall';
 import type { Dropped } from './inventory';
@@ -87,10 +87,9 @@ function rectOf(plan: FloorPlan, x: number, z: number): Box {
  * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the Hall rect holding the point, else the Passage rect, else
  * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
- * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the ground nearest under the fall's height `y` (`groundNear`
- * of the Floor's `arena`, never a roof; so a fall on a Deck lies on the Deck, one beside it on the floor), at `y` itself where there is none. Pure.
+ * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the floor nearest the fall's height `y` (`floorNear` of the Floor's `arena`: neither deadly nor a roof, above or below `y`; so a fall on a Deck lies on the Deck, one beside it on the floor, one on a Ramp on the Ramp), at `y` itself where there is none. Pure.
  */
-export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, lv: LevelsTuning, x: number, z: number, y: number, count: number): PickupAt[] {
+export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuning, x: number, z: number, y: number, count: number): PickupAt[] {
   if (count <= 0) return [];
   const r = rectOf(plan, x, z);
   // A rect narrower than twice the margin shrinks to its middle line.
@@ -105,7 +104,7 @@ export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, lv: LevelsTunin
     const along = (j % 2 === 1 ? (j + 1) / 2 : -j / 2) * DROP_GAP;
     const sx = alongX ? clamp(bx + along, x0, x1) : bx;
     const sz = alongX ? bz : clamp(bz + along, z0, z1);
-    const ground = groundNear(arena, lv, sx, sz, y, true);
+    const ground = floorNear(arena, sx, sz, y);
     const spot: PickupAt = { x: sx, y: ground >= 0 ? surfaceHeight(arena, ground, sx, sz) : y, z: sz };
     if (found.every((s) => (s.x - spot.x) ** 2 + (s.z - spot.z) ** 2 >= DROP_APART * DROP_APART)) found.push(spot);
   }

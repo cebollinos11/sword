@@ -181,6 +181,22 @@ describe('an Enclosure with a ceiling of its own', () => {
   });
 });
 
+describe('an Enclosure\'s roof as a ledge', () => {
+  it('a Platform beside a plain Enclosure meets its roof: the face Wall stands to the ceiling, as before levels (only a body under its own roof skips it)', () => {
+    const map = compile(
+      [
+        GROUND,
+        { kind: 'enclosure', id: 'hall', rect: { x0: -5, z0: -5, x1: 5, z1: 5 }, y: 0, top: 4, doors: { n: 2 } },
+        { kind: 'platform', id: 'pad', rect: { x0: 5, z0: -3, x1: 9, z1: 3 }, top: 2 },
+        { kind: 'ramp', id: 'up', rect: { x0: 9, z0: -3, x1: 13, z1: 3 }, lo: 0, hi: 2, up: 'w', rails: ['n', 's'] },
+      ],
+      [0, 2, 4],
+    );
+    // The Platform's west edge, along the Enclosure's solid east side: a Wall from under the Platform to the roof.
+    expect(wallsOf(map, 'hall').filter((w) => w.a.x === 5 && w.b.x === 5 && w.top === 4 && w.bottom === 1)).toEqual([{ a: { x: 5, z: -3 }, b: { x: 5, z: 3 }, bottom: 1, top: 4 }]);
+  });
+});
+
 describe('top and shortcuts in the Map Source and the map file', () => {
   const hall = (extra: object) => withBrushes([GROUND, { ...room({ n: 2 }), ...extra }], [0, 4, 8]);
   it('refuses a `top` that is not a level or not above the floor', () => {

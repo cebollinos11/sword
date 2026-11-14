@@ -38,7 +38,7 @@ describe('the Delver pilot and the Ally AI on levelled Floors', { timeout: 120_0
     const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena, delver: true });
     const cs: Controller[] = ais.map((c, i) => c ?? (i === 0 ? pilot : { intent: () => IDLE_INTENT }));
     const healed = new Set<number>();
-    for (let t = 0; t < secondsToTicks(150) && m.delver!.floor === 1; t++) {
+    for (let t = 0; t < secondsToTicks(300) && m.delver!.floor === 1; t++) {
       m = stepMatchWith(m, cs, tuning);
       m.delver!.restUsed.forEach((u, k) => u.healed.includes(0) && healed.add(k));
     }

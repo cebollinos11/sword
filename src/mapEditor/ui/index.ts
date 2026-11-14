@@ -130,6 +130,8 @@ function propsOf(b: Brush, into: BrushProps): BrushProps {
   else Object.assign(into, b.rect);
   if ('y' in b) into.y = b.y;
   if ('top' in b && b.top !== undefined) into.top = b.top;
+  // An Enclosure with no `top` of its own has no ceiling to carry (NaN, not the last Brush's number).
+  else if (b.kind === 'enclosure') into.top = NaN;
   if (b.kind === 'ramp') {
     const [sa, sb] = rampLongSides(b.up);
     Object.assign(into, { lo: b.lo, hi: b.hi, up: b.up, railA: b.rails.includes(sa!), railB: b.rails.includes(sb!) });
@@ -179,7 +181,7 @@ function shapeFromProps(kind: BrushKind, p: BrushProps): Brush {
     case 'wall':
       return { kind, id: p.id, a, b, bottom: p.bottom, top: p.top };
     case 'enclosure':
-      return { kind, id: p.id, rect, y: p.y, doors: Object.fromEntries(SIDES.filter((s) => p[DOOR_KEYS[s].door]).map((s) => [s, p[DOOR_KEYS[s].width]])) };
+      return { kind, id: p.id, rect, y: p.y, doors: Object.fromEntries(SIDES.filter((s) => p[DOOR_KEYS[s].door]).map((s) => [s, p[DOOR_KEYS[s].width]])), ...(Number.isFinite(p.top) ? { top: p.top } : {}) };
   }
 }
 

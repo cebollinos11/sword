@@ -322,8 +322,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       if (next.wiped.includes(q)) continue;
       if (lowest[q]! < 0 || living[q]! > 0) continue;
       const last = lowestBefore[q]! >= 0 ? lowestBefore[q]! : lowest[q]!;
-      // Where it fell, at the height its Soldier stood (before the Tick): the drops lie on the ground under that.
-      const fall = { x: crowd.x[last]!, y: soldierHeight(floor.field, before.surface[last]!, before.x[last]!, before.z[last]!), z: crowd.z[last]! };
+      // Where it fell, at the height its Soldier stood on the surface it died on (the stepped Crowd's, as its x and z are): the drops lie on the ground near that.
+      const fall = { x: crowd.x[last]!, y: soldierHeight(floor.field, crowd.surface[last]!, crowd.x[last]!, crowd.z[last]!), z: crowd.z[last]! };
       const drops = warbandDrops(t, config, plan, arena, crowd, q, fall, runSeed(config.arena), next.floor, next.pickups.length, next.away);
       next = { ...next, wiped: [...next.wiped, q].sort((a, b) => a - b), pickups: [...next.pickups, ...drops] };
       events.push({ type: 'WarbandWiped', warband: q, rank: crowd.warbands!.rank[q]!, at: { x: fall.x, y: fall.y, z: fall.z } });

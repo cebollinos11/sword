@@ -18,8 +18,9 @@ import { MapCompileError } from '../../mapEditor/compile';
 import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
 import { deadly, surfaceHeight } from '../arena';
+import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
-import { distanceTo, inSight, type DestinationFields } from '../destinations';
+import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
 import type { FloorPlan } from './plan';
 
@@ -33,25 +34,13 @@ export interface FloorJudgement {
  * The distance (m) at the node of the cell (x, z) lies in, on the level of Walk Surface `s` (-1: no such node). `d` is a field of `f`
  * (`distanceTo`). A cell's node stands on its level's highest Walk Surface at the cell's centre, so when a seam between two floor pieces
  * (a gallery's Ramp cuts the Hall's floor into pieces) puts the cell's centre on a neighbour of `s`, the node taken is the one within a step
- * (`levels.stepUp`) of `s`'s height there, as the fields' own `nodeIn` does; nothing of another level is ever borrowed.
+ * (`levels.stepUp`) of `s`'s height there (`nodeIn`, the fields' own rule); nothing of another level is ever borrowed.
  */
 export function fieldAt(f: DestinationFields, d: Float64Array, x: number, z: number, s: number): number {
-  const mid = (f.side - 1) / 2;
-  const cellOf = (v: number) => Math.min(f.side - 1, Math.max(0, Math.sign(v) * Math.round(Math.abs(v) / f.cell) + mid));
-  const cx = cellOf(x);
-  const cz = cellOf(z);
-  const c = cz * f.side + cx;
+  const c = cellAt(f, x, z);
   if (!f.levels) return d[c]!;
-  const L = f.levels;
-  for (let k = L.start[c]!; k < L.start[c + 1]!; k++) if (L.surface[k] === s) return d[k]!;
-  const h = surfaceHeight(L.arena, s, (cx - mid) * f.cell, (cz - mid) * f.cell);
-  let best = -1;
-  let bestD = L.lv.stepUp + 1e-9;
-  for (let k = L.start[c]!; k < L.start[c + 1]!; k++) {
-    const gap = Math.abs(L.y[k]! - h);
-    if (gap < bestD) [best, bestD] = [k, gap];
-  }
-  return best < 0 ? -1 : d[best]!;
+  const k = nodeIn(f, c, s);
+  return k < 0 ? -1 : d[k]!;
 }
 
 const m = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
@@ -117,6 +106,15 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
     if (fieldAt(fields, fromEntrance, centre[k]!.x, centre[k]!.z, centre[k]!.s) < 0) out.push(`halls: ${h.id} is not reached from the Entrance (${halls[plan.entrance]!.id})`);
   });
 
+  // The field to a Passage's end, kept by its place and Walk Surface (each end is read twice, and by a neighbour Passage's check never).
+  const endFields = new Map<string, Float64Array>();
+  const fieldFrom = (e: { x: number; z: number; s: number }): Float64Array => {
+    const key = `${e.x},${e.z},${e.s}`;
+    let d = endFields.get(key);
+    if (!d) endFields.set(key, (d = distanceTo(fields, e.x, e.z, e.s)));
+    return d;
+  };
+
   // Rule 4 measures the Passage itself: from the point 1 m inside one end to the point 1 m inside the other, each on the Walk Surface at its
   // end's door height, so a stairwell Hall's way round its Ramp is not charged to the Passage.
   plan.passages.forEach((p) => {
@@ -127,11 +125,17 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
     const ends = p.axis === 'x'
       ? [{ x: r.x0 + 1, z: cz, y: p.ya, hall: p.a }, { x: r.x1 - 1, z: cz, y: p.yb, hall: p.b }]
       : [{ x: cx, z: r.z0 + 1, y: p.ya, hall: p.a }, { x: cx, z: r.z1 - 1, y: p.yb, hall: p.b }];
-    const spots = ends.map((e) => ({ ...e, s: surfaceOf(e.x, e.z, e.y) }));
+    // Each end stands on the floor nearest its door height (`floorNear`): a Ramp's low end may be a step under the Hall's own floor pieces.
+    const spots = ends.map((e) => ({ ...e, s: floorNear(field.arena, e.x, e.z, e.y) }));
     for (const [from, onward] of [[0, 1], [1, 0]] as const) {
       const f = spots[from]!;
       const o = spots[onward]!;
-      const d = f.s < 0 || o.s < 0 ? -1 : fieldAt(fields, distanceTo(fields, f.x, f.z, f.s), o.x, o.z, o.s);
+      if (f.s < 0 || o.s < 0) {
+        const end = f.s < 0 ? f : o;
+        out.push(`passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id}) its end at ${halls[end.hall]!.id} stands on no floor`);
+        break;
+      }
+      const d = fieldAt(fields, fieldFrom(f), o.x, o.z, o.s);
       if (d < 0 || d > t.follow * along) {
         out.push(`passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id}) is not followed from ${halls[o.hall]!.id}'s end to ${halls[f.hall]!.id}'s: ${d < 0 ? 'no way' : `${m(d)} m`} against ${along} m`);
       }

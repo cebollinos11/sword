@@ -12,20 +12,20 @@ import { delverFloor } from './index';
  */
 const tuning = loadTuningData();
 
-/** The default Tuning's Floors (levels, galleries and sloped Passages; `DELVER_VERSION` 4). */
+/** The default Tuning's Floors (levels, galleries and sloped Passages; `DELVER_VERSION` 5). */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '978fe901', plan: '52aa5738', attempts: 1 },
-  { seed: 1, floor: 3, hash: 'b9827150', plan: 'cddba64f', attempts: 1 },
-  { seed: 1, floor: 9, hash: '92128ed0', plan: '7fa9897a', attempts: 2 },
-  { seed: 7, floor: 1, hash: 'ee037bd3', plan: 'f3a91240', attempts: 1 },
-  { seed: 7, floor: 3, hash: 'b0f96152', plan: '011369e4', attempts: 1 },
-  { seed: 7, floor: 9, hash: 'ac5e8301', plan: 'f1da56d6', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: '933322a4', plan: '05ce58af', attempts: 2 },
-  { seed: 123456789, floor: 3, hash: 'a6a1eef7', plan: '0fdd1119', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: '7e0430d4', plan: 'a9597c75', attempts: 2 },
-  { seed: 4294967295, floor: 1, hash: '3fed5b35', plan: 'f1862b5d', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: 'f899a5eb', plan: '41199148', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: 'af3890ae', plan: 'c9f51cb5', attempts: 1 },
+  { seed: 1, floor: 1, hash: '4b55b26e', plan: '52aa5738', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'b64b7391', plan: 'cddba64f', attempts: 1 },
+  { seed: 1, floor: 9, hash: '094f6914', plan: 'b5c1dcec', attempts: 1 },
+  { seed: 7, floor: 1, hash: 'b4859c66', plan: 'f3a91240', attempts: 1 },
+  { seed: 7, floor: 3, hash: '2123c3b1', plan: '011369e4', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'bd7f124c', plan: 'f1da56d6', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: 'c51da678', plan: '6794cac8', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '0846dc38', plan: '0fdd1119', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: 'aced9fc1', plan: 'f20db2fd', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '27c6a8d9', plan: 'f1862b5d', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '00fe0b5e', plan: '41199148', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'ab53f03d', plan: 'c9f51cb5', attempts: 1 },
 ];
 
 /**

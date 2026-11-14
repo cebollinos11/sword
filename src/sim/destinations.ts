@@ -219,7 +219,7 @@ const centreOf = (c: number, cell: number, side: number): number => (c - (side -
  * within a step of it (a point of another level, a ramp's railed side beside it, gets none: `nearNode` leads it); -1 for none. With `s` -1,
  * the cell's highest.
  */
-function nodeIn(f: DestinationFields, c: number, s: number): number {
+export function nodeIn(f: DestinationFields, c: number, s: number): number {
   const L = f.levels!;
   if (s < 0) return L.start[c + 1]! > L.start[c]! ? L.start[c + 1]! - 1 : -1;
   // The node on the surface itself, the usual case, needs no height.
@@ -235,7 +235,7 @@ function nodeIn(f: DestinationFields, c: number, s: number): number {
 }
 
 /** The cell (x, z) lies in. */
-const cellAt = (f: DestinationFields, x: number, z: number): number => cellOf(z, f.cell, f.side) * f.side + cellOf(x, f.cell, f.side);
+export const cellAt = (f: DestinationFields, x: number, z: number): number => cellOf(z, f.cell, f.side) * f.side + cellOf(x, f.cell, f.side);
 
 /** The node a point (x, z) on Walk Surface `s` stands at: its cell's on its level (`nodeIn`); on a one-level map, its cell. -1 for none. */
 function nodeAt(f: DestinationFields, x: number, z: number, s: number): number {
