@@ -16,6 +16,11 @@
  * unless it exercised L, S and Z Passages, a sloped turning Passage, a great Boss Hall on every Boss Floor, Floors with 2 great halls, a
  * Treasure great hall and a Fight great hall.
  *
+ * Stage 7b (Hall shapes and pillars): per Floor and overall the shapes (L, T, cross, ring; on one-cell Halls and on great halls), the pillared Halls and
+ * their layouts (colonnade, grid) and the pillars, and the Blocks a Floor writes (solids and pillars: mean, max) are counted; the budgets and the failed-attempt
+ * limit are 7a's. The test fails unless it exercised every shape, both layouts, a shaped great hall, a shaped or pillared Boss Hall, and a ring Entrance, Stairs
+ * or Boss Hall.
+ *
  * Stage 6 (levels): per Floor the Hall levels, galleries (balconies and stairwells), sloped Passages and Deck posts are counted, and the
  * rerolls by rule printed; on the 20 navmesh Floors every Deck must hold a shortcut jump Link onto it from its Hall's floor and no other
  * jump Link may exist. The budgets of the Design: the passing attempt's plan, build and judge average at most 600 ms and none passes 2 s;
@@ -290,6 +295,25 @@ describe('the Floor generator soak', () => {
     const deckPosts = floors.reduce((n, p) => n + p.markers.posts.filter((q) => q.y !== p.halls[q.hall]!.y).length, 0);
     lines.push(`  distinct Hall levels per Floor: ${levelHist.join(', ')}; Floors with a gallery: ${floors.filter((p) => p.halls.some((h) => h.gallery)).length}`);
     lines.push(`  galleries ${galleries.length} (balconies ${galleries.length - stairwells}, stairwells ${stairwells}), sloped Passages ${sloped} of ${passages.length}, Deck posts ${deckPosts}`);
+    // Stage 7b: Hall shapes, pillars and Blocks.
+    const SHAPE_NAMES = ['L', 'T', 'cross', 'ring'] as const;
+    const allHalls = floors.flatMap((p) => p.halls);
+    const shapedHalls = allHalls.filter((h) => h.shape !== 'rect');
+    const pillaredHalls = allHalls.filter((h) => h.pillars.length > 0);
+    const layoutCount = (l: 'colonnade' | 'grid') => pillaredHalls.filter((h) => h.layout === l).length;
+    const blocksOf = (p: FloorPlan) => p.halls.reduce((n, h) => n + h.solids.length + h.pillars.length, 0);
+    const blocks = floors.map(blocksOf);
+    lines.push(`  Hall shapes, all: ${SHAPE_NAMES.map((sh) => `${sh} ${shapedHalls.filter((h) => h.shape === sh).length}`).join(', ')}; on one-cell Halls: ${SHAPE_NAMES.map((sh) => `${sh} ${shapedHalls.filter((h) => h.shape === sh && !h.great).length}`).join(', ')}; on great halls: ${SHAPE_NAMES.map((sh) => `${sh} ${shapedHalls.filter((h) => h.shape === sh && h.great).length}`).join(', ')}`);
+    lines.push(`  pillared Halls ${pillaredHalls.length} (colonnade ${layoutCount('colonnade')}, grid ${layoutCount('grid')}), pillars ${allHalls.reduce((n, h) => n + h.pillars.length, 0)}; Floors with a shaped Hall ${floors.filter((p) => p.halls.some((h) => h.shape !== 'rect')).length}, with a pillared Hall ${floors.filter((p) => p.halls.some((h) => h.pillars.length > 0)).length}`);
+    const bossHalls = allHalls.filter((h) => h.kind === 'Boss');
+    const ringKeep = allHalls.filter((h) => h.shape === 'ring' && ['Entrance', 'Stairs', 'Boss'].includes(h.kind));
+    lines.push(`  Boss Halls ${bossHalls.length}, shaped ${bossHalls.filter((h) => h.shape !== 'rect').length}, pillared ${bossHalls.filter((h) => h.pillars.length > 0).length}; ring Entrance/Stairs/Boss Halls ${ringKeep.length}`);
+    lines.push(`  per Floor (shapes / pillared Halls / pillars / Blocks, mean and max): ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => {
+      const ps = passing.filter((d) => d.floor === f).map((d) => d.layout!);
+      const m = (g: (p: FloorPlan) => number) => `${fmt(mean(ps.map(g)))}/${Math.max(...ps.map(g))}`;
+      return `F${f} ${m((p) => p.halls.filter((h) => h.shape !== 'rect').length)} ${m((p) => p.halls.filter((h) => h.pillars.length > 0).length)} ${m((p) => p.halls.reduce((n, h) => n + h.pillars.length, 0))} ${m(blocksOf)}`;
+    }).join(' | ')}`);
+    lines.push(`  Blocks per Floor, all: mean ${fmt(mean(blocks))}, max ${Math.max(...blocks)}`);
     lines.push(`  ${sampled} pairs re-dealt by delverFloor match; wall time ${((performance.now() - wall0) / 1000).toFixed(1)} s`);
     report(lines);
 
@@ -323,6 +347,16 @@ describe('the Floor generator soak', () => {
     expect(greats.flat().filter((h) => h.kind === 'Treasure').length, 'no Treasure great hall').toBeGreaterThan(0);
     expect(greats.flat().filter((h) => h.kind === 'Fight').length, 'no Fight great hall').toBeGreaterThan(0);
     expect(failedTotal, 'failed attempts').toBeLessThanOrEqual(PAIRS / 20);
+
+    // Stage 7b: every shape, both layouts, a shaped great hall, a shaped or pillared Boss Hall and a ring Entrance, Stairs or Boss Hall.
+    for (const sh of SHAPE_NAMES) {
+      expect(shapedHalls.filter((h) => h.shape === sh && !h.great).length, `no ${sh} on a one-cell Hall`).toBeGreaterThan(0);
+      expect(shapedHalls.filter((h) => h.shape === sh).length, `no ${sh} Hall`).toBeGreaterThan(0);
+    }
+    for (const l of ['colonnade', 'grid'] as const) expect(layoutCount(l), `no ${l} layout`).toBeGreaterThan(0);
+    expect(shapedHalls.filter((h) => h.great).length, 'no shaped great hall').toBeGreaterThan(0);
+    expect(bossHalls.filter((h) => h.shape !== 'rect' || h.pillars.length > 0).length, 'no shaped or pillared Boss Hall').toBeGreaterThan(0);
+    expect(ringKeep.length, 'no ring Entrance, Stairs or Boss Hall').toBeGreaterThan(0);
 
     // Stage 6: levels are exercised, and the budgets hold.
     expect(levelCount.filter((n) => n >= 3).length, 'no Floor with 3 or more Hall levels').toBeGreaterThan(0);

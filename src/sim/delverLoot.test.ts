@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { flatFloors, rooms7b } from './delver/flat.testdata';
+import { flatFloors } from './delver/flat.testdata';
 import { arenaOf } from './arena';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -265,7 +265,7 @@ describe('dropSpots on a levelled Floor', () => {
 });
 
 describe('dropSpots round pillars and in a shaped Hall (Stage 7b)', () => {
-  const shaped = rooms7b(loadTuningData());
+  const shaped = loadTuningData();
   const floors = Array.from({ length: 40 }, (_, k) => delverFloor(shaped, k + 1, 1 + (k % 3)));
   const lv = shaped.battle.levels;
   const near = (q: { x0: number; z0: number; x1: number; z1: number }, s: { x: number; z: number }) => Math.hypot(s.x - Math.min(q.x1, Math.max(q.x0, s.x)), s.z - Math.min(q.z1, Math.max(q.z0, s.z)));

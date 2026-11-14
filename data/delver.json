@@ -96,7 +96,7 @@
     "levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 },
     "turnPercent": 30,
     "great": { "count": [1, 2], "half": [18, 22] },
-    "shapes": { "percent": 0, "weights": { "L": 3, "T": 2, "cross": 2, "ring": 2 } },
-    "pillars": { "percent": 0, "weights": { "colonnade": 1, "grid": 1 } }
+    "shapes": { "percent": 50, "weights": { "L": 3, "T": 2, "cross": 2, "ring": 2 } },
+    "pillars": { "percent": 40, "weights": { "colonnade": 1, "grid": 1 } }
   }
 }

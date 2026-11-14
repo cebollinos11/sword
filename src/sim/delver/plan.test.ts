@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatRooms, plainHalls, rooms7b } from './flat.testdata';
+import { flatFloors, flatRooms, plainHalls } from './flat.testdata';
 import { isBossFloor } from './troops';
 import {
   attemptSeed, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
@@ -417,7 +417,7 @@ describe('levels, galleries and sloped Passages', () => {
 
 
 describe('great halls and turning Passages (Stage 7a)', () => {
-  const tuning = bundled;
+  const tuning = plainHalls(bundled);
   const t = tuning.delver.floor;
   const t7 = t;
   const w = t7.passage;
@@ -840,7 +840,7 @@ describe('Hall shapes and pillars (Stage 7b)', () => {
   });
 
   const bundled7b = loadTuningData();
-  const tuning = rooms7b(bundled7b);
+  const tuning = bundled7b;
   const t = tuning.delver.floor;
   const w = t.passage;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));

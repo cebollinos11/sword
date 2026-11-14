@@ -26,12 +26,3 @@ export function plainHalls(tuning: TuningData): TuningData {
   const f = tuning.delver.floor;
   return { ...tuning, delver: { ...tuning.delver, floor: { ...f, shapes: { ...f.shapes, percent: 0 }, pillars: { ...f.pillars, percent: 0 } } } };
 }
-
-/** `tuning` with the shipped Stage 7b values (Tasks 2 to 4 only, until the bundled data switches): shapes 50 % (L 3, T 2, cross 2, ring 2) and pillars 40 % (colonnade 1, grid 1). */
-export function rooms7b(tuning: TuningData): TuningData {
-  const f = tuning.delver.floor;
-  return {
-    ...tuning,
-    delver: { ...tuning.delver, floor: { ...f, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } } },
-  };
-}

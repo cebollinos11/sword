@@ -3,7 +3,7 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatRooms, plainHalls, rooms7b } from './flat.testdata';
+import { flatRooms, plainHalls } from './flat.testdata';
 import { HALL_STOREY } from './plan';
 
 describe('isFloorName', () => {
@@ -88,7 +88,7 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
 });
 
 describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning = rooms7b(loadTuningData());
+  const tuning = loadTuningData();
   let floors: DelverFloor[];
   beforeAll(() => {
     floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1 + (seed % 3)));
@@ -133,9 +133,7 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
     const plain = plainHalls(bundled);
     for (const [seed, floor] of [[1, 1], [2, 2], [3, 3]] as const) {
       const a = floorSource(planFloor(plain.delver.floor, seed, floor, 0, floor === 3), plain.battle.field.size);
-      const b = floorSource(planFloor(bundled.delver.floor, seed, floor, 0, floor === 3), bundled.battle.field.size);
       expect(a.brushes.some((br) => br.kind === 'block')).toBe(false);
-      expect(JSON.stringify(a)).toBe(JSON.stringify(b));
       expect(a.front).toBe(52);
     }
   });

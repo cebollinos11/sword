@@ -5,7 +5,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
-import { flatRooms, rooms7b } from '../sim/delver/flat.testdata';
+import { flatRooms, plainHalls } from '../sim/delver/flat.testdata';
 import { DELVER_MAP_MIN_SPAN, delverMapLayout, delverMapStatus, floorMapLayout, MAP_KEY, mapKeyAction } from './floorMap';
 
 const tuning = loadTuningData();
@@ -180,7 +180,7 @@ describe('delverMapLayout', () => {
 
 describe('delverMapLayout on turning Passages', () => {
   it('draws a revealed Passage as one rect per piece, in piece order', () => {
-    const t7 = tuning;
+    const t7 = plainHalls(tuning);
     const m = createMatch(t7, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
     for (let seed = 1; seed <= 3; seed++) {
       const plan = floorOf(t7, floorArenaName(seed, 1))!.plan;
@@ -195,7 +195,7 @@ describe('delverMapLayout on turning Passages', () => {
 });
 
 describe('delverMapLayout on shaped Halls (Stage 7b)', () => {
-  const shaped = rooms7b(tuning);
+  const shaped = tuning;
   const t = { ...shaped, delver: { ...shaped.delver, tiers: 1, floorsPerTier: 3 } };
   const found = Array.from({ length: 40 }, (_, k) => k + 1)
     .map((k) => {

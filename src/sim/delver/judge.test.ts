@@ -6,7 +6,7 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, type JumpLink } from '../nav';
-import { flatRooms, rooms7b } from './flat.testdata';
+import { flatRooms, plainHalls } from './flat.testdata';
 import { isBossFloor } from './troops';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
@@ -381,7 +381,7 @@ describe('the judge on a Floor with levels', () => {
 });
 
 describe('the judge on Floors with great halls and turning Passages (Stage 7a)', () => {
-  const tuning7 = bundled;
+  const tuning7 = plainHalls(bundled);
   const t7 = tuning7.delver.floor;
   const size = tuning7.battle.field.size;
   let floors7: DelverFloor[];
@@ -509,7 +509,7 @@ describe('the judge on Floors with great halls and turning Passages (Stage 7a)',
 });
 
 describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning7b = rooms7b(bundled);
+  const tuning7b = bundled;
   const tb = tuning7b.delver.floor;
   const size = tuning7b.battle.field.size;
   /** The first attempt's plan of each of seeds 1 to 6 of Floors 1 to 9. */

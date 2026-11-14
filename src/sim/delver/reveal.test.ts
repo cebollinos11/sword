@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
-import { flatRooms, rooms7b } from './flat.testdata';
+import { flatRooms } from './flat.testdata';
 import { floorArenaName, floorOf } from './world';
 import { emptyReveal, isRevealed, revealBits, revealPlace, withReveal } from './reveal';
 
@@ -120,7 +120,7 @@ describe('revealPlace on turning Passages', () => {
 });
 
 describe('revealPlace on shaped Halls (Stage 7b)', () => {
-  const shaped = rooms7b(bundled);
+  const shaped = bundled;
   const inBox = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
   const plans = Array.from({ length: 40 }, (_, i) => floorOf(shaped, floorArenaName(i + 1, 1 + (i % 3)))!.plan);
   const halls = (shape: string) => plans.flatMap((p) => p.halls.map((h, i) => ({ p, h, i })).filter((e) => e.h.shape === shape));

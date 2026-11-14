@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors, flatRooms } from './flat.testdata';
+import { flatFloors, flatRooms, plainHalls } from './flat.testdata';
 import { delverFloor } from './index';
 
 /**
@@ -12,8 +12,27 @@ import { delverFloor } from './index';
  */
 const tuning = loadTuningData();
 
-/** The default Tuning's Floors (7a's bigger Halls, great halls and turning Passages; `DELVER_VERSION` 6). */
+/** The default Tuning's Floors (7b's shaped Halls and pillars on 7a's bigger Halls, great halls and turning Passages; `DELVER_VERSION` 7). */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
+  { seed: 1, floor: 1, hash: '366c81c3', plan: '001c55f6', attempts: 1 },
+  { seed: 1, floor: 3, hash: '90ea148d', plan: '244147aa', attempts: 1 },
+  { seed: 1, floor: 9, hash: '8e0b48a5', plan: '230935be', attempts: 1 },
+  { seed: 7, floor: 1, hash: '18b88119', plan: 'b712c258', attempts: 1 },
+  { seed: 7, floor: 3, hash: 'f49bafbf', plan: 'ebbe7931', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'c102e593', plan: 'a190cc6c', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: 'f4b86dd9', plan: '45477de5', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '9a82aa18', plan: '6d362586', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: '505e2634', plan: 'd67c0554', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: 'c2377bee', plan: 'd5295342', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '0ffc3f0f', plan: '0f7b4856', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'f386a96a', plan: '20a8532c', attempts: 1 },
+];
+
+/**
+ * `plainHalls(tuning)` (7a's Floors: every Hall a rect) on the same seeds and Floors: the map hashes are 7a's default pins exactly (shapes and pillars off is byte for
+ * byte what it was), on the first attempt; the plan hashes are new, since the plan gained its fields.
+ */
+const PLAIN_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
   { seed: 1, floor: 1, hash: '7df78d73', plan: '455a2dc1', attempts: 1 },
   { seed: 1, floor: 3, hash: 'f210fd08', plan: '550ba04a', attempts: 1 },
   { seed: 1, floor: 9, hash: '58e32628', plan: '6aaab58d', attempts: 1 },
@@ -74,6 +93,22 @@ const OLD_FLOOR_9: readonly { seed: number; hash: string; plan: string }[] = [
   { seed: 4294967295, hash: '39a62be6', plan: 'e2b6762f' },
 ];
 
+/** Per default pin: has the Floor a shaped Hall, a pillared Hall. */
+const HOLDS: Record<string, { shaped: boolean; pillared: boolean }> = {
+  '1/1': { shaped: true, pillared: true },
+  '1/3': { shaped: true, pillared: true },
+  '1/9': { shaped: true, pillared: true },
+  '7/1': { shaped: true, pillared: true },
+  '7/3': { shaped: true, pillared: true },
+  '7/9': { shaped: true, pillared: true },
+  '123456789/1': { shaped: true, pillared: true },
+  '123456789/3': { shaped: true, pillared: true },
+  '123456789/9': { shaped: true, pillared: true },
+  '4294967295/1': { shaped: true, pillared: true },
+  '4294967295/3': { shaped: true, pillared: false },
+  '4294967295/9': { shaped: true, pillared: false },
+};
+
 describe('golden Delver Floors', () => {
   for (const { seed, floor, hash, plan, attempts } of PINS) {
     it(`seed ${seed}, Floor ${floor}: same bytes twice, passes the judge, map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s)`, () => {
@@ -91,6 +126,18 @@ describe('golden Delver Floors', () => {
       // Levels: at least `levels.min` of them, and a gallery asks for shortcut jump Links.
       expect(new Set(a.plan.halls.map((h) => h.level)).size).toBeGreaterThanOrEqual(tuning.delver.floor.levels.min);
       expect(a.map.shortcuts === true).toBe(a.plan.halls.some((h) => h.gallery));
+      // What holds of the pinned Floor (recorded, not forced): whether it has a shaped Hall (solids) and a pillared one.
+      expect({ shaped: a.plan.halls.some((h) => h.solids.length > 0), pillared: a.plan.halls.some((h) => h.pillars.length > 0) }).toEqual(HOLDS[`${seed}/${floor}`]);
+    });
+  }
+
+  const plainTuning = plainHalls(tuning);
+  for (const { seed, floor, hash, plan, attempts } of PLAIN_PINS) {
+    it(`plainHalls Tuning, seed ${seed}, Floor ${floor}: 7a's map hash ${hash} exactly, plan hash ${plan} after ${attempts} attempt(s)`, () => {
+      const a = delverFloor(plainTuning, seed, floor);
+      expect(a.judgement).toEqual({ ok: true, reasons: [] });
+      expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts });
+      expect(a.plan.halls.every((h) => h.solids.length === 0 && h.pillars.length === 0)).toBe(true);
     });
   }
 
