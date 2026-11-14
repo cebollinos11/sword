@@ -10,7 +10,7 @@
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
-- [ ] Stage 7: rooms (bigger Halls, great halls, shapes, L-shaped Passages, split levels, pits, daises, lava, pillars, archetypes)
+- [ ] Stage 7: rooms (bigger Halls, great halls, shapes, L-, S- and Z-shaped Passages, split levels, pits, daises, lava, pillars, archetypes)
 - [ ] Stage 8: online co-op (up to four Players, Input Delay, soak)
 - [ ] Stage 9: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
 
@@ -1588,7 +1588,7 @@ Done 2026-11-14. Delver Floors now have levels. Halls stand at 0 to 8 m. About a
 **Model**: Opus (layout and geometry).
 Added 2026-11-14 after Stage 6's playtest. The user's feedback: rooms should be bigger and more interesting, some should have more verticality (doorways at different heights), and some should have lava pits to push enemies into. The calls are in "Answered questions (2026-11-14, after Stage 6)". The Stage's `#### Design` settles the numbers.
 - **Bigger Halls and great halls**: most Halls 14 to 28 m across (now 10 to 22). Add 1 or 2 great halls of 35 to 45 m a Floor, kept for the Boss Hall, Treasure Halls and the big fight posts. The grid gaps grow to fit them. Stage 2's empty-Floor walk time is measured again.
-- **L-shaped Passages**: a Passage may turn once, a right angle, so two Halls that are not face to face can be joined. That frees placement and lets a Passage go round a Hall. A sloped L Passage climbs along one leg only, and the corner is level. The judge's `passages` rule measures along both legs, and no Passage crosses another or a Hall, seen from above.
+- **L-, S- and Z-shaped Passages**: a Passage may turn once (an L) or twice (an S or a Z, its two ends parallel and offset), always at right angles. Two Halls that are not face to face can then be joined, and a Passage can go round a Hall, which frees placement. A sloped Passage climbs along its legs only, and every corner is level. The judge's `passages` rule measures along every leg, and no Passage crosses another or a Hall, seen from above.
 - **Shapes**: L, T, cross and ring Halls (a ring goes round a central Block), each built from several rects into one Hall. The Reveal, the minimap and the Floor Map draw them as their rects.
 - **Verticality inside a Hall**:
   - **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
@@ -1646,4 +1646,4 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 6. **Archetypes**: procedural recipes in code, not hand-made Map Sources.
 7. **How much lava**: it grows with the tier (about 1 Hall in 6 to 1 in 3). None in the Entrance, and none on the way to a fire.
 8. **Who it threatens**: everyone, as the AI already plays it: an instant Death by Lava, which a fire can revive.
-9. **L-shaped Passages** (added afterwards): a Passage may turn a corner, as part of Stage 7.
+9. **L-, S- and Z-shaped Passages** (added afterwards): a Passage may turn one or two corners, as part of Stage 7.
