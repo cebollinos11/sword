@@ -6,9 +6,8 @@ import type { FloorPlan } from './plan';
 import { floorTroops } from './troops';
 import { deployWarbands, warbandHomes, warbandPools, warbandsFit } from './warbands';
 import { arenaTuning, floorArenaName, floorOf } from './world';
-import { flatFloors } from './flat.testdata';
 
-const tuning = flatFloors(loadTuningData());
+const tuning = loadTuningData();
 const SEEDS = [1, 7, 42];
 const TIMEOUT = 120_000;
 /** The bundled Tuning with no elite posts: the Stage 3 tests that pin one Warband's Soldiers or HP to its template run on it. */
@@ -100,12 +99,13 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
           expect(ids.map((i) => crowd.troop[i])).toEqual(expected);
           expect(ids.map((i) => crowd.place[i])).toEqual(expected.map((_, p) => p));
           const hall = plan.halls[w.mode[q] === GUARD ? plan.markers.posts[w.post[q]!]!.hall : startHall(plan, w.patrol[q]!)]!;
+          const homeY = w.mode[q] === GUARD ? warbandHomes(plan).posts[w.post[q]!]!.y : plan.halls[startHall(plan, w.patrol[q]!)]!.y;
           for (const i of ids) {
             expect(crowd.x[i]).toBeGreaterThan(hall.rect.x0);
             expect(crowd.x[i]).toBeLessThan(hall.rect.x1);
             expect(crowd.z[i]).toBeGreaterThan(hall.rect.z0);
             expect(crowd.z[i]).toBeLessThan(hall.rect.z1);
-            expect(crowd.surface[i]).toBe(groundOf(t.battle, field, crowd.x[i]!, crowd.z[i]!, 0));
+            expect(crowd.surface[i]).toBe(groundOf(t.battle, field, crowd.x[i]!, crowd.z[i]!, homeY));
             expect(crowd.heading[i]).toBe(crowd.squads.heading[q]);
           }
         }

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
+import { flatFloors } from './delver/flat.testdata';
+import { arenaOf } from './arena';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { DROP_MARGIN, dropSpots, lootSlot, treasurePickups, warbandDrops, warbandLoot } from './delverLoot';
 import { floorDuel } from './delverRun';
@@ -8,7 +10,7 @@ import { createMatch, type MatchState } from './match';
 import { createRng } from './rng';
 import { BOSS, ELITE, PLAIN } from './warband';
 
-const base = loadTuningData();
+const base = flatFloors(loadTuningData());
 /** Three tiers of one Floor each: every Floor has its tier's Boss, and the elite posts hold elites. */
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 3, floorsPerTier: 1 } };
 const ARENA = 'gen:greybox:4242';
@@ -21,7 +23,7 @@ const { config } = match();
 /** Floor `floor`'s Crowd, its plan and the Tuning Data it is stepped under. */
 const floor = (f: number) => {
   const name = floorArenaName(SEED, f);
-  return { crowd: floorDuel(tuning, config, f, null, createRng(1)).crowd!, plan: floorOf(tuning, name)!.plan, t: arenaTuning(tuning, name) };
+  return { crowd: floorDuel(tuning, config, f, null, createRng(1)).crowd!, plan: floorOf(tuning, name)!.plan, t: arenaTuning(tuning, name), arena: arenaOf(arenaTuning(tuning, name), name) };
 };
 
 describe('lootSlot', () => {
@@ -86,14 +88,15 @@ const inside = (r: { x0: number; z0: number; x1: number; z1: number }, s: { x: n
 const apart = (spots: readonly { x: number; z: number }[]): boolean => spots.every((a, i) => spots.every((b, j) => i === j || Math.hypot(a.x - b.x, a.z - b.z) >= 1.1 - 1e-9));
 
 describe('dropSpots', () => {
-  const { plan } = floor(1);
+  const { plan, arena, t } = floor(1);
+  const lv = t.battle.levels;
   const centre = (r: { x0: number; z0: number; x1: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
 
   it('lays up to three spots in a Hall, inside its shrunk rect and at least 1.1 m apart', () => {
     for (const hall of plan.halls) {
       const c = centre(hall.rect);
       for (const count of [1, 2, 3]) {
-        const spots = dropSpots(plan, c.x, c.z, count);
+        const spots = dropSpots(plan, arena, lv, c.x, c.z, 0, count);
         expect(spots).toHaveLength(count);
         for (const s of spots) {
           expect(s.y).toBe(0);
@@ -107,7 +110,7 @@ describe('dropSpots', () => {
   it('does the same in a Passage, along its longer side', () => {
     for (const pass of plan.passages) {
       const c = centre(pass.rect);
-      const spots = dropSpots(plan, c.x, c.z, 3);
+      const spots = dropSpots(plan, arena, lv, c.x, c.z, 0, 3);
       for (const s of spots) expect(inside(pass.rect, s)).toBe(true);
       expect(apart(spots)).toBe(true);
     }
@@ -115,33 +118,33 @@ describe('dropSpots', () => {
 
   it('clamps a fall point in a wall corner, or outside every rect, to the nearest rect', () => {
     const hall = plan.halls[0]!;
-    const corner = dropSpots(plan, hall.rect.x0, hall.rect.z0, 1)[0]!;
+    const corner = dropSpots(plan, arena, lv, hall.rect.x0, hall.rect.z0, 0, 1)[0]!;
     expect(corner).toEqual({ x: hall.rect.x0 + DROP_MARGIN, y: 0, z: hall.rect.z0 + DROP_MARGIN });
     const all = [...plan.halls.map((h) => h.rect), ...plan.passages.map((p) => p.rect)];
     const far = { x: Math.min(...all.map((r) => r.x0)) - 40, z: all[0]!.z0 };
-    const spots = dropSpots(plan, far.x, far.z, 3);
+    const spots = dropSpots(plan, arena, lv, far.x, far.z, 0, 3);
     for (const s of spots) expect(all.some((r) => inside(r, s))).toBe(true);
     expect(apart(spots)).toBe(true);
-    expect(dropSpots(plan, far.x, far.z, 3)).toEqual(spots);
+    expect(dropSpots(plan, arena, lv, far.x, far.z, 0, 3)).toEqual(spots);
   });
 
   it('reuses the spots found in turn when it needs more than it has room for, and gives none for none', () => {
     const c = centre(plan.halls[0]!.rect);
-    const many = dropSpots(plan, c.x, c.z, 40);
+    const many = dropSpots(plan, arena, lv, c.x, c.z, 0, 40);
     expect(many).toHaveLength(40);
     expect(new Set(many.map((s) => `${s.x},${s.z}`)).size).toBeLessThan(40);
     expect(many[20]).toEqual(many[20 % new Set(many.map((s) => `${s.x},${s.z}`)).size]);
-    expect(dropSpots(plan, c.x, c.z, 0)).toEqual([]);
+    expect(dropSpots(plan, arena, lv, c.x, c.z, 0, 0)).toEqual([]);
   });
 });
 
 describe('warbandDrops', () => {
-  const { crowd, plan, t } = floor(1);
+  const { crowd, plan, t, arena } = floor(1);
   const q = crowd.warbands!.rank.indexOf(ELITE);
-  const fall = { x: plan.halls[plan.entrance]!.cx, z: plan.halls[plan.entrance]!.cz };
+  const fall = { x: plan.halls[plan.entrance]!.cx, y: 0, z: plan.halls[plan.entrance]!.cz };
 
   it('lays one set for each present Player, on the same spots, with ids from firstId', () => {
-    const drops = warbandDrops(t, config, plan, crowd, q, fall, SEED, 1, 5);
+    const drops = warbandDrops(t, config, plan, arena, crowd, q, fall, SEED, 1, 5);
     const each = warbandLoot(t, crowd, q, 0, SEED, 1).length;
     expect(drops).toHaveLength(2 * each);
     expect(drops.map((d) => d.id)).toEqual(drops.map((_, k) => 5 + k));
@@ -152,15 +155,15 @@ describe('warbandDrops', () => {
       const items = drops.filter((d) => d.owner === p).map(({ kind, item }) => ({ kind, item }));
       expect(items).toEqual(warbandLoot(t, crowd, q, p, SEED, 1));
     }
-    expect(warbandDrops(t, config, plan, crowd, q, fall, SEED, 1, 5)).toEqual(drops);
+    expect(warbandDrops(t, config, plan, arena, crowd, q, fall, SEED, 1, 5)).toEqual(drops);
   });
 
   it('gives an away Player nothing, and an AI ally nothing', () => {
-    const away = warbandDrops(t, config, plan, crowd, q, fall, SEED, 1, 0, [1]);
+    const away = warbandDrops(t, config, plan, arena, crowd, q, fall, SEED, 1, 0, [1]);
     expect(away.every((d) => d.owner === 0)).toBe(true);
     expect(away.length).toBeGreaterThan(0);
-    expect(warbandDrops(t, config, plan, crowd, q, fall, SEED, 1, 0, [0, 1])).toEqual([]);
-    expect(warbandDrops(t, config, plan, crowd, q, fall, SEED, 1, 0).some((d) => d.owner === 2)).toBe(false);
+    expect(warbandDrops(t, config, plan, arena, crowd, q, fall, SEED, 1, 0, [0, 1])).toEqual([]);
+    expect(warbandDrops(t, config, plan, arena, crowd, q, fall, SEED, 1, 0).some((d) => d.owner === 2)).toBe(false);
   });
 });
 

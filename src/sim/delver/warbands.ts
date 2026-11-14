@@ -21,8 +21,8 @@ export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, pat
 
 /** The homes the brain reads (derived from the plan, never state): each post with its guard facing, each patrol loop's points. */
 export interface WarbandHomes {
-  readonly posts: readonly { readonly x: number; readonly z: number; readonly facing: number }[];
-  readonly patrols: readonly (readonly { readonly x: number; readonly z: number }[])[];
+  readonly posts: readonly { readonly x: number; readonly y: number; readonly z: number; readonly facing: number }[];
+  readonly patrols: readonly (readonly { readonly x: number; readonly y: number; readonly z: number }[])[];
 }
 
 /** The facings (radians; 0 faces +z) into a Passage on a Hall's sides, in the order n, e, s, w: the Passage's side of the Hall. */
@@ -55,6 +55,17 @@ function guardFacing(plan: FloorPlan, hall: number): number {
   return facing;
 }
 
+/**
+ * A Deck post's facing: along its gallery's Deck toward its Ramp (the Ramp lies at the Deck's end, so the way is constant: no trig), so the
+ * guard's column lies on the Deck. Undefined when the post is not on its Hall's Deck (its `y` is not the gallery's).
+ */
+function deckFacing(plan: FloorPlan, hall: number, y: number): number | undefined {
+  const g = plan.halls[hall]!.gallery;
+  if (!g || g.y !== y) return undefined;
+  // The Ramp's high end is `up`: the Deck lies on that side of the Ramp, so the Ramp is the other way along the wall.
+  return g.up === 'w' ? EAST : g.up === 's' ? NORTH : g.up === 'e' ? WEST : SOUTH;
+}
+
 const homes = new WeakMap<FloorPlan, WarbandHomes>();
 
 /**
@@ -64,12 +75,12 @@ const homes = new WeakMap<FloorPlan, WarbandHomes>();
 export function warbandHomes(plan: FloorPlan): WarbandHomes {
   let kept = homes.get(plan);
   if (!kept) {
-    const posts = plan.markers.posts.map((p) => ({ x: p.x, z: p.z, facing: guardFacing(plan, p.hall) }));
+    const posts = plan.markers.posts.map((p) => ({ x: p.x, y: p.y, z: p.z, facing: deckFacing(plan, p.hall, p.y) ?? guardFacing(plan, p.hall) }));
     const boss = plan.markers.boss;
-    if (boss) posts.push({ x: boss.x, z: boss.z, facing: guardFacing(plan, plan.stairs) });
+    if (boss) posts.push({ x: boss.x, y: boss.y, z: boss.z, facing: guardFacing(plan, plan.stairs) });
     kept = {
       posts,
-      patrols: plan.markers.patrols.map((loop) => loop.points.map((p) => ({ x: p.x, z: p.z }))),
+      patrols: plan.markers.patrols.map((loop) => loop.points.map((p) => ({ x: p.x, y: p.y, z: p.z }))),
     };
     homes.set(plan, kept);
   }
@@ -152,6 +163,7 @@ function facingToward(from: { x: number; z: number }, to: { x: number; z: number
 
 interface Planned {
   readonly x: number;
+  readonly y: number;
   readonly z: number;
   readonly facing: number;
   readonly template: WarbandTemplate;
@@ -201,12 +213,12 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       const template = elitePool[encounter]!;
       const rowTroops = indices.elite[tier - 1]![encounter]!;
       const troops = template.troops.flatMap((row, r) => Array<number>(row.count).fill(rowTroops[r]!));
-      planned.push({ x: at.x, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: ELITE, troops, extra: rowTroops[0]!, relics: template.relics });
+      planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: ELITE, troops, extra: rowTroops[0]!, relics: template.relics });
       continue;
     }
     const encounter = runPick(seed, floor, k, WARBAND_SALT.guardPick, pools.guard.length);
     const template = pools.guard[encounter]!;
-    planned.push({ x: at.x, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
+    planned.push({ x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: k, patrol: -1, leg: 0, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
   }
   for (const k of filled(seed, floor, patrols.length, delver.patrolFill, WARBAND_SALT.patrolOrder)) {
     const encounter = runPick(seed, floor, k, WARBAND_SALT.patrolPick, pools.patrol.length);
@@ -218,7 +230,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     const leg = (start + 1) % points.length;
     const at = points[start]!;
     const template = pools.patrol[encounter]!;
-    planned.push({ x: at.x, z: at.z, facing: facingToward(at, points[leg]!), template, encounter, post: -1, patrol: k, leg, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
+    planned.push({ x: at.x, y: at.y, z: at.z, facing: facingToward(at, points[leg]!), template, encounter, post: -1, patrol: k, leg, rank: PLAIN, troops: rows(template), extra: template.troops[0]!.troop, relics: [] });
   }
   // The Boss Warband, last: the Boss Soldier first, then its guard's rows; the extras are of the guard's first Troop, never another Boss.
   const boss = pools.boss;
@@ -227,7 +239,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     const template = boss.guard[encounter]!;
     const at = home.posts[posts.length]!;
     planned.push({
-      x: at.x, z: at.z, facing: at.facing, template, encounter, post: posts.length, patrol: -1, leg: 0, rank: BOSS,
+      x: at.x, y: at.y, z: at.z, facing: at.facing, template, encounter, post: posts.length, patrol: -1, leg: 0, rank: BOSS,
       troops: [indices.boss[tier - 1]!, ...rows(template)], extra: template.troops[0]!.troop, relics: boss.troop.relics,
     });
   }
@@ -259,7 +271,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
     for (let c = 0; c < more && troops.length < battle.squad.size; c++) troops.push(w.extra);
 
     const relicShare = relicMods(tuning, w.relics).maxHp;
-    const anchorSurface = groundOf(battle, field, w.x, w.z, 0);
+    const anchorSurface = groundOf(battle, field, w.x, w.z, w.y);
     troops.forEach((t, p) => {
       const i = x.length;
       const troop = battle.troops[t]!;
@@ -271,7 +283,7 @@ export function deployWarbands(tuning: TuningData, plan: FloorPlan, field: Battl
       const size = clampSize({ height: along(troop.height, WARBAND_SALT.height), thick: along(troop.width, WARBAND_SALT.thick) });
       x.push(px);
       z.push(pz);
-      surface.push(groundOf(battle, field, px, pz, 0));
+      surface.push(groundOf(battle, field, px, pz, w.y));
       heading.push(w.facing);
       // A Boss Soldier's HP is the Fighter's own scaled by its Troop's `hpScale`, with no tier's; every other Soldier's is its Troop's.
       const bossSoldier = w.rank === BOSS && p === 0;

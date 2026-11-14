@@ -68,10 +68,10 @@ class DelverPilot implements Controller {
     });
     if (target >= 0) {
       const fire = markers.fires[target]!;
-      return this.ai.walkTo(state, fighter, { x: fire.x, y: 0, z: fire.z }, FIRE_STOP);
+      return this.ai.walkTo(state, fighter, { x: fire.x, y: fire.y, z: fire.z }, FIRE_STOP);
     }
-    const { zone } = markers.stairs;
-    return this.ai.walkTo(state, fighter, { x: (zone.x0 + zone.x1) / 2, y: 0, z: (zone.z0 + zone.z1) / 2 }, STAIRS_STOP);
+    const { zone, y } = markers.stairs;
+    return this.ai.walkTo(state, fighter, { x: (zone.x0 + zone.x1) / 2, y, z: (zone.z0 + zone.z1) / 2 }, STAIRS_STOP);
   }
 
   save(): unknown {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
+import { arenaOf } from './arena';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { emptyReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
 import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
@@ -606,7 +607,7 @@ describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
     const dead = (a: readonly number[]) => a.map((v, s) => (soldiers.includes(s) ? 0 : v));
     return { ...m, duel: { ...m.duel, crowd: { ...c, alive: dead(c.alive), hp: dead(c.hp) } } };
   };
-  const fallAt = (m: MatchState) => ({ x: m.duel.crowd!.x[soldiers[0]!]!, z: m.duel.crowd!.z[soldiers[0]!]! });
+  const fallAt = (m: MatchState) => ({ x: m.duel.crowd!.x[soldiers[0]!]!, y: 0, z: m.duel.crowd!.z[soldiers[0]!]! });
   const firstId = w.delver!.pickups.length;
 
   it('starts the Floor with the pedestals for each Player, nobody wiped, and the mirror the Run\'s own pickups', () => {
@@ -625,7 +626,7 @@ describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
 
     const r = wtick(slain(w));
     const fall = fallAt(r);
-    const expected = warbandDrops(wt, r.config, wplan, r.duel.crowd!, q, fall, SEED, 1, firstId);
+    const expected = warbandDrops(wt, r.config, wplan, arenaOf(wt, w.arena), r.duel.crowd!, q, fall, SEED, 1, firstId);
     expect(expected.length).toBeGreaterThan(0);
     expect(r.delver!.wiped).toEqual([q]);
     expect(r.events).toContainEqual({ type: 'WarbandWiped', warband: q, rank: 0, at: { x: fall.x, y: 0, z: fall.z } });
@@ -690,7 +691,7 @@ describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
     expect(wipe).toMatchObject({ warband: q, at: { x: at.x, z: at.z } });
     const laid = r.delver!.pickups.slice(firstId);
     expect(laid.length).toBeGreaterThan(0);
-    const spots = dropSpots(wplan, at.x, at.z, laid.filter((p) => p.owner === 0).length);
+    const spots = dropSpots(wplan, arenaOf(wt, w.arena), wt.battle.levels, at.x, at.z, 0, laid.filter((p) => p.owner === 0).length);
     expect(laid.filter((p) => p.owner === 0).map((p) => p.at)).toEqual(spots);
   });
 

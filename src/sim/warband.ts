@@ -66,7 +66,7 @@ export function warbandBrain(homes: WarbandHomes, rules: DelverTuning): SquadBra
  *  - A Warband with none living is wiped: it stands and never thinks again (nothing respawns on a Floor). It is `broken` below
  *    `squad.moraleThreshold` of the Soldiers it deployed with (`WarbandState.size`).
  *  - A Warband whose Soldiers lag (`squad.lag`) regroups first: its anchor is put where its nearest in-Crowd Soldier stands, on that Soldier's Walk Surface.
- *  - It sees a party Fighter when one of its living Soldiers has it within `sight` flat, on its level and in sight past the Floor's Walls.
+ *  - It sees a party Fighter when one of its living Soldiers has it within `sight` flat, feet no more than `levels.promote` above or below, and in sight past the Floor's Walls.
  *  - GUARD holds its post (walks back to it when away, facing its guard facing there); PATROL walks its loop, the leg advancing at each point.
  *    Either, not broken, that sees the party CHASES the nearest it sees (to its anchor). A broken PATROL becomes a GUARD at its point.
  *  - CHASE follows its Fighter by that Fighter's field, halting `closeIn` short of it in a LINE. A broken Warband RETURNS falling back (`fall`, LOOSE).
@@ -111,9 +111,10 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
   const partyOf = (slot: number): CrowdFighter | undefined => party.find((e) => e.slot === slot)?.f;
 
   /** Where Warband q calls home: its post, or its loop's point `leg`. */
-  const homeOf = (q: number): { x: number; z: number } => (w.post[q]! >= 0 ? homes.posts[w.post[q]!]! : homes.patrols[w.patrol[q]!]![leg[q]!]!);
+  const homeOf = (q: number): { x: number; y: number; z: number } => (w.post[q]! >= 0 ? homes.posts[w.post[q]!]! : homes.patrols[w.patrol[q]!]![leg[q]!]!);
   /** The kept field to a point on the floor (never a roof), and the point's Walk Surface. */
-  const fieldAt = (px: number, pz: number) => ({ dest: walkField(battle, map, px, pz, 0), on: groundOf(battle, field, px, pz, 0) });
+  /** The home field and Walk Surface at (px, pz) on the floor at height py (a home's own `y`). */
+  const fieldAt = (px: number, pz: number, py: number) => ({ dest: walkField(battle, map, px, pz, py), on: groundOf(battle, field, px, pz, py) });
 
   // The Warbands due, in Squad order, and each one's Soldiers by index.
   const due: number[] = [];
@@ -194,7 +195,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
               [sx, sz] = [crowd.x[i]!, crowd.z[i]!];
               sy = soldierHeight(field, crowd.surface[i]!, sx, sz);
             }
-            if ((f.x - sx) ** 2 + (f.z - sz) ** 2 > sight2 || (sy === sy && fy === fy && Math.abs(sy - fy) >= lv.height)) continue;
+            if ((f.x - sx) ** 2 + (f.z - sz) ** 2 > sight2 || (sy === sy && fy === fy && Math.abs(sy - fy) > lv.promote)) continue;
             if (inSight(fields, sx, sz, f.x, f.z, 0, sy, fy)) {
               out.push(e);
               break;
@@ -237,7 +238,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
         let best = -1;
         let bestD = Infinity;
         homes.patrols[w.patrol[r]!]!.forEach((pt, k) => {
-          const to = fieldAt(pt.x, pt.z);
+          const to = fieldAt(pt.x, pt.z, pt.y);
           const dist = walkDistance(to.dest, ax, az, as);
           if (dist < bestD - TIE) [best, bestD] = [k, dist];
         });
@@ -256,7 +257,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
 
       if (mode[q] === GUARD) {
         const home = homeOf(q);
-        const to = fieldAt(home.x, home.z);
+        const to = fieldAt(home.x, home.z, home.y);
         shape[q] = fall[q] ? LOOSE : COLUMN;
         if (arrived(home.x, home.z, to.on)) {
           // At home it stands, facing the post's guard facing (a broken patrol's remnant keeps the facing it has).
@@ -265,11 +266,11 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
       } else if (mode[q] === PATROL) {
         const points = homes.patrols[w.patrol[q]!]!;
         let target = points[leg[q]!]!;
-        let to = fieldAt(target.x, target.z);
+        let to = fieldAt(target.x, target.z, target.y);
         if (arrived(target.x, target.z, to.on)) {
           leg[q] = (leg[q]! + 1) % points.length;
           target = points[leg[q]!]!;
-          to = fieldAt(target.x, target.z);
+          to = fieldAt(target.x, target.z, target.y);
         }
         shape[q] = fall[q] ? LOOSE : COLUMN;
         walkTo(to.dest, target.x, target.z, to.on, walk * p.speed);
@@ -299,7 +300,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
             if (w.patrol[q]! >= 0) far = nearestPoint(q)[1];
             else {
               const home = homeOf(q);
-              far = walkDistance(fieldAt(home.x, home.z).dest, ax, az, as);
+              far = walkDistance(fieldAt(home.x, home.z, home.y).dest, ax, az, as);
             }
             if (tick - seen[q]! >= forget || far > rules.leash) giveUp();
           }
@@ -321,7 +322,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
       if (mode[q] === RETURN) {
         // Deaf: it walks home, loose while it falls back, and guards or patrols again within `arrive` of it.
         const home = homeOf(q);
-        const to = fieldAt(home.x, home.z);
+        const to = fieldAt(home.x, home.z, home.y);
         if (arrived(home.x, home.z, to.on)) {
           fall[q] = 0;
           mode[q] = w.post[q]! >= 0 || broken ? GUARD : PATROL;
@@ -343,14 +344,14 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
     if (living[q] === 0) return null;
     if (mode[q] === PATROL) {
       const pt = homes.patrols[w.patrol[q]!]![leg[q]!]!;
-      return fieldAt(pt.x, pt.z).dest;
+      return fieldAt(pt.x, pt.z, pt.y).dest;
     }
     if (mode[q] === CHASE) {
       const f = partyOf(chased[q]!);
       if (f) return walkField(battle, map, f.x, f.z, f.y ?? 0);
     }
     const home = homeOf(q);
-    return fieldAt(home.x, home.z).dest;
+    return fieldAt(home.x, home.z, home.y).dest;
   };
   const lead = (q: number): DestinationFields | null => (kept[q] === undefined ? (kept[q] = leadOf(q)) : kept[q]!);
 

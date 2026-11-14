@@ -10,6 +10,7 @@ import type { DelverTuning, TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { secondsToTicks } from './constants';
 import { crowdFighters } from './battle';
+import { soldierHeight } from './battlefield';
 import { stepBubbles, unboundSlot, type BossHold } from './bubble';
 import { treasurePickups, warbandDrops } from './delverLoot';
 import { stepCrowd, type CrowdState } from './crowd';
@@ -95,7 +96,7 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
   const facing = entranceFacing(plan);
   const placements = config.teams.map((_, k): Placement => {
     const spawn = spawns[k]!;
-    return { position: { x: spawn.x, z: spawn.z }, y: 0, facing };
+    return { position: { x: spawn.x, z: spawn.z }, y: spawn.y, facing };
   });
   const players = runPlayers(config);
   const inventories = config.teams.map((_, i) => {
@@ -139,16 +140,17 @@ export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away' 
   };
 }
 
-/** Whether the Fighter stands in the plan's Stairs zone: inside its rect, edges included, y within (-0.5, ZONE_HEIGHT). */
+/** Whether the Fighter stands in the plan's Stairs zone: inside its rect, edges included, y within (the zone's `y` - 0.5, its `y` + ZONE_HEIGHT). */
 export function inStairs(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>): boolean {
-  const { x0, x1, z0, z1 } = plan.markers.stairs.zone;
+  const { zone, y } = plan.markers.stairs;
+  const { x0, x1, z0, z1 } = zone;
   const { x, z } = f.position;
-  return f.y > -0.5 && f.y < ZONE_HEIGHT && x >= x0 && x <= x1 && z >= z0 && z <= z1;
+  return f.y > y - 0.5 && f.y < y + ZONE_HEIGHT && x >= x0 && x <= x1 && z >= z0 && z <= z1;
 }
 
-/** The index of the first fire (`plan.markers.fires` order) the Fighter stands within `radius` of (ground y 0), or -1. */
+/** The index of the first fire (`plan.markers.fires` order) the Fighter stands within `radius` of (at the fire's own height), or -1. */
 export function fireAt(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>, radius: number): number {
-  return plan.markers.fires.findIndex((fire) => standsWithin({ x: fire.x, y: 0, z: fire.z }, radius, f));
+  return plan.markers.fires.findIndex((fire) => standsWithin({ x: fire.x, y: fire.y, z: fire.z }, radius, f));
 }
 
 /** Where the j-th Fighter a fire revives stands round it (m): the corners of a 3 m square, so none lands on another. */
@@ -160,7 +162,7 @@ const REVIVE_DZ = [-1.5, -1.5, 1.5, 1.5];
  * those revived, standing, facing as it did) at `hpShare` of its max HP, keeping its weapon and Inventory, with `Revived { fighter, fire }`. A fire
  * revives at `dungeon.revive`, a beaten Boss (fire -1) in full. Pure.
  */
-function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof arenaOf>, point: { readonly x: number; readonly z: number }, hpShare: number, fire: number, events: MatchEvent[]): SimState {
+function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof arenaOf>, point: { readonly x: number; readonly y: number; readonly z: number }, hpShare: number, fire: number, events: MatchEvent[]): SimState {
   let j = 0;
   return {
     ...duel,
@@ -169,7 +171,7 @@ function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof ar
       const at = { x: point.x + REVIVE_DX[j % 4]!, z: point.z + REVIVE_DZ[j % 4]! };
       j++;
       const weapon = f.inventory ? wieldedWeapon(f.inventory) : f.weapon;
-      const fresh = standingFighter(t, arena, { position: at, y: 0, facing: f.facing }, weapon, 0, f.size);
+      const fresh = standingFighter(t, arena, { position: at, y: point.y, facing: f.facing }, weapon, 0, f.size);
       const armed = f.inventory ? holdInventory(fresh, f.inventory, t) : setMods(fresh, NO_MODS, t.fighter.maxHp);
       events.push({ type: 'Revived', fighter: i, fire });
       return { ...armed, hp: hpShare * armed.maxHp };
@@ -286,7 +288,8 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
   }
 
   if (next.phase === 'Exploring') {
-    const plan = floorOf(tuning, duel.arena)!.plan;
+    const floor = floorOf(tuning, duel.arena)!;
+    const { plan } = floor;
     // The Reveal: the place each present Player's living Fighter stands in is revealed for the party (AI allies, the away and the fallen reveal nothing).
     let revealed = next.revealed;
     for (const i of presentPlayers(config, next.away)) {
@@ -302,7 +305,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const crowd = duel.crowd!;
     const before = match.duel.crowd!;
     const arena = arenaOf(t, duel.arena);
-    const stairsAt = { x: (plan.markers.stairs.zone.x0 + plan.markers.stairs.zone.x1) / 2, z: (plan.markers.stairs.zone.z0 + plan.markers.stairs.zone.z1) / 2 };
+    const stairsAt = { x: (plan.markers.stairs.zone.x0 + plan.markers.stairs.zone.x1) / 2, y: plan.markers.stairs.y, z: (plan.markers.stairs.zone.z0 + plan.markers.stairs.zone.z1) / 2 };
     // One pass over the Crowd: each Squad's living Soldiers, its lowest index and its lowest index alive before the Tick (-1 for none).
     const warbands = crowd.warbands!.rank.length;
     const living = new Array<number>(warbands).fill(0);
@@ -319,10 +322,11 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       if (next.wiped.includes(q)) continue;
       if (lowest[q]! < 0 || living[q]! > 0) continue;
       const last = lowestBefore[q]! >= 0 ? lowestBefore[q]! : lowest[q]!;
-      const fall = { x: crowd.x[last]!, z: crowd.z[last]! };
-      const drops = warbandDrops(t, config, plan, crowd, q, fall, runSeed(config.arena), next.floor, next.pickups.length, next.away);
+      // Where it fell, at the height its Soldier stood (before the Tick): the drops lie on the ground under that.
+      const fall = { x: crowd.x[last]!, y: soldierHeight(floor.field, before.surface[last]!, before.x[last]!, before.z[last]!), z: crowd.z[last]! };
+      const drops = warbandDrops(t, config, plan, arena, crowd, q, fall, runSeed(config.arena), next.floor, next.pickups.length, next.away);
       next = { ...next, wiped: [...next.wiped, q].sort((a, b) => a - b), pickups: [...next.pickups, ...drops] };
-      events.push({ type: 'WarbandWiped', warband: q, rank: crowd.warbands!.rank[q]!, at: { x: fall.x, y: 0, z: fall.z } });
+      events.push({ type: 'WarbandWiped', warband: q, rank: crowd.warbands!.rank[q]!, at: { x: fall.x, y: fall.y, z: fall.z } });
       if (crowd.warbands!.rank[q] !== BOSS) continue;
       // The Boss Warband wiped, after its drops. Every Boss, the last one too, heals the party in full and brings the fallen back at the Stairs; the Run is won on the last Floor's Stairs.
       events.push({ type: 'BossBeaten', floor: next.floor });
@@ -360,7 +364,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
 
     // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once.
     plan.markers.fires.forEach((fire, k) => {
-      const point = { x: fire.x, y: 0, z: fire.z };
+      const point = { x: fire.x, y: fire.y, z: fire.z };
       const present = (i: number) => {
         const f = duel.fighters[i]!;
         return inDuel(f) && f.hp > 0 && standsWithin(point, fireRadius, f);

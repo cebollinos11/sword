@@ -97,12 +97,12 @@ class AllyAi implements Controller {
       })
       .sort((a, b) => a.d - b.d || a.i - b.i)[0];
     if (nearest) return this.ai.walkTo(state, fighter, { x: nearest.p.position.x, y: nearest.p.y, z: nearest.p.position.z }, FOLLOW_DISTANCE);
-    const { zone } = floorOf(this.tuning, state.arena)!.plan.markers.stairs;
+    const { zone, y } = floorOf(this.tuning, state.arena)!.plan.markers.stairs;
     // Its rank among the living Team 0 Fighters picks the spot, so the party stands in the zone's four quarters rather than on one point.
     let rank = 0;
     for (let i = 0; i < fighter; i++) if (state.fighters[i]!.team === 0 && inDuel(state.fighters[i]!)) rank++;
     const r = rank % 4;
-    return this.ai.walkTo(state, fighter, { x: (zone.x0 + zone.x1) / 2 + STAIRS_DX[r]!, y: 0, z: (zone.z0 + zone.z1) / 2 + STAIRS_DZ[r]! }, 0.3);
+    return this.ai.walkTo(state, fighter, { x: (zone.x0 + zone.x1) / 2 + STAIRS_DX[r]!, y, z: (zone.z0 + zone.z1) / 2 + STAIRS_DZ[r]! }, 0.3);
   }
 
   save(): unknown {

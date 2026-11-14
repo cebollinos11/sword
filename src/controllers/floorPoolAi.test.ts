@@ -10,8 +10,9 @@ import type { SimState } from '../sim/state';
 import { standingFighter } from '../sim/step';
 import { BOSS, ELITE } from '../sim/warband';
 import { createPoolAi } from './poolAi';
+import { flatFloors } from '../sim/delver/flat.testdata';
 
-const tuning = loadTuningData();
+const tuning = flatFloors(loadTuningData());
 const TIMEOUT = 120_000;
 
 /** Floor `floor` of Run `seed`, its Crowd deployed, and a Duel in which Warband rank `rank`'s first Soldier is promoted beside the Player. */

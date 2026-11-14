@@ -4,9 +4,11 @@
  * peer agrees with nothing sent; where it lies is a pure function of the Floor's plan and the fall point (`dropSpots`). Each Player has its own
  * copies on the same ground (`pickupVisibleTo`), and the AI allies get none. Everything here is pure; the Run's step lays the results in its pickups.
  */
-import type { TuningData } from '../tuning';
+import type { ArenaGeometry, LevelsTuning, TuningData } from '../tuning';
 import type { CrowdState } from './crowd';
 import type { FloorPlan } from './delver/plan';
+import { surfaceHeight } from './arena';
+import { groundNear } from './levels';
 import { tierOf } from './delver/troops';
 import { presentPlayers } from './hall';
 import type { Dropped } from './inventory';
@@ -82,12 +84,13 @@ function rectOf(plan: FloorPlan, x: number, z: number): Box {
 }
 
 /**
- * `count` spots (y 0) near the fall point (x, z), where a wiped Warband's items lie. R is the Hall rect holding the point, else the Passage rect, else
+ * `count` spots near the fall point (x, z, at height y), where a wiped Warband's items lie. R is the Hall rect holding the point, else the Passage rect, else
  * the nearest of them; the spots are inside R shrunk by `DROP_MARGIN`, so none lies in a Wall or the abyss. The first is the point clamped in; the others
  * move along R's longer side by 0, +1.2, -1.2, +2.4, -2.4 m and so on (`DROP_GAP`), clamped, skipping a candidate within 1.1 m of one taken, so two never
- * share a spot. After 16 candidates the spots found are reused in turn. Pure.
+ * share a spot. After 16 candidates the spots found are reused in turn. Each spot lies on the ground nearest under the fall's height `y` (`groundNear`
+ * of the Floor's `arena`, never a roof; so a fall on a Deck lies on the Deck, one beside it on the floor), at `y` itself where there is none. Pure.
  */
-export function dropSpots(plan: FloorPlan, x: number, z: number, count: number): PickupAt[] {
+export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, lv: LevelsTuning, x: number, z: number, y: number, count: number): PickupAt[] {
   if (count <= 0) return [];
   const r = rectOf(plan, x, z);
   // A rect narrower than twice the margin shrinks to its middle line.
@@ -100,7 +103,10 @@ export function dropSpots(plan: FloorPlan, x: number, z: number, count: number):
   const found: PickupAt[] = [];
   for (let j = 0; j < DROP_TRIES && found.length < count; j++) {
     const along = (j % 2 === 1 ? (j + 1) / 2 : -j / 2) * DROP_GAP;
-    const spot: PickupAt = alongX ? { x: clamp(bx + along, x0, x1), y: 0, z: bz } : { x: bx, y: 0, z: clamp(bz + along, z0, z1) };
+    const sx = alongX ? clamp(bx + along, x0, x1) : bx;
+    const sz = alongX ? bz : clamp(bz + along, z0, z1);
+    const ground = groundNear(arena, lv, sx, sz, y, true);
+    const spot: PickupAt = { x: sx, y: ground >= 0 ? surfaceHeight(arena, ground, sx, sz) : y, z: sz };
     if (found.every((s) => (s.x - spot.x) ** 2 + (s.z - spot.z) ** 2 >= DROP_APART * DROP_APART)) found.push(spot);
   }
   return Array.from({ length: count }, (_, k) => found[k % found.length]!);
@@ -115,16 +121,17 @@ export function warbandDrops(
   tuning: TuningData,
   config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>,
   plan: FloorPlan,
+  arena: ArenaGeometry,
   crowd: CrowdState,
   q: number,
-  fall: { readonly x: number; readonly z: number },
+  fall: { readonly x: number; readonly y: number; readonly z: number },
   seed: number,
   floor: number,
   firstId: number,
   away?: readonly number[],
 ): Pickup[] {
   const sets = presentPlayers(config, away).map((player) => ({ player, items: warbandLoot(tuning, crowd, q, player, seed, floor) }));
-  const spots = dropSpots(plan, fall.x, fall.z, Math.max(0, ...sets.map((s) => s.items.length)));
+  const spots = dropSpots(plan, arena, tuning.battle.levels, fall.x, fall.z, fall.y, Math.max(0, ...sets.map((s) => s.items.length)));
   const pickups: Pickup[] = [];
   for (const { player, items } of sets)
     for (const [k, item] of items.entries()) pickups.push({ id: firstId + pickups.length, owner: player, ...item, at: spots[k]!, taken: false });
@@ -150,7 +157,7 @@ export function treasurePickups(tuning: TuningData, config: Pick<MatchConfig, 't
       for (let k = 0; k < tuning.dungeon.loot.pedestals; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(1, t, player, k), items));
       for (const [k, item] of items.entries()) {
         const m = markers[k % markers.length]!;
-        pickups.push({ id: group + k, owner: player, ...item, at: { x: m.x, y: 0, z: m.z }, taken: false, group });
+        pickups.push({ id: group + k, owner: player, ...item, at: { x: m.x, y: m.y, z: m.z }, taken: false, group });
       }
     }
   }

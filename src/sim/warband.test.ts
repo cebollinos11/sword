@@ -100,13 +100,13 @@ function homeField(s: Scene, crowd: CrowdState, q: number) {
 /** Walking distance (m) from the anchor of Warband q to its home. */
 const fromHome = (s: Scene, crowd: CrowdState, q: number, x = crowd.squads.x[q]!, z = crowd.squads.z[q]!): number => walkDistance(homeField(s, crowd, q), x, z, groundOf(s.battle, s.field, x, z, 0));
 
-/** Whether any living Soldier of Warband q in the Crowd sees a party Fighter at (x, z): the brain's rule (flat within `sight`, a level apart less than `levels.height`, in sight past the Walls). */
+/** Whether any living Soldier of Warband q in the Crowd sees a party Fighter at (x, z): the brain's rule (flat within `sight`, feet no more than `levels.promote` apart, in sight past the Walls). */
 function seen(s: Scene, crowd: CrowdState, q: number, x: number, z: number): boolean {
   const f = party(s, x, z);
   return members(crowd, q).some((i) => {
     if (!crowd.alive[i]) return false;
     const sy = soldierHeight(s.field, crowd.surface[i]!, crowd.x[i]!, crowd.z[i]!);
-    return Math.hypot(crowd.x[i]! - x, crowd.z[i]! - z) <= s.rules.sight && Math.abs(sy - f.y!) < s.battle.levels.height && inSight(s.map.fields, crowd.x[i]!, crowd.z[i]!, x, z, 0, sy, f.y!);
+    return Math.hypot(crowd.x[i]! - x, crowd.z[i]! - z) <= s.rules.sight && Math.abs(sy - f.y!) <= s.battle.levels.promote && inSight(s.map.fields, crowd.x[i]!, crowd.z[i]!, x, z, 0, sy, f.y!);
   });
 }
 
