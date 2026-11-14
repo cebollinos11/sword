@@ -15,6 +15,7 @@ import { BubbleSwap } from '../render/bubbleSwap';
 import { CrowdView } from '../render/crowdView';
 import { bakeImpostorAtlases, type ImpostorAtlases } from '../render/impostorAtlas';
 import type { Renderer } from '../render/renderer';
+import { nextPaint } from './loadingBar';
 
 /** The part of the Renderer a Floor's Crowd draws through. */
 export type CrowdStage = Pick<Renderer, 'scene' | 'setFades' | 'impacts' | 'gl'>;
@@ -60,7 +61,10 @@ export class FloorCrowd {
   ) {
     const battle = floorBattle(tuning);
     this.parts = parts ?? {
-      bake: () => bakeImpostorAtlases(stage.gl, tuning, battle),
+      // A frame between atlases, as a Battle's loading bar gives (`battleScreen.ts`): the Run is already ticking online, and one
+      // unbroken bake of every look holds this page's Ticks and Intents for seconds, long enough on a slow machine for the host's
+      // `DEFAULT_TIMEOUT_TICKS` to drop a guest and hand its Fighter to the AI.
+      bake: () => bakeImpostorAtlases(stage.gl, tuning, battle, nextPaint),
       view: (atlases) => new CrowdView(atlases, battle, blobTexture()),
     };
     void this.parts.bake().then((atlases) => {
