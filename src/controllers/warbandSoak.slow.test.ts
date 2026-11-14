@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadTuningData, type TuningData } from "../tuning";
 import {
+  arenaOf,
   battleMapOf,
   CHASE,
   createMatch,
@@ -8,11 +9,13 @@ import {
   fieldToward,
   formationSpot,
   GUARD,
+  groundBelow,
   groundOf,
   hashValue,
   IDLE_INTENT,
   inDuel,
   MAX_TEAM_SIZE,
+  navMesh,
   oneField,
   PATROL,
   RETURN,
@@ -23,7 +26,11 @@ import {
   squadNarrows,
   stepMatch,
   TICK_SECONDS,
+  walkDistance,
+  walkField,
+  type FighterState,
   type HitEvent,
+  type JumpLink,
   type MatchEvent,
   type MatchState,
 } from "../sim";
@@ -42,12 +49,15 @@ import {
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
 import { gateOpen } from "../sim/delverRun";
+import { flatFloors } from "../sim/delver/flat.testdata";
 import { BOSS, ELITE } from "../sim/warband";
 import { createAiController } from "./ai";
 import { controllerIntents, type Controller } from "./controller";
 import { promotedNear } from "./allyAi";
 import { createDelverPilot } from "./delverPilot";
 import { lineupAis, type Lineup } from "./lineup";
+import { withImmortalParty } from "../play/driver";
+import type { DelverGallery } from "../sim/delver/plan";
 
 /**
  * The Warband soak (docs/plans/delver.md, Stage 3, "The slow soak"): five Delver Runs of one tier of three Floors with Warbands, AI-driven (the
@@ -645,20 +655,7 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
     const at = m;
     const t0 = performance.now();
     let next = stepMatch(at, controllerIntents(at.duel, controllers), tuning);
-    if (options.immortal) {
-      const party = (x: MatchState["duel"]["fighters"][number], i: number) =>
-        i < k && inDuel(x) && x.hp > 0 && x.hp < x.maxHp;
-      if (next.duel.fighters.some(party))
-        next = {
-          ...next,
-          duel: {
-            ...next.duel,
-            fighters: next.duel.fighters.map((x, i) =>
-              party(x, i) ? { ...x, hp: x.maxHp } : x,
-            ),
-          },
-        };
-    }
+    if (options.immortal) next = withImmortalParty(next);
     const ms = performance.now() - t0;
     options.watch?.(at, next, tuning);
     const bound = next.duel.fighters
@@ -818,6 +815,8 @@ interface BossFloor {
   bossPromoted: number | null;
   bossSlot: number;
   otherPromoted: number | null;
+  /** The first Tick a Soldier of the Boss Warband was promoted while the Boss Soldier was promotable into the same Bubble and stayed in the Crowd, described; null if none. */
+  bossSkipped: string | null;
   bossWiped: number | null;
   beaten: number | null;
   gate: number | null;
@@ -839,6 +838,7 @@ const newBossFloor = (floor: number): BossFloor => ({
   bossPromoted: null,
   bossSlot: -1,
   otherPromoted: null,
+  bossSkipped: null,
   bossWiped: null,
   beaten: null,
   gate: null,
@@ -897,7 +897,53 @@ function playBossRun(
             b.bossPromoted = next.tick;
             b.bossSlot = c.slot[i]!;
           }
-        } else if (b.otherPromoted === null) b.otherPromoted = next.tick;
+        } else {
+          if (b.otherPromoted === null) b.otherPromoted = next.tick;
+          // Stage 4's rule, by the Bubble's own: this guard went into its nearest Bubble while the Boss Soldier, promotable into that same Bubble,
+          // stayed in the Crowd. The Soldiers' places and the party's are those the Bubble read (nobody unpromoted moves in a promotion).
+          if (
+            b.bossSkipped === null &&
+            boss >= 0 &&
+            pc.slot[boss]! < 0 &&
+            c.slot[boss]! < 0 &&
+            c.alive[boss]
+          ) {
+            const t = arenaTuning(tuning, next.duel.arena);
+            const map = battleMapOf(t.battle, next.duel.arena);
+            const centres = (next.config.players ?? []).flatMap((k) => {
+              const x = next.duel.fighters[k]!;
+              return inDuel(x) ? [x] : [];
+            });
+            const walks = centres.map((x) =>
+              walkField(t.battle, map, x.position.x, x.position.z, x.y),
+            );
+            const awayOf = (bi: number, s: number) =>
+              walkDistance(walks[bi]!, c.x[s]!, c.z[s]!, c.surface[s]!);
+            const nearest = (s: number) =>
+              centres.reduce(
+                (best, _, bi) => (awayOf(bi, s) < awayOf(best, s) ? bi : best),
+                0,
+              );
+            if (centres.length > 0) {
+              const bi = nearest(i);
+              const away = awayOf(bi, boss);
+              const dy = Math.abs(
+                soldierHeight(
+                  map.field,
+                  c.surface[boss]!,
+                  c.x[boss]!,
+                  c.z[boss]!,
+                ) - centres[bi]!.y,
+              );
+              if (
+                nearest(boss) === bi &&
+                away <= t.battle.bubble.promote &&
+                dy <= t.battle.levels.promote
+              )
+                b.bossSkipped = `Tick ${next.tick}: Soldier ${i} promoted, the Boss Soldier ${boss} promotable (walk ${f(away)} m, height difference ${f(dy, 2)} m) and left in the Crowd`;
+            }
+          }
+        }
       }
       if (
         b.gate === null &&
@@ -965,10 +1011,7 @@ function bossProblems(
     }
     if (b.bossPromoted === null)
       problems.push(`Floor ${fl}: the Boss Soldier was never promoted`);
-    else if (b.otherPromoted !== null && b.otherPromoted < b.bossPromoted)
-      problems.push(
-        `Floor ${fl}: a Soldier of the Boss Warband was promoted at Tick ${b.otherPromoted}, before the Boss's ${b.bossPromoted}`,
-      );
+    if (b.bossSkipped !== null) problems.push(`Floor ${fl}: ${b.bossSkipped}`);
     if (b.bossWiped === null || b.beaten === null)
       problems.push(
         `Floor ${fl}: the Boss Warband was not wiped (no BossBeaten)`,
@@ -1160,7 +1203,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     ];
     const problems: string[] = [];
     for (const name of RUNS) {
-      const tuning = runTuning();
+      const tuning = flatFloors(runTuning());
       const arena = floorArenaName(runSeed(name), 1);
       const lineup: Lineup = [
         { team: 0, pilot: { kind: "Player", player: 0 } },
@@ -1439,7 +1482,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     let excluded = 0;
     const legRows: number[] = [];
     for (const name of RUNS) {
-      const tuning = runTuning();
+      const tuning = flatFloors(runTuning());
       const seed = runSeed(name);
       const arena = floorArenaName(seed, 1);
       let m = createMatch(tuning, {
@@ -1605,5 +1648,811 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
       missing,
       `the soak never exercised: ${missing.join(", ")} (${JSON.stringify(seen)})`,
     ).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------ levelled Floors (docs/plans/delver.md, Stage 6, §10)
+
+/** The Run seeds of the levelled Runs case. */
+const LEVEL_RUNS = ["gen:greybox:4242", "gen:greybox:101", "gen:greybox:777"];
+/** How many Run seeds (`gen:greybox:1` on) a scenario's search looks through for a Floor 1 with what it needs. */
+const SEARCH = 80;
+/** A chase has crossed a level when its anchor's height changed by this much (m) within it. */
+const CROSSED = 1.5;
+/** The jump scenario: how long (s) the ally has to reach the Deck. */
+const JUMP_SECONDS = 20;
+/** The chase-across-a-level and balcony scenarios: how long (s) the Player walks. */
+const WALK_SECONDS = 60;
+
+/** A Floor's Walk Surfaces by the roles the levelled cases read (from the Arena, which is neither state nor Tuning). */
+interface Lay {
+  readonly name: string;
+  readonly tuning: TuningData;
+  readonly arena: ReturnType<typeof arenaOf>;
+  readonly map: ReturnType<typeof battleMapOf>;
+  readonly plan: ReturnType<typeof floorOf> extends infer F
+    ? F extends { plan: infer P }
+      ? P
+      : never
+    : never;
+  /** Per Walk Surface: its points' y differ (a Ramp). */
+  readonly sloped: readonly boolean[];
+  /** Deck surface -> its Hall's index; a gallery Ramp's surface -> its Hall's; a Hall's floor surface (not a roof) -> its index. */
+  readonly deck: ReadonlyMap<number, number>;
+  readonly ramp: ReadonlyMap<number, number>;
+  readonly floor: ReadonlyMap<number, number>;
+}
+
+/** The roles of Floor `name`'s Walk Surfaces under `tuning`. Throws when a gallery's Deck centre is not on a Deck surface. */
+function layOf(tuning: TuningData, name: string): Lay {
+  const t = arenaTuning(tuning, name);
+  const arena = arenaOf(t, name);
+  const map = battleMapOf(t.battle, name);
+  const plan = floorOf(tuning, name)!.plan;
+  const sloped = arena.walk.map((s) =>
+    s.points.some((p) => Math.abs(p.y - s.points[0]!.y) > 1e-9),
+  );
+  const deck = new Map<number, number>();
+  const ramp = new Map<number, number>();
+  const floor = new Map<number, number>();
+  plan.halls.forEach((h, k) =>
+    arena.walk.forEach((s, i) => {
+      if (s.id.startsWith(`WALK_${h.id}-deck`)) deck.set(i, k);
+      else if (s.id === `WALK_${h.id}-ramp`) ramp.set(i, k);
+      else if (s.id.startsWith(`WALK_${h.id}_`) && !s.roof) floor.set(i, k);
+    }),
+  );
+  plan.halls.forEach((h, k) => {
+    const g = h.gallery;
+    if (!g) return;
+    const on = groundOf(
+      t.battle,
+      map.field,
+      (g.deck.x0 + g.deck.x1) / 2,
+      (g.deck.z0 + g.deck.z1) / 2,
+      g.y,
+    );
+    if (deck.get(on) !== k)
+      throw new Error(
+        `${name}: ${h.id}'s Deck centre is not on a Deck surface`,
+      );
+  });
+  return { name, tuning: t, arena, map, plan, sloped, deck, ramp, floor };
+}
+
+/** The Walk Surface a grounded Fighter stands on (the highest at its feet), or -1 in the air or off every surface. */
+const surfaceOf = (lay: Lay, x: FighterState): number =>
+  x.air
+    ? -1
+    : (groundBelow(lay.arena, x.position.x, x.position.z, x.y + 0.05)
+        ?.surface ?? -1);
+
+/** What the levelled Runs measure on one Floor. */
+interface LevelStats {
+  /** Ticks with a party Fighter standing on a sloped Walk Surface (any of them / each of them). */
+  rampTicks: number;
+  rampFighterTicks: number;
+  chases: number;
+  /** Chases whose anchor's height changed by `CROSSED` or more, and the biggest change seen (m). */
+  crossed: number;
+  biggest: number;
+  promotions: number;
+  deckPromotions: number;
+  /** Jump Links an AI ally took: floor to Deck, airborne, never on the gallery's Ramp between. */
+  jumps: number;
+}
+const newLevelStats = (): LevelStats => ({
+  rampTicks: 0,
+  rampFighterTicks: 0,
+  chases: 0,
+  crossed: 0,
+  biggest: 0,
+  promotions: 0,
+  deckPromotions: 0,
+  jumps: 0,
+});
+
+/** One ally's walk from the states: where it last stood on a Hall floor or Deck, and whether it flew and stood on a Ramp since. */
+interface AllyTrack {
+  last: number;
+  air: boolean;
+  ramp: boolean;
+}
+
+/**
+ * A watcher for `playRun`'s `watch`: per Floor (by its Arena name), the party's seconds on a Ramp, the chases that crossed a level, the
+ * Promotions of Soldiers on a Deck and the AI allies' jump Links taken, all from the states alone. `flush` closes the chases still open.
+ */
+function levelWatcher() {
+  const stats = new Map<string, LevelStats>();
+  const lays = new Map<string, Lay>();
+  const open = new Map<
+    string,
+    Map<number, { h0: number; lo: number; hi: number }>
+  >();
+  const allies = new Map<string, Map<number, AllyTrack>>();
+  const statsOf = (name: string): LevelStats => {
+    let s = stats.get(name);
+    if (!s) stats.set(name, (s = newLevelStats()));
+    return s;
+  };
+  /** Closes chase `q` of Floor `name`. */
+  const close = (name: string, q: number): void => {
+    const c = open.get(name)?.get(q);
+    if (!c) return;
+    const s = statsOf(name);
+    const change = Math.max(c.hi - c.h0, c.h0 - c.lo);
+    s.biggest = Math.max(s.biggest, change);
+    if (change >= CROSSED) s.crossed++;
+    open.get(name)!.delete(q);
+  };
+  const watch = (
+    at: MatchState,
+    next: MatchState,
+    tuning: TuningData,
+  ): void => {
+    const name = next.duel.arena;
+    if (name !== at.duel.arena) return;
+    const c = next.duel.crowd;
+    if (!c?.warbands || !floorOf(tuning, name)) return;
+    let lay = lays.get(name);
+    if (!lay) lays.set(name, (lay = layOf(tuning, name)));
+    const s = statsOf(name);
+    const pc = at.duel.crowd!;
+    // The party on a Ramp.
+    let any = false;
+    next.duel.fighters.forEach((x, i) => {
+      if (x.team !== 0 || !inDuel(x)) return;
+      const on = surfaceOf(lay!, x);
+      if (on >= 0 && lay!.sloped[on]) {
+        any = true;
+        s.rampFighterTicks++;
+      }
+      // The AI allies' jumps (slots 1 and 2 of the lineup).
+      if (i !== 1 && i !== 2) return;
+      let byAlly = allies.get(name);
+      if (!byAlly) allies.set(name, (byAlly = new Map()));
+      let a = byAlly.get(i);
+      if (!a) byAlly.set(i, (a = { last: -1, air: false, ramp: false }));
+      if (x.air) a.air = true;
+      else if (on >= 0) {
+        if (lay!.ramp.has(on)) a.ramp = true;
+        else {
+          if (
+            lay!.deck.has(on) &&
+            a.last >= 0 &&
+            a.last !== on &&
+            lay!.floor.get(a.last) === lay!.deck.get(on) &&
+            a.air &&
+            !a.ramp
+          )
+            s.jumps++;
+          if (on !== a.last) a.ramp = false;
+          a.last = on;
+        }
+        a.air = false;
+      }
+    });
+    if (any) s.rampTicks++;
+    // The chases, by their anchor's height.
+    let chases = open.get(name);
+    if (!chases) open.set(name, (chases = new Map()));
+    c.warbands.mode.forEach((mode, q) => {
+      if (mode === CHASE) {
+        const h = soldierHeight(
+          lay!.map.field,
+          c.squads.surface[q]!,
+          c.squads.x[q]!,
+          c.squads.z[q]!,
+        );
+        const o = chases.get(q);
+        if (!o) {
+          s.chases++;
+          chases.set(q, { h0: h, lo: h, hi: h });
+        } else {
+          o.lo = Math.min(o.lo, h);
+          o.hi = Math.max(o.hi, h);
+        }
+      } else close(name, q);
+    });
+    // The Promotions.
+    for (let i = 0; i < c.slot.length; i++) {
+      if (pc.slot[i]! < 0 && c.slot[i]! >= 0) {
+        s.promotions++;
+        if (lay.deck.has(c.surface[i]!)) s.deckPromotions++;
+      }
+    }
+  };
+  const flush = (): void => {
+    for (const [name, qs] of open)
+      for (const q of [...qs.keys()]) close(name, q);
+  };
+  return { stats, statsOf, watch, flush };
+}
+
+describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
+  it(`levelled Runs: ${LEVEL_RUNS.length} Runs of ${FLOORS} Floors with an immortal party on the Delver pilot and two Hard allies; every Floor has 2 or more Hall levels and the party walks a Ramp`, () => {
+    const problems: string[] = [];
+    const lines: string[] = [
+      `\nLevelled Runs (default levels, ${FLOORS} Floors each, no Bosses, immortal party; Stage 0's T2 Tick 0.31 to 0.41 ms, Stage 3's soak 0.51 ms; Stage 1's Floor 241 ms, navMesh 17 ms):`,
+    ];
+    let rampSeconds = 0;
+    const all = {
+      ticks: [] as number[],
+      builds: [] as number[],
+      navs: [] as number[],
+    };
+    for (const name of LEVEL_RUNS) {
+      const tuning = runTuning();
+      const seed = runSeed(name);
+      // Each Floor cold: `delverFloor` and the navmesh under the Floor's own Tuning Data, before the Run.
+      const cold = Array.from({ length: FLOORS }, (_, k) => {
+        const arena = floorArenaName(seed, k + 1);
+        const t0 = performance.now();
+        const floor = floorOf(tuning, arena)!;
+        const t1 = performance.now();
+        const t = arenaTuning(tuning, arena);
+        const mesh = navMesh(arenaOf(t, arena), t);
+        const t2 = performance.now();
+        const jumps = mesh.links.filter(
+          (l): l is JumpLink => l.kind === "jump",
+        );
+        return {
+          floor: t1 - t0,
+          nav: t2 - t1,
+          jumps: jumps.length,
+          shortcuts: jumps.filter((l) => l.shortcut).length,
+          attempts: floor.attempts,
+        };
+      });
+      const watcher = levelWatcher();
+      const wall = performance.now();
+      const run = playRun(name, {
+        tuning,
+        immortal: true,
+        watch: watcher.watch,
+      });
+      watcher.flush();
+      lines.push(
+        `Run ${name} (Run seed ${seed}): ${run.ticks} Ticks (${f(run.seconds)} s simulated), ${run.ended}, ${f((performance.now() - wall) / 1000, 0)} s wall`,
+      );
+      for (const r of run.floors) {
+        const arena = floorArenaName(seed, r.floor);
+        const plan = floorOf(tuning, arena)!.plan;
+        const s = watcher.statsOf(arena);
+        const levels = new Map<number, number>();
+        for (const h of plan.halls)
+          levels.set(h.level, (levels.get(h.level) ?? 0) + 1);
+        const galleries = plan.halls.filter((h) => h.gallery);
+        const stairwells = galleries.filter((h) => h.gallery!.high).length;
+        const slopes = plan.passages.filter((p) => p.ya !== p.yb).length;
+        const ticks = r.costs.flat();
+        const c = cold[r.floor - 1]!;
+        rampSeconds += secs(s.rampTicks);
+        all.ticks.push(...ticks);
+        all.builds.push(c.floor);
+        all.navs.push(c.nav);
+        lines.push(
+          `  Floor ${r.floor}: ${f((r.end! - r.start) * TICK_SECONDS)} s, ended ${r.how}; ${plan.halls.length} Halls, levels ${[
+            ...levels,
+          ]
+            .sort((a, b) => a[0] - b[0])
+            .map(([l, n]) => `${l}:${n}`)
+            .join(
+              " ",
+            )} (${levels.size} distinct); galleries ${galleries.length} (${galleries.length - stairwells} balconies, ${stairwells} stairwells), Deck posts ${plan.markers.posts.filter((p) => plan.halls[p.hall]!.gallery?.y === p.y).length}; sloped Passages ${slopes} of ${plan.passages.length}`,
+        );
+        lines.push(
+          `    party on a Ramp ${f(secs(s.rampTicks))} s (${f(secs(s.rampFighterTicks))} Fighter-s); chases ${s.chases}, crossed a level ${s.crossed} (biggest anchor change ${f(s.biggest)} m); Promotions ${s.promotions}, on a Deck ${s.deckPromotions}; allies' jump Links taken ${s.jumps} (navmesh ${c.jumps} jump Links, ${c.shortcuts} shortcuts)`,
+        );
+        lines.push(
+          `    Tick mean ${f(mean(ticks), 2)} p99 ${f(percentile(ticks, 0.99), 2)} max ${f(maxOf(ticks), 2)} ms (${ticks.length} Ticks); build cold: delverFloor ${f(c.floor, 0)} ms (${c.attempts} attempt${c.attempts === 1 ? "" : "s"}) + navMesh ${f(c.nav, 0)} ms`,
+        );
+        if (levels.size < 2)
+          problems.push(`${name} Floor ${r.floor}: ${levels.size} Hall level`);
+      }
+    }
+    lines.push(
+      `Over all: Tick mean ${f(mean(all.ticks), 2)} p99 ${f(percentile(all.ticks, 0.99), 2)} max ${f(maxOf(all.ticks), 2)} ms; delverFloor mean ${f(mean(all.builds), 0)} max ${f(maxOf(all.builds), 0)} ms; navMesh mean ${f(mean(all.navs), 0)} max ${f(maxOf(all.navs), 0)} ms; the party on a Ramp ${f(rampSeconds)} s in all`,
+    );
+    console.log(lines.join("\n"));
+    if (rampSeconds <= 0) problems.push("the party never stood on a Ramp");
+    expect(
+      problems,
+      `the levelled Runs did not show:\n${problems.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------- the three scenarios
+
+  /** A Match of Floor 1 of Run `arena` with the lineup's Fighters, the Player in slot 0, and the Controllers (the Player's slot on `player`). */
+  const scenario = (
+    tuning: TuningData,
+    arena: string,
+    lineup: Lineup,
+    player: Controller,
+  ): { match: MatchState; controllers: Controller[] } => ({
+    match: createMatch(tuning, {
+      format: "Gauntlet",
+      bestOf: 1,
+      seed: 7,
+      arena,
+      delver: true,
+      teams: lineup.map((s) => s.team),
+      humans: 1,
+      players: [0],
+    }),
+    controllers: lineupAis(tuning, lineup, "Gauntlet", {
+      seed: 7,
+      arena,
+      delver: true,
+    }).map((c) => c ?? player),
+  });
+  /** The Match with Fighter `i` put at (x, z) at height y. */
+  const putAt = (
+    m: MatchState,
+    i: number,
+    x: number,
+    z: number,
+    y: number,
+  ): MatchState => ({
+    ...m,
+    duel: {
+      ...m.duel,
+      fighters: m.duel.fighters.map((fighter, k) =>
+        k === i ? { ...fighter, position: { x, z }, y } : fighter,
+      ),
+    },
+  });
+  /** The scenario Tuning: one tier of three Floors, no Bosses, with the given fills. */
+  const scenarioTuning = (postFill: number, patrolFill: number): TuningData => {
+    const t = runTuning();
+    return { ...t, delver: { ...t.delver, postFill, patrolFill } };
+  };
+  const planOfRun = (tuning: TuningData, run: string) =>
+    floorOf(tuning, floorArenaName(runSeed(run), 1))!.plan;
+  const IDLE: Controller = { intent: () => IDLE_INTENT };
+  const enemies = Array.from({ length: MAX_TEAM_SIZE }, () => ({
+    team: 1,
+    pilot: { kind: "AI" as const, difficulty: "Floor" },
+  }));
+  /** The geometry of a gallery's Deck in its Hall: the wall's direction, where the Deck's front edge lies and which way is in front of it. */
+  const deckFront = (g: DelverGallery) => {
+    const along: "x" | "z" = g.side === "n" || g.side === "s" ? "x" : "z";
+    const across: "x" | "z" = along === "x" ? "z" : "x";
+    // The inner edge of the strip, and the direction into the Hall from it.
+    const edge =
+      g.side === "s"
+        ? g.deck.z1
+        : g.side === "n"
+          ? g.deck.z0
+          : g.side === "w"
+            ? g.deck.x1
+            : g.deck.x0;
+    const front = g.side === "s" || g.side === "w" ? 1 : -1;
+    const lo = along === "x" ? g.deck.x0 : g.deck.z0;
+    const hi = along === "x" ? g.deck.x1 : g.deck.z1;
+    const rampAt =
+      along === "x" ? (g.ramp.x0 + g.ramp.x1) / 2 : (g.ramp.z0 + g.ramp.z1) / 2;
+    return { along, across, edge, front, lo, hi, rampAt, mid: (lo + hi) / 2 };
+  };
+  /** (along, across) in a Hall's coordinates as a point. */
+  const pointAt = (along: "x" | "z", u: number, v: number) =>
+    along === "x" ? { x: u, z: v } : { x: v, z: u };
+
+  it("a jump shortcut: on an empty Floor the Player stands on a balcony's far Deck end and a Hard AI ally on the Hall floor 3 m in front of the Deck's front edge; within 20 s the ally stands on the Deck, was airborne and never stood on the Ramp", () => {
+    const tuning = scenarioTuning(0, 0);
+    let found: { run: string; k: number } | null = null;
+    for (let n = 1; n <= SEARCH && !found; n++) {
+      const run = `gen:greybox:${n}`;
+      const k = planOfRun(tuning, run).halls.findIndex(
+        (h) => h.gallery && !h.gallery.high,
+      );
+      if (k >= 0) found = { run, k };
+    }
+    if (!found)
+      throw new Error(`no Floor 1 of the first ${SEARCH} seeds has a balcony`);
+    const { run, k } = found;
+    const arena = floorArenaName(runSeed(run), 1);
+    const lay = layOf(tuning, arena);
+    const hall = lay.plan.halls[k]!;
+    const g = hall.gallery!;
+    const d = deckFront(g);
+    // The far end of the Deck from its Ramp, 1.5 m in; the ally straight in front of that, 3 m past the front edge.
+    const along = d.rampAt > d.mid ? d.lo + 1.5 : d.hi - 1.5;
+    const across =
+      (g.deck[d.across === "x" ? "x0" : "z0"] +
+        g.deck[d.across === "x" ? "x1" : "z1"]) /
+      2;
+    const me = pointAt(d.along, along, across);
+    const ally = pointAt(d.along, along, d.edge + d.front * 3);
+    const lineup: Lineup = [
+      { team: 0, pilot: { kind: "Player", player: 0 } },
+      { team: 0, pilot: { kind: "AI", difficulty: "Hard" } },
+      ...enemies,
+    ];
+    const s = scenario(tuning, run, lineup, IDLE);
+    let m = putAt(
+      putAt(s.match, 0, me.x, me.z, g.y),
+      1,
+      ally.x,
+      ally.z,
+      hall.y,
+    );
+    const mesh = navMesh(lay.arena, lay.tuning);
+    const deckLinks = mesh.links.filter(
+      (l): l is JumpLink => l.kind === "jump" && lay.deck.get(l.to) === k,
+    ).length;
+    let airTicks = 0;
+    let onRamp = 0;
+    let reached: number | null = null;
+    let airBefore = 0;
+    for (let t = 0; t < secondsToTicks(JUMP_SECONDS) && reached === null; t++) {
+      m = withImmortalParty(
+        stepMatch(m, controllerIntents(m.duel, s.controllers), tuning),
+      );
+      const x = m.duel.fighters[1]!;
+      if (x.air) airTicks++;
+      const on = surfaceOf(lay, x);
+      if (on >= 0 && lay.ramp.get(on) === k) onRamp++;
+      if (on >= 0 && lay.deck.get(on) === k) {
+        reached = t + 1;
+        airBefore = airTicks;
+      }
+    }
+    console.log(
+      `\nA jump shortcut: Run ${run} Floor 1, ${hall.id} (gallery side ${g.side} end ${g.end}, Deck y ${g.y}, ${deckLinks} jump Links onto it); Player on the Deck at (${f(me.x)}, ${f(me.z)}), ally at (${f(ally.x)}, ${f(ally.z)}) on the floor; ally on the Deck after ${reached === null ? "never" : `${f(secs(reached))} s`}, airborne ${airTicks} Ticks (${airBefore} before the Deck), on the Ramp ${onRamp} Ticks`,
+    );
+    expect(reached, "the ally never stood on the Deck").not.toBeNull();
+    expect(
+      airBefore,
+      "the ally was never airborne before the Deck",
+    ).toBeGreaterThan(0);
+    expect(onRamp, "the ally stood on the gallery's Ramp").toBe(0);
+  });
+
+  it("a chase across a level: a guard in a Hall with a sloped Passage chases a Player in sight who walks away up that Passage; its anchor climbs 1.5 m or more within the chase", () => {
+    const tuning = scenarioTuning(100, 0);
+    // The first Floor 1 (seed order) with a floor guard post in a Hall whose Passage rises from its floor, and a spot in the Hall in sight of the post.
+    interface Found {
+      run: string;
+      post: number;
+      spot: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+      passage: string;
+      lay: Lay;
+    }
+    let found: Found | null = null;
+    for (let n = 1; n <= SEARCH && !found; n++) {
+      const run = `gen:greybox:${n}`;
+      const arena = floorArenaName(runSeed(run), 1);
+      const plan = planOfRun(tuning, run);
+      let lay: Lay | null = null;
+      let m0: MatchState | undefined;
+      for (let p = 0; p < plan.markers.posts.length && !found; p++) {
+        const post = plan.markers.posts[p]!;
+        const hall = plan.halls[post.hall]!;
+        if (post.y !== hall.y) continue;
+        for (const ps of plan.passages) {
+          // Its low door is this Hall's: it climbs away from the post's floor.
+          const low =
+            ps.a === post.hall && ps.ya === hall.y && ps.yb > ps.ya
+              ? "a"
+              : ps.b === post.hall && ps.yb === hall.y && ps.ya > ps.yb
+                ? "b"
+                : null;
+          if (!low || found) continue;
+          lay ??= layOf(tuning, arena);
+          const { map, tuning: t } = lay;
+          const fields = map.fields;
+          const high = low === "a" ? ps.yb : ps.ya;
+          const lowAtMin =
+            low === "a"
+              ? ps.axis === "x"
+                ? ps.rect.x0
+                : ps.rect.z0
+              : ps.axis === "x"
+                ? ps.rect.x1
+                : ps.rect.z1;
+          const door =
+            ps.axis === "x"
+              ? { x: lowAtMin, z: (ps.rect.z0 + ps.rect.z1) / 2 }
+              : { x: (ps.rect.x0 + ps.rect.x1) / 2, z: lowAtMin };
+          // It walks on to the point at the higher level farthest from the post by walking (within 60 m of the higher Hall's centre), so the Soldiers' walk after it is long and it stays ahead of them.
+          const upper = plan.halls[low === "a" ? ps.b : ps.a]!;
+          const toPost = oneField(
+            fields,
+            fieldToward(
+              fields,
+              post.x,
+              post.z,
+              groundOf(t.battle, map.field, post.x, post.z, post.y),
+            ),
+          );
+          let to = { x: upper.cx, y: high, z: upper.cz };
+          let far = -1;
+          for (let dx = -60; dx <= 60; dx += 2)
+            for (let dz = -60; dz <= 60; dz += 2) {
+              const x = Math.round(upper.cx) + dx;
+              const z = Math.round(upper.cz) + dz;
+              const at = groundOf(t.battle, map.field, x, z, high + 0.1);
+              if (
+                at < 0 ||
+                lay.arena.walk[at]!.roof ||
+                Math.abs(soldierHeight(map.field, at, x, z) - high) > 0.1 ||
+                clearanceAt(fields, x, z, at) < 1
+              )
+                continue;
+              const walked = fieldDistance(toPost, 0, x, z, at);
+              if (walked > far) [far, to] = [walked, { x, y: high, z }];
+            }
+          const spots: { x: number; y: number; z: number; d: number }[] = [];
+          // The Warband's Soldiers as dealt: the spot keeps `promote` + 2.5 m (flat) from every one of them (so none is promoted at the start), is within
+          // `sight` of one and in sight of the post. A Hall's floor is too small for that, so the spots are the Passage's own centre line from its low door:
+          // the Player stands on the Ramp and the Warband sees it a level up (within `levels.promote`), down the Passage.
+          const crowd0 = (m0 ??= scenario(
+            tuning,
+            run,
+            [{ team: 0, pilot: { kind: "Player", player: 0 } }, ...enemies],
+            IDLE,
+          ).match).duel.crowd!;
+          const q0 = crowd0.warbands!.post.indexOf(p);
+          const soldiers = crowd0.squad.flatMap((sq, i) =>
+            sq === q0 ? [i] : [],
+          );
+          if (q0 < 0) continue;
+          const length =
+            ps.axis === "x" ? ps.rect.x1 - ps.rect.x0 : ps.rect.z1 - ps.rect.z0;
+          const dir = low === "a" ? 1 : -1;
+          for (let u = 0.5; u <= Math.min(length - 2, 12); u += 0.5) {
+            const x = ps.axis === "x" ? door.x + dir * u : door.x;
+            const z = ps.axis === "x" ? door.z : door.z + dir * u;
+            const y = hall.y + ((high - hall.y) * u) / length;
+            const on = groundOf(t.battle, map.field, x, z, y + 0.1);
+            const away = Math.min(
+              ...soldiers.map((i) =>
+                Math.hypot(crowd0.x[i]! - x, crowd0.z[i]! - z),
+              ),
+            );
+            if (
+              on < 0 ||
+              (!lay.ramp.has(on) && !lay.sloped[on]) ||
+              clearanceAt(fields, x, z, on) < 0.5 ||
+              away < t.battle.bubble.promote + 2.5 ||
+              away > base.delver.sight - 0.5 ||
+              !inSight(fields, post.x, post.z, x, z, 0, post.y, y)
+            )
+              continue;
+            spots.push({
+              x,
+              y: soldierHeight(map.field, on, x, z),
+              z,
+              d: Math.abs(away - 14),
+            });
+          }
+          spots.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+          if (spots[0])
+            found = { run, post: p, spot: spots[0], to, passage: ps.id, lay };
+        }
+      }
+    }
+    if (!found)
+      throw new Error(
+        `no Floor 1 of the first ${SEARCH} seeds has a floor guard in sight of a spot in a Hall with a Passage rising from it`,
+      );
+    const { run, spot, to, lay } = found;
+    const lineup: Lineup = [
+      { team: 0, pilot: { kind: "Player", player: 0 } },
+      ...enemies,
+    ];
+    const walker = createAiController(tuning, "Hard");
+    const player: Controller = {
+      intent: (state, fighter) => walker.walkTo(state, fighter, to, 1),
+      save: () => walker.save(),
+      load: (x) => walker.load(x),
+    };
+    const s = scenario(tuning, run, lineup, player);
+    const w = s.match.duel.crowd!.warbands!;
+    const q = w.post.indexOf(found.post);
+    if (q < 0) throw new Error(`${run}: post ${found.post} holds no Warband`);
+    const hall = lay.plan.halls[lay.plan.markers.posts[found.post]!.hall]!;
+    let m = putAt(s.match, 0, spot.x, spot.z, spot.y);
+    let cur: { h0: number; lo: number; hi: number; start: number } | null =
+      null;
+    const chases: {
+      start: number;
+      secs: number;
+      h0: number;
+      change: number;
+    }[] = [];
+    let promoted = 0;
+    const heightOf = (st: MatchState) =>
+      soldierHeight(
+        lay.map.field,
+        st.duel.crowd!.squads.surface[q]!,
+        st.duel.crowd!.squads.x[q]!,
+        st.duel.crowd!.squads.z[q]!,
+      );
+    const close = (tick: number): void => {
+      if (!cur) return;
+      chases.push({
+        start: cur.start,
+        secs: secs(tick - cur.start),
+        h0: cur.h0,
+        change: Math.max(cur.hi - cur.h0, cur.h0 - cur.lo),
+      });
+      cur = null;
+    };
+    for (let t = 0; t < secondsToTicks(WALK_SECONDS); t++) {
+      const at = m;
+      m = withImmortalParty(
+        stepMatch(at, controllerIntents(at.duel, s.controllers), tuning),
+      );
+      // The Stairs end the Floor: stop there.
+      if (m.duel.arena !== at.duel.arena) {
+        m = at;
+        break;
+      }
+      const c = m.duel.crowd!;
+      if (c.warbands!.mode[q] === CHASE) {
+        const h = heightOf(m);
+        if (!cur) cur = { h0: h, lo: h, hi: h, start: m.tick };
+        cur.lo = Math.min(cur.lo, h);
+        cur.hi = Math.max(cur.hi, h);
+      } else close(m.tick);
+      for (let i = 0; i < c.slot.length; i++)
+        if (c.squad[i] === q && at.duel.crowd!.slot[i]! < 0 && c.slot[i]! >= 0)
+          promoted++;
+    }
+    close(m.tick);
+    const me = m.duel.fighters[0]!;
+    const best = chases.reduce((a, b) => Math.max(a, b.change), 0);
+    console.log(
+      `\nA chase across a level: Run ${run} Floor 1, guard W${q} (post ${found.post}) in ${hall.id} (y ${hall.y}); Player put at (${f(spot.x)}, ${f(spot.z)}) ${f(Math.hypot(spot.x - lay.plan.markers.posts[found.post]!.x, spot.z - lay.plan.markers.posts[found.post]!.z))} m from the post, walking up ${found.passage} to (${f(to.x)}, ${f(to.z)}) y ${f(to.y)}, the farthest point at that level by walking from the post; ${chases.length} chase(s): ${chases.map((c) => `${f(c.secs)} s from anchor y ${f(c.h0, 2)}, changed ${f(c.change, 2)} m`).join("; ") || "-"}; Soldiers promoted ${promoted}; Player ends at (${f(me.position.x)}, ${f(me.position.z)}) y ${f(me.y, 2)}`,
+    );
+    expect(chases.length, "the guard never chased").toBeGreaterThan(0);
+    expect(
+      best,
+      `the anchor's height changed by ${f(best, 2)} m in its chases`,
+    ).toBeGreaterThanOrEqual(CROSSED);
+    expect(me.y, "the Player did not climb the Passage").toBeGreaterThanOrEqual(
+      to.y - 0.5,
+    );
+  });
+
+  it("balcony promotion: a Deck post's guard stands on the Deck; the Player walks to the Hall floor in front of it and a Soldier standing on the Deck is promoted", () => {
+    const tuning = scenarioTuning(100, 0);
+    let found: {
+      run: string;
+      post: number;
+      start: { x: number; z: number };
+      lay: Lay;
+    } | null = null;
+    for (let n = 1; n <= SEARCH && !found; n++) {
+      const run = `gen:greybox:${n}`;
+      const plan = planOfRun(tuning, run);
+      const post = plan.markers.posts.findIndex(
+        (p) => plan.halls[p.hall]!.gallery?.y === p.y,
+      );
+      if (post < 0) continue;
+      const lay = layOf(tuning, floorArenaName(runSeed(run), 1));
+      const p = plan.markers.posts[post]!;
+      const hall = plan.halls[p.hall]!;
+      // The start: on the Hall's floor, in sight of the post, `promote` + 0.5 to + 2.5 m (flat) from every Soldier of its guard as dealt, so that it is seen
+      // (and chased) before it is within the Bubble, and a little walking toward the Deck brings it in. The Soldiers are on the Deck: they have to drop to chase.
+      const crowd0 = scenario(
+        tuning,
+        run,
+        [{ team: 0, pilot: { kind: "Player", player: 0 } }, ...enemies],
+        IDLE,
+      ).match.duel.crowd!;
+      const q0 = crowd0.warbands!.post.indexOf(post);
+      if (q0 < 0) continue;
+      const soldiers = crowd0.squad.flatMap((sq, i) => (sq === q0 ? [i] : []));
+      const promote = lay.tuning.battle.bubble.promote;
+      const spots: { x: number; z: number; d: number }[] = [];
+      for (let x = Math.ceil(hall.rect.x0) + 1; x < hall.rect.x1 - 1; x++)
+        for (let z = Math.ceil(hall.rect.z0) + 1; z < hall.rect.z1 - 1; z++) {
+          const on = groundOf(lay.tuning.battle, lay.map.field, x, z, hall.y);
+          const d = Math.min(
+            ...soldiers.map((i) =>
+              Math.hypot(crowd0.x[i]! - x, crowd0.z[i]! - z),
+            ),
+          );
+          if (
+            on < 0 ||
+            !lay.floor.has(on) ||
+            clearanceAt(lay.map.fields, x, z, on) < 0.5 ||
+            d < promote + 0.5 ||
+            d > promote + 2.5 ||
+            !inSight(lay.map.fields, p.x, p.z, x, z, 0, p.y, hall.y)
+          )
+            continue;
+          spots.push({ x, z, d: Math.abs(d - (promote + 1.5)) });
+        }
+      spots.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+      if (spots[0]) found = { run, post, start: spots[0], lay };
+    }
+    if (!found)
+      throw new Error(
+        `no Floor 1 of the first ${SEARCH} seeds has a Deck post and room to start away from it`,
+      );
+    const { run, lay, start } = found;
+    const p = lay.plan.markers.posts[found.post]!;
+    const k = p.hall;
+    const hall = lay.plan.halls[k]!;
+    const g = hall.gallery!;
+    const d = deckFront(g);
+    // The Hall floor 3 m in front of the Deck's front edge, opposite the Deck's middle.
+    const to = { ...pointAt(d.along, d.mid, d.edge + d.front * 3), y: hall.y };
+    const lineup: Lineup = [
+      { team: 0, pilot: { kind: "Player", player: 0 } },
+      ...enemies,
+    ];
+    const walker = createAiController(tuning, "Hard");
+    const player: Controller = {
+      intent: (state, fighter) => walker.walkTo(state, fighter, to, 1),
+      save: () => walker.save(),
+      load: (x) => walker.load(x),
+    };
+    const s = scenario(tuning, run, lineup, player);
+    const w = s.match.duel.crowd!.warbands!;
+    const q = w.post.indexOf(found.post);
+    if (q < 0) throw new Error(`${run}: post ${found.post} holds no Warband`);
+    let m = putAt(s.match, 0, start.x, start.z, hall.y);
+    const onDeck = (st: MatchState): number =>
+      st.duel.crowd!.squad.reduce(
+        (a, sq, i) =>
+          a +
+          (sq === q && lay.deck.get(st.duel.crowd!.surface[i]!) === k ? 1 : 0),
+        0,
+      );
+    const soldiersOnDeck = onDeck(m);
+    let first: number | null = null;
+    let promotedOnDeck = 0;
+    let promotedAny = 0;
+    let nearest = Infinity;
+    for (let t = 0; t < secondsToTicks(WALK_SECONDS); t++) {
+      const at = m;
+      m = withImmortalParty(
+        stepMatch(at, controllerIntents(at.duel, s.controllers), tuning),
+      );
+      if (m.duel.arena !== at.duel.arena) {
+        m = at;
+        break;
+      }
+      const c = m.duel.crowd!;
+      const pc = at.duel.crowd!;
+      const me = m.duel.fighters[0]!;
+      for (let i = 0; i < c.slot.length; i++) {
+        if (pc.slot[i]! < 0 && c.slot[i]! >= 0) {
+          promotedAny++;
+          if (
+            lay.deck.get(c.surface[i]!) === k ||
+            lay.deck.get(pc.surface[i]!) === k
+          ) {
+            promotedOnDeck++;
+            first ??= t + 1;
+          }
+        }
+        if (c.squad[i] === q)
+          nearest = Math.min(
+            nearest,
+            Math.hypot(c.x[i]! - me.position.x, c.z[i]! - me.position.z),
+          );
+      }
+    }
+    const me = m.duel.fighters[0]!;
+    console.log(
+      `\nBalcony promotion: Run ${run} Floor 1, ${hall.id} (y ${hall.y}, Deck y ${g.y}, side ${g.side}), guard W${q} (post ${found.post}, ${w.size[q]} Soldiers, ${soldiersOnDeck} on the Deck at the start); Player put at (${f(start.x)}, ${f(start.z)}) ${f(Math.hypot(start.x - p.x, start.z - p.z))} m from the post, walking to (${f(to.x)}, ${f(to.z)}); first Deck Promotion ${first === null ? "never" : `at ${f(secs(first))} s`}; Promotions on the Deck ${promotedOnDeck} of ${promotedAny}; closest Soldier of it to the Player ${f(nearest)} m; Player ends at (${f(me.position.x)}, ${f(me.position.z)}) y ${f(me.y, 2)}`,
+    );
+    expect(
+      soldiersOnDeck,
+      "the guard does not stand on the Deck",
+    ).toBeGreaterThan(0);
+    expect(
+      promotedOnDeck,
+      "no Soldier standing on the Deck was promoted",
+    ).toBeGreaterThan(0);
   });
 });
