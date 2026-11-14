@@ -40,3 +40,7 @@ The Delver's Stage 0 measured what that costs, on a hand-written Floor of 20 Enc
 - The Battle autopilot got stuck on a room's wall next to a doorway, so in the first spike run no Soldier was ever promoted. The navmesh AI (AI allies, promoted enemies) must be watched on Enclosure Floors from Stage 2 on, at doorways especially.
 - A Floor is `layered`, because the roofs are Walk Surfaces at the level above, even when every room is on one level. Its fields have a node per level and its Soldiers use the multi-level walk rule from the start, which Stage 6 needs anyway.
 - `dungeon.md`'s first Decision and the Hall-graph part of ADR 0019 are superseded once Stage 8 lands. Until then both kinds of Run are in the code.
+
+## Amended (2026-11-14, the Delver's Stage 6)
+
+Floors have levels: Halls at whole 2 m levels, sloped Passages, and Galleries (a Deck along one wall of its own Hall, reached by a Ramp inside it). The Deck's open front edge is a Jump shortcut, so a Floor's navmesh is no longer jump-free. A Floor's map asks for **shortcut jump Links only** (`shortcuts: true`, `ArenaGeometry.jumpLinks: 'shortcuts'`): Links onto a Walk Surface walking already reaches, checked by the Simulation's arc as ADR 0013's are, never onto a roof. "Generated Floors must never need a jump" still holds: Soldiers never Jump, and `walkCheck` still proves every Walk Surface but the roofs is walked to and from without one. Battle maps keep `jumpLinks: false`. The navmesh's build grew from about 17 ms to about 100 ms here; it is warmed a Floor ahead.

@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -9,7 +9,7 @@
 - [x] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
-- [ ] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
+- [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
 - [ ] Stage 7: online co-op (up to four Players, Input Delay, soak)
 - [ ] Stage 8: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
 
@@ -1477,6 +1477,111 @@ New `SALT` keys (after the Warbands' 20 to 29, so no pick collides): galleryOrde
 3. **The Run on levels**: `src/sim/delverRun.ts`, `delverLoot.ts`, `src/sim/delver/warbands.ts`, `src/sim/warband.ts`, `src/controllers/delverPilot.ts`, `allyAi.ts`, and their tests (new cases; the flat-Floor moves of §8).
 4. **Render**: `src/render/delverMarks.ts`, `delverStandIns.ts`, `restFire.ts` if it needs a height, and their tests; checks `floorCrowd.ts`, `floorBodies.ts` and `pickupView.ts` draw at their heights.
 5. **The soak**: `warbandSoak.slow.test.ts`'s new cases and the measurements.
+
+### Result
+Done 2026-11-14. Delver Floors now have levels. Halls stand at 0 to 8 m. About a third of the Passages are sloped, a Ramp along their whole length. About five Halls a Floor have a gallery: a Deck 2 m up along one wall, reached by a Ramp inside the Hall. Most galleries are balconies; about one in nine is a stairwell, with a Passage leaving through its wall at the Deck's height. The Deck's open front is the Floor's only Jump shortcut, and the AI allies, the pilot and promoted enemies take it by a shortcut jump Link. Seen from above nothing overlaps, so the Reveal, the minimap and the Floor Map are unchanged. Battles, Duels and the Hall-graph Run are unchanged. With a flat Tuning (`levels.max` 0, `galleryPercent` 0) a Floor's map is byte-identical to Stage 5's.
+
+**What was built** (as the Design gives it, with the changes below):
+- **The Map Source and the navmesh**:
+  - `EnclosureBrush.top`, a ceiling higher than the next level.
+  - `shortcuts: true` on a Map Source and a compiled map.
+  - `ArenaGeometry.jumpLinks: 'shortcuts'`: the navmesh keeps only shortcut jump Links (ADR 0013), never onto a roof.
+- **The generator** (`plan.ts`, `source.ts`; `DELVER_VERSION` 5):
+  - `delver.floor.levels` (`max` 4, `min` 2, `changePercent` 35, `galleryPercent` 40).
+  - Galleries, levels on the tree, the loop filter, door heights, Deck posts and every marker's `y`.
+  - The source's levels, tall Hall and Passage Enclosures, Decks and Ramps.
+- **The judge**:
+  - the new `levels` and `galleries` rules;
+  - `passages` both ways, along the Passage itself;
+  - `markers` and `sight` at each marker's height;
+  - `floorNear`, the floor nearest a height that is neither deadly nor a roof.
+- **The Run** (`delverRun.ts`, `delverLoot.ts`, `warbands.ts`, `warband.ts`, `delverPilot.ts`, `allyAi.ts`):
+  - Spawns, the Stairs, fires, revives, drops, pedestals, homes and deployment are at their heights.
+  - A Deck post faces along its Deck toward its Ramp.
+  - A Warband sees within `levels.promote` (2.5 m) above or below.
+  - A drop's height is where its last Soldier died.
+- **Render**:
+  - The Stairs, the gate, fires, rings and pedestal rings are drawn at their heights.
+  - The Promotion puff appears on the Soldier's own Walk Surface.
+
+**Changed from the Design:**
+- **The `passages` rule measures the Passage itself**, 1 m inside each end. Hall centre to Hall centre, a stairwell's way round its Ramp and back along its Deck (up to 42 m against a 24 m Passage) made 28% of attempts reroll.
+- **An Enclosure's roof is no ledge to wall for a floor inside that same Enclosure** (`compile.ts`'s face rule). Without it a Deck under its own roof got a Wall along its open front, sealing the floor beneath. The first version skipped every Enclosure's roof; the code review narrowed it to the body's own Enclosure, so hand-made maps keep their face Walls.
+- **`fieldAt` reads the node within a step on the same level** (the fields' own `nodeIn`, now exported) when a seam between floor pieces falls on a Hall's centre.
+- **From the code review**:
+  - Drops and the `passages` rule's end points stand on `floorNear`. Before, a spot more than a step above the fall height on a Ramp landed in the abyss, and every 4 m sloped Passage was refused, which forced rerolls.
+  - The fall's height is read where the Soldier died, not where it was promoted.
+  - The Map Editor's panel keeps an Enclosure's `top`.
+  - A missing Passage Brush fires `passages` again (Stage 1's test restored).
+  - No roof targets on a shortcuts map.
+  - The judge's fields are cached.
+  - `DELVER_VERSION` 5.
+- **The full Run's Boss-first check** is now Stage 4's rule as written. Before, it asserted that the Boss is promoted before any guard, which held only by luck. On levelled Floor 9 a guard was 10.0 m from the Player by walking and the Boss 10.8 m (`bubble.promote` 10), so only the guard was promotable. The check now is that no guard is promoted while the Boss is promotable into that Bubble and left out.
+
+**Existing tests changed (as Design §8 allows):**
+- `golden.test.ts`:
+  - The default pins are rewritten.
+  - A new flat case gives the Stage 5 map pins exactly, and so does the old-Floor-9 case.
+- `tuning.test.ts`'s `goodRaw()` and `delver.test.ts`: the `levels` block.
+- `delverLoot.test.ts`: `dropSpots`' new arguments.
+- `delverMarks.test.ts`: the gate's height is now `stairs.y`.
+- These run on `flatFloors`, their expectations unchanged:
+  - `delverRun.test.ts`, `delverBoss.test.ts`, `delverWarbands.test.ts`
+  - `delverAi.test.ts`, `delverPilot.test.ts`, `floorPoolAi.test.ts`
+  - `warband.test.ts`, `floorBubble.test.ts`, `fieldToward.test.ts`
+  - the net `delverRun.test.ts`
+  - the Delver parts of `arenaWorlds.test.ts` and `hud.test.ts`
+  - the soak's "a chase given up" and "the patrols"
+- `warbands.test.ts` went flat and came back once Deck posts faced their Ramp.
+- None was removed.
+
+**Measured** (the test container, about 3× a mid-range laptop):
+- **The generator** (500 pairs; the first figures are from `DELVER_VERSION` 5, the counts from version 4's run):
+  - Every pair passed on its first attempt.
+  - Build mean 255 ms, total with the judge 272 ms (p95 346). Stage 1 was 241 ms; Stage 0's "Floor ready" was 110 to 153 ms.
+  - Navmesh mean 95.5 ms on 20 Floors (Stage 1: 17 ms). It is the jump Link search. It is warmed a Floor ahead, so the fade only reads the cache.
+  - 122 jump Links, all shortcuts onto a Deck, and every Deck has one.
+  - Hall levels per Floor: 2 levels on 61 Floors, 3 on 234, 4 on 161 and 5 on 44.
+  - 2,948 galleries: 2,607 balconies and 341 stairwells.
+  - 4,490 of 12,447 Passages sloped, and 1,393 Deck posts.
+- **The levelled Runs** (`warbandSoak.slow.test.ts`; 3 seeds × 3 Floors, the pilot and two Hard allies, immortal; version 4):
+  - Every Floor had 2 to 4 Hall levels, and the party spent 508 s on Ramps in all.
+  - 3 chases crossed a level (the anchor rose 2 m each time).
+  - 10 Promotions were of a Soldier on a Deck.
+  - The AI allies took 2 jump Links unprompted.
+  - Tick mean 0.49 ms, p99 3.25 (Stage 3's soak: 0.51; Stage 0's T2: 0.31 to 0.41).
+  - Floor build 307 ms and navmesh 106 ms cold, under load.
+- **The scenarios**:
+  - **A jump shortcut**: the ally was on the Deck in 1.7 s, airborne 58 Ticks, and never on the Ramp.
+  - **A chase across a level**: the guard's anchor climbed 1.56 m up a sloped Passage. The 1.5 m bar is a thin margin.
+  - **A balcony Promotion**: all 3 of a Deck post's Soldiers were promoted on the Deck.
+- **Stage 2's empty-Floor walk** on levelled Floors: 148 to 201 s to the Stairs (was about 130 s), and the allies trailed by 1.5 to 2.2 m.
+
+**Tests**:
+- `npm run typecheck` is clean.
+- `npm test`: **2915 passed, 5 skipped** (2849 before the Stage).
+  - New files: `delverLevels.test.ts` (sim, 11) and `delverLevels.test.ts` (controllers, 2).
+  - New cases in `enclosure.test.ts`, `plan.test.ts`, `judge.test.ts`, `golden.test.ts`, `delverLoot.test.ts`, `delver.test.ts` and `delverMarks.test.ts`.
+- `npm run test:slow`: 24 files and **50 tests** passed (46 before), including the soak's 4 new cases.
+
+**In the game** (`npm run dev`, `?dev=1&delver=1&autopilot=1&immortal=1`, an Expert ally; the camera placed by a temporary dev hook, not committed; screenshots in `docs/plans/delver-stage6/`, all looked at):
+- `sloped-passage.png`: a Passage climbing from a lower Hall's doorway to a higher one.
+- `stairwell.png` (collider view): a Deck along a Hall's back wall with its Ramp, a Passage leaving through the wall at the Deck's height, and a magenta jump Link arc up onto the Deck.
+- `balcony-warband.png`: a guard Warband standing on its balcony's Deck under its banner.
+- `jump-shortcut.png` (collider view): the jump Link arc from the floor onto a balcony with two promoted enemies on it.
+- The Run played on through Floors 1 to 4 at speed 4 with no error. The Deck is drawn as a thin wooden board with no supports under it.
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Dungeon: Delver, add an AI ally, Fight.
+- Jump onto a balcony (hold Space) and see your ally follow by the same Jump.
+- Fight a Warband posted on a balcony from below, or go up its Ramp.
+- Walk up a sloped Passage with a Warband chasing you.
+
+**To watch next**:
+- **The camera in galleries**: under a Deck there are 2 m of headroom, and a tall Fighter's head goes through the Deck when drawn.
+- **Soldiers drop off a Deck** (2 m, within `levels.drop`) when they chase. Promoted Fighters that drop Stagger past `safeHeight`.
+- **Stairwells are rare** (1 in 9 galleries): they need a Hall at least 9 m along and 8 m across its wall.
+- **The Deck's look** is a plain board. #62's art could give it supports and a railing.
+- **The navmesh is 5 to 6 times Stage 1's** (about 0.3 s laptop-equivalent). It is warmed a Floor ahead, but a cold first Floor pays it behind the menu.
 
 ### Stage 7: online co-op
 **Model**: Opus.
