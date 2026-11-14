@@ -8,7 +8,7 @@ import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
 import { planFloor, type HallShape } from './plan';
-import { isBossFloor } from './troops';
+import { isBossFloor, tierOf } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
 export interface DelverFloor extends BuiltFloor {
@@ -34,7 +34,7 @@ export function delverFloor(
   let best: { built: BuiltFloor; reasons: string[] } | null = null;
   let last = '';
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const plan = planFloor(t, seed, floor, attempt, boss);
+    const plan = planFloor(t, seed, floor, attempt, boss, tierOf(tuning.delver, floor));
     const { reasons, built } = judgeAttempt(tuning, plan, opts.judge);
     if (!built) {
       last = reasons[reasons.length - 1]!;

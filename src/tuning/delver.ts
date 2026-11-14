@@ -47,10 +47,26 @@ export interface DelverFloorTuning {
   readonly turnPercent: number;
   /** The great halls (a Hall over two neighbouring lattice cells). */
   readonly great: DelverGreatTuning;
+  /** The splits and pits a Hall may take (docs/plans/delver.md, Stage 7c). */
+  readonly features: DelverFeaturesTuning;
   /** Hall shapes (docs/plans/delver.md, Stage 7b). */
   readonly shapes: DelverShapesTuning;
   /** Pillars. */
   readonly pillars: DelverPillarsTuning;
+}
+
+/**
+ * A Hall's vertical features (docs/plans/delver.md, Stage 7c). `percent` 0 makes every Floor as 7b's (no split or pit, no pick made).
+ */
+export interface DelverFeaturesTuning {
+  /** The chance (in 100) that a one-cell Hall with no gallery is picked for a split or a pit. */
+  readonly percent: number;
+  /** The weights of a split and a pit (whole, at least 0, summing to at least 1). */
+  readonly weights: { readonly split: number; readonly pit: number };
+  /** The chance (in 100) that a split has three tiers (else two). */
+  readonly threePercent: number;
+  /** Per Run tier (the last for any deeper tier): the chance (in 100) that a pit is 4 m deep (else 2 m). Non-empty. */
+  readonly deepPercent: readonly number[];
 }
 
 /** How many Halls take a shape: the chance (in 100) that a Hall that may take one is picked for one, and the weights of L, T, cross and ring (whole, at least 0, summing to at least 1). */
@@ -428,6 +444,18 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const ga = record(f.galleries, `${w}.galleries`);
   const galleries = { wrapPercent: percent(ga, 'wrapPercent', `${w}.galleries`), uPercent: percent(ga, 'uPercent', `${w}.galleries`), stairPercent: percent(ga, 'stairPercent', `${w}.galleries`) };
 
+  const fe = record(f.features, `${w}.features`);
+  const fw = `${w}.features`;
+  const deepList = array(fe.deepPercent, `${fw}.deepPercent`);
+  if (deepList.length === 0) fail(`${fw}.deepPercent`, 'a non-empty array of percents (one per Run tier)', fe.deepPercent);
+  const deepPercent = deepList.map((d, i) => {
+    if (typeof d !== 'number' || !Number.isInteger(d) || d < 0 || d > 100) fail(`${fw}.deepPercent[${i}]`, 'a whole number 0 to 100', d);
+    return d;
+  });
+  const features = { percent: percent(fe, 'percent', fw), weights: weights(fe.weights, `${fw}.weights`, ['split', 'pit'] as const), threePercent: percent(fe, 'threePercent', fw), deepPercent };
+  // A split's main tier stands a level over its outer one and a pit's rim a level over its floor.
+  if (features.percent > 0 && levelMax < 1) fail(`${fw}.percent`, '0 when levels.max is 0 (a split\'s main tier stands a level over its outer one, and a pit\'s rim a level over its floor)', features.percent);
+
   const turnPercent = percent(f, 'turnPercent', w);
   const gt = record(f.great, `${w}.great`);
   const gw = `${w}.great`;
@@ -464,6 +492,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     warbands,
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };
 }

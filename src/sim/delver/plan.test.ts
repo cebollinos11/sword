@@ -4,9 +4,11 @@ import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
 import { flatFloors, flatHalls, flatRooms, plainHalls, rooms7c } from './flat.testdata';
-import { isBossFloor } from './troops';
+import { SHORTCUT_RISE } from '../nav';
+import { isBossFloor, tierOf } from './troops';
 import {
   attemptSeed, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
+  hallBase, PIT_LONG, PIT_RIM, PIT_WIDE, SPLIT_CUT, STEP_WIDTH, TIER_MIN, type DelverStep,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
 } from './plan';
 
@@ -1214,6 +1216,318 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
         expect(JSON.stringify(planFloor({ ...ff, galleries: { ...ff.galleries, uPercent: 99 } }, seed, floor, 0, boss))).toBe(want);
         try {
           for (const key of ['galleryStair', 'galleryWrap', 'galleryU']) salts[key] = 9000 + salts[key]!;
+          expect(JSON.stringify(planFloor(ff, seed, floor, 0, boss))).toBe(want);
+        } finally {
+          Object.assign(salts, saved);
+        }
+      }
+    });
+  });
+});
+
+describe('splits and pits (Stage 7c)', () => {
+  const bundled7c = loadTuningData();
+  const t7c = rooms7c(bundled7c);
+  const f7c = t7c.delver.floor;
+  const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+  const planWith = (ft: typeof f7c, tier: (floor: number) => number) =>
+    pairs.map((pr) => ({ ...pr, p: planFloor(ft, pr.seed, pr.floor, 0, isBossFloor(t7c.delver, pr.floor), tier(pr.floor)) })).filter((x) => x.p.halls.length === ft.rooms);
+  const planned = planWith(f7c, (floor) => tierOf(t7c.delver, floor));
+  const w = f7c.passage;
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const within = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  const area = (q: Rect) => (q.x1 - q.x0) * (q.z1 - q.z0);
+  const odd = (v: number) => Math.abs(v % 2) === 1;
+  const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
+  /** Every Hall of every planned Floor with a split or a pit. */
+  const featured = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (h.feature ? [{ p, h, i, seed, floor }] : [])));
+  const splits = featured.filter((e) => e.h.feature!.kind === 'split');
+  const pits = featured.filter((e) => e.h.feature!.kind === 'pit');
+  /** The square the centre keeps clear (a step never enters it). */
+  const centreSquare = (h: DelverHall): Rect => R(h.cx - CENTRE_CLEAR, h.cz - CENTRE_CLEAR, h.cx + CENTRE_CLEAR, h.cz + CENTRE_CLEAR);
+  /** The lane of each side-centre doorway: the doorway and a metre each side, 3 m inward. */
+  const lanes = (h: DelverHall): Rect[] => {
+    const r = h.rect;
+    const a = w / 2 + DOOR_SIDE;
+    return [
+      R(h.cx - a, r.z1 - 3, h.cx + a, r.z1),
+      R(r.x1 - 3, h.cz - a, r.x1, h.cz + a),
+      R(h.cx - a, r.z0, h.cx + a, r.z0 + 3),
+      R(r.x0, h.cz - a, r.x0 + 3, h.cz + a),
+    ];
+  };
+  const SIDES4: Side[] = ['n', 'e', 's', 'w'];
+  /** The height (m) of Hall `h`'s floor at its side `side`: the Deck's through a gallery wall, an outer tier's at its end wall, a pit's rim, else the main floor. */
+  const floorAt = (h: DelverHall, side: Side): number => {
+    const f = h.feature;
+    if (h.gallery && [h.gallery.side, ...(h.gallery.wrap?.walls ?? [])].includes(side)) return h.gallery.y;
+    if (f?.kind === 'pit') return f.rim;
+    if (f?.kind === 'split') {
+      const ends: Side[] = f.axis === 'z' ? ['s', 'n'] : ['w', 'e'];
+      const k = ends.indexOf(side);
+      if (k === 0 && f.tiers[0]!.y < h.y) return f.tiers[0]!.y;
+      if (k === 1 && f.tiers[f.tiers.length - 1]!.y < h.y) return f.tiers[f.tiers.length - 1]!.y;
+    }
+    return h.y;
+  };
+  /** Whether the door of Hall `h` on `side` is raised: opens above the Hall's Enclosure floor. */
+  const isRaised = (h: DelverHall, side: Side): boolean => floorAt(h, side) > hallBase(h);
+  const endsOf = (p: FloorPlan) =>
+    p.passages.flatMap((q) => [
+      { q, h: p.halls[q.a]!, side: q.sideA, y: q.ya },
+      { q, h: p.halls[q.b]!, side: q.sideB, y: q.yb },
+    ]);
+
+  it('has the shipped 7c values on rooms7c and the knobs off in the data', () => {
+    expect(f7c.features).toEqual({ percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] });
+    expect(bundled7c.delver.floor.features).toEqual({ percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] });
+    expect(planned.length).toBeGreaterThan(150);
+    expect(splits.length).toBeGreaterThan(30);
+    expect(pits.length).toBeGreaterThan(30);
+  });
+
+  it('has the constants and salts the Design fixes, and JUMP_SHORTCUT_CAP is the navmesh\'s SHORTCUT_RISE', () => {
+    expect([SPLIT_CUT, TIER_MIN, STEP_WIDTH, PIT_RIM, PIT_WIDE, PIT_LONG]).toEqual([4, 6, 4, 4, 12, 8]);
+    expect([SALT.feature, SALT.featureKind, SALT.splitAxis, SALT.splitTiers, SALT.splitSide, SALT.splitStep, SALT.pitDeep, SALT.pitTurn]).toEqual([63, 64, 65, 66, 67, 68, 69, 70]);
+    expect(JUMP_SHORTCUT_CAP).toBe(SHORTCUT_RISE);
+  });
+
+  it('puts a feature only on a one-cell rect Hall with no gallery, solid or pillar, and writes it right after `gallery`', () => {
+    for (const { h } of featured) {
+      expect(h.great).toBe(false);
+      expect(h.cells.length).toBe(1);
+      expect(h.gallery).toBeUndefined();
+      expect([h.shape, h.solids.length, h.pillars.length]).toEqual(['rect', 0, 0]);
+      const keys = Object.keys(h);
+      expect(keys[keys.indexOf('top') + 1]).toBe('feature');
+    }
+  });
+
+  it('cuts every split as the Design draws it: tiles along the axis, the main tier at the Hall\'s level holding the centre, outer tiers a level under and deep enough, cuts on odd metres', () => {
+    for (const { h } of splits) {
+      const f = h.feature as Extract<NonNullable<DelverHall['feature']>, { kind: 'split' }>;
+      const alongX = f.axis === 'x';
+      const [lo, hi, a0, a1, c] = alongX ? [h.rect.x0, h.rect.x1, h.rect.z0, h.rect.z1, h.cx] : [h.rect.z0, h.rect.z1, h.rect.x0, h.rect.x1, h.cz];
+      const ext = (q: Rect): [number, number] => (alongX ? [q.x0, q.x1] : [q.z0, q.z1]);
+      const wide = (q: Rect): [number, number] => (alongX ? [q.z0, q.z1] : [q.x0, q.x1]);
+      expect(f.tiers.length === 2 || f.tiers.length === 3).toBe(true);
+      expect(ext(f.tiers[0]!.rect)[0]).toBe(lo);
+      expect(ext(f.tiers[f.tiers.length - 1]!.rect)[1]).toBe(hi);
+      f.tiers.forEach((tr, k) => {
+        expect(wide(tr.rect)).toEqual([a0, a1]);
+        expect(oddRect(tr.rect)).toBe(true);
+        if (k > 0) expect(ext(tr.rect)[0]).toBe(ext(f.tiers[k - 1]!.rect)[1]);
+      });
+      expect(f.tiers.reduce((a, tr) => a + area(tr.rect), 0)).toBe(area(h.rect));
+      const mains = f.tiers.filter((tr) => tr.level === h.level);
+      expect(mains.length).toBe(1);
+      const main = mains[0]!;
+      expect(main.y).toBe(h.y);
+      expect(main.rect.x0 < h.cx && h.cx < main.rect.x1 && main.rect.z0 < h.cz && h.cz < main.rect.z1).toBe(true);
+      for (const tr of f.tiers) {
+        expect(tr.y).toBe(tr.level * LEVEL_RISE);
+        if (tr === main) continue;
+        expect(tr.level).toBe(h.level - 1);
+        expect(ext(tr.rect)[1] - ext(tr.rect)[0]).toBeGreaterThanOrEqual(TIER_MIN);
+      }
+      // Outer tiers are the ends; the main tier is in the middle or at one end.
+      expect(f.tiers.indexOf(main) === 0 && f.tiers.length === 3).toBe(false);
+      expect(f.tiers.indexOf(main) === 1 || f.tiers.length === 2).toBe(true);
+      for (let k = 1; k < f.tiers.length; k++) {
+        const cut = ext(f.tiers[k]!.rect)[0];
+        expect(odd(cut)).toBe(true);
+        expect(Math.abs(cut - c)).toBeGreaterThanOrEqual(SPLIT_CUT);
+        expect(Math.abs(cut - c)).toBeLessThan(SPLIT_CUT + 2);
+      }
+      expect(h.level).toBeGreaterThanOrEqual(1);
+      expect(h.level).toBeLessThanOrEqual(f7c.levels.max);
+      expect(hallBase(h)).toBe(h.y - LEVEL_RISE);
+      expect(h.top).toBe(h.y + HALL_STOREY);
+    }
+  });
+
+  it('puts each split step on its outer tier, its high end on the main tier\'s edge, at most 1 in 2, on odd metres, clear of the centre square and every doorway lane', () => {
+    for (const { h } of splits) {
+      const f = h.feature as Extract<NonNullable<DelverHall['feature']>, { kind: 'split' }>;
+      const alongX = f.axis === 'x';
+      const outers = f.tiers.filter((tr) => tr.level !== h.level);
+      expect(f.steps.length).toBe(outers.length);
+      const sides: number[] = [];
+      f.steps.forEach((st: DelverStep, k) => {
+        const tr = outers[k]!;
+        const low = f.tiers.indexOf(tr) === 0;
+        expect(within(st.rect, tr.rect)).toBe(true);
+        expect([st.lo, st.hi]).toEqual([tr.y, h.y]);
+        expect(oddRect(st.rect)).toBe(true);
+        const [len, wid] = alongX ? [st.rect.x1 - st.rect.x0, st.rect.z1 - st.rect.z0] : [st.rect.z1 - st.rect.z0, st.rect.x1 - st.rect.x0];
+        expect(wid).toBe(STEP_WIDTH);
+        expect((st.hi - st.lo) / len).toBeLessThanOrEqual(MAX_SLOPE);
+        // The high end is on the cut, where the main tier begins.
+        if (alongX) expect(low ? st.rect.x1 : st.rect.x0).toBe(low ? tr.rect.x1 : tr.rect.x0);
+        else expect(low ? st.rect.z1 : st.rect.z0).toBe(low ? tr.rect.z1 : tr.rect.z0);
+        expect(st.up).toBe(alongX ? (low ? 'e' : 'w') : low ? 'n' : 's');
+        expect(st.rails).toEqual(alongX ? ['n', 's'] : ['e', 'w']);
+        // It stands against a side wall: the low or the high.
+        const [a0, a1, s0, s1] = alongX ? [h.rect.z0, h.rect.z1, st.rect.z0, st.rect.z1] : [h.rect.x0, h.rect.x1, st.rect.x0, st.rect.x1];
+        expect(s0 === a0 || s1 === a1).toBe(true);
+        sides.push(s0 === a0 ? 0 : 1);
+        expect(overlaps(st.rect, centreSquare(h))).toBe(false);
+        for (const ln of lanes(h)) expect(overlaps(st.rect, ln)).toBe(false);
+      });
+      // The two steps of a three-tier split stand against opposite side walls.
+      if (sides.length === 2) expect(sides[0]).not.toBe(sides[1]);
+    }
+  });
+
+  it('cuts every pit as the Design draws it: the floor the rect less the rim, the rims tiling the rest, two steps on the pit floor reaching the rim', () => {
+    for (const { h } of pits) {
+      const f = h.feature as Extract<NonNullable<DelverHall['feature']>, { kind: 'pit' }>;
+      const r = h.rect;
+      expect(f.pit).toEqual(R(r.x0 + PIT_RIM, r.z0 + PIT_RIM, r.x1 - PIT_RIM, r.z1 - PIT_RIM));
+      expect(f.depth === 2 || f.depth === 4).toBe(true);
+      expect(f.rim).toBe(h.y + f.depth);
+      expect(f.rims).toEqual(floorRects(r, [f.pit]));
+      expect(f.rims.reduce((a, q) => a + area(q), 0)).toBe(area(r) - area(f.pit));
+      f.rims.forEach((q, k) => {
+        expect(within(q, r)).toBe(true);
+        expect(overlaps(q, f.pit)).toBe(false);
+        expect(oddRect(q)).toBe(true);
+        f.rims.slice(0, k).forEach((o) => expect(overlaps(q, o)).toBe(false));
+      });
+      // The pit holds the centre; the larger half is at least PIT_WIDE and the smaller at least PIT_LONG.
+      const halves = [(r.x1 - r.x0) / 2, (r.z1 - r.z0) / 2];
+      expect(Math.max(...halves)).toBeGreaterThanOrEqual(PIT_WIDE);
+      expect(Math.min(...halves)).toBeGreaterThanOrEqual(PIT_LONG);
+      expect(h.top).toBe(h.y + f.depth + HALL_STOREY);
+      expect(hallBase(h)).toBe(h.y);
+      expect(h.level + f.depth / 2).toBeLessThanOrEqual(f7c.levels.max);
+      // v is the larger half's axis (z on a tie): each step is STEP_WIDTH wide across it and 2 * depth long along the other.
+      const vz = halves[1]! >= halves[0]!;
+      expect(f.steps.length).toBe(2);
+      const edges: [number, number][] = [];
+      f.steps.forEach((st: DelverStep) => {
+        expect(within(st.rect, f.pit)).toBe(true);
+        expect([st.lo, st.hi]).toEqual([h.y, f.rim]);
+        expect(oddRect(st.rect)).toBe(true);
+        const [wid, len] = vz ? [st.rect.z1 - st.rect.z0, st.rect.x1 - st.rect.x0] : [st.rect.x1 - st.rect.x0, st.rect.z1 - st.rect.z0];
+        expect([wid, len]).toEqual([STEP_WIDTH, 2 * f.depth]);
+        expect((st.hi - st.lo) / len).toBeLessThanOrEqual(MAX_SLOPE);
+        // Its high end is on the pit's edge toward `up`, where the rim begins.
+        const edge = { w: [st.rect.x0, f.pit.x0], e: [st.rect.x1, f.pit.x1], s: [st.rect.z0, f.pit.z0], n: [st.rect.z1, f.pit.z1] }[st.up]!;
+        expect(edge[0]).toBe(edge[1]);
+        expect(vz ? st.up === 'w' || st.up === 'e' : st.up === 's' || st.up === 'n').toBe(true);
+        expect(st.rails).toEqual(vz ? ['n', 's'] : ['e', 'w']);
+        expect(overlaps(st.rect, centreSquare(h))).toBe(false);
+        for (const ln of lanes(h)) expect(overlaps(st.rect, ln)).toBe(false);
+        // Along v the step lies on a pit edge.
+        const [v0, v1, p0, p1] = vz ? [st.rect.z0, st.rect.z1, f.pit.z0, f.pit.z1] : [st.rect.x0, st.rect.x1, f.pit.x0, f.pit.x1];
+        expect(v0 === p0 || v1 === p1).toBe(true);
+        edges.push([v0 === p0 ? 0 : 1, st.up === 'w' || st.up === 's' ? 0 : 1]);
+      });
+      // One on each v edge and rising toward opposite u ends.
+      expect(edges[0]![0]).not.toBe(edges[1]![0]);
+      expect(edges[0]![1]).not.toBe(edges[1]![1]);
+    }
+  });
+
+  it('keeps every Hall\'s level in range: a split\'s main tier 1 to max, a pit\'s floor 0 and its rim within max', () => {
+    for (const { p } of planned) {
+      for (const h of p.halls) {
+        expect(h.level).toBeGreaterThanOrEqual(0);
+        expect(h.level).toBeLessThanOrEqual(f7c.levels.max);
+        if (h.feature?.kind === 'split') {
+          expect(h.level).toBeGreaterThanOrEqual(1);
+          for (const tr of h.feature.tiers) expect(tr.level).toBeLessThanOrEqual(f7c.levels.max);
+        }
+        if (h.feature?.kind === 'pit') expect(h.feature.rim / LEVEL_RISE).toBeLessThanOrEqual(f7c.levels.max);
+      }
+    }
+  });
+
+  it('keeps every door at its side\'s floor, every raised door a flat Passage and out of its Hall\'s doors, and an outer tier\'s end wall listed', () => {
+    let raised = 0;
+    let ends = 0;
+    for (const { p } of planned) {
+      for (const e of endsOf(p)) {
+        expect(e.y).toBe(floorAt(e.h, e.side));
+        if (!e.h.feature) continue;
+        if (isRaised(e.h, e.side)) {
+          raised++;
+          expect(e.q.ya).toBe(e.q.yb);
+          expect(e.h.doors[e.side]).toBeUndefined();
+        } else {
+          ends++;
+          expect(e.h.doors[e.side]).toBe(w);
+        }
+      }
+      for (const h of p.halls) {
+        if (h.feature?.kind === 'pit') expect(Object.keys(h.doors)).toEqual([]);
+        for (const side of SIDES4) if (h.doors[side] !== undefined && h.feature) expect(isRaised(h, side)).toBe(false);
+      }
+    }
+    expect(raised).toBeGreaterThan(30);
+    expect(ends).toBeGreaterThan(5);
+  });
+
+  it('puts the markers of a feature Hall on its main floor (the main tier, the pit floor)', () => {
+    for (const { p, h, i } of featured) {
+      const m = p.markers;
+      for (const q of [...m.spawns, ...m.fires, ...m.pedestals, ...m.posts, ...(m.boss ? [m.boss] : [])]) if (q.hall === i) expect(q.y).toBe(h.y);
+      if (m.stairs.hall === i) expect(m.stairs.y).toBe(h.y);
+      for (const pat of m.patrols) pat.halls.forEach((k, n) => k === i && expect(pat.points[n]!.y).toBe(h.y));
+    }
+  });
+
+  it('shows across the 200: two- and three-tier splits on both axes, 2 m and 4 m pits, a feature on an Entrance, a Stairs and a Fight Hall; prints the counts', () => {
+    const by = (axis: 'x' | 'z', n: number) => splits.filter((e) => e.h.feature?.kind === 'split' && e.h.feature.axis === axis && e.h.feature.tiers.length === n).length;
+    const deep = (d: number) => pits.filter((e) => e.h.feature?.kind === 'pit' && e.h.feature.depth === d).length;
+    const kinds = (k: string) => featured.filter((e) => e.h.kind === k).length;
+    const total = planned.reduce((a, x) => a + x.p.halls.length, 0);
+    console.log(
+      `7c splits ${splits.length}: x2 ${by('x', 2)}, x3 ${by('x', 3)}, z2 ${by('z', 2)}, z3 ${by('z', 3)}; pits ${pits.length}: 2 m ${deep(2)}, 4 m ${deep(4)}; ` +
+        `on Entrance ${kinds('Entrance')}, Stairs ${kinds('Stairs')}, Boss ${kinds('Boss')}, Fight ${kinds('Fight')}, Empty ${kinds('Empty')}, Rest ${kinds('Rest')}, Treasure ${kinds('Treasure')}; ` +
+        `${featured.length} of ${total} Halls (${((100 * featured.length) / total).toFixed(1)} %)`,
+    );
+    expect([by('x', 2), by('x', 3), by('z', 2), by('z', 3)].every((n) => n > 0)).toBe(true);
+    expect([deep(2), deep(4)].every((n) => n > 0)).toBe(true);
+    expect([kinds('Entrance'), kinds('Stairs'), kinds('Fight')].every((n) => n > 0)).toBe(true);
+  });
+
+  it('digs deeper pits on a deeper Run tier: more 4 m pits planned at tier 3 than at tier 1 over the same 200 pairs', () => {
+    const count = (tier: number) => planWith(f7c, () => tier).reduce((a, x) => a + x.p.halls.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4).length, 0);
+    const [one, three] = [count(1), count(3)];
+    console.log(`7c 4 m pits at tier 1: ${one}, at tier 3: ${three}`);
+    expect(three).toBeGreaterThan(one);
+  });
+
+  it('is deterministic, plain data and a different Floor for a different seed', () => {
+    for (const { seed, floor } of pairs.slice(0, 20)) {
+      const a = planFloor(f7c, seed, floor, 0, false, 2);
+      expect(planFloor(f7c, seed, floor, 0, false, 2)).toEqual(a);
+      expect(JSON.parse(JSON.stringify(a))).toEqual(a);
+    }
+  });
+
+  describe('on flatHalls', () => {
+    const flat = flatHalls(bundled7c);
+    const ff = flat.delver.floor;
+    it('turns features.percent off and keeps the rest', () => {
+      expect(ff.features).toEqual({ ...bundled7c.delver.floor.features, percent: 0 });
+      expect([flatRooms(bundled7c).delver.floor.features.percent, plainHalls(bundled7c).delver.floor.features.percent]).toEqual([0, 0]);
+    });
+    it('plans the bundled tuning\'s Floors byte for byte, with no feature, and changed weights, threePercent, deepPercent, tier or 7c salts changing nothing', () => {
+      const salts = SALT as unknown as Record<string, number>;
+      const saved = { ...salts };
+      for (const { seed, floor } of pairs.slice(0, 60)) {
+        const boss = isBossFloor(bundled7c.delver, floor);
+        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
+        const got = planFloor(ff, seed, floor, 0, boss);
+        expect(JSON.stringify(got)).toBe(want);
+        expect(got.halls.some((h) => h.feature)).toBe(false);
+        const other = { ...ff, features: { ...ff.features, weights: { split: 5, pit: 0 }, threePercent: 99, deepPercent: [100] } };
+        expect(JSON.stringify(planFloor(other, seed, floor, 0, boss, 3))).toBe(want);
+        try {
+          for (const key of ['feature', 'featureKind', 'splitAxis', 'splitTiers', 'splitSide', 'splitStep', 'pitDeep', 'pitTurn']) salts[key] = 9000 + salts[key]!;
           expect(JSON.stringify(planFloor(ff, seed, floor, 0, boss))).toBe(want);
         } finally {
           Object.assign(salts, saved);

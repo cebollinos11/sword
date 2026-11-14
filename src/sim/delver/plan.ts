@@ -63,6 +63,66 @@ export interface DelverHall {
   readonly top: number;
   /** A raised walkway along one wall; absent: none. */
   readonly gallery?: DelverGallery;
+  /** A split or a pit (Stage 7c); absent: none. A Hall has at most one of a gallery and a feature. */
+  readonly feature?: DelverFeature;
+}
+
+/** A feature's Ramp (Stage 7c): on the lower floor, its high end against the higher floor's edge, rising toward `up`. A step is walled to the roof on its open sides; `rails` are its long sides. */
+export interface DelverStep {
+  readonly rect: Rect;
+  /** The lower floor's height (m) and the higher's. */
+  readonly lo: number;
+  readonly hi: number;
+  /** The side its high end faces. */
+  readonly up: Side;
+  readonly rails: readonly Side[];
+}
+
+/** One tier of a split: a floor part at its own level, `y` its height (m). */
+export interface DelverTier {
+  readonly rect: Rect;
+  readonly level: number;
+  readonly y: number;
+}
+
+/**
+ * A split (Stage 7c): the Hall's floor in two or three tiers a level apart, one after another along `axis`, joined by step Ramps. The main tier
+ * holds the Hall's centre and its side walls' doorways, at the Hall's level; each outer tier is a level under it, its edge open (a 2 m drop down and
+ * a Jump shortcut up).
+ */
+export interface DelverSplit {
+  readonly kind: 'split';
+  /** The tiers follow one another along it (x: west to east; z: south to north). */
+  readonly axis: 'x' | 'z';
+  /** Two or three, ascending along `axis`; the main tier at the Hall's level. */
+  readonly tiers: readonly DelverTier[];
+  /** One per outer tier, in tier order. */
+  readonly steps: readonly DelverStep[];
+}
+
+/**
+ * A pit (Stage 7c): the Hall's middle sunk `depth` m under a rim that holds every doorway, two step Ramps down. The Hall's `level` and `y` are the
+ * pit floor's.
+ */
+export interface DelverPit {
+  readonly kind: 'pit';
+  readonly depth: 2 | 4;
+  /** The pit's floor, at the Hall's `y`: the rect less `PIT_RIM` on every side. */
+  readonly pit: Rect;
+  /** The rim's height (m): `y + depth`. */
+  readonly rim: number;
+  /** The rim's four rects (`floorRects(rect, [pit])`: south, west, east, north). */
+  readonly rims: readonly Rect[];
+  /** Two, on the pit floor. */
+  readonly steps: readonly DelverStep[];
+}
+
+/** A Hall's vertical feature besides a gallery. */
+export type DelverFeature = DelverSplit | DelverPit;
+
+/** The Enclosure's floor of a Hall (m): a split's lowest tier, else the Hall's `y`. */
+export function hallBase(h: DelverHall): number {
+  return h.feature?.kind === 'split' ? Math.min(...h.feature.tiers.map((t) => t.y)) : h.y;
 }
 
 /**
@@ -179,6 +239,7 @@ export const SALT = {
   gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14,
   galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
   galleryStair: 60, galleryWrap: 61, galleryU: 62,
+  feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -224,6 +285,17 @@ export const DECK_POST = 6;
 export const MAX_SLOPE = 0.5;
 /** The highest ledge (m) a Jump shortcut may be: the real Jump reaches about 4.3 m and lands on a 2 m ledge from 3.8 m (docs/jump-reach.md). */
 export const JUMP_SHORTCUT_CAP = 2.5;
+/** A split's cuts lie at least this far (m) from the Hall's centre, on odd metres: the main tier keeps the centre and the side walls' doorways. */
+export const SPLIT_CUT = 4;
+/** An outer tier's least depth (m): its step's 4 and 2 m of approach. */
+export const TIER_MIN = 6;
+/** A step's width (m) across its run: a split's step is a square of it, a pit's step is as wide and `2 * depth` long. */
+export const STEP_WIDTH = 4;
+/** A pit's rim (m): its width on every side. */
+export const PIT_RIM = 4;
+/** The larger half (m) a Hall needs for a pit (the rim's 4, the step's 4 and the centre's 4), and the smaller (the rim's 4 and the centre's 4; it holds a 4 m pit's 8 m step). */
+export const PIT_WIDE = 12;
+export const PIT_LONG = 8;
 /** The Stairs zone's half side (m). */
 export const STAIRS_HALF = 2;
 /** The metres between a Treasure Hall's three pedestals. */
@@ -448,13 +520,26 @@ interface Turn {
  * heights on the Passages (5), each gallery cut from its Hall's final rect (7) and the markers at their floors' heights (9). With `levels.max` and
  * `galleryPercent` 0 nothing of that is picked and the plan is Stage 5's plus the new fields (every `y` 0); with `turnPercent` 0 and `great.count` [0, 0] every
  * decision, candidate and rect is Stage 6's and every Passage is straight; with `galleries.wrapPercent` and `stairPercent` 0 no gallery wraps and none
- * is picked as a stairwell, and no pick is made for either. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
+ * is picked as a stairwell, and no pick is made for either. With `features.percent` above 0 a one-cell Hall with no gallery may take a split (its floor in two
+ * or three tiers a level apart, joined by steps) or a pit (its middle sunk 2 or 4 m under a rim that holds every doorway): 3b' picks them, 3c keeps their
+ * levels in range (a split's main tier at 1 to `levels.max`, a pit's rim within it; a feature that cannot is dropped), their raised doors are flat Passages
+ * the Hall does not list, and step 7 cuts them from the final rect; `tier` (the Run tier) is read only by `features.deepPercent`, and with `percent` 0 no pick
+ * is made and the plan is 7b's. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall (grown to the
  * most the gaps allow, unless great halls are wanted: then Hall 0 is a great hall and the Boss Hall), and adds `markers.boss`; with it false the plan has no Boss key anywhere.
  */
-export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number, boss = false): FloorPlan {
+export function planFloor(t: DelverFloorTuning, seed: number, floor: number, attempt: number, boss = false, tier = 1): FloorPlan {
   const s = attemptSeed(seed, floor, attempt);
   const pick = (slot: number, salt: number, count: number) => runPick(s, floor, slot, salt, count);
+  /** A pick of the index of `weights` by cumulative weight, in list order. */
+  const byWeight = (h: number, salt: number, weights: readonly number[]): number => {
+    let r = pick(h, salt, weights.reduce((a, b) => a + b, 0));
+    for (let k = 0; k < weights.length; k++) {
+      if (r < weights[k]!) return k;
+      r -= weights[k]!;
+    }
+    return weights.length - 1;
+  };
   const { cols, rows } = t;
   const w = t.passage;
   const half = w / 2;
@@ -813,6 +898,56 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     }
   }
 
+  // 3b'. Splits and pits (Stage 7c): each Hall that is not great and has no gallery, in index order, is picked for one with `features.percent`'s chance;
+  // its kind is a weighted pick, and a kind that does not fit leaves the Hall plain. The fit is tested on the rect as it stands (a Boss Hall's growth
+  // only enlarges it); the geometry is cut in step 7 from the final rect.
+  /** A split as picked: its axis, whether it has three tiers, the end of its one outer tier (0 low, 1 high) and the side wall its first step stands against (0 low, 1 high). */
+  type Feat =
+    | { kind: 'split'; axis: 'x' | 'z'; three: boolean; side: 0 | 1; s: 0 | 1 }
+    | { kind: 'pit'; depth: 2 | 4; turn: 0 | 1; v: 'x' | 'z' };
+  const feat: (Feat | null)[] = halls.map(() => null);
+  /** The smallest odd metre at least `v`, and the largest at most it. */
+  const oddUp = (v: number): number => 2 * Math.ceil((v - 1) / 2) + 1;
+  const oddDown = (v: number): number => 2 * Math.floor((v - 1) / 2) + 1;
+  /** A split's cuts along `axis` for a Hall centred at `c`: the low cut and the high cut, 4 or 5 m from it each side. */
+  const cutsAt = (c: number): [number, number] => [oddDown(c - SPLIT_CUT), oddUp(c + SPLIT_CUT)];
+  if (t.features.percent > 0) {
+    halls.forEach((hall, h) => {
+      if (hall.great || gal[h] !== null || pick(h, SALT.feature, 100) >= t.features.percent) return;
+      const kindOf = (['split', 'pit'] as const)[byWeight(h, SALT.featureKind, [t.features.weights.split, t.features.weights.pit])]!;
+      const r = hall.rect;
+      const halfX = (r.x1 - r.x0) / 2;
+      const halfZ = (r.z1 - r.z0) / 2;
+      if (kindOf === 'split') {
+        const fits = (['x', 'z'] as const).filter((k) => {
+          const [c, hf] = k === 'x' ? [hall.cx, halfX] : [hall.cz, halfZ];
+          return hf - (cutsAt(c)[1] - c) >= TIER_MIN;
+        });
+        if (fits.length === 0) return;
+        const axis = fits.length === 1 ? fits[0]! : (['x', 'z'] as const)[pick(h, SALT.splitAxis, 2)]!;
+        const three = pick(h, SALT.splitTiers, 100) < t.features.threePercent;
+        const side = three ? 0 : (pick(h, SALT.splitSide, 2) as 0 | 1);
+        feat[h] = { kind: 'split', axis, three, side, s: pick(h, SALT.splitStep, 2) as 0 | 1 };
+      } else {
+        const v: 'x' | 'z' = halfX > halfZ ? 'x' : 'z';
+        const [hv, hu] = v === 'x' ? [halfX, halfZ] : [halfZ, halfX];
+        if (hv < PIT_WIDE || hu < PIT_LONG) return;
+        const deep = pick(h, SALT.pitDeep, 100) < t.features.deepPercent[Math.min(tier, t.features.deepPercent.length) - 1]!;
+        feat[h] = { kind: 'pit', depth: deep ? 4 : 2, turn: pick(h, SALT.pitTurn, 2) as 0 | 1, v };
+      }
+    });
+  }
+  /** The side indices of a split's low-end and high-end walls (s and n along z, w and e along x), -1 for an end with no outer tier. */
+  const outerEnds = (f: Feat & { kind: 'split' }): [number, number] => {
+    const [lo, hi] = f.axis === 'z' ? [2, 0] : [3, 1];
+    return [f.three || f.side === 0 ? lo : -1, f.three || f.side === 1 ? hi : -1];
+  };
+  /** Whether side `d` of Hall `h` is the end wall of one of its split's outer tiers. */
+  const isOuterEnd = (h: number, d: number): boolean => {
+    const f = feat[h];
+    return f?.kind === 'split' && outerEnds(f).includes(d);
+  };
+
   // 3c. Levels, on the tree in growth order: the first Hall's level is picked; each tree Passage then keeps its child's door at its parent's
   // door height, or (by `changePercent`) one level up or down. A gallery's wall (each wall of a wrap) is a raised door, flat, and so is a great hall's
   // long side. The child's level is its door's, less one through its own gallery's wall. A wrapped gallery's Hall needs its level a level under
@@ -822,16 +957,36 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const lmax = t.levels.max;
   const level = new Array<number>(halls.length).fill(0);
   if (lmax > 0) level[0] = pick(0, SALT.levelBase, lmax + 1);
-  const lift = (h: number, d: number): number => (isGalWall(h, d) ? 1 : 0);
+  /** How many levels a door of Hall `h` on side `d` stands over the Hall's level: a gallery wall +1, an outer tier's end wall -1, a pit's every wall half its depth. */
+  const lift = (h: number, d: number): number => {
+    if (isGalWall(h, d)) return 1;
+    const f = feat[h];
+    if (f?.kind === 'pit') return f.depth / 2;
+    return isOuterEnd(h, d) ? -1 : 0;
+  };
+  /** Whether a door of Hall `h` on side `d` opens above the Hall's Enclosure floor (a gallery wall, a split's wall but an outer tier's end, every wall of a pit): its Passage is flat and cuts the door itself. */
+  const raised = (h: number, d: number): boolean => isGalWall(h, d) || feat[h]?.kind === 'pit' || (feat[h]?.kind === 'split' && !isOuterEnd(h, d));
+  /** Whether Hall `h` at level `lv` keeps its wrap's, split's or pit's floors and door levels within 0 to `levels.max`. */
+  const inRange = (h: number, lv: number): boolean => {
+    const f = feat[h];
+    if (gal[h]?.wraps.length && lv + 1 > lmax) return false;
+    if (f?.kind === 'split') return lv >= 1 && lv <= lmax;
+    if (f?.kind === 'pit') return lv + f.depth / 2 <= lmax;
+    return true;
+  };
   const doorLevel = (h: number, d: number): number => level[h]! + lift(h, d);
-  /** Drops Hall `h`'s wrap (its gallery back to its first wall); whether it had one. */
+  /** Drops Hall `h`'s wrap (its gallery back to its first wall) or its feature (a Hall has not both); whether it had one. */
   const unwrap = (h: number): boolean => {
+    if (feat[h]) {
+      feat[h] = null;
+      return true;
+    }
     const g = gal[h];
     if (!g || g.wraps.length === 0) return false;
     g.wraps = [];
     return true;
   };
-  if (gal[0] && level[0]! + 1 > lmax) unwrap(0);
+  if (!inRange(0, level[0]!)) unwrap(0);
   passages.forEach((p, n) => {
     const parent = p.from;
     const child = p.to;
@@ -840,7 +995,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const settle = (options: readonly number[]): boolean => {
       for (const delta of options) {
         const lc = doorLevel(parent, dp) + delta - lift(child, dc);
-        if (lc >= 0 && lc <= lmax && (!(gal[child]?.wraps.length) || lc + 1 <= lmax)) {
+        if (lc >= 0 && lc <= lmax && inRange(child, lc)) {
           level[child] = lc;
           return true;
         }
@@ -849,7 +1004,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     };
     let options = [0];
     const longSide = halls[parent]!.slots[p.fs]!.long || halls[child]!.slots[p.ts]!.long;
-    if (lmax > 0 && !longSide && !isGalWall(parent, dp) && !isGalWall(child, dc) && pick(n, SALT.levelChange, 100) < t.levels.changePercent) {
+    if (lmax > 0 && !longSide && !raised(parent, dp) && !raised(child, dc) && pick(n, SALT.levelChange, 100) < t.levels.changePercent) {
       const up = pick(n, SALT.levelUp, 2) === 1 ? 1 : -1;
       options = [up, -up, 0];
     }
@@ -894,7 +1049,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const lb = doorLevel(b, db);
     const wallH = isGalWall(h, d);
     const wallB = isGalWall(b, db);
-    const forced = wallH || wallB || halls[h]!.slots[s]!.long || halls[b]!.slots[bs]!.long;
+    const forced = raised(h, d) || raised(b, db) || halls[h]!.slots[s]!.long || halls[b]!.slots[bs]!.long;
     if (Math.abs(lh - lb) > 1 || (forced && lh !== lb)) return false;
     // A first wall's Deck needs the stairwell's room; a wrap wall's whole strip is Deck, which covered its centre when the wrap was picked.
     if ((wallH && gal[h]!.d === d && !roomFor(h, d, true)) || (wallB && gal[b]!.d === db && !roomFor(b, db, true))) return false;
@@ -967,8 +1122,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   const heights = passages.map((p) => {
     const da = halls[p.a]!.slots[p.sa]!.d;
     const db = halls[p.b]!.slots[p.sb]!.d;
-    if (!halls[p.a]!.slots[p.sa]!.long && !isGalWall(p.a, da)) doors[p.a]![SIDES[da]!] = w;
-    if (!halls[p.b]!.slots[p.sb]!.long && !isGalWall(p.b, db)) doors[p.b]![SIDES[db]!] = w;
+    if (!halls[p.a]!.slots[p.sa]!.long && !raised(p.a, da)) doors[p.a]![SIDES[da]!] = w;
+    if (!halls[p.b]!.slots[p.sb]!.long && !raised(p.b, db)) doors[p.b]![SIDES[db]!] = w;
     return { ya: doorLevel(p.a, da) * LEVEL_RISE, yb: doorLevel(p.b, db) * LEVEL_RISE };
   });
   const planOf = (n: number): DelverPassage => {
@@ -1075,6 +1230,60 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     galleryOf[h] = { side, end: g.end, y: level[h]! * LEVEL_RISE + LEVEL_RISE, deck: rect(d0, d1), ramp: rect(r0, r1), up, high: galWalls(h).some((x) => hasOn(h, x)), ...(wrap ? { wrap } : {}) };
   });
 
+  // 7b'. Each split's and pit's geometry from its Hall's final rect (the Boss Hall's grown), the cuts recomputed from the Hall's centre.
+  const featureOf = new Array<DelverFeature | undefined>(n).fill(undefined);
+  halls.forEach((hall, h) => {
+    const f = feat[h];
+    if (!f) return;
+    const r = hall.rect;
+    const y = hy(h);
+    const L = level[h]!;
+    if (f.kind === 'split') {
+      // Along z (tiers south to north); along x the same with x and z swapped. `R` is a rect from its extent along the axis and its extent across.
+      const alongX = f.axis === 'x';
+      const [lo, hi, a0, a1, c] = alongX ? [r.x0, r.x1, r.z0, r.z1, hall.cx] : [r.z0, r.z1, r.x0, r.x1, hall.cz];
+      const R = (p0: number, p1: number, q0 = a0, q1 = a1): Rect => (alongX ? { x0: p0, z0: q0, x1: p1, z1: q1 } : { x0: q0, z0: p0, x1: q1, z1: p1 });
+      const [cutLo, cutHi] = cutsAt(c);
+      const [dLo, dHi] = outerEnds(f);
+      const tiers: DelverTier[] = [];
+      if (dLo >= 0) tiers.push({ rect: R(lo, cutLo), level: L - 1, y: (L - 1) * LEVEL_RISE });
+      tiers.push({ rect: R(dLo >= 0 ? cutLo : lo, dHi >= 0 ? cutHi : hi), level: L, y });
+      if (dHi >= 0) tiers.push({ rect: R(cutHi, hi), level: L - 1, y: (L - 1) * LEVEL_RISE });
+      // The low-end outer tier's step stands against the low side wall when `s` is 0, else the high one; the high-end outer tier's against the other.
+      const lowWall = f.s === 0;
+      const across = (atLow: boolean): [number, number] => (atLow ? [a0, a0 + STEP_WIDTH] : [a1 - STEP_WIDTH, a1]);
+      const rails: Side[] = alongX ? ['n', 's'] : ['e', 'w'];
+      const lowY = (L - 1) * LEVEL_RISE;
+      const steps: DelverStep[] = [];
+      if (dLo >= 0) steps.push({ rect: R(cutLo - STEP_WIDTH, cutLo, ...across(lowWall)), lo: lowY, hi: y, up: alongX ? 'e' : 'n', rails });
+      if (dHi >= 0) steps.push({ rect: R(cutHi, cutHi + STEP_WIDTH, ...across(!lowWall)), lo: lowY, hi: y, up: alongX ? 'w' : 's', rails });
+      featureOf[h] = { kind: 'split', axis: f.axis, tiers, steps };
+    } else {
+      const pit: Rect = { x0: r.x0 + PIT_RIM, z0: r.z0 + PIT_RIM, x1: r.x1 - PIT_RIM, z1: r.z1 - PIT_RIM };
+      const rim = y + f.depth;
+      // v is the longer axis (the steps stand along its two edges), u the other (the steps run along it, `2 * depth` long, from a corner).
+      const vz = f.v === 'z';
+      const [pv0, pv1, pu0, pu1] = vz ? [pit.z0, pit.z1, pit.x0, pit.x1] : [pit.x0, pit.x1, pit.z0, pit.z1];
+      const run = 2 * f.depth;
+      const R = (u0: number, u1: number, v0: number, v1: number): Rect => (vz ? { x0: u0, z0: v0, x1: u1, z1: v1 } : { x0: v0, z0: u0, x1: v1, z1: u1 });
+      const [uLow, uHigh]: [Side, Side] = vz ? ['w', 'e'] : ['s', 'n'];
+      const rails: Side[] = vz ? ['n', 's'] : ['e', 'w'];
+      const lowCorner = (v0: number, v1: number) => R(pu0, pu0 + run, v0, v1);
+      const highCorner = (v0: number, v1: number) => R(pu1 - run, pu1, v0, v1);
+      const steps: DelverStep[] =
+        f.turn === 0
+          ? [
+              { rect: lowCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uLow, rails },
+              { rect: highCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uHigh, rails },
+            ]
+          : [
+              { rect: highCorner(pv0, pv0 + STEP_WIDTH), lo: y, hi: rim, up: uHigh, rails },
+              { rect: lowCorner(pv1 - STEP_WIDTH, pv1), lo: y, hi: rim, up: uLow, rails },
+            ];
+      featureOf[h] = { kind: 'pit', depth: f.depth, pit, rim, rims: floorRects(r, [pit]), steps };
+    }
+  });
+
   // In line: straight on from the Entrance, through each Hall by its slot on the side opposite the one entered, on the same lattice line, and only
   // through straight Passages.
   const inLine: number[] = [];
@@ -1162,27 +1371,18 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
   }
 
   // 7c. Shapes and pillars (docs/plans/delver.md, Stage 7b), after the kinds so the patrol points and markers read the final centres. A Hall with a
-  // gallery is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
+  // gallery or a split or pit is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
   const hallShape = new Array<HallShape>(n).fill('rect');
   const hallSolids: Rect[][] = halls.map(() => []);
   const hallPillars: Rect[][] = halls.map(() => []);
   const hallLayout = new Array<PillarLayout | undefined>(n).fill(undefined);
-  /** A pick of the index of `weights` by cumulative weight, in list order. */
-  const byWeight = (h: number, salt: number, weights: readonly number[]): number => {
-    let r = pick(h, salt, weights.reduce((a, b) => a + b, 0));
-    for (let k = 0; k < weights.length; k++) {
-      if (r < weights[k]!) return k;
-      r -= weights[k]!;
-    }
-    return weights.length - 1;
-  };
   // A corner's two sides (n 0, e 1, s 2, w 3) in corner order NE, SE, SW, NW; a T's side (n, e, s, w) notches the two corners that share it.
   const CORNER_SIDES = [[0, 1], [2, 1], [2, 3], [0, 3]] as const;
   const T_CORNERS = [[0, 3], [0, 1], [1, 2], [2, 3]] as const;
   const evenDown = (v: number): number => 2 * Math.floor(v / 2);
   const evenUp = (v: number): number => 2 * Math.ceil(v / 2);
   halls.forEach((hall, h) => {
-    if (galleryOf[h]) return;
+    if (galleryOf[h] || featureOf[h]) return;
     const r = hall.rect;
     const hw = (r.x1 - r.x0) / 2;
     const hd = (r.z1 - r.z0) / 2;
@@ -1354,10 +1554,12 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const ordered: Record<string, number> = {};
     for (const side of ['n', 'e', 's', 'w'] as const) if (d[side] !== undefined) ordered[side] = d[side];
     const gallery = galleryOf[k];
+    const feature = featureOf[k];
     return {
       id: `hall${k}`, i: h.i, j: h.j, cells: h.cells, great: h.great, cx: h.cx, cz: h.cz, rect: h.rect, shape: hallShape[k]!, rects: floorRects(h.rect, hallSolids[k]!),
       solids: hallSolids[k]!, pillars: hallPillars[k]!, ...(hallLayout[k] ? { layout: hallLayout[k] } : {}), doors: ordered, kind: kind[k]!, depth: depth[k]!,
-      level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
+      level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : feature?.kind === 'pit' ? feature.depth + HALL_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
+      ...(feature ? { feature } : {}),
     };
   });
   return { seed, floor, attempt, halls: outHalls, passages: plannedPassages, entrance, stairs, mainPath, inLine, markers };
