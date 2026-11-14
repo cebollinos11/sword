@@ -42,8 +42,13 @@ const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'mar
 const BUILD_MEAN_MS = 600;
 const BUILD_MAX_MS = 2000;
 const NAV_MEAN_MS = 300;
-/** A straight Passage longer than this joins Halls two lattice steps apart, over an empty cell. */
-const FAR = Math.max(...t.gaps);
+/** A far Passage: a straight one joining two one-cell Halls two lattice steps apart (their cells differ by 2 along one axis), over an empty cell. */
+const isFar = (p: FloorPlan, q: FloorPlan['passages'][number]): boolean => {
+  const [a, b] = [p.halls[q.a]!, p.halls[q.b]!];
+  if (q.shape !== 'straight' || a.cells.length !== 1 || b.cells.length !== 1) return false;
+  const [dc, dr] = [Math.abs((a.cells[0]! % t.cols) - (b.cells[0]! % t.cols)), Math.abs(Math.floor(a.cells[0]! / t.cols) - Math.floor(b.cells[0]! / t.cols))];
+  return (dc === 2 && dr === 0) || (dc === 0 && dr === 2);
+};
 
 interface Dealt {
   k: number;
@@ -245,8 +250,8 @@ describe('the Floor generator soak', () => {
     lines.push(`  Floors with 1 Rest: ${withRests(1)}, with 2 Rests: ${withRests(2)}, with a Treasure: ${kindFloors.get('Treasure') ?? 0}`);
     const passages = floors.flatMap((p) => p.passages);
     const loops = passages.filter((p) => p.loop).length;
-    const far = passages.filter((p) => p.shape === 'straight' && p.length > FAR).length;
-    lines.push(`  Passages: ${passages.length} (tree ${passages.length - loops}, loop ${loops}, far straight (> ${FAR} m) ${far})`);
+    const far = floors.reduce((n, p) => n + p.passages.filter((q) => isFar(p, q)).length, 0);
+    lines.push(`  Passages: ${passages.length} (tree ${passages.length - loops}, loop ${loops}, far straight (two lattice steps apart) ${far})`);
     // Stage 7a: great halls and Passage shapes.
     const SHAPES = ['straight', 'L', 'S', 'Z'] as const;
     const shapeCount = (list: typeof passages, shape: (typeof SHAPES)[number]) => list.filter((p) => p.shape === shape).length;

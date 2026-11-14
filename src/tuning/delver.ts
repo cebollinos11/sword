@@ -388,6 +388,8 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const gw = `${w}.great`;
   const greatCount = range(gt, 'count', gw, 0);
   if (greatCount[1] > MAX_GREAT) fail(`${gw}.count[1]`, `a whole number at most ${MAX_GREAT}`, greatCount[1]);
+  // A Boss Floor picks G = count[0] + a pick of count[1] - count[0] + 1: with count[0] 0 it could pick 0 and the Boss Hall would never be a great hall.
+  if (greatCount[1] > 0 && greatCount[0] < 1) fail(`${gw}.count[0]`, 'at least 1 when count[1] is above 0, so a Boss Floor always has its great Boss Hall', greatCount[0]);
   const greatHalf = range(gt, 'half', gw, 0);
   if (greatHalf[0] <= halfSize[1]) fail(`${gw}.half[0]`, `above halfSize[1] (${halfSize[1]}), so a great hall is larger than any Hall`, greatHalf[0]);
   // A great hall's long half may move one metre up to dodge an even-metre Wall and must keep `minPassage` from the cells beyond it (plan.ts).

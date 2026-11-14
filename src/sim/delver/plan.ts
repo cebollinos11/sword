@@ -280,10 +280,10 @@ export function passagePieces(a: Rect, b: Rect, route: PassageRoute, w: number, 
       d % 2 === 1
         ? { x0: Math.min(start.x, end.x), z0: start.z - half, x1: Math.max(start.x, end.x), z1: start.z + half }
         : { x0: start.x - half, z0: Math.min(start.z, end.z), x1: start.x + half, z1: Math.max(start.z, end.z) };
-    out.push({ rect, corner: false, axis: d % 2 === 1 ? 'x' : 'z', from: SIDES[opposite(d)]!, to: SIDES[d]!, y0: l === sloped ? ya : level(l), y1: l === sloped ? yb : l < sloped || sloped < 0 ? level(l) : yb });
+    out.push({ rect, corner: false, axis: d % 2 === 1 ? 'x' : 'z', from: SIDES[opposite(d)]!, to: SIDES[d]!, y0: l === sloped ? ya : level(l), y1: level(l) });
     if (l < legs - 1) {
       const c = pts[l + 1]!;
-      const y = l >= sloped && sloped >= 0 ? yb : ya;
+      const y = level(l);
       out.push({ rect: { x0: c.x - half, z0: c.z - half, x1: c.x + half, z1: c.z + half }, corner: true, axis: d % 2 === 1 ? 'x' : 'z', from: SIDES[opposite(d)]!, to: SIDES[dirs[l + 1]!]!, y0: y, y1: y });
     }
   }
@@ -520,15 +520,18 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     const c1 = stepCell(c, d);
     const out: Turn[] = [];
     if (c1 < 0) return out;
+    const lFree = !reserved[c1] && occupied[c1]! < 0;
     for (const p of [0, 1, 2, 3]) {
       if (p % 2 === d % 2) continue;
-      // An L: the corner at c1's centre, then to the cell t beside it, entered by its side opposite(p).
-      const tl = stepCell(c1, p);
-      if (tl >= 0 && !reserved[c1] && occupied[c1]! < 0) {
+      // One step beside c1: an L's cell t, entered by its side opposite(p); an S or Z's cell t = c + d + p.
+      const tp = stepCell(c1, p);
+      // An L: the corner at c1's centre, then to the cell t beside it.
+      const tl = tp;
+      if (tl >= 0 && lFree) {
         out.push({ h, s, d, p, kind: 'L', c1, t: tl, sideB: opposite(p), corners: [{ x: X[c1 % cols]!, z: Z[Math.floor(c1 / cols)]! }] });
       }
       // An S or Z: across to t = c + d + p, entered by its side opposite(d), its middle leg at the whole-metre line m between the Halls beside it.
-      const ts = stepCell(c1, p);
+      const ts = tp;
       if (ts >= 0) {
         const cp = stepCell(c, p);
         const fwd = d === 0 || d === 1;
@@ -611,20 +614,13 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const d = slot.d;
         const c1 = stepCell(slot.cell, d);
         if (c1 < 0) continue;
-        if (t.turnPercent > 0) {
-          for (const tn of turnsFrom(h, sIdx)) {
-            const free = !reserved[tn.t] && occupied[tn.t]! < 0;
-            if (free && turnClear(tn, -1)) turns.push(tn);
-          }
-        }
         if (reserved[c1] || occupied[c1]! >= 0) continue;
         near.push({ h, s: sIdx, d, c1 });
         const c2 = stepCell(c1, d);
         if (c2 >= 0 && !reserved[c2] && occupied[c2]! < 0) far.push({ h, s: sIdx, d, c1, c2 });
         if (greatDue) {
           // The great hall's second cell: along d first, then each perpendicular direction, inside, empty and unreserved, and its rect clear of every Passage's pieces.
-          for (const dd of [d, 0, 1, 2, 3]) {
-            if (dd !== d && dd % 2 === d % 2) continue;
+          for (const dd of [d, ...[0, 1, 2, 3].filter((q) => q % 2 !== d % 2)]) {
             const c2g = stepCell(c1, dd);
             if (c2g < 0 || reserved[c2g] || occupied[c2g]! >= 0) continue;
             const lo = Math.min(c1, c2g);
@@ -638,15 +634,30 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         }
       }
     }
-    if (near.length === 0) break;
-    if (greatDue && great.length > 0) {
+    const greatNow = greatDue && great.length > 0;
+    // The turning list is built only when it will be used: a turn is taken (its pick passed) or there is no near candidate, and no great hall comes first.
+    const turnNow = t.turnPercent > 0 && !greatNow && (near.length === 0 || pick(step, SALT.turn, 100) < t.turnPercent);
+    if (turnNow) {
+      for (let h = 0; h < halls.length; h++) {
+        const hall = halls[h]!;
+        for (let sIdx = 0; sIdx < hall.slots.length; sIdx++) {
+          if (hall.slots[sIdx]!.p !== -1 || stepCell(hall.slots[sIdx]!.cell, hall.slots[sIdx]!.d) < 0) continue;
+          for (const tn of turnsFrom(h, sIdx)) {
+            if (!reserved[tn.t] && occupied[tn.t]! < 0 && turnClear(tn, -1)) turns.push(tn);
+          }
+        }
+      }
+    }
+    // Only turning candidates left: take a turn whatever the pick; nothing at all: the lattice is full.
+    if (near.length === 0 && turns.length === 0 && !greatNow) break;
+    if (greatNow) {
       const g = great[pick(step, SALT.great, great.length)]!;
       const o = placeGreat(g.lo, g.k);
       join(g.h, g.s, o, slotAt(o, opposite(g.d), g.c1), false, false);
       greatPlaced++;
       continue;
     }
-    if (turns.length > 0 && pick(step, SALT.turn, 100) < t.turnPercent) {
+    if (turns.length > 0) {
       const tn = turns[pick(step, SALT.turnPick, turns.length)]!;
       const o = place(tn.t);
       join(tn.h, tn.s, o, tn.sideB, false, false, tn.corners);

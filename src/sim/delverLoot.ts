@@ -73,14 +73,38 @@ const gap2 = (b: Box, x: number, z: number): number => {
 };
 const holds = (b: Box, x: number, z: number): boolean => x >= b.x0 && x <= b.x1 && z >= b.z0 && z <= b.z1;
 
-/** The Hall rect or Passage piece rect (a leg or a corner) a fall point belongs to: the first Hall holding it, then the first Passage's piece, else the nearest (Halls first, then Passages and their pieces in order, the lower index on a tie). */
+/** A leg's length (m): the longer side of its rect. */
+const lengthOf = (r: Box): number => Math.max(r.x1 - r.x0, r.z1 - r.z0);
+/** The shortest a leg may be (m) to hold the spots itself: below it, or in a corner, a turning Passage's longest neighbouring leg does. */
+const ROOMY_LEG = 4;
+
+/**
+ * The Hall rect or Passage piece rect (a leg or a corner) a fall point belongs to: the first Hall holding it, then the first Passage's piece, else the nearest (Halls first, then Passages and their pieces in order, the lower index on a tie).
+ * A Passage piece that is a corner, or a leg shorter than 4 m, is too small for the spots: the longest leg among its chain neighbours stands in (a corner's two neighbouring legs; a short leg's neighbouring legs, or the legs beyond its neighbouring corners), the earlier piece on a tie.
+ */
 function rectOf(plan: FloorPlan, x: number, z: number): Box {
-  const rects = [...plan.halls.map((h) => h.rect), ...plan.passages.flatMap((p) => p.pieces.map((piece) => piece.rect))];
-  const inside = rects.find((r) => holds(r, x, z));
-  if (inside) return inside;
-  let best = rects[0]!;
-  for (const r of rects) if (gap2(r, x, z) < gap2(best, x, z)) best = r;
-  return best;
+  const entries = [
+    ...plan.halls.map((h) => ({ rect: h.rect as Box, p: -1, k: -1 })),
+    ...plan.passages.flatMap((p, n) => p.pieces.map((piece, k) => ({ rect: piece.rect as Box, p: n, k }))),
+  ];
+  let best = entries.find((e) => holds(e.rect, x, z));
+  if (!best) {
+    best = entries[0]!;
+    for (const e of entries) if (gap2(e.rect, x, z) < gap2(best.rect, x, z)) best = e;
+  }
+  if (best.p < 0) return best.rect;
+  const pieces = plan.passages[best.p]!.pieces;
+  const self = pieces[best.k]!;
+  if (pieces.length < 2 || (!self.corner && lengthOf(self.rect) >= ROOMY_LEG)) return best.rect;
+  let pick = -1;
+  for (const k of [best.k - 1, best.k + 1, best.k - 2, best.k + 2]) {
+    const q = pieces[k];
+    if (!q || q.corner) continue;
+    // Beyond a corner only: a leg two pieces away counts when the piece between is a corner.
+    if (Math.abs(k - best.k) === 2 && !pieces[(k + best.k) / 2]!.corner) continue;
+    if (pick < 0 || lengthOf(q.rect) > lengthOf(pieces[pick]!.rect) || (lengthOf(q.rect) === lengthOf(pieces[pick]!.rect) && k < pick)) pick = k;
+  }
+  return pick < 0 ? best.rect : pieces[pick]!.rect;
 }
 
 /**

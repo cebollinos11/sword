@@ -76,9 +76,7 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   if (t.great.count[1] > 0) {
     const great = plan.halls.filter((h) => h.great).length;
     if (great < t.great.count[0] || great > t.great.count[1]) out.push(`rooms: ${great} great halls, ${t.great.count[0]} to ${t.great.count[1]} wanted`);
-    if (count('Boss') > 0 || plan.markers.boss) {
-      for (const h of plan.halls) if (h.kind === 'Boss' && !h.great) out.push(`rooms: the Boss Hall ${h.id} is not a great hall`);
-    }
+    for (const h of plan.halls) if (h.kind === 'Boss' && !h.great) out.push(`rooms: the Boss Hall ${h.id} is not a great hall`);
   }
   const levels = new Set(plan.halls.map((h) => h.level)).size;
   if (levels < t.levels.min) out.push(`levels: ${levels} Hall level${levels === 1 ? '' : 's'}, at least ${t.levels.min} wanted`);
@@ -218,7 +216,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
       const leg = `${head} leg ${k + 1} of ${spots.length - 1}`;
       if (f.s < 0 || o.s < 0) {
         out.push(`${leg} is not followed from ${name(k)} to ${name(k + 1)}: ${name(f.s < 0 ? k : k + 1)} stands on no floor`);
-        continue;
+        return;
       }
       for (const [from, onward, nf, no] of [[f, o, k, k + 1], [o, f, k + 1, k]] as const) {
         const d = fieldAt(fields, fieldFrom(from), onward.x, onward.z, onward.s);

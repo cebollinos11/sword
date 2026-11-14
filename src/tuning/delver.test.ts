@@ -173,6 +173,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['great.count negative', withFloor({ great: { ...GREAT, count: [-1, 1] } }), /^delver\.floor\.great\.count\[0\] /],
     ['great.count fractional', withFloor({ great: { ...GREAT, count: [0, 1.5] } }), /^delver\.floor\.great\.count\[1\] /],
     ['great.count descending', withFloor({ great: { ...GREAT, count: [2, 1] } }), /^delver\.floor\.great\.count\[1\] /],
+    ['great.count[0] 0 with count[1] above 0', withFloor({ great: { ...GREAT, count: [0, 1] } }), /^delver\.floor\.great\.count\[0\] /],
     ['great.count above 4', withFloor({ great: { ...GREAT, count: [1, 5] } }), /^delver\.floor\.great\.count\[1\] /],
     ['great.half not a pair', withFloor({ great: { ...GREAT, half: [12] } }), /^delver\.floor\.great\.half /],
     ['great.half descending', withFloor({ great: { ...GREAT, half: [16, 12] } }), /^delver\.floor\.great\.half\[1\] /],
@@ -271,7 +272,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     // min(gaps) 22, minPassage 4: 11 + min(9, 11) = 20, so a half of 19 passes and 20 does not.
     expect(parse(withFloor({ great: { ...GREAT, half: [12, 19] } })).floor.great.half).toEqual([12, 19]);
     expect(() => parse(withFloor({ great: { ...GREAT, half: [12, 20] } }))).toThrow(/great\.half\[1\]/);
-    expect(parse(withFloor({ great: { count: [0, 4], half: [12, 16] } })).floor.great.count).toEqual([0, 4]);
+    expect(parse(withFloor({ great: { count: [1, 4], half: [12, 16] } })).floor.great.count).toEqual([1, 4]);
     expect(tuning.delver.floor.turnPercent).toBe(0);
     expect(tuning.delver.floor.great).toEqual(GREAT);
   });

@@ -117,7 +117,7 @@ describe('dropSpots', () => {
     }
   });
 
-  it('lays a fall in a turning Passage\'s corner piece inside that corner square shrunk by the margin (or on its middle)', () => {
+  it('lays a fall in a turning Passage\'s corner on its longest neighbouring leg: four spots, 1.1 m apart, all inside that Passage\'s pieces', () => {
     const t7 = base;
     let found = 0;
     for (let seed = 1; seed <= 12 && found < 4; seed++) {
@@ -126,19 +126,19 @@ describe('dropSpots', () => {
       const at7 = arenaTuning(t7, name);
       const a7 = arenaOf(at7, name);
       for (const pass of p7.passages)
-        for (const piece of pass.pieces.filter((q) => q.corner)) {
+        for (const [k, piece] of pass.pieces.entries()) {
+          if (!piece.corner) continue;
           const c = centre(piece.rect);
           if (p7.halls.some((h) => c.x >= h.rect.x0 && c.x <= h.rect.x1 && c.z >= h.rect.z0 && c.z <= h.rect.z1)) continue;
-          const earlier = p7.passages.flatMap((o) => o.pieces).find((q) => c.x >= q.rect.x0 && c.x <= q.rect.x1 && c.z >= q.rect.z0 && c.z <= q.rect.z1)!;
-          const m = Math.min(DROP_MARGIN, (piece.rect.x1 - piece.rect.x0) / 2);
-          for (const s of dropSpots(p7, a7, at7.battle.levels, c.x, c.z, piece.y0, 3)) {
-            expect(inside(earlier.rect, s)).toBe(true);
-            if (earlier === piece) {
-              expect(s.x).toBeGreaterThanOrEqual(piece.rect.x0 + m - 1e-9);
-              expect(s.x).toBeLessThanOrEqual(piece.rect.x1 - m + 1e-9);
-              expect(s.z).toBeGreaterThanOrEqual(piece.rect.z0 + m - 1e-9);
-              expect(s.z).toBeLessThanOrEqual(piece.rect.z1 - m + 1e-9);
-            }
+          const spots = dropSpots(p7, a7, at7.battle.levels, c.x, c.z, piece.y0, 4);
+          expect(spots).toHaveLength(4);
+          expect(apart(spots)).toBe(true);
+          const len = (r: { x0: number; z0: number; x1: number; z1: number }) => Math.max(r.x1 - r.x0, r.z1 - r.z0);
+          const legs = [pass.pieces[k - 1]!, pass.pieces[k + 1]!];
+          const longest = len(legs[1]!.rect) > len(legs[0]!.rect) ? legs[1]! : legs[0]!;
+          for (const s of spots) {
+            expect(pass.pieces.some((q) => inside(q.rect, s))).toBe(true);
+            expect(inside(longest.rect, s)).toBe(true);
           }
           found++;
         }
