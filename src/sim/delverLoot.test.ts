@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { flatFloors, rooms7a } from './delver/flat.testdata';
+import { flatFloors } from './delver/flat.testdata';
 import { arenaOf } from './arena';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
@@ -118,7 +118,7 @@ describe('dropSpots', () => {
   });
 
   it('lays a fall in a turning Passage\'s corner piece inside that corner square shrunk by the margin (or on its middle)', () => {
-    const t7 = rooms7a(base);
+    const t7 = base;
     let found = 0;
     for (let seed = 1; seed <= 12 && found < 4; seed++) {
       const name = floorArenaName(runSeed(`gen:greybox:${seed}`), 1);

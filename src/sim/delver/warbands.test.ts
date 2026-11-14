@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../../tuning';
-import { rooms7a } from './flat.testdata';
 import { groundOf } from '../battlefield';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN } from '../warband';
 import type { DelverPassage, FloorPlan } from './plan';
@@ -275,7 +274,7 @@ describe('warbandHomes', { timeout: TIMEOUT }, () => {
 });
 
 describe('warbandHomes on turning Passages and great halls', { timeout: TIMEOUT }, () => {
-  const t7 = rooms7a(tuning);
+  const t7 = tuning;
   const FACE = { n: 0, e: Math.PI / 2, s: Math.PI, w: -Math.PI / 2 } as const;
   /** The side of `hall` that Passage `p` leaves it by, and the neighbour's depth. */
   const leaving = (plan: FloorPlan, p: DelverPassage, hall: number) => (p.a === hall ? { side: p.sideA, depth: plan.halls[p.b]!.depth } : { side: p.sideB, depth: plan.halls[p.a]!.depth });

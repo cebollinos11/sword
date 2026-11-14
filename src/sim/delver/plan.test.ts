@@ -3,14 +3,16 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatRooms, rooms7a } from './flat.testdata';
+import { flatFloors, flatRooms } from './flat.testdata';
 import { isBossFloor } from './troops';
 import {
   attemptSeed, CENTRE_CLEAR, DECK_MIN, DECK_POST, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
 } from './plan';
 
-const tuning = loadTuningData();
+/** The data as shipped (Stage 7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
+const bundled = loadTuningData();
+const tuning = flatRooms(bundled);
 const t = tuning.delver.floor;
 const SEEDS = Array.from({ length: 50 }, (_, k) => k + 1);
 const floorOf = (seed: number) => 1 + (seed % 9);
@@ -415,7 +417,9 @@ describe('levels, galleries and sloped Passages', () => {
 
 
 describe('great halls and turning Passages (Stage 7a)', () => {
-  const t7 = rooms7a(tuning).delver.floor;
+  const tuning = bundled;
+  const t = tuning.delver.floor;
+  const t7 = t;
   const w = t7.passage;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const plans7 = pairs.map(({ seed, floor }) => planFloor(t7, seed, floor, 0, isBossFloor(tuning.delver, floor)));
@@ -790,11 +794,13 @@ describe('great halls and turning Passages (Stage 7a)', () => {
       }
     });
 
-    it('is the plan under the bundled data, which has the same lattice with the 7a fields off', () => {
-      expect(tuning.delver.floor).toEqual(flat);
+    it('is the bundled data with Stage 6\'s lattice and the 7a fields off: no other Floor key differs', () => {
+      const { cols, rows, rooms, gaps, halfSize, turnPercent, great } = flat;
+      const off = { ...tuning.delver.floor, cols, rows, rooms, gaps, halfSize, turnPercent, great };
+      expect(off).toEqual(flat);
       for (const { seed, floor } of flatPairs.slice(0, 20)) {
         const boss = isBossFloor(tuning.delver, floor);
-        expect(planFloor(flat, seed, floor, 0, boss)).toEqual(planFloor(t, seed, floor, 0, boss));
+        expect(planFloor(flat, seed, floor, 0, boss)).toEqual(planFloor(off, seed, floor, 0, boss));
       }
     });
   });

@@ -3,9 +3,9 @@ import { loadTuningData } from '../tuning';
 import { groundOf } from './battlefield';
 import { distanceTo, FIELDS_KEPT, fieldDistance, fieldToward, oneField, steerToward } from './destinations';
 import { floorArenaName, floorOf } from './delver/world';
-import { flatFloors } from './delver/flat.testdata';
+import { flatFloors, flatRooms } from './delver/flat.testdata';
 
-const tuning = flatFloors(loadTuningData());
+const tuning = flatFloors(flatRooms(loadTuningData()));
 const floor = floorOf(tuning, floorArenaName(7, 1))!;
 const { fields, plan, field, battle } = floor;
 const cell = battle.crowd.flowCell;

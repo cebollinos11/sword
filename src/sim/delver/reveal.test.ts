@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
-import { rooms7a } from './flat.testdata';
+import { flatRooms } from './flat.testdata';
 import { floorArenaName, floorOf } from './world';
 import { emptyReveal, isRevealed, revealBits, revealPlace, withReveal } from './reveal';
 
-const tuning = loadTuningData();
+/** The data as shipped (7a's Floors); the cases written before turning Passages run on `tuning`, Stage 6's lattice (`flatRooms`). */
+const bundled = loadTuningData();
+const tuning = flatRooms(bundled);
 const plan = floorOf(tuning, floorArenaName(4242, 1))!.plan;
 
 describe('the Reveal bitset', () => {
@@ -79,7 +81,7 @@ describe('revealPlace', () => {
 });
 
 describe('revealPlace on turning Passages', () => {
-  const t7 = rooms7a(tuning);
+  const t7 = bundled;
   const inBox = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number) => x >= r.x0 && x < r.x1 && z >= r.z0 && z < r.z1;
   const plans = Array.from({ length: 12 }, (_, i) => floorOf(t7, floorArenaName(i + 1, 1))!.plan);
 

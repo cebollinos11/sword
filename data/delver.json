@@ -78,11 +78,11 @@
     }
   ],
   "floor": {
-    "cols": 7,
+    "cols": 6,
     "rows": 6,
-    "rooms": 22,
-    "gaps": [22, 24, 26, 28],
-    "halfSize": [5, 11],
+    "rooms": 20,
+    "gaps": [30, 32],
+    "halfSize": [7, 14],
     "minPassage": 4,
     "passage": 3,
     "farPercent": 25,
@@ -94,7 +94,7 @@
     "follow": 1.5,
     "maxAttempts": 10,
     "levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 },
-    "turnPercent": 0,
-    "great": { "count": [0, 0], "half": [12, 16] }
+    "turnPercent": 30,
+    "great": { "count": [1, 2], "half": [18, 22] }
   }
 }

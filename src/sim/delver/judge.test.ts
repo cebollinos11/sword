@@ -6,11 +6,13 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, type JumpLink } from '../nav';
+import { flatRooms } from './flat.testdata';
 import { arenaTuning, floorArenaName } from './world';
-import { rooms7a } from './flat.testdata';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
-const tuning = loadTuningData();
+/** The data as shipped (7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
+const bundled = loadTuningData();
+const tuning = flatRooms(bundled);
 const t = tuning.delver.floor;
 
 /** Real Floors, built once and reused: the tests below mutate copies of their plans and sources, never the Floors. */
@@ -378,7 +380,7 @@ describe('the judge on a Floor with levels', () => {
 });
 
 describe('the judge on Floors with great halls and turning Passages (Stage 7a)', () => {
-  const tuning7 = rooms7a(tuning);
+  const tuning7 = bundled;
   const t7 = tuning7.delver.floor;
   const size = tuning7.battle.field.size;
   let floors7: DelverFloor[];

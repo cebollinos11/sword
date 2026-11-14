@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors } from './flat.testdata';
+import { flatFloors, flatRooms } from './flat.testdata';
 import { delverFloor } from './index';
 
 /**
@@ -12,24 +12,43 @@ import { delverFloor } from './index';
  */
 const tuning = loadTuningData();
 
-/** The default Tuning's Floors (levels, galleries and sloped Passages; `DELVER_VERSION` 5). */
+/** The default Tuning's Floors (7a's bigger Halls, great halls and turning Passages; `DELVER_VERSION` 6). */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '4b55b26e', plan: 'e9f29789', attempts: 1 },
-  { seed: 1, floor: 3, hash: 'b64b7391', plan: '7266888f', attempts: 1 },
-  { seed: 1, floor: 9, hash: '094f6914', plan: '6cd74a9d', attempts: 1 },
-  { seed: 7, floor: 1, hash: 'b4859c66', plan: '3ab2d718', attempts: 1 },
-  { seed: 7, floor: 3, hash: '2123c3b1', plan: '2e5859ec', attempts: 1 },
-  { seed: 7, floor: 9, hash: 'bd7f124c', plan: '25715ad1', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: 'c51da678', plan: '8dc880f9', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '0846dc38', plan: 'dc7675b7', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: 'aced9fc1', plan: '265c5bc5', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: '27c6a8d9', plan: '9dfcbdcd', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: '00fe0b5e', plan: 'cc1aad31', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: 'ab53f03d', plan: '7f408021', attempts: 1 },
+  { seed: 1, floor: 1, hash: '7df78d73', plan: '11fbcb24', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'f210fd08', plan: '60584a4d', attempts: 1 },
+  { seed: 1, floor: 9, hash: '58e32628', plan: '76b8b8e9', attempts: 1 },
+  { seed: 7, floor: 1, hash: '0a9af48a', plan: 'bfcb2956', attempts: 1 },
+  { seed: 7, floor: 3, hash: 'c79b0278', plan: '4f346578', attempts: 1 },
+  { seed: 7, floor: 9, hash: '63377c42', plan: 'f41f4954', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '1276f117', plan: 'f6c49f50', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: 'b5ea0e9f', plan: '07e54c9e', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: 'c5071ac1', plan: '7ab09e2d', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: 'a124cab9', plan: 'a7a54ed0', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '090b24f5', plan: '6848f404', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: '9e25d4c3', plan: '1861b414', attempts: 1 },
 ];
 
 /**
- * The same seeds and Floors on `flatFloors(tuning)` (no levels, no galleries): the map hashes are Stage 5's pins exactly (a flat Floor is byte
+ * `flatRooms(tuning)` (Stage 6's lattice, no turning Passages, no great halls) on the same seeds and Floors: the map hashes are Stage 6's default pins
+ * exactly (a Floor with every 7a knob off is byte for byte what it was), on the first attempt; the plan hashes are new, since the plan gained its fields.
+ */
+const ROOMS_PINS: readonly { seed: number; floor: number; hash: string; plan: string }[] = [
+  { seed: 1, floor: 1, hash: '4b55b26e', plan: 'e9f29789' },
+  { seed: 1, floor: 3, hash: 'b64b7391', plan: '7266888f' },
+  { seed: 1, floor: 9, hash: '094f6914', plan: '6cd74a9d' },
+  { seed: 7, floor: 1, hash: 'b4859c66', plan: '3ab2d718' },
+  { seed: 7, floor: 3, hash: '2123c3b1', plan: '2e5859ec' },
+  { seed: 7, floor: 9, hash: 'bd7f124c', plan: '25715ad1' },
+  { seed: 123456789, floor: 1, hash: 'c51da678', plan: '8dc880f9' },
+  { seed: 123456789, floor: 3, hash: '0846dc38', plan: 'dc7675b7' },
+  { seed: 123456789, floor: 9, hash: 'aced9fc1', plan: '265c5bc5' },
+  { seed: 4294967295, floor: 1, hash: '27c6a8d9', plan: '9dfcbdcd' },
+  { seed: 4294967295, floor: 3, hash: '00fe0b5e', plan: 'cc1aad31' },
+  { seed: 4294967295, floor: 9, hash: 'ab53f03d', plan: '7f408021' },
+];
+
+/**
+ * The same seeds and Floors on `flatFloors(flatRooms(tuning))` (no levels, no galleries): the map hashes are Stage 5's pins exactly (a flat Floor is byte
  * for byte what it was); the plan hashes are new, since the plan gained its height fields.
  */
 const FLAT_PINS: readonly { seed: number; floor: number; hash: string; plan: string }[] = [
@@ -67,13 +86,26 @@ describe('golden Delver Floors', () => {
       // The Boss Floors (3 and 9 under the bundled Tuning) have a Boss Hall as their Stairs Hall; the others keep their Stairs.
       expect(a.plan.halls[a.plan.stairs]!.kind).toBe(floor % 3 === 0 ? 'Boss' : 'Stairs');
       expect('boss' in a.plan.markers).toBe(floor % 3 === 0);
+      // A Boss Floor's Boss Hall is a great hall.
+      if (floor % 3 === 0) expect(a.plan.halls[a.plan.stairs]!.great).toBe(true);
       // Levels: at least `levels.min` of them, and a gallery asks for shortcut jump Links.
       expect(new Set(a.plan.halls.map((h) => h.level)).size).toBeGreaterThanOrEqual(tuning.delver.floor.levels.min);
       expect(a.map.shortcuts === true).toBe(a.plan.halls.some((h) => h.gallery));
     });
   }
 
-  const flat = flatFloors(tuning);
+  const rooms = flatRooms(tuning);
+  for (const { seed, floor, hash, plan } of ROOMS_PINS) {
+    it(`flatRooms Tuning, seed ${seed}, Floor ${floor}: Stage 6's map hash ${hash} exactly, plan hash ${plan} on the first attempt`, () => {
+      const a = delverFloor(rooms, seed, floor);
+      expect(a.judgement).toEqual({ ok: true, reasons: [] });
+      expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts: 1 });
+      expect(a.plan.halls.some((h) => h.great || h.cells.length > 1)).toBe(false);
+      expect(a.plan.passages.every((p) => p.shape === 'straight')).toBe(true);
+    });
+  }
+
+  const flat = flatFloors(flatRooms(tuning));
   for (const { seed, floor, hash, plan } of FLAT_PINS) {
     it(`flat Tuning, seed ${seed}, Floor ${floor}: Stage 5's map hash ${hash} exactly, plan hash ${plan} on the first attempt`, () => {
       const a = delverFloor(flat, seed, floor);

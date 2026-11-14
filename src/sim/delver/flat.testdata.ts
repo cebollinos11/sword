@@ -20,14 +20,3 @@ export function flatRooms(tuning: TuningData): TuningData {
     },
   };
 }
-
-/** `tuning` with Stage 7a's shipped Floor values (cols 6, rows 6, rooms 20, gaps [30, 32], halfSize [7, 14], `turnPercent` 30, 1 to 2 great halls of half 18 to 22), for tests written before the bundled data switches. Tasks 1 to 3 only. */
-export function rooms7a(tuning: TuningData): TuningData {
-  return {
-    ...tuning,
-    delver: {
-      ...tuning.delver,
-      floor: { ...tuning.delver.floor, cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], turnPercent: 30, great: { count: [1, 2], half: [18, 22] } },
-    },
-  };
-}

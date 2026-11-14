@@ -10,6 +10,12 @@
  *    attempts, the same verdict, the same map file bytes.
  *  - Navmesh: `navMesh` of the first 20 passing Floors' Arenas, under the Floor's own Battle Tuning.
  *
+ * Stage 7a (great halls and turning Passages): per Floor the great halls and the straight, L, S and Z Passages are counted (tree and loop), the
+ * same pairs are planned again under `flatRooms` (Stage 6's lattice, the 7a knobs off) for the walk rule (the mean Stairs depth of both and
+ * their ratio, which `rooms` is tuned to keep at most 1.3), and failed attempts must not exceed a twentieth of the pairs. The test fails
+ * unless it exercised L, S and Z Passages, a sloped turning Passage, a great Boss Hall on every Boss Floor, Floors with 2 great halls, a
+ * Treasure great hall and a Fight great hall.
+ *
  * Stage 6 (levels): per Floor the Hall levels, galleries (balconies and stairwells), sloped Passages and Deck posts are counted, and the
  * rerolls by rule printed; on the 20 navmesh Floors every Deck must hold a shortcut jump Link onto it from its Hall's floor and no other
  * jump Link may exist. The budgets of the Design: the passing attempt's plan, build and judge average at most 600 ms and none passes 2 s;
@@ -22,6 +28,7 @@ import { loadTuningData } from '../../tuning';
 import { navMesh, type JumpLink } from '../nav';
 import { groundOf } from '../battlefield';
 import { runPick } from '../dungeon';
+import { flatRooms } from './flat.testdata';
 import { buildFloor, delverFloor, isBossFloor, judgeFields, judgePlan, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
@@ -30,12 +37,12 @@ const PAIRS = 500;
 const SAMPLE_EVERY = 25;
 const NAV_FLOORS = 20;
 const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight', 'Empty'];
-const RULES = ['rooms', 'levels', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries'];
+const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries'];
 /** The Design's budgets (ms), on the machine of the plans' measurements. */
 const BUILD_MEAN_MS = 600;
 const BUILD_MAX_MS = 2000;
 const NAV_MEAN_MS = 300;
-/** A Passage longer than this joins Halls two lattice steps apart, over an empty cell. */
+/** A straight Passage longer than this joins Halls two lattice steps apart, over an empty cell. */
 const FAR = Math.max(...t.gaps);
 
 interface Dealt {
@@ -82,7 +89,7 @@ function deal(k: number, wantNav: boolean): Dealt {
     d.plan = t1 - t0;
     d.build = 0;
     d.judge = 0;
-    let reasons: string[] = judgePlan(t, plan);
+    let reasons: string[] = judgePlan(t, plan, tuning.battle.field.size);
     if (reasons.length > 0) {
       // As `judgeAttempt`: a plan rule 1 refuses is not built.
       d.layout = plan;
@@ -238,8 +245,34 @@ describe('the Floor generator soak', () => {
     lines.push(`  Floors with 1 Rest: ${withRests(1)}, with 2 Rests: ${withRests(2)}, with a Treasure: ${kindFloors.get('Treasure') ?? 0}`);
     const passages = floors.flatMap((p) => p.passages);
     const loops = passages.filter((p) => p.loop).length;
-    const far = passages.filter((p) => p.length > FAR).length;
-    lines.push(`  Passages: ${passages.length} (tree ${passages.length - loops}, loop ${loops}, far (> ${FAR} m) ${far})`);
+    const far = passages.filter((p) => p.shape === 'straight' && p.length > FAR).length;
+    lines.push(`  Passages: ${passages.length} (tree ${passages.length - loops}, loop ${loops}, far straight (> ${FAR} m) ${far})`);
+    // Stage 7a: great halls and Passage shapes.
+    const SHAPES = ['straight', 'L', 'S', 'Z'] as const;
+    const shapeCount = (list: typeof passages, shape: (typeof SHAPES)[number]) => list.filter((p) => p.shape === shape).length;
+    const greats = floors.map((p) => p.halls.filter((h) => h.great));
+    const greatTotal = greats.reduce((n, g) => n + g.length, 0);
+    const withGreat = (n: number) => greats.filter((g) => g.length === n).length;
+    lines.push(`  great halls: ${greatTotal} (Floors with 0: ${withGreat(0)}, 1: ${withGreat(1)}, 2: ${withGreat(2)}; Treasure ${greats.flat().filter((h) => h.kind === 'Treasure').length}, Fight ${greats.flat().filter((h) => h.kind === 'Fight').length}, Boss ${greats.flat().filter((h) => h.kind === 'Boss').length}, other ${greats.flat().filter((h) => !['Treasure', 'Fight', 'Boss'].includes(h.kind)).length})`);
+    for (const [name, list] of [['all', passages], ['tree', passages.filter((p) => !p.loop)], ['loop', passages.filter((p) => p.loop)]] as const) {
+      lines.push(`  Passages by shape, ${name}: ${SHAPES.map((sh) => `${sh} ${shapeCount(list, sh)}`).join(', ')}`);
+    }
+    const slopedTurning = passages.filter((p) => p.shape !== 'straight' && p.ya !== p.yb).length;
+    lines.push(`  sloped turning Passages: ${slopedTurning}`);
+    // The walk rule: the same pairs planned under Stage 6's lattice with the 7a knobs off.
+    const flatT = flatRooms(tuning).delver.floor;
+    const depthNow: number[] = [];
+    const depthThen: number[] = [];
+    for (const d of passing) {
+      const boss = isBossFloor(tuning.delver, d.floor);
+      depthNow.push(d.layout!.halls[d.layout!.stairs]!.depth);
+      const old = planFloor(flatT, d.seed, d.floor, 0, boss);
+      depthThen.push(old.halls[old.stairs]!.depth);
+    }
+    const depthRatio = mean(depthNow) / mean(depthThen);
+    lines.push(`  mean Stairs depth (plan m): ${fmt(mean(depthNow))} now (passing attempt), ${fmt(mean(depthThen))} under flatRooms (attempt 0); ratio ${depthRatio.toFixed(3)} (rooms ${t.rooms})`);
+    const failedTotal = dealt.reduce((n, d) => n + d.attempts - 1, 0);
+    lines.push(`  failed attempts (attempts - 1 summed): ${failedTotal}, allowed ${PAIRS / 20}`);
     const patrolFloors = [0, 1, 2].map((n) => floors.filter((p) => p.markers.patrols.length === n).length);
     lines.push(`  patrols per Floor: 0: ${patrolFloors[0]}, 1: ${patrolFloors[1]}, 2: ${patrolFloors[2]}; Floors with a patrol loop: ${floors.length - patrolFloors[0]!}`);
     lines.push(`  Halls in line with the Entrance, total: ${floors.reduce((s, p) => s + p.inLine.length, 0)}`);
@@ -276,6 +309,15 @@ describe('the Floor generator soak', () => {
     expect(far, 'no far Passage').toBeGreaterThan(0);
     expect(loops, 'no loop Passage').toBeGreaterThan(0);
     expect(floors.length - patrolFloors[0]!, 'no Floor with a patrol loop').toBeGreaterThan(0);
+
+    // Stage 7a: great halls and turning Passages are exercised, and rerolls are rare.
+    for (const shape of ['L', 'S', 'Z'] as const) expect(shapeCount(passages, shape), `no ${shape} Passage`).toBeGreaterThan(0);
+    expect(slopedTurning, 'no sloped turning Passage').toBeGreaterThan(0);
+    for (const d of bossPairs) expect(d.layout!.halls[d.layout!.stairs]!.great, `seed ${d.seed} Floor ${d.floor}: Boss Hall is not great`).toBe(true);
+    expect(withGreat(2), 'no Floor with 2 great halls').toBeGreaterThan(0);
+    expect(greats.flat().filter((h) => h.kind === 'Treasure').length, 'no Treasure great hall').toBeGreaterThan(0);
+    expect(greats.flat().filter((h) => h.kind === 'Fight').length, 'no Fight great hall').toBeGreaterThan(0);
+    expect(failedTotal, 'failed attempts').toBeLessThanOrEqual(PAIRS / 20);
 
     // Stage 6: levels are exercised, and the budgets hold.
     expect(levelCount.filter((n) => n >= 3).length, 'no Floor with 3 or more Hall levels').toBeGreaterThan(0);

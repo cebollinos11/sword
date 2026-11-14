@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { floorGraph, FLOOR_ROWS, runKit } from '../sim';
 import { loadTuningData } from '../tuning';
-import { rooms7a } from '../sim/delver/flat.testdata';
 import { floorArenaName } from '../sim/delver/world';
 import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
+import { flatRooms } from '../sim/delver/flat.testdata';
 import { DELVER_MAP_MIN_SPAN, delverMapLayout, delverMapStatus, floorMapLayout, MAP_KEY, mapKeyAction } from './floorMap';
 
 const tuning = loadTuningData();
@@ -93,7 +93,9 @@ describe('mapKeyAction', () => {
 });
 
 describe('delverMapLayout', () => {
-  const delverTuning = { ...tuning, delver: { ...tuning.delver, tiers: 1, floorsPerTier: 3 } };
+  // A Passage is one rect on Stage 6's lattice (a turning one is drawn as its pieces, below), so these run on `flatRooms`.
+  const rooms = flatRooms(tuning);
+  const delverTuning = { ...rooms, delver: { ...rooms.delver, tiers: 1, floorsPerTier: 3 } };
   const m = createMatch(delverTuning, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
   const plan = floorOf(delverTuning, m.arena)!.plan;
   const status = delverMapStatus(m, plan);
@@ -178,7 +180,7 @@ describe('delverMapLayout', () => {
 
 describe('delverMapLayout on turning Passages', () => {
   it('draws a revealed Passage as one rect per piece, in piece order', () => {
-    const t7 = rooms7a(tuning);
+    const t7 = tuning;
     const m = createMatch(t7, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
     for (let seed = 1; seed <= 3; seed++) {
       const plan = floorOf(t7, floorArenaName(seed, 1))!.plan;

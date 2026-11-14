@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { flatRooms } from '../sim/delver/flat.testdata';
 import { DELVER_VERSION } from '../sim/delver/version';
 import { loadTuningData, MAX_FLOOR_TROOPS, parseDelver, tuningDataHash } from './index';
 
-const tuning = loadTuningData();
+/** The data as shipped; the tests below build on `tuning`, Stage 6's Floor values (`flatRooms`), which the 7a keys' checks and the bad-value cases are written against. */
+const bundled = loadTuningData();
+const tuning = flatRooms(bundled);
 const FIELD = tuning.battle.field.size;
 const NAMES = {
   weapons: Object.keys(tuning.weapons),
@@ -13,8 +16,8 @@ const NAMES = {
 const parse = (data: unknown) => parseDelver(data, FIELD, tuning.battle, NAMES);
 type Raw = { tiers: unknown; floorsPerTier: unknown; flowCell: unknown; fireRadius: unknown; floor: Record<string, unknown>; [key: string]: unknown };
 /** The file's values as raw data: the Troop indices written back as names. */
-const raw = (): Raw => {
-  const d = JSON.parse(JSON.stringify(tuning.delver)) as Raw;
+const raw = (source = tuning): Raw => {
+  const d = JSON.parse(JSON.stringify(source.delver)) as Raw;
   const named = (pool: { troops: { troop: number; count: number }[]; hpScale: number }[]) =>
     pool.map((t) => ({ ...t, troops: t.troops.map((r) => ({ ...r, troop: tuning.battle.troops[r.troop]!.name })) }));
   d.warbands = (d.warbands as { guard: never[]; patrol: never[]; elite: never[]; boss?: { troop: { base: number }; guard: never[] } }[]).map((t) => ({
@@ -56,7 +59,7 @@ const withFloor = (patch: Record<string, unknown>): Raw => {
 
 describe('Delver Tuning Data (data/delver.json)', () => {
   it('the bundled delver parses to the file values', () => {
-    const { warbands, ...keys } = tuning.delver;
+    const { warbands, ...keys } = bundled.delver;
     const troop = (name: string) => tuning.battle.troops.findIndex((t) => t.name === name);
     const template = (...rows: [string, number][]) => ({ troops: rows.map(([name, count]) => ({ troop: troop(name), count })), hpScale: 1, relics: [] as string[] });
     const elite = (relics: string[], hpScale: number, ...rows: [string, number][]) => ({ ...template(...rows), hpScale, relics });
@@ -92,9 +95,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 7, rows: 6, rooms: 22, gaps: [22, 24, 26, 28], halfSize: [5, 11], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 0, great: { count: [0, 0], half: [12, 16] } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] } },
     });
-    expect(parse(raw())).toEqual(tuning.delver);
+    expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
       [elite(['Whetstone'], 1.5, ['Halberdier', 1], ['Levy', 2])],
       [elite(['Whetstone'], 1.5, ['Swordsman', 1], ['Halberdier', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Swordsman', 1], ['Levy', 2])],

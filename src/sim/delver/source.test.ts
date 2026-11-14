@@ -2,8 +2,8 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
+import { flatRooms } from './flat.testdata';
 import { HALL_STOREY } from './plan';
-import { rooms7a } from './flat.testdata';
 
 describe('isFloorName', () => {
   it('is true for the names floorName makes', () => {
@@ -16,7 +16,7 @@ describe('isFloorName', () => {
 });
 
 describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
-  const tuning = rooms7a(loadTuningData());
+  const tuning = loadTuningData();
   let floors: DelverFloor[];
   beforeAll(() => {
     floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1));
@@ -72,8 +72,8 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
     for (const f of floors.slice(0, 3)) expect(() => buildFloor(tuning, f.plan)).not.toThrow();
   }, 120_000);
 
-  it('writes only `pass<n>` Passage Brushes on the bundled Tuning, whose Floors are all straight', () => {
-    const bundled = loadTuningData();
+  it('writes only `pass<n>` Passage Brushes on Stage 6\'s lattice (`flatRooms`), whose Floors are all straight', () => {
+    const bundled = flatRooms(loadTuningData());
     for (const seed of [1, 2, 3]) {
       const plan = planFloor(bundled.delver.floor, seed, 1, 0, false);
       const source = floorSource(plan, bundled.battle.field.size);
