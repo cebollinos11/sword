@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) runs in sub-stages 7a to 7e. Stage 7a done (2026-11-14): Halls 14 to 28 m on a coarser 6 × 6 lattice, 1 or 2 great halls a Floor (the Boss Hall always one), and L, S and Z Passages of legs and corners. 7b is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) runs in sub-stages 7a to 7e. Stage 7a done (2026-11-14): Halls 14 to 28 m on a coarser 6 × 6 lattice, 1 or 2 great halls a Floor (the Boss Hall always one), and L, S and Z Passages of legs and corners. Stage 7b done (2026-11-14): L, T, cross and ring Halls cut out by solid Blocks, and pillars in colonnades and grids. 7c is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -11,7 +11,7 @@
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
 - [x] Stage 7a: bigger Halls, great halls, L-, S- and Z-shaped Passages
-- [ ] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
+- [x] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
 - [ ] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [ ] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
 - [ ] Stage 7e: archetypes (procedural room recipes per Hall kind)
@@ -2036,6 +2036,88 @@ The Brush list is then [abyss, halls, passages, galleries, slopes, blocks]. With
 4. **The consumers**: `reveal.ts`, `delverLoot.ts`, `src/render/minimap.ts`, `src/play/floorMap.ts` and their tests.
 5. **The switch**: the shipped values in `data/delver.json`, `DELVER_VERSION` 7, the golden pins, §8's moves onto `plainHalls`, `rooms7b` removed, and `delverGen.slow.test.ts`.
 6. **The soak**: §10's cases and measurements.
+
+### Result
+Done 2026-11-14. Delver Halls now come in five shapes: rect, L, T, cross and ring. The shape is cut out of the Hall's rect by solid Blocks from its floor to its ceiling: corner notches, or a ring's core. Some Halls also stand 2 × 2 m pillars, in a colonnade (two rows along the long axis) or a grid. Battles, Duels and the Hall-graph Run are unchanged. With every 7b knob off (`plainHalls`) a Floor's map is byte for byte 7a's, and with every Stage 7 knob off (`flatRooms`) Stage 6's. No hashed state is new; `DELVER_VERSION` is 7, and `PROTOCOL_VERSION` stays 30.
+
+**What was built** (as the Design gives it, with the changes below):
+- **The Map Compiler**: a Block wholly inside an Enclosure whose ceiling is its top stands on that Enclosure's floor. The abyss and the floor under it are cut, and the roof over it is kept. Every other Block compiles as before.
+- **Tuning Data** (`delver.floor`): `shapes` { `percent` 50, `weights` L 3, T 2, cross 2, ring 2 } and `pillars` { `percent` 40, `weights` colonnade 1, grid 1 }, with their parse checks. `plainHalls(tuning)` (tests) turns both off, and `flatRooms` does too.
+- **The plan** (`plan.ts`):
+  - step 7c after the kinds: `shape`, `rects` (by `floorRects`), `solids`, `pillars` and `layout` on each Hall;
+  - the door check on great halls' long-side slots;
+  - a ring's centre moved into its south band;
+  - no shape and no pillars on a gallery Hall.
+- **The source**: each Hall's solids (`hall<k>-solid<n>`, the Hall's material), then its pillars (`hall<k>-pillar<n>`, stone), as Blocks after the slopes.
+- **The judge**: the plan-only `shapes` rule (tiling, the centre on the floor, odd-metre Walls, pillars on the floor, markers 1 m clear, doorways 3 m clear). `sight` sees pillars through the compiled map's blocks. `describeFloor` counts the shapes and pillars.
+- **The readers**:
+  - The Reveal, drop spots, the minimap and the Floor Map go by a Hall's rects.
+  - Drop spots keep `DROP_MARGIN` off a pillar.
+  - The Floor Map draws one outline round a shaped Hall.
+
+**Changed from the Design:**
+- **The front rank moves off Blocks.** The Battle map's own check refuses a map whose Team 0 front rank (z = −`front`) runs through a Block. That refusal failed 29 % of first attempts in Task 3. `floorSource` now takes the first of 52, 51, 53, 50, … that crosses no Block. A Floor never deploys from its front rank, and with no Block across z = −52 it is 52 as before.
+- **A Block in an Enclosure over any other floor is refused** (code review). Only deadly ground (a Delver Hall's abyss) may lie under the Enclosure's floor beneath a Block. Before, a pillar in a raised Enclosure would have cut a hole in an unrelated floor under it.
+- **The Floor Map draws a Hall's rects twice** (code review): stroked, then filled with no stroke, at twice the old stroke width. So a shaped Hall shows one outline, on its outside, and a rect Hall looks as before.
+- **The fight round pillars takes the first candidate that shows the fight**: on the first one (seed 2, Floor 1, hall9, a T with 2 pillars) the promoted Fighters never came within 2 m of a pillar.
+- **A cross on a great hall is rare** (8 in the 500 pairs): it needs all four corners clear of the long-side doorways. The 200-seed plan test finds one by searching on past seed 200.
+- **The `sight` case is hand-built.** On dealt Floors the posts are far from the Entrance and already hidden by Walls.
+- **No screenshots** this sub-stage (the user's call).
+
+**Existing tests changed (as Design §8 allows):**
+- `golden.test.ts`:
+  - the default pins are rewritten;
+  - a new `PLAIN_PINS` table (`plainHalls`) whose map and plan hashes are 7a's default pins exactly;
+  - `ROOMS_PINS`, `FLAT_PINS` and `OLD_FLOOR_9` keep their map pins. Their plan pins moved once in Task 2, when the plan gained its fields.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts`: the new keys and the bundled values.
+- Moved onto `plainHalls`, with their expectations unchanged:
+  - `floorMap.test.ts`'s "draws a revealed Passage as one rect per piece";
+  - `judge.test.ts`'s 7a block (its `layout` case);
+  - `plan.test.ts`'s 7a block (Hall Walls and halves, Passage pieces, doors, and the `flatRooms` key test).
+- The helpers of `plan.test.ts`'s Boss case and `judge.test.ts`'s outside-the-field case now move a Hall's `rects` (and `cx`) with its `rect`.
+- `source.test.ts`'s plain-source case no longer compares against the bundled source. That is now 7b's, and `PLAIN_PINS` holds the 7a bytes instead.
+- None was removed.
+
+**Measured** (the test container, about 3× a mid-range laptop):
+- **The generator** (500 pairs):
+  - every pair passed on its first attempt (0 failed attempts; 25 allowed);
+  - plan 2.5 ms, build 501 ms (p95 669, max 989), judge 42.6 ms; total 546 ms (p95 720, max 1061), against 7a's 402 ms and the 600 ms budget;
+  - navmesh 162 ms mean (7a: 126), with 130 jump Links;
+  - **the total is load-sensitive**: run beside `npm test` it measured 942 ms mean and failed its budget.
+  - Shapes: L 813, T 552, cross 454 and ring 547 (great halls: 119 L, 64 T, 8 cross, 85 ring), in 498 of 500 Floors.
+  - Pillars: 3,253 in 527 Halls (288 colonnades, 239 grids), in 335 Floors.
+  - Of the 166 Boss Halls, 58 are shaped and 53 pillared. 59 rings are an Entrance, Stairs or Boss Hall.
+  - **Blocks a Floor**: 15.1 mean, 36 at most.
+  - Stairs depth 1.24 × Stage 6's, as 7a's.
+- **The soak** (`warbandSoak.slow.test.ts`):
+  - **A fight round pillars** (seed 2, Floor 1, hall12, a 22 m rect with a 5-pillar colonnade, a guard of 3):
+    - all 3 Soldiers promoted inside the Hall, the first at 0.7 s;
+    - 56 hits landed on the immortal Player there;
+    - a promoted Fighter 1.89 m from a pillar's face on 39 Fighter-Ticks.
+  - **A patrol through a shaped Hall** (seed 1, Floor 1): an 8-Hall loop walked in 223.5 s, with its anchor 10 s in a cross Hall.
+  - **Nobody inside a Block**: checked on every Fighter and unpromoted Soldier over 360,145 Ticks (the long Runs, the levelled Runs and both new cases): 0 inside.
+  - **The Tick**:
+    - levelled Runs: mean 0.39 ms, p99 2.77 (7a: 0.40, 2.62);
+    - the 5-Run soak: mean 0.37 ms, p99 1.81 (7a: 0.40, 2.04);
+    - Floor build 553 ms (max 761) and navmesh 176 ms (max 210), cold, under load.
+    - The Blocks cost nothing measurable, far under the Design's 0.60 ms / 4 ms trigger, so `pillars.percent` stays 40.
+  - Exercised: 221 Promotions, 77 Chases, 6 Returns, 70 Warbands wiped, 26 patrol loops.
+- **Stage 2's empty-Floor walk**: 136.8, 236.0 and 151.8 s to the Stairs on Floors 1 to 3 (7a: 134.6, 235.6, 150.5).
+
+**Tests**: `npm run typecheck` is clean. `npm test`: **3051 passed, 5 skipped** (2977 before the Stage). `npm run test:slow`: 24 files and **55 tests** (53 before). 54 pass in the full parallel run. `delverGen.slow.test.ts` misses its 600 ms build budget there under the other files' load, and passes alone (543 ms mean). Its budget has little headroom left on 7b Floors (see To watch next).
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Dungeon: Delver, add an AI ally, Fight. `&delverStart=3` starts on the first Boss Floor. `#/mapeditor?dev=1&delverSeed=S&delverFloor=F` shows a Floor's Halls from above.
+- Fight a Warband in a pillared Hall (a colonnade or a grid): use the pillars to break its Formation, and see whether it pours round them.
+- Walk an L, T, cross and ring Hall. Does a ring's loop round its core make a good chase?
+- Open the Floor Map (`M`) on a shaped Hall.
+- See whether a Boss fight in a shaped or pillared great hall plays better.
+
+**To watch next**:
+- **The generator's 600 ms budget is nearly spent**: 543 ms mean alone, over it when the slow suite runs in parallel. Before 7c adds more, either the build gets faster (the Blocks' `fillBlocked` and `clearanceOf` passes) or the budget is raised, which is the user's call.
+- **Floor build is slower**: 501 ms mean against 7a's 402 (about 1.7 s laptop-equivalent at most), still warmed a Floor ahead. 7c to 7e add more.
+- **Rings move the centre**: a ring Hall's markers stand in its south band, not its middle.
+- **Notch Blocks are plain**: solid rock in the Hall's material. 7e's archetypes may dress them.
+- **No cover lower than the ceiling**: every Block is full height. A low Block would need a walkable top (a Platform), left for later.
 
 ### Stage 7c: verticality inside a Hall
 **Model**: Opus (geometry and levels).
