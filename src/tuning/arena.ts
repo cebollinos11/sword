@@ -78,8 +78,12 @@ export interface ArenaGeometry {
   readonly spawns: readonly SpawnPoint[];
   /** A Hall Arena's Doors, Door 0 (the entrance) first; empty for every other Arena. */
   readonly doors: readonly ArenaDoor[];
-  /** False on a Battle map (docs/plans/battle-objectives.md, Stage 3a): its navmesh has no jump Links, so a big map builds cheaply and the AI never leaps off its walls. Absent everywhere else. */
-  readonly jumpLinks?: false;
+  /**
+   * On a Battle map (docs/plans/battle-objectives.md, Stage 3a) `false`: its navmesh has no jump Links, so a big map builds cheaply and the AI
+   * never leaps off its walls. `'shortcuts'` (Stage 6, a map that asks for `shortcuts`): only the Links onto a Walk Surface walking already
+   * reaches (ADR 0013), never onto a roof. Absent everywhere else: every jump Link.
+   */
+  readonly jumpLinks?: false | 'shortcuts';
 }
 
 /** Which Arena each kind of play uses. */

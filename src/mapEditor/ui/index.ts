@@ -129,7 +129,7 @@ function propsOf(b: Brush, into: BrushProps): BrushProps {
   if (isSegment(b)) Object.assign(into, { ax: b.a.x, az: b.a.z, bx: b.b.x, bz: b.b.z });
   else Object.assign(into, b.rect);
   if ('y' in b) into.y = b.y;
-  if ('top' in b) into.top = b.top;
+  if ('top' in b && b.top !== undefined) into.top = b.top;
   if (b.kind === 'ramp') {
     const [sa, sb] = rampLongSides(b.up);
     Object.assign(into, { lo: b.lo, hi: b.hi, up: b.up, railA: b.rails.includes(sa!), railB: b.rails.includes(sb!) });

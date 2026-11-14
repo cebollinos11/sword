@@ -252,6 +252,7 @@ export function sourceFileText(source: MapSource): string {
   if (s.lobby !== undefined) head.push(`  "lobby": ${line(s.lobby)}`);
   // Mirror mode (Stage 6), after the settings, so a map with none writes what Stage 5 wrote.
   if (s.mirror) head.push(`  "mirror": true`);
+  if (s.shortcuts) head.push(`  "shortcuts": true`);
   const body = [list('bases', s.bases), list('objectives', s.objectives), list('brushes', s.brushes)];
   // The look (Stage 5): its sky, then its props one a line, last, so a map with none writes what Stage 4 wrote.
   if (s.look !== undefined) {

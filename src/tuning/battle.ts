@@ -380,6 +380,8 @@ export interface BattleMapTuning {
   readonly front: number;
   /** The army size a Battle on it has unless the Lobby picks another, and the most it may (whole numbers): set from the budget gate. */
   readonly armySize: { readonly standard: number; readonly max: number };
+  /** Stage 6: its navmesh builds shortcut jump Links only (`ArenaGeometry.jumpLinks`), where a Fighter Jumps between Walk Surfaces already joined by walking. Absent: none. */
+  readonly shortcuts?: true;
   /**
    * The Tickets a Team starts with for each Soldier of its army on this map, replacing `tickets.perSoldier` (`applyBattleKnobs`): a map whose
    * walls and levels slow the killing lasts longer on the same Tickets, so it may start with fewer. Absent: the Battle's own.
@@ -434,6 +436,12 @@ export interface BattleTuning {
   readonly levels: LevelsTuning;
   /** The hand-built Battle maps, by name (`data/battlemaps/<name>.json`; none in a Battle written by hand). The open field is not one. */
   readonly maps: Readonly<Record<string, BattleMapTuning>>;
+}
+
+/** A flag that is `true` or left out (the caller passes only a present one). */
+function trueOnly(v: unknown, where: string): true {
+  if (v !== true) throw new TuningDataError(`${where} must be true or left out, got ${JSON.stringify(v)}`);
+  return true;
 }
 
 function wholeNumber(obj: Record<string, unknown>, key: string, where: string): number {
@@ -533,6 +541,7 @@ export function parseBattleMap(raw: unknown, where: string, b: Pick<BattleTuning
     bases: [fieldPoint(bases[0], `${where}.bases[0]`, size), fieldPoint(bases[1], `${where}.bases[1]`, size)],
     front,
     armySize,
+    ...(m.shortcuts === undefined ? {} : { shortcuts: trueOnly(m.shortcuts, `${where}.shortcuts`) }),
     ...(m.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: positiveNumber(m, 'ticketsPerSoldier', where) }),
     // A map with no card has no `lobby` key, as before the Map Editor's Stage 3.
     ...(lobby ? { lobby } : {}),

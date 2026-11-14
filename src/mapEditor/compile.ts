@@ -386,7 +386,9 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     let owner = 0;
     for (const [h, o] of seen) {
       if (Math.abs(h - y) <= stepUp + EPS) return;
-      if (h > y && h < top) [top, owner] = [h, o];
+      // An Enclosure's roof is no ledge to wall: its own Walls stand to it, and a Deck under it (a gallery) has an open edge.
+      const roof = brushes[o - 1]!.kind === 'enclosure' && h > (brushes[o - 1] as EnclosureBrush).y;
+      if (h > y && h < top && !roof) [top, owner] = [h, o];
     }
     if (seen.length === 0 && !block[nj * N + ni]) overNothing.add(from);
     if (owner === 0) return;
@@ -552,6 +554,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     bases: source.bases,
     front: source.front,
     armySize: source.armySize,
+    ...(source.shortcuts ? { shortcuts: true } : {}),
     ...(source.ticketsPerSoldier === undefined ? {} : { ticketsPerSoldier: source.ticketsPerSoldier }),
     ...(source.lobby === undefined ? {} : { lobby: source.lobby }),
   };
@@ -568,7 +571,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     const brush = of(/walk\[(\d+)\]/, surfaceBrush) ?? of(/walls\[(\d+)\]/, wallBrush) ?? of(/blocks\[(\d+)\]/, blockBrush);
     throw new MapCompileError(`the game refuses the map: ${e.message}`, brush ? [brush] : []);
   }
-  const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: false };
+  const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: map.shortcuts ? 'shortcuts' : false };
   return { map, warnings, surfaceBrush, wallBrush, blockBrush, arena };
 }
 
@@ -757,6 +760,7 @@ export function list(key: string, items: readonly unknown[]): string {
 export function mapFileText(map: BattleMapTuning): string {
   const line = (v: unknown) => JSON.stringify(v);
   const head: string[] = [`  "name": ${line(map.name)}`, `  "front": ${line(map.front)}`, `  "armySize": ${line(map.armySize)}`];
+  if (map.shortcuts) head.push(`  "shortcuts": true`);
   if (map.ticketsPerSoldier !== undefined) head.push(`  "ticketsPerSoldier": ${line(map.ticketsPerSoldier)}`);
   // The Lobby's card (Stage 3), its parts in one order whatever order the source gave them.
   if (map.lobby !== undefined) head.push(`  "lobby": ${line(Object.fromEntries(LOBBY_KEYS.filter((k) => map.lobby![k] !== undefined).map((k) => [k, map.lobby![k]])))}`);
