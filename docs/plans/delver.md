@@ -1611,6 +1611,189 @@ What every sub-stage shares:
 - **Squads** must file round a corner: the soak shows a patrol and a chase through an L and an S Passage.
 - **Done**: the 500 pairs judged, with L, S and Z Passages counted; the soak; the walk time; screenshots of a great hall and of each Passage shape.
 
+#### Design
+Written 2026-11-14 at the sub-stage's start. Battles, Duels and the Hall-graph Run are unchanged. **No new hashed state**: everything new is in the plan and the Map Source, rebuilt on every peer from (Run seed, Floor). `PROTOCOL_VERSION` stays 30; `DELVER_VERSION` goes to 6. **With every 7a knob off** (`flatRooms`, below) a Floor's compiled map is byte for byte Stage 6's: no new pick changes a decision, the candidate lists are the same, and every straight Passage is written as before.
+
+**The field stays the Battles' 200 m.** A Floor's field is `battle.field.size`, which `compileMap`, the Crowd, the fields and the Map Editor all read. So the lattice gets coarser instead: 6 × 6 cells 30 to 32 m apart, against Stage 6's 7 × 6 cells 22 to 28 m apart. The Floor is about 155 m across either way (Stage 6: 150 × 125).
+
+**1. Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`, `delver.floor`), the shipped values, with Stage 6's in brackets:
+```json
+"cols": 6, "rows": 6, "rooms": 20, "gaps": [30, 32], "halfSize": [7, 14],
+"turnPercent": 30,
+"great": { "count": [1, 2], "half": [18, 22] }
+```
+(cols 7, rows 6, rooms 22, gaps [22, 24, 26, 28], halfSize [5, 11]; `turnPercent` and `great` are new.) Every other `floor` key is unchanged.
+- `halfSize` [7, 14]: Halls 14 to 28 m across, as the plan asks. A gap of 30 caps a Hall at 26 m (`limX` 13) and 32 at 28.
+- `turnPercent`: the chance (in 100) that a growth step takes a turning candidate (an L, S or Z Passage) when there is one. With 0, no turning Passage is ever made, as a tree Passage or as a loop.
+- `great.count` [min, max]: great halls per Floor (whole, 0 ≤ min ≤ max ≤ 4). `great.half` [min, max]: a great hall's half length along its two cells (whole m). [18, 22] gives 36 to 44 m.
+- **Parse checks** (new): `turnPercent` is a percent. `great.count` is an ascending whole pair with max ≤ 4. `great.half` is an ascending whole pair with `great.half[0] > halfSize[1]`. Also `great.half[1] + 1 ≤ min(gaps) / 2 + min(floor((min(gaps) − minPassage) / 2), halfSize[1])`, so a great hall can always take its size and dodge an even-metre Wall. The existing lattice-fits-the-field check is unchanged: 5 × 32 / 2 + 14 + 2 = 96 ≤ 100.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts` gain the keys and their checks.
+- **`flatRooms(tuning)`** (tests only, `src/sim/delver/flat.testdata.ts`): Stage 6's lattice with the knobs off: `cols 7, rows 6, rooms 22, gaps [22, 24, 26, 28], halfSize [5, 11], turnPercent 0, great { count [0, 0], half [12, 16] }`. `flatFloors(flatRooms(t))` is Stage 5's flat Floor.
+- **`rooms7a(tuning)`** (tests only, same file; Tasks 1 to 3 only, removed in Task 4): the shipped values above, for the tests written before the bundled data switches.
+- **The walk**: if the mean Stairs depth over the 500 pairs (plan metres, `halls[stairs].depth`) is more than 1.3 × Stage 6's (the same pairs planned under `flatRooms`), `rooms` comes down one at a time (not below 16) until it is not. Task 4 does this and records it.
+
+**2. Words.** A **great hall** is a Hall over two neighbouring lattice cells: one Enclosure rect, centred between the two cells' centres. A Hall's **slots** are where a Passage may leave it: one per side for a one-cell Hall, at the side's centre. A great hall has one at each short end (at the side's centre) and two on each long side, one on each of its cells' centre lines (offset from the side's centre by half a gap). A slot holds at most one Passage. A Passage is **straight** (one leg) or **turns** at right angles: an **L** (one corner), or an **S** or a **Z** (two corners, its two ends parallel and offset). It is a Z when its first turn, walking from `a`, is clockwise, and an S when it is anticlockwise. A **leg** is a straight stretch `passage` m wide. A **corner** is the `passage` × `passage` square where two legs meet. Legs and corners are a Passage's **pieces**. Each is its own Enclosure, joined to the next by a full-width doorway.
+
+**3. The plan** (`plan.ts`; all `readonly`):
+```ts
+export type PassageShape = 'straight' | 'L' | 'S' | 'Z';
+export interface PassagePiece {
+  rect: Rect;
+  /** A corner is the w × w square two legs meet in; a leg runs along `axis` (a corner's `axis` is that of the leg before it). */
+  corner: boolean;
+  axis: 'x' | 'z';
+  /** The side it is entered by, walking from `a`'s end, and the side it is left by toward `b`'s. A leg's are opposite; a corner's are not. */
+  from: Side;
+  to: Side;
+  /** Its floor's height (m) at its `from` and at its `to` side: equal, but on the Passage's one sloped leg. */
+  y0: number;
+  y1: number;
+}
+DelverHall    += cells: readonly number[] /* the lattice cells it covers, ascending: one, or two for a great hall */; great: boolean
+DelverPassage += shape: PassageShape; sideA: Side; sideB: Side /* the sides of a and b it leaves by */; pieces: readonly PassagePiece[] /* from a's end to b's */
+```
+- `rect` becomes the bounding rect of its pieces: for a straight Passage, its one piece's rect (as before). **It is never a place test**: whatever asks "which place holds this point", or draws a Passage, uses its pieces (§6).
+- `axis` is the axis of its first leg.
+- **`a` and `b`**: a straight Passage keeps Stage 1's rule (a west or south of b). A turning one has `a` the Hall it was grown or found from.
+- `length` is unchanged: centre to centre, |Δx| + |Δz|.
+- `i`, `j` are the lowest cell's.
+
+New constants: `PASSAGE_CLEAR = 1` (the least gap, m, between a turning Passage's piece and any Hall or other Passage it does not join, and between a great hall and a Passage; Walls are drawn 0.6 m thick) and `MIN_LEG = 2` (an S or Z's shortest end leg, m).
+
+New `SALT` keys: greatCount 40, greatAxis 41, greatLong 42, great 43, turn 44, turnPick 45.
+
+**The algorithm**, Stage 6's steps with these changes.
+- **0. A cell's Hall rect** (`cellRect(c)`): what `place(c)` gives a one-cell Hall there, from its own picks. The **reach rect** of a cell is its `cellRect`. The one exception is a Boss Floor with `great.count[1]` 0: there Stage 4 may grow the Stairs Hall, so the reach rect is the grown rect, `offDots(min(halfSize[1], lim))` on both axes. The clearance checks below test against reach rects, so no later Hall can land on a Passage.
+- `offDots(half, centre, lo, hi)` takes its bounds as arguments: lo is `halfSize[0]` (or `great.half[0]` for a great hall's long half), and hi is the limit.
+- **1b. Great halls wanted**: when `great.count[1] > 0`, G = `count[0] + pick(0, greatCount, count[1] − count[0] + 1)`, else 0.
+- **A great hall's rect**, over cells c and c' = c + one step along axis k (c the lower):
+  - Along k: the centre is the midpoint of the two cell centres (a whole metre, since gaps are even). The half is `offDots(min(great.half[0] + pick(c, greatLong, span), cap), centre, great.half[0], cap)`, with `cap = g / 2 + min(lim_k(c), lim_k(c'), halfSize[1])` and g the gap between the two cells.
+  - Across: the shared cell line, half `offDots(min(halfSize[1], lim_across), line, halfSize[0], lim_across)`.
+  - So it keeps `minPassage` from every cell beyond it, as a Hall does, and every Wall is on an odd metre.
+  - `occupied` holds its index on both cells.
+- **3. Growth**:
+  - **The start**: on a Boss Floor with G ≥ 1, Hall 0 is a great hall. Its cell is `pick(0, start, cells)` as now, its axis `pick(0, greatAxis, 2)` (0 x, 1 z), and its second cell is the next one along that axis, or the one before it when that is off the lattice. It will be the Boss Hall. The growth then places G − 1 great halls; otherwise it places G.
+  - **Due steps**: the k-th of the Gg great halls placed in growth (k = 0 .. Gg − 1) is due from step `floor((k + 1) × rooms / (Gg + 1))`.
+  - **Candidates** are listed per Hall (index order), then per free slot (side n, e, s, w; on a side, by ascending cell), with c the slot's cell:
+    - **near / far**: as Stage 1, from the slot's cell.
+    - **great** (only while one is due): a near candidate's c1, with a second cell tried in this order: c1 + d (along), then c1 + p for each p perpendicular to d in n, e, s, w order. The second cell must be inside the lattice, empty and unreserved, and the great hall's rect must keep `PASSAGE_CLEAR` from every piece of every Passage placed so far. The Passage joining it is straight, into its slot on side opposite(d) at c1.
+    - **L** (only when `turnPercent > 0`): c1 = c + d is inside, empty and unreserved (it becomes the corner cell), and t = c1 + p (p perpendicular, n, e, s, w order) is inside, empty and unreserved. The corner is at c1's centre. The new Hall at t is entered by its side opposite(p).
+    - **S/Z** (only when `turnPercent > 0`): t = c + d + p is inside, empty and unreserved. The new Hall at t is entered by its side opposite(d). The middle leg runs across the gap between c's and t's lattice lines on d's axis, at a whole-metre line m (below).
+    - Each L or S/Z candidate is listed L first, then S/Z, per p.
+    - Each L or S/Z must pass the **clearance check**, with t's Hall taken at its reach rect. Its pieces must keep `PASSAGE_CLEAR` from:
+      - every other Passage's pieces;
+      - every Hall rect (a placed Hall's, or the reach rect of each empty, unreserved cell, t included).
+      The exceptions are its first piece against a, and its last piece against t's Hall: those touch and must not overlap.
+  - **The step**, in this order:
+    1. If a great hall is due and the great list is not empty, place one: `great[pick(step, great, n)]`.
+    2. Else, if the turning list (L and S/Z together, in listing order) is not empty and `pick(step, turn, 100) < turnPercent`, take `turns[pick(step, turnPick, n)]`. Place a one-cell Hall at t, join it, and reserve an L's corner cell.
+    3. Else Stage 1's far / near step, with its picks unchanged.
+    With G 0 and `turnPercent` 0 the lists and picks are Stage 6's.
+  - **S/Z's middle line m**, for d along x (along z it is the same with x and z swapped). A is the Hall left (the slot's line z_a), B's reach rect is the one entered (line z_b). H1 is the reach rect of cell c + p and H2 that of c + d, each ignored when its cell is reserved or is the target. Then:
+    - `lo = max(A.x1 + MIN_LEG, H1.x1 + PASSAGE_CLEAR) + w/2`;
+    - `hi = min(B.x0 − MIN_LEG, H2.x0 − PASSAGE_CLEAR) − w/2` (for d = e; mirrored for d = w);
+    - m = `max(ceil(lo), floor((lo + hi) / 2))`, a candidate only if m ≤ hi.
+    - The corners are (m, z_a) and (m, z_b). Every value is a multiple of 0.5, so it is exact.
+- **3b. Galleries**: as Stage 6, never on a great hall.
+- **3c. Levels**: as Stage 6, with each Passage's two slots in place of `p.d` and `opposite(p.d)`. A Passage is forced flat (options [0]) when either end is a gallery's wall or a great hall's long-side slot.
+- **4. Loops**: Stage 6's straight candidates, from the slots, then, when `turnPercent > 0`, turning loops. They are found as in growth, but t holds a Hall b with a free slot on the entered side (opposite(p) for an L, opposite(d) for S/Z), and b > h. They must pass the clearance check (b at its own rect), Stage 1's rules (not joined, at least 3 tree Passages apart) and Stage 6's door-level rule (forced flat as in 3c). An L's corner cell is then reserved.
+- **5. Pieces**: built from the route (its corners) and the Halls' final rects by one pure function, `passagePieces`:
+  - The legs run between consecutive points: a's side, the corners, b's side. A leg stops at a Hall's side or at the edge of a corner's square. Corners are squares on their points.
+  - Every leg and corner centre line is a whole metre, so every Passage Wall is on a half metre, off the field's dots.
+  - **Heights**: flat Passages are flat throughout. A sloped Passage has exactly one sloped leg: the only leg of a straight one, the leg at the lower end of an L, and the middle leg of an S or Z. Pieces before it stand at `ya`, pieces after it at `yb`, and every corner is level.
+    - So a sloped leg's high end always meets a corner, or (straight only) a Hall's side-centre slot, whose doorway cuts it. Stage 6's rule.
+    - Every sloped leg is at least 2 × `LEVEL_RISE` long: an L's legs are at least about half a gap, an S/Z middle leg is a gap less w.
+  - **A Hall's `doors`** list a side when a Passage attaches there, at the Hall's floor, at that side's centre. That covers a one-cell Hall's sides and a great hall's short ends, as before. A great hall's long-side slots are never listed: their flat Passage's own doorway opens the shared Wall (ADR 0023's rule).
+  - **The Boss growth** (Stage 4) runs only when `great.count[1]` is 0. It rebuilds the pieces of every Passage on the Boss Hall. The corners stay put: they were placed against the grown reach rect.
+- **7. Kinds**:
+  - **A Boss Floor with G ≥ 1**: the Stairs (Boss) Hall is Hall 0. The Entrance is the Hall furthest from Hall 0 by walking among the leaves that are not great (ties go to the lower index). With none, it is the furthest Hall that is not great. Depth and `mainPath` are then from that Entrance, as now. There is no Boss growth.
+  - **Otherwise**: the Entrance is picked as now, among the leaves that are not great (and, with none, among the Halls that are not great). The Stairs is the deepest Hall.
+  - **Treasure**: its pool is restricted to its great halls when it has any.
+  - **Fight / Empty**: an in-line great hall is Empty. Any other great hall is Fight: the first E of the seeded order that are not great become Empty.
+  - With G 0 every rule is Stage 6's.
+- **In line**: only straight Passages carry the line. A Hall's exit is its slot on the side opposite the one entered, on the same lattice line.
+- Patrols, markers (at each Hall's centre, a great hall's included), depth and the main path are unchanged.
+
+**4. The source** (`floorSource`):
+- Each Passage writes its pieces in order as Enclosures (`material: 'stone'`). The ids are `pass<n>` for a one-piece Passage (as before) and `pass<n>-<k>` for piece k of a turning one.
+- An Enclosure stands at `min(y0, y1)`, with its roof at `max(y0, y1) + HALL_STOREY` (written only when it is not the next level). Its doors are `{ [from]: w, [to]: w }` when flat, else `{ [y0 < y1 ? from : to]: w }` (its low end).
+- After the galleries, each sloped leg writes a Ramp, `pass<n>-ramp` or `pass<n>-<k>-ramp`: over the leg's rect, `up` its higher side (`y1 > y0 ? to : from`), railed on both sides across its axis, `stone`.
+- `levels` gains every piece's floor and roof.
+- A straight-only Floor writes exactly Stage 6's Brushes.
+
+**5. The judge** (`judge.ts`):
+- **1. rooms** gains:
+  - `rooms: N great halls, A to B wanted` (only when `great.count[1] > 0`);
+  - `rooms: the Boss Hall hallX is not a great hall` (a Boss Floor, `great.count[1] > 0`).
+- **New `layout`** (plan-only, after `levels`): seen from above, nothing overlaps.
+  - No two Halls share interior.
+  - No piece shares interior with another Passage's piece, or with any Hall (its own end Halls included: those it may only touch).
+  - Every Hall and piece is inside the field.
+  - Each line reads `layout: <id> overlaps <id>`, or `layout: <id> is outside the field`.
+- **4. passages**, **along every leg**:
+  - The checkpoints are the point 1 m inside the first piece from its `from` side (on its centre line, at `y0`), each corner's centre (at its height), and the point 1 m inside the last piece from its `to` side (at `y1`). Each stands on `floorNear` as now.
+  - For each consecutive pair of checkpoints, both ways, the field distance must be ≥ 0 and ≤ `follow` × the nominal length between them. The nominal length runs from a's side to the first corner's centre, corner centre to corner centre, and the last corner's centre to b's side.
+  - A straight Passage has one pair, of nominal length its whole length, and the same message as before. A turning one names the leg: `passages: pass7 (hall2 to hall9) leg 2 of 3 is not followed from corner 1 to hall9's end: …`.
+- Rules 3, 5, 6 and 7 are unchanged (`sight` is blocked by a corner's Walls).
+- **`describeFloor`** adds `, G great halls, l L, s S and z Z Passages`.
+
+**6. What reads a Passage's rect** (each moves to its pieces; behaviour on a straight Passage unchanged):
+- `revealPlace` (`reveal.ts`): the Halls first, then the first Passage, by index, any of whose pieces holds the point (the same inclusive and exclusive edges).
+- `dropSpots`' `rectOf` (`delverLoot.ts`): the Halls' rects, then every Passage's pieces in order.
+- `guardFacing` (`warbands.ts`): by `sideA` and `sideB` (a Passage leaves Hall `a` by `sideA`), the sides in n, e, s, w order and the Passages in order within a side, so a great hall's two Passages on a side compare by depth.
+- `Minimap.drawDelver` (`src/render/minimap.ts`) and `delverMapLayout` (`src/play/floorMap.ts`): a revealed Passage is drawn as each of its pieces' rects.
+- The judge (§5) and the soak's scenario searches, which read `axis` or `rect` as a straight Passage's, are restricted to `shape === 'straight'` where they assume one.
+
+**7. Existing tests this sub-stage rewrites** (only these, and only as said):
+- `golden.test.ts`:
+  - the default pins are rewritten (`DELVER_VERSION` 6);
+  - a new `flatRooms` case gives **Stage 6's default map pins exactly**;
+  - the flat and old-Floor-9 cases move onto `flatRooms`, with their map pins unchanged. Every plan pin is new: the plan gained fields.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts`: the new keys.
+- `plan.test.ts` and `judge.test.ts`: the cases that assume a one-cell Hall or a straight Passage (side-centred doorways, `rect` as the one piece, a loop's Brush id) run on `flatRooms`, their expectations unchanged.
+- `delverGen.slow.test.ts`: far Passages counted as `shape === 'straight'` and longer than `max(gaps)`, and the new counts.
+- `warbandSoak.slow.test.ts`'s "a chase across a level": its search takes straight Passages only.
+- **Any other existing Delver test that fails only because its Floor's layout changed** (a Hall's place, a marker, a Warband's walk) runs on `flatRooms(tuning)`, composed with `flatFloors` where it was already flat, with its expectations unchanged. Task 4 lists each one. A test that still fails on `flatRooms` is a bug to report.
+- No test is removed.
+
+**8. Tests to add**:
+- `plan.test.ts` (200 seeds × Floors 1 to 9 on the 7a Tuning):
+  - Hall Walls on odd metres. One-cell halves in `halfSize`, and great halls' long halves in `great.half`, over two lattice-neighbour cells and centred between them. The great-hall count in range, with Hall 0 great and the Boss Hall on a Boss Floor.
+  - Every Passage's pieces: in a chain, each `to` edge on the next one's `from` edge. The first touches a on `sideA` and the last touches b on `sideB`, at a slot line. Legs are w wide on whole-metre centre lines and corners are w × w. The shape matches the corner count (an S or Z's ends parallel). At most one sloped leg, at least 2 × `LEVEL_RISE` long and placed by §3.5's rule; corners level; heights matching `ya` and `yb`.
+  - Pieces keep `PASSAGE_CLEAR` from every Hall and Passage they do not join. A great hall's long-side Passage is flat.
+  - Doors as §3.5. The Entrance is never great (when a leaf that is not great exists). A great hall is never Empty unless it is in line. In-line Halls only through straight Passages.
+  - Across the 200: L, S and Z Passages, both in the tree and as loops; a sloped L and a sloped S or Z; Floors with 1 and with 2 great halls; a great hall with a long-side Passage; a Boss great hall.
+  - On `flatRooms`: every Passage straight with one piece equal to its rect, no great hall, and no 7a pick made (the salts' test, as Stage 6's).
+- `source.test.ts` / `judge.test.ts`:
+  - a turning Passage's Enclosures, doors and Ramp are as §4, and its Floor compiles and passes `walkCheck`;
+  - 7a Floors pass the judge first try;
+  - `layout` fires on a piece moved onto a Hall;
+  - `rooms` fires on a plan with its great flags stripped, and on a Boss Floor whose Boss Hall is not great;
+  - `passages` fires, naming the leg, when a corner's Enclosure is removed from the source;
+  - the editor's `checkMap` at 2 m finds no Wall on a node;
+  - the navmesh's shortcut-link case holds on a 7a Floor.
+- The consumers: `revealPlace` in a corner piece, `dropSpots` for a fall in a corner, `guardFacing` across a turning Passage and a great hall's two Passages on one side, and `delverMapLayout` drawing every piece.
+- `delverGen.slow.test.ts` (500 pairs):
+  - per Floor, the great halls and the straight, L, S and Z Passages (tree and loop), and the mean Stairs depth against the same pairs under `flatRooms`;
+  - the budgets of Stage 6 (build mean ≤ 600 ms, none over 2 s, navmesh mean ≤ 300 ms);
+  - **failed attempts at most 1 in 20 pairs**.
+  - **It must show it exercised** L, S and Z Passages, sloped turning Passages, great halls on every Boss Floor, Floors with 2 great halls, and Treasure and Fight great halls.
+
+**9. The soak** (`warbandSoak.slow.test.ts`; immortal party):
+- The levelled Runs case reruns on the 7a Floors: the Tick against Stage 6's 0.49 ms mean, and the Floor build and navmesh.
+- New cases, each on the first Floor in seed order that has what it needs:
+  - **A patrol round corners**: with no party (the patrols test's harness), a patrol Warband whose loop holds an L Passage and one whose loop holds an S or Z (one Floor or two). Each walks its whole loop. Each turning leg is walked within 3 s of its walking time. Its anchor stands in every corner piece of those Passages. No Soldier is ever more than 6 m from its place.
+  - **A chase round a corner**: a guard in a Hall with an L, and one with an S or Z, on its floor. The Player, in sight, walks away by the navmesh through that Passage to its far Hall. The anchor reaches each corner piece, and at least half the Warband's Soldiers stand in the Passage's last leg at some Tick.
+  - Must show, else fail: every corner reached, and the patrols' loops completed.
+- **Stage 2's empty-Floor walk** (`delverRun.slow.test.ts`) on the 7a Floors, against Stage 6's 148 to 201 s.
+
+**Tasks** (Tasks 2 and 3 may run side by side: their files are disjoint):
+1. **The plan and its Tuning**: `data/delver.json` (the new keys with the knobs off: `turnPercent` 0, `great.count` [0, 0], the lattice unchanged), `src/tuning/delver.ts` with `delver.test.ts` and `tuning.test.ts`, `plan.ts`, `flat.testdata.ts` (`flatRooms`, `rooms7a`), and `plan.test.ts`.
+2. **The source and the judge**: `source.ts`, `judge.ts`, `generate.ts` and their tests (on `rooms7a`).
+3. **The consumers**: `reveal.ts`, `delverLoot.ts`, `warbands.ts`, `src/render/minimap.ts`, `src/play/floorMap.ts` and their tests.
+4. **The switch**: the shipped values in `data/delver.json`, `DELVER_VERSION` 6, the golden pins, §7's moves onto `flatRooms`, `rooms7a` removed, `delverGen.slow.test.ts`, and the walk's `rooms` rule.
+5. **The soak**: §9's cases and measurements.
+
 ### Stage 7b: Hall shapes, pillars and cover
 **Model**: Opus (geometry).
 - **Shapes**: L, T, cross and ring Halls, each built from several rects into one Hall. A ring goes round a central Block.
