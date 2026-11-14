@@ -19,6 +19,12 @@ export interface LevelPoint {
   readonly z: number;
 }
 
+/** A Hall's shape (docs/plans/delver.md, Stage 7b): its rect, or its rect cut by solid Blocks in its corners (L, T, cross) or its middle (ring). */
+export type HallShape = 'rect' | 'L' | 'T' | 'cross' | 'ring';
+
+/** How a Hall's pillars stand: two rows along its long axis, or a grid. */
+export type PillarLayout = 'colonnade' | 'grid';
+
 export type DelverHallKind = 'Entrance' | 'Stairs' | 'Boss' | 'Rest' | 'Treasure' | 'Fight' | 'Empty';
 
 /** One Hall: a rectangle on a lattice cell (a great hall: on two), with a doorway on each side a Passage leaves from at its centre. */
@@ -32,9 +38,20 @@ export interface DelverHall {
   readonly cells: readonly number[];
   /** A great hall: one Hall over two neighbouring lattice cells. */
   readonly great: boolean;
+  /** The Hall's centre: a floor point every marker, patrol point and field uses. The rect's centre, but for a ring: the centre of its south band. */
   readonly cx: number;
   readonly cz: number;
+  /** The Enclosure's rect: the bounding rect of `rects`. */
   readonly rect: Rect;
+  readonly shape: HallShape;
+  /** Its floor seen from above: the rect less its solids, in band order (`floorRects`); [rect] for a rect. */
+  readonly rects: readonly Rect[];
+  /** The notches (corner order NE, SE, SW, NW) or the ring's core: Blocks from the floor to the roof; [] for a rect. */
+  readonly solids: readonly Rect[];
+  /** 2 x 2 m Blocks standing on its floor, ascending z then x; [] for none. */
+  readonly pillars: readonly Rect[];
+  /** How the pillars stand; absent: no pillars. */
+  readonly layout?: PillarLayout;
   readonly doors: Doors;
   readonly kind: DelverHallKind;
   /** Metres from the Entrance by the Passage graph. */
@@ -157,7 +174,27 @@ export const SALT = {
   gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14,
   galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
+  shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
+/** A notch's least extent on each axis (m). */
+export const NOTCH_MIN = 4;
+/** The least distance (m) from a Hall's centre to a notch's inner edge on each axis. */
+export const CENTRE_KEEP = 4;
+/** A ring's least band (m). */
+export const RING_BAND = 6;
+/** The least gap (m) from a pillar to a Wall or a solid. */
+export const WALL_GAP = 3;
+/** The half side (m) of the square round a Hall's centre that no pillar enters. */
+export const MARKER_KEEP = 5;
+/** A doorway's lane goes this many metres inward and is `DOOR_SIDE` m wider than the doorway on each side. */
+export const DOOR_LANE = 6;
+export const DOOR_SIDE = 1;
+/** A pillar's half side (m); a colonnade's row distance from the centre line and its step along; a grid's step (m); the fewest pillars a Hall keeps. */
+export const PILLAR_HALF = 1;
+export const COLONNADE_ROW = 6;
+export const COLONNADE_STEP = 6;
+export const GRID_STEP = 8;
+export const PILLARS_MIN = 2;
 /** The least gap (m) between a turning Passage's piece and any Hall or other Passage it does not join, and between a great hall and a Passage (Walls are drawn 0.6 m thick). */
 export const PASSAGE_CLEAR = 1;
 /** An S or Z's shortest end leg (m). */
@@ -309,6 +346,41 @@ const boundsOf = (pieces: readonly PassagePiece[]): Rect => ({
 
 /** Whether `p` and `q` are at least `c` apart on an axis (x-gap or z-gap at least `c`); c 0: they touch or are apart, but do not overlap. */
 const apartBy = (p: Rect, q: Rect, c: number): boolean => Math.max(p.x0 - q.x1, q.x0 - p.x1) >= c || Math.max(p.z0 - q.z1, q.z0 - p.z1) >= c;
+
+/** Whether `p` and `q` share interior (touching edges do not). */
+const overlaps = (p: Rect, q: Rect): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
+
+/** The even metre nearest `v`, the lower on a tie: a pillar is centred on one, so its edges are on odd metres, off the fields' 2 m dots. */
+const ev = (v: number): number => 2 * Math.ceil((v - 1) / 2);
+
+/**
+ * A Hall's floor seen from above (docs/plans/delver.md, Stage 7b): `rect` cut into z-bands at every solid's z-edges, ascending; in each band the x-runs a
+ * solid does not cover, ascending; a band merges into the one before when their runs are the same. So a rect gives [rect], an L, T or cross its bands
+ * south first, and a ring its south, west, east and north rects.
+ */
+export function floorRects(rect: Rect, solids: readonly Rect[]): Rect[] {
+  const edges = [rect.z0, rect.z1];
+  for (const q of solids) for (const z of [q.z0, q.z1]) if (z > rect.z0 && z < rect.z1) edges.push(z);
+  edges.sort((a, b) => a - b);
+  const cuts = edges.filter((z, k) => k === 0 || z !== edges[k - 1]);
+  const bands: { z0: number; z1: number; runs: [number, number][] }[] = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const z0 = cuts[k]!;
+    const z1 = cuts[k + 1]!;
+    const covering = solids.filter((q) => q.z0 <= z0 && q.z1 >= z1).sort((a, b) => a.x0 - b.x0);
+    const runs: [number, number][] = [];
+    let at = rect.x0;
+    for (const q of covering) {
+      if (q.x0 > at) runs.push([at, Math.min(q.x0, rect.x1)]);
+      at = Math.max(at, q.x1);
+    }
+    if (at < rect.x1) runs.push([at, rect.x1]);
+    const prev = bands[bands.length - 1];
+    if (prev && prev.runs.length === runs.length && prev.runs.every((r, m) => r[0] === runs[m]![0] && r[1] === runs[m]![1])) prev.z1 = z1;
+    else bands.push({ z0, z1, runs });
+  }
+  return bands.flatMap((b) => b.runs.map(([x0, x1]) => ({ x0, z0: b.z0, x1, z1: b.z1 })));
+}
 
 /** Where a Passage may leave a Hall: a side, the lattice cell it is on, and the centre line it runs on (an x for n or s, a z for e or w). */
 interface Slot {
@@ -1019,6 +1091,138 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     }
   }
 
+  // 7c. Shapes and pillars (docs/plans/delver.md, Stage 7b), after the kinds so the patrol points and markers read the final centres. A Hall with a
+  // gallery is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
+  const hallShape = new Array<HallShape>(n).fill('rect');
+  const hallSolids: Rect[][] = halls.map(() => []);
+  const hallPillars: Rect[][] = halls.map(() => []);
+  const hallLayout = new Array<PillarLayout | undefined>(n).fill(undefined);
+  /** A pick of the index of `weights` by cumulative weight, in list order. */
+  const byWeight = (h: number, salt: number, weights: readonly number[]): number => {
+    let r = pick(h, salt, weights.reduce((a, b) => a + b, 0));
+    for (let k = 0; k < weights.length; k++) {
+      if (r < weights[k]!) return k;
+      r -= weights[k]!;
+    }
+    return weights.length - 1;
+  };
+  // A corner's two sides (n 0, e 1, s 2, w 3) in corner order NE, SE, SW, NW; a T's side (n, e, s, w) notches the two corners that share it.
+  const CORNER_SIDES = [[0, 1], [2, 1], [2, 3], [0, 3]] as const;
+  const T_CORNERS = [[0, 3], [0, 1], [1, 2], [2, 3]] as const;
+  const evenDown = (v: number): number => 2 * Math.floor(v / 2);
+  const evenUp = (v: number): number => 2 * Math.ceil(v / 2);
+  halls.forEach((hall, h) => {
+    if (galleryOf[h]) return;
+    const r = hall.rect;
+    const hw = (r.x1 - r.x0) / 2;
+    const hd = (r.z1 - r.z0) / 2;
+    // The doorway of a slot holding a Passage, with DOOR_SIDE m to each side: where a notch may not stand and a pillar may not enter.
+    const spans = hall.slots.filter((sl) => sl.p !== -1).map((sl) => ({ d: sl.d, lo: sl.line - half - DOOR_SIDE, hi: sl.line + half + DOOR_SIDE }));
+    let shape: HallShape = 'rect';
+    let solids: Rect[] = [];
+    if (pick(h, SALT.shape, 100) < t.shapes.percent) {
+      const kinds: HallShape[] = ['L', 'T', 'cross', 'ring'];
+      const want = kinds[byWeight(h, SALT.shapeKind, [t.shapes.weights.L, t.shapes.weights.T, t.shapes.weights.cross, t.shapes.weights.ring])]!;
+      if (want === 'ring') {
+        if (hw >= RING_BAND + 2 && hd >= RING_BAND + 2) {
+          const bandX = RING_BAND + 2 * pick(h, SALT.ringX, Math.floor((hw - 2 - RING_BAND) / 2) + 1);
+          const bandZ = RING_BAND + 2 * pick(h, SALT.ringZ, Math.floor((hd - 2 - RING_BAND) / 2) + 1);
+          shape = 'ring';
+          solids = [{ x0: hall.cx - (hw - bandX), z0: hall.cz - (hd - bandZ), x1: hall.cx + (hw - bandX), z1: hall.cz + (hd - bandZ) }];
+          hall.cz = r.z0 + bandZ / 2;
+        }
+      } else {
+        const capX = evenDown(hw - CENTRE_KEEP);
+        const capZ = evenDown(hd - CENTRE_KEEP);
+        if (capX >= NOTCH_MIN && capZ >= NOTCH_MIN) {
+          const nx = NOTCH_MIN + 2 * pick(h, SALT.notchX, (capX - NOTCH_MIN) / 2 + 1);
+          const nz = NOTCH_MIN + 2 * pick(h, SALT.notchZ, (capZ - NOTCH_MIN) / 2 + 1);
+          const corners: Rect[] = [
+            { x0: r.x1 - nx, z0: r.z1 - nz, x1: r.x1, z1: r.z1 },
+            { x0: r.x1 - nx, z0: r.z0, x1: r.x1, z1: r.z0 + nz },
+            { x0: r.x0, z0: r.z0, x1: r.x0 + nx, z1: r.z0 + nz },
+            { x0: r.x0, z0: r.z1 - nz, x1: r.x0 + nx, z1: r.z1 },
+          ];
+          // A notch passes the door check when, on each side its rect lies along, it covers no doorway's span (touching allowed).
+          const passes = (k: number): boolean =>
+            CORNER_SIDES[k]!.every((d) => {
+              const c = corners[k]!;
+              const [a, b] = d % 2 === 0 ? [c.x0, c.x1] : [c.z0, c.z1];
+              return spans.every((sp) => sp.d !== d || !(a < sp.hi && sp.lo < b));
+            });
+          const first = pick(h, SALT.shapeTurn, 4);
+          if (want === 'cross') {
+            if ([0, 1, 2, 3].every(passes)) {
+              shape = 'cross';
+              solids = corners;
+            }
+          } else if (want === 'L') {
+            for (let m = 0; m < 4; m++) {
+              const k = (first + m) % 4;
+              if (passes(k)) {
+                shape = 'L';
+                solids = [corners[k]!];
+                break;
+              }
+            }
+          } else {
+            for (let m = 0; m < 4; m++) {
+              const [c0, c1] = T_CORNERS[(first + m) % 4]!;
+              if (passes(c0) && passes(c1)) {
+                shape = 'T';
+                solids = [corners[c0]!, corners[c1]!];
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+    hallShape[h] = shape;
+    hallSolids[h] = solids;
+
+    // Pillars: a Hall of shape rect, L, T or cross.
+    if (shape === 'ring' || pick(h, SALT.pillars, 100) >= t.pillars.percent) return;
+    const layout: PillarLayout = (['colonnade', 'grid'] as const)[byWeight(h, SALT.pillarLayout, [t.pillars.weights.colonnade, t.pillars.weights.grid])]!;
+    const cx = hall.cx;
+    const cz = hall.cz;
+    const centres: Pt[] = [];
+    if (layout === 'colonnade') {
+      const alongX = hw >= hd;
+      const [u0, u1, v0, v1, cu, cv] = alongX ? [r.x0, r.x1, r.z0, r.z1, cx, cz] : [r.z0, r.z1, r.x0, r.x1, cz, cx];
+      const vS = evenDown(cv - COLONNADE_ROW);
+      const vN = evenUp(cv + COLONNADE_ROW);
+      let rows = 0;
+      while (vS - 2 * rows - PILLAR_HALF >= v0 + WALL_GAP && vN + 2 * rows + PILLAR_HALF <= v1 - WALL_GAP) rows++;
+      if (rows === 0) return;
+      const o = 2 * pick(h, SALT.colonnadeRow, rows);
+      const along: number[] = [];
+      for (let c = ev(cu); c + PILLAR_HALF <= u1 - WALL_GAP; c += COLONNADE_STEP) if (c - PILLAR_HALF >= u0 + WALL_GAP) along.push(c);
+      for (let c = ev(cu) - COLONNADE_STEP; c - PILLAR_HALF >= u0 + WALL_GAP; c -= COLONNADE_STEP) if (c + PILLAR_HALF <= u1 - WALL_GAP) along.push(c);
+      for (const c of along) for (const v of [vS - o, vN + o]) centres.push(alongX ? { x: c, z: v } : { x: v, z: c });
+    } else {
+      const xs: number[] = [];
+      const zs: number[] = [];
+      for (let c = ev(cx) - GRID_STEP * Math.ceil((hw + GRID_STEP) / GRID_STEP); c <= r.x1; c += GRID_STEP) if (c - PILLAR_HALF >= r.x0 + WALL_GAP && c + PILLAR_HALF <= r.x1 - WALL_GAP) xs.push(c);
+      for (let c = ev(cz) - GRID_STEP * Math.ceil((hd + GRID_STEP) / GRID_STEP); c <= r.z1; c += GRID_STEP) if (c - PILLAR_HALF >= r.z0 + WALL_GAP && c + PILLAR_HALF <= r.z1 - WALL_GAP) zs.push(c);
+      for (const z of zs) for (const x of xs) centres.push({ x, z });
+    }
+    const keep: Rect = { x0: cx - MARKER_KEEP, z0: cz - MARKER_KEEP, x1: cx + MARKER_KEEP, z1: cz + MARKER_KEEP };
+    const lanes: Rect[] = spans.map((sp) =>
+      sp.d === 0 ? { x0: sp.lo, z0: r.z1 - DOOR_LANE, x1: sp.hi, z1: r.z1 }
+      : sp.d === 2 ? { x0: sp.lo, z0: r.z0, x1: sp.hi, z1: r.z0 + DOOR_LANE }
+      : sp.d === 1 ? { x0: r.x1 - DOOR_LANE, z0: sp.lo, x1: r.x1, z1: sp.hi }
+      : { x0: r.x0, z0: sp.lo, x1: r.x0 + DOOR_LANE, z1: sp.hi });
+    const kept = centres
+      .map((c): Rect => ({ x0: c.x - PILLAR_HALF, z0: c.z - PILLAR_HALF, x1: c.x + PILLAR_HALF, z1: c.z + PILLAR_HALF }))
+      .filter((q) => solids.every((so) => apartBy(q, so, WALL_GAP)) && !overlaps(q, keep) && lanes.every((ln) => !overlaps(q, ln)))
+      .sort((a, b) => a.z0 - b.z0 || a.x0 - b.x0);
+    if (kept.length >= PILLARS_MIN) {
+      hallPillars[h] = kept;
+      hallLayout[h] = layout;
+    }
+  });
+
   // 8. Patrol loops: each loop Passage closes the tree path between its Halls into a cycle.
   const treeEdges: Edge[][] = halls.map(() => []);
   plannedPassages.forEach((p) => {
@@ -1081,7 +1285,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     for (const side of ['n', 'e', 's', 'w'] as const) if (d[side] !== undefined) ordered[side] = d[side];
     const gallery = galleryOf[k];
     return {
-      id: `hall${k}`, i: h.i, j: h.j, cells: h.cells, great: h.great, cx: h.cx, cz: h.cz, rect: h.rect, doors: ordered, kind: kind[k]!, depth: depth[k]!,
+      id: `hall${k}`, i: h.i, j: h.j, cells: h.cells, great: h.great, cx: h.cx, cz: h.cz, rect: h.rect, shape: hallShape[k]!, rects: floorRects(h.rect, hallSolids[k]!),
+      solids: hallSolids[k]!, pillars: hallPillars[k]!, ...(hallLayout[k] ? { layout: hallLayout[k] } : {}), doors: ordered, kind: kind[k]!, depth: depth[k]!,
       level: level[k]!, y: hy(k), top: hy(k) + (gallery ? GALLERY_STOREY : HALL_STOREY), ...(gallery ? { gallery } : {}),
     };
   });

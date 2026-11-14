@@ -45,6 +45,22 @@ export interface DelverFloorTuning {
   readonly turnPercent: number;
   /** The great halls (a Hall over two neighbouring lattice cells). */
   readonly great: DelverGreatTuning;
+  /** Hall shapes (docs/plans/delver.md, Stage 7b). */
+  readonly shapes: DelverShapesTuning;
+  /** Pillars. */
+  readonly pillars: DelverPillarsTuning;
+}
+
+/** How many Halls take a shape: the chance (in 100) that a Hall that may take one is picked for one, and the weights of L, T, cross and ring (whole, at least 0, summing to at least 1). */
+export interface DelverShapesTuning {
+  readonly percent: number;
+  readonly weights: { readonly L: number; readonly T: number; readonly cross: number; readonly ring: number };
+}
+
+/** How many Halls take pillars: the chance (in 100), and the weights of a colonnade and a grid (as `DelverShapesTuning`). */
+export interface DelverPillarsTuning {
+  readonly percent: number;
+  readonly weights: { readonly colonnade: number; readonly grid: number };
 }
 
 /** A Floor's great halls: how many, and how long (docs/plans/delver.md, Stage 7a). `count` [0, 0] makes a Floor have none. */
@@ -198,6 +214,20 @@ function percent(obj: Record<string, unknown>, key: string, where: string): numb
   const v = whole(obj, key, where, 0);
   if (v > 100) fail(`${where}.${key}`, 'a whole number 0 to 100', v);
   return v;
+}
+
+/** A record of whole weights, at least 0, with exactly `keys` and a sum of at least 1. */
+function weights<K extends string>(raw: unknown, where: string, keys: readonly K[]): Record<K, number> {
+  const r = record(raw, where);
+  for (const k of Object.keys(r)) if (!keys.includes(k as K)) fail(`${where}.${k}`, `absent (the keys are exactly ${keys.join(', ')})`, r[k]);
+  const out = {} as Record<K, number>;
+  let sum = 0;
+  for (const k of keys) {
+    out[k] = whole(r, k, where, 0);
+    sum += out[k];
+  }
+  if (sum < 1) fail(where, 'weights summing to at least 1', raw);
+  return out;
 }
 
 function positive(obj: Record<string, unknown>, key: string, where: string): number {
@@ -396,6 +426,11 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
   const greatMax = minGap / 2 + Math.min(Math.floor((minGap - minPassage) / 2), halfSize[1]);
   if (greatHalf[1] + 1 > greatMax) fail(`${gw}.half[1]`, `at most min(gaps) / 2 + min(floor((min(gaps) - minPassage) / 2), halfSize[1]) - 1 (${greatMax - 1}), so a great hall can always take its size and dodge an even-metre Wall`, greatHalf[1]);
 
+  const sh = record(f.shapes, `${w}.shapes`);
+  const shapes = { percent: percent(sh, 'percent', `${w}.shapes`), weights: weights(sh.weights, `${w}.shapes.weights`, ['L', 'T', 'cross', 'ring'] as const) };
+  const pl = record(f.pillars, `${w}.pillars`);
+  const pillars = { percent: percent(pl, 'percent', `${w}.pillars`), weights: weights(pl.weights, `${w}.pillars.weights`, ['colonnade', 'grid'] as const) };
+
   return {
     tiers,
     floorsPerTier,
@@ -414,6 +449,6 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     attackSlots,
     tierHp,
     warbands,
-    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, turnPercent, great: { count: greatCount, half: greatHalf } },
+    floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };
 }

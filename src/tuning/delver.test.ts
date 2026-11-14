@@ -50,6 +50,8 @@ const withBossTroop = (patch: Record<string, unknown>): Raw => {
 const withBossGuard = (guard: unknown): Raw => withTier({ boss: { ...bossOf(), guard } });
 const eliteOf = (): Record<string, unknown>[] => (raw().warbands as { elite: Record<string, unknown>[] }[])[2]!.elite;
 const GREAT = { count: [0, 0], half: [12, 16] };
+const SHAPES = { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } };
+const PILLARS = { percent: 0, weights: { colonnade: 1, grid: 1 } };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -95,7 +97,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 0, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -179,6 +181,23 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['great.half descending', withFloor({ great: { ...GREAT, half: [16, 12] } }), /^delver\.floor\.great\.half\[1\] /],
     ['great.half fractional', withFloor({ great: { ...GREAT, half: [12, 15.5] } }), /^delver\.floor\.great\.half\[1\] /],
     ['great.half[0] not above halfSize[1]', withFloor({ great: { ...GREAT, half: [11, 16] } }), /^delver\.floor\.great\.half\[0\] /],
+    ['shapes missing', withFloor({ shapes: undefined }), /^delver\.floor\.shapes /],
+    ['shapes.percent above 100', withFloor({ shapes: { ...SHAPES, percent: 101 } }), /^delver\.floor\.shapes\.percent /],
+    ['shapes.percent fractional', withFloor({ shapes: { ...SHAPES, percent: 0.5 } }), /^delver\.floor\.shapes\.percent /],
+    ['shapes.percent negative', withFloor({ shapes: { ...SHAPES, percent: -1 } }), /^delver\.floor\.shapes\.percent /],
+    ['shapes.weights missing', withFloor({ shapes: { percent: 0 } }), /^delver\.floor\.shapes\.weights /],
+    ['shapes.weights key missing', withFloor({ shapes: { percent: 0, weights: { L: 1, T: 1, cross: 1 } } }), /^delver\.floor\.shapes\.weights\.ring /],
+    ['shapes.weights extra key', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, ringg: 1 } } }), /^delver\.floor\.shapes\.weights\.ringg /],
+    ['shapes.weights negative', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, T: -1 } } }), /^delver\.floor\.shapes\.weights\.T /],
+    ['shapes.weights fractional', withFloor({ shapes: { percent: 0, weights: { ...SHAPES.weights, L: 1.5 } } }), /^delver\.floor\.shapes\.weights\.L /],
+    ['shapes.weights all 0', withFloor({ shapes: { percent: 0, weights: { L: 0, T: 0, cross: 0, ring: 0 } } }), /^delver\.floor\.shapes\.weights /],
+    ['pillars missing', withFloor({ pillars: undefined }), /^delver\.floor\.pillars /],
+    ['pillars.percent above 100', withFloor({ pillars: { ...PILLARS, percent: 101 } }), /^delver\.floor\.pillars\.percent /],
+    ['pillars.percent fractional', withFloor({ pillars: { ...PILLARS, percent: 0.5 } }), /^delver\.floor\.pillars\.percent /],
+    ['pillars.weights key missing', withFloor({ pillars: { percent: 0, weights: { colonnade: 1 } } }), /^delver\.floor\.pillars\.weights\.grid /],
+    ['pillars.weights extra key', withFloor({ pillars: { percent: 0, weights: { colonnade: 1, grid: 1, row: 1 } } }), /^delver\.floor\.pillars\.weights\.row /],
+    ['pillars.weights negative', withFloor({ pillars: { percent: 0, weights: { colonnade: -1, grid: 1 } } }), /^delver\.floor\.pillars\.weights\.colonnade /],
+    ['pillars.weights all 0', withFloor({ pillars: { percent: 0, weights: { colonnade: 0, grid: 0 } } }), /^delver\.floor\.pillars\.weights /],
     ['great.half[1] too long for the gaps', withFloor({ great: { ...GREAT, half: [12, 20] } }), /^delver\.floor\.great\.half\[1\] /],
     ...(['sight', 'leash', 'forgetSeconds', 'chaseSpeed', 'closeIn', 'arrive'] as const).flatMap((key): [string, Raw, RegExp][] => [
       [`${key} 0`, withKey({ [key]: 0 }), new RegExp(`^delver\\.${key} `)],
@@ -275,6 +294,12 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ great: { count: [1, 4], half: [12, 16] } })).floor.great.count).toEqual([1, 4]);
     expect(tuning.delver.floor.turnPercent).toBe(0);
     expect(tuning.delver.floor.great).toEqual(GREAT);
+  });
+
+  it('takes the 7b keys: shapes and pillars, a percent and whole weights', () => {
+    const f = parse(withFloor({ shapes: { percent: 50, weights: { L: 0, T: 0, cross: 0, ring: 1 } }, pillars: { percent: 100, weights: { colonnade: 0, grid: 2 } } })).floor;
+    expect([f.shapes, f.pillars]).toEqual([{ percent: 50, weights: { L: 0, T: 0, cross: 0, ring: 1 } }, { percent: 100, weights: { colonnade: 0, grid: 2 } }]);
+    expect([tuning.delver.floor.shapes, tuning.delver.floor.pillars]).toEqual([SHAPES, PILLARS]);
   });
 
   it('accepts a fractional follow', () => {

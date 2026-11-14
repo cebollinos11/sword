@@ -3,10 +3,10 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatRooms } from './flat.testdata';
+import { flatFloors, flatRooms, plainHalls, rooms7b } from './flat.testdata';
 import { isBossFloor } from './troops';
 import {
-  attemptSeed, CENTRE_CLEAR, DECK_MIN, DECK_POST, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
+  attemptSeed, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
 } from './plan';
 
@@ -210,7 +210,7 @@ describe('planFloor', () => {
       return {
         ...boss,
         // Its gallery, if any, is worked out from the Hall's rect, so it grows with it (`high` is the Hall's, not the rect's).
-        halls: boss.halls.map((h, k) => (k === boss.stairs ? { ...h, kind: 'Stairs' as const, rect: plain.halls[k]!.rect, gallery: plain.halls[k]!.gallery } : h)),
+        halls: boss.halls.map((h, k) => (k === boss.stairs ? { ...h, kind: 'Stairs' as const, rect: plain.halls[k]!.rect, rects: plain.halls[k]!.rects, gallery: plain.halls[k]!.gallery } : h)),
         passages: boss.passages.map((p, n) => (p.a === boss.stairs || p.b === boss.stairs ? { ...p, rect: plain.passages[n]!.rect, pieces: plain.passages[n]!.pieces } : p)),
         markers,
       };
@@ -801,6 +801,274 @@ describe('great halls and turning Passages (Stage 7a)', () => {
       for (const { seed, floor } of flatPairs.slice(0, 20)) {
         const boss = isBossFloor(tuning.delver, floor);
         expect(planFloor(flat, seed, floor, 0, boss)).toEqual(planFloor(off, seed, floor, 0, boss));
+      }
+    });
+  });
+});
+
+describe('Hall shapes and pillars (Stage 7b)', () => {
+  const r = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const area = (q: Rect) => (q.x1 - q.x0) * (q.z1 - q.z0);
+  const odd = (v: number) => Math.abs(v % 2) === 1;
+  const apart = (p: Rect, q: Rect, c: number) => Math.max(p.x0 - q.x1, q.x0 - p.x1) >= c || Math.max(p.z0 - q.z1, q.z0 - p.z1) >= c;
+  const inside = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  const holds = (q: Rect, x: number, z: number) => x >= q.x0 && x <= q.x1 && z >= q.z0 && z <= q.z1;
+
+  describe('floorRects', () => {
+    const R = r(1, 1, 21, 17);
+    it('is the rect for no solid', () => expect(floorRects(R, [])).toEqual([R]));
+    it('cuts an L at each corner, south band first', () => {
+      expect(floorRects(R, [r(15, 11, 21, 17)])).toEqual([r(1, 1, 21, 11), r(1, 11, 15, 17)]);
+      expect(floorRects(R, [r(15, 1, 21, 7)])).toEqual([r(1, 1, 15, 7), r(1, 7, 21, 17)]);
+      expect(floorRects(R, [r(1, 1, 7, 7)])).toEqual([r(7, 1, 21, 7), r(1, 7, 21, 17)]);
+      expect(floorRects(R, [r(1, 11, 7, 17)])).toEqual([r(1, 1, 21, 11), r(7, 11, 21, 17)]);
+    });
+    it('cuts a T (two notches on one side) and a cross (four)', () => {
+      expect(floorRects(R, [r(15, 11, 21, 17), r(1, 11, 7, 17)])).toEqual([r(1, 1, 21, 11), r(7, 11, 15, 17)]);
+      expect(floorRects(R, [r(15, 11, 21, 17), r(15, 1, 21, 7), r(1, 1, 7, 7), r(1, 11, 7, 17)])).toEqual([r(7, 1, 15, 7), r(1, 7, 21, 11), r(7, 11, 15, 17)]);
+    });
+    it('cuts a ring into its south, west, east and north rects', () => {
+      expect(floorRects(R, [r(7, 7, 15, 11)])).toEqual([r(1, 1, 21, 7), r(1, 7, 7, 11), r(15, 7, 21, 11), r(1, 11, 21, 17)]);
+    });
+  });
+
+  it('keeps the constants and salts the Design fixes', () => {
+    expect([NOTCH_MIN, CENTRE_KEEP, RING_BAND, WALL_GAP, MARKER_KEEP, DOOR_LANE, DOOR_SIDE, PILLAR_HALF, COLONNADE_ROW, COLONNADE_STEP, GRID_STEP, PILLARS_MIN]).toEqual([4, 4, 6, 3, 5, 6, 1, 1, 6, 6, 8, 2]);
+    expect([SALT.shape, SALT.shapeKind, SALT.shapeTurn, SALT.notchX, SALT.notchZ, SALT.ringX, SALT.ringZ, SALT.pillars, SALT.pillarLayout, SALT.colonnadeRow]).toEqual([50, 51, 52, 53, 54, 55, 56, 57, 58, 59]);
+    const all = Object.values(SALT);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  const bundled7b = loadTuningData();
+  const tuning = rooms7b(bundled7b);
+  const t = tuning.delver.floor;
+  const w = t.passage;
+  const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+  const done = pairs.map((pr) => ({ ...pr, p: planFloor(t, pr.seed, pr.floor, 0, isBossFloor(tuning.delver, pr.floor)) })).filter((x) => x.p.halls.length === t.rooms);
+  /** A Passage's doorway into a Hall: its side and centre line (from its end piece). */
+  const doorsOf = (p: FloorPlan, h: number) =>
+    p.passages.flatMap((q) =>
+      ([[q.a, q.sideA, q.pieces[0]!], [q.b, q.sideB, q.pieces[q.pieces.length - 1]!]] as const)
+        .filter(([hall]) => hall === h)
+        .map(([, side, piece]) => ({ side, line: piece.axis === 'x' ? (piece.rect.z0 + piece.rect.z1) / 2 : (piece.rect.x0 + piece.rect.x1) / 2 })),
+    );
+  const spanOf = (d: { line: number }) => [d.line - w / 2 - DOOR_SIDE, d.line + w / 2 + DOOR_SIDE] as const;
+
+  it('stalls rarely', () => expect(done.length).toBeGreaterThanOrEqual(185));
+
+  it('tiles every rect with its rects and solids, on odd metres, with notches at corners and rings round a core', () => {
+    for (const { p } of done) {
+      for (const h of p.halls) {
+        expect(h.rects).toEqual(floorRects(h.rect, h.solids));
+        expect(h.rects.reduce((n, q) => n + area(q), 0) + h.solids.reduce((n, q) => n + area(q), 0)).toBe(area(h.rect));
+        const parts = [...h.rects, ...h.solids];
+        parts.forEach((a, i) => {
+          expect(inside(a, h.rect)).toBe(true);
+          parts.forEach((b, k) => i < k && expect(overlaps(a, b)).toBe(false));
+        });
+        for (const q of [...h.solids, ...h.pillars]) for (const v of [q.x0, q.x1, q.z0, q.z1]) expect(odd(v)).toBe(true);
+        const hw = (h.rect.x1 - h.rect.x0) / 2;
+        const hd = (h.rect.z1 - h.rect.z0) / 2;
+        const capX = 2 * Math.floor((hw - CENTRE_KEEP) / 2);
+        const capZ = 2 * Math.floor((hd - CENTRE_KEEP) / 2);
+        const corner = (q: Rect) => (q.x0 === h.rect.x0 || q.x1 === h.rect.x1) && (q.z0 === h.rect.z0 || q.z1 === h.rect.z1);
+        if (h.shape === 'rect') expect([h.rects, h.solids]).toEqual([[h.rect], []]);
+        else if (h.shape === 'ring') {
+          expect(h.solids).toHaveLength(1);
+          const c = h.solids[0]!;
+          expect(c.x0 - h.rect.x0).toBeGreaterThanOrEqual(RING_BAND);
+          expect(h.rect.x1 - c.x1).toBeGreaterThanOrEqual(RING_BAND);
+          expect(c.z0 - h.rect.z0).toBeGreaterThanOrEqual(RING_BAND);
+          expect(h.rect.z1 - c.z1).toBeGreaterThanOrEqual(RING_BAND);
+          expect(c.x0 - h.rect.x0).toBe(h.rect.x1 - c.x1);
+          expect(h.rects).toHaveLength(4);
+        } else {
+          expect(h.solids).toHaveLength({ L: 1, T: 2, cross: 4 }[h.shape]);
+          for (const q of h.solids) {
+            expect(corner(q)).toBe(true);
+            for (const [ext, cap] of [[q.x1 - q.x0, capX], [q.z1 - q.z0, capZ]] as const) {
+              expect(ext).toBeGreaterThanOrEqual(NOTCH_MIN);
+              expect(ext).toBeLessThanOrEqual(cap);
+              expect(ext % 2).toBe(0);
+            }
+          }
+        }
+        if (h.shape !== 'rect') expect(h.gallery).toBeUndefined();
+        // The centre is the rect's, or a ring's south band's; it lies on the floor.
+        if (h.shape === 'ring') expect([h.cx, h.cz]).toEqual([(h.rect.x0 + h.rect.x1) / 2, h.rect.z0 + (h.solids[0]!.z0 - h.rect.z0) / 2]);
+        else expect([h.cx, h.cz]).toEqual([(h.rect.x0 + h.rect.x1) / 2, (h.rect.z0 + h.rect.z1) / 2]);
+        expect(h.rects.some((q) => holds(q, h.cx, h.cz))).toBe(true);
+        for (const q of [...h.solids, ...h.pillars]) expect(overlaps(q, r(h.cx, h.cz, h.cx, h.cz)) || (q.x0 < h.cx && h.cx < q.x1 && q.z0 < h.cz && h.cz < q.z1)).toBe(false);
+      }
+    }
+  });
+
+  it('keeps pillars 2 x 2, on the floor, WALL_GAP from walls and solids, out of the centre\'s keep and the doorways\' lanes, in a layout of at least PILLARS_MIN', () => {
+    for (const { p } of done) {
+      p.halls.forEach((h, k) => {
+        if (h.gallery || h.shape === 'ring') expect(h.pillars).toEqual([]);
+        expect(h.layout === undefined).toBe(h.pillars.length === 0);
+        if (h.pillars.length === 0) return;
+        expect(h.pillars.length).toBeGreaterThanOrEqual(PILLARS_MIN);
+        const keep = r(h.cx - MARKER_KEEP, h.cz - MARKER_KEEP, h.cx + MARKER_KEEP, h.cz + MARKER_KEEP);
+        const lanes = doorsOf(p, k).map((d) => {
+          const [lo, hi] = spanOf(d);
+          return d.side === 'n' ? r(lo, h.rect.z1 - DOOR_LANE, hi, h.rect.z1) : d.side === 's' ? r(lo, h.rect.z0, hi, h.rect.z0 + DOOR_LANE) : d.side === 'e' ? r(h.rect.x1 - DOOR_LANE, lo, h.rect.x1, hi) : r(h.rect.x0, lo, h.rect.x0 + DOOR_LANE, hi);
+        });
+        h.pillars.forEach((q, i) => {
+          expect([q.x1 - q.x0, q.z1 - q.z0]).toEqual([2, 2]);
+          expect(h.rects.some((f) => inside(q, f))).toBe(true);
+          expect(q.x0 - h.rect.x0 >= WALL_GAP && h.rect.x1 - q.x1 >= WALL_GAP && q.z0 - h.rect.z0 >= WALL_GAP && h.rect.z1 - q.z1 >= WALL_GAP).toBe(true);
+          for (const so of h.solids) expect(apart(q, so, WALL_GAP)).toBe(true);
+          expect(overlaps(q, keep)).toBe(false);
+          for (const ln of lanes) expect(overlaps(q, ln)).toBe(false);
+          if (i > 0) expect(h.pillars[i - 1]!.z0 < q.z0 || (h.pillars[i - 1]!.z0 === q.z0 && h.pillars[i - 1]!.x0 < q.x0)).toBe(true);
+          expect(odd(q.x0) && odd(q.z0)).toBe(true);
+        });
+      });
+    }
+  });
+
+  it('gives a layout its geometry: a colonnade is two rows of centres COLONNADE_STEP apart along the long axis, a grid GRID_STEP apart on both', () => {
+    for (const { p } of done) {
+      for (const h of p.halls) {
+        if (h.layout === 'grid') {
+          // Centres on even metres, GRID_STEP apart in each row and column.
+          const zs = [...new Set(h.pillars.map((q) => q.z0))].sort((a, b) => a - b);
+          zs.forEach((z, i) => i > 0 && expect((z - zs[i - 1]!) % GRID_STEP).toBe(0));
+          const xs = [...new Set(h.pillars.map((q) => q.x0))].sort((a, b) => a - b);
+          xs.forEach((x, i) => i > 0 && expect((x - xs[i - 1]!) % GRID_STEP).toBe(0));
+        } else if (h.layout === 'colonnade') {
+          const alongX = (h.rect.x1 - h.rect.x0) >= (h.rect.z1 - h.rect.z0);
+          const across = [...new Set(h.pillars.map((q) => (alongX ? q.z0 : q.x0)))];
+          expect(across.length).toBeLessThanOrEqual(2);
+          const mid = alongX ? h.cz : h.cx;
+          for (const v of across) expect(Math.abs(v + 1 - mid)).toBeGreaterThanOrEqual(COLONNADE_ROW - 1);
+          const us = [...new Set(h.pillars.map((q) => (alongX ? q.x0 : q.z0)))].sort((a, b) => a - b);
+          us.forEach((u, i) => i > 0 && expect((u - us[i - 1]!) % COLONNADE_STEP).toBe(0));
+        }
+      }
+    }
+  });
+
+  it('gives a shaped great hall notches that pass the door check, and no shape to a Hall with a gallery', () => {
+    for (const { p } of done) {
+      p.halls.forEach((h, k) => {
+        if (h.gallery) expect([h.shape, h.pillars.length]).toEqual(['rect', 0]);
+        if (!['L', 'T', 'cross'].includes(h.shape)) return;
+        for (const d of doorsOf(p, k)) {
+          const [lo, hi] = spanOf(d);
+          for (const q of h.solids) {
+            const [a, b] = d.side === 'n' || d.side === 's' ? [q.x0, q.x1] : [q.z0, q.z1];
+            const lies = { n: q.z1 === h.rect.z1, s: q.z0 === h.rect.z0, e: q.x1 === h.rect.x1, w: q.x0 === h.rect.x0 }[d.side];
+            if (lies) expect(a < hi && lo < b, `${h.id} ${d.side} door`).toBe(false);
+          }
+        }
+      });
+    }
+  });
+
+  it('keeps every marker on its Hall\'s floor, clear of its solids and pillars, a ring\'s in its south band', () => {
+    for (const { p } of done) {
+      const mk = [...p.markers.spawns, ...p.markers.fires, ...p.markers.pedestals, ...p.markers.posts, ...(p.markers.boss ? [p.markers.boss] : []), { hall: p.markers.stairs.hall, x: p.halls[p.markers.stairs.hall]!.cx, z: p.halls[p.markers.stairs.hall]!.cz, y: 0 }];
+      for (const m of mk) {
+        const h = p.halls[m.hall]!;
+        if (h.gallery && m.y !== h.y) continue;
+        expect(h.rects.some((q) => holds(q, m.x, m.z)), `${h.id} marker`).toBe(true);
+        for (const q of [...h.solids, ...h.pillars]) expect(m.x > q.x0 - 1 && m.x < q.x1 + 1 && m.z > q.z0 - 1 && m.z < q.z1 + 1).toBe(false);
+        if (h.shape === 'ring') expect(holds(h.rects[0]!, m.x, m.z)).toBe(true);
+      }
+      for (const pt of p.markers.patrols) pt.halls.forEach((k, i) => expect([pt.points[i]!.x, pt.points[i]!.z]).toEqual([p.halls[k]!.cx, p.halls[k]!.cz]));
+    }
+  });
+
+  it('is exercised across 200 seeds: every shape on a one-cell and a great hall, both layouts, a Boss Hall shaped or pillared, a ring holding a marker', () => {
+    const halls = done.flatMap(({ p, floor }) => p.halls.map((h) => ({ h, p, floor })));
+    const shapes = ['L', 'T', 'cross', 'ring'] as const;
+    const count = (f: (x: (typeof halls)[number]) => boolean) => halls.filter(f).length;
+    for (const sh of shapes) {
+      expect(count((x) => x.h.shape === sh && !x.h.great), `${sh} one-cell`).toBeGreaterThan(0);
+      if (sh !== 'cross') expect(count((x) => x.h.shape === sh && x.h.great), `${sh} great`).toBeGreaterThan(0);
+    }
+    expect(count((x) => x.h.layout === 'colonnade')).toBeGreaterThan(0);
+    expect(count((x) => x.h.layout === 'grid')).toBeGreaterThan(0);
+    expect(count((x) => x.h.kind === 'Boss' && x.h.shape !== 'rect')).toBeGreaterThan(0);
+    expect(count((x) => x.h.kind === 'Boss' && x.h.pillars.length > 0)).toBeGreaterThan(0);
+    const ringMarker = (x: (typeof halls)[number]) => x.h.shape === 'ring' && (['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight'] as string[]).includes(x.h.kind);
+    expect(count(ringMarker)).toBeGreaterThan(0);
+    console.log(
+      `7b over ${done.length} full plans, ${halls.length} Halls: ` +
+        shapes.map((sh) => `${sh} ${count((x) => x.h.shape === sh)} (great ${count((x) => x.h.shape === sh && x.h.great)})`).join(', ') +
+        `; rect ${count((x) => x.h.shape === 'rect')}; colonnades ${count((x) => x.h.layout === 'colonnade')}, grids ${count((x) => x.h.layout === 'grid')}; ` +
+        `Boss shaped ${count((x) => x.h.kind === 'Boss' && x.h.shape !== 'rect')}, Boss pillared ${count((x) => x.h.kind === 'Boss' && x.h.pillars.length > 0)}; ` +
+        `ring Entrance ${count((x) => x.h.shape === 'ring' && x.h.kind === 'Entrance')}, ring Stairs/Boss ${count((x) => x.h.shape === 'ring' && (x.h.kind === 'Stairs' || x.h.kind === 'Boss'))}, ring Fight ${count((x) => x.h.shape === 'ring' && x.h.kind === 'Fight')}`,
+    );
+  });
+
+  // A cross needs all four corners clear of every doorway, so on a great hall (its long-side doorways lie near its ends) it is rare: about 1 great hall in 90.
+  // None turned up in the first 200 pairs, so this scans on to the first pair that has one.
+  it('also gives a great hall a cross, found by scanning pairs past the first 200, whose notches pass the door check', () => {
+    let found: { p: FloorPlan; h: DelverHall; k: number } | undefined;
+    for (let n = 200; n < 3200 && !found; n++) {
+      const floor = 1 + (n % 9);
+      const p = planFloor(t, n + 1, floor, 0, isBossFloor(tuning.delver, floor));
+      const k = p.halls.findIndex((h) => h.great && h.shape === 'cross');
+      if (k >= 0) found = { p, h: p.halls[k]!, k };
+    }
+    expect(found).toBeDefined();
+    const { p, h, k } = found!;
+    expect(h.solids).toHaveLength(4);
+    for (const d of doorsOf(p, k)) {
+      const [lo, hi] = spanOf(d);
+      for (const q of h.solids) {
+        const [a, b] = d.side === 'n' || d.side === 's' ? [q.x0, q.x1] : [q.z0, q.z1];
+        const lies = { n: q.z1 === h.rect.z1, s: q.z0 === h.rect.z0, e: q.x1 === h.rect.x1, w: q.x0 === h.rect.x0 }[d.side];
+        if (lies) expect(a < hi && lo < b).toBe(false);
+      }
+    }
+  });
+
+  it('changes nothing of 7a but the Halls\' shapes: the Passages, kinds, depths, rects and doors are the same as on plainHalls', () => {
+    const plain = plainHalls(bundled7b).delver.floor;
+    for (const { seed, floor, p } of done.slice(0, 80)) {
+      const q = planFloor(plain, seed, floor, 0, isBossFloor(tuning.delver, floor));
+      expect(p.passages).toEqual(q.passages);
+      expect([p.entrance, p.stairs, p.mainPath, p.inLine]).toEqual([q.entrance, q.stairs, q.mainPath, q.inLine]);
+      p.halls.forEach((h, k) => {
+        const o = q.halls[k]!;
+        expect({ ...h, shape: 0, rects: 0, solids: 0, pillars: 0, layout: 0, cx: 0, cz: 0 }).toEqual({ ...o, shape: 0, rects: 0, solids: 0, pillars: 0, layout: 0, cx: 0, cz: 0 });
+        if (h.shape !== 'ring') expect([h.cx, h.cz]).toEqual([o.cx, o.cz]);
+      });
+    }
+  });
+
+  describe('on plainHalls', () => {
+    const plain = plainHalls(bundled7b);
+    it('has percents 0 and the weights unchanged, and flatRooms turns both off too', () => {
+      expect([plain.delver.floor.shapes.percent, plain.delver.floor.pillars.percent]).toEqual([0, 0]);
+      expect(plain.delver.floor.shapes.weights).toEqual(t.shapes.weights);
+      expect(plain.delver.floor.pillars.weights).toEqual(t.pillars.weights);
+      expect([flatRooms(tuning).delver.floor.shapes.percent, flatRooms(tuning).delver.floor.pillars.percent]).toEqual([0, 0]);
+      expect([t.shapes.percent, t.pillars.percent]).toEqual([50, 40]);
+    });
+    it('makes every Hall a rect: rects [rect], no solids or pillars, no layout, and the weights and salts change nothing', () => {
+      const f = plain.delver.floor;
+      const salts = SALT as unknown as Record<string, number>;
+      for (const { seed, floor } of pairs.slice(0, 60)) {
+        const boss = isBossFloor(plain.delver, floor);
+        const p = planFloor(f, seed, floor, 0, boss);
+        for (const h of p.halls) {
+          expect([h.shape, h.rects, h.solids, h.pillars, 'layout' in h]).toEqual(['rect', [h.rect], [], [], false]);
+          expect([h.cx, h.cz]).toEqual([(h.rect.x0 + h.rect.x1) / 2, (h.rect.z0 + h.rect.z1) / 2]);
+        }
+        expect(planFloor({ ...f, shapes: { percent: 0, weights: { L: 0, T: 0, cross: 0, ring: 1 } }, pillars: { percent: 0, weights: { colonnade: 0, grid: 5 } } }, seed, floor, 0, boss)).toEqual(p);
+        const saved = { ...salts };
+        try {
+          for (const key of ['shape', 'shapeKind', 'shapeTurn', 'notchX', 'notchZ', 'ringX', 'ringZ', 'pillars', 'pillarLayout', 'colonnadeRow']) salts[key] = 9000 + salts[key]!;
+          expect(planFloor(f, seed, floor, 0, boss)).toEqual(p);
+        } finally {
+          Object.assign(salts, saved);
+        }
       }
     });
   });
