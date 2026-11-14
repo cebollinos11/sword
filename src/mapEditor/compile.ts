@@ -263,6 +263,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
         break;
     }
   });
+  const deadlyOwner = (o: number) => brushes[o - 1]!.kind === 'hazard';
   // A Ramp's wedge and a Block are solid whatever order they come in: they cut out the floors under them after every Brush is painted.
   const block = new Uint8Array(N * N);
   brushes.forEach((b, k) => {
@@ -284,6 +285,8 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     each(b.rect, k, (c) => {
       for (let l = 0; l < levels.length; l++) {
         const o = own[l]![c]!;
+        // Under the Enclosure's own floor only deadly ground (the abyss of a Delver Hall) may be cut: the Block's Walls would stand from BLOCK_BOTTOM through any other floor.
+        if (room && o && levels[l]! < room.y - EPS && !deadlyOwner(o)) throw new MapCompileError(`Block ${b.id} stands in Enclosure ${room.id} over ${brushes[o - 1]!.id} (at ${levels[l]}): only deadly ground may lie under an Enclosure's floor beneath a Block (move the floor or the Block)`, [b.id, room.id, brushes[o - 1]!.id]);
         if (o && levels[l]! > lowest + EPS && (!room || levels[l]! < b.top - EPS)) throw new MapCompileError(`Block ${b.id} stands under ${brushes[o - 1]!.id} (at ${levels[l]}): nothing may stand over a Block (make it a Platform)`, [b.id, brushes[o - 1]!.id]);
       }
       cutBelow(c, room ? b.top : Infinity);
@@ -313,7 +316,6 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
   own.forEach((o, l) => {
     for (let c = 0; c < N * N; c++) if (o[c]) present[c]! |= 1 << l;
   });
-  const deadlyOwner = (o: number) => brushes[o - 1]!.kind === 'hazard';
 
   // Walk Surfaces: per level, each Brush's cells merged into rectangles.
   const rects: { l: number; i0: number; j0: number; i1: number; j1: number }[][] = brushes.map(() => []);

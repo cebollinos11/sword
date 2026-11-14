@@ -262,6 +262,11 @@ describe('a Block in an Enclosure', () => {
     expect(() => compile([ABYSS, { ...hall(0), top: 4 }, deck, pillar(4)], [-8, 0, 2, 4])).toThrow(/stands under gallery/);
   });
 
+  it('is refused over a floor under the Enclosure that is not deadly ground (only the abyss under a Hall is cut)', () => {
+    const room: Brush = { ...hall(4), top: 8 };
+    expect(() => compile([GROUND, room, pillar(8)], [0, 4, 8])).toThrow(/Block pillar stands in Enclosure hall over .+ \(at 0\)/);
+  });
+
   it('a Block in no Enclosure compiles as before (compile.test.ts: the tower on plain floor)', () => {
     const map = compile([GROUND, { kind: 'block', id: 'tower', rect: { x0: 20, z0: -4, x1: 28, z1: 4 }, top: 6 }], [0, 6]);
     expect(map.blocks).toEqual([{ id: 'BLOCK_tower', minX: 20, minZ: -4, maxX: 28, maxZ: 4, top: 6 }]);

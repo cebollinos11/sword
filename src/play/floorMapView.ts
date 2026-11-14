@@ -25,7 +25,9 @@ export const FLOOR_MAP_CSS = `
 .floor-map-node.current { opacity: 1; border-color: #6fd8ff; box-shadow: 0 0 0 var(--px) #000, inset var(--px) var(--px) 0 #6fd8ff; transform: scale(1.1); }
 .floor-map-board.delver { width: min(30rem, 88vw, 64vh); height: auto; aspect-ratio: 1; margin: 1.2rem 0; background: #08060d; border: calc(var(--px) * 2) solid #000; box-shadow: inset var(--px) var(--px) 0 var(--line); }
 .floor-map-board.delver svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-.floor-map-board.delver .map-hall { fill: #3a3350; stroke: #6d5f8c; stroke-width: 0.4; }
+.floor-map-board.delver .map-hall { fill: #3a3350; stroke: #6d5f8c; stroke-width: 0.8; }
+/* The second pass over a Hall's rects: filled, no stroke, so it covers the inner half of every outline (0.8 wide, so 0.4 shows) and a shaped Hall keeps one outline, on its outside. */
+.floor-map-board.delver .map-hall.inner { stroke: none; }
 .floor-map-board.delver .map-hall.rest { fill: #4a3524; }
 .floor-map-board.delver .map-hall.treasure { fill: #4a4220; }
 .floor-map-board.delver .map-hall.boss { fill: #4a2630; }
@@ -175,16 +177,19 @@ function drawDelverMap(layout: DelverMapLayout, tier: number): SVGElement {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '0 0 100 100');
   svg.dataset.tier = String(tier);
-  const rect = (r: DelverMapLayout['rects'][number]) => {
+  const rect = (r: DelverMapLayout['rects'][number], inner = false) => {
     const el = document.createElementNS(SVG, 'rect');
     el.setAttribute('x', String(r.x0 * 100));
     el.setAttribute('y', String(r.y0 * 100));
     el.setAttribute('width', String((r.x1 - r.x0) * 100));
     el.setAttribute('height', String((r.y1 - r.y0) * 100));
     el.setAttribute('class', r.hall ? `map-hall ${(r.kind ?? '').toLowerCase()}` : 'map-passage');
+    if (inner) el.classList.add('inner');
     return el;
   };
-  svg.append(...layout.rects.filter((r) => !r.hall).map(rect), ...layout.rects.filter((r) => r.hall).map(rect), ...layout.marks.map(markGlyph));
+  // A shaped Hall has a rect per band: each is stroked, then each is drawn again over them filled with no stroke, so no line shows across its inside.
+  const halls = layout.rects.filter((r) => r.hall);
+  svg.append(...layout.rects.filter((r) => !r.hall).map((r) => rect(r)), ...halls.map((r) => rect(r)), ...halls.map((r) => rect(r, true)), ...layout.marks.map(markGlyph));
   if (layout.rects.length === 0) {
     const empty = document.createElementNS(SVG, 'text');
     empty.setAttribute('x', '50');

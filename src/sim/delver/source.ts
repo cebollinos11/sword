@@ -6,13 +6,16 @@
  *
  * Pure: whole and half metres only, every list in the plan's fixed order.
  */
-import { enclosureTop, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
-import { HALL_STOREY, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
+import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
+import { HALL_STOREY, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
 export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
 
 /** The Brush id of piece `k` (from 0, in order from `a`) of Passage `p`: the Passage's own id when it has one piece, else `<id>-<k>`. */
+/** The id of Hall `hall`'s solid `n` and pillar `n` as Blocks (the Brush ids `floorSource` writes). */
+export const solidId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-solid${n}`;
+export const pillarId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-pillar${n}`;
 export const pieceId = (p: Pick<DelverPassage, 'id' | 'pieces'>, k: number): string => (p.pieces.length === 1 ? p.id : `${p.id}-${k}`);
 
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
@@ -79,14 +82,14 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
   );
   // Each Hall in order: its solids (in its material), then its pillars (stone). Each Block's `top` is the Hall's ceiling, which the compiler's Block-in-an-Enclosure rule asks.
-  const blocks: Brush[] = plan.halls.flatMap((h): Brush[] => [
-    ...h.solids.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-solid${n}`, rect, top: h.top, material: HALL_MATERIAL[h.kind] })),
-    ...h.pillars.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-pillar${n}`, rect, top: h.top, material: 'stone' })),
+  const blocks: BlockBrush[] = plan.halls.flatMap((h): BlockBrush[] => [
+    ...h.solids.map((rect, n): BlockBrush => ({ kind: 'block', id: solidId(h, n), rect, top: h.top, material: HALL_MATERIAL[h.kind] })),
+    ...h.pillars.map((rect, n): BlockBrush => ({ kind: 'block', id: pillarId(h, n), rect, top: h.top, material: 'stone' })),
   ]);
 
   // Team 0's front rank (z = -front) may not run through a Block (the Battle map's own check). A Floor's Battle never deploys from it, so it is moved off any Block it
   // would cross: the first of 52, 51, 53, 50, ... that crosses none (52, as always, with no Block across it).
-  const crosses = (front: number) => blocks.some((b) => b.kind === 'block' && b.rect.z0 < -front && b.rect.z1 > -front);
+  const crosses = (front: number) => blocks.some((b) => b.rect.z0 < -front && b.rect.z1 > -front);
   let front = 52;
   for (let d = 1; crosses(front); d++) front = 52 + (d % 2 === 1 ? -(d + 1) >> 1 : d >> 1);
 

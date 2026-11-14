@@ -7,7 +7,7 @@ import type { DelverFloorTuning } from '../../tuning/delver';
 import type { TuningData } from '../../tuning';
 import type { BuiltFloor } from './build';
 import { judgeAttempt, type FloorJudgement } from './judge';
-import { planFloor } from './plan';
+import { planFloor, type HallShape } from './plan';
 import { isBossFloor } from './troops';
 
 /** A judged Floor: how many layouts were tried (1 when the first passed) and the verdict on the one returned. */
@@ -67,7 +67,7 @@ export function describeFloor(f: DelverFloor): string {
   const stairwells = galleries.filter((g) => g.high).length;
   const sloped = plan.passages.filter((p) => p.ya !== p.yb).length;
   const shapes = { L: plan.passages.filter((p) => p.shape === 'L').length, S: plan.passages.filter((p) => p.shape === 'S').length, Z: plan.passages.filter((p) => p.shape === 'Z').length };
-  const shaped = (s: string) => halls.filter((h) => h.shape === s).length;
+  const shaped = (s: HallShape) => halls.filter((h) => h.shape === s).length;
   const pillared = halls.filter((h) => h.pillars.length > 0);
   const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages, ${halls.filter((h) => h.shape !== 'rect').length} shaped Halls (${shaped('L')} L, ${shaped('T')} T, ${shaped('cross')} cross, ${shaped('ring')} ring), ${halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids)`;
   const verdict = f.judgement.ok ? 'passes the judge' : `fails: ${f.judgement.reasons.join('; ')}`;

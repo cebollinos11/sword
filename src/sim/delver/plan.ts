@@ -347,9 +347,6 @@ const boundsOf = (pieces: readonly PassagePiece[]): Rect => ({
 /** Whether `p` and `q` are at least `c` apart on an axis (x-gap or z-gap at least `c`); c 0: they touch or are apart, but do not overlap. */
 const apartBy = (p: Rect, q: Rect, c: number): boolean => Math.max(p.x0 - q.x1, q.x0 - p.x1) >= c || Math.max(p.z0 - q.z1, q.z0 - p.z1) >= c;
 
-/** Whether `p` and `q` share interior (touching edges do not). */
-const overlaps = (p: Rect, q: Rect): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
-
 /** The even metre nearest `v`, the lower on a tie: a pillar is centred on one, so its edges are on odd metres, off the fields' 2 m dots. */
 const ev = (v: number): number => 2 * Math.ceil((v - 1) / 2);
 
@@ -1215,7 +1212,7 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
       : { x0: r.x0, z0: sp.lo, x1: r.x0 + DOOR_LANE, z1: sp.hi });
     const kept = centres
       .map((c): Rect => ({ x0: c.x - PILLAR_HALF, z0: c.z - PILLAR_HALF, x1: c.x + PILLAR_HALF, z1: c.z + PILLAR_HALF }))
-      .filter((q) => solids.every((so) => apartBy(q, so, WALL_GAP)) && !overlaps(q, keep) && lanes.every((ln) => !overlaps(q, ln)))
+      .filter((q) => solids.every((so) => apartBy(q, so, WALL_GAP)) && apartBy(q, keep, 0) && lanes.every((ln) => apartBy(q, ln, 0)))
       .sort((a, b) => a.z0 - b.z0 || a.x0 - b.x0);
     if (kept.length >= PILLARS_MIN) {
       hallPillars[h] = kept;

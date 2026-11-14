@@ -136,9 +136,9 @@ export function dropSpots(plan: FloorPlan, arena: ArenaGeometry, _lv: LevelsTuni
     const along = (j % 2 === 1 ? (j + 1) / 2 : -j / 2) * DROP_GAP;
     const sx = alongX ? clamp(bx + along, x0, x1) : bx;
     const sz = alongX ? bz : clamp(bz + along, z0, z1);
+    if (pillars.some((q) => gap2(q, sx, sz) < DROP_MARGIN * DROP_MARGIN)) continue;
     const ground = floorNear(arena, sx, sz, y);
     const spot: PickupAt = { x: sx, y: ground >= 0 ? surfaceHeight(arena, ground, sx, sz) : y, z: sz };
-    if (pillars.some((q) => gap2(q, sx, sz) < DROP_MARGIN * DROP_MARGIN)) continue;
     if (found.every((s) => (s.x - spot.x) ** 2 + (s.z - spot.z) ** 2 >= DROP_APART * DROP_APART)) found.push(spot);
   }
   if (found.length === 0) {

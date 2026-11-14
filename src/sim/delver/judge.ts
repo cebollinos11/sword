@@ -30,7 +30,7 @@ import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
 import type { DelverHall, DelverPassage, FloorPlan, PassagePiece } from './plan';
-import { pieceId } from './source';
+import { pieceId, pillarId, solidId } from './source';
 import type { Rect, Side } from '../../mapEditor/source';
 
 export interface FloorJudgement {
@@ -123,8 +123,8 @@ const area = (r: Rect): number => (r.x1 - r.x0) * (r.z1 - r.z0);
 
 /** A Hall's solids and pillars as named Blocks (the Brush ids `floorSource` writes). */
 const blocksOf = (h: DelverHall): { id: string; rect: Rect; pillar: boolean }[] => [
-  ...h.solids.map((rect, n) => ({ id: `${h.id}-solid${n}`, rect, pillar: false })),
-  ...h.pillars.map((rect, n) => ({ id: `${h.id}-pillar${n}`, rect, pillar: true })),
+  ...h.solids.map((rect, n) => ({ id: solidId(h, n), rect, pillar: false })),
+  ...h.pillars.map((rect, n) => ({ id: pillarId(h, n), rect, pillar: true })),
 ];
 
 /** How far (m) a doorway's lane is carried into its Hall. */
@@ -138,11 +138,12 @@ const DOORWAY_DEPTH = 3;
 function judgeShapes(plan: FloorPlan): string[] {
   const out: string[] = [];
   const halls = plan.halls;
-  for (const h of halls) {
+  const hallBlocks = halls.map(blocksOf);
+  for (const [i, h] of halls.entries()) {
     const cut = [...h.rects, ...h.solids];
     const tiles = cut.every((r) => inside(r, h.rect)) && cut.every((r, i) => cut.every((o, j) => j <= i || !overlap(r, o))) && Math.abs(cut.reduce((s, r) => s + area(r), 0) - area(h.rect)) < 1e-6;
     if (!tiles) out.push(`shapes: ${h.id}'s rects and solids do not tile its rect`);
-    const blocks = blocksOf(h);
+    const blocks = hallBlocks[i]!;
     const strictlyIn = (r: Rect) => h.cx > r.x0 && h.cx < r.x1 && h.cz > r.z0 && h.cz < r.z1;
     const onRect = h.rects.some((r) => h.cx >= r.x0 && h.cx <= r.x1 && h.cz >= r.z0 && h.cz <= r.z1);
     if (!onRect || blocks.some((b) => strictlyIn(b.rect))) out.push(`shapes: ${h.id}'s centre (${m(h.cx)}, ${m(h.cz)}) is not on its floor`);
@@ -156,7 +157,7 @@ function judgeShapes(plan: FloorPlan): string[] {
   for (const mk of markersOf(plan)) {
     const h = halls[mk.hall];
     if (!h) continue;
-    for (const b of blocksOf(h)) if (rectDistance(b.rect, mk.x, mk.z) < 1) out.push(`shapes: ${mk.name} is within 1 m of ${b.id}`);
+    for (const b of hallBlocks[mk.hall]!) if (rectDistance(b.rect, mk.x, mk.z) < 1) out.push(`shapes: ${mk.name} is within 1 m of ${b.id}`);
   }
   for (const p of plan.passages) {
     const first = p.pieces[0]!;
@@ -169,7 +170,7 @@ function judgeShapes(plan: FloorPlan): string[] {
         : { x0: r.x0, z0: r.z0 - DOORWAY_DEPTH, x1: r.x1, z1: r.z0 };
       const h = halls[hall];
       if (!h) continue;
-      for (const b of blocksOf(h)) if (overlap(lane, b.rect)) out.push(`shapes: ${p.id}'s doorway into ${h.id} is blocked by ${b.id}`);
+      for (const b of hallBlocks[hall]!) if (overlap(lane, b.rect)) out.push(`shapes: ${p.id}'s doorway into ${h.id} is blocked by ${b.id}`);
     }
   }
   return out;
