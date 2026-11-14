@@ -52,7 +52,7 @@ Since the Dungeon plan, three things exist that make this possible:
   - **The fog is on the maps only.** The 3D view draws the whole Floor as it is; nothing in the world is dimmed or hidden.
   - **What has been revealed is a bitset in `RunState`** (one bit per Hall and passage, hashed and snapshotted), not render-side memory. It costs a few bytes, keeps every peer's map the same, and survives a resync. Revealing never changes an outcome.
 - **The Run seed stays the Random Map's**, as today: the Lobby, its online sync and the results screen already carry it, so a Delver Run needs no new Lobby setting. The Map's name gives the seed (`runSeed`); its arena is never used, since each Floor is generated.
-- **Floors are large and have several levels.** Each Floor has 20 or more rooms, with balconies over halls, stairwells (Ramps) between heights and bridges over passages, using the multi-level walk rule. It takes 5 to 10 minutes. It is built one level first (Stage 1) and grown into levels in Stage 6, so the Run loop and Warbands are proven on flat Floors before verticality adds its own bugs.
+- **Floors are large and have several levels.** Each Floor has 20 or more rooms at different heights, with balconies inside halls, stairwell Halls and sloped Passages between heights, using the multi-level walk rule. No two Floor elements (Halls, Passages) overlap seen from above (no bridge over a Passage, no Hall over another), so the flat Floor Map and minimap stay as they are (decided 2026-11-14). It takes 5 to 10 minutes. It is built one level first (Stage 1) and grown into levels in Stage 6, so the Run loop and Warbands are proven on flat Floors before verticality adds its own bugs.
 
 ## Glossary (proposed, for `CONTEXT.md` with the code that makes it true)
 - **Floor** (changes meaning again): one continuous generated dungeon of a Run, from its entrance to its Stairs. It is one Arena, one Duel and one Crowd. _Avoid_: level, act, stage, map.
@@ -1349,8 +1349,14 @@ Battles, Duels and the Hall-graph Run are unchanged.
 
 ### Stage 6: verticality
 **Model**: Opus.
-- The generator grows levels: a hall with a balcony (a Deck round its walls, a Ramp up), stairwells between a lower and an upper set of Halls, and a bridge over a Passage. Hall heights are a whole number of levels (Enclosure roofs at the next level).
+- **No overlap from above** (decided 2026-11-14): no two Floor elements (Halls, Passages) overlap seen from above. No bridge over a Passage, no Hall over another Hall. The Floor Map and minimap stay flat and unchanged; Reveal by a Hall's rect stays right.
+- The generator grows levels. Each Hall has a floor height that is a whole number of levels, and Enclosure roofs stay at the next level above it. Heights change three ways:
+  - **Sloped Passages**: a Ramp along a Passage joins a lower Hall's door to a higher Hall's door.
+  - **Stairwell Halls**: a Hall with a Ramp inside it that joins a low door and a high door.
+  - **Balconies**: a Deck round a Hall's own walls, reached by a Ramp inside that Hall. This is the only place one Walk Surface lies over another, and it stays inside its Hall's rect.
+- **Jumping** (Players can Jump up to 4 m): a ledge up to 4 m high may be a shortcut a Fighter Jumps up (a jump Link for the AI allies). Soldiers never Jump, so every Walk Surface a Warband or the party needs is still reached by walking and dropping; a jump-up ledge is only ever a shortcut, never the only way.
 - Warbands on several levels by the walk rule. Patrols cross levels; Chase fields have a node per level.
+- The maps are not changed in this Stage.
 - **Done**: large multi-level Floors pass the judge and the soak.
 
 ### Stage 7: online co-op
@@ -1377,3 +1383,9 @@ Battles, Duels and the Hall-graph Run are unchanged.
 5. Three tiers of three Floors.
 6. Fog of war on the maps only.
 7. The Run seed stays the Random Map's.
+
+## Answered questions (2026-11-14, before Stage 6)
+1. No two Floor elements overlap seen from above: no bridges over Passages, no Halls over Halls. The maps stay flat.
+2. A balcony inside its own Hall is allowed.
+3. Heights change by sloped Passages, stairwell Halls and Jumps (a Player Jumps up to 4 m); a Jump is only ever a shortcut.
+4. The minimap and Floor Map are not changed in Stage 6.
