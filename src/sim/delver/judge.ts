@@ -4,10 +4,15 @@
  * plan's tests do. The rules, in order:
  *
  *  1. `rooms`: the plan has the Halls wanted, one Entrance, one Stairs (a Boss Floor: one Boss Hall, the Stairs Hall, and no Stairs kind), Rests within range and a Fight (checkable without a build).
+ *     With great halls wanted (Stage 7a): as many great halls as `great.count` allows, and a Boss Floor's Boss Hall is one.
  *     And `levels` (Stage 6): at least `levels.min` distinct Hall levels (also plan-only).
+ *     And `layout` (Stage 7a, plan-only): seen from above, no two Halls share interior, no Passage's piece shares interior with another Passage's piece or with any Hall
+ *     (its own end Halls, and its own other pieces, it may only touch), and every Hall and piece is inside the field (when the field's size is known).
  *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped; a plan rule 1 refused is not built).
  *  3. `halls`: the field from the Entrance's centre reaches every Hall's centre.
- *  4. `passages` (Stage 0's check), both ways and along the Passage itself: the field to the point 1 m inside one end, read at the point 1 m inside the other (each on the Walk Surface at its door height), is at most `follow` times the Passage's length, and so is the reverse (a sloped Passage is climbed and walked down).
+ *  4. `passages` (Stage 0's check), both ways and along every leg of the Passage itself (Stage 7a): the checkpoints are the point 1 m inside the first piece, each corner's
+ *     centre, and the point 1 m inside the last piece (each on the Walk Surface at its own height); between each two the field is at most `follow` times the leg's length,
+ *     and so is the reverse (a sloped leg is climbed and walked down). A straight Passage is one leg.
  *  5. `markers`: each marker stands in its Hall, on a Walk Surface at its own height (a Hall's floor or a Deck), off any hazard and no roof, and is reached from the Entrance.
  *  6. `sight`: no Warband post, patrol point or Boss post is in sight of an Entrance spawn (each at its own height).
  *  7. `galleries` (Stage 6): each gallery's Deck centre is a Walk Surface at the Deck's height that is no roof, reached from the Entrance, and its Hall's centre is reached from it.
@@ -22,7 +27,9 @@ import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
-import type { FloorPlan } from './plan';
+import type { DelverPassage, FloorPlan, PassagePiece } from './plan';
+import { pieceId } from './source';
+import type { Rect, Side } from '../../mapEditor/source';
 
 export interface FloorJudgement {
   readonly ok: boolean;
@@ -45,8 +52,14 @@ export function fieldAt(f: DestinationFields, d: Float64Array, x: number, z: num
 
 const m = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 
-/** Rule 1, `rooms`: what a plan alone can show. */
-export function judgePlan(t: DelverFloorTuning, plan: FloorPlan): string[] {
+/** Whether two rects share interior (touching edges do not). */
+const overlap = (p: Rect, q: Rect): boolean => p.x0 < q.x1 && q.x0 < p.x1 && p.z0 < q.z1 && q.z0 < p.z1;
+
+/**
+ * Rules 1 (`rooms`, `levels`) and `layout`: what a plan alone can show. `fieldSize` (m) is the Battle's field the Floor stands in; without it the
+ * `layout` rule's field check is skipped.
+ */
+export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: number): string[] {
   const out: string[] = [];
   const count = (k: string) => plan.halls.filter((h) => h.kind === k).length;
   if (plan.halls.length !== t.rooms) out.push(`rooms: ${plan.halls.length} Halls, ${t.rooms} wanted (the layout stalled)`);
@@ -60,8 +73,39 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan): string[] {
   const rests = count('Rest');
   if (rests < t.rests[0] || rests > t.rests[1]) out.push(`rooms: ${rests} Rests, ${t.rests[0]} to ${t.rests[1]} wanted`);
   if (count('Fight') < 1) out.push('rooms: no Fight Hall');
+  if (t.great.count[1] > 0) {
+    const great = plan.halls.filter((h) => h.great).length;
+    if (great < t.great.count[0] || great > t.great.count[1]) out.push(`rooms: ${great} great halls, ${t.great.count[0]} to ${t.great.count[1]} wanted`);
+    if (count('Boss') > 0 || plan.markers.boss) {
+      for (const h of plan.halls) if (h.kind === 'Boss' && !h.great) out.push(`rooms: the Boss Hall ${h.id} is not a great hall`);
+    }
+  }
   const levels = new Set(plan.halls.map((h) => h.level)).size;
   if (levels < t.levels.min) out.push(`levels: ${levels} Hall level${levels === 1 ? '' : 's'}, at least ${t.levels.min} wanted`);
+  out.push(...judgeLayout(plan, fieldSize));
+  return out;
+}
+
+/** The `layout` rule: nothing overlaps seen from above, and everything is inside the field (when `fieldSize` is given). */
+function judgeLayout(plan: FloorPlan, fieldSize: number | undefined): string[] {
+  const out: string[] = [];
+  const halls = plan.halls;
+  halls.forEach((h, i) => {
+    for (let j = i + 1; j < halls.length; j++) if (overlap(h.rect, halls[j]!.rect)) out.push(`layout: ${h.id} overlaps ${halls[j]!.id}`);
+  });
+  const pieces = plan.passages.flatMap((p, n) => p.pieces.map((q, k) => ({ n, id: pieceId(p, k), rect: q.rect })));
+  for (const q of pieces) {
+    for (const h of halls) if (overlap(q.rect, h.rect)) out.push(`layout: ${q.id} overlaps ${h.id}`);
+  }
+  pieces.forEach((q, i) => {
+    for (let j = i + 1; j < pieces.length; j++) if (pieces[j]!.n !== q.n && overlap(q.rect, pieces[j]!.rect)) out.push(`layout: ${q.id} overlaps ${pieces[j]!.id}`);
+  });
+  if (fieldSize !== undefined) {
+    const half = fieldSize / 2;
+    const outside = (r: Rect) => r.x0 < -half || r.z0 < -half || r.x1 > half || r.z1 > half;
+    for (const h of halls) if (outside(h.rect)) out.push(`layout: ${h.id} is outside the field`);
+    for (const q of pieces) if (outside(q.rect)) out.push(`layout: ${q.id} is outside the field`);
+  }
   return out;
 }
 
@@ -90,6 +134,37 @@ function markersOf(plan: FloorPlan): Marker[] {
   ];
 }
 
+/** The point on piece `q`'s side `side`'s centre, moved `inset` m inside it. */
+function onSide(q: PassagePiece, side: Side, inset: number): { x: number; z: number } {
+  const r = q.rect;
+  const cx = (r.x0 + r.x1) / 2;
+  const cz = (r.z0 + r.z1) / 2;
+  return side === 'w' ? { x: r.x0 + inset, z: cz } : side === 'e' ? { x: r.x1 - inset, z: cz } : side === 'n' ? { x: cx, z: r.z1 - inset } : { x: cx, z: r.z0 + inset };
+}
+
+/**
+ * Rule 4's checkpoints along Passage `p`: the point 1 m inside its first piece from its `from` side (at `y0`), each corner's centre (at its height), and the point
+ * 1 m inside its last piece from its `to` side (at `y1`). Each carries `nominal`, the length (m) of the leg that begins there: from `a`'s side to the first corner's
+ * centre, corner centre to corner centre, and the last corner's centre to `b`'s side (the last checkpoint has none: 0).
+ */
+function checkpoints(p: DelverPassage): { x: number; z: number; y: number; nominal: number }[] {
+  const first = p.pieces[0]!;
+  const last = p.pieces[p.pieces.length - 1]!;
+  const edge = (q: PassagePiece, side: Side) => onSide(q, side, 0);
+  const pts = [
+    { ...onSide(first, first.from, 1), y: first.y0, at: edge(first, first.from) },
+    ...p.pieces.filter((q) => q.corner).map((q) => {
+      const centre = { x: (q.rect.x0 + q.rect.x1) / 2, z: (q.rect.z0 + q.rect.z1) / 2 };
+      return { ...centre, y: q.y0, at: centre };
+    }),
+    { ...onSide(last, last.to, 1), y: last.y1, at: edge(last, last.to) },
+  ];
+  return pts.map((pt, k) => {
+    const next = pts[k + 1];
+    return { x: pt.x, z: pt.z, y: pt.y, nominal: next ? Math.abs(next.at.x - pt.at.x) + Math.abs(next.at.z - pt.at.z) : 0 };
+  });
+}
+
 /** Rules 3 to 7 on a built Floor. */
 export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   const { plan, battle, field, fields } = b;
@@ -115,29 +190,39 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
     return d;
   };
 
-  // Rule 4 measures the Passage itself: from the point 1 m inside one end to the point 1 m inside the other, each on the Walk Surface at its
-  // end's door height, so a stairwell Hall's way round its Ramp is not charged to the Passage.
+  // Rule 4 measures the Passage itself, leg by leg: from the point 1 m inside its first piece to each corner's centre and on to the point 1 m inside its last,
+  // each on the floor nearest its own height (`floorNear`), so a stairwell Hall's way round its Ramp is not charged to the Passage.
   plan.passages.forEach((p) => {
-    const r = p.rect;
-    const along = p.axis === 'x' ? r.x1 - r.x0 : r.z1 - r.z0;
-    const cx = (r.x0 + r.x1) / 2;
-    const cz = (r.z0 + r.z1) / 2;
-    const ends = p.axis === 'x'
-      ? [{ x: r.x0 + 1, z: cz, y: p.ya, hall: p.a }, { x: r.x1 - 1, z: cz, y: p.yb, hall: p.b }]
-      : [{ x: cx, z: r.z0 + 1, y: p.ya, hall: p.a }, { x: cx, z: r.z1 - 1, y: p.yb, hall: p.b }];
-    // Each end stands on the floor nearest its door height (`floorNear`): a Ramp's low end may be a step under the Hall's own floor pieces.
-    const spots = ends.map((e) => ({ ...e, s: floorNear(field.arena, e.x, e.z, e.y) }));
-    for (const [from, onward] of [[0, 1], [1, 0]] as const) {
-      const f = spots[from]!;
-      const o = spots[onward]!;
+    const spots = checkpoints(p).map((e) => ({ ...e, s: floorNear(field.arena, e.x, e.z, e.y) }));
+    const turning = p.pieces.length > 1;
+    const name = (k: number) => (k === 0 ? `${halls[p.a]!.id}'s end` : k === spots.length - 1 ? `${halls[p.b]!.id}'s end` : `corner ${k}`);
+    const head = `passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id})`;
+    if (!turning) {
+      const [f, o] = [spots[0]!, spots[1]!];
       if (f.s < 0 || o.s < 0) {
-        const end = f.s < 0 ? f : o;
-        out.push(`passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id}) its end at ${halls[end.hall]!.id} stands on no floor`);
-        break;
+        out.push(`${head} its end at ${halls[f.s < 0 ? p.a : p.b]!.id} stands on no floor`);
+        return;
       }
-      const d = fieldAt(fields, fieldFrom(f), o.x, o.z, o.s);
-      if (d < 0 || d > t.follow * along) {
-        out.push(`passages: ${p.id} (${halls[p.a]!.id} to ${halls[p.b]!.id}) is not followed from ${halls[o.hall]!.id}'s end to ${halls[f.hall]!.id}'s: ${d < 0 ? 'no way' : `${m(d)} m`} against ${along} m`);
+      for (const [from, onward] of [[f, o], [o, f]] as const) {
+        const d = fieldAt(fields, fieldFrom(from), onward.x, onward.z, onward.s);
+        if (d < 0 || d > t.follow * f.nominal) {
+          const [x, y] = from === f ? [p.b, p.a] : [p.a, p.b];
+          out.push(`${head} is not followed from ${halls[x]!.id}'s end to ${halls[y]!.id}'s: ${d < 0 ? 'no way' : `${m(d)} m`} against ${f.nominal} m`);
+        }
+      }
+      return;
+    }
+    for (let k = 0; k + 1 < spots.length; k++) {
+      const f = spots[k]!;
+      const o = spots[k + 1]!;
+      const leg = `${head} leg ${k + 1} of ${spots.length - 1}`;
+      if (f.s < 0 || o.s < 0) {
+        out.push(`${leg} is not followed from ${name(k)} to ${name(k + 1)}: ${name(f.s < 0 ? k : k + 1)} stands on no floor`);
+        continue;
+      }
+      for (const [from, onward, nf, no] of [[f, o, k, k + 1], [o, f, k + 1, k]] as const) {
+        const d = fieldAt(fields, fieldFrom(from), onward.x, onward.z, onward.s);
+        if (d < 0 || d > t.follow * f.nominal) out.push(`${leg} is not followed from ${name(no)} to ${name(nf)}: ${d < 0 ? 'no way' : `${m(d)} m`} against ${f.nominal} m`);
       }
     }
   });
@@ -184,7 +269,7 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
 
 /** Rules 1 and 3 to 7 on a built Floor (the compile rule is the build's own throw). */
 export function judgeBuilt(t: DelverFloorTuning, b: BuiltFloor): string[] {
-  return [...judgePlan(t, b.plan), ...judgeFields(t, b)];
+  return [...judgePlan(t, b.plan, b.battle.field.size), ...judgeFields(t, b)];
 }
 
 /**
@@ -198,7 +283,7 @@ export function judgeAttempt(
   judge: (t: DelverFloorTuning, b: BuiltFloor) => string[] = judgeFields,
 ): { reasons: string[]; built: BuiltFloor | undefined } {
   const t = tuning.delver.floor;
-  const reasons = judgePlan(t, plan);
+  const reasons = judgePlan(t, plan, tuning.battle.field.size);
   if (reasons.length > 0) return { reasons, built: undefined };
   let built: BuiltFloor;
   try {

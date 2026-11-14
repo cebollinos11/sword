@@ -7,10 +7,13 @@
  * Pure: whole and half metres only, every list in the plan's fixed order.
  */
 import { enclosureTop, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
-import { HALL_STOREY, type DelverHallKind, type FloorPlan } from './plan';
+import { HALL_STOREY, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
 export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
+
+/** The Brush id of piece `k` (from 0, in order from `a`) of Passage `p`: the Passage's own id when it has one piece, else `<id>-<k>`. */
+export const pieceId = (p: Pick<DelverPassage, 'id' | 'pieces'>, k: number): string => (p.pieces.length === 1 ? p.id : `${p.id}-${k}`);
 
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
 export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
@@ -26,30 +29,29 @@ const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Empty: 'basalt',
 };
 
-/** The side a sloped Passage's Ramp rises toward (its `b` end), and the sides it is railed along. */
-const RISES: Readonly<Record<'x' | 'z', Side>> = { x: 'e', z: 'n' };
-const FALLS: Readonly<Record<'x' | 'z', Side>> = { x: 'w', z: 's' };
+/** The sides a sloped leg's Ramp is railed along, across its axis. */
 const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's'], z: ['e', 'w'] };
 
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
- * Passage, a Deck and a Ramp for each gallery, a Ramp along each sloped Passage, and the markers for the eye. Levels stand at every height a
+ * piece of each Passage (a turning Passage has several: its legs and corners), a Deck and a Ramp for each gallery, a Ramp along each sloped leg, and the markers for the eye. Levels stand at every height a
  * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery asks for shortcut jump Links.
  */
 export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   const half = fieldSize / 2;
   const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -half, z0: -half, x1: half, z1: half }, y: -8, hazard: 'abyss' };
-  // A Passage stands at its lower door's height, roofed over its higher door; both ends open when flat, only the low end when sloped (the
-  // Hall at the high end cuts its own door at that height). The doors of a Passage through a gallery's wall are the Deck's, flat.
-  const spans = plan.passages.map((p) => {
-    const lo = Math.min(p.ya, p.yb);
-    const hi = Math.max(p.ya, p.yb);
-    const width = p.axis === 'x' ? p.rect.z1 - p.rect.z0 : p.rect.x1 - p.rect.x0;
-    const aEnd: Side = p.axis === 'x' ? 'w' : 's';
-    const bEnd: Side = p.axis === 'x' ? 'e' : 'n';
-    const doors: Doors = p.ya === p.yb ? { [aEnd]: width, [bEnd]: width } : { [p.ya < p.yb ? aEnd : bEnd]: width };
-    return { p, lo, hi, top: hi + HALL_STOREY, doors };
-  });
+  // Each piece of a Passage (a leg or a corner) stands at its lower side's height, roofed over its higher; both its sides open when it is flat, only
+  // the low one when it is sloped (the Hall or corner at the high end cuts its own door at that height). The doors of a Passage through a gallery's
+  // wall are the Deck's, flat. A one-piece Passage keeps its id; piece k (from 0, in order from `a`) of a turning one is `<id>-<k>`.
+  const spans = plan.passages.flatMap((p) =>
+    p.pieces.map((q, k) => {
+      const lo = Math.min(q.y0, q.y1);
+      const hi = Math.max(q.y0, q.y1);
+      const width = q.axis === 'x' ? q.rect.z1 - q.rect.z0 : q.rect.x1 - q.rect.x0;
+      const doors: Doors = q.y0 === q.y1 ? { [q.from]: width, [q.to]: width } : { [q.y0 < q.y1 ? q.from : q.to]: width };
+      return { q, id: pieceId(p, k), lo, hi, top: hi + HALL_STOREY, doors };
+    }),
+  );
   const heights = new Set<number>([-8, 0, 4]);
   for (const h of plan.halls) {
     heights.add(h.y);
@@ -63,7 +65,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   const levels = [...heights].sort((a, b) => a - b);
   const roof = (y: number, top: number): { top?: number } => (enclosureTop({ y }, levels) === top ? {} : { top });
   const halls: Brush[] = plan.halls.map((h) => ({ kind: 'enclosure', id: h.id, rect: h.rect, y: h.y, doors: h.doors, ...roof(h.y, h.top), material: HALL_MATERIAL[h.kind] }));
-  const passages: Brush[] = spans.map(({ p, lo, top, doors }) => ({ kind: 'enclosure', id: p.id, rect: p.rect, y: lo, doors, ...roof(lo, top), material: 'stone' }));
+  const passages: Brush[] = spans.map(({ q, id, lo, top, doors }) => ({ kind: 'enclosure', id, rect: q.rect, y: lo, doors, ...roof(lo, top), material: 'stone' }));
   const galleries: Brush[] = plan.halls.flatMap((h): Brush[] => {
     const g = h.gallery;
     if (!g) return [];
@@ -72,8 +74,8 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
       { kind: 'ramp', id: `${h.id}-ramp`, rect: g.ramp, lo: h.y, hi: g.y, up: g.up, rails: g.up === 'e' || g.up === 'w' ? ['n', 's'] : ['e', 'w'], material: 'stone' },
     ];
   });
-  const slopes: Brush[] = spans.flatMap(({ p, lo, hi }): Brush[] =>
-    lo === hi ? [] : [{ kind: 'ramp', id: `${p.id}-ramp`, rect: p.rect, lo, hi, up: p.yb > p.ya ? RISES[p.axis] : FALLS[p.axis], rails: LONG_SIDES[p.axis], material: 'stone' }],
+  const slopes: Brush[] = spans.flatMap(({ q, id, lo, hi }): Brush[] =>
+    lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
   );
 
   const entrance = plan.halls[plan.entrance]!;

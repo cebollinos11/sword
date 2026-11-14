@@ -66,7 +66,8 @@ export function describeFloor(f: DelverFloor): string {
   const galleries = halls.flatMap((h) => (h.gallery ? [h.gallery] : []));
   const stairwells = galleries.filter((g) => g.high).length;
   const sloped = plan.passages.filter((p) => p.ya !== p.yb).length;
-  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages`;
+  const shapes = { L: plan.passages.filter((p) => p.shape === 'L').length, S: plan.passages.filter((p) => p.shape === 'S').length, Z: plan.passages.filter((p) => p.shape === 'Z').length };
+  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages`;
   const verdict = f.judgement.ok ? 'passes the judge' : `fails: ${f.judgement.reasons.join('; ')}`;
   return `Floor ${plan.floor} of seed ${plan.seed >>> 0}, attempt ${plan.attempt + 1}: ${halls.length} Halls (${kinds.join(', ')}), ${plan.passages.length} Passages (${loops} loops), ${plan.markers.patrols.length} patrols, ${vertical}; ${verdict}`;
 }
