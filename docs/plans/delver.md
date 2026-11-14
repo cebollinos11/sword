@@ -1860,6 +1860,183 @@ Done 2026-11-14. Delver Floors now have bigger Halls (14 to 28 m across) on a co
 - **Pillars and colonnades**: Blocks that break sight lines and Formations. The judge's `sight` rule looks through them (a Block stops sight). Every marker still has its clearance.
 - **Done**: the 500 pairs, with the shapes counted; the soak, which must show a Warband promoted and fighting round pillars; screenshots of each shape.
 
+#### Design
+Written 2026-11-14 at the sub-stage's start. Battles, Duels and the Hall-graph Run are unchanged. **No new hashed state**: everything new is in the plan and the Map Source, rebuilt on every peer from (Run seed, Floor). `PROTOCOL_VERSION` stays 30; `DELVER_VERSION` goes to 7. **With every 7b knob off** (`plainHalls`, below) a Floor's compiled map is byte for byte 7a's: no Block is written, and growth, Passages, kinds and markers are untouched. With every Stage 7 knob off (`flatRooms`, which now turns 7b's off too) it is Stage 6's.
+
+**The approach: a shape is cut out of the Hall's rect by Blocks, not built of several Enclosures.** A Hall stays one Enclosure over its rect, placed by 7a's growth exactly as now. After the kinds are known, a shaped Hall gets **solids**: Blocks from its floor to its ceiling that fill a corner notch (L, T, cross) or its middle (ring). **Pillars** are 2 × 2 m Blocks to the ceiling. The Hall's **rects** are its rect less its solids: its floor seen from above. So growth, the clearance checks, the Passages, the slots, the doors, depth, the main path and the in-line rule are all 7a's. Several Enclosures would put a lintel across the inside of the Hall at every seam, and would have needed a new growth. Nothing goes in a notch: it is solid rock inside the Hall's rect.
+
+**1. The Map Compiler** (`src/mapEditor/compile.ts`): today a Block may not stand under any floor ("nothing may stand over a Block"). In a Delver Floor the abyss lies under everything and the Enclosure's roof lies over the Hall, so no Block can stand in a Hall. The new rule:
+- **A Block in an Enclosure**: the first Enclosure in Brush order whose rect holds the Block's rect (edges included) and whose ceiling (`enclosureTop`) equals the Block's `top` (within EPS). The Block stands on that Enclosure's floor (`y`).
+  - The floors under the Block at levels below its `top` are cut (the abyss and the Enclosure's floor).
+  - The Enclosure's roof over it (at `top`) is kept.
+  - Any other floor at a level above the Enclosure's floor and below `top` is refused as now ("stands under").
+  - The Walls check (`BLOCK_BOTTOM`) uses the Enclosure's floor as `lowest`.
+- **Every other Block** compiles exactly as before. Every shipped map and Map Source compiles to the same bytes: such a Block threw before, so none exists.
+- `enclosure.test.ts` gains:
+  - a pillar inside an Enclosure compiles. Its BLOCK, the Hall's floor cut under it, the roof kept over it, no extra face Wall, and `walkCheck` passes.
+  - a Block whose top is under the ceiling is still refused, and so is one sticking out of the Enclosure's rect.
+  - a Deck over a pillar inside an Enclosure is still refused.
+
+**2. Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`, `delver.floor`), the shipped values:
+```json
+"shapes": { "percent": 50, "weights": { "L": 3, "T": 2, "cross": 2, "ring": 2 } },
+"pillars": { "percent": 40, "weights": { "colonnade": 1, "grid": 1 } }
+```
+- `shapes.percent`: the chance (in 100) that a Hall that may take a shape is picked for one. `weights`: whole, at least 0, summing to at least 1, keys exactly L, T, cross, ring.
+- `pillars.percent` and `pillars.weights` work the same way, with keys colonnade and grid.
+- **Parse checks**: both are percents, and the weights are as said (the exact key set, so a typo fails).
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts` gain the keys and their checks.
+- **`plainHalls(tuning)`** (tests only, `flat.testdata.ts`): `shapes.percent` 0 and `pillars.percent` 0, the weights unchanged. **`flatRooms`** also sets both percents to 0. **`rooms7b(tuning)`** (Tasks 2 to 4 only, removed in Task 5): the shipped values above.
+
+**3. Words.** A Hall's **shape** is `rect`, `L`, `T`, `cross` or `ring`. Its **solids** are the Blocks that cut the shape. A **notch** is a solid in a corner of the rect, and a ring's **core** is the solid in its middle. Its **rects** are its floor seen from above: the rect less its solids. Its **pillars** are 2 × 2 m Blocks standing on its floor, in a **colonnade** (two rows along its long axis) or a **grid**. Solids and pillars stand from the Hall's floor to its ceiling (`top`).
+
+**4. The plan** (`plan.ts`; all `readonly`):
+```ts
+export type HallShape = 'rect' | 'L' | 'T' | 'cross' | 'ring';
+export type PillarLayout = 'colonnade' | 'grid';
+DelverHall += shape: HallShape;
+              rects: readonly Rect[]   /* its floor seen from above: rect less solids, in band order (below); [rect] for a rect */
+              solids: readonly Rect[]  /* notches (corner order NE, SE, SW, NW) or the ring's core; [] for a rect */
+              pillars: readonly Rect[] /* ascending z, then x; [] for none */
+              layout?: PillarLayout    /* absent: no pillars */
+```
+- `rect` is unchanged: the Enclosure's rect, the bounding rect of `rects`.
+- **`cx`, `cz`** is the Hall's **centre**, a floor point that every marker, patrol point, Objective and field uses. For rect, L, T and cross it is the rect's centre, as before: the notches never reach it. For a ring it is the centre of its south band (its first largest rect): (cx, z0 + band_z / 2).
+  - A Passage's `length` (and so depth, the main path and the kinds) stays the distance between the rects' centres, computed before the shapes as now.
+- New constants:
+  - `NOTCH_MIN = 4`: a notch's least extent on each axis (m).
+  - `CENTRE_KEEP = 4`: the least distance from the centre to a notch's inner edge on each axis (m).
+  - `RING_BAND = 6`: a ring's least band (m).
+  - `WALL_GAP = 3`: the least gap from a pillar to a wall or a solid (m).
+  - `MARKER_KEEP = 5`: the half side of the square round the centre that no pillar enters (m).
+  - `DOOR_LANE = 6` and `DOOR_SIDE = 1`: a doorway's lane goes DOOR_LANE m inward and is DOOR_SIDE m wider than the doorway on each side.
+  - `PILLAR_HALF = 1`, `COLONNADE_ROW = 6`, `COLONNADE_STEP = 6`, `GRID_STEP = 8`, `PILLARS_MIN = 2`.
+- New `SALT` keys: shape 50, shapeKind 51, shapeTurn 52, notchX 53, notchZ 54, ringX 55, ringZ 56, pillars 57, pillarLayout 58, colonnadeRow 59.
+- **`ev(v)`**: the even metre nearest v, the lower on a tie: `2 * Math.ceil((v - 1) / 2)`. Every solid and pillar edge is on an odd metre (off the fields' 2 m dots), as Hall Walls are. A notch's inner edge is the rect's odd edge less an even extent. A pillar is centred on an even metre.
+
+**The algorithm**: a new step **7c**, after the Fight / Empty kinds and before the patrol loops (8), so the patrol points and the markers (9) read the final centres. For each Hall h in index order, with hw, hd its rect's half sizes:
+- **May it take a shape?** Only if it has no gallery (`galleryOf[h]` absent). If `pick(h, shape, 100) < shapes.percent`, the shape is picked by weight with `pick(h, shapeKind, sum)`, in the order L, T, cross, ring. A shape that does not fit (below) leaves the Hall a rect. No other shape is tried.
+- **Notches** (L, T, cross):
+  - `capX` = the largest even ≤ hw − CENTRE_KEEP, and `capZ` the same with hd. The shape fits only if both are ≥ NOTCH_MIN.
+  - The extents are `nx = NOTCH_MIN + 2 × pick(h, notchX, (capX − NOTCH_MIN) / 2 + 1)`, and nz the same with notchZ and capZ.
+  - Corner k, in the order NE, SE, SW, NW:
+    - NE: {x1 − nx, z1 − nz, x1, z1}
+    - SE: {x1 − nx, z0, x1, z0 + nz}
+    - SW: {x0, z0, x0 + nx, z0 + nz}
+    - NW: {x0, z1 − nz, x0 + nx, z1}
+  - **The door check**: a notch fails it if, on a side its rect lies along, it covers part of [line − w/2 − DOOR_SIDE, line + w/2 + DOOR_SIDE] of any slot on that side that holds a Passage. Touching the span is allowed. On a one-cell Hall this never fails, since CENTRE_KEEP keeps a side-centre doorway clear. It bites only on a great hall's long-side slots.
+  - **L**: corner k0 = `pick(h, shapeTurn, 4)`, then k0 + 1 to k0 + 3 (mod 4). The first corner that passes the door check is the notch.
+  - **T**: side s0 = `pick(h, shapeTurn, 4)` (n, e, s, w), then the next sides in turn. Side n's corners are NE and NW, e's NE and SE, s's SE and SW, and w's SW and NW. The first side both of whose corners pass is used, so its two corners are notched and the T's stem reaches that side.
+  - **cross**: all four corners must pass.
+  - The solids are listed in corner order.
+- **Ring**:
+  - It fits only if hw ≥ RING_BAND + 2 and hd ≥ RING_BAND + 2.
+  - `band_x = RING_BAND + 2 × pick(h, ringX, floor((hw − 2 − RING_BAND) / 2) + 1)`, and band_z the same with ringZ and hd.
+  - The core is {cx − (hw − band_x), cz − (hd − band_z), cx + (hw − band_x), cz + (hd − band_z)}, so its halves are ≥ 2.
+  - The centre moves to (cx, z0 + band_z / 2).
+  - Every doorway opens onto a band, since a band is ≥ 6 m deep.
+- **Rects** (`floorRects(rect, solids)`, exported and pure):
+  - Cut the rect into z-bands at every solid's z-edges, ascending. In each band, take the x-runs not covered by a solid, ascending.
+  - Merge a band into the one before it when their runs are the same.
+  - So a rect gives [rect]; an L, T or cross gives its bands, south first; a ring gives south, west, east, north.
+- **Pillars**:
+  - Only a Hall of shape rect, L, T or cross with no gallery may have them. If `pick(h, pillars, 100) < pillars.percent`, the layout is picked by weight with `pick(h, pillarLayout, sum)`, in the order colonnade, grid.
+  - **Candidate centres** (even metres):
+    - **Colonnade**, along the long axis u (x when hw ≥ hd, else z), with v across it.
+      - The rows are at `vS − o` and `vN + o`, where vS is the largest even ≤ cv − COLONNADE_ROW and vN the smallest even ≥ cv + COLONNADE_ROW.
+      - o = 2 × `pick(h, colonnadeRow, K)`, and K is the number of o in 0, 2, 4, … for which both rows keep WALL_GAP + PILLAR_HALF from the walls across. With K 0 the Hall has no pillars.
+      - Along u, the centres are ev(cu) + COLONNADE_STEP × n for every whole n that keeps WALL_GAP + PILLAR_HALF from the walls along u.
+    - **Grid**: (ev(cx) + GRID_STEP × a, ev(cz) + GRID_STEP × b) for every whole a and b within the same wall gap.
+  - **Each candidate** P = its centre ± PILLAR_HALF is kept only if it:
+    - keeps WALL_GAP from each solid (`apartBy(P, solid, WALL_GAP)`);
+    - does not overlap the centre's keep (cx ± MARKER_KEEP, cz ± MARKER_KEEP), touching allowed;
+    - does not overlap any held slot's **lane**: the span above along its side, going DOOR_LANE m inward from that wall.
+  - The pillars are the kept candidates, sorted by z then x. With fewer than PILLARS_MIN, the Hall has none, and `layout` is absent.
+- With both percents 0 nothing of this is picked. Every Hall is then a rect, with `rects` [rect] and no solids or pillars.
+
+**5. The source** (`floorSource`): after the slopes, each Hall in order writes its solids and then its pillars as Blocks, with `top` = `hall.top`:
+- `hall<k>-solid<n>`, with the Hall's material;
+- `hall<k>-pillar<n>`, `stone`.
+
+The Brush list is then [abyss, halls, passages, galleries, slopes, blocks]. With none of them, the source is 7a's byte for byte. Nothing else changes: the Hall's Enclosure is its rect, and its doors are as before.
+
+**6. The judge** (`judge.ts`):
+- **New `shapes`** (plan-only, after `layout`; one line per failure):
+  - Each Hall's rects and solids lie inside its rect and share no interior. Their areas sum to the rect's: `shapes: hall3's rects and solids do not tile its rect`.
+  - Its centre lies in one of its rects (edges included) and inside no solid or pillar: `shapes: hall3's centre (x, z) is not on its floor`.
+  - Every solid and pillar edge is on an odd metre: `shapes: hall3-pillar2 has a Wall on the field's dots`.
+  - Every pillar lies inside a rect of its Hall and shares no interior with a solid: `shapes: hall3-pillar2 is not on hall3's floor`.
+  - Every marker (spawns, the Stairs zone's centre, fires, pedestals, posts, patrol points, the Boss) keeps at least 1 m from each solid and pillar of its Hall: `shapes: post2 is within 1 m of hall3-pillar0`.
+  - Each Passage's doorway into a Hall stays clear. That is the edge of its first piece on `a` (or of its last on `b`) carried 3 m into the Hall, the doorway's width, and it shares no interior with that Hall's solids or pillars: `shapes: pass4's doorway into hall3 is blocked by hall3-solid0`.
+- **`sight`** is unchanged in code, but a Block already stops it (`inSight` reads the compiled map's blocks), so a pillar may now hide a post from the Entrance.
+- **`describeFloor`** adds `, S shaped Halls (l L, t T, c cross, r ring), p pillars in H Halls (c colonnades, g grids)`.
+
+**7. What reads a Hall's rect** (each moves to its rects or minds its pillars; behaviour on a rect Hall unchanged):
+- `revealPlace` (`reveal.ts`): a Hall holds the point when one of its rects holds it, with the same edges.
+- `dropSpots` (`delverLoot.ts`):
+  - `rectOf` takes each Hall's rects, in Hall then rect order, in place of its rect.
+  - A candidate spot within DROP_MARGIN of a pillar of the Hall the fall is in is skipped.
+  - If no candidate is left, the one spot is the fall point clamped into R.
+- `Minimap.drawDelver` and `delverMapLayout`: a revealed Hall is drawn as each of its rects, each a `DelverMapRect` with `hall: true` and its kind. Pillars are drawn on neither.
+- `bossHold` (`delverRun.ts`) and `delverMapMarks`' Treasure test keep the rect: nobody stands in a solid.
+
+**8. Existing tests this sub-stage rewrites** (only these, and only as said):
+- `golden.test.ts`:
+  - the default pins are rewritten (`DELVER_VERSION` 7);
+  - a new `plainHalls` case gives **7a's default map pins exactly**;
+  - the `flatRooms` case keeps its map pins (Stage 6's), as do the flat and old-Floor-9 cases. Every plan pin is new: the plan gained fields.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts`: the new keys.
+- **Any other existing Delver test that fails only because its Floor's Halls changed** (a marker, a Warband's walk, a drop spot) runs on `plainHalls(tuning)`, composed with whatever it already used, with its expectations unchanged. Task 5 lists each one. A test that still fails on `plainHalls` is a bug to report.
+- No test is removed.
+
+**9. Tests to add**:
+- `plan.test.ts` (200 seeds × Floors 1 to 9 on `rooms7b`):
+  - The rects tile the rect less its solids, by `floorRects`. Solid and pillar edges are on odd metres.
+  - Notches are at corners, between NOTCH_MIN and their cap. Pillars keep WALL_GAP from walls and solids, stay out of the keep and the lanes, and are 2 × 2.
+  - The centre is on the floor (the rect's centre unless a ring). No gallery Hall is shaped or pillared.
+  - A great hall's shape passes the door check.
+  - Across the 200: every shape on a one-cell Hall and on a great hall, both layouts, a Boss Hall with a shape or pillars, and a ring holding a marker in its south band.
+  - On `plainHalls`: every Hall a rect, and the plan equals 7a's, but for the new fields.
+  - `floorRects` cases by hand for each shape.
+- `source.test.ts` / `judge.test.ts`:
+  - a shaped Hall's Blocks (ids, tops, materials) and their order. The Floor compiles and passes `walkCheck`.
+  - 7b Floors pass the judge first try. The editor's `checkMap` at 2 m finds no Wall on a node.
+  - `shapes` fires on:
+    - a pillar moved onto a marker;
+    - a solid moved over a doorway;
+    - a rect dropped from a Hall's rects;
+    - a pillar moved half a metre.
+  - `sight` passes on a post hidden from a spawn by a pillar, and fires on the same with the pillar removed. Hand-built, or found by search.
+  - The navmesh's shortcut-link case holds on a 7b Floor.
+- **The consumers**:
+  - `revealPlace` in each band of an L and a ring, and nowhere in a solid's middle;
+  - `dropSpots` for a fall beside a pillar, no spot within the margin of it;
+  - `delverMapLayout` and the minimap drawing every rect.
+- `delverGen.slow.test.ts` (500 pairs):
+  - per Floor, the shapes, the pillars and layouts, and the Blocks a Floor (mean, max);
+  - the budgets of Stage 6 (build mean ≤ 600 ms, none over 2 s, navmesh mean ≤ 300 ms);
+  - **failed attempts at most 1 in 20 pairs**.
+  - **It must show it exercised** every shape, both layouts, a shaped great hall, a shaped or pillared Boss Hall, and a ring Entrance or Stairs Hall (its markers in the band).
+
+**10. The soak** (`src/controllers/warbandSoak.slow.test.ts`; immortal party):
+- The levelled Runs case reruns on the 7b Floors: the Tick against 7a's 0.40 ms mean and 2.04 ms p99, and the Floor build and navmesh. **If the Tick mean passes 0.60 ms or the p99 4 ms**, the Blocks' cost is too high: lower `pillars.percent` (Task 6 records it).
+- **New case, a fight round pillars**: on the first Floor in seed order whose Fight Hall has pillars and a guard post, the immortal party walks to the post.
+  - At least one of that Warband's Soldiers is promoted while inside that Hall.
+  - A promoted Fighter of it lands a hit or takes one inside the Hall.
+  - A promoted Fighter stands within 2 m of a pillar's face at some Tick.
+  - No Fighter's or Soldier's position is ever inside a pillar or a solid (shrunk by 0.2 m).
+  - Must show, else fail: the Promotion, the hit and the pillar pass.
+- **A patrol through a shaped Hall**: the patrols harness, on a patrol whose loop holds an L, T, cross or ring Hall. It walks its whole loop, and no Soldier is ever inside a solid.
+- **Stage 2's empty-Floor walk** (`delverRun.slow.test.ts`) on the 7b Floors, against 7a's 134.6 to 235.6 s.
+
+**Tasks** (1 and 2 may run side by side, and so may 3 and 4: their files are disjoint):
+1. **The compiler**: `compile.ts`'s Block-in-an-Enclosure rule and `enclosure.test.ts` (§1).
+2. **The plan and its Tuning**: `data/delver.json` (the new keys with the knobs off, both percents 0), `src/tuning/delver.ts` with `delver.test.ts` and `tuning.test.ts`, `plan.ts`, `flat.testdata.ts` (`plainHalls`, `flatRooms`, `rooms7b`) and `plan.test.ts`.
+3. **The source and the judge**: `source.ts`, `judge.ts`, `generate.ts` (`describeFloor`) and their tests (on `rooms7b`).
+4. **The consumers**: `reveal.ts`, `delverLoot.ts`, `src/render/minimap.ts`, `src/play/floorMap.ts` and their tests.
+5. **The switch**: the shipped values in `data/delver.json`, `DELVER_VERSION` 7, the golden pins, §8's moves onto `plainHalls`, `rooms7b` removed, and `delverGen.slow.test.ts`.
+6. **The soak**: §10's cases and measurements.
+
 ### Stage 7c: verticality inside a Hall
 **Model**: Opus (geometry and levels).
 - **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
