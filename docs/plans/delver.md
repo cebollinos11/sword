@@ -9,7 +9,7 @@
 - [x] Stage 3: Warbands (Crowd Squads that guard, patrol, chase and return; enemy-only Bubble)
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
-- [ ] Stage 6: verticality (balconies, stairwells, bridges over passages)
+- [ ] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
 - [ ] Stage 7: online co-op (up to four Players, Input Delay, soak)
 - [ ] Stage 8: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
 
@@ -1358,6 +1358,124 @@ Battles, Duels and the Hall-graph Run are unchanged.
 - Warbands on several levels by the walk rule. Patrols cross levels; Chase fields have a node per level.
 - The maps are not changed in this Stage.
 - **Done**: large multi-level Floors pass the judge and the soak.
+
+#### Design
+Written 2026-11-14 at the Stage's start, with the user's answers of that day (no overlap from above; a balcony only inside its own Hall; heights by sloped Passages, stairwell Halls and Jumps; the maps unchanged). A Battle, a Duel and a Hall-graph Run step exactly as before, and with a flat Tuning (`delver.floor.levels.max` 0, `galleryPercent` 0) a Floor's Map Source and compiled map are byte-identical to Stage 5's. **No new hashed state**: every height comes from the plan, the Walk Surfaces or the Fighters, which are already state. `PROTOCOL_VERSION` stays 30 (no message changes shape); `DELVER_VERSION` goes to 4, so peers whose Floors differ refuse each other through the Tuning Data hash.
+
+**The words.** A **level** is `LEVEL_RISE` (2 m) of height. A Hall's floor stands at a whole number of levels (`level`, 0 to `levels.max`). A **gallery** is a raised walkway along one wall of its own Hall: a Deck one level over the Hall's floor, reached by a Ramp inside the Hall. It is a **stairwell** when a Passage leaves through that wall at the Deck's height (the Ramp joins a low door and a high door), else a **balcony**. A **sloped Passage** has a Ramp along its whole length joining a door one level lower to a door one level higher. The front edge of every gallery Deck is open: it is the Floor's only **Jump shortcut** (up) and a 2 m drop (down).
+
+**1. The height model** (constants in `src/sim/delver/plan.ts`, each fixed by a rule, not Tuning):
+- `LEVEL_RISE = 2`. A Hall's floor is `y = level × 2`. A Passage rises or falls at most one level. A gallery's Deck is one level over its Hall's floor.
+  - Why 2 m: a Deck 2 m up is a Jump shortcut with a wide margin (below), it is a drop Soldiers may take (`battle.levels.drop` 3), and it is more than `levels.height` (1.8), so Soldiers on the Deck and under it are on different levels.
+- **Roofs** (an Enclosure's `top`, below): a plain Hall `HALL_STOREY = 4` m over its floor (as today). A gallery Hall `GALLERY_STOREY = 6` m, so its Deck stands 4 m under the roof: more than a Fighter's height at the largest Size (`fighter.height` × MAX_SIZE = 2.52 m). Under the Deck there is 2 m: Fighters walk under it (nothing in the Simulation stops a walk under a Walk Surface; a tall body clips the Deck when drawn, accepted). A Passage's roof is `HALL_STOREY` over its higher door.
+- **Doors**: every doorway stays `DOOR_HEIGHT` (3 m) over the floor it opens from. A Passage attaches at a **door height** at each end (`ya`, `yb`): its Hall's floor, or, through a gallery's wall, the Deck's height. A Hall's `doors` list only the Passages attached at its floor. A Passage Enclosure's `doors` list its end(s) at its own floor: both ends when it is flat, only its low end when it is sloped. The other end's opening is cut by the Hall's own door at that height (an Enclosure's doorway opens through a shared Wall, ADR 0023's compiler rule), so no doorway ever opens below a floor or into the abyss. A Passage through a gallery's wall is always flat (both its doors at the Deck's height), so a stairwell's high door is cut by the Passage alone.
+- **The steepest Ramp**: 1 in 2 (`MAX_SLOPE = 0.5`, 26.6°; the Fort's and the Ziggurat's are 4 in 9). The walk rule (`levels.ts`) has no slope limit of its own and Fighters walk Ramps up to about 5 m a metre (`steepestRamp`), so this is a look-and-feel bound. A sloped Passage rises 2 m over its whole length, at least `minPassage` (4 m), so it is never steeper; the parse refuses `minPassage < 2 × LEVEL_RISE` whenever `levels.max > 0`.
+- **The gallery's shape**: a strip `GALLERY_DEPTH = 4` m deep along the inside of wall `side`, the whole length of that wall, cut along it into the Deck (from one corner), the Ramp (`GALLERY_RAMP = 4` m long = `LEVEL_RISE / MAX_SLOPE`, as deep as the strip, rising toward the Deck) and an approach (`GALLERY_APPROACH = 2` m of the Hall's own floor, between the Ramp's foot and the other side wall). The Ramp is railed on both long sides (the wall's line and the strip's inner edge). The Deck's front edge (the strip's inner edge along the Deck) has no rail.
+  - Every new edge stays off the 2 m field's dots (Stage 1's rule): Hall edges are odd metres, and 4, 4 and 2 are even, so the strip's inner edge and every cut along it are odd metres too.
+  - **Room**: a gallery on side `s` fits its Hall when the half size across the wall (`hd` for n and s, `hw` for e and w) is at least `GALLERY_DEPTH + CENTRE_CLEAR` (`CENTRE_CLEAR = 4`: the centre's markers, the fire's 3 m ring, the pedestals at ±3 and the Stairs zone stay clear of the strip, and so do the doorways in the two side walls), and the half size along it (`par`) is at least `(GALLERY_RAMP + GALLERY_APPROACH + DECK_MIN) / 2` (`DECK_MIN = 4`: 5 m). A **stairwell** also needs the Deck to cover its high door with a metre each side: `par − GALLERY_RAMP − GALLERY_APPROACH ≥ passage / 2 + 1` (9 m with the bundled Tuning).
+- **The Jump shortcut**: the Deck's front edge, 2 m over the Hall's floor. A held Jump lands on a 2 m ledge from up to 3.8 m away (`docs/jump-reach.md`, measured with today's `data/fall.json`: gravity 14, jumpSpeed 4.8, jumpBoost 25, 0.12 s and 0.35 s; checked against the file in this Stage) and the highest ledge reached is about 4.3 m, so 2 m is 2.3 m under the real Jump. Under the Deck's 4 m of headroom a full Jump is not capped. A test keeps the cap honest: `JUMP_SHORTCUT_CAP = 2.5` (`plan.ts`), and `plan.test.ts` asserts `LEVEL_RISE ≤ JUMP_SHORTCUT_CAP`. Nothing else on a Floor is a Jump shortcut: a sloped Passage's and a gallery Ramp's sides are railed, and every Hall and Passage is walled to its roof.
+- **No overlap from above** is an invariant of the plan: Halls and Passages are disjoint rects as in Stage 1, and the only Walk Surface over another is a gallery's Deck over its own Hall's floor, inside that Hall's rect.
+
+**2. Tuning Data** (`data/delver.json`, `src/tuning/delver.ts`): `delver.floor.levels`:
+```json
+"levels": { "max": 4, "min": 2, "changePercent": 35, "galleryPercent": 40 }
+```
+- `max`: the highest Hall level (whole, 0 to 6; 0 is a flat Floor). `min`: the fewest distinct Hall levels a Floor must have (whole, 1 to `max + 1`; the judge's `levels` rule). `changePercent`: the chance (in 100) that a tree Passage rises or falls a level. `galleryPercent`: the share (in 100) of the Halls with room for one that get a gallery.
+- Parse checks: as above, percents whole 0 to 100, and `minPassage ≥ 2 × LEVEL_RISE` when `max > 0`. `tuning.test.ts`'s `goodRaw()` gains the block.
+- **The flat Tuning** (tests only): `flatFloors(tuning)` in `src/sim/delver/flat.testdata.ts` gives `levels { max 0, min 1, changePercent 0, galleryPercent 0 }`.
+
+**3. The plan** (`planFloor`, the new and changed fields; all `readonly`):
+```ts
+export interface LevelPoint { x: number; y: number; z: number }
+export interface MarkerPoint { hall: number; x: number; y: number /* the floor it stands on (m) */; z: number }
+export interface DelverGallery {
+  side: Side;        // the wall it runs along
+  end: 0 | 1;        // 0: the Deck at the low-coordinate end of the wall (west for n and s, south for e and w), 1: the other
+  y: number;         // the Deck's height: the Hall's y + LEVEL_RISE
+  deck: Rect; ramp: Rect;
+  up: Side;          // the Ramp's high end, toward the Deck
+  high: boolean;     // a stairwell: a Passage leaves through `side` at the Deck's height
+}
+DelverHall    += level: number; y: number; top: number /* its roof (m) */; gallery?: DelverGallery /* absent: none */
+DelverPassage += ya: number; yb: number /* door heights (m) at a's and b's end */
+DelverPatrol.points: readonly LevelPoint[]
+DelverMarkers.stairs: { hall: number; zone: Rect; y: number }
+```
+New `SALT` keys (after the Warbands' 20 to 29, so no pick collides): galleryOrder 30, gallerySide 31, galleryEnd 32, levelBase 33, levelChange 34, levelUp 35. The steps, numbered as Stage 1's:
+- **3b. Galleries** (after the growth, before the loops). A side fits as in §1, `high` (needs the stairwell's room) when it already has a tree Passage. The Halls with at least one fitting side are ordered by `pick(h, galleryOrder, 2³²)`, ties the lower index, and the first `ceil(fitting × galleryPercent / 100)` get one: its side is `fitting[pick(h, gallerySide, fitting.length)]` in n, e, s, w order, its end `pick(h, galleryEnd, 2)`. With `galleryPercent` 0 no pick is made.
+- **3c. Levels** (on the tree). The first Hall's level is `pick(0, levelBase, max + 1)`. Then each tree Passage n in growth order, from its parent P (levelled) to its child C: `dP` = P's door level at that end (its level, + 1 through its gallery's wall). When either end is a gallery's wall the options are `[0]`; else, if `pick(n, levelChange, 100) < changePercent`, `[d, −d, 0]` with `d = pick(n, levelUp, 2) ? +1 : −1`, else `[0]`. C's door level is `dP + δ` for the first δ that puts C's level (its door level, − 1 through its gallery's wall) in 0 to `max`. If none does, P's gallery on this side is dropped (else C's), and it is tried again with `[0]`, which always fits. With `max` 0 no pick is made.
+- **4. Loops**: a candidate also needs its two door levels at most one apart, equal when either end is a gallery's wall, and a gallery's wall it lands on must have the stairwell's room. Then each gallery's `high` is whether its side holds a Passage.
+- **5. Passages**: `ya`, `yb` from the door levels × 2. The Halls' `doors` and the Passages' as in §1.
+- **7.** After the Boss Hall grows (its rect and its Passages', as Stage 4), each gallery's `deck`, `ramp`, `up` and `y` are worked out from its Hall's final rect. Along the wall from u0 to u1 (x for n and s, z for e and w), with A = `GALLERY_APPROACH` and R = `GALLERY_RAMP`: end 0: Deck u0 to u1 − A − R, Ramp u1 − A − R to u1 − A, `up` the low-coordinate side (w, or s); end 1: Deck u0 + A + R to u1, Ramp u0 + A to u0 + A + R, `up` e (or n). Across, both are the strip: `GALLERY_DEPTH` in from the wall. `top` is `y + GALLERY_STOREY` for a gallery Hall, else `y + HALL_STOREY`.
+- **9. Markers**: each has its floor's `y`. **A Fight Hall with a gallery whose Deck is at least `DECK_POST = 6` m long has its post on the Deck**: at the Deck's centre along the wall and 2 m in from the wall, at the Deck's `y` (a guard's column, three files 1.5 m apart and ranks 0.75 to 2.25 m ahead, then fits on it). Every other marker is where Stage 5 puts it, on its Hall's floor. Patrol points are Hall centres at their Hall's `y`; the Stairs zone's `y` is its Hall's.
+- Kinds, depth (centre-to-centre lengths), the main path, in-line Halls and patrols are unchanged. With the flat Tuning, the plan is Stage 5's plus the new fields (every `y` 0, `level` 0, `top` 4, `ya = yb = 0`, no gallery).
+
+**4. The source** (`floorSource`):
+- `levels`: −8 and every height a Brush stands at (Hall floors and roofs, Decks, Passage floors and roofs), ascending, unique: [−8, 0, 4] on a flat Floor.
+- Brush order: the abyss; the Halls (Enclosures at `y`, their `top` written only when it is not the next level up, `doors`); the Passages (Enclosures at the lower door height, `top`, `doors` as §1); then for each gallery Hall in Hall order a Deck `<hall>-deck` (`material: 'wood'`) and a Ramp `<hall>-ramp` (`lo` the Hall's `y`, `hi` the Deck's, `up`, `rails` both long sides, `material: 'stone'`); then for each sloped Passage in order a Ramp `<pass>-ramp` over its whole rect (toward its higher end, railed both sides, `stone`).
+- Props stand at their marker's `y`. `shortcuts: true` (below) only when the plan has a gallery.
+- `describeFloor` adds "levels a to b (n Hall levels), g galleries (b balconies, s stairwells), r sloped Passages".
+
+**5. The Map Source and the navmesh** (general, Battles unchanged):
+- **`EnclosureBrush.top?: number`**: its ceiling, one of the source's levels above `y`. Absent, the next level up, as now. `enclosureTop(b, levels)` returns `b.top` when set, so the compiler, the Map Editor's session and its panel all read it. `parseMapSource` checks it, and `sourceFileText` writes it after `doors` when set.
+- **`MapSource.shortcuts?: true` → `BattleMapTuning.shortcuts?: true`** (`compileDraft` carries it, `parseBattleMap` accepts only `true` or absent, `mapFileText` writes `"shortcuts": true` after `armySize` when set). A map with it builds its Battlefield's Arena with `jumpLinks: 'shortcuts'` (`buildMap` and `compileDraft`'s draft Arena). `ArenaGeometry.jumpLinks` becomes `false | 'shortcuts'`.
+- **`navMesh` with `jumpLinks: 'shortcuts'`** (`nav.ts`): `jumpLinks(...)` runs only its "onto a target" search, and keeps only shortcut Links: a try whose target walking does not reach (`!reached(k, j)`: roofs, anything a Jump alone gets to) is never made. The "off a source" search (gaps, which find only unreached targets) is skipped. Every kept Link passes the existing error check (`jumpHolds`: every slightly-off variant lands in the same walk group, none deadly) and the shortcut rule (ADR 0013). So a Floor's AI allies, its Delver pilot and its promoted enemies may Jump up onto a Deck when that saves walking round by the Ramp, and nowhere else. Soldiers never Jump (the walk rule), and `walkCheck` is unchanged: every Walk Surface but the roofs is reached without a Jump. ADR 0028's "the navmesh is a Battle map's, with no Jump Links" gains this exception at the Stage's close.
+
+**6. The judge** (`judge.ts`): the rules, with what is new:
+1. **rooms**, and new **levels**: a plan with fewer than `levels.min` distinct Hall levels (`levels: N Hall levels, at least M wanted`). Plan-only.
+2. **compile**, unchanged (`walkCheck` covers every Ramp and Deck).
+3. **halls**, unchanged.
+4. **passages**, now **both ways**: the field to a's centre read at b's centre, and to b's read at a's, each ≤ `follow × length`. A sloped Passage must be climbed and walked down.
+5. **markers**: each stands at its own `y` (was 0), on that Walk Surface (`groundOf(battle, field, x, z, y)`), not a roof, not deadly, reached.
+6. **sight**: `inSight` with both heights (the spawn's and the marker's `y`).
+7. new **galleries**: each gallery's Deck centre has a Walk Surface at the Deck's `y` that is not a roof, reached from the Entrance, and the Hall's centre is reached from it.
+- The navmesh is not built by the judge (it is not needed for a verdict: a Deck with no jump Link still has its Ramp). The jump Links are checked by a fast test on one Floor and by the generator soak on 20.
+- **Budget**: Stage 1's Floor was 241 ms here (p95 288) and its navmesh 17 ms; Stage 0's "Floor ready" 110 to 153 ms. The generator soak fails if the passing attempt's plan, build and judge average over 600 ms here or any is over 2 s, or the navmesh averages over 300 ms. A Floor is warmed a Floor ahead (`arenasToWarm`), so the fade only reads the cache; rerolls (the `levels` rule, mostly) are counted and printed.
+
+**7. Everything Stages 2 to 5 assumed flat**, each with its fix (Simulation unless marked):
+- **Spawns** (`floorDuel`): Team 0 at the spawn's `y`.
+- **Stairs** (`inStairs`): `y` within (zone `y` − 0.5, zone `y` + `ZONE_HEIGHT`). The Boss wipe's revive stands at the Stairs zone's `y`.
+- **Fires** (`atFire`, the fires' arrivers, the revive): the fire's `y`.
+- **`dropSpots(plan, arena, lv, x, z, y, count)`**: the spots as now; each spot's `y` is the height of `groundNear(arena, lv, sx, sz, y, true)` (the ground nearest under the fall's height, never a roof), or the fall's `y` where there is none. The fall's `y` is `soldierHeight` of the fall Soldier's surface in `match.duel.crowd`, and `WarbandWiped.at.y` is that too.
+- **Pedestals** (`treasurePickups`): at their marker's `y`.
+- **Warband homes** (`warbandHomes`): posts `{ x, y, z, facing }` and patrol points `{ x, y, z }`. A Deck post faces along the Deck toward its Ramp (the column then lies on the Deck); every other post keeps `guardFacing`.
+- **`deployWarbands`**: every anchor and Soldier surface is `groundOf(battle, field, x, z, home.y)`.
+- **The brain** (`stepWarbands`): every home field and home surface at the home's `y` (`walkField(battle, map, x, z, y)`, `groundOf(…, y)`), not 0. **Sight** on a Floor takes feet no more than `battle.levels.promote` (2.5 m) above or below (was `levels.height`, 1.8), so a Warband sees a Player on a gallery over it, and the reverse.
+- **The Bubble across levels**: unchanged. On a Floor every distance it measures is already the walk, by fields with a node per level, so a Deck reached by a drop is near and one reached by a long Ramp far; nobody more than `levels.promote` above or below is promoted (ADR 0022).
+- **Chase fields**: unchanged (`fieldToward` at the chased Fighter's node, a node per level).
+- **Patrol and Return**: unchanged but for the homes' `y`.
+- **The Reveal**: unchanged. Seen from above nothing overlaps, so a Hall's rect holds its gallery and a sloped Passage's rect its Ramp.
+- **The AI**: the Delver pilot walks to a fire's and the Stairs' `y`; the Ally AI to its Stairs spot at the zone's `y`. `promotedNear` keeps `levels.height`.
+- **Render** (`DelverMarks`, `delverStandIns`, the Rest fire): the Stairs square, its gate, the fire, its ring and the pedestal rings stand at their marker's `y`. Pickups and the Crowd already draw at their own heights (the task checks `floorCrowd.ts` and `pickupView.ts`). The minimap and the Floor Map are not changed.
+
+**8. Existing tests this Stage rewrites** (only these, and only as said):
+- `golden.test.ts`: the default Tuning's pins are rewritten (`DELVER_VERSION` 4), and a new case builds the same seeds and Floors on `flatFloors(tuning)`: its `mapFileText` hashes must be **the Stage 5 map pins exactly**.
+- `tuning.test.ts`'s `goodRaw()` and `src/tuning/delver.test.ts`: the `levels` block and its checks.
+- `delverLoot.test.ts`: `dropSpots` calls gain their new arguments, expectations unchanged.
+- **Any other existing Delver test that fails only because its Floor now has levels** (a marker's height, a Warband's place, a Hall's shape) runs on `flatFloors(tuning)`, its expectations unchanged. The task lists each one. A test that still fails on a flat Floor is a bug to report.
+- No test is removed.
+
+**9. Tests to add**:
+- `src/mapEditor/enclosure.test.ts`: an Enclosure with `top` two levels up compiles its roof there and stands its Walls to it; a source with no `top` and no `shortcuts` compiles to the same bytes as before (the existing pins); a tall Enclosure holding a Ramp up its wall to a Deck, with a flat Enclosure leaving through that wall at the Deck's height, passes `walkCheck` and opens the doorway at the Deck.
+- `src/sim/nav.test.ts` (or a new `shortcutLinks.test.ts`): on such a map with `jumpLinks: 'shortcuts'`, the navmesh has a shortcut jump Link from the floor onto the Deck, every jump Link is a shortcut, and with `jumpLinks: false` there is none.
+- `plan.test.ts`, over 200 seeds and Floors 1 to 9: Hall levels in 0 to `max`; every Passage's door heights at most `LEVEL_RISE` apart, equal through a gallery's wall; galleries inside their Hall's rect, Deck and Ramp disjoint and inside the strip, the Deck covering a stairwell's high door; every Deck post on its Deck; every marker's `y` its Hall's floor or Deck; doors listed as §1; `LEVEL_RISE ≤ JUMP_SHORTCUT_CAP`; Deck headroom ≥ `fighter.height × MAX_SIZE`; with the flat Tuning, Stage 5's plan plus the new fields. And across the 200: some Floors with 2 or more Hall levels, a balcony, a stairwell and a sloped Passage.
+- `judge.test.ts`: each new or changed rule firing on a broken Floor: `levels` (a plan flattened to one level under `min` 2), `passages` the other way (a sloped Passage's Ramp Brush removed: the walk up fails, or the compile does), `markers` at a height (a fire's `y` raised 2 m), `galleries` (a gallery's `y` raised 2 m); a levelled Floor passes; its built navmesh (under `arenaTuning`) has a shortcut jump Link onto every Deck and no other jump Link; the editor's `checkMap` at 2 m still finds no Wall on a node.
+- Run tests (`delverRun.test.ts`, `delverLoot.test.ts`, `warbands.test.ts`, `warband.test.ts`): on a levelled Floor, Team 0 spawns at the Entrance's `y`; the Stairs count at the Stairs' `y` and not 2 m under it; a fire heals at its `y`; a drop on a Deck lies on the Deck and one beside it on the floor; a Deck post's Warband deploys on the Deck facing its Ramp; a Warband on the floor sees a Player on a gallery over it; same Intents, same hash, across a Floor change on levelled Floors.
+- `src/sim/delver/delverGen.slow.test.ts`: as Stage 1's soak on the default Tuning, plus per Floor its Hall levels, galleries, stairwells and sloped Passages, and on its 20 navmesh Floors the jump Links. **It must show it exercised**, else fail: Floors of 3 or more Hall levels, balconies, stairwells, sloped Passages, Deck posts, and a shortcut jump Link onto every Deck of the 20.
+
+**10. The soak** (`src/controllers/warbandSoak.slow.test.ts`, new cases; immortal party, `withImmortalParty`):
+- **Levelled Runs**: 3 Run seeds, 1 tier × 3 Floors, no Bosses (`noBosses`), the Delver pilot (Hard) and two Hard AI allies. Per Floor it prints: the Hall levels, galleries (balconies, stairwells), sloped Passages; the party's seconds on a Ramp (a sloped Walk Surface); chases that crossed a level (the anchor's height changed by 1.5 m or more within one Chase); Promotions of a Soldier standing on a Deck; AI allies' jump Links taken (an ally's surface going from a Hall floor to a Deck without standing on its Ramp, airborne between); the Tick (mean, p99, max) against Stage 0's T2 (0.31 to 0.41 ms here) and Stage 3's soak (0.51); the Floor's build (`delverFloor` and `navMesh`) against Stage 1's 241 ms and 17 ms. **It must show**: every Floor with 2 or more Hall levels, and the party on a Ramp.
+- **Three scenarios**, each on a Floor found by searching seeds (the first, in seed order, that has what it needs), with what it must show:
+  - **A jump shortcut**: on an empty Floor (`postFill` 0, `patrolFill` 0), the Player stands on a balcony's Deck and a Hard AI ally on its Hall's floor 3 m in front of the Deck's front edge. Within 20 s the ally stands on the Deck, by a jump Link (it was airborne, and never on that gallery's Ramp).
+  - **A chase across a level**: a guard in a Hall with a sloped Passage; the Player in sight of it walks away up that Passage by the navmesh. The guard chases, and its anchor climbs the Ramp.
+  - **Warbands promoted on a balcony**: a Deck post's guard; the Player walks to its Hall's floor in front of the Deck. A Soldier standing on the Deck is promoted.
+
+**Tasks** (one after another, but 4 may run beside 3: their files are disjoint):
+1. **The Map Source and the navmesh**: `src/mapEditor/source.ts` (`top`, `shortcuts`), `compile.ts`, `src/tuning/battle.ts` (`shortcuts`), `src/tuning/arena.ts` (`jumpLinks`), `src/sim/battlefield.ts` (`buildMap`), `src/sim/nav.ts` (shortcuts only), their tests.
+2. **The generator**: `data/delver.json`, `src/tuning/delver.ts`, `tuning.test.ts`, `delver.test.ts`, `src/sim/delver/plan.ts`, `source.ts`, `judge.ts`, `generate.ts`, `version.ts`, `flat.testdata.ts`, and the plan, judge, golden and generator slow tests.
+3. **The Run on levels**: `src/sim/delverRun.ts`, `delverLoot.ts`, `src/sim/delver/warbands.ts`, `src/sim/warband.ts`, `src/controllers/delverPilot.ts`, `allyAi.ts`, and their tests (new cases; the flat-Floor moves of §8).
+4. **Render**: `src/render/delverMarks.ts`, `delverStandIns.ts`, `restFire.ts` if it needs a height, and their tests; checks `floorCrowd.ts`, `floorBodies.ts` and `pickupView.ts` draw at their heights.
+5. **The soak**: `warbandSoak.slow.test.ts`'s new cases and the measurements.
 
 ### Stage 7: online co-op
 **Model**: Opus.
