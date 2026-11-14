@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest, in sub-stages 7a to 7e) is next, from 7a. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -10,7 +10,11 @@
 - [x] Stage 4: loot, Treasure Halls and Boss Floors
 - [x] Stage 5: presentation (fog-of-war minimap and Floor Map, Stairs and fires, HUD)
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
-- [ ] Stage 7: rooms (bigger Halls, great halls, shapes, L-, S- and Z-shaped Passages, split levels, pits, daises, lava, pillars, archetypes)
+- [ ] Stage 7a: bigger Halls, great halls, L-, S- and Z-shaped Passages
+- [ ] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
+- [ ] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
+- [ ] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
+- [ ] Stage 7e: archetypes (procedural room recipes per Hall kind)
 - [ ] Stage 8: online co-op (up to four Players, Input Delay, soak)
 - [ ] Stage 9: retire the Hall graph and Doors; `CONTEXT.md` and ADRs brought up to date
 
@@ -1585,25 +1589,72 @@ Done 2026-11-14. Delver Floors now have levels. Halls stand at 0 to 8 m. About a
 - **The navmesh is 5 to 6 times Stage 1's** (about 0.3 s laptop-equivalent). It is warmed a Floor ahead, but a cold first Floor pays it behind the menu.
 
 ### Stage 7: rooms
-**Model**: Opus (layout and geometry).
-Added 2026-11-14 after Stage 6's playtest. The user's feedback: rooms should be bigger and more interesting, some should have more verticality (doorways at different heights), and some should have lava pits to push enemies into. The calls are in "Answered questions (2026-11-14, after Stage 6)". The Stage's `#### Design` settles the numbers.
-- **Bigger Halls and great halls**: most Halls 14 to 28 m across (now 10 to 22). Add 1 or 2 great halls of 35 to 45 m a Floor, kept for the Boss Hall, Treasure Halls and the big fight posts. The grid gaps grow to fit them. Stage 2's empty-Floor walk time is measured again.
-- **L-, S- and Z-shaped Passages**: a Passage may turn once (an L) or twice (an S or a Z, its two ends parallel and offset), always at right angles. Two Halls that are not face to face can then be joined, and a Passage can go round a Hall, which frees placement. A sloped Passage climbs along its legs only, and every corner is level. The judge's `passages` rule measures along every leg, and no Passage crosses another or a Hall, seen from above.
-- **Shapes**: L, T, cross and ring Halls (a ring goes round a central Block), each built from several rects into one Hall. The Reveal, the minimap and the Floor Map draw them as their rects.
-- **Verticality inside a Hall**:
-  - **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
-  - **Sunken pits**: the doorways at the rim, the floor 2 to 4 m below, Ramps down.
-  - **Daises and Platforms**: a throne or an altar to hold or be knocked off.
-  - **More stairwells and galleries**: doors at Deck height far more often (now 1 gallery in 9), and Decks on two or more walls.
-- **Lava** (the kit's `lava` Hazard, a Death by Lava for anyone):
-  - **Shapes**: a central pit ringed by floor; a river crossed by one or two narrow bridges with no rails; troughs along a wall or under a Deck's open front.
-  - **Amount**: it grows with the tier, about 1 Hall in 6 on tier 1 and 1 in 3 on tier 3. Never in the Entrance, and never on the walk to a Rest Hall's fire.
-  - **Who it threatens**: everyone, as the AI already plays it. Enemies kick toward a hazard more readily, and so do allies; allies and the pilot avoid stepping in. A fire still revives a Player who died in it.
-  - **Rules**: the judge must check that no post, spawn, fire, pedestal, drop spot or the Stairs is on lava or within a Knockdown's Slide of it. A Warband's home and patrol keep off it, and the walk between any two doorways never needs a bridge narrower than a Formation can file through.
-- **Pillars and cover**: Blocks and colonnades that break sight lines and Formations. `sight` is judged through them.
-- **Archetypes**: seeded procedural recipes that scale to a Hall's size and its door sides, such as the arena pit, throne room, bridge hall, colonnade, crypt and lava hall. No hand-made templates. Each Hall kind has its own set of archetypes, and the judge checks every archetype over the 500-seed run.
-- **Unchanged**: Battles, Duels and the Hall-graph Run. With every new knob off, a Floor is byte-identical to Stage 6's (a `flatRooms` case in `golden.test.ts`). `DELVER_VERSION` + 1.
-- **Done**: 500 seed pairs judged with the new rules; the soak and Stage 2's walk measured on the new Floors; screenshots of each archetype, of lava kills by a kick and by a Knockdown, and of a split-level Hall.
+Added 2026-11-14 after Stage 6's playtest. The user's feedback: rooms should be bigger and more interesting, some should have more verticality (doorways at different heights), and some should have lava pits to push enemies into. The calls are in "Answered questions (2026-11-14, after Stage 6)".
+
+Stage 7 is run as five sub-stages, 7a to 7e, in order. Each is one orchestrator session (`docs/plans/delver-prompt.md`) with its own `#### Design`, its own 2 to 6 Sonnet tasks and its own `### Result`, and each ends in a playtest. Each sub-stage raises `DELVER_VERSION` by one. Each keeps a golden case with its own knobs off, byte-identical to the sub-stage before it. With every Stage 7 knob off, a Floor is byte-identical to Stage 6's (a `flatRooms` case in `golden.test.ts`). Battles, Duels and the Hall-graph Run are unchanged throughout. Commits are "Delver Stage 7a: ..." and so on.
+
+What every sub-stage shares:
+- **The Hall's footprint** becomes a list of rects (7b), not one rect. Until 7b it is one rect.
+- **The judge** gains each sub-stage's rules, and every sub-stage reruns the 500-seed pair run. Rerolls must stay rare, about 1 attempt in 20 at most.
+- **The measurements**: build time, judge time and navmesh time on the 500 pairs; the soak (`warbandSoak.slow.test.ts`) on the new Floors; and Stage 2's empty-Floor walk time.
+
+### Stage 7a: bigger Halls, great halls and turning Passages
+**Model**: Opus (layout).
+- **Bigger Halls**: most Halls 14 to 28 m across (now 10 to 22, `halfSize`).
+- **Great halls**: 1 or 2 a Floor, 35 to 45 m across. The Boss Hall is always one, and the others go to Treasure Halls and the biggest fight posts. A great hall may take two grid cells.
+- **The grid** grows to fit (`gaps`). If the walk to the Stairs grows past about 1.3× Stage 6's, `rooms` comes down so a Floor stays about as long.
+- **L-, S- and Z-shaped Passages**: a Passage may turn once (an L) or twice (an S or a Z, its two ends parallel and offset), always at right angles.
+  - Two Halls that are not face to face can then be joined, and a Passage can go round a Hall.
+  - A sloped Passage climbs on its straight legs only, and every corner is level.
+  - The judge's `passages` rule measures along every leg. Seen from above, no Passage crosses another or a Hall.
+  - Each leg is one Passage Brush (Floor or Ramp) inside its own Enclosure, joined at an open corner.
+- **Squads** must file round a corner: the soak shows a patrol and a chase through an L and an S Passage.
+- **Done**: the 500 pairs judged, with L, S and Z Passages counted; the soak; the walk time; screenshots of a great hall and of each Passage shape.
+
+### Stage 7b: Hall shapes, pillars and cover
+**Model**: Opus (geometry).
+- **Shapes**: L, T, cross and ring Halls, each built from several rects into one Hall. A ring goes round a central Block.
+  - The Reveal, the minimap and the Floor Map draw a Hall as its rects.
+  - A Hall's centre, used by markers, fields and the judge, is a floor point of its largest rect.
+- **Pillars and colonnades**: Blocks that break sight lines and Formations. The judge's `sight` rule looks through them (a Block stops sight). Every marker still has its clearance.
+- **Done**: the 500 pairs, with the shapes counted; the soak, which must show a Warband promoted and fighting round pillars; screenshots of each shape.
+
+### Stage 7c: verticality inside a Hall
+**Model**: Opus (geometry and levels).
+- **Split-level floors**: two or three tiers joined by Ramps, with doorways opening on different tiers.
+- **Sunken pits**: the doorways at the rim, the floor 2 to 4 m below, Ramps down from the rim.
+- **Daises and Platforms**: a throne or an altar, reached by a step Ramp, to hold or to be knocked off. A Boss or a guard may stand on one.
+- **More stairwells and galleries**: doors at Deck height far more often (now 1 gallery in 9), and Decks on two or more walls.
+- The navmesh, shortcut jump Links, `floorNear`, `levels.promote` and `fieldAt` hold on every tier. No two floors overlap seen from above, except a Deck inside its own Hall (as Stage 6 allows).
+- **Done**: the 500 pairs, with tiers, pits, daises and stairwells counted; the soak, which must show a chase between tiers and a fight on a dais; screenshots of a split-level Hall, a pit and a dais.
+
+### Stage 7d: lava
+**Model**: Opus (the rules and the AI around them).
+- **Lava** is the kit's `lava` Hazard: a Death by Lava for anyone.
+- **Shapes**:
+  - a central pit ringed by floor;
+  - a river crossed by one or two narrow bridges with no rails;
+  - troughs along a wall, or under a Deck's open front or a dais's edge.
+- **Amount**: it grows with the tier, about 1 Hall in 6 on tier 1 and 1 in 3 on tier 3. There is none in the Entrance, and none on the walk to a Rest Hall's fire.
+- **Who it threatens**: everyone, as the AI already plays it. Enemies and allies kick toward a hazard more readily (`hazardBehind`). Allies, the pilot and Soldiers never step in by choice. A fire still revives a Player who died in it.
+- **The judge**:
+  - No post, spawn, fire, pedestal, drop spot or the Stairs is on lava, or within a Knockdown's Slide of it.
+  - A Warband's home and patrol keep off it.
+  - The walk between any two doorways never needs a bridge narrower than a Formation can file through.
+  - A drop where a Soldier died in lava lands on `floorNear` off the lava.
+- **Render**: lava is drawn glowing, with the kit's look.
+- **Done**:
+  - the 500 pairs, with the lava per tier counted;
+  - the soak, which must show Soldiers and promoted Fighters dying in lava, and no Soldier walking in;
+  - a scenario test of a kick into lava and one of a Knockdown's Slide into it;
+  - screenshots of each lava shape.
+
+### Stage 7e: archetypes
+**Model**: Opus (the recipes), then Sonnet.
+- **Archetypes**: seeded procedural recipes that combine 7a to 7d and scale to a Hall's size, shape and door sides. Examples: arena pit, throne room, bridge hall, colonnade, crypt, lava hall. There are no hand-made templates.
+- Each Hall kind (Entrance, Rest, Treasure, Boss, a fight post, Empty) has its own set of archetypes and weights in `data/delver.json`. The Boss Hall picks from great-hall archetypes only.
+- The judge checks every archetype over the 500-seed run, and each archetype has a seeded test of its own at the smallest and largest sizes.
+- **Done**: the 500 pairs, with the archetypes counted; the full soak; Stage 2's walk; a screenshot of each archetype; and the Run played through Floors 1 to 9 with no error.
 
 ### Stage 8: online co-op
 **Model**: Opus.
@@ -1647,3 +1698,4 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 7. **How much lava**: it grows with the tier (about 1 Hall in 6 to 1 in 3). None in the Entrance, and none on the way to a fire.
 8. **Who it threatens**: everyone, as the AI already plays it: an instant Death by Lava, which a fire can revive.
 9. **L-, S- and Z-shaped Passages** (added afterwards): a Passage may turn one or two corners, as part of Stage 7.
+10. **Stage 7 is split** into sub-stages 7a to 7e. Each is one orchestrator session with Sonnet subagents.

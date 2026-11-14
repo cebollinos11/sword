@@ -1,6 +1,6 @@
 # Delver: implementation prompt (an Opus orchestrator, Sonnet subagents)
 
-Paste this into a new session on Opus once per Stage of `docs/plans/delver.md`. The session orchestrates: it reads, designs, splits the Stage into tasks, hands each task to a Sonnet subagent, reviews what comes back, and commits. It does the next unfinished Stage, then stops for a playtest.
+Paste this into a new session on Opus once per Stage (or sub-stage, such as 7a) of `docs/plans/delver.md`. The session orchestrates: it reads, designs, splits the Stage into tasks, hands each task to a Sonnet subagent, reviews what comes back, and commits. It does the next unfinished Stage, then stops for a playtest.
 
 ```
 You are the orchestrator for the next Stage of docs/plans/delver.md. You design, brief, review and
@@ -18,20 +18,27 @@ READ FIRST (yourself, not a subagent)
   src/sim/state.ts (RunState, SimState.crowd), src/sim/dungeon.ts, src/sim/hall.ts. And by Stage:
   - 0: as 1, plus the Battle code its Tick measurement runs (src/sim/crowd.ts, bubble.ts, battle.ts,
     battleSoak.slow.test.ts) and docs/plans/big-battle.md's Stage 0 (the laptop baseline).
-  - 0, 1, 6: src/mapEditor/source.ts, compile.ts, checks.ts, enclosure.test.ts; src/sim/levels.ts
-    (walkCheck); src/sim/destinations.ts; src/sim/nav.ts; src/sim/arenaGen/ (the judge).
+  - 0, 1, 6, 7a to 7e: src/mapEditor/source.ts, compile.ts, checks.ts, enclosure.test.ts; src/sim/levels.ts
+    (walkCheck); src/sim/destinations.ts; src/sim/nav.ts; src/sim/arenaGen/ (the judge);
+    src/sim/delver/ (plan.ts, source.ts, judge.ts, generate.ts, version.ts); data/delver.json;
+    src/tuning/delver.ts.
+  - 7b, 7c, 7d: also src/sim/delverRun.ts, src/sim/delver/warbands.ts, src/sim/warband.ts, the
+    Reveal and minimap (src/sim/delver/reveal.ts, src/render/), warbandSoak.slow.test.ts.
+  - 7d: also src/controllers/ai.ts (safeMove, hazardBehind, deadlyGround), allyAi.ts,
+    delverPilot.ts, src/tuning/arena.ts (lava), src/sim/delverLoot.ts (dropSpots).
   - 2, 4: src/sim/pickups.ts, inventory.ts, mods.ts; src/controllers/allyAi.ts, hallAi.ts;
     src/sim/dungeonRun.test.ts; data/dungeon.json; src/tuning/ (dungeon parsing).
-  - 3, 6: src/sim/crowd.ts, squad.ts, bubble.ts, battlefield.ts, battle.ts; src/controllers/poolAi.ts.
+  - 3, 6, 7a, 7b: src/sim/crowd.ts, squad.ts, bubble.ts, battlefield.ts, battle.ts; src/controllers/poolAi.ts.
   - 5: src/play/hud.ts and the Floor Map; src/render/ (pickups, the Rest fire, the minimap).
-  - 7: src/net/, src/lobby/onlineGauntlet.test.ts, the loopback tests, PROTOCOL_VERSION.
+  - 8: src/net/, src/lobby/onlineGauntlet.test.ts, the loopback tests, PROTOCOL_VERSION.
 
 STEP 0: SET UP
 In a fresh container run `npm ci` first. Record the commit you start from (`git rev-parse HEAD`):
 it is the Stage's base, the review range in Step 5.2.
 
 STEP 1: PICK THE STAGE
-Find the first unticked box under Progress in the plan. Do only that Stage.
+Find the first unticked box under Progress in the plan. Do only that Stage (a sub-stage such as
+7a counts as one Stage: its own Design, tasks, Result and playtest stop).
 - Before Stage 1 or later, check that Stage 0's Result says go. If it says no-go, stop and ask.
 - If the Stage is unticked but already has a "#### Design" or "Delver Stage N:" commits
   (`git log --oneline`), an earlier session left it half done. Do not design it again. Read
@@ -66,7 +73,7 @@ Then split the Stage into 2 to 6 tasks. Each task:
 Use TaskCreate to track them.
 
 STEP 3: BRIEF EACH SUBAGENT
-Spawn each task with the Agent tool, model "sonnet", `run_in_background: false` (it defaults to
+Spawn each task with the Agent tool, model "sonnet" (Sonnet 5.5), `run_in_background: false` (it defaults to
 background) unless you have independent review work to do meanwhile. A subagent starts with none of your context, so each
 brief must stand alone and contain:
 1. The goal in two or three sentences, and which Stage of docs/plans/delver.md it belongs to.
@@ -134,7 +141,7 @@ STEP 5: CLOSE THE STAGE
 ```
 
 ## Notes
-- **Why the orchestrator designs.** The Stages marked Opus (0, 1, 3, 6, 7) are geometry, brains and determinism. Sonnet codes them well from a precise contract and makes mistakes when it has to decide the shape itself. The `#### Design` section in the plan is that contract, and it stays as a record for later Stages.
+- **Why the orchestrator designs.** The Stages marked Opus (0, 1, 3, 6, 7a to 7e, 8) are geometry, brains and determinism. Sonnet codes them well from a precise contract and makes mistakes when it has to decide the shape itself. The `#### Design` section in the plan is that contract, and it stays as a record for later Stages.
 - **Why tasks run one at a time.** Subagents share one working tree. Two running at once on overlapping files overwrite each other, and a red `npm test` from one stalls the other. Run in parallel only where the file scopes are disjoint.
 - **Lessons from Stage 0.**
   - A measurement that never reached its subject passed with empty numbers: the Battle autopilot stuck on a wall, and nobody was promoted. Hence the Design's "what it must show it exercised".
