@@ -49,7 +49,7 @@ import {
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
 import { gateOpen } from "../sim/delverRun";
-import { flatFloors } from "../sim/delver/flat.testdata";
+import { flatFloors, flatRooms } from "../sim/delver/flat.testdata";
 import { BOSS, ELITE } from "../sim/warband";
 import { createAiController } from "./ai";
 import { controllerIntents, type Controller } from "./controller";
@@ -57,7 +57,7 @@ import { promotedNear } from "./allyAi";
 import { createDelverPilot } from "./delverPilot";
 import { lineupAis, type Lineup } from "./lineup";
 import { withImmortalParty } from "../play/driver";
-import type { DelverGallery } from "../sim/delver/plan";
+import type { DelverGallery, DelverPassage } from "../sim/delver/plan";
 
 /**
  * The Warband soak (docs/plans/delver.md, Stage 3, "The slow soak"): five Delver Runs of one tier of three Floors with Warbands, AI-driven (the
@@ -1203,7 +1203,7 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     ];
     const problems: string[] = [];
     for (const name of RUNS) {
-      const tuning = flatFloors(runTuning());
+      const tuning = flatFloors(flatRooms(runTuning()));
       const arena = floorArenaName(runSeed(name), 1);
       const lineup: Lineup = [
         { team: 0, pilot: { kind: "Player", player: 0 } },
@@ -1622,9 +1622,15 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
   });
 
   it("a full Run of 3 tiers x 3 Floors on the bundled Tuning with an immortal party, Bosses on Floors 3, 6 and 9: the Boss promoted first, the Boss Warband wiped, the gate opened, loot taken, to the Victory", () => {
-    const r = playBossRun(base, FULL_SECONDS, true);
-    printBossRun("Full Run, bundled Tuning, immortal party", base, r);
-    const problems = bossProblems(base, r);
+    // Stage 6's lattice (Design §7): the elites are met on it; on the 7a Floors the pilot meets none.
+    const tuning = flatRooms(base);
+    const r = playBossRun(tuning, FULL_SECONDS, true);
+    printBossRun(
+      "Full Run, bundled Tuning on flatRooms, immortal party",
+      tuning,
+      r,
+    );
+    const problems = bossProblems(tuning, r);
     expect(
       problems,
       `the full Run did not show:\n${problems.join("\n")}`,
@@ -1874,7 +1880,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
   it(`levelled Runs: ${LEVEL_RUNS.length} Runs of ${FLOORS} Floors with an immortal party on the Delver pilot and two Hard allies; every Floor has 2 or more Hall levels and the party walks a Ramp`, () => {
     const problems: string[] = [];
     const lines: string[] = [
-      `\nLevelled Runs (default levels, ${FLOORS} Floors each, no Bosses, immortal party; Stage 0's T2 Tick 0.31 to 0.41 ms, Stage 3's soak 0.51 ms; Stage 1's Floor 241 ms, navMesh 17 ms):`,
+      `\nLevelled Runs (default levels, ${FLOORS} Floors each, no Bosses, immortal party; Stage 0's T2 Tick 0.31 to 0.41 ms, Stage 3's soak 0.51 ms, Stage 6's 0.49 ms; Stage 1's Floor 241 ms, navMesh 17 ms; Stage 7a: bigger Halls, great halls and turning Passages):`,
     ];
     let rampSeconds = 0;
     const all = {
@@ -1940,7 +1946,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
             .map(([l, n]) => `${l}:${n}`)
             .join(
               " ",
-            )} (${levels.size} distinct); galleries ${galleries.length} (${galleries.length - stairwells} balconies, ${stairwells} stairwells), Deck posts ${plan.markers.posts.filter((p) => plan.halls[p.hall]!.gallery?.y === p.y).length}; sloped Passages ${slopes} of ${plan.passages.length}`,
+            )} (${levels.size} distinct); galleries ${galleries.length} (${galleries.length - stairwells} balconies, ${stairwells} stairwells), Deck posts ${plan.markers.posts.filter((p) => plan.halls[p.hall]!.gallery?.y === p.y).length}; sloped Passages ${slopes} of ${plan.passages.length}; great halls ${plan.halls.filter((h) => h.great).length}; Passages ${(["straight", "L", "S", "Z"] as const).map((k) => `${plan.passages.filter((p) => p.shape === k).length} ${k}`).join(", ")}`,
         );
         lines.push(
           `    party on a Ramp ${f(secs(s.rampTicks))} s (${f(secs(s.rampFighterTicks))} Fighter-s); chases ${s.chases}, crossed a level ${s.crossed} (biggest anchor change ${f(s.biggest)} m); Promotions ${s.promotions}, on a Deck ${s.deckPromotions}; allies' jump Links taken ${s.jumps} (navmesh ${c.jumps} jump Links, ${c.shortcuts} shortcuts)`,
@@ -2134,6 +2140,8 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
         const hall = plan.halls[post.hall]!;
         if (post.y !== hall.y) continue;
         for (const ps of plan.passages) {
+          // Only a straight Passage: the search reads `axis` and `rect` as one leg's.
+          if (ps.shape !== "straight") continue;
           // Its low door is this Hall's: it climbs away from the post's floor.
           const low =
             ps.a === post.hall && ps.ya === hall.y && ps.yb > ps.ya
@@ -2454,5 +2462,609 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       promotedOnDeck,
       "no Soldier standing on the Deck was promoted",
     ).toBeGreaterThan(0);
+  });
+
+  // ---------------------------------------------------------------- turning Passages (docs/plans/delver.md, Stage 7a, §9)
+
+  describe("turning Passages", () => {
+    type Piece = DelverPassage["pieces"][number];
+    type Spot = { x: number; z: number };
+    /** Whether the point is inside the piece's rect (its edges included). */
+    const inPiece = (piece: Piece, x: number, z: number): boolean =>
+      x >= piece.rect.x0 &&
+      x <= piece.rect.x1 &&
+      z >= piece.rect.z0 &&
+      z <= piece.rect.z1;
+    /** Which piece of the Passage holds the point, or -1. */
+    const pieceAt = (p: DelverPassage, x: number, z: number): number =>
+      p.pieces.findIndex((q) => inPiece(q, x, z));
+    /** A Passage's centre line (m): each leg along its axis and `w` for each corner (half in, half out). */
+    const centreLine = (p: DelverPassage): number =>
+      p.pieces.reduce(
+        (a, q) =>
+          a +
+          (q.corner
+            ? q.rect.x1 - q.rect.x0
+            : q.axis === "x"
+              ? q.rect.x1 - q.rect.x0
+              : q.rect.z1 - q.rect.z0),
+        0,
+      );
+    const kindOf = (shape: DelverPassage["shape"]): "L" | "SZ" | "-" =>
+      shape === "L" ? "L" : shape === "S" || shape === "Z" ? "SZ" : "-";
+    /** A Soldier's place on the ground: where its Fighter stands when promoted, else the Crowd's. */
+    const whereIs = (m: MatchState, i: number): Spot => {
+      const c = m.duel.crowd!;
+      if (c.slot[i]! >= 0) {
+        const x = m.duel.fighters[c.slot[i]!]!.position;
+        return { x: x.x, z: x.z };
+      }
+      return { x: c.x[i]!, z: c.z[i]! };
+    };
+
+    /** The longest (s) a patrol may be given to walk its whole loop. */
+    const PATROL_CAP = 420;
+    /** A turning Passage's leg may take this much longer (s) than its walking time. */
+    const TURN_SLACK = 3;
+    /** No Soldier may be further (m) than this from its Formation place while its Warband walks a turning Passage. */
+    const KEPT_PLACE = 6;
+    /** A chase's last leg must be reachable inside the Leash: by walking from the post, its entrance is at least this much (m) within it. */
+    const LEASH_MARGIN = 3;
+    /** ... measured at the point this far (m) inside the leg from the corner. */
+    const LEG_DEPTH = 2;
+    /** The Leash (m, by walking from the post) the S and Z chase case gives its Warband, against the shipped one. */
+    // The S or Z last leg lies 44 to 67 m from the post by walking, beyond the shipped 45 m Leash.
+    const SZ_LEASH = 90;
+    const withLeash = (t: TuningData, leash: number): TuningData => ({
+      ...t,
+      delver: { ...t.delver, leash },
+    });
+    /** The Player waits while the nearest Soldier of the chasing Warband is further than this (m): the Warband walks slower than a Player, and a Player out of sight for `forgetSeconds` is forgotten. 2.5 m over `promote`, so none is promoted. */
+    const PACE = 13;
+
+    interface PatrolCase {
+      run: string;
+      loop: number;
+      /** The loop's turning Passages, between consecutive loop Halls. */
+      passages: DelverPassage[];
+    }
+    /** The first Floors 1 (seed order) with a patrol loop holding an L Passage between two consecutive loop Halls, and one holding an S or a Z. */
+    const patrolCases = (
+      tuning: TuningData,
+    ): { L: PatrolCase | null; SZ: PatrolCase | null } => {
+      const found: { L: PatrolCase | null; SZ: PatrolCase | null } = {
+        L: null,
+        SZ: null,
+      };
+      for (let n = 1; n <= SEARCH && !(found.L && found.SZ); n++) {
+        const run = `gen:greybox:${n}`;
+        const plan = planOfRun(tuning, run);
+        plan.markers.patrols.forEach((loop, k) => {
+          const passages = loop.halls.flatMap((h, i) => {
+            const next = loop.halls[(i + 1) % loop.halls.length]!;
+            return plan.passages.filter(
+              (p) =>
+                p.shape !== "straight" &&
+                ((p.a === h && p.b === next) || (p.a === next && p.b === h)),
+            );
+          });
+          for (const kind of ["L", "SZ"] as const) {
+            if (found[kind] || !passages.some((p) => kindOf(p.shape) === kind))
+              continue;
+            found[kind] = { run, loop: k, passages };
+          }
+        });
+      }
+      return found;
+    };
+
+    it(`a patrol round corners: with the party standing in the Entrance, a patrol whose loop holds an L Passage and one whose loop holds an S or Z walk their whole loops; each turning leg takes no more than its walking time + ${TURN_SLACK} s, the anchor stands in every corner and no Soldier is more than ${KEPT_PLACE} m from its place`, () => {
+      const tuning = scenarioTuning(0, 100);
+      const cases = patrolCases(tuning);
+      const lines = [
+        `\nA patrol round corners: Floor 1 of the first of ${SEARCH} seeds with a patrol loop holding an L Passage between two consecutive loop Halls (L), and one holding an S or Z (S/Z); every loop filled, no guards, party Idle in the Entrance, up to ${PATROL_CAP} s.`,
+      ];
+      const problems: string[] = [];
+      for (const kind of ["L", "SZ"] as const) {
+        if (!cases[kind])
+          problems.push(
+            `no Floor 1 of the first ${SEARCH} seeds has a patrol loop with ${kind === "L" ? "an L" : "an S or Z"} Passage`,
+          );
+      }
+      // A Floor holding both cases is played once.
+      const byRun = new Map<string, PatrolCase[]>();
+      for (const c of [cases.L, cases.SZ]) {
+        if (!c) continue;
+        const list = byRun.get(c.run) ?? [];
+        if (!list.some((x) => x.loop === c.loop)) list.push(c);
+        byRun.set(c.run, list);
+      }
+      for (const [run, targets] of byRun) {
+        const arena = floorArenaName(runSeed(run), 1);
+        let m = createMatch(tuning, {
+          format: "Gauntlet",
+          bestOf: 1,
+          seed: 7,
+          arena: run,
+          delver: true,
+          teams: LINEUP.map((s) => s.team),
+          humans: 1,
+          players: [0],
+        });
+        const t = arenaTuning(tuning, arena);
+        const map = battleMapOf(t.battle, arena);
+        const plan = floorOf(tuning, arena)!;
+        const homes = warbandHomes(plan.plan);
+        const tracker = new Tracker(m, homes);
+        const walkSpeed = t.battle.crowd.walkSpeed * t.battle.squad.speed;
+        const w0 = m.duel.crowd!.warbands!;
+        interface Track {
+          q: number;
+          loop: number;
+          p: DelverPassage;
+          corners: Set<number>;
+          seen: Set<number>;
+          /** The open walk of the Passage: its first Tick and the pieces stood in. */
+          run: { from: number; pieces: Set<number> } | null;
+          legs: number[];
+          /** The window the Soldiers' places are read in: an anchor or a Soldier in the Passage. */
+          watched: number;
+          off: number;
+          lost: number;
+        }
+        const tracks: Track[] = [];
+        for (const c of targets) {
+          const q = w0.patrol.indexOf(c.loop);
+          if (q < 0) {
+            problems.push(`${run}: loop ${c.loop} holds no Warband`);
+            continue;
+          }
+          for (const p of c.passages)
+            tracks.push({
+              q,
+              loop: c.loop,
+              p,
+              corners: new Set(
+                p.pieces.flatMap((x, i) => (x.corner ? [i] : [])),
+              ),
+              seen: new Set(),
+              run: null,
+              legs: [],
+              watched: 0,
+              off: 0,
+              lost: 0,
+            });
+        }
+        const rows = tracker.rows;
+        const out: [number, number] = [0, 0];
+        const done = () =>
+          targets.every((c) => rows[w0.patrol.indexOf(c.loop)]!.loops >= 1);
+        let tick = 0;
+        for (
+          ;
+          tick < secondsToTicks(PATROL_CAP) && m.status.status !== "Over";
+          tick++
+        ) {
+          const at = m;
+          m = withImmortalParty(
+            stepMatch(
+              at,
+              at.duel.fighters.map(() => IDLE_INTENT),
+              tuning,
+            ),
+          );
+          tracker.observe(at, m);
+          const c = m.duel.crowd!;
+          let narrows: number[] | null = null;
+          for (const tr of tracks) {
+            const ax = c.squads.x[tr.q]!;
+            const az = c.squads.z[tr.q]!;
+            const here = pieceAt(tr.p, ax, az);
+            if (here >= 0) {
+              tr.seen.add(here);
+              tr.run ??= { from: m.tick, pieces: new Set() };
+              tr.run.pieces.add(here);
+            } else if (tr.run) {
+              // It left: a walk of the whole Passage touched both end pieces.
+              if (
+                tr.run.pieces.has(0) &&
+                tr.run.pieces.has(tr.p.pieces.length - 1)
+              )
+                tr.legs.push(secs(m.tick - tr.run.from));
+              tr.run = null;
+            }
+            const members: number[] = [];
+            let inside = here >= 0;
+            for (let i = 0; i < c.x.length; i++) {
+              if (c.squad[i] !== tr.q || !c.alive[i] || c.slot[i]! >= 0)
+                continue;
+              members.push(i);
+              if (pieceAt(tr.p, c.x[i]!, c.z[i]!) >= 0) inside = true;
+            }
+            if (!inside) continue;
+            tr.watched++;
+            narrows ??= squadNarrows(t.battle, map, c.squads);
+            let worst = 0;
+            for (const i of members) {
+              formationSpot(
+                t.battle,
+                map,
+                c.squads,
+                tr.q,
+                c.place[i]!,
+                narrows[tr.q]!,
+                out,
+              );
+              worst = Math.max(
+                worst,
+                Math.hypot(c.x[i]! - out[0], c.z[i]! - out[1]),
+              );
+            }
+            tr.off = Math.max(tr.off, worst);
+            if (worst > KEPT_PLACE) tr.lost++;
+          }
+          if (done()) break;
+        }
+        tracker.finish(m.tick);
+        lines.push(
+          `  ${run} Floor 1 (${plan.plan.halls.length} Halls, ${plan.plan.halls.filter((h) => h.great).length} great): ${f(secs(m.tick), 0)} s simulated${m.status.status === "Over" ? " (the Run ended!)" : ""}`,
+        );
+        for (const c of targets) {
+          const q = w0.patrol.indexOf(c.loop);
+          const row = rows[q]!;
+          lines.push(
+            `    loop ${c.loop} (W${q}, ${row.points} pts, size ${row.size}; Halls ${plan.plan.markers.patrols[c.loop]!.halls.join("-")}): ${row.loops} whole loop(s) by ${f(secs(m.tick))} s, chased x${row.chases}, ${row.legs.length} legs`,
+          );
+          if (row.loops < 1)
+            problems.push(
+              `${run} loop ${c.loop}: the loop was not completed in ${PATROL_CAP} s (chased x${row.chases})`,
+            );
+          for (const tr of tracks.filter((x) => x.loop === c.loop)) {
+            const walking = centreLine(tr.p) / walkSpeed;
+            const where = `${run} loop ${c.loop} ${tr.p.id} (${tr.p.shape})`;
+            lines.push(
+              `      ${tr.p.id} ${tr.p.shape} (${plan.plan.halls[tr.p.a]!.id} to ${plan.plan.halls[tr.p.b]!.id}, ${tr.p.pieces.length} pieces, ${tr.corners.size} corner(s), centre line ${f(centreLine(tr.p))} m${tr.p.ya !== tr.p.yb ? `, sloped ${f(tr.p.ya)} to ${f(tr.p.yb)}` : ""}): walked ${tr.legs.length}x in ${tr.legs.map((x) => f(x)).join(", ") || "-"} s against a walking time of ${f(walking)} s (+ ${TURN_SLACK}); corners reached ${[...tr.corners].filter((i) => tr.seen.has(i)).length} of ${tr.corners.size}; Soldiers at most ${f(tr.off)} m from their places over ${tr.watched} Ticks in it (${tr.lost} over ${KEPT_PLACE} m)`,
+            );
+            if (tr.legs.length === 0)
+              problems.push(
+                `${where}: the patrol never walked it from end to end`,
+              );
+            for (const l of tr.legs)
+              if (l > walking + TURN_SLACK)
+                problems.push(
+                  `${where}: a leg took ${f(l)} s against a walking time of ${f(walking)} s (+ ${TURN_SLACK})`,
+                );
+            for (const i of tr.corners)
+              if (!tr.seen.has(i))
+                problems.push(
+                  `${where}: the anchor never stood in corner piece ${i}`,
+                );
+            if (tr.lost > 0)
+              problems.push(
+                `${where}: a Soldier was ${f(tr.off)} m from its place (over ${KEPT_PLACE}) on ${tr.lost} Ticks`,
+              );
+          }
+        }
+        seen.loops += targets.reduce(
+          (a, c) => a + rows[w0.patrol.indexOf(c.loop)]!.loops,
+          0,
+        );
+      }
+      console.log(lines.join("\n"));
+      expect(
+        problems,
+        `a patrol round a corner failed:\n${problems.join("\n")}`,
+      ).toEqual([]);
+    });
+
+    interface ChaseCase {
+      run: string;
+      post: number;
+      hall: number;
+      passage: DelverPassage;
+      /** The Hall the Passage leads to, and which end of its pieces is that Hall's. */
+      far: number;
+      lastLeg: number;
+      spot: { x: number; y: number; z: number };
+      to: { x: number; y: number; z: number };
+      lay: Lay;
+    }
+    /** The first Floor 1 (seed order) with a floor guard post in a Hall that a flat turning Passage of the kind leaves at the Hall's floor height, and a spot in that Hall in sight of the post. */
+    const chaseCase = (
+      tuning: TuningData,
+      kind: "L" | "SZ",
+    ): ChaseCase | null => {
+      for (let n = 1; n <= SEARCH; n++) {
+        const run = `gen:greybox:${n}`;
+        const arena = floorArenaName(runSeed(run), 1);
+        const plan = planOfRun(tuning, run);
+        let lay: Lay | null = null;
+        let m0: MatchState | undefined;
+        for (let p = 0; p < plan.markers.posts.length; p++) {
+          const post = plan.markers.posts[p]!;
+          const hall = plan.halls[post.hall]!;
+          if (post.y !== hall.y) continue;
+          for (const ps of plan.passages) {
+            if (kindOf(ps.shape) !== kind || ps.ya !== ps.yb) continue;
+            const here =
+              ps.a === post.hall ? "a" : ps.b === post.hall ? "b" : null;
+            if (!here || (here === "a" ? ps.ya : ps.yb) !== hall.y) continue;
+            lay ??= layOf(tuning, arena);
+            const { map, tuning: t } = lay;
+            const fields = map.fields;
+            const far = here === "a" ? ps.b : ps.a;
+            const upper = plan.halls[far]!;
+            // The leg next to the far Hall.
+            const lastLeg = here === "a" ? ps.pieces.length - 1 : 0;
+            const toPost = oneField(
+              fields,
+              fieldToward(
+                fields,
+                post.x,
+                post.z,
+                groundOf(t.battle, map.field, post.x, post.z, post.y),
+              ),
+            );
+            // It walks on to the point of the far Hall's floor farthest from the post by walking, so the Warband's walk after it is long and it stays ahead of them.
+            let to = { x: upper.cx, y: ps.yb, z: upper.cz };
+            let farthest = -1;
+            for (
+              let x = Math.ceil(upper.rect.x0) + 1;
+              x < upper.rect.x1 - 1;
+              x += 2
+            )
+              for (
+                let z = Math.ceil(upper.rect.z0) + 1;
+                z < upper.rect.z1 - 1;
+                z += 2
+              ) {
+                const at = groundOf(t.battle, map.field, x, z, ps.ya + 0.1);
+                if (
+                  at < 0 ||
+                  lay.arena.walk[at]!.roof ||
+                  Math.abs(soldierHeight(map.field, at, x, z) - ps.ya) > 0.1 ||
+                  clearanceAt(fields, x, z, at) < 1
+                )
+                  continue;
+                const walked = fieldDistance(toPost, 0, x, z, at);
+                if (walked > farthest)
+                  [farthest, to] = [walked, { x, y: ps.ya, z }];
+              }
+            // The Player's way to `to` is the shortest walk from the post through every piece of this Passage, so it walks straight away from the guard through each corner.
+            const toTo = oneField(
+              fields,
+              fieldToward(
+                fields,
+                to.x,
+                to.z,
+                groundOf(t.battle, map.field, to.x, to.z, ps.ya + 0.1),
+              ),
+            );
+            const total = fieldDistance(
+              toTo,
+              0,
+              post.x,
+              post.z,
+              groundOf(t.battle, map.field, post.x, post.z, post.y),
+            );
+            const onWay = (x: number, z: number, on: number): boolean =>
+              fieldDistance(toPost, 0, x, z, on) +
+                fieldDistance(toTo, 0, x, z, on) <=
+              total + 1.5;
+            // ... and the Warband can follow it into the last leg before its Leash (its anchor's walk from the post) runs out: the point `LEG_DEPTH` m inside the leg from the corner it is entered by is within the Leash less `LEASH_MARGIN`.
+            const legAt = ps.pieces[lastLeg]!;
+            const corner = ps.pieces[here === "a" ? lastLeg - 1 : 1]!;
+            const lx = (legAt.rect.x0 + legAt.rect.x1) / 2;
+            const lz = (legAt.rect.z0 + legAt.rect.z1) / 2;
+            const half =
+              (legAt.axis === "x"
+                ? legAt.rect.x1 - legAt.rect.x0
+                : legAt.rect.z1 - legAt.rect.z0) / 2;
+            const back = half - Math.min(LEG_DEPTH, half);
+            const towards = (v: number, c: number) => (c < v ? -1 : 1);
+            const cornerX = (corner.rect.x0 + corner.rect.x1) / 2;
+            const cornerZ = (corner.rect.z0 + corner.rect.z1) / 2;
+            const probe =
+              legAt.axis === "x"
+                ? { x: lx + towards(lx, cornerX) * back, z: lz }
+                : { x: lx, z: lz + towards(lz, cornerZ) * back };
+            const legOn = groundOf(
+              t.battle,
+              map.field,
+              probe.x,
+              probe.z,
+              Math.min(legAt.y0, legAt.y1) + 0.1,
+            );
+            if (
+              farthest < 0 ||
+              legOn < 0 ||
+              fieldDistance(toPost, 0, probe.x, probe.z, legOn) >
+                tuning.delver.leash - LEASH_MARGIN ||
+              !ps.pieces.every((q) => {
+                const x = (q.rect.x0 + q.rect.x1) / 2;
+                const z = (q.rect.z0 + q.rect.z1) / 2;
+                const on = groundOf(
+                  t.battle,
+                  map.field,
+                  x,
+                  z,
+                  Math.min(q.y0, q.y1) + 0.1,
+                );
+                return on >= 0 && onWay(x, z, on);
+              })
+            )
+              continue;
+            // The Warband's Soldiers as dealt: the spot, on the post's Hall floor and on that way, keeps `promote` + 2.5 m (flat) from every one of them (so none is promoted at the start) and is within `sight` of one and in sight of the post.
+            const crowd0 = (m0 ??= scenario(
+              tuning,
+              run,
+              [{ team: 0, pilot: { kind: "Player", player: 0 } }, ...enemies],
+              IDLE,
+            ).match).duel.crowd!;
+            const q0 = crowd0.warbands!.post.indexOf(p);
+            if (q0 < 0) continue;
+            const soldiers = crowd0.squad.flatMap((sq, i) =>
+              sq === q0 ? [i] : [],
+            );
+            const spots: { x: number; y: number; z: number; d: number }[] = [];
+            for (let x = Math.ceil(hall.rect.x0) + 1; x < hall.rect.x1 - 1; x++)
+              for (
+                let z = Math.ceil(hall.rect.z0) + 1;
+                z < hall.rect.z1 - 1;
+                z++
+              ) {
+                const on = groundOf(t.battle, map.field, x, z, hall.y + 0.1);
+                const away = Math.min(
+                  ...soldiers.map((i) =>
+                    Math.hypot(crowd0.x[i]! - x, crowd0.z[i]! - z),
+                  ),
+                );
+                if (
+                  on < 0 ||
+                  !lay.floor.has(on) ||
+                  clearanceAt(fields, x, z, on) < 1 ||
+                  away < t.battle.bubble.promote + 2.5 ||
+                  away > base.delver.sight - 0.5 ||
+                  !onWay(x, z, on) ||
+                  !inSight(fields, post.x, post.z, x, z, 0, post.y, hall.y)
+                )
+                  continue;
+                spots.push({
+                  x,
+                  y: soldierHeight(map.field, on, x, z),
+                  z,
+                  d: Math.abs(away - 14),
+                });
+              }
+            spots.sort((a, b) => a.d - b.d || a.x - b.x || a.z - b.z);
+            if (spots[0])
+              return {
+                run,
+                post: p,
+                hall: post.hall,
+                passage: ps,
+                far,
+                lastLeg,
+                spot: spots[0],
+                to,
+                lay,
+              };
+          }
+        }
+      }
+      return null;
+    };
+
+    for (const [kind, label] of [
+      ["L", "an L"],
+      ["SZ", "an S or Z"],
+    ] as const) {
+      it(`a chase round a corner: a guard in a Hall with ${label} Passage leaving at its floor height chases a Player in sight who walks away through that Passage to its far Hall; its anchor reaches each corner and at least half its Soldiers stand in the Passage's last leg`, () => {
+        // A turning S or Z Passage is 40 m or more of centre line, and the entrance of its last leg lay 44 to 67 m by walking from a post at a Hall's
+        // centre (131 candidates in the first 80 seeds), at or past the shipped Leash of 45 m: no chase on the shipped Tuning can lead a Warband into it.
+        // So this case gives the Warband a longer Leash (`SZ_LEASH`, a Tuning Data value of the scenario, as `postFill` is); the L's is the shipped one.
+        const tuning =
+          kind === "SZ"
+            ? withLeash(scenarioTuning(100, 0), SZ_LEASH)
+            : scenarioTuning(100, 0);
+        const found = chaseCase(tuning, kind);
+        if (!found)
+          throw new Error(
+            `no Floor 1 of the first ${SEARCH} seeds has a floor guard in sight of a spot in a Hall with ${label} Passage leaving at its floor height`,
+          );
+        const { run, spot, to, lay, passage: ps } = found;
+        const lineup: Lineup = [
+          { team: 0, pilot: { kind: "Player", player: 0 } },
+          ...enemies,
+        ];
+        const walker = createAiController(tuning, "Hard");
+        // The Player walks to `to` by the navmesh, but stands while the guard is further than `PACE` from it.
+        let guard = -1;
+        const player: Controller = {
+          intent: (state, fighter) => {
+            const c = state.crowd!;
+            const me = state.fighters[fighter]!;
+            let near = Infinity;
+            for (let i = 0; i < c.x.length; i++)
+              if (c.squad[i] === guard && c.alive[i])
+                near = Math.min(
+                  near,
+                  Math.hypot(c.x[i]! - me.position.x, c.z[i]! - me.position.z),
+                );
+            return near > PACE
+              ? IDLE_INTENT
+              : walker.walkTo(state, fighter, to, 1);
+          },
+          save: () => walker.save(),
+          load: (x) => walker.load(x),
+        };
+        const s = scenario(tuning, run, lineup, player);
+        const w = s.match.duel.crowd!.warbands!;
+        const q = w.post.indexOf(found.post);
+        if (q < 0)
+          throw new Error(`${run}: post ${found.post} holds no Warband`);
+        guard = q;
+        const post = lay.plan.markers.posts[found.post]!;
+        const corners = new Set(
+          ps.pieces.flatMap((x, i) => (x.corner ? [i] : [])),
+        );
+        const reached = new Set<number>();
+        const last = ps.pieces[found.lastLeg]!;
+        let m = putAt(s.match, 0, spot.x, spot.z, spot.y);
+        const tracker = new Tracker(m, warbandHomes(lay.plan));
+        let promoted = 0;
+        let mostInLast = 0;
+        let share = 0;
+        let shareAt = -1;
+        let inLastAtLeash = 0;
+        let ticks = 0;
+        for (; ticks < secondsToTicks(WALK_SECONDS); ticks++) {
+          const at = m;
+          m = withImmortalParty(
+            stepMatch(at, controllerIntents(at.duel, s.controllers), tuning),
+          );
+          if (m.duel.arena !== at.duel.arena) {
+            m = at;
+            break;
+          }
+          tracker.observe(at, m);
+          const c = m.duel.crowd!;
+          const here = pieceAt(ps, c.squads.x[q]!, c.squads.z[q]!);
+          if (here >= 0 && c.warbands!.mode[q] === CHASE) reached.add(here);
+          let inLast = 0;
+          for (let i = 0; i < c.x.length; i++) {
+            if (c.squad[i] !== q || !c.alive[i]) continue;
+            if (c.slot[i]! >= 0 && at.duel.crowd!.slot[i]! < 0) promoted++;
+            const at2 = whereIs(m, i);
+            if (inPiece(last, at2.x, at2.z)) inLast++;
+          }
+          const living = c.squads.living[q]!;
+          mostInLast = Math.max(mostInLast, inLast);
+          if (living > 0 && inLast / living > share) {
+            share = inLast / living;
+            shareAt = m.tick;
+          }
+          if (inLast > inLastAtLeash && c.warbands!.mode[q] === CHASE)
+            inLastAtLeash = inLast;
+        }
+        tracker.finish(m.tick);
+        const row = tracker.rows[q]!;
+        const me = m.duel.fighters[0]!;
+        seen.chases += row.chases;
+        console.log(
+          `\nA chase round a corner (${label}): Run ${run} Floor 1, Leash ${tuning.delver.leash} m (shipped ${base.delver.leash}), guard W${q} (post ${found.post}, ${row.size} Soldiers) in ${lay.plan.halls[found.hall]!.id} (y ${f(lay.plan.halls[found.hall]!.y)}); ${ps.id} ${ps.shape} (${lay.plan.halls[ps.a]!.id} to ${lay.plan.halls[ps.b]!.id}, ${ps.pieces.length} pieces, ${corners.size} corner(s), centre line ${f(centreLine(ps))} m), last leg piece ${found.lastLeg} of ${lay.plan.halls[found.far]!.id}; Player put at (${f(spot.x)}, ${f(spot.z)}) ${f(Math.hypot(spot.x - post.x, spot.z - post.z))} m from the post, walking to (${f(to.x)}, ${f(to.z)}); chased x${row.chases}${row.chaseStarts.length > 0 ? ` from ${f(secs(row.chaseStarts[0]! - s.match.tick))} s` : ""}, returned x${row.returned}; corners reached in CHASE ${[...corners].filter((i) => reached.has(i)).length} of ${corners.size} (pieces ${[...reached].sort().join(",") || "-"}); most Soldiers in the last leg ${mostInLast} of ${row.size} (best share ${f(100 * share, 0)}% at ${shareAt < 0 ? "-" : `${f(secs(shareAt - s.match.tick))} s`}); Soldiers promoted ${promoted}; Player ends at (${f(me.position.x)}, ${f(me.position.z)}) after ${f(secs(ticks))} s`,
+        );
+        expect(row.chases, "the guard never chased").toBeGreaterThan(0);
+        for (const i of corners)
+          expect(
+            reached.has(i),
+            `the anchor never stood in corner piece ${i} of ${ps.id} while chasing`,
+          ).toBe(true);
+        expect(
+          share,
+          `at most ${f(100 * share, 0)}% of the Soldiers stood in the last leg of ${ps.id}`,
+        ).toBeGreaterThanOrEqual(0.5);
+      });
+    }
   });
 });
