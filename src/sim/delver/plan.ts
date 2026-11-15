@@ -63,7 +63,7 @@ export interface DelverHall {
   readonly top: number;
   /** A raised walkway along one wall; absent: none. */
   readonly gallery?: DelverGallery;
-  /** A split or a pit (Stage 7c); absent: none. A Hall has at most one of a gallery and a feature. */
+  /** A split, a pit or a dais (Stage 7c); absent: none. A Hall has at most one of a gallery and a feature. */
   readonly feature?: DelverFeature;
 }
 
@@ -117,10 +117,26 @@ export interface DelverPit {
   readonly steps: readonly DelverStep[];
 }
 
-/** A Hall's vertical feature besides a gallery. */
-export type DelverFeature = DelverSplit | DelverPit;
+/**
+ * A dais (Stage 7c): a Platform `DAIS_RISE` (1 m) over the Hall's floor against one wall of a Boss Hall (its throne: the Boss's post on it) or a Treasure
+ * Hall (its altar: the three pedestals on it), reached by one step Ramp. The Hall's `level` and `y` stay the floor's.
+ */
+export interface DelverDais {
+  readonly kind: 'dais';
+  /** The wall it stands against; no Passage leaves by that wall. */
+  readonly side: Side;
+  /** Its top's footprint: `DAIS_HALF` each side of the Hall's centre along the wall (on an even metre), `DAIS_DEPTH` in from it. */
+  readonly rect: Rect;
+  /** Its top (m): the Hall's `y` + `DAIS_RISE`. */
+  readonly y: number;
+  /** One: on the floor, `DAIS_STEP` long against the dais's inner edge, rising toward the wall. */
+  readonly steps: readonly DelverStep[];
+}
 
-/** The Enclosure's floor of a Hall (m): a split's lowest tier, else the Hall's `y`. */
+/** A Hall's vertical feature besides a gallery. */
+export type DelverFeature = DelverSplit | DelverPit | DelverDais;
+
+/** The Enclosure's floor of a Hall (m): a split's lowest tier, else the Hall's `y` (a pit's floor, a dais Hall's floor). */
 export function hallBase(h: DelverHall): number {
   return h.feature?.kind === 'split' ? Math.min(...h.feature.tiers.map((t) => t.y)) : h.y;
 }
@@ -239,7 +255,7 @@ export const SALT = {
   gapX: 1, gapZ: 2, start: 3, grow: 4, far: 5, hw: 6, hd: 7, loopCount: 8, loop: 9, entrance: 10, rests: 11, treasure: 12, order: 13, reroll: 14,
   galleryOrder: 30, gallerySide: 31, galleryEnd: 32, levelBase: 33, levelChange: 34, levelUp: 35,
   galleryStair: 60, galleryWrap: 61, galleryU: 62,
-  feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70,
+  feature: 63, featureKind: 64, splitAxis: 65, splitTiers: 66, splitSide: 67, splitStep: 68, pitDeep: 69, pitTurn: 70, dais: 71, daisSide: 72,
   greatCount: 40, greatAxis: 41, greatLong: 42, great: 43, turn: 44, turnPick: 45,
   shape: 50, shapeKind: 51, shapeTurn: 52, notchX: 53, notchZ: 54, ringX: 55, ringZ: 56, pillars: 57, pillarLayout: 58, colonnadeRow: 59,
 } as const;
@@ -296,6 +312,15 @@ export const PIT_RIM = 4;
 /** The larger half (m) a Hall needs for a pit (the rim's 4, the step's 4 and the centre's 4), and the smaller (the rim's 4 and the centre's 4; it holds a 4 m pit's 8 m step). */
 export const PIT_WIDE = 12;
 export const PIT_LONG = 8;
+/** A dais's height (m) over the Hall's floor: more than a Soldier steps up, so only its step gets one on. */
+export const DAIS_RISE = 1;
+/** A dais's half length (m) along its wall, from the Hall's centre line on an even metre (edges on odd metres). */
+export const DAIS_HALF = 5;
+/** A dais's depth (m) from its wall. The throne and the altar stand half of it in. */
+export const DAIS_DEPTH = 6;
+/** A dais's step's length (m) from the dais's inner edge, and its half width along the wall. */
+export const DAIS_STEP = 2;
+export const DAIS_STEP_HALF = 3;
 /** The Stairs zone's half side (m). */
 export const STAIRS_HALF = 2;
 /** The metres between a Treasure Hall's three pedestals. */
@@ -524,7 +549,9 @@ interface Turn {
  * or three tiers a level apart, joined by steps) or a pit (its middle sunk 2 or 4 m under a rim that holds every doorway): 3b' picks them, 3c keeps their
  * levels in range (a split's main tier at 1 to `levels.max`, a pit's rim within it; a feature that cannot is dropped), their raised doors are flat Passages
  * the Hall does not list, and step 7 cuts them from the final rect; `tier` (the Run tier) is read only by `features.deepPercent`, and with `percent` 0 no pick
- * is made and the plan is 7b's. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
+ * is made and the plan is 7b's. With `features.daisPercent` above 0 a Boss or Treasure Hall with no feature may take a dais (7c'): a 1 m Platform against a wall
+ * no Passage leaves by, clear of every doorway's lane and the centre square, with a step Ramp; the Boss Hall's throne and the Treasure Hall's altar (its three pedestals) stand on it,
+ * and with `daisPercent` 0 no pick is made. If growth stalls before `t.rooms` Halls it returns the fewer Halls it has, kinds
  * assigned as far as possible; the judge refuses such a plan. `boss` (a Boss Floor, Stage 4) makes the Stairs Hall a Boss Hall (grown to the
  * most the gaps allow, unless great halls are wanted: then Hall 0 is a great hall and the Boss Hall), and adds `markers.boss`; with it false the plan has no Boss key anywhere.
  */
@@ -1370,8 +1397,49 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     }
   }
 
+  // 7c'. Daises (docs/plans/delver.md, Stage 7c), after the kinds and the Boss Hall's growth, so the rects are final. A Boss or Treasure Hall with no gallery
+  // and no split or pit is picked with `daisPercent`'s chance; sides are tried in turn from a picked one (n, e, s, w, wrapping) and the first that fits takes the dais
+  // (the throne or the altar): no Passage leaves by the side, the Hall is deep enough across it, and the dais and its step keep clear of every doorway's lane
+  // and of the centre square. None fits: no dais.
+  if (t.features.daisPercent > 0) {
+    halls.forEach((hall, h) => {
+      if ((kind[h] !== 'Boss' && kind[h] !== 'Treasure') || galleryOf[h] || featureOf[h] || pick(h, SALT.dais, 100) >= t.features.daisPercent) return;
+      const r = hall.rect;
+      const y0 = hy(h);
+      const spans = hall.slots.filter((sl) => sl.p !== -1).map((sl) => ({ d: sl.d, lo: sl.line - half - DOOR_SIDE, hi: sl.line + half + DOOR_SIDE }));
+      const lanes: Rect[] = spans.map((sp) =>
+        sp.d === 0 ? { x0: sp.lo, z0: r.z1 - DOOR_LANE, x1: sp.hi, z1: r.z1 }
+        : sp.d === 2 ? { x0: sp.lo, z0: r.z0, x1: sp.hi, z1: r.z0 + DOOR_LANE }
+        : sp.d === 1 ? { x0: r.x1 - DOOR_LANE, z0: sp.lo, x1: r.x1, z1: sp.hi }
+        : { x0: r.x0, z0: sp.lo, x1: r.x0 + DOOR_LANE, z1: sp.hi });
+      const centre: Rect = { x0: hall.cx - CENTRE_CLEAR, z0: hall.cz - CENTRE_CLEAR, x1: hall.cx + CENTRE_CLEAR, z1: hall.cz + CENTRE_CLEAR };
+      const k0 = pick(h, SALT.daisSide, 4);
+      for (let i = 0; i < 4; i++) {
+        const d = (k0 + i) % 4;
+        if (spans.some((sp) => sp.d === d)) continue;
+        const alongX = d === 0 || d === 2;
+        if ((alongX ? r.z1 - r.z0 : r.x1 - r.x0) / 2 < DAIS_DEPTH + DAIS_STEP + CENTRE_CLEAR) continue;
+        const m = ev(alongX ? hall.cx : hall.cz);
+        // `R` is a rect from its extent along the wall and its extent across it (the dais's inner edge, then the step's further in).
+        const R = (a0: number, a1: number, c0: number, c1: number): Rect => (alongX ? { x0: a0, z0: c0, x1: a1, z1: c1 } : { x0: c0, z0: a0, x1: c1, z1: a1 });
+        const [w0, w1] = d === 0 ? [r.z1 - DAIS_DEPTH, r.z1] : d === 2 ? [r.z0, r.z0 + DAIS_DEPTH] : d === 1 ? [r.x1 - DAIS_DEPTH, r.x1] : [r.x0, r.x0 + DAIS_DEPTH];
+        const rect = R(m - DAIS_HALF, m + DAIS_HALF, w0, w1);
+        const [s0, s1] = d === 0 || d === 1 ? [w0 - DAIS_STEP, w0] : [w1, w1 + DAIS_STEP];
+        const step = R(m - DAIS_STEP_HALF, m + DAIS_STEP_HALF, s0, s1);
+        const inside = (q: Rect) => q.x0 >= r.x0 && q.x1 <= r.x1 && q.z0 >= r.z0 && q.z1 <= r.z1;
+        if (![rect, step].every((q) => inside(q) && lanes.every((ln) => apartBy(q, ln, 0)) && apartBy(q, centre, 0))) continue;
+        const side = SIDES[d]!;
+        featureOf[h] = {
+          kind: 'dais', side, rect, y: y0 + DAIS_RISE,
+          steps: [{ rect: step, lo: y0, hi: y0 + DAIS_RISE, up: side, rails: alongX ? ['e', 'w'] : ['n', 's'] }],
+        };
+        break;
+      }
+    });
+  }
+
   // 7c. Shapes and pillars (docs/plans/delver.md, Stage 7b), after the kinds so the patrol points and markers read the final centres. A Hall with a
-  // gallery or a split or pit is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
+  // gallery or a feature (a split, a pit or a dais) is neither shaped nor pillared. A shape is cut out of the Hall's rect by solids: notches in its corners (L, T, cross) or a core (ring).
   const hallShape = new Array<HallShape>(n).fill('rect');
   const hallSolids: Rect[][] = halls.map(() => []);
   const hallPillars: Rect[][] = halls.map(() => []);
@@ -1538,15 +1606,26 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
     { hall: entrance, x: ent.cx + SPAWN_OFFSET, y: hy(entrance), z: ent.cz + SPAWN_OFFSET },
   ];
   const st = halls[stairs]!;
+  /** A dais Hall's throne or altar point: `along` on its wall's line (even metre), `DAIS_DEPTH / 2` in from the wall, at the dais's `y`. */
+  const onDais = (h: number, dm = 0): MarkerPoint | null => {
+    const f = featureOf[h];
+    if (f?.kind !== 'dais') return null;
+    const r = halls[h]!.rect;
+    const m = ((f.side === 'n' || f.side === 's' ? f.rect.x0 + f.rect.x1 : f.rect.z0 + f.rect.z1) / 2) + dm;
+    return f.side === 'n' ? { hall: h, x: m, y: f.y, z: r.z1 - DAIS_DEPTH / 2 }
+      : f.side === 's' ? { hall: h, x: m, y: f.y, z: r.z0 + DAIS_DEPTH / 2 }
+      : f.side === 'e' ? { hall: h, x: r.x1 - DAIS_DEPTH / 2, y: f.y, z: m }
+      : { hall: h, x: r.x0 + DAIS_DEPTH / 2, y: f.y, z: m };
+  };
   const hallsOfKind = (k: DelverHallKind) => halls.flatMap((_, h) => (kind[h] === k ? [h] : []));
   const markers: DelverMarkers = {
     spawns,
     stairs: { hall: stairs, zone: { x0: st.cx - STAIRS_HALF, z0: st.cz - STAIRS_HALF, x1: st.cx + STAIRS_HALF, z1: st.cz + STAIRS_HALF }, y: hy(stairs) },
     fires: hallsOfKind('Rest').map((h) => at(h)),
-    pedestals: hallsOfKind('Treasure').flatMap((h) => [at(h, -PEDESTAL_GAP), at(h), at(h, PEDESTAL_GAP)]),
+    pedestals: hallsOfKind('Treasure').flatMap((h) => (onDais(h) ? [onDais(h, -PEDESTAL_GAP)!, onDais(h)!, onDais(h, PEDESTAL_GAP)!] : [at(h, -PEDESTAL_GAP), at(h), at(h, PEDESTAL_GAP)])),
     posts: hallsOfKind('Fight').map(postOf),
     patrols,
-    ...(bossHall ? { boss: at(stairs) } : {}),
+    ...(bossHall ? { boss: onDais(stairs) ?? at(stairs) } : {}),
   };
 
   const outHalls: DelverHall[] = halls.map((h, k) => {

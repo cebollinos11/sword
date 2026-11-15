@@ -11,21 +11,19 @@ export function flatFloors(tuning: TuningData): TuningData {
 }
 
 /**
- * `tuning` with the Stage 7c knobs off (for now: `galleries.wrapPercent` 0, `galleries.stairPercent` 0 and `features.percent` 0; the daises join them in
- * the later tasks), the rest unchanged: no gallery wraps, none is picked as a stairwell and no Hall takes a split or a pit, so a Floor's plan, source and map are 7b's byte for byte.
+ * `tuning` with the Stage 7c knobs off (`galleries.wrapPercent` 0, `galleries.stairPercent` 0, `features.percent` 0 and `features.daisPercent` 0), the rest unchanged: no gallery wraps, none is picked as a stairwell and no Hall takes a split, a pit or a dais, so a Floor's plan, source and map are 7b's byte for byte.
  */
 export function flatHalls(tuning: TuningData): TuningData {
   const f = tuning.delver.floor;
-  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, galleries: { ...f.galleries, wrapPercent: 0, stairPercent: 0 }, features: { ...f.features, percent: 0 } } } };
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, galleries: { ...f.galleries, wrapPercent: 0, stairPercent: 0 }, features: { ...f.features, percent: 0, daisPercent: 0 } } } };
 }
 
 /**
- * `tuning` with the shipped Stage 7c values (the galleries' `wrapPercent` 40, `uPercent` 30 and `stairPercent` 60; the features' `percent` 50, `weights` split 1 and pit 1, `threePercent` 40 and `deepPercent` [25, 40, 55]; the daises join them
- * in the later task). The shipped data has them off until the switch; the 7c tests run on this and it goes when the switch does.
+ * `tuning` with the shipped Stage 7c values (the galleries' `wrapPercent` 40, `uPercent` 30 and `stairPercent` 60; the features' `percent` 50, `weights` split 1 and pit 1, `threePercent` 40 and `deepPercent` [25, 40, 55] and `daisPercent` 60). The shipped data has them off until the switch; the 7c tests run on this and it goes when the switch does.
  */
 export function rooms7c(tuning: TuningData): TuningData {
   const f = tuning.delver.floor;
-  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] } } } };
+  return { ...tuning, delver: { ...tuning.delver, floor: { ...f, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 } } } };
 }
 
 /** `tuning` with Stage 6's lattice and the Stage 7a, 7b and 7c knobs off: cols 7, rows 6, rooms 22, gaps [22, 24, 26, 28], halfSize [5, 11], `turnPercent` 0 and no great halls. `flatFloors(flatRooms(t))` is Stage 5's flat Floor. */

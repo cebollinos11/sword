@@ -53,7 +53,7 @@ const GREAT = { count: [0, 0], half: [12, 16] };
 const SHAPES = { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } };
 const PILLARS = { percent: 0, weights: { colonnade: 1, grid: 1 } };
 const GALLERIES = { wrapPercent: 0, uPercent: 30, stairPercent: 0 };
-const FEATURES = { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] };
+const FEATURES = { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 };
 const LEVELS = { max: 4, min: 2, changePercent: 35, galleryPercent: 40 };
 const withFloor = (patch: Record<string, unknown>): Raw => {
   const d = raw();
@@ -99,7 +99,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -198,7 +198,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['features.percent fractional', withFloor({ features: { ...FEATURES, percent: 0.5 } }), /^delver\.floor\.features\.percent /],
     ['features.percent negative', withFloor({ features: { ...FEATURES, percent: -1 } }), /^delver\.floor\.features\.percent /],
     ['features.percent above 0 with levels.max 0', withFloor({ features: { ...FEATURES, percent: 50 }, levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } }), /^delver\.floor\.features\.percent .*levels\.max/],
-    ['features.weights missing', withFloor({ features: { percent: 0, threePercent: 40, deepPercent: [25] } }), /^delver\.floor\.features\.weights /],
+    ['features.weights missing', withFloor({ features: { percent: 0, threePercent: 40, deepPercent: [25], daisPercent: 0 } }), /^delver\.floor\.features\.weights /],
     ['features.weights key missing', withFloor({ features: { ...FEATURES, weights: { split: 1 } } }), /^delver\.floor\.features\.weights\.pit /],
     ['features.weights typo', withFloor({ features: { ...FEATURES, weights: { split: 1, pitt: 1 } } }), /^delver\.floor\.features\.weights\.pitt /],
     ['features.weights negative', withFloor({ features: { ...FEATURES, weights: { split: -1, pit: 1 } } }), /^delver\.floor\.features\.weights\.split /],
@@ -211,6 +211,10 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['features.deepPercent empty', withFloor({ features: { ...FEATURES, deepPercent: [] } }), /^delver\.floor\.features\.deepPercent /],
     ['features.deepPercent entry above 100', withFloor({ features: { ...FEATURES, deepPercent: [25, 101] } }), /^delver\.floor\.features\.deepPercent\[1\] /],
     ['features.deepPercent entry fractional', withFloor({ features: { ...FEATURES, deepPercent: [0.5] } }), /^delver\.floor\.features\.deepPercent\[0\] /],
+    ['features.daisPercent missing', withFloor({ features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25] } }), /^delver\.floor\.features\.daisPercent /],
+    ['features.daisPercent above 100', withFloor({ features: { ...FEATURES, daisPercent: 101 } }), /^delver\.floor\.features\.daisPercent /],
+    ['features.daisPercent fractional', withFloor({ features: { ...FEATURES, daisPercent: 0.5 } }), /^delver\.floor\.features\.daisPercent /],
+    ['features.daisPercent negative', withFloor({ features: { ...FEATURES, daisPercent: -1 } }), /^delver\.floor\.features\.daisPercent /],
     ['features.deepPercent entry negative', withFloor({ features: { ...FEATURES, deepPercent: [-1] } }), /^delver\.floor\.features\.deepPercent\[0\] /],
     ['galleries missing', withFloor({ galleries: undefined }), /^delver\.floor\.galleries /],
     ['galleries.wrapPercent missing', withFloor({ galleries: { uPercent: 30, stairPercent: 0 } }), /^delver\.floor\.galleries\.wrapPercent /],
@@ -343,7 +347,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
   });
 
   it('takes the 7c features keys: a percent, whole weights, a percent for three tiers and one per Run tier for deep pits', () => {
-    const fe = { percent: 50, weights: { split: 0, pit: 3 }, threePercent: 100, deepPercent: [0, 100] };
+    const fe = { percent: 50, weights: { split: 0, pit: 3 }, threePercent: 100, deepPercent: [0, 100], daisPercent: 60 };
     expect(parse(withFloor({ features: fe })).floor.features).toEqual(fe);
     expect(parse(withFloor({ features: { ...FEATURES, percent: 100, deepPercent: [10] } })).floor.features.deepPercent).toEqual([10]);
     // With levels.max 0 a feature has nowhere to stand a level over another, but percent 0 asks for none.

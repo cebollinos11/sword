@@ -7,7 +7,8 @@ import { flatFloors, flatHalls, flatRooms, plainHalls, rooms7c } from './flat.te
 import { SHORTCUT_RISE } from '../nav';
 import { isBossFloor, tierOf } from './troops';
 import {
-  attemptSeed, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
+  attemptSeed, PEDESTAL_GAP, CENTRE_CLEAR, CENTRE_KEEP, COLONNADE_ROW, COLONNADE_STEP, DECK_MIN, DECK_POST, DOOR_LANE, DOOR_SIDE, floorRects, GRID_STEP, MARKER_KEEP, NOTCH_MIN, PILLAR_HALF, PILLARS_MIN, RING_BAND, WALL_GAP, GALLERY_APPROACH, GALLERY_DEPTH, GALLERY_RAMP, GALLERY_STOREY, HALL_STOREY, JUMP_SHORTCUT_CAP, LEVEL_RISE, MAX_SLOPE, MIN_LEG, PASSAGE_CLEAR,
+  DAIS_DEPTH, DAIS_HALF, DAIS_RISE, DAIS_STEP, DAIS_STEP_HALF, type DelverDais,
   hallBase, PIT_LONG, PIT_RIM, PIT_WIDE, SPLIT_CUT, STEP_WIDTH, TIER_MIN, type DelverStep,
   passagePieces, planFloor, SALT, STAIRS_HALF, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece,
 } from './plan';
@@ -1240,7 +1241,7 @@ describe('splits and pits (Stage 7c)', () => {
   const odd = (v: number) => Math.abs(v % 2) === 1;
   const oddRect = (q: Rect) => [q.x0, q.z0, q.x1, q.z1].every(odd);
   /** Every Hall of every planned Floor with a split or a pit. */
-  const featured = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (h.feature ? [{ p, h, i, seed, floor }] : [])));
+  const featured = planned.flatMap(({ p, seed, floor }) => p.halls.flatMap((h, i) => (h.feature && h.feature.kind !== 'dais' ? [{ p, h, i, seed, floor }] : [])));
   const splits = featured.filter((e) => e.h.feature!.kind === 'split');
   const pits = featured.filter((e) => e.h.feature!.kind === 'pit');
   /** The square the centre keeps clear (a step never enters it). */
@@ -1279,8 +1280,8 @@ describe('splits and pits (Stage 7c)', () => {
     ]);
 
   it('has the shipped 7c values on rooms7c and the knobs off in the data', () => {
-    expect(f7c.features).toEqual({ percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] });
-    expect(bundled7c.delver.floor.features).toEqual({ percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55] });
+    expect(f7c.features).toEqual({ percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 });
+    expect(bundled7c.delver.floor.features).toEqual({ percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 });
     expect(planned.length).toBeGreaterThan(150);
     expect(splits.length).toBeGreaterThan(30);
     expect(pits.length).toBeGreaterThan(30);
@@ -1450,7 +1451,7 @@ describe('splits and pits (Stage 7c)', () => {
     for (const { p } of planned) {
       for (const e of endsOf(p)) {
         expect(e.y).toBe(floorAt(e.h, e.side));
-        if (!e.h.feature) continue;
+        if (!e.h.feature || e.h.feature.kind === 'dais') continue;
         if (isRaised(e.h, e.side)) {
           raised++;
           expect(e.q.ya).toBe(e.q.yb);
@@ -1462,7 +1463,7 @@ describe('splits and pits (Stage 7c)', () => {
       }
       for (const h of p.halls) {
         if (h.feature?.kind === 'pit') expect(Object.keys(h.doors)).toEqual([]);
-        for (const side of SIDES4) if (h.doors[side] !== undefined && h.feature) expect(isRaised(h, side)).toBe(false);
+        for (const side of SIDES4) if (h.doors[side] !== undefined && h.feature && h.feature.kind !== 'dais') expect(isRaised(h, side)).toBe(false);
       }
     }
     expect(raised).toBeGreaterThan(30);
@@ -1512,8 +1513,8 @@ describe('splits and pits (Stage 7c)', () => {
     const flat = flatHalls(bundled7c);
     const ff = flat.delver.floor;
     it('turns features.percent off and keeps the rest', () => {
-      expect(ff.features).toEqual({ ...bundled7c.delver.floor.features, percent: 0 });
-      expect([flatRooms(bundled7c).delver.floor.features.percent, plainHalls(bundled7c).delver.floor.features.percent]).toEqual([0, 0]);
+      expect(ff.features).toEqual({ ...bundled7c.delver.floor.features, percent: 0, daisPercent: 0 });
+      expect([flatRooms(bundled7c).delver.floor.features.percent, plainHalls(bundled7c).delver.floor.features.percent, flatRooms(bundled7c).delver.floor.features.daisPercent, plainHalls(bundled7c).delver.floor.features.daisPercent]).toEqual([0, 0, 0, 0]);
     });
     it('plans the bundled tuning\'s Floors byte for byte, with no feature, and changed weights, threePercent, deepPercent, tier or 7c salts changing nothing', () => {
       const salts = SALT as unknown as Record<string, number>;
@@ -1528,6 +1529,167 @@ describe('splits and pits (Stage 7c)', () => {
         expect(JSON.stringify(planFloor(other, seed, floor, 0, boss, 3))).toBe(want);
         try {
           for (const key of ['feature', 'featureKind', 'splitAxis', 'splitTiers', 'splitSide', 'splitStep', 'pitDeep', 'pitTurn']) salts[key] = 9000 + salts[key]!;
+          expect(JSON.stringify(planFloor(ff, seed, floor, 0, boss))).toBe(want);
+        } finally {
+          Object.assign(salts, saved);
+        }
+      }
+    });
+  });
+});
+
+describe('daises (Stage 7c)', () => {
+  const bundled7c = loadTuningData();
+  const t7c = rooms7c(bundled7c);
+  const f7c = t7c.delver.floor;
+  const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
+  const planned = pairs
+    .map((pr) => ({ ...pr, p: planFloor(f7c, pr.seed, pr.floor, 0, isBossFloor(t7c.delver, pr.floor), tierOf(t7c.delver, pr.floor)) }))
+    .filter((x) => x.p.halls.length === f7c.rooms);
+  const R = (x0: number, z0: number, x1: number, z1: number): Rect => ({ x0, z0, x1, z1 });
+  const within = (q: Rect, o: Rect) => q.x0 >= o.x0 && q.x1 <= o.x1 && q.z0 >= o.z0 && q.z1 <= o.z1;
+  const odd = (v: number) => Math.abs(v % 2) === 1;
+  const evenM = (v: number) => 2 * Math.ceil((v - 1) / 2);
+  const apart = (p: Rect, q: Rect) => Math.max(p.x0 - q.x1, q.x0 - p.x1) >= 0 || Math.max(p.z0 - q.z1, q.z0 - p.z1) >= 0;
+  const all = planned.flatMap(({ p, seed, floor }) => p.halls.map((h, i) => ({ p, h, i, seed, floor })));
+  const daises = all.filter((e) => e.h.feature?.kind === 'dais').map((e) => ({ ...e, d: e.h.feature as DelverDais }));
+  /** The sides of Hall `i` a Passage leaves by, each with the doorway's lane: the Passage's piece at that end, DOOR_SIDE m wider each side, DOOR_LANE m in. */
+  const ends = (p: FloorPlan, i: number): { side: Side; lane: Rect }[] =>
+    p.passages.flatMap((q) => {
+      const out: { side: Side; lane: Rect }[] = [];
+      for (const [hall, side, piece] of [[q.a, q.sideA, q.pieces[0]!], [q.b, q.sideB, q.pieces[q.pieces.length - 1]!]] as const) {
+        if (hall !== i) continue;
+        const r = p.halls[i]!.rect;
+        const pr = piece.rect;
+        out.push({
+          side,
+          lane: side === 'n' ? R(pr.x0 - DOOR_SIDE, r.z1 - DOOR_LANE, pr.x1 + DOOR_SIDE, r.z1) : side === 's' ? R(pr.x0 - DOOR_SIDE, r.z0, pr.x1 + DOOR_SIDE, r.z0 + DOOR_LANE)
+            : side === 'e' ? R(r.x1 - DOOR_LANE, pr.z0 - DOOR_SIDE, r.x1, pr.z1 + DOOR_SIDE) : R(r.x0, pr.z0 - DOOR_SIDE, r.x0 + DOOR_LANE, pr.z1 + DOOR_SIDE),
+        });
+      }
+      return out;
+    });
+
+  it('has the constants and salts the Design fixes', () => {
+    expect([DAIS_RISE, DAIS_HALF, DAIS_DEPTH, DAIS_STEP, DAIS_STEP_HALF]).toEqual([1, 5, 6, 2, 3]);
+    expect([SALT.dais, SALT.daisSide]).toEqual([71, 72]);
+  });
+
+  it('puts a dais only in a Boss or Treasure Hall with no gallery, split or pit, and never on a shaped or pillared Hall', () => {
+    expect(daises.length).toBeGreaterThan(20);
+    for (const { h } of daises) {
+      expect(['Boss', 'Treasure']).toContain(h.kind);
+      expect(h.gallery).toBeUndefined();
+      expect([h.shape, h.solids.length, h.pillars.length]).toEqual(['rect', 0, 0]);
+      expect(h.top).toBe(h.y + HALL_STOREY);
+      expect(hallBase(h)).toBe(h.y);
+    }
+  });
+
+  it('cuts each dais and step as the Design draws them: on a side no Passage leaves by, sizes, along the centre, inside, odd edges, clear of lanes and the centre square', () => {
+    for (const { p, h, i, d } of daises) {
+      const r = h.rect;
+      const alongX = d.side === 'n' || d.side === 's';
+      expect(ends(p, i).filter((e) => e.side === d.side)).toEqual([]);
+      expect((alongX ? r.z1 - r.z0 : r.x1 - r.x0) / 2).toBeGreaterThanOrEqual(DAIS_DEPTH + DAIS_STEP + CENTRE_CLEAR);
+      const m = evenM(alongX ? h.cx : h.cz);
+      const st = d.steps[0]!;
+      expect(d.steps.length).toBe(1);
+      const [dLo, dHi, sLo, sHi] = alongX ? [d.rect.x0, d.rect.x1, st.rect.x0, st.rect.x1] : [d.rect.z0, d.rect.z1, st.rect.z0, st.rect.z1];
+      expect([dLo, dHi, sLo, sHi]).toEqual([m - DAIS_HALF, m + DAIS_HALF, m - DAIS_STEP_HALF, m + DAIS_STEP_HALF]);
+      const [cLo, cHi, tLo, tHi] = alongX ? [d.rect.z0, d.rect.z1, st.rect.z0, st.rect.z1] : [d.rect.x0, d.rect.x1, st.rect.x0, st.rect.x1];
+      const wall = { n: r.z1, s: r.z0, e: r.x1, w: r.x0 }[d.side];
+      const inward = d.side === 'n' || d.side === 'e' ? -1 : 1;
+      expect(inward > 0 ? [cLo, cHi] : [cHi, cLo]).toEqual([wall, wall + inward * DAIS_DEPTH]);
+      expect(inward > 0 ? [tLo, tHi] : [tHi, tLo]).toEqual([wall + inward * DAIS_DEPTH, wall + inward * (DAIS_DEPTH + DAIS_STEP)]);
+      for (const q of [d.rect, st.rect]) {
+        expect([q.x0, q.z0, q.x1, q.z1].every(odd)).toBe(true);
+        expect(within(q, r)).toBe(true);
+        for (const e of ends(p, i)) expect(apart(q, e.lane)).toBe(true);
+        expect(apart(q, R(h.cx - CENTRE_CLEAR, h.cz - CENTRE_CLEAR, h.cx + CENTRE_CLEAR, h.cz + CENTRE_CLEAR))).toBe(true);
+      }
+      expect(d.y).toBe(h.y + DAIS_RISE);
+      expect([st.lo, st.hi, st.up]).toEqual([h.y, h.y + DAIS_RISE, d.side]);
+      expect(st.rails).toEqual(alongX ? ['e', 'w'] : ['n', 's']);
+      expect(Object.keys(d)).toEqual(['kind', 'side', 'rect', 'y', 'steps']);
+    }
+  });
+
+  it('puts the throne on its dais at its y, three altar pedestals on the dais of a Treasure Hall, and no other marker on a dais', () => {
+    let thrones = 0;
+    let altars = 0;
+    for (const { p, h, i, d } of daises) {
+      const r = h.rect;
+      const alongX = d.side === 'n' || d.side === 's';
+      const m = evenM(alongX ? h.cx : h.cz);
+      const onWall = (q: { x: number; z: number }, along: number) => {
+        const wantX = alongX ? along : d.side === 'e' ? r.x1 - DAIS_DEPTH / 2 : r.x0 + DAIS_DEPTH / 2;
+        const wantZ = alongX ? (d.side === 'n' ? r.z1 - DAIS_DEPTH / 2 : r.z0 + DAIS_DEPTH / 2) : along;
+        expect([q.x, q.z]).toEqual([wantX, wantZ]);
+      };
+      const mk = p.markers;
+      if (h.kind === 'Boss') {
+        thrones++;
+        expect(mk.boss).toBeDefined();
+        expect(mk.boss!.hall).toBe(i);
+        expect(mk.boss!.y).toBe(d.y);
+        onWall(mk.boss!, m);
+      } else {
+        altars++;
+        const mine = mk.pedestals.filter((q) => q.hall === i);
+        expect(mine.length).toBe(3);
+        mine.forEach((q, k) => {
+          expect(q.y).toBe(d.y);
+          onWall(q, m + (k - 1) * PEDESTAL_GAP);
+        });
+      }
+      const onD = (q: { x: number; z: number; y: number }) => q.x > d.rect.x0 && q.x < d.rect.x1 && q.z > d.rect.z0 && q.z < d.rect.z1;
+      const others = [...mk.spawns, ...mk.fires, ...mk.posts, { hall: mk.stairs.hall, y: mk.stairs.y, x: (mk.stairs.zone.x0 + mk.stairs.zone.x1) / 2, z: (mk.stairs.zone.z0 + mk.stairs.zone.z1) / 2 }];
+      for (const q of others) if (q.hall === i) expect(onD(q)).toBe(false);
+      if (h.kind !== 'Boss' && mk.boss) expect(onD(mk.boss)).toBe(false);
+      if (h.kind !== 'Treasure') for (const q of mk.pedestals) expect(q.hall === i && onD(q)).toBe(false);
+      for (const pat of mk.patrols) pat.halls.forEach((k, n) => k === i && expect(onD(pat.points[n]!)).toBe(false));
+    }
+    expect(thrones).toBeGreaterThan(0);
+    expect(altars).toBeGreaterThan(0);
+  });
+
+  it('shows across the 200 a throne on a great Boss Hall and an altar; prints the share of Halls with a split, a pit or a dais', () => {
+    const total = all.length;
+    const count = (k: string) => all.filter((e) => e.h.feature?.kind === k).length;
+    const bossDais = daises.filter((e) => e.h.kind === 'Boss');
+    const tried = all.filter((e) => ['Boss', 'Treasure'].includes(e.h.kind) && !e.h.gallery && e.h.feature?.kind !== 'split' && e.h.feature?.kind !== 'pit');
+    console.log(
+      `7c daises ${daises.length}: thrones ${bossDais.length} (great ${bossDais.filter((e) => e.h.great).length}), altars ${daises.length - bossDais.length}; ` +
+        `Boss/Treasure Halls without gallery/split/pit ${tried.length}, of them without a dais ${tried.length - daises.length}; ` +
+        `splits ${count('split')}, pits ${count('pit')}, daises ${count('dais')} of ${total} Halls (${((100 * (count('split') + count('pit') + count('dais'))) / total).toFixed(1)} %)`,
+    );
+    expect(bossDais.some((e) => e.h.great)).toBe(true);
+    expect(daises.some((e) => e.h.kind === 'Treasure')).toBe(true);
+  });
+
+  it('is deterministic and plain data', () => {
+    for (const { seed, floor } of pairs.slice(0, 20)) {
+      const a = planFloor(f7c, seed, floor, 0, true, 2);
+      expect(planFloor(f7c, seed, floor, 0, true, 2)).toEqual(a);
+      expect(JSON.parse(JSON.stringify(a))).toEqual(a);
+    }
+  });
+
+  describe('on flatHalls', () => {
+    const flat = flatHalls(bundled7c);
+    const ff = flat.delver.floor;
+    it('plans the bundled tuning\'s Floors byte for byte, with no dais, and daisPercent\'s salts changed changing nothing', () => {
+      const salts = SALT as unknown as Record<string, number>;
+      const saved = { ...salts };
+      for (const { seed, floor } of pairs.slice(0, 60)) {
+        const boss = isBossFloor(bundled7c.delver, floor);
+        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
+        const got = planFloor(ff, seed, floor, 0, boss);
+        expect(JSON.stringify(got)).toBe(want);
+        expect(got.halls.some((h) => h.feature)).toBe(false);
+        try {
+          for (const key of ['dais', 'daisSide']) salts[key] = 9000 + salts[key]!;
           expect(JSON.stringify(planFloor(ff, seed, floor, 0, boss))).toBe(want);
         } finally {
           Object.assign(salts, saved);
