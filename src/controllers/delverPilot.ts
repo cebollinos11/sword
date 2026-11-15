@@ -1,6 +1,7 @@
 /**
  * The Delver pilot: a Player's Fighter on an AI for tests and the dev `?autopilot` on a Delver Run (docs/plans/delver.md, Stage 2). On a
- * Floor it walks to the Rest fires nearest first, one after another, then into the Stairs zone, so the Run takes the party down. While
+ * Floor it walks to the Rest fires nearest first, one after another, then into the Stairs zone, so the Run takes the party down (on a Boss Floor
+ * whose gate is shut, to the Boss's post first: Stage 7c's throne stands away from the Stairs zone). While
  * the Run is Descending, or its Fighter has fallen, it stands. A promoted enemy near (`promotedNear`) it fights with its AI before it walks its
  * route: it does not go round Warbands, it walks through, and fights those the Bubble promotes beside it.
  *
@@ -11,6 +12,7 @@
  */
 import { IDLE_INTENT, inDuel, pickupVisibleTo, type Dropped, type Intent, type Inventory, type SimState } from '../sim';
 import { floorOf } from '../sim/delver';
+import { BOSS } from '../sim/warband';
 import type { TuningData } from '../tuning';
 import { createAiController, type AiController } from './ai';
 import { promotedNear } from './allyAi';
@@ -28,6 +30,13 @@ const STAIRS_STOP = 0.3;
 /** Whether `inventory` has room for `item`: `addItem`'s rule (fewer Weapons held than `sizes.weapons`, or fewer Relics than `sizes.relics`), by counts. */
 const hasRoom = (inventory: Inventory, item: Dropped, sizes: TuningData['dungeon']['inventory']): boolean =>
   item.kind === 'weapon' ? inventory.weapons.length < sizes.weapons : inventory.relics.length < sizes.relics;
+
+/** Whether the Floor's Boss Warband (rank BOSS) has a Soldier alive: until it is wiped the Boss Floor's gate stays shut. */
+function bossLives(state: SimState): boolean {
+  const c = state.crowd;
+  const q = c?.warbands?.rank.indexOf(BOSS) ?? -1;
+  return q >= 0 && c!.squad.some((s, i) => s === q && c!.alive[i] === 1);
+}
 
 /** The pilot's memory: the Floor it is on and the fires (plan order) it has reached. */
 interface PilotMemory {
@@ -70,6 +79,8 @@ class DelverPilot implements Controller {
       const fire = markers.fires[target]!;
       return this.ai.walkTo(state, fighter, { x: fire.x, y: fire.y, z: fire.z }, FIRE_STOP);
     }
+    // On a Boss Floor while its gate is shut, it goes up to the Boss's post (a throne may stand beyond a Warband's sight of the Stairs zone), so the two meet.
+    if (markers.boss && bossLives(state)) return this.ai.walkTo(state, fighter, { x: markers.boss.x, y: markers.boss.y, z: markers.boss.z }, STAIRS_STOP);
     const { zone, y } = markers.stairs;
     return this.ai.walkTo(state, fighter, { x: (zone.x0 + zone.x1) / 2, y, z: (zone.z0 + zone.z1) / 2 }, STAIRS_STOP);
   }

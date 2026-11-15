@@ -49,7 +49,7 @@ import {
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
 import { gateOpen } from "../sim/delverRun";
-import { flatFloors, flatRooms } from "../sim/delver/flat.testdata";
+import { flatFloors, flatHalls, flatRooms } from "../sim/delver/flat.testdata";
 import { BOSS, ELITE } from "../sim/warband";
 import { createAiController } from "./ai";
 import { controllerIntents, type Controller } from "./controller";
@@ -62,6 +62,7 @@ import type {
   DelverHall,
   DelverPassage,
 } from "../sim/delver/plan";
+import type { Rect, Side } from "../mapEditor/source";
 
 /**
  * The Warband soak (docs/plans/delver.md, Stage 3, "The slow soak"): five Delver Runs of one tier of three Floors with Warbands, AI-driven (the
@@ -1159,10 +1160,16 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
   it(`plays ${RUNS.length} Runs of ${FLOORS} Floors with Warbands (up to ${RUN_SECONDS / 60} minutes each) and measures the Tick, the hash, the snapshot and the field builds`, () => {
     const runs: RunReport[] = [];
     const blocks = blockWatcher();
+    const platforms = platformWatcher();
     const t0 = performance.now();
     for (const name of RUNS) {
       const wall = performance.now();
-      const run = playRun(name, { watch: blocks.watch });
+      const run = playRun(name, {
+        watch: (at, next, t) => {
+          blocks.watch(at, next, t);
+          platforms.watch(at, next, t);
+        },
+      });
       runs.push(run);
       const lines = [
         `\nRun ${run.name} (Run seed ${run.seed}): ${run.ticks} Ticks (${f(run.seconds)} s simulated, cap ${RUN_SECONDS} s), ${run.ended}, ${f((performance.now() - wall) / 1000, 0)} s wall`,
@@ -1214,10 +1221,17 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     lines.push(
       `  Blocks (Stage 7b): ${blocks.check.ticks} Ticks checked, ${blocks.check.bodies} bodies, ${blocks.check.count} inside a solid or pillar (shrunk by ${BLOCK_SHRINK} m)`,
     );
+    lines.push(
+      `  Platforms (Stage 7c): ${platforms.check.ticks} Ticks checked, ${platforms.check.bodies} bodies, ${platforms.check.count} inside a Platform; 4 m pit drops ${platforms.check.drops}, Soldier-Ticks in 4 m pit Halls ${platforms.check.pitSoldierTicks}`,
+    );
     console.log(lines.join("\n"));
     expect(
       blocks.check.inside,
       `a Fighter or Soldier stood inside a Block:\n${blocks.check.inside.join("\n")}`,
+    ).toEqual([]);
+    expect(
+      [...platforms.check.inside, ...platforms.check.dropped],
+      "a body stood inside a Platform or a Soldier dropped into a 4 m pit",
     ).toEqual([]);
 
     // The bounds: no Warband stuck.
@@ -1968,14 +1982,229 @@ function levelWatcher() {
   return { stats, statsOf, watch, flush };
 }
 
+// ------------------------------------------------------------------ vertical Halls (docs/plans/delver.md, Stage 7c, §11)
+
+/** Nobody inside a Platform (Stage 7c): a body's position may not lie inside a tier, rim or dais rect shrunk by `BLOCK_SHRINK` with its feet more than this far (m) under its top. */
+const PLATFORM_SUNK = 0.2;
+
+/** What a Walk Surface is in a Hall with a feature: its floor (the Enclosure's: a pit's floor, an outer tier), a split's main tier, a pit's rim, a dais or a step. */
+type SurfaceKind = "floor" | "tier" | "rim" | "dais" | "step";
+interface SurfaceRole {
+  readonly hall: number;
+  readonly kind: SurfaceKind;
+}
+
+/** Each Walk Surface of the Floor that belongs to a Hall (roofs left out), by the Brush ids `source.ts` writes. */
+function surfaceRoles(
+  arena: ReturnType<typeof arenaOf>,
+  plan: Lay["plan"],
+): Map<number, SurfaceRole> {
+  const roles = new Map<number, SurfaceRole>();
+  plan.halls.forEach((h, k) =>
+    arena.walk.forEach((s, i) => {
+      if (s.roof) return;
+      const id = s.id;
+      if (id.startsWith(`WALK_${h.id}-tier_`))
+        roles.set(i, { hall: k, kind: "tier" });
+      else if (id.startsWith(`WALK_${h.id}-rim`))
+        roles.set(i, { hall: k, kind: "rim" });
+      else if (id.startsWith(`WALK_${h.id}-dais`))
+        roles.set(i, { hall: k, kind: "dais" });
+      else if (id.startsWith(`WALK_${h.id}-step`))
+        roles.set(i, { hall: k, kind: "step" });
+      else if (id.startsWith(`WALK_${h.id}_`))
+        roles.set(i, { hall: k, kind: "floor" });
+    }),
+  );
+  return roles;
+}
+
+/** What the Platform checks saw, over every Tick they watched (a module total beside each watcher's own). */
+interface PlatformCheck {
+  ticks: number;
+  bodies: number;
+  /** Bodies inside a Platform, and the first ten. */
+  count: number;
+  inside: string[];
+  /** Soldier-Ticks (unpromoted, living) on a Walk Surface of a 4 m pit Hall. */
+  pitSoldierTicks: number;
+  /** Soldiers whose Walk Surface went from a 4 m pit's rim to its floor between two Ticks, and the first ten. */
+  drops: number;
+  dropped: string[];
+}
+const newPlatformCheck = (): PlatformCheck => ({
+  ticks: 0,
+  bodies: 0,
+  count: 0,
+  inside: [],
+  pitSoldierTicks: 0,
+  drops: 0,
+  dropped: [],
+});
+/** The sum of every Platform watcher of this file, printed once at the end of the vertical Halls. */
+const platformTotal = newPlatformCheck();
+
+/**
+ * A `RunOptions.watch` for the Stage 7c checks, on every Tick of a Delver Floor: (a) no Fighter in the Duel and no living unpromoted Soldier stands inside
+ * a tier, rim or dais Platform (shrunk by `BLOCK_SHRINK`) with its feet more than `PLATFORM_SUNK` under its top; (b) no unpromoted Soldier's Walk Surface
+ * goes from a 4 m pit's rim to its floor between two Ticks, and how many Soldier-Ticks were spent in 4 m pit Halls.
+ */
+function platformWatcher(): {
+  watch: (at: MatchState, next: MatchState, tuning: TuningData) => void;
+  check: PlatformCheck;
+} {
+  const check = newPlatformCheck();
+  interface Platform {
+    readonly id: string;
+    readonly rect: { x0: number; z0: number; x1: number; z1: number };
+    readonly top: number;
+  }
+  interface Cache {
+    readonly lay: Lay;
+    readonly platforms: readonly Platform[];
+    readonly roles: ReadonlyMap<number, SurfaceRole>;
+    readonly pit4: ReadonlySet<number>;
+  }
+  const cache = new Map<string, Cache>();
+  const cacheOf = (tuning: TuningData, name: string): Cache | null => {
+    let c = cache.get(name);
+    if (c) return c;
+    if (!floorOf(tuning, name)) return null;
+    const lay = layOf(tuning, name);
+    const platforms: Platform[] = [];
+    const pit4 = new Set<number>();
+    lay.plan.halls.forEach((h, k) => {
+      const ft = h.feature;
+      if (!ft) return;
+      if (ft.kind === "split") {
+        const main = ft.tiers.find((t) => t.level === h.level)!;
+        platforms.push({ id: `${h.id}-tier`, rect: main.rect, top: main.y });
+      } else if (ft.kind === "pit") {
+        ft.rims.forEach((rect, n) =>
+          platforms.push({ id: `${h.id}-rim${n}`, rect, top: ft.rim }),
+        );
+        if (ft.depth === 4) pit4.add(k);
+      } else platforms.push({ id: `${h.id}-dais`, rect: ft.rect, top: ft.y });
+    });
+    cache.set(
+      name,
+      (c = {
+        lay,
+        platforms,
+        roles: surfaceRoles(lay.arena, lay.plan),
+        pit4,
+      }),
+    );
+    return c;
+  };
+  const watch = (
+    at: MatchState,
+    next: MatchState,
+    tuning: TuningData,
+  ): void => {
+    const name = next.duel.arena;
+    const c = next.duel.crowd;
+    if (name !== at.duel.arena || !c) return;
+    const x = cacheOf(tuning, name);
+    if (!x) return;
+    const pc = at.duel.crowd!;
+    for (const to of [check, platformTotal]) to.ticks++;
+    const body = (who: string, bx: number, bz: number, feet: number): void => {
+      for (const to of [check, platformTotal]) to.bodies++;
+      for (const p of x.platforms) {
+        const r = p.rect;
+        if (
+          bx > r.x0 + BLOCK_SHRINK &&
+          bx < r.x1 - BLOCK_SHRINK &&
+          bz > r.z0 + BLOCK_SHRINK &&
+          bz < r.z1 - BLOCK_SHRINK &&
+          feet < p.top - PLATFORM_SUNK
+        ) {
+          const line = `${name} Tick ${next.tick}: ${who} at (${f(bx, 2)}, ${f(bz, 2)}) feet ${f(feet, 2)} inside ${p.id} (top ${f(p.top, 2)})`;
+          for (const to of [check, platformTotal]) {
+            to.count++;
+            if (to.inside.length < 10) to.inside.push(line);
+          }
+          return;
+        }
+      }
+    };
+    next.duel.fighters.forEach((fighter, i) => {
+      if (inDuel(fighter))
+        body(`Fighter ${i}`, fighter.position.x, fighter.position.z, fighter.y);
+    });
+    for (let i = 0; i < c.x.length; i++) {
+      if (!c.alive[i] || c.slot[i]! >= 0) continue;
+      const s = c.surface[i]!;
+      body(
+        `Soldier ${i}`,
+        c.x[i]!,
+        c.z[i]!,
+        soldierHeight(x.lay.map.field, s, c.x[i]!, c.z[i]!),
+      );
+      const role = x.roles.get(s);
+      if (role && x.pit4.has(role.hall))
+        for (const to of [check, platformTotal]) to.pitSoldierTicks++;
+      // A drop: the Soldier was unpromoted on a 4 m pit's rim a Tick ago and is on that pit's floor now.
+      if (
+        role &&
+        role.kind === "floor" &&
+        x.pit4.has(role.hall) &&
+        pc.alive[i] &&
+        pc.slot[i]! < 0
+      ) {
+        const was = x.roles.get(pc.surface[i]!);
+        if (was && was.kind === "rim" && was.hall === role.hall) {
+          const line = `${name} Tick ${next.tick}: Soldier ${i} went from ${x.lay.arena.walk[pc.surface[i]!]!.id} to ${x.lay.arena.walk[s]!.id}`;
+          for (const to of [check, platformTotal]) {
+            to.drops++;
+            if (to.dropped.length < 10) to.dropped.push(line);
+          }
+        }
+      }
+    }
+  };
+  return { watch, check };
+}
+
+/** A Floor's vertical features, counted from its plan. */
+function featureCounts(plan: Lay["plan"]) {
+  const halls = plan.halls;
+  const splits = halls.filter((h) => h.feature?.kind === "split");
+  const pits = halls.filter((h) => h.feature?.kind === "pit");
+  const daises = halls.filter((h) => h.feature?.kind === "dais");
+  const wraps = halls.filter((h) => h.gallery?.wrap);
+  return {
+    splits: splits.length,
+    twoTier: splits.filter(
+      (h) => h.feature?.kind === "split" && h.feature.tiers.length === 2,
+    ).length,
+    pits: pits.length,
+    pit2: pits.filter((h) => h.feature?.kind === "pit" && h.feature.depth === 2)
+      .length,
+    pit4: pits.filter((h) => h.feature?.kind === "pit" && h.feature.depth === 4)
+      .length,
+    daises: daises.length,
+    thrones: daises.filter((h) => h.kind === "Boss").length,
+    altars: daises.filter((h) => h.kind === "Treasure").length,
+    wraps: wraps.length,
+    wrapL: wraps.filter((h) => h.gallery!.wrap!.walls.length === 1).length,
+  };
+}
+const featureLine = (plan: Lay["plan"]): string => {
+  const n = featureCounts(plan);
+  return `splits ${n.splits} (${n.twoTier} two-tier, ${n.splits - n.twoTier} three-tier), pits ${n.pits} (${n.pit2} 2 m, ${n.pit4} 4 m), daises ${n.daises} (${n.thrones} thrones, ${n.altars} altars), wrapped galleries ${n.wraps} (${n.wrapL} L, ${n.wraps - n.wrapL} U)`;
+};
+
 describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
   it(`levelled Runs: ${LEVEL_RUNS.length} Runs of ${FLOORS} Floors with an immortal party on the Delver pilot and two Hard allies; every Floor has 2 or more Hall levels and the party walks a Ramp`, () => {
     const problems: string[] = [];
     const lines: string[] = [
-      `\nLevelled Runs (default levels, ${FLOORS} Floors each, no Bosses, immortal party; Stage 0's T2 Tick 0.31 to 0.41 ms, Stage 3's soak 0.51 ms, Stage 6's 0.49 ms; Stage 1's Floor 241 ms, navMesh 17 ms; Stage 7a: Tick mean 0.40, p99 2.62 ms, Floor 479 ms (max 696), navMesh 173 ms (max 219); Stage 7b: Halls shaped and pillared):`,
+      `\nLevelled Runs (default levels, ${FLOORS} Floors each, no Bosses, immortal party; Stage 0's T2 Tick 0.31 to 0.41 ms, Stage 3's soak 0.51 ms, Stage 6's 0.49 ms; Stage 1's Floor 241 ms, navMesh 17 ms; Stage 7a: Tick mean 0.40, p99 2.62 ms, Floor 479 ms (max 696), navMesh 173 ms (max 219); Stage 7b: Tick mean 0.39, p99 2.77 ms, Floor 553 ms (max 761), navMesh 176 ms (max 210); Stage 7c: splits, pits, daises and wrapped galleries):`,
     ];
     let rampSeconds = 0;
     const blocks = blockWatcher();
+    const platforms = platformWatcher();
     const all = {
       ticks: [] as number[],
       builds: [] as number[],
@@ -2012,6 +2241,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
         watch: (at, next, t) => {
           watcher.watch(at, next, t);
           blocks.watch(at, next, t);
+          platforms.watch(at, next, t);
         },
       });
       watcher.flush();
@@ -2044,6 +2274,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
               " ",
             )} (${levels.size} distinct); galleries ${galleries.length} (${galleries.length - stairwells} balconies, ${stairwells} stairwells), Deck posts ${plan.markers.posts.filter((p) => plan.halls[p.hall]!.gallery?.y === p.y).length}; sloped Passages ${slopes} of ${plan.passages.length}; great halls ${plan.halls.filter((h) => h.great).length}; Passages ${(["straight", "L", "S", "Z"] as const).map((k) => `${plan.passages.filter((p) => p.shape === k).length} ${k}`).join(", ")}`,
         );
+        lines.push(`    7c features: ${featureLine(plan)}`);
         lines.push(
           `    party on a Ramp ${f(secs(s.rampTicks))} s (${f(secs(s.rampFighterTicks))} Fighter-s); chases ${s.chases}, crossed a level ${s.crossed} (biggest anchor change ${f(s.biggest)} m); Promotions ${s.promotions}, on a Deck ${s.deckPromotions}; allies' jump Links taken ${s.jumps} (navmesh ${c.jumps} jump Links, ${c.shortcuts} shortcuts)`,
         );
@@ -2060,8 +2291,12 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     lines.push(
       `Blocks (Stage 7b): ${blocks.check.ticks} Ticks checked, ${blocks.check.bodies} bodies, ${blocks.check.count} inside a solid or pillar (shrunk by ${BLOCK_SHRINK} m)`,
     );
+    const pc = platforms.check;
+    lines.push(
+      `Platforms (Stage 7c): ${pc.ticks} Ticks checked, ${pc.bodies} bodies, ${pc.count} inside a tier, rim or dais (shrunk by ${BLOCK_SHRINK} m, feet more than ${PLATFORM_SUNK} m under its top); unpromoted Soldiers that dropped from a 4 m pit's rim to its floor ${pc.drops}; Soldier-Ticks in 4 m pit Halls ${pc.pitSoldierTicks}${pc.pitSoldierTicks === 0 ? " (NOTE: the 4 m pit check was not exercised on these Runs)" : ""}`,
+    );
     console.log(lines.join("\n"));
-    problems.push(...blocks.check.inside);
+    problems.push(...blocks.check.inside, ...pc.inside, ...pc.dropped);
     if (rampSeconds <= 0) problems.push("the party never stood on a Ramp");
     expect(
       problems,
@@ -2218,7 +2453,8 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
   });
 
   it("a chase across a level: a guard in a Hall with a sloped Passage chases a Player in sight who walks away up that Passage; its anchor climbs 1.5 m or more within the chase", () => {
-    const tuning = scenarioTuning(100, 0);
+    // Stage 7c: on `flatHalls` (Stage 7b's Halls), as Design §9 allows: the search's first Floor on the 7c Floors is a one-Soldier guard promoted at once.
+    const tuning = flatHalls(scenarioTuning(100, 0));
     // The first Floor 1 (seed order) with a floor guard post in a Hall whose Passage rises from its floor, and a spot in the Hall in sight of the post.
     interface Found {
       run: string;
@@ -2679,6 +2915,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       const q = w.post.indexOf(c0.post);
       let m = putAt(s.match, 0, start.x, start.z, hall.y);
       const blocks = blockWatcher();
+      const platforms = platformWatcher();
       const party = lineup.filter((x) => x.team === 0).length;
       const r = {
         promotedIn: 0,
@@ -2700,6 +2937,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
           break;
         }
         blocks.watch(at, m, tuning);
+        platforms.watch(at, m, tuning);
         const c = m.duel.crowd!;
         const pc = at.duel.crowd!;
         const fighters = m.duel.fighters;
@@ -2747,7 +2985,13 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       const shown =
         r.promotedIn > 0 && r.hitsIn > 0 && r.closest <= PILLAR_NEAR;
       const line = `Run ${run} Floor 1, ${hall.id} (${hall.shape}, ${hall.pillars.length} pillars in a ${hall.layout}, rect ${f(hall.rect.x1 - hall.rect.x0)} x ${f(hall.rect.z1 - hall.rect.z0)} m), guard W${q} (post ${c0.post}, ${w.size[q]} Soldiers; the Floor has ${lay.plan.halls.length} Halls and ${lay.plan.halls.reduce((a, h) => a + h.solids.length + h.pillars.length, 0)} Blocks); Player put at (${f(start.x)}, ${f(start.z)}), walking to the post at (${f(p.x)}, ${f(p.z)}); Promotions of it inside the Hall ${r.promotedIn} of ${r.promotedAny}, the first at ${r.first === null ? "never" : `${f(secs(r.first))} s`}; hits inside the Hall ${r.hitsIn} (landed ${r.landed}, taken ${r.taken}); closest promoted Fighter to a pillar's face ${f(r.closest, 2)} m, within ${PILLAR_NEAR} m on ${r.closeTicks} Fighter-Ticks; Blocks: ${blocks.check.ticks} Ticks checked, ${blocks.check.bodies} bodies, ${blocks.check.count} inside; Player ends at (${f(me.position.x)}, ${f(me.position.z)})`;
-      return { shown, line, r, blocks: blocks.check };
+      return {
+        shown,
+        line,
+        r,
+        blocks: blocks.check,
+        platforms: platforms.check,
+      };
     };
 
     const tried: string[] = [];
@@ -2755,12 +2999,14 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     let bodies = 0;
     let ticks = 0;
     const inside: string[] = [];
+    const platformProblems: string[] = [];
     for (const c0 of candidates()) {
       const x = fight(c0);
       bodies += x.blocks.bodies;
       ticks += x.blocks.ticks;
       // Nobody inside a Block holds on every candidate played, shown or not.
       inside.push(...x.blocks.inside);
+      platformProblems.push(...x.platforms.inside, ...x.platforms.dropped);
       if (x.shown) {
         chosen = x;
         break;
@@ -2790,6 +3036,10 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     expect(
       inside,
       `a Fighter or Soldier stood inside a Block:\n${inside.join("\n")}`,
+    ).toEqual([]);
+    expect(
+      platformProblems,
+      "a body stood inside a Platform or a Soldier dropped into a 4 m pit",
     ).toEqual([]);
   });
 
@@ -2832,6 +3082,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     const q = m.duel.crowd!.warbands!.patrol.indexOf(loop);
     if (q < 0) throw new Error(`${run}: loop ${loop} holds no Warband`);
     const blocks = blockWatcher();
+    const platforms = platformWatcher();
     const entered = new Map<number, number>(halls.map((h) => [h, 0]));
     const CAP = 420;
     let tick = 0;
@@ -2846,6 +3097,7 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       );
       tracker.observe(at, m);
       blocks.watch(at, m, tuning);
+      platforms.watch(at, m, tuning);
       const c = m.duel.crowd!;
       for (const h of halls) {
         const x = c.squads.x[q]!;
@@ -2877,6 +3129,10 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     expect(
       blocks.check.inside,
       `a Soldier stood inside a Block:\n${blocks.check.inside.join("\n")}`,
+    ).toEqual([]);
+    expect(
+      [...platforms.check.inside, ...platforms.check.dropped],
+      "a Soldier stood inside a Platform or dropped into a 4 m pit",
     ).toEqual([]);
   });
 
@@ -3482,5 +3738,599 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
         ).toBeGreaterThanOrEqual(0.5);
       });
     }
+  });
+});
+
+// ------------------------------------------------------------------ vertical Halls (docs/plans/delver.md, Stage 7c, §11)
+
+describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
+  afterAll(() => {
+    const t = platformTotal;
+    console.log(
+      `\nPlatforms over every Tick the Stage 7c watchers saw: ${t.ticks} Ticks, ${t.bodies} bodies, ${t.count} inside a tier, rim or dais Platform (shrunk by ${BLOCK_SHRINK} m, feet more than ${PLATFORM_SUNK} m under its top); unpromoted Soldiers dropped from a 4 m pit's rim to its floor ${t.drops}; Soldier-Ticks in 4 m pit Halls ${t.pitSoldierTicks}${t.pitSoldierTicks === 0 ? "\n  NOTE: no Soldier was in a 4 m pit Hall on any watched Tick: the no-drop check was not exercised" : ""}`,
+    );
+  });
+
+  const inRect = (
+    r: { x0: number; z0: number; x1: number; z1: number },
+    x: number,
+    z: number,
+  ): boolean => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+  const IDLE: Controller = { intent: () => IDLE_INTENT };
+  const enemies = Array.from({ length: MAX_TEAM_SIZE }, () => ({
+    team: 1,
+    pilot: { kind: "AI" as const, difficulty: "Floor" },
+  }));
+  /** The Match with Fighter `i` put at (x, z) at height y. */
+  const putAt = (
+    m: MatchState,
+    i: number,
+    x: number,
+    z: number,
+    y: number,
+  ): MatchState => ({
+    ...m,
+    duel: {
+      ...m.duel,
+      fighters: m.duel.fighters.map((fighter, k) =>
+        k === i ? { ...fighter, position: { x, z }, y } : fighter,
+      ),
+    },
+  });
+  /** A Match on Floor `floor` of Run `run` with the lineup's Fighters, and the Controllers (the Player's slot on `player`). */
+  const scenarioAt = (
+    tuning: TuningData,
+    run: string,
+    floor: number,
+    lineup: Lineup,
+    player: Controller,
+  ): { match: MatchState; controllers: Controller[] } => ({
+    match: createMatch(tuning, {
+      format: "Gauntlet",
+      bestOf: 1,
+      seed: 7,
+      arena: run,
+      delver: true,
+      delverStart: floor,
+      teams: lineup.map((s) => s.team),
+      humans: 1,
+      players: [0],
+    }),
+    controllers: lineupAis(tuning, lineup, "Gauntlet", {
+      seed: 7,
+      arena: run,
+      delver: true,
+    }).map((c) => c ?? player),
+  });
+
+  // ---------------------------------------------------------------- a chase between tiers
+
+  /** The longest (s) the chase between tiers is given. */
+  const TIER_SECONDS = 150;
+
+  it(`a chase between tiers: the first Floor (seed order, Floors 1 to 3) with a guard post on the main tier of a split Hall that has an outer tier whose end wall holds a Passage; the Player in sight of the guard walks down onto the outer tier and out through that Passage; the Warband chases, its anchor falls ${CROSSED} m or more and a Soldier stands on the outer tier while it chases`, () => {
+    const tuning: TuningData = (() => {
+      const t = runTuning();
+      return { ...t, delver: { ...t.delver, postFill: 100, patrolFill: 0 } };
+    })();
+    interface Candidate {
+      run: string;
+      floor: number;
+      post: number;
+      hall: number;
+      outer: { rect: Rect; y: number };
+      main: { rect: Rect; y: number };
+      wall: Side;
+      passage: DelverPassage;
+      far: number;
+    }
+    /** The Floors (seed order, then Floor) with such a post and such an outer tier, one candidate per outer tier. */
+    function* candidates(): Generator<Candidate> {
+      for (let n = 1; n <= SEARCH; n++) {
+        const run = `gen:greybox:${n}`;
+        for (let floor = 1; floor <= FLOORS; floor++) {
+          const plan = floorOf(
+            tuning,
+            floorArenaName(runSeed(run), floor),
+          )!.plan;
+          for (let p = 0; p < plan.markers.posts.length; p++) {
+            const post = plan.markers.posts[p]!;
+            const hall = plan.halls[post.hall]!;
+            const ft = hall.feature;
+            if (ft?.kind !== "split") continue;
+            const mainAt = ft.tiers.findIndex((t) => t.level === hall.level);
+            const main = ft.tiers[mainAt]!;
+            if (post.y !== hall.y || !inRect(main.rect, post.x, post.z))
+              continue;
+            for (let ti = 0; ti < ft.tiers.length; ti++) {
+              if (ti === mainAt) continue;
+              const low = ti < mainAt;
+              const wall: Side =
+                ft.axis === "z" ? (low ? "s" : "n") : low ? "w" : "e";
+              const passage = plan.passages.find(
+                (ps) =>
+                  (ps.a === post.hall && ps.sideA === wall) ||
+                  (ps.b === post.hall && ps.sideB === wall),
+              );
+              if (!passage) continue;
+              yield {
+                run,
+                floor,
+                post: p,
+                hall: post.hall,
+                outer: ft.tiers[ti]!,
+                main,
+                wall,
+                passage,
+                far: passage.a === post.hall ? passage.b : passage.a,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    const lineup: Lineup = [
+      { team: 0, pilot: { kind: "Player", player: 0 } },
+      ...enemies,
+    ];
+    /** Plays one candidate; null when the Player has no start in sight of the guard. */
+    const chase = (c0: Candidate) => {
+      const { run, floor } = c0;
+      const arena = floorArenaName(runSeed(run), floor);
+      const lay = layOf(tuning, arena);
+      const roles = surfaceRoles(lay.arena, lay.plan);
+      const { plan } = lay;
+      const hall = plan.halls[c0.hall]!;
+      const far = plan.halls[c0.far]!;
+      const post = plan.markers.posts[c0.post]!;
+      const t = lay.tuning;
+      const s0 = scenarioAt(tuning, run, floor, lineup, IDLE);
+      const crowd0 = s0.match.duel.crowd!;
+      const q = crowd0.warbands!.post.indexOf(c0.post);
+      if (q < 0)
+        return {
+          skipped: `${run} Floor ${floor}: post ${c0.post} holds no Warband`,
+        };
+      const soldiers = crowd0.squad.flatMap((sq, i) => (sq === q ? [i] : []));
+      // The Player's start: on the main tier when it can, else on the ground at the main tier's height; `promote` + 0.5 m or more from every Soldier as dealt
+      // (so none is promoted at once), in the Warband's sight, in sight of the post.
+      const spots: { x: number; z: number; tier: boolean; d: number }[] = [];
+      for (let x = Math.round(post.x) - 16; x <= post.x + 16; x++)
+        for (let z = Math.round(post.z) - 16; z <= post.z + 16; z++) {
+          const on = groundOf(t.battle, lay.map.field, x, z, hall.y + 0.1);
+          if (on < 0 || lay.arena.walk[on]!.roof) continue;
+          if (
+            Math.abs(soldierHeight(lay.map.field, on, x, z) - hall.y) > 0.1 ||
+            clearanceAt(lay.map.fields, x, z, on) < 0.5
+          )
+            continue;
+          const d = Math.min(
+            ...soldiers.map((i) =>
+              Math.hypot(crowd0.x[i]! - x, crowd0.z[i]! - z),
+            ),
+          );
+          if (
+            d < t.battle.bubble.promote + 0.5 ||
+            d > base.delver.sight - 0.5 ||
+            !inSight(lay.map.fields, post.x, post.z, x, z, 0, post.y, hall.y)
+          )
+            continue;
+          const r = roles.get(on);
+          spots.push({
+            x,
+            z,
+            tier: r?.hall === c0.hall && r.kind === "tier",
+            d: Math.abs(d - 14),
+          });
+        }
+      spots.sort(
+        (a, b) =>
+          Number(b.tier) - Number(a.tier) ||
+          a.d - b.d ||
+          a.x - b.x ||
+          a.z - b.z,
+      );
+      const start = spots[0];
+      if (!start)
+        return {
+          skipped: `${run} Floor ${floor} ${hall.id}: no start in sight of the guard`,
+        };
+      // Waypoints: on the outer tier 3 m in from the end wall's doorway, then the far Hall's centre.
+      const piece =
+        c0.passage.a === c0.hall
+          ? c0.passage.pieces[0]!
+          : c0.passage.pieces[c0.passage.pieces.length - 1]!;
+      const door = {
+        x: (piece.rect.x0 + piece.rect.x1) / 2,
+        z: (piece.rect.z0 + piece.rect.z1) / 2,
+      };
+      const inward = 3;
+      const tierPoint =
+        c0.wall === "s"
+          ? { x: door.x, z: hall.rect.z0 + inward }
+          : c0.wall === "n"
+            ? { x: door.x, z: hall.rect.z1 - inward }
+            : c0.wall === "w"
+              ? { x: hall.rect.x0 + inward, z: door.z }
+              : { x: hall.rect.x1 - inward, z: door.z };
+      const waypoints = [
+        { ...tierPoint, y: c0.outer.y },
+        { x: far.cx, z: far.cz, y: far.y },
+      ];
+      const walker = createAiController(tuning, "Hard");
+      let leg = 0;
+      const player: Controller = {
+        intent: (state, fighter) => {
+          const me = state.fighters[fighter]!;
+          const w = waypoints[leg]!;
+          if (
+            leg < waypoints.length - 1 &&
+            Math.hypot(me.position.x - w.x, me.position.z - w.z) < 1.5 &&
+            Math.abs(me.y - w.y) < 1.5
+          )
+            leg++;
+          return walker.walkTo(state, fighter, waypoints[leg]!, 1);
+        },
+        save: () => walker.save(),
+        load: (x) => walker.load(x),
+      };
+      const s = scenarioAt(tuning, run, floor, lineup, player);
+      let m = putAt(s.match, 0, start.x, start.z, hall.y);
+      const platforms = platformWatcher();
+      const r = {
+        chases: 0,
+        fall: 0,
+        h0: NaN,
+        chaseTicks: 0,
+        outerTicks: 0,
+        mostOuter: 0,
+        firstOuter: null as number | null,
+        rise: 0,
+        legReached: -1,
+        promoted: 0,
+      };
+      let cur: { h0: number; lo: number; hi: number } | null = null;
+      const heightOf = (st: MatchState) =>
+        soldierHeight(
+          lay.map.field,
+          st.duel.crowd!.squads.surface[q]!,
+          st.duel.crowd!.squads.x[q]!,
+          st.duel.crowd!.squads.z[q]!,
+        );
+      /** Whether Soldier `i` of the Warband stands on the outer tier. */
+      const onOuter = (st: MatchState, i: number): boolean => {
+        const c = st.duel.crowd!;
+        if (!c.alive[i]) return false;
+        if (c.slot[i]! >= 0) {
+          const x = st.duel.fighters[c.slot[i]!]!;
+          return (
+            inRect(c0.outer.rect, x.position.x, x.position.z) &&
+            Math.abs(x.y - c0.outer.y) <= 0.1
+          );
+        }
+        const rl = roles.get(c.surface[i]!);
+        return (
+          rl?.hall === c0.hall &&
+          rl.kind === "floor" &&
+          Math.abs(lay.arena.walk[c.surface[i]!]!.points[0]!.y - c0.outer.y) <
+            1e-6 &&
+          inRect(c0.outer.rect, c.x[i]!, c.z[i]!)
+        );
+      };
+      for (let t0 = 0; t0 < secondsToTicks(TIER_SECONDS); t0++) {
+        const at = m;
+        m = withImmortalParty(
+          stepMatch(at, controllerIntents(at.duel, s.controllers), tuning),
+        );
+        if (m.duel.arena !== at.duel.arena) {
+          m = at;
+          break;
+        }
+        platforms.watch(at, m, tuning);
+        const c = m.duel.crowd!;
+        if (c.warbands!.mode[q] === CHASE) {
+          if (at.duel.crowd!.warbands!.mode[q] !== CHASE) r.chases++;
+          const h = heightOf(m);
+          if (!cur) {
+            cur = { h0: h, lo: h, hi: h };
+            if (Number.isNaN(r.h0)) r.h0 = h;
+          }
+          cur.lo = Math.min(cur.lo, h);
+          cur.hi = Math.max(cur.hi, h);
+          if (cur.h0 - cur.lo > r.fall) {
+            r.fall = cur.h0 - cur.lo;
+            r.h0 = cur.h0;
+          }
+          r.rise = Math.max(r.rise, cur.hi - cur.h0);
+          r.chaseTicks++;
+          const on = soldiers.filter((i) => onOuter(m, i)).length;
+          if (on > 0) {
+            r.outerTicks++;
+            r.firstOuter ??= t0 + 1;
+          }
+          r.mostOuter = Math.max(r.mostOuter, on);
+        } else cur = null;
+        for (let i = 0; i < c.slot.length; i++)
+          if (
+            c.squad[i] === q &&
+            at.duel.crowd!.slot[i]! < 0 &&
+            c.slot[i]! >= 0
+          )
+            r.promoted++;
+        r.legReached = leg;
+      }
+      const me = m.duel.fighters[0]!;
+      const shown = r.chases > 0 && r.fall >= CROSSED && r.outerTicks > 0;
+      const line = `Run ${run} Floor ${floor}, guard W${q} (post ${c0.post}, ${soldiers.length} Soldiers) in ${hall.id} (${hall.feature?.kind === "split" ? `${hall.feature.tiers.length} tiers along ${hall.feature.axis}` : ""}, main tier y ${f(c0.main.y)}, rect ${f(hall.rect.x1 - hall.rect.x0)} x ${f(hall.rect.z1 - hall.rect.z0)} m), outer tier y ${f(c0.outer.y)} behind its ${c0.wall} wall, ${c0.passage.id} (${c0.passage.shape}, ${f(c0.passage.length)} m) to ${far.id} (y ${f(far.y)}, level ${far.level}); Player put at (${f(start.x)}, ${f(start.z)}) ${start.tier ? "on the main tier" : "off the main tier, on the ground at its height"}, ${f(Math.hypot(start.x - post.x, start.z - post.z))} m from the post, walking to (${f(tierPoint.x)}, ${f(tierPoint.z)}) on the outer tier then to ${far.id}'s centre (${f(far.cx)}, ${f(far.cz)}); chased x${r.chases} for ${f(secs(r.chaseTicks))} s, anchor y ${f(r.h0, 2)} fell ${f(r.fall, 2)} m (rose at most ${f(r.rise, 2)} m); a Soldier on the outer tier on ${r.outerTicks} chase Ticks (${r.firstOuter === null ? "never" : `first at ${f(secs(r.firstOuter))} s`}), most at once ${r.mostOuter}; Soldiers promoted ${r.promoted}; Player reached waypoint ${r.legReached + 1} of ${waypoints.length}${r.legReached === waypoints.length - 1 ? "" : " (not the far Hall)"}, ends at (${f(me.position.x)}, ${f(me.position.z)}) y ${f(me.y, 2)} after ${f(secs(m.tick - s.match.tick))} s; Platforms: ${platforms.check.ticks} Ticks checked, ${platforms.check.bodies} bodies, ${platforms.check.count} inside, 4 m pit drops ${platforms.check.drops}`;
+      return { shown, line, r, platforms: platforms.check };
+    };
+
+    const tried: string[] = [];
+    let chosen: Extract<ReturnType<typeof chase>, { shown: boolean }> | null =
+      null;
+    const platformProblems: string[] = [];
+    let n = 0;
+    for (const c0 of candidates()) {
+      n++;
+      const x = chase(c0);
+      if ("skipped" in x) {
+        tried.push(x.skipped!);
+        continue;
+      }
+      platformProblems.push(...x.platforms.inside, ...x.platforms.dropped);
+      seen.chases += x.r.chases;
+      if (x.shown) {
+        chosen = x;
+        break;
+      }
+      tried.push(x.line);
+    }
+    console.log(
+      `\nA chase between tiers: ${tried.length} earlier candidate(s) of ${n} did not show it:\n${tried.map((l) => `  skipped: ${l}`).join("\n")}\n  chosen: ${chosen?.line ?? "none"}`,
+    );
+    expect(
+      chosen,
+      `no Floor of the first ${SEARCH} seeds showed a chase between tiers`,
+    ).not.toBeNull();
+    expect(chosen!.r.chases, "the guard never chased").toBeGreaterThan(0);
+    expect(
+      chosen!.r.fall,
+      `the anchor's height fell ${f(chosen!.r.fall, 2)} m in its chases`,
+    ).toBeGreaterThanOrEqual(CROSSED);
+    expect(
+      chosen!.r.outerTicks,
+      "no Soldier stood on the outer tier while the Warband chased",
+    ).toBeGreaterThan(0);
+    expect(
+      platformProblems,
+      "a body stood inside a Platform or a Soldier dropped into a 4 m pit",
+    ).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------- a Boss on its throne, a fight on a dais
+
+  /** The longest (s) the Boss on its throne is given. */
+  const THRONE_SECONDS = 600;
+
+  it(`a Boss on its throne and a fight on a dais: the first Boss Floor (Floor 3, seed order) whose Boss Hall is a dais with the Boss's post on it; the immortal party (the Delver pilot and two Hard allies) plays it until the Boss Warband is wiped (cap ${THRONE_SECONDS} s); the Boss Soldier is dealt on the dais and promoted on it, and a hit is landed or taken by a Fighter standing on it`, () => {
+    const tuning = base;
+    const BOSS_FLOOR = 3;
+    /** The Boss Floors (Floor 3, seed order) whose Boss Hall has a throne on a dais. */
+    const found: { run: string; hall: number }[] = [];
+    for (let n = 1; n <= SEARCH; n++) {
+      const run = `gen:greybox:${n}`;
+      const plan = floorOf(
+        tuning,
+        floorArenaName(runSeed(run), BOSS_FLOOR),
+      )!.plan;
+      const boss = plan.markers.boss;
+      if (!boss || !isBossFloor(tuning.delver, BOSS_FLOOR)) continue;
+      const hall = plan.halls[boss.hall]!;
+      if (hall.kind === "Boss" && hall.feature?.kind === "dais")
+        found.push({ run, hall: boss.hall });
+    }
+    if (found.length === 0)
+      throw new Error(
+        `no Boss Floor of the first ${SEARCH} seeds has a Boss Hall with a throne on a dais`,
+      );
+    /** Plays one of them. */
+    const play = (at0: { run: string; hall: number }) => {
+      const found = at0;
+      const { run } = found;
+      const arena = floorArenaName(runSeed(run), BOSS_FLOOR);
+      const lay = layOf(tuning, arena);
+      const roles = surfaceRoles(lay.arena, lay.plan);
+      const hall = lay.plan.halls[found.hall]!;
+      const dais = hall.feature as Extract<
+        DelverHall["feature"],
+        { kind: "dais" }
+      >;
+      const throne = lay.plan.markers.boss!;
+      const platforms = platformWatcher();
+      let m = createMatch(tuning, {
+        format: "Gauntlet",
+        bestOf: 1,
+        seed: 7,
+        arena: run,
+        delver: true,
+        delverStart: BOSS_FLOOR,
+        teams: LINEUP.map((s) => s.team),
+        humans: 1,
+        players: [0],
+      });
+      const controllers: Controller[] = lineupAis(tuning, LINEUP, "Gauntlet", {
+        seed: 7,
+        arena: run,
+        delver: true,
+      }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
+      const c0 = m.duel.crowd!;
+      const bq = c0.warbands!.rank.indexOf(BOSS);
+      const boss = c0.squad.findIndex((sq) => sq === bq);
+      const sizeOf = c0.squad.filter((sq) => sq === bq).length;
+      const startSurface = c0.surface[boss]!;
+      const startId = lay.arena.walk[startSurface]!.id;
+      const startOnDais =
+        roles.get(startSurface)?.hall === found.hall &&
+        roles.get(startSurface)?.kind === "dais";
+      /** Whether the Fighter's feet are on the dais (inside its rect, within 0.1 m of its top). */
+      const onDais = (x: FighterState): boolean =>
+        inRect(dais.rect, x.position.x, x.position.z) &&
+        Math.abs(x.y - dais.y) <= 0.1;
+      const step = dais.steps[0]!;
+      const onStep = (x: FighterState): boolean =>
+        inRect(step.rect, x.position.x, x.position.z) &&
+        x.y >= step.lo - 0.1 &&
+        x.y <= step.hi + 0.1;
+      const key = (x: FighterState, i: number): string =>
+        `${i}:${x.soldier?.index ?? -1}`;
+      const r = {
+        promotedTick: null as number | null,
+        promotedOnDais: false,
+        promotedAt: "",
+        leftBefore: null as string | null,
+        wipedTick: null as number | null,
+        hits: 0,
+        landed: 0,
+        taken: 0,
+        onDaisFighterTicks: 0,
+        fighters: new Set<string>(),
+        knocked: 0,
+        byStep: 0,
+        knockedLines: [] as string[],
+        promotions: 0,
+        ended: "cap",
+      };
+      let prevOn = new Set<string>();
+      let t0 = 0;
+      for (; t0 < secondsToTicks(THRONE_SECONDS); t0++) {
+        const at = m;
+        m = withImmortalParty(
+          stepMatch(at, controllerIntents(at.duel, controllers), tuning),
+        );
+        if (m.duel.arena !== at.duel.arena || m.status.status === "Over") {
+          r.ended = m.duel.arena !== at.duel.arena ? "Stairs" : "Over";
+          if (m.duel.arena !== at.duel.arena) m = at;
+          break;
+        }
+        platforms.watch(at, m, tuning);
+        const c = m.duel.crowd!;
+        const pc = at.duel.crowd!;
+        const fighters = m.duel.fighters;
+        for (let i = 0; i < c.slot.length; i++)
+          if (pc.slot[i]! < 0 && c.slot[i]! >= 0) {
+            r.promotions++;
+            if (i === boss && r.promotedTick === null) {
+              const x = fighters[c.slot[i]!]!;
+              r.promotedTick = m.tick;
+              r.promotedOnDais = onDais(x);
+              r.promotedAt = `(${f(x.position.x, 2)}, ${f(x.position.z, 2)}) y ${f(x.y, 2)} against the dais rect (${f(dais.rect.x0)}..${f(dais.rect.x1)}, ${f(dais.rect.z0)}..${f(dais.rect.z1)}) top ${f(dais.y, 2)}`;
+            }
+          }
+        // The Boss Soldier left the dais before it was promoted.
+        if (
+          r.promotedTick === null &&
+          r.leftBefore === null &&
+          c.alive[boss] &&
+          c.slot[boss]! < 0 &&
+          !(
+            roles.get(c.surface[boss]!)?.hall === found.hall &&
+            roles.get(c.surface[boss]!)?.kind === "dais"
+          )
+        )
+          r.leftBefore = `Tick ${m.tick}: on ${lay.arena.walk[c.surface[boss]!]?.id ?? "no surface"} at (${f(c.x[boss]!, 2)}, ${f(c.z[boss]!, 2)})`;
+        // Fighters on the dais, and the ones that left it other than by its step.
+        const on = new Set<string>();
+        fighters.forEach((x, i) => {
+          if (!inDuel(x)) return;
+          const k = key(x, i);
+          if (onDais(x)) {
+            on.add(k);
+            r.fighters.add(k);
+            r.onDaisFighterTicks++;
+          } else if (prevOn.has(k)) {
+            if (onStep(x)) r.byStep++;
+            else {
+              r.knocked++;
+              if (r.knockedLines.length < 10)
+                r.knockedLines.push(
+                  `Tick ${m.tick}: ${x.team === 0 ? `party Fighter ${i}` : `Soldier ${x.soldier?.index ?? "?"}`} to (${f(x.position.x, 2)}, ${f(x.position.z, 2)}) y ${f(x.y, 2)}${x.air ? " airborne" : ""}`,
+                );
+            }
+          }
+        });
+        prevOn = on;
+        for (const e of m.duel.events) {
+          if (e.type !== "Hit") continue;
+          const hit = e as HitEvent;
+          const a = fighters[hit.attacker];
+          const d = fighters[hit.defender];
+          const landed = a !== undefined && onDais(a);
+          const taken = d !== undefined && onDais(d);
+          if (landed) r.landed++;
+          if (taken) r.taken++;
+          if (landed || taken) r.hits++;
+        }
+        if (c.squads.living[bq] === 0) {
+          r.wipedTick = m.tick;
+          r.ended = "Boss Warband wiped";
+          break;
+        }
+      }
+      const me = m.duel.fighters[0]!;
+      const line = `A Boss on its throne: Run ${run} Floor ${BOSS_FLOOR}, ${hall.id} (${hall.shape}, rect ${f(hall.rect.x1 - hall.rect.x0)} x ${f(hall.rect.z1 - hall.rect.z0)} m, y ${f(hall.y)}), dais on its ${dais.side} wall (rect ${f(dais.rect.x1 - dais.rect.x0)} x ${f(dais.rect.z1 - dais.rect.z0)} m, top y ${f(dais.y)}), throne marker at (${f(throne.x)}, ${f(throne.z)}) y ${f(throne.y)}; Boss Warband of ${sizeOf} Soldiers (Boss Soldier ${boss}); at the first Tick the Boss Soldier is on ${startId}${startOnDais ? " (the dais's)" : " (NOT the dais's)"}; ${f(secs(t0))} s simulated, ended: ${r.ended}${r.wipedTick === null ? "" : ` at Tick ${r.wipedTick}`}\n  Boss Soldier promoted ${r.promotedTick === null ? "never" : `at Tick ${r.promotedTick} (${f(secs(r.promotedTick - 0))} s) ${r.promotedOnDais ? "ON the dais" : "NOT on the dais"}: ${r.promotedAt}`}; left the dais before Promotion: ${r.leftBefore ?? "no"}\n  hits by a Fighter on the dais: ${r.hits} (landed ${r.landed}, taken ${r.taken}); ${r.fighters.size} Fighter(s) stood on it for ${r.onDaisFighterTicks} Fighter-Ticks; left it by its step ${r.byStep}, otherwise (knocked or stepped off) ${r.knocked}${r.knockedLines.length ? `:\n    ${r.knockedLines.join("\n    ")}` : ""}\n  party ends ${m.duel.fighters
+        .slice(0, 3)
+        .map(
+          (x, i) =>
+            `${i === 0 ? "pilot" : `ally ${i}`} ${inDuel(x) ? `${f(x.hp, 0)}/${f(x.maxHp, 0)}` : "down"}`,
+        )
+        .join(
+          ", ",
+        )}, pilot at (${f(me.position.x)}, ${f(me.position.z)}) y ${f(me.y, 2)}; Platforms: ${platforms.check.ticks} Ticks checked, ${platforms.check.bodies} bodies, ${platforms.check.count} inside, 4 m pit drops ${platforms.check.drops}, Soldier-Ticks in 4 m pit Halls ${platforms.check.pitSoldierTicks}`;
+      seen.promotions += r.promotions;
+      if (r.wipedTick !== null) seen.wiped++;
+      const shown =
+        startOnDais &&
+        r.promotedTick !== null &&
+        (r.leftBefore !== null || r.promotedOnDais) &&
+        r.hits > 0;
+      return { run, line, r, startOnDais, shown, platforms: platforms.check };
+    };
+
+    const tried: string[] = [];
+    let chosen: ReturnType<typeof play> | null = null;
+    const platformProblems: string[] = [];
+    for (const c0 of found) {
+      const x = play(c0);
+      platformProblems.push(...x.platforms.inside, ...x.platforms.dropped);
+      if (x.shown) {
+        chosen = x;
+        break;
+      }
+      tried.push(x.line);
+    }
+    console.log(
+      `\n${found.length} Boss Floor(s) in the first ${SEARCH} seeds have a throne on a dais; ${tried.length} earlier one(s) did not show the fight on it:\n${tried.map((l) => `  skipped: ${l}`).join("\n")}\n  chosen: ${chosen?.line ?? "none"}`,
+    );
+    expect(
+      chosen,
+      "no Boss Floor showed a Boss on its throne and a fight on its dais",
+    ).not.toBeNull();
+    expect(
+      chosen!.startOnDais,
+      "the Boss Soldier was not dealt on the dais",
+    ).toBe(true);
+    expect(
+      chosen!.r.promotedTick,
+      "the Boss Soldier was never promoted",
+    ).not.toBeNull();
+    expect(
+      chosen!.r.hits,
+      "no hit was landed or taken by a Fighter on the dais",
+    ).toBeGreaterThan(0);
+    expect(
+      platformProblems,
+      "a body stood inside a Platform or a Soldier dropped into a 4 m pit",
+    ).toEqual([]);
   });
 });
