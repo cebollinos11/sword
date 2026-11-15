@@ -7,7 +7,7 @@
  * Pure: whole and half metres only, every list in the plan's fixed order.
  */
 import { enclosureTop, type BlockBrush, type Brush, type Doors, type MapMaterial, type MapSource, type Side, type SourceProp } from '../../mapEditor/source';
-import { HALL_STOREY, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
+import { HALL_STOREY, hallBase, type DelverHall, type DelverHallKind, type DelverPassage, type FloorPlan } from './plan';
 
 /** A Floor's Battle map name: `delver<floor>s<seed>`, within `MAX_MAP_NAME`. */
 export const floorName = (seed: number, floor: number): string => `delver${floor}s${seed >>> 0}`;
@@ -17,6 +17,9 @@ export const floorName = (seed: number, floor: number): string => `delver${floor
 export const solidId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-solid${n}`;
 export const pillarId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-pillar${n}`;
 export const pieceId = (p: Pick<DelverPassage, 'id' | 'pieces'>, k: number): string => (p.pieces.length === 1 ? p.id : `${p.id}-${k}`);
+
+/** The Brush id of Hall `hall`'s step `n` (a split's, a pit's or a dais's Ramp, from 0 in the feature's order). */
+export const stepId = (hall: Pick<DelverHall, 'id'>, n: number): string => `${hall.id}-step${n}`;
 
 /** Whether `name` is a Floor's Battle map name, one `floorName` makes. */
 export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.test(name);
@@ -37,9 +40,9 @@ const LONG_SIDES: Readonly<Record<'x' | 'z', readonly Side[]>> = { x: ['n', 's']
 
 /**
  * The Floor's Map Source on a field `fieldSize` m across (the Battle's): the abyss under everything, an Enclosure for each Hall and each
- * piece of each Passage (a turning Passage has several: its legs and corners), a Deck and a Ramp for each gallery, a Ramp along each sloped leg, then (Stage 7b) each Hall's
+ * piece of each Passage (a turning Passage has several: its legs and corners), a Deck (and a Deck for each wall it wraps onto) and a Ramp for each gallery, then (Stage 7c) each Hall's feature (a split's main tier, a pit's rims or a dais, then its step Ramps), a Ramp along each sloped leg, then (Stage 7b) each Hall's
  * Blocks (its solids, which cut its shape out of its rect, and then its pillars), each from the Hall's floor to its ceiling, and the markers for the eye. A Hall with no solid or pillar writes no Block. Levels stand at every height a
- * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery asks for shortcut jump Links.
+ * Brush does; an Enclosure names its `top` only when its roof is not the next level up. A Floor with a gallery or a feature asks for shortcut jump Links. A Hall's Enclosure stands at `hallBase` (a split's lowest tier).
  */
 export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   const half = fieldSize / 2;
@@ -58,9 +61,14 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   );
   const heights = new Set<number>([-8, 0, 4]);
   for (const h of plan.halls) {
+    heights.add(hallBase(h));
     heights.add(h.y);
     heights.add(h.top);
     if (h.gallery) heights.add(h.gallery.y);
+    const f = h.feature;
+    if (f?.kind === 'split') for (const t of f.tiers) heights.add(t.y);
+    else if (f?.kind === 'pit') heights.add(f.rim);
+    else if (f?.kind === 'dais') heights.add(f.y);
   }
   for (const sp of spans) {
     heights.add(sp.lo);
@@ -68,15 +76,28 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
   }
   const levels = [...heights].sort((a, b) => a - b);
   const roof = (y: number, top: number): { top?: number } => (enclosureTop({ y }, levels) === top ? {} : { top });
-  const halls: Brush[] = plan.halls.map((h) => ({ kind: 'enclosure', id: h.id, rect: h.rect, y: h.y, doors: h.doors, ...roof(h.y, h.top), material: HALL_MATERIAL[h.kind] }));
+  const halls: Brush[] = plan.halls.map((h) => ({ kind: 'enclosure', id: h.id, rect: h.rect, y: hallBase(h), doors: h.doors, ...roof(hallBase(h), h.top), material: HALL_MATERIAL[h.kind] }));
   const passages: Brush[] = spans.map(({ q, id, lo, top, doors }) => ({ kind: 'enclosure', id, rect: q.rect, y: lo, doors, ...roof(lo, top), material: 'stone' }));
   const galleries: Brush[] = plan.halls.flatMap((h): Brush[] => {
     const g = h.gallery;
     if (!g) return [];
     return [
       { kind: 'deck', id: `${h.id}-deck`, rect: g.deck, y: g.y, material: 'wood' },
+      ...(g.wrap?.decks ?? []).map((rect, n): Brush => ({ kind: 'deck', id: `${h.id}-deck${n + 1}`, rect, y: g.y, material: 'wood' })),
       { kind: 'ramp', id: `${h.id}-ramp`, rect: g.ramp, lo: h.y, hi: g.y, up: g.up, rails: g.up === 'e' || g.up === 'w' ? ['n', 's'] : ['e', 'w'], material: 'stone' },
     ];
+  });
+  // Each Hall's feature (Stage 7c) in index order: a split's main tier, a pit's four rims or a dais, then its steps (`<hall>-step<n>`, Ramps on the lower floor).
+  const features: Brush[] = plan.halls.flatMap((h): Brush[] => {
+    const f = h.feature;
+    if (!f) return [];
+    const steps = f.steps.map((s, n): Brush => ({ kind: 'ramp', id: stepId(h, n), rect: s.rect, lo: s.lo, hi: s.hi, up: s.up, rails: s.rails, material: 'stone' }));
+    if (f.kind === 'split') {
+      const main = f.tiers.find((t) => t.level === h.level)!;
+      return [{ kind: 'platform', id: `${h.id}-tier`, rect: main.rect, top: h.y, material: HALL_MATERIAL[h.kind] }, ...steps];
+    }
+    if (f.kind === 'pit') return [...f.rims.map((rect, n): Brush => ({ kind: 'platform', id: `${h.id}-rim${n}`, rect, top: f.rim, material: HALL_MATERIAL[h.kind] })), ...steps];
+    return [{ kind: 'platform', id: `${h.id}-dais`, rect: f.rect, top: f.y, material: 'stone' }, ...steps];
   });
   const slopes: Brush[] = spans.flatMap(({ q, id, lo, hi }): Brush[] =>
     lo === hi ? [] : [{ kind: 'ramp', id: `${id}-ramp`, rect: q.rect, lo, hi, up: q.y1 > q.y0 ? q.to : q.from, rails: LONG_SIDES[q.axis], material: 'stone' }],
@@ -110,7 +131,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     size: fieldSize,
     grid: { step: 0.5, cell: 2 },
     levels,
-    brushes: [abyss, ...halls, ...passages, ...galleries, ...slopes, ...blocks],
+    brushes: [abyss, ...halls, ...passages, ...galleries, ...features, ...slopes, ...blocks],
     objectives: [
       { id: 'D', x: entrance.cx, z: entrance.cz, ...(entrance.y === 0 ? {} : { y: entrance.y }), weight: 1, owner: 0, spawn: true },
       { id: 'E', x: stairs.cx, z: stairs.cz, ...(stairs.y === 0 ? {} : { y: stairs.y }), weight: 1, owner: 1, spawn: true },
@@ -122,6 +143,6 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     front,
     armySize: { standard: 50, max: 50 },
     look: { props },
-    ...(plan.halls.some((h) => h.gallery) ? { shortcuts: true as const } : {}),
+    ...(plan.halls.some((h) => h.gallery || h.feature) ? { shortcuts: true as const } : {}),
   };
 }

@@ -5,9 +5,9 @@ import { loadTuningData } from '../../tuning';
 import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
-import { navMesh, type JumpLink } from '../nav';
-import { flatRooms, plainHalls } from './flat.testdata';
-import { isBossFloor } from './troops';
+import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
+import { flatRooms, plainHalls, rooms7c } from './flat.testdata';
+import { isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
@@ -305,7 +305,8 @@ describe('the judge on a Floor with levels', () => {
     const b = withGallery;
     expect(t.levels.min).toBeGreaterThan(1);
     const flat = { ...b.plan, halls: b.plan.halls.map((h) => ({ ...h, level: 0, y: 0 })) };
-    expect(judgePlan(t, flat)).toEqual([`levels: 1 Hall level, at least ${t.levels.min} wanted`]);
+    // Only the Halls are flattened (their Passages keep their door heights), so the 7c `features` door check refuses it too: read the `levels` line alone.
+    expect(judgePlan(t, flat).filter((r) => r.startsWith('levels:'))).toEqual([`levels: 1 Hall level, at least ${t.levels.min} wanted`]);
     expect(judgePlan(t, b.plan)).toEqual([]);
     expect(judgeAttempt(tuning, flat).built).toBeUndefined();
   });
@@ -629,4 +630,228 @@ describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => 
       expect(jumps.some((l) => onFloor(l.from) && l.to === deck), `${h.id}: a jump Link from its floor onto its Deck`).toBe(true);
     }
   }, 120_000);
+});
+
+describe('the judge on Floors with vertical features and wrapped galleries (Stage 7c)', () => {
+  const t7 = rooms7c(bundled);
+  const tc = t7.delver.floor;
+  const size = t7.battle.field.size;
+  const at2 = { ...t7, battle: { ...t7.battle, crowd: { ...t7.battle.crowd, flowCell: 2 } } };
+  /** 20 pairs: seeds 1 to 4 of Floors 1, 2, 3 and 9 (the Boss Floors) and 4; each is its first attempt's built Floor, or (when that did not compile) the Floor `delverFloor` deals. */
+  const pool: BuiltFloor[] = [];
+  /** The first attempts that were refused, with their reasons. */
+  const refused: { seed: number; floor: number; reasons: string[] }[] = [];
+  beforeAll(() => {
+    for (let seed = 1; seed <= 4; seed++) {
+      for (const floor of [1, 2, 3, 4, 9]) {
+        const first = judgeAttempt(t7, planFloor(tc, seed, floor, 0, isBossFloor(t7.delver, floor), tierOf(t7.delver, floor)));
+        if (first.built && first.reasons.length === 0) pool.push(first.built);
+        else {
+          refused.push({ seed, floor, reasons: first.reasons });
+          pool.push(delverFloor(t7, seed, floor));
+        }
+      }
+    }
+  }, 900_000);
+
+  const featureHalls = (kind: 'split' | 'pit' | 'dais') => pool.flatMap((b) => b.plan.halls.flatMap((h, k) => (h.feature?.kind === kind ? [{ b, k, h, f: h.feature }] : [])));
+  const withHall = (plan: FloorPlan, k: number, patch: Partial<FloorPlan['halls'][number]>): FloorPlan => ({ ...plan, halls: plan.halls.map((h, i) => (i === k ? { ...h, ...patch } : h)) });
+  const featureReasons = (plan: FloorPlan) => judgePlan(tc, plan, size).filter((r) => r.startsWith('features: '));
+  /** The judge's verdict on `b`'s plan built from `source`: the build's `compile:` line when it does not compile. */
+  const judgeSource = (b: BuiltFloor, source: BuiltFloor['source']): string[] => {
+    try {
+      return judgeFields(tc, buildFromSource(t7, b.plan, source));
+    } catch (e) {
+      if (!(e instanceof MapCompileError)) throw e;
+      return [`compile: ${e.message}`];
+    }
+  };
+  /** The lane of the Passage end into a Hall (3 m from the Passage's piece into the Hall), as `shapes` builds it. */
+  const lane = (r: { x0: number; z0: number; x1: number; z1: number }, side: string) =>
+    side === 'w' ? { x0: r.x0 - 3, z0: r.z0, x1: r.x0, z1: r.z1 } : side === 'e' ? { x0: r.x1, z0: r.z0, x1: r.x1 + 3, z1: r.z1 } : side === 'n' ? { x0: r.x0, z0: r.z1, x1: r.x1, z1: r.z1 + 3 } : { x0: r.x0, z0: r.z0 - 3, x1: r.x1, z1: r.z0 };
+
+  it('passes the 20 pairs, every kind of feature and wrap among them; a first attempt refused only for a pit its step cannot be climbed from', () => {
+    expect(pool.length).toBe(20);
+    for (const b of pool) {
+      expect(b.plan.halls.length).toBe(tc.rooms);
+      expect(judgeBuilt(tc, b), `Floor ${b.plan.floor} of seed ${b.plan.seed}`).toEqual([]);
+    }
+    // A refused first attempt is a layout that did not compile (a 4 m pit as wide as its step is long cannot be entered), never a judged rule.
+    for (const r of refused) expect(r.reasons.every((x) => x.startsWith('compile: Soldiers cannot walk the whole map')), `${r.seed}/${r.floor}: ${r.reasons.join(' | ')}`).toBe(true);
+    expect(featureHalls('split').some(({ f }) => f.kind === 'split' && f.tiers.length === 2)).toBe(true);
+    expect(featureHalls('split').some(({ f }) => f.kind === 'split' && f.tiers.length === 3)).toBe(true);
+    expect(featureHalls('pit').length).toBeGreaterThan(0);
+    expect(featureHalls('dais').length).toBeGreaterThan(0);
+    expect(pool.some((b) => b.plan.halls.some((h) => h.gallery?.wrap))).toBe(true);
+  });
+
+  it('no Wall of a 7c Floor stands on a 2 m destination-field cell centre (the editor\'s checkMap)', () => {
+    for (const b of pool.slice(0, 8)) expect(checkMap(b.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+  }, 120_000);
+
+  it('features: refuses a step moved onto a doorway\'s lane, naming the Passage, the Hall and the step', () => {
+    const { b, k, h, f } = featureHalls('split')[0]!;
+    const pass = b.plan.passages.find((p) => p.a === k || p.b === k)!;
+    const end = pass.a === k ? { q: pass.pieces[0]!, side: pass.pieces[0]!.from } : { q: pass.pieces[pass.pieces.length - 1]!, side: pass.pieces[pass.pieces.length - 1]!.to };
+    const moved = withHall(b.plan, k, { feature: { ...f, steps: [{ ...f.steps[0]!, rect: lane(end.q.rect, end.side) }, ...f.steps.slice(1)] } as typeof f });
+    expect(featureReasons(b.plan)).toEqual([]);
+    expect(featureReasons(moved)).toContain(`features: ${pass.id}'s doorway into ${h.id} is blocked by ${h.id}-step0`);
+  });
+
+  it('features: refuses a tier edge moved half a metre (a Wall on the field\'s dots), and a cut under 4 m from the centre', () => {
+    const { b, k, h, f } = featureHalls('split')[0]!;
+    if (f.kind !== 'split') throw new Error('split');
+    const half = (r: { x0: number; z0: number; x1: number; z1: number }, hi: boolean) => (f.axis === 'x' ? (hi ? { ...r, x1: r.x1 + 0.5 } : { ...r, x0: r.x0 + 0.5 }) : hi ? { ...r, z1: r.z1 + 0.5 } : { ...r, z0: r.z0 + 0.5 });
+    const tiers = f.tiers.map((t, n) => (n === 0 ? { ...t, rect: half(t.rect, true) } : n === 1 ? { ...t, rect: half(t.rect, false) } : t));
+    const reasons = featureReasons(withHall(b.plan, k, { feature: { ...f, tiers } }));
+    expect(reasons.some((r) => r.startsWith(`features: ${h.id}-tier`) && r.endsWith(' has a Wall on the field\'s dots'))).toBe(true);
+    // Only the cut moved: the tiers still tile, so no other tier rule fires.
+    expect(reasons.every((r) => r.endsWith(' has a Wall on the field\'s dots'))).toBe(true);
+    // A cut 2 m from the centre (on an odd metre) and nothing else wrong with the tiling.
+    const c = f.axis === 'x' ? h.cx : h.cz;
+    const cut = c + 2 + (Math.abs(c) % 2 === 0 ? 1 : 0);
+    const near = f.tiers.map((t, n) => {
+      const r = t.rect;
+      const set = (lo: number | undefined, hi: number | undefined) => (f.axis === 'x' ? { ...r, x0: lo ?? r.x0, x1: hi ?? r.x1 } : { ...r, z0: lo ?? r.z0, z1: hi ?? r.z1 });
+      return n === 0 ? { ...t, rect: set(undefined, cut) } : n === 1 ? { ...t, rect: set(cut, undefined) } : t;
+    });
+    expect(featureReasons(withHall(b.plan, k, { feature: { ...f, tiers: near } })).some((r) => r.includes('m from its centre') || r.includes('does not hold its centre'))).toBe(true);
+  });
+
+  it('features: refuses a marker moved off its tier, onto the outer tier\'s edge, naming the Hall\'s tier edge', () => {
+    const { b, k, h, f } = featureHalls('split')[0]!;
+    if (f.kind !== 'split') throw new Error('split');
+    const main = f.tiers.find((t) => t.level === h.level)!;
+    const x = f.axis === 'x' ? main.rect.x0 : h.cx;
+    const z = f.axis === 'x' ? h.cz : main.rect.z0;
+    const posts = b.plan.markers.posts.map((q, n) => (n === 0 ? { hall: k, x, y: h.y, z } : q));
+    const moved = { ...b.plan, markers: { ...b.plan.markers, posts } };
+    expect(featureReasons(moved)).toContain(`features: post0 stands within 1 m of ${h.id}'s tier edge`);
+    const near = featureReasons({ ...b.plan, markers: { ...b.plan.markers, posts: posts.map((q, n) => (n === 0 ? { ...q, x: f.steps[0]!.rect.x0 - 0.5, z: (f.steps[0]!.rect.z0 + f.steps[0]!.rect.z1) / 2, y: f.tiers[0]!.y } : q)) } });
+    expect(near).toContain(`features: post0 stands within 1 m of ${h.id}-step0`);
+  });
+
+  it('features: refuses a Passage\'s ya raised by 2, naming its Hall\'s floor', () => {
+    const b = pool[0]!;
+    const p = b.plan.passages.find((q) => q.pieces.length === 1 && q.ya === q.yb)!;
+    const raised = { ...b.plan, passages: b.plan.passages.map((q) => (q === p ? { ...q, ya: q.ya + 2 } : q)) };
+    expect(featureReasons(raised)).toEqual([`features: ${p.id}'s door into ${b.plan.halls[p.a]!.id} is at ${p.ya + 2}, its floor there at ${p.ya}`]);
+    // Also on a pit's Hall, whose floor at every wall is its rim.
+    const { b: pb, k, h, f } = featureHalls('pit')[0]!;
+    const pp = pb.plan.passages.find((q) => q.a === k || q.b === k)!;
+    expect(f.kind === 'pit' && f.rim).toBe(pp.a === k ? pp.ya : pp.yb);
+    expect(h.y).not.toBe(f.kind === 'pit' ? f.rim : -1);
+  });
+
+  it('features: refuses a feature on a Hall with a gallery, a dais on a wall a Passage leaves by, and a pit not its rect less 4 m', () => {
+    const { b, k, h, f } = featureHalls('pit')[0]!;
+    if (f.kind !== 'pit') throw new Error('pit');
+    const g = b.plan.halls.find((x) => x.gallery)!.gallery!;
+    expect(featureReasons(withHall(b.plan, k, { gallery: g }))).toContain(`features: ${h.id}'s pit is not on a one-cell rect Hall without a gallery`);
+    expect(featureReasons(withHall(b.plan, k, { feature: { ...f, pit: { ...f.pit, x0: f.pit.x0 + 2 } } }))).toContain(`features: ${h.id}'s pit is not its rect less 4 m`);
+    const d = featureHalls('dais')[0]!;
+    if (d.f.kind !== 'dais') throw new Error('dais');
+    const side = d.f.side;
+    const flipped = { ...d.f, side: (side === 'n' ? 's' : side === 'e' ? 'w' : side === 's' ? 'n' : 'e') as typeof side };
+    expect(featureReasons(withHall(d.b.plan, d.k, { feature: flipped })).length).toBeGreaterThan(0);
+  });
+
+  it('tiers: a split whose main tier Platform is removed from the source does not compile (the rule is then skipped); a tier whose height is wrong is refused by tiers', () => {
+    const { b, k, h, f } = featureHalls('split')[0]!;
+    if (f.kind !== 'split') throw new Error('split');
+    // The main tier's doors open 2 m over the floor left under it: the walk check refuses the source, so the judge's `compile:` line stands for the rule here.
+    const reasons = judgeSource(b, { ...b.source, brushes: b.source.brushes.filter((br) => br.id !== `${h.id}-tier`) });
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(/^compile: Soldiers cannot walk the whole map: Walk Surface WALK_hall\d+_0 cannot be walked to from /);
+    // The rule itself, on the built Floor with a plan whose main tier claims another height: its centre is no floor at that height.
+    const raised = { ...b.plan, halls: b.plan.halls.map((x, i) => (i === k ? { ...x, feature: { ...f, tiers: f.tiers.map((t) => (t.level === h.level ? { ...t, y: t.y + 4 } : t)) } } : x)) };
+    const main = f.tiers.find((t) => t.level === h.level)!.rect;
+    const got = judgeFields(tc, { ...b, plan: raised }).filter((r) => r.startsWith('tiers: '));
+    expect(got).toEqual([`tiers: ${h.id}'s tier ${f.tiers.findIndex((t) => t.level === h.level)} (${(main.x0 + main.x1) / 2}, ${(main.z0 + main.z1) / 2}) at ${h.y + 4} is not at that height`]);
+    expect(judgeFields(tc, b).filter((r) => r.startsWith('tiers: '))).toEqual([]);
+  });
+
+  it('tiers: a pit whose step Brushes are removed from the source does not compile (nothing climbs out of it); a dais and a pit rim whose heights are wrong are refused by tiers', () => {
+    const { b, h } = featureHalls('pit')[0]!;
+    // With no step the pit floor cannot be walked back from, which the walk check refuses before the judge's rule could read the fields.
+    const reasons = judgeSource(b, { ...b.source, brushes: b.source.brushes.filter((br) => !br.id.startsWith(`${h.id}-step`)) });
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(/^compile: Soldiers cannot walk the whole map: Walk Surface WALK_hall\d+_0 cannot walk back to /);
+    const d = featureHalls('dais')[0]!;
+    const dais = d.f;
+    if (dais.kind !== 'dais') throw new Error('dais');
+    const sunk = { ...d.b.plan, halls: d.b.plan.halls.map((x, i) => (i === d.k ? { ...x, feature: { ...dais, y: dais.y + 4 } } : x)) };
+    expect(judgeFields(tc, { ...d.b, plan: sunk }).filter((r) => r.startsWith('tiers: ')).length).toBe(1);
+    const p = featureHalls('pit')[0]!;
+    const pit = p.f;
+    if (pit.kind !== 'pit') throw new Error('pit');
+    const high = { ...p.b.plan, halls: p.b.plan.halls.map((x, i) => (i === p.k ? { ...x, feature: { ...pit, rim: pit.rim + 4 } } : x)) };
+    expect(judgeFields(tc, { ...p.b, plan: high }).some((r) => r.startsWith(`tiers: ${p.h.id}'s rim (`) && r.endsWith(' is not at that height'))).toBe(true);
+  });
+
+  it('galleries: refuses a wrapped gallery whose second Deck Brush is removed from the source', () => {
+    const w = pool.flatMap((b) => b.plan.halls.flatMap((h) => (h.gallery?.wrap ? [{ b, h }] : [])))[0]!;
+    const source = { ...w.b.source, brushes: w.b.source.brushes.filter((br) => br.id !== `${w.h.id}-deck1`) };
+    const reasons = judgeSource(w.b, source);
+    // The Deck's Brush gone, its centre stands on the Hall's floor, 2 m under it.
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]).toMatch(new RegExp(`^galleries: ${w.h.id}'s Deck 1 \\(.*\\) at ${w.h.gallery!.y} is not at that height$`));
+  });
+
+  it('builds a navmesh with no jump Link from a 4 m pit\'s floor, every shortcut Link within SHORTCUT_RISE, and Links onto a tier, a rim or a dais', () => {
+    // A Floor with a 4 m pit; and (maybe another) with a 2 m pit, a split and a dais, for the ledges.
+    let withPit: BuiltFloor | undefined = pool.find((b) => b.plan.halls.some((h) => h.feature?.kind === 'pit' && h.feature.depth === 4));
+    for (let seed = 5; !withPit && seed < 40; seed++) {
+      const f = delverFloor(t7, seed, 1);
+      if (f.plan.halls.some((h) => h.feature?.kind === 'pit' && h.feature.depth === 4)) withPit = f;
+    }
+    expect(withPit).toBeDefined();
+    const ledges = new Map<string, number>();
+    const check = (b: BuiltFloor, deep: boolean) => {
+      const name = floorArenaName(b.plan.seed, b.plan.floor);
+      const tn = arenaTuning(t7, name);
+      const arena = arenaOf(tn, name);
+      const mesh = navMesh(arena, tn);
+      const jumps = mesh.links.filter((l): l is JumpLink => l.kind === 'jump');
+      expect(b.map.shortcuts).toBe(true);
+      expect(jumps.length).toBeGreaterThan(0);
+      for (const l of jumps) {
+        expect(l.shortcut).toBe(true);
+        const rise = l.lands.y - surfaceHeight(arena, l.from, l.takeoff.x, l.takeoff.z);
+        expect(rise).toBeLessThanOrEqual(SHORTCUT_RISE + 1e-9);
+        const id = arena.walk[l.to]!.id;
+        for (const kind of ['tier', 'rim', 'dais']) if (new RegExp(`^WALK_hall\\d+-${kind}`).test(id)) ledges.set(kind, (ledges.get(kind) ?? 0) + 1);
+      }
+      if (!deep) return;
+      for (const h of b.plan.halls) {
+        const ft = h.feature;
+        if (ft?.kind !== 'pit' || ft.depth !== 4) continue;
+        const onPitFloor = (k: number) => arena.walk[k]!.id.startsWith(`WALK_${h.id}_`) && !arena.walk[k]!.roof && arena.walk[k]!.points.every((p) => p.y === h.y);
+        expect(arena.walk.some((_, k) => onPitFloor(k))).toBe(true);
+        expect(jumps.filter((l) => onPitFloor(l.from)), `${h.id}: no jump Link from its 4 m pit's floor`).toEqual([]);
+      }
+    };
+    check(withPit!, true);
+    // The ledges: the Floors of the pool with a feature, until each kind has been landed on.
+    for (const b of pool) {
+      if (['tier', 'rim', 'dais'].every((k) => ledges.has(k))) break;
+      if (b !== withPit && b.plan.halls.some((h) => h.feature)) check(b, true);
+    }
+    expect(ledges.has('tier') || ledges.has('rim') || ledges.has('dais')).toBe(true);
+  }, 600_000);
+
+  it('describeFloor counts the splits, pits, daises and wrapped galleries', () => {
+    for (const b of pool.slice(0, 12)) {
+      const f = { ...b, attempts: 1, judgement: { ok: true, reasons: [] } } as DelverFloor;
+      const hs = b.plan.halls;
+      const splits = hs.filter((h) => h.feature?.kind === 'split');
+      const pits = hs.filter((h) => h.feature?.kind === 'pit');
+      const daises = hs.filter((h) => h.feature?.kind === 'dais');
+      const wraps = hs.flatMap((h) => (h.gallery?.wrap ? [h.gallery.wrap] : []));
+      const n = (xs: unknown[]) => xs.length;
+      const text = `${n(splits)} split Halls (${n(splits.filter((h) => h.feature?.kind === 'split' && h.feature.tiers.length === 2))} two-tier, ${n(splits.filter((h) => h.feature?.kind === 'split' && h.feature.tiers.length === 3))} three-tier), ${n(pits)} pits (${n(pits.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 2))} 2 m, ${n(pits.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4))} 4 m), ${n(daises)} daises (${n(daises.filter((h) => h.kind === 'Boss'))} thrones, ${n(daises.filter((h) => h.kind === 'Treasure'))} altars), ${n(wraps)} wrapped galleries (${n(wraps.filter((w) => w.walls.length === 1))} L, ${n(wraps.filter((w) => w.walls.length === 2))} U)`;
+      expect(describeFloor(f)).toContain(`pillars in `);
+      expect(describeFloor(f)).toContain(`, ${text}; passes the judge`);
+    }
+  });
 });

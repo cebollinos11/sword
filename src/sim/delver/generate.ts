@@ -65,11 +65,16 @@ export function describeFloor(f: DelverFloor): string {
   const levels = halls.map((h) => h.level);
   const galleries = halls.flatMap((h) => (h.gallery ? [h.gallery] : []));
   const stairwells = galleries.filter((g) => g.high).length;
+  const feats = halls.flatMap((h) => (h.feature ? [h.feature] : []));
+  const splits = feats.flatMap((f) => (f.kind === 'split' ? [f] : []));
+  const pits = feats.flatMap((f) => (f.kind === 'pit' ? [f] : []));
+  const daises = halls.filter((h) => h.feature?.kind === 'dais');
+  const wraps = galleries.flatMap((g) => (g.wrap ? [g.wrap] : []));
   const sloped = plan.passages.filter((p) => p.ya !== p.yb).length;
   const shapes = { L: plan.passages.filter((p) => p.shape === 'L').length, S: plan.passages.filter((p) => p.shape === 'S').length, Z: plan.passages.filter((p) => p.shape === 'Z').length };
   const shaped = (s: HallShape) => halls.filter((h) => h.shape === s).length;
   const pillared = halls.filter((h) => h.pillars.length > 0);
-  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages, ${halls.filter((h) => h.shape !== 'rect').length} shaped Halls (${shaped('L')} L, ${shaped('T')} T, ${shaped('cross')} cross, ${shaped('ring')} ring), ${halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids)`;
+  const vertical = `levels ${Math.min(...levels)} to ${Math.max(...levels)} (${new Set(levels).size} Hall levels), ${galleries.length} galleries (${galleries.length - stairwells} balconies, ${stairwells} stairwells), ${sloped} sloped Passages, ${halls.filter((h) => h.great).length} great halls, ${shapes.L} L, ${shapes.S} S and ${shapes.Z} Z Passages, ${halls.filter((h) => h.shape !== 'rect').length} shaped Halls (${shaped('L')} L, ${shaped('T')} T, ${shaped('cross')} cross, ${shaped('ring')} ring), ${halls.reduce((n, h) => n + h.pillars.length, 0)} pillars in ${pillared.length} Halls (${pillared.filter((h) => h.layout === 'colonnade').length} colonnades, ${pillared.filter((h) => h.layout === 'grid').length} grids), ${splits.length} split Halls (${splits.filter((f) => f.tiers.length === 2).length} two-tier, ${splits.filter((f) => f.tiers.length === 3).length} three-tier), ${pits.length} pits (${pits.filter((f) => f.depth === 2).length} 2 m, ${pits.filter((f) => f.depth === 4).length} 4 m), ${daises.length} daises (${daises.filter((h) => h.kind === 'Boss').length} thrones, ${daises.filter((h) => h.kind === 'Treasure').length} altars), ${wraps.length} wrapped galleries (${wraps.filter((w) => w.walls.length === 1).length} L, ${wraps.filter((w) => w.walls.length === 2).length} U)`;
   const verdict = f.judgement.ok ? 'passes the judge' : `fails: ${f.judgement.reasons.join('; ')}`;
   return `Floor ${plan.floor} of seed ${plan.seed >>> 0}, attempt ${plan.attempt + 1}: ${halls.length} Halls (${kinds.join(', ')}), ${plan.passages.length} Passages (${loops} loops), ${plan.markers.patrols.length} patrols, ${vertical}; ${verdict}`;
 }

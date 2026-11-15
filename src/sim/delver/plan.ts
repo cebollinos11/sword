@@ -312,6 +312,8 @@ export const PIT_RIM = 4;
 /** The larger half (m) a Hall needs for a pit (the rim's 4, the step's 4 and the centre's 4), and the smaller (the rim's 4 and the centre's 4; it holds a 4 m pit's 8 m step). */
 export const PIT_WIDE = 12;
 export const PIT_LONG = 8;
+/** The pit floor (m) a pit's step leaves before its foot, along the step: a 4 m pit's 8 m step needs a pit 10 m long. */
+export const PIT_APPROACH = 2;
 /** A dais's height (m) over the Hall's floor: more than a Soldier steps up, so only its step gets one on. */
 export const DAIS_RISE = 1;
 /** A dais's half length (m) along its wall, from the Hall's centre line on an even metre (edges on odd metres). */
@@ -959,7 +961,8 @@ export function planFloor(t: DelverFloorTuning, seed: number, floor: number, att
         const v: 'x' | 'z' = halfX > halfZ ? 'x' : 'z';
         const [hv, hu] = v === 'x' ? [halfX, halfZ] : [halfZ, halfX];
         if (hv < PIT_WIDE || hu < PIT_LONG) return;
-        const deep = pick(h, SALT.pitDeep, 100) < t.features.deepPercent[Math.min(tier, t.features.deepPercent.length) - 1]!;
+        // A 4 m pit's 8 m step leaves PIT_APPROACH of pit floor before its foot: along u the pit must be at least 10 m (a half of 9), else it is 2 m deep.
+        const deep = pick(h, SALT.pitDeep, 100) < t.features.deepPercent[Math.min(tier, t.features.deepPercent.length) - 1]! && 2 * (hu - PIT_RIM) >= 2 * 4 + PIT_APPROACH;
         feat[h] = { kind: 'pit', depth: deep ? 4 : 2, turn: pick(h, SALT.pitTurn, 2) as 0 | 1, v };
       }
     });

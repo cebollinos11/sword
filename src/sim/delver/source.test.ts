@@ -3,8 +3,8 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatRooms, plainHalls } from './flat.testdata';
-import { HALL_STOREY } from './plan';
+import { flatHalls, flatRooms, plainHalls, rooms7c } from './flat.testdata';
+import { HALL_STOREY, hallBase } from './plan';
 
 describe('isFloorName', () => {
   it('is true for the names floorName makes', () => {
@@ -142,4 +142,165 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
     const at2 = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: 2 } } };
     for (const f of floors.slice(0, 4)) expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
   }, 120_000);
+});
+
+describe('a Floor\'s source with vertical features and wrapped galleries (Stage 7c)', () => {
+  const tuning = rooms7c(loadTuningData());
+  let floors: DelverFloor[];
+  beforeAll(() => {
+    // Seeds 1 to 4 of Floors 1 to 3 (Floor 3 a Boss Floor): they hold every kind of feature and both wraps (asserted below).
+    floors = [];
+    for (let seed = 1; seed <= 4; seed++) for (const floor of [1, 2, 3]) floors.push(delverFloor(tuning, seed, floor));
+  }, 600_000);
+
+  const ids = (f: DelverFloor) => f.source.brushes.map((b) => b.id);
+  const brush = (f: DelverFloor, id: string): Brush | undefined => f.source.brushes.find((b) => b.id === id);
+  const hallsWith = (kind: 'split' | 'pit' | 'dais') => floors.flatMap((f) => f.plan.halls.flatMap((h) => (h.feature?.kind === kind ? [{ f, h, feat: h.feature }] : [])));
+  const MATERIAL = { Entrance: 'plaster', Stairs: 'glow', Boss: 'glow', Rest: 'brick', Treasure: 'tile', Fight: 'dungeon', Empty: 'basalt' } as const;
+
+  it('has every kind of feature and both wraps among its Floors', () => {
+    expect(hallsWith('split').some(({ feat }) => feat.kind === 'split' && feat.tiers.length === 2)).toBe(true);
+    expect(hallsWith('split').some(({ feat }) => feat.kind === 'split' && feat.tiers.length === 3)).toBe(true);
+    expect(hallsWith('pit').some(({ feat }) => feat.kind === 'pit' && feat.depth === 2)).toBe(true);
+    expect(hallsWith('dais').some(({ h }) => h.kind === 'Boss')).toBe(true);
+    expect(hallsWith('dais').some(({ h }) => h.kind === 'Treasure')).toBe(true);
+    const walls = floors.flatMap((f) => f.plan.halls.flatMap((h) => (h.gallery?.wrap ? [h.gallery.wrap.walls.length] : [])));
+    expect(walls).toContain(1);
+    expect(walls).toContain(2);
+  });
+
+  it('writes a split\'s main tier as a Platform at the Hall\'s height, then its steps as stone Ramps, in the Hall\'s material', () => {
+    const splits = hallsWith('split');
+    expect(splits.length).toBeGreaterThan(0);
+    for (const { f, h, feat } of splits) {
+      if (feat.kind !== 'split') continue;
+      const main = feat.tiers.find((t) => t.level === h.level)!;
+      expect(brush(f, `${h.id}-tier`)).toEqual({ kind: 'platform', id: `${h.id}-tier`, rect: main.rect, top: h.y, material: MATERIAL[h.kind] });
+      expect(feat.steps.length).toBe(feat.tiers.length - 1);
+      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: st.lo, hi: st.hi, up: st.up, rails: st.rails, material: 'stone' }));
+      expect(brush(f, `${h.id}-step${feat.steps.length}`)).toBeUndefined();
+      // Its Enclosure stands at its lowest tier, under the main tier's height, and the roof is the Hall's.
+      const e = brush(f, h.id);
+      expect(e?.kind).toBe('enclosure');
+      if (e?.kind !== 'enclosure') continue;
+      expect(e.y).toBe(hallBase(h));
+      expect(e.y).toBe(h.y - 2);
+      expect(enclosureTop(e, f.source.levels!)).toBe(h.top);
+      expect(h.top).toBe(h.y + 4);
+      expect(e.doors).toEqual(h.doors);
+      for (const t of feat.tiers) expect(f.source.levels).toContain(t.y);
+    }
+  });
+
+  it('writes a pit\'s four rims as Platforms at the rim\'s height, then its two steps; its Enclosure stands at the pit floor', () => {
+    const pits = hallsWith('pit');
+    expect(pits.length).toBeGreaterThan(0);
+    for (const { f, h, feat } of pits) {
+      if (feat.kind !== 'pit') continue;
+      expect(feat.rims.length).toBe(4);
+      feat.rims.forEach((rect, n) => expect(brush(f, `${h.id}-rim${n}`)).toEqual({ kind: 'platform', id: `${h.id}-rim${n}`, rect, top: h.y + feat.depth, material: MATERIAL[h.kind] }));
+      expect(feat.steps.length).toBe(2);
+      feat.steps.forEach((st, n) => expect(brush(f, `${h.id}-step${n}`)).toEqual({ kind: 'ramp', id: `${h.id}-step${n}`, rect: st.rect, lo: h.y, hi: h.y + feat.depth, up: st.up, rails: st.rails, material: 'stone' }));
+      const e = brush(f, h.id);
+      expect(e?.kind === 'enclosure' && e.y).toBe(h.y);
+      expect(hallBase(h)).toBe(h.y);
+      expect(h.top).toBe(h.y + feat.depth + 4);
+      expect(f.source.levels).toContain(h.y + feat.depth);
+      expect(Object.keys(h.doors)).toEqual([]);
+    }
+  });
+
+  it('writes a dais as a stone Platform one metre over the floor, then its one step', () => {
+    const daises = hallsWith('dais');
+    expect(daises.length).toBeGreaterThan(0);
+    for (const { f, h, feat } of daises) {
+      if (feat.kind !== 'dais') continue;
+      expect(brush(f, `${h.id}-dais`)).toEqual({ kind: 'platform', id: `${h.id}-dais`, rect: feat.rect, top: h.y + 1, material: 'stone' });
+      expect(feat.steps.length).toBe(1);
+      const st = feat.steps[0]!;
+      expect(brush(f, `${h.id}-step0`)).toEqual({ kind: 'ramp', id: `${h.id}-step0`, rect: st.rect, lo: h.y, hi: h.y + 1, up: st.up, rails: st.rails, material: 'stone' });
+      const e = brush(f, h.id);
+      expect(e?.kind === 'enclosure' && e.y).toBe(h.y);
+      expect(f.source.levels).toContain(h.y + 1);
+    }
+  });
+
+  it('puts every Hall\'s feature Brushes together in Hall order, after the galleries and before the slopes and Blocks', () => {
+    for (const f of floors) {
+      const expected = f.plan.halls.flatMap((h) => {
+        const ft = h.feature;
+        if (!ft) return [];
+        const first = ft.kind === 'split' ? [`${h.id}-tier`] : ft.kind === 'pit' ? ft.rims.map((_, n) => `${h.id}-rim${n}`) : [`${h.id}-dais`];
+        return [...first, ...ft.steps.map((_, n) => `${h.id}-step${n}`)];
+      });
+      const all = ids(f);
+      if (expected.length === 0) continue;
+      const at = all.indexOf(expected[0]!);
+      expect(all.slice(at, at + expected.length)).toEqual(expected);
+      // Before: abyss, Halls, Passages, galleries; after: slopes then Blocks.
+      const kinds = f.source.brushes.map((b) => b.kind);
+      const lastGallery = Math.max(...kinds.map((k, i) => (k === 'deck' ? i : -1)), ...ids(f).map((id, i) => (/^hall\d+-ramp$/.test(id) ? i : -1)));
+      expect(at).toBeGreaterThan(lastGallery);
+      const firstSlope = all.findIndex((id) => /^pass\d+(-\d+)?-ramp$/.test(id));
+      if (firstSlope >= 0) expect(firstSlope).toBeGreaterThanOrEqual(at + expected.length);
+      const firstBlock = kinds.indexOf('block');
+      if (firstBlock >= 0) expect(firstBlock).toBeGreaterThan(at + expected.length - 1);
+      expect(all.slice(0, 1)).toEqual(['abyss']);
+    }
+  });
+
+  it('writes a wrapped gallery\'s Decks after its first, then its Ramp, at its y in wood', () => {
+    let wraps = 0;
+    for (const f of floors) {
+      for (const h of f.plan.halls) {
+        const g = h.gallery;
+        if (!g) continue;
+        const all = ids(f);
+        const at = all.indexOf(`${h.id}-deck`);
+        expect(at).toBeGreaterThan(0);
+        const decks = g.wrap?.decks ?? [];
+        expect(all.slice(at, at + decks.length + 2)).toEqual([`${h.id}-deck`, ...decks.map((_, n) => `${h.id}-deck${n + 1}`), `${h.id}-ramp`]);
+        expect(brush(f, `${h.id}-deck`)).toEqual({ kind: 'deck', id: `${h.id}-deck`, rect: g.deck, y: g.y, material: 'wood' });
+        decks.forEach((rect, n) => expect(brush(f, `${h.id}-deck${n + 1}`)).toEqual({ kind: 'deck', id: `${h.id}-deck${n + 1}`, rect, y: g.y, material: 'wood' }));
+        expect(brush(f, `${h.id}-deck${decks.length + 1}`)).toBeUndefined();
+        if (g.wrap) wraps++;
+      }
+    }
+    expect(wraps).toBeGreaterThan(0);
+  });
+
+  it('keeps `levels` ascending and unique with every height, and asks for shortcuts exactly when there is a gallery or a feature', () => {
+    for (const f of floors) {
+      const levels = f.source.levels!;
+      expect(levels).toEqual([...new Set(levels)].sort((a, b) => a - b));
+      for (const h of f.plan.halls) {
+        for (const y of [hallBase(h), h.y, h.top]) expect(levels).toContain(y);
+        const ft = h.feature;
+        if (ft?.kind === 'split') for (const t of ft.tiers) expect(levels).toContain(t.y);
+        if (ft?.kind === 'pit') expect(levels).toContain(ft.rim);
+        if (ft?.kind === 'dais') expect(levels).toContain(ft.y);
+        if (h.gallery) expect(levels).toContain(h.gallery.y);
+      }
+      expect(f.source.shortcuts).toBe(f.plan.halls.some((h) => h.gallery || h.feature) ? true : undefined);
+    }
+  });
+
+  it('is byte for byte the old source with the 7c knobs off (`flatHalls`): no feature Brush, no wrap Deck', () => {
+    const flat = flatHalls(rooms7c(loadTuningData()));
+    for (const [seed, floor] of [[1, 1], [2, 2], [3, 3]] as const) {
+      const plan = planFloor(flat.delver.floor, seed, floor, 0, floor === 3);
+      const source = floorSource(plan, flat.battle.field.size);
+      expect(plan.halls.some((h) => h.feature || h.gallery?.wrap)).toBe(false);
+      expect(source.brushes.some((b) => /-(tier|rim\d|dais|step\d|deck\d)$/.test(b.id))).toBe(false);
+      expect(source.brushes.map((b) => b.kind)).not.toContain('platform');
+    }
+  });
+
+  it('compiles (its walk check included) and puts no Wall on a 2 m destination-field cell centre', () => {
+    const at2 = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: 2 } } };
+    for (const f of floors.slice(0, 6)) {
+      expect(() => buildFloor(tuning, f.plan)).not.toThrow();
+      expect(checkMap(f.source, at2).issues.filter((i) => i.kind === 'centre')).toEqual([]);
+    }
+  }, 300_000);
 });

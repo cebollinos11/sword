@@ -10,6 +10,12 @@
  *     (its own end Halls, and its own other pieces, it may only touch), and every Hall and piece is inside the field (when the field's size is known).
  *     And `shapes` (Stage 7b, plan-only, after `layout`): each Hall's rects and solids tile its rect; its centre is on its floor; every solid and pillar Wall is on an odd metre
  *     (off the fields' dots); every pillar stands on its Hall's floor; every marker keeps 1 m from its Hall's solids and pillars; and each Passage's doorway into a Hall is clear of them.
+ *     And `features` (Stage 7c, plan-only, after `shapes`): a split or pit stands on a one-cell Hall that is no great hall, any feature on a rect Hall with no gallery, solid or pillar;
+ *     a split's tiers tile its rect along its axis (one main tier at the Hall's level holding the centre, each other a level under it, at least `TIER_MIN` deep, each cut at least `SPLIT_CUT`
+ *     from the centre); a pit's floor is the rect less `PIT_RIM` and its rims tile the rest (depth 2 or 4, rim at `y + depth`); a dais lies against a wall no Passage leaves by; every tier, rim,
+ *     pit, dais and step edge is on an odd metre; each step lies in its Hall, between its two floors, at most `MAX_SLOPE`; each Passage's door height at a Hall is the height of that Hall's floor at
+ *     that side (a gallery wall's Deck, a split's tier there, a pit's rim, else the Hall's); each doorway's lane is clear of every step and dais; and every marker keeps 1 m from every step and
+ *     stands 1 m inside the floor part at its height.
  *  2. `compile`: the Map Source did not compile, `walkCheck` included (the other rules are then skipped; a plan rule 1 refused is not built).
  *  3. `halls`: the field from the Entrance's centre reaches every Hall's centre.
  *  4. `passages` (Stage 0's check), both ways and along every leg of the Passage itself (Stage 7a): the checkpoints are the point 1 m inside the first piece, each corner's
@@ -18,6 +24,10 @@
  *  5. `markers`: each marker stands in its Hall, on a Walk Surface at its own height (a Hall's floor or a Deck), off any hazard and no roof, and is reached from the Entrance.
  *  6. `sight`: no Warband post, patrol point or Boss post is in sight of an Entrance spawn (each at its own height).
  *  7. `galleries` (Stage 6): each gallery's Deck centre is a Walk Surface at the Deck's height that is no roof, reached from the Entrance, and its Hall's centre is reached from it.
+ *
+ *  8. `tiers` (Stage 7c, after `galleries`): for each Hall with a feature, each floor part's centre (each tier; a pit's floor and its first rim; a dais's top) is a Walk Surface at its
+ *     height that is no roof, reached from the Entrance, and from which the Hall's centre is reached; and a pit's first rim is reached from its floor (the pit is left by walking).
+ *     `galleries` also checks each wrap Deck's centre as it does the first Deck's.
  *
  * Pure: no clock, so a verdict never hangs on a machine's speed.
  */
@@ -29,8 +39,8 @@ import { floorNear } from '../levels';
 import { groundOf } from '../battlefield';
 import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../destinations';
 import { buildFloor, type BuiltFloor } from './build';
-import type { DelverHall, DelverPassage, FloorPlan, PassagePiece } from './plan';
-import { pieceId, pillarId, solidId } from './source';
+import { DAIS_RISE, LEVEL_RISE, MAX_SLOPE, PIT_RIM, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
+import { pieceId, pillarId, solidId, stepId } from './source';
 import type { Rect, Side } from '../../mapEditor/source';
 
 export interface FloorJudgement {
@@ -84,6 +94,7 @@ export function judgePlan(t: DelverFloorTuning, plan: FloorPlan, fieldSize?: num
   if (levels < t.levels.min) out.push(`levels: ${levels} Hall level${levels === 1 ? '' : 's'}, at least ${t.levels.min} wanted`);
   out.push(...judgeLayout(plan, fieldSize));
   out.push(...judgeShapes(plan));
+  out.push(...judgeFeatures(plan));
   return out;
 }
 
@@ -130,6 +141,14 @@ const blocksOf = (h: DelverHall): { id: string; rect: Rect; pillar: boolean }[] 
 /** How far (m) a doorway's lane is carried into its Hall. */
 const DOORWAY_DEPTH = 3;
 
+/** A doorway's lane: the edge of the Passage piece `r` at `side`, carried `DOORWAY_DEPTH` m outward into the Hall. */
+function doorLane(r: Rect, side: Side): Rect {
+  return side === 'w' ? { x0: r.x0 - DOORWAY_DEPTH, z0: r.z0, x1: r.x0, z1: r.z1 }
+    : side === 'e' ? { x0: r.x1, z0: r.z0, x1: r.x1 + DOORWAY_DEPTH, z1: r.z1 }
+    : side === 'n' ? { x0: r.x0, z0: r.z1, x1: r.x1, z1: r.z1 + DOORWAY_DEPTH }
+    : { x0: r.x0, z0: r.z0 - DOORWAY_DEPTH, x1: r.x1, z1: r.z0 };
+}
+
 /**
  * The `shapes` rule (Stage 7b): what a plan's shaped and pillared Halls must keep. Each Hall's rects and solids lie inside its rect, share no interior and tile it; its centre is on
  * its floor (in a rect, in no solid or pillar); every solid and pillar edge is on an odd metre; every pillar stands inside one of its rects, clear of the solids; every marker keeps
@@ -163,15 +182,153 @@ function judgeShapes(plan: FloorPlan): string[] {
     const first = p.pieces[0]!;
     const last = p.pieces[p.pieces.length - 1]!;
     for (const [hall, q, side] of [[p.a, first, first.from], [p.b, last, last.to]] as const) {
-      const r = q.rect;
-      const lane: Rect = side === 'w' ? { x0: r.x0 - DOORWAY_DEPTH, z0: r.z0, x1: r.x0, z1: r.z1 }
-        : side === 'e' ? { x0: r.x1, z0: r.z0, x1: r.x1 + DOORWAY_DEPTH, z1: r.z1 }
-        : side === 'n' ? { x0: r.x0, z0: r.z1, x1: r.x1, z1: r.z1 + DOORWAY_DEPTH }
-        : { x0: r.x0, z0: r.z0 - DOORWAY_DEPTH, x1: r.x1, z1: r.z0 };
+      const lane = doorLane(q.rect, side);
       const h = halls[hall];
       if (!h) continue;
       for (const b of hallBlocks[hall]!) if (overlap(lane, b.rect)) out.push(`shapes: ${p.id}'s doorway into ${h.id} is blocked by ${b.id}`);
     }
+  }
+  return out;
+}
+
+/** The Passage ends at a Hall: the Passage, the Hall's index, the piece at that end and the piece's side that meets the Hall (its lane's), the Hall's wall it leaves by, and its door height. */
+function endsOf(plan: FloorPlan): { p: DelverPassage; hall: number; q: PassagePiece; side: Side; wall: Side; y: number }[] {
+  return plan.passages.flatMap((p) => {
+    const first = p.pieces[0]!;
+    const last = p.pieces[p.pieces.length - 1]!;
+    return [
+      { p, hall: p.a, q: first, side: first.from, wall: p.sideA, y: p.ya },
+      { p, hall: p.b, q: last, side: last.to, wall: p.sideB, y: p.yb },
+    ];
+  });
+}
+
+/** The height (m) of Hall `h`'s floor at its wall `side`: a gallery wall's Deck, a split's tier there (an end wall belongs to the end tier, a side wall to the main tier), a pit's rim, else the Hall's. */
+function floorAt(h: DelverHall, side: Side): number {
+  const f = h.feature;
+  const g = h.gallery;
+  if (g && (g.side === side || g.wrap?.walls.includes(side))) return g.y;
+  if (f?.kind === 'pit') return f.rim;
+  if (f?.kind === 'split') {
+    const end = f.axis === 'x' ? (side === 'w' ? 0 : side === 'e' ? 1 : -1) : side === 's' ? 0 : side === 'n' ? 1 : -1;
+    const tier = end < 0 ? f.tiers.find((t) => t.level === h.level) : f.tiers[end === 0 ? 0 : f.tiers.length - 1];
+    return (tier ?? f.tiers[0]!).y;
+  }
+  return h.y;
+}
+
+/**
+ * The `features` rule (Stage 7c): what a plan's splits, pits and daises must keep (see the module's rule 1), and, on every Floor, each Passage's door height at each end being its Hall's floor
+ * there. Brush ids name the parts: `<hall>-tier` (the main tier; an outer tier is `<hall>-tier<n>` from 0 in tier order), `<hall>-pit`, `<hall>-rim<n>`, `<hall>-dais`, `<hall>-step<n>`.
+ */
+function judgeFeatures(plan: FloorPlan): string[] {
+  const out: string[] = [];
+  const halls = plan.halls;
+  const eq = (a: number, b: number) => Math.abs(a - b) < 1e-6;
+  for (const [k, h] of halls.entries()) {
+    const f = h.feature;
+    if (!f) continue;
+    const plain = h.shape === 'rect' && !h.gallery && h.solids.length === 0 && h.pillars.length === 0;
+    if (f.kind === 'dais' ? !plain : !(plain && h.cells.length === 1 && !h.great)) out.push(`features: ${h.id}'s ${f.kind} is not on a ${f.kind === 'dais' ? '' : 'one-cell '}rect Hall without a gallery`);
+    // Each part's rect, named, for the odd-metre rule.
+    const parts: { id: string; rect: Rect }[] = [];
+    const r = h.rect;
+    if (f.kind === 'split') {
+      const alongX = f.axis === 'x';
+      const span = (t: Rect): [number, number] => (alongX ? [t.x0, t.x1] : [t.z0, t.z1]);
+      const across = (t: Rect): [number, number] => (alongX ? [t.z0, t.z1] : [t.x0, t.x1]);
+      const [lo, hi] = span(r);
+      const [a0, a1] = across(r);
+      const c = alongX ? h.cx : h.cz;
+      const main = f.tiers.filter((t) => t.level === h.level);
+      let at = lo;
+      let tiles = f.tiers.length >= 2 && f.tiers.length <= 3;
+      for (const t of f.tiers) {
+        const [p0, p1] = span(t.rect);
+        const [q0, q1] = across(t.rect);
+        if (!eq(p0, at) || p1 <= p0 || !eq(q0, a0) || !eq(q1, a1)) tiles = false;
+        at = p1;
+      }
+      if (!eq(at, hi)) tiles = false;
+      if (!tiles) out.push(`features: ${h.id}'s tiers do not tile its rect along ${f.axis}`);
+      if (main.length !== 1) out.push(`features: ${h.id} has ${main.length} tiers at its level, one wanted`);
+      else {
+        const [p0, p1] = span(main[0]!.rect);
+        if (!(p0 <= c && c <= p1)) out.push(`features: ${h.id}'s main tier does not hold its centre`);
+        if (!eq(main[0]!.y, h.y)) out.push(`features: ${h.id}'s main tier is at ${m(main[0]!.y)}, its Hall at ${m(h.y)}`);
+      }
+      f.tiers.forEach((t, n) => {
+        if (t.level === h.level) return;
+        const [p0, p1] = span(t.rect);
+        if (t.level !== h.level - 1 || !eq(t.y, h.y - LEVEL_RISE)) out.push(`features: ${h.id}'s tier ${n} is not a level under its main tier`);
+        if (p1 - p0 < TIER_MIN) out.push(`features: ${h.id}'s tier ${n} is ${m(p1 - p0)} m deep, ${TIER_MIN} wanted`);
+      });
+      for (const t of f.tiers.slice(1)) {
+        const cut = span(t.rect)[0];
+        if (Math.abs(cut - c) < SPLIT_CUT) out.push(`features: ${h.id}'s cut at ${m(cut)} is under ${SPLIT_CUT} m from its centre`);
+      }
+      f.tiers.forEach((t, n) => parts.push({ id: t.level === h.level ? `${h.id}-tier` : `${h.id}-tier${n}`, rect: t.rect }));
+    } else if (f.kind === 'pit') {
+      const want: Rect = { x0: r.x0 + PIT_RIM, z0: r.z0 + PIT_RIM, x1: r.x1 - PIT_RIM, z1: r.z1 - PIT_RIM };
+      if (!(eq(f.pit.x0, want.x0) && eq(f.pit.z0, want.z0) && eq(f.pit.x1, want.x1) && eq(f.pit.z1, want.z1))) out.push(`features: ${h.id}'s pit is not its rect less ${PIT_RIM} m`);
+      const cut = [...f.rims, f.pit];
+      const rimsTile = f.rims.every((q) => inside(q, r)) && cut.every((q, i) => cut.every((o, j) => j <= i || !overlap(q, o))) && eq(f.rims.reduce((a, q) => a + area(q), 0), area(r) - area(f.pit));
+      if (!rimsTile) out.push(`features: ${h.id}'s rims do not tile its rect less its pit`);
+      if (f.depth !== 2 && f.depth !== 4) out.push(`features: ${h.id}'s pit is ${f.depth} m deep, 2 or 4 wanted`);
+      if (!eq(f.rim, h.y + f.depth)) out.push(`features: ${h.id}'s rim is at ${m(f.rim)}, ${m(h.y + f.depth)} wanted`);
+      parts.push({ id: `${h.id}-pit`, rect: f.pit }, ...f.rims.map((rect, n) => ({ id: `${h.id}-rim${n}`, rect })));
+    } else {
+      const wall = f.side === 'n' ? eq(f.rect.z1, r.z1) : f.side === 's' ? eq(f.rect.z0, r.z0) : f.side === 'e' ? eq(f.rect.x1, r.x1) : eq(f.rect.x0, r.x0);
+      if (!inside(f.rect, r) || !wall) out.push(`features: ${h.id}'s dais is not inside its rect against its ${f.side} wall`);
+      if (plan.passages.some((p) => (p.a === k && p.sideA === f.side) || (p.b === k && p.sideB === f.side))) out.push(`features: ${h.id}'s dais stands against a wall a Passage leaves by`);
+      if (!eq(f.y, h.y + DAIS_RISE)) out.push(`features: ${h.id}'s dais is at ${m(f.y)}, ${m(h.y + DAIS_RISE)} wanted`);
+      parts.push({ id: `${h.id}-dais`, rect: f.rect });
+    }
+    const wanted = f.kind === 'split' ? f.tiers.length - 1 : f.kind === 'pit' ? 2 : 1;
+    if (f.steps.length !== wanted) out.push(`features: ${h.id} has ${f.steps.length} steps, ${wanted} wanted`);
+    f.steps.forEach((s, n) => parts.push({ id: stepId(h, n), rect: s.rect }));
+    for (const q of parts) if (![q.rect.x0, q.rect.x1, q.rect.z0, q.rect.z1].every(odd)) out.push(`features: ${q.id} has a Wall on the field's dots`);
+    // Each step: inside its Hall, rising at most `MAX_SLOPE` along `up`, from the lower floor to the higher.
+    const outer = f.kind === 'split' ? f.tiers.filter((t) => t.level !== h.level) : [];
+    f.steps.forEach((s, n) => {
+      const id = stepId(h, n);
+      if (!inside(s.rect, r)) out.push(`features: ${id} is not inside ${h.id}`);
+      const length = s.up === 'e' || s.up === 'w' ? s.rect.x1 - s.rect.x0 : s.rect.z1 - s.rect.z0;
+      if (!(length > 0) || (s.hi - s.lo) / length > MAX_SLOPE + 1e-9) out.push(`features: ${id} rises ${m(s.hi - s.lo)} m over ${m(length)} m, steeper than ${MAX_SLOPE}`);
+      const lo = f.kind === 'split' ? outer[n]?.y : h.y;
+      const hi = f.kind === 'split' ? h.y : f.kind === 'pit' ? f.rim : f.y;
+      if (lo === undefined || !eq(s.lo, lo) || !eq(s.hi, hi)) out.push(`features: ${id} runs from ${m(s.lo)} to ${m(s.hi)}, its floors are ${lo === undefined ? 'none' : m(lo)} and ${m(hi)}`);
+    });
+  }
+  // Each Passage's door at each end is at its Hall's floor there, and its doorway's lane is clear of the Hall's steps and dais.
+  for (const { p, hall, q, side, wall, y } of endsOf(plan)) {
+    const h = halls[hall];
+    if (!h) continue;
+    const floor = floorAt(h, wall);
+    if (!eq(y, floor)) out.push(`features: ${p.id}'s door into ${h.id} is at ${m(y)}, its floor there at ${m(floor)}`);
+    const f = h.feature;
+    if (!f) continue;
+    const lane = doorLane(q.rect, side);
+    f.steps.forEach((s, n) => {
+      if (overlap(lane, s.rect)) out.push(`features: ${p.id}'s doorway into ${h.id} is blocked by ${stepId(h, n)}`);
+    });
+    if (f.kind === 'dais' && overlap(lane, f.rect)) out.push(`features: ${p.id}'s doorway into ${h.id} is blocked by ${h.id}-dais`);
+  }
+  // Every marker keeps 1 m from each step and stands 1 m inside its floor part.
+  for (const mk of markersOf(plan)) {
+    const h = halls[mk.hall];
+    const f = h?.feature;
+    if (!h || !f) continue;
+    f.steps.forEach((s, n) => {
+      if (rectDistance(s.rect, mk.x, mk.z) < 1) out.push(`features: ${mk.name} stands within 1 m of ${stepId(h, n)}`);
+    });
+    const shrunk = (q: Rect): boolean => mk.x >= q.x0 + 1 && mk.x <= q.x1 - 1 && mk.z >= q.z0 + 1 && mk.z <= q.z1 - 1;
+    const at = (y: number) => eq(mk.y, y);
+    let [ok, what] = [shrunk(h.rect), 'wall'];
+    if (f.kind === 'split') [ok, what] = [f.tiers.some((t) => at(t.y) && shrunk(t.rect)), 'tier edge'];
+    else if (f.kind === 'pit' && at(h.y)) [ok, what] = [shrunk(f.pit), 'pit edge'];
+    else if (f.kind === 'dais' && at(f.y)) [ok, what] = [shrunk(f.rect), 'dais edge'];
+    if (!ok) out.push(`features: ${mk.name} stands within 1 m of ${h.id}'s ${what}`);
   }
   return out;
 }
@@ -232,7 +389,7 @@ function checkpoints(p: DelverPassage): { x: number; z: number; y: number; nomin
   });
 }
 
-/** Rules 3 to 7 on a built Floor. */
+/** Rules 3 to 8 on a built Floor. */
 export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   const { plan, battle, field, fields } = b;
   const halls = plan.halls;
@@ -320,21 +477,45 @@ export function judgeFields(t: DelverFloorTuning, b: BuiltFloor): string[] {
   halls.forEach((h, k) => {
     const g = h.gallery;
     if (!g) return;
-    const x = (g.deck.x0 + g.deck.x1) / 2;
-    const z = (g.deck.z0 + g.deck.z1) / 2;
-    const at = `galleries: ${h.id}'s Deck (${m(x)}, ${m(z)}) at ${m(g.y)}`;
-    const s = surfaceOf(x, z, g.y);
-    const surface = s >= 0 ? field.arena.walk[s]! : null;
-    if (!surface) out.push(`${at} stands on no Walk Surface`);
-    else if (surface.roof) out.push(`${at} is a roof`);
-    else if (Math.abs(surfaceHeight(field.arena, s, x, z) - g.y) > 1e-6) out.push(`${at} is not at that height`);
-    else if (fieldAt(fields, fromEntrance, x, z, s) < 0) out.push(`${at} is not reached from the Entrance`);
-    else if (fieldAt(fields, to(k), x, z, s) < 0) out.push(`${at} does not lead down to ${h.id}'s centre`);
+    // The Deck, and each Deck of a wrap, in order.
+    [g.deck, ...(g.wrap?.decks ?? [])].forEach((deck, n) => {
+      const x = (deck.x0 + deck.x1) / 2;
+      const z = (deck.z0 + deck.z1) / 2;
+      const at = `galleries: ${h.id}'s Deck${n === 0 ? '' : ` ${n}`} (${m(x)}, ${m(z)}) at ${m(g.y)}`;
+      const s = surfaceOf(x, z, g.y);
+      const surface = s >= 0 ? field.arena.walk[s]! : null;
+      if (!surface) out.push(`${at} stands on no Walk Surface`);
+      else if (surface.roof) out.push(`${at} is a roof`);
+      else if (Math.abs(surfaceHeight(field.arena, s, x, z) - g.y) > 1e-6) out.push(`${at} is not at that height`);
+      else if (fieldAt(fields, fromEntrance, x, z, s) < 0) out.push(`${at} is not reached from the Entrance`);
+      else if (fieldAt(fields, to(k), x, z, s) < 0) out.push(`${at} does not lead down to ${h.id}'s centre`);
+    });
+  });
+
+  // Stage 7c: each feature Hall's floor parts. Each part's centre is a floor at its height, no roof, reached from the Entrance and leading to the Hall's centre; a pit's rim is reached from its floor.
+  halls.forEach((h, k) => {
+    const f = h.feature;
+    if (!f) return;
+    const mid = (r: Rect) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
+    const parts = f.kind === 'split' ? f.tiers.map((t, n) => ({ name: `tier ${n}`, ...mid(t.rect), y: t.y }))
+      : f.kind === 'pit' ? [{ name: 'floor', ...mid(f.pit), y: h.y }, { name: 'rim', ...mid(f.rims[0]!), y: f.rim }]
+      : [{ name: 'dais', ...mid(f.rect), y: f.y }];
+    for (const part of parts) {
+      const at = `tiers: ${h.id}'s ${part.name} (${m(part.x)}, ${m(part.z)}) at ${m(part.y)}`;
+      const s = floorNear(field.arena, part.x, part.z, part.y);
+      const surface = s >= 0 ? field.arena.walk[s]! : null;
+      if (!surface) out.push(`${at} stands on no Walk Surface`);
+      else if (surface.roof) out.push(`${at} is a roof`);
+      else if (Math.abs(surfaceHeight(field.arena, s, part.x, part.z) - part.y) > 1e-6) out.push(`${at} is not at that height`);
+      else if (fieldAt(fields, fromEntrance, part.x, part.z, s) < 0) out.push(`${at} is not reached from the Entrance`);
+      else if (fieldAt(fields, to(k), part.x, part.z, s) < 0) out.push(`${at} does not lead to ${h.id}'s centre`);
+      else if (f.kind === 'pit' && part.name === 'rim' && fieldAt(fields, fieldFrom({ x: part.x, z: part.z, s }), centre[k]!.x, centre[k]!.z, centre[k]!.s) < 0) out.push(`tiers: ${h.id}'s rim is not reached from its floor`);
+    }
   });
   return out;
 }
 
-/** Rules 1 and 3 to 7 on a built Floor (the compile rule is the build's own throw). */
+/** Rules 1 and 3 to 8 on a built Floor (the compile rule is the build's own throw). */
 export function judgeBuilt(t: DelverFloorTuning, b: BuiltFloor): string[] {
   return [...judgePlan(t, b.plan, b.battle.field.size), ...judgeFields(t, b)];
 }
