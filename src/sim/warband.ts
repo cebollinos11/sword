@@ -73,7 +73,9 @@ export function warbandBrain(homes: WarbandHomes, rules: DelverTuning): SquadBra
  *    It keeps its Fighter while it sees it, takes the nearest it sees if it loses it, and RETURNS after `forgetSeconds` unseen, once its walk from
  *    home passes the Leash, or when no one is left to chase. A patrol's home is its nearest point by walking.
  *  - RETURN is deaf: it walks home and, within `arrive` of it, GUARDS (a guard, or a broken patrol) or PATROLS again.
- * Pure. The result carries `lead` (the one field each anchor follows, derived from the state again each Tick).
+ * Pure. The result carries `lead` (the one field each anchor follows, derived from the state again each Tick); a Soldier that cannot walk to its
+ * place descends it. While a Warband's Soldiers lag, its lead is the field to its anchor (its point, on its Walk Surface), so a Soldier cut off
+ * from the rest (dropped off a Deck, left on another level) walks back to it and the Warband regroups; else its home's, its loop point's or its quarry's.
  */
 export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuning, map: BattleMap, fighters: readonly CrowdFighter[], homes: WarbandHomes, rules: DelverTuning): SquadStep & { readonly warbands: WarbandState } {
   const old = crowd.squads;
@@ -340,8 +342,30 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
 
   // The field each anchor follows, derived from the state again every Tick: the home field while it stands (null once wiped), found only for a Squad asked.
   const kept: (DestinationFields | null | undefined)[] = new Array(m);
+  /** Each Squad's in-Crowd Soldiers' centre (x, z) and how many they are, from the Soldiers as they stood at the start of the Tick; found on first need. */
+  let centres: Float64Array | null = null;
+  const centreOf = (): Float64Array => {
+    if (centres) return centres;
+    const c = new Float64Array(m * 3);
+    for (let i = 0; i < n; i++) {
+      const sq = crowd.squad[i]!;
+      if (sq < 0 || !crowd.alive[i] || crowd.slot[i]! >= 0) continue;
+      c[sq * 3] = c[sq * 3]! + crowd.x[i]!;
+      c[sq * 3 + 1] = c[sq * 3 + 1]! + crowd.z[i]!;
+      c[sq * 3 + 2] = c[sq * 3 + 2]! + 1;
+    }
+    return (centres = c);
+  };
+  /** Whether Warband q's in-Crowd Soldiers lag its anchor (`squad.lag`), as the brain's regroup reads it. */
+  const lags = (q: number): boolean => {
+    const c = centreOf();
+    const k = c[q * 3 + 2]!;
+    return k > 0 && Math.hypot(c[q * 3]! / k - x[q]!, c[q * 3 + 1]! / k - z[q]!) > p.lag;
+  };
   const leadOf = (q: number): DestinationFields | null => {
     if (living[q] === 0) return null;
+    // Its Soldiers lag: the field to its anchor, so one cut off walks back to the rest (a home's or a quarry's field would lead it on alone).
+    if (lags(q)) return walkField(battle, map, x[q]!, z[q]!, soldierHeight(field, surface[q]!, x[q]!, z[q]!));
     if (mode[q] === PATROL) {
       const pt = homes.patrols[w.patrol[q]!]![leg[q]!]!;
       return fieldAt(pt.x, pt.z, pt.y).dest;

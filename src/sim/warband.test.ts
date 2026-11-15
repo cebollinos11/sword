@@ -12,6 +12,9 @@ import { flatFloors, flatRooms } from './delver/flat.testdata';
 
 const tuning = flatFloors(flatRooms(loadTuningData()));
 const TIMEOUT = 120_000;
+/** A cut-off Soldier and its Warband stand together again within this (s). */
+const REGROUP_SECONDS = 30;
+const f1 = (v: number) => v.toFixed(1);
 
 /**
  * The bundled Tuning with every guard and patrol template four Soldiers strong (of its first Troop), no elites: the size the Warband tests below that
@@ -378,6 +381,61 @@ describe('regrouping', { timeout: TIMEOUT }, () => {
     const on2 = advance(s, run.crowd, run.tick, 90 * 60, () => [], (c) => c.warbands!.leg[q] !== leg);
     expect(on2.crowd.warbands!.leg[q]).not.toBe(leg);
     expect(on2.crowd.warbands!.mode[q]).toBe(PATROL);
+  });
+});
+
+describe('a Soldier cut off', { timeout: TIMEOUT }, () => {
+  it("a patrol cut in two across levels (the soak's Run 31337, Floor 2: one Soldier dropped off hall0's wrapped Deck onto the floor under it, the other gone on along pass2 a level up) leads the one ahead back to its anchor: the two regroup and the patrol walks on; led by its loop point's field instead, they stay apart", () => {
+    // The bundled Tuning (Stage 7c's Floors): hall0 is a stairwell whose Deck wraps round two corners, pass2 leaving by its raised south door.
+    const s = scene(31337, 2, 1, {}, loadTuningData());
+    const hall = s.plan.halls[0]!;
+    expect(hall.gallery?.wrap?.walls).toEqual(['s', 'e']);
+    const q = firstOf(s.crowd, PATROL);
+    expect(q).toBeGreaterThanOrEqual(0);
+    const loop = 0;
+    const leg = 5;
+    // Its loop point 5 is (17, -46) at y 8, in hall3 beyond pass2.
+    expect(s.homes.patrols[loop]![leg]).toEqual({ x: 17, y: 8, z: -46 });
+    const [near, far, ...rest] = members(s.crowd, q) as number[];
+    expect(far).toBeDefined();
+    let crowd = s.crowd;
+    for (const i of rest) crowd = kill(crowd, i!);
+    const floorAt = { x: 21.4, z: 7.1, s: groundOf(s.battle, s.field, 21.4, 7.1, 6) };
+    const passAt = { x: 18, z: -31.6, s: groundOf(s.battle, s.field, 18, -31.6, 8) };
+    expect(soldierHeight(s.field, floorAt.s, floorAt.x, floorAt.z)).toBeCloseTo(6, 5);
+    expect(soldierHeight(s.field, passAt.s, passAt.x, passAt.z)).toBeCloseTo(8, 5);
+    const put = (a: readonly number[], v: { near: number; far: number }) => a.map((u, k) => (k === near ? v.near : k === far ? v.far : u));
+    const set = (a: readonly number[], v: number) => a.map((u, k) => (k === q ? v : u));
+    const w = crowd.warbands!;
+    crowd = {
+      ...crowd,
+      x: put(crowd.x, { near: floorAt.x, far: passAt.x }),
+      z: put(crowd.z, { near: floorAt.z, far: passAt.z }),
+      surface: put(crowd.surface, { near: floorAt.s, far: passAt.s }),
+      squads: { ...crowd.squads, x: set(crowd.squads.x, floorAt.x), z: set(crowd.squads.z, floorAt.z), surface: set(crowd.squads.surface, floorAt.s), living: set(crowd.squads.living, 2) },
+      warbands: { ...w, mode: set(w.mode, PATROL), patrol: set(w.patrol, loop), leg: set(w.leg, leg), size: set(w.size, 2) },
+    };
+    const apart = (c: CrowdState) => Math.hypot(c.x[far!]! - c.x[near!]!, c.z[far!]! - c.z[near!]!);
+    expect(apart(crowd)).toBeGreaterThan(2 * s.battle.squad.lag);
+    let together = -1;
+    const back = advance(s, crowd, 1, REGROUP_SECONDS * 60, () => [], (c, tick) => {
+      if (apart(c) < s.battle.squad.lag / 2) {
+        together = tick;
+        return true;
+      }
+    });
+    const on = advance(s, back.crowd, back.tick, 90 * 60, () => [], (c) => c.warbands!.leg[q] !== leg);
+    // Led by its loop point's field instead (the lead before this rule).
+    const pointField = walkField(s.battle, s.map, 17, -46, 8);
+    const old = advance({ ...s, brain: (...args) => ({ ...s.brain(...args), lead: (k: number) => (k === q ? pointField : null) }) }, crowd, 1, 90 * 60);
+    console.log(
+      `A Soldier cut off: ${s.name}, patrol W${q} on loop ${loop} leg ${leg}; Soldiers ${f1(apart(crowd))} m apart; together after ${together < 0 ? 'never' : `${f1(together / 60)} s`}, the leg advanced ${f1((on.tick - back.tick) / 60)} s later; led by the loop point's field: after 90 s ${f1(apart(old.crowd))} m apart, the leg ${old.crowd.warbands!.leg[q]}`,
+    );
+    expect(together).toBeGreaterThan(0);
+    expect(on.crowd.warbands!.leg[q]).not.toBe(leg);
+    expect(on.crowd.warbands!.mode[q]).toBe(PATROL);
+    expect(apart(old.crowd)).toBeGreaterThan(s.battle.squad.lag);
+    expect(old.crowd.warbands!.leg[q]).toBe(leg);
   });
 });
 
