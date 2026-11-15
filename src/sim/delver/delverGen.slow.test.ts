@@ -21,6 +21,14 @@
  * limit are 7a's. The test fails unless it exercised every shape, both layouts, a shaped great hall, a shaped or pillared Boss Hall, and a ring Entrance, Stairs
  * or Boss Hall.
  *
+ * Stage 7c (verticality inside a Hall): `planFloor` is given the Run tier (`tierOf`), as `delverFloor` does. Per Floor and overall the splits (two- and three-tier, by axis), pits (2 m and 4 m,
+ * and the 4 m ones by Run tier), daises (thrones, altars), wrapped galleries (L, U) and stairwells (on any wall, a first wall, a wrap wall) against all galleries are counted, and the share
+ * of Halls with a split, a pit or a dais is printed. The rerolls by rule gain `features` and `tiers`. On the navmesh Floors every jump Link is a shortcut rising at most `SHORTCUT_RISE`,
+ * none takes off from a 4 m pit's floor, every Deck still holds a shortcut Link onto it, and the Links are counted by what they land on (a Deck, a split's tier, a rim, a dais). The build
+ * budget is 800 ms mean (the user's call; the 2 s cap and the navmesh's 300 ms mean stay). The test fails unless it exercised two- and three-tier splits, 2 m and 4 m pits (the 4 m ones
+ * on more of tier 3's Floors than of tier 1's), thrones and altars, L and U wraps, stairwells on at least 1 gallery in 3, a share of Halls with a feature of 22 to 28 %, and shortcut
+ * Links onto a tier, a rim and a dais.
+ *
  * Stage 6 (levels): per Floor the Hall levels, galleries (balconies and stairwells), sloped Passages and Deck posts are counted, and the
  * rerolls by rule printed; on the 20 navmesh Floors every Deck must hold a shortcut jump Link onto it from its Hall's floor and no other
  * jump Link may exist. The budgets of the Design: the passing attempt's plan, build and judge average at most 600 ms and none passes 2 s;
@@ -30,10 +38,12 @@
 import { describe, expect, it } from 'vitest';
 import { MapCompileError, mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
-import { navMesh, type JumpLink } from '../nav';
+import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
+import { surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { runPick } from '../dungeon';
 import { flatRooms } from './flat.testdata';
+import { tierOf } from './troops';
 import { buildFloor, delverFloor, isBossFloor, judgeFields, judgePlan, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
@@ -42,9 +52,9 @@ const PAIRS = 500;
 const SAMPLE_EVERY = 25;
 const NAV_FLOORS = 20;
 const KINDS: readonly DelverHallKind[] = ['Entrance', 'Stairs', 'Boss', 'Rest', 'Treasure', 'Fight', 'Empty'];
-const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries'];
+const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'markers', 'sight', 'galleries', 'features', 'tiers'];
 /** The Design's budgets (ms), on the machine of the plans' measurements. */
-const BUILD_MEAN_MS = 600;
+const BUILD_MEAN_MS = 800;
 const BUILD_MAX_MS = 2000;
 const NAV_MEAN_MS = 300;
 /** A far Passage: a straight one joining two one-cell Halls two lattice steps apart (their cells differ by 2 along one axis), over an empty cell. */
@@ -64,7 +74,7 @@ interface Dealt {
   layout: FloorPlan | null;
   /** The passing Floor's map file (sampled pairs only), and its navmesh numbers (the first NAV_FLOORS passing Floors only). */
   mapText: string | null;
-  nav: { ms: number; polygons: number; links: number; jumps: number; decks: number; decksLinked: number; otherJumps: number } | null;
+  nav: { ms: number; polygons: number; links: number; jumps: number; decks: number; decksLinked: number; badJumps: number; fromDeepPit: number; landing: Record<'deck' | 'tier' | 'rim' | 'dais' | 'other', number> } | null;
   failedReasons?: string[][];
   ok: boolean;
   lastReasons: string[];
@@ -93,7 +103,7 @@ function deal(k: number, wantNav: boolean): Dealt {
   const d: Dealt = { k, seed, floor, attempts: 0, layout: null, mapText: null, nav: null, ok: false, lastReasons: [], plan: 0, build: 0, judge: 0, sum: 0 };
   for (let attempt = 0; attempt < t.maxAttempts; attempt++) {
     const t0 = performance.now();
-    const plan = planFloor(t, seed, floor, attempt, isBossFloor(tuning.delver, floor));
+    const plan = planFloor(t, seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
     const t1 = performance.now();
     d.attempts = attempt + 1;
     d.plan = t1 - t0;
@@ -135,9 +145,20 @@ function deal(k: number, wantNav: boolean): Dealt {
             const onFloor = (j: number) => built.field.arena.walk[j]!.id.startsWith(`WALK_${h.id}_`) && !built.field.arena.walk[j]!.roof;
             if (jumps.some((l) => l.shortcut && l.to === deck && onFloor(l.from))) decksLinked++;
           }
-          const decksOf = new Set(plan.halls.flatMap((h) => (h.gallery ? [groundOf(built.battle, built.field, (h.gallery.deck.x0 + h.gallery.deck.x1) / 2, (h.gallery.deck.z0 + h.gallery.deck.z1) / 2, h.gallery.y)] : [])));
-          const otherJumps = jumps.filter((l) => !l.shortcut || !decksOf.has(l.to)).length;
-          d.nav = { ms, polygons: mesh.out.length, links: mesh.links.length, jumps: jumps.length, decks, decksLinked, otherJumps };
+          // Every jump Link is a shortcut rising at most SHORTCUT_RISE (from its surface's height at takeoff to where it lands), none takes off from a 4 m pit's floor, and each is counted by what it lands on.
+          const deepPits = plan.halls.filter((h) => h.feature?.kind === 'pit' && h.feature.depth === 4).map((h) => `WALK_${h.id}_`);
+          const landing = { deck: 0, tier: 0, rim: 0, dais: 0, other: 0 };
+          let badJumps = 0;
+          let fromDeepPit = 0;
+          for (const l of jumps) {
+            const rise = l.lands.y - surfaceHeight(built.field.arena, l.from, l.takeoff.x, l.takeoff.z);
+            if (!l.shortcut || rise > SHORTCUT_RISE + 1e-9) badJumps++;
+            const fromId = built.field.arena.walk[l.from]!.id;
+            if (deepPits.some((pre) => fromId.startsWith(pre))) fromDeepPit++;
+            const m = /^WALK_hall\d+-(deck\d*|tier|rim\d+|dais)_/.exec(built.field.arena.walk[l.to]!.id);
+            landing[m ? (m[1]!.startsWith('deck') ? 'deck' : m[1]!.startsWith('rim') ? 'rim' : (m[1] as 'tier' | 'dais')) : 'other']++;
+          }
+          d.nav = { ms, polygons: mesh.out.length, links: mesh.links.length, jumps: jumps.length, decks, decksLinked, badJumps, fromDeepPit, landing };
         }
       }
     } catch (e) {
@@ -235,7 +256,7 @@ describe('the Floor generator soak', () => {
 
     const decks = nav.reduce((n, x) => n + x.decks, 0);
     lines.push(
-      `  jump Links on those ${nav.length} Floors: ${nav.reduce((n, x) => n + x.jumps, 0)} (all shortcuts onto a Deck; other jump Links: ${nav.reduce((n, x) => n + x.otherJumps, 0)}); Decks ${decks}, each with a shortcut Link onto it from its Hall's floor: ${nav.reduce((n, x) => n + x.decksLinked, 0)}`,
+      `  jump Links on those ${nav.length} Floors: ${nav.reduce((n, x) => n + x.jumps, 0)} (by landing: ${(['deck', 'tier', 'rim', 'dais', 'other'] as const).map((k) => `${k} ${nav.reduce((n, x) => n + x.landing[k], 0)}`).join(', ')}; not a shortcut or rising over ${SHORTCUT_RISE} m: ${nav.reduce((n, x) => n + x.badJumps, 0)}; from a 4 m pit's floor: ${nav.reduce((n, x) => n + x.fromDeepPit, 0)}); Decks ${decks}, each with a shortcut Link onto it from its Hall's floor: ${nav.reduce((n, x) => n + x.decksLinked, 0)}`,
     );
 
     // Counts over all passing Floors (the ones a Run would be dealt).
@@ -295,6 +316,43 @@ describe('the Floor generator soak', () => {
     const deckPosts = floors.reduce((n, p) => n + p.markers.posts.filter((q) => q.y !== p.halls[q.hall]!.y).length, 0);
     lines.push(`  distinct Hall levels per Floor: ${levelHist.join(', ')}; Floors with a gallery: ${floors.filter((p) => p.halls.some((h) => h.gallery)).length}`);
     lines.push(`  galleries ${galleries.length} (balconies ${galleries.length - stairwells}, stairwells ${stairwells}), sloped Passages ${sloped} of ${passages.length}, Deck posts ${deckPosts}`);
+    // Stage 7c: splits, pits, daises, wrapped galleries and stairwells.
+    const hallsOf = (ps: FloorPlan[]) => ps.flatMap((p) => p.halls);
+    const splitsOf = (hs: FloorPlan['halls']) => hs.flatMap((h) => (h.feature?.kind === 'split' ? [h.feature] : []));
+    const pitsOf = (hs: FloorPlan['halls']) => hs.flatMap((h) => (h.feature?.kind === 'pit' ? [h.feature] : []));
+    const daisesOf = (hs: FloorPlan['halls']) => hs.flatMap((h) => (h.feature?.kind === 'dais' ? [{ h, f: h.feature }] : []));
+    const galleriesOf = (ps: FloorPlan[]) => ps.flatMap((p) => p.halls.flatMap((h) => (h.gallery ? [{ p, h, g: h.gallery }] : [])));
+    /** Whether a Passage leaves Hall `h` of `p` by `side`. */
+    const leaves = (p: FloorPlan, h: FloorPlan['halls'][number], side: string) => p.passages.some((q) => (q.a === p.halls.indexOf(h) && q.sideA === side) || (q.b === p.halls.indexOf(h) && q.sideB === side));
+    const featureLine = (ps: FloorPlan[]) => {
+      const hs = hallsOf(ps);
+      const sp = splitsOf(hs);
+      const pi = pitsOf(hs);
+      const da = daisesOf(hs);
+      const ga = galleriesOf(ps);
+      const wraps = ga.filter((x) => x.g.wrap);
+      const st = ga.filter((x) => x.g.high);
+      return `splits ${sp.length} (two-tier ${sp.filter((q) => q.tiers.length === 2).length}, three-tier ${sp.filter((q) => q.tiers.length === 3).length}; axis x ${sp.filter((q) => q.axis === 'x').length}, z ${sp.filter((q) => q.axis === 'z').length}), pits ${pi.length} (2 m ${pi.filter((q) => q.depth === 2).length}, 4 m ${pi.filter((q) => q.depth === 4).length}), daises ${da.length} (thrones ${da.filter((x) => x.h.kind === 'Boss').length}, altars ${da.filter((x) => x.h.kind === 'Treasure').length}), wraps ${wraps.length} (L ${wraps.filter((x) => x.g.wrap!.walls.length === 1).length}, U ${wraps.filter((x) => x.g.wrap!.walls.length === 2).length}), stairwells ${st.length} of ${ga.length} galleries (first wall ${st.filter((x) => leaves(x.p, x.h, x.g.side)).length}, wrap wall ${st.filter((x) => x.g.wrap?.walls.some((w) => leaves(x.p, x.h, w))).length})`;
+    };
+    lines.push(`  Stage 7c, all Floors: ${featureLine(floors)}`);
+    lines.push(`  per Floor (splits / pits / daises / wraps / stairwells of galleries): ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => {
+      const ps = passing.filter((d) => d.floor === f).map((d) => d.layout!);
+      const hs = hallsOf(ps);
+      const ga = galleriesOf(ps);
+      return `F${f} ${splitsOf(hs).length}/${pitsOf(hs).length}/${daisesOf(hs).length}/${ga.filter((x) => x.g.wrap).length}/${ga.filter((x) => x.g.high).length} of ${ga.length}`;
+    }).join(' | ')}`);
+    const deepPerFloor = [1, 2, 3].map((tier) => {
+      const ps = passing.filter((d) => tierOf(tuning.delver, d.floor) === tier).map((d) => d.layout!);
+      return { tier, floors: ps.length, deep: pitsOf(hallsOf(ps)).filter((q) => q.depth === 4).length, pits: pitsOf(hallsOf(ps)).length };
+    });
+    lines.push(`  pits by Run tier (4 m of all, per Floor): ${deepPerFloor.map((x) => `tier ${x.tier} ${x.deep} of ${x.pits}, ${(x.deep / Math.max(1, x.floors)).toFixed(2)} a Floor`).join('; ')}`);
+    const allH = hallsOf(floors);
+    const featured = allH.filter((h) => h.feature).length;
+    const featureShare = featured / allH.length;
+    const galAll = galleriesOf(floors);
+    const stairShare = galAll.filter((x) => x.g.high).length / Math.max(1, galAll.length);
+    lines.push(`  Halls with a split, a pit or a dais: ${featured} of ${allH.length} (${(featureShare * 100).toFixed(1)} %); stairwells ${(stairShare * 100).toFixed(1)} % of galleries`);
+
     // Stage 7b: Hall shapes, pillars and Blocks.
     const SHAPE_NAMES = ['L', 'T', 'cross', 'ring'] as const;
     const allHalls = floors.flatMap((p) => p.halls);
@@ -367,7 +425,26 @@ describe('the Floor generator soak', () => {
     expect(nav.length).toBe(NAV_FLOORS);
     expect(decks, 'no Deck among the navmesh Floors').toBeGreaterThan(0);
     expect(nav.reduce((n, x) => n + x.decksLinked, 0), 'a Deck without a shortcut jump Link onto it').toBe(decks);
-    expect(nav.reduce((n, x) => n + x.otherJumps, 0), 'a jump Link that is not a shortcut onto a Deck').toBe(0);
+    expect(nav.reduce((n, x) => n + x.badJumps, 0), 'a jump Link that is not a shortcut, or rises over SHORTCUT_RISE').toBe(0);
+    expect(nav.reduce((n, x) => n + x.fromDeepPit, 0), 'a jump Link from a 4 m pit\'s floor').toBe(0);
+    for (const k of ['tier', 'rim', 'dais'] as const) expect(nav.reduce((n, x) => n + x.landing[k], 0), `no shortcut jump Link onto a ${k}`).toBeGreaterThan(0);
+
+    // Stage 7c: every kind of feature and wrap is exercised, in the share the Design asks for.
+    const sp7 = splitsOf(allH);
+    const pi7 = pitsOf(allH);
+    const da7 = daisesOf(allH);
+    expect(sp7.filter((q) => q.tiers.length === 2).length, 'no two-tier split').toBeGreaterThan(0);
+    expect(sp7.filter((q) => q.tiers.length === 3).length, 'no three-tier split').toBeGreaterThan(0);
+    expect(pi7.filter((q) => q.depth === 2).length, 'no 2 m pit').toBeGreaterThan(0);
+    expect(pi7.filter((q) => q.depth === 4).length, 'no 4 m pit').toBeGreaterThan(0);
+    expect(deepPerFloor[2]!.deep / deepPerFloor[2]!.floors, 'not more 4 m pits a Floor in tier 3 than in tier 1').toBeGreaterThan(deepPerFloor[0]!.deep / deepPerFloor[0]!.floors);
+    expect(da7.filter((x) => x.h.kind === 'Boss').length, 'no throne').toBeGreaterThan(0);
+    expect(da7.filter((x) => x.h.kind === 'Treasure').length, 'no altar').toBeGreaterThan(0);
+    expect(galAll.filter((x) => x.g.wrap?.walls.length === 1).length, 'no L wrap').toBeGreaterThan(0);
+    expect(galAll.filter((x) => x.g.wrap?.walls.length === 2).length, 'no U wrap').toBeGreaterThan(0);
+    expect(stairShare, 'stairwells on fewer than 1 gallery in 3').toBeGreaterThanOrEqual(1 / 3);
+    expect(featureShare, 'share of Halls with a split, pit or dais').toBeGreaterThanOrEqual(0.22);
+    expect(featureShare, 'share of Halls with a split, pit or dais').toBeLessThanOrEqual(0.28);
     const total = passing.map((d) => d.plan + d.build + d.judge);
     expect(mean(total), `passing attempt plan + build + judge averages ${fmt(mean(total))} ms`).toBeLessThanOrEqual(BUILD_MEAN_MS);
     expect(Math.max(...total), `slowest passing attempt ${fmt(Math.max(...total))} ms`).toBeLessThanOrEqual(BUILD_MAX_MS);

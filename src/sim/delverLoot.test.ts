@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { flatFloors } from './delver/flat.testdata';
-import { arenaOf } from './arena';
+import { arenaOf, deadly, surfaceHeight } from './arena';
+import { floorNear } from './levels';
 import { delverFloor } from './delver';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { DROP_MARGIN, dropSpots, lootSlot, treasurePickups, warbandDrops, warbandLoot } from './delverLoot';
@@ -87,6 +88,50 @@ const inside = (r: { x0: number; z0: number; x1: number; z1: number }, s: { x: n
   return s.x >= r.x0 + mx - e && s.x <= r.x1 - mx + e && s.z >= r.z0 + mz - e && s.z <= r.z1 - mz + e;
 };
 const apart = (spots: readonly { x: number; z: number }[]): boolean => spots.every((a, i) => spots.every((b, j) => i === j || Math.hypot(a.x - b.x, a.z - b.z) >= 1.1 - 1e-9));
+
+describe('dropSpots on tiers, pits and daises (Stage 7c)', () => {
+  const bundled = loadTuningData();
+  const cases: { kind: string; at: { x: number; z: number; y: number }; plan: ReturnType<typeof floor>['plan']; arena: ReturnType<typeof floor>['arena']; t: TuningData }[] = [];
+  for (let seed = 1; seed <= 30; seed++) {
+    for (const f of [1, 2, 4, 5]) {
+      const name = floorArenaName(runSeed(`gen:greybox:${seed}`), f);
+      const plan = floorOf(bundled, name)!.plan;
+      const t = arenaTuning(bundled, name);
+      const arena = arenaOf(t, name);
+      for (const h of plan.halls) {
+        const ft = h.feature;
+        if (ft?.kind === 'split') {
+          // A fall on the main tier half a metre inside its cut (the nearer one to an outer tier).
+          const main = ft.tiers.find((q) => q.y === h.y)!;
+          const r = main.rect;
+          const at = ft.axis === 'x' ? { x: r.x0 + 0.5, z: h.cz, y: h.y } : { x: h.cx, z: r.z0 + 0.5, y: h.y };
+          if (ft.tiers.length > 1 && ft.tiers.some((q) => q !== main)) cases.push({ kind: 'split', at, plan, arena, t });
+          const outer = ft.tiers.find((q) => q !== main)!;
+          cases.push({ kind: 'outer', at: { x: (outer.rect.x0 + outer.rect.x1) / 2, z: (outer.rect.z0 + outer.rect.z1) / 2, y: outer.y }, plan, arena, t });
+        } else if (ft?.kind === 'pit') cases.push({ kind: 'pit', at: { x: h.cx, z: h.cz, y: h.y }, plan, arena, t });
+        else if (ft?.kind === 'dais') cases.push({ kind: 'dais', at: { x: (ft.rect.x0 + ft.rect.x1) / 2, z: (ft.rect.z0 + ft.rect.z1) / 2, y: ft.y }, plan, arena, t });
+      }
+    }
+  }
+
+  it('lays every spot of a fall on a main tier near its cut, on an outer tier, on a pit\'s floor and on a dais on a Walk Surface that is neither deadly nor a roof', () => {
+    for (const kind of ['split', 'outer', 'pit', 'dais']) expect(cases.filter((c) => c.kind === kind).length, kind).toBeGreaterThan(0);
+    for (const c of cases) {
+      const spots = dropSpots(c.plan, c.arena, c.t.battle.levels, c.at.x, c.at.z, c.at.y, 4);
+      expect(spots).toHaveLength(4);
+      for (const sp of spots) {
+        const g = floorNear(c.arena, sp.x, sp.z, sp.y);
+        expect(g, `${c.kind} spot (${sp.x}, ${sp.z})`).toBeGreaterThanOrEqual(0);
+        const walk = c.arena.walk[g]!;
+        expect(deadly(walk)).toBeFalsy();
+        expect(walk.roof).toBeFalsy();
+        expect(surfaceHeight(c.arena, g, sp.x, sp.z)).toBeCloseTo(sp.y, 6);
+      }
+      // The first spot lies at the fall's own height (the floor part it fell on).
+      expect(spots[0]!.y).toBeCloseTo(c.at.y, 6);
+    }
+  }, 120_000);
+});
 
 describe('dropSpots', () => {
   const { plan, arena, t } = floor(1);

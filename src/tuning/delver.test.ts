@@ -99,7 +99,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
-      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
+      floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
@@ -343,7 +343,8 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ galleries: g })).floor.galleries).toEqual(g);
     expect(parse(withFloor({ galleries: { wrapPercent: 0, uPercent: 100, stairPercent: 100 } })).floor.galleries).toEqual({ wrapPercent: 0, uPercent: 100, stairPercent: 100 });
     expect(tuning.delver.floor.galleries).toEqual(GALLERIES);
-    expect(bundled.delver.floor.galleries).toEqual(GALLERIES);
+    // The shipped values (Stage 7c's switch).
+    expect(bundled.delver.floor.galleries).toEqual({ wrapPercent: 40, uPercent: 30, stairPercent: 60 });
   });
 
   it('takes the 7c features keys: a percent, whole weights, a percent for three tiers and one per Run tier for deep pits', () => {
@@ -353,7 +354,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     // With levels.max 0 a feature has nowhere to stand a level over another, but percent 0 asks for none.
     expect(parse(withFloor({ levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } })).floor.features).toEqual(FEATURES);
     expect(tuning.delver.floor.features).toEqual(FEATURES);
-    expect(bundled.delver.floor.features).toEqual(FEATURES);
+    expect(bundled.delver.floor.features).toEqual({ percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 });
   });
 
   it('accepts a fractional follow', () => {

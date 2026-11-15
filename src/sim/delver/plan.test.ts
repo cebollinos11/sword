@@ -3,7 +3,7 @@ import { loadTuningData } from '../../tuning';
 import { MAX_SIZE } from '../../tuning/size';
 import type { Rect, Side } from '../../mapEditor/source';
 import { runPick } from '../dungeon';
-import { flatFloors, flatHalls, flatRooms, plainHalls, rooms7c } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, plainHalls } from './flat.testdata';
 import { SHORTCUT_RISE } from '../nav';
 import { isBossFloor, tierOf } from './troops';
 import {
@@ -1033,7 +1033,10 @@ describe('Hall shapes and pillars (Stage 7b)', () => {
 
   it('changes nothing of 7a but the Halls\' shapes: the Passages, kinds, depths, rects and doors are the same as on plainHalls', () => {
     const plain = plainHalls(bundled7b).delver.floor;
-    for (const { seed, floor, p } of done.slice(0, 80)) {
+    const flat7b = flatHalls(bundled7b).delver.floor;
+    for (const { seed, floor } of done.slice(0, 80)) {
+      // On flatHalls (7b's Floors; the shipped data has the 7c knobs on), expectations unchanged.
+      const p = planFloor(flat7b, seed, floor, 0, isBossFloor(tuning.delver, floor));
       const q = planFloor(plain, seed, floor, 0, isBossFloor(tuning.delver, floor));
       expect(p.passages).toEqual(q.passages);
       expect([p.entrance, p.stairs, p.mainPath, p.inLine]).toEqual([q.entrance, q.stairs, q.mainPath, q.inLine]);
@@ -1079,7 +1082,7 @@ describe('Hall shapes and pillars (Stage 7b)', () => {
 
 describe('wrapped galleries and stairwells (Stage 7c)', () => {
   const bundled7c = loadTuningData();
-  const t7c = rooms7c(bundled7c);
+  const t7c = bundled7c;
   const f7c = t7c.delver.floor;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const planned = pairs.map((pr) => ({ ...pr, p: planFloor(f7c, pr.seed, pr.floor, 0, isBossFloor(t7c.delver, pr.floor)) })).filter((x) => x.p.halls.length === f7c.rooms);
@@ -1103,9 +1106,8 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
       { q, h: p.halls[q.b]!, side: q.sideB, y: q.yb },
     ]).filter((e) => wallsOf(e.h).includes(e.side));
 
-  it('has the shipped 7c values on rooms7c and the knobs off in the data', () => {
+  it('has the shipped 7c values in the data', () => {
     expect(f7c.galleries).toEqual({ wrapPercent: 40, uPercent: 30, stairPercent: 60 });
-    expect(bundled7c.delver.floor.galleries).toEqual({ wrapPercent: 0, uPercent: 30, stairPercent: 0 });
     expect(planned.length).toBeGreaterThan(150);
   });
 
@@ -1205,14 +1207,14 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
       expect(ff.galleries.uPercent).toBe(bundled7c.delver.floor.galleries.uPercent);
       expect([flatRooms(bundled7c).delver.floor.galleries, plainHalls(bundled7c).delver.floor.galleries]).toEqual([{ wrapPercent: 0, uPercent: 30, stairPercent: 0 }, { wrapPercent: 0, uPercent: 30, stairPercent: 0 }]);
     });
-    it('plans the bundled tuning\'s Floors byte for byte (the shipped knobs are off), with no wrap and a changed uPercent or 7c salt changing nothing', () => {
+    it('plans with the knobs off, no wrap, and a changed uPercent or 7c salt changing nothing', () => {
       const salts = SALT as unknown as Record<string, number>;
       const saved = { ...salts };
       for (const { seed, floor } of pairs.slice(0, 60)) {
         const boss = isBossFloor(bundled7c.delver, floor);
-        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
         const got = planFloor(ff, seed, floor, 0, boss);
-        expect(JSON.stringify(got)).toBe(want);
+        // The shipped data has the knobs on now: 7b's bytes are pinned in golden.test.ts (`FLAT_HALLS_PINS`); here the knobs-off plan is the reference the changed knobs and salts must leave alone.
+        const want = JSON.stringify(got);
         expect(got.halls.some((h) => h.gallery?.wrap)).toBe(false);
         expect(JSON.stringify(planFloor({ ...ff, galleries: { ...ff.galleries, uPercent: 99 } }, seed, floor, 0, boss))).toBe(want);
         try {
@@ -1228,7 +1230,7 @@ describe('wrapped galleries and stairwells (Stage 7c)', () => {
 
 describe('splits and pits (Stage 7c)', () => {
   const bundled7c = loadTuningData();
-  const t7c = rooms7c(bundled7c);
+  const t7c = bundled7c;
   const f7c = t7c.delver.floor;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const planWith = (ft: typeof f7c, tier: (floor: number) => number) =>
@@ -1279,9 +1281,8 @@ describe('splits and pits (Stage 7c)', () => {
       { q, h: p.halls[q.b]!, side: q.sideB, y: q.yb },
     ]);
 
-  it('has the shipped 7c values on rooms7c and the knobs off in the data', () => {
-    expect(f7c.features).toEqual({ percent: 50, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 });
-    expect(bundled7c.delver.floor.features).toEqual({ percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 });
+  it('has the shipped 7c values in the data', () => {
+    expect(f7c.features).toEqual({ percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 });
     expect(planned.length).toBeGreaterThan(150);
     expect(splits.length).toBeGreaterThan(30);
     expect(pits.length).toBeGreaterThan(30);
@@ -1516,14 +1517,14 @@ describe('splits and pits (Stage 7c)', () => {
       expect(ff.features).toEqual({ ...bundled7c.delver.floor.features, percent: 0, daisPercent: 0 });
       expect([flatRooms(bundled7c).delver.floor.features.percent, plainHalls(bundled7c).delver.floor.features.percent, flatRooms(bundled7c).delver.floor.features.daisPercent, plainHalls(bundled7c).delver.floor.features.daisPercent]).toEqual([0, 0, 0, 0]);
     });
-    it('plans the bundled tuning\'s Floors byte for byte, with no feature, and changed weights, threePercent, deepPercent, tier or 7c salts changing nothing', () => {
+    it('plans with the knobs off, no feature, and changed weights, threePercent, deepPercent, tier or 7c salts changing nothing', () => {
       const salts = SALT as unknown as Record<string, number>;
       const saved = { ...salts };
       for (const { seed, floor } of pairs.slice(0, 60)) {
         const boss = isBossFloor(bundled7c.delver, floor);
-        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
         const got = planFloor(ff, seed, floor, 0, boss);
-        expect(JSON.stringify(got)).toBe(want);
+        // The shipped data has the knobs on now: 7b's bytes are pinned in golden.test.ts (`FLAT_HALLS_PINS`); here the knobs-off plan is the reference the changed knobs and salts must leave alone.
+        const want = JSON.stringify(got);
         expect(got.halls.some((h) => h.feature)).toBe(false);
         const other = { ...ff, features: { ...ff.features, weights: { split: 5, pit: 0 }, threePercent: 99, deepPercent: [100] } };
         expect(JSON.stringify(planFloor(other, seed, floor, 0, boss, 3))).toBe(want);
@@ -1540,7 +1541,7 @@ describe('splits and pits (Stage 7c)', () => {
 
 describe('daises (Stage 7c)', () => {
   const bundled7c = loadTuningData();
-  const t7c = rooms7c(bundled7c);
+  const t7c = bundled7c;
   const f7c = t7c.delver.floor;
   const pairs = Array.from({ length: 200 }, (_, k) => ({ seed: k + 1, floor: 1 + (k % 9) }));
   const planned = pairs
@@ -1679,14 +1680,14 @@ describe('daises (Stage 7c)', () => {
   describe('on flatHalls', () => {
     const flat = flatHalls(bundled7c);
     const ff = flat.delver.floor;
-    it('plans the bundled tuning\'s Floors byte for byte, with no dais, and daisPercent\'s salts changed changing nothing', () => {
+    it('plans with the knobs off, no dais, and daisPercent\'s salts changed changing nothing', () => {
       const salts = SALT as unknown as Record<string, number>;
       const saved = { ...salts };
       for (const { seed, floor } of pairs.slice(0, 60)) {
         const boss = isBossFloor(bundled7c.delver, floor);
-        const want = JSON.stringify(planFloor(bundled7c.delver.floor, seed, floor, 0, boss));
         const got = planFloor(ff, seed, floor, 0, boss);
-        expect(JSON.stringify(got)).toBe(want);
+        // The shipped data has the knobs on now: 7b's bytes are pinned in golden.test.ts (`FLAT_HALLS_PINS`); here the knobs-off plan is the reference the changed knobs and salts must leave alone.
+        const want = JSON.stringify(got);
         expect(got.halls.some((h) => h.feature)).toBe(false);
         try {
           for (const key of ['dais', 'daisSide']) salts[key] = 9000 + salts[key]!;

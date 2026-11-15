@@ -6,7 +6,7 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
-import { flatRooms, plainHalls, rooms7c } from './flat.testdata';
+import { flatRooms, plainHalls } from './flat.testdata';
 import { isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
@@ -633,7 +633,7 @@ describe('the judge on Floors with shaped and pillared Halls (Stage 7b)', () => 
 });
 
 describe('the judge on Floors with vertical features and wrapped galleries (Stage 7c)', () => {
-  const t7 = rooms7c(bundled);
+  const t7 = bundled;
   const tc = t7.delver.floor;
   const size = t7.battle.field.size;
   const at2 = { ...t7, battle: { ...t7.battle, crowd: { ...t7.battle.crowd, flowCell: 2 } } };

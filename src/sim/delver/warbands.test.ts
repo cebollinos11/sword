@@ -521,6 +521,38 @@ describe('the Boss Warband', { timeout: TIMEOUT }, () => {
   });
 });
 
+describe('a throne post', { timeout: TIMEOUT }, () => {
+  const AWAY = { n: Math.PI, e: -Math.PI / 2, s: 0, w: Math.PI / 2 } as const;
+
+  it('faces away from its dais\'s wall, and the Boss Soldier is deployed on the dais', () => {
+    let seen = 0;
+    for (let seed = 1; seed <= 60 && seen < 3; seed++) {
+      const { plan, crowd, field } = deal(seed, 3);
+      const hall = plan.halls[plan.stairs]!;
+      const dais = hall.feature;
+      if (!plan.markers.boss || dais?.kind !== 'dais' || plan.markers.boss.y !== dais.y) continue;
+      seen++;
+      const post = warbandHomes(plan).posts[plan.markers.posts.length]!;
+      expect(post.facing).toBe(AWAY[dais.side]);
+      const q = crowd.warbands!.rank.indexOf(BOSS);
+      const boss = crowd.squad.indexOf(q);
+      expect(boss).toBeGreaterThanOrEqual(0);
+      expect(crowd.surface[boss]!).toBeGreaterThanOrEqual(0);
+      expect(field.arena.walk[crowd.surface[boss]!]!.id.startsWith(`WALK_hall${plan.stairs}-dais`)).toBe(true);
+      expect(crowd.squads.heading[q]).toBe(post.facing);
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('is a guard\'s facing when the Boss Hall has no dais', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const { plan } = deal(seed, 3);
+      if (plan.halls[plan.stairs]!.feature?.kind === 'dais') continue;
+      expect(FACINGS).toContain(warbandHomes(plan).posts[plan.markers.posts.length]!.facing);
+    }
+  });
+});
+
 describe('warbandsFit and rank', { timeout: TIMEOUT }, () => {
   const fitOf = (seed: number, floor: number) => {
     const { plan, crowd, t } = deal(seed, floor);

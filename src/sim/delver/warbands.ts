@@ -67,18 +67,28 @@ function deckFacing(plan: FloorPlan, hall: number, y: number): number | undefine
   return g.up === 'w' ? EAST : g.up === 's' ? NORTH : g.up === 'e' ? WEST : SOUTH;
 }
 
+/**
+ * The Boss post's facing: a throne (the Boss Hall's dais, with the post on it: `y` is the dais's) faces away from its wall, so the Boss and its guard
+ * stand on the dais facing the Hall (n: south, e: west, s: north, w: east); else a guard's, `guardFacing`.
+ */
+function bossFacing(plan: FloorPlan, hall: number, y: number): number {
+  const f = plan.halls[hall]!.feature;
+  if (f?.kind === 'dais' && f.y === y) return f.side === 'n' ? SOUTH : f.side === 'e' ? WEST : f.side === 's' ? NORTH : EAST;
+  return guardFacing(plan, hall);
+}
+
 const homes = new WeakMap<FloorPlan, WarbandHomes>();
 
 /**
  * The plan's homes (each post with its guard facing, each loop's points), derived once per plan and kept. Never state. A Boss Floor's
- * posts gain the Boss post last, at index `plan.markers.posts.length`: the Boss Hall's centre, facing as a guard of that Hall does.
+ * posts gain the Boss post last, at index `plan.markers.posts.length`: the Boss Hall's centre (its throne's post on a dais), facing as a guard of that Hall does, or away from the throne's wall.
  */
 export function warbandHomes(plan: FloorPlan): WarbandHomes {
   let kept = homes.get(plan);
   if (!kept) {
     const posts = plan.markers.posts.map((p) => ({ x: p.x, y: p.y, z: p.z, facing: deckFacing(plan, p.hall, p.y) ?? guardFacing(plan, p.hall) }));
     const boss = plan.markers.boss;
-    if (boss) posts.push({ x: boss.x, y: boss.y, z: boss.z, facing: guardFacing(plan, plan.stairs) });
+    if (boss) posts.push({ x: boss.x, y: boss.y, z: boss.z, facing: bossFacing(plan, plan.stairs, boss.y) });
     kept = {
       posts,
       patrols: plan.markers.patrols.map((loop) => loop.points.map((p) => ({ x: p.x, y: p.y, z: p.z }))),

@@ -3,7 +3,7 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, plainHalls, rooms7c } from './flat.testdata';
+import { flatHalls, flatRooms, plainHalls } from './flat.testdata';
 import { HALL_STOREY, hallBase } from './plan';
 
 describe('isFloorName', () => {
@@ -145,7 +145,7 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
 });
 
 describe('a Floor\'s source with vertical features and wrapped galleries (Stage 7c)', () => {
-  const tuning = rooms7c(loadTuningData());
+  const tuning = loadTuningData();
   let floors: DelverFloor[];
   beforeAll(() => {
     // Seeds 1 to 4 of Floors 1 to 3 (Floor 3 a Boss Floor): they hold every kind of feature and both wraps (asserted below).
@@ -286,7 +286,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
   });
 
   it('is byte for byte the old source with the 7c knobs off (`flatHalls`): no feature Brush, no wrap Deck', () => {
-    const flat = flatHalls(rooms7c(loadTuningData()));
+    const flat = flatHalls(loadTuningData());
     for (const [seed, floor] of [[1, 1], [2, 2], [3, 3]] as const) {
       const plan = planFloor(flat.delver.floor, seed, floor, 0, floor === 3);
       const source = floorSource(plan, flat.battle.field.size);

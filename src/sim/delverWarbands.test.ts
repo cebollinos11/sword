@@ -15,7 +15,7 @@ import { createMatch, doorTicksNeeded, stepMatch, takeOverFighter, type MatchSta
 import { restore, snapshot } from './snapshot';
 import type { FighterState } from './state';
 import { BOSS, CHASE, GUARD, PATROL } from './warband';
-import { flatFloors } from './delver/flat.testdata';
+import { flatFloors, flatHalls } from './delver/flat.testdata';
 
 const base = flatFloors(loadTuningData());
 /** Three Floors, one a tier (so Floor 1 is tier 1, Floor 2 tier 2, Floor 3 tier 3), with Warbands at the Tuning Data's own fill. */
@@ -411,8 +411,10 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
 
 describe("the Bubbles' Boss rule", { timeout: TIMEOUT }, () => {
   // `tuning` makes every Floor the last of its tier, so Floor 1 is a Boss Floor: its Boss Hall is the Stairs Hall.
-  const m = start(2);
-  const plan = planOf(m);
+  // On `flatHalls` (7b's Floors): the shipped data's throne stands the Boss Soldier on a dais, which these cases (flat ground, Players at y 0) are not about.
+  const flatT = flatHalls(tuning);
+  const m = start(2, flatT);
+  const plan = planOf2(m, flatT);
   const hall = plan.halls[plan.stairs]!;
   const hold = (fighters = m.duel.fighters, away?: readonly number[]) => bossHold(plan, m.duel.crowd!, fighters, m.config, away);
   const standing = (i: number, x: number, z: number, hp?: number) => m.duel.fighters.map((f, k) => (k === i ? { ...f, position: { x, z }, y: 0, ...(hp === undefined ? {} : { hp }) } : f));
@@ -456,7 +458,8 @@ describe("the Bubbles' Boss rule", { timeout: TIMEOUT }, () => {
   it('is passed to the Bubbles by a stepped Floor: the Boss Soldier stood beside a Player in the Boss Hall is promoted', () => {
     const c = m.duel.crowd!;
     const boss = bossHold(plan, c, m.duel.fighters, m.config)!.soldier;
-    const next = tick(put(edit(m, (x) => ({ ...x, x: x.x.map((v, i) => (i === boss ? hall.cx + 1 : v)), z: x.z.map((v, i) => (i === boss ? hall.cz : v)) })), 0, hall.cx, hall.cz));
+    const moved = put(edit(m, (x) => ({ ...x, x: x.x.map((v, i) => (i === boss ? hall.cx + 1 : v)), z: x.z.map((v, i) => (i === boss ? hall.cz : v)) })), 0, hall.cx, hall.cz);
+    const next = stepMatch(moved, idle(moved), flatT);
     expect(next.duel.crowd!.slot[boss]).toBeGreaterThanOrEqual(0);
   });
 });

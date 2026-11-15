@@ -167,3 +167,29 @@ describe('revealPlace on shaped Halls (Stage 7b)', () => {
     expect(found).toBeGreaterThan(0);
   });
 });
+
+describe('revealPlace on a Hall\'s floor parts (Stage 7c)', () => {
+  const real = loadTuningData();
+  it('gives the Hall for a point on a main tier, an outer tier, a pit\'s floor, its rim and a dais', () => {
+    const seen = new Set<string>();
+    const mid = (r: { x0: number; z0: number; x1: number; z1: number }) => ({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2 });
+    for (let seed = 1; seed <= 30; seed++) {
+      for (const floor of [1, 2, 4, 5]) {
+        const p = floorOf(real, floorArenaName(seed, floor))!.plan;
+        p.halls.forEach((h, i) => {
+          const f = h.feature;
+          if (!f) return;
+          const parts: { name: string; x: number; z: number }[] = [];
+          if (f.kind === 'split') f.tiers.forEach((q) => parts.push({ name: q.y === h.y ? 'main' : 'outer', ...mid(q.rect) }));
+          else if (f.kind === 'pit') parts.push({ name: 'pit', ...mid(f.pit) }, { name: 'rim', ...mid(f.rims[0]!) });
+          else parts.push({ name: 'dais', ...mid(f.rect) });
+          for (const q of parts) {
+            expect(revealPlace(p, q.x, q.z), `${q.name} of hall${i}`).toBe(i);
+            seen.add(q.name);
+          }
+        });
+      }
+    }
+    expect([...seen].sort()).toEqual(['dais', 'main', 'outer', 'pit', 'rim']);
+  }, 120_000);
+});
