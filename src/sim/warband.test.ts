@@ -8,7 +8,7 @@ import { stepCrowd, walkDistance, walkField, type CrowdFighter, type CrowdState 
 import { battleMapOf, clearanceAt, fieldDistance, fieldToward, inSight, oneField } from './destinations';
 import { brainTicks, COLUMN, LOOSE, stepWarbands, warbandBrain } from '.';
 import { CHASE, GUARD, PATROL, RETURN, type WarbandState } from './warband';
-import { flatFloors, flatRooms } from './delver/flat.testdata';
+import { flatFloors, flatRooms, fullFloors } from './delver/flat.testdata';
 
 const tuning = flatFloors(flatRooms(loadTuningData()));
 const TIMEOUT = 120_000;
@@ -387,7 +387,7 @@ describe('regrouping', { timeout: TIMEOUT }, () => {
 describe('a Soldier cut off', { timeout: TIMEOUT }, () => {
   it("a patrol cut in two across levels (the soak's Run 31337, Floor 2: one Soldier dropped off hall0's wrapped Deck onto the floor under it, the other gone on along pass2 a level up) leads the one ahead back to its anchor: the two regroup and the patrol walks on; led by its loop point's field instead, they stay apart", () => {
     // The bundled Tuning (Stage 7c's Floors): hall0 is a stairwell whose Deck wraps round two corners, pass2 leaving by its raised south door.
-    const s = scene(31337, 2, 1, {}, loadTuningData());
+    const s = scene(31337, 2, 1, {}, fullFloors(loadTuningData()));
     const hall = s.plan.halls[0]!;
     expect(hall.gallery?.wrap?.walls).toEqual(['s', 'e']);
     const q = firstOf(s.crowd, PATROL);
@@ -441,7 +441,7 @@ describe('a Soldier cut off', { timeout: TIMEOUT }, () => {
 
 describe("a field's way along a Deck", { timeout: TIMEOUT }, () => {
   it("a Soldier, and an anchor, led along a wrapped Deck round its inner corner stay on the Deck (the soak's Run 31337, Floor 2, hall0: deck0 at (12.87, 11.23) toward deck1), never dropping to the floor under it", () => {
-    const s = scene(31337, 2, 1, {}, loadTuningData());
+    const s = scene(31337, 2, 1, {}, fullFloors(loadTuningData()));
     const arena = s.field.arena;
     const id = (k: number) => arena.walk[k]!.id;
     expect(s.plan.halls[0]!.gallery?.wrap?.walls).toEqual(['s', 'e']);

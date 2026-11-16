@@ -11,8 +11,10 @@ import { arenaTuning, floorOf, warbandPools, warbandsFit } from '../sim/delver';
 import type { CrowdState } from '../sim';
 import { PATROL } from '../sim/warband';
 import { MAX_FLOOR_TROOPS, parseNetMessage, PROTOCOL_VERSION } from './messages';
+import { fullFloors } from '../sim/delver/flat.testdata';
 
-const tuning = loadTuningData();
+// Full-length Floors (`fullFloors`, issue #135's tierRooms off): the cases below are written against 20-Hall Floors.
+const tuning = fullFloors(loadTuningData());
 const RUN = 'gen:greybox:4242';
 const lineup: Lineup = [
   { team: 0, pilot: { kind: 'Player', player: 0 } },

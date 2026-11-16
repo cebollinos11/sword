@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mapFileText } from '../../mapEditor/compile';
 import { loadTuningData } from '../../tuning';
 import { hashValue } from '../hash';
-import { flatFloors, flatHalls, flatRooms, plainHalls } from './flat.testdata';
+import { flatFloors, flatHalls, flatRooms, fullFloors, plainHalls } from './flat.testdata';
 import { delverFloor } from './index';
 
 /**
@@ -32,7 +32,10 @@ const FLAT_HALLS_PINS: readonly { seed: number; floor: number; hash: string; pla
 ];
 
 
-/** The default Tuning's Floors (Stage 7c: splits, pits, daises and wrapped galleries on 7b's shaped, pillared Halls; `DELVER_VERSION` 8). */
+/**
+ * `fullFloors(tuning)` (every Floor 20 Halls, issue #135's `tierRooms` off): Stage 7c's default pins exactly (`DELVER_VERSION` 8), so a full-length
+ * Floor is byte for byte what it was. Floor 9 is the default Tuning's own (its tier is full length); the shorter tiers are pinned in `TIER_PINS`.
+ */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
   { seed: 1, floor: 1, hash: '6f786c9c', plan: 'f22f0e37', attempts: 1 },
   { seed: 1, floor: 3, hash: '2e1b9583', plan: '50dd4e74', attempts: 1 },
@@ -46,6 +49,26 @@ const PINS: readonly { seed: number; floor: number; hash: string; plan: string; 
   { seed: 4294967295, floor: 1, hash: 'd078403a', plan: '3a8093a2', attempts: 1 },
   { seed: 4294967295, floor: 3, hash: '74236780', plan: '4f63fac9', attempts: 1 },
   { seed: 4294967295, floor: 9, hash: 'f7fb497e', plan: '218b7ec6', attempts: 1 },
+];
+
+/** The default Tuning's shorter Floors (issue #135, `DELVER_VERSION` 9): tier 1's 7 Halls (Floors 1 and 3) and tier 2's 10 (Floors 4 and 6). */
+const TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
+  { seed: 1, floor: 1, hash: '52f35721', plan: 'b6a5ecd3', attempts: 1 },
+  { seed: 1, floor: 3, hash: '2a4af827', plan: 'a0ab94f9', attempts: 1 },
+  { seed: 1, floor: 4, hash: 'd2d3b083', plan: '891a1ef5', attempts: 1 },
+  { seed: 1, floor: 6, hash: '39bfa5ad', plan: 'c4f030cb', attempts: 1 },
+  { seed: 7, floor: 1, hash: 'b7d3ed97', plan: '00b8a0c0', attempts: 1 },
+  { seed: 7, floor: 3, hash: 'a73ee9dc', plan: '237eea16', attempts: 2 },
+  { seed: 7, floor: 4, hash: 'c55c2f72', plan: 'b1d0d7fa', attempts: 1 },
+  { seed: 7, floor: 6, hash: '73a92200', plan: '186555fa', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '87988241', plan: '108dc545', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '20fce30a', plan: '410bae72', attempts: 1 },
+  { seed: 123456789, floor: 4, hash: '4cf4b24c', plan: '257d05e7', attempts: 1 },
+  { seed: 123456789, floor: 6, hash: 'ae58c4ed', plan: '08d220b8', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '6c744101', plan: '86e0b88d', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '86cffbd3', plan: '6531fb8b', attempts: 1 },
+  { seed: 4294967295, floor: 4, hash: 'd19abd01', plan: '8d290682', attempts: 1 },
+  { seed: 4294967295, floor: 6, hash: '554073fb', plan: '6022c21d', attempts: 1 },
 ];
 
 /**
@@ -130,10 +153,12 @@ const HOLDS: Record<string, { split: boolean; pit: boolean; dais: boolean; wrapp
 };
 
 describe('golden Delver Floors', () => {
+  const full = fullFloors(tuning);
   for (const { seed, floor, hash, plan, attempts } of PINS) {
-    it(`seed ${seed}, Floor ${floor}: same bytes twice, passes the judge, map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s)`, () => {
-      const a = delverFloor(tuning, seed, floor);
-      const b = delverFloor(tuning, seed, floor);
+    it(`fullFloors Tuning, seed ${seed}, Floor ${floor}: same bytes twice, passes the judge, map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s)`, () => {
+      const a = delverFloor(full, seed, floor);
+      const b = delverFloor(full, seed, floor);
+      if (floor === 9) expect(mapFileText(delverFloor(tuning, seed, floor).map)).toBe(mapFileText(a.map));
       expect(mapFileText(a.map)).toBe(mapFileText(b.map));
       expect(a.judgement).toEqual({ ok: true, reasons: [] });
       expect(JSON.stringify(a.plan)).toBe(JSON.stringify(b.plan));
@@ -155,6 +180,17 @@ describe('golden Delver Floors', () => {
         shaped: a.plan.halls.some((h) => h.solids.length > 0),
         pillared: a.plan.halls.some((h) => h.pillars.length > 0),
       }).toEqual(HOLDS[`${seed}/${floor}`]);
+    });
+  }
+
+  for (const { seed, floor, hash, plan, attempts } of TIER_PINS) {
+    it(`seed ${seed}, Floor ${floor}: ${tuning.delver.tierRooms![Math.ceil(floor / 3) - 1]} Halls, same bytes twice, passes the judge, map hash ${hash} and plan hash ${plan} after ${attempts} attempt(s)`, () => {
+      const a = delverFloor(tuning, seed, floor);
+      expect(mapFileText(delverFloor(tuning, seed, floor).map)).toBe(mapFileText(a.map));
+      expect(a.judgement).toEqual({ ok: true, reasons: [] });
+      expect(a.plan.halls.length).toBe(tuning.delver.tierRooms![Math.ceil(floor / 3) - 1]);
+      expect(a.plan.halls[a.plan.stairs]!.kind).toBe(floor % 3 === 0 ? 'Boss' : 'Stairs');
+      expect({ hash: hashValue(mapFileText(a.map)), plan: hashValue(JSON.stringify(a.plan)), attempts: a.attempts }).toEqual({ hash, plan, attempts });
     });
   }
 

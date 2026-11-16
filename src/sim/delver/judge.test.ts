@@ -6,13 +6,14 @@ import { arenaOf, deadly, surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { floorNear } from '../levels';
 import { navMesh, SHORTCUT_RISE, type JumpLink } from '../nav';
-import { flatRooms, plainHalls } from './flat.testdata';
+import { flatRooms, fullFloors, plainHalls } from './flat.testdata';
 import { isBossFloor, tierOf } from './troops';
 import { arenaTuning, floorArenaName } from './world';
 import { buildFloor, buildFromSource, delverFloor, describeFloor, judgeAttempt, judgeBuilt, judgeFields, judgeFloor, judgePlan, planFloor, type BuiltFloor, type DelverFloor, type FloorPlan } from './index';
 
 /** The data as shipped (7a's Floors); the cases written before 7a run on `tuning`, Stage 6's lattice with the 7a knobs off (`flatRooms`). */
-const bundled = loadTuningData();
+// Full-length Floors (`fullFloors`, issue #135's tierRooms off): the cases below are written against 20-Hall Floors.
+const bundled = fullFloors(loadTuningData());
 const tuning = flatRooms(bundled);
 const t = tuning.delver.floor;
 

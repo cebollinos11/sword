@@ -3,7 +3,7 @@ import { enclosureTop, type Brush } from '../../mapEditor/source';
 import { loadTuningData } from '../../tuning';
 import { buildFloor, delverFloor, floorName, isFloorName, pieceId, planFloor, floorSource, type DelverFloor, type DelverPassage } from './index';
 import { checkMap } from '../../mapEditor/checks';
-import { flatHalls, flatRooms, plainHalls } from './flat.testdata';
+import { flatHalls, flatRooms, fullFloors, plainHalls } from './flat.testdata';
 import { HALL_STOREY, hallBase } from './plan';
 
 describe('isFloorName', () => {
@@ -17,7 +17,7 @@ describe('isFloorName', () => {
 });
 
 describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
-  const tuning = loadTuningData();
+  const tuning = fullFloors(loadTuningData());
   let floors: DelverFloor[];
   beforeAll(() => {
     floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1));
@@ -88,7 +88,7 @@ describe('a Floor\'s source with turning Passages (Stage 7a)', () => {
 });
 
 describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
-  const tuning = loadTuningData();
+  const tuning = fullFloors(loadTuningData());
   let floors: DelverFloor[];
   beforeAll(() => {
     floors = [1, 2, 3, 4, 5, 6].map((seed) => delverFloor(tuning, seed, 1 + (seed % 3)));
@@ -129,7 +129,7 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
   });
 
   it('writes no Block, and the same bytes as the bundled data\'s, with the 7b knobs off (`plainHalls`)', () => {
-    const bundled = loadTuningData();
+    const bundled = fullFloors(loadTuningData());
     const plain = plainHalls(bundled);
     for (const [seed, floor] of [[1, 1], [2, 2], [3, 3]] as const) {
       const a = floorSource(planFloor(plain.delver.floor, seed, floor, 0, floor === 3), plain.battle.field.size);
@@ -145,7 +145,7 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
 });
 
 describe('a Floor\'s source with vertical features and wrapped galleries (Stage 7c)', () => {
-  const tuning = loadTuningData();
+  const tuning = fullFloors(loadTuningData());
   let floors: DelverFloor[];
   beforeAll(() => {
     // Seeds 1 to 4 of Floors 1 to 3 (Floor 3 a Boss Floor): they hold every kind of feature and both wraps (asserted below).
