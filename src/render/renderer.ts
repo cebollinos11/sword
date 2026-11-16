@@ -182,7 +182,8 @@ export class Renderer {
   recast(): void {
     for (const slot of this.views) if (slot) this.drop(slot.view);
     this.views.length = 0;
-    for (const swing of this.swings) swing.reset();
+    // Sparse (only Fighters that drew a flail have one); the next Match makes them afresh.
+    this.swings.length = 0;
   }
 
   /** Take a Fighter's view out of the scene and free what it made (its materials, and the pieces of a cut Body). */
