@@ -439,6 +439,61 @@ describe('a Soldier cut off', { timeout: TIMEOUT }, () => {
   });
 });
 
+describe("a field's way along a Deck", { timeout: TIMEOUT }, () => {
+  it("a Soldier, and an anchor, led along a wrapped Deck round its inner corner stay on the Deck (the soak's Run 31337, Floor 2, hall0: deck0 at (12.87, 11.23) toward deck1), never dropping to the floor under it", () => {
+    const s = scene(31337, 2, 1, {}, loadTuningData());
+    const arena = s.field.arena;
+    const id = (k: number) => arena.walk[k]!.id;
+    expect(s.plan.halls[0]!.gallery?.wrap?.walls).toEqual(['s', 'e']);
+    const q = firstOf(s.crowd, PATROL);
+    const [near, far, ...rest] = members(s.crowd, q) as number[];
+    let crowd = s.crowd;
+    for (const i of rest) crowd = kill(crowd, i!);
+    // The anchor and one Soldier in pass2 beyond the raised door, heading on south; the other on deck0 at the L's inner corner (13, 11).
+    const pass = { x: 18, z: 1, s: groundOf(s.battle, s.field, 18, 1, 8) };
+    const deck = { x: 12.87, z: 11.23, s: groundOf(s.battle, s.field, 12.87, 11.23, 8) };
+    expect([id(pass.s), id(deck.s)]).toEqual(['WALK_pass2_0', 'WALK_hall0-deck_0']);
+    const put = (a: readonly number[], v: { near: number; far: number }) => a.map((u, k) => (k === near ? v.near : k === far ? v.far : u));
+    const set = (a: readonly number[], v: number) => a.map((u, k) => (k === q ? v : u));
+    const w = crowd.warbands!;
+    crowd = {
+      ...crowd,
+      x: put(crowd.x, { near: pass.x, far: deck.x }),
+      z: put(crowd.z, { near: pass.z, far: deck.z }),
+      surface: put(crowd.surface, { near: pass.s, far: deck.s }),
+      squads: { ...crowd.squads, x: set(crowd.squads.x, pass.x), z: set(crowd.squads.z, pass.z), surface: set(crowd.squads.surface, pass.s), heading: set(crowd.squads.heading, Math.PI), aim: set(crowd.squads.aim, Math.PI), living: set(crowd.squads.living, 2) },
+      warbands: { ...w, mode: set(w.mode, PATROL), patrol: set(w.patrol, 0), leg: set(w.leg, 5), size: set(w.size, 2) },
+    };
+    const where: string[] = [];
+    advance(s, crowd, 1, 3 * 60, () => [], (c) => {
+      const on = id(c.surface[far!]!);
+      if (where[where.length - 1] !== on) where.push(on);
+    });
+    console.log(`A field's way along a Deck: ${s.name}, W${q}: the Soldier from deck0 at (12.87, 11.23) stood on ${where.join(', ')} over 3 s`);
+    expect(where).not.toContain('WALK_hall0_0');
+    expect(where.length).toBeGreaterThan(1);
+    // The anchor itself on deck0 at the corner, heading for the deck1 node (both Soldiers with it), stays on the Decks too.
+    const at = { x: 12.8, z: 11.3, s: groundOf(s.battle, s.field, 12.8, 11.3, 8) };
+    expect(id(at.s)).toBe('WALK_hall0-deck_0');
+    const turn = Math.atan2(14 - at.x, 10 - at.z);
+    const withAnchor: CrowdState = {
+      ...crowd,
+      x: put(crowd.x, { near: at.x + 0.1, far: at.x - 0.6 }),
+      z: put(crowd.z, { near: at.z - 0.1, far: at.z + 0.7 }),
+      surface: put(crowd.surface, { near: at.s, far: at.s }),
+      squads: { ...crowd.squads, x: set(crowd.squads.x, at.x), z: set(crowd.squads.z, at.z), surface: set(crowd.squads.surface, at.s), heading: set(crowd.squads.heading, turn), aim: set(crowd.squads.aim, turn) },
+    };
+    const anchorOn: string[] = [];
+    advance(s, withAnchor, 1, 3 * 60, () => [], (c) => {
+      const on = id(c.squads.surface[q]!);
+      if (anchorOn[anchorOn.length - 1] !== on) anchorOn.push(on);
+    });
+    console.log(`  the anchor from deck0 at (12.8, 11.3) stood on ${anchorOn.join(', ')} over 3 s`);
+    expect(anchorOn).not.toContain('WALK_hall0_0');
+    expect(anchorOn).toContain('WALK_hall0-deck1_0');
+  });
+});
+
 describe('morale and wiping', { timeout: TIMEOUT }, () => {
   it('a chasing Warband killed below the threshold returns loose, falling back, and then guards', () => {
     const s = scene(1, 1, 1, {}, bigWarbands);

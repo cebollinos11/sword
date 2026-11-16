@@ -31,7 +31,7 @@ import { deployLayout, squadSizes, type BattleTuning } from '../tuning';
 import { secondsToTicks, TICK_SECONDS } from './constants';
 import type { CrowdFighter, CrowdState } from './crowd';
 import { groundOf, inBlock, pushOutOfBlocks, soldierHeight } from './battlefield';
-import { clearanceAt, clearanceBelow, inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
+import { clearanceAt, clearanceBelow, fieldDistance, inSight, steerToward, type BattleMap, type DestinationFields } from './destinations';
 import { onSurface } from './arena';
 import { sameLevel, trace, walkTo } from './levels';
 import { respawnTicks } from './objectives';
@@ -462,9 +462,11 @@ export function closeRanks(members: readonly number[], crowd: Pick<CrowdState, '
 /**
  * Every anchor turns toward its aim (at `squad.turnRate`) and walks at its speed, on the field and out of a map's blocks (sliding along one it
  * walks into), onto the Walk Surface it walks onto. Writes `heading`, `x`, `z` and `surface` in place (the caller's copies); `team` is each
- * Squad's Team.
+ * Squad's Team. `follows` (a Floor's Warbands) gives the destination field an anchor walks by, or null: such an anchor drops off a ledge only
+ * where that field leads down (the way left from where it lands is shorter than from where it stands), and else walks the step without dropping,
+ * sliding along the edge; an anchor with no field (every Battle Squad) drops as the walk rule lets it.
  */
-export function walkAnchors(battle: BattleTuning, map: BattleMap, team: readonly number[], x: number[], z: number[], heading: number[], surface: number[], aim: readonly number[], speed: readonly number[]): void {
+export function walkAnchors(battle: BattleTuning, map: BattleMap, team: readonly number[], x: number[], z: number[], heading: number[], surface: number[], aim: readonly number[], speed: readonly number[], follows?: (q: number) => DestinationFields | null): void {
   const p = battle.squad;
   const field = map.field;
   const layered = field.layered;
@@ -483,7 +485,18 @@ export function walkAnchors(battle: BattleTuning, map: BattleMap, team: readonly
     if (pushOutOfBlocks(map.field, x[q]!, z[q]!, battle.crowd.separation / 2, team[q]!, pushed, fromX, fromZ)) [x[q], z[q]] = pushed;
     // Onto the Walk Surface it walks onto (Stage 4a): by the walk rule where there are levels, else the floor under it.
     if (layered) {
-      surface[q] = walkTo(field.arena, lv, surface[q]!, fromX, fromZ, x[q]!, z[q]!, pushed);
+      const from = surface[q]!;
+      const toX = x[q]!;
+      const toZ = z[q]!;
+      let on = walkTo(field.arena, lv, from, fromX, fromZ, toX, toZ, pushed);
+      // The field leads along a level: an anchor cutting past a Deck's corner off its node's line walks on without dropping.
+      const led = on !== from ? follows?.(q) : null;
+      if (led && soldierHeight(field, on, pushed[0], pushed[1]) < soldierHeight(field, from, fromX, fromZ) - lv.stepUp) {
+        const here = fieldDistance(led, 0, fromX, fromZ, from);
+        const there = fieldDistance(led, 0, pushed[0], pushed[1], on);
+        if (!(there >= 0 && (here < 0 || there < here))) on = walkTo(field.arena, lv, from, fromX, fromZ, toX, toZ, pushed, false);
+      }
+      surface[q] = on;
       [x[q], z[q]] = pushed;
     } else if (field.heights.walk && (surface[q]! < 0 || !onSurface(field.arena, surface[q]!, x[q]!, z[q]!))) {
       const on = groundOf(battle, field, x[q]!, z[q]!);

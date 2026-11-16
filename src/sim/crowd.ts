@@ -735,6 +735,9 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     // Whether this step may drop off a ledge (Stage 4a): only one that follows a destination field (whose joins drop) or has no place to keep
     // (a free agent, a fleeing Soldier); a crowd's push never shoves a Soldier off a deck.
     let mayDrop = sq < 0 || fleeing;
+    /** The destination field (and its destination) this step follows, when it follows one: it may drop only where that field leads down. */
+    let ledBy: DestinationFields | null = null;
+    let ledTo = 0;
     const ring = ringed && !fleeing && ringOf[i]! >= 0 && !(best >= 0 && bestD <= reach2) ? fighters[ringOf[i]!]! : null;
     if (ring) {
       // Waiting for an Attack Slot: walk to its spot on the ring, arriving there, facing the Player's Fighter. A spot more
@@ -810,10 +813,15 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
         if (!reached) {
           // Never at a cell centre on a wall's face when there is another way down; down the field as it is when there is not.
           const led = lead?.(sq);
-          if (led) way = descend(led, 0, xi, zi, own, p.separation / 2, si) ?? descend(led, 0, xi, zi, own, 0, si);
-          else {
+          if (led) {
+            way = descend(led, 0, xi, zi, own, p.separation / 2, si) ?? descend(led, 0, xi, zi, own, 0, si);
+            [ledBy, ledTo] = [led, 0];
+          } else {
             const d = toward(map.fields, xi, zi, ax, az, own, si, squads.surface[sq]);
-            if (d >= 0) way = descend(map.fields, d, xi, zi, own, p.separation / 2, si) ?? descend(map.fields, d, xi, zi, own, 0, si);
+            if (d >= 0) {
+              way = descend(map.fields, d, xi, zi, own, p.separation / 2, si) ?? descend(map.fields, d, xi, zi, own, 0, si);
+              [ledBy, ledTo] = [map.fields, d];
+            }
           }
         }
       }
@@ -911,7 +919,17 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     if (pushOutOfBlocks(map.field, nx, nz, p.separation / 2, own, pushed, xi, zi)) [nx, nz] = pushed;
     // Onto the Walk Surface it walks (or drops) onto, stopped (sliding) where it cannot (Stage 4a); on one level, the floor under it.
     if (layered) {
-      surface[i] = walkTo(field.arena, lv, crowd.surface[i]!, xi, zi, nx, nz, stood, mayDrop);
+      const si = crowd.surface[i]!;
+      let on = walkTo(field.arena, lv, si, xi, zi, nx, nz, stood, mayDrop);
+      // A step down a destination field: the field leads along a level, and a Soldier only drops off a ledge where the field leads down (the way
+      // left from where it lands is shorter than from where it stands). Else, cutting past a Deck's corner off its node's line, it walks the step
+      // without dropping, sliding along the edge.
+      if (ledBy !== null && mayDrop && !fleeing && sq >= 0 && on !== si && soldierHeight(field, on, stood[0], stood[1]) < soldierHeight(field, si, xi, zi) - lv.stepUp) {
+        const here = fieldDistance(ledBy, ledTo, xi, zi, si);
+        const there = fieldDistance(ledBy, ledTo, stood[0], stood[1], on);
+        if (!(there >= 0 && (here < 0 || there < here))) on = walkTo(field.arena, lv, si, xi, zi, nx, nz, stood, false);
+      }
+      surface[i] = on;
       [nx, nz] = stood;
     } else if (field.heights.walk && (surface[i]! < 0 || !onSurface(field.arena, surface[i]!, nx, nz))) {
       const on = groundOf(battle, field, nx, nz);

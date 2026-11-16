@@ -338,7 +338,23 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
     });
   }
 
-  walkAnchors(battle, map, old.team, x, z, heading, surface, aim, speed);
+  /** The field Warband q's anchor walks by, by its mode: its loop point's, its quarry's, else its home's (null once wiped). */
+  const goalOf = (q: number): DestinationFields | null => {
+    if (living[q] === 0) return null;
+    if (mode[q] === PATROL) {
+      const pt = homes.patrols[w.patrol[q]!]![leg[q]!]!;
+      return fieldAt(pt.x, pt.z, pt.y).dest;
+    }
+    if (mode[q] === CHASE) {
+      const f = partyOf(chased[q]!);
+      if (f) return walkField(battle, map, f.x, f.z, f.y ?? 0);
+    }
+    const home = homeOf(q);
+    return fieldAt(home.x, home.z, home.y).dest;
+  };
+
+  // An anchor drops off a ledge only where the field it walks by leads down.
+  walkAnchors(battle, map, old.team, x, z, heading, surface, aim, speed, goalOf);
 
   // The field each anchor follows, derived from the state again every Tick: the home field while it stands (null once wiped), found only for a Squad asked.
   const kept: (DestinationFields | null | undefined)[] = new Array(m);
@@ -366,16 +382,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
     if (living[q] === 0) return null;
     // Its Soldiers lag: the field to its anchor, so one cut off walks back to the rest (a home's or a quarry's field would lead it on alone).
     if (lags(q)) return walkField(battle, map, x[q]!, z[q]!, soldierHeight(field, surface[q]!, x[q]!, z[q]!));
-    if (mode[q] === PATROL) {
-      const pt = homes.patrols[w.patrol[q]!]![leg[q]!]!;
-      return fieldAt(pt.x, pt.z, pt.y).dest;
-    }
-    if (mode[q] === CHASE) {
-      const f = partyOf(chased[q]!);
-      if (f) return walkField(battle, map, f.x, f.z, f.y ?? 0);
-    }
-    const home = homeOf(q);
-    return fieldAt(home.x, home.z, home.y).dest;
+    return goalOf(q);
   };
   const lead = (q: number): DestinationFields | null => (kept[q] === undefined ? (kept[q] = leadOf(q)) : kept[q]!);
 
