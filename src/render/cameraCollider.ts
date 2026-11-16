@@ -5,7 +5,7 @@ import type { ArenaGeometry } from '../tuning';
 const MIN_WALL_HEIGHT = 1.5;
 /**
  * How far off what it hit the camera stops (m), measured square to the face it hit: clear of a Wall drawn 0.6 m thick round its line
- * (a Map Editor map's, a Delver Floor's: `mapModel`), plus the camera's near plane.
+ * (a Map Editor map's Wall Brush: `mapModel`; an Enclosure's, a Delver Floor's Halls and Passages, is drawn outside its line), plus the camera's near plane.
  */
 const MARGIN = 0.45;
 /** The shallowest angle's cosine the margin is scaled by, so a glancing hit does not pull the camera all the way in. */

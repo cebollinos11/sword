@@ -14,7 +14,9 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { DraftMap } from '../mapEditor/compile';
 import { surfaceHeight, surfacesAt } from '../sim';
 import { brushLook, groundOf, HAZARD_LOOKS, MAP_MODEL_ROOT, MATERIAL_LOOKS, materialOf, type MaterialLook } from '../mapEditor/look';
-import type { Brush, MapSource, RampBrush } from '../mapEditor/source';
+import { enclosureTop, type Brush, type EnclosureBrush, type MapSource, type RampBrush } from '../mapEditor/source';
+import type { Vec2 } from '../sim';
+import type { WallSegment } from '../tuning';
 import { MeshBuckets } from './meshBuckets';
 import { placeProps } from './mapProps';
 
@@ -58,6 +60,41 @@ const isSkirt = (id: string, ramp: string): boolean => new RegExp(`^WALL_${ramp}
 
 /** Whether the floor at `y` that Brush `b` lays is drawn as a slab over open space: a Deck's, and an Enclosure's roof. */
 const isSlab = (b: Brush, y: number): boolean => b.kind === 'deck' || (b.kind === 'enclosure' && y > b.y + LEVEL_EPS);
+
+/**
+ * Where an Enclosure's Wall `w` is drawn, `thick` thick: wholly outside its rect, its inner face on the Wall's line, so a body (which the
+ * Simulation keeps a radius off the line) and the camera stop at the face seen rather than inside a slab centred on the line. Stretched
+ * past each end on a corner of the rect by the thickness, so two sides meeting there close the corner outside. Null (centred on its line,
+ * as any other Wall) when another Enclosure stands on the far side of it within its height: the Wall is both rooms', its slab between them.
+ */
+function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, thick: number): { a: Vec2; b: Vec2 } | null {
+  const { x0, z0, x1, z1 } = b.rect;
+  const onX = Math.abs(w.a.x - w.b.x) < LEVEL_EPS;
+  const line = onX ? w.a.x : w.a.z;
+  const [lo, hi] = onX ? [x0, x1] : [z0, z1];
+  // Out of the rect: away from its far side.
+  const sign = Math.abs(line - hi) < Math.abs(line - lo) ? 1 : -1;
+  const mid = { x: (w.a.x + w.b.x) / 2, z: (w.a.z + w.b.z) / 2 };
+  const probe = onX ? { x: line + sign * LEVEL_EPS, z: mid.z } : { x: mid.x, z: line + sign * LEVEL_EPS };
+  const shared = source.brushes.some((o) => {
+    if (o === b || o.kind !== 'enclosure') return false;
+    const r = o.rect;
+    if (probe.x <= r.x0 || probe.x >= r.x1 || probe.z <= r.z0 || probe.z >= r.z1) return false;
+    const top = enclosureTop(o, source.levels) ?? o.y;
+    return o.y - LEVEL_EPS < w.top && top + LEVEL_EPS > w.bottom;
+  });
+  if (shared) return null;
+  const [along0, along1] = onX ? [z0, z1] : [x0, x1];
+  const off = (sign * thick) / 2;
+  const end = (p: Vec2, dir: number): Vec2 => {
+    const t = onX ? p.z : p.x;
+    const stretch = Math.abs(t - along0) < LEVEL_EPS || Math.abs(t - along1) < LEVEL_EPS ? dir * thick : 0;
+    return onX ? { x: p.x + off, z: p.z + stretch } : { x: p.x + stretch, z: p.z + off };
+  };
+  // Each end stretched away from the other.
+  const forward = Math.sign(onX ? w.b.z - w.a.z : w.b.x - w.a.x) || 1;
+  return { a: end(w.a, -forward), b: end(w.b, forward) };
+}
 
 /** The model of `source` as compiled (`draft`, from `compileDraft(source, …)`): a group of one mesh per material, the torches' lights, and its sky. */
 export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
@@ -133,7 +170,9 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     if (!owner) return;
     if (owner.kind === 'ramp' && isSkirt(w.id, owner.id)) return;
     const thick = owner.kind === 'wall' || owner.kind === 'enclosure' ? THICKNESS.wall : owner.kind === 'rail' || owner.kind === 'ramp' ? THICKNESS.rail : THICKNESS.face;
-    buckets.slab(lookOf(id), w.a, w.b, w.bottom, w.top, thick);
+    const out = owner.kind === 'enclosure' ? outsideEnclosure(owner, w, source, thick) : null;
+    if (out) buckets.slab(lookOf(id), out.a, out.b, w.bottom, w.top, thick);
+    else buckets.slab(lookOf(id), w.a, w.b, w.bottom, w.top, thick);
   });
 
   for (const b of source.brushes) {
