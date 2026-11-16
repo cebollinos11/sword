@@ -9,14 +9,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TuningData } from '../tuning';
 import { CHECKSUM_INTERVAL } from './session';
 import { startRun } from './coopHarness';
+import { flatHalls } from '../sim/delver/flat.testdata';
 
 afterEach(() => vi.restoreAllMocks());
 
 // No Boss (docs/plans/delver.md, Stage 4, Design §10): Floor 2 would be a Boss Floor, and this test checks the netcode on the Floors as Stage 3 had them.
-const TWO_FLOORS = (t: TuningData): TuningData => ({
-  ...t,
-  delver: { ...t.delver, tiers: 1, floorsPerTier: 2, warbands: t.delver.warbands.map(({ boss: _boss, ...tier }) => tier) },
-});
+// On `flatHalls` (Stage 7b's Halls, docs/plans/delver.md Stage 7c §9): on 7c's Floors the two pilots do not reach Floor 2's Stairs within the cap; a longer walk, not the netcode.
+const TWO_FLOORS = (t0: TuningData): TuningData => {
+  const t = flatHalls(t0);
+  return { ...t, delver: { ...t.delver, tiers: 1, floorsPerTier: 2, warbands: t.delver.warbands.map(({ boss: _boss, ...tier }) => tier) } };
+};
 /**
  * The Warbands case's Floors: a quarter of the posts filled (`postFill` 25, `patrolFill` as bundled). Two pilots with no AI allies against Warbands sized
  * for two humans lose by attrition on the full Floor (the Warband soak); that is balance, a playtest question, not the netcode this test checks.
