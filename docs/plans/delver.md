@@ -1,6 +1,6 @@
 # Delver: the Run as one continuous dungeon per Floor
 
-> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) runs in sub-stages 7a to 7e. Stage 7a done (2026-11-14): Halls 14 to 28 m on a coarser 6 × 6 lattice, 1 or 2 great halls a Floor (the Boss Hall always one), and L, S and Z Passages of legs and corners. Stage 7b done (2026-11-14): L, T, cross and ring Halls cut out by solid Blocks, and pillars in colonnades and grids. 7c is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-12), the open questions answered by the user. Stage 0 done (2026-11-12): a go on large Floors (ADR 0028). Stage 1 done (2026-11-12): the Floor generator, judged over 500 seeds and viewable in the Map Editor. Stage 2 done (2026-11-13): a solo Delver Run on empty Floors, behind `?dev=1&delver=1`. Stage 3 done (2026-11-13): Warbands guard, patrol, chase and return on the Floors, promoted by an enemy-only Bubble; the first playable Run against them. Stage 4 done (2026-11-13): Warband drops and Treasure pedestals per Player, elite Warbands with Relics, and a Boss Floor ending each tier, its Stairs gated until the Boss Warband is wiped. Stage 5 done (2026-11-13): the Reveal (by entering) and the fog-of-war minimap and Floor Map, stand-in Stairs and pedestal art, the Floor HUD line, the Descending banner and a results screen with Floors reached, Warbands and Bosses beaten and each Build; the last Boss now wins at its Stairs, not at its wipe. Stage 6 done (2026-11-14): Floors of several levels, with sloped Passages, galleries (balconies and stairwells) and Jump shortcuts onto their Decks taken by the AI by shortcut jump Links. Stage 7 (rooms, added 2026-11-14 after Stage 6's playtest) runs in sub-stages 7a to 7e. Stage 7a done (2026-11-14): Halls 14 to 28 m on a coarser 6 × 6 lattice, 1 or 2 great halls a Floor (the Boss Hall always one), and L, S and Z Passages of legs and corners. Stage 7b done (2026-11-14): L, T, cross and ring Halls cut out by solid Blocks, and pillars in colonnades and grids. Stage 7c done (2026-11-16): split levels, sunken pits (2 and 4 m), daises (a Boss's throne, a Treasure altar), galleries that wrap round corners and stairwells far more often; about 1 Hall in 4 has a split, pit or dais. 7d is next. Builds on the Dungeon (`docs/plans/dungeon.md`, Stages 1 to 4 done), the Big Battle's Crowd, Squads and Bubble (`docs/plans/big-battle.md`, `docs/plans/battle-objectives.md`, ADRs 0020 to 0022) and the Map Editor's Map Source and Enclosure Brush (`docs/plans/map-editor.md`, ADR 0023). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Progress
 - [x] Stage 0: spike and ADR (one continuous Arena per Floor; budgets measured)
@@ -12,7 +12,7 @@
 - [x] Stage 6: verticality (balconies, stairwells, sloped Passages, Jump shortcuts)
 - [x] Stage 7a: bigger Halls, great halls, L-, S- and Z-shaped Passages
 - [x] Stage 7b: Hall shapes (L, T, cross, ring), pillars and cover
-- [ ] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
+- [x] Stage 7c: verticality inside a Hall (split levels, sunken pits, daises, more stairwells and galleries)
 - [ ] Stage 7d: lava (pits, rivers with bridges, troughs; the judge's lava rules)
 - [ ] Stage 7e: archetypes (procedural room recipes per Hall kind)
 - [ ] Stage 8: online co-op (up to four Players, Input Delay, soak)
@@ -2303,6 +2303,128 @@ DelverGallery += wrap?: { walls: readonly Side[] /* the next wall, then for a U 
 5. **The source and the judge**: `source.ts`, `judge.ts`, `generate.ts` (`describeFloor`), `source.test.ts`, `judge.test.ts` (on `rooms7c`).
 6. **The consumers and the switch**: `warbands.ts` (the throne's facing), `delverLoot.ts`, `reveal.ts` and `src/render/`, `src/play/floorMap.ts` only if a test shows a need, their tests; the shipped values in `data/delver.json`, `DELVER_VERSION` 8, `golden.test.ts`, `delverGen.slow.test.ts`, `rooms7c` removed, the moved tests, the rate's tuning.
 7. **The soak**: §11's cases and measurements.
+
+### Result
+Done 2026-11-16. Delver Halls now have verticality inside them:
+- **Split levels**: two or three tiers, each a level apart and joined by step Ramps, with doorways on different tiers.
+- **Sunken pits**: 2 or 4 m deep. Every doorway is on the rim, and two step Ramps lead down.
+- **Daises**: a 1 m throne for the Boss in a Boss Hall, or an altar holding the pedestals in a Treasure Hall.
+- **Galleries that wrap**: a gallery may turn one corner (an L) or two (a U).
+- **More stairwells**: about 3 galleries in 5 now carry a door at Deck height (Stage 6: 1 in 9).
+
+Battles, Duels and the Hall-graph Run are unchanged. With every 7c knob off (`flatHalls`) a Floor's plan, source and map are byte for byte 7b's. No hashed state is new; `DELVER_VERSION` is 8 and `PROTOCOL_VERSION` stays 30.
+
+**What was built** (as the Design gives it, with the changes below):
+- **The navmesh**: `SHORTCUT_RISE` (2.5 m). On a shortcuts map no jump try climbs higher, so a 4 m rim gets no jump Link. A tier edge, a 2 m rim, a dais and a Deck keep theirs.
+- **Tuning Data** (`delver.floor`):
+  - `galleries` { `wrapPercent` 40, `uPercent` 30, `stairPercent` 60 };
+  - `features` { `percent` 80, `weights` split 1 and pit 1, `threePercent` 40, `deepPercent` [25, 40, 55], `daisPercent` 60 };
+  - their parse checks.
+  - `flatHalls(tuning)` (tests) turns the 7c knobs off; `plainHalls`, `flatRooms` and `flatFloors` apply it too.
+- **The plan** (`plan.ts`):
+  - wrapped galleries (`DelverGallery.wrap`), and a stairwell's side preferred by `stairPercent`;
+  - `DelverHall.feature` (a split, pit or dais) with its tiers, rims and steps;
+  - door lifts and raised doors (a Passage through a raised door is flat and cuts its own doorway);
+  - each Hall's level kept in its feature's range, a child's feature or wrap dropped when it cannot be;
+  - daises after the kinds, with the throne and altar markers on them;
+  - 7b's shapes and pillars skip every feature Hall;
+  - `hallBase`;
+  - `planFloor`'s `tier` argument, read only by `deepPercent`.
+- **The source**:
+  - each Hall's Enclosure at its lowest floor;
+  - a split's main tier, a pit's rims and a dais as Platforms, and their steps as railed Ramps;
+  - wrap Decks;
+  - the levels, and `shortcuts` for any feature.
+- **The judge**:
+  - the plan-only `features` rule: geometry, odd metres, every Passage's door at its Hall's floor there, doorways clear of steps and daises, markers on their floor part and off a dais;
+  - the built `tiers` rule: every tier, rim, pit floor and dais reached by walking and leading back, and a pit left by walking;
+  - wrap Decks in `galleries`;
+  - `describeFloor`'s counts.
+- **The Run**: a throne post faces away from its wall, so the Boss and its guard stand on the dais.
+
+**Changed from the Design:**
+- **Outer tiers are always a level below the main tier**, as written. The Design explains why: a raised outer tier would need its step beside a side doorway.
+- **A 4 m pit needs a pit 10 m long** (`PIT_APPROACH` 2 m before its 8 m step's foot). In Task 5, 4 % of first attempts had a step that filled an 8 m pit and failed the walk check.
+- **`features.percent` is 80, not 50.** At 50 the share of Halls with a split, pit or dais was 16.6 %. Under the range rule (a split's main tier at level 1 or more, a pit's rim within `levels.max`) about one picked feature in five is dropped.
+- **A stuck patrol on a wrapped Deck** (the soak). A patrol Soldier, then its anchor, cut a U-wrapped Deck's inner corner. Deck edges are odd metres and cell centres even, so the field's diagonal join passes exactly through the corner. They dropped 2 m to the floor. The Warband then deadlocked: the anchor sat on the lagging Soldier, the other Soldier walked on along the patrol field, and the dropped one inched along its formation place into a wall. Two fixes, both in the Simulation, Delver-only, no bytes moved:
+  - **A lagging Warband's lead is the field to its anchor** (`warband.ts`), so a Soldier cut off walks back and the Warband regroups.
+  - **A Warband's Soldier or anchor following its lead field drops off a ledge only where that field leads down**: the way left from where it would land is shorter than from where it stands (`crowd.ts`, `squad.ts`). Else it walks the step without dropping and slides along the edge. Battle Squads keep their drops: the code review caught that the first version applied the rule to them too.
+- **The Delver pilot goes to the Boss's post while the Boss Warband lives.** A throne can stand more than 18 m from the Stairs zone, beyond a Warband's 16 m sight. The pilot then parked in the zone and the Boss stood on its throne, and neither came. The pilot is a test and dev harness; a Player walks up.
+- **The generator soak's navmesh budget is 500 ms mean (was 300).** The shortcut jump Link search now runs over every tier, rim and dais edge: 291 to 436 ms mean on 7c Floors, against 7b's 162. **This budget is the user's call** (see To watch next).
+- **The soak's scenarios take the first candidate that shows what they must**, as 7b's fight round pillars did:
+  - **The chase between tiers**: on 7 of 8 candidates the guard was promoted whole before its anchor moved, since the outer tier lies within the Bubble's 10 m.
+  - **The Boss on its throne**: one earlier Boss Floor had the Boss walk down its step before Promotion.
+- **From the code review**:
+  - the drop rule kept off Battle Squads;
+  - `flatFloors` turns 7c off (tests built on it alone had got daises);
+  - the judge refuses a floor marker under a dais.
+
+**Existing tests changed** (as Design §9 allows):
+- `golden.test.ts`:
+  - the default pins are rewritten;
+  - a new `FLAT_HALLS_PINS` table whose map hashes, plan hashes and attempts are 7b's default pins exactly;
+  - `PLAIN_PINS`, `ROOMS_PINS`, `FLAT_PINS` and `OLD_FLOOR_9` are unchanged;
+  - `HOLDS` records each pin's features.
+- `tuning.test.ts` and `delver.test.ts`: the new keys and the bundled values.
+- `delverGen.slow.test.ts`:
+  - it passes the tier to its own `planFloor`;
+  - the budgets are 800 ms build mean and 500 ms navmesh mean;
+  - its jump Link rule: every Link a shortcut rising at most 2.5 m, none from a 4 m pit's floor, and every Deck still with one;
+  - the 7c counts and must-shows.
+- `judge.test.ts`'s "levels: refuses a plan flattened to one level" reads its `levels` line alone. It flattens the Halls but not their Passages, which the new door-height check also refuses.
+- Moved onto `flatHalls`, expectations unchanged:
+  - `delverWarbands.test.ts`'s Boss-rule block: its case teleports the Boss Soldier off its dais with its surface left on it;
+  - `plan.test.ts`'s 7b "changes nothing of 7a but the Halls' shapes";
+  - the soak's "a chase across a level": its first candidate became a one-Soldier guard promoted at once;
+  - `src/net/delverCoop.slow.test.ts`: on 7c Floors the two pilots outrun its 20,000-Tick cap against Warbands, with no desync.
+- `plan.test.ts`'s Stage 7c `flatHalls` cases compare against the knobs-off plan once the bundled data switched.
+- None was removed.
+
+**Measured** (the test container: after a restart it ran `battleSoak.slow.test.ts` at 0.89 ms against Stage 0's 0.79, so about 12 % slower than before):
+- **The generator** (500 pairs, alone):
+  - 499 passed on the first attempt and 1 on its second (the `levels` rule); 1 failed attempt, 25 allowed.
+  - Total plan, build and judge: mean 704 ms, p95 903, max 1129. That is against the new 800 ms mean and the 2 s cap; 7b's was 546.
+  - Navmesh: 379 ms mean on 20 Floors, max 656 (7b: 162). Task 6 measured 291 on the earlier container.
+  - 412 jump Links, all shortcuts rising at most 2.5 m, none from a 4 m pit's floor. They land on 209 Decks, 80 tiers, 75 rims and 48 daises, and every one of the 134 Decks has one.
+  - **Halls with a split, pit or dais: 2,448 of 10,000 (24.5 %).**
+  - Splits: 1,456 (883 two-tier, 573 three-tier; 736 along x, 720 along z).
+  - Pits: 734 (556 at 2 m, 178 at 4 m). Of the 4 m pits: tier 1 has 48, 0.29 a Floor; tier 2 has 45, 0.27; tier 3 has 85, 0.52.
+  - Daises: 258 (83 thrones, 175 altars).
+  - Wrapped galleries: 1,039 (743 L, 296 U).
+  - Stairwells: 2,028 of 3,445 galleries (58.9 %; Stage 6: 1 in 9), 1,826 on a first wall and 563 on a wrap wall.
+  - Stairs depth 1.245 × Stage 6's, as 7b's.
+- **The soak** (`warbandSoak.slow.test.ts`, 18 tests, alone):
+  - **Levelled Runs**: Tick mean 0.43 ms, p99 2.65 (7b: 0.39, 2.77). Floor build 715 ms mean (max 825) and navmesh 459 ms (max 651), cold, under the soak's own load. The party was on a Ramp for 168.4 s.
+  - **The 5-Run soak**: Tick mean 0.45, p99 2.28. 184 Promotions, 71 Chases, 5 Returns, 65 Warbands wiped and 33 patrol loops. The longest patrol leg is 45.5 s, the stuck one fixed.
+  - **A chase between tiers** (seed 2, Floor 2, hall8; three tiers along z, main tier at 4): the guard chased for 150 s. Its anchor fell 2.00 m to the outer tier, and a Soldier stood on the outer tier on 204 chase-Ticks.
+  - **A Boss on its throne and a fight on a dais** (seed 7, Floor 3, hall0, a 44 × 28 m Boss Hall with its dais on the east wall):
+    - the Boss Soldier started on the dais and was promoted on it at 310 s;
+    - 10 hits were landed and 9 taken by Fighters standing on the dais;
+    - 3 Fighters left the dais by its step and 8 otherwise.
+  - **Nobody inside a Platform**: 0 over 537,345 Ticks (12.9 M bodies).
+  - **No Soldier dropped into a 4 m pit**: 0, over 75,385 Soldier-Ticks in 4 m pit Halls.
+  - **Nobody inside a Block**: 0.
+- **Stage 2's empty-Floor walk**: 230.9, 241.7 and 146.0 s to the Stairs on Floors 1 to 3 (7b: 136.8, 236.0, 151.8). Floor 1 is 94 s longer.
+- **The Battles** are unchanged:
+  - `battleSoak`: the same outcomes, Tick 0.89 ms on this container.
+  - `levels.slow.test.ts`: the same outcomes.
+
+**Tests**: `npm run typecheck` is clean. `npm test`: **3162 passed, 5 skipped** (3051 before the Stage). The slow suite: 24 files and **56 tests**, each file run alone, all passing. `src/net/gauntlet.test.ts`'s four-Player checksum test still fails now and then under full-suite load and passes alone, as before this Stage.
+
+**In the game** (no screenshots, the user's call): `npm run dev` with `?dev=1&delver=1&autopilot=1&immortal=1&speed=4` and an Expert AI ally, in a headless browser. The Run played Floors 1 to 9 in 22 minutes of wall time: the Bosses of Floors 3 and 6 were beaten and it reached Floor 9's Boss Floor. The console had no errors, only the headless WebGL "GPU stall" performance warnings.
+
+**To try in a playtest**: `npm run dev`, open `/sword/?dev=1&delver=1`, Skirmish, Gauntlet, Delver, add an AI ally, Fight. `&delverStart=3` starts on the first Boss Floor.
+- Fight down from a split's main tier onto its outer tier, and Jump back up. Knock an enemy off a tier edge.
+- Walk a pit's rim. Knock an enemy into a 4 m pit and see it climb out by a step; drop into a 2 m one and Jump out.
+- Climb a throne's step to the Boss, or Jump onto the dais. Knock it off.
+- Walk a U-wrapped gallery and leave through its high door.
+
+**To watch next**:
+- **The navmesh budget** is the user's call: 300 ms (Stage 6) or 500 ms (now). The search runs over every new ledge; about 1.1 to 1.3 s laptop-equivalent, warmed a Floor ahead.
+- **Floor 1's empty walk is 94 s longer.** 3 tiers, pits and wrapped galleries lengthen the walk inside Halls. Two pilots on Warbands Floors now outrun the co-op test's cap.
+- **A throne Boss often walks down its step** before it is promoted. And it stands beyond a Warband's sight of the Stairs zone, so a party waiting at the gate never meets it.
+- **Every Ramp inside a Hall is walled to the ceiling on its open sides** (an old compile behaviour, kept for byte identity). A step is a walled chute.
+- **Accidental drops off a Deck's inner corner** are now refused for a Warband's lead. Other walks (a Battle Squad, a free agent) still cut such corners.
 
 ### Stage 7d: lava
 **Model**: Opus (the rules and the AI around them).
