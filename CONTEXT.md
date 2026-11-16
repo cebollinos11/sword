@@ -288,6 +288,7 @@ The seeded map a Run walks: its Floors (three, Tuning Data `data/dungeon.json`),
 
 **Floor**:
 One depth of a Dungeon: a layered graph of Halls in five rows, from one entrance Fight Hall through three rows of 2 or 3 Halls each (their widths Tuning Data) to one Boss Hall. Each Hall has 1 to 3 exit Doors to Halls of the next row; paths may cross and every Hall is reachable, so a Run walks five of a Floor's Halls. The kinds of rows 2 to 4 are picked by the Floor's weights (Fight, Elite, Treasure; never an Elite in row 2), and row 4 always holds one Rest Hall. The Boss Hall's exit leads to the next Floor's entrance; beating the last Floor's Boss wins the Run. Later Floors' Encounters are harder.
+A Delver Run's Floor is instead one generated dungeon of Halls and Passages (`docs/plans/delver.md`), as many Halls as its tier names (`delver.tierRooms`: 7 on the first tier's three Floors, 10 on the second's, 20 on the last's; without it every Floor has `delver.floor.rooms`), so a Run's Floors grow longer as it goes deeper.
 _Avoid_: Level, act, stage, room (Room is the online connection)
 
 **Hall**:

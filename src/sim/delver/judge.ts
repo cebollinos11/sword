@@ -41,6 +41,7 @@ import { cellAt, distanceTo, inSight, nodeIn, type DestinationFields } from '../
 import { buildFloor, type BuiltFloor } from './build';
 import { DAIS_RISE, LEVEL_RISE, MAX_SLOPE, PIT_RIM, SPLIT_CUT, TIER_MIN, type DelverHall, type DelverPassage, type FloorPlan, type PassagePiece } from './plan';
 import { pieceId, pillarId, solidId, stepId } from './source';
+import { floorTuningOf } from './troops';
 import type { Rect, Side } from '../../mapEditor/source';
 
 export interface FloorJudgement {
@@ -532,7 +533,7 @@ export function judgeAttempt(
   plan: FloorPlan,
   judge: (t: DelverFloorTuning, b: BuiltFloor) => string[] = judgeFields,
 ): { reasons: string[]; built: BuiltFloor | undefined } {
-  const t = tuning.delver.floor;
+  const t = floorTuningOf(tuning.delver, plan.floor);
   const reasons = judgePlan(t, plan, tuning.battle.field.size);
   if (reasons.length > 0) return { reasons, built: undefined };
   let built: BuiltFloor;

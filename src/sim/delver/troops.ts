@@ -4,6 +4,7 @@
  * as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in it; the Battles' own `battle.troops` is never touched.
  */
 import type { BattleTuning, DelverTuning, TroopTuning } from '../../tuning';
+import type { DelverFloorTuning } from '../../tuning/delver';
 
 export interface FloorTroops {
   /** `battle.troops`, then each tier's Boss Troop, then the elite Troops. */
@@ -17,6 +18,22 @@ export interface FloorTroops {
 /** The tier (1 to `tiers`) of Floor `floor`. */
 export function tierOf(delver: DelverTuning, floor: number): number {
   return Math.min(delver.tiers, Math.max(1, Math.ceil(floor / delver.floorsPerTier)));
+}
+
+const floorCache = new WeakMap<DelverTuning, DelverFloorTuning[]>();
+
+/**
+ * The Floor generator's tuning for Floor `floor`: `delver.floor` with `rooms` the Floor's tier's `delver.tierRooms` (issue #135: a Run's first
+ * tier's Floors a third as long as a full one, the second's half, the last full). Without `tierRooms` it is `delver.floor` itself. Cached per
+ * (delver, tier), so the same Floor gets the same object.
+ */
+export function floorTuningOf(delver: DelverTuning, floor: number): DelverFloorTuning {
+  const rooms = delver.tierRooms;
+  if (!rooms) return delver.floor;
+  const tier = tierOf(delver, floor);
+  let list = floorCache.get(delver);
+  if (!list) floorCache.set(delver, (list = []));
+  return (list[tier - 1] ??= rooms[tier - 1] === delver.floor.rooms ? delver.floor : { ...delver.floor, rooms: rooms[tier - 1]! });
 }
 
 /** Whether Floor `floor` is a Boss Floor: the last of its tier, and its tier has a Boss. */

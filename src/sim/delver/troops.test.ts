@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../../tuning';
 import { delverBattle } from './build';
-import { floorTroops, isBossFloor, tierOf } from './troops';
+import { floorTroops, floorTuningOf, isBossFloor, tierOf } from './troops';
+import { delverFloor } from './generate';
 
 const tuning = loadTuningData();
 const { battle, delver } = tuning;
@@ -88,5 +89,25 @@ describe('tierOf and isBossFloor', () => {
   it('a tier without a Boss has no Boss Floor', () => {
     expect([1, 2, 3, 4, 5, 6, 7, 8, 9].filter((f) => isBossFloor(without(2), f))).toEqual([3, 6]);
     expect([1, 2, 3, 4, 5, 6, 7, 8, 9].filter((f) => isBossFloor(without(0), f))).toEqual([6, 9]);
+  });
+});
+
+describe('floorTuningOf', () => {
+  it('gives each tier its tierRooms (issue #135: a third, a half, then full), the rest of delver.floor as it is', () => {
+    expect(delver.tierRooms).toEqual([7, 10, 20]);
+    expect([1, 2, 3, 4, 5, 6, 7, 8, 9].map((f) => floorTuningOf(delver, f).rooms)).toEqual([7, 7, 7, 10, 10, 10, 20, 20, 20]);
+    expect({ ...floorTuningOf(delver, 1), rooms: delver.floor.rooms }).toEqual(delver.floor);
+    expect(floorTuningOf(delver, 2)).toBe(floorTuningOf(delver, 1));
+    expect(floorTuningOf(delver, 9)).toBe(delver.floor);
+    const { tierRooms: _, ...plain } = delver;
+    expect(floorTuningOf(plain, 1)).toBe(plain.floor);
+  });
+
+  it('deals each Floor its tier\'s Halls, judged', () => {
+    for (const floor of [1, 4, 7]) {
+      const f = delverFloor(tuning, 5, floor);
+      expect(f.plan.halls.length).toBe(delver.tierRooms![tierOf(delver, floor) - 1]);
+      expect(f.judgement.ok).toBe(true);
+    }
   });
 });

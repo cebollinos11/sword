@@ -15,6 +15,7 @@
   "perPlayerSoldiers": 1.5,
   "attackSlots": [4, 3, 3, 3],
   "tierHp": [1, 1.25, 1.5],
+  "tierRooms": [7, 10, 20],
   "warbands": [
     {
       "guard": [

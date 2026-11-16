@@ -13,7 +13,7 @@ export interface DelverFloorTuning {
   readonly cols: number;
   /** Lattice rows (whole, >= 2). */
   readonly rows: number;
-  /** Halls wanted (whole, 2 to cols * rows). */
+  /** Halls wanted (whole, 2 to cols * rows); a tier `delver.tierRooms` names takes its own count instead (`floorTuningOf`). */
   readonly rooms: number;
   /** The metres between neighbouring lattice columns (rows), one picked per gap; each even and positive. */
   readonly gaps: readonly number[];
@@ -196,6 +196,11 @@ export interface DelverTuning {
   readonly attackSlots: readonly number[];
   /** Each tier's multiple of a Troop's HP (positive), one per tier. */
   readonly tierHp: readonly number[];
+  /**
+   * Each tier's Halls wanted on its Floors (whole, 2 to `floor.cols * floor.rows`), one per tier: what `floor.rooms` is for that tier's Floors
+   * (`floorTuningOf`). Absent: every tier's Floors have `floor.rooms`.
+   */
+  readonly tierRooms?: readonly number[];
   /** Each tier's Warband templates, one per tier. */
   readonly warbands: readonly DelverTier[];
   readonly floor: DelverFloorTuning;
@@ -422,6 +427,16 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     if (((n - 1) * maxGap) / 2 + halfSize[1] + 2 > fieldSize / 2) fail(`${w}.${key}`, `small enough that the lattice fits the ${fieldSize} m field`, n);
   }
 
+  let tierRooms: number[] | undefined;
+  if (root.tierRooms !== undefined) {
+    const list = array(root.tierRooms, 'delver.tierRooms');
+    if (list.length !== tiers) fail('delver.tierRooms', `${tiers} whole numbers (one per tier)`, root.tierRooms);
+    tierRooms = list.map((n, i) => {
+      if (typeof n !== 'number' || !Number.isInteger(n) || n < 2 || n > cols * rows) fail(`delver.tierRooms[${i}]`, `a whole number 2 to cols * rows (${cols * rows})`, n);
+      return n;
+    });
+  }
+
   const farPercent = percent(f, 'farPercent', w);
   const loops = range(f, 'loops', w, 0);
   const rests = range(f, 'rests', w, 1);
@@ -493,6 +508,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     perPlayerSoldiers,
     attackSlots,
     tierHp,
+    ...(tierRooms ? { tierRooms } : {}),
     warbands,
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };
