@@ -1,6 +1,6 @@
 /**
  * A Player's inventory in a Run (docs/plans/dungeon.md): the Weapons and Relics its Fighter holds, equipped or carried. It
- * changes only through the Intent's `equip` and `drop`, and only while no enemy in the Hall is alive (`stepMatch` asks
+ * changes only through the Intent's `equip` and `drop`, in a fight too, but only while its Fighter is Idle on the ground (`stepMatch` asks
  * `canChangeInventory`), so a Weapon swap is never mid-Action. Everything here is pure.
  */
 import type { TuningData } from '../tuning';
@@ -95,7 +95,7 @@ export function holdInventory(f: FighterState, inventory: Inventory, tuning: Tun
 }
 
 /**
- * Whether the Fighter may change its inventory this Tick (the Hall being Cleared is the caller's to say): it has an inventory, still fights,
+ * Whether the Fighter may change its inventory this Tick (the Run's phase is the caller's to say): it has an inventory, still fights,
  * and is Idle on the ground, never mid-Action.
  */
 export const canChangeInventory = (f: FighterState): boolean => f.inventory !== undefined && inDuel(f) && f.hp > 0 && f.action.kind === 'Idle' && !f.air;

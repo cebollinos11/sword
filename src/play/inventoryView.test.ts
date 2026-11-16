@@ -102,12 +102,12 @@ describe('the inventory view', () => {
     expect(d!.drop!.available).toBe(true);
   });
 
-  it('every action is unavailable while the Hall is Fighting, with the reason', () => {
+  it('every action is available while the Hall is Fighting too', () => {
     const v = inventoryView(fighter({ weapons: [W0, W1, W2], relics: ['Whetstone', 'Iron Plate'] }), tuning, 'Fighting')!;
-    expect(v.lock).toBe('Enemies remain');
+    expect(v.lock).toBeNull();
     const all = [...items(v.weapons), ...items(v.relics)];
     expect(all.length).toBe(5);
-    for (const item of all) for (const action of [item.equip, item.drop]) if (action) expect(action).toMatchObject({ available: false, reason: 'Enemies remain' });
+    for (const item of all) for (const action of [item.equip, item.drop]) if (action) expect(action).toMatchObject({ available: true, reason: null });
   });
 
   it('every action is unavailable while the party leaves, the Fighter has fallen, is mid-Action or is in the air', () => {
@@ -122,7 +122,7 @@ describe('the inventory view', () => {
     for (const item of [...items(v.weapons), ...items(v.relics)]) for (const action of [item.equip, item.drop]) expect(action?.available ?? false).toBe(false);
   });
 
-  it("is locked exactly when the Simulation would refuse: the Hall Cleared and the Fighter living, Idle and on the ground (`canChangeInventory`)", () => {
+  it("is locked exactly when the Simulation would refuse: the Hall fought or Cleared and the Fighter living, Idle and on the ground (`canChangeInventory`)", () => {
     const f = fighter();
     const states: [FighterState, HallPhase | undefined][] = [
       [f, 'Cleared'],
@@ -135,7 +135,7 @@ describe('the inventory view', () => {
       [{ ...f, air: { vy: 0 } } as unknown as FighterState, 'Cleared'],
     ];
     for (const [state, phase] of states) {
-      const accepts = phase === 'Cleared' && canChangeInventory(state) && inDuel(state);
+      const accepts = (phase === 'Cleared' || phase === 'Fighting') && canChangeInventory(state) && inDuel(state);
       expect(inventoryLock(state, phase) === null, JSON.stringify([phase, state.action, state.hp, state.benched])).toBe(accepts);
     }
   });
@@ -151,7 +151,7 @@ describe('what the view offers is what the Simulation acts on', () => {
   }
   const send = (m: MatchState, intent: Partial<typeof IDLE_INTENT>) => stepMatch(m, m.duel.fighters.map((_, i) => (i === 0 ? { ...IDLE_INTENT, ...intent } : IDLE_INTENT)), tuning).duel.fighters[0]!;
 
-  it('an action the view offers is acted on, one it refuses is not (the Hall Fighting, then Cleared)', () => {
+  it('an action the view offers is acted on, in a Hall Fighting as in one Cleared', () => {
     for (const cleared of [true, false]) {
       const m = run(cleared);
       const v = inventoryView(m.duel.fighters[0], tuning, m.run!.phase)!;
@@ -159,10 +159,10 @@ describe('what the view offers is what the Simulation acts on', () => {
       const equipRelic = v.relics[0]!.item!.equip!;
       const wield = v.weapons[1]!.item!.equip!;
       const drop = v.relics[1]!.item!.drop!;
-      expect([equipRelic.available, wield.available, drop.available]).toEqual([cleared, cleared, cleared]);
-      expect(send(m, { equip: v.relics[0]!.ref }).inventory!.equipped).toEqual(cleared ? [0] : []);
-      expect(send(m, { equip: v.weapons[1]!.ref }).inventory!.weapon).toBe(cleared ? 1 : 0);
-      expect(send(m, { drop: v.relics[1]!.ref }).inventory!.relics).toEqual(cleared ? ['Whetstone'] : ['Whetstone', 'Iron Plate']);
+      expect([equipRelic.available, wield.available, drop.available]).toEqual([true, true, true]);
+      expect(send(m, { equip: v.relics[0]!.ref }).inventory!.equipped).toEqual([0]);
+      expect(send(m, { equip: v.weapons[1]!.ref }).inventory!.weapon).toBe(1);
+      expect(send(m, { drop: v.relics[1]!.ref }).inventory!.relics).toEqual(['Whetstone']);
     }
   });
 });
@@ -176,11 +176,6 @@ describe('whether the open screen takes the Controller’s input', () => {
     expect(inventoryHoldsInput('Leaving')).toBe(true);
   });
 
-  it('never holds the Fighter in a phase where the Simulation would refuse for enemies remaining', () => {
-    for (const phase of [undefined, 'Fighting', 'Cleared', 'Leaving'] as const) {
-      if (inventoryLock(fighter(), phase) === 'Enemies remain') expect(inventoryHoldsInput(phase)).toBe(false);
-    }
-  });
 });
 
 describe('the key that says when to redraw', () => {
@@ -199,8 +194,8 @@ describe('the key that says when to redraw', () => {
     expect(inventoryViewKey(view(fighter({ weapon: 1 })))).not.toBe(key);
     expect(inventoryViewKey(view(fighter({ equipped: [0] })))).not.toBe(key);
     expect(inventoryViewKey(view(fighter({ relics: ['Whetstone'], equipped: [] })))).not.toBe(key);
-    expect(inventoryViewKey(view(fighter(), 'Fighting'))).not.toBe(key);
-    expect(inventoryViewKey(view(fighter(), 'Leaving'))).not.toBe(inventoryViewKey(view(fighter(), 'Fighting')));
+    expect(inventoryViewKey(view(fighter(), 'Leaving'))).not.toBe(key);
+    expect(inventoryViewKey(view(fighter(), undefined))).not.toBe(inventoryViewKey(view(fighter(), 'Leaving')));
     expect(inventoryViewKey(view({ ...fighter(), daggers: 1 }))).not.toBe(key);
   });
 
@@ -225,36 +220,33 @@ describe('the inventory view for the second Player (Fighter 1)', () => {
 });
 
 describe('the inventory screen in a Delver Run', () => {
-  it('is locked while Descending, and away from every fire while Exploring, whatever else is wrong', () => {
-    const f = fighter();
-    expect(inventoryLock(f, undefined, { phase: 'Descending', atFire: true })).toBe('Descending');
-    expect(inventoryLock(f, undefined, { phase: 'Descending', atFire: false })).toBe('Descending');
-    expect(inventoryLock(f, undefined, { phase: 'Exploring', atFire: false })).toBe('Only at a fire');
+  it('is locked while Descending, whatever else is wrong', () => {
+    expect(inventoryLock(fighter(), undefined, { phase: 'Descending' })).toBe('Descending');
+    expect(inventoryLock({ ...fighter(), hp: 0 }, undefined, { phase: 'Descending' })).toBe('Descending');
   });
 
-  it('at a fire, the usual checks: free when Idle on the ground, else the reason', () => {
+  it('anywhere while Exploring, the usual checks: free when Idle on the ground, else the reason', () => {
     const f = fighter();
-    const at = { phase: 'Exploring', atFire: true } as const;
+    const at = { phase: 'Exploring' } as const;
     expect(inventoryLock(f, undefined, at)).toBeNull();
     expect(inventoryLock({ ...f, hp: 0, death: { tick: 0, cause: 'Fall', blow: null } }, undefined, at)).toBe('You have fallen');
     expect(inventoryLock({ ...f, air: { kind: 'Jump' } as unknown as FighterState['air'] }, undefined, at)).toBe('Land first');
   });
 
   it('never holds the input in a Delver Run; a Run’s Hall phases are unchanged without the context', () => {
-    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: true })).toBe(false);
-    expect(inventoryHoldsInput(undefined, { phase: 'Exploring', atFire: false })).toBe(false);
-    expect(inventoryHoldsInput(undefined, { phase: 'Descending', atFire: true })).toBe(false);
+    expect(inventoryHoldsInput(undefined, { phase: 'Exploring' })).toBe(false);
+    expect(inventoryHoldsInput(undefined, { phase: 'Descending' })).toBe(false);
     expect(inventoryHoldsInput('Cleared')).toBe(true);
     expect(inventoryHoldsInput('Fighting')).toBe(false);
     expect(inventoryHoldsInput(undefined)).toBe(false);
   });
 
   it('gives each item its action the reason of the lock', () => {
-    const v = inventoryView(fighter(), tuning, undefined, { phase: 'Exploring', atFire: false })!;
-    expect(v.lock).toBe('Only at a fire');
+    const v = inventoryView(fighter(), tuning, undefined, { phase: 'Descending' })!;
+    expect(v.lock).toBe('Descending');
     expect(items(v.relics)[0]!.drop!.available).toBe(false);
-    expect(items(v.relics)[0]!.drop!.reason).toBe('Only at a fire');
-    const at = inventoryView(fighter(), tuning, undefined, { phase: 'Exploring', atFire: true })!;
+    expect(items(v.relics)[0]!.drop!.reason).toBe('Descending');
+    const at = inventoryView(fighter(), tuning, undefined, { phase: 'Exploring' })!;
     expect(at.lock).toBeNull();
     expect(items(at.relics)[0]!.drop!.available).toBe(true);
   });

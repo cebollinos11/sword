@@ -640,16 +640,19 @@ describe('Dungeon Run: the inventory, and equip and drop as Intent fields', () =
     expect(JSON.stringify(duels.duel.fighters)).not.toContain('inventory');
   });
 
-  it('is refused while an enemy lives: nothing changes, and nothing is dropped', () => {
+  it('is taken while an enemy lives too: a fight does not lock the inventory', () => {
     const m = stocked(run({}, 1), 0, { weapons: [W0, W1], relics: ['Whetstone'], weapon: 0, equipped: [] });
     expect(m.run!.phase).toBe('Fighting');
-    for (const intent of [{ equip: { kind: 'weapon', slot: 1 } }, { equip: { kind: 'relic', slot: 0 } }, { drop: { kind: 'weapon', slot: 1 } }, { drop: { kind: 'relic', slot: 0 } }] as const) {
-      const next = act(m, intent);
-      expect(next.run!.phase).toBe('Fighting');
-      expect(me(next).inventory).toEqual(me(m).inventory);
-      expect(me(next).weapon).toBe(W0);
-      expect(dropsOf(next)).toEqual([]);
-    }
+    const wield = act(m, { equip: { kind: 'weapon', slot: 1 } });
+    expect(wield.run!.phase).toBe('Fighting');
+    expect(me(wield).weapon).toBe(W1);
+    expect(me(act(m, { equip: { kind: 'relic', slot: 0 } })).inventory!.equipped).toEqual([0]);
+    const dropW = act(m, { drop: { kind: 'weapon', slot: 1 } });
+    expect(me(dropW).inventory!.weapons).toEqual([W0]);
+    expect(dropsOf(dropW)).toHaveLength(1);
+    const dropR = act(m, { drop: { kind: 'relic', slot: 0 } });
+    expect(me(dropR).inventory!.relics).toEqual([]);
+    expect(dropsOf(dropR)).toHaveLength(1);
   });
 
   it('is refused mid-Action, in the air, once the party is Leaving, and for a fallen Fighter', () => {

@@ -341,11 +341,11 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
       duel = reviveFallen(duel, t, arena, stairsAt, 1, -1, events);
     }
 
-    // The Inventory: a Player's Fighter changes what it holds only at a fire (refused elsewhere); what it drops is the pickups'. Taking needs no fire.
+    // The Inventory: a Player's Fighter changes what it holds anywhere on the Floor, in a fight too (refused mid-Action); what it drops is the pickups'.
     duel = {
       ...duel,
       fighters: duel.fighters.map((f, i) => {
-        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop) || fireAt(plan, f, fireRadius) < 0) return f;
+        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop)) return f;
         const used = useInventory(f, intents[i]!, t);
         if (used.dropped) {
           const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };

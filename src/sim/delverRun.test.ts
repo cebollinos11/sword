@@ -484,16 +484,9 @@ describe('the Inventory of a Delver Run', { timeout: 60_000 }, () => {
   const equip = { equip: { kind: 'relic' as const, slot: 0 } };
   const equipped = (r: MatchState) => r.duel.fighters[0]!.inventory!.equipped;
 
-  it('refuses an equip away from every fire', () => {
+  it('takes an equip away from every fire', () => {
     const r = tick(put(m, 0, off.x, off.z), { 0: equip });
-    expect(equipped(r)).toEqual(equipped(m));
-  });
-
-  it('takes an equip within the fire radius, not just outside it', () => {
-    const inside = tick(put(m, 0, fire.x + RADIUS, fire.z), { 0: equip });
-    expect(equipped(inside)).not.toEqual(equipped(m));
-    const outside = tick(put(m, 0, fire.x + RADIUS + 0.01, fire.z), { 0: equip });
-    expect(equipped(outside)).toEqual(equipped(m));
+    expect(equipped(r)).not.toEqual(equipped(m));
   });
 
   it('refuses an equip while Descending', () => {

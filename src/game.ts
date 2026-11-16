@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, fireAt, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -721,13 +721,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     return run && plan ? { plan, restUsed: run.restUsed, me, fireRadius: matchTuning.delver.fireRadius, gate: gateState(plan, match.duel.crowd, run.wiped) } : null;
   }
 
-  /** A Delver Run's context for the inventory screen: its phase, and whether the local Fighter stands at a fire. Undefined outside a Delver Run. */
+  /** A Delver Run's context for the inventory screen: its phase. Undefined outside a Delver Run. */
   function delverContext(match: MatchState): DelverContext | undefined {
     const run = match.delver;
-    if (!run || !driver) return undefined;
-    const f = match.duel.fighters[driver.localFighter];
-    const plan = floorOf(matchTuning, match.arena)?.plan;
-    return { phase: run.phase, atFire: Boolean(f && plan && fireAt(plan, f, matchTuning.delver.fireRadius) >= 0) };
+    return run && driver ? { phase: run.phase } : undefined;
   }
 
   /** While the screen is open, the input follows the Hall: held in a cleared Hall, the Fighter's own again when the next fight begins. */

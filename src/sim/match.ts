@@ -730,9 +730,9 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
     }
   }
 
-  if (next.phase === 'Cleared' && status.status === 'InProgress') {
-    // Only with no enemy alive may a Player's Fighter change what it holds (its Intent's `equip`, then `drop`; refused mid-Action).
-    // Whatever it drops is the pickups' (`placeDrop`). Then each Player's Fighter standing on a pickup it may take takes it (`takePickups`).
+  if ((next.phase === 'Fighting' || next.phase === 'Cleared') && status.status === 'InProgress') {
+    // A Player's Fighter may change what it holds in a fight too, not only once the Hall is Cleared (its Intent's `equip`, then `drop`;
+    // refused mid-Action, so a Weapon is never swapped mid-swing). Whatever it drops is the pickups' (`placeDrop`).
     duel = {
       ...duel,
       fighters: duel.fighters.map((f, i) => {
@@ -746,6 +746,10 @@ function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], t
         return used.fighter;
       }),
     };
+  }
+
+  if (next.phase === 'Cleared' && status.status === 'InProgress') {
+    // Only with no enemy alive does each Player's Fighter standing on a pickup it may take take it (`takePickups`).
     const took = takePickups(next.pickups, duel.fighters, config, tuning, next.away);
     if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
       next = { ...next, pickups: took.pickups };
