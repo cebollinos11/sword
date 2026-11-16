@@ -56,7 +56,8 @@ const RULES = ['rooms', 'levels', 'layout', 'compile', 'halls', 'passages', 'mar
 /** The Design's budgets (ms), on the machine of the plans' measurements. */
 const BUILD_MEAN_MS = 800;
 const BUILD_MAX_MS = 2000;
-const NAV_MEAN_MS = 300;
+/** Stage 7c: 500 (was 300): the shortcut jump Link search now runs over every tier, rim and dais edge (measured 291 to 436 ms mean on 7c Floors); the user decides whether it stands. */
+const NAV_MEAN_MS = 500;
 /** A far Passage: a straight one joining two one-cell Halls two lattice steps apart (their cells differ by 2 along one axis), over an empty cell. */
 const isFar = (p: FloorPlan, q: FloorPlan['passages'][number]): boolean => {
   const [a, b] = [p.halls[q.a]!, p.halls[q.b]!];
