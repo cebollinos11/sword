@@ -13,6 +13,8 @@ import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
 import type { FloorCrowd } from './play/floorCrowd';
 import { playersBySlot } from './play/battleHud';
+import { PlayerTags } from './play/playerTags';
+import { partyMarkers } from './render/minimap';
 import { devAutopilot, devAutopilotLoot, devBattlePilot, devDelverRun, devDelverStart, devImmortal, devMode, devSpeed, devRunRelics, devRunStart } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
@@ -187,6 +189,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** The inventory screen (`I`, or its touch button): render only, its clicks become the Local Controller's `equip` and `drop`. */
   const inventoryScreen = new InventoryScreen((ref, action) => local.inventoryClick(ref, action), () => toggleInventory());
   hud.root.append(inventoryScreen.root);
+  /** An online Delver Run's name tags over the party's other Players (docs/plans/delver.md, Stage 8), in Team 0's army colour; hidden in any other Match. */
+  const partyTags = new PlayerTags(container, tuning.battle.soldier.colours, []);
+  partyTags.root.hidden = true;
 
   const weapons = Object.keys(tuning.weapons);
   const arenas = pickableArenas(tuning);
@@ -567,6 +572,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       driver = d;
       names = n ?? null;
       bodies = b ?? null;
+      partyTags.setNames(playersBySlot(d.lineup ?? [], names ?? []));
       // Fresh random Bodies for the AIs.
       renderer.recast();
       local.releaseAll();
@@ -611,6 +617,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     local.releaseAll();
     if (document.pointerLockElement) document.exitPointerLock();
     hud.hide();
+    partyTags.root.hidden = true;
   }
 
   /** The Match cannot go on (the host left, a refusal): back to the Lobby with why. */
@@ -1100,10 +1107,15 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
+      // Online, the party's other Players carry name tags on a Floor (offline there is nobody else to name).
+      const tagged = driver.ping !== undefined && curr.delver !== undefined;
+      partyTags.root.hidden = !tagged || shot !== null;
+      if (tagged && !shot) partyTags.update(curr.duel, before, me, alpha, (p) => renderer.toScreen(p), partyMarkers(curr.config, curr.duel, me));
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
       syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase, delverContext(curr));
     } else {
+      partyTags.root.hidden = true;
       renderer.setPickups([]);
       renderer.setDoors([]);
       const { match, me, bodies: chosen } = previewMatch();

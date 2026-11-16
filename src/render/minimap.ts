@@ -12,7 +12,7 @@
  * Online (Stage 7), every other Player in the Battle has an arrow too, in their army's colour with a white outline
  * (`playerMarkers`): a Player who took over a Soldier looks like every other Soldier on the field, and not on the map.
  */
-import { ATTACK, inDuel, RESPAWN, type MapObjective, type SimState } from '../sim';
+import { ATTACK, inDuel, presentPlayers, RESPAWN, type MapObjective, type MatchConfig, type SimState } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { objectiveLetter } from './objectiveMarks';
 import { delverMapMarks, type DelverMapStatus } from './delverMapMarks';
@@ -57,6 +57,19 @@ export function playerMarkers(state: SimState, me: number): PlayerMarker[] {
     out.push({ fighter: k, team: f.team, position: { x: f.position.x, y: f.y, z: f.position.z }, facing: f.facing });
   });
   return out;
+}
+
+/**
+ * A Delver Run's Players besides Fighter `me` that are marked (docs/plans/delver.md, Stage 8): the present ones (`presentPlayers`, so not one
+ * who left: its Fighter is an AI ally's now) whose Fighter stands on the Floor and has not fallen, in slot order. The name tags and the
+ * Floor's maps read it; in any other Match it is empty.
+ */
+export function partyMarkers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players' | 'delver'>, duel: SimState, me: number): PlayerMarker[] {
+  if (!config.delver) return [];
+  return presentPlayers(config, duel.delver?.away).flatMap((k) => {
+    const f = duel.fighters[k];
+    return k === me || !f || !inDuel(f) || f.death !== undefined ? [] : [{ fighter: k, team: f.team, position: { x: f.position.x, y: f.y, z: f.position.z }, facing: f.facing }];
+  });
 }
 
 const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')}`;
