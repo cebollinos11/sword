@@ -118,8 +118,11 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
       expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(far.duel, 1))).toEqual(walk(follow));
       const other = edit(near, 5, (f) => ({ ...f, y: f.y + warbanded.battle.levels.height + 1 }));
       expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(other.duel, 1))).toEqual(walk(follow));
-      const unbound = edit(near, 5, (f) => ({ ...f, soldier: undefined }));
+      // (An unbound Team 1 Fighter in play is a traitor's, Stage 8a, and is fought: an unbound slot out of play is not.)
+      const unbound = edit(near, 5, (f) => ({ ...f, soldier: undefined, benched: true as const }));
       expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(unbound.duel, 1))).toEqual(walk(follow));
+      const traitor = edit(near, 5, (f) => ({ ...f, soldier: undefined }));
+      expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(traitor.duel, 1))).not.toEqual(walk(follow));
     });
 
     it('an Ally AI Sheathes to follow with no enemy near, and Draws once one comes near', () => {

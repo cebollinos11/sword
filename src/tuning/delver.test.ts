@@ -100,6 +100,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       attackSlots: [4, 3, 3, 3],
       tierHp: [1, 1.25, 1.5],
       tierRooms: [7, 10, 20],
+      traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
       floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
@@ -119,6 +120,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
   });
 
   const bad: [string, Raw, RegExp][] = [
+    ['traitor minDistance 0', { ...raw(), traitor: { minDistance: 0, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 } }, /^delver\.traitor\.minDistance /],
+    ['traitor respawnStep negative', { ...raw(), traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: -1, respawnMax: 30 } }, /^delver\.traitor\.respawnStep /],
+    ['traitor respawnMax under respawnSeconds', { ...raw(), traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 5 } }, /^delver\.traitor\.respawnMax /],
     ['tiers 0', { ...raw(), tiers: 0 }, /^delver\.tiers /],
     ['tiers fractional', { ...raw(), tiers: 1.5 }, /^delver\.tiers /],
     ['floorsPerTier 0', { ...raw(), floorsPerTier: 0 }, /^delver\.floorsPerTier /],

@@ -252,7 +252,33 @@ function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const { count, note } = dungeonCard(ctx.tuning);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
   if (isDelver(state)) card.append(h('p', 'lb-note', DELVER_NOTE));
+  if (isDelver(state) && ctx.lobby.online) card.append(...traitorRows(ctx, state));
   return card;
+}
+
+/** What the Floors card says of the traitors (docs/plans/delver.md, Stage 8a). */
+export const TRAITOR_NOTE = 'Traitors play the Warbands: each takes over a Soldier out of the party’s sight, and another after each death.';
+
+/**
+ * An online Delver Lobby's traitors, on the Floors card: each Player on a Team 1 Seat, and while one is free and you sit on Team 0, a button that
+ * moves you to it (`traitorSeat`). Moving back is any Team 0 Seat's own move button.
+ */
+function traitorRows(ctx: LobbyViewContext, state: LobbyState): HTMLElement[] {
+  const out: HTMLElement[] = [h('p', 'lb-note', TRAITOR_NOTE)];
+  state.teams[1]!.forEach((seat, index) => {
+    if (seat.kind === 'Player') out.push(seatRow(ctx, state, { team: 1, index }, seat, teamColour(1, index)));
+  });
+  const me = ctx.lobby.me;
+  const at = me === null ? null : seatOf(state, me);
+  const free = traitorSeat(state);
+  if (at && at.team === 0 && free !== null) out.push(button('lb-traitor', 'Play as a traitor', () => ctx.lobby.moveMe({ team: 1, index: free })));
+  return out;
+}
+
+/** The first Team 1 Seat a Player could move to as a traitor (no Player on it), or null. */
+export function traitorSeat(state: LobbyState): number | null {
+  const index = state.teams[1]!.findIndex((s) => s.kind !== 'Player');
+  return index < 0 ? null : index;
 }
 
 function avatar(text: string, colour: number | null): HTMLElement {

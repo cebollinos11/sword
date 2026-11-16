@@ -62,15 +62,20 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
  * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them). In a Battle: only the Players' slots,
  * 0 to MAX_TEAM_SIZE a Team (the rest of the Fighter Pool is the Bubbles', each slot a Pool AI).
  */
-export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels'): void {
+export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels', delver = false): void {
   const teams = lineup.map((s) => s.team);
   if (format === 'Gauntlet') checkRunTeams(teams);
   else if (format === 'Battle') checkBattleTeams(lineup);
   else checkTeams(teams);
-  const floors = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1;
+  // A Delver Run's Team 1 slots may be Players (its traitors, docs/plans/delver.md, Stage 8a), each before every Floor slot.
+  const traitor = (s: LineupSlot) => delver && format === 'Gauntlet' && s.team === 1 && s.pilot.kind === 'Player';
+  const floors = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1 && !traitor(s);
+  let floorSeen = false;
   for (const s of lineup) {
     if (floors(s) && (s.pilot.kind !== 'AI' || s.pilot.difficulty !== FLOOR_DIFFICULTY))
-      throw new RangeError(`A Gauntlet's Team 1 slots are the Floors' (an AI of difficulty "${FLOOR_DIFFICULTY}")`);
+      throw new RangeError(`A Gauntlet's Team 1 slots are the Floors' (an AI of difficulty "${FLOOR_DIFFICULTY}")${delver ? ' or traitors' : ''}`);
+    if (floors(s)) floorSeen = true;
+    else if (traitor(s) && floorSeen) throw new RangeError("A Delver Run's traitors come before its Floor slots");
   }
   if (!Number.isInteger(players) || players < 1 || players > MAX_PLAYERS) throw new RangeError(`A Match fields 1 to ${MAX_PLAYERS} Players, not ${players}`);
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -105,8 +110,17 @@ function checkBattleTeams(lineup: Lineup): void {
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
-  return { ...options, teams: lineup.map((s) => s.team), weapons, sizes: lineup.map((s) => s.size), ...(options.format === 'Gauntlet' ? { humans: players.length, players } : {}) };
+  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && (!options.delver || s.team === 0) ? [i] : []));
+  // A Delver Run's Team 1 Players are its traitors (docs/plans/delver.md, Stage 8a): each with its own Size, in Lineup order.
+  const traitors = options.delver ? lineup.filter((s) => s.team === 1 && s.pilot.kind === 'Player').map((s) => (s.size ? { size: s.size } : {})) : [];
+  return {
+    ...options,
+    teams: lineup.map((s) => s.team),
+    weapons,
+    sizes: lineup.map((s) => s.size),
+    ...(options.format === 'Gauntlet' ? { humans: players.length, players } : {}),
+    ...(traitors.length > 0 ? { traitors } : {}),
+  };
 }
 
 /** How many human Players the Lineup fields. */
@@ -139,8 +153,10 @@ export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchForma
   const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
   if (format === 'Gauntlet' && match.delver) {
     // A Delver Run: the party's entries (the Lineup's Team 1 slots are dropped: no Hall AI), then a Pool AI for each of the Fighter Pool's other slots.
+    // (Its Team 1 Players, the traitors, are no Players an ally walks with: each plays a Pool slot, which a Pool AI drives once it leaves.)
     const party = lineup.filter((s) => s.team === 0);
-    const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), players)));
+    const own = players.filter((i) => lineup[i]!.team === 0);
+    const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), own)));
     return [...ais, ...Array.from({ length: tuning.battle.bubble.poolSize - ais.length }, () => createPoolAi(tuning))];
   }
   return lineup.map((s, i) => {

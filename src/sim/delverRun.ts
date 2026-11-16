@@ -32,6 +32,7 @@ import { placeDrop, takePickups, type Pickup } from './pickups';
 import type { Placement } from './skeleton';
 import type { FighterState, SimDelver, DelverPhase, SimState } from './state';
 import { createInitialState, standingFighter, step } from './step';
+import { countTraitorKills, freshTraitors, heldSoldiers, reservedSlots, stepTraitors, traitorsOnFloor, type TraitorState } from './delverTraitors';
 
 /** One fire of the current Floor (`plan.markers.fires` order): whether its revive is spent (only by reviving someone), and which Players took its heal. */
 export interface RestUse {
@@ -63,6 +64,8 @@ export interface DelverRun {
   readonly startTick: number;
   /** The Players an AI Takeover has taken (ascending), as `RunState.away`; absent while nobody has left. Mirrored on `SimDelver.away`. */
   readonly away?: readonly number[];
+  /** The traitors' records (docs/plans/delver.md, Stage 8a), one per `config.traitors`; absent with none. Mirrored on `SimDelver.traitors` (the same array). */
+  readonly traitors?: readonly TraitorState[];
 }
 
 /** The facing (radians; 0 faces +z) into a Passage on each side of a Hall, in the order the Entrance's first doorway is looked for. */
@@ -124,7 +127,7 @@ export function floorDuel(tuning: TuningData, config: MatchConfig, floor: number
  * The Run on entering Floor `floor` (`plan` its plan): Exploring, nothing counted, one unspent fire per fire of the Floor, no Warband wiped, and
  * `pickups` lying (the Floor's pedestals, `treasurePickups`; whatever lay on the Floor before is gone).
  */
-export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten'>, floor: number, plan: FloorPlan, pickups: readonly Pickup[]): DelverRun {
+export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten' | 'traitors'>, floor: number, plan: FloorPlan, pickups: readonly Pickup[]): DelverRun {
   return {
     floor,
     floors: run.floors,
@@ -137,6 +140,7 @@ export function enterFloor(run: Pick<DelverRun, 'floors' | 'startTick' | 'away' 
     revealed: withReveal(emptyReveal(plan), plan.entrance),
     startTick: run.startTick,
     ...(run.away === undefined ? {} : { away: run.away }),
+    ...(run.traitors === undefined ? {} : { traitors: run.traitors }),
   };
 }
 
@@ -181,7 +185,7 @@ function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof ar
 
 /** The Run mirrored for the Controllers (`SimState.delver`): the pickups are the very array the Run holds. */
 function mirrored(run: DelverRun): SimDelver {
-  return { floor: run.floor, phase: run.phase, pickups: run.pickups, ...(run.away === undefined ? {} : { away: run.away }) };
+  return { floor: run.floor, phase: run.phase, pickups: run.pickups, ...(run.away === undefined ? {} : { away: run.away }), ...(run.traitors === undefined ? {} : { traitors: run.traitors }) };
 }
 
 /** `duel` with the Run's mirror (`SimState.delver`) set to `run`'s, as the Floor's entry leaves it. */
@@ -190,15 +194,18 @@ export function withMirror(duel: SimState, run: DelverRun): SimState {
 }
 
 /** The Run on entering Floor `floor` with its Duel: the plan's pedestals for each present Player, and the Duel's mirror set. */
-function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten'>, floor: number, duel: SimState): { run: DelverRun; duel: SimState } {
+function startFloor(tuning: TuningData, config: MatchConfig, run: Pick<DelverRun, 'floors' | 'startTick' | 'away' | 'beaten' | 'traitors'>, floor: number, duel: SimState): { run: DelverRun; duel: SimState } {
   const plan = floorOf(tuning, duel.arena)!.plan;
-  const entered = enterFloor(run, floor, plan, treasurePickups(arenaTuning(tuning, duel.arena), config, plan, runSeed(config.arena), floor, run.away));
+  // The traitors watch their current delay on each new Floor: their Soldiers went with the old one.
+  const traitors = run.traitors ? traitorsOnFloor(tuning, run.traitors) : undefined;
+  const entered = enterFloor({ ...run, ...(traitors ? { traitors } : {}) }, floor, plan, treasurePickups(arenaTuning(tuning, duel.arena), config, plan, runSeed(config.arena), floor, run.away));
   return { run: entered, duel: withMirror(duel, entered) };
 }
 
 /** The Floor's Run and Duel at its start, for `createMatch` (Floor 1, or the dev `delverStart` Floor; nobody away). */
 export function firstFloor(tuning: TuningData, config: MatchConfig, floors: number, duel: SimState, floor = 1): { run: DelverRun; duel: SimState } {
-  return startFloor(tuning, config, { floors, startTick: 0, beaten: 0 }, floor, duel);
+  const traitors = freshTraitors(tuning, config);
+  return startFloor(tuning, config, { floors, startTick: 0, beaten: 0, ...(traitors ? { traitors } : {}) }, floor, duel);
 }
 
 /** The Boss Warband's index (Squad of the Floor's Crowd), or -1 on a Floor with none. */
@@ -265,13 +272,18 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
   // brain. No kill count and no Tickets: a Floor has neither.
   const t0 = arenaTuning(tuning, match.duel.arena);
   const k = config.teams.length;
-  const bubbled = stepBubbles(match.duel, k, match.duel.tick + 1, t0, intents, bossHold(floorOf(tuning, match.duel.arena)!.plan, match.duel.crowd!, match.duel.fighters, config, run.away));
+  // The traitors first (docs/plans/delver.md, Stage 8a): a fallen one's Soldier dies, a watching one whose wait is over takes over a Soldier.
+  let start = match.duel;
+  let traitors = run.traitors;
+  if (traitors) ({ duel: start, records: traitors } = stepTraitors(start, traitors, config, t0, runSeed(config.arena), run.floor));
+  const bubbled = stepBubbles(start, k, start.tick + 1, t0, intents, bossHold(floorOf(tuning, start.arena)!.plan, start.crowd!, start.fighters, config, run.away), reservedSlots(config, traitors));
   let duel = step(bubbled, intents, t0);
+  if (traitors) traitors = countTraitorKills(traitors, duel.events, config);
   const map = battleMapOf(t0.battle, duel.arena);
   const homes = warbandHomes(floorOf(tuning, duel.arena)!.plan);
   duel = { ...duel, crowd: stepCrowd(duel.crowd!, duel.tick, t0.battle, crowdFighters(duel, bubbled, k, () => false, map.field.layered), map, warbandBrain(homes, tuning.delver)) };
   let { score, nextDuelTick, status } = match;
-  let next = run;
+  let next: DelverRun = traitors === run.traitors ? run : { ...run, traitors: traitors! };
   // The Run is won: its Duel ends as a Duel's end would leave it.
   const win = (): void => {
     status = { status: 'Over', winner: 0, tick };
@@ -284,7 +296,9 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
   if (duel.duel.status === 'Over') {
     // Team 0 is wiped out (a Floor's Duel ends on nothing else): a Defeat, in any phase.
     events.push({ type: 'RunEnd', winner: 1, cleared: score[0]!, floors: run.floors, halls: 0, bosses: bossesBeaten(tuning.delver, run, duel.crowd!), warbands: run.beaten + run.wiped.length });
-    return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events };
+    // (The traitors' last kills are kept, mirrored as ever.)
+    if (next !== run) duel = { ...duel, delver: mirrored(next) };
+    return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events, ...(next !== run ? { delver: next } : {}) };
   }
 
   if (next.phase === 'Exploring') {
@@ -311,8 +325,10 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
     const living = new Array<number>(warbands).fill(0);
     const lowest = new Array<number>(warbands).fill(-1);
     const lowestBefore = new Array<number>(warbands).fill(-1);
+    // A Soldier a traitor holds alive is still its Warband's: a Warband is never wiped while a traitor is one of it.
+    const held = heldSoldiers(next.traitors, crowd);
     for (let s = 0; s < crowd.squad.length; s++) {
-      const q = crowd.squad[s]!;
+      const q = crowd.squad[s]! >= 0 ? crowd.squad[s]! : (held.get(s) ?? -1);
       if (q < 0 || q >= warbands) continue;
       if (lowest[q]! < 0) lowest[q] = s;
       if (crowd.alive[s] === 1) living[q]!++;
@@ -416,7 +432,7 @@ export function stepDelver(match: MatchState, run: DelverRun, intents: readonly 
 
   // The Controllers see the Floor's phase and who has left.
   const view = mirrored(next);
-  if (duel.delver?.phase !== view.phase || duel.delver?.away?.join() !== view.away?.join() || duel.delver?.pickups !== view.pickups) duel = { ...duel, delver: view };
+  if (duel.delver?.phase !== view.phase || duel.delver?.away?.join() !== view.away?.join() || duel.delver?.pickups !== view.pickups || duel.delver?.traitors !== view.traitors) duel = { ...duel, delver: view };
   return { ...match, tick, score, duel, nextDuelTick, status, events, delver: next };
 }
 

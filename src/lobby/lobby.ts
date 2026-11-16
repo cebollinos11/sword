@@ -186,7 +186,24 @@ export function isDelver(state: LobbyState): boolean {
 export function setDelver(state: LobbyState, on: boolean): LobbyState {
   if ((state.settings.delver === true) === on) return state;
   const { delver: _old, ...rest } = state.settings;
-  return { ...state, settings: on ? { ...rest, delver: true } : rest };
+  const next = { ...state, settings: on ? { ...rest, delver: true as const } : rest };
+  // The Halls have no traitors: every Player on Team 1 goes back to Team 0.
+  return on ? next : playersToTeam0(next);
+}
+
+/** Every Player on Team 1 moved to Team 0 (swapping with an Open or Closed Seat, an AI last). Unchanged where Team 0 has no room. */
+function playersToTeam0(state: LobbyState): LobbyState {
+  let next = state;
+  for (const id of next.members.map((m) => m.id)) {
+    const at = seatOf(next, id);
+    if (!at || at.team === 0) continue;
+    const row = next.teams[0]!;
+    const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0);
+    if (index === undefined) continue;
+    const target = row[index]!;
+    next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
+  }
+  return next;
 }
 
 /** A Random Map's name (`gen:<kit>:<seed>`), not a hand-made Arena. */
@@ -234,7 +251,8 @@ export function setSeat(state: LobbyState, at: SeatRef, seat: Exclude<Seat, { ki
 export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbyState {
   const from = seatOf(state, id);
   const target = seatAt(state, to);
-  if (!from || !target || target.kind === 'Player' || (to.team !== 0 && isGauntlet(state))) return state;
+  // A Gauntlet's Players sit on Team 0, but a Delver Run's may sit on Team 1: its traitors (docs/plans/delver.md, Stage 8a).
+  if (!from || !target || target.kind === 'Player' || (to.team !== 0 && isGauntlet(state) && !isDelver(state))) return state;
   return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
 }
 
@@ -301,14 +319,7 @@ export function setFormat(state: LobbyState, format: MatchFormat, randomArena: s
   let next: LobbyState = { ...state, settings: { ...state.settings, format } };
   if (format !== 'Gauntlet') return next;
   if (!isRandomMap(next.settings.arena)) next = { ...next, settings: { ...next.settings, arena: randomArena }, matchArena: null };
-  for (const id of next.members.map((m) => m.id)) {
-    const at = seatOf(next, id);
-    if (!at || at.team === 0) continue;
-    const row = next.teams[0]!;
-    const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0)!;
-    const target = row[index]!;
-    next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
-  }
+  next = playersToTeam0(next);
   for (let index = 0; index < MAX_TEAM_SIZE; index++) {
     if (next.teams[1]![index]!.kind !== 'Open') continue;
     const empty = next.teams[0]!.findIndex((s) => s.kind === 'Closed');
@@ -342,7 +353,11 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
   const lineup: LineupSlot[] = [];
   state.teams.forEach((row, team) => {
     if (gauntlet && team === 1) {
-      for (let k = 0; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
+      // A Delver Run's Team 1 Players are its traitors, first (docs/plans/delver.md, Stage 8a); the Floors fill the rest.
+      let k = 0;
+      if (isDelver(state))
+        for (const s of row) if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) }), k++;
+      for (; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
       return;
     }
     for (const s of row) {

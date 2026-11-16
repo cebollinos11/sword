@@ -21,6 +21,17 @@ describe("a Delver Run's Fighters' Bodies", () => {
   });
 });
 
+describe("a Delver traitor's Body (Stage 8a)", () => {
+  it("dresses a traitor's slot in the Soldier it took over, and in none while it watches", () => {
+    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}] });
+    const watching = floorBodies(m.duel, 2, [], (s) => `soldier${s}`);
+    expect(watching[2]).toBeUndefined();
+    const records = [{ ...m.delver!.traitors![0]!, soldier: 7, warband: 0 }];
+    const held = { ...m.duel, delver: { ...m.duel.delver!, traitors: records } };
+    expect(floorBodies(held, 2, [], (s) => `soldier${s}`)[2]).toBe('soldier7');
+  });
+});
+
 describe('a Delver Floor’s Soldiers’ Bodies', () => {
   const two = { ...tuning, delver: { ...tuning.delver, tiers: 2, floorsPerTier: 1 } };
   const run = createMatch(two, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0] });

@@ -35,7 +35,8 @@ const hasRoom = (inventory: Inventory, item: Dropped, sizes: TuningData['dungeon
 function bossLives(state: SimState): boolean {
   const c = state.crowd;
   const q = c?.warbands?.rank.indexOf(BOSS) ?? -1;
-  return q >= 0 && c!.squad.some((s, i) => s === q && c!.alive[i] === 1);
+  // (A Boss guard a traitor plays is still of the Boss Warband, docs/plans/delver.md, Stage 8a.)
+  return q >= 0 && (c!.squad.some((s, i) => s === q && c!.alive[i] === 1) || (state.delver?.traitors ?? []).some((r) => r.warband === q && r.soldier >= 0 && c!.alive[r.soldier] === 1));
 }
 
 /** The pilot's memory: the Floor it is on and the fires (plan order) it has reached. */

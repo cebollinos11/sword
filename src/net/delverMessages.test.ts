@@ -34,8 +34,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 30', () => {
-    expect(PROTOCOL_VERSION).toBe(30);
+  it('is protocol 31', () => {
+    expect(PROTOCOL_VERSION).toBe(31);
   });
 
   it("accepts a Delver Run's start message, and refuses `delver` that is not true or is not a Gauntlet's", () => {
@@ -379,5 +379,49 @@ describe('a Floor Crowd\'s Troops and ranks', () => {
     expect(parseNetMessage(resync(withRank(undefined), ai))).toBeNull();
     expect(parseNetMessage(resync(withRank(rank.slice(1)), ai))).toBeNull();
     expect(parseNetMessage(resync(withRank(rank.concat(0)), ai))).toBeNull();
+  });
+
+  describe("a Delver Run's traitors (Stage 8a)", () => {
+    const short: TuningData = { ...loadTuningData(), delver: { ...loadTuningData().delver, traitor: { minDistance: 20, respawnSeconds: 0.5, respawnStep: 0.5, respawnMax: 1 } } };
+    const traitorLineup: Lineup = [
+      { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 0, pilot: { kind: 'Player', player: 1 } },
+      { team: 1, pilot: { kind: 'Player', player: 2 } },
+      ...Array.from({ length: MAX_TEAM_SIZE - 1 }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
+    ];
+    /** A Run with one traitor, stepped until it has taken a Soldier over, as a resync carries it. */
+    function traitorResync(): { state: MatchState; ai: unknown[] } {
+      const ais = lineupAis(short, traitorLineup, 'Gauntlet', OPTIONS);
+      let m = createMatch(short, lineupMatch(short, traitorLineup, ['Halberd', 'Halberd', 'Halberd'], OPTIONS));
+      for (let t = 0; t < 120 && m.delver!.traitors![0]!.taken === 0; t++) m = stepMatch(m, m.duel.fighters.map((_, i) => (traitorLineup[i]?.pilot.kind === 'Player' ? IDLE_INTENT : (ais[i]?.intent(m.duel, i) ?? IDLE_INTENT))), short);
+      return JSON.parse(JSON.stringify({ state: m, ai: ais.map((a) => a?.save?.() ?? null) })) as { state: MatchState; ai: unknown[] };
+    }
+
+    it('carries a Run with a traitor playing a Soldier through a resync, and refuses one whose records do not fit', () => {
+      const { state, ai } = traitorResync();
+      expect(state.config.traitors).toEqual([{}]);
+      expect(state.delver!.traitors![0]!.soldier).toBeGreaterThanOrEqual(0);
+      const ok = resync(state, ai);
+      expect(parseNetMessage(ok)).toEqual(ok);
+      const run = state.delver!;
+      const records = run.traitors!;
+      const withRecords = (r: unknown, mirror: unknown = r) => ({ ...state, delver: { ...run, traitors: r }, duel: { ...state.duel, delver: { ...state.duel.delver!, traitors: mirror } } });
+      for (const [name, bad] of [
+        ['no records', withRecords(undefined)],
+        ['two records for one traitor', withRecords([records[0], records[0]])],
+        ['a record held elsewhere', withRecords([{ ...records[0]!, soldier: records[0]!.soldier + 1 }])],
+        ['a mirror that differs', withRecords(records, [{ ...records[0]!, kills: 3 }])],
+        ['a broken count', withRecords([{ ...records[0]!, deaths: -1 }])],
+        ['traitors without a Delver Run', { ...state, config: { ...state.config, delver: undefined } }],
+        ['five traitors', { ...state, config: { ...state.config, traitors: [{}, {}, {}, {}, {}] } }],
+      ] as const) {
+        expect(parseNetMessage(resync(bad, ai)), name).toBeNull();
+      }
+    });
+
+    it('accepts an all-AI party (no human on Team 0) only in a Delver Run', () => {
+      expect(parseNetMessage(hello({ ...OPTIONS, humans: 0 }))).not.toBeNull();
+      expect(parseNetMessage(hello({ bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 0 }))).toBeNull();
+    });
   });
 });

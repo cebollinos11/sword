@@ -4,7 +4,7 @@
  */
 import { expect, vi } from 'vitest';
 import { loadTuningData, type DungeonEncounter, type TuningData } from '../tuning';
-import { createAutopilot, createDelverPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Lineup, type PlayerNumber } from '../controllers';
+import { createAutopilot, createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Lineup, type PlayerNumber } from '../controllers';
 import { createMatch, doorCounters, doorTicksNeeded, dropItem, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type Inventory, type InventoryRef, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup, type RunState } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -38,11 +38,13 @@ export const ALLY_DIFFICULTY = 'Expert';
  * The host and `players - 1` guests on Team 0, then `allies` AI allies on Team 0 (an Open Seat the host set to an AI), then the MAX_TEAM_SIZE
  * Floor slots: the Lineup a Gauntlet Lobby builds.
  */
-export function runLineup(players: number, allies = 0): Lineup {
+export function runLineup(players: number, allies = 0, traitors = 0): Lineup {
   const own = Array.from({ length: players }, (_, p) => ({ team: 0, pilot: { kind: 'Player', player: p as PlayerNumber } }) as const);
   const ais = Array.from({ length: allies }, () => ({ team: 0, pilot: { kind: 'AI', difficulty: ALLY_DIFFICULTY }, weapon: WEAPON }) as const);
-  const floors = Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const);
-  return [...own, ...ais, ...floors];
+  // A Delver Run's traitors (docs/plans/delver.md, Stage 8a): the Players after the party's, on Team 1 before the Floor slots.
+  const traitorSlots = Array.from({ length: traitors }, (_, j) => ({ team: 1, pilot: { kind: 'Player', player: (players + j) as PlayerNumber } }) as const);
+  const floors = Array.from({ length: MAX_TEAM_SIZE - traitors }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const);
+  return [...own, ...ais, ...traitorSlots, ...floors];
 }
 
 /** The Match stepped one Tick: the Tick function of every peer and of the offline Run. */
@@ -121,6 +123,8 @@ export interface RunOptions {
   readonly allies?: number;
   /** Every peer's Input Delay in Ticks (`RollbackSessionOptions.inputDelay`; default 0, the game's online Delver Run takes `BATTLE_INPUT_DELAY`). */
   readonly inputDelay?: number;
+  /** A Delver Run's traitors: this many more peers, Players `players` on, on Team 1, each on the traitor pilot (default 0; `runLineup`). */
+  readonly traitors?: number;
 }
 
 /** The autopilot's Intent for the local Fighter, as `playerVsPlayer` asks it: from the session's own (possibly predicted) state. */
@@ -136,11 +140,13 @@ export function startRun(o: RunOptions) {
   // The session pings on the wall clock, and each ping draws from the transport's jitter: a virtual clock keeps a Run the same from one run to the next.
   let clock = 0;
   vi.spyOn(performance, 'now').mockImplementation(() => clock);
-  const lineup = runLineup(o.players, o.allies ?? 0);
+  const traitors = o.traitors ?? 0;
+  const lineup = runLineup(o.players, o.allies ?? 0, traitors);
   const inputDelay = o.inputDelay ?? 0;
-  const pairs: MemoryTransportPair[] = Array.from({ length: o.players - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
+  const humans = o.players + traitors;
+  const pairs: MemoryTransportPair[] = Array.from({ length: humans - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
   const match = o.delver ? { ...MATCH, delver: true as const } : MATCH;
-  const tunings = Array.from({ length: o.players }, () => (o.delver ? (o.delver.tune ?? ((t: TuningData) => t))(loadTuningData()) : peerTuning()));
+  const tunings = Array.from({ length: humans }, () => (o.delver ? (o.delver.tune ?? ((t: TuningData) => t))(loadTuningData()) : peerTuning()));
   const traces = tunings.map(() => new Map<number, Snap>());
   const counts = tunings.map(() => 0);
   const stepOf = (k: number): Step => (m, intents, t) => {
@@ -158,7 +164,7 @@ export function startRun(o: RunOptions) {
       tuning: tunings[k]!,
       worlds: createArenaWorlds(tunings[k]!),
       warmed: new Set(),
-      autopilot: o.delver ? Object.assign(createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
+      autopilot: o.delver ? Object.assign(k >= o.players ? createTraitorPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }) : createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
       sent: new Map(),
       events: [],
       sums: new Map(),

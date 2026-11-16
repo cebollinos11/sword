@@ -48,8 +48,8 @@ export {
   type WeightedHallKind,
 } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
-import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate } from './delver';
-export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type WarbandTemplate };
+import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate } from './delver';
+export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';

@@ -1,4 +1,4 @@
-import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
+import { FLOOR_ROWS, hallRoster, inDuel, runHall, secondsToTicks, TICK_SECONDS, traitorOf, type MatchState } from '../sim';
 import { floorOf } from '../sim/delver';
 import { isBossFloor, tierOf } from '../sim/delver/troops';
 import type { DelverTuning, TuningData } from '../tuning';
@@ -7,7 +7,7 @@ import type { Ping } from '../net';
 import { fighterColours } from '../render/fighterView';
 import { Minimap } from '../render/minimap';
 import { pickupLabels, type PickupView } from '../render/pickupView';
-import { delverMapStatus } from './floorMap';
+import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
@@ -51,6 +51,31 @@ export interface RunResult {
   readonly seed: number;
   /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
   readonly builds?: readonly RunBuild[];
+  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, kills and deaths, under the builds; absent or empty: none shown. */
+  readonly traitors?: readonly TraitorResult[];
+}
+
+/** One traitor's line on a Delver Run's results screen. */
+export interface TraitorResult {
+  readonly name: string;
+  readonly kills: number;
+  readonly deaths: number;
+}
+
+/** A traitor's results line: its kills and deaths. */
+export const traitorLine = (t: TraitorResult): string => `${t.kills} ${t.kills === 1 ? 'kill' : 'kills'} · ${t.deaths} ${t.deaths === 1 ? 'death' : 'deaths'}`;
+
+/**
+ * What a watching traitor reads (docs/plans/delver.md, Stage 8a): the seconds until it takes over a Soldier, or that it is looking for one;
+ * null for anyone else, and for a traitor whose Fighter is in the Duel (or who left). Render only.
+ */
+export function traitorWatchLine(match: MatchState, me: number): string | null {
+  const j = traitorOf(match.config, me);
+  const record = j >= 0 ? match.delver?.traitors?.[j] : undefined;
+  const f = match.duel.fighters[me];
+  if (!record || record.away || !f || (inDuel(f) && !f.death) || match.status.status === 'Over') return null;
+  const seconds = Math.ceil((record.next - match.duel.tick) * TICK_SECONDS);
+  return seconds > 0 ? `Taking over a Soldier in ${seconds} s` : 'Looking for a Soldier out of sight…';
 }
 
 /** m:ss. */
@@ -272,6 +297,7 @@ export class Hud {
     title.textContent = r.victory ? 'Victory' : 'Defeat';
     this.results.replaceChildren(title, r.reached === undefined ? line('Floors cleared', `${r.cleared} / ${r.floors}`) : line('Floors reached', `${r.reached} / ${r.floors}`), ...(r.warbands === undefined ? [] : [line('Warbands beaten', String(r.warbands))]), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), ...(r.halls === undefined ? [] : [line('Halls cleared', String(r.halls))]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
+    for (const t of r.traitors ?? []) this.results.append(line(`Traitor ${t.name}`, traitorLine(t)));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -384,7 +410,7 @@ export class Hud {
       this.minimap = new Minimap(tuning.battle, 150);
       this.delverMap.append(this.minimap.canvas);
     }
-    this.minimap.drawDelver(plan, run.revealed, match.duel.fighters, me, delverMapStatus(match, plan));
+    this.minimap.drawDelver(plan, viewReveal(match, plan, me), match.duel.fighters, me, delverMapStatus(match, plan));
   }
 
   /** A Run's labels over the pickups the local Player sees. */

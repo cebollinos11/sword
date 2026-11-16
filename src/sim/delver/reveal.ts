@@ -38,3 +38,9 @@ export function withReveal(revealed: readonly number[], bit: number): readonly n
   out[bit >>> 5] = ((out[bit >>> 5] ?? 0) | (1 << (bit & 31))) >>> 0;
   return out;
 }
+
+/** A Reveal with every Hall and Passage revealed: a traitor's view of the Floor (docs/plans/delver.md, Stage 8a), which has no fog. */
+export function fullReveal(plan: Pick<FloorPlan, 'halls' | 'passages'>): number[] {
+  const bits = revealBits(plan);
+  return emptyReveal(plan).map((_, w) => (w < bits >>> 5 ? 0xffff_ffff : (2 ** (bits & 31) - 1) >>> 0));
+}

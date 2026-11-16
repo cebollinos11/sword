@@ -203,7 +203,42 @@ export interface DelverTuning {
   readonly tierRooms?: readonly number[];
   /** Each tier's Warband templates, one per tier. */
   readonly warbands: readonly DelverTier[];
+  /** The traitors' rules (docs/plans/delver.md, Stage 8a): Players on Team 1 who take over Warband Soldiers. */
+  readonly traitor: TraitorTuning;
   readonly floor: DelverFloorTuning;
+}
+
+/** How a traitor takes over Warband Soldiers (docs/plans/delver.md, Stage 8a; `delver.traitor`). */
+export interface TraitorTuning {
+  /** How far (m, by walking) from every party Fighter a Soldier must be for a traitor to take it over (positive). */
+  readonly minDistance: number;
+  /** The seconds a traitor watches after its first fall (and at the Run's start and each Floor's) before it takes over a Soldier (>= 0). */
+  readonly respawnSeconds: number;
+  /** The seconds each earlier death adds to that wait (>= 0). */
+  readonly respawnStep: number;
+  /** The longest wait (seconds, >= respawnSeconds). */
+  readonly respawnMax: number;
+}
+
+/** `delver.traitor` when Tuning Data names none. */
+const DEFAULT_TRAITOR: TraitorTuning = { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 };
+
+/** `delver.traitor`, checked (absent: DEFAULT_TRAITOR). */
+function parseTraitor(v: unknown): TraitorTuning {
+  if (v === undefined) return DEFAULT_TRAITOR;
+  const t = record(v, 'delver.traitor');
+  const w = 'delver.traitor';
+  const minDistance = positive(t, 'minDistance', w);
+  const atLeast0 = (key: string): number => {
+    const n = finiteNumber(t, key, w);
+    if (n < 0) fail(`${w}.${key}`, 'a number >= 0', n);
+    return n;
+  };
+  const respawnSeconds = atLeast0('respawnSeconds');
+  const respawnStep = atLeast0('respawnStep');
+  const respawnMax = atLeast0('respawnMax');
+  if (respawnMax < respawnSeconds) fail(`${w}.respawnMax`, `at least respawnSeconds (${respawnSeconds})`, respawnMax);
+  return { minDistance, respawnSeconds, respawnStep, respawnMax };
 }
 
 /**
@@ -510,6 +545,7 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     tierHp,
     ...(tierRooms ? { tierRooms } : {}),
     warbands,
+    traitor: parseTraitor(root.traitor),
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };
 }

@@ -185,6 +185,7 @@ export {
   type RunState,
 } from './match';
 export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type DelverRun, type RestUse } from './delverRun';
+export { freshTraitors, traitorCandidates, traitorOf, traitorPick, traitorSlot, type TraitorState } from './delverTraitors';
 export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
 export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
 export {

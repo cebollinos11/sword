@@ -47,6 +47,7 @@ import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
 import { firstFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
 import { arenaTuning } from './delver/world';
+import { traitorLeaves, traitorOf } from './delverTraitors';
 
 /** The drop seam and the item it takes (they live in `pickups`; the Match's callers still find them here). */
 export { placeDrop, type DroppedItem };
@@ -108,6 +109,17 @@ export interface MatchConfig {
    * Refused without `delver`, and online.
    */
   readonly delverStart?: number;
+  /**
+   * A Delver Run's traitors (docs/plans/delver.md, Stage 8a): the Players on Team 1, one entry each with its own Size, in Lineup order. Traitor j
+   * plays in Pool slot `teams.length + j` (`traitorSlot`), as the Warband Soldiers it takes over. Absent when there are none, so every other Match's
+   * config is as it always was. Only a Delver Run, at most MAX_TEAM_SIZE, and `humans` plus traitors at most MAX_TEAM_SIZE (the Players a Match fields).
+   */
+  readonly traitors?: readonly TraitorSeat[];
+}
+
+/** A traitor of a Delver Run (`MatchConfig.traitors`): its own Size (absent: the standard body), which it keeps in every Soldier it takes over. */
+export interface TraitorSeat {
+  readonly size?: Size;
 }
 
 export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
@@ -281,6 +293,13 @@ export function takeOverFighter(match: MatchState, fighter: number): MatchState 
   }
   const { delver } = match;
   if (delver) {
+    // A traitor (docs/plans/delver.md, Stage 8a): marked away, and a Soldier it holds becomes an ordinary promoted enemy.
+    const j = traitorOf(match.config, fighter);
+    if (j >= 0 && delver.traitors) {
+      const left = traitorLeaves(match.duel, delver.traitors, match.config, j);
+      if (left.records === delver.traitors) return match;
+      return { ...match, delver: { ...delver, traitors: left.records }, duel: { ...left.duel, delver: { ...left.duel.delver!, traitors: left.records } } };
+    }
     if (!runPlayers(match.config).includes(fighter) || delver.away?.includes(fighter)) return match;
     const away = [...(delver.away ?? []), fighter].sort((a, b) => a - b);
     return { ...match, delver: { ...delver, away }, duel: { ...match.duel, delver: { ...match.duel.delver!, away } } };
@@ -512,11 +531,14 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     ...(gauntlet ? { players: [...(options.players ?? runPlayers({ teams, humans }))] } : {}),
     ...(options.delver ? { delver: true as const } : {}),
     ...(options.delverStart === undefined ? {} : { delverStart: options.delverStart }),
+    ...(options.traitors?.length ? { traitors: options.traitors.map((t) => (storedSize(t.size) ? { size: storedSize(t.size)! } : {})) } : {}),
   };
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
     const own = teams.filter((t) => t === 0).length;
-    if (config.humans < 1 || config.humans > own) throw new RangeError(`A Run fields 1 to ${own} humans (Team 0's size), got ${config.humans}`);
+    // A Delver Run with a traitor may field no human in its party (all AI allies).
+    const fewest = config.traitors ? 0 : 1;
+    if (config.humans < fewest || config.humans > own) throw new RangeError(`A Run fields ${fewest} to ${own} humans (Team 0's size), got ${config.humans}`);
     if (config.rematchTicks !== null) throw new RangeError('A Run has no Rematch: rematchTicks must be null');
     const players = config.players!;
     if (players.length !== config.humans || players.some((p, k) => !Number.isInteger(p) || teams[p] !== 0 || (k > 0 && p <= players[k - 1]!)))
@@ -532,6 +554,10 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
   if (options.delver && options.start) throw new RangeError('A Delver Run has no start Hall');
   if (options.delverStart !== undefined && !config.delver) throw new RangeError('Only a Delver Run has a start Floor');
+  if (config.traitors) {
+    if (!config.delver) throw new RangeError('Only a Delver Run has traitors');
+    if (config.traitors.length > MAX_TEAM_SIZE || config.humans + config.traitors.length > MAX_TEAM_SIZE) throw new RangeError(`A Delver Run fields at most ${MAX_TEAM_SIZE} Players, its traitors among them, got ${config.humans} and ${config.traitors.length} traitor(s)`);
+  }
   if (config.delver) {
     // A Delver Run: Floor 1 of the generated Dungeon (or the dev `delverStart` Floor), built here (behind the menu), Team 0 at its Entrance.
     const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;

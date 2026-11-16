@@ -250,10 +250,24 @@ function troopModsOf(tuning: TuningData): readonly { readonly mods?: Mods }[] {
 }
 
 /**
- * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
- * Players' Fighters. A state without a Crowd is returned as it is.
+ * Soldier `s` of `crowd` as a promoted Fighter stands (unbound: the caller binds it): at guard where it stands, facing its heading, with its
+ * Team, HP and max HP, its Troop's Weapon and Mods (its Relics folded in), in its own Size, or in `size` (null: the standard body). A Delver traitor
+ * takes a Soldier over as this (docs/plans/delver.md, Stage 8a). Pure.
  */
-export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[] = [], boss?: BossHold): SimState {
+export function promotedFighter(tuning: TuningData, arena: string, crowd: CrowdState, s: number, size?: Size | null): FighterState {
+  const field = battlefieldOf(tuning.battle, arena)!;
+  const at = { x: crowd.x[s]!, z: crowd.z[s]! };
+  const f = standingFighter(tuning, arenaOf(tuning, arena), { position: at, y: soldierHeight(field, crowd.surface[s]!, at.x, at.z), facing: crowd.heading[s]! }, troopOf(tuning.battle, crowd, s).weapon, crowd.team[s]!, size === undefined ? soldierSize(crowd, s) : (size ?? undefined));
+  const mods = troopModsOf(tuning);
+  return { ...f, hp: crowd.hp[s]!, maxHp: crowd.maxHp?.[s] ?? troopOf(tuning.battle, crowd, s).hp, ...(mods[crowd.troop[s] ?? 0] ?? mods[0]!) };
+}
+
+/**
+ * The Bubbles' step for the Tick `tick` (the one about to be stepped: `duel.tick + 1`), with the first `players` slots the
+ * Players' Fighters. A state without a Crowd is returned as it is. `reserved`: Pool slots no Soldier is promoted into (a Delver Run's traitors',
+ * docs/plans/delver.md, Stage 8a).
+ */
+export function stepBubbles(duel: SimState, players: number, tick: number, tuning: TuningData, intents: readonly (Intent | undefined)[] = [], boss?: BossHold, reserved: readonly number[] = []): SimState {
   const chosen = chooseTroops(duel, players, tick, tuning, intents);
   if (chosen !== duel) duel = chosen;
   const before = duel.crowd;
@@ -327,7 +341,7 @@ export function stepBubbles(duel: SimState, players: number, tick: number, tunin
   /** The first unbound (Benched) slot after the Players', or -1. A Player's corpse is neither bound nor Benched: never free. */
   const openSlot = () => {
     const p = pool();
-    for (let k = players; k < p.length; k++) if (p[k]!.benched && !isBound(p[k]!)) return k;
+    for (let k = players; k < p.length; k++) if (p[k]!.benched && !isBound(p[k]!) && !reserved.includes(k)) return k;
     return -1;
   };
   /**

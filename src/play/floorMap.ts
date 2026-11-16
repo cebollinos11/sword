@@ -2,9 +2,9 @@
  * The Floor map screen's layout and key (docs/plans/dungeon.md, Stage 3): pure and render only. It reads the Floor graph
  * (`floorGraph`) and the Run's path and builds positions and marks; `floorMapView.ts` draws them.
  */
-import { inDuel, type FighterState, type FloorGraph, type HallRef, type MatchState } from '../sim';
+import { inDuel, traitorOf, type FighterState, type FloorGraph, type HallRef, type MatchState } from '../sim';
 import { gateOpen } from '../sim/delverRun';
-import { isRevealed } from '../sim/delver/reveal';
+import { fullReveal, isRevealed } from '../sim/delver/reveal';
 import type { FloorPlan } from '../sim/delver/plan';
 import { delverMapMarks, type DelverMapMark, type DelverMapStatus } from '../render/delverMapMarks';
 import { minimapHeading } from '../render/minimap';
@@ -158,11 +158,20 @@ export function delverMapLayout(plan: FloorPlan, revealed: readonly number[], fi
   const marks = delverMapMarks(plan, revealed, status, me).map((m): DelverMapPlaced => ({ ...m, bx: bx(m.x), by: by(m.z) }));
   const arrows: DelverMapArrow[] = [];
   fighters.forEach((f, i) => {
-    if (f.team !== 0 || !inDuel(f) || f.hp <= 0) return;
+    // The party's living Fighters, and a traitor's own (`me` on Team 1, docs/plans/delver.md, Stage 8a).
+    if ((f.team !== 0 && i !== me) || !inDuel(f) || f.hp <= 0) return;
     const d = minimapHeading(f.facing);
     arrows.push({ fighter: i, me: i === me, bx: bx(f.position.x), by: by(f.position.z), dx: d.x, dy: d.y });
   });
   return { rects, marks, arrows };
+}
+
+/**
+ * The Reveal the local view of a Delver Run shows Fighter `me`: the party's (`DelverRun.revealed`), or for a traitor (`me` in a traitor's slot,
+ * docs/plans/delver.md, Stage 8a) the whole Floor, with no fog. Render only.
+ */
+export function viewReveal(match: MatchState, plan: FloorPlan, me: number): readonly number[] {
+  return traitorOf(match.config, me) >= 0 ? fullReveal(plan) : match.delver!.revealed;
 }
 
 /** What a Delver Run's markers depend on, from its Match and the Floor's plan: whether the gate is open, the fires' use and the pickups lying. Pure. */

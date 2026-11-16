@@ -16,6 +16,7 @@
   "attackSlots": [4, 3, 3, 3],
   "tierHp": [1, 1.25, 1.5],
   "tierRooms": [7, 10, 20],
+  "traitor": { "minDistance": 20, "respawnSeconds": 8, "respawnStep": 4, "respawnMax": 30 },
   "warbands": [
     {
       "guard": [

@@ -6,7 +6,7 @@ import { floorGraph, runHall, runKit, runSeed, type MatchState } from '../sim';
 import type { TuningData } from '../tuning';
 import { hallIcon } from './icons';
 import { floorOf } from '../sim/delver';
-import { delverMapLayout, delverMapStatus, floorMapLayout, type DelverMapLayout } from './floorMap';
+import { delverMapLayout, delverMapStatus, viewReveal, floorMapLayout, type DelverMapLayout } from './floorMap';
 
 export const FLOOR_MAP_CSS = `
 /* z-index: over the HUD's buttons (menu, map, Items), so a tap anywhere closes it. The board's margin keeps the nodes off the title and hint. */
@@ -93,7 +93,7 @@ export class FloorMapView {
     const run = match.delver!;
     const plan = floorOf(tuning, match.duel.arena)?.plan;
     if (!plan) return;
-    const layout = delverMapLayout(plan, run.revealed, match.duel.fighters, this.me, delverMapStatus(match, plan));
+    const layout = delverMapLayout(plan, viewReveal(match, plan, this.me), match.duel.fighters, this.me, delverMapStatus(match, plan));
     const key = JSON.stringify([match.config.arena, run.floor, run.floors, layout]);
     if (key === this.built) return;
     this.built = key;

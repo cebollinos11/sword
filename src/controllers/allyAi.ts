@@ -21,7 +21,7 @@ import { exitDoorWalk } from './doorSpot';
 export const FOLLOW_DISTANCE = 1.5;
 
 /**
- * Whether a promoted enemy (a Team 1 Fighter in play bound to a Soldier) stands within `bubble.promote` of Fighter `fighter` flat and less than
+ * Whether a promoted enemy (a Team 1 Fighter in play bound to a Soldier, or on a Floor any Team 1 Fighter in play: a traitor's too) stands within `bubble.promote` of Fighter `fighter` flat and less than
  * `battle.levels.height` above or below it: on a Floor, the Ally AI and the Delver pilot then fight it with their AI instead of following or walking
  * their route. Reads the state alone.
  */
@@ -30,7 +30,8 @@ export function promotedNear(tuning: TuningData, state: SimState, fighter: numbe
   const { promote } = tuning.battle.bubble;
   const { height } = tuning.battle.levels;
   return state.fighters.some(
-    (o) => o.team === 1 && o.soldier !== undefined && inDuel(o) && Math.abs(o.y - self.y) < height && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= promote,
+    // (On a Floor a traitor's Fighter counts too, docs/plans/delver.md, Stage 8a: unbound, but an enemy Fighter all the same.)
+    (o) => o.team === 1 && (o.soldier !== undefined || state.delver !== undefined) && inDuel(o) && Math.abs(o.y - self.y) < height && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= promote,
   );
 }
 

@@ -12,7 +12,7 @@
  * Online (Stage 7), every other Player in the Battle has an arrow too, in their army's colour with a white outline
  * (`playerMarkers`): a Player who took over a Soldier looks like every other Soldier on the field, and not on the map.
  */
-import { ATTACK, inDuel, presentPlayers, RESPAWN, type MapObjective, type MatchConfig, type SimState } from '../sim';
+import { ATTACK, inDuel, presentPlayers, RESPAWN, traitorOf, type MapObjective, type MatchConfig, type SimState } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { objectiveLetter } from './objectiveMarks';
 import { delverMapMarks, type DelverMapStatus } from './delverMapMarks';
@@ -64,9 +64,11 @@ export function playerMarkers(state: SimState, me: number): PlayerMarker[] {
  * who left: its Fighter is an AI ally's now) whose Fighter stands on the Floor and has not fallen, in slot order. The name tags and the
  * Floor's maps read it; in any other Match it is empty.
  */
-export function partyMarkers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players' | 'delver'>, duel: SimState, me: number): PlayerMarker[] {
+export function partyMarkers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players' | 'delver' | 'traitors'>, duel: SimState, me: number): PlayerMarker[] {
   if (!config.delver) return [];
-  return presentPlayers(config, duel.delver?.away).flatMap((k) => {
+  // A traitor (`me` in a traitor's slot, docs/plans/delver.md, Stage 8a) marks the whole party, Players and AI allies; nobody marks a traitor.
+  const party = traitorOf(config, me) >= 0 ? config.teams.map((_, k) => k) : presentPlayers(config, duel.delver?.away);
+  return party.flatMap((k) => {
     const f = duel.fighters[k];
     return k === me || !f || !inDuel(f) || f.death !== undefined ? [] : [{ fighter: k, team: f.team, position: { x: f.position.x, y: f.y, z: f.position.z }, facing: f.facing }];
   });
@@ -178,14 +180,15 @@ export class Minimap {
     }
     const dot = Math.max(2, px / 70);
     ctx.fillStyle = css(this.battle.soldier.colours[1]!);
-    fighters.forEach((e) => {
-      if (e.team === 0 || !inDuel(e)) return;
+    fighters.forEach((e, i) => {
+      if (e.team === 0 || i === me || !inDuel(e)) return;
       const p = at(e.position.x, e.position.z);
       if (p.x < 0 || p.y < 0 || p.x > px || p.y > px) return;
       ctx.fillRect(p.x - dot / 2, p.y - dot / 2, dot, dot);
     });
+    // The party's arrows, and a traitor's own (`me` on Team 1, docs/plans/delver.md, Stage 8a) in white.
     fighters.forEach((a, i) => {
-      if (a.team !== 0 || !inDuel(a) || a.hp <= 0) return;
+      if ((a.team !== 0 && i !== me) || !inDuel(a) || a.hp <= 0) return;
       const p = at(a.position.x, a.position.z);
       this.arrow(p, minimapHeading(a.facing), i === me ? '#fff' : '#6fd8ff', '#000', i === me ? 1 : 0.7);
     });

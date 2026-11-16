@@ -11,6 +11,7 @@ import type { BladeTransform, KickLeg } from './skeleton';
 import type { CrowdState } from './crowd';
 import type { Size } from '../tuning';
 import type { Vec3 } from './vec';
+import type { TraitorState } from './delverTraitors';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
 export interface Vec2 {
@@ -422,6 +423,8 @@ export interface SimDelver {
   readonly pickups: readonly Pickup[];
   /** The Players an AI Takeover has taken (ascending), as the Run's `away`; absent while nobody has left. */
   readonly away?: readonly number[];
+  /** The traitors' records (docs/plans/delver.md, Stage 8a): the Run's `traitors`, the very same array; absent with none. */
+  readonly traitors?: readonly TraitorState[];
 }
 
 /**

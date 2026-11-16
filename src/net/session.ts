@@ -63,6 +63,7 @@ import {
   checkLineup,
   createAiController,
   createAllyAi,
+  createPoolAi,
   createRemoteController,
   lineupAis,
   prepareAi,
@@ -99,8 +100,10 @@ export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchForm
   const difficulties = Object.keys(tuning.ai.difficulties);
   const difficulty = difficulties.includes(TAKEOVER_DIFFICULTY) ? TAKEOVER_DIFFICULTY : difficulties[0]!;
   if (format !== 'Gauntlet') return createAiController(tuning, difficulty);
-  // It walks with the Players still playing (not with itself): the Lineup's Player slots but its own.
-  const others = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && i !== fighter ? [i] : []));
+  // A Delver Run's traitor (a Team 1 Player, docs/plans/delver.md, Stage 8a): its Fighter is an ordinary promoted enemy now, a Pool AI's.
+  if (lineup[fighter]?.team === 1) return createPoolAi(tuning);
+  // It walks with the party's Players still playing (not with itself): the Lineup's Team 0 Player slots but its own.
+  const others = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && s.team === 0 && i !== fighter ? [i] : []));
   return createAllyAi(tuning, difficulty, DEFAULT_STYLE, others);
 }
 /**
@@ -327,6 +330,8 @@ class Session implements RollbackSession, PeerIntentSource {
   private readonly aiMemory = new Map<number, unknown[]>();
   /** This peer's Weapon pick. */
   private readonly weapon: string;
+  /** Host: every Player's Weapon pick, once the Match is built. */
+  private picks: readonly string[] = [];
   private readonly timeoutTicks: number;
   private readonly connectTimeoutTicks: number;
   private readonly stepFn: typeof stepMatch;
@@ -379,7 +384,7 @@ class Session implements RollbackSession, PeerIntentSource {
       this.lineup = o.lineup ?? ONE_VS_ONE;
       const guests = o.guests ?? (o.transport ? [o.transport] : []);
       const format = o.match.format ?? 'Duels';
-      checkLineup(o.tuning, this.lineup, guests.length + 1, format);
+      checkLineup(o.tuning, this.lineup, guests.length + 1, format, o.match.delver === true);
       this.localPlayer = 0;
       this.setLineup(this.lineup, format, o.match);
       this.links = guests.map((t, i) => this.link(t, i + 1));
@@ -591,6 +596,7 @@ class Session implements RollbackSession, PeerIntentSource {
   private maybeStart(): void {
     if (this.role !== 'host' || this.status !== 'Connecting' || this.links.some((l) => !l.gone && l.weapon === null)) return;
     const picks = [this.weapon, ...this.links.map((l) => l.weapon ?? defaultWeaponName(this.tuning))];
+    this.picks = picks;
     this.build(createMatch(this.tuning, lineupMatch(this.tuning, this.lineup!, picks, this.matchOptions!)));
     this.sendHellos();
   }
@@ -746,7 +752,8 @@ class Session implements RollbackSession, PeerIntentSource {
       // A Run's options also say how many humans it started with (its enemies' HP scales with that), and a Delver Run's that it is one.
       const { weapons: _picks, teams: _teams, ...options } = this.matchOptions!;
       const match = state.run || state.delver ? { ...options, humans: state.config.humans, ...(state.delver ? { delver: true as const } : {}) } : options;
-      const weapons = this.fighterOf.map((i) => state.config.weapons[i]!);
+      // (A Delver traitor's slot is past the party's, so its Weapon is its pick: the Match has none for it.)
+      const weapons = this.fighterOf.map((i, p) => state.config.weapons[i] ?? this.picks[p] ?? defaultWeaponName(this.tuning));
       l.transport.send({ ...hello, match, lineup: this.lineup!, weapons, player: l.peer });
     }
   }
@@ -846,9 +853,10 @@ class Session implements RollbackSession, PeerIntentSource {
     try {
       if (!weapons.every((w) => this.tuning.weapons[w])) throw new RangeError('Unknown Weapon');
       if (player < 1 || player >= weapons.length) throw new RangeError(`No Player ${player}`);
-      checkLineup(this.tuning, lineup, weapons.length, format);
-      // A Run's humans are the Lineup's Players, as the host counted them.
-      if (format === 'Gauntlet' && match.humans !== lineupPlayers(lineup)) throw new RangeError(`A Run of ${lineupPlayers(lineup)} humans, not ${match.humans}`);
+      checkLineup(this.tuning, lineup, weapons.length, format, match.delver === true);
+      // A Run's humans are the Lineup's Players (a Delver Run's on Team 0: its Team 1 Players are traitors), as the host counted them.
+      const humans = match.delver ? lineup.filter((s) => s.team === 0 && s.pilot.kind === 'Player').length : lineupPlayers(lineup);
+      if (format === 'Gauntlet' && match.humans !== humans) throw new RangeError(`A Run of ${humans} humans, not ${match.humans}`);
       state = createMatch(this.tuning, lineupMatch(this.tuning, lineup, weapons, match));
     } catch {
       return this.refuse('TuningDataMismatch', m.tuningHash, true);

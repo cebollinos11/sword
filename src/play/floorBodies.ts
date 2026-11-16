@@ -8,7 +8,14 @@ import type { TuningData } from '../tuning';
  * `battleBodies` does), so a promoted enemy is drawn as the Troop it was. An unbound Pool slot is not drawn and needs none. Pure.
  */
 export function floorBodies(duel: SimState, party: number, chosen: readonly (string | undefined)[], bodyOf: (soldier: number) => string): (string | undefined)[] {
-  return duel.fighters.map((f, k) => (k < party ? chosen[k] : f.soldier ? bodyOf(f.soldier.index) : undefined));
+  // A traitor's slot (docs/plans/delver.md, Stage 8a) wears the Soldier it took over, as any promoted Soldier: Team 0 cannot tell it apart.
+  const traitors = duel.delver?.traitors;
+  return duel.fighters.map((f, k) => {
+    if (k < party) return chosen[k];
+    if (f.soldier) return bodyOf(f.soldier.index);
+    const held = traitors?.[k - party]?.soldier ?? -1;
+    return held >= 0 ? bodyOf(held) : undefined;
+  });
 }
 
 /**

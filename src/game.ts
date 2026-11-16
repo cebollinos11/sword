@@ -1,4 +1,4 @@
-import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
+import { ARENA_SEED_RANGE, battleNameFor, createMatch, doorTicksNeeded, hallRoster, hashValue, inDuel, isArenaName, parseGeneratedName, runCleared, runHall, runSeed, secondsToTicks, TICK_SECONDS, traitorOf, type MatchOptions, type Pickup, type MatchState, type SimState } from './sim';
 import { parseBattleKnobs, parseRunKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from './tuning';
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
@@ -7,7 +7,7 @@ import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
-import { createAutopilot, createBattlePilot, createDelverPilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createAutopilot, createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenasToWarm, createArenaWorlds, warmArena, warmingWaits } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
@@ -29,7 +29,7 @@ import { bossesBeaten } from './sim/delverRun';
 import { fireState } from './render/restFire';
 import { floorOf } from './sim/delver';
 import { playerName, runBuilds } from './play/runBuilds';
-import { hallBanner, Hud, runResultLine, type RunResult } from './play/hud';
+import { hallBanner, Hud, runResultLine, traitorWatchLine, type RunResult } from './play/hud';
 import { Menu, type RoomInvite } from './play/menu';
 import { MatchAnnouncer } from './play/announcer';
 import { floorBodies, floorBodyOf } from './play/floorBodies';
@@ -436,7 +436,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
     // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run (a Delver Run's is the Delver pilot).
     const doors = match.format ? devAutopilot() : null;
-    const pilot = doors ? (match.delver ? Object.assign(createDelverPilot(matchTuning, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot())) : undefined;
+    // (A traitor's, its slot on Team 1, is the traitor pilot: docs/plans/delver.md, Stage 8a.)
+    const delverPilot = () => {
+      const party = createDelverPilot(matchTuning, 'Hard', { walk: inputDelay > 0 });
+      const traitor = createTraitorPilot(matchTuning, 'Hard', { walk: inputDelay > 0 });
+      return { intent: (state: SimState, fighter: number) => (state.fighters[fighter]?.team === 1 ? traitor : party).intent(state, fighter) };
+    };
+    const pilot = doors ? (match.delver ? Object.assign(delverPilot(), { watch() {} }) : createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot())) : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 
@@ -572,7 +578,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       driver = d;
       names = n ?? null;
       bodies = b ?? null;
-      partyTags.setNames(playersBySlot(d.lineup ?? [], names ?? []));
+      // (A traitor tags the party's AI allies too, as `AI`.)
+      partyTags.setNames(playersBySlot(d.lineup ?? [], names ?? []).map((n, k) => n ?? (d.lineup?.[k]?.team === 0 ? 'AI' : undefined)));
       // Fresh random Bodies for the AIs.
       renderer.recast();
       local.releaseAll();
@@ -846,6 +853,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
+          // Each traitor's kills and deaths (docs/plans/delver.md, Stage 8a): traitor j plays slot `teams.length + j`.
+          ...(delver.traitors ? { traitors: delver.traitors.map((t, j) => ({ name: playerName(driver?.lineup ?? null, names, match.config.teams.length + j), kills: t.kills, deaths: t.deaths })) } : {}),
         };
         resultText = runResultLine(runResult);
       } else if (e.type === 'MatchEnd' && run && match.status.status === 'Over') {
@@ -1071,7 +1080,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const yaw = local.yaw;
       const shot = inShot ? finalBlow.frame(frozen ? 0 : elapsed) : null;
       if (inShot && !shot) endShot(finalBlow.takeRest());
-      renderer.setPlayer(me, menu.body);
+      // A Delver traitor (docs/plans/delver.md, Stage 8a) wears the Soldier it took over, as everyone else sees it, not its own Body.
+      const traitor = traitorOf(curr.config, me) >= 0;
+      renderer.setPlayer(traitor ? -1 : me, menu.body);
       // The camera as last placed: a frame behind is fine for choosing what to label.
       const mine = curr.duel.fighters[me];
       const pickups: PickupView[] = mine
@@ -1100,6 +1111,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
         if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
           placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha), yaw, renderer.collider);
+        // A traitor watching (no Soldier taken over yet): orbit the party.
+        else if (traitor && !inDuel(curr.duel.fighters[me]!) && curr.duel.duel.status === 'Fighting')
+          placeOrbitCamera(renderer.camera, tuning.camera, fightCentre(before, curr.duel, alpha, 0), yaw, renderer.collider);
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
@@ -1111,6 +1125,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const tagged = driver.ping !== undefined && curr.delver !== undefined;
       partyTags.root.hidden = !tagged || shot !== null;
       if (tagged && !shot) partyTags.update(curr.duel, before, me, alpha, (p) => renderer.toScreen(p), partyMarkers(curr.config, curr.duel, me));
+      // A watching traitor is told when it takes over its next Soldier (docs/plans/delver.md, Stage 8a).
+      const watching = traitor && !shot ? traitorWatchLine(curr, me) : null;
+      if (watching) hud.announce(watching, 0.3);
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
       syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, curr.run?.phase, delverContext(curr));
@@ -1197,8 +1214,9 @@ function earsOf(duel: SimState, me: number, camera: Camera): Ears {
   return { position, right: { x: earRight.x / across, z: earRight.z / across } };
 }
 
-function fightCentre(a: SimState, b: SimState, alpha: number): CameraTarget {
-  const living = b.fighters.flatMap((f, i) => (inDuel(f) ? [lerpPosition(a, b, i, alpha)] : []));
+/** Where the Fighters still in the Duel (of Team `team` only, when given) are, on average. */
+function fightCentre(a: SimState, b: SimState, alpha: number, team?: number): CameraTarget {
+  const living = b.fighters.flatMap((f, i) => (inDuel(f) && (team === undefined || (f.team === team && !f.death)) ? [lerpPosition(a, b, i, alpha)] : []));
   if (living.length === 0) return { x: 0, z: 0 };
   const mean = (k: 'x' | 'y' | 'z') => living.reduce((s, p) => s + (p[k] ?? 0), 0) / living.length;
   return { x: mean('x'), y: mean('y'), z: mean('z') };

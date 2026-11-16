@@ -35,4 +35,14 @@ describe('partyMarkers', () => {
     const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', humans: 2, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
     expect(partyMarkers(m.config, m.duel, 0)).toEqual([]);
   });
+
+  it("marks a traitor's whole living party, Players and AI allies, and marks no traitor for Team 0 (Stage 8a)", () => {
+    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, humans: 1, players: [0], teams: [0, 0, 0], traitors: [{}] });
+    // The traitor's slot is 3, right after the party.
+    expect(marked(m, 3)).toEqual([0, 1, 2]);
+    // The party marks no traitor (its slot holds a Team 1 Fighter, like any promoted Soldier).
+    expect(marked(m, 0)).toEqual([]);
+    const fell = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 1 ? { ...f, hp: 0, death: { tick: 1, cause: 'Hit' as const, blow: null } } : f)) } } as MatchState;
+    expect(marked(fell, 3)).toEqual([0, 2]);
+  });
 });
