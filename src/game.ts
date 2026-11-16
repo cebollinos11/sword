@@ -436,7 +436,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     }
     // Dev mode only: this peer's Fighter on the autopilot too (`?dev=1&autopilot=...`), for the two-browser check of a Run (a Delver Run's is the Delver pilot).
     const doors = match.format ? devAutopilot() : null;
-    const pilot = doors ? (match.delver ? Object.assign(createDelverPilot(matchTuning, 'Hard'), { watch() {} }) : createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot())) : undefined;
+    const pilot = doors ? (match.delver ? Object.assign(createDelverPilot(matchTuning, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(matchTuning, 'Hard', doors, devAutopilotLoot())) : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 

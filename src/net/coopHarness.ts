@@ -158,7 +158,7 @@ export function startRun(o: RunOptions) {
       tuning: tunings[k]!,
       worlds: createArenaWorlds(tunings[k]!),
       warmed: new Set(),
-      autopilot: o.delver ? Object.assign(createDelverPilot(tunings[k]!, 'Hard'), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
+      autopilot: o.delver ? Object.assign(createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
       sent: new Map(),
       events: [],
       sums: new Map(),

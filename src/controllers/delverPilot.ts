@@ -14,7 +14,7 @@ import { IDLE_INTENT, inDuel, pickupVisibleTo, type Dropped, type Intent, type I
 import { floorOf } from '../sim/delver';
 import { BOSS } from '../sim/warband';
 import type { TuningData } from '../tuning';
-import { createAiController, type AiController } from './ai';
+import { aiDifficulty, createAiController, type AiController } from './ai';
 import { promotedNear } from './allyAi';
 import type { Controller } from './controller';
 
@@ -96,10 +96,21 @@ class DelverPilot implements Controller {
   }
 }
 
+/** How a Delver pilot is made (`createDelverPilot`). */
+export interface DelverPilotOptions {
+  /**
+   * It walks: its routes take no jump Link (its AI's `jumpNav` −1), only Ramps and drops, which reach every Walk Surface of a Floor (the judge's
+   * walk check). For a pilot played through an Input Delay (online, docs/plans/delver.md, Stage 8): its Jump, timed at the takeoff, is played Ticks
+   * later from beyond it, falls short of the Deck it was for, and it walks back and tries again for ever.
+   */
+  readonly walk?: boolean;
+}
+
 /**
  * A Delver pilot at `difficulty` (default Hard): fires nearest first, then the Stairs. It stops 0.5 m short of a fire (it counts as
  * reached within 1 m, `FIRE_REACH`), so a fire is always reached; the Stairs it walks to the zone's centre, 0.3 m.
  */
-export function createDelverPilot(tuning: TuningData, difficulty = 'Hard'): Controller {
-  return new DelverPilot(tuning, createAiController(tuning, difficulty));
+export function createDelverPilot(tuning: TuningData, difficulty = 'Hard', options: DelverPilotOptions = {}): Controller {
+  const skill = aiDifficulty(tuning, difficulty);
+  return new DelverPilot(tuning, createAiController(tuning, options.walk ? { ...skill, jumpNav: -1 } : skill));
 }
