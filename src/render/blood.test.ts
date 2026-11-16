@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, sizedTuning, withWeapon } from '../tuning';
 import { attack, runDuel, createInitialState, duelPlacements, fighterPose } from '../sim';
-import { bloodSpurts, RUN_SECONDS, SPLAT_SECONDS, stainShape, STUMP_BLEED_SECONDS, stumpDrops, stumpSpurts } from './blood';
+import { bloodSpurts, keptStains, RUN_SECONDS, SPLAT_SECONDS, stainShape, STUMP_BLEED_SECONDS, stumpDrops, stumpSpurts } from './blood';
 import { severing } from './dismember';
 
 const tuning = loadTuningData();
@@ -133,5 +133,18 @@ describe('stumpDrops', () => {
     expect(stumpDrops(0.5, 0.5)).toBe(0);
     expect(stumpDrops(1, 0.2)).toBe(0);
     expect(stumpDrops(-1, 0)).toBe(0);
+  });
+});
+
+describe('keptStains', () => {
+  it('a rewind keeps the stains of blood from the Tick rewound to or before, oldest first', () => {
+    expect(keptStains([3, 9, 5, 12, 0, 0], 4, 4, 6, 5)).toEqual([0, 2]);
+    expect(keptStains([3, 9, 5, 12], 4, 0, 4, 100)).toEqual([0, 1, 2, 3]);
+    expect(keptStains([3, 9, 5, 12], 4, 0, 4, 1)).toEqual([]);
+  });
+
+  it('a full ring buffer is read from its oldest stain, the one the next overwrites', () => {
+    // Slots 2 and 3 are the oldest (Ticks 1, 2); 0 and 1 overwrote theirs later (Ticks 7, 8).
+    expect(keptStains([7, 8, 1, 2], 4, 2, 4, 7)).toEqual([2, 3, 0]);
   });
 });

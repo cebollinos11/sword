@@ -245,6 +245,7 @@ export class ImpactEffects {
     if (tick <= this.lastTick) return;
     this.lastTick = tick;
     this.blood.setArena(duel.arena);
+    this.blood.setTick(tick);
     if (this.washed()) {
       for (const s of bloodSpurts(duel)) this.blood.spurt(s);
       for (const s of stumpSpurts(duel, tuning)) this.blood.spurt(s, false);
@@ -255,9 +256,10 @@ export class ImpactEffects {
     for (const d of dustPuffs(tick, duel)) this.puff(d);
   }
 
-  /** The loop jumped to `tick`: clear what is flying (and, if it went back in time, the bloodstains); Ticks after it will burst. */
-  seek(tick: number): void {
-    this.blood.seek(tick < this.lastTick);
+  /** The loop jumped to `tick`: clear what is flying (and, if it went back in time, the bloodstains laid after it); Ticks after it will burst. `wash`: every bloodstain goes too (a new Match). */
+  seek(tick: number, wash = false): void {
+    if (wash) this.blood.clear();
+    this.blood.seek(tick);
     this.blades.seek(tick);
     this.bodies.seek(tick);
     this.lastTick = tick;
