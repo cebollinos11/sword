@@ -126,6 +126,8 @@ export interface BlockEvent {
   readonly bladeSpeed: number;
   /** A Heavy Blow (the attacker's Weapon's `heavyBlow`): the Block holds, but the defender is pushed back. */
   readonly heavy: boolean;
+  /** Present (true) only for a Block Break: the Block Impact reached the defender's Weapon's `blockImpact.breakAt`, so the defender is knocked down. */
+  readonly broken?: true;
 }
 
 /** An Attack's Blade Sweep reached an Arena Wall (a pillar, a wall, a rail) before any Fighter: the blade stops and the attacker recoils. */

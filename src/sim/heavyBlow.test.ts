@@ -70,6 +70,33 @@ describe('Heavy Hit', () => {
   });
 });
 
+describe('Quarterstaff Heavy Blow', () => {
+  const staff = tuning.weapons.Quarterstaff!;
+
+  it('a swing at normal range, in each swinging Direction, knocks the defender down and pushes it away', () => {
+    for (const d of ['Overhead', 'Left', 'Right'] as Direction[]) {
+      const run = swing(tuning, 'Quarterstaff', d, 1.4);
+      const [hit] = events<HitEvent>(run, 'Hit');
+      expect(hit, d).toMatchObject({ head: true, heavy: true });
+      expect(hit!.bladeSpeed, d).toBeGreaterThanOrEqual(staff.heavyBlow.speed * staff.speed);
+      expect(run.states.find((s) => s.events.includes(hit!))!.fighters[1]!.action.kind, d).toBe('Knockdown');
+      expect(moved(run), d).toBeCloseTo(staff.heavyBlow.knockdownSlide, 1);
+    }
+  });
+
+  it('a near-hand Overhead and a Thrust only Stagger', () => {
+    for (const [d, distance] of [['Overhead', 0.5], ['Thrust', 1.4]] as const) {
+      const run = swing(tuning, 'Quarterstaff', d, distance);
+      const [hit] = events<HitEvent>(run, 'Hit');
+      expect(hit, d).toMatchObject({ head: true, heavy: false });
+      expect(hit!.bladeSpeed, d).toBeLessThan(staff.heavyBlow.speed * staff.speed);
+      expect(run.states.find((s) => s.events.includes(hit!))!.fighters[1]!.action.kind, d).toBe('Stagger');
+      // A Stagger recoils a little; a Knockdown's Slide is `knockdownSlide`.
+      expect(moved(run), d).toBeLessThan(staff.heavyBlow.knockdownSlide / 4);
+    }
+  });
+});
+
 describe('Heavy Blow Blocked', () => {
   it('pushes the defender back by `blockSlide`, its Block holding, and the attacker recoils as from any Block', () => {
     const run = blocked(tuning, 'Sledge Hammer', 'Overhead', 1.45);

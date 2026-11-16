@@ -1,0 +1,46 @@
+{
+  "name": "Quarterstaff",
+  "grip": "twoHanded",
+  "length": 1.5,
+  "damage": 35,
+  "speed": 20,
+  "gripLength": 0.8,
+  "offHandGrip": {
+    "along": 0.45,
+    "around": 0,
+    "radial": 0
+  },
+  "head": 1.5,
+  "shaftDamage": 1,
+  "cuts": false,
+  "blockImpact": {
+    "dealt": 1.3,
+    "taken": 0.7
+  },
+  "heavyBlow": {
+    "speed": 0.7,
+    "knockdownSlide": 0.9,
+    "knockdownSlideTicks": 24,
+    "blockSlide": 0.3,
+    "blockSlideTicks": 6
+  },
+  "tempo": {
+    "windUp": 1,
+    "release": 1,
+    "recovery": 1
+  },
+  "sheathe": {
+    "slot": "back",
+    "offset": {
+      "x": 0.14,
+      "y": -0.05,
+      "z": -0.17
+    },
+    "rotation": {
+      "x": -75,
+      "y": 90,
+      "z": 0
+    }
+  },
+  "look": "staff"
+}

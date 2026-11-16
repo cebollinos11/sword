@@ -1,0 +1,132 @@
+{
+  "name": "SheatheBack",
+  "duration": 1,
+  "loop": false,
+  "markers": {
+    "swap": 0.6
+  },
+  "poseKeys": [
+    {
+      "time": 0,
+      "ease": "easeInOut",
+      "rightHand": "idle",
+      "leftHand": "idle",
+      "torso": "idle",
+      "hip": "idle",
+      "leftFoot": "idle",
+      "rightFoot": "idle"
+    },
+    {
+      "time": 0.35,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": 0.3,
+          "y": 1.75,
+          "z": 0.18
+        },
+        "rotation": {
+          "x": -40,
+          "y": 60,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.22,
+          "y": 0.95,
+          "z": 0.12
+        }
+      },
+      "torso": {
+        "twist": 6,
+        "lean": -3
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.92,
+        "z": 0
+      }
+    },
+    {
+      "time": 0.6,
+      "ease": "easeIn",
+      "rightHand": {
+        "position": {
+          "x": 0.103,
+          "y": 1.36,
+          "z": -0.222
+        },
+        "rotation": {
+          "x": -75,
+          "y": 102.4,
+          "z": -3.4
+        }
+      },
+      "torso": {
+        "twist": 10,
+        "lean": -4
+      }
+    },
+    {
+      "time": 0.78,
+      "ease": "easeOut",
+      "rightHand": {
+        "position": {
+          "x": 0.32,
+          "y": 1.25,
+          "z": 0.02
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "torso": {
+        "twist": 3,
+        "lean": -1
+      }
+    },
+    {
+      "time": 1,
+      "ease": "easeInOut",
+      "rightHand": {
+        "position": {
+          "x": 0.24,
+          "y": 0.87,
+          "z": 0.06
+        },
+        "rotation": {
+          "x": 80,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "leftHand": {
+        "position": {
+          "x": -0.27,
+          "y": 0.88,
+          "z": 0.04
+        }
+      },
+      "torso": {
+        "twist": 0,
+        "lean": 0
+      },
+      "hip": {
+        "x": 0,
+        "y": 0.93,
+        "z": 0
+      },
+      "leftFoot": {
+        "x": -0.12,
+        "z": 0.06
+      },
+      "rightFoot": {
+        "x": 0.12,
+        "z": -0.06
+      }
+    }
+  ]
+}

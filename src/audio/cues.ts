@@ -317,6 +317,8 @@ export function soundCues(events: readonly SimEvent[], now?: SimState, tuning?: 
           at: e.point,
           ...(flail(e.attacker) ? { chain: true as const } : {}),
         });
+        // A Block Break puts the defender on the floor.
+        if (e.broken) cues.push({ sound: 'Knockdown', fighter: e.defender, at: body(e.defender) });
         break;
       case 'WallStrike':
         cues.push({

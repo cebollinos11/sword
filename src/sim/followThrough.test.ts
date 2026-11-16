@@ -44,12 +44,13 @@ describe('Attack follow-through', () => {
   });
 
   it('changes no Hit, Block or Wall Strike: every Weapon\'s Attack in every Direction lands as before', () => {
-    const placements = [
-      { position: { x: 0, z: 0 }, facing: 0 },
-      { position: { x: 0, z: 1.3 }, facing: Math.PI },
-    ];
     for (const weapon of Object.keys(tuning.weapons))
       for (const direction of DIRECTIONS.filter((d) => playsDefault(weapon, d))) {
+        // The Dagger's blade is short: it reaches only a Fighter standing close.
+        const placements = [
+          { position: { x: 0, z: 0 }, facing: 0 },
+          { position: { x: 0, z: weapon === 'Dagger' ? 0.9 : 1.3 }, facing: Math.PI },
+        ];
         const script = { placements, weapons: [weapon, weapon], a: [...attack(direction), ...wait(20), ...attack(direction)], b: wait(200) };
         const run = runDuel(tuning, script);
         expect(hitsOf(run).length, `${weapon} ${direction}`).toBeGreaterThan(0);
