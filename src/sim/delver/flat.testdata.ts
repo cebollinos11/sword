@@ -7,6 +7,8 @@ import type { TuningData } from '../../tuning';
 
 /** `tuning` with `delver.floor.levels` { max 0, min 1, changePercent 0, galleryPercent 0 }. */
 export function flatFloors(tuning: TuningData): TuningData {
+  // Stage 7c's splits, pits and daises (and its gallery knobs) go too: a flat Floor has no raised or sunk floor.
+  tuning = flatHalls(tuning);
   return { ...tuning, delver: { ...tuning.delver, floor: { ...tuning.delver.floor, levels: { max: 0, min: 1, changePercent: 0, galleryPercent: 0 } } } };
 }
 

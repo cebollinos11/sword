@@ -735,7 +735,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
     // Whether this step may drop off a ledge (Stage 4a): only one that follows a destination field (whose joins drop) or has no place to keep
     // (a free agent, a fleeing Soldier); a crowd's push never shoves a Soldier off a deck.
     let mayDrop = sq < 0 || fleeing;
-    /** The destination field (and its destination) this step follows, when it follows one: it may drop only where that field leads down. */
+    /** The lead field (a Floor's Warbands, Stage 7c) this step follows, when it follows one: it may drop only where that field leads down. A Battle Squad's Soldier keeps its drops. */
     let ledBy: DestinationFields | null = null;
     let ledTo = 0;
     const ring = ringed && !fleeing && ringOf[i]! >= 0 && !(best >= 0 && bestD <= reach2) ? fighters[ringOf[i]!]! : null;
@@ -820,7 +820,6 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
             const d = toward(map.fields, xi, zi, ax, az, own, si, squads.surface[sq]);
             if (d >= 0) {
               way = descend(map.fields, d, xi, zi, own, p.separation / 2, si) ?? descend(map.fields, d, xi, zi, own, 0, si);
-              [ledBy, ledTo] = [map.fields, d];
             }
           }
         }
@@ -924,7 +923,7 @@ export function stepCrowd(crowd: CrowdState, tick: number, battle: BattleTuning,
       // A step down a destination field: the field leads along a level, and a Soldier only drops off a ledge where the field leads down (the way
       // left from where it lands is shorter than from where it stands). Else, cutting past a Deck's corner off its node's line, it walks the step
       // without dropping, sliding along the edge.
-      if (ledBy !== null && mayDrop && !fleeing && sq >= 0 && on !== si && soldierHeight(field, on, stood[0], stood[1]) < soldierHeight(field, si, xi, zi) - lv.stepUp) {
+      if (ledBy !== null && mayDrop && on !== si && soldierHeight(field, on, stood[0], stood[1]) < soldierHeight(field, si, xi, zi) - lv.stepUp) {
         const here = fieldDistance(ledBy, ledTo, xi, zi, si);
         const there = fieldDistance(ledBy, ledTo, stood[0], stood[1], on);
         if (!(there >= 0 && (here < 0 || there < here))) on = walkTo(field.arena, lv, si, xi, zi, nx, nz, stood, false);

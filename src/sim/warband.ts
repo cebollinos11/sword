@@ -372,7 +372,7 @@ export function stepWarbands(crowd: CrowdState, tick: number, battle: BattleTuni
     }
     return (centres = c);
   };
-  /** Whether Warband q's in-Crowd Soldiers lag its anchor (`squad.lag`), as the brain's regroup reads it. */
+  /** Whether Warband q's in-Crowd Soldiers, as they stood at the start of the Tick, lag its anchor as it stands now (`squad.lag`, the brain's regroup distance). */
   const lags = (q: number): boolean => {
     const c = centreOf();
     const k = c[q * 3 + 2]!;

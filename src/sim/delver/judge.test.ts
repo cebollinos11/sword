@@ -731,6 +731,15 @@ describe('the judge on Floors with vertical features and wrapped galleries (Stag
     expect(near).toContain(`features: post0 stands within 1 m of ${h.id}-step0`);
   });
 
+  it('features: refuses a floor marker under a dais (its cell centre has the dais\'s node only)', () => {
+    const { b, k, h, f } = featureHalls('dais')[0]!;
+    if (f.kind !== 'dais') throw new Error('dais');
+    const x = (f.rect.x0 + f.rect.x1) / 2;
+    const z = (f.rect.z0 + f.rect.z1) / 2;
+    const posts = b.plan.markers.posts.map((q, n) => (n === 0 ? { hall: k, x, y: h.y, z } : q));
+    expect(featureReasons({ ...b.plan, markers: { ...b.plan.markers, posts } })).toContain(`features: post0 stands within 1 m of ${h.id}'s dais`);
+  });
+
   it('features: refuses a Passage\'s ya raised by 2, naming its Hall\'s floor', () => {
     const b = pool[0]!;
     const p = b.plan.passages.find((q) => q.pieces.length === 1 && q.ya === q.yb)!;

@@ -328,6 +328,8 @@ function judgeFeatures(plan: FloorPlan): string[] {
     if (f.kind === 'split') [ok, what] = [f.tiers.some((t) => at(t.y) && shrunk(t.rect)), 'tier edge'];
     else if (f.kind === 'pit' && at(h.y)) [ok, what] = [shrunk(f.pit), 'pit edge'];
     else if (f.kind === 'dais' && at(f.y)) [ok, what] = [shrunk(f.rect), 'dais edge'];
+    // A marker on the floor of a dais Hall keeps 1 m off the dais: a cell centre under it has the dais's node only, so the floor's field never reaches it.
+    else if (f.kind === 'dais') [ok, what] = [ok && rectDistance(f.rect, mk.x, mk.z) >= 1, ok ? 'dais' : what];
     if (!ok) out.push(`features: ${mk.name} stands within 1 m of ${h.id}'s ${what}`);
   }
   return out;
