@@ -43,7 +43,7 @@ import { surfaceHeight } from '../arena';
 import { groundOf } from '../battlefield';
 import { runPick } from '../dungeon';
 import { flatRooms } from './flat.testdata';
-import { tierOf } from './troops';
+import { floorTuningOf, tierOf } from './troops';
 import { buildFloor, delverFloor, isBossFloor, judgeFields, judgePlan, planFloor, type DelverHallKind, type FloorPlan } from './index';
 
 const tuning = loadTuningData();
@@ -101,16 +101,18 @@ function deal(k: number, wantNav: boolean): Dealt {
   const seed = runPick(0x5eed, 0, k, 0, 0x1_0000_0000);
   const floor = 1 + (k % 9);
   const failed: string[][] = [];
+  // The Floor's own tuning, its tier's Halls (issue #135's `tierRooms`), as `delverFloor` deals it.
+  const ft = floorTuningOf(tuning.delver, floor);
   const d: Dealt = { k, seed, floor, attempts: 0, layout: null, mapText: null, nav: null, ok: false, lastReasons: [], plan: 0, build: 0, judge: 0, sum: 0 };
   for (let attempt = 0; attempt < t.maxAttempts; attempt++) {
     const t0 = performance.now();
-    const plan = planFloor(t, seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
+    const plan = planFloor(ft, seed, floor, attempt, isBossFloor(tuning.delver, floor), tierOf(tuning.delver, floor));
     const t1 = performance.now();
     d.attempts = attempt + 1;
     d.plan = t1 - t0;
     d.build = 0;
     d.judge = 0;
-    let reasons: string[] = judgePlan(t, plan, tuning.battle.field.size);
+    let reasons: string[] = judgePlan(ft, plan, tuning.battle.field.size);
     if (reasons.length > 0) {
       // As `judgeAttempt`: a plan rule 1 refuses is not built.
       d.layout = plan;
@@ -122,7 +124,7 @@ function deal(k: number, wantNav: boolean): Dealt {
     try {
       const built = buildFloor(tuning, plan);
       const t2 = performance.now();
-      reasons = judgeFields(t, built);
+      reasons = judgeFields(ft, built);
       const judged = reasons;
       const t3 = performance.now();
       d.build = t2 - t1;
@@ -302,7 +304,7 @@ describe('the Floor generator soak', () => {
       depthThen.push(old.halls[old.stairs]!.depth);
     }
     const depthRatio = mean(depthNow) / mean(depthThen);
-    lines.push(`  mean Stairs depth (plan m): ${fmt(mean(depthNow))} now (passing attempt), ${fmt(mean(depthThen))} under flatRooms (attempt 0); ratio ${depthRatio.toFixed(3)} (rooms ${t.rooms})`);
+    lines.push(`  mean Stairs depth (plan m): ${fmt(mean(depthNow))} now (passing attempt), ${fmt(mean(depthThen))} under flatRooms (attempt 0); ratio ${depthRatio.toFixed(3)} (rooms ${tuning.delver.tierRooms?.join(', ') ?? t.rooms} by tier)`);
     const failedTotal = dealt.reduce((n, d) => n + d.attempts - 1, 0);
     lines.push(`  failed attempts (attempts - 1 summed): ${failedTotal}, allowed ${PAIRS / 20}`);
     const patrolFloors = [0, 1, 2].map((n) => floors.filter((p) => p.markers.patrols.length === n).length);
