@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, inDuel, inStairs, MAX_TEAM_SIZE, secondsToTicks, type FighterState, type MatchState } from '../sim';
+import { createMatch, IDLE_INTENT, SHEATHED_IDLE_MOTION, type Intent, inDuel, inStairs, MAX_TEAM_SIZE, secondsToTicks, type FighterState, type MatchState } from '../sim';
 import { floorOf } from '../sim/delver';
-import { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
+import { createAllyAi, DRAW_DISTANCE, FOLLOW_DISTANCE, SHEATHE_DISTANCE } from './allyAi';
 import { stepMatchWith, type Controller } from './controller';
 import { createHallAi } from './hallAi';
 import { lineupAis, type Lineup } from './lineup';
@@ -112,13 +112,41 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
       // Its Intent is its AI's own: the same as an Ally AI of its kind asked of a state with nobody to follow (the follow differs).
       expect(fights.intent(near.duel, 1)).not.toEqual(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(apart.duel, 1));
       expect(theAi.intent(near.duel, 1)).toEqual(fights.intent(near.duel, 1));
-      // Out of promote, or on another level, or not a promoted enemy: the follow again.
+      // Out of promote, or on another level, or not a promoted enemy: the follow again (whether it Sheathes for it is the enemy's distance).
+      const walk = (i: Intent): Intent => ({ ...i, sheathe: undefined });
       const far = promoted(apart, 1, promote + 2);
-      expect(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(far.duel, 1)).toEqual(follow);
+      expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(far.duel, 1))).toEqual(walk(follow));
       const other = edit(near, 5, (f) => ({ ...f, y: f.y + warbanded.battle.levels.height + 1 }));
-      expect(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(other.duel, 1)).toEqual(follow);
+      expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(other.duel, 1))).toEqual(walk(follow));
       const unbound = edit(near, 5, (f) => ({ ...f, soldier: undefined }));
-      expect(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(unbound.duel, 1)).toEqual(follow);
+      expect(walk(createAllyAi(warbanded, 'Hard', 'Balanced', [0]).intent(unbound.duel, 1))).toEqual(walk(follow));
+    });
+
+    it('an Ally AI Sheathes to follow with no enemy near, and Draws once one comes near', () => {
+      const m = wstart();
+      const ally = (): Controller => createAllyAi(warbanded, 'Hard', 'Balanced', [0]);
+      const sheathed = (x: MatchState): MatchState => edit(x, 1, (f) => ({ ...f, sheathed: true, motion: { name: SHEATHED_IDLE_MOTION, tick: 0 } }));
+      // The Entrance Hall holds no Warband: drawn, it Sheathes; Sheathed, it stays so.
+      expect(ally().intent(m.duel, 1).sheathe).toBe(true);
+      expect(ally().intent(sheathed(m).duel, 1).sheathe).toBeFalsy();
+      // An enemy between the two distances: neither Sheathes nor Draws, so it does not flicker at the edge.
+      const between = promoted(m, 1, (DRAW_DISTANCE + SHEATHE_DISTANCE) / 2);
+      expect(ally().intent(between.duel, 1).sheathe).toBeFalsy();
+      expect(ally().intent(sheathed(between).duel, 1).sheathe).toBeFalsy();
+      // Within the Draw distance: Sheathed, it Draws; drawn, it keeps its Weapon out.
+      const close = promoted(m, 1, DRAW_DISTANCE - 1);
+      expect(ally().intent(sheathed(close).duel, 1).sheathe).toBe(true);
+      expect(ally().intent(close.duel, 1).sheathe).toBeFalsy();
+      // Mid-Action it presses nothing: a press only ever starts the Action the state lacks.
+      expect(ally().intent(edit(m, 1, (f) => ({ ...f, action: { kind: 'Sheathe' } })).duel, 1).sheathe).toBeFalsy();
+    });
+
+    it('an Ally AI following a Player runs Sheathed, keeping up with them', () => {
+      let m = wstart();
+      const cs = wcontrollers();
+      for (let t = 0; t < secondsToTicks(3); t++) m = stepMatchWith(m, cs, warbanded);
+      expect(m.duel.fighters[1]!.sheathed).toBe(true);
+      expect(m.duel.fighters[2]!.sheathed).toBe(true);
     });
   });
 });

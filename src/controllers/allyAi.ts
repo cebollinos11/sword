@@ -4,7 +4,8 @@
  * living Players standing in its zone (ties to the lowest exit), else follows the nearest living Player, so the party
  * can leave together. With no Player alive it makes for the first exit (the AI allies then decide the Door,
  * `doorCounters`). It never counts towards a Door while a Player lives. A Player an AI Takeover has taken (`SimHall.away`)
- * is no Player to it: not followed, not a Door to gather at.
+ * is no Player to it: not followed, not a Door to gather at. On a Delver Floor it Sheathes to run while no enemy is near, and Draws as
+ * one comes near.
  *
  * It decides from the state alone, and walks with its AI's own navmesh routing (`AiController.walkTo`), so its memory
  * is its AI's memory and Rollback needs nothing more.
@@ -31,6 +32,32 @@ export function promotedNear(tuning: TuningData, state: SimState, fighter: numbe
   return state.fighters.some(
     (o) => o.team === 1 && o.soldier !== undefined && inDuel(o) && Math.abs(o.y - self.y) < height && Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z) <= promote,
   );
+}
+
+/** How near (m, flat) an enemy makes a Sheathed Ally AI on a Floor Draw: a little past `bubble.promote`, so it is drawn before the fight. */
+export const DRAW_DISTANCE = 12;
+/** How far (m, flat) every enemy must be before an Ally AI on a Floor Sheathes, to run: further than it Draws, so it does not flicker. */
+export const SHEATHE_DISTANCE = 16;
+
+/**
+ * The nearest living enemy to Fighter `fighter` (m, flat): a Team 1 Fighter in play or a living Soldier of the Crowd's Team 1 (a promoted
+ * one is counted by its Fighter). A Fighter more than `battle.levels.height` above or below is not counted. Reads the state alone.
+ */
+export function nearestEnemy(tuning: TuningData, state: SimState, fighter: number): number {
+  const self = state.fighters[fighter]!;
+  const { height } = tuning.battle.levels;
+  let best = Infinity;
+  for (const o of state.fighters) {
+    if (o.team !== 1 || !inDuel(o) || Math.abs(o.y - self.y) >= height) continue;
+    best = Math.min(best, Math.hypot(o.position.x - self.position.x, o.position.z - self.position.z));
+  }
+  const c = state.crowd;
+  if (c)
+    for (let i = 0; i < c.alive.length; i++) {
+      if (c.alive[i] !== 1 || c.team[i] !== 1 || c.slot[i]! >= 0) continue;
+      best = Math.min(best, Math.hypot(c.x[i]! - self.position.x, c.z[i]! - self.position.z));
+    }
+  return best;
 }
 
 /** Where the j-th living Team 0 Fighter stands from the Stairs zone's centre (m) when no Player lives. */
@@ -82,9 +109,27 @@ class AllyAi implements Controller {
   /**
    * On a Delver Run's Floor, while Exploring and in play: a promoted enemy near (`promotedNear`) and it is its AI (it fights). Else it follows the
    * nearest living Player still in the Run, or (none lives) walks to its own spot in the Stairs zone so the Run takes the party down. While
-   * Descending, or fallen, it is its AI (it stands).
+   * Descending, or fallen, it is its AI (it stands). Its Weapon follows the enemies (`sheatheToggle`): Sheathed to run with none near, drawn
+   * once one comes near.
    */
   private onFloor(state: SimState, fighter: number): Intent {
+    const intent = this.floorIntent(state, fighter);
+    return this.sheatheToggle(state, fighter) ? { ...intent, sheathe: true, attack: false, block: false } : intent;
+  }
+
+  /**
+   * Whether it presses sheathe this Tick, on a Floor while Exploring and Idle: to Sheathe with no enemy within `SHEATHE_DISTANCE`, or to Draw
+   * with one within `DRAW_DISTANCE` (or a promoted enemy near). From the state alone: a press only ever starts the Action the state lacks.
+   */
+  private sheatheToggle(state: SimState, fighter: number): boolean {
+    const self = state.fighters[fighter]!;
+    if (state.delver!.phase === 'Descending' || !inDuel(self) || self.action.kind !== 'Idle') return false;
+    const near = nearestEnemy(this.tuning, state, fighter);
+    if (self.sheathed) return near <= DRAW_DISTANCE || promotedNear(this.tuning, state, fighter);
+    return near > SHEATHE_DISTANCE && !promotedNear(this.tuning, state, fighter);
+  }
+
+  private floorIntent(state: SimState, fighter: number): Intent {
     const self = state.fighters[fighter]!;
     const run = state.delver!;
     if (run.phase === 'Descending' || !inDuel(self) || promotedNear(this.tuning, state, fighter)) return this.ai.intent(state, fighter);
