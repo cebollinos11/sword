@@ -2460,6 +2460,28 @@ Battles, Duels and the Hall-graph Run are unchanged. With every 7c knob off (`fl
 - Up to four Players in a Rollback session. Input Delay as a Battle's if Stage 0 says so. AI Takeover marks a Player away (no Stairs count, no fire, no pickups; Warband sizes unchanged). Loopback tests and a four-Player soak. `PROTOCOL_VERSION` + 1 if the Intent or session messages change.
 - **Done**: an online four-Player Run to Victory with no desync in the soak.
 
+#### Design
+**What is already built.** Most of the netcode came early: the Lobby's Delver row and its sync (Stage 2's follow-up), the resync check of a Delver state with its Crowd and Warbands (Stage 3), the Pool AIs run past the party on every peer, Input Delay `BATTLE_INPUT_DELAY` for an online Delver Run (Stage 3's measurement), and an AI Takeover marking `delver.away` (Stage 2), which already keeps an away Player out of the Stairs count, the fires, the Reveal, the drops and the pedestals. A Room in Gauntlet already seats up to four Players on Team 0, and its host may set a Seat to an AI ally. So Stage 8 is mostly proof: tests of what is there with four peers, AI allies and a Takeover, plus the one missing piece of the view, name tags. Nothing in the Simulation, the Intent or the session's messages changes, so `PROTOCOL_VERSION` stays 30 and no hash moves.
+
+**1. The harness** (`src/net/coopHarness.ts`):
+- `runLineup(players, allies = 0)`: the `players` Players on Team 0, then `allies` AI allies on Team 0 (pilot `{ kind: 'AI', difficulty: 'Expert' }`, weapon `WEAPON`), then the MAX_TEAM_SIZE Floor slots. `players + allies` ≤ MAX_TEAM_SIZE.
+- `RunOptions.allies?: number` (default 0) and `RunOptions.inputDelay?: number` (default 0), passed to every peer's `createRollbackSession`.
+- `offline(...)` replays a Delver Run too. It takes `{ match, step, inputDelay }` in an options argument (defaults: `MATCH`, `stepMatch`, 0), builds its AIs by `lineupAis(tuning, lineup, 'Gauntlet', match)`, and reads a Player's Intent for Tick t as `sent.get(t − inputDelay)` (idle for t ≤ inputDelay). A Delver pickup list is `delver.pickups`. `startRun` returns `match` and `step` for it.
+
+**2. Name tags** (render only):
+- `partyMarkers(config, duel, me)` (`src/render/minimap.ts`): the present Players (`presentPlayers(config, duel.delver?.away)`) besides `me` whose Fighter is in the Duel and has no `death`, as `PlayerMarker`s, in slot order.
+- `PlayerTags.update` takes the marks as an optional last argument (default `playerMarkers(state, me)`, so a Battle is unchanged). `PlayerTags.names` becomes settable (`setNames`).
+- `game.ts`: one `PlayerTags` beside the HUD, in Team 0's army colour (`battle.soldier.colours`). Each frame of an online Delver Run (`driver.ping` not undefined and `curr.delver`) it is updated with `partyMarkers`, the names by Fighter slot (`lineup[i]`'s Player's name). In every other Match it shows nothing. Stage 8a reuses it for the traitors' view.
+
+**3. Fast loopback tests** (`src/net/delverParty.test.ts`, on the three-Floor, one-Tier flat Floors and the `nearWarband` set-down of `delverRun.test.ts`, moved into the harness as `nearWarband`):
+- **Four Players at Input Delay 3**: 400 confirmed Ticks. Every checksum of every peer equals the host's and the offline replay's, with no Desync and no resync. `config.humans` is 4. A Soldier was promoted, and on some Tick two or more Players' Bubbles held promoted enemies at once (two distinct nearest Players among the promoted Fighters).
+- **Two Players and two AI allies**: the Lineup [P0, P1, AI, AI]. The checksums equal the offline replay's, `config.players` is [0, 1], both allies moved, and the Ally AIs run on every peer (the guest's state equals the host's).
+- **A guest leaving**: three Players; Player 2's tab closes at Tick 150. Every peer marks `delver.away` [2] from the same Tick, the offline replay with that Takeover gives the same checksums, `doorCounters` leaves Fighter 2 out from then on, and the Fighter keeps moving (driven by the Ally AI).
+
+**4. The slow soak** (`src/net/delverFour.slow.test.ts`): four peers on the Delver pilot at Input Delay 3, as the game plays it. The party is kept at max HP each Tick by `withImmortalParty` in the step of every peer (the same edit on every peer, so a Rollback repeats it). The Tuning is one Tier of two Floors on `flatHalls`, Floor 2 the Boss Floor, with the bundled Warbands. It must show a Victory (`status Over`, winner 0, `RunEnd`), Floor 2 entered, the Boss Warband wiped, four Bubbles in use on some Tick, every checksum of the four peers equal, and no Desync or resync. It prints the Rollbacks (frames with one, Ticks re-simulated, ms p50 / p99 / max), the Ticks, and the wall time.
+
+**Tasks**: (1) harness and the fast tests; (2) name tags; (3) the slow soak and its numbers.
+
 ### Stage 8a: traitors
 **Model**: Opus. Issue #134. Scope agreed 2026-11-16 (the user's answers). Builds on Stage 8's session and on a Battle's takeover (`CONTEXT.md`, Take over).
 - **Who**: in an online Delver Run any number of Players may pick Team 1 by their Seat. These Players are the **traitors**. Team 0 may be all AI allies. Tests and dev Runs drive a traitor by an AI stand-in (a pilot on Team 1).
