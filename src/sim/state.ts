@@ -1,4 +1,3 @@
-import type { HallKind } from '../tuning';
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
@@ -213,8 +212,8 @@ export interface FighterState {
   readonly mods?: Mods;
   /**
    * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
-   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Hall starts and
-   * changed by the Intent's `equip` and `drop` in a Cleared Hall (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
+   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Floor starts and
+   * changed by the Intent's `equip` and `drop` while Exploring (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
    * `weapon`, and `mods` is the fold of its equipped Relics.
    */
   readonly inventory?: Inventory;
@@ -390,27 +389,6 @@ export type DuelState =
   | { readonly status: 'Fighting' }
   | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };
 
-/**
- * A Hall's phase: `Fighting` while any Team 1 Fighter is in the Duel, `Cleared` once none is (at once for a Hall with no
- * Encounter), the party free to walk to a Door; `Leaving` once it has taken one, during the fade to the next Hall.
- */
-export type HallPhase = 'Fighting' | 'Cleared' | 'Leaving';
-
-/** Which Hall of a Dungeon Run a Duel is fought in (`SimState.hall`): Floor (1-based), row and index in it (0-based). */
-export interface SimHall {
-  readonly floor: number;
-  /** 0 the entrance, 4 the Boss. */
-  readonly row: number;
-  readonly index: number;
-  readonly kind: HallKind;
-  readonly phase: HallPhase;
-  /**
-   * The Player Fighters an AI Takeover has taken (ascending), as the Run's `away`, mirrored here so a Controller reads it off the
-   * state (and so it rolls back). Absent while nobody has left, so a Run without a Takeover hashes as it always did.
-   */
-  readonly away?: readonly number[];
-}
-
 /** A Delver Run's phase: Exploring the Floor, or Descending (the fade after the Stairs, until `nextDuelTick`). */
 export type DelverPhase = 'Exploring' | 'Descending';
 
@@ -440,12 +418,6 @@ export interface SimState {
   /** Throwing Daggers in flight, in the order they were thrown. */
   readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
-  /**
-   * In a Gauntlet Run, the Hall this Duel is fought in and its phase (mirroring `MatchState.run`), so a Controller, which
-   * sees only SimState, can tell Halls apart and see one is cleared; absent otherwise. While present, the Duel ends only
-   * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
-   */
-  readonly hall?: SimHall;
   /**
    * In a Delver Run, the Floor this Duel is fought on and its phase (mirroring `MatchState.delver`); absent otherwise, so every other
    * state hashes as it always did. While present, the Duel ends only when Team 0 is wiped out.

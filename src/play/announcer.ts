@@ -6,9 +6,7 @@ export type Milestone =
   | { readonly type: 'DuelStart'; readonly duelNumber: number }
   /** `winner` is a team; null = a draw. */
   | { readonly type: 'DuelEnd'; readonly duelNumber: number; readonly winner: number | null }
-  /** A Run's Hall was cleared (its Duel goes on: the party walks to a Door); `kind` its Hall kind. */
-  | { readonly type: 'HallCleared'; readonly duelNumber: number; readonly kind: string }
-  /** The watched Fighter took a Rest Hall's fire. */
+  /** The watched Fighter took a fire's heal. */
   | { readonly type: 'Rested'; readonly duelNumber: number }
   /** The watched Fighter came back at a Delver Floor's fire. */
   | { readonly type: 'Revived'; readonly duelNumber: number }
@@ -31,8 +29,6 @@ export class MatchAnnouncer {
   private matchNumber = 0;
   private duelNumber = 0;
   private duelEnded = false;
-  private hallCleared = false;
-  private rested = false;
   /** The Delver Floor's fires the watched Fighter has taken the heal of. */
   private fires = 0;
   private fell = false;
@@ -53,8 +49,6 @@ export class MatchAnnouncer {
     if (match.duelNumber !== this.duelNumber) {
       this.duelNumber = match.duelNumber;
       this.duelEnded = false;
-      this.hallCleared = false;
-      this.rested = false;
       this.fires = 0;
       this.fell = false;
       this.bossBeaten = false;
@@ -70,15 +64,6 @@ export class MatchAnnouncer {
     if (!this.fell && duel.status === 'Fighting' && match.duel.fighters[me]?.death) {
       this.fell = true;
       out.push({ type: 'Fell', duelNumber: match.duelNumber });
-    }
-    const run = match.run;
-    if (!this.hallCleared && run && run.phase !== 'Fighting') {
-      this.hallCleared = true;
-      out.push({ type: 'HallCleared', duelNumber: match.duelNumber, kind: match.duel.hall?.kind ?? '' });
-    }
-    if (!this.rested && run?.rested.includes(me)) {
-      this.rested = true;
-      out.push({ type: 'Rested', duelNumber: match.duelNumber });
     }
     const fires = match.delver?.restUsed.filter((u) => u.healed.includes(me)).length ?? 0;
     if (fires > this.fires) {

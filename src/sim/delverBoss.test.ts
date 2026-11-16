@@ -8,7 +8,7 @@ import { hashValue } from './hash';
 import { restore, snapshot } from './snapshot';
 import { runSeed } from './dungeon';
 import { treasurePickups } from './delverLoot';
-import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, type MatchOptions, type MatchState } from './match';
+import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT } from './intent';
 import { BOSS } from './warband';
 import type { FighterState } from './state';
@@ -19,10 +19,10 @@ const base = flatFloors(loadTuningData());
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
 const ARENA = 'gen:greybox:4242';
 const MAX = tuning.fighter.maxHp;
-const NEED = doorTicksNeeded(tuning);
+const NEED = stairsTicksNeeded(tuning);
 
 const delver = (options: Partial<MatchOptions> = {}): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)], ...options });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)], ...options });
 const planOf = (m: MatchState) => floorOf(tuning, m.arena)!.plan;
 const bossOf = (m: MatchState): number => m.duel.crowd!.warbands!.rank.indexOf(BOSS);
 const withFighters = (m: MatchState, edit: (f: FighterState, i: number) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map(edit) } });
@@ -115,12 +115,12 @@ describe('the last Boss of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.delver!.phase).toBe('Exploring');
   });
 
-  it('is a Victory when the party takes the last Stairs for doorSeconds: a RunEnd with the Bosses beaten, no fade', () => {
+  it('is a Victory when the party takes the last Stairs for stairsSeconds: a RunEnd with the Bosses beaten, no fade', () => {
     let r = tick(slain(atStairs(m)));
     expect(r.status.status).toBe('InProgress');
     for (let k = 0; k < NEED + 2 && r.status.status === 'InProgress'; k++) r = tick(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 2, floors: 2, halls: 0, bosses: 2, warbands: 1 });
+    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 2, floors: 2, bosses: 2, warbands: 1 });
     expect(r.score).toEqual([2, 0]);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });
@@ -142,18 +142,18 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
   const defeat = (m: MatchState) => tick(withFighters(m, (f) => (f.team === 0 ? fell(f) : f)));
 
   it('is carried by a Defeat: the Boss Floors before it', () => {
-    expect(defeat(delver()).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 0, warbands: 0 });
-    expect(defeat(delver({ delverStart: 2 })).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 1, warbands: 0 });
+    expect(defeat(delver()).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, bosses: 0, warbands: 0 });
+    expect(defeat(delver({ delverStart: 2 })).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, bosses: 1, warbands: 0 });
   });
 
   it('counts the current Floor\'s Boss too once it is wiped (a Defeat after the wipe)', () => {
     const r = tick(slain(atStairs(delver())));
     const lost = defeat(r);
-    expect(lost.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, halls: 0, bosses: 1, warbands: 1 });
+    expect(lost.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 2, bosses: 1, warbands: 1 });
   });
 
   it('counts the Warbands beaten over every Floor: the earlier Floors\' carried in `beaten`', () => {
-    const FADE = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+    const FADE = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
     let r = tick(slain(atStairs(delver())));
     expect(r.delver!.beaten).toBe(0);
     r = times(r, NEED + 1);
@@ -161,9 +161,9 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
     r = times(r, FADE + 1);
     expect(r.delver!.floor).toBe(2);
     expect(r.delver!).toMatchObject({ beaten: 1, wiped: [] });
-    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 1, warbands: 1 });
+    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, bosses: 1, warbands: 1 });
     r = tick(slain(atStairs(r)));
-    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, halls: 0, bosses: 2, warbands: 2 });
+    expect(defeat(r).events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 1, floors: 2, bosses: 2, warbands: 2 });
   });
 
   it('is a pure count: Boss Floors before the Floor, plus the current one when wiped', () => {
@@ -180,7 +180,7 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
 
   it('gateOpen is true on a Floor that is not a Boss Floor', () => {
     const plain: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map(({ boss: _b, ...tier }) => tier) } };
-    const p = createMatch(plain, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 1, 1, 1, 1] });
+    const p = createMatch(plain, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 1, 1, 1, 1] });
     const plan = floorOf(plain, p.arena)!.plan;
     expect(plan.halls[plan.stairs]!.kind).toBe('Stairs');
     expect(gateOpen(plan, p.duel.crowd!, [])).toBe(true);
@@ -193,7 +193,7 @@ describe('RunEnd.bosses', { timeout: 60_000 }, () => {
 describe('delverStart', { timeout: 60_000 }, () => {
   it('starts the Run on that Floor: its Arena, Duel number, score, Floor and pedestals', () => {
     const six: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 5 } };
-    const m = createMatch(six, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, delverStart: 3, teams: [0, 1, 1, 1, 1] });
+    const m = createMatch(six, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delverStart: 3, teams: [0, 1, 1, 1, 1] });
     expect(m.config.delverStart).toBe(3);
     expect(m.arena).toBe(floorArenaName(runSeed(ARENA), 3));
     expect(m.duel.arena).toBe(m.arena);
@@ -206,13 +206,13 @@ describe('delverStart', { timeout: 60_000 }, () => {
     expect(m.delver!.pickups).toEqual(treasurePickups(arenaTuning(six, m.arena), m.config, plan, runSeed(ARENA), 3, undefined));
   });
 
-  it('refuses 0, a Floor past the last, a fraction, and a start without delver', () => {
+  it('refuses 0, a Floor past the last, a fraction, and a start outside a Gauntlet', () => {
     const opts = { format: 'Gauntlet' as const, bestOf: 1, arena: ARENA, teams: [0, 1, 1, 1, 1] };
-    expect(() => createMatch(tuning, { ...opts, delver: true, delverStart: 0 })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { ...opts, delver: true, delverStart: 3 })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { ...opts, delver: true, delverStart: 1.5 })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { ...opts, delverStart: 1 })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { ...opts, delver: true, delverStart: 2 })).not.toThrow();
+    expect(() => createMatch(tuning, { ...opts, delverStart: 0 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { ...opts, delverStart: 3 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { ...opts, delverStart: 1.5 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { bestOf: 1, arena: 'library', delverStart: 1 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { ...opts, delverStart: 2 })).not.toThrow();
   });
 });
 

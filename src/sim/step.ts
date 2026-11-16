@@ -412,8 +412,8 @@ export function step(state: SimState, intents: readonly Intent[], tuning: Tuning
     if (f.death?.tick === tick) emit({ type: 'Death', fighter: i, cause: f.death.cause });
   });
   // A Battle's Duel never ends by its Fighters: the Battle ends by a Rout (`stepBattle`). A Floor's does (a wipe of Team 0).
-  const duel = state.crowd && state.delver === undefined ? state.duel : updateDuel(state.duel, fighters, tick, emit, state.hall !== undefined || state.delver !== undefined);
+  const duel = state.crowd && state.delver === undefined ? state.duel : updateDuel(state.duel, fighters, tick, emit, state.delver !== undefined);
 
   // The seeded generator advances every Tick, so whatever draws from it (the AI Controller) sees a fresh value each Tick.
-  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.hall === undefined ? {} : { hall: state.hall }), ...(state.delver === undefined ? {} : { delver: state.delver }), ...(state.crowd === undefined ? {} : { crowd: state.crowd }) };
+  return { tick, arena: state.arena, rng: nextFloat(state.rng)[1], fighters, daggers, duel, events, ...(state.delver === undefined ? {} : { delver: state.delver }), ...(state.crowd === undefined ? {} : { crowd: state.crowd }) };
 }

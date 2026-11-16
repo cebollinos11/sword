@@ -555,7 +555,6 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
     bestOf: 1,
     seed: matchSeed,
     arena: name,
-    delver: true,
     teams: lineup.map((s) => s.team),
     humans: players.length,
     players,
@@ -566,7 +565,6 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
   const controllers: Controller[] = lineupAis(tuning, lineup, "Gauntlet", {
     seed: matchSeed,
     arena: name,
-    delver: true,
   }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
   const k = m.config.teams.length;
   const floors: FloorReport[] = [];
@@ -1319,7 +1317,6 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
         bestOf: 1,
         seed: 7,
         arena: name,
-        delver: true,
         teams: [0],
         humans: 1,
         players: [0],
@@ -1487,7 +1484,6 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
           {
             seed: 7,
             arena: name,
-            delver: true,
           },
         ).map(
           (c) =>
@@ -1596,7 +1592,6 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
         bestOf: 1,
         seed: 7,
         arena: name,
-        delver: true,
         teams: LINEUP.map((s) => s.team),
         humans: 1,
         players: [0],
@@ -2318,7 +2313,6 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       bestOf: 1,
       seed: 7,
       arena,
-      delver: true,
       teams: lineup.map((s) => s.team),
       humans: 1,
       players: [0],
@@ -2326,7 +2320,6 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     controllers: lineupAis(tuning, lineup, "Gauntlet", {
       seed: 7,
       arena,
-      delver: true,
     }).map((c) => c ?? player),
   });
   /** The Match with Fighter `i` put at (x, z) at height y. */
@@ -3072,7 +3065,6 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
       bestOf: 1,
       seed: 7,
       arena: run,
-      delver: true,
       teams: LINEUP.map((x) => x.team),
       humans: 1,
       players: [0],
@@ -3258,7 +3250,6 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
           bestOf: 1,
           seed: 7,
           arena: run,
-          delver: true,
           teams: LINEUP.map((s) => s.team),
           humans: 1,
           players: [0],
@@ -3790,7 +3781,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
       bestOf: 1,
       seed: 7,
       arena: run,
-      delver: true,
       delverStart: floor,
       teams: lineup.map((s) => s.team),
       humans: 1,
@@ -3799,7 +3789,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
     controllers: lineupAis(tuning, lineup, "Gauntlet", {
       seed: 7,
       arena: run,
-      delver: true,
     }).map((c) => c ?? player),
   });
 
@@ -4153,7 +4142,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
         bestOf: 1,
         seed: 7,
         arena: run,
-        delver: true,
         delverStart: BOSS_FLOOR,
         teams: LINEUP.map((s) => s.team),
         humans: 1,
@@ -4162,7 +4150,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
       const controllers: Controller[] = lineupAis(tuning, LINEUP, "Gauntlet", {
         seed: 7,
         arena: run,
-        delver: true,
       }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
       const c0 = m.duel.crowd!;
       const bq = c0.warbands!.rank.indexOf(BOSS);

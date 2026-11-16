@@ -10,7 +10,7 @@ import { restore, snapshot } from './snapshot';
 import { runSeed } from './dungeon';
 import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
-import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
+import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT, type Intent } from './intent';
 import { addItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
@@ -29,7 +29,7 @@ const { revive } = tuning.dungeon;
 
 /** A Delver Run: Team 0's `own` Fighters (the first `humans` Players), then the MAX_TEAM_SIZE Team 1 slots. */
 const delver = (options: Partial<MatchOptions> = {}, own = 3): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [...Array<number>(own).fill(0), ...Array<number>(MAX_TEAM_SIZE).fill(1)], ...options });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [...Array<number>(own).fill(0), ...Array<number>(MAX_TEAM_SIZE).fill(1)], ...options });
 
 const idle = (m: MatchState): Intent[] => m.duel.fighters.map(() => IDLE_INTENT);
 const planOf = (m: MatchState) => floorOf(tuning, m.arena)!.plan;
@@ -44,10 +44,11 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
   const plan = planOf(m);
 
   it('starts on Floor 1 at the Entrance', () => {
-    expect(m.config.delver).toBe(true);
+    expect(m.config.format).toBe('Gauntlet');
+    expect('delver' in m.config).toBe(false);
     expect(m.arena).toBe(floorArenaName(runSeed(ARENA), 1));
     expect(m.duel.arena).toBe(m.arena);
-    expect(m.run).toBeNull();
+    expect('run' in m).toBe(false);
     expect(m.duelNumber).toBe(1);
     expect(m.score).toEqual([0, 0]);
     expect(m.nextDuelTick).toBeNull();
@@ -65,11 +66,11 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
       startTick: 0,
     });
     expect(m.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: m.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
-    expect(m.duel.hall).toBeUndefined();
+    expect('hall' in m.duel).toBe(false);
   });
 
   it('puts the party at the spawns in order, facing into the Entrance Passage, then the Fighter Pool unbound, and the Floor Crowd deployed', () => {
-    const w = createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1] });
+    const w = createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, 1, 1, 1, 1] });
     const wplan = floorOf(warbanded, w.arena)!.plan;
     const { doors } = wplan.halls[wplan.entrance]!;
     const side = (['n', 'e', 's', 'w'] as const).find((s) => (doors[s] ?? 0) > 0)!;
@@ -120,18 +121,19 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     expect(() => delver({ teams: [] })).toThrow(RangeError);
   });
 
-  it('is refused with Duels, with Battle and with a start Hall', () => {
-    expect(() => createMatch(tuning, { bestOf: 1, delver: true })).toThrow(RangeError);
-    expect(() => createMatch(tuning, { format: 'Battle', bestOf: 1, delver: true })).toThrow();
-    expect(() => delver({ start: { floor: 1, row: 1 } })).toThrow(RangeError);
+  it('keeps its start Floor and traitors to a Gauntlet', () => {
+    expect(() => createMatch(tuning, { bestOf: 1, delverStart: 1 })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { bestOf: 1, traitors: [{}] })).toThrow(RangeError);
+    expect(() => createMatch(tuning, { format: 'Battle', bestOf: 1, delverStart: 1 })).toThrow();
   });
 
-  it('leaves a Hall-graph Gauntlet with no delver key anywhere', () => {
-    const hall = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 1, 1, 1, 1] });
-    const next = stepMatch(hall, hall.duel.fighters.map(() => IDLE_INTENT), tuning);
-    for (const x of [hall, next]) {
+  it('leaves a Duels Match with no Run key anywhere', () => {
+    const duels = createMatch(tuning, { bestOf: 1, seed: 7 });
+    const next = stepMatch(duels, duels.duel.fighters.map(() => IDLE_INTENT), tuning);
+    for (const x of [duels, next]) {
       expect('delver' in x.config).toBe(false);
       expect('delver' in x).toBe(false);
+      expect('run' in x).toBe(false);
       expect('delver' in x.duel).toBe(false);
     }
   });
@@ -182,7 +184,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     const wiped = withFighters(m, (f) => (f.team === 0 ? fell(f) : f));
     const over = stepMatch(wiped, idle(wiped), tuning);
     expect(over.status).toEqual({ status: 'Over', winner: 1, tick: over.tick });
-    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, halls: 0, bosses: 0, warbands: 0 });
+    expect(over.events).toContainEqual({ type: 'RunEnd', winner: 1, cleared: 0, floors: 3, bosses: 0, warbands: 0 });
     expect(over.nextDuelTick).toBeNull();
     // The Run is over: no fade follows.
     const later = stepMatch(over, idle(over), tuning);
@@ -209,7 +211,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
     expect(next.tick).toBe(1);
     expect(next.duel.delver).toEqual({ floor: 1, phase: 'Exploring', pickups: next.delver!.pickups }); // Stage 4: the mirror carries the Run's pickups.
     expect(next.delver!.phase).toBe('Exploring');
-    expect(secondsToTicks(tuning.dungeon.hallFadeSeconds)).toBeGreaterThan(0);
+    expect(secondsToTicks(tuning.dungeon.fadeSeconds)).toBeGreaterThan(0);
   });
 });
 
@@ -230,8 +232,8 @@ const centre = (plan: ReturnType<typeof planOf>) => {
 /** A spot on Floor `plan` that is no fire's and not in the Stairs: the Entrance's first spawn. */
 const away = (plan: ReturnType<typeof planOf>) => ({ x: plan.markers.spawns[0]!.x, z: plan.markers.spawns[0]!.z });
 const ZONE_Y = 2;
-const NEED = doorTicksNeeded(tuning);
-const FADE = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+const NEED = stairsTicksNeeded(tuning);
+const FADE = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
 const RADIUS = tuning.delver.fireRadius;
 const RESTED = tuning.dungeon.restHeal;
 
@@ -250,7 +252,7 @@ describe('the Stairs of a Delver Run', { timeout: 60_000 }, () => {
     expect(inStairs(plan, { position: c, y: -0.5 })).toBe(false);
   });
 
-  it('takes the party down once the Player has stood in the zone for doorSeconds', () => {
+  it('takes the party down once the Player has stood in the zone for stairsSeconds', () => {
     let r = put(m, 0, c.x, c.z);
     r = times(r, NEED - 1);
     expect(r.delver!.stairsTicks).toBe(NEED - 1);
@@ -308,7 +310,7 @@ describe('the Stairs of a Delver Run', { timeout: 60_000 }, () => {
 
 describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
   const one: TuningData = noBosses({ ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 1 } });
-  const m = createMatch(one, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1] });
+  const m = createMatch(one, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, 1, 1, 1, 1] });
   const c = centre(floorOf(one, m.arena)!.plan);
   const go = (r: MatchState): MatchState => stepMatch(r, r.duel.fighters.map(() => IDLE_INTENT), one);
 
@@ -318,7 +320,7 @@ describe('the last Stairs of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.status.status).toBe('InProgress');
     r = go(r);
     expect(r.status).toEqual({ status: 'Over', winner: 0, tick: r.tick });
-    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, halls: 0, bosses: 0, warbands: 0 });
+    expect(r.events).toContainEqual({ type: 'RunEnd', winner: 0, cleared: 1, floors: 1, bosses: 0, warbands: 0 });
     expect(r.score[0]).toBe(1);
     expect(r.events.some((e) => e.type === 'StairsTaken')).toBe(false);
     expect(r.duel.duel).toEqual({ status: 'Over', winner: 0, tick: r.duel.tick });
@@ -586,7 +588,7 @@ describe('the loot of a Delver Run', { timeout: 60_000 }, () => {
   const SEED = runSeed(ARENA);
   /** Two Players (Fighters 0 and 1) and an AI ally (2) on a Floor with Warbands. */
   const wdelver = (): MatchState =>
-    createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
+    createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
   const wtick = (m: MatchState): MatchState => stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), warbanded);
   const w = wdelver();
   const wplan = floorOf(warbanded, w.arena)!.plan;

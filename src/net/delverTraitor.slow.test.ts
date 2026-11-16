@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TuningData } from '../tuning';
-import { doorCounters, stepMatch, type MatchState } from '../sim';
+import { stairsCounters, stepMatch, type MatchState } from '../sim';
 import { withImmortalParty } from '../play/driver';
 import { flatHalls } from '../sim/delver/flat.testdata';
 import { arenaTuning } from '../sim/delver';
@@ -68,7 +68,7 @@ describe('a Delver Run online with a traitor, slow', () => {
       for (const e of m.events) {
         if ((e.type === 'ItemTaken' || e.type === 'Rested' || e.type === 'Revived') && e.fighter === k) breaches.push(`${e.type} by the traitor at ${m.tick}`);
       }
-      if (doorCounters(m.config, m.duel.fighters, m.delver.away).includes(k)) breaches.push(`the traitor counted at the Stairs at ${m.tick}`);
+      if (stairsCounters(m.config, m.duel.fighters, m.delver.away).includes(k)) breaches.push(`the traitor counted at the Stairs at ${m.tick}`);
     };
     const expected = offline(r.host.tuning, r.lineup, r.peers, upTo, [], { ...r.replay, each });
     for (const p of r.peers) expect(expectChecksums(`peer ${p.player}`, p, expected.hashes), `peer ${p.player}`).toBeGreaterThan(upTo / CHECKSUM_INTERVAL / 2);

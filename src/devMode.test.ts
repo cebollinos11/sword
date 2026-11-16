@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createMatch } from './sim';
 import { loadTuningData } from './tuning';
-import { devAutopilot, devAutopilotLoot, devDelverFloor, devDelverRun, devDelverStart, devMode, devRunRelics, devRunStart } from './devMode';
+import { devAutopilot, devDelverFloor, devDelverStart, devMode, devRunRelics } from './devMode';
 
 describe('devMode: developer options are offered only with ?dev=1', () => {
   it('reads the dev flag from the query string', () => {
@@ -17,29 +17,6 @@ describe('devMode: developer options are offered only with ?dev=1', () => {
     // As every other dev option is read: after the route wins.
     expect(devMode('?dev=1', '#/editor/sandbox?dev=0')).toBe(false);
     expect(devMode('?dev=0', '#/editor/sandbox?dev=1')).toBe(true);
-  });
-});
-
-describe('devRunStart: a Run starts at a chosen Floor and row only in dev mode', () => {
-  it('reads floor, row and hall (each from 1) into a start Hall (row and index from 0)', () => {
-    expect(devRunStart('?dev=1&floor=2&row=5', '')).toEqual({ start: { floor: 2, row: 4 } });
-    expect(devRunStart('?dev=1&floor=1&row=3&hall=2', '')).toEqual({ start: { floor: 1, row: 2, index: 1 } });
-    expect(devRunStart('?dev=1&floor=3', '')).toEqual({ start: { floor: 3, row: 0 } });
-    expect(devRunStart('?floor=2', '#/play?dev=1&row=2')).toEqual({ start: { floor: 2, row: 1 } });
-  });
-
-  it('is ignored outside dev mode, and without a Floor', () => {
-    expect(devRunStart('?floor=2&row=5', '')).toEqual({});
-    expect(devRunStart('?dev=0&floor=2&row=5', '')).toEqual({});
-    expect(devRunStart('?dev=1', '')).toEqual({});
-    expect(devRunStart('?dev=1&floor=x&row=5', '')).toEqual({});
-  });
-
-  it('outside dev mode a Run built with it starts at its first Hall', () => {
-    const tuning = loadTuningData();
-    const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1] };
-    expect(createMatch(tuning, { ...options, ...devRunStart('?floor=2&row=5', '') })).toEqual(createMatch(tuning, options));
-    expect(createMatch(tuning, { ...options, ...devRunStart('?dev=1&floor=2&row=5', '') }).run).toMatchObject({ floor: 2, row: 4 });
   });
 });
 
@@ -60,7 +37,7 @@ describe('devRunRelics: a Run starts holding chosen Relics only in dev mode', ()
   });
 
   it('gives each Player the inventory and the matching mods', () => {
-    const f = createMatch(tuning, { ...options, ...devRunStart('?dev=1&floor=2&row=3', ''), relics: names }).duel.fighters[0]!;
+    const f = createMatch(tuning, { ...options, ...devDelverStart('?dev=1&delverStart=2', ''), relics: names }).duel.fighters[0]!;
     const { equippedRelics } = tuning.dungeon.inventory;
     expect(f.inventory!.relics).toEqual(names);
     expect(f.inventory!.equipped).toEqual(names.slice(0, equippedRelics).map((_, k) => k));
@@ -74,31 +51,17 @@ describe('devRunRelics: a Run starts holding chosen Relics only in dev mode', ()
   });
 });
 
-describe('devAutopilot: the Player Seat on an AI, only in dev mode', () => {
-  it('reads the Door to take in each row (from 1) into exits (from 0)', () => {
-    expect(devAutopilot('?dev=1&autopilot=1', '')).toEqual([0]);
-    expect(devAutopilot('?dev=1&autopilot=2,1,3', '')).toEqual([1, 0, 2]);
-    expect(devAutopilot('', '#/play?dev=1&autopilot=2')).toEqual([1]);
+describe('devAutopilot: the Player Seat on the Delver pilot, only in dev mode', () => {
+  it('is on with autopilot=1, in the search or after the route', () => {
+    expect(devAutopilot('?dev=1&autopilot=1', '')).toBe(true);
+    expect(devAutopilot('', '#/play?dev=1&autopilot=1')).toBe(true);
   });
 
-  it('is ignored outside dev mode, without the parameter, or with anything but Doors from 1', () => {
-    expect(devAutopilot('?autopilot=1', '')).toBeNull();
-    expect(devAutopilot('?dev=1', '')).toBeNull();
-    expect(devAutopilot('?dev=1&autopilot=0', '')).toBeNull();
-    expect(devAutopilot('?dev=1&autopilot=yes', '')).toBeNull();
-  });
-});
-
-describe('devAutopilotLoot: the autopilot takes its loot, only in dev mode', () => {
-  it('reads loot=1 and loot=drop', () => {
-    expect(devAutopilotLoot('?dev=1&autopilot=1&loot=1', '')).toBe('take');
-    expect(devAutopilotLoot('?dev=1&autopilot=1&loot=drop', '')).toBe('drop');
-  });
-
-  it('is off without dev=1 or a known value', () => {
-    expect(devAutopilotLoot('?autopilot=1&loot=1', '')).toBeNull();
-    expect(devAutopilotLoot('?dev=1&autopilot=1', '')).toBeNull();
-    expect(devAutopilotLoot('?dev=1&loot=2', '')).toBeNull();
+  it('is off outside dev mode, without the parameter, or with anything but 1', () => {
+    expect(devAutopilot('?autopilot=1', '')).toBe(false);
+    expect(devAutopilot('?dev=1', '')).toBe(false);
+    expect(devAutopilot('?dev=1&autopilot=0', '')).toBe(false);
+    expect(devAutopilot('?dev=1&autopilot=2,1', '')).toBe(false);
   });
 });
 
@@ -122,23 +85,6 @@ describe('devDelverFloor: the Map Editor opens a generated Delver Floor, only in
   });
 });
 
-describe('devDelverRun: a solo Gauntlet is a Delver Run only in dev mode', () => {
-  it('is true with dev=1 and delver=1, in the search or after the route', () => {
-    expect(devDelverRun('?dev=1&delver=1', '')).toBe(true);
-    expect(devDelverRun('', '#/play?dev=1&delver=1')).toBe(true);
-    expect(devDelverRun('?dev=1', '#/play?delver=1')).toBe(true);
-  });
-
-  it('is false without dev=1, or with delver absent, 0 or anything but 1', () => {
-    expect(devDelverRun('?delver=1', '')).toBe(false);
-    expect(devDelverRun('?dev=0&delver=1', '')).toBe(false);
-    expect(devDelverRun('?dev=1', '')).toBe(false);
-    expect(devDelverRun('?dev=1&delver=0', '')).toBe(false);
-    expect(devDelverRun('?dev=1&delver=true', '')).toBe(false);
-    expect(devDelverRun('?dev=1&delver=1', '#/editor?dev=0')).toBe(false);
-  });
-});
-
 describe('devDelverStart: a Delver Run starts on a chosen Floor only in dev mode', () => {
   it('reads delverStart as a whole number from 1', () => {
     expect(devDelverStart('?dev=1&delverStart=3', '')).toEqual({ delverStart: 3 });
@@ -152,7 +98,7 @@ describe('devDelverStart: a Delver Run starts on a chosen Floor only in dev mode
 
   it('outside dev mode a Delver Run built with it starts on Floor 1', () => {
     const tuning = loadTuningData();
-    const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1], delver: true as const };
+    const options = { format: 'Gauntlet' as const, bestOf: 1, arena: 'gen:greybox:4242', teams: [0, 1, 1, 1, 1] };
     expect(createMatch(tuning, { ...options, ...devDelverStart('?delverStart=3', '') })).toEqual(createMatch(tuning, options));
     expect(createMatch(tuning, { ...options, ...devDelverStart('?dev=1&delverStart=3', '') }).delver).toMatchObject({ floor: 3 });
   });

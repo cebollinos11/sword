@@ -33,7 +33,7 @@ import { restore, snapshot } from './snapshot';
 
 const base = loadTuningData();
 const corner = (x: number, z: number) => ({ x, y: 0, z });
-const flat: ArenaGeometry = { name: 'mods', walk: [{ id: 'floor', points: [corner(-60, -60), corner(-60, 60), corner(60, 60), corner(60, -60)] }], walls: [], spawns: [], doors: [] };
+const flat: ArenaGeometry = { name: 'mods', walk: [{ id: 'floor', points: [corner(-60, -60), corner(-60, 60), corner(60, 60), corner(60, -60)] }], walls: [], spawns: [] };
 const tuning = { ...base, arenas: { ...base.arenas, mods: flat } };
 const { dagger, kick, fighter, hitZones } = tuning;
 

@@ -10,7 +10,7 @@ const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floors
 
 /** A Delver Run of four on Team 0, the first `humans` of them Players. */
 const delver = (humans: number): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, humans, teams: [0, 0, 0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', humans, teams: [0, 0, 0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
 
 const marked = (m: MatchState, me: number) => partyMarkers(m.config, m.duel, me).map((p) => p.fighter);
 
@@ -31,13 +31,13 @@ describe('partyMarkers', () => {
     expect(marked(fell, 0)).toEqual([2]);
   });
 
-  it('marks nobody outside a Delver Run', () => {
-    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', humans: 2, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  it('marks nobody outside a Run', () => {
+    const m = createMatch(tuning, { bestOf: 1, seed: 7, arena: 'library', teams: [0, 0, 1, 1] });
     expect(partyMarkers(m.config, m.duel, 0)).toEqual([]);
   });
 
   it("marks a traitor's whole living party, Players and AI allies, and marks no traitor for Team 0 (Stage 8a)", () => {
-    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, humans: 1, players: [0], teams: [0, 0, 0], traitors: [{}] });
+    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', humans: 1, players: [0], teams: [0, 0, 0], traitors: [{}] });
     // The traitor's slot is 3, right after the party.
     expect(marked(m, 3)).toEqual([0, 1, 2]);
     // The party marks no traitor (its slot holds a Team 1 Fighter, like any promoted Soldier).

@@ -10,13 +10,9 @@
  * HP. The Match ends once a team has won a majority of N Duels. A drawn
  * Duel scores for nobody and is simply replayed.
  *
- * In Gauntlet format (docs/plans/dungeon.md) the Match is a Run instead: it walks
- * a Dungeon, each Duel a Hall on its own Generated Arena against the Hall's
- * Encounter (`hallDuel`), HP carrying over. A Hall's Duel goes on once its
- * Encounter falls (the Hall is Cleared), until every living Player has stood in
- * one exit Door's zone for `dungeon.doorSeconds`; after `dungeon.hallFadeSeconds`
- * the Hall behind it starts. The Run ends when Team 0 is wiped out or the last
- * Floor's Boss falls.
+ * In Gauntlet format (docs/plans/delver.md) the Match is a Run instead: one Duel a
+ * Floor, each Floor a generated dungeon with its Warbands in the Crowd (`stepDelver`),
+ * HP carrying over, until Team 0 is wiped out or the party takes the last Floor's Stairs.
  *
  * In Battle format (docs/plans/big-battle.md) the Match is one Battle: two armies of Soldiers (the Crowd, `SimState.crowd`)
  * on a Battlefield (`battle:<seed>`), stepped after its Fighters (`stepBattle`), until a Team routs and the other wins.
@@ -26,18 +22,15 @@
  * so a whole Match hashes (`hashValue`) and snapshots (`snapshot`) exactly
  * for Rollback.
  */
-import { defaultWeaponName, isStandardSize, storedSize, weaponByName, type HallKind, type Size, type TuningData } from '../tuning';
+import { defaultWeaponName, isStandardSize, storedSize, weaponByName, type Size, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
-import type { FighterState, HallPhase, SimState } from './state';
+import type { SimState } from './state';
 import { arenaOf } from './arena';
 import { isArenaName, nextArenaName } from './arenaGen/named';
-import { FLOOR_ROWS, type Hall } from './dungeon';
-import { inDuel } from './duel';
-import { atRestFire, doorCounters, doorTicksNeeded, hallOf, hallRoster, inExitZone, presentPlayers, runPathTo, runPlayers, type HallRef, type RunStart } from './hall';
-import { holdInventory, relicMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped } from './inventory';
-import { modsOf, NO_MODS, setMods } from './mods';
-import { hallDrops, placeDrop, startPickups, takePickups, type DroppedItem, type Pickup, type PickupAt } from './pickups';
+import { runPlayers, stairsTicksNeeded } from './party';
+import type { Dropped } from './inventory';
+import { placeDrop, type DroppedItem, type PickupAt } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
 import { createInitialState, step, teamPlacements } from './step';
@@ -45,9 +38,12 @@ import { stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 import { battleArenaName, battlefieldOf, battleMapName } from './battlefield';
 import { createCrowd } from './crowd';
 import { unboundSlot } from './bubble';
-import { firstFloor, floorDuel, stepDelver, type DelverRun } from './delverRun';
+import { firstFloor, floorDuel, stepDelver, type RunState } from './delverRun';
 import { arenaTuning } from './delver/world';
 import { traitorLeaves, traitorOf } from './delverTraitors';
+
+/** Ticks every counted Fighter must stand in a Floor's Stairs zone to take them: `party.ts`'s. */
+export { stairsTicksNeeded };
 
 /** The drop seam and the item it takes (they live in `pickups`; the Match's callers still find them here). */
 export { placeDrop, type DroppedItem };
@@ -55,7 +51,7 @@ export { placeDrop, type DroppedItem };
 /** The most Fighters a team may field. */
 export const MAX_TEAM_SIZE = 4;
 
-/** How a Match is played: Duels (best-of-N, the default), Gauntlet (a Run through a Dungeon) or Battle (two armies, docs/plans/big-battle.md). */
+/** How a Match is played: Duels (best-of-N, the default), Gauntlet (a Run down a Dungeon's Floors) or Battle (two armies, docs/plans/big-battle.md). */
 export type MatchFormat = 'Duels' | 'Gauntlet' | 'Battle';
 /** The Formats the Lobby offers, and the only ones online play accepts. A Battle is offline only for now (Stage 1). */
 export const MATCH_FORMATS: readonly MatchFormat[] = ['Duels', 'Gauntlet'];
@@ -71,7 +67,7 @@ export interface MatchConfig {
   readonly distance: number;
   /** Starting distance between teammates side by side in a line (metres). */
   readonly spacing: number;
-  /** Ticks between a Duel ending and the next one starting (at least 1). A Run never reads it (its Halls change after `dungeon.hallFadeSeconds`). */
+  /** Ticks between a Duel ending and the next one starting (at least 1). A Run never reads it (its Floors change after `dungeon.fadeSeconds`). */
   readonly interDuelTicks: number;
   /** Each Fighter's Weapon (a Tuning Data Weapon name), kept across Duels. */
   readonly weapons: readonly string[];
@@ -85,7 +81,7 @@ export interface MatchConfig {
    * The Arena the first Match's Duels are fought in (a Tuning Data Arena name, or a Generated Arena's `gen:<kit>:<seed>`;
    * default `arena.match`); each Rematch moves to the next (`MatchState.arena`). Fighters start at its spawns when it
    * has one for each, else in two facing lines (`distance`, `spacing`). A Run is never fought in it: its seed is the Run
-   * seed and its Kit the Halls' (`runSeed`, `runKit`).
+   * seed (`runSeed`), and each Floor is generated.
    */
   readonly arena: string;
   /**
@@ -95,24 +91,19 @@ export interface MatchConfig {
   readonly humans: number;
   /**
    * In a Run, the Fighters the human Players drive (Team 0 indices, ascending, `humans` of them; `lineupMatch` fills it,
-   * default the first `humans` of Team 0): only their standing counts at a Door, and only they take a Rest Hall's fire.
+   * default the first `humans` of Team 0): only their standing counts at the Stairs, and only they take a fire's heal.
    * Absent in Duels.
    */
   readonly players?: readonly number[];
   /**
-   * Present (true) for a Delver Run (docs/plans/delver.md): a Gauntlet on generated Floors, one Duel a Floor, instead of the Hall-graph Run. Only a
-   * Gauntlet, and never with a start Hall. Absent otherwise, so every other Match's config is as it always was.
-   */
-  readonly delver?: true;
-  /**
    * Dev mode only (`devDelverStart`, solo): a Delver Run starts on this Floor (1 to `floors`) instead of Floor 1, as the Run's start Floor. Absent otherwise.
-   * Refused without `delver`, and online.
+   * Refused outside a Gauntlet, and online.
    */
   readonly delverStart?: number;
   /**
    * A Delver Run's traitors (docs/plans/delver.md, Stage 8a): the Players on Team 1, one entry each with its own Size, in Lineup order. Traitor j
    * plays in Pool slot `teams.length + j` (`traitorSlot`), as the Warband Soldiers it takes over. Absent when there are none, so every other Match's
-   * config is as it always was. Only a Delver Run, at most MAX_TEAM_SIZE, and `humans` plus traitors at most MAX_TEAM_SIZE (the Players a Match fields).
+   * config is as it always was. Only a Gauntlet, at most MAX_TEAM_SIZE, and `humans` plus traitors at most MAX_TEAM_SIZE (the Players a Match fields).
    */
   readonly traitors?: readonly TraitorSeat[];
 }
@@ -129,12 +120,6 @@ export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
   /**
-   * Dev mode only (`devRunStart`, never offered otherwise): a Run starts in this Hall instead of its first, as if the
-   * party had walked there along `runPathTo`'s route at full HP (its path, Halls cleared and entered), with that Hall's
-   * Encounter and depth-scaled enemies. A Duels Match refuses it.
-   */
-  readonly start?: RunStart;
-  /**
    * Dev mode only (`devRunRelics`): the Relics (Tuning Data names) every Player's Fighter starts the Run holding, equipped in order
    * up to `dungeon.inventory.equippedRelics`, the rest carried. An unknown name, or more than `dungeon.inventory.relics`, throws.
    */
@@ -144,7 +129,7 @@ export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
 /** `winner` is a team (0 or 1). */
 export type MatchStatus = { readonly status: 'InProgress' } | { readonly status: 'Over'; readonly winner: number; readonly tick: number };
 
-/** A new Duel of the Match began (Fighters reset); in a Run, a new Hall. */
+/** A new Duel of the Match began (Fighters reset); in a Run, a new Floor. */
 export interface DuelStartEvent {
   readonly type: 'DuelStart';
   /** 1-based. */
@@ -165,31 +150,13 @@ export interface RunEndEvent {
   /** Floors Team 0 cleared (their Boss beaten). */
   readonly cleared: number;
   readonly floors: number;
-  /** Halls Team 0 cleared, Bosses included. */
-  readonly halls: number;
-  /** A Delver Run's Bosses beaten (`bossesBeaten`); absent from a Hall-graph Run's. */
-  readonly bosses?: number;
-  /** A Delver Run's Warbands beaten over every Floor (`DelverRun.beaten` and this Floor's `wiped`); absent from a Hall-graph Run's. */
-  readonly warbands?: number;
+  /** The Bosses beaten (`bossesBeaten`). */
+  readonly bosses: number;
+  /** The Warbands beaten over every Floor (`RunState.beaten` and this Floor's `wiped`). */
+  readonly warbands: number;
 }
 
-/** A Run's Hall was cleared: no Team 1 Fighter is left in its Duel (on its first Tick, for a Hall with no Encounter). */
-export interface HallClearedEvent {
-  readonly type: 'HallCleared';
-  readonly floor: number;
-  readonly row: number;
-  readonly index: number;
-  readonly kind: HallKind;
-}
-
-/** The party took exit `exit` (0-based, as `Hall.exits`; Arena Door `exit + 1`): Hall `to` starts after the fade (`nextDuelTick`). */
-export interface DoorTakenEvent {
-  readonly type: 'DoorTaken';
-  readonly exit: number;
-  readonly to: HallRef;
-}
-
-/** Player Fighter `fighter` took a Rest Hall's fire, healing `healed` HP. */
+/** Player Fighter `fighter` took a fire's heal, healing `healed` HP. */
 export interface RestedEvent {
   readonly type: 'Rested';
   readonly fighter: number;
@@ -201,7 +168,7 @@ export interface ItemDroppedEvent extends DroppedItem {
   readonly type: 'ItemDropped';
 }
 
-/** Player Fighter `fighter` took up pickup `id` (of `run.pickups`): the Weapon or Relic `item` is in its inventory now. */
+/** Player Fighter `fighter` took up pickup `id` (of `delver.pickups`): the Weapon or Relic `item` is in its inventory now. */
 export interface ItemTakenEvent extends Dropped {
   readonly type: 'ItemTaken';
   readonly fighter: number;
@@ -236,53 +203,18 @@ export interface BossBeatenEvent {
 }
 
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | HallClearedEvent | DoorTakenEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | BossBeatenEvent | RoutEvent | BattleEndEvent;
-
-/** A Gauntlet Run's progress (`MatchState.run`): where in the Dungeon the party stands, and how long it has gathered at each Door. */
-export interface RunState {
-  /** The Floor of the current Hall (1-based). */
-  readonly floor: number;
-  /** Floors in the Dungeon (Tuning Data `dungeon.floors`); beating the last one's Boss wins the Run. */
-  readonly floors: number;
-  /** The current Hall's row (0-based: 0 the entrance, FLOOR_ROWS − 1 the Boss). */
-  readonly row: number;
-  /** The current Hall's index in its row (0-based, as `floorGraph`). */
-  readonly hall: number;
-  /** Every Hall the party has entered, in order, the current one last (for the map and results). */
-  readonly path: readonly HallRef[];
-  /** The current Hall's phase, as its Duel's `hall.phase`. */
-  readonly phase: HallPhase;
-  /**
-   * Per exit Door of the current Hall (`Hall.exits` order), the Ticks in a row every Fighter whose standing counts
-   * (`doorCounters`) has stood in its zone, back to 0 when one is out of it. The first to reach `dungeon.doorSeconds` is
-   * taken (`takenExit`); they stay as they are while `Leaving`.
-   */
-  readonly doorTicks: readonly number[];
-  /** The Player Fighters that took this Hall's Rest fire (ascending; a Rest Hall heals each Player once). */
-  readonly rested: readonly number[];
-  /** The items lying in this Hall (`src/sim/pickups.ts`): its drops once cleared, a Treasure Hall's pedestals, dropped items. Empty again in each new Hall. */
-  readonly pickups: readonly Pickup[];
-  /** The Match Tick the Run started on. */
-  readonly startTick: number;
-  /**
-   * The Player Fighters an AI Takeover has taken (ascending; `takeOverFighter`): from then on an AI ally of the Run, so it counts at no Door,
-   * takes no pickup and no Rest fire (`presentPlayers`), and keeps its inventory and Mods. Absent while nobody has left, so a Run without
-   * a Takeover hashes as it always did. Mirrored on `SimHall.away` for the Controllers.
-   */
-  readonly away?: readonly number[];
-}
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | BossBeatenEvent | RoutEvent | BattleEndEvent;
 
 /**
  * THE Takeover seam: an AI has taken over Player Fighter `fighter` of a Run or a Battle (the Rollback session applies it on every peer at the Takeover
- * Tick, before that Tick's Intents). From now on the Fighter is an AI ally of the Run (`RunState.away`, mirrored on its Duel's Hall): it
- * counts at no Door, takes no pickup and no Rest fire, and keeps its inventory and Mods, and revives in the next Hall like any Team 0
- * Fighter. `config.humans` stays (enemy HP is fixed for the Run). Its own pickups already lying in the Hall simply lie untaken. Idempotent;
- * not a Run, or not one of the Run's Players (`config.players`): unchanged (the session calls this inside its Rollback loops, where a throw would leave it half-simulated).
+ * Tick, before that Tick's Intents). From now on the Fighter is an AI ally of the Run (`RunState.away`, mirrored on `SimDelver.away`): it
+ * counts at no Stairs, takes no pickup, no fire and no Reveal, and keeps its inventory and Mods. `config.humans` stays (Warband sizes are fixed
+ * for the Run). A traitor who leaves is marked so, and a Soldier it holds becomes an ordinary promoted enemy (`traitorLeaves`). Idempotent;
+ * not a Run, or not one of the Run's Players (`config.players`) or traitors: unchanged (the session calls this inside its Rollback loops, where a throw would leave it half-simulated).
  * In a Battle (docs/plans/big-battle.md, Stage 6) the Player's record is marked away (`BattlePlayer.away`): its Fighter, an AI's from now on, is an ally of
  * its Team with no Bubble, and it takes over no Soldier when it falls. Pure.
  */
 export function takeOverFighter(match: MatchState, fighter: number): MatchState {
-  const { run } = match;
   const crowd = match.duel.crowd;
   // A Floor's Crowd has no Player records (`players` is empty): a Delver Run falls through to its own branch below.
   if (crowd && !match.delver) {
@@ -304,10 +236,7 @@ export function takeOverFighter(match: MatchState, fighter: number): MatchState 
     const away = [...(delver.away ?? []), fighter].sort((a, b) => a - b);
     return { ...match, delver: { ...delver, away }, duel: { ...match.duel, delver: { ...match.duel.delver!, away } } };
   }
-  if (!run) return match;
-  if (!runPlayers(match.config).includes(fighter) || run.away?.includes(fighter)) return match;
-  const away = [...(run.away ?? []), fighter].sort((a, b) => a - b);
-  return { ...match, run: { ...run, away }, duel: { ...match.duel, hall: { ...match.duel.hall!, away } } };
+  return match;
 }
 
 export interface MatchState {
@@ -317,28 +246,26 @@ export interface MatchState {
   /**
    * The Arena this Match's Duels are fought in, every one of them: `config.arena` for the first Match, and at each
    * Rematch the next (`nextArenaName`: a Random Map's next seed, a hand-made Arena itself), which every peer builds.
-   * In a Run, the current Hall's (`Hall.arena`).
+   * In a Run, the current Floor's (`floorName`).
    */
   readonly arena: string;
   /** Match Ticks since the first Match started, carried across rematches (Duel ticks restart at 0 each Duel). */
   readonly tick: number;
-  /** 1-based number of the current Duel, draws included; in a Run, of the current Hall. */
+  /** 1-based number of the current Duel, draws included; in a Run, of the current Floor. */
   readonly duelNumber: number;
-  /** Duels won by each team (team 0, team 1); in a Run, Team 0's Halls cleared. */
+  /** Duels won by each team (team 0, team 1); in a Run, Team 0's Floors behind it. */
   readonly score: readonly number[];
   /** The current Duel. */
   readonly duel: SimState;
   /**
    * The Match Tick on which the next Duel starts, or null while a Duel is being fought (or the Match is over). In a Run,
-   * the Tick the next Hall starts, set while `Leaving`.
+   * the Tick the next Floor starts, set while Descending.
    */
   readonly nextDuelTick: number | null;
   readonly status: MatchStatus;
   readonly events: readonly MatchEvent[];
-  /** The Run, in Gauntlet format; null in Duels, and in a Delver Run (`delver`). */
-  readonly run: RunState | null;
-  /** A Delver Run's progress (`config.delver`); absent otherwise, so every other Match hashes as it always did. */
-  readonly delver?: DelverRun;
+  /** The Run's progress, in Gauntlet format (docs/plans/delver.md); absent otherwise, so every other Match hashes as it always did. */
+  readonly delver?: RunState;
 }
 
 /** Duel wins needed to take a best-of-N Match: a strict majority. */
@@ -355,7 +282,7 @@ export function checkTeams(teams: readonly number[]): void {
   }
 }
 
-/** Throws unless `teams` is a Run's: Team 0's 1 to MAX_TEAM_SIZE Fighters, then exactly MAX_TEAM_SIZE Team 1 slots. */
+/** Throws unless `teams` is a Gauntlet Lineup's: Team 0's 1 to MAX_TEAM_SIZE Fighters, then exactly MAX_TEAM_SIZE Team 1 slots (its traitors and the Floors'). */
 export function checkRunTeams(teams: readonly number[]): void {
   checkTeams(teams);
   const own = teams.indexOf(1);
@@ -400,97 +327,7 @@ function freshDuel(tuning: TuningData, config: MatchConfig, arena: string, rng: 
   return { ...initialDuel(tuning, config, arena, 0), rng };
 }
 
-/**
- * A Run's Duel in Hall `at` (`hall` its node of the Floor graph), on the Hall's Arena, replacing `freshDuel`: every Fighter
- * at the Arena's spawns (Team 0 at its entrance Door's), drawn, daggers refilled. Team 0 keeps its HP from `previous` (the
- * Hall before; null for the Run's first: full HP), a fallen one back at `dungeon.revive` of its max HP, and all of it at
- * full HP after a Boss (`healed`). `relics` (dev mode, a Run's first Hall) are the ones a Player's first inventory holds. Each Team 1 slot holds the Hall's Encounter's enemy for it, with its Weapon and scaled
- * max HP (`hallRoster`), or is Benched when there is none for it (every slot of a Treasure or Rest Hall).
- */
-export function hallDuel(tuning: TuningData, config: MatchConfig, at: HallRef, hall: Hall, previous: SimState | null, healed: boolean, rng: SimState['rng'], relics: readonly string[] = []): SimState {
-  const roster = hallRoster(tuning, config, at);
-  let slot = 0;
-  const enemies = config.teams.map((team) => (team === 1 ? roster[slot++] ?? null : null));
-  // A Player's Fighter holds an inventory, carried from the Hall before (its first: just the Weapon the Lineup chose): it wields the
-  // Weapon its inventory says, and the Match's Weapons are read no further. Every other Fighter holds nothing.
-  const players = runPlayers(config);
-  const inventories = config.teams.map((team, i) => {
-    if (team !== 0) return undefined;
-    const held = previous?.fighters[i]?.inventory;
-    return held ?? (players.includes(i) ? withStartingRelics(startingInventory(config.weapons[i]!), relics, tuning) : undefined);
-  });
-  const weapons = config.weapons.map((w, i) => enemies[i]?.weapon ?? (inventories[i] ? wieldedWeapon(inventories[i]!) : w));
-  const sizes = config.teams.map((_, i) => enemies[i]?.size ?? config.sizes?.[i]);
-  const base = createInitialState(tuning, 0, startPlacements(tuning, config, hall.arena), weapons, config.teams, hall.arena, sizes);
-  const { revive } = tuning.dungeon;
-  // Every Fighter's Mods are set here, at the Hall's start (`setMods`, the one seam): a Player's are its equipped Relics' (`holdInventory`:
-  // an equip recomputes them mid-Hall, and this carries them on), an AI ally's none, Team 1's the Relics its Encounter lists, folded (an Elite's).
-  const fighters = base.fighters.map((f, i) => {
-    if (f.team === 1) {
-      const enemy = enemies[i];
-      if (!enemy) return { ...f, hp: 0, benched: true as const };
-      const armed = setMods(f, relicMods(tuning, enemy.relics ?? []), enemy.maxHp);
-      return { ...armed, hp: armed.maxHp };
-    }
-    const before = previous?.fighters[i];
-    const inventory = inventories[i];
-    const armed = inventory ? holdInventory(f, inventory, tuning) : setMods(f, NO_MODS, tuning.fighter.maxHp);
-    if (!before || healed) return { ...armed, hp: armed.maxHp };
-    return { ...armed, hp: inDuel(before) ? Math.min(armed.maxHp, before.hp) : revive * armed.maxHp };
-  });
-  // The Players an AI has taken over stay so for the rest of the Run.
-  const away = previous?.hall?.away;
-  return { ...base, rng, fighters, hall: { ...at, kind: hall.kind, phase: 'Fighting', ...(away === undefined ? {} : { away }) } };
-}
-
-/** The Run on entering Hall `at` (`hall` its node), `path` the Halls entered before it. */
-function enterHall(run: Pick<RunState, 'floors' | 'startTick' | 'away'>, at: HallRef, hall: Hall, path: readonly HallRef[], pickups: readonly Pickup[]): RunState {
-  return {
-    floor: at.floor,
-    floors: run.floors,
-    row: at.row,
-    hall: at.index,
-    path: [...path, at],
-    phase: 'Fighting',
-    doorTicks: hall.exits.map(() => 0),
-    rested: [],
-    pickups,
-    startTick: run.startTick,
-    ...(run.away === undefined ? {} : { away: run.away }),
-  };
-}
-
-/** The Run's current Hall. */
-export const runHall = (run: RunState): HallRef => ({ floor: run.floor, row: run.row, index: run.hall });
-
-/** Ticks every Fighter whose standing counts must stand in a Door's zone (or a Delver Floor's Stairs) to take it: `hall.ts`'s. */
-export { doorTicksNeeded };
-
-/** The exit (0-based, as `Hall.exits`) the party took, while `Leaving`: the first whose `doorTicks` reached `doorTicksNeeded`; else null. */
-export function takenExit(run: RunState, tuning: TuningData): number | null {
-  if (run.phase !== 'Leaving') return null;
-  const need = doorTicksNeeded(tuning);
-  const exit = run.doorTicks.findIndex((t) => t >= need);
-  return exit < 0 ? null : exit;
-}
-
-/** The Hall behind exit `exit` of the Run's current Hall: one of the next row's, or after a Boss row 0 of the next Floor; null for none. */
-export function hallBehind(tuning: TuningData, config: Pick<MatchConfig, 'arena'>, run: RunState, exit: number): HallRef | null {
-  const target = hallOf(tuning, config.arena, runHall(run)).exits[exit];
-  if (target === undefined) return null;
-  return run.row === FLOOR_ROWS - 1 ? { floor: run.floor + 1, row: 0, index: target } : { floor: run.floor, row: run.row + 1, index: target };
-}
-
-/**
- * Halls and Floors Team 0 has cleared so far: every Hall entered but the current one while it is still being fought, and
- * every Floor before the current one, plus the current one once its Boss is beaten.
- */
-export function runCleared(run: RunState): { readonly halls: number; readonly floors: number } {
-  const done = run.phase !== 'Fighting';
-  return { halls: run.path.length - (done ? 0 : 1), floors: run.floor - 1 + (done && run.row === FLOOR_ROWS - 1 ? 1 : 0) };
-}
-
-/** A Run's first Arena name, checked: it is never built (its seed is the Run seed, its Kit the Halls'). */
+/** A Run's first Arena name, checked: it is never built (its seed is the Run seed). */
 function runArena(tuning: TuningData, name: string): string {
   if (!isArenaName(tuning, name)) throw new Error(`Unknown Arena "${name}" (have: ${Object.keys(tuning.arenas).join(', ')})`);
   return name;
@@ -502,18 +339,16 @@ function sizesOf(count: number, given: readonly (Size | undefined)[] | undefined
   return sizes.every((s) => isStandardSize(s)) ? {} : { sizes };
 }
 
-/** A Match at Tick 0: Duel 1 (or a Run's first Hall) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
+/** A Match at Tick 0: Duel 1 (or a Run's first Floor) about to be fought, score 0–0. Throws on an unknown Weapon name or an invalid lineup. */
 export function createMatch(tuning: TuningData, options: MatchOptions): MatchState {
   const format = options.format ?? 'Duels';
   if (!ALL_FORMATS.includes(format)) throw new RangeError(`format must be one of ${ALL_FORMATS.join(', ')}, got ${String(format)}`);
-  if (options.delver && format !== 'Gauntlet') throw new RangeError('Only a Gauntlet can be a Delver Run');
   if (format === 'Battle') return createBattle(tuning, options);
   const gauntlet = format === 'Gauntlet';
   const given = options.teams ?? [0, 1];
-  // A Delver Run's `teams` is its party: Team 0's Fighters (any Team 1 slots after them are dropped).
-  const teams = options.delver ? delverParty(given) : given;
-  if (options.delver) checkDelverTeams(teams);
-  else if (gauntlet) checkRunTeams(teams);
+  // A Run's `teams` is its party: Team 0's Fighters (any Team 1 slots after them are dropped).
+  const teams = gauntlet ? delverParty(given) : given;
+  if (gauntlet) checkDelverTeams(teams);
   else checkTeams(teams);
   const humans = options.humans ?? options.players?.length ?? 1;
   const config: MatchConfig = {
@@ -529,14 +364,13 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
     arena: gauntlet ? runArena(tuning, options.arena ?? tuning.arena.match) : arenaOf(tuning, options.arena ?? tuning.arena.match).name,
     humans,
     ...(gauntlet ? { players: [...(options.players ?? runPlayers({ teams, humans }))] } : {}),
-    ...(options.delver ? { delver: true as const } : {}),
     ...(options.delverStart === undefined ? {} : { delverStart: options.delverStart }),
     ...(options.traitors?.length ? { traitors: options.traitors.map((t) => (storedSize(t.size) ? { size: storedSize(t.size)! } : {})) } : {}),
   };
   if (!Number.isInteger(config.humans) || config.humans < 0) throw new RangeError(`humans must be an integer >= 0, got ${config.humans}`);
   if (gauntlet) {
     const own = teams.filter((t) => t === 0).length;
-    // A Delver Run with a traitor may field no human in its party (all AI allies).
+    // A Run with a traitor may field no human in its party (all AI allies).
     const fewest = config.traitors ? 0 : 1;
     if (config.humans < fewest || config.humans > own) throw new RangeError(`A Run fields ${fewest} to ${own} humans (Team 0's size), got ${config.humans}`);
     if (config.rematchTicks !== null) throw new RangeError('A Run has no Rematch: rematchTicks must be null');
@@ -550,16 +384,14 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
   if (config.rematchTicks !== null && (!Number.isInteger(config.rematchTicks) || config.rematchTicks < 1))
     throw new RangeError(`rematchTicks must be null or an integer >= 1, got ${config.rematchTicks}`);
   const seed = options.seed ?? 1;
-  if (options.start && !gauntlet) throw new RangeError('Only a Run has a start Hall');
   if (options.relics?.length && !gauntlet) throw new RangeError('Only a Run starts with Relics');
-  if (options.delver && options.start) throw new RangeError('A Delver Run has no start Hall');
-  if (options.delverStart !== undefined && !config.delver) throw new RangeError('Only a Delver Run has a start Floor');
+  if (options.delverStart !== undefined && !gauntlet) throw new RangeError('Only a Run has a start Floor');
   if (config.traitors) {
-    if (!config.delver) throw new RangeError('Only a Delver Run has traitors');
+    if (!gauntlet) throw new RangeError('Only a Run has traitors');
     if (config.traitors.length > MAX_TEAM_SIZE || config.humans + config.traitors.length > MAX_TEAM_SIZE) throw new RangeError(`A Delver Run fields at most ${MAX_TEAM_SIZE} Players, its traitors among them, got ${config.humans} and ${config.traitors.length} traitor(s)`);
   }
-  if (config.delver) {
-    // A Delver Run: Floor 1 of the generated Dungeon (or the dev `delverStart` Floor), built here (behind the menu), Team 0 at its Entrance.
+  if (gauntlet) {
+    // A Run: Floor 1 of the generated Dungeon (or the dev `delverStart` Floor), built here (behind the menu), Team 0 at its Entrance.
     const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
     const floor = config.delverStart ?? 1;
     if (!Number.isInteger(floor) || floor < 1 || floor > floors) throw new RangeError(`delverStart must be a Floor from 1 to ${floors}, got ${floor}`);
@@ -575,29 +407,11 @@ export function createMatch(tuning: TuningData, options: MatchOptions): MatchSta
       nextDuelTick: null,
       status: { status: 'InProgress' },
       events: [{ type: 'DuelStart', duelNumber: floor }],
-      run: null,
       delver,
     };
   }
-  // The Run's first Hall, or (dev mode) a deeper one with the Halls walked to reach it.
-  const path: readonly HallRef[] = gauntlet ? (options.start ? runPathTo(tuning, config.arena, options.start) : [{ floor: 1, row: 0, index: 0 }]) : [];
-  const first = path[path.length - 1];
-  const hall = first ? hallOf(tuning, config.arena, first) : null;
-  const duel = first && hall ? hallDuel(tuning, config, first, hall, null, false, createRng(seed), options.relics) : initialDuel(tuning, config, config.arena, seed);
-  const duelNumber = Math.max(1, path.length);
-  return {
-    config,
-    matchNumber: 1,
-    arena: duel.arena,
-    tick: 0,
-    duelNumber,
-    score: [duelNumber - 1, 0],
-    duel,
-    nextDuelTick: null,
-    status: { status: 'InProgress' },
-    events: [{ type: 'DuelStart', duelNumber }],
-    run: first && hall ? enterHall({ floors: tuning.dungeon.floors.length, startTick: 0 }, first, hall, path.slice(0, -1), startPickups(tuning, config, first, hall)) : null,
-  };
+  const duel = initialDuel(tuning, config, config.arena, seed);
+  return { config, matchNumber: 1, arena: duel.arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }] };
 }
 
 /**
@@ -613,7 +427,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
   if (!teams.every((t) => t === 0 || t === 1)) throw new RangeError(`Every Fighter's team must be 0 or 1, got [${teams.join(', ')}]`);
   for (const t of [0, 1]) if (teams.filter((team) => team === t).length > MAX_TEAM_SIZE) throw new RangeError(`A Battle fields at most ${MAX_TEAM_SIZE} Fighters on Team ${t}`);
   if (options.rematchTicks != null) throw new RangeError('A Battle has no Rematch: rematchTicks must be null');
-  if (options.start || options.relics?.length) throw new RangeError('Only a Run has a start Hall or Relics');
+  if (options.delverStart !== undefined || options.relics?.length) throw new RangeError('Only a Run has a start Floor or Relics');
   const seed = options.seed ?? 1;
   const arena = options.arena ?? battleArenaName(seed);
   if (!battlefieldOf(tuning.battle, arena)) throw new RangeError(`A Battle is fought on a Battlefield (battle:<seed> or a map of battle.maps), got "${arena}"`);
@@ -644,7 +458,7 @@ function createBattle(tuning: TuningData, options: MatchOptions): MatchState {
     return troop < 0 ? record : { ...record, troop };
   });
   const duel = { ...players, fighters: [...players.fighters, ...new Array<typeof unbound>(poolSize - teams.length).fill(unbound)], crowd: { ...crowd, players: chosen } };
-  return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }], run: null };
+  return { config, matchNumber: 1, arena, tick: 0, duelNumber: 1, score: [0, 0], duel, nextDuelTick: null, status: { status: 'InProgress' }, events: [{ type: 'DuelStart', duelNumber: 1 }] };
 }
 
 /** The Fighters on `team`, by index. */
@@ -662,7 +476,6 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
 
   const { status: over, config } = match;
   if (match.delver && over.status === 'InProgress') return stepDelver(match, match.delver, intents, tuning, tick);
-  if (match.run && over.status === 'InProgress') return stepRun(match, match.run, intents, tuning, tick);
   if (config.format === 'Battle' && over.status === 'InProgress') return stepBattle(match, intents, tuning, tick);
 
   if (over.status === 'Over' && config.rematchTicks !== null && tick >= over.tick + config.rematchTicks) {
@@ -693,7 +506,7 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
   // A Run that is over steps here too: its Duel is over, so it stands still (a Delver Run's under its Floor's Tuning Data).
   const duel = step(match.duel, intents, arenaTuning(tuning, match.duel.arena));
   let { score, status, nextDuelTick } = match;
-  if (!match.run && match.duel.duel.status === 'Fighting' && duel.duel.status === 'Over') {
+  if (!match.delver && match.duel.duel.status === 'Fighting' && duel.duel.status === 'Over') {
     const { winner } = duel.duel;
     if (winner !== null) score = score.map((s, i) => (i === winner ? s + 1 : s));
     if (winner !== null && score[winner]! >= duelsToWin(match.config.bestOf)) {
@@ -704,118 +517,4 @@ export function stepMatch(match: MatchState, intents: readonly Intent[], tuning:
     }
   }
   return { ...match, tick, score, duel, nextDuelTick, status, events };
-}
-
-/**
- * One Tick of a Run in progress (the Dungeon branch of `stepMatch`): once the fade is over, the next Hall's Duel; else the
- * Hall's Duel stepped, then a wipe of Team 0 is a Defeat, a Hall whose Encounter has fallen is Cleared (the last Boss's:
- * a Victory), and in a Cleared Hall the Rest fire heals and each exit Door counts the Ticks the party stands in its zone.
- */
-function stepRun(match: MatchState, run: RunState, intents: readonly Intent[], tuning: TuningData, tick: number): MatchState {
-  const { config } = match;
-  const events: MatchEvent[] = [];
-
-  if (match.nextDuelTick !== null && tick >= match.nextDuelTick) {
-    // The fade is over: the Hall behind the Door taken (its Arena warmed ahead by the game, so this Tick only reads it).
-    const at = hallBehind(tuning, config, run, takenExit(run, tuning)!)!;
-    const hall = hallOf(tuning, config.arena, at);
-    const duel = hallDuel(tuning, config, at, hall, match.duel, at.floor > run.floor, match.duel.rng);
-    const duelNumber = match.duelNumber + 1;
-    events.push({ type: 'DuelStart', duelNumber });
-    return { ...match, tick, arena: hall.arena, duelNumber, duel, nextDuelTick: null, events, run: enterHall(run, at, hall, run.path, startPickups(tuning, config, at, hall, run.away)) };
-  }
-
-  let duel = step(match.duel, intents, tuning);
-  let { score, status, nextDuelTick } = match;
-  let next = run;
-  const end = (winner: number) => {
-    status = { status: 'Over', winner, tick };
-    const cleared = runCleared(next);
-    events.push({ type: 'RunEnd', winner, cleared: cleared.floors, floors: next.floors, halls: cleared.halls });
-  };
-
-  if (duel.duel.status === 'Over') {
-    // Team 0 is wiped out (a Hall's Duel ends on nothing else): a Defeat, in any phase.
-    end(1);
-    return { ...match, tick, duel, nextDuelTick: null, status, events };
-  }
-
-  if (next.phase === 'Fighting' && !duel.fighters.some((f) => f.team === 1 && inDuel(f))) {
-    // The Encounter has fallen (or there was none): the Hall is Cleared, and its Duel goes on.
-    next = { ...next, phase: 'Cleared' };
-    score = score.map((s, i) => (i === 0 ? s + 1 : s));
-    // A Clear heals each living Team 0 Fighter by its `mods.healOnClear` of its max HP, never above it.
-    duel = { ...duel, fighters: duel.fighters.map((f) => (f.team === 0 && inDuel(f) && f.hp > 0 && modsOf(f).healOnClear > 0 ? { ...f, hp: Math.min(f.maxHp, f.hp + modsOf(f).healOnClear * f.maxHp) } : f)) };
-    events.push({ type: 'HallCleared', floor: next.floor, row: next.row, index: next.hall, kind: duel.hall!.kind });
-    // Its drops (`hallDrops`: each Player's own) lie on Team 1's spawn cell; an Elite's carried Relics join them there.
-    next = { ...next, pickups: [...next.pickups, ...hallDrops(tuning, config, runHall(next), hallOf(tuning, config.arena, runHall(next)), next.pickups.length, next.away)] };
-    if (next.row === FLOOR_ROWS - 1 && next.floor === next.floors) {
-      // The last Boss fell: the Run is won, and its Duel ends as a Duel's end would leave it.
-      duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
-      end(0);
-    }
-  }
-
-  if ((next.phase === 'Fighting' || next.phase === 'Cleared') && status.status === 'InProgress') {
-    // A Player's Fighter may change what it holds in a fight too, not only once the Hall is Cleared (its Intent's `equip`, then `drop`;
-    // refused mid-Action, so a Weapon is never swapped mid-swing). Whatever it drops is the pickups' (`placeDrop`).
-    duel = {
-      ...duel,
-      fighters: duel.fighters.map((f, i) => {
-        if (!f.inventory || !(intents[i]?.equip || intents[i]?.drop)) return f;
-        const used = useInventory(f, intents[i]!, tuning);
-        if (used.dropped) {
-          const drop = { fighter: i, ...used.dropped, at: { x: f.position.x, y: f.y, z: f.position.z } };
-          next = placeDrop(next, drop);
-          events.push({ type: 'ItemDropped', ...drop });
-        }
-        return used.fighter;
-      }),
-    };
-  }
-
-  if (next.phase === 'Cleared' && status.status === 'InProgress') {
-    // Only with no enemy alive does each Player's Fighter standing on a pickup it may take take it (`takePickups`).
-    const took = takePickups(next.pickups, duel.fighters, config, tuning, next.away);
-    if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
-      next = { ...next, pickups: took.pickups };
-      duel = { ...duel, fighters: took.fighters };
-      for (const t of took.taken) events.push({ type: 'ItemTaken', ...t });
-    }
-  }
-
-  if (next.phase !== 'Fighting' && status.status === 'InProgress') {
-    const arena = arenaOf(tuning, duel.arena);
-    if (duel.hall!.kind === 'Rest') {
-      // Each Player's Fighter standing at the fire heals once in this Hall.
-      const rested = next.rested;
-      const healing = presentPlayers(config, next.away).filter((i) => !rested.includes(i) && inDuel(duel.fighters[i]!) && atRestFire(arena, duel.fighters[i]!));
-      if (healing.length > 0) {
-        const fighters = duel.fighters.map((f, i): FighterState => {
-          if (!healing.includes(i)) return f;
-          const hp = Math.min(f.maxHp, f.hp + tuning.dungeon.restHeal * f.maxHp);
-          events.push({ type: 'Rested', fighter: i, healed: hp - f.hp });
-          return { ...f, hp };
-        });
-        duel = { ...duel, fighters };
-        next = { ...next, rested: [...rested, ...healing].sort((a, b) => a - b) };
-      }
-    }
-    if (next.phase === 'Cleared') {
-      // Each exit Door counts while every Fighter whose standing counts is in its zone; the first to doorSeconds is taken.
-      const counting = doorCounters(config, duel.fighters, next.away);
-      const fighters = duel.fighters;
-      const doorTicks = next.doorTicks.map((t, exit) => (counting.length > 0 && counting.every((i) => inExitZone(arena, exit, fighters[i]!)) ? t + 1 : 0));
-      next = { ...next, doorTicks };
-      const exit = doorTicks.findIndex((t) => t >= doorTicksNeeded(tuning));
-      if (exit >= 0) {
-        next = { ...next, phase: 'Leaving' };
-        nextDuelTick = tick + Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
-        events.push({ type: 'DoorTaken', exit, to: hallBehind(tuning, config, next, exit)! });
-      }
-    }
-  }
-
-  if (duel.hall!.phase !== next.phase) duel = { ...duel, hall: { ...duel.hall!, phase: next.phase } };
-  return { ...match, tick, score, duel, nextDuelTick, status, events, run: next };
 }

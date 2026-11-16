@@ -4,7 +4,6 @@ import { createMatch, IDLE_INTENT, SHEATHED_IDLE_MOTION, type Intent, inDuel, in
 import { floorOf } from '../sim/delver';
 import { createAllyAi, DRAW_DISTANCE, FOLLOW_DISTANCE, SHEATHE_DISTANCE } from './allyAi';
 import { stepMatchWith, type Controller } from './controller';
-import { createHallAi } from './hallAi';
 import { lineupAis, type Lineup } from './lineup';
 import { flatFloors } from '../sim/delver/flat.testdata';
 
@@ -23,9 +22,9 @@ const LINEUP: Lineup = [
 ];
 
 const start = (): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
 /** The Controllers of the lineup: the Player's slot stands (null becomes a scripted idle). */
-const controllers = (): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA, delver: true }).map((c) => c ?? { intent: () => IDLE_INTENT });
+const controllers = (): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? { intent: () => IDLE_INTENT });
 const edit = (m: MatchState, i: number, f: (x: FighterState) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((x, k) => (k === i ? f(x) : x)) } });
 const dist = (a: FighterState, b: FighterState): number => Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
 
@@ -65,18 +64,11 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
     for (const i of [1, 2]) expect(cs[i]!.intent(m.duel, i).move).toEqual({ x: 0, z: 0 });
   });
 
-  it('the Hall AI stands on a Floor', () => {
-    const m = start();
-    expect(createHallAi(tuning, 0, ARENA).intent(m.duel, 3)).toBe(IDLE_INTENT);
-  });
-
-  it('a Delver Gauntlet lineup gives Ally AIs to the party and Pool AIs to the other Pool slots (no Hall AI), and they step a Delver Run', () => {
-    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA, delver: true });
+  it('a Delver Gauntlet lineup gives Ally AIs to the party and Pool AIs to the other Pool slots , and they step a Delver Run', () => {
+    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA });
     expect(ais).toHaveLength(tuning.battle.bubble.poolSize);
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((c) => c !== null)).toBe(true);
-    // The Hall-graph Gauntlet's lineup is as it was: one entry a slot, a Hall AI on each Team 1 slot.
-    expect(lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA })).toHaveLength(LINEUP.length);
     expect(createAllyAi(tuning, 'Hard', 'Balanced', [0])).toBeDefined();
     let m = start();
     const cs = controllers();
@@ -87,8 +79,8 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
   });
 
   describe('with Warbands about', () => {
-    const wstart = (): MatchState => createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
-    const wcontrollers = (): Controller[] => lineupAis(warbanded, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA, delver: true }).map((c) => c ?? { intent: () => IDLE_INTENT });
+    const wstart = (): MatchState => createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
+    const wcontrollers = (): Controller[] => lineupAis(warbanded, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? { intent: () => IDLE_INTENT });
     /** `m` with a Pool slot bound to a Soldier, a promoted enemy standing `dx` m from Fighter `of` (in play at full HP). */
     const promoted = (m: MatchState, of: number, dx: number): MatchState => {
       const at = m.duel.fighters[of]!;

@@ -26,7 +26,7 @@ function find(what: string, want: (plan: ReturnType<typeof planOf>) => boolean):
   for (let n = 1; n <= SEARCH; n++) if (want(planOf(`gen:greybox:${n}`))) return `gen:greybox:${n}`;
   throw new Error(`no Floor 1 of the first ${SEARCH} seeds has ${what}`);
 }
-const solo = (arena: string): MatchState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena, delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)], humans: 1, players: [0] });
+const solo = (arena: string): MatchState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)], humans: 1, players: [0] });
 const edit = (m: MatchState, i: number, f: (x: FighterState) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((x, k) => (k === i ? f(x) : x)) } });
 
 describe('the Delver pilot and the Ally AI on levelled Floors', { timeout: 120_000 }, () => {
@@ -35,7 +35,7 @@ describe('the Delver pilot and the Ally AI on levelled Floors', { timeout: 120_0
     const plan = planOf(arena);
     let m = solo(arena);
     const pilot = createDelverPilot(tuning);
-    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena, delver: true });
+    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena });
     const cs: Controller[] = ais.map((c, i) => c ?? (i === 0 ? pilot : { intent: () => IDLE_INTENT }));
     const healed = new Set<number>();
     for (let t = 0; t < secondsToTicks(300) && m.delver!.floor === 1; t++) {
@@ -50,7 +50,7 @@ describe('the Delver pilot and the Ally AI on levelled Floors', { timeout: 120_0
     const arena = find('Stairs off the ground', (p) => p.markers.stairs.y >= 2);
     const plan = planOf(arena);
     let m = edit(solo(arena), 0, (f) => ({ ...f, hp: 0, death: { tick: 0, cause: 'Fall', blow: null } }));
-    const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena, delver: true }).map((c) => c ?? { intent: () => IDLE_INTENT });
+    const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena }).map((c) => c ?? { intent: () => IDLE_INTENT });
     let counted = false;
     for (let t = 0; t < secondsToTicks(150) && !counted; t++) {
       m = stepMatchWith(m, cs, tuning);

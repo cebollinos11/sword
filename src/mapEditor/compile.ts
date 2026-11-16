@@ -581,7 +581,7 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
     const brush = of(/walk\[(\d+)\]/, surfaceBrush) ?? of(/walls\[(\d+)\]/, wallBrush) ?? of(/blocks\[(\d+)\]/, blockBrush);
     throw new MapCompileError(`the game refuses the map: ${e.message}`, brush ? [brush] : []);
   }
-  const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], doors: [], jumpLinks: map.shortcuts ? 'shortcuts' : false };
+  const arena: ArenaGeometry = { name: `battle:${map.name}`, walk: map.walk, walls: [...map.walls, ...map.blocks.flatMap(blockWalls)], spawns: [], jumpLinks: map.shortcuts ? 'shortcuts' : false };
   return { map, warnings, surfaceBrush, wallBrush, blockBrush, arena };
 }
 

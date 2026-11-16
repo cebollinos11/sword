@@ -24,29 +24,7 @@ import relicsJson from '../../data/relics.json';
 import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 export { MAX_FLOOR_TROOPS };
-export {
-  applyDungeonKnobs,
-  dungeonDifficultyLadder,
-  floorEncounters,
-  MAX_ENCOUNTER_ENEMIES,
-  MAX_ENEMY_RELICS,
-  MAX_LOOT_SPOTS,
-  parseDungeon,
-  parseRunKnobs,
-  POOLED_HALL_KINDS,
-  RANDOM_PICK,
-  RUN_KNOB_KEYS,
-  WEIGHTED_HALL_KINDS,
-  type DungeonEncounter,
-  type DungeonLoot,
-  type DungeonEnemy,
-  type DungeonFloor,
-  type DungeonTuning,
-  type HallKind,
-  type PooledHallKind,
-  type RunKnobs,
-  type WeightedHallKind,
-} from './dungeon';
+export { MAX_LOOT_SPOTS, parseDungeon, RANDOM_PICK, type DungeonLoot, type DungeonTuning } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate };
@@ -65,7 +43,7 @@ export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
 export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
-export type { ArenaDoor, ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
+export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
 export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Skirt } from './kit';
 export { parseKit, PIECE_IDS } from './kit';
@@ -518,7 +496,7 @@ export interface TuningData {
   readonly dagger: DaggerTuning;
   readonly block: BlockTuning;
   readonly match: MatchTuning;
-  /** A Dungeon Run's Floors (each a graph of Halls, rebuilt from the Run seed), their Encounters, and how HP carries between Halls. */
+  /** What a Run keeps across its Floors: the Stairs and the fade, the fires' heal and revive, the Inventory, the loot (docs/plans/delver.md). */
   readonly dungeon: DungeonTuning;
   /** A Delver Run's Floor generator (data/delver.json): the lattice of rooms, passages and kinds, and the Floors' flow cell (docs/plans/delver.md). */
   readonly delver: DelverTuning;
@@ -553,7 +531,7 @@ export function defaultWeaponName(tuning: Pick<TuningData, 'weapons'>): string {
   return Object.keys(tuning.weapons)[0]!;
 }
 
-/** The Weapons a Run picks a `"random"` enemy's Weapon and its Weapon loot from: the roster, in file order, without `dungeon.leftOutWeapons`. */
+/** The Weapons a Run picks its Weapon loot from: the roster, in file order, without `dungeon.leftOutWeapons`. */
 export function runWeapons(tuning: Pick<TuningData, 'weapons' | 'dungeon'>): string[] {
   return Object.keys(tuning.weapons).filter((w) => !tuning.dungeon.leftOutWeapons.includes(w));
 }
@@ -885,7 +863,7 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
-    dungeon: parseDungeon(root.dungeon, Object.keys(weapons), Object.keys(ai.difficulties), Object.keys(ai.styles), relics.map((r) => r.name)),
+    dungeon: parseDungeon(root.dungeon, Object.keys(weapons)),
     relics,
     delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),
     battle,

@@ -60,7 +60,7 @@ export interface Piece {
   readonly solid: boolean;
   /**
    * The door's alone (and required there): its door zone, a convex polygon of [x, z] corners on the ground at its level,
-   * before the doorway in its Wall along -z (docs/plans/dungeon.md, Doors). Standing in it is how a party takes the Door.
+   * before the doorway in its Wall along -z. Unused since the Hall Arenas went (docs/plans/delver.md, Stage 9): no generator places a door.
    */
   readonly zone?: readonly (readonly [number, number])[];
 }

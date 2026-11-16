@@ -3,7 +3,7 @@
  * effects in words, the Fighter's resulting numbers, and for each action whether the Simulation would act on it now, and if not why. Pure and
  * render only (ADR 0001): the screen (`inventoryScreen.ts`) draws it, and a click becomes the Local Controller's `equip` or `drop`.
  */
-import { canChangeInventory, inDuel, modsOf, type DelverPhase, type FighterState, type HallPhase, type InventoryRef } from '../sim';
+import { canChangeInventory, inDuel, modsOf, type DelverPhase, type FighterState, type InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
 import { relicIcon, weaponIcon } from './icons';
 import { relicWords } from './loot';
@@ -51,32 +51,18 @@ export interface DelverContext {
 }
 
 /**
- * Why the Fighter may not change its inventory now, or null when it may. Mirrors the Simulation's rule (`stepMatch` acts on `equip` and
- * `drop` in a Hall being fought or Cleared, not while Leaving it, and `canChangeInventory`: the Fighter has an inventory, still fights, lives,
- * is Idle and on the ground); the order of the reasons is the order a player would clear them in. In a Delver Run (`delver`) the phase is the
- * Run's: 'Descending' while the party goes down, and anywhere on the Floor while Exploring the usual checks.
+ * Why the Fighter may not change its inventory now, or null when it may. Mirrors the Simulation's rule (`stepDelver` acts on `equip` and
+ * `drop` while Exploring, not while Descending, and `canChangeInventory`: the Fighter has an inventory, still fights, lives, is Idle and on
+ * the ground); the order of the reasons is the order a player would clear them in. `delver` is the Run's phase; absent outside a Run.
  */
-export function inventoryLock(f: FighterState, phase: HallPhase | undefined, delver?: DelverContext): string | null {
-  if (delver) {
-    if (delver.phase === 'Descending') return 'Descending';
-  } else if (phase === 'Leaving') return 'Leaving the Hall';
-  else if (phase !== 'Fighting' && phase !== 'Cleared') return 'Only in a Run';
+export function inventoryLock(f: FighterState, delver?: DelverContext): string | null {
+  if (!delver) return 'Only in a Run';
+  if (delver.phase === 'Descending') return 'Descending';
   if (!inDuel(f) || f.hp <= 0) return 'You have fallen';
   if (f.action.kind !== 'Idle') return 'Finish your move';
   if (f.air) return 'Land first';
   // The rule itself, should it grow a condition this list does not name yet.
   return canChangeInventory(f) ? null : 'Not now';
-}
-
-/**
- * Whether the open screen takes over the Local Controller's input (and lets go of its held keys), as the menu does: only once the Hall is
- * not being fought. In a fight (a Hall `Fighting`, or a Duel) the screen leaves the Fighter its keys: the Simulation
- * runs on, and opening the screen must never leave a Fighter defenceless; its item buttons still work. In a Delver Run it never holds input:
- * the Fighter keeps its keys (a Warband may be near), while its item buttons still work.
- */
-export function inventoryHoldsInput(phase: HallPhase | undefined, delver?: DelverContext): boolean {
-  if (delver) return false;
-  return phase === 'Cleared' || phase === 'Leaving';
 }
 
 /** A factor as `×1.1` (trailing zeros dropped). */
@@ -85,19 +71,18 @@ const factor = (n: number): string => `×${Number(n.toFixed(2))}`;
 const action = (label: string, reason: string | null): ActionView => ({ label, available: reason === null, reason });
 
 /**
- * The inventory screen for `fighter` (the local Player's) in a Hall in `phase`, or null when it holds no inventory (outside a Run). Slots
+ * The inventory screen for `fighter` (the local Player's) in a Run (`delver` its phase), or null when it holds no inventory (outside a Run). Slots
  * are sized from `dungeon.inventory`; the Weapons and Relics are listed in slot order, which is the order the keys number them.
  */
 export function inventoryView(
   fighter: FighterState | undefined,
   tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>,
-  phase: HallPhase | undefined,
   delver?: DelverContext,
 ): InventoryView | null {
   const inv = fighter?.inventory;
   if (!fighter || !inv) return null;
   const sizes = tuning.dungeon.inventory;
-  const lock = inventoryLock(fighter, phase, delver);
+  const lock = inventoryLock(fighter, delver);
   const full = inv.equipped.length >= sizes.equippedRelics;
 
   const weapons: SlotView[] = Array.from({ length: sizes.weapons }, (_, slot) => {

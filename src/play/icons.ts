@@ -1,14 +1,10 @@
 /**
- * The icons of the dungeon screens (map, inventory, HUD): one per Hall kind, per Relic icon id (data/relics.json) and
- * per Weapon of the roster. Inline SVG strings on a 32x32 box, bold flat shapes that read at 24 px and at 64 px: no
+ * The icons of the Run's screens (inventory, HUD, pickups): one per Relic icon id (data/relics.json) and per Weapon of the
+ * roster. Inline SVG strings on a 32x32 box, bold flat shapes that read at 24 px and at 64 px: no
  * image files, no fetch. The DOM sets one as `innerHTML`; a three.js sprite takes `iconTexture`. Render-only
  * (ADR 0001). A new Relic icon id or Weapon in the Tuning Data needs an entry here: the test names the missing one.
  */
 import * as THREE from 'three';
-import type { HallKind } from '../tuning';
-
-/** The Hall kinds, in the order the map lists them. */
-export const HALL_KINDS: readonly HallKind[] = ['Fight', 'Elite', 'Treasure', 'Rest', 'Boss'];
 
 const INK = '#1b1410';
 const STEEL = '#c9d1d9';
@@ -32,42 +28,6 @@ const sword = (x: number, half: number, tip: number) =>
   path(`M${x - half} 22 V${tip + 4} L${x} ${tip} L${x + half} ${tip + 4} V22 Z`, STEEL) +
   rect(x - 5, 22, 10, 2.5, GOLD) +
   rect(x - 1.5, 24.5, 3, 5, BROWN);
-
-const HALLS: Readonly<Record<HallKind, string>> = {
-  // Crossed swords.
-  Fight: svg(
-    path('M6 4 L9 4 L26 22 L24 24 Z', STEEL) +
-      path('M26 4 L23 4 L6 22 L8 24 Z', STEEL) +
-      rect(4, 22, 7, 3, GOLD) + rect(21, 22, 7, 3, GOLD),
-  ),
-  // A horned skull.
-  Elite: svg(
-    path('M5 5 Q4 12 9 14 L10 10 Z', BONE) +
-      path('M27 5 Q28 12 23 14 L22 10 Z', BONE) +
-      path('M16 8 C9 8 7 13 8 18 L10 21 V26 H22 V21 L24 18 C25 13 23 8 16 8 Z', BONE) +
-      circle(12.5, 17, 2.4, INK) + circle(19.5, 17, 2.4, INK) +
-      path('M14 22 H18', INK),
-  ),
-  // A chest.
-  Treasure: svg(
-    path('M4 14 Q4 6 16 6 Q28 6 28 14 Z', BROWN) +
-      rect(4, 14, 24, 13, BROWN) +
-      rect(4, 13, 24, 3, GOLD) +
-      rect(13.5, 15, 5, 6, GOLD),
-  ),
-  // A campfire.
-  Rest: svg(
-    path('M16 3 C20 9 25 12 24 19 C23 24 20 26 16 26 C12 26 8 24 8 19 C8 14 13 12 16 3 Z', RED) +
-      path('M16 14 C18 17 20 18 19 21 C18 23 17 24 16 24 C14 24 13 22 13 20 C13 18 15 17 16 14 Z', GOLD) +
-      path('M5 29 L27 25 M5 25 L27 29', BROWN, 'stroke-width="3"'),
-  ),
-  // A crown.
-  Boss: svg(
-    path('M4 24 L3 9 L10 16 L16 6 L22 16 L29 9 L28 24 Z', GOLD) +
-      rect(4, 24, 24, 4, GOLD) +
-      circle(16, 18, 2, RED) + circle(9.5, 20, 1.4, BLUE) + circle(22.5, 20, 1.4, BLUE),
-  ),
-};
 
 const RELICS: Readonly<Record<string, string>> = {
   // A whetstone with a spark of edge.
@@ -143,11 +103,6 @@ const WEAPONS: Readonly<Record<string, string>> = {
 
 /** The generic Weapon icon: a plain blade, for a Weapon with no drawing of its own. */
 const GENERIC_WEAPON = svg(path('M13 22 L13 8 L18 3 L19 22 Z', '#7d8590') + rect(8, 22, 16, 2.5, GOLD) + rect(14.5, 24.5, 3, 5, BROWN));
-
-/** The SVG of a Hall kind. */
-export function hallIcon(kind: HallKind): string {
-  return HALLS[kind];
-}
 
 /** The SVG of a Relic icon id (data/relics.json); an unknown id gets the generic Relic icon. */
 export function relicIcon(id: string): string {

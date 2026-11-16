@@ -45,8 +45,8 @@ describe('a Delver Run over the memory transport', () => {
     expect(mostPromoted, 'a Promotion happened').toBeGreaterThanOrEqual(1);
     for (const p of r.peers) {
       expect(p.session.status).toBe('Running');
-      expect(p.session.state!.config).toMatchObject({ format: 'Gauntlet', delver: true, humans: 2 });
-      expect(p.session.state!.run).toBeNull();
+      expect(p.session.state!.config).toMatchObject({ format: 'Gauntlet', humans: 2 });
+      expect('run' in p.session.state!).toBe(false);
       expect(p.session.state!.delver).toMatchObject({ floor: 1, floors: 3 });
       expect(p.events.filter((e) => e.type === 'Desync')).toEqual([]);
       expect(p.session.stats.resyncs).toBe(0);

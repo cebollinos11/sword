@@ -21,7 +21,7 @@ const lineup: Lineup = [
   { team: 0, pilot: { kind: 'Player', player: 1 } },
   ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
 ];
-const OPTIONS = { bestOf: 1, arena: RUN, seed: 3, format: 'Gauntlet' as const, delver: true as const };
+const OPTIONS = { bestOf: 1, arena: RUN, seed: 3, format: 'Gauntlet' as const };
 const hello = (match: unknown) => ({ type: 'hello', protocol: 1, tuningHash: 'abcd1234', match, lineup, weapons: ['Halberd', 'Halberd'], player: 1 });
 const resync = (state: unknown, ai: unknown[] = []) => ({ type: 'resync', tick: 40, state, ai, streams: [{ player: 0, from: 38, intents: [IDLE_INTENT, IDLE_INTENT, IDLE_INTENT] }] });
 
@@ -34,21 +34,17 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 31', () => {
-    expect(PROTOCOL_VERSION).toBe(31);
+  it('is protocol 32', () => {
+    expect(PROTOCOL_VERSION).toBe(32);
   });
 
-  it("accepts a Delver Run's start message, and refuses `delver` that is not true or is not a Gauntlet's", () => {
-    for (const match of [OPTIONS, { ...OPTIONS, humans: 2 }]) expect(parseNetMessage(hello(match)), JSON.stringify(match)).toEqual(hello(match));
+  it("accepts a Run's start message, and refuses one on a dev start Floor, with no human outside a Run, or a Run on a hand-made Arena", () => {
+    for (const match of [OPTIONS, { ...OPTIONS, humans: 2 }, { ...OPTIONS, humans: 0 }]) expect(parseNetMessage(hello(match)), JSON.stringify(match)).toEqual(hello(match));
     for (const match of [
-      { ...OPTIONS, format: 'Duels', arena: 'library' },
-      { ...OPTIONS, format: undefined },
-      { ...OPTIONS, format: 'Duels' },
-      { ...OPTIONS, delver: false },
-      { ...OPTIONS, delver: 1 },
-      { ...OPTIONS, delver: 'yes' },
-      { ...OPTIONS, delver: null },
-      { bestOf: 1, arena: RUN, delver: true },
+      { ...OPTIONS, arena: 'library' },
+      { ...OPTIONS, delverStart: 2 },
+      { ...OPTIONS, format: 'Duels', humans: 0 },
+      { bestOf: 1, arena: RUN, humans: 0 },
     ]) {
       expect(parseNetMessage(hello(match)), JSON.stringify(match)).toBeNull();
     }
@@ -64,10 +60,10 @@ describe('Peer message validation: a Delver Run', () => {
   it("carries a Delver Run's state at Tick 0 and some Ticks in through a resync", () => {
     for (const ticks of [0, 1, 40, 200]) {
       const { state, ai } = delverResync(ticks);
-      expect(state.run, `run @${ticks}`).toBeNull();
+      expect('run' in state, `run @${ticks}`).toBe(false);
       expect(state.delver).toMatchObject({ floor: 1, phase: 'Exploring' });
       expect(state.duel.delver).toMatchObject({ floor: 1, phase: 'Exploring' });
-      expect(state.duel.hall).toBeUndefined();
+      expect('hall' in state.duel).toBe(false);
       const m = resync(state, ai);
       expect(parseNetMessage(m), `@${ticks}`).toEqual(m);
     }
@@ -104,9 +100,9 @@ describe('Peer message validation: a Delver Run', () => {
     const progress = (patch: object) => ({ ...state, delver: { ...run, ...patch } });
     const duel = (patch: object) => ({ ...state, duel: { ...state.duel, ...patch } });
     const broken: unknown[] = [
-      // A Run beside it, a Hall in its Duel, or no Delver at all.
+      // A retired Hall-graph Run beside it, or no Run at all.
       { ...state, run: { floors: 1, floor: 1, row: 0, hall: 0, path: [{ floor: 1, row: 0, index: 0 }], phase: 'Fighting', doorTicks: [0], rested: [], pickups: [], startTick: 0 } },
-      duel({ hall: { floor: 1, row: 0, index: 0, kind: 'Fight', phase: 'Fighting' } }),
+      { ...state, run: null },
       { ...state, delver: undefined },
       { ...state, delver: null },
       duel({ delver: undefined }),
@@ -151,11 +147,10 @@ describe('Peer message validation: a Delver Run', () => {
       progress({ away: [] }),
       progress({ away: [1, 0] }),
       progress({ away: [2] }),
-      // The Match config: no Delver Run outside a Gauntlet, and no Rematch.
-      { ...state, config: { ...state.config, delver: false } },
+      // The Match config: no Run outside a Gauntlet, and no Rematch.
       { ...state, config: { ...state.config, format: 'Duels', arena: 'library' } },
+      { ...state, config: { ...state.config, format: 'Duels' } },
       { ...state, config: { ...state.config, rematchTicks: 300 } },
-      { ...state, config: { ...state.config, delver: undefined } },
     ];
     for (const bad of broken) expect(parseNetMessage(resync(bad, ai)), JSON.stringify(bad).slice(0, 100)).toBeNull();
   });
@@ -224,17 +219,17 @@ describe('Peer message validation: a Delver Run', () => {
     }
   });
 
-  it('refuses a Delver mark on a Match that is not one: a Duels state, and a Hall-graph Run', () => {
-    const { state } = delverResync(10);
+  it('refuses a Run mark on a Match that is not one (a Duels state), and a Run without its own or with a Hall-graph Run beside it', () => {
+    const { state, ai } = delverResync(10);
     const duels = JSON.parse(JSON.stringify(createMatch(tuning, { bestOf: 3, seed: 3 }))) as MatchState;
     expect(parseNetMessage(resync(duels))).not.toBeNull();
     expect(parseNetMessage(resync({ ...duels, delver: state.delver }))).toBeNull();
     expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, delver: state.duel.delver } }))).toBeNull();
-    const halls = JSON.parse(JSON.stringify(createMatch(tuning, lineupMatch(tuning, lineup, ['Halberd', 'Halberd'], { ...OPTIONS, delver: undefined })))) as MatchState;
-    expect(halls.run).not.toBeNull();
-    expect(parseNetMessage(resync(halls, lineupAis(tuning, lineup, 'Gauntlet', OPTIONS).map((a) => a?.save?.() ?? null)))).not.toBeNull();
-    expect(parseNetMessage(resync({ ...halls, delver: state.delver }, []))).toBeNull();
-    expect(parseNetMessage(resync({ ...halls, duel: { ...halls.duel, delver: state.duel.delver } }, []))).toBeNull();
+    // A Run without its progress, or with an old Hall-graph Run's beside it, is refused.
+    const run = JSON.parse(JSON.stringify(state)) as MatchState;
+    expect(parseNetMessage(resync(run, ai))).not.toBeNull();
+    expect(parseNetMessage(resync({ ...run, delver: undefined }, ai))).toBeNull();
+    expect(parseNetMessage(resync({ ...run, run: null }, ai))).toBeNull();
   });
 
   it("carries a Delver Run's Floor with Warbands, and refuses a malformed Crowd or Pool", () => {
@@ -412,16 +407,16 @@ describe('a Floor Crowd\'s Troops and ranks', () => {
         ['a record held elsewhere', withRecords([{ ...records[0]!, soldier: records[0]!.soldier + 1 }])],
         ['a mirror that differs', withRecords(records, [{ ...records[0]!, kills: 3 }])],
         ['a broken count', withRecords([{ ...records[0]!, deaths: -1 }])],
-        ['traitors without a Delver Run', { ...state, config: { ...state.config, delver: undefined } }],
+        ['traitors outside a Gauntlet', { ...state, config: { ...state.config, format: 'Duels' } }],
         ['five traitors', { ...state, config: { ...state.config, traitors: [{}, {}, {}, {}, {}] } }],
       ] as const) {
         expect(parseNetMessage(resync(bad, ai)), name).toBeNull();
       }
     });
 
-    it('accepts an all-AI party (no human on Team 0) only in a Delver Run', () => {
+    it('accepts an all-AI party (no human on Team 0) only in a Run', () => {
       expect(parseNetMessage(hello({ ...OPTIONS, humans: 0 }))).not.toBeNull();
-      expect(parseNetMessage(hello({ bestOf: 1, arena: RUN, format: 'Gauntlet', humans: 0 }))).toBeNull();
+      expect(parseNetMessage(hello({ bestOf: 1, arena: RUN, humans: 0 }))).toBeNull();
     });
   });
 });

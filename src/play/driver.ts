@@ -8,7 +8,7 @@
 import { createMatch, inDuel, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { Size, TuningData } from '../tuning';
 import type { Ping } from '../net';
-import { checkLineup, createAutopilot, createDelverPilot, type AutopilotLoot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createDelverPilot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -36,10 +36,8 @@ export interface PlayerVsAiOptions extends MatchOptions {
   readonly lineup: Lineup;
   /** The player's Weapon (a Tuning Data Weapon name). */
   readonly weapon: string;
-  /** Dev mode only (`devAutopilot`): the player's Fighter on a Hard AI taking these exits (one per row), the local Intents ignored; in a Delver Run (`delver`) on the Delver pilot instead (the exits unused). */
-  readonly autopilot?: readonly number[];
-  /** Dev mode only (`devAutopilotLoot`): the autopilot also picks up and equips its loot, and with 'drop' drops one item and takes it again. */
-  readonly autopilotLoot?: AutopilotLoot | null;
+  /** Dev mode only (`devAutopilot`): in a Run, the player's Fighter on the Delver pilot, the local Intents ignored. */
+  readonly autopilot?: boolean;
   /** Dev mode only (`devImmortal`): every living Team 0 Fighter is set back to its max HP after each Tick (a playtest harness; no rule or Tuning changes). */
   readonly immortal?: boolean;
 }
@@ -53,10 +51,10 @@ export function withImmortalParty(match: MatchState): MatchState {
 
 /**
  * A Player vs AI Match stepped locally: the player drives their slot of the Lineup, an AI Controller every other (in a
- * Gauntlet, a Hall AI each Team 1 slot). Throws on an invalid Lineup.
+ * Gauntlet, the party's Ally AIs and the Pool AIs, `lineupAis`). Throws on an invalid Lineup.
  */
 export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): MatchDriver {
-  const { lineup, weapon, autopilot, autopilotLoot, immortal, ...matchOptions } = options;
+  const { lineup, weapon, autopilot, immortal, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
   const me = playerFighter(lineup, 0);
@@ -64,8 +62,7 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   prepareAi(tuning, match.duel);
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const pilot = autopilot && !matchOptions.delver ? createAutopilot(tuning, 'Hard', autopilot, autopilotLoot ?? null) : null;
-  const local: Controller = pilot ?? (autopilot && matchOptions.delver ? createDelverPilot(tuning, 'Hard') : { intent: () => pending! });
+  const local: Controller = autopilot && format === 'Gauntlet' ? createDelverPilot(tuning, 'Hard') : { intent: () => pending! };
   const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
   return {
     localFighter: me,
@@ -75,7 +72,6 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
     },
     tick(localIntent) {
       pending = localIntent;
-      pilot?.watch(match);
       match = stepMatchWith(match, controllers, tuning);
       if (immortal) match = withImmortalParty(match);
       return { advanced: true };

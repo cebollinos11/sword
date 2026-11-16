@@ -12,7 +12,7 @@ import { inStairs } from './delverRun';
 import { runSeed } from './dungeon';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
-import { createMatch, doorTicksNeeded, MAX_TEAM_SIZE, stepMatch, type MatchState } from './match';
+import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, type MatchState } from './match';
 import { restore, snapshot } from './snapshot';
 import type { FighterState } from './state';
 import { brainTicks, warbandBrain } from '.';
@@ -47,7 +47,7 @@ function find(t: TuningData, what: string, want: (plan: FloorPlan) => boolean): 
 }
 
 const start = (t: TuningData, arena: string, own = 1): MatchState =>
-  createMatch(t, { format: 'Gauntlet', bestOf: 1, seed: 7, arena, delver: true, teams: [...Array<number>(own).fill(0), ...Array<number>(MAX_TEAM_SIZE).fill(1)], humans: own, players: [...Array(own).keys()] });
+  createMatch(t, { format: 'Gauntlet', bestOf: 1, seed: 7, arena, teams: [...Array<number>(own).fill(0), ...Array<number>(MAX_TEAM_SIZE).fill(1)], humans: own, players: [...Array(own).keys()] });
 const withFighters = (m: MatchState, edit: (f: FighterState, i: number) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map(edit) } });
 const put = (m: MatchState, i: number, x: number, z: number, y: number): MatchState => withFighters(m, (f, k) => (k === i ? { ...f, position: { x, z }, y } : f));
 const tickOf = (t: TuningData, m: MatchState, by: Record<number, Partial<Intent>> = {}): MatchState => stepMatch(m, m.duel.fighters.map((_, i) => ({ ...IDLE_INTENT, ...by[i] })), t);
@@ -88,9 +88,9 @@ describe('a Delver Run on levelled Floors: spawns, Stairs, fires, pedestals', { 
     expect(inStairs(plan, f(y - 0.4))).toBe(true);
     expect(inStairs(plan, f(y - 2))).toBe(false);
     expect(inStairs(plan, f(0))).toBe(false);
-    // The Run takes them: a Player standing there for the doorSeconds.
+    // The Run takes them: a Player standing there for the stairsSeconds.
     let m = put(start(empty, arena), 0, c.x, c.z, y);
-    for (let k = 0; k < doorTicksNeeded(empty) + 2; k++) m = tickOf(empty, m);
+    for (let k = 0; k < stairsTicksNeeded(empty) + 2; k++) m = tickOf(empty, m);
     expect(m.delver!.phase).toBe('Descending');
   });
 
@@ -296,7 +296,7 @@ describe('Warbands on levelled Floors', { timeout: 120_000 }, () => {
 });
 
 describe('a Delver Run on levelled Floors: deterministic, and Rollback across a Floor change', () => {
-  const FADE = secondsToTicks(full.dungeon.hallFadeSeconds);
+  const FADE = secondsToTicks(full.dungeon.fadeSeconds);
   /** A scripted Run on levelled Floors with their Warbands: the Player starts in the Stairs, takes them, and walks about on Floor 2 for 40 Ticks. */
   function play(arena: string): { states: MatchState[]; intents: Intent[][] } {
     const first = start(full, arena, 3);

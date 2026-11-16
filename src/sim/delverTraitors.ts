@@ -5,7 +5,7 @@
  * every one of them by walking (`traitorPick`, seeded): the Soldier leaves its Warband and is the traitor's Fighter, in its Troop's Body, Weapon,
  * Mods and HP and the traitor's own Size, until it falls. Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
  * watches again for longer. A traitor has no Bubble, takes no pickup, fire or Stairs (those are the party Players'), and never takes the Boss.
- * Its records are plain Run state (`DelverRun.traitors`), hashed and rolled back. Pure.
+ * Its records are plain Run state (`RunState.traitors`), hashed and rolled back. Pure.
  */
 import type { TuningData } from '../tuning';
 import { promotedFighter } from './bubble';
@@ -21,7 +21,7 @@ import type { SimEvent } from './events';
 import type { FighterState, SimState } from './state';
 import { BOSS } from './warband';
 
-/** One traitor's record (`DelverRun.traitors`, mirrored on `SimDelver.traitors`). */
+/** One traitor's record (`RunState.traitors`, mirrored on `SimDelver.traitors`). */
 export interface TraitorState {
   /** The Soldier (Crowd index) its Fighter is, or was while it lies fallen; -1 with none yet on this Floor. */
   readonly soldier: number;

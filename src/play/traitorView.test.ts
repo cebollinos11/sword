@@ -10,7 +10,7 @@ import { traitorLine, traitorWatchLine } from './hud';
 
 const base = flatFloors(loadTuningData());
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 2, tierRooms: [7] } };
-const m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}] });
+const m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}] });
 const plan = floorOf(tuning, m.arena)!.plan;
 
 describe("a Delver traitor's view", () => {

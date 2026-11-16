@@ -9,14 +9,13 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
-import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type RunKnobs, type Size, type TuningData } from '../tuning';
+import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
   canSetSeat,
   formatProblem,
   isBattle,
-  isDelver,
   isGauntlet,
   lobbyFormats,
   MAX_PLAYERS,
@@ -24,7 +23,6 @@ import {
   nextMatchArena,
   runTuning,
   seatOf,
-  setDelver,
   setFormat,
   setSeat,
   teamSize,
@@ -163,7 +161,7 @@ export interface LobbyViewContext {
 export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
   const state = ctx.lobby.state!;
   const left = h('div', 'lb-main', null, teamsBlock(ctx, state));
-  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isGauntlet(state) ? knobsBlock(ctx, state) : null, isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
+  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
   return h('div', 'lb-body', null, left, right);
 }
 
@@ -202,18 +200,15 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   return card;
 }
 
-/** What the Floors card adds for the Delver setting. */
-export const DELVER_NOTE = 'Delver: generated Floors; find the fires and the Stairs, past Warbands that guard and patrol.';
-
-/** What the Gauntlet's Floors card says: how big the Dungeon is, and how a Run walks it. */
-export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly count: string; readonly note: string } {
-  const floors = tuning.dungeon.floors.length;
+/** What the Gauntlet's Floors card says: how deep the Dungeon goes, and how a Run goes down it. */
+export function dungeonCard(tuning: Pick<TuningData, 'delver'>): { readonly count: string; readonly note: string } {
+  const { tiers, floorsPerTier } = tuning.delver;
+  const floors = tiers * floorsPerTier;
   return {
-    count: `${floors} ${floors === 1 ? 'Floor' : 'Floors'} of Halls`,
+    count: `${floors} ${floors === 1 ? 'Floor' : 'Floors'}`,
     note:
-      `A Dungeon of ${floors} ${floors === 1 ? 'Floor' : 'Floors'}, each a map of Halls from an entrance to a Boss. ` +
-      `Clear a Hall, then stand at a Door together to go on: each Door names the Hall behind it (a Fight, an Elite, a Treasure or a Rest). ` +
-      `Beat a Floor's Boss to go down. HP carries over; a Rest Hall's fire heals, and fallen allies return in the next Hall.`,
+      `A Dungeon of ${floors} generated ${floors === 1 ? 'Floor' : 'Floors'}, past Warbands that guard and patrol. ` +
+      `Find the fires and the Stairs, and stand on the Stairs together to go down. HP carries over; a fire heals once and brings back the fallen.`,
   };
 }
 
@@ -251,8 +246,7 @@ function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   card.style.setProperty('--team', hex(teamColour(1, 0)));
   const { count, note } = dungeonCard(ctx.tuning);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
-  if (isDelver(state)) card.append(h('p', 'lb-note', DELVER_NOTE));
-  if (isDelver(state) && ctx.lobby.online) card.append(...traitorRows(ctx, state));
+  if (ctx.lobby.online) card.append(...traitorRows(ctx, state));
   return card;
 }
 
@@ -434,7 +428,7 @@ function settingsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
     : editable ? null : h('p', 'lb-note', 'The host picks the Map and the Match length.');
   const seedRow = seed !== null && editable && !isBattle(state) ? h('div', 'lb-row', null, h('span', 'lb-label', seedLabel(state)), seedInput(ctx, seed)) : null;
   const lengthRow = showsBestOf(state) ? h('div', 'lb-row', null, h('span', 'lb-label', 'Match'), length) : null;
-  return section('Map', formatRow(ctx, state, editable), dungeonRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
+  return section('Map', formatRow(ctx, state, editable), maps, seedRow, lengthRow, hint);
 }
 
 /** In a Battle, one picture card per map (`battleMaps`): the host picks, everyone sees the pick (offline, you are the host). */
@@ -477,28 +471,6 @@ function formatRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean):
   return refusal ? h('div', '', null, row, h('p', 'lb-note', refusal)) : row;
 }
 
-/** The Dungeon a Gauntlet is played in (the Delver setting): its choices and the one picked, or null outside a Gauntlet, which has no such choice. */
-export function dungeonChoice(state: LobbyState): { readonly choices: readonly ['Halls', 'Delver']; readonly current: 'Halls' | 'Delver' } | null {
-  return isGauntlet(state) ? { choices: ['Halls', 'Delver'], current: isDelver(state) ? 'Delver' : 'Halls' } : null;
-}
-
-/** The Dungeon row (Gauntlet only): Halls, or the Delver's generated Floors; the host picks, guests see it read-only. */
-function dungeonRow(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLElement | null {
-  const dungeon = dungeonChoice(state);
-  if (!dungeon) return null;
-  const group = h('div', 'segmented');
-  group.setAttribute('role', 'radiogroup');
-  group.setAttribute('aria-label', 'Dungeon');
-  for (const choice of dungeon.choices) {
-    const b = button('', choice, () => ctx.lobby.edit((s) => setDelver(s, choice === 'Delver')));
-    b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(choice === dungeon.current));
-    b.disabled = !editable;
-    group.append(b);
-  }
-  return h('div', 'lb-row', null, h('span', 'lb-label', 'Dungeon'), group);
-}
-
 /** The Random Map's card: picking it (again) rolls a fresh seed; it shows the next Match's seed (each Match moves on to the next), or the Run seed. */
 function randomCard(ctx: LobbyViewContext, state: LobbyState, editable: boolean): HTMLButtonElement {
   const seed = mapSeed(state.settings.arena) === null ? null : mapSeed(nextMatchArena(state, ctx.played ?? undefined));
@@ -525,69 +497,6 @@ function seedInput(ctx: LobbyViewContext, seed: number): HTMLInputElement {
     else input.value = String(seed);
   });
   return input;
-}
-
-// --- Run difficulty ---
-
-type KnobKey = keyof RunKnobs;
-
-/** One Run knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
-interface KnobRow {
-  readonly key: KnobKey;
-  readonly label: string;
-  readonly standard: number;
-  readonly choices: readonly (readonly [number, string])[];
-}
-
-const percent = (v: number) => `${Math.round(v * 100)}%`;
-
-/** The choices for a share, with Tuning Data's own value among them. */
-function shares(values: readonly number[], standard: number, text: (v: number) => string): [number, string][] {
-  return [...new Set([...values, standard])].sort((a, b) => a - b).map((v) => [v, text(v)]);
-}
-
-/** The Run knobs the Lobby offers, each with Tuning Data's value as its standard choice. */
-export function knobRows(tuning: TuningData): KnobRow[] {
-  const { restHeal: heal, perPlayerHp } = tuning.dungeon;
-  return [
-    { key: 'difficulty', label: 'Enemy skill', standard: 0, choices: [[-2, 'Easiest'], [-1, 'Easier'], [0, 'Standard'], [1, 'Harder']] },
-    { key: 'enemyHp', label: 'Enemy HP', standard: 1, choices: [[0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×'], [2, '2×']] },
-    { key: 'maxEnemies', label: 'Enemies a Hall', standard: MAX_ENCOUNTER_ENEMIES, choices: Array.from({ length: MAX_ENCOUNTER_ENEMIES }, (_, i) => [i + 1, i === 0 ? '1' : `Up to ${i + 1}`] as const) },
-    { key: 'rest', label: 'Rest Hall heal', standard: heal, choices: shares([0, 0.3, 0.6, 1], heal, (v) => (v === 0 ? 'None' : v === 1 ? 'Full' : percent(v))) },
-    { key: 'perPlayerHp', label: 'Enemy HP per extra player', standard: perPlayerHp, choices: shares([0, 0.25, 0.5, 1], perPlayerHp, (v) => `+${percent(v)}`) },
-  ];
-}
-
-/** `knobs` with `key` set to `value`, or dropped when that is its standard (absent knobs leave Tuning Data as it is). */
-export function withKnob(knobs: RunKnobs | undefined, row: KnobRow, value: number): RunKnobs {
-  const { [row.key]: _old, ...rest } = knobs ?? {};
-  return value === row.standard ? rest : { ...rest, [row.key]: value };
-}
-
-/** A Run's difficulty knobs (Gauntlet only): the host sets them, everyone sees them. */
-function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  const editable = ctx.lobby.isHost;
-  const knobs = state.settings.run;
-  const rows = knobRows(ctx.tuning).map((row) => {
-    const current = knobs?.[row.key] ?? row.standard;
-    const group = h('div', 'segmented');
-    group.setAttribute('role', 'radiogroup');
-    group.setAttribute('aria-label', row.label);
-    for (const [value, text] of row.choices) {
-      const b = button('', text, () => ctx.lobby.edit((s) => updateSettings(s, { run: withKnob(s.settings.run, row, value) })));
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(value === current));
-      if (value === row.standard) b.title = 'Standard';
-      b.disabled = !editable;
-      group.append(b);
-    }
-    return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
-  });
-  const ladder = dungeonDifficultyLadder(ctx.tuning.dungeon).join(' → ');
-  const changed = knobs !== undefined && Object.keys(knobs).length > 0;
-  const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { run: {} }))) : null;
-  const note = h('p', 'lb-note', `Enemy skill steps every enemy along ${ladder}. ${editable ? '' : 'The host sets these.'}`);
-  return section('Run difficulty', ...rows, note, reset);
 }
 
 // --- Battle options ---

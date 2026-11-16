@@ -20,7 +20,7 @@ const SEED = runSeed(ARENA);
 const { drops, pedestals } = tuning.dungeon.loot;
 
 /** Two Players (Fighters 0 and 1) and an AI ally (Fighter 2). */
-const match = (): MatchState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
+const match = (): MatchState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
 const { config } = match();
 /** Floor `floor`'s Crowd, its plan and the Tuning Data it is stepped under. */
 const floor = (f: number) => {

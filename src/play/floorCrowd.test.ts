@@ -9,7 +9,7 @@ import { FloorCrowd, floorBattle, type CrowdDraw, type CrowdStage } from './floo
 
 const tuning = loadTuningData();
 const ARENA = 'gen:greybox:4242';
-const start = (): SimState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0] }).duel;
+const start = (): SimState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0] }).duel;
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 /** A stage and view that record what a Floor's Crowd does with them, and atlases that count their disposals. */

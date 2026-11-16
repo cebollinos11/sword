@@ -87,7 +87,7 @@ describe('Player vs AI Match driver', () => {
 });
 
 describe('the immortal party (a dev playtest harness)', () => {
-  const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
   const hurt = { ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((f, i) => (i === 0 ? { ...f, hp: 3 } : i === 1 ? { ...f, hp: 0, death: { tick: 0, cause: 'Fall' as const, blow: null } } : f)) } };
 
   it('sets a living Team 0 Fighter back to max HP and leaves the fallen alone', () => {

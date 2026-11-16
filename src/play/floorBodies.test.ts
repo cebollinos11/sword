@@ -7,7 +7,7 @@ import { floorBodies, floorBodyOf } from './floorBodies';
 const tuning = loadTuningData();
 
 describe("a Delver Run's Fighters' Bodies", () => {
-  const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
+  const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0, 1, 1, 1, 1], humans: 2, players: [0, 1] });
   const duel = m.duel;
   const bound = { ...duel, fighters: duel.fighters.map((f, k) => (k === 3 ? { ...f, soldier: { index: 5, since: 0, role: 'Attack' as const } } : f)) };
 
@@ -23,7 +23,7 @@ describe("a Delver Run's Fighters' Bodies", () => {
 
 describe("a Delver traitor's Body (Stage 8a)", () => {
   it("dresses a traitor's slot in the Soldier it took over, and in none while it watches", () => {
-    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}] });
+    const m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}] });
     const watching = floorBodies(m.duel, 2, [], (s) => `soldier${s}`);
     expect(watching[2]).toBeUndefined();
     const records = [{ ...m.delver!.traitors![0]!, soldier: 7, warband: 0 }];
@@ -34,7 +34,7 @@ describe("a Delver traitor's Body (Stage 8a)", () => {
 
 describe('a Delver Floor’s Soldiers’ Bodies', () => {
   const two = { ...tuning, delver: { ...tuning.delver, tiers: 2, floorsPerTier: 1 } };
-  const run = createMatch(two, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0] });
+  const run = createMatch(two, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0] });
   const crowd = run.duel.crowd!;
   const { troops, boss, elite } = floorTroops(two.battle, two.delver);
 

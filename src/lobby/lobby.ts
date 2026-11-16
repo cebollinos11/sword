@@ -24,7 +24,7 @@
  */
 import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
-import { applyBattleKnobs, applyDungeonKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from '../tuning';
+import { applyBattleKnobs, storedSize, type BattleKnobs, type Size, type TuningData } from '../tuning';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -60,12 +60,8 @@ export interface LobbySettings {
   readonly bestOf: number;
   /** Duels (absent: the default), Gauntlet (a Run, on the Random Map, Team 1 the Floors' enemies) or Battle. */
   readonly format?: MatchFormat;
-  /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
-  readonly run?: RunKnobs;
   /** A Battle's options: army size and hit rate (Battle only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly battle?: BattleKnobs;
-  /** Present (true) for a Delver Run (docs/plans/delver.md): the Gauntlet on generated Floors instead of Halls. Gauntlet only; any other Format ignores it, as it does the `run` knobs. */
-  readonly delver?: true;
 }
 
 export interface LobbyState {
@@ -148,8 +144,7 @@ export function member(state: LobbyState, id: number): Member | undefined {
 }
 
 /**
- * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Run with knobs, its Gauntlet
- * with them folded in (`applyDungeonKnobs`), or for a Battle with options, its armies with them folded in
+ * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Battle with options, its armies with them folded in
  * (`applyBattleKnobs`). Every peer builds it from the Lobby, so their Tuning Data hashes still agree.
  */
 export function runTuning(tuning: TuningData, settings: LobbySettings): TuningData {
@@ -157,9 +152,7 @@ export function runTuning(tuning: TuningData, settings: LobbySettings): TuningDa
     const battle = applyBattleKnobs(tuning.battle, settings.battle);
     return battle === tuning.battle ? tuning : { ...tuning, battle };
   }
-  if (settings.format !== 'Gauntlet') return tuning;
-  const dungeon = applyDungeonKnobs(tuning.dungeon, settings.run);
-  return dungeon === tuning.dungeon ? tuning : { ...tuning, dungeon };
+  return tuning;
 }
 
 /** The Formats a Lobby offers, in a Skirmish and online alike: the Lobby's wire list (`MATCH_FORMATS`) and Battle. */
@@ -175,20 +168,6 @@ export function isBattle(state: LobbyState): boolean {
 /** The Lobby plays a Gauntlet Run (not Duels). */
 export function isGauntlet(state: LobbyState): boolean {
   return state.settings.format === 'Gauntlet';
-}
-
-/** The Lobby plays a Delver Run: a Gauntlet with the Delver setting on (the setting is ignored in any other Format). */
-export function isDelver(state: LobbyState): boolean {
-  return isGauntlet(state) && state.settings.delver === true;
-}
-
-/** Choose the Dungeon a Gauntlet is played in: the Delver's generated Floors (`on`) or the Halls. Host only; unchanged when already so. */
-export function setDelver(state: LobbyState, on: boolean): LobbyState {
-  if ((state.settings.delver === true) === on) return state;
-  const { delver: _old, ...rest } = state.settings;
-  const next = { ...state, settings: on ? { ...rest, delver: true as const } : rest };
-  // The Halls have no traitors: every Player on Team 1 goes back to Team 0.
-  return on ? next : playersToTeam0(next);
 }
 
 /** Every Player on Team 1 moved to Team 0 (swapping with an Open or Closed Seat, an AI last). Unchanged where Team 0 has no room. */
@@ -251,8 +230,8 @@ export function setSeat(state: LobbyState, at: SeatRef, seat: Exclude<Seat, { ki
 export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbyState {
   const from = seatOf(state, id);
   const target = seatAt(state, to);
-  // A Gauntlet's Players sit on Team 0, but a Delver Run's may sit on Team 1: its traitors (docs/plans/delver.md, Stage 8a).
-  if (!from || !target || target.kind === 'Player' || (to.team !== 0 && isGauntlet(state) && !isDelver(state))) return state;
+  // A Gauntlet's Players may sit on Team 1 too: its traitors (docs/plans/delver.md, Stage 8a).
+  if (!from || !target || target.kind === 'Player') return state;
   return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
 }
 
@@ -353,10 +332,9 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
   const lineup: LineupSlot[] = [];
   state.teams.forEach((row, team) => {
     if (gauntlet && team === 1) {
-      // A Delver Run's Team 1 Players are its traitors, first (docs/plans/delver.md, Stage 8a); the Floors fill the rest.
+      // A Run's Team 1 Players are its traitors, first (docs/plans/delver.md, Stage 8a); the Floors fill the rest.
       let k = 0;
-      if (isDelver(state))
-        for (const s of row) if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) }), k++;
+      for (const s of row) if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) }), k++;
       for (; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
       return;
     }

@@ -37,7 +37,7 @@ describe('a Delver Run online with traitors', () => {
     r.until(() => r.confirmed() >= 450 && r.peers.every((p) => (taken(p.session.state)[0] ?? 0) >= 1), undefined, 900);
     const upTo = r.confirmed();
     const state = r.host.session.state!;
-    expect(state.config).toMatchObject({ delver: true, humans: 2, players: [0, 1], teams: [0, 0], traitors: [{}] });
+    expect(state.config).toMatchObject({ humans: 2, players: [0, 1], teams: [0, 0], traitors: [{}] });
     for (const p of r.peers) expect(taken(p.session.state)[0], `peer ${p.player}`).toBeGreaterThanOrEqual(1);
     // The traitor's peer drives slot 2 (the first past the party).
     expect(r.peers[2]!.session.localFighter).toBe(2);
@@ -51,7 +51,7 @@ describe('a Delver Run online with traitors', () => {
     r.until(() => r.confirmed() >= 450 && r.peers.every((p) => taken(p.session.state).every((n) => n >= 1)), undefined, 900);
     const upTo = r.confirmed();
     const state = r.host.session.state!;
-    expect(state.config).toMatchObject({ delver: true, humans: 0, players: [], teams: [0, 0], traitors: [{}, {}] });
+    expect(state.config).toMatchObject({ humans: 0, players: [], teams: [0, 0], traitors: [{}, {}] });
     expect(r.peers.map((p) => p.session.localFighter)).toEqual([2, 3]);
     for (const p of r.peers) expect(taken(p.session.state), `peer ${p.player}`).toEqual([expect.any(Number), expect.any(Number)]);
     for (const n of taken(state)) expect(n).toBeGreaterThanOrEqual(1);

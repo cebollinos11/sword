@@ -58,8 +58,8 @@ interface Played {
 
 /** Play a Run to its end (or RUN_TICKS), `onFloorStart` editing the state at each Floor's first Tick. */
 function play(tuning: TuningData, onFloorStart: (m: MatchState, floor: number) => MatchState, stopAfterFloor = FLOORS): Played {
-  let m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: SEED_NAME, delver: true, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
-  const controllers: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: SEED_NAME, delver: true }).map((c) => c ?? createDelverPilot(tuning));
+  let m = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: SEED_NAME, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
+  const controllers: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: SEED_NAME }).map((c) => c ?? createDelverPilot(tuning));
   const floors: FloorReport[] = [];
   const costs: number[] = [];
   const begin = (match: MatchState): MatchState => {

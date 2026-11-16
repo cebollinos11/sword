@@ -8,15 +8,14 @@ export {
   runMatch,
   scriptedController,
   stepMatchWith,
+  type Autopilot,
   type Controller,
   type MatchRun,
 } from './controller';
 export { aiDifficulty, aiStyle, createAiController, DEFENCE_KINDS, JUMP_STAGES, MODES as AI_MODES, prepareAi, type AiController } from './ai';
 export { createAllyAi, FOLLOW_DISTANCE } from './allyAi';
-export { createAutopilot, type Autopilot, type AutopilotLoot } from './autopilot';
 export { createDelverPilot, FIRE_REACH } from './delverPilot';
 export { createBattlePilot } from './battlePilot';
-export { createHallAi } from './hallAi';
 export { createPoolAi, poolControllers, SOLDIER_DIFFICULTY } from './poolAi';
 export { createTraitorPilot, TRAITOR_ENGAGE } from './traitorPilot';
 export { createTestOpponent, dummyController, isTestOpponent, runnerController, TEST_OPPONENTS, wallController, type TestOpponent } from './testOpponents';

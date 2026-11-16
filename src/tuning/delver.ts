@@ -4,7 +4,8 @@
  * and the Run seed, so peers with different Delver Tuning Data refuse each other at connect.
  */
 import type { BattleTuning } from './battle';
-import { MAX_ENEMY_RELICS } from './dungeon';
+/** The most Relics an elite Warband's Soldier carries. */
+export const MAX_ENEMY_RELICS = 2;
 import { MAX_SIZE, MIN_SIZE } from './size';
 import { array, finiteNumber, record, TuningDataError } from './validate';
 

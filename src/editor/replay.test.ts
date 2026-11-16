@@ -136,7 +136,7 @@ describe('Replaying a Delver Run', { timeout: 60_000 }, () => {
   const delverTuning: TuningData = { ...tuning, delver: { ...tuning.delver, tiers: 1, floorsPerTier: 2 } };
 
   it('rebuilds the Run through createMatch and reaches the same final hash', () => {
-    let m: MatchState = createMatch(delverTuning, { format: 'Gauntlet', bestOf: 1, seed: 5, arena: 'gen:greybox:99', delver: true, teams: [0, 0, 1, 1, 1, 1] });
+    let m: MatchState = createMatch(delverTuning, { format: 'Gauntlet', bestOf: 1, seed: 5, arena: 'gen:greybox:99', teams: [0, 0, 1, 1, 1, 1] });
     const history = [m];
     const intents: (typeof IDLE_INTENT)[][] = [];
     for (let k = 0; k < 120; k++) {
@@ -147,7 +147,7 @@ describe('Replaying a Delver Run', { timeout: 60_000 }, () => {
     }
     expect(m.duel.fighters[0]!.position).not.toEqual(history[0]!.duel.fighters[0]!.position);
     const replay = recordReplay(delverTuning, history, intents);
-    expect(replay.setup.kind === 'Match' && replay.setup.config.delver).toBe(true);
+    expect(replay.setup.kind === 'Match' && replay.setup.config.format).toBe('Gauntlet');
     const run = runReplay(parseReplay(serializeReplay(replay)), delverTuning);
     expect(hashValue(run.final)).toBe(hashValue(m));
   });

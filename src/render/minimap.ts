@@ -64,8 +64,8 @@ export function playerMarkers(state: SimState, me: number): PlayerMarker[] {
  * who left: its Fighter is an AI ally's now) whose Fighter stands on the Floor and has not fallen, in slot order. The name tags and the
  * Floor's maps read it; in any other Match it is empty.
  */
-export function partyMarkers(config: Pick<MatchConfig, 'teams' | 'humans' | 'players' | 'delver' | 'traitors'>, duel: SimState, me: number): PlayerMarker[] {
-  if (!config.delver) return [];
+export function partyMarkers(config: Pick<MatchConfig, 'format' | 'teams' | 'humans' | 'players' | 'traitors'>, duel: SimState, me: number): PlayerMarker[] {
+  if (config.format !== 'Gauntlet') return [];
   // A traitor (`me` in a traitor's slot, docs/plans/delver.md, Stage 8a) marks the whole party, Players and AI allies; nobody marks a traitor.
   const party = traitorOf(config, me) >= 0 ? config.teams.map((_, k) => k) : presentPlayers(config, duel.delver?.away);
   return party.flatMap((k) => {

@@ -11,7 +11,6 @@ import { clampSize, DEFAULT_STYLE, defaultWeaponName, RANDOM_PICK, type Size, ty
 import { createAiController } from './ai';
 import { createAllyAi } from './allyAi';
 import type { Controller } from './controller';
-import { createHallAi } from './hallAi';
 import { createPoolAi } from './poolAi';
 
 /** The most human Players a Match fields (online: the host and three guests). */
@@ -27,8 +26,8 @@ export type PlayerNumber = 0 | 1 | 2 | 3;
 export type Pilot = { readonly kind: 'Player'; readonly player: PlayerNumber } | { readonly kind: 'AI'; readonly difficulty: string; readonly style?: string };
 
 /**
- * The difficulty a Gauntlet's Team 1 slots name: none of their own, since each Hall decides who stands in the slot (its
- * Hall AI plays the Hall's Encounter's difficulty for it, Tuning Data `dungeon.floors`).
+ * The difficulty a Gauntlet's Team 1 slots name past its traitors: none of their own, since the Floors' enemies are the Crowd's Warbands
+ * (docs/plans/delver.md), driven by Pool AIs once promoted.
  */
 export const FLOOR_DIFFICULTY = 'Floor';
 
@@ -59,23 +58,23 @@ export function playerFighter(lineup: Lineup, player: PlayerNumber): number {
  * Throws unless the Lineup is playable with `players` human Players: valid teams
  * (1 to MAX_TEAM_SIZE Fighters a side), each Player driving exactly one Fighter, and every
  * AI difficulty, Style (or RANDOM_PICK) and Weapon in Tuning Data. In a Gauntlet: Team 0's Fighters, then
- * MAX_TEAM_SIZE Team 1 slots, each an AI of FLOOR_DIFFICULTY (the Floors drive them). In a Battle: only the Players' slots,
+ * MAX_TEAM_SIZE Team 1 slots, its traitors (Players, docs/plans/delver.md, Stage 8a) first, then each an AI of FLOOR_DIFFICULTY. In a Battle: only the Players' slots,
  * 0 to MAX_TEAM_SIZE a Team (the rest of the Fighter Pool is the Bubbles', each slot a Pool AI).
  */
-export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels', delver = false): void {
+export function checkLineup(tuning: TuningData, lineup: Lineup, players: number, format: MatchFormat = 'Duels'): void {
   const teams = lineup.map((s) => s.team);
   if (format === 'Gauntlet') checkRunTeams(teams);
   else if (format === 'Battle') checkBattleTeams(lineup);
   else checkTeams(teams);
-  // A Delver Run's Team 1 slots may be Players (its traitors, docs/plans/delver.md, Stage 8a), each before every Floor slot.
-  const traitor = (s: LineupSlot) => delver && format === 'Gauntlet' && s.team === 1 && s.pilot.kind === 'Player';
+  // A Run's Team 1 slots may be Players (its traitors, docs/plans/delver.md, Stage 8a), each before every Floor slot.
+  const traitor = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1 && s.pilot.kind === 'Player';
   const floors = (s: LineupSlot) => format === 'Gauntlet' && s.team === 1 && !traitor(s);
   let floorSeen = false;
   for (const s of lineup) {
     if (floors(s) && (s.pilot.kind !== 'AI' || s.pilot.difficulty !== FLOOR_DIFFICULTY))
-      throw new RangeError(`A Gauntlet's Team 1 slots are the Floors' (an AI of difficulty "${FLOOR_DIFFICULTY}")${delver ? ' or traitors' : ''}`);
+      throw new RangeError(`A Gauntlet's Team 1 slots are the Floors' (an AI of difficulty "${FLOOR_DIFFICULTY}") or traitors`);
     if (floors(s)) floorSeen = true;
-    else if (traitor(s) && floorSeen) throw new RangeError("A Delver Run's traitors come before its Floor slots");
+    else if (traitor(s) && floorSeen) throw new RangeError("A Run's traitors come before its Floor slots");
   }
   if (!Number.isInteger(players) || players < 1 || players > MAX_PLAYERS) throw new RangeError(`A Match fields 1 to ${MAX_PLAYERS} Players, not ${players}`);
   for (let p = 0; p < MAX_PLAYERS; p++) {
@@ -104,21 +103,22 @@ function checkBattleTeams(lineup: Lineup): void {
 
 /**
  * The Match options for a Lineup: its teams, each Fighter's Weapon (Player p's from `playerWeapons[p]`) and Size, and for a
- * Gauntlet how many human Players it fields (`humans`, which scales the Run's enemies) and which Fighters they drive
- * (`players`, whose standing counts at a Door), so every peer building the Match from the same Lineup gets the same.
+ * Gauntlet how many human Players its party fields (`humans`, which sizes the Warbands) and which Fighters they drive
+ * (`players`, whose standing counts at the Stairs), and its traitors, so every peer building the Match from the same Lineup gets the same.
  * Duels never read them, and keep the defaults.
  */
 export function lineupMatch(tuning: TuningData, lineup: Lineup, playerWeapons: readonly string[], options: MatchOptions): MatchOptions {
   const weapons = lineup.map((s) => (s.pilot.kind === 'Player' ? playerWeapons[s.pilot.player] : s.weapon) ?? defaultWeaponName(tuning));
-  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && (!options.delver || s.team === 0) ? [i] : []));
-  // A Delver Run's Team 1 Players are its traitors (docs/plans/delver.md, Stage 8a): each with its own Size, in Lineup order.
-  const traitors = options.delver ? lineup.filter((s) => s.team === 1 && s.pilot.kind === 'Player').map((s) => (s.size ? { size: s.size } : {})) : [];
+  const gauntlet = options.format === 'Gauntlet';
+  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && (!gauntlet || s.team === 0) ? [i] : []));
+  // A Run's Team 1 Players are its traitors (docs/plans/delver.md, Stage 8a): each with its own Size, in Lineup order.
+  const traitors = gauntlet ? lineup.filter((s) => s.team === 1 && s.pilot.kind === 'Player').map((s) => (s.size ? { size: s.size } : {})) : [];
   return {
     ...options,
     teams: lineup.map((s) => s.team),
     weapons,
     sizes: lineup.map((s) => s.size),
-    ...(options.format === 'Gauntlet' ? { humans: players.length, players } : {}),
+    ...(gauntlet ? { humans: players.length, players } : {}),
     ...(traitors.length > 0 ? { traitors } : {}),
   };
 }
@@ -139,30 +139,19 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
 }
 
 /**
- * A fresh AI Controller for each AI slot; null for each Player's slot. In a Gauntlet, each Team 1 slot gets a Hall AI
- * instead (its Halls decide its difficulty and Style), counting Team 1's slots from 0 in Fighter order, and each Team 0 AI
- * an Ally AI (its own AI, walking with the Players once a Hall is cleared). In a Battle, one entry per Fighter Pool slot: the
- * Players' (null), then a Pool AI on every other slot (`poolControllers`). In a Delver Gauntlet (`match.delver`) the Lineup's Team 1 slots get no
- * Hall AI (the Floors' enemies are the Crowd's): the party's entries as above, then a Pool AI on every Pool slot from the party's size to
- * `bubble.poolSize`. `match` is the Match's options: its seed picks
- * each RANDOM_PICK Style (`lineupStyle`), and its Arena is the Run's first (the Run seed).
+ * A fresh AI Controller for each AI slot; null for each Player's slot. In a Battle, one entry per Fighter Pool slot: the
+ * Players' (null), then a Pool AI on every other slot (`poolControllers`). In a Gauntlet (a Run, docs/plans/delver.md) the party's entries,
+ * each Team 0 AI an Ally AI (walking with the party's Players), then a Pool AI on every Pool slot from the party's size to `bubble.poolSize`:
+ * the Lineup's Team 1 slots are dropped (the Floors' enemies are the Crowd's; a traitor plays a Pool slot, which a Pool AI drives once it
+ * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`).
  */
-export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena' | 'delver'> = {}): (Controller | null)[] {
+export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
   if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
-  let slot = 0;
-  const players = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' ? [i] : []));
-  if (format === 'Gauntlet' && match.delver) {
-    // A Delver Run: the party's entries (the Lineup's Team 1 slots are dropped: no Hall AI), then a Pool AI for each of the Fighter Pool's other slots.
-    // (Its Team 1 Players, the traitors, are no Players an ally walks with: each plays a Pool slot, which a Pool AI drives once it leaves.)
+  if (format === 'Gauntlet') {
     const party = lineup.filter((s) => s.team === 0);
-    const own = players.filter((i) => lineup[i]!.team === 0);
+    const own = lineup.flatMap((s, i) => (s.pilot.kind === 'Player' && s.team === 0 ? [i] : []));
     const ais = party.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAllyAi(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i), own)));
     return [...ais, ...Array.from({ length: tuning.battle.bubble.poolSize - ais.length }, () => createPoolAi(tuning))];
   }
-  return lineup.map((s, i) => {
-    if (format === 'Gauntlet' && s.team === 1) return createHallAi(tuning, slot++, match.arena);
-    if (s.pilot.kind !== 'AI') return null;
-    const style = lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i);
-    return format === 'Gauntlet' ? createAllyAi(tuning, s.pilot.difficulty, style, players) : createAiController(tuning, s.pilot.difficulty, style);
-  });
+  return lineup.map((s, i) => (s.pilot.kind !== 'AI' ? null : createAiController(tuning, s.pilot.difficulty, lineupStyle(tuning, s.pilot.style, match.seed ?? 1, i))));
 }

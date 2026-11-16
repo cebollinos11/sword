@@ -21,8 +21,8 @@ function goodRaw() {
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     dungeon: {
-      doorSeconds: 1.5,
-      hallFadeSeconds: 1,
+      stairsSeconds: 1.5,
+      fadeSeconds: 1,
       revive: 0.25,
       restHeal: 0.5,
       perPlayerHp: 0.5,
@@ -122,10 +122,6 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: 0 } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: undefined } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
-    const floor = good.dungeon.floors[0]!;
-    const named = { ...good.dungeon, floors: [{ ...floor, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random', relics: ['Whetstone'] }] } }] };
-    expect(() => parseTuningData({ ...good, dungeon: named })).toThrow(/unknown Relic "Whetstone"/);
-    expect(parseTuningData({ ...good, dungeon: named, relics: [{ name: 'Whetstone', icon: 'whetstone', effects: { damage: 1.1 } }] }).dungeon.floors[0]!.boss.enemies[0]!.relics).toEqual(['Whetstone']);
     const sword = good.weapons[0]!;
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, length: 0 }] })).toThrow(/^weapons\/Sword\.length/);
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, speed: undefined }] })).toThrow(/^weapons\/Sword\.speed/);

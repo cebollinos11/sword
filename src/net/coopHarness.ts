@@ -1,11 +1,11 @@
 /**
- * The harness the co-op Run tests share (`coop.test.ts` and `coop.slow.test.ts`): peers over the memory transport, each driving its own
- * Player with the dev autopilot, compared Tick by Tick with the same Run stepped offline. See `coop.test.ts` for what is being tested.
+ * The harness the online Run tests share (`delver*.test.ts`): peers over the memory transport, each driving its own Player with the Delver
+ * pilot (a traitor's with the traitor pilot), compared Tick by Tick with the same Run stepped offline.
  */
 import { expect, vi } from 'vitest';
-import { loadTuningData, type DungeonEncounter, type TuningData } from '../tuning';
-import { createAutopilot, createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type AutopilotLoot, type Lineup, type PlayerNumber } from '../controllers';
-import { createMatch, doorCounters, doorTicksNeeded, dropItem, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, withGeneratedArena, type Intent, type Inventory, type InventoryRef, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup, type RunState } from '../sim';
+import { loadTuningData, type TuningData } from '../tuning';
+import { createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type Lineup, type PlayerNumber } from '../controllers';
+import { createMatch, stairsCounters, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, type Intent, type Inventory, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
 import { CHECKSUM_INTERVAL, createRollbackSession, takeoverAi, type RollbackSession, type SessionEvent } from './session';
@@ -15,22 +15,8 @@ export const TICK_MS = 1000 / TICK_RATE;
 export const MATCH: MatchOptions = { bestOf: 1, arena: NAME, seed: 9, format: 'Gauntlet' };
 export const NET: MemoryTransportOptions = { latencyMs: 40, jitterMs: 20 };
 export const WEAPON = 'Arming Sword';
-/** The most Ticks a test may play (a Run to Hall 3 takes a fraction of this). */
+/** The most Ticks a test may play unless it names its own cap. */
 export const TICK_CAP = 6000;
-
-/** One-hit enemies: any blow that lands fells them, so a Hall is soon cleared. */
-export function oneHit(t: TuningData): TuningData {
-  const weak = (e: DungeonEncounter): DungeonEncounter => ({ enemies: e.enemies.map((x) => ({ ...x, hpScale: 0.01 })) });
-  const floors = t.dungeon.floors.map((f) => ({ ...f, encounters: { Fight: f.encounters.Fight.map(weak), Elite: f.encounters.Elite.map(weak) }, boss: weak(f.boss) }));
-  return { ...t, dungeon: { ...t.dungeon, floors } };
-}
-
-/** Each peer loads its own Tuning Data and builds the Run's first Arena from the name, as the game does. */
-export const peerTuning = (): TuningData => withGeneratedArena(oneHit(loadTuningData()), NAME).tuning;
-
-/** The Halls entered so far (1 the first). */
-export const hallsIn = (m: { readonly run?: { readonly path: readonly unknown[] } | null } | null | undefined): number => m?.run?.path.length ?? 0;
-
 /** The difficulty of the AI allies `runLineup` seats on Team 0. */
 export const ALLY_DIFFICULTY = 'Expert';
 
@@ -50,28 +36,25 @@ export function runLineup(players: number, allies = 0, traitors = 0): Lineup {
 /** The Match stepped one Tick: the Tick function of every peer and of the offline Run. */
 export type Step = typeof stepMatch;
 
-/** What is kept of the Match each Tick leaves (a long Run would not fit in memory whole): its Run, its events, the Fighters' Inventories and Mods, and who the Doors count. */
+/** What is kept of the Match each Tick leaves (a long Run would not fit in memory whole): its Run, its events, the Fighters' Inventories and Mods, and who the Stairs count. */
 export interface Snap {
   readonly tick: number;
-  /** The Hall-graph Run's progress (undefined in a Delver Run: see `delver`). */
-  readonly run: RunState;
-  /** A Delver Run's progress (`MatchState.delver`); absent otherwise. */
+  /** The Run's progress (`MatchState.delver`). */
   readonly delver?: MatchState['delver'];
   readonly events: readonly MatchEvent[];
   readonly fighters: readonly { readonly inventory?: Inventory; readonly mods?: Mods }[];
-  /** `doorCounters` with the Takeovers (`run.away`) taken into account, and without. */
+  /** `stairsCounters` with the Takeovers (`delver.away`) taken into account, and without. */
   readonly counting: readonly number[];
   readonly countingEveryone: readonly number[];
 }
 
 export const snap = (m: MatchState): Snap => ({
   tick: m.tick,
-  run: m.run!,
   ...(m.delver ? { delver: m.delver } : {}),
   events: m.events,
   fighters: m.duel.fighters.map((f) => ({ inventory: f.inventory, mods: f.mods })),
-  counting: doorCounters(m.config, m.duel.fighters, (m.run ?? m.delver)?.away),
-  countingEveryone: doorCounters(m.config, m.duel.fighters),
+  counting: stairsCounters(m.config, m.duel.fighters, m.delver?.away),
+  countingEveryone: stairsCounters(m.config, m.duel.fighters),
 });
 
 export interface Peer {
@@ -106,16 +89,11 @@ export interface FrameCost {
 export interface RunOptions {
   readonly players: number;
   readonly net?: MemoryTransportOptions;
-  /** Per Player: what its autopilot does with loot (default 'take'). */
-  readonly loot?: (player: number) => AutopilotLoot | null;
   /** Per Player: a Tick function in place of `stepMatch` (to inject divergence). */
   readonly step?: (player: number) => Step | undefined;
   /** Per Player: the Intent for Tick `tick` instead of the autopilot's (null: the autopilot's). Reads the peer's own state. */
   readonly intent?: (player: number, state: MatchState, tick: number) => Intent | null;
-  /**
-   * A Delver Run instead of the Hall-graph Run (docs/plans/delver.md): Match options with `delver: true`, each peer's Fighter on the Delver
-   * pilot, and Tuning Data as `tune` makes it (default: as it is). The Run's own checks (`offline`, `disagreements`) are for the Hall-graph Run.
-   */
+  /** Tuning Data as `tune` makes it (default: as it is). */
   readonly delver?: { readonly tune?: (t: TuningData) => TuningData };
   /** Time every frame of every peer into `Peer.frames` (wall clock, not the virtual one). */
   readonly timed?: boolean;
@@ -145,8 +123,8 @@ export function startRun(o: RunOptions) {
   const inputDelay = o.inputDelay ?? 0;
   const humans = o.players + traitors;
   const pairs: MemoryTransportPair[] = Array.from({ length: humans - 1 }, (_, i) => createMemoryTransportPair({ ...(o.net ?? NET), seed: 4 + i }));
-  const match = o.delver ? { ...MATCH, delver: true as const } : MATCH;
-  const tunings = Array.from({ length: humans }, () => (o.delver ? (o.delver.tune ?? ((t: TuningData) => t))(loadTuningData()) : peerTuning()));
+  const match = MATCH;
+  const tunings = Array.from({ length: humans }, () => (o.delver?.tune ?? ((t: TuningData) => t))(loadTuningData()));
   const traces = tunings.map(() => new Map<number, Snap>());
   const counts = tunings.map(() => 0);
   const stepOf = (k: number): Step => (m, intents, t) => {
@@ -164,7 +142,7 @@ export function startRun(o: RunOptions) {
       tuning: tunings[k]!,
       worlds: createArenaWorlds(tunings[k]!),
       warmed: new Set(),
-      autopilot: o.delver ? Object.assign(k >= o.players ? createTraitorPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }) : createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }) : createAutopilot(tunings[k]!, 'Hard', [0], o.loot ? o.loot(k) : 'take'),
+      autopilot: Object.assign(k >= o.players ? createTraitorPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }) : createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }),
       sent: new Map(),
       events: [],
       sums: new Map(),
@@ -195,8 +173,8 @@ export function startRun(o: RunOptions) {
       // Recorded as sent: as the other peers read it off the wire (JSON has no -0).
       if (r.advanced) peer.sent.set(session.currentTick, JSON.parse(JSON.stringify(intent)) as Intent);
       each?.(peer);
-      // The game builds the next Hall's Arena ahead, on every peer (`warmNextArena`).
-      const next = session.state && arenaToWarm(session.state, peer.tuning);
+      // The game builds the next Floor's Arena ahead, on every peer (`warmNextArena`).
+      const next = session.state && arenaToWarm(session.state);
       if (next && !peer.warmed.has(next)) {
         warmArena(peer.worlds, peer.tuning, next);
         peer.warmed.add(next);
@@ -279,7 +257,7 @@ export function offline(tuning: TuningData, lineup: Lineup, peers: readonly Peer
     m = step(m, intents, tuning);
     replay.each?.(m);
     trace.set(t, snap(m));
-    for (const event of m.events) events.push({ tick: t, event, pickups: (before.run ?? before.delver)!.pickups });
+    for (const event of m.events) events.push({ tick: t, event, pickups: before.delver!.pickups });
     if (t % CHECKSUM_INTERVAL === 0) hashes.set(t, hashValue(m));
   }
   return { trace, hashes, events, state: m };
@@ -296,137 +274,4 @@ export function expectChecksums(name: string, peer: Peer, expected: ReadonlyMap<
     checked++;
   }
   return checked;
-}
-
-
-/** The Tick each Hall after the first began on (by `run.path`), in the trace of one peer (or the offline Run). */
-export function hallStarts(trace: ReadonlyMap<number, Snap>, upTo: number): number[] {
-  const starts: number[] = [];
-  for (let t = 2; t <= upTo; t++) if (hallsIn(trace.get(t)) !== hallsIn(trace.get(t - 1))) starts.push(t);
-  return starts;
-}
-
-/**
- * Every Tick in `(from, upTo]` on which a peer's Match differs from the offline Run's, in what a Run must agree on: the Hall and its phase,
- * the Door gathering (`doorTicks`), the pickups lying and taken, the Takeovers, the Team 0 Fighters' Inventories and Mods, and the
- * Match events (Doors taken, items dropped and taken). Empty when they agree.
- */
-export function disagreements(peers: readonly Peer[], expected: ReadonlyMap<number, Snap>, upTo: number, from = 0): string[] {
-  const key = (m: Snap) => JSON.stringify([m.run.path, m.run.phase, m.run.doorTicks, m.run.pickups, m.run.away ?? null, m.fighters.map((f) => [f.inventory ?? null, f.mods ?? null]), m.events]);
-  const bad: string[] = [];
-  for (const peer of peers) {
-    for (let t = from + 1; t <= upTo; t++) {
-      const m = peer.trace.get(t);
-      if (!m || key(m) !== key(expected.get(t)!)) bad.push(`peer ${peer.player} @${t}`);
-    }
-  }
-  return bad;
-}
-
-/** The effective equips of Player `p`'s Fighter in the offline Run: Ticks on which what it wields or has equipped changed (and nothing was taken or dropped). */
-export function equipTicks(trace: ReadonlyMap<number, Snap>, upTo: number, p: number): number[] {
-  const ticks: number[] = [];
-  for (let t = 2; t <= upTo; t++) {
-    const [a, b] = [trace.get(t - 1)!.fighters[p]!.inventory, trace.get(t)!.fighters[p]!.inventory];
-    if (a && b && (a.weapon !== b.weapon || a.equipped.join() !== b.equipped.join()) && a.weapons.length === b.weapons.length && a.relics.length === b.relics.length) ticks.push(t);
-  }
-  return ticks;
-}
-
-/**
- * Test only: Player `dropper` drops one item it carries once it has taken its own pickups of a Cleared Hall, then holds still on it until another
- * Player has taken it up (a dropper may not take its drop back before it steps off it). A shared pickup for the others' autopilots to walk onto.
- * What it sends is recorded like any Intent, so the offline Run replays it.
- */
-export function handOver(dropper: number): NonNullable<RunOptions['intent']> {
-  let dropped = false;
-  return (player, state) => {
-    const run = state.run;
-    const me = state.duel.fighters[player];
-    if (player !== dropper || !run || run.phase !== 'Cleared' || !me?.inventory) return null;
-    if (run.pickups.some((p) => !p.taken && p.by === player)) {
-      dropped = true;
-      return IDLE_INTENT;
-    }
-    if (dropped || run.pickups.some((p) => !p.taken && p.owner === player)) return null;
-    const inv = me.inventory;
-    const refs: InventoryRef[] = [...inv.relics.map((_, slot) => ({ kind: 'relic' as const, slot })), ...inv.weapons.map((_, slot) => ({ kind: 'weapon' as const, slot }))];
-    const ref = refs.find((r) => dropItem(inv, r) !== null);
-    return ref ? { ...IDLE_INTENT, drop: ref, face: null } : null;
-  };
-}
-
-
-/** `players` Players reach Hall 3: checksums, Hall changes, Door gathering, pickups and Inventories agree on every peer and offline. */
-export function reachHall3(players: number): void {
-  const r = startRun({ players, intent: handOver(0) });
-  let hall3: number | null = null;
-  r.until(
-    () => hall3 !== null && r.confirmed() >= hall3 + 90,
-    (peer) => {
-      if (hall3 === null && peer === r.host && hallsIn(peer.session.state) >= 3) hall3 = peer.session.currentTick;
-    },
-  );
-  expect(hall3, 'reached Hall 3').not.toBeNull();
-  for (const p of r.peers) expect(p.session.status).toBe('Running');
-
-  const upTo = r.confirmed();
-  const tuning = peerTuning();
-  const expected = offline(tuning, r.lineup, r.peers, upTo);
-  expect(hallsIn(expected.state)).toBeGreaterThanOrEqual(3);
-  expect(expected.state.status.status).toBe('InProgress');
-
-  // Every checksum on every peer is the offline Run's, and nobody desynced.
-  r.peers.forEach((p, k) => expect(expectChecksums(`peer ${k}`, p, expected.hashes), `peer ${k}`).toBeGreaterThan(upTo / CHECKSUM_INTERVAL / 2));
-  for (const p of r.peers) expect(p.events.filter((e) => e.type === 'Desync')).toEqual([]);
-  // Tick by Tick, the peers are in the offline Run's state where it matters.
-  expect(disagreements(r.peers, expected.trace, upTo)).toEqual([]);
-
-  // Hall changes on the same Tick on every peer.
-  const starts = hallStarts(expected.trace, upTo);
-  expect(starts).toHaveLength(2);
-  for (const p of r.peers) expect(hallStarts(p.trace, upTo)).toEqual(starts);
-
-  // Door gathering: each Door was taken after the whole party had stood in its zone for doorSeconds, the same one on every peer.
-  const doors = expected.events.filter((e) => e.event.type === 'DoorTaken');
-  expect(doors).toHaveLength(2);
-  for (const d of doors) {
-    const gathered = expected.trace.get(d.tick)!.run.doorTicks;
-    expect(Math.max(...gathered)).toBeGreaterThanOrEqual(doorTicksNeeded(tuning));
-    expect(d.tick).toBeLessThan(starts[doors.indexOf(d)]!);
-    for (const p of r.peers) expect(p.trace.get(d.tick)!.run.doorTicks).toEqual(gathered);
-  }
-
-  // Pickups: each Player took its own (or a shared drop), never another's, and everyone took some.
-  const taking = expected.events
-    .filter((e) => e.event.type === 'ItemTaken')
-    .map((e) => {
-      const taken = e.event as Extract<MatchEvent, { type: 'ItemTaken' }>;
-      return { tick: e.tick, fighter: taken.fighter, id: taken.id, owner: e.pickups.find((p) => p.id === taken.id)!.owner };
-    });
-  for (const t of taking) expect(t.owner === null || t.owner === t.fighter, `Fighter ${t.fighter} took pickup ${t.id} @${t.tick}`).toBe(true);
-  for (let p = 0; p < players; p++) expect(taking.filter((t) => t.fighter === p && t.owner === p).length, `Player ${p} took its own`).toBeGreaterThanOrEqual(1);
-
-  // Equips: every Player equipped at least once (an Intent that changed what it wields or wears), as the autopilot sent it.
-  for (let p = 0; p < players; p++) {
-    expect(equipTicks(expected.trace, upTo, p).length, `Player ${p} equipped`).toBeGreaterThanOrEqual(1);
-    expect([...r.peers[p]!.sent.values()].some((i) => i.equip !== undefined && i.equip !== null)).toBe(true);
-  }
-
-  // A drop (a shared pickup) taken up by another Player than the one who dropped it.
-  const dropped = expected.events.find((e) => e.event.type === 'ItemDropped');
-  expect(dropped, 'someone dropped').toBeDefined();
-  const dropper = (dropped!.event as { fighter: number }).fighter;
-  expect(dropper).toBe(0);
-  const dropId = expected.trace.get(dropped!.tick)!.run.pickups.at(-1)!.id;
-  const handed = taking.find((t) => t.id === dropId);
-  expect(handed, 'the drop was taken up').toBeDefined();
-  expect(handed!.fighter).not.toBe(dropper);
-  expect(handed!.tick).toBeGreaterThan(dropped!.tick);
-  expect(handed!.owner).toBeNull();
-
-  // Inventories (and Mods) equal on every peer, and the offline Run's, at the last Tick they all confirmed.
-  const inventories = (m: Snap) => m.fighters.filter((f) => f.inventory).map((f) => ({ inventory: f.inventory, mods: f.mods }));
-  for (const p of r.peers) expect(inventories(p.trace.get(upTo)!)).toEqual(inventories(expected.trace.get(upTo)!));
-  expect(inventories(expected.trace.get(upTo)!).some((f) => f.inventory!.relics.length > 0)).toBe(true);
 }

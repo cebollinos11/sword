@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseArena, type TuningData } from '../tuning';
 import { createBattlePilot, createAiController, aiDifficulty, FLOOR_DIFFICULTY, lineupAis, lineupMatch, scriptedController, type Controller, type Lineup } from '../controllers';
 import { createInitialState, createMatch, duelPlacements, hold, IDLE_INTENT, MAX_TEAM_SIZE, step, stepMatch, wait, walk, type Intent, type MatchState, type SimState } from '../sim';
-import { isAiMemory, isHallAiMemory, isPoolAiMemory } from './messages';
+import { isAiMemory, isPoolAiMemory } from './messages';
 
 const tuning = loadTuningData();
 type Memory = Record<string, any>;
@@ -133,19 +133,21 @@ describe('Every AI memory a real AI reaches passes the resync validator (docs/pl
     }
   });
 
-  it('a Gauntlet Run: its Hall AIs', () => {
+  it('a Gauntlet Run: its Ally AI and Pool AIs', () => {
     const lineup: Lineup = [
       { team: 0, pilot: { kind: 'Player', player: 0 } },
+      { team: 0, pilot: { kind: 'AI', difficulty: 'Expert' }, weapon: 'Arming Sword' },
       ...Array.from({ length: MAX_TEAM_SIZE }, () => ({ team: 1, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } }) as const),
     ];
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
     let m = createMatch(tuning, lineupMatch(tuning, lineup, ['Flail'], { bestOf: 1, arena: 'gen:greybox:4242', seed: 3, format: 'Gauntlet' }));
     for (let k = 0; k < 900 && m.status.status === 'InProgress'; k++) {
-      m = stepMatch(m, lineup.map((s, i) => (s.pilot.kind === 'AI' ? ais[i]!.intent(m.duel, i) : IDLE_INTENT)), tuning);
-      for (const ai of ais) {
+      m = stepMatch(m, m.duel.fighters.map((_, i) => ais[i]?.intent(m.duel, i) ?? IDLE_INTENT), tuning);
+      for (const [i, ai] of ais.entries()) {
         if (!ai?.save) continue;
         const saved = wire(ai.save());
-        if (!isHallAiMemory(saved)) expect.fail(`Gauntlet, Tick ${m.duel.tick}: refused ${saved.memory ? why(saved.memory) : JSON.stringify(saved).slice(0, 200)}`);
+        // The party's AI ally holds an AI's memory; every Pool slot past the party a Pool AI's (none while it drives nobody).
+        if (i < 2 ? !isAiMemory(saved) : saved !== null && !isPoolAiMemory(saved)) expect.fail(`Gauntlet, Tick ${m.duel.tick}, slot ${i}: refused ${i < 2 ? why(saved) : JSON.stringify(saved).slice(0, 200)}`);
       }
     }
   });

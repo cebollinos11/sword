@@ -19,7 +19,7 @@ describe('the colours a Renderer dresses the Fighters in', () => {
   });
 
   it('a Delver Run keeps its party in the Duel’s colours and dresses a promoted Soldier in Team 1’s', () => {
-    const duel = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0, 0] }).duel;
+    const duel = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0] }).duel;
     const promoted = { ...duel, fighters: duel.fighters.map((f, i) => (i === 2 ? { ...f, team: 1 } : f)) };
     const drawn = drawColours(promoted, colours);
     expect(drawn.slice(0, 2)).toEqual(fighterColours([0, 0]));

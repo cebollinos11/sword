@@ -11,7 +11,7 @@ import { bossHold, floorDuel } from './delverRun';
 import { runSeed } from './dungeon';
 import { hashValue } from './hash';
 import { IDLE_INTENT, type Intent } from './intent';
-import { createMatch, doorTicksNeeded, stepMatch, takeOverFighter, type MatchState } from './match';
+import { createMatch, stairsTicksNeeded, stepMatch, takeOverFighter, type MatchState } from './match';
 import { restore, snapshot } from './snapshot';
 import type { FighterState } from './state';
 import { BOSS, CHASE, GUARD, PATROL } from './warband';
@@ -30,7 +30,7 @@ const TIMEOUT = 120_000;
 
 /** A Delver Run of `humans` Players (Team 0, the first `humans` slots), on `t`. */
 const start = (humans = 1, t: TuningData = tuning): MatchState =>
-  createMatch(t, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: Array<number>(humans).fill(0), humans, players: Array.from({ length: humans }, (_, i) => i) });
+  createMatch(t, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: Array<number>(humans).fill(0), humans, players: Array.from({ length: humans }, (_, i) => i) });
 
 const idle = (m: MatchState): Intent[] => m.duel.fighters.map(() => IDLE_INTENT);
 /** `m` stepped once with every Fighter idle. */
@@ -314,7 +314,7 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     }));
     m = put(m, 0, cx, cz);
     let sawPromoted = false;
-    for (let k = 0; k < doorTicksNeeded(nb) + 5 && m.delver!.phase === 'Exploring'; k++) {
+    for (let k = 0; k < stairsTicksNeeded(nb) + 5 && m.delver!.phase === 'Exploring'; k++) {
       m = stepMatch(m, idle(m), nb);
       if (bound(m).length > 0) sawPromoted = true;
     }
@@ -327,7 +327,7 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     let m = start();
     const LINEUP: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, ...Array.from({ length: 4 }, () => ({ team: 1, pilot: { kind: 'AI' as const, difficulty: 'Floor' } }))];
     const idlePlayer: Controller = { intent: () => IDLE_INTENT };
-    const cs = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA, delver: true }).map((c) => c ?? idlePlayer);
+    const cs = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? idlePlayer);
     const q = warbandsIn(m.duel.crowd!, GUARD)[0]!;
     const home = postOf(m, q);
     m = put(m, 0, home.x, home.z);
@@ -358,7 +358,7 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     const intents: Intent[][] = [];
     {
       let m = initial();
-      const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA, delver: true }).map((c) => c ?? createDelverPilot(tuning));
+      const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? createDelverPilot(tuning));
       states.push(m);
       for (let k = 0; k < TICKS; k++) {
         const these = controllerIntents(m.duel, cs);

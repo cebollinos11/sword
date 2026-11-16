@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TuningData } from '../tuning';
-import { doorCounters, type MatchState } from '../sim';
+import { stairsCounters, type MatchState } from '../sim';
 import { flatFloors } from '../sim/delver/flat.testdata';
 import { BATTLE_INPUT_DELAY, CHECKSUM_INTERVAL } from './session';
 import { expectChecksums, nearWarband, offline, startRun, type Peer } from './coopHarness';
@@ -67,7 +67,7 @@ describe('a Delver Run online with a full party', () => {
     const upTo = r.confirmed();
     expect(upTo).toBeGreaterThanOrEqual(400);
     const state = r.host.session.state!;
-    expect(state.config).toMatchObject({ delver: true, humans: 4, players: [0, 1, 2, 3], teams: [0, 0, 0, 0] });
+    expect(state.config).toMatchObject({ humans: 4, players: [0, 1, 2, 3], teams: [0, 0, 0, 0] });
     expect(mostPromoted, 'a Promotion happened').toBeGreaterThanOrEqual(1);
     expect(mostBubbles, 'two Players’ Bubbles held enemies at once').toBeGreaterThanOrEqual(2);
     // Every peer's pilot moved, and sent its Intents from the delayed Tick on.
@@ -83,7 +83,7 @@ describe('a Delver Run online with a full party', () => {
     expect(upTo).toBeGreaterThanOrEqual(300);
     const state = r.host.session.state!;
     // The party is four: the two Players first (they alone count at the Stairs), then the two allies; the Pool is past them.
-    expect(state.config).toMatchObject({ delver: true, humans: 2, players: [0, 1], teams: [0, 0, 0, 0] });
+    expect(state.config).toMatchObject({ humans: 2, players: [0, 1], teams: [0, 0, 0, 0] });
     expect(state.duel.fighters.length).toBeGreaterThan(4);
     // The allies walked off with the party (they were not left idle at the Entrance).
     let walked = [0, 0];
@@ -133,7 +133,7 @@ describe('a Delver Run online with a full party', () => {
     }
     // The Stairs no longer wait on it: only the two Players left count.
     const state = r.host.session.state!;
-    expect(doorCounters(state.config, state.duel.fighters, state.delver!.away)).not.toContain(2);
+    expect(stairsCounters(state.config, state.duel.fighters, state.delver!.away)).not.toContain(2);
     // The offline replay with that Takeover gives the same checksums, and the Fighter kept moving under its AI.
     let taken: { x: number; z: number } | null = null;
     const expected = offline(r.host.tuning, r.lineup, r.peers, upTo, [{ player: 2, from: from! }], {

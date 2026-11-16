@@ -74,7 +74,7 @@ import {
   type Lineup,
   type PeerIntentSource,
 } from '../controllers';
-import { isHallAiMemory, isPoolAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
+import { isPoolAiMemory, parseNetMessage, PROTOCOL_VERSION, type DroppedPlayer, type IntentStream, type NetMessage, type RefuseReason } from './messages';
 import type { Transport } from './transport';
 
 /** The furthest the session runs ahead of the last confirmed Tick (and so the deepest Rollback). A constant, not Tuning Data. */
@@ -93,8 +93,8 @@ export const DEFAULT_CONNECT_TIMEOUT_TICKS = 60 * 60;
 export const TAKEOVER_DIFFICULTY = 'Normal';
 /**
  * The AI Controller that takes over Fighter `fighter` of a Player who left, at TAKEOVER_DIFFICULTY. In a Run it is an
- * Ally AI (it follows the party and walks to the Door the other Players stand at once a Hall is cleared). The Simulation
- * knows the Fighter has left (`takeOverFighter`, applied at the takeover Tick), so the Doors do not wait on its walk.
+ * Ally AI (it follows the party). The Simulation knows the Fighter has left (`takeOverFighter`, applied at the takeover Tick), so the Stairs
+ * do not wait on its walk.
  */
 export function takeoverAi(tuning: TuningData, lineup: Lineup, format: MatchFormat, fighter: number): Controller {
   const difficulties = Object.keys(tuning.ai.difficulties);
@@ -384,7 +384,7 @@ class Session implements RollbackSession, PeerIntentSource {
       this.lineup = o.lineup ?? ONE_VS_ONE;
       const guests = o.guests ?? (o.transport ? [o.transport] : []);
       const format = o.match.format ?? 'Duels';
-      checkLineup(o.tuning, this.lineup, guests.length + 1, format, o.match.delver === true);
+      checkLineup(o.tuning, this.lineup, guests.length + 1, format);
       this.localPlayer = 0;
       this.setLineup(this.lineup, format, o.match);
       this.links = guests.map((t, i) => this.link(t, i + 1));
@@ -524,11 +524,11 @@ class Session implements RollbackSession, PeerIntentSource {
 
   // --- Players ---
 
-  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, a Hall AI on each Team 1 slot), a random Style picked from `match`'s seed. */
+  /** Learn who fights: each Player's Fighter, and fresh AI Controllers for the Lineup's AIs (in a Gauntlet, Pool AIs past the party), a random Style picked from `match`'s seed. */
   private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
     this.format = format;
-    this.delver = format === 'Gauntlet' && match.delver === true;
+    this.delver = format === 'Gauntlet';
     this.partySize = lineup.filter((s) => s.team === 0).length;
     this.players = lineupPlayers(lineup);
     // One entry per Fighter: in a Battle the whole Pool, past the Lineup's Players.
@@ -749,9 +749,9 @@ class Session implements RollbackSession, PeerIntentSource {
         l.transport.send(hello);
         continue;
       }
-      // A Run's options also say how many humans it started with (its enemies' HP scales with that), and a Delver Run's that it is one.
+      // A Run's options also say how many humans it started with (its Warbands' sizes go by that).
       const { weapons: _picks, teams: _teams, ...options } = this.matchOptions!;
-      const match = state.run || state.delver ? { ...options, humans: state.config.humans, ...(state.delver ? { delver: true as const } : {}) } : options;
+      const match = state.delver ? { ...options, humans: state.config.humans } : options;
       // (A Delver traitor's slot is past the party's, so its Weapon is its pick: the Match has none for it.)
       const weapons = this.fighterOf.map((i, p) => state.config.weapons[i] ?? this.picks[p] ?? defaultWeaponName(this.tuning));
       l.transport.send({ ...hello, match, lineup: this.lineup!, weapons, player: l.peer });
@@ -853,9 +853,9 @@ class Session implements RollbackSession, PeerIntentSource {
     try {
       if (!weapons.every((w) => this.tuning.weapons[w])) throw new RangeError('Unknown Weapon');
       if (player < 1 || player >= weapons.length) throw new RangeError(`No Player ${player}`);
-      checkLineup(this.tuning, lineup, weapons.length, format, match.delver === true);
-      // A Run's humans are the Lineup's Players (a Delver Run's on Team 0: its Team 1 Players are traitors), as the host counted them.
-      const humans = match.delver ? lineup.filter((s) => s.team === 0 && s.pilot.kind === 'Player').length : lineupPlayers(lineup);
+      checkLineup(this.tuning, lineup, weapons.length, format);
+      // A Run's humans are the Lineup's Players on Team 0 (its Team 1 Players are traitors), as the host counted them.
+      const humans = format === 'Gauntlet' ? lineup.filter((s) => s.team === 0 && s.pilot.kind === 'Player').length : lineupPlayers(lineup);
       if (format === 'Gauntlet' && match.humans !== humans) throw new RangeError(`A Run of ${humans} humans, not ${match.humans}`);
       state = createMatch(this.tuning, lineupMatch(this.tuning, lineup, weapons, match));
     } catch {
@@ -925,20 +925,18 @@ class Session implements RollbackSession, PeerIntentSource {
     // parseNetMessage checked the shape; only Tuning Data can tell whether its Weapons and Motions exist, and only the Lineup who fights.
     if (!state.duel.fighters.every((f) => this.tuning.weapons[f.weapon] && weaponMotion(this.tuning, f.weapon, f.motion.name))) return;
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
-    // (A Delver Run's `teams` are the party only: the Lineup's Team 0 prefix, its Team 1 slots being dropped.)
+    // (A Run's `teams` are the party only: the Lineup's Team 0 prefix, its Team 1 slots being dropped.)
     const teams = this.lineup!.map((s) => s.team).filter((t) => !this.delver || t === 0);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
-    // The Format, a Run's humans and whether it is a Delver Run are fixed at the start.
+    // The Format and a Run's humans are fixed at the start.
     const config = this.state!.config;
     if ((state.config.format ?? 'Duels') !== config.format || (config.format === 'Gauntlet' && state.config.humans !== config.humans)) return;
-    // ...and so is a Delver Run (a Run's state is not a Delver Run's, nor the other way round).
-    if (state.config.delver !== config.delver) return;
     // One Fighter and one AI entry per slot: in a Battle, the whole Pool.
     if (state.duel.fighters.length !== this.ais.length || ai.length !== this.ais.length) return;
     // A Battle's armies are Tuning Data's size, and its Players the Lineup's (only a Battle has a Crowd: `parseNetMessage` checked).
     const crowd = state.duel.crowd;
     if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)))) return;
-    // A Delver Run's Warbands read their Floor's plan and the Troops: every index must name one (a Warband's post, loop, leg and quarry, a Soldier's Squad and Troop).
+    // A Run's Warbands read their Floor's plan and the Troops: every index must name one (a Warband's post, loop, leg and quarry, a Soldier's Squad and Troop).
     if (this.delver) {
       const floor = floorOf(this.tuning, state.duel.arena);
       if (!floor || (crowd && !warbandsFit(crowd, floor.plan, state.config.teams.length, arenaTuning(this.tuning, state.duel.arena).battle.troops.length, warbandPools(this.tuning.delver, state.delver?.floor ?? 1)))) return;
@@ -946,8 +944,7 @@ class Session implements RollbackSession, PeerIntentSource {
     // AI memory exactly where an AI drives the Fighter at `tick` (and none, or the host's, where one takes over later).
     const memoryFits = (m: unknown, i: number) => {
       const p = this.playerOf[i]!;
-      // A Run's Team 1 slots hold Hall AIs, a Battle's Pool slots Pool AIs (null while unbound), every other AI an ordinary one: each takes only its own kind of memory.
-      if (m !== null && isHallAiMemory(m) !== (config.format === 'Gauntlet' && !this.delver && teams[i] === 1)) return false;
+      // A Battle's and a Run's Pool slots hold Pool AIs (null while unbound), every other AI an ordinary one: each takes only its own kind of memory.
       if (m !== null && isPoolAiMemory(m) !== this.poolSlot(i)) return false;
       if (this.poolSlot(i)) return true;
       if (this.aiDrives(i, tick)) return m !== null;

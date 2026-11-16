@@ -24,7 +24,7 @@ describe('the Delver Floor’s fires as the local Player sees them', () => {
 describe('the Boss Hall’s gate', () => {
   const base = loadTuningData();
   const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
-  const boss = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0] });
+  const boss = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0] });
   const plan = floorOf(tuning, boss.arena)!.plan;
   const crowd = boss.duel.crowd!;
   const q = crowd.warbands!.rank.indexOf(BOSS);
@@ -99,7 +99,7 @@ describe('the Delver stand-ins', () => {
 describe('the Delver marks on a levelled Floor', () => {
   const base = loadTuningData();
   const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
-  const flat = floorOf(tuning, createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', delver: true, teams: [0] }).arena)!.plan;
+  const flat = floorOf(tuning, createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0] }).arena)!.plan;
   const at4 = <T extends { y: number }>(p: T): T => ({ ...p, y: 4 });
   const plan = { ...flat, markers: { ...flat.markers, stairs: at4(flat.markers.stairs), fires: flat.markers.fires.map(at4), pedestals: flat.markers.pedestals.map(at4) } };
   const view: DelverMarksView = { plan, restUsed: [], me: 0, fireRadius: tuning.delver.fireRadius, gate: 'closed' };

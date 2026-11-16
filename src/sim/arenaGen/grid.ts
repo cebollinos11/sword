@@ -12,8 +12,6 @@ export interface PlacedPiece {
   readonly row: number;
   readonly level: number;
   readonly turn: number;
-  /** A door's index among the Layout's Doors (Door 0 the entrance); only a door has one. */
-  readonly door?: number;
 }
 
 /** The Pieces a seed places, before they are assembled into an Arena. */

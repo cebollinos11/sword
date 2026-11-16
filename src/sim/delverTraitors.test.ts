@@ -19,7 +19,7 @@ const tuning: TuningData = {
 const ARENA = 'gen:greybox:4242';
 
 const delver = (options: Partial<MatchOptions> = {}): MatchState =>
-  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, delver: true, teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}], ...options });
+  createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0], humans: 2, players: [0, 1], traitors: [{}], ...options });
 const tick = (m: MatchState): MatchState => stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), tuning);
 /** Steps `m` until `done` holds (at most `limit` Ticks), checking `each` on every state on the way. */
 function until(m: MatchState, done: (m: MatchState) => boolean, limit = 2000, each?: (before: MatchState, after: MatchState) => void): MatchState {
@@ -51,7 +51,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     expect(delver({ humans: 0, players: [], traitors: [{}, {}] }).config.humans).toBe(0);
     expect(() => delver({ humans: 0, players: [], traitors: undefined })).toThrow();
     expect(() => delver({ traitors: [{}, {}, {}] })).toThrow();
-    expect(() => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, arena: ARENA, teams: [0, 1, 1, 1, 1], traitors: [{}] })).toThrow();
+    expect(() => createMatch(tuning, { bestOf: 1, arena: 'library', teams: [0, 1], traitors: [{}] })).toThrow();
     // No traitors: no record at all, so a Run without them hashes as it always did.
     const plain = delver({ traitors: undefined });
     expect(plain.config.traitors).toBeUndefined();

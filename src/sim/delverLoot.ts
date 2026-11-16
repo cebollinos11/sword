@@ -10,7 +10,7 @@ import type { FloorPlan } from './delver/plan';
 import { surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { tierOf } from './delver/troops';
-import { presentPlayers } from './hall';
+import { presentPlayers } from './party';
 import type { Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import { pickItemAt, type Pickup, type PickupAt } from './pickups';
