@@ -7,7 +7,8 @@
 import { canChangeInventory, canUseConsumable, inDuel, modsOf, type DelverPhase, type FighterState, type InventoryRef, type MatchState } from '../sim';
 import { floorOf } from '../sim/delver';
 import { fullReveal } from '../sim/delver/reveal';
-import type { ConsumableEffect, TuningData } from '../tuning';
+import { scaleEffects } from '../sim/mods';
+import { weaponByName, type ConsumableEffect, type Rarity, type TuningData } from '../tuning';
 import { relicIcon, weaponIcon } from './icons';
 import { consumableWords, relicWords } from './loot';
 import { daggerCapacity } from './runBuilds';
@@ -25,9 +26,12 @@ export interface ActionView {
  */
 export interface ItemView {
   readonly name: string;
+  readonly rarity: Rarity;
+  /** The name for a Common item, else `"<name> · <Rarity>"`. */
+  readonly label: string;
   /** The item's icon, an inline SVG. */
   readonly icon: string;
-  /** A Relic's effects in words; empty for a Weapon. */
+  /** A Relic's (or Consumable's) effects in words, scaled by its Rarity; a Weapon's `loot.effects` scaled, then its Rarity damage (counted only while wielded). */
   readonly words: string;
   readonly marked: boolean;
   readonly equip: ActionView | null;
@@ -104,6 +108,8 @@ export function inventoryLock(f: FighterState, delver?: DelverContext): string |
 /** A factor as `×1.1` (trailing zeros dropped). */
 const factor = (n: number): string => `×${Number(n.toFixed(2))}`;
 
+const labelOf = (name: string, rarity: Rarity): string => (rarity === 'Common' ? name : `${name} · ${rarity}`);
+
 const action = (label: string, reason: string | null): ActionView => ({ label, available: reason === null, reason });
 
 /**
@@ -112,37 +118,42 @@ const action = (label: string, reason: string | null): ActionView => ({ label, a
  */
 export function inventoryView(
   fighter: FighterState | undefined,
-  tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger'>,
+  tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger' | 'weapons'>,
   delver?: DelverContext,
 ): InventoryView | null {
   const inv = fighter?.inventory;
   if (!fighter || !inv) return null;
   const sizes = tuning.dungeon.inventory;
   const lock = inventoryLock(fighter, delver);
+  const { multipliers, weaponDamage } = tuning.dungeon.loot.rarity;
   const full = inv.equipped.length >= sizes.equippedRelics;
 
   const weapons: SlotView[] = Array.from({ length: sizes.weapons }, (_, slot) => {
     const ref: InventoryRef = { kind: 'weapon', slot };
     const held = inv.weapons[slot];
     if (held === undefined) return { ref, item: null };
-    const name = held.name;
+    const { name, rarity } = held;
     const wielded = slot === inv.weapon;
-    return { ref, item: { name, icon: weaponIcon(name), words: '', marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock), use: null } };
+    const effects = relicWords(scaleEffects(weaponByName(tuning, name).loot?.effects ?? {}, multipliers[rarity]));
+    const damage = rarity === 'Common' ? '' : `+${Math.round((weaponDamage[rarity] - 1) * 100)}% damage (${rarity})`;
+    const words = [effects, damage].filter(Boolean).join(', ');
+    return { ref, item: { name, rarity, label: labelOf(name, rarity), icon: weaponIcon(name), words, marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock), use: null } };
   });
   const relics: SlotView[] = Array.from({ length: sizes.relics }, (_, slot) => {
     const ref: InventoryRef = { kind: 'relic', slot };
     const held = inv.relics[slot];
     if (held === undefined) return { ref, item: null };
-    const name = held.name;
+    const { name, rarity } = held;
+    const label = labelOf(name, rarity);
     const consumable = tuning.consumables.find((c) => c.name === name);
     if (consumable) {
-      const item: ItemView = { name, icon: relicIcon(consumable.icon), words: consumableWords(consumable.effect), marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };
+      const item: ItemView = { name, rarity, label, icon: relicIcon(consumable.icon), words: consumableWords(consumable.effect), marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };
       return { ref, item };
     }
     const relic = tuning.relics.find((r) => r.name === name);
     const on = inv.equipped.includes(slot);
     const equip = on ? action('Unequip', lock) : action('Equip', lock ?? (full ? `Relic slots full (${sizes.equippedRelics} / ${sizes.equippedRelics})` : null));
-    return { ref, item: { name, icon: relicIcon(relic?.icon ?? ''), words: relic ? relicWords(relic.effects) : '', marked: on, equip, drop: action('Drop', lock), use: null } };
+    return { ref, item: { name, rarity, label, icon: relicIcon(relic?.icon ?? ''), words: relic ? relicWords(scaleEffects(relic.effects, multipliers[rarity])) : '', marked: on, equip, drop: action('Drop', lock), use: null } };
   });
 
   const mods = modsOf(fighter);
@@ -163,11 +174,11 @@ export function inventoryView(
 const actionKey = (a: ActionView | null): string => (a ? `${a.label}|${a.available ? 1 : 0}|${a.reason ?? ''}` : '-');
 
 /**
- * A cheap string that differs whenever what the screen draws does, for redrawing only on change: the names, marks, actions with their
+ * A cheap string that differs whenever what the screen draws does, for redrawing only on change: the names, Rarities, marks, actions with their
  * availability and reasons, and the numbers. Not the icons (inline SVGs, fixed by the name) nor the effects in words (fixed by the name).
  */
 export function inventoryViewKey(view: InventoryView | null): string {
   if (!view) return 'none';
-  const slot = (s: SlotView) => (s.item ? `${s.item.name}|${s.item.marked ? 1 : 0}|${actionKey(s.item.equip)}|${actionKey(s.item.drop)}|${actionKey(s.item.use)}` : '_');
+  const slot = (s: SlotView) => (s.item ? `${s.item.name}|${s.item.rarity}|${s.item.marked ? 1 : 0}|${actionKey(s.item.equip)}|${actionKey(s.item.drop)}|${actionKey(s.item.use)}` : '_');
   return [view.lock ?? '', view.relicsEquipped, view.numbers.map((n) => `${n.label}=${n.value}`).join(), view.weapons.map(slot).join(), view.relics.map(slot).join()].join('\n');
 }

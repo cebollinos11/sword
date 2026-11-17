@@ -1,12 +1,13 @@
-import { inDuel, secondsToTicks, TICK_SECONDS, traitorOf, type MatchState } from '../sim';
+import { inDuel, secondsToTicks, TICK_SECONDS, traitorOf, type Item, type MatchState } from '../sim';
 import { floorOf } from '../sim/delver';
 import { isBossFloor, tierOf } from '../sim/delver/troops';
-import type { DelverTuning, TuningData } from '../tuning';
+import { RARITIES, type DelverTuning, type TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import type { Ping } from '../net';
 import { fighterColours } from '../render/fighterView';
 import { Minimap } from '../render/minimap';
 import { pickupLabels, type PickupView } from '../render/pickupView';
+import { rarityClass } from '../render/rarityColours';
 import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { itemIconId, relicIcon, weaponIcon } from './icons';
@@ -282,15 +283,15 @@ export class Hud {
   /** The results screen's builds: per Player the Weapon wielded and the Relics equipped (icon and name), the Relics carried smaller. */
   private buildRows(builds: readonly RunBuild[]): HTMLElement[] {
     const tuning = this.matchTuning ?? this.tuning;
-    const item = (svg: string, name: string, small = false) => {
+    const item = (svg: string, { name, rarity }: Item, small = false) => {
       const el = document.createElement('span');
-      el.className = `hud-build-item${small ? ' carried' : ''}`;
+      el.className = `hud-build-item${small ? ' carried' : ''} ${rarityClass(rarity)}`.trim();
       const icon = document.createElement('i');
       icon.innerHTML = svg;
       el.append(icon, name);
       return el;
     };
-    const relic = (name: string, small = false) => item(relicIcon(itemIconId(tuning, name)), name, small);
+    const relic = (it: Item, small = false) => item(relicIcon(itemIconId(tuning, it.name)), it, small);
     return builds.map((b) => {
       const box = document.createElement('div');
       box.className = 'hud-build';
@@ -299,12 +300,12 @@ export class Hud {
       who.textContent = builds.length > 1 ? b.name : 'Build';
       const row = document.createElement('div');
       row.className = 'hud-build-row';
-      row.append(item(weaponIcon(b.weapon.name), b.weapon.name), ...b.equipped.map((n) => relic(n.name)));
+      row.append(item(weaponIcon(b.weapon.name), b.weapon), ...b.equipped.map((n) => relic(n)));
       box.append(who, row);
       if (b.carried.length) {
         const carried = document.createElement('div');
         carried.className = 'hud-build-row';
-        carried.append(...b.carried.map((n) => relic(n.name, true)));
+        carried.append(...b.carried.map((n) => relic(n, true)));
         box.append(carried);
       }
       return box;
@@ -399,6 +400,7 @@ export class Hud {
       if (!mark || !at) return;
       if (tag.textContent !== mark.text) tag.textContent = mark.text;
       tag.classList.toggle('relic', mark.kind === 'relic');
+      for (const r of RARITIES) if (r !== 'Common') tag.classList.toggle(rarityClass(r), r === mark.rarity);
       tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
     });
   }

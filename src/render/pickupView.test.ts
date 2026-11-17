@@ -72,7 +72,7 @@ describe('the labels the HUD draws', () => {
     const labels = pickupLabels(views);
     expect(labels.map((l) => l.id)).toEqual(views.filter((v) => v.label).map((v) => v.id));
     expect(labels).toHaveLength(1);
-    expect(labels[0]).toEqual({ id: 1, at: { x: 1.12, y: LABEL_HEIGHT, z: 0 }, text: 'Arming Sword', kind: 'weapon' });
+    expect(labels[0]).toEqual({ id: 1, at: { x: 1.12, y: LABEL_HEIGHT, z: 0 }, text: 'Arming Sword', kind: 'weapon', rarity: 'Common' });
   });
 
   it('are none for a view that is hidden or unlabelled', () => {
@@ -128,5 +128,19 @@ describe('a pedestal on a stacked crate', () => {
     const [view] = pickupViews([pickup(0, 0, { group: 0 })], 0, eye(0), () => crateTop(true));
     expect(view!.crateTop).toBe(2);
     expect(pickupLabels([view!])[0]!.at.y).toBe(2 + LABEL_HEIGHT);
+  });
+});
+
+describe('a pickup\'s Rarity', () => {
+  const rarePickup = (rarity: 'Common' | 'Rare' | 'Legendary') => pickup(0, 0, { item: { name: 'Whetstone', rarity } });
+
+  it('glows as its Rarity unless it is Common', () => {
+    expect(pickupView(rarePickup('Common'), 0, eye(0)).glow).toBeNull();
+    expect(pickupView(rarePickup('Rare'), 0, eye(0)).glow).toBe('Rare');
+    expect(pickupView(rarePickup('Legendary'), 0, eye(0)).glow).toBe('Legendary');
+  });
+
+  it('its label carries the Rarity', () => {
+    for (const r of ['Common', 'Rare', 'Legendary'] as const) expect(pickupLabels([pickupView(rarePickup(r), 0, eye(0))])[0]!.rarity).toBe(r);
   });
 });

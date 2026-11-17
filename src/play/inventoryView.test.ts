@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { canChangeInventory, commonItem, createMatch, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, stepMatch, type DelverPhase, type FighterState, type Inventory, type MatchState } from '../sim';
+import { canChangeInventory, commonItem, createMatch, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, stepMatch, type DelverPhase, type FighterState, type Inventory, type Item, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
+import { relicWords } from './loot';
 import { inventoryLock, inventoryView, inventoryViewKey, type ItemView } from './inventoryView';
 
 const tuning = loadTuningData();
@@ -49,7 +50,7 @@ describe('the inventory view', () => {
     expect([whetstone!.marked, plate!.marked]).toEqual([false, true]);
     expect(whetstone!.words).toBe('+10% damage');
     expect(plate!.words).toBe('-10% damage taken');
-    expect(w0!.words).toBe('');
+    expect(w0!.words).toBe(relicWords(tuning.weapons[W0]!.loot?.effects ?? {}));
     for (const item of [w0!, w1!, whetstone!, plate!]) expect(item.icon).toContain('<svg');
   });
 
@@ -271,5 +272,38 @@ describe('the inventory view of a Consumable (Stage 10)', () => {
 
   it('changes the view key when a use becomes available', () => {
     expect(inventoryViewKey(inventoryView(held(), tuning, EXPLORING))).not.toBe(inventoryViewKey(inventoryView({ ...held(), hp: 10 }, tuning, EXPLORING)));
+  });
+});
+
+describe('Rarity in the inventory view', () => {
+  const rare = (name: string): Item => ({ name, rarity: 'Rare' });
+  const legendary = (name: string): Item => ({ name, rarity: 'Legendary' });
+  const relicOf = (item: Item) => items(inventoryView(fighter({ relics: [item], equipped: [] }), tuning, EXPLORING)!.relics)[0]!;
+  const weaponOf = (item: Item) => items(inventoryView(fighter({ weapons: [item], weapon: 0 }), tuning, EXPLORING)!.weapons)[0]!;
+
+  it('scales a Relic\'s words and labels it with its Rarity', () => {
+    const v = relicOf(rare('Whetstone'));
+    expect([v.words, v.label, v.rarity]).toEqual(['+15% damage', 'Whetstone · Rare', 'Rare']);
+  });
+
+  it('scales an upside and leaves a downside as it is', () => {
+    expect(relicOf(legendary('Glass Cannon')).words).toBe('+60% damage, +25% damage taken');
+  });
+
+  it("lists a Weapon's scaled effects, then its Rarity damage, apart from the Weapon's own damage effect", () => {
+    expect(weaponOf(rare('Longsword')).words).toBe('+15% damage, +15% damage (Rare)');
+    expect(weaponOf(legendary('Arming Sword')).words).toBe('-30% block impact taken, +30% damage (Legendary)');
+    expect(weaponOf(commonItem('Arming Sword')).words).toBe('-15% block impact taken');
+  });
+
+  it('labels a Common item with its bare name', () => {
+    const v = weaponOf(commonItem('Arming Sword'));
+    expect([v.label, v.rarity]).toEqual(['Arming Sword', 'Common']);
+    expect(relicOf(commonItem('Whetstone')).label).toBe('Whetstone');
+  });
+
+  it('puts the Rarity in the key', () => {
+    const key = (item: Item) => inventoryViewKey(inventoryView(fighter({ relics: [item], equipped: [] }), tuning, EXPLORING));
+    expect(key(commonItem('Whetstone'))).not.toBe(key(rare('Whetstone')));
   });
 });
