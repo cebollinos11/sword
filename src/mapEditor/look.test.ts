@@ -9,7 +9,7 @@ import { TuningDataError } from '../tuning/validate';
 import { surfaceOf, type Surface } from '../render/triplanar';
 import { checkMap } from './checks';
 import { compileMap, mapFileText } from './compile';
-import { brushLook, HAZARD_LOOKS, MATERIAL_LOOKS, materialOf, PROP_LOOKS } from './look';
+import { brushLook, FLOOR_LOOKS, HAZARD_LOOKS, MATERIAL_LOOKS, materialOf, PROP_LOOKS } from './look';
 import { draftTuning } from './playtest';
 import { dressedSampleSource, sampleSource } from './sample.testdata';
 import { markerAt, MapEditorSession, sourceFileText } from './session';
@@ -108,6 +108,16 @@ describe('the palette', () => {
   it('names each material so the game’s texturing gives it the Surface meant', () => {
     for (const m of MAP_MATERIALS) expect([m, surfaceOf(MATERIAL_LOOKS[m].name)]).toEqual([m, MEANT[m]]);
     expect(new Set(MAP_MATERIALS.map((m) => MATERIAL_LOOKS[m].name)).size).toBe(MAP_MATERIALS.length);
+  });
+
+  it('gives a room’s floor a texture of its own, apart from its walls’ and ceiling’s', () => {
+    for (const m of MAP_MATERIALS) {
+      const floor = surfaceOf(FLOOR_LOOKS[m].name);
+      expect([m, floor]).not.toEqual([m, null]);
+      expect([m, floor]).not.toEqual([m, surfaceOf(MATERIAL_LOOKS[m].name)]);
+    }
+    const names = [...MAP_MATERIALS.map((m) => FLOOR_LOOKS[m].name), ...MAP_MATERIALS.map((m) => MATERIAL_LOOKS[m].name)];
+    expect(new Set(names).size).toBe(names.length);
   });
 
   it('draws hazards, leaves, cloth, metal and fire flat, and bark, rubble and crates textured', () => {

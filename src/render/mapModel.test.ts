@@ -103,6 +103,16 @@ describe('the model of a Map Editor map', () => {
     expect(flat(modelOf(dressedSampleSource()))).toEqual(flat(modelOf(dressedSampleSource())));
   });
 
+  it('draws a room’s floor in its floor look, its Walls and ceiling in its own', () => {
+    const room: EnclosureBrush = { kind: 'enclosure', id: 'hall', rect: { x0: -5, z0: -5, x1: 5, z1: 5 }, y: 0, doors: {}, material: 'dungeon' };
+    const root = modelOf(withBrushes([GROUND, room], [0, 4]));
+    const floor = box(mesh(root, 'Map_FloorCobble2')!);
+    expect([floor.min.y, floor.max.y]).toEqual([0, 0]);
+    const walls = box(mesh(root, 'Map_Dungeon')!);
+    expect(walls.max.y).toBeGreaterThanOrEqual(4);
+    expect(walls.min.y).toBeLessThan(4);
+  });
+
   it('draws an Enclosure’s Walls outside its rect, their inner faces on the lines bodies and the camera stop at; a shared Wall between two rooms', () => {
     const room = (id: string, x0: number, x1: number, doors: EnclosureBrush['doors'] = {}): EnclosureBrush => ({ kind: 'enclosure', id, rect: { x0, z0: -5, x1, z1: 5 }, y: 0, doors });
     const stone = (s: MapSource) => {
