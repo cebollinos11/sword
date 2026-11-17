@@ -3,12 +3,13 @@ import { loadTuningData, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import { flatFloors } from './delver/flat.testdata';
 import { arenaTuning } from './delver/world';
-import { countTraitorKills, freshTraitors, reservedSlots, respawnTicks, traitorCandidates, traitorSlot, type TraitorState } from './delverTraitors';
+import { countTraitorKills, freshTraitors, traitorFallback, reservedSlots, respawnTicks, traitorCandidates, traitorSlot, type TraitorState } from './delverTraitors';
 import { inDuel } from './duel';
 import { IDLE_INTENT } from './intent';
 import { createMatch, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import type { SimEvent } from './events';
 import { BOSS } from './warband';
+import { promotedFighter } from './bubble';
 import { traitorWatchLine } from '../play/hud';
 
 const base = flatFloors(loadTuningData());
@@ -92,19 +93,46 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     if (q >= 0) expect(traitorCandidates(arenaTuning(tuning, m.arena), m.duel, 2)).not.toContain(c.squad.indexOf(q));
   });
 
-  it('with no Soldier to take, keep their takeover Tick and look again each second after it, not a countdown stuck at 1 s', () => {
-    // Every Soldier too near the party: no candidate.
+  it('with no Soldier out of sight and reach, take any living non-Boss Warband Soldier, on time', () => {
+    // Every Soldier too near the party: no candidate, so the fallback.
     const near: TuningData = { ...tuning, delver: { ...tuning.delver, traitor: { ...tuning.delver.traitor, minDistance: 1e6 } } };
     let m = delver();
     const next = rec(m).next;
-    const step = (x: MatchState, t: TuningData) => stepMatch(x, x.duel.fighters.map(() => IDLE_INTENT), t);
-    while (m.duel.tick < next + secondsToTicks(2) + 5) m = step(m, near);
+    while (rec(m).soldier < 0 && m.duel.tick < next + 5) m = stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), near);
+    expect(m.duel.tick).toBe(next);
+    expect(traitorCandidates(arenaTuning(near, m.arena), m.duel, 2)).toEqual([]);
+    const s = rec(m).soldier;
+    expect(s).toBeGreaterThanOrEqual(0);
+    expect(rec(m).warband).toBeGreaterThanOrEqual(0);
+    const q = m.duel.crowd!.warbands!.rank.indexOf(BOSS);
+    if (q >= 0) expect(s).not.toBe(m.duel.crowd!.squad.indexOf(q));
+    expect(holding(m)).toBe(true);
+  });
+
+  it('take a Soldier already fighting the party when it is the only one, freeing its Pool slot', () => {
+    let m = delver();
+    const c = m.duel.crowd!;
+    // Every Warband Soldier dead but one, promoted into Pool slot 4 by hand.
+    const s = c.squad.findIndex((q, i) => q >= 0 && i !== c.squad.indexOf(c.warbands!.rank.indexOf(BOSS)));
+    const alive = c.alive.map((v, i) => (i === s || c.squad[i]! < 0 ? v : 0));
+    const slot = c.slot.map((v, i) => (i === s ? 4 : v));
+    const promoted = { ...promotedFighter(arenaTuning(tuning, m.arena), m.arena, c, s), soldier: { index: s, since: 0, role: 'Attack' as const } };
+    m = { ...m, duel: { ...m.duel, crowd: { ...c, alive, slot }, fighters: m.duel.fighters.map((f, i) => (i === 4 ? promoted : f)) } };
+    expect(traitorFallback(m.duel)).toEqual([s]);
+    m = until(m, (x) => rec(x).soldier >= 0, 400);
+    expect(rec(m)).toMatchObject({ soldier: s, taken: 1 });
+    expect(m.duel.crowd!.slot[s]).toBe(traitorSlot(m.config, 0));
+    expect(m.duel.fighters[4]!.soldier?.index).not.toBe(s);
+  });
+
+  it('with no Warband Soldier left at all, keep their takeover Tick and keep looking, not a countdown stuck at 1 s', () => {
+    let m = delver();
+    const c = m.duel.crowd!;
+    m = { ...m, duel: { ...m.duel, crowd: { ...c, alive: c.alive.map((v, i) => (c.squad[i]! >= 0 ? 0 : v)) } } };
+    const next = rec(m).next;
+    m = until(m, (x) => x.duel.tick >= next + secondsToTicks(2) + 5, 400);
     expect(rec(m)).toMatchObject({ soldier: -1, taken: 0, next });
     expect(traitorWatchLine(m, traitorSlot(m.config, 0))).toBe('Looking for a Soldier out of sight…');
-    // A Soldier out of reach again: taken on the next whole second past `next`.
-    while (rec(m).soldier < 0 && m.duel.tick < next + secondsToTicks(10)) m = step(m, tuning);
-    expect(rec(m).taken).toBe(1);
-    expect((m.duel.tick - next) % secondsToTicks(1)).toBe(0);
   });
 
   it('never has its slot handed to a Promotion, dies at once when it falls and waits longer each time', () => {

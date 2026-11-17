@@ -3,12 +3,13 @@
  * of its own, only a Pool slot of its own right after the party's (`traitorSlot`), which the Bubbles never hand out while it plays. Watching, it
  * waits its delay (`respawnTicks`), then takes over a living Warband Soldier no party Fighter sees and at least `delver.traitor.minDistance` from
  * every one of them by walking (`traitorPick`, seeded): the Soldier leaves its Warband and is the traitor's Fighter, in its Troop's Body, Weapon,
- * Mods and HP and the traitor's own Size, until it falls. Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
+ * Mods and HP and the traitor's own Size, until it falls. With no such Soldier, it takes any living non-Boss Warband Soldier instead
+ * (`traitorFallback`), one already fighting the party included (its Pool slot freed). Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
  * watches again for longer. A traitor has no Bubble, takes no pickup, fire or Stairs (those are the party Players'), and never takes the Boss.
  * Its records are plain Run state (`RunState.traitors`), hashed and rolled back. Pure.
  */
 import type { TuningData } from '../tuning';
-import { promotedFighter } from './bubble';
+import { promotedFighter, unboundSlot } from './bubble';
 import { killerOf } from './battle';
 import { groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
@@ -121,9 +122,33 @@ export function traitorCandidates(tuning: TuningData, duel: SimState, party: num
   return out;
 }
 
-/** The Soldier traitor `j` takes over now (`traitorCandidates`, picked by (Run seed, Floor, traitor, takeover count)), or -1 with none. */
+/**
+ * The Soldiers a traitor may take over when `traitorCandidates` has none (in Crowd order): alive, in a Warband, not the Boss, seen or near
+ * or not: in the Crowd, or promoted into a Pool slot whose Fighter is bound to it and still standing.
+ */
+export function traitorFallback(duel: SimState): number[] {
+  const crowd = duel.crowd!;
+  const boss = bossSoldier(crowd);
+  const out: number[] = [];
+  for (let s = 0; s < crowd.x.length; s++) {
+    if (crowd.alive[s] !== 1 || crowd.squad[s]! < 0 || s === boss) continue;
+    const k = crowd.slot[s]!;
+    if (k >= 0) {
+      const f = duel.fighters[k];
+      if (!f || f.soldier?.index !== s || f.death !== undefined || f.hp <= 0) continue;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * The Soldier traitor `j` takes over now, picked by (Run seed, Floor, traitor, takeover count): one of `traitorCandidates`, else (none out of
+ * the party's sight and reach) one of `traitorFallback`; -1 with neither.
+ */
 export function traitorPick(tuning: TuningData, duel: SimState, party: number, seed: number, floor: number, j: number, taken: number): number {
-  const candidates = traitorCandidates(tuning, duel, party);
+  let candidates = traitorCandidates(tuning, duel, party);
+  if (candidates.length === 0) candidates = traitorFallback(duel);
   return candidates.length === 0 ? -1 : candidates[runPick(seed, floor, PICK_SLOT + j, PICK_SALT + taken, candidates.length)]!;
 }
 
@@ -178,6 +203,18 @@ export function stepTraitors(duel: SimState, records: readonly TraitorState[], c
       const s = traitorPick(tuning, view, party, seed, floor, j, r.taken);
       if (s >= 0) {
         const e = edit();
+        // A Soldier already promoted (the fallback): it stands where its Fighter is, with its HP, and that Pool slot is freed.
+        const p = e.crowd.slot[s]!;
+        if (p >= 0) {
+          const g = e.fighters[p]!;
+          e.crowd.x[s] = g.position.x;
+          e.crowd.z[s] = g.position.z;
+          const on = groundOf(tuning.battle, field, g.position.x, g.position.z, g.y);
+          if (on >= 0) e.crowd.surface[s] = on;
+          e.crowd.heading[s] = g.facing;
+          e.crowd.hp[s] = g.hp;
+          e.fighters[p] = unboundSlot(tuning, duel.arena);
+        }
         const size = config.traitors?.[j]?.size ?? null;
         e.fighters[k] = promotedFighter(tuning, duel.arena, e.crowd, s, size);
         if (r.soldier >= 0 && e.crowd.slot[r.soldier] === k) e.crowd.slot[r.soldier] = -1;
