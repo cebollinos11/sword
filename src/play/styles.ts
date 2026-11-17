@@ -77,6 +77,8 @@ const CSS = `
 .hud-door[hidden] { display: none; }
 .hud-pickup { opacity: 1; border-color: #9fd0ffcc; }
 .hud-pickup.relic { border-color: #ffb0f0cc; }
+.hud-pickup { text-align: center; }
+.hud-pickup-info { margin-top: 0.1rem; font-size: 0.85rem; line-height: 1.2; color: #e8e0cc; white-space: normal; width: max-content; max-width: 16rem; }
 .touch { position: fixed; inset: 0; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
   color: #fff; --pad: clamp(84px, 24vmin, 132px); --edge: max(18px, env(safe-area-inset-right));
   --base: max(18px, env(safe-area-inset-bottom)); }

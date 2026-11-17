@@ -11,6 +11,7 @@ import { rarityClass } from '../render/rarityColours';
 import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { itemIconId, relicIcon, weaponIcon } from './icons';
+import { pickupInfoLines } from './inventoryView';
 import { daggerCapacity, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
 
@@ -162,7 +163,8 @@ export class Hud {
   private readonly results = document.createElement('div');
   /** A Run's pickup labels (one element per pickup seen, reused). */
   private readonly pickupLayer = document.createElement('div');
-  private pickupTags: HTMLElement[] = [];
+  /** The pickup labels, pooled: each one's box, name and info lines, and what it last showed (`kind|name|rarity`), to redraw only on change. */
+  private pickupTags: { readonly tag: HTMLElement; readonly name: HTMLElement; readonly info: HTMLElement; key: string }[] = [];
   /** The Floor map screen (`M`, or the map button on touch) and that button. */
   readonly map = new FloorMapView();
   private readonly mapButton = document.createElement('button');
@@ -384,21 +386,39 @@ export class Hud {
     this.minimap.drawDelver(plan, viewReveal(match, plan, me), match.duel.fighters, me, delverMapStatus(match, plan));
   }
 
-  /** A Run's labels over the pickups the local Player sees. */
+  /** A Run's labels over the pickups the local Player sees: the one aimed at (or the nearest) shows the item's name, what it is and what it does. */
   private updatePickups(match: MatchState, view: HudView): void {
     const marks = view.project && match.status.status !== 'Over' ? pickupLabels(view.pickups ?? []) : [];
     while (this.pickupTags.length < marks.length) {
       const tag = document.createElement('div');
       tag.className = 'hud-door hud-pickup';
+      const name = document.createElement('div');
+      name.className = 'hud-pickup-name';
+      const info = document.createElement('div');
+      info.className = 'hud-pickup-info';
+      tag.append(name, info);
       this.pickupLayer.append(tag);
-      this.pickupTags.push(tag);
+      this.pickupTags.push({ tag, name, info, key: '' });
     }
-    this.pickupTags.forEach((tag, i) => {
+    const tuning = this.matchTuning ?? this.tuning;
+    this.pickupTags.forEach((slot, i) => {
+      const { tag } = slot;
       const mark = marks[i];
       const at = mark && view.project!(mark.at);
       tag.hidden = !at;
       if (!mark || !at) return;
-      if (tag.textContent !== mark.text) tag.textContent = mark.text;
+      const key = `${mark.kind}|${mark.text}|${mark.rarity}`;
+      if (slot.key !== key) {
+        slot.key = key;
+        slot.name.textContent = mark.text;
+        slot.info.replaceChildren(
+          ...pickupInfoLines(tuning, mark.kind, mark.text, mark.rarity).map((line) => {
+            const el = document.createElement('div');
+            el.textContent = line;
+            return el;
+          }),
+        );
+      }
       tag.classList.toggle('relic', mark.kind === 'relic');
       for (const r of RARITIES) if (r !== 'Common') tag.classList.toggle(rarityClass(r), r === mark.rarity);
       tag.style.transform = `translate(${at.x.toFixed(1)}px, ${at.y.toFixed(1)}px) translate(-50%, -100%)`;
