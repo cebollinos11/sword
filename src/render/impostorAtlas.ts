@@ -120,13 +120,16 @@ export async function bakeImpostorAtlases(
 
 /**
  * Bake one look's atlas with `renderer` (the one that will draw it), from its Weapon's `clips` (recorded here if not given).
- * Resolves once its Body model has loaded.
+ * Resolves once its Body model has loaded. With `pace`, the bake stops between frames whenever `pace` asks it to (returns a promise): the
+ * renderer is handed back as it was for the wait (so the game draws its own frames meanwhile) and taken again after, so a look can bake a
+ * few cells a frame during play.
  */
 export async function bakeImpostorAtlas(
   renderer: THREE.WebGLRenderer,
   tuning: TuningData,
   soldier: SoldierLook,
   clips: SoldierClips = soldierClips(tuning, weaponByName(tuning, soldier.weapon).name),
+  pace?: () => Promise<void> | undefined,
 ): Promise<ImpostorAtlas> {
   if (!isModel(soldier.body)) throw new Error(`A Troop's Body "${soldier.body}" is not a Body model (${BODY_MODELS.join(', ')})`);
   const weapon = weaponByName(tuning, soldier.weapon);
@@ -178,12 +181,26 @@ export async function bakeImpostorAtlas(
     alpha: renderer.getClearAlpha(),
     autoClear: renderer.autoClear,
   };
-  renderer.setClearColor(0x000000, 0);
-  renderer.autoClear = true;
-  renderer.setRenderTarget(rt);
+  const take = (): void => {
+    renderer.setClearColor(0x000000, 0);
+    renderer.autoClear = true;
+    renderer.setRenderTarget(rt);
+  };
+  const give = (): void => {
+    renderer.setRenderTarget(saved.target);
+    renderer.setClearColor(saved.clear, saved.alpha);
+    renderer.autoClear = saved.autoClear;
+  };
+  take();
   const side = layout.cell;
   for (const clip of IMPOSTOR_CLIPS)
-    clips.poses[clip].forEach((pose, frame) => {
+    for (const [frame, pose] of clips.poses[clip].entries()) {
+      const wait = pace?.();
+      if (wait) {
+        give();
+        await wait;
+        take();
+      }
       view.update(pose, weapon);
       // Only the front, the back and the right between them: the left is drawn as the right, mirrored (`atlasCell`).
       for (let d = 0; d < layout.baked; d++) {
@@ -196,7 +213,7 @@ export async function bakeImpostorAtlas(
         renderer.setRenderTarget(rt);
         renderer.render(scene, camera);
       }
-    });
+    }
   for (const [mesh, material] of own) mesh.material = material;
   for (const copy of copies.values()) copy.dispose();
   // An empty draw into the target, which (with mipmaps on again) generates them once.

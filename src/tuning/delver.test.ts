@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { flatRooms } from '../sim/delver/flat.testdata';
 import { DELVER_VERSION } from '../sim/delver/version';
-import { loadTuningData, MAX_FLOOR_TROOPS, parseDelver, tuningDataHash } from './index';
+import { floorTroopCount, loadTuningData, MAX_FLOOR_TROOPS, parseDelver, tuningDataHash } from './index';
 
 /** The data as shipped; the tests below build on `tuning`, Stage 6's Floor values (`flatRooms`), which the 7a keys' checks and the bad-value cases are written against. */
 const bundled = loadTuningData();
@@ -15,19 +15,8 @@ const NAMES = {
 };
 const parse = (data: unknown) => parseDelver(data, FIELD, tuning.battle, NAMES);
 type Raw = { tiers: unknown; floorsPerTier: unknown; flowCell: unknown; fireRadius: unknown; floor: Record<string, unknown>; [key: string]: unknown };
-/** The file's values as raw data: the Troop indices written back as names. */
-const raw = (source = tuning): Raw => {
-  const d = JSON.parse(JSON.stringify(source.delver)) as Raw;
-  const named = (pool: { troops: { troop: number; count: number }[]; hpScale: number }[]) =>
-    pool.map((t) => ({ ...t, troops: t.troops.map((r) => ({ ...r, troop: tuning.battle.troops[r.troop]!.name })) }));
-  d.warbands = (d.warbands as { guard: never[]; patrol: never[]; elite: never[]; boss?: { troop: { base: number }; guard: never[] } }[]).map((t) => ({
-    guard: named(t.guard),
-    patrol: named(t.patrol),
-    elite: named(t.elite),
-    ...(t.boss ? { boss: { troop: { ...t.boss.troop, base: tuning.battle.troops[t.boss.troop.base]!.name }, guard: named(t.boss.guard) } } : {}),
-  }));
-  return d;
-};
+/** The file's values as raw data (the parsed form reads back as it is). */
+const raw = (source = tuning): Raw => JSON.parse(JSON.stringify(source.delver)) as Raw;
 const withKey = (patch: Record<string, unknown>): Raw => ({ ...raw(), ...patch });
 /** The raw data with tier 1's guard pool replaced. */
 const withGuard = (guard: unknown): Raw => {
@@ -35,19 +24,23 @@ const withGuard = (guard: unknown): Raw => {
   d.warbands = (d.warbands as Record<string, unknown>[]).map((t, i) => (i === 0 ? { ...t, guard } : t));
   return d;
 };
-const levy = (count: unknown) => ({ troops: [{ troop: 'Levy', count }], hpScale: 1 });
+const levy = (count: unknown) => ({ troops: [{ skill: 'Beginner', count }], hpScale: 1 });
 /** The raw data with tier 3's `elite` or `boss` patched (the `boss.troop` or `boss.guard` by `bossTroop` and `bossGuard`). */
 const withTier = (patch: Record<string, unknown>): Raw => {
   const d = raw();
   d.warbands = (d.warbands as Record<string, unknown>[]).map((t, i) => (i === 2 ? { ...t, ...patch } : t));
   return d;
 };
-const bossOf = (): { troop: Record<string, unknown>; guard: unknown } => (raw().warbands as { boss: { troop: Record<string, unknown>; guard: unknown } }[])[2]!.boss;
-const withBossTroop = (patch: Record<string, unknown>): Raw => {
-  const b = bossOf();
-  return withTier({ boss: { ...b, troop: { ...b.troop, ...patch } } });
-};
+const bossOf = (): { troop: string; guard: unknown } => (raw().warbands as { boss: { troop: string; guard: unknown } }[])[2]!.boss;
 const withBossGuard = (guard: unknown): Raw => withTier({ boss: { ...bossOf(), guard } });
+/** The raw data with Prefab `i` patched (`variants` patched by `variant`, Variant `k`). */
+const withPrefab = (i: number, patch: Record<string, unknown>, k = -1, variant: Record<string, unknown> = {}): Raw => {
+  const d = raw();
+  d.troops = (d.troops as Record<string, unknown>[]).map((p, j) =>
+    j !== i ? p : { ...p, ...patch, ...(k < 0 ? {} : { variants: (p.variants as Record<string, unknown>[]).map((v, m) => (m === k ? { ...v, ...variant } : v)) }) },
+  );
+  return d;
+};
 const eliteOf = (): Record<string, unknown>[] => (raw().warbands as { elite: Record<string, unknown>[] }[])[2]!.elite;
 const GREAT = { count: [0, 0], half: [12, 16] };
 const SHAPES = { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } };
@@ -63,25 +56,46 @@ const withFloor = (patch: Record<string, unknown>): Raw => {
 
 describe('Delver Tuning Data (data/delver.json)', () => {
   it('the bundled delver parses to the file values', () => {
-    const { warbands, ...keys } = bundled.delver;
-    const troop = (name: string) => tuning.battle.troops.findIndex((t) => t.name === name);
-    const template = (...rows: [string, number][]) => ({ troops: rows.map(([name, count]) => ({ troop: troop(name), count })), hpScale: 1, relics: [] as string[] });
+    const { warbands, troops, prefabsPerFloor, sizeHp, skillTints, ...keys } = bundled.delver;
+    const template = (...rows: [string, number][]) => ({ troops: rows.map(([skill, count]) => ({ skill, count })), hpScale: 1, relics: [] as string[] });
     const elite = (relics: string[], hpScale: number, ...rows: [string, number][]) => ({ ...template(...rows), hpScale, relics });
-    expect(troop('Brute')).toBeGreaterThan(0);
     expect(warbands.map(({ guard, patrol }) => ({ guard, patrol }))).toEqual([
       {
-        guard: [template(['Levy', 1]), template(['Levy', 2]), template(['Levy', 2], ['Halberdier', 1])],
-        patrol: [template(['Levy', 2]), template(['Levy', 3]), template(['Levy', 3], ['Halberdier', 1]), template(['Levy', 3], ['Halberdier', 2])],
+        guard: [template(['Beginner', 1]), template(['Beginner', 2]), template(['Beginner', 2], ['Skilled', 1])],
+        patrol: [template(['Beginner', 2]), template(['Beginner', 3]), template(['Beginner', 3], ['Skilled', 1]), template(['Beginner', 3], ['Skilled', 2])],
       },
       {
-        guard: [template(['Halberdier', 1], ['Swordsman', 1]), template(['Levy', 2], ['Halberdier', 1]), template(['Levy', 1], ['Halberdier', 1], ['Swordsman', 1])],
-        patrol: [template(['Levy', 3], ['Swordsman', 1]), template(['Halberdier', 2], ['Levy', 2]), template(['Levy', 3], ['Halberdier', 1], ['Swordsman', 1])],
+        guard: [template(['Skilled', 1], ['Expert', 1]), template(['Beginner', 2], ['Skilled', 1]), template(['Beginner', 1], ['Skilled', 1], ['Expert', 1])],
+        patrol: [template(['Beginner', 3], ['Expert', 1]), template(['Skilled', 2], ['Beginner', 2]), template(['Beginner', 3], ['Skilled', 1], ['Expert', 1])],
       },
       {
-        guard: [template(['Brute', 1]), template(['Swordsman', 1], ['Levy', 1]), template(['Swordsman', 2], ['Brute', 1]), template(['Brute', 1], ['Halberdier', 2])],
-        patrol: [template(['Swordsman', 2], ['Levy', 2]), template(['Brute', 1], ['Halberdier', 2], ['Levy', 2]), template(['Swordsman', 2], ['Brute', 1])],
+        guard: [template(['Expert', 1]), template(['Expert', 1], ['Beginner', 1]), template(['Expert', 3]), template(['Expert', 1], ['Skilled', 2])],
+        patrol: [template(['Expert', 2], ['Beginner', 2]), template(['Expert', 1], ['Skilled', 2], ['Beginner', 2]), template(['Expert', 3])],
       },
     ]);
+    expect(prefabsPerFloor).toBe(4);
+    expect(sizeHp).toEqual([20, 150]);
+    // The heavy Prefabs (Bruiser, Uruk) join from tier 2 on.
+    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2]]);
+    expect(skillTints).toEqual({ Easy: 0x8e8e8e, Beginner: 0x8e8e8e, Normal: 0xb3261e, Skilled: 0xb3261e, Hard: 0x1c1c1c, Expert: 0x1c1c1c });
+    expect(troops.map((p) => [p.name, p.body, p.weapon])).toEqual([
+      ['Sellsword', 'female', 'Arming Sword'],
+      ['Bruiser', 'brawler', 'Sledge Hammer'],
+      ['Cutthroat', 'snake', 'Dagger'],
+      ['Acolyte', 'monk', 'Quarterstaff'],
+      ['Fencer', 'duelist', 'Longsword'],
+      ['Halberdier', 'asturian', 'Halberd'],
+      ['Flagellant', 'templar', 'Flail'],
+      ['Lorekeeper', 'librarian', 'Quarterstaff'],
+      ['Squire', 'prince', 'Arming Sword'],
+      ['Revenant', 'wraith', 'Longsword'],
+      ['Uruk', 'uruk', 'Sledge Hammer'],
+    ]);
+    // A Variant left unnamed is named for its Prefab and skill, and takes its Prefab's Style and Mods, else the generic soldier's.
+    expect(troops[1]!.variants[0]).toEqual({ name: 'Bruiser (Beginner)', hp: 60, difficulty: 'Beginner', style: 'Aggressive', relics: [], mods: { damage: 0.6 }, damage: tuning.battle.crowd.damage, hitChance: tuning.battle.crowd.hitChance, engageReach: tuning.battle.crowd.engageReach });
+    expect(troops[0]!.variants[0]!.mods).toBe(tuning.battle.soldier.mods);
+    expect(troops[5]!.variants[2]!.engageReach).toBe(2.2);
+    expect(troops[2]!.variants[2]!.relics).toEqual(['Honed Daggers']);
     expect(keys).toEqual({
       tiers: 3,
       floorsPerTier: 3,
@@ -98,25 +112,29 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       patrolFill: 100,
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
-      tierHp: [1, 1.25, 1.5],
+      tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
       traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
       floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
     });
     expect(parse(raw(bundled))).toEqual(bundled.delver);
     expect(warbands.map((t) => t.elite)).toEqual([
-      [elite(['Whetstone'], 1.5, ['Halberdier', 1], ['Levy', 2])],
-      [elite(['Whetstone'], 1.5, ['Swordsman', 1], ['Halberdier', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Swordsman', 1], ['Levy', 2])],
-      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Swordsman', 1], ['Brute', 1], ['Halberdier', 1])],
+      [elite(['Whetstone'], 1.5, ['Skilled', 1], ['Beginner', 2])],
+      [elite(['Whetstone'], 1.5, ['Expert', 1], ['Skilled', 1]), elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 1], ['Beginner', 2])],
+      [elite(['Heavy Gauntlet', 'Glass Cannon'], 2, ['Expert', 2], ['Skilled', 1])],
     ]);
     const boss = (i: number) => warbands[i]!.boss!;
-    expect(warbands.map((t) => t.boss?.troop.name)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
-    expect(boss(0).troop).toEqual({ name: 'Warden', base: troop('Brute'), weapon: 'Sledge Hammer', body: 'monk', height: 1.3, width: 1.3, difficulty: 'Skilled', style: 'Aggressive', relics: [], hpScale: 2.5 });
-    expect(boss(1).troop).toEqual({ name: 'Duelist', base: troop('Swordsman'), weapon: 'Arming Sword', body: 'prince', height: 1.1, width: 1.1, difficulty: 'Expert', style: 'Counter', relics: [], hpScale: 2.5 });
-    expect(boss(2).troop).toEqual({ name: 'Wraith Lord', base: troop('Brute'), weapon: 'Sledge Hammer', body: 'wraith', height: 1.4, width: 1.4, difficulty: 'Expert', style: 'Aggressive', relics: ['Heavy Gauntlet'], hpScale: 3 });
-    expect(boss(0).guard).toEqual([template(['Levy', 2])]);
-    expect(boss(1).guard).toEqual([template(['Swordsman', 1], ['Halberdier', 1])]);
-    expect(boss(2).guard).toEqual([template(['Swordsman', 1], ['Halberdier', 1], ['Brute', 1])]);
+    expect(warbands.map((t) => t.boss?.troop)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
+    const variantOf = (b: (typeof warbands)[number]['boss']) => troops[b!.prefab]!.variants[b!.variant]!;
+    expect(variantOf(boss(0))).toEqual({ name: 'Warden', boss: true, hp: 250, difficulty: 'Skilled', style: 'Aggressive', relics: [], mods: {}, damage: tuning.battle.crowd.damage, hitChance: tuning.battle.crowd.hitChance, engageReach: tuning.battle.crowd.engageReach });
+    expect(troops[boss(0).prefab]!.body).toBe('uruk');
+    expect(troops[boss(1).prefab]!.name).toBe('Fencer');
+    expect(variantOf(boss(1))).toMatchObject({ name: 'Duelist', hp: 250, difficulty: 'Expert', style: 'Counter', relics: [] });
+    expect(variantOf(boss(2))).toMatchObject({ name: 'Wraith Lord', hp: 300, difficulty: 'Expert', style: 'Aggressive', relics: ['Heavy Gauntlet'] });
+    expect(troops[boss(2).prefab]!.body).toBe('wraith');
+    expect(boss(0).guard).toEqual([template(['Beginner', 2])]);
+    expect(boss(1).guard).toEqual([template(['Expert', 1], ['Skilled', 1])]);
+    expect(boss(2).guard).toEqual([template(['Expert', 2], ['Skilled', 1])]);
   });
 
   const bad: [string, Raw, RegExp][] = [
@@ -268,32 +286,49 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     ['guard pool empty', withGuard([]), /^delver\.warbands\[0\]\.guard /],
     ['patrol pool empty', withKey({ warbands: (raw().warbands as Record<string, unknown>[]).map((t, i) => (i === 2 ? { ...t, patrol: [] } : t)) }), /^delver\.warbands\[2\]\.patrol /],
     ['template without Troops', withGuard([{ troops: [], hpScale: 1 }]), /^delver\.warbands\[0\]\.guard\[0\]\.troops /],
-    ['unknown Troop', withGuard([{ troops: [{ troop: 'Dragon', count: 1 }], hpScale: 1 }]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.troop /],
-    ['Troop index out of range', withGuard([{ troops: [{ troop: 99, count: 1 }], hpScale: 1 }]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.troop /],
+    ['unknown skill', withGuard([{ troops: [{ skill: 'Godlike', count: 1 }], hpScale: 1 }]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.skill /],
+    ['a row naming a Troop rather than a skill', withGuard([{ troops: [{ troop: 'Levy', count: 1 }], hpScale: 1 }]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.skill /],
     ['count 0', withGuard([levy(0)]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.count /],
     ['count fractional', withGuard([levy(1.5)]), /^delver\.warbands\[0\]\.guard\[0\]\.troops\[0\]\.count /],
     ['template above squad.size', withGuard([levy(tuning.battle.squad.size + 1)]), /^delver\.warbands\[0\]\.guard\[0\]\.troops /],
     ['hpScale 0', withGuard([{ ...levy(3), hpScale: 0 }]), /^delver\.warbands\[0\]\.guard\[0\]\.hpScale /],
     ['elitePosts negative', withKey({ elitePosts: -1 }), /^delver\.elitePosts /],
     ['elitePosts fractional', withKey({ elitePosts: 1.5 }), /^delver\.elitePosts /],
-    ['elite template without relics', withTier({ elite: [{ troops: [{ troop: 'Levy', count: 1 }], hpScale: 1 }] }), /^delver\.warbands\[2\]\.elite\[0\]\.relics /],
+    ['elite template without relics', withTier({ elite: [{ troops: [{ skill: 'Beginner', count: 1 }], hpScale: 1 }] }), /^delver\.warbands\[2\]\.elite\[0\]\.relics /],
     ['elite template with an unknown Relic', withTier({ elite: [{ ...eliteOf()[0]!, relics: ['Nope'] }] }), /^delver\.warbands\[2\]\.elite\[0\]\.relics\[0\] /],
     ['elite template with too many Relics', withTier({ elite: [{ ...eliteOf()[0]!, relics: ['Whetstone', 'Whetstone', 'Whetstone'] }] }), /^delver\.warbands\[2\]\.elite\[0\]\.relics /],
     ['relics key on a guard template', withGuard([{ ...levy(1), relics: ['Whetstone'] }]), /^delver\.warbands\[0\]\.guard\[0\]\.relics /],
     ['relics key on a patrol template', withTier({ patrol: [{ ...levy(1), relics: ['Whetstone'] }] }), /^delver\.warbands\[2\]\.patrol\[0\]\.relics /],
-    ['boss base unknown', withBossTroop({ base: 'Dragon' }), /^delver\.warbands\[2\]\.boss\.troop\.base /],
-    ['boss base index out of range', withBossTroop({ base: 99 }), /^delver\.warbands\[2\]\.boss\.troop\.base /],
-    ['boss weapon unknown', withBossTroop({ weapon: 'Banana' }), /^delver\.warbands\[2\]\.boss\.troop\.weapon /],
-    ['boss difficulty unknown', withBossTroop({ difficulty: 'Godlike' }), /^delver\.warbands\[2\]\.boss\.troop\.difficulty /],
-    ['boss style unknown', withBossTroop({ style: 'Sleepy' }), /^delver\.warbands\[2\]\.boss\.troop\.style /],
-    ['boss style random', withBossTroop({ style: 'random' }), /^delver\.warbands\[2\]\.boss\.troop\.style /],
-    ['boss body empty', withBossTroop({ body: '' }), /^delver\.warbands\[2\]\.boss\.troop\.body /],
-    ['boss name empty', withBossTroop({ name: '' }), /^delver\.warbands\[2\]\.boss\.troop\.name /],
-    ['boss height too small', withBossTroop({ height: 0.1 }), /^delver\.warbands\[2\]\.boss\.troop\.height /],
-    ['boss width too large', withBossTroop({ width: 9 }), /^delver\.warbands\[2\]\.boss\.troop\.width /],
-    ['boss hpScale 0', withBossTroop({ hpScale: 0 }), /^delver\.warbands\[2\]\.boss\.troop\.hpScale /],
-    ['boss relic unknown', withBossTroop({ relics: ['Nope'] }), /^delver\.warbands\[2\]\.boss\.troop\.relics\[0\] /],
-    ['boss with too many Relics', withBossTroop({ relics: ['Whetstone', 'Whetstone', 'Whetstone'] }), /^delver\.warbands\[2\]\.boss\.troop\.relics /],
+    ['boss naming no Variant', withTier({ boss: { ...bossOf(), troop: 'Dragon' } }), /^delver\.warbands\[2\]\.boss\.troop /],
+    ['boss naming a Variant that is not a Boss\'s', withTier({ boss: { ...bossOf(), troop: 'Uruk (Beginner)' } }), /^delver\.warbands\[2\]\.boss\.troop /],
+    ['troops empty', withKey({ troops: [] }), /^delver\.troops /],
+    ['troops missing', withKey({ troops: undefined }), /^delver\.troops /],
+    ['Prefab name empty', withPrefab(0, { name: '' }), /^delver\.troops\[0\]\.name /],
+    ['Prefab named twice', withPrefab(1, { name: 'Sellsword' }), /^delver\.troops\[1\]\.name /],
+    ['Prefab body empty', withPrefab(0, { body: '' }), /^delver\.troops\[0\]\.body /],
+    ['Prefab weapon unknown', withPrefab(0, { weapon: 'Banana' }), /^delver\.troops\[0\]\.weapon /],
+    ['two Prefabs of one look', withPrefab(1, { body: 'female', weapon: 'Arming Sword' }), /^delver\.troops\[1\] /],
+    ['Prefab style unknown', withPrefab(0, { style: 'Sleepy' }), /^delver\.troops\[0\]\.style /],
+    ['Prefab mods not a multiplier', withPrefab(0, { mods: { maxHp: 2 } }), /^delver\.troops\[0\]\.mods\.maxHp /],
+    ['Prefab hitChance above 1', withPrefab(0, { hitChance: 2 }), /^delver\.troops\[0\]\.hitChance /],
+    ['Prefab without Variants', withPrefab(0, { variants: [] }), /^delver\.troops\[0\]\.variants /],
+    ['Variant hp 0', withPrefab(0, {}, 0, { hp: 0 }), /^delver\.troops\[0\]\.variants\[0\]\.hp /],
+    ['Variant difficulty unknown', withPrefab(0, {}, 0, { difficulty: 'Godlike' }), /^delver\.troops\[0\]\.variants\[0\]\.difficulty /],
+    ['Variant style unknown', withPrefab(0, {}, 0, { style: 'random' }), /^delver\.troops\[0\]\.variants\[0\]\.style /],
+    ['Variant relic unknown', withPrefab(0, {}, 0, { relics: ['Nope'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics\[0\] /],
+    ['Variant with too many Relics', withPrefab(0, {}, 0, { relics: ['Whetstone', 'Whetstone', 'Whetstone'] }), /^delver\.troops\[0\]\.variants\[0\]\.relics /],
+    ['Variant damage reversed', withPrefab(0, {}, 0, { damage: [5, 2] }), /^delver\.troops\[0\]\.variants\[0\]\.damage /],
+    ['Variant boss not true', withPrefab(0, {}, 0, { boss: 'yes' }), /^delver\.troops\[0\]\.variants\[0\]\.boss /],
+    ['Variant named twice', withPrefab(0, {}, 0, { name: 'Warden' }), /^delver\.troops\[\d+\]\.variants\[\d+\]\.name /],
+    ['Prefab missing a skill the templates name', withPrefab(0, {}, 2, { difficulty: 'Skilled', name: 'Sellsword (Skilled again)' }), /^delver\.troops\[0\]\.variants .*Expert/],
+    ['no Prefab fills rows', withKey({ troops: [{ name: 'Lone', body: 'uruk', weapon: 'Sledge Hammer', variants: [{ name: 'Warden', boss: true, difficulty: 'Skilled', hp: 250 }] }] }), /^delver\.troops /],
+    ['prefabsPerFloor 0', withKey({ prefabsPerFloor: 0 }), /^delver\.prefabsPerFloor /],
+    ['prefabsPerFloor fractional', withKey({ prefabsPerFloor: 1.5 }), /^delver\.prefabsPerFloor /],
+    ['sizeHp reversed', withKey({ sizeHp: [150, 30] }), /^delver\.sizeHp /],
+    ['sizeHp equal', withKey({ sizeHp: [30, 30] }), /^delver\.sizeHp /],
+    ['sizeHp from 0', withKey({ sizeHp: [0, 30] }), /^delver\.sizeHp /],
+    ['skillTints of no difficulty', withKey({ skillTints: { Godlike: '#ffffff' } }), /^delver\.skillTints\.Godlike /],
+    ['skillTints not a colour', withKey({ skillTints: { Expert: 'black' } }), /^delver\.skillTints\.Expert /],
     ['boss guard empty', withBossGuard([]), /^delver\.warbands\[2\]\.boss\.guard /],
     ['boss guard plus the Boss above squad.size', withBossGuard([levy(tuning.battle.squad.size)]), /^delver\.warbands\[2\]\.boss\.guard\[0\]\.troops /],
     ['relics key on a boss guard template', withBossGuard([{ ...levy(1), relics: ['Whetstone'] }]), /^delver\.warbands\[2\]\.boss\.guard\[0\]\.relics /],
@@ -307,7 +342,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withKey({ perPlayerSoldiers: 0.25 })).perPlayerSoldiers).toBe(0.25);
   });
 
-  it('takes its own parsed form back in (a Troop by index)', () => {
+  it('takes its own parsed form back in', () => {
     expect(parse(JSON.parse(JSON.stringify(tuning.delver)))).toEqual(tuning.delver);
   });
 
@@ -370,19 +405,61 @@ describe('Delver Tuning Data (data/delver.json)', () => {
     expect(parse(withFloor({ follow: 1.25 })).floor.follow).toBe(1.25);
   });
 
+  it('reads a Prefab\'s minTier (absent: 1), and refuses one outside 1 to tiers', () => {
+    const parsed = parse(withPrefab(0, { minTier: 3 }));
+    expect(parsed.troops[0]!.minTier).toBe(3);
+    expect(parse(withPrefab(0, { minTier: undefined })).troops[0]!.minTier).toBe(1);
+    expect(parse(parsed as unknown as Raw).troops[0]!.minTier).toBe(3);
+    expect(() => parse(withPrefab(0, { minTier: 0 }))).toThrow(/delver\.troops\[0\]\.minTier/);
+    expect(() => parse(withPrefab(0, { minTier: 4 }))).toThrow(/delver\.troops\[0\]\.minTier must be a tier from 1 to 3/);
+    expect(() => parse(withPrefab(0, { minTier: 1.5 }))).toThrow(/minTier/);
+  });
+
+  it('refuses a tier no Prefab may field', () => {
+    const d = raw();
+    d.troops = (d.troops as Record<string, unknown>[]).map((p) => ({ ...p, minTier: 2 }));
+    expect(() => parse(d)).toThrow(/a minTier of 1 or less \(for tier 1\)/);
+  });
+
+  it('accepts a Prefab whose Variants are only a Boss\'s (it fills no row), and a tint left out', () => {
+    const d = raw();
+    const tints = { ...(d.skillTints as Record<string, unknown>) };
+    delete tints.Expert;
+    d.skillTints = tints;
+    d.troops = [...(d.troops as unknown[]), { name: 'Dragon', body: 'uruk', weapon: 'Flail', variants: [{ name: 'Dragon Lord', boss: true, difficulty: 'Expert', hp: 400 }] }];
+    const parsed = parse(d);
+    expect(parsed.troops.at(-1)!.variants[0]).toMatchObject({ name: 'Dragon Lord', boss: true, style: 'Balanced', relics: [] });
+    expect(parsed.skillTints.Expert).toBeUndefined();
+  });
+
   it('refuses a Tuning whose Floor Troops exceed MAX_FLOOR_TROOPS, and accepts one at it', () => {
-    expect(MAX_FLOOR_TROOPS).toBe(64);
-    const floorTroops = tuning.battle.troops.length + tuning.delver.warbands.reduce((n, t) => n + (t.boss ? 1 : 0) + (t.elite ?? []).reduce((m, e) => m + e.troops.length, 0), 0);
-    const elite = (rows: number) => ({ hpScale: 1, relics: ['Vital Charm'], troops: Array.from({ length: rows }, () => ({ troop: tuning.battle.troops[0]!.name, count: 1 })) });
-    const withElite = (rows: number): Raw => {
+    expect(MAX_FLOOR_TROOPS).toBe(256);
+    // Each new elite Relic set adds every non-Boss Variant again.
+    const plain = tuning.delver.troops.reduce((n, p) => n + p.variants.filter((v) => !v.boss).length, 0);
+    const names = tuning.relics.map((r) => r.name);
+    // Distinct Relic sets: each Relic alone, then each pair.
+    const combos = [...names.map((r) => [r]), ...names.flatMap((a, i) => names.slice(i + 1).map((b) => [a, b]))];
+    const withSets = (sets: number): Raw => {
       const d = raw();
       const tiers = d.warbands as { elite: unknown[] }[];
-      // Templates of one row each (a template holds at most a Squad's size of Soldiers).
-      tiers[0]!.elite = [...tiers[0]!.elite, ...Array.from({ length: rows }, () => elite(1))];
+      tiers[0]!.elite = combos.slice(0, sets).map((relics) => ({ hpScale: 1, relics, troops: [{ skill: 'Beginner', count: 1 }] }));
       return d;
     };
-    expect(() => parse(withElite(MAX_FLOOR_TROOPS - floorTroops))).not.toThrow();
-    expect(() => parse(withElite(MAX_FLOOR_TROOPS - floorTroops + 1))).toThrow(/Floor Troops/);
+    let prev = floorTroopCount(parse(withSets(1)));
+    for (let sets = 2; sets <= combos.length; sets++) {
+      let count: number;
+      try {
+        count = floorTroopCount(parse(withSets(sets)));
+      } catch (e) {
+        expect(String(e)).toMatch(/Floor Troops/);
+        expect(prev).toBeLessThanOrEqual(MAX_FLOOR_TROOPS);
+        expect(prev + plain).toBeGreaterThan(MAX_FLOOR_TROOPS);
+        return;
+      }
+      expect(count).toBeLessThanOrEqual(MAX_FLOOR_TROOPS);
+      prev = count;
+    }
+    throw new Error('never past MAX_FLOOR_TROOPS');
   });
 
   it('is in the Tuning Data hash, with the Floor generator version', () => {

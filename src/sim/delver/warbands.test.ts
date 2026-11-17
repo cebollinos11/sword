@@ -3,7 +3,7 @@ import { loadTuningData, type TuningData } from '../../tuning';
 import { groundOf } from '../battlefield';
 import { BOSS, ELITE, GUARD, PATROL, PLAIN } from '../warband';
 import type { DelverPassage, FloorPlan } from './plan';
-import { floorTroops } from './troops';
+import { floorPrefabs, floorTroops, sizeOfHp } from './troops';
 import { deployWarbands, warbandHomes, warbandPools, warbandsFit } from './warbands';
 import { arenaTuning, floorArenaName, floorOf } from './world';
 import { fullFloors } from './flat.testdata';
@@ -88,7 +88,7 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
     }
   });
 
-  it('gives each Warband the Soldiers of its template, in list order, and stands them inside their Hall on the floor', () => {
+  it('gives each Warband a Soldier of each skill of its template, in list order, of the Floor\'s Prefabs, and stands them inside their Hall on the floor', () => {
     for (const seed of SEEDS) {
       for (const floor of [1, 7]) {
         const { plan, crowd, t, field } = deal(seed, floor, 1, noElites);
@@ -96,9 +96,15 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
         const tier = t.delver.warbands[Math.ceil(floor / t.delver.floorsPerTier) - 1]!;
         for (let q = 0; q < w.mode.length; q++) {
           const template = (w.mode[q] === GUARD ? tier.guard : tier.patrol)[w.encounter[q]!]!;
-          const expected = template.troops.flatMap((r) => new Array<number>(r.count).fill(r.troop));
+          const expected = template.troops.flatMap((r) => new Array<string>(r.count).fill(r.skill));
           const ids = members(crowd, q);
-          expect(ids.map((i) => crowd.troop[i])).toEqual(expected);
+          expect(ids.map((i) => t.battle.troops[crowd.troop[i]!]!.difficulty)).toEqual(expected);
+          const prefabs = floorPrefabs(t.delver, seed, floor);
+          for (const i of ids) {
+            const troop = t.battle.troops[crowd.troop[i]!]!;
+            expect(prefabs).toContain(troop.prefab);
+            expect(troop.relics).toEqual(t.delver.troops[troop.prefab!]!.variants.find((v) => v.name === troop.name)!.relics);
+          }
           expect(ids.map((i) => crowd.place[i])).toEqual(expected.map((_, p) => p));
           const hall = plan.halls[w.mode[q] === GUARD ? plan.markers.posts[w.post[q]!]!.hall : startHall(plan, w.patrol[q]!)]!;
           const homeY = w.mode[q] === GUARD ? warbandHomes(plan).posts[w.post[q]!]!.y : plan.halls[startHall(plan, w.patrol[q]!)]!.y;
@@ -134,20 +140,32 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
     expect(JSON.parse(JSON.stringify(crowd))).toEqual(crowd);
   });
 
-  it('sizes each Soldier within its Troop\'s ranges and picks a look among its Bodies', () => {
-    const { crowd, t } = deal(7, 7);
-    for (let i = 0; i < crowd.x.length; i++) {
-      const troop = t.battle.troops[crowd.troop[i]!]!;
-      const [hlo, hhi] = troop.height ?? [1, 1];
-      const [wlo, whi] = troop.width ?? [1, 1];
-      // clampSize snaps to a step, so allow it.
-      expect(crowd.sizeHeight[i]!).toBeGreaterThanOrEqual(hlo - 0.05);
-      expect(crowd.sizeHeight[i]!).toBeLessThanOrEqual(hhi + 0.05);
-      expect(crowd.sizeThick[i]!).toBeGreaterThanOrEqual(wlo - 0.05);
-      expect(crowd.sizeThick[i]!).toBeLessThanOrEqual(whi + 0.05);
-      expect(crowd.look[i]!).toBeGreaterThanOrEqual(0);
-      expect(crowd.look[i]!).toBeLessThan((troop.teamBodies?.[1] ?? troop.bodies).length);
+  it('sizes each Soldier by its HP (docs/plans/delver-troops.md), and draws it as its Prefab\'s one look', () => {
+    for (const floor of [1, 3, 7, 9]) {
+      const { crowd, t } = deal(7, floor);
+      const sizes = new Set<number>();
+      for (let i = 0; i < crowd.x.length; i++) {
+        expect({ height: crowd.sizeHeight[i], thick: crowd.sizeThick[i] }).toEqual(sizeOfHp(t.delver, crowd.hp[i]!));
+        expect(crowd.look[i]).toBe(0);
+        sizes.add(crowd.sizeHeight[i]!);
+      }
+      // A Floor's Soldiers are not all one Size.
+      expect(sizes.size).toBeGreaterThan(1);
     }
+  });
+
+  it('fields Variants of every Prefab of the Floor over a few Runs, and of no other', () => {
+    const seen = new Set<number>();
+    for (const seed of SEEDS) {
+      const { crowd, t } = deal(seed, 4);
+      const prefabs = floorPrefabs(t.delver, seed, 4);
+      for (const tr of crowd.troop) {
+        const p = t.battle.troops[tr]!.prefab!;
+        expect(prefabs).toContain(p);
+        seen.add(p);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(4);
   });
 
   it('makes each Warband perPlayerSoldiers x (humans - 1) bigger: the whole part, and the fraction as a seeded chance, held to squad.size', () => {
@@ -178,7 +196,7 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
     }
   });
 
-  it('adds the extras as the first Troop of the template, after the template\'s own Soldiers', () => {
+  it('adds the extras of the template\'s first row\'s skill, after the template\'s own Soldiers', () => {
     const { crowd, t } = deal(7, 7, 3, noElites);
     const w = crowd.warbands!;
     const tier = t.delver.warbands[2]!;
@@ -186,12 +204,12 @@ describe('deployWarbands', { timeout: TIMEOUT }, () => {
       const template = (w.mode[q] === GUARD ? tier.guard : tier.patrol)[w.encounter[q]!]!;
       const own = template.troops.reduce((n, r) => n + r.count, 0);
       const ids = members(crowd, q);
-      for (const i of ids.slice(own)) expect(crowd.troop[i]).toBe(template.troops[0]!.troop);
+      for (const i of ids.slice(own)) expect(t.battle.troops[crowd.troop[i]!]!.difficulty).toBe(template.troops[0]!.skill);
     }
   });
 
   it('holds a full template at squad.size however many humans', () => {
-    const full = { ...tuning.delver, warbands: tuning.delver.warbands.map((tier) => ({ guard: tier.guard.map((g) => ({ ...g, troops: [{ troop: 0, count: tuning.battle.squad.size }] })), patrol: tier.patrol })) };
+    const full = { ...tuning.delver, warbands: tuning.delver.warbands.map((tier) => ({ guard: tier.guard.map((g) => ({ ...g, troops: [{ skill: 'Beginner', count: tuning.battle.squad.size }] })), patrol: tier.patrol })) };
     const { crowd } = deal(7, 1, 4, { ...tuning, delver: full });
     const w = crowd.warbands!;
     for (let q = 0; q < w.mode.length; q++) if (w.mode[q] === GUARD) expect(w.size[q]).toBe(tuning.battle.squad.size);
@@ -361,10 +379,16 @@ describe('elite Warbands', { timeout: TIMEOUT }, () => {
         expect(w.rank.filter((r) => r === ELITE)).toHaveLength(1);
         const tier = Math.ceil(floor / t.delver.floorsPerTier);
         const elite = t.delver.warbands[tier - 1]!.elite![w.encounter[deepest]!]!;
-        const rows = floorTroops(tuning.battle, tuning.delver).elite[tier - 1]![w.encounter[deepest]!]!;
-        const expected = elite.troops.flatMap((r, k) => new Array<number>(r.count).fill(rows[k]!));
-        expect(members(crowd, deepest).map((i) => crowd.troop[i])).toEqual(expected);
-        for (const i of members(crowd, deepest)) expect(t.battle.troops[crowd.troop[i]!]!.relics).toEqual(elite.relics);
+        const ft = floorTroops(tuning.delver);
+        const set = ft.elite[ft.eliteSet[tier - 1]![w.encounter[deepest]!]!]!;
+        const expected = elite.troops.flatMap((r) => new Array<string>(r.count).fill(r.skill));
+        const ids = members(crowd, deepest);
+        expect(ids.map((i) => t.battle.troops[crowd.troop[i]!]!.difficulty)).toEqual(expected);
+        for (const i of ids) {
+          const troop = t.battle.troops[crowd.troop[i]!]!;
+          expect(set.flat()).toContain(crowd.troop[i]);
+          for (const r of elite.relics) expect(troop.relics).toContain(r);
+        }
       }
     }
   });
@@ -383,14 +407,15 @@ describe('elite Warbands', { timeout: TIMEOUT }, () => {
     }
   });
 
-  it('gives the party\'s extras the first row\'s elite Troop', () => {
-    const { plan, crowd } = deal(7, 4, 4);
+  it('gives the party\'s extras the first row\'s skill, as elites', () => {
+    const { plan, crowd, t } = deal(7, 4, 4);
     const w = crowd.warbands!;
     const q = guardsOf(crowd, plan).find((k) => w.rank[k] === ELITE)!;
     const ids = members(crowd, q);
     const own = tuning.delver.warbands[1]!.elite![w.encounter[q]!]!.troops.reduce((n, r) => n + r.count, 0);
     expect(ids.length).toBeGreaterThan(own);
-    for (const i of ids.slice(own)) expect(crowd.troop[i]).toBe(crowd.troop[ids[0]!]);
+    const first = tuning.delver.warbands[1]!.elite![w.encounter[q]!]!.troops[0]!.skill;
+    for (const i of ids.slice(own)) expect(t.battle.troops[crowd.troop[i]!]!).toMatchObject({ difficulty: first, name: expect.stringMatching(/\(elite\)$/) });
   });
 
   it('deals no elite at elitePosts 0, and the same Crowd as with every elite pool empty', () => {
@@ -426,6 +451,12 @@ describe('elite Warbands', { timeout: TIMEOUT }, () => {
   });
 });
 
+/** The bundled Tuning with each Boss Variant wearing the Vital Charm (max HP +20%). */
+function vitalBoss(): TuningData {
+  const bosses = new Set(tuning.delver.warbands.map((t) => t.boss!.troop));
+  return { ...tuning, delver: { ...tuning.delver, troops: tuning.delver.troops.map((p) => ({ ...p, variants: p.variants.map((v) => (bosses.has(v.name) ? { ...v, relics: ['Vital Charm'] } : v)) })) } };
+}
+
 describe('the Boss Warband', { timeout: TIMEOUT }, () => {
   const bossOf = (crowd: ReturnType<typeof deal>['crowd']) => crowd.warbands!.rank.indexOf(BOSS);
 
@@ -452,23 +483,24 @@ describe('the Boss Warband', { timeout: TIMEOUT }, () => {
       const q = bossOf(crowd);
       const ids = members(crowd, q);
       const boss = t.delver.warbands[0]!.boss!;
-      const index = floorTroops(tuning.battle, tuning.delver).boss[0]!;
+      const index = floorTroops(tuning.delver).boss[0]!;
       expect(crowd.troop[ids[0]!]).toBe(index);
-      expect(t.battle.troops[index]!.name).toBe(boss.troop.name);
+      expect(t.battle.troops[index]!.name).toBe(boss.troop);
       expect(crowd.hp[ids[0]!]).toBeCloseTo(250);
       expect(crowd.maxHp![ids[0]!]).toBe(crowd.hp[ids[0]!]);
-      expect(crowd.sizeHeight[ids[0]!]).toBeCloseTo(boss.troop.height);
-      expect(crowd.sizeThick[ids[0]!]).toBeCloseTo(boss.troop.width);
+      // 250 HP is past sizeHp's top: the biggest body.
+      expect(crowd.sizeHeight[ids[0]!]).toBe(1.4);
+      expect(crowd.sizeThick[ids[0]!]).toBe(1.4);
       expect(crowd.look[ids[0]!]).toBe(0);
       expect(crowd.place[ids[0]!]).toBe(0);
       const guard = boss.guard[crowd.warbands!.encounter[q]!]!;
-      const rows = guard.troops.flatMap((r) => new Array<number>(r.count).fill(r.troop));
-      expect(ids.slice(1).map((i) => crowd.troop[i])).toEqual(rows);
-      ids.slice(1).forEach((i, k) => expect(crowd.hp[i]).toBeCloseTo(t.battle.troops[rows[k]!]!.hp * guard.hpScale * t.delver.tierHp[0]!));
+      const rows = guard.troops.flatMap((r) => new Array<string>(r.count).fill(r.skill));
+      expect(ids.slice(1).map((i) => t.battle.troops[crowd.troop[i]!]!.difficulty)).toEqual(rows);
+      ids.slice(1).forEach((i) => expect(crowd.hp[i]).toBeCloseTo(t.battle.troops[crowd.troop[i]!]!.hp * guard.hpScale * t.delver.tierHp[0]!));
     }
   });
 
-  it('adds the party\'s extras as the guard\'s first Troop for 4 humans, never a second Boss, held to the Squad size', () => {
+  it('adds the party\'s extras of the guard\'s first row\'s skill for 4 humans, never a second Boss, held to the Squad size', () => {
     for (const seed of SEEDS) {
       const { crowd, t } = deal(seed, 3, 4);
       const q = bossOf(crowd);
@@ -477,20 +509,20 @@ describe('the Boss Warband', { timeout: TIMEOUT }, () => {
       const own = guard.troops.reduce((n, r) => n + r.count, 0);
       expect(ids.length).toBeGreaterThan(1 + own);
       expect(ids.length).toBeLessThanOrEqual(t.battle.squad.size);
-      for (const i of ids.slice(1 + own)) expect(crowd.troop[i]).toBe(guard.troops[0]!.troop);
+      for (const i of ids.slice(1 + own)) expect(t.battle.troops[crowd.troop[i]!]!.difficulty).toBe(guard.troops[0]!.skill);
       expect(crowd.troop.filter((tr) => t.battle.troops[tr]!.boss === true)).toHaveLength(1);
     }
   });
 
-  it('adds the Relic share of the Boss Troop\'s Relics to its Soldier\'s HP', () => {
-    const vital: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map((tier) => ({ ...tier, boss: { ...tier.boss!, troop: { ...tier.boss!.troop, relics: ['Vital Charm'] } } })) } };
+  it('adds the Relic share of the Boss Variant\'s Relics to its Soldier\'s HP', () => {
+    const vital = vitalBoss();
     const { crowd } = deal(7, 3, 1, vital);
     const q = bossOf(crowd);
     expect(crowd.hp[members(crowd, q)[0]!]).toBeCloseTo(250 * 1.2);
   });
 
-  it('gives the Boss\'s guard Soldiers none of the Boss Troop\'s Relic share', () => {
-    const vital: TuningData = { ...tuning, delver: { ...tuning.delver, warbands: tuning.delver.warbands.map((tier) => ({ ...tier, boss: { ...tier.boss!, troop: { ...tier.boss!.troop, relics: ['Vital Charm'] } } })) } };
+  it('gives the Boss\'s guard Soldiers none of the Boss Variant\'s Relic share', () => {
+    const vital = vitalBoss();
     const { crowd, t } = deal(7, 3, 1, vital);
     const q = bossOf(crowd);
     const ids = members(crowd, q);

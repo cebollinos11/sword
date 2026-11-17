@@ -27,8 +27,9 @@ import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelectio
 export { MAX_FLOOR_TROOPS };
 export { MAX_LOOT_SPOTS, parseDungeon, RANDOM_PICK, type DungeonLoot, type DungeonTuning } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
-import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate } from './delver';
-export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate };
+import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate } from './delver';
+export { eliteRelicSets, fieldedIn, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
+export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseConsumables, type ConsumableTuning } from './consumables';
 import { parseBattle, type BattleTuning } from './battle';
@@ -453,8 +454,8 @@ export type AiStyleKey = (typeof AI_STYLE_KEYS)[number];
 /** A Style: a multiplier (0 or more) on each of a difficulty preset's chances it names; the result is clamped to 0..1. */
 export type AiStyle = Readonly<Partial<Record<AiStyleKey, number>>>;
 
-/** The default Style, which changes nothing (Tuning Data `ai.styles` must hold it, empty). */
-export const DEFAULT_STYLE = 'Balanced';
+import { DEFAULT_STYLE } from './style';
+export { DEFAULT_STYLE };
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {

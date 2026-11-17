@@ -1,7 +1,8 @@
 /**
  * The Crowd drawn (docs/plans/big-battle.md, Stage 2): every Soldier an impostor, one instanced billboard draw per Team and look
- * (a Troop's Body and Weapon, each from its own baked atlas, `bakeImpostorAtlases`), tinted in the shader with its Team's colour
- * in a shade of its own (`soldierShade`, so an army is not one flat colour), and a blob shadow under each (one more draw for all).
+ * (a Troop's Body and Weapon, each from its own baked atlas, `bakeImpostorAtlases`), tinted in the shader with its Team's colour, or its
+ * Troop's own (`TroopTuning.tint`: a Delver Soldier's skill), in a shade of its own (`soldierShade`, so an army is not one flat colour), and a
+ * blob shadow under each (one more draw for all). A Soldier whose look has no atlas (`ImpostorAtlases.index` -1: not baked) is not drawn.
  * Each look's draw holds a billboard for every place of its army; a Soldier of another look is drawn there at no size (no pixels). Each frame a Soldier's billboard turns about the vertical to face the camera
  * (in the shader), shows the atlas cell of the direction the camera sees it from (`directionCell`) and of the clip and
  * frame its state shows (`soldierFrame`), and glides between its Crowd steps (`soldierAt`).
@@ -30,10 +31,12 @@ const vertexShader = /* glsl */ `
   attribute float aFade;
   attribute vec2 aSize;
   attribute vec2 aShade;
+  attribute vec3 aTint;
   uniform vec2 uCellSize;
   varying vec2 vUv;
   varying float vFade;
   varying vec2 vShade;
+  varying vec3 vTint;
   #include <fog_pars_vertex>
   void main() {
     // Turned about the vertical to face the camera.
@@ -46,6 +49,7 @@ const vertexShader = /* glsl */ `
     vUv = aCell + vec2(aMirror > 0.5 ? 1.0 - uv.x : uv.x, uv.y) * uCellSize;
     vFade = aFade;
     vShade = aShade;
+    vTint = aTint;
     vec4 mvPosition = viewMatrix * vec4(world, 1.0);
     gl_Position = projectionMatrix * mvPosition;
     #include <fog_vertex>
@@ -55,10 +59,10 @@ const vertexShader = /* glsl */ `
 const fragmentShader = /* glsl */ `
   uniform sampler2D uAtlas;
   uniform sampler2D uMask;
-  uniform vec3 uTint;
   varying vec2 vUv;
   varying float vFade;
   varying vec2 vShade;
+  varying vec3 vTint;
   ${BAYER_GLSL}
   #include <fog_pars_fragment>
   void main() {
@@ -69,8 +73,8 @@ const fragmentShader = /* glsl */ `
     // The colour is baked white on the team part and filtered, so an edge pixel is white where the mask has only partly risen:
     // taking the mask's partial values as full keeps that white from showing as a fringe.
     float team = smoothstep(0.0, 0.35, texture2D(uMask, vUv).r);
-    // Its own shade: of its Team's colour on the team-coloured part (x), and a little lighter or darker all over (y).
-    gl_FragColor = vec4(colour.rgb * vShade.y * mix(vec3(1.0), uTint * vShade.x, team), 1.0);
+    // Its own shade: of its tint (its Team's or its Troop's colour) on the team-coloured part (x), and a little lighter or darker all over (y).
+    gl_FragColor = vec4(colour.rgb * vShade.y * mix(vec3(1.0), vTint * vShade.x, team), 1.0);
     #include <fog_fragment>
     #include <colorspace_fragment>
   }
@@ -101,6 +105,8 @@ class TeamImpostors {
   readonly fade: THREE.InstancedBufferAttribute;
   readonly size: THREE.InstancedBufferAttribute;
   readonly shade: THREE.InstancedBufferAttribute;
+  /** Each billboard's tint (linear RGB): its Team's colour until a Troop's own is set (`CrowdView.update`). */
+  readonly tint: THREE.InstancedBufferAttribute;
 
   constructor(
     readonly atlas: ImpostorAtlas,
@@ -127,19 +133,22 @@ class TeamImpostors {
     for (let k = 0; k < count; k++) shades.set(soldierShade(team * count + k), 2 * k);
     this.shade = new THREE.InstancedBufferAttribute(shades, 2);
     geometry.setAttribute('aShade', this.shade);
+    const colour = new THREE.Color().setHex(tint);
+    const tints = new Float32Array(count * 3);
+    for (let k = 0; k < count; k++) tints.set([colour.r, colour.g, colour.b], 3 * k);
+    this.tint = new THREE.InstancedBufferAttribute(tints, 3).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aTint', this.tint);
     geometry.instanceCount = count;
     const uniforms = THREE.UniformsUtils.merge([
       THREE.UniformsLib.fog,
       {
         uCellSize: { value: new THREE.Vector2() },
-        uTint: { value: new THREE.Color() },
       },
     ]);
     // Textures set after the merge, which would clone them.
     uniforms.uAtlas = { value: atlas.colour };
     uniforms.uMask = { value: atlas.mask };
     (uniforms.uCellSize!.value as THREE.Vector2).set(atlas.layout.cell / atlas.layout.width, atlas.layout.cell / atlas.layout.height);
-    (uniforms.uTint!.value as THREE.Color).setHex(tint);
     const material = new THREE.ShaderMaterial({
       uniforms,
       vertexShader,
@@ -165,6 +174,7 @@ const tilt = new THREE.Quaternion();
 const normal = new THREE.Vector3();
 const size = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const tintColour = new THREE.Color();
 
 export class CrowdView {
   readonly root = new THREE.Group();
@@ -180,6 +190,10 @@ export class CrowdView {
   private hitAt = new Float64Array(0);
   private diedAt = new Float64Array(0);
   private lastTick = -1;
+  /** Each Troop's tint (linear RGB), or null for its Team's colour. */
+  private readonly troopTints: readonly (readonly [number, number, number] | null)[];
+  /** Each Team's colour (linear RGB): the tint of a Soldier whose Troop has none. */
+  private readonly teamTints: readonly (readonly [number, number, number])[];
 
   /** `atlases`: one atlas (every Soldier the same look), or a Battle's atlases, one per look (`bakeImpostorAtlases`). */
   constructor(
@@ -190,6 +204,8 @@ export class CrowdView {
     const all = 'atlases' in atlases ? atlases.atlases : [atlases];
     this.lookIndex = 'atlases' in atlases ? atlases.index : [0, 1].map((team) => battle.troops.map((t) => troopBodies(t, team).map(() => 0)));
     this.layout = all[0]!.layout;
+    this.troopTints = battle.troops.map((t) => (t.tint === undefined ? null : (tintColour.setHex(t.tint), [tintColour.r, tintColour.g, tintColour.b] as const)));
+    this.teamTints = [0, 1].map((team) => (tintColour.setHex(battle.soldier.colours[team]!), [tintColour.r, tintColour.g, tintColour.b] as const));
     this.teams = [0, 1].map((team) => all.map((atlas) => new TeamImpostors(atlas, battle.armySize, battle.soldier.colours[team]!, team)));
     for (const t of this.teams.flat()) this.root.add(t.mesh);
     const disc = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -224,10 +240,18 @@ export class CrowdView {
     const cz = camera.position.z;
     for (let i = 0; i < n; i++) {
       const draws = this.teams[crowd.team[i]!]!;
-      const team = draws[this.lookOf(crowd, i)] ?? draws[0]!;
+      const look = this.lookOf(crowd, i);
       const k = i % army;
-      // Its place in every other look's draw is empty.
+      // Its place in every other look's draw is empty; a look with no atlas is drawn nowhere.
+      const team = look < 0 ? undefined : (draws[look] ?? draws[0]!);
       for (const other of draws) if (other !== team) other.size.setXY(k, 0, 0);
+      if (!team) {
+        this.shadows.setMatrixAt(i, matrix.makeScale(0, 0, 0));
+        continue;
+      }
+      // Always written: instance k may have shown another Soldier (of another Troop) before.
+      const tint = this.troopTints[crowd.troop[i] ?? 0] ?? this.teamTints[crowd.team[i] === 1 ? 1 : 0]!;
+      team.tint.setXYZ(k, tint[0], tint[1], tint[2]);
       const fade = fades ? fades[i]! : crowd.slot[i]! >= 0 ? 0 : 1;
       team.fade.setX(k, fade);
       soldierAt(crowd, i, tick, tick + alpha, stagger, army, at);
@@ -274,20 +298,22 @@ export class CrowdView {
       t.mirror.needsUpdate = true;
       t.fade.needsUpdate = true;
       t.size.needsUpdate = true;
+      t.tint.needsUpdate = true;
     }
     this.shadows.instanceMatrix.needsUpdate = true;
   }
 
-  /** Which look's draw Soldier `i` is in (its Troop's look). */
+  /** Which look's draw Soldier `i` is in (its Troop's look), or -1 when that look has no atlas. */
   private lookOf(crowd: CrowdState, i: number): number {
     const looks = this.lookIndex[crowd.team[i] === 1 ? 1 : 0]?.[crowd.troop[i] ?? 0];
     return looks?.[(crowd.look[i] ?? 0) % (looks.length || 1)] ?? 0;
   }
 
-  /** The draw Soldier `i` of `crowd` is in (its Team's, of its look); its billboard there is instance `i % armySize`. */
-  meshOf(crowd: CrowdState, i: number): THREE.Mesh {
+  /** The draw Soldier `i` of `crowd` is in (its Team's, of its look); its billboard there is instance `i % armySize`. Null when its look has no atlas. */
+  meshOf(crowd: CrowdState, i: number): THREE.Mesh | null {
     const draws = this.teams[crowd.team[i]!]!;
-    return (draws[this.lookOf(crowd, i)] ?? draws[0]!).mesh;
+    const look = this.lookOf(crowd, i);
+    return look < 0 ? null : (draws[look] ?? draws[0]!).mesh;
   }
 
   /** Note each Soldier struck (its HP dropped) or fallen since the last Tick seen, at Battle time `now`. */

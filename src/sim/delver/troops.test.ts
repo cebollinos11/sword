@@ -1,80 +1,160 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData } from '../../tuning';
+import { loadTuningData, MAX_SIZE, MIN_SIZE } from '../../tuning';
 import { delverBattle } from './build';
-import { floorTroops, floorTuningOf, isBossFloor, tierOf } from './troops';
+import { floorLooks, floorPrefabs, floorTroops, floorTuningOf, isBossFloor, sizeOfHp, tierOf } from './troops';
 import { delverFloor } from './generate';
 
 const tuning = loadTuningData();
 const { battle, delver } = tuning;
-const base = battle.troops.length;
 const without = (tier: number) => ({ ...delver, warbands: delver.warbands.map((t, i) => (i === tier ? { guard: t.guard, patrol: t.patrol, elite: t.elite } : t)) });
+const variants = delver.troops.reduce((n, p) => n + p.variants.length, 0);
+const plainVariants = delver.troops.reduce((n, p) => n + p.variants.filter((v) => !v.boss).length, 0);
 
 describe('floorTroops', () => {
-  const ft = floorTroops(battle, delver);
+  const ft = floorTroops(delver);
 
-  it('lists battle.troops first, then the Bosses in tier order, then the elites tier by tier, template by template, row by row', () => {
-    expect(ft.troops.slice(0, base)).toEqual(battle.troops);
-    ft.troops.slice(0, base).forEach((t, i) => expect(t).toBe(battle.troops[i]));
-    expect(ft.boss).toEqual([base, base + 1, base + 2]);
-    expect(ft.troops.slice(base, base + 3).map((t) => t.name)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
-    let next = base + 3;
-    delver.warbands.forEach((tier, ti) =>
-      (tier.elite ?? []).forEach((template, ei) =>
-        template.troops.forEach((row, ri) => {
-          expect(ft.elite[ti]![ei]![ri]).toBe(next++);
-          expect(ft.troops[ft.elite[ti]![ei]![ri]!]!.name).toBe(`${battle.troops[row.troop]!.name} (elite)`);
-        }),
-      ),
+  it('lists every Variant, Prefab by Prefab, then each non-Boss Variant again per elite Relic set', () => {
+    let next = 0;
+    delver.troops.forEach((p, i) =>
+      p.variants.forEach((v, k) => {
+        expect(ft.plain[i]![k]).toBe(next);
+        expect(ft.troops[next++]!.name).toBe(v.name);
+      }),
     );
-    expect(ft.troops.length).toBe(next);
-    expect(ft.elite.map((t) => t.map((e) => e.length))).toEqual([[2], [2, 2], [3]]);
+    expect(next).toBe(variants);
+    // Two distinct sets: [Whetstone] and [Heavy Gauntlet, Glass Cannon].
+    expect(ft.elite).toHaveLength(2);
+    expect(ft.troops).toHaveLength(variants + 2 * plainVariants);
+    expect(ft.eliteSet).toEqual([[0], [0, 1], [1]]);
+    for (const set of ft.elite)
+      delver.troops.forEach((p, i) =>
+        p.variants.forEach((v, k) => {
+          if (v.boss) expect(set[i]![k]).toBe(-1);
+          else expect(ft.troops[set[i]![k]!]!.name).toBe(`${v.name} (elite)`);
+        }),
+      );
   });
 
-  it('a Boss Troop has no Mods, is fixed in Size, wears its Body, Style and Relics and is flagged', () => {
-    const wraith = ft.troops[ft.boss[2]!]!;
-    const brute = battle.troops.find((t) => t.name === 'Brute')!;
-    expect(wraith).toEqual({
-      ...brute,
-      name: 'Wraith Lord',
+  it('a Troop is its Prefab\'s look and its Variant\'s stats, tinted by its skill', () => {
+    const p = delver.troops[2]!;
+    const v = p.variants[2]!;
+    expect(ft.troops[ft.plain[2]![2]!]).toEqual({
+      name: v.name,
       weight: 1,
-      bodies: ['wraith'],
-      teamBodies: undefined,
-      height: [1.4, 1.4],
-      width: [1.4, 1.4],
-      weapon: 'Sledge Hammer',
+      bodies: [p.body],
+      weapon: p.weapon,
       difficulty: 'Expert',
-      mods: {},
-      style: 'Aggressive',
-      relics: ['Heavy Gauntlet'],
-      boss: true,
+      style: v.style,
+      relics: v.relics,
+      hp: v.hp,
+      damage: v.damage,
+      hitChance: v.hitChance,
+      engageReach: v.engageReach,
+      mods: v.mods,
+      prefab: 2,
+      tint: 0x1c1c1c,
     });
-    expect(ft.troops[ft.boss[0]!]!.relics).toEqual([]);
-    expect(ft.troops[ft.boss[1]!]!.style).toBe('Counter');
+    expect(ft.troops[ft.plain[0]![0]!]!.tint).toBe(0x8e8e8e);
+    expect(ft.troops[ft.plain[0]![1]!]!.tint).toBe(0xb3261e);
   });
 
-  it('an elite Troop keeps its base (Mods included) and adds the template\'s Relics', () => {
-    const t = delver.warbands[1]!.elite![1]!;
-    t.troops.forEach((row, r) => {
-      const e = ft.troops[ft.elite[1]![1]![r]!]!;
-      const b = battle.troops[row.troop]!;
-      expect(e).toEqual({ ...b, name: `${b.name} (elite)`, relics: t.relics });
-      expect(e.mods).toBe(b.mods);
-      expect(e.boss).toBeUndefined();
-    });
+  it('an elite Troop wears its Variant\'s Relics and then its set\'s', () => {
+    const e = ft.troops[ft.elite[1]![2]![2]!]!;
+    expect(e.relics).toEqual(['Honed Daggers', 'Heavy Gauntlet', 'Glass Cannon']);
+    expect(e.boss).toBeUndefined();
+    expect(ft.troops[ft.elite[0]![0]![0]!]!.relics).toEqual(['Whetstone']);
   });
 
-  it('is cached per (battle, delver) objects, and a changed Tuning gives its own list', () => {
-    expect(floorTroops(battle, delver)).toBe(ft);
+  it('each tier\'s Boss is its Boss Variant\'s Troop, flagged', () => {
+    expect(ft.boss.map((b) => ft.troops[b]!.name)).toEqual(['Warden', 'Duelist', 'Wraith Lord']);
+    for (const b of ft.boss) expect(ft.troops[b]!.boss).toBe(true);
+    expect(ft.troops[ft.boss[2]!]!).toMatchObject({ bodies: ['wraith'], weapon: 'Longsword', relics: ['Heavy Gauntlet'], mods: {} });
+  });
+
+  it('is cached per delver object, and a changed Tuning gives its own list', () => {
+    expect(floorTroops(delver)).toBe(ft);
     const other = without(0);
-    expect(floorTroops(battle, other)).not.toBe(ft);
-    expect(floorTroops(battle, other)).toBe(floorTroops(battle, other));
-    expect(floorTroops(battle, other).boss).toEqual([-1, base, base + 1]);
+    expect(floorTroops(other)).not.toBe(ft);
+    expect(floorTroops(other)).toBe(floorTroops(other));
+    expect(floorTroops(other).boss[0]).toBe(-1);
   });
 
   it('delverBattle carries them as the Floor\'s troops, and leaves battle.troops alone', () => {
+    const base = battle.troops.length;
     const b = delverBattle(tuning, { ...(Object.values(battle.maps)[0] ?? ({} as never)) });
     expect(b.troops).toBe(ft.troops);
     expect(battle.troops.length).toBe(base);
+  });
+});
+
+describe('floorPrefabs and floorLooks', () => {
+  it('picks prefabsPerFloor different Prefabs, ascending, the same for the same (seed, Floor)', () => {
+    for (let seed = 1; seed < 30; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const picked = floorPrefabs(delver, seed, floor);
+        expect(picked).toHaveLength(delver.prefabsPerFloor);
+        expect(new Set(picked).size).toBe(picked.length);
+        expect(picked).toEqual([...picked].sort((a, b) => a - b));
+        expect(floorPrefabs(delver, seed, floor)).toEqual(picked);
+      }
+  });
+
+  it('varies from Floor to Floor, a Prefab free to come back, and over a few Runs fields every Prefab', () => {
+    const seen = new Set<number>();
+    let changed = 0;
+    let repeated = 0;
+    for (let seed = 1; seed < 20; seed++)
+      for (let floor = 1; floor < 9; floor++) {
+        const a = floorPrefabs(delver, seed, floor);
+        const b = floorPrefabs(delver, seed, floor + 1);
+        a.forEach((p) => seen.add(p));
+        if (a.join() !== b.join()) changed++;
+        if (a.some((p) => b.includes(p))) repeated++;
+      }
+    expect(seen.size).toBe(delver.troops.length);
+    expect(changed).toBeGreaterThan(100);
+    expect(repeated).toBeGreaterThan(0);
+  });
+
+  it('fields every Prefab when there are no more than prefabsPerFloor', () => {
+    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, delver.tiers * delver.floorsPerTier)).toEqual(delver.troops.map((_, i) => i));
+  });
+
+  it('fields a Prefab only from its minTier on', () => {
+    const late = delver.troops.flatMap((p, i) => ((p.minTier ?? 1) > 1 ? [i] : []));
+    expect(late.length).toBeGreaterThan(0);
+    for (let seed = 1; seed < 30; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const tier = tierOf(delver, floor);
+        for (const p of floorPrefabs(delver, seed, floor)) expect(delver.troops[p]!.minTier ?? 1).toBeLessThanOrEqual(tier);
+      }
+    // Every Prefab may be fielded once its tier has come.
+    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, 1)).toEqual(delver.troops.flatMap((p, i) => ((p.minTier ?? 1) <= 1 ? [i] : [])));
+  });
+
+  it('adds the Boss\'s Prefab on a Boss Floor only', () => {
+    for (let seed = 1; seed < 30; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const looks = floorLooks(delver, seed, floor);
+        const prefabs = floorPrefabs(delver, seed, floor);
+        const boss = delver.warbands[tierOf(delver, floor) - 1]!.boss!.prefab;
+        const expected = isBossFloor(delver, floor) && !prefabs.includes(boss) ? [...prefabs, boss].sort((a, b) => a - b) : prefabs;
+        expect(looks).toEqual(expected);
+      }
+  });
+});
+
+describe('sizeOfHp', () => {
+  it('is the smallest body at sizeHp[0] or less, the biggest at sizeHp[1] or more, in a line between, snapped', () => {
+    // Its own sizeHp, apart from the file's.
+    const delver = { sizeHp: [30, 150] as const };
+    expect(sizeOfHp(delver, 10)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
+    expect(sizeOfHp(delver, 30)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
+    expect(sizeOfHp(delver, 90)).toEqual({ height: 1, thick: 1 });
+    expect(sizeOfHp(delver, 150)).toEqual({ height: MAX_SIZE, thick: MAX_SIZE });
+    expect(sizeOfHp(delver, 400)).toEqual({ height: MAX_SIZE, thick: MAX_SIZE });
+    expect(sizeOfHp(delver, 60).height).toBe(0.8);
+    expect(sizeOfHp(delver, 61).height).toBe(0.8);
   });
 });
 

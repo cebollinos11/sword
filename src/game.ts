@@ -745,7 +745,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       void import('./play/floorCrowd').then(({ FloorCrowd }) => {
         if (generation !== playing || !floorCrowdLoading) return;
         const progress = (done: number, total: number) => bar.set(0.15 + 0.75 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : WARM_UP_DETAIL);
-        const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, undefined, progress);
+        const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, duel.arena, undefined, progress);
         floorCrowd = crowd;
         // With the impostors in the scene, compile every shader the Run may come to draw while the bar is still up: else the
         // impostors as it lifts, the first Soldier promoted and the first Hit's blood each hitch as their shaders compile.

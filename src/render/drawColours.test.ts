@@ -26,3 +26,19 @@ describe('the colours a Renderer dresses the Fighters in', () => {
     expect(drawn[2]).toBe(colours[1]);
   });
 });
+
+describe('a Delver Soldier’s full model (docs/plans/delver-troops.md)', () => {
+  it('wears its Troop’s skill tint while it holds a Pool slot, and Team 1’s colour without one', async () => {
+    const { floorTroops } = await import('../sim/delver');
+    const { troops, plain } = floorTroops(tuning.delver);
+    const duel = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0] }).duel;
+    const crowd = duel.crowd!;
+    const expert = plain[0]![2]!;
+    const held = { ...duel, fighters: duel.fighters.map((f, i) => (i === 2 || i === 3 ? { ...f, team: 1 } : f)), crowd: { ...crowd, slot: crowd.slot.map((_, s) => (s === 0 ? 2 : -1)), troop: crowd.troop.map((t, s) => (s === 0 ? expert : t)) } };
+    const drawn = drawColours(held, colours, troops);
+    expect(drawn[2]).toBe(tuning.delver.skillTints.Expert);
+    expect(drawn[3]).toBe(colours[1]);
+    // Without the Troops (a Battle's Renderer), Team 1's colour.
+    expect(drawColours(held, colours)[2]).toBe(colours[1]);
+  });
+});

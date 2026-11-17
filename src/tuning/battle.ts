@@ -252,6 +252,10 @@ export interface TroopTuning {
   readonly relics?: readonly string[];
   /** A Delver Floor's Boss Troop only. */
   readonly boss?: true;
+  /** A Delver Floor's Troop only (docs/plans/delver-troops.md): its Prefab (an index into `delver.troops`), whose one look it wears. */
+  readonly prefab?: number;
+  /** A Delver Floor's Troop only: the colour (0xRRGGBB) of its team-coloured part, from its skill (`delver.skillTints`); absent: its Team's. Render-only. */
+  readonly tint?: number;
   /** Its HP, in a Fighter's units. */
   readonly hp: number;
   /** A Crowd blow's damage, uniform in [min, max]. */

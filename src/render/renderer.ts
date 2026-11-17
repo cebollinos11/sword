@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
 import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
-import { sizedTuning, weaponByName, type TuningData } from '../tuning';
+import { sizedTuning, weaponByName, type TroopTuning, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
@@ -20,16 +20,36 @@ import { arenaTuning } from '../sim/delver';
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
 export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
 
+/** Each held Pool slot's Soldier, by slot, for a Crowd's `slot` list: cached per list, which the Simulation replaces (never edits) when it changes, so a frame between Ticks costs nothing. */
+const heldCache = new WeakMap<readonly number[], Map<number, number>>();
+function heldSoldiers(slot: readonly number[]): Map<number, number> {
+  let held = heldCache.get(slot);
+  if (!held) {
+    held = new Map();
+    for (let s = 0; s < slot.length; s++) if (slot[s]! >= 0) held.set(slot[s]!, s);
+    heldCache.set(slot, held);
+  }
+  return held;
+}
+
 /**
  * Every Fighter's colour in `state`. A Battle's Fighters wear their Team's soldier colour (`soldierColours`); a Delver Run's keep
  * the Duel's colours for the party (Team 0, shaded by place) and a promoted Soldier of the Warbands wears Team 1's soldier colour,
  * as its impostor does; any other state has the Duel's.
  */
-export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[]): number[] {
+export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[], troops?: readonly Pick<TroopTuning, 'tint'>[]): number[] {
   if (!state.crowd) return fighterColours(state.fighters.map((f) => f.team));
   if (!state.delver) return state.fighters.map((f) => soldierColours[f.team] ?? 0xffffff);
   const duel = fighterColours(state.fighters.map((f) => f.team));
-  return state.fighters.map((f, i) => (f.team === 0 ? duel[i]! : (soldierColours[f.team] ?? 0xffffff)));
+  // On a Floor, a Pool slot holding a Soldier (promoted, or a traitor's) wears its Troop's tint, as its impostor does (docs/plans/delver-troops.md).
+  const crowd = state.crowd;
+  const held = troops ? heldSoldiers(crowd.slot) : undefined;
+  return state.fighters.map((f, i) => {
+    if (f.team === 0) return duel[i]!;
+    const s = held?.get(i);
+    const tint = s === undefined ? undefined : troops?.[crowd.troop[s] ?? 0]?.tint;
+    return tint ?? soldierColours[f.team] ?? 0xffffff;
+  });
 }
 
 /**
@@ -236,7 +256,7 @@ export class Renderer {
    */
   render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
     const world = this.showArena(curr.arena);
-    const colours = drawColours(curr, world.tuning.battle.soldier.colours);
+    const colours = drawColours(curr, world.tuning.battle.soldier.colours, world.tuning.battle.troops);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;

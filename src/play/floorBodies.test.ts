@@ -36,16 +36,15 @@ describe('a Delver Floor’s Soldiers’ Bodies', () => {
   const two = { ...tuning, delver: { ...tuning.delver, tiers: 2, floorsPerTier: 1 } };
   const run = createMatch(two, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0] });
   const crowd = run.duel.crowd!;
-  const { troops, boss, elite } = floorTroops(two.battle, two.delver);
+  const { troops, boss, elite } = floorTroops(two.delver);
 
-  it('reads a Boss Troop, whose index is past the Battle’s, as its Body, and an elite as its base’s', () => {
-    expect(boss[0]).toBeGreaterThanOrEqual(two.battle.troops.length);
+  it('reads a Boss Troop as its Prefab\'s Body, and an elite as its Variant\'s Prefab\'s', () => {
     const as = (troop: number) => floorBodyOf(two, run.arena, { ...crowd, troop: crowd.troop.map(() => troop), look: crowd.look.map(() => 0), team: crowd.team.map(() => 1) })(0);
     expect(troopBodies(troops[boss[0]!]!, 1)).toEqual([as(boss[0]!)]);
-    expect(as(boss[0]!)).toBe(two.delver.warbands[0]!.boss!.troop.body);
-    const eliteTroop = elite[0]![0]![0]!;
-    expect(eliteTroop).toBeGreaterThanOrEqual(two.battle.troops.length);
-    expect(troopBodies(troops[eliteTroop]!, 1)).toContain(as(eliteTroop));
+    const spec = two.delver.warbands[0]!.boss!;
+    expect(as(boss[0]!)).toBe(two.delver.troops[spec.prefab]!.body);
+    const eliteTroop = elite[0]![2]![0]!;
+    expect(as(eliteTroop)).toBe(two.delver.troops[2]!.body);
   });
 
   it('falls back to the Battle’s Soldier Body without a Crowd', () => {
