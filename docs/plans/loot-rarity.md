@@ -1,6 +1,6 @@
 # Loot Rarity: Rarities, Weapon Effects and the Full Roster as Loot
 
-> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stages 1 to 3 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: done (2026-11-17). Scope agreed with the user the same day; all four Stages built. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 Delver loot is flat today. Every copy of an item is the same item:
@@ -127,7 +127,7 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 - [x] Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
 - [x] Stage 2: Weapon effects and the Rarity damage bonus
 - [x] Stage 3: Rarity rolls by depth and source
-- [ ] Stage 4: Rarity shown: inventory, HUD, results, pickups, the wielded Weapon
+- [x] Stage 4: Rarity shown: inventory, HUD, results, pickups, the wielded Weapon
 
 ### Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
 - `Rarity`, `dungeon.loot.rarity` (multipliers only is fine for now), and `Item` through the Inventory, `Dropped`, pickups and events.
@@ -454,6 +454,64 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 - `rarityColours.test.ts`: the tokens, `rarityTint` (the base unchanged for Common, distinct for Rare and Legendary) and `wieldedRarity`.
 - `pickupMarks.test.ts` (it builds `PickupMarks` headless already): the ring shows only under Rare and Legendary pickups; the light count is fixed; the nearest glowing pickups get the lit lights.
 - Screenshots (`docs/plans/loot-rarity/`) by a Playwright script driving the dev build.
+
+### Result
+- **Built**:
+  - the colour tokens (`src/render/rarityColours.ts`: Rare `#4a9eff`, Legendary `#ff8a1f`), which feed the CSS in `styles.ts`;
+  - on the inventory screen:
+    - the Rare and Legendary names, borders and labels ("Whetstone · Rare");
+    - the scaled effect text, with downsides as they are;
+    - each Weapon's effects and Rarity damage ("+15% damage (Rare)");
+  - the pickup labels and the results Build in the Rarity colour;
+  - `PickupView.rarity` and `PickupView.glow`;
+  - the 3D glow:
+    - a coloured ring under a Rare or Legendary pickup;
+    - four pooled `PointLight`s, always in the scene, lit for the nearest glowing pickups;
+    - a lying Weapon tinted;
+  - the wielded Weapon's tint: `FighterView.setRarity` tints the view's own steel, and the wood too for the Quarterstaff. `renderer.ts` sets it from `wieldedRarity(f)`, read from the simulated inventory.
+- **Decisions the plan did not settle**:
+  - The HUD has no inventory slot strip, so "HUD slots" became the pickup labels and the results Build.
+  - A Common item keeps its bare name (no "· Common").
+  - A Weapon's Rarity damage reads "+15% damage (Rare)", apart from a Longsword's own `damage` effect.
+  - A Rare or Legendary slot's border takes the Rarity colour over the gold border of a wielded or equipped slot. The gold fill and the "Wielded" / "Equipped" line still mark it.
+  - The tint is a 0.55 lerp from the steel's emissive to the Rarity colour.
+  - The lights have intensity 6 and reach 4 m.
+  - The ring runs from 0.3 to 0.45 m at opacity 0.8, additive.
+  - The four glow lights are always present, so every scene's shaders light four more point lights, at intensity 0 when nothing glows. That is the price of never recompiling a shader when loot appears.
+- **Tests**:
+  - `npm test`: 3101 passed, 3 skipped.
+  - `npm run typecheck` and `npm run build` are clean.
+- **New tests**:
+  - `inventoryView.test.ts`:
+    - a Rare Whetstone, a Legendary Glass Cannon (whose downside is kept), and a Rare Longsword, Legendary Arming Sword and Common Arming Sword;
+    - the bare Common label;
+    - the key changing with the Rarity;
+  - `pickupView.test.ts`: the glow per Rarity, and the label carrying its Rarity;
+  - `rarityColours.test.ts`: the tokens, `rarityTint` and `wieldedRarity`;
+  - `pickupMarks.test.ts`:
+    - the ring under Rare and Legendary pickups only;
+    - always 4 lights, the nearest glowing pickups lit in their colours, all dark with none glowing;
+  - `fighterViewRarity.test.ts`:
+    - the steel tint is set and reset;
+    - two views never share one;
+    - the staff's wood is tinted only while the staff is drawn.
+- **Tests changed**:
+  - `inventoryView.test.ts`: a Common Weapon's words were `''`; they are now its effects, as the plan intends.
+  - `pickupView.test.ts`: the expected label gained `rarity`.
+  - `pickupMarks.test.ts`: its `PickupView` helper gained the new fields. Its slot lookups skip the lights now in `root`.
+- **Screenshots** (`docs/plans/loot-rarity/`, Common / Rare / Legendary):
+  - [in hand, the Longsword](loot-rarity/in-hand-longsword.png), [the Quarterstaff](loot-rarity/in-hand-quarterstaff.png) and [the Halberd](loot-rarity/in-hand-halberd.png);
+  - [on the Floor](loot-rarity/floor-pickups.png): rings, lights and tinted Weapons; the Common pickups plain;
+  - [the inventory screen](loot-rarity/inventory-screen.png): the labels, borders and scaled numbers.
+
+  How they were made:
+  - A Playwright script on the Vite dev server imported the game's own `FighterView`, `PickupMarks` and `InventoryScreen` and drew them with Fighters set up through `createMatch` and `holdInventory`. It did not play a Run: no dev option makes a Rare or Legendary item, since the plan keeps the dev `relics` and the Lineup's Weapon Common.
+  - The Body model files are not in this checkout, so the Fighters are drawn as the bare Skeleton.
+  - The relic icons on the floor pickups did not load in that harness.
+  - A Sheathed shot was not taken: the harness could not pose a Sheathe. The sheathed Weapon draws with the same per-view materials, so it keeps its tint.
+- **Not checked**:
+  - Online with two peers. This container has no second browser on a reachable PeerJS server.
+  - The tint is a pure function of the simulated `inventory` (`wieldedRarity`). The Delver co-op and four-Player slow suites already hold the peers' states hash-equal, Items with their Rarities included. So two peers draw the same tint by construction, but no one has looked at it.
 
 ## Later
 - A loot announcement for a Legendary.

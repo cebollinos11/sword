@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { arenaOf, BONES, fighterPose, JOINT_NAMES, TICK_SECONDS, type BladeTransform, type JointName, type SimState, type SkeletonPose, type Vec3 } from '../sim';
-import { sizedTuning, weaponByName, type Size, type SkeletonTuning, type TuningData, type WeaponTuning } from '../tuning';
+import { sizedTuning, weaponByName, type Rarity, type Size, type SkeletonTuning, type TuningData, type WeaponTuning } from '../tuning';
 import { BodyCut } from './bodyCut';
 import { defaultBody, loadBodyModel, type Body, type BodyModel } from './bodyModel';
 import { piecesOfFall, severing, type Pieces } from './dismember';
 import { ragdollPose } from './ragdoll';
 import { sheathedBlade } from './sheathed';
 import { chainLinks, FLAIL_LINKS, flailBallRadius, flailChainOf, linkSpacing, reachOf, rigidBall, sheathedFlail, shaftEnd, shaftLength, type FlailChain } from './flailChain';
-import { bladeSteel } from './steel';
+import { bladeSteel, STEEL_EMISSIVE } from './steel';
+import { rarityTint } from './rarityColours';
 import { MAX_MARKS, type BladeMark } from './bladeBlood';
 import { bodyBloodShader, bodyBloodUniforms, restFrames, setBodyBlood, type BodyMark } from './bodyBlood';
 import { boneFrames, type BodyBone, type BoneFrame } from './bodyRig';
@@ -34,6 +35,8 @@ export function fighterColours(teams: readonly number[]): number[] {
   return teams.map((team, i) => teamColour(team, teams.slice(0, i).filter((t) => t === team).length));
 }
 
+/** The wood's emissive (none): the base its Rarity tint (the staff's) moves from. */
+const WOOD_EMISSIVE = 0x000000;
 const UP = new THREE.Vector3(0, 1, 0);
 const STANDARD: Size = { height: 1, thick: 1 };
 /** Radius (m) of a joint's sphere on the bare Skeleton. */
@@ -96,14 +99,21 @@ export class FighterView {
   /** The geometries and materials the primitives share (made in the constructor). */
   private readonly owned: { dispose(): void }[] = [];
   private disposed = false;
+  /** The Weapon's Rarity (`setRarity`), its materials (tinted by it) and whether the Weapon drawn is the staff, whose wood is tinted too. */
+  private rarity: Rarity = 'Common';
+  private readonly steel: THREE.MeshLambertMaterial;
+  private readonly wood: THREE.MeshLambertMaterial;
+  private staffLook = false;
   /** Resolves once its Body is drawn as it will stay: its model in (or failed to load), or at once for the bare Skeleton. */
   readonly ready: Promise<void>;
 
   constructor(colour: number, tuning: TuningData, wears: Body = defaultBody()) {
     const body = new THREE.MeshLambertMaterial({ color: colour, flatShading: true });
     const steel = bladeSteel();
+    this.steel = steel;
     const dark = new THREE.MeshLambertMaterial({ color: 0x3a2a1a, flatShading: true });
     const wood = new THREE.MeshLambertMaterial({ color: 0x7a5230, flatShading: true });
+    this.wood = wood;
     const cylinder = new THREE.CylinderGeometry(1, 1, 1, 8);
     const sphere = new THREE.SphereGeometry(1, 10, 8);
     const box = new THREE.BoxGeometry(1, 1, 1);
@@ -245,6 +255,18 @@ export class FighterView {
     setDitherFade(this.root, fade);
   }
 
+  /** Tint the Weapon as Rarity `r` (steel's glow, and the staff's wood): from the next `update` too, as the look drawn may change. Cheap: nothing is allocated. */
+  setRarity(r: Rarity): void {
+    if (r === this.rarity) return;
+    this.rarity = r;
+    this.tint();
+  }
+
+  private tint(): void {
+    this.steel.emissive.setHex(rarityTint(STEEL_EMISSIVE, this.rarity));
+    this.wood.emissive.setHex(this.staffLook ? rarityTint(WOOD_EMISSIVE, this.rarity) : WOOD_EMISSIVE);
+  }
+
   /**
    * Draw a solved pose, holding `weapon` (the Fighter's Weapon from Tuning Data, at the Fighter's Size when it has one), in a body
    * `size` tall and thick (default: the standard body): limbs, joints and the head are drawn that much thicker.
@@ -284,6 +306,10 @@ export class FighterView {
       this.model.root.visible = this.bodyOn && !this.inPieces;
       if (cut) cut.pose(pieces!, pose.blade, size);
       else this.model.rig.pose(p, pose.blade, size);
+    }
+    if ((weapon.look === 'staff') !== this.staffLook) {
+      this.staffLook = !this.staffLook;
+      this.tint();
     }
     this.sword.group.visible = weapon.look === 'sword';
     this.polearm.group.visible = weapon.look === 'polearm';

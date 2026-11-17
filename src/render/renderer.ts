@@ -12,6 +12,7 @@ import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighte
 import { FlailSwing } from './flailSwing';
 import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
+import { wieldedRarity } from './rarityColours';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
 import { ShaderWarmUp } from './warmUp';
@@ -297,6 +298,7 @@ export class Renderer {
       slot.view.setFade(fade);
       slot.view.setBlood(this.impacts.blades.marksOf(i));
       slot.view.setWounds(this.impacts.bodies.marksOf(i));
+      slot.view.setRarity(wieldedRarity(f));
       slot.view.update(pose, weaponByName(sizedTuning(this.tuning, f.size), f.weapon), f.size, pose.pieces);
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
