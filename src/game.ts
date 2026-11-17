@@ -228,6 +228,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   /** A Delver Run's Crowd drawn as impostors, made on the Run's first frame (null while its code loads, and outside a Delver Run). */
   let floorCrowd: FloorCrowd | null = null;
   let floorCrowdLoading = false;
+  /** The loading bar over a Delver Run's first frames, while its Floor is built and its Soldiers' impostors bake; null once they are done. */
+  let floorBar: LoadingBar | null = null;
+  /** The Run's impostors are baked (or failed to): an offline Run waits for this before its first Tick. */
+  let floorCrowdSettled = false;
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
@@ -670,24 +674,41 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     floorCrowd?.dispose();
     floorCrowd = null;
     floorCrowdLoading = false;
+    floorCrowdSettled = false;
+    floorBar?.dispose();
+    floorBar = null;
   }
 
   /**
    * Draw a Delver Run's Crowd for the frame about to be rendered (`alpha` of the way to the next Tick, of `duel`: the final-blow shot draws its own state). Its code loads on the Run's
-   * first frame; the impostors bake in the background and appear once ready.
+   * first frame, behind a loading bar that stays up while the Floor is built (the first frame drawn) and the impostors bake. Returns false on that first
+   * frame: draw nothing yet, so the bar paints before the heavy work starts.
    */
-  function drawFloorCrowd(match: MatchState, duel: SimState, alpha: number, seconds: number): void {
-    if (!match.delver) return;
+  function drawFloorCrowd(match: MatchState, duel: SimState, alpha: number, seconds: number): boolean {
+    if (!match.delver) return true;
     if (!floorCrowd) {
-      if (floorCrowdLoading) return;
+      if (floorCrowdLoading) return true;
       floorCrowdLoading = true;
       const generation = playing;
+      const bar = new LoadingBar(container, 'Entering the dungeon');
+      bar.set(0.05, 'Building the Floor…');
+      floorBar = bar;
       void import('./play/floorCrowd').then(({ FloorCrowd }) => {
-        if (generation === playing && floorCrowdLoading) floorCrowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length);
+        if (generation !== playing || !floorCrowdLoading) return;
+        const progress = (done: number, total: number) => bar.set(0.15 + 0.85 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : 'Ready');
+        const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, undefined, progress);
+        floorCrowd = crowd;
+        void crowd.settled.then(() => {
+          if (floorCrowd !== crowd) return;
+          floorCrowdSettled = true;
+          if (floorBar === bar) floorBar = null;
+          bar.finish();
+        });
       });
-      return;
+      return false;
     }
     floorCrowd.update(duel, alpha, seconds, renderer.camera);
+    return true;
   }
 
   /** A Delver Floor's pedestal items stand on its crate props (`pedestal<n>`, in `plan.markers.pedestals` order): the top of each one's stack. False outside a Delver Run. */
@@ -936,8 +957,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const frozen = menu.paused && !lobby?.online;
     // A Match's first state (Tick 0, with its first DuelStart) is never stepped into: hear it once it exists.
     if (driver?.state && !inShot) audio.onMatchTick(driver.state);
-    // A Battle waits for its soldiers' impostors to be baked.
+    // A Battle waits for its soldiers' impostors to be baked; so does a Delver Run played here (online the Run is already ticking on every peer).
     if (battleOn && !battle?.ready) accumulator = 0;
+    if (curr.delver && driver && !floorCrowdSettled && !lobby?.online) accumulator = 0;
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;
@@ -1033,8 +1055,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         }
         const { camera } = tuning;
         placeShotCamera(renderer.camera, shot.centre, shot.yaw, camera.finalBlowDistance, camera.finalBlowHeight, renderer.collider);
-        drawFloorCrowd(curr, shot.to, shot.alpha, 0);
-        renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
+        if (drawFloorCrowd(curr, shot.to, shot.alpha, 0)) renderer.render(shot.from, shot.to, shot.alpha, camera.finalBlowSpeed);
       } else {
         // Fallen while the team fights on: orbit the fight instead of staring at the floor.
         if (curr.duel.fighters[me]?.death && curr.duel.duel.status === 'Fighting')
@@ -1045,8 +1066,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         else placeThirdPersonCamera(renderer.camera, cameraForHeight(tuning.camera, curr.duel.fighters[me]?.size?.height ?? 1), lerpPosition(before, curr.duel, me, alpha), yaw, local.pitch, renderer.collider);
         shake.update(frozen ? 0 : elapsed);
         shake.apply(renderer.camera, tuning.camera.shake);
-        drawFloorCrowd(curr, curr.duel, alpha, frozen ? 0 : elapsed);
-        renderer.render(before, curr.duel, alpha);
+        if (drawFloorCrowd(curr, curr.duel, alpha, frozen ? 0 : elapsed)) renderer.render(before, curr.duel, alpha);
       }
       if (touchInput) touchInput.sheathed = curr.duel.fighters[me]?.sheathed ?? false;
       // Online, the party's other Players carry name tags on a Floor (offline there is nobody else to name).

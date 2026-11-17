@@ -3,8 +3,9 @@
  * Soldier an impostor (`CrowdView`) until the Bubble promotes it into the Fighter Pool, when `BubbleSwap` crossfades it with its
  * full model. One `FloorCrowd` lives for the whole Run: the atlases are baked once from the Floor Troops (`floorBattle`; every Floor shares them, so the
  * base Tuning Data serves as well as a Floor's `arenaTuning`) and each Floor's new Crowd is just a Crowd of another length.
- * The atlases bake in the background, with no loading bar: the Floor plays on with Soldiers undrawn until they are ready (a
- * promoted Soldier is a Fighter, drawn by the Renderer as ever). Render only: it reads the state and never changes an outcome.
+ * The atlases bake on the Run's first frames, reporting each look baked (`onProgress`) so the game can put a loading bar over them;
+ * until they are ready the Soldiers are undrawn (a promoted Soldier is a Fighter, drawn by the Renderer as ever). Render only: it
+ * reads the state and never changes an outcome.
  */
 import type * as THREE from 'three';
 import { battlefieldHeight, battlefieldOf, soldierHeight, type Heightfield, type SimState } from '../sim';
@@ -29,7 +30,7 @@ export interface CrowdDraw {
 
 /** How a `FloorCrowd` makes its parts: the real ones by default, stubs in a test. */
 export interface FloorCrowdParts {
-  bake(): Promise<ImpostorAtlases>;
+  bake(onProgress?: (done: number, total: number) => void | Promise<void>): Promise<ImpostorAtlases>;
   view(atlases: ImpostorAtlases): CrowdDraw;
 }
 
@@ -51,6 +52,8 @@ export class FloorCrowd {
   private disposed = false;
   private warned = -1;
   private readonly parts: FloorCrowdParts;
+  /** Settles once the bake is over: the impostors drawn, or (it failed) the Floor plays on without them. */
+  readonly settled: Promise<void>;
 
   /** `party`: how many Fighters are the party (Pool slots from there are the Bubble's, drawn only while bound). */
   constructor(
@@ -58,24 +61,33 @@ export class FloorCrowd {
     private readonly tuning: TuningData,
     private readonly party: number,
     parts?: FloorCrowdParts,
+    /** Called as the looks bake: `done` of `total` are in. */
+    onProgress?: (done: number, total: number) => void,
   ) {
     const battle = floorBattle(tuning);
     this.parts = parts ?? {
       // A frame between atlases, as a Battle's loading bar gives (`battleScreen.ts`): the Run is already ticking online, and one
       // unbroken bake of every look holds this page's Ticks and Intents for seconds, long enough on a slow machine for the host's
       // `DEFAULT_TIMEOUT_TICKS` to drop a guest and hand its Fighter to the AI.
-      bake: () => bakeImpostorAtlases(stage.gl, tuning, battle, nextPaint),
+      bake: (progress) => bakeImpostorAtlases(stage.gl, tuning, battle, progress),
       view: (atlases) => new CrowdView(atlases, battle, blobTexture()),
     };
-    void this.parts.bake().then((atlases) => {
-      if (this.disposed) {
-        atlases.dispose();
-        return;
-      }
-      this.atlases = atlases;
-      this.view = this.parts.view(atlases);
-      stage.scene.add(this.view.root);
-    });
+    const progress = async (done: number, total: number) => {
+      if (!this.disposed) onProgress?.(done, total);
+      await nextPaint();
+    };
+    this.settled = this.parts.bake(progress).then(
+      (atlases) => {
+        if (this.disposed) {
+          atlases.dispose();
+          return;
+        }
+        this.atlases = atlases;
+        this.view = this.parts.view(atlases);
+        stage.scene.add(this.view.root);
+      },
+      (e: unknown) => console.error('The Floor Crowd’s impostors failed to bake; its Soldiers go undrawn.', e),
+    );
   }
 
   /** Whether the impostors are baked and drawn. */
