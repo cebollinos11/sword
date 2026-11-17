@@ -1,12 +1,15 @@
 /**
  * The inventory screen's view model (docs/plans/dungeon.md, Stage 3): what the Fighter holds in slots, what is wielded or equipped, each Relic's
- * effects in words, the Fighter's resulting numbers, and for each action whether the Simulation would act on it now, and if not why. Pure and
- * render only (ADR 0001): the screen (`inventoryScreen.ts`) draws it, and a click becomes the Local Controller's `equip` or `drop`.
+ * effects in words, a Consumable's (docs/plans/delver.md, Stage 10) in its Relic slot, the Fighter's resulting numbers, and for each action whether
+ * the Simulation would act on it now, and if not why. Pure and render only (ADR 0001): the screen (`inventoryScreen.ts`) draws it, and a click becomes
+ * the Local Controller's `equip`, `drop` or `use`.
  */
-import { canChangeInventory, inDuel, modsOf, type DelverPhase, type FighterState, type InventoryRef } from '../sim';
-import type { TuningData } from '../tuning';
+import { canChangeInventory, canUseConsumable, inDuel, modsOf, type DelverPhase, type FighterState, type InventoryRef, type MatchState } from '../sim';
+import { floorOf } from '../sim/delver';
+import { fullReveal } from '../sim/delver/reveal';
+import type { ConsumableEffect, TuningData } from '../tuning';
 import { relicIcon, weaponIcon } from './icons';
-import { relicWords } from './loot';
+import { consumableWords, relicWords } from './loot';
 import { daggerCapacity } from './runBuilds';
 
 /** One action on an item: its label, whether the Simulation would act on it now, and the reason when it would not. */
@@ -16,7 +19,10 @@ export interface ActionView {
   readonly reason: string | null;
 }
 
-/** An item held. `marked`: the Weapon wielded or the Relic equipped. `equip` is null for the wielded Weapon, `drop` too (a Fighter keeps one). */
+/**
+ * An item held. `marked`: the Weapon wielded or the Relic equipped. `equip` is null for the wielded Weapon, `drop` too (a Fighter keeps one).
+ * `use` is a Consumable's main control (its `equip` is null: it is never equipped); null for a Weapon or Relic.
+ */
 export interface ItemView {
   readonly name: string;
   /** The item's icon, an inline SVG. */
@@ -26,6 +32,7 @@ export interface ItemView {
   readonly marked: boolean;
   readonly equip: ActionView | null;
   readonly drop: ActionView | null;
+  readonly use: ActionView | null;
 }
 
 /** A slot of the inventory: where it is, and what it holds (null: empty). */
@@ -45,9 +52,38 @@ export interface InventoryView {
   readonly lock: string | null;
 }
 
-/** A Delver Run's context for the inventory screen: its phase. */
+/**
+ * A Delver Run's context for the inventory screen: its phase, and for a Consumable's reasons whether the Floor is all revealed (`mapped`) and whether a
+ * Team 0 Fighter has fallen (`fallen`); each absent reads as "no".
+ */
 export interface DelverContext {
   readonly phase: DelverPhase;
+  readonly mapped?: boolean;
+  readonly fallen?: boolean;
+}
+
+/** The inventory screen's context of a Delver Run (`match.delver`), or undefined outside one. Pure. */
+export function delverContextOf(match: MatchState, tuning: TuningData): DelverContext | undefined {
+  const run = match.delver;
+  if (!run) return undefined;
+  const plan = floorOf(tuning, match.duel.arena)?.plan;
+  const mapped = plan !== undefined && fullReveal(plan).every((w, k) => w === (run.revealed[k] ?? 0));
+  const fallen = match.duel.fighters.some((f) => f.team === 0 && f.death !== undefined);
+  return { phase: run.phase, mapped, fallen };
+}
+
+/**
+ * Why the Fighter may not use a Consumable of `effect` now, or null when it may. Mirrors the Simulation (`useConsumables`: while Exploring, a Fighter
+ * that still fights and lives, in any Action; refused when the use would do nothing).
+ */
+export function consumableLock(f: FighterState, effect: ConsumableEffect, delver?: DelverContext): string | null {
+  if (!delver) return 'Only in a Run';
+  if (delver.phase === 'Descending') return 'Descending';
+  if (!canUseConsumable(f)) return 'You have fallen';
+  if (effect === 'healFull' && f.hp >= f.maxHp) return 'Already at full HP';
+  if (effect === 'revealFloor' && delver.mapped) return 'Floor already mapped';
+  if (effect === 'reviveFallen' && !delver.fallen) return 'Nobody has fallen';
+  return null;
 }
 
 /**
@@ -76,7 +112,7 @@ const action = (label: string, reason: string | null): ActionView => ({ label, a
  */
 export function inventoryView(
   fighter: FighterState | undefined,
-  tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>,
+  tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger'>,
   delver?: DelverContext,
 ): InventoryView | null {
   const inv = fighter?.inventory;
@@ -90,16 +126,21 @@ export function inventoryView(
     const name = inv.weapons[slot];
     if (name === undefined) return { ref, item: null };
     const wielded = slot === inv.weapon;
-    return { ref, item: { name, icon: weaponIcon(name), words: '', marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock) } };
+    return { ref, item: { name, icon: weaponIcon(name), words: '', marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock), use: null } };
   });
   const relics: SlotView[] = Array.from({ length: sizes.relics }, (_, slot) => {
     const ref: InventoryRef = { kind: 'relic', slot };
     const name = inv.relics[slot];
     if (name === undefined) return { ref, item: null };
+    const consumable = tuning.consumables.find((c) => c.name === name);
+    if (consumable) {
+      const item: ItemView = { name, icon: relicIcon(consumable.icon), words: consumableWords(consumable.effect), marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };
+      return { ref, item };
+    }
     const relic = tuning.relics.find((r) => r.name === name);
     const on = inv.equipped.includes(slot);
     const equip = on ? action('Unequip', lock) : action('Equip', lock ?? (full ? `Relic slots full (${sizes.equippedRelics} / ${sizes.equippedRelics})` : null));
-    return { ref, item: { name, icon: relicIcon(relic?.icon ?? ''), words: relic ? relicWords(relic.effects) : '', marked: on, equip, drop: action('Drop', lock) } };
+    return { ref, item: { name, icon: relicIcon(relic?.icon ?? ''), words: relic ? relicWords(relic.effects) : '', marked: on, equip, drop: action('Drop', lock), use: null } };
   });
 
   const mods = modsOf(fighter);
@@ -125,6 +166,6 @@ const actionKey = (a: ActionView | null): string => (a ? `${a.label}|${a.availab
  */
 export function inventoryViewKey(view: InventoryView | null): string {
   if (!view) return 'none';
-  const slot = (s: SlotView) => (s.item ? `${s.item.name}|${s.item.marked ? 1 : 0}|${actionKey(s.item.equip)}|${actionKey(s.item.drop)}` : '_');
+  const slot = (s: SlotView) => (s.item ? `${s.item.name}|${s.item.marked ? 1 : 0}|${actionKey(s.item.equip)}|${actionKey(s.item.drop)}|${actionKey(s.item.use)}` : '_');
   return [view.lock ?? '', view.relicsEquipped, view.numbers.map((n) => `${n.label}=${n.value}`).join(), view.weapons.map(slot).join(), view.relics.map(slot).join()].join('\n');
 }

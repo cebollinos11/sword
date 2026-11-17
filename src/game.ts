@@ -18,7 +18,7 @@ import { partyMarkers } from './render/minimap';
 import { devAutopilot, devBattlePilot, devDelverStart, devImmortal, devMode, devSpeed, devRunRelics } from './devMode';
 import { bindLocalInput } from './play/input';
 import { InventoryScreen } from './play/inventoryScreen';
-import type { DelverContext } from './play/inventoryView';
+import { delverContextOf, type DelverContext } from './play/inventoryView';
 import { bindTouchInput, isTouchDevice } from './play/touch';
 import { mapKeyAction } from './play/floorMap';
 import { crateTop, pickupViews, type PickupView } from './render/pickupView';
@@ -704,10 +704,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     return run && plan ? { plan, restUsed: run.restUsed, me, fireRadius: matchTuning.delver.fireRadius, gate: gateState(plan, match.duel.crowd, run.wiped) } : null;
   }
 
-  /** A Delver Run's context for the inventory screen: its phase. Undefined outside a Delver Run. */
+  /** A Delver Run's context for the inventory screen: its phase, whether the Floor is mapped and whether an ally has fallen. Undefined outside a Delver Run. */
   function delverContext(match: MatchState): DelverContext | undefined {
-    const run = match.delver;
-    return run && driver ? { phase: run.phase } : undefined;
+    return driver ? delverContextOf(match, matchTuning) : undefined;
   }
 
   addEventListener('keydown', (e) => {

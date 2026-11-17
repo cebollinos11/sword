@@ -81,6 +81,18 @@ describe('inventory keys', () => {
     expect(local.sample().equip).toBeUndefined();
   });
 
+  it("a click on a Consumable's Use asks a use for one Tick, and selects nothing (it leaves its slot)", () => {
+    expect(inventoryClick({ kind: 'relic', slot: 4 }, 'use')).toEqual({ use: { kind: 'relic', slot: 4 }, selected: null });
+    const local = new LocalController();
+    local.inventoryClick({ kind: 'relic', slot: 4 }, 'use');
+    const intent = local.sample();
+    expect(intent.use).toEqual({ kind: 'relic', slot: 4 });
+    expect(intent.equip).toBeUndefined();
+    expect(local.sample().use).toBeUndefined();
+    local.keyDown('KeyX');
+    expect(local.sample().drop).toBeUndefined();
+  });
+
   it('a click selects the item like its key does, so X drops the item last clicked', () => {
     const local = new LocalController();
     local.inventoryClick({ kind: 'relic', slot: 2 }, 'equip');

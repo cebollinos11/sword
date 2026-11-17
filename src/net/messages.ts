@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 33;
+export const PROTOCOL_VERSION = 34;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -239,11 +239,11 @@ const isLineup = (v: unknown): v is Lineup => isPerFighter(v, isLineupSlot);
 /** The most slots an inventory has on the wire (`dungeon.inventory` allows 99 of each kind); whether a slot holds an item is for the Simulation to say. */
 const MAX_INVENTORY_SLOTS = 99;
 const isSlot = (v: unknown): boolean => isInt(v) && v >= 0 && v < MAX_INVENTORY_SLOTS;
-/** An inventory item named by kind and slot (Intent `equip` and `drop`). */
+/** An inventory item named by kind and slot (Intent `equip`, `drop` and `use`). */
 const isInventoryRef = (v: unknown): boolean => isObject(v) && (v.kind === 'weapon' || v.kind === 'relic') && isSlot(v.slot);
 
 function isIntent(v: unknown): v is Intent {
-  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop)) && (v.troop === undefined || isInt(v.troop));
+  return isObject(v) && isVec2(v.move) && isDirection(v.direction) && isBool(v.attack) && isBool(v.block) && (v.face === null || isNum(v.face)) && (v.pitch === undefined || isNum(v.pitch)) && (v.jump === undefined || isBool(v.jump)) && (v.jumpHeld === undefined || isBool(v.jumpHeld)) &&(v.crouch === undefined || isBool(v.crouch)) && (v.kick === undefined || isBool(v.kick)) && (v.throw === undefined || isBool(v.throw)) && (v.throwHeld === undefined || isBool(v.throwHeld)) && (v.sheathe === undefined || isBool(v.sheathe)) && (v.equip === undefined || isInventoryRef(v.equip)) && (v.drop === undefined || isInventoryRef(v.drop)) && (v.use === undefined || isInventoryRef(v.use)) && (v.troop === undefined || isInt(v.troop));
 }
 const isIntents = (v: unknown): v is readonly Intent[] => isArrayOf(v, isIntent);
 const isStream = (v: unknown): boolean => isObject(v) && isPlayer(v.player) && isTick(v.from) && isIntents(v.intents);
@@ -582,14 +582,14 @@ function isWarbands(v: unknown, squads: { team: unknown[] }): boolean {
 /** The most pickups a Floor's list may hold (taken ones stay in it): a resync from a peer asking for more is refused. */
 const MAX_PICKUPS = 256;
 
-/** An item lying on a Floor: its place in the list (checked by the Run), a Weapon or Relic name, an owner Fighter or none (shared), where, and whether taken. */
+/** An item lying on a Floor: its place in the list (checked by the Run), a Weapon, Relic or Consumable name, an owner Fighter or none (shared), where, and whether taken. */
 function isPickup(v: unknown): boolean {
   return (
     isObject(v) &&
     isInt(v.id) &&
     v.id >= 0 &&
     (v.owner === null || (isInt(v.owner) && v.owner >= 0 && v.owner < MAX_TEAM_SIZE)) &&
-    (v.kind === 'weapon' || v.kind === 'relic') &&
+    (v.kind === 'weapon' || v.kind === 'relic' || v.kind === 'consumable') &&
     isString(v.item) &&
     isVec3(v.at) &&
     typeof v.taken === 'boolean' &&

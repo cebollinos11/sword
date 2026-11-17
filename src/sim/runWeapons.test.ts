@@ -10,7 +10,7 @@ const tuning = loadTuningData();
 
 /** Every Weapon a Run's loot picks over the first few Run seeds, Floors and pick slots, where the loot holds only Weapons. */
 function weaponDrops(t: TuningData): Set<string> {
-  const weaponsOnly: TuningData = { ...t, dungeon: { ...t.dungeon, loot: { ...t.dungeon.loot, weights: { Relic: 0, Weapon: 1 } } } };
+  const weaponsOnly: TuningData = { ...t, dungeon: { ...t.dungeon, loot: { ...t.dungeon.loot, weights: { Relic: 0, Weapon: 1, Consumable: 0 } } } };
   const drops = new Set<string>();
   for (let seed = 1; seed <= 4; seed++)
     for (let floor = 1; floor <= 9; floor++)

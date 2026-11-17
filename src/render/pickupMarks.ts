@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { JOINT_NAMES, type SkeletonPose, type Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
-import { iconTexture, relicIcon } from '../play/icons';
+import { iconTexture, itemIconId, relicIcon } from '../play/icons';
 import { FighterView } from './fighterView';
 import { CRATE_HEIGHT, PEDESTAL_HEIGHT, type PickupView } from './pickupView';
 
@@ -77,7 +77,7 @@ export class PickupMarks {
       slot.sprite.visible = v.form.kind === 'relic';
       if (slot.weapon) slot.weapon.view.root.visible = v.form.kind === 'weapon';
       if (v.form.kind === 'relic') {
-        const icon = this.tuning.relics.find((r) => r.name === (v.form as { relic: string }).relic)?.icon ?? '';
+        const icon = itemIconId(this.tuning, v.form.relic);
         slot.sprite.material.map = iconTexture(relicIcon(icon), ICON_PX);
         slot.sprite.position.y = floor + (v.pedestal ? 0 : BASE_HEIGHT) + ICON_FLOAT;
       } else {

@@ -14,8 +14,8 @@ export function devMode(search: string = location.search, hash: string = locatio
 }
 
 /**
- * Dev mode only: `relics=a,b,c` (names as in `data/relics.json`) starts every Player's Fighter with those
- * Relics, equipped in order and the rest carried (`MatchOptions.relics`). The option to add to a Run's: none without `dev=1`
+ * Dev mode only: `relics=a,b,c` (names as in `data/relics.json` or `data/consumables.json`) starts every Player's Fighter with those
+ * Relics and Consumables, the Relics equipped in order and the rest carried (`MatchOptions.relics`). The option to add to a Run's: none without `dev=1`
  * or a `relics`. The sim throws on an unknown name.
  */
 export function devRunRelics(search: string = location.search, hash: string = location.hash): { relics?: string[] } {

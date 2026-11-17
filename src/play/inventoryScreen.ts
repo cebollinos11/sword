@@ -1,17 +1,17 @@
 /**
  * The inventory screen (docs/plans/dungeon.md, Stage 3): a modal over the HUD, opened by `I` or, on a touch device, its button. It draws
  * `inventoryView` and nothing else: a click or tap on an item's control only hands `(ref, action)` to `onAction`, which sets the Local
- * Controller's `equip` or `drop` for one Tick (`LocalController.inventoryClick`). It never changes the Match.
+ * Controller's `equip`, `drop` or `use` for one Tick (`LocalController.inventoryClick`). It never changes the Match.
  *
  * DOM (for scripts): `.inv-toggle` the touch button, `.inv-screen` the modal (`hidden` while closed), `.inv-close`, `.inv-status` the reason
  * nothing is available, `.inv-item` each item with `data-kind` (`weapon` or `relic`) and `data-slot`, and in it `.inv-equip` (the item's
- * main control: wield, equip or unequip) and `.inv-drop`. A control not available is `disabled` with its reason in `title`.
+ * main control: wield, equip or unequip, or a Consumable's use, with `data-consumable`) and `.inv-drop`. A control not available is `disabled` with its reason in `title`.
  */
 import type { FighterState, InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
 import { inventoryView, inventoryViewKey, type ActionView, type DelverContext, type InventoryView, type ItemView, type SlotView } from './inventoryView';
 
-export type InventoryScreenAction = 'equip' | 'drop';
+export type InventoryScreenAction = 'equip' | 'drop' | 'use';
 
 /** The screen's styles (added with the HUD's, `ensurePlayStyles`). */
 export const INVENTORY_CSS = `
@@ -114,7 +114,7 @@ export class InventoryScreen {
   }
 
   /** Draw the local Player's inventory (every frame; the DOM is rebuilt only when the view changes, so a press is never lost to a rebuild). */
-  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'dungeon' | 'dagger'>, delver?: DelverContext): void {
+  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger'>, delver?: DelverContext): void {
     if (!this.isOpen) return;
     const view = inventoryView(fighter, tuning, delver);
     const key = inventoryViewKey(view);
@@ -140,7 +140,7 @@ export class InventoryScreen {
       row.append(el('b', '', n.value));
       numbers.append(row);
     }
-    const help = el('p', 'inv-help', '1-9 equip, Shift+1-9 select, X drop the selected, I close');
+    const help = el('p', 'inv-help', '1-9 equip, Shift+1-9 select, X drop the selected, click a potion, map or stone to use it, I close');
     return [head, status, ...weapons, ...relics, numbers, help];
   }
 
@@ -159,12 +159,13 @@ export class InventoryScreen {
     slot.classList.add('inv-item');
     slot.dataset.kind = ref.kind;
     slot.dataset.slot = String(ref.slot);
+    if (item.use) slot.dataset.consumable = '';
     slot.append(this.equipControl(ref, item, lock));
     if (item.drop) slot.append(this.control('inv-drop', item.drop, () => this.onAction(ref, 'drop')));
     return slot;
   }
 
-  /** The item's main control: icon, name, mark, effects and, when it cannot be used for its own reason, why. */
+  /** The item's main control (a Consumable's is its use): icon, name, mark, effects and, when it cannot be used for its own reason, why. */
   private equipControl(ref: InventoryRef, item: ItemView, lock: string | null): HTMLButtonElement {
     const icon = el('span', 'inv-icon');
     icon.innerHTML = item.icon;
@@ -173,11 +174,11 @@ export class InventoryScreen {
     text.append(name);
     if (item.marked) text.append(el('span', 'inv-mark', ref.kind === 'weapon' ? 'Wielded' : 'Equipped'));
     if (item.words) text.append(el('span', 'inv-words', item.words));
-    const equip = item.equip;
-    // The screen's status line says why everything is locked; an item's note says only what is its own (every Relic slot taken).
-    if (equip && equip.reason && equip.reason !== lock) text.append(el('span', 'inv-note', equip.reason));
-    const button = this.control('inv-equip', equip, () => this.onAction(ref, 'equip'));
-    button.title = equip ? (equip.available ? equip.label : `${equip.label}: ${equip.reason}`) : 'Wielded';
+    const main = item.use ?? item.equip;
+    // The screen's status line says why everything is locked; an item's note says only what is its own (every Relic slot taken, already at full HP).
+    if (main && main.reason && main.reason !== lock) text.append(el('span', 'inv-note', main.reason));
+    const button = this.control('inv-equip', main, () => this.onAction(ref, item.use ? 'use' : 'equip'));
+    button.title = main ? (main.available ? main.label : `${main.label}: ${main.reason}`) : 'Wielded';
     button.prepend(icon, text);
     return button;
   }

@@ -2,7 +2,8 @@
  * The Local Controller's inventory keys (docs/plans/dungeon.md, "Loot and the inventory"), as a pure function. Number keys equip (1 to 3 the
  * Weapons in slots 0 to 2, 4 to 9 the Relics in slots 0 to 5: `dungeon.inventory` sizes 3 and 6), Shift and a number key only selects the item
  * (a Weapon equipped is the wielded one, which cannot be dropped, so a carried Weapon is dropped by selecting it this way), X drops the item last
- * selected, I opens the inventory screen (render only, `src/game.ts`), whose clicks and taps ask the same (`inventoryClick`). None clashes with the movement, combat or Ctrl keys, and the Escape of the menu.
+ * selected, I opens the inventory screen (render only, `src/game.ts`), whose clicks and taps ask the same (`inventoryClick`), and whose Use control is
+ * the only way to use a Consumable (no key does: a number key on a Consumable's slot asks an `equip` the Simulation refuses). None clashes with the movement, combat or Ctrl keys, and the Escape of the menu.
  * The Simulation refuses `equip` and `drop` mid-Action, in the air or fallen, so a press then does nothing (and the selection stays).
  */
 import type { InventoryRef } from '../sim';
@@ -30,6 +31,7 @@ export const INVENTORY_LIST_KEY = 'KeyI';
 export interface InventoryKey {
   readonly equip?: InventoryRef;
   readonly drop?: InventoryRef;
+  readonly use?: InventoryRef;
   readonly selected: InventoryRef | null;
 }
 
@@ -46,7 +48,13 @@ export function inventoryKey(code: string, selected: InventoryRef | null, shift 
 }
 
 /** What a click or tap on an inventory screen asks of an item. */
-export type InventoryClickAction = 'equip' | 'drop';
+export type InventoryClickAction = 'equip' | 'drop' | 'use';
 
-/** What clicking `ref`'s equip or drop control asks: what its number key, or the drop key with it selected, would. */
-export const inventoryClick = (ref: InventoryRef, action: InventoryClickAction): InventoryKey => (action === 'equip' ? { equip: ref, selected: ref } : { drop: ref, selected: null });
+/**
+ * What clicking `ref`'s equip, drop or use control asks: what its number key, or the drop key with it selected, would; a use (a Consumable's, which
+ * leaves its slot) selects nothing.
+ */
+export function inventoryClick(ref: InventoryRef, action: InventoryClickAction): InventoryKey {
+  if (action === 'equip') return { equip: ref, selected: ref };
+  return action === 'drop' ? { drop: ref, selected: null } : { use: ref, selected: null };
+}

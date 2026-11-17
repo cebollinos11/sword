@@ -82,6 +82,12 @@ export interface Intent {
   /** Drop the inventory item in this slot (absent = nothing): it leaves the inventory for a shared pickup at the Fighter's feet. Same conditions as `equip`; the equipped Weapon cannot be dropped. */
   readonly drop?: InventoryRef;
   /**
+   * Use the Consumable in this Relic slot (absent = nothing; docs/plans/delver.md, Stage 10): its effect at once, and it is gone. Acted on in a Run while
+   * Exploring, after `equip` and `drop`, by a Player's Fighter that still fights and lives, in any Action and in the air; refused when the slot holds no
+   * Consumable or its use would do nothing (`stepDelver`, `src/sim/consumables.ts`).
+   */
+  readonly use?: InventoryRef;
+  /**
    * In a Battle, the Troop (an index into `battle.troops`) a fallen Player chooses to come back as, or -1 for whichever ally is nearest a spawn
    * (absent = no change). Acted on only while the Player's Fighter lies fallen, before `battle.takeover.pickSeconds` (`stepBubbles`); the choice is
    * kept for later falls. An index with no Troop is ignored.

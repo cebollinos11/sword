@@ -21,7 +21,7 @@ export interface PickupAt {
 }
 
 /**
- * One item lying on a Floor: `kind` and `item` (the Weapon or Relic name) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
+ * One item lying on a Floor: `kind` and `item` (the Weapon, Relic or Consumable name) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
  * is, or null for a shared one (a drop, which any Player may take). `taken` pickups stay in the list, so an `id` (its index in it) is never reused.
  */
 export interface Pickup extends Dropped {
@@ -39,7 +39,7 @@ export interface Pickup extends Dropped {
 export const PICKUP_RADIUS = 0.5;
 
 /** `runPick` salts of a pickup's item. */
-const SALT = { kind: 50, relic: 51, weapon: 52 } as const;
+const SALT = { kind: 50, relic: 51, weapon: 52, consumable: 53 } as const;
 
 /** Whether the Player Fighter `player` sees (and may take) the pickup: its own and every shared one, not yet taken. The one rule presentation draws pickups by. */
 export const pickupVisibleTo = (p: Pick<Pickup, 'owner' | 'taken'>, player: number): boolean => !p.taken && (p.owner === null || p.owner === player);
@@ -48,20 +48,36 @@ export const pickupVisibleTo = (p: Pick<Pickup, 'owner' | 'taken'>, player: numb
 const standsOn = (at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolean => standsWithin(at, PICKUP_RADIUS, f);
 
 /**
- * The item for pick slot `slot` of Floor `floor` (the caller's one number for a source, a Player and a k: `delverLoot.ts`'s `lootSlot`): a Relic
- * or a Weapon by `dungeon.loot.weights`, then a name, both by `runPick` on (Run seed, Floor, slot). Names in `avoid` (the items already picked
- * for this Player's set) are skipped while others remain. A Tuning Data with no Relics gives only Weapons.
+ * The item for pick slot `slot` of Floor `floor` (the caller's one number for a source, a Player and a k: `delverLoot.ts`'s `lootSlot`): a Relic,
+ * a Consumable or a Weapon by `dungeon.loot.weights` (that order along the pick, so a Tuning Data without a Consumable weight picks as before
+ * Consumables were), then a name, both by `runPick` on (Run seed, Floor, slot). Names in `avoid` (the items already picked for this Player's set)
+ * are skipped while others remain. A kind with no names (no Relics, say) is never picked while another has some.
  */
 export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[]): Dropped {
-  const { Relic, Weapon } = tuning.dungeon.loot.weights;
-  const relics = tuning.relics.map((r) => r.name);
-  const weapons = runWeapons(tuning);
-  const u = (runPick(seed, floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
-  const kind: Dropped['kind'] = relics.length > 0 && (u < Relic || weapons.length === 0) ? 'relic' : 'weapon';
-  const names = kind === 'relic' ? relics : weapons;
+  const { Relic, Weapon, Consumable } = tuning.dungeon.loot.weights;
+  const pools: readonly (readonly [Dropped['kind'], number, readonly string[]])[] = [
+    ['relic', Relic, tuning.relics.map((r) => r.name)],
+    ['consumable', Consumable, (tuning.consumables ?? []).map((c) => c.name)],
+    ['weapon', Weapon, runWeapons(tuning)],
+  ];
+  const live = pools.filter(([, weight, names]) => weight > 0 && names.length > 0);
+  // Every weighted kind empty: whichever kind has names, Weapons last (the roster is never empty).
+  const choices = live.length > 0 ? live : pools.filter(([, , names]) => names.length > 0);
+  const total = live.length > 0 ? live.reduce((sum, [, weight]) => sum + weight, 0) : 0;
+  const u = (runPick(seed, floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * total;
+  let pick = choices[choices.length - 1]!;
+  let edge = 0;
+  for (const choice of choices) {
+    edge += choice[1];
+    if (u < edge) {
+      pick = choice;
+      break;
+    }
+  }
+  const [kind, , names] = pick;
   const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item === n));
   const from = fresh.length > 0 ? fresh : names;
-  return { kind, item: from[runPick(seed, floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
+  return { kind, item: from[runPick(seed, floor, slot, SALT[kind], from.length)]! };
 }
 
 /** A shared pickup for an item a Fighter dropped, at its feet, with id `id` (the next free one): the drop seam's work (`placeDrop`). */

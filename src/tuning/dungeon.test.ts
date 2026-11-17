@@ -19,7 +19,7 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     const d = tuning.dungeon;
     expect([d.stairsSeconds, d.fadeSeconds, d.revive, d.restHeal]).toEqual([1.5, 1, 0.25, 0.5]);
     expect(d.inventory).toEqual({ weapons: 3, relics: 6, equippedRelics: 3 });
-    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3 });
+    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3 });
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
     expect(parse(d)).toEqual(d);
     // The retired Hall graph's keys are gone.
@@ -43,7 +43,10 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(() => parse(loot({ weights: { Relic: 0, Weapon: 0 } }))).toThrow(/weights/);
     expect(() => parse(loot({ weights: { Relic: -1, Weapon: 1 } }))).toThrow(/weights\.Relic/);
     expect(() => parse(loot({ weights: { Relic: 1 } }))).toThrow(/weights\.Weapon/);
-    expect(parse(loot({ weights: { Relic: 0, Weapon: 2 } })).loot.weights).toEqual({ Relic: 0, Weapon: 2 });
+    // A Consumable weight left out is 0 (Tuning Data from before Consumables); one alone is enough.
+    expect(parse(loot({ weights: { Relic: 0, Weapon: 2 } })).loot.weights).toEqual({ Relic: 0, Weapon: 2, Consumable: 0 });
+    expect(parse(loot({ weights: { Relic: 0, Weapon: 0, Consumable: 1 } })).loot.weights).toEqual({ Relic: 0, Weapon: 0, Consumable: 1 });
+    expect(() => parse(loot({ weights: { Relic: 1, Weapon: 1, Consumable: -1 } }))).toThrow(/weights\.Consumable/);
     expect(() => parse(loot({ drops: { Fight: 5, Elite: 0, Boss: 2 } }))).toThrow(/drops\.Fight/);
     expect(() => parse(loot({ drops: { Fight: 1, Elite: 0.5, Boss: 2 } }))).toThrow(/drops\.Elite/);
     expect(() => parse(loot({ drops: { Fight: 1, Elite: 0 } }))).toThrow(/drops\.Boss/);

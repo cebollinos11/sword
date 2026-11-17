@@ -22,7 +22,7 @@ export interface PickupEye {
   readonly near: PickupAt;
 }
 
-/** What a pickup is drawn as: the Weapon's model, or the Relic's icon. */
+/** What a pickup is drawn as: the Weapon's model, or the Relic's (or Consumable's: `relic` names either) icon. */
 export type PickupForm = { readonly kind: 'weapon'; readonly weapon: string } | { readonly kind: 'relic'; readonly relic: string };
 
 /** How one pickup is drawn this frame (render only). */

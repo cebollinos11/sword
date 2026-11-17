@@ -124,6 +124,7 @@ export class LocalController implements Controller {
   /** The Troop a fallen Player in a Battle asked to come back as (`askTroop`), sent on the next Tick's Intent. */
   private troopAsked: number | undefined;
   private dropAsked: InventoryRef | undefined;
+  private useAsked: InventoryRef | undefined;
   private selected: InventoryRef | null = null;
   /** The Wheel Attack waiting to start, and the Ticks it may still wait (`WHEEL_QUEUE_SECONDS`). */
   private wheelQueued: { readonly direction: Direction; ticksLeft: number } | null = null;
@@ -219,7 +220,7 @@ export class LocalController implements Controller {
     if (key) this.ask(key);
   }
 
-  /** A click or tap on an inventory screen's equip or drop control: asked on one Tick, like its key (`inventoryClick`). */
+  /** A click or tap on an inventory screen's equip, drop or use control: asked on one Tick, like its key (`inventoryClick`). */
   inventoryClick(ref: InventoryRef, action: InventoryClickAction): void {
     this.ask(inventoryClick(ref, action));
   }
@@ -228,6 +229,7 @@ export class LocalController implements Controller {
     this.selected = key.selected;
     if (key.equip) this.equipAsked = key.equip;
     if (key.drop) this.dropAsked = key.drop;
+    if (key.use) this.useAsked = key.use;
   }
 
   /** In a Battle, choose the Troop to come back as after a fall (an index into `battle.troops`, or -1 for whichever ally is nearest): asked on one Tick. */
@@ -258,7 +260,7 @@ export class LocalController implements Controller {
   releaseAll(): void {
     this.held.attack = this.held.block = this.held.jump = this.held.crouch = this.held.kick = this.held.throw = this.held.sheathe = false;
     this.moving.forward = this.moving.back = this.moving.left = this.moving.right = false;
-    this.equipAsked = this.dropAsked = this.troopAsked = undefined;
+    this.equipAsked = this.dropAsked = this.useAsked = this.troopAsked = undefined;
     this.wheelQueued = this.wheelFiring = null;
     this.wheelPressed = false;
   }
@@ -336,8 +338,9 @@ export class LocalController implements Controller {
     const sheathe = this.pressed.sheathe;
     const equip = this.equipAsked;
     const drop = this.dropAsked;
+    const use = this.useAsked;
     const troop = this.troopAsked;
-    this.equipAsked = this.dropAsked = this.troopAsked = undefined;
+    this.equipAsked = this.dropAsked = this.useAsked = this.troopAsked = undefined;
     this.pressed.attack = false;
     this.pressed.block = false;
     this.pressed.jump = false;
@@ -350,7 +353,7 @@ export class LocalController implements Controller {
     const crouch = this.held.crouch;
     const face = quantiseYaw(this.yawRadians);
     const intent: Intent = { move: this.move(face), direction: this.latched, attack, block, face, pitch: quantisePitch(this.pitchRadians) };
-    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }), ...(troop !== undefined && { troop }) };
+    return { ...intent, ...(jump && { jump }), ...(jumpHeld && { jumpHeld }), ...(crouch && { crouch }), ...(kick && { kick }), ...(throwing && { throw: throwing }), ...(throwHeld && { throwHeld }), ...(sheathe && { sheathe }), ...(equip && { equip }), ...(drop && { drop }), ...(use && { use }), ...(troop !== undefined && { troop }) };
   }
 
   intent(state?: SimState, fighter?: number): Intent {

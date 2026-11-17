@@ -2677,6 +2677,28 @@ Done 2026-11-16. The Hall-graph Run is gone: a Gauntlet is a Run on generated Fl
 
 **To try in a playtest**: `npm run dev`, a Skirmish in Gauntlet: no Halls/Floors row and no Run difficulty knobs; the Floors card describes the generated Floors. Play to the first Stairs and check the fade, the HUD line and the Floor Map (`M`). Online, a guest may take a Team 1 Seat as a traitor without any setting. Old bookmarks with `?delver=1` or `?floor=` do nothing now; `?dev=1&autopilot=1&immortal=1` still pilots a Run.
 
+### Stage 10: consumables
+- A third kind of item: a **Consumable**, picked up like a Relic, held in a Relic slot, and **used** from the inventory screen instead of equipped. Using it acts at once and destroys it.
+
+#### Design
+**1. Tuning Data** (`data/consumables.json`, `src/tuning/consumables.ts`, hashed): each a name, an icon id and one effect from a fixed vocabulary the Simulation implements:
+- `healFull`: the user's HP to its max HP (its Relics' `maxHp` counted). The **Health Potion**.
+- `revealFloor`: every Hall and Passage of the Floor into the Reveal (`fullReveal`), for the whole party, since the Reveal is shared. Only for this Floor: the next one starts fogged as ever. The **Map**.
+- `reviveFallen`: every fallen Team 0 Fighter (AI allies too, as a fire does) back on its feet round the user at `dungeon.revive` of its max HP, as a fire revives. The **Resurrection Stone**.
+A Consumable's name is unique among the Relics and Consumables together (a Relic slot holds names of either). `dungeon.loot.weights` gains `Consumable` (optional, 0 when absent; the data says 2, against Relic 4 and Weapon 1), so a Warband's drops and a Treasure Hall's pedestals may be one.
+
+**2. The Inventory** (`src/sim/inventory.ts`): a Consumable takes a Relic slot (`Inventory.relics` holds its name; the `relics` size counts both) and never stacks. It is never equipped: `equip` on its slot is refused, so `equipped` and the Mods never hold one. It is dropped and taken as a Relic is; `Dropped.kind` (and a Pickup's) gains `'consumable'`, read from the name when it leaves a slot.
+
+**3. Use** (Intent `use: InventoryRef`, a `relic` slot holding a Consumable): acted on by `stepDelver` while Exploring, after `equip` and `drop`, for a Player's Fighter with an inventory that still fights and lives. **No other condition**: mid-Action, in the air, Staggered, Blocking, in a fight, all allowed. Its effect is instant and the item leaves the slot (later slots close up, the equipped indices with them). A use that would do nothing is refused and keeps the item: a Potion at full HP, a Map on a Floor fully revealed, a Stone with nobody fallen. An `ItemUsed { fighter, item, effect }` event. A stone's revive places the fallen round the user as a fire's do, each spot kept inside the Hall or Passage piece the user stands in (`REVIVE_MARGIN` m from its edges), so a 3 m Passage never puts one in a Wall.
+
+**4. The inventory screen**: a Consumable's slot shows its effect in words and a **Use** button where a Relic has Equip, greyed with the reason when it would be refused ("Descending", "You have fallen", "Already at full HP", "Floor already mapped", "Nobody has fallen"). There are **no keys**: a number key on its slot does nothing (Shift and a number key still selects it, so X drops it), and the screen's click sends `use` for one Tick. The results screen's Build lists carried Consumables with the carried Relics.
+
+**5. Presentation**: icons `potion`, `map` and `stone` (`src/play/icons.ts`); a Consumable pickup is drawn as a Relic's (its icon on a base), its label coloured as a Relic's. The announcer already says "Revived" when the local Player is brought back.
+
+**6. Net**: the Intent's `use`, a pickup's `consumable` kind, and the Tuning Data hash all move, so `PROTOCOL_VERSION` goes up by one.
+
+**Not done**: a drinking Action or Motion; keys for Consumables; stacking; AI allies or the Delver pilot using them; other Consumables.
+
 ## Risks
 - **Tick cost.** A Run today is a cheap 8-Fighter Duel with no Input Delay. A Crowd plus a 16-slot Pool may force a Battle's 3-Tick Input Delay online. That is fine for PvE, but measure it first (Stage 0).
 - **Generation time on every peer.** Compile, judge, navmesh and fields must fit in a fade, with rerolls. Seeds that need many rerolls are a hitch. Precompute the next Floor during play (as `warmArena` does).
@@ -2721,3 +2743,10 @@ The user's playtest feedback: rooms bigger and more interesting, more verticalit
 6. **Galleries on two or more walls**: one Deck wrapping round the corners, with one Ramp.
 7. **Who stands on a dais**: the Boss on a throne, and a Treasure Hall's pedestals on an altar.
 8. **Screenshots**: none this sub-stage.
+
+## Answered questions (2026-11-17, before Stage 10)
+1. **Slots**: a Consumable takes a Relic slot; no stacks.
+2. **Use**: no limits or impediments; the effect is instant.
+3. **Keys**: none; a Consumable is used from the inventory screen.
+4. **Drop rate**: loot weight 2 (against Relic 4, Weapon 1).
+5. **A third Consumable**: the Resurrection Stone brings back every fallen ally, as a fire or a new Floor does.
