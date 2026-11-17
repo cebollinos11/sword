@@ -9,7 +9,7 @@ import { loadTuningData } from '../tuning';
 import { compileDraft } from '../mapEditor/compile';
 import { MAP_MODEL_ROOT, MAX_TORCH_LIGHTS, TORCH_LIGHT } from '../mapEditor/look';
 import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEditor/sample.testdata';
-import type { EnclosureBrush, MapSource } from '../mapEditor/source';
+import type { Brush, EnclosureBrush, MapSource } from '../mapEditor/source';
 import { mapModel } from './mapModel';
 
 const battle = loadTuningData().battle;
@@ -17,6 +17,68 @@ const modelOf = (s: MapSource) => mapModel(s, compileDraft(s, battle));
 const meshes = (root: THREE.Object3D) => root.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh);
 const mesh = (root: THREE.Object3D, name: string) => meshes(root).find((m) => m.name === name);
 const box = (m: THREE.Mesh) => new THREE.Box3().setFromBufferAttribute(m.geometry.getAttribute('position') as THREE.BufferAttribute);
+
+/**
+ * The places two faces of different materials lie in one plane over each other, so they fight for depth (issue #157), as (materials,
+ * a point of the overlap): those seen from any of `eyes` (nothing nearer on the line to that point; a face inside a box is not seen).
+ */
+function fights(root: THREE.Object3D, eyes: readonly THREE.Vector3[]): string[] {
+  type Tri = { mat: string; p: THREE.Vector3[]; axis: 'x' | 'y' | 'z' };
+  const tris: Tri[] = [];
+  for (const m of meshes(root)) {
+    const pos = m.geometry.getAttribute('position');
+    for (let i = 0; i + 2 < pos.count; i += 3) {
+      const p = [0, 1, 2].map((k) => new THREE.Vector3(pos.getX(i + k), pos.getY(i + k), pos.getZ(i + k)));
+      const n = new THREE.Vector3().subVectors(p[1]!, p[0]!).cross(new THREE.Vector3().subVectors(p[2]!, p[0]!));
+      if (n.length() < 1e-9) continue;
+      n.normalize();
+      const axis = (['x', 'y', 'z'] as const).find((a) => Math.abs(n[a]) > 0.99);
+      if (axis) tris.push({ mat: m.name, p, axis });
+    }
+  }
+  // Each triangle's shadow on its plane, and the overlap of two (convex polygons, clipped one by the other).
+  const flat = (t: Tri): [number, number][] => t.p.map((v) => (t.axis === 'x' ? [v.y, v.z] : t.axis === 'y' ? [v.x, v.z] : [v.x, v.y]));
+  const area = (q: [number, number][]) => q.reduce((s, [x, y], i) => s + x * q[(i + 1) % q.length]![1] - q[(i + 1) % q.length]![0] * y, 0) / 2;
+  const clip = (subject: [number, number][], by: [number, number][]) => {
+    const turn = Math.sign(area(by));
+    let out = subject;
+    by.forEach((a, i) => {
+      const b = by[(i + 1) % by.length]!;
+      const side = (p: [number, number]) => turn * ((b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]));
+      const input = out;
+      out = [];
+      input.forEach((p, j) => {
+        const q = input[(j + 1) % input.length]!;
+        const [sp, sq] = [side(p), side(q)];
+        if (sp > 1e-9 !== sq > 1e-9) out.push([p[0] + ((q[0] - p[0]) * sp) / (sp - sq), p[1] + ((q[1] - p[1]) * sp) / (sp - sq)]);
+        if (sq > 1e-9) out.push(q);
+      });
+    });
+    return out;
+  };
+  root.updateMatrixWorld(true);
+  const ray = new THREE.Raycaster();
+  const seen = (at: THREE.Vector3) =>
+    eyes.some((eye) => {
+      const far = eye.distanceTo(at);
+      ray.set(eye, at.clone().sub(eye).normalize());
+      const hit = ray.intersectObjects(meshes(root), false)[0];
+      return hit !== undefined && hit.distance > far - 1e-3;
+    });
+  const found: string[] = [];
+  for (let i = 0; i < tris.length; i++)
+    for (let j = i + 1; j < tris.length; j++) {
+      const [s, t] = [tris[i]!, tris[j]!];
+      if (s.mat === t.mat || s.axis !== t.axis || Math.abs(s.p[0]![s.axis] - t.p[0]![t.axis]) > 1e-3) continue;
+      const o = clip(flat(s), flat(t));
+      if (o.length < 3 || Math.abs(area(o)) < 1e-3) continue;
+      const [u, v] = o.reduce(([x, y], [a, b]) => [x + a / o.length, y + b / o.length], [0, 0]);
+      const w = s.p[0]![s.axis];
+      const at = s.axis === 'x' ? new THREE.Vector3(w, u, v) : s.axis === 'y' ? new THREE.Vector3(u, w, v) : new THREE.Vector3(u, v, w);
+      if (seen(at)) found.push(`${s.mat}/${t.mat} at (${at.x.toFixed(2)}, ${at.y.toFixed(2)}, ${at.z.toFixed(2)})`);
+    }
+  return found;
+}
 
 describe('the model of a Map Editor map', () => {
   it('is one mesh per material, each named as its material, the Brushes in theirs and the props in their own', () => {
@@ -121,5 +183,25 @@ describe('the model of a Map Editor map', () => {
     expect(Math.min(...middle.map((v) => v.x))).toBeCloseTo(-0.3, 5);
     expect(Math.max(...middle.map((v) => v.x))).toBeCloseTo(0.3, 5);
   });
-});
 
+  it('draws a Passage into a Hall with no faces fighting for depth: no stubs in the doorway, the jambs and a Gallery’s threshold clean (issue #157)', () => {
+    const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
+    const hall = (y: number, doors: EnclosureBrush['doors']): EnclosureBrush => ({ kind: 'enclosure', id: 'hall', rect: { x0: -10, z0: -10, x1: 10, z1: 0 }, y, doors, top: 6, material: 'brick' });
+    const passage = (y: number): EnclosureBrush => ({ kind: 'enclosure', id: 'pass', rect: { x0: -1.5, z0: 0, x1: 1.5, z1: 12 }, y, doors: { s: 3, n: 3 }, top: 6, material: 'stone' });
+    const levels = [-8, 0, 2, 4, 6];
+    // A Passage into a Hall through a doorway in the Hall's side, both on one floor.
+    const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
+    // Where a body or the camera stands: about the Hall, in the doorway, along the Passage.
+    const eyes = (y: number) => [v(0, y + 1.6, -6), v(-6, y + 1.6, -1), v(6, y + 1.6, -1), v(-1, y + 2.5, -0.5), v(1, y + 1, -0.3), v(0, y + 1.6, 1), v(0.8, y + 2, 6)];
+    const level = modelOf(withBrushes([abyss, hall(2, { n: 3 }), passage(2)], levels));
+    expect(fights(level, eyes(2))).toEqual([]);
+    // Nothing of the Passage's Walls stands inside the Hall (bar a lip of a few cm).
+    const stone = mesh(level, 'Map_Stone')!.geometry.getAttribute('position');
+    for (let i = 0; i < stone.count; i++) if (stone.getY(i) > 2.5 && stone.getY(i) < 5.5) expect(stone.getZ(i)).toBeGreaterThan(-0.05);
+    // A stairwell: the Passage comes in at a Gallery's Deck, 2 m over the Hall's floor, a Ramp up to it inside the Hall.
+    const deck: Brush = { kind: 'deck', id: 'deck', rect: { x0: -10, z0: -4, x1: 6, z1: 0 }, y: 2, material: 'wood' };
+    const ramp: Brush = { kind: 'ramp', id: 'ramp', rect: { x0: 6, z0: -4, x1: 10, z1: 0 }, lo: 0, hi: 2, up: 'w', rails: ['n', 's'], material: 'marble' };
+    const stairwell = modelOf(withBrushes([abyss, hall(0, {}), passage(2), deck, ramp], levels));
+    expect(fights(stairwell, [...eyes(2), v(-6, 1, -5), v(8, 1.6, -6), v(8, 2.5, -2), v(0.5, 2.2, -0.2)])).toEqual([]);
+  });
+});

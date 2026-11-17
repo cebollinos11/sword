@@ -58,16 +58,60 @@ const sideLook = (look: MaterialLook): MaterialLook => (look === MATERIAL_LOOKS.
 /** Whether the Wall `id` (owned by the Ramp `ramp`) is one step of its stepped skirt (`WALL_<ramp>_<side><n>`; its rail has no number). */
 const isSkirt = (id: string, ramp: string): boolean => new RegExp(`^WALL_${ramp}_[nesw]\\d+$`).test(id);
 
+/** Whether the Wall `id` is one of an Enclosure's sides (`WALL_<brush>_<side>d<n>`), not a face the compiler stood under a floor's edge. */
+const isEnclosureSide = (id: string): boolean => /_[nesw]d\d+$/.test(id);
+
+/** Whether Wall `e` holds Wall `w`: on the same line, over all of `w`'s length and heights. */
+function holds(e: WallSegment, w: WallSegment): boolean {
+  const onX = Math.abs(e.a.x - e.b.x) < LEVEL_EPS;
+  if (onX !== Math.abs(w.a.x - w.b.x) < LEVEL_EPS) return false;
+  if (Math.abs(onX ? e.a.x - w.a.x : e.a.z - w.a.z) > LEVEL_EPS) return false;
+  const span = (s: WallSegment): [number, number] => (onX ? [Math.min(s.a.z, s.b.z), Math.max(s.a.z, s.b.z)] : [Math.min(s.a.x, s.b.x), Math.max(s.a.x, s.b.x)]);
+  const [e0, e1] = span(e);
+  const [w0, w1] = span(w);
+  return e0 <= w0 + LEVEL_EPS && e1 >= w1 - LEVEL_EPS && e.bottom <= w.bottom + LEVEL_EPS && e.top >= w.top - LEVEL_EPS;
+}
+
 /** Whether the floor at `y` that Brush `b` lays is drawn as a slab over open space: a Deck's, and an Enclosure's roof. */
 const isSlab = (b: Brush, y: number): boolean => b.kind === 'deck' || (b.kind === 'enclosure' && y > b.y + LEVEL_EPS);
 
 /**
+ * Where a Passage's piece opens into a Hall (a doorway in a Hall's side, the Passage's Walls standing on the doorway's jambs), the Hall's
+ * Wall at each jamb stops this far (m) short, its end face then inside the Passage's Wall, and the Passage's Wall runs this far on, its end
+ * face proud of the Hall's: else each end face lies in the other's inner face and the two fight for depth (the game's near plane is close,
+ * and faces even a centimetre apart fight at range). A lip this small is not seen.
+ */
+const DOORWAY_NUDGE = 0.02;
+
+/** One box of a Wall as drawn: its line's ends and its heights. */
+interface WallPiece {
+  readonly a: Vec2;
+  readonly b: Vec2;
+  readonly bottom: number;
+  readonly top: number;
+}
+
+/** The first Enclosure other than `b` whose rect holds the point (x, z) and passes `ok`, and its Walls' heights (from under its floor to its roof). */
+function enclosureAt(source: MapSource, b: EnclosureBrush, x: number, z: number, ok: (r: EnclosureBrush['rect']) => boolean): [number, number] | null {
+  for (const o of source.brushes) {
+    if (o === b || o.kind !== 'enclosure') continue;
+    const r = o.rect;
+    if (x <= r.x0 || x >= r.x1 || z <= r.z0 || z >= r.z1 || !ok(r)) continue;
+    return [o.y - BELOW, enclosureTop(o, source.levels) ?? o.y];
+  }
+  return null;
+}
+
+/**
  * Where an Enclosure's Wall `w` is drawn, `thick` thick: wholly outside its rect, its inner face on the Wall's line, so a body (which the
  * Simulation keeps a radius off the line) and the camera stop at the face seen rather than inside a slab centred on the line. Stretched
- * past each end on a corner of the rect by the thickness, so two sides meeting there close the corner outside. Null (centred on its line,
- * as any other Wall) when another Enclosure stands on the far side of it within its height: the Wall is both rooms', its slab between them.
+ * past each end on a corner of the rect by the thickness, so two sides meeting there close the corner outside, unless a doorway on the
+ * other side reaches that corner (a Passage's piece, joined full width to the next or to a Hall): stretched, it would stand in the doorway
+ * as a stub. Where a Passage meets a Hall at a doorway, each end is nudged (`DOORWAY_NUDGE`) over the heights of the other's Walls, so no
+ * end face lies in the other's inner face. In pieces by height where the nudges hold over only some of it. Null (centred on its line, as any
+ * other Wall) when another Enclosure stands on the far side of it within its height: the Wall is both rooms', its slab between them.
  */
-function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, thick: number): { a: Vec2; b: Vec2 } | null {
+function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, thick: number): WallPiece[] | null {
   const { x0, z0, x1, z1 } = b.rect;
   const onX = Math.abs(w.a.x - w.b.x) < LEVEL_EPS;
   const line = onX ? w.a.x : w.a.z;
@@ -85,15 +129,49 @@ function outsideEnclosure(b: EnclosureBrush, w: WallSegment, source: MapSource, 
   });
   if (shared) return null;
   const [along0, along1] = onX ? [z0, z1] : [x0, x1];
+  // The side across the rect's corner at along0 and at along1, and how long each is.
+  const across = onX ? (['s', 'n'] as const) : (['w', 'e'] as const);
+  const acrossLength = onX ? x1 - x0 : z1 - z0;
+  /** Whether the doorway (if any) of the side across the corner at `end` reaches within the thickness of that corner. */
+  const doorAtCorner = (end: 0 | 1): boolean => (b.doors[across[end]] ?? 0) >= acrossLength - 2 * thick - LEVEL_EPS;
   const off = (sign * thick) / 2;
-  const end = (p: Vec2, dir: number): Vec2 => {
-    const t = onX ? p.z : p.x;
-    const stretch = Math.abs(t - along0) < LEVEL_EPS || Math.abs(t - along1) < LEVEL_EPS ? dir * thick : 0;
-    return onX ? { x: p.x + off, z: p.z + stretch } : { x: p.x + stretch, z: p.z + off };
-  };
-  // Each end stretched away from the other.
+  const near = (p: number, q: number) => Math.abs(p - q) < LEVEL_EPS;
+  // The rect's edges across the line (`t`, along it) and along it (`line`, across it), each as (lo, hi).
+  const edgesAcross = (r: EnclosureBrush['rect']): [number, number] => (onX ? [r.z0, r.z1] : [r.x0, r.x1]);
+  const edgesAlong = (r: EnclosureBrush['rect']): [number, number] => (onX ? [r.x0, r.x1] : [r.z0, r.z1]);
+  const at = (t: number, across: number): [number, number] => (onX ? [across, t] : [t, across]);
+  type End = { at: number; nudge: number; range: [number, number] | null };
+  // Each end: where it stands (stretched away from the other end at a closed corner), and how far it is nudged on (+) or back (-) over which heights.
   const forward = Math.sign(onX ? w.b.z - w.a.z : w.b.x - w.a.x) || 1;
-  return { a: end(w.a, -forward), b: end(w.b, forward) };
+  const endOf = (p: Vec2, dir: number): End => {
+    const t = onX ? p.z : p.x;
+    const corner = near(t, along0) ? 0 : near(t, along1) ? 1 : null;
+    if (corner !== null && !doorAtCorner(corner)) return { at: t + dir * thick, nudge: 0, range: null };
+    if (corner !== null) {
+      // A Passage's end at a doorway into a Hall: the Hall's side runs on across this line, past it both ways.
+      const [x, z] = at(t + dir * 0.25, line - sign * 0.25);
+      const hall = enclosureAt(source, b, x, z, (r) => edgesAcross(r).some((e) => near(e, t)) && edgesAlong(r)[0] < line - LEVEL_EPS && edgesAlong(r)[1] > line + LEVEL_EPS);
+      return { at: t, nudge: hall ? DOORWAY_NUDGE : 0, range: hall };
+    }
+    // A Hall's jamb: a Passage beyond it, in the doorway and outside this rect, whose side Wall stands on this end.
+    const [x, z] = at(t + dir * 0.25, line + sign * 0.25);
+    const passage = enclosureAt(source, b, x, z, (r) => edgesAcross(r).some((e) => near(e, t)));
+    return { at: t, nudge: passage ? -DOORWAY_NUDGE : 0, range: passage };
+  };
+  const ea = endOf(w.a, -forward);
+  const eb = endOf(w.b, forward);
+  const point = (t: number): Vec2 => (onX ? { x: line + off, z: t } : { x: t, z: line + off });
+  // Cut the heights at the nudges' ranges; each band is nudged at the ends whose range holds it.
+  const cuts = [w.bottom, w.top, ...[ea.range, eb.range].flatMap((r) => r ?? [])].filter((y) => y >= w.bottom && y <= w.top).sort((p, q) => p - q);
+  const pieces: WallPiece[] = [];
+  for (let k = 0; k + 1 < cuts.length; k++) {
+    const [bottom, top] = [cuts[k]!, cuts[k + 1]!];
+    if (top - bottom < LEVEL_EPS) continue;
+    const y = (bottom + top) / 2;
+    const nudge = (e: End) => (e.range !== null && y > e.range[0] && y < e.range[1] ? e.nudge : 0);
+    pieces.push({ a: point(ea.at - forward * nudge(ea)), b: point(eb.at + forward * nudge(eb)), bottom, top });
+  }
+  return pieces;
 }
 
 /** The model of `source` as compiled (`draft`, from `compileDraft(source, …)`): a group of one mesh per material, the torches' lights, and its sky. */
@@ -164,15 +242,29 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
   });
 
   // The Walls the compiler stood, as boxes on their lines (the field's edge is open ground; a Ramp's skirt is drawn as its wedge below).
+  // An Enclosure's sides are drawn first, so a face that one of them already holds (a roof's edge over a doorway's lintel) is not drawn again.
+  const sides = map.walls.filter((w, i) => brushes.get(draft.wallBrush[i]!)?.kind === 'enclosure' && isEnclosureSide(w.id));
   map.walls.forEach((w, i) => {
     const id = draft.wallBrush[i]!;
     const owner = brushes.get(id);
     if (!owner) return;
     if (owner.kind === 'ramp' && isSkirt(w.id, owner.id)) return;
     const thick = owner.kind === 'wall' || owner.kind === 'enclosure' ? THICKNESS.wall : owner.kind === 'rail' || owner.kind === 'ramp' ? THICKNESS.rail : THICKNESS.face;
-    const out = owner.kind === 'enclosure' ? outsideEnclosure(owner, w, source, thick) : null;
-    if (out) buckets.slab(lookOf(id), out.a, out.b, w.bottom, w.top, thick);
-    else buckets.slab(lookOf(id), w.a, w.b, w.bottom, w.top, thick);
+    // An Enclosure's face (under its floor's edge, as at a doorway into a Gallery's Deck; a roof's edge): none where one of the Enclosures'
+    // sides holds it, and its top just under the floor it reaches, which may lie on both sides of its line (the Deck's beyond the doorway).
+    const face = owner.kind === 'enclosure' && !isEnclosureSide(w.id);
+    if (face && sides.some((e) => holds(e, w))) return;
+    const drawn = face ? { ...w, top: w.top - DOORWAY_NUDGE } : w;
+    if (owner.kind === 'ramp') {
+      // A Ramp's rail stops just short of each end, where it meets a Hall's Wall at a sloped Passage's mouth (or a Deck's side at a Gallery's head).
+      const len = Math.hypot(w.b.x - w.a.x, w.b.z - w.a.z) || 1;
+      const [ux, uz] = [((w.b.x - w.a.x) / len) * DOORWAY_NUDGE, ((w.b.z - w.a.z) / len) * DOORWAY_NUDGE];
+      buckets.slab(lookOf(id), { x: w.a.x + ux, z: w.a.z + uz }, { x: w.b.x - ux, z: w.b.z - uz }, w.bottom, w.top, thick);
+      return;
+    }
+    const out = owner.kind === 'enclosure' ? outsideEnclosure(owner, drawn, source, thick) : null;
+    if (out) for (const p of out) buckets.slab(lookOf(id), p.a, p.b, p.bottom, p.top, thick);
+    else buckets.slab(lookOf(id), drawn.a, drawn.b, drawn.bottom, drawn.top, thick);
   });
 
   for (const b of source.brushes) {
