@@ -362,6 +362,57 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
   - a `pickupView` test of the glow per Rarity;
   - screenshots of each Rarity's Weapon in hand and on the Floor, in a Run and online (two peers see the same tint).
 
+#### Design
+**Colour tokens** (`src/render/rarityColours.ts`, new, render-only, imported by play and render):
+- `RARITY_COLOUR: Readonly<Record<Rarity, number | null>>` = Common `null`, Rare `0x4a9eff` (blue), Legendary `0xff8a1f` (orange).
+- `rarityCss(r: Rarity): string | null` is the same colour as `#rrggbb`.
+- `rarityClass(r: Rarity): string` is `''` for Common and `rarity-rare` / `rarity-legendary` otherwise.
+- `src/play/styles.ts` builds its CSS tokens from these constants, so there is one source: `--rarity-rare`, `--rarity-legendary`, and the classes `.rarity-rare` and `.rarity-legendary` (text colour), `.inv-slot.rarity-…` (slot border), `.hud-pickup.rarity-…` (label border and text), and `.hud-build-item.rarity-…`.
+- Common gets no class, so it looks as now.
+
+**Inventory screen** (`src/play/inventoryView.ts`, `src/play/inventoryScreen.ts`, `src/play/loot.ts`):
+- `ItemView` gains `rarity: Rarity` and `label: string`. The label is the name for a Common item and `"<name> · <Rarity>"` otherwise, so a Common item reads as now.
+- A Relic's `words` are `relicWords(scaleEffects(effects, multipliers[rarity]))`, so the numbers are the scaled ones and a downside reads as it is.
+- A Weapon's `words` (empty today) are its scaled `loot.effects` in words, then for a Rare or Legendary Weapon its Rarity damage, as `"+15% damage (Rare)"`. That keeps it apart from a Longsword's own `damage` effect, which reads "+15% damage" too at Rare. They are listed for every Weapon slot (each counts only while wielded).
+- `inventoryView` needs `'weapons'` in its Tuning Data pick.
+- `inventoryViewKey` adds the Rarity.
+- The screen puts `rarityClass` on the slot and on the name, and shows `label`.
+
+**HUD**:
+- The HUD has no inventory slot strip. The items it shows are the pickup labels over the Floor and the results Build, so "HUD slots" means those two.
+- `PickupLabel` gains `rarity`; `hud.ts` toggles `rarityClass` on the tag.
+- **Results Build** (`src/play/hud.ts` `buildRows`): each item gets `rarityClass(item.rarity)`.
+
+**Pickups** (`src/render/pickupView.ts`, `src/render/pickupMarks.ts`):
+- `PickupView` gains `glow: Rarity | null`: the pickup's Rarity when it is not Common, else null. `pickupView` sets it.
+- `PickupMarks` gives each slot a flat emissive ring (a `RingGeometry` lying on the ground, `MeshBasicMaterial` in the Rarity colour, additive, slightly transparent), shown only under a glowing pickup.
+- It keeps a fixed pool of `GLOW_LIGHTS = 4` `PointLight`s, made in the constructor and always in the scene, so the scene's light count never changes and no shader recompiles. They go to the nearest shown glowing pickups (by `distance`), in the Rarity colour; the unused ones get intensity 0.
+- A lying Weapon pickup's model also gets the Weapon tint below.
+
+**The wielded Weapon in 3D** (`src/render/fighterView.ts`, `src/render/renderer.ts`):
+- `FighterView.setRarity(rarity: Rarity)` sets the view's own `steel` material's emissive to `rarityTint(STEEL_EMISSIVE, rarity)`, and for the `staff` look (all Head, wood) the `wood` material's too.
+  - `rarityTint(base, r)` is in `rarityColours.ts`: the base for Common, else a lerp 0.55 from the base to the Rarity colour.
+  - Each FighterView owns its materials, so one Fighter's tint never leaks to another's.
+  - The sheathed Weapon uses the same meshes, so it keeps its tint.
+  - Throwing Daggers are another view and are not tinted.
+- `wieldedRarity(f: Pick<FighterState, 'inventory'>): Rarity` is pure in `rarityColours.ts`: the wielded Item's Rarity, or Common without an inventory.
+  - `renderer.ts` calls `slot.view.setRarity(wieldedRarity(f))` beside `update`, from the simulated Fighter, so every peer draws the same tint. Enemies have no inventory, so they draw Common.
+  - It is render only: nothing in `src/sim` changes in this Stage.
+
+**Files**: task A (screens): `src/render/rarityColours.ts` (new), `src/play/styles.ts`, `src/play/inventoryView.ts`, `src/play/inventoryScreen.ts`, `src/play/loot.ts`, `src/play/hud.ts`, `src/render/pickupView.ts` (the `glow` and the label's `rarity` only), and their tests. Task B (3D): `src/render/pickupMarks.ts`, `src/render/fighterView.ts`, `src/render/steel.ts`, `src/render/renderer.ts`, and their tests. B runs after A, because it imports A's `rarityColours.ts`.
+
+**New tests**:
+- `inventoryView.test.ts`:
+  - a Rare Whetstone reads "+15% damage" and "Whetstone · Rare";
+  - a Legendary Glass Cannon reads "+60% damage, +25% damage taken";
+  - a Rare Longsword lists "+15% damage, +15% damage (Rare)";
+  - a Common item's label is its bare name;
+  - the key changes with the Rarity.
+- `pickupView.test.ts`: `glow` is null, `'Rare'` or `'Legendary'` by the pickup's Rarity, and the label carries the Rarity.
+- `rarityColours.test.ts`: the tokens, `rarityTint` (the base unchanged for Common, distinct for Rare and Legendary) and `wieldedRarity`.
+- `pickupMarks.test.ts` (it builds `PickupMarks` headless already): the ring shows only under Rare and Legendary pickups; the light count is fixed; the nearest glowing pickups get the lit lights.
+- Screenshots (`docs/plans/loot-rarity/`) by a Playwright script driving the dev build.
+
 ## Later
 - A loot announcement for a Legendary.
 - Rolled affixes on Weapons.
