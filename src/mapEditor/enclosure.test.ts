@@ -166,6 +166,13 @@ describe('an Enclosure with a ceiling of its own', () => {
     expect(walled(arena, lv, -6, 6, -6, 11, 2)).toBe(true);
   });
 
+  it('stands no Wall up to the Hall’s roof along its Ramp’s side: the roof over the Ramp is no floor beside it (issue #157)', () => {
+    const { map } = compileMap(stairSource(), battle);
+    // Along the Ramp's open (south) side, z = 5 from x 1 to 5: its rail only, to a rail's height over its top; nothing of the Hall's.
+    const along = map.walls.filter((w) => w.a.z === 5 && w.b.z === 5 && Math.min(w.a.x, w.b.x) < 5 && Math.max(w.a.x, w.b.x) > 1);
+    expect(along.map((w) => [w.id, w.top])).toEqual([['WALL_stair_s', 3]]);
+  });
+
   it('a shortcuts map builds only shortcut jump Links, from the Hall floor onto the Deck, none onto a roof; false builds none', () => {
     const { map } = compileMap(stairSource({ shortcuts: true }), battle);
     expect(map.shortcuts).toBe(true);

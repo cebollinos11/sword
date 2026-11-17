@@ -9,6 +9,10 @@ import { delverFloor } from './index';
  * Golden Floors: the same (seed, Floor) builds the same map file bytes, passes the judge, and hashes to the pinned value after the pinned
  * number of attempts. The plan is pinned beside the map: it carries the markers, kinds, main path, in-line Halls and patrols the later
  * Stages read, which the compiled map does not. A pin of either that moves means `DELVER_VERSION` + 1 and new pins.
+ *
+ * `DELVER_VERSION` 12 (issue #157): the compiler stands no Wall up to an Enclosure's roof along a Ramp inside it (a Gallery's), so every
+ * map hash below moved and no plan hash or attempt count did. Where a comment says a set of pins equals an earlier Stage's, it did so
+ * before that change.
  */
 const tuning = loadTuningData();
 
@@ -17,18 +21,18 @@ const tuning = loadTuningData();
  * for byte what 7b dealt, shaped Halls and pillars and all). The byte-identity proof of Stage 7c.
  */
 const FLAT_HALLS_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '366c81c3', plan: '001c55f6', attempts: 1 },
-  { seed: 1, floor: 3, hash: '90ea148d', plan: '244147aa', attempts: 1 },
-  { seed: 1, floor: 9, hash: '8e0b48a5', plan: '230935be', attempts: 1 },
-  { seed: 7, floor: 1, hash: '18b88119', plan: 'b712c258', attempts: 1 },
-  { seed: 7, floor: 3, hash: 'f49bafbf', plan: 'ebbe7931', attempts: 1 },
-  { seed: 7, floor: 9, hash: 'c102e593', plan: 'a190cc6c', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: 'f4b86dd9', plan: '45477de5', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '9a82aa18', plan: '6d362586', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: '505e2634', plan: 'd67c0554', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: 'c2377bee', plan: 'd5295342', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: '0ffc3f0f', plan: '0f7b4856', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: 'f386a96a', plan: '20a8532c', attempts: 1 },
+  { seed: 1, floor: 1, hash: '98847f14', plan: '001c55f6', attempts: 1 },
+  { seed: 1, floor: 3, hash: '00bede15', plan: '244147aa', attempts: 1 },
+  { seed: 1, floor: 9, hash: '3a08263f', plan: '230935be', attempts: 1 },
+  { seed: 7, floor: 1, hash: '58073f19', plan: 'b712c258', attempts: 1 },
+  { seed: 7, floor: 3, hash: '571eb334', plan: 'ebbe7931', attempts: 1 },
+  { seed: 7, floor: 9, hash: '211eb761', plan: 'a190cc6c', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '8fb4cc38', plan: '45477de5', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '65fc835b', plan: '6d362586', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: 'ddaa7d64', plan: 'd67c0554', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '7fa81224', plan: 'd5295342', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '73ae5511', plan: '0f7b4856', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'bb07120c', plan: '20a8532c', attempts: 1 },
 ];
 
 
@@ -37,38 +41,38 @@ const FLAT_HALLS_PINS: readonly { seed: number; floor: number; hash: string; pla
  * Floor is byte for byte what it was. Floor 9 is the default Tuning's own (its tier is full length); the shorter tiers are pinned in `TIER_PINS`.
  */
 const PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '6f786c9c', plan: 'f22f0e37', attempts: 1 },
-  { seed: 1, floor: 3, hash: '2e1b9583', plan: '50dd4e74', attempts: 1 },
-  { seed: 1, floor: 9, hash: '31649a86', plan: '578018d0', attempts: 1 },
-  { seed: 7, floor: 1, hash: 'b1d201e3', plan: '3d8f7150', attempts: 1 },
-  { seed: 7, floor: 3, hash: 'ce60b9c2', plan: '574470b1', attempts: 1 },
-  { seed: 7, floor: 9, hash: 'c2584698', plan: 'e4cf1445', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: '6b6815cb', plan: 'e413d36a', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '9231c090', plan: '0d7827b2', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: '252a9213', plan: 'ae2e5f1a', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: 'd078403a', plan: '3a8093a2', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: '74236780', plan: '4f63fac9', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: 'f7fb497e', plan: '218b7ec6', attempts: 1 },
+  { seed: 1, floor: 1, hash: 'b9df3fed', plan: 'f22f0e37', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'ace072ac', plan: '50dd4e74', attempts: 1 },
+  { seed: 1, floor: 9, hash: 'd5e818ca', plan: '578018d0', attempts: 1 },
+  { seed: 7, floor: 1, hash: '5a831d37', plan: '3d8f7150', attempts: 1 },
+  { seed: 7, floor: 3, hash: '3143be9a', plan: '574470b1', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'a4b7e670', plan: 'e4cf1445', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '98613406', plan: 'e413d36a', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '7fb2844f', plan: '0d7827b2', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: '17c0d56f', plan: 'ae2e5f1a', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: 'ddd92e43', plan: '3a8093a2', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '48f86832', plan: '4f63fac9', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: '457578ab', plan: '218b7ec6', attempts: 1 },
 ];
 
 /** The default Tuning's shorter Floors (issue #135, `DELVER_VERSION` 9): tier 1's 7 Halls (Floors 1 and 3) and tier 2's 10 (Floors 4 and 6). */
 const TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '52f35721', plan: 'b6a5ecd3', attempts: 1 },
-  { seed: 1, floor: 3, hash: '2a4af827', plan: 'a0ab94f9', attempts: 1 },
-  { seed: 1, floor: 4, hash: 'd2d3b083', plan: '891a1ef5', attempts: 1 },
-  { seed: 1, floor: 6, hash: '39bfa5ad', plan: 'c4f030cb', attempts: 1 },
-  { seed: 7, floor: 1, hash: 'b7d3ed97', plan: '00b8a0c0', attempts: 1 },
-  { seed: 7, floor: 3, hash: 'a73ee9dc', plan: '237eea16', attempts: 2 },
-  { seed: 7, floor: 4, hash: 'c55c2f72', plan: 'b1d0d7fa', attempts: 1 },
-  { seed: 7, floor: 6, hash: '73a92200', plan: '186555fa', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: '87988241', plan: '108dc545', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: '20fce30a', plan: '410bae72', attempts: 1 },
-  { seed: 123456789, floor: 4, hash: '4cf4b24c', plan: '257d05e7', attempts: 1 },
-  { seed: 123456789, floor: 6, hash: 'ae58c4ed', plan: '08d220b8', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: '6c744101', plan: '86e0b88d', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: '86cffbd3', plan: '6531fb8b', attempts: 1 },
-  { seed: 4294967295, floor: 4, hash: 'd19abd01', plan: '8d290682', attempts: 1 },
-  { seed: 4294967295, floor: 6, hash: '554073fb', plan: '6022c21d', attempts: 1 },
+  { seed: 1, floor: 1, hash: 'eec2c124', plan: 'b6a5ecd3', attempts: 1 },
+  { seed: 1, floor: 3, hash: '28404b80', plan: 'a0ab94f9', attempts: 1 },
+  { seed: 1, floor: 4, hash: 'a1886dcf', plan: '891a1ef5', attempts: 1 },
+  { seed: 1, floor: 6, hash: '8e783c78', plan: 'c4f030cb', attempts: 1 },
+  { seed: 7, floor: 1, hash: 'aa06bca9', plan: '00b8a0c0', attempts: 1 },
+  { seed: 7, floor: 3, hash: '3501f29b', plan: '237eea16', attempts: 2 },
+  { seed: 7, floor: 4, hash: '48c75282', plan: 'b1d0d7fa', attempts: 1 },
+  { seed: 7, floor: 6, hash: 'b3f94a7a', plan: '186555fa', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '37926dcd', plan: '108dc545', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: '95d58ee9', plan: '410bae72', attempts: 1 },
+  { seed: 123456789, floor: 4, hash: 'b0c6cecb', plan: '257d05e7', attempts: 1 },
+  { seed: 123456789, floor: 6, hash: 'f03bd4e4', plan: '08d220b8', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '4457b460', plan: '86e0b88d', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '683ebeda', plan: '6531fb8b', attempts: 1 },
+  { seed: 4294967295, floor: 4, hash: '04f7d22a', plan: '8d290682', attempts: 1 },
+  { seed: 4294967295, floor: 6, hash: 'a04a50a5', plan: '6022c21d', attempts: 1 },
 ];
 
 /**
@@ -76,18 +80,18 @@ const TIER_PINS: readonly { seed: number; floor: number; hash: string; plan: str
  * byte what it was), on the first attempt; the plan hashes are new, since the plan gained its fields.
  */
 const PLAIN_PINS: readonly { seed: number; floor: number; hash: string; plan: string; attempts: number }[] = [
-  { seed: 1, floor: 1, hash: '7df78d73', plan: '455a2dc1', attempts: 1 },
-  { seed: 1, floor: 3, hash: 'f210fd08', plan: '550ba04a', attempts: 1 },
-  { seed: 1, floor: 9, hash: '58e32628', plan: '6aaab58d', attempts: 1 },
-  { seed: 7, floor: 1, hash: '0a9af48a', plan: '1154cd54', attempts: 1 },
-  { seed: 7, floor: 3, hash: 'c79b0278', plan: '2cb2bc31', attempts: 1 },
-  { seed: 7, floor: 9, hash: '63377c42', plan: 'b108bd8a', attempts: 1 },
-  { seed: 123456789, floor: 1, hash: '1276f117', plan: '2458a137', attempts: 1 },
-  { seed: 123456789, floor: 3, hash: 'b5ea0e9f', plan: '164af432', attempts: 1 },
-  { seed: 123456789, floor: 9, hash: 'c5071ac1', plan: 'ad04a886', attempts: 1 },
-  { seed: 4294967295, floor: 1, hash: 'a124cab9', plan: '4b3ee815', attempts: 1 },
-  { seed: 4294967295, floor: 3, hash: '090b24f5', plan: '3b208803', attempts: 1 },
-  { seed: 4294967295, floor: 9, hash: '9e25d4c3', plan: '44b9069e', attempts: 1 },
+  { seed: 1, floor: 1, hash: 'd7235d42', plan: '455a2dc1', attempts: 1 },
+  { seed: 1, floor: 3, hash: 'd52ca7d4', plan: '550ba04a', attempts: 1 },
+  { seed: 1, floor: 9, hash: 'ec9a8982', plan: '6aaab58d', attempts: 1 },
+  { seed: 7, floor: 1, hash: '1156b2ea', plan: '1154cd54', attempts: 1 },
+  { seed: 7, floor: 3, hash: '2414f485', plan: '2cb2bc31', attempts: 1 },
+  { seed: 7, floor: 9, hash: 'ffa5059e', plan: 'b108bd8a', attempts: 1 },
+  { seed: 123456789, floor: 1, hash: '081ee6a4', plan: '2458a137', attempts: 1 },
+  { seed: 123456789, floor: 3, hash: 'bff4f4e6', plan: '164af432', attempts: 1 },
+  { seed: 123456789, floor: 9, hash: '8035e7e5', plan: 'ad04a886', attempts: 1 },
+  { seed: 4294967295, floor: 1, hash: '97df3033', plan: '4b3ee815', attempts: 1 },
+  { seed: 4294967295, floor: 3, hash: '51a9208f', plan: '3b208803', attempts: 1 },
+  { seed: 4294967295, floor: 9, hash: 'b03f4281', plan: '44b9069e', attempts: 1 },
 ];
 
 /**
@@ -95,18 +99,18 @@ const PLAIN_PINS: readonly { seed: number; floor: number; hash: string; plan: st
  * exactly (a Floor with every 7a knob off is byte for byte what it was), on the first attempt; the plan hashes are new, since the plan gained its fields (and again with Stage 7b's Hall shapes).
  */
 const ROOMS_PINS: readonly { seed: number; floor: number; hash: string; plan: string }[] = [
-  { seed: 1, floor: 1, hash: '4b55b26e', plan: '52ef38cc' },
-  { seed: 1, floor: 3, hash: 'b64b7391', plan: '9f88eb9f' },
-  { seed: 1, floor: 9, hash: '094f6914', plan: 'c8c1d280' },
-  { seed: 7, floor: 1, hash: 'b4859c66', plan: '23f39bd0' },
-  { seed: 7, floor: 3, hash: '2123c3b1', plan: '4f882386' },
-  { seed: 7, floor: 9, hash: 'bd7f124c', plan: '5ec1ff05' },
-  { seed: 123456789, floor: 1, hash: 'c51da678', plan: 'cba459cb' },
-  { seed: 123456789, floor: 3, hash: '0846dc38', plan: '253ff092' },
-  { seed: 123456789, floor: 9, hash: 'aced9fc1', plan: 'e2107d30' },
-  { seed: 4294967295, floor: 1, hash: '27c6a8d9', plan: '9d5bb955' },
-  { seed: 4294967295, floor: 3, hash: '00fe0b5e', plan: '240e6055' },
-  { seed: 4294967295, floor: 9, hash: 'ab53f03d', plan: 'e95d9d05' },
+  { seed: 1, floor: 1, hash: '06ad2938', plan: '52ef38cc' },
+  { seed: 1, floor: 3, hash: '039293c7', plan: '9f88eb9f' },
+  { seed: 1, floor: 9, hash: 'f39ce4fd', plan: 'c8c1d280' },
+  { seed: 7, floor: 1, hash: 'ef747924', plan: '23f39bd0' },
+  { seed: 7, floor: 3, hash: '29bbd241', plan: '4f882386' },
+  { seed: 7, floor: 9, hash: 'ee796f53', plan: '5ec1ff05' },
+  { seed: 123456789, floor: 1, hash: '640864ce', plan: 'cba459cb' },
+  { seed: 123456789, floor: 3, hash: '215d10a7', plan: '253ff092' },
+  { seed: 123456789, floor: 9, hash: '462a3b8b', plan: 'e2107d30' },
+  { seed: 4294967295, floor: 1, hash: '5869b01a', plan: '9d5bb955' },
+  { seed: 4294967295, floor: 3, hash: 'a06440e1', plan: '240e6055' },
+  { seed: 4294967295, floor: 9, hash: 'fd5aa886', plan: 'e95d9d05' },
 ];
 
 /**

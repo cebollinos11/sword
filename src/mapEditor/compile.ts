@@ -466,6 +466,9 @@ export function compileDraft(source: MapSource, battle: Pick<BattleTuning, 'fiel
         let owner = 0;
         for (const [h, o] of seen) {
           if (ramp[n]! >= 0 && o === ramp[n]! + 1) continue;
+          // An Enclosure's roof over a Ramp inside it (a Gallery's) is no floor beside the slope, as for any floor's face (`faceFrom`).
+          const e = brushes[o - 1]!;
+          if (e.kind === 'enclosure' && h > e.y && withinCells(cellsOf(e.rect), i, j)) continue;
           if (h < lowest[t]!) lowest[t] = h;
           if (h > at(t + 1) + stepUp + EPS && h < top) [top, owner] = [h, o];
         }
