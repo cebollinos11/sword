@@ -696,7 +696,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       void import('./play/floorCrowd').then(({ FloorCrowd }) => {
         if (generation !== playing || !floorCrowdLoading) return;
         const progress = (done: number, total: number) => bar.set(0.15 + 0.85 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : 'Ready');
-        const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, undefined, progress);
+        const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, duel.arena, undefined, progress);
         floorCrowd = crowd;
         void crowd.settled.then(() => {
           if (floorCrowd !== crowd) return;

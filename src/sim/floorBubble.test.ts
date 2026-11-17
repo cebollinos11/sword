@@ -277,7 +277,7 @@ describe('the Bubble with elites and a Boss', { timeout: TIMEOUT }, () => {
     return { s, ids, hall, centre, stand };
   }
 
-  it('gives a promoted elite its Relics\' Mods on top of its base Troop\'s (Whetstone\'s damage folded with the Battle\'s half damage)', () => {
+  it('gives a promoted elite its Relics\' Mods on top of its Variant\'s (Whetstone\'s damage folded with its own)', () => {
     const s = scene(1, 1);
     const w = s.crowd.warbands!;
     const q = w.rank.indexOf(ELITE);
@@ -288,14 +288,14 @@ describe('the Bubble with elites and a Boss', { timeout: TIMEOUT }, () => {
     const got = promoted(next).find((f) => f.s === ids[0])!;
     expect(got).toBeDefined();
     const troop = s.battle.troops[crowd.troop[ids[0]!]!]!;
-    expect(troop.relics).toEqual(['Whetstone']);
-    const base = foldMods([{ effects: troop.mods }]);
-    expect(base.damage).toBeCloseTo(0.5);
-    expect(got.f.mods!.damage).toBeCloseTo(base.damage * 1.1);
-    expect(got.f.mods).toEqual(foldMods([{ effects: troop.mods }, { effects: { damage: 1.1 } }]));
+    expect(troop.relics).toContain('Whetstone');
+    expect(troop.name).toMatch(/\(elite\)$/);
+    const own = foldMods([{ effects: troop.mods }, ...troop.relics!.filter((r) => r !== 'Whetstone').map((name) => ({ effects: s.t.relics.find((x) => x.name === name)!.effects }))]);
+    expect(got.f.mods!.damage).toBeCloseTo((own.damage ?? 1) * 1.1);
+    expect(got.f.mods).toEqual(foldMods([{ effects: troop.mods }, ...troop.relics!.map((name) => ({ effects: s.t.relics.find((x) => x.name === name)!.effects }))]));
   });
 
-  it('gives a promoted Boss no half-damage Mod, and a guard of its Warband the Battle\'s', () => {
+  it('gives a promoted Boss no half-damage Mod, and a guard of its Warband its Variant\'s', () => {
     const { s, ids, centre, stand } = bossScene();
     const next = stepBubbles(s.duel([centre], stand(3, 4)), 1, 1, s.t, [], { soldier: ids[0]!, hold: false });
     const boss = promoted(next).find((f) => f.s === ids[0])!;
@@ -303,7 +303,9 @@ describe('the Bubble with elites and a Boss', { timeout: TIMEOUT }, () => {
     expect(boss).toBeDefined();
     expect(s.battle.troops[s.crowd.troop[ids[0]!]!]!.boss).toBe(true);
     expect(boss.f.mods).toBeUndefined();
-    expect(guard.f.mods!.damage).toBeCloseTo(0.5);
+    const guardTroop = s.battle.troops[s.crowd.troop[ids[1]!]!]!;
+    expect(guard.f.mods!.damage).toBeCloseTo(guardTroop.mods.damage!);
+    expect(guardTroop.mods.damage).toBeLessThan(1);
   });
 
   it('gives the Boss the one free Attack Slot over a nearer guard Soldier, and the nearer one without a BossHold', () => {

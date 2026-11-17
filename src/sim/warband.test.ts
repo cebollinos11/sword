@@ -17,7 +17,7 @@ const REGROUP_SECONDS = 30;
 const f1 = (v: number) => v.toFixed(1);
 
 /**
- * The bundled Tuning with every guard and patrol template four Soldiers strong (of its first Troop), no elites: the size the Warband tests below that
+ * The bundled Tuning with every guard and patrol template four Soldiers strong (of its first row's skill), no elites: the size the Warband tests below that
  * kill part of a Squad, or lead one Soldier off from the rest, assume (the bundled templates are one to five Soldiers now).
  */
 const bigWarbands: TuningData = {
@@ -26,7 +26,7 @@ const bigWarbands: TuningData = {
     ...tuning.delver,
     elitePosts: 0,
     warbands: tuning.delver.warbands.map((tier) => {
-      const four = (w: DelverTuning['warbands'][number]['guard'][number]) => ({ ...w, troops: [{ troop: w.troops[0]!.troop, count: 4 }] });
+      const four = (w: DelverTuning['warbands'][number]['guard'][number]) => ({ ...w, troops: [{ skill: w.troops[0]!.skill, count: 4 }] });
       return { ...tier, guard: tier.guard.map(four), patrol: tier.patrol.map(four) };
     }),
   },

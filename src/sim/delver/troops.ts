@@ -1,18 +1,27 @@
 /**
- * A Delver Floor's Troops (docs/plans/delver.md, Stage 4): `battle.troops` first, at their own indices, then each tier's Boss Troop and
- * then the elite Troops. Pure and derived, cached per (battle, delver) objects, never state. A Floor's Battle Tuning carries this list
- * as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in it; the Battles' own `battle.troops` is never touched.
+ * A Delver Floor's Troops (docs/plans/delver.md, Stage 4; docs/plans/delver-troops.md): every Variant of every Prefab of `delver.troops`
+ * in order, then each non-Boss Variant again for each distinct elite Relic set (wearing that set too). Pure and derived, cached per `delver`
+ * object, never state. A Floor's Battle Tuning carries this list as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in
+ * it; the Battles' own `battle.troops` are never a Floor's. Which Prefabs a Floor fields is `floorPrefabs`.
  */
-import type { BattleTuning, DelverTuning, TroopTuning } from '../../tuning';
-import type { DelverFloorTuning } from '../../tuning/delver';
+import { clampSize, eliteRelicSets, MAX_SIZE, MIN_SIZE, regularPrefab, type DelverTuning, type Size, type TroopTuning } from '../../tuning';
+import type { DelverFloorTuning, DelverPrefab, DelverVariant } from '../../tuning/delver';
+import { runPick } from '../dungeon';
+
+/** The `runPick` salt of a Floor's Prefab order (apart from the Floor generator's and the Warbands'). */
+const PREFAB_SALT = 40;
 
 export interface FloorTroops {
-  /** `battle.troops`, then each tier's Boss Troop, then the elite Troops. */
+  /** Every Variant (Prefab by Prefab), then the elite Variants (set by set, Prefab by Prefab). */
   readonly troops: readonly TroopTuning[];
+  /** [prefab][variant]: that Variant's Troop. */
+  readonly plain: readonly (readonly number[])[];
+  /** [elite set][prefab][variant]: that Variant's Troop wearing the set's Relics too, or -1 for a Boss Variant. */
+  readonly elite: readonly (readonly (readonly number[])[])[];
+  /** [tier][elite template]: its Relic set (an index into `elite`). */
+  readonly eliteSet: readonly (readonly number[])[];
   /** Per tier: its Boss Troop's index, or -1 when the tier has no Boss. */
   readonly boss: readonly number[];
-  /** [tier][elite template][row]: that row's elite Troop index. */
-  readonly elite: readonly (readonly (readonly number[])[])[];
 }
 
 /** The tier (1 to `tiers`) of Floor `floor`. */
@@ -41,56 +50,92 @@ export function isBossFloor(delver: DelverTuning, floor: number): boolean {
   return floor % delver.floorsPerTier === 0 && delver.warbands[tierOf(delver, floor) - 1]?.boss !== undefined;
 }
 
-const cache = new WeakMap<BattleTuning, WeakMap<DelverTuning, FloorTroops>>();
+const cache = new WeakMap<DelverTuning, FloorTroops>();
+
+function build(delver: DelverTuning): FloorTroops {
+  const troops: TroopTuning[] = [];
+  const troopOf = (p: DelverPrefab, prefab: number, v: DelverVariant, relics: readonly string[], elite: boolean): TroopTuning => {
+    const tint = delver.skillTints[v.difficulty];
+    return {
+      name: elite ? `${v.name} (elite)` : v.name,
+      weight: 1,
+      bodies: [p.body],
+      weapon: p.weapon,
+      difficulty: v.difficulty,
+      style: v.style,
+      relics,
+      hp: v.hp,
+      damage: v.damage,
+      hitChance: v.hitChance,
+      engageReach: v.engageReach,
+      mods: v.mods,
+      prefab,
+      ...(tint === undefined ? {} : { tint }),
+      ...(v.boss ? { boss: true as const } : {}),
+    };
+  };
+  const plain = delver.troops.map((p, i) =>
+    p.variants.map((v) => {
+      troops.push(troopOf(p, i, v, v.relics, false));
+      return troops.length - 1;
+    }),
+  );
+  const sets = eliteRelicSets(delver);
+  const elite = sets.map((key) =>
+    delver.troops.map((p, i) =>
+      p.variants.map((v) => {
+        if (v.boss) return -1;
+        // The Variant's own Relics, then the template's it does not already wear.
+        const relics = [...v.relics, ...key.split('\n').filter((r) => !v.relics.includes(r))];
+        troops.push(troopOf(p, i, v, relics, true));
+        return troops.length - 1;
+      }),
+    ),
+  );
+  const eliteSet = delver.warbands.map((t) => (t.elite ?? []).map((e) => sets.indexOf(e.relics.join('\n'))));
+  const boss = delver.warbands.map((t) => (t.boss ? plain[t.boss.prefab]![t.boss.variant]! : -1));
+  return { troops, plain, elite, eliteSet, boss };
+}
+
+/** The Troops a Delver Floor's Crowd indexes, for `delver` (cached per object). */
+export function floorTroops(delver: DelverTuning): FloorTroops {
+  let made = cache.get(delver);
+  if (!made) cache.set(delver, (made = build(delver)));
+  return made;
+}
 
 /**
- * The indices of a Floor's Boss and elite Troops in `floorTroops`' list, for a base Battle of `baseCount` Troops: each tier's Boss Troop first
- * (-1 for a tier without one), then the elite Troops, tier by tier, template by template, row by row. The one place that order lives.
+ * The Prefabs (indices into `delver.troops`) Floor `floor` of the Run of `seed` fields (docs/plans/delver-troops.md): `delver.prefabsPerFloor`
+ * of those that fill template rows (`regularPrefab`), all different, in a seeded order and then ascending; every one of them when there are
+ * no more. The next Floor draws afresh, so a Prefab may come back on it. Pure.
  */
-export function floorTroopLayout(baseCount: number, delver: DelverTuning): { boss: number[]; elite: number[][][] } {
-  let next = baseCount;
-  const boss = delver.warbands.map((t) => (t.boss ? next++ : -1));
-  const elite = delver.warbands.map((t) => (t.elite ?? []).map((e) => e.troops.map(() => next++)));
-  return { boss, elite };
+export function floorPrefabs(delver: DelverTuning, seed: number, floor: number): number[] {
+  const order: { i: number; key: number }[] = [];
+  delver.troops.forEach((p, i) => {
+    if (regularPrefab(p)) order.push({ i, key: runPick(seed, floor, i, PREFAB_SALT, 0x1_0000_0000) });
+  });
+  order.sort((a, b) => a.key - b.key || a.i - b.i);
+  return order
+    .slice(0, delver.prefabsPerFloor)
+    .map((o) => o.i)
+    .sort((a, b) => a - b);
 }
 
-function build(battle: BattleTuning, delver: DelverTuning): FloorTroops {
-  const troops: TroopTuning[] = [...battle.troops];
-  const layout = floorTroopLayout(battle.troops.length, delver);
-  for (const tier of delver.warbands) {
-    const b = tier.boss;
-    if (!b) continue;
-    const { troop: t } = b;
-    troops.push({
-      ...battle.troops[t.base]!,
-      name: t.name,
-      weight: 1,
-      bodies: [t.body],
-      teamBodies: undefined,
-      height: [t.height, t.height],
-      width: [t.width, t.width],
-      weapon: t.weapon,
-      difficulty: t.difficulty,
-      mods: {},
-      style: t.style,
-      relics: t.relics,
-      boss: true,
-    });
-  }
-  for (const tier of delver.warbands)
-    for (const template of tier.elite ?? [])
-      for (const row of template.troops) {
-        const base = battle.troops[row.troop]!;
-        troops.push({ ...base, name: `${base.name} (elite)`, relics: template.relics });
-      }
-  return { troops, ...layout };
+/** Every Prefab drawn on Floor `floor` of the Run of `seed`: its `floorPrefabs`, and on a Boss Floor its Boss's Prefab too (ascending, each once). Pure. */
+export function floorLooks(delver: DelverTuning, seed: number, floor: number): number[] {
+  const looks = floorPrefabs(delver, seed, floor);
+  const boss = delver.warbands[tierOf(delver, floor) - 1]?.boss;
+  if (boss && isBossFloor(delver, floor) && !looks.includes(boss.prefab)) looks.push(boss.prefab);
+  return looks.sort((a, b) => a - b);
 }
 
-/** The Troops a Delver Floor's Crowd indexes, for `battle` and `delver` (cached per pair of objects). */
-export function floorTroops(battle: BattleTuning, delver: DelverTuning): FloorTroops {
-  let byDelver = cache.get(battle);
-  if (!byDelver) cache.set(battle, (byDelver = new WeakMap()));
-  let made = byDelver.get(delver);
-  if (!made) byDelver.set(delver, (made = build(battle, delver)));
-  return made;
+/**
+ * The Size of a Delver Soldier of `hp` (its final HP, every scale and Relic applied): MIN_SIZE at `delver.sizeHp[0]` HP or less, MAX_SIZE
+ * at `sizeHp[1]` or more, in a straight line between, height and thickness alike (snapped, `clampSize`).
+ */
+export function sizeOfHp(delver: Pick<DelverTuning, 'sizeHp'>, hp: number): Size {
+  const [lo, hi] = delver.sizeHp;
+  const t = (Math.min(hi, Math.max(lo, hp)) - lo) / (hi - lo);
+  const s = MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
+  return clampSize({ height: s, thick: s });
 }

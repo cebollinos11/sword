@@ -4,10 +4,10 @@
  * and the Run seed, so peers with different Delver Tuning Data refuse each other at connect.
  */
 import type { BattleTuning } from './battle';
+import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
+import { array, finiteNumber, record, TuningDataError } from './validate';
 /** The most Relics an elite Warband's Soldier carries. */
 export const MAX_ENEMY_RELICS = 2;
-import { MAX_SIZE, MIN_SIZE } from './size';
-import { array, finiteNumber, record, TuningDataError } from './validate';
 
 export interface DelverFloorTuning {
   /** Lattice columns (whole, >= 2). */
@@ -114,31 +114,62 @@ export interface DelverGalleriesTuning {
   readonly stairPercent: number;
 }
 
-/** A Warband template (docs/plans/delver.md, Stage 3): the Troops a Warband deploys with, in list order (the first its rank and file), and its HP scale. */
+/**
+ * A Warband template (docs/plans/delver.md, Stage 3; its rows by skill since docs/plans/delver-troops.md): the Soldiers a Warband deploys
+ * with, in list order (the first its rank and file), and its HP scale. Each row names an AI difficulty (its skill) and a count; each of its
+ * Soldiers is a Variant of that skill of one of its Floor's Prefabs (`floorPrefabs`), picked from the Run seed.
+ */
 export interface WarbandTemplate {
-  /** Each listed Troop (an index into `battle.troops`) and how many of it. */
-  readonly troops: readonly { readonly troop: number; readonly count: number }[];
+  /** Each row's skill (a name from `ai.difficulties`) and how many Soldiers of it. */
+  readonly troops: readonly { readonly skill: string; readonly count: number }[];
   /** Multiplies each Soldier's HP (on top of its tier's `tierHp`); positive. */
   readonly hpScale: number;
-  /** The Relics its Soldiers' promoted Fighters wear (1 or 2 names, an elite template's); `[]` for a guard, patrol or Boss guard template. */
+  /** The Relics its Soldiers' promoted Fighters wear (1 or 2 names, an elite template's), on top of their Variant's own; `[]` for a guard, patrol or Boss guard template. */
   readonly relics: readonly string[];
 }
 
-/** A tier's Boss (docs/plans/delver.md, Stage 4): its Soldier's Troop and the guard Warband that stands with it. */
+/**
+ * A Variant of a Delver Prefab (docs/plans/delver-troops.md): everything about a Soldier that is not drawn. Its Size is not its own: it
+ * follows the Soldier's final HP (`delver.sizeHp`), and its tint follows its difficulty (`delver.skillTints`).
+ */
+export interface DelverVariant {
+  /** Its name, for people and for a tier's Boss to name it; unique over every Prefab's Variants. */
+  readonly name: string;
+  /** Its HP, in a Fighter's units, before its tier's and its template's scales (a Boss's is its whole HP). */
+  readonly hp: number;
+  /** The AI difficulty a promoted Soldier of it plays (a name from `ai.difficulties`): its skill. */
+  readonly difficulty: string;
+  /** The AI Style it plays (a name from `ai.styles`). */
+  readonly style: string;
+  /** The Relics (0 to MAX_ENEMY_RELICS names) its promoted Fighter wears. */
+  readonly relics: readonly string[];
+  /** A promoted Soldier's Mods, as a Relic's multipliers (default `battle.soldier.mods`). */
+  readonly mods: RelicEffects;
+  /** Its Crowd stats (default the Crowd's own): a blow's damage, its chance and the engage reach. */
+  readonly damage: readonly [number, number];
+  readonly hitChance: number;
+  readonly engageReach: number;
+  /** A Boss Variant: only a tier's Boss is of it, and it fills no template row. */
+  readonly boss?: true;
+}
+
+/** A Delver Prefab (docs/plans/delver-troops.md): one Body and one Weapon, one impostor atlas, and its Variants. */
+export interface DelverPrefab {
+  readonly name: string;
+  /** The Body model (a name from the Body roster, `src/render/bodyModel.ts`). Render-only. */
+  readonly body: string;
+  /** The Weapon (a name from the Weapon roster). */
+  readonly weapon: string;
+  readonly variants: readonly DelverVariant[];
+}
+
+/** A tier's Boss (docs/plans/delver.md, Stage 4): its Soldier's Variant (a Boss Variant of `delver.troops`) and the guard Warband that stands with it. */
 export interface DelverBoss {
-  readonly troop: {
-    readonly name: string;
-    /** An index into `battle.troops`: it gives the Boss Soldier's Crowd stats. */
-    readonly base: number;
-    readonly weapon: string;
-    readonly body: string;
-    readonly height: number;
-    readonly width: number;
-    readonly difficulty: string;
-    readonly style: string;
-    readonly relics: readonly string[];
-    readonly hpScale: number;
-  };
+  /** The Boss Variant's name. */
+  readonly troop: string;
+  /** Its Prefab (an index into `delver.troops`) and its Variant there. */
+  readonly prefab: number;
+  readonly variant: number;
   /** The plain templates the Boss Warband's other Soldiers are picked from (with the Boss at most `battle.squad.size`). */
   readonly guard: readonly WarbandTemplate[];
 }
@@ -153,7 +184,7 @@ export interface DelverTier {
   readonly boss?: DelverBoss;
 }
 
-/** The names a Boss and an elite are checked against (the Weapon roster, `ai.difficulties`, `ai.styles` and the Relics). */
+/** The names the Prefabs, a Boss and an elite are checked against (the Weapon roster, `ai.difficulties`, `ai.styles` and the Relics). */
 export interface DelverNames {
   readonly weapons: readonly string[];
   readonly difficulties: readonly string[];
@@ -204,6 +235,14 @@ export interface DelverTuning {
   readonly tierRooms?: readonly number[];
   /** Each tier's Warband templates, one per tier. */
   readonly warbands: readonly DelverTier[];
+  /** The Delver's own Troops (docs/plans/delver-troops.md): Prefabs, each one Body and Weapon with its Variants. The Battles' `battle.troops` are never a Floor's. */
+  readonly troops: readonly DelverPrefab[];
+  /** How many Prefabs (whole, >= 1) each Floor fields, all different, picked from the Run seed; a Boss Floor's Boss's Prefab comes on top. */
+  readonly prefabsPerFloor: number;
+  /** A Soldier's Size follows its final HP: the smallest body (MIN_SIZE) at `sizeHp[0]` HP or less, the biggest (MAX_SIZE) at `sizeHp[1]` or more. */
+  readonly sizeHp: readonly [number, number];
+  /** The colour (0xRRGGBB) of a Soldier's team-coloured part by its skill (its AI difficulty); a difficulty not named wears Team 1's colour. Render-only. */
+  readonly skillTints: Readonly<Record<string, number>>;
   /** The traitors' rules (docs/plans/delver.md, Stage 8a): Players on Team 1 who take over Warband Soldiers. */
   readonly traitor: TraitorTuning;
   readonly floor: DelverFloorTuning;
@@ -257,8 +296,11 @@ const MAX_GREAT = 4;
 /** The highest Hall level `levels.max` may name. */
 const MAX_LEVELS = 6;
 
-/** The most Troops a Floor's Crowd may index: `battle.troops`, one Boss Troop per tier with a Boss, and every elite template row (`parseDelver` refuses more; the wire reads a Troop index below it). */
-export const MAX_FLOOR_TROOPS = 64;
+/** The most Troops a Floor's Crowd may index: every Prefab's Variants, and each non-Boss Variant again for each distinct elite Relic set (`parseDelver` refuses more; the wire reads a Troop index below it). */
+export const MAX_FLOOR_TROOPS = 256;
+
+/** The most Prefabs `delver.troops` names. */
+export const MAX_PREFABS = 32;
 
 function fail(where: string, what: string, v: unknown): never {
   throw new TuningDataError(`${where} must be ${what}, got ${JSON.stringify(v)}`);
@@ -324,7 +366,7 @@ interface PoolOptions {
   readonly reserve?: number;
 }
 
-function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'troops' | 'squad'>, relicNames: readonly string[], opts: PoolOptions = {}): WarbandTemplate[] {
+function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'squad'>, names: DelverNames, opts: PoolOptions = {}): WarbandTemplate[] {
   const list = array(raw, path);
   if (list.length === 0 && !opts.elite) fail(path, 'a non-empty array', raw);
   const room = battle.squad.size - (opts.reserve ?? 0);
@@ -337,56 +379,155 @@ function parsePool(raw: unknown, path: string, battle: Pick<BattleTuning, 'troop
     const troops = rows.map((r, k) => {
       const w = `${where}.troops[${k}]`;
       const row = record(r, w);
-      const name = row.troop;
-      // A Troop is named in the file; parsed Tuning Data fed back in (as the tests and the editor do with every block) names it by index.
-      const index = typeof name === 'number' && Number.isInteger(name) && name >= 0 && name < battle.troops.length ? name : battle.troops.findIndex((tr) => tr.name === name);
-      if (index < 0) fail(`${w}.troop`, `one of battle.troops (${battle.troops.map((tr) => tr.name).join(', ')})`, name);
+      const skill = row.skill;
+      if (typeof skill !== 'string' || !names.difficulties.includes(skill)) fail(`${w}.skill`, `one of the AI difficulties (${names.difficulties.join(', ')})`, skill);
       const count = whole(row, 'count', w, 1);
       total += count;
-      return { troop: index, count };
+      return { skill, count };
     });
     if (total > room) fail(`${where}.troops`, `1 to ${room} Soldiers in all (battle.squad.size ${battle.squad.size}${opts.reserve ? ` less the Boss's ${opts.reserve}` : ''})`, total);
     let relics: string[] = [];
-    if (opts.elite) relics = relicList(t.relics, `${where}.relics`, relicNames, 1);
+    if (opts.elite) relics = relicList(t.relics, `${where}.relics`, names.relics, 1);
     // Parsed data names a plain template's Relics `[]`, so an empty list is accepted back; anything else is an elite's.
     else if (t.relics !== undefined && !(Array.isArray(t.relics) && t.relics.length === 0)) fail(`${where}.relics`, 'absent (only an elite template carries Relics)', t.relics);
     return { troops, hpScale: positive(t, 'hpScale', where), relics };
   });
 }
 
-function parseBoss(raw: unknown, where: string, battle: Pick<BattleTuning, 'troops' | 'squad'>, names: DelverNames): DelverBoss {
+function parseBoss(raw: unknown, where: string, battle: Pick<BattleTuning, 'squad'>, names: DelverNames, prefabs: readonly DelverPrefab[]): DelverBoss {
   const b = record(raw, where);
-  const tw = `${where}.troop`;
-  const t = record(b.troop, tw);
-  if (typeof t.name !== 'string' || t.name === '') fail(`${tw}.name`, 'a non-empty string', t.name);
-  const base = typeof t.base === 'number' && Number.isInteger(t.base) && t.base >= 0 && t.base < battle.troops.length ? t.base : battle.troops.findIndex((tr) => tr.name === t.base);
-  if (base < 0) fail(`${tw}.base`, `one of battle.troops (${battle.troops.map((tr) => tr.name).join(', ')})`, t.base);
-  const oneOf = (key: 'weapon' | 'difficulty' | 'style', list: readonly string[], what: string): string => {
-    const v = t[key];
-    if (typeof v !== 'string' || !list.includes(v)) fail(`${tw}.${key}`, `${what} (${list.join(', ')})`, v);
-    return v;
-  };
-  const weapon = oneOf('weapon', names.weapons, 'one of the Weapons');
-  if (typeof t.body !== 'string' || t.body === '') fail(`${tw}.body`, 'a non-empty string', t.body);
-  const size = (key: 'height' | 'width'): number => {
-    const v = finiteNumber(t, key, tw);
-    if (v < MIN_SIZE || v > MAX_SIZE) fail(`${tw}.${key}`, `from ${MIN_SIZE} to ${MAX_SIZE}`, v);
-    return v;
-  };
-  const height = size('height');
-  const width = size('width');
-  const difficulty = oneOf('difficulty', names.difficulties, 'one of the AI difficulties');
-  const style = oneOf('style', names.styles, 'one of the AI Styles');
-  const relics = relicList(t.relics, `${tw}.relics`, names.relics, 0);
-  const hpScale = positive(t, 'hpScale', tw);
-  return { troop: { name: t.name, base, weapon, body: t.body, height, width, difficulty, style, relics, hpScale }, guard: parsePool(b.guard, `${where}.guard`, battle, names.relics, { reserve: 1 }) };
+  const name = b.troop;
+  let prefab = -1;
+  let variant = -1;
+  prefabs.forEach((p, i) =>
+    p.variants.forEach((v, k) => {
+      if (v.boss && v.name === name) [prefab, variant] = [i, k];
+    }),
+  );
+  if (prefab < 0) fail(`${where}.troop`, `the name of a Boss Variant of delver.troops (${prefabs.flatMap((p) => p.variants.filter((v) => v.boss).map((v) => v.name)).join(', ')})`, name);
+  return { troop: name as string, prefab, variant, guard: parsePool(b.guard, `${where}.guard`, battle, names, { reserve: 1 }) };
+}
+
+/** A colour, "#rrggbb" in the file (a number once parsed). */
+function colour(v: unknown, where: string): number {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffff) return v;
+  if (typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)) return parseInt(v.slice(1), 16);
+  return fail(where, 'a colour "#rrggbb"', v);
+}
+
+/** A [min, max] pair of numbers, 0 <= min <= max. */
+function pair(raw: unknown, where: string): [number, number] {
+  const a = array(raw, where);
+  if (a.length !== 2 || a.some((v) => typeof v !== 'number' || !Number.isFinite(v) || v < 0) || (a[0] as number) > (a[1] as number)) fail(where, '[min, max] with 0 <= min <= max', raw);
+  return [a[0] as number, a[1] as number];
+}
+
+/** A soldier's Mods: Relic multipliers only, each positive. */
+function soldierMods(raw: unknown, where: string): RelicEffects {
+  const md = record(raw, where);
+  for (const k of Object.keys(md)) if (!(RELIC_MULTIPLIERS as readonly string[]).includes(k)) fail(`${where}.${k}`, `absent (a soldier's Mods are only ${RELIC_MULTIPLIERS.join(', ')})`, md[k]);
+  return Object.fromEntries(Object.keys(md).map((k) => [k, positive(md, k, where)])) as RelicEffects;
+}
+
+/** A chance from 0 to 1. */
+function share(obj: Record<string, unknown>, key: string, where: string): number {
+  const v = finiteNumber(obj, key, where);
+  if (v < 0 || v > 1) fail(`${where}.${key}`, 'a number from 0 to 1', v);
+  return v;
+}
+
+/** A non-empty string at `obj[key]`. */
+function text(obj: Record<string, unknown>, key: string, where: string): string {
+  const v = obj[key];
+  if (typeof v !== 'string' || v === '') fail(`${where}.${key}`, 'a non-empty string', v);
+  return v;
+}
+
+/** One of `list` at `obj[key]` (or `fallback` when it is absent). */
+function oneOf(obj: Record<string, unknown>, key: string, where: string, list: readonly string[], what: string, fallback?: string): string {
+  const v = obj[key] === undefined ? fallback : obj[key];
+  if (typeof v !== 'string' || !list.includes(v)) fail(`${where}.${key}`, `${what} (${list.join(', ')})`, v);
+  return v;
+}
+
+/**
+ * `delver.troops`: the Prefabs and their Variants. A Variant's Style, Mods and Crowd stats default to its Prefab's, and those to the
+ * Battles' generic soldier's (`battle.crowd`, `battle.soldier.mods`) and the Balanced Style.
+ */
+function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldier'>, names: DelverNames): DelverPrefab[] {
+  const list = array(raw, 'delver.troops');
+  if (list.length < 1 || list.length > MAX_PREFABS) fail('delver.troops', `1 to ${MAX_PREFABS} Prefabs`, raw);
+  const prefabNames = new Set<string>();
+  const variantNames = new Set<string>();
+  const looks = new Set<string>();
+  return list.map((item, i) => {
+    const where = `delver.troops[${i}]`;
+    const p = record(item, where);
+    const name = text(p, 'name', where);
+    if (prefabNames.has(name)) fail(`${where}.name`, 'a name no other Prefab has', name);
+    prefabNames.add(name);
+    const body = text(p, 'body', where);
+    const weapon = oneOf(p, 'weapon', where, names.weapons, 'one of the Weapons');
+    // A Prefab is its look: two with the same Body and Weapon would be one atlas, so they are one Prefab with more Variants.
+    const look = `${body}\n${weapon}`;
+    if (looks.has(look)) fail(where, `a Body and Weapon no other Prefab has (${body} with ${weapon})`, { body, weapon });
+    looks.add(look);
+    const base = {
+      damage: p.damage === undefined ? battle.crowd.damage : pair(p.damage, `${where}.damage`),
+      hitChance: p.hitChance === undefined ? battle.crowd.hitChance : share(p, 'hitChance', where),
+      engageReach: p.engageReach === undefined ? battle.crowd.engageReach : positive(p, 'engageReach', where),
+      mods: p.mods === undefined ? battle.soldier.mods : soldierMods(p.mods, `${where}.mods`),
+      style: oneOf(p, 'style', where, names.styles, 'one of the AI Styles', 'Balanced'),
+    };
+    const variantList = array(p.variants, `${where}.variants`);
+    if (variantList.length === 0) fail(`${where}.variants`, 'a non-empty array', p.variants);
+    const variants = variantList.map((rawVariant, k): DelverVariant => {
+      const w = `${where}.variants[${k}]`;
+      const v = record(rawVariant, w);
+      const difficulty = oneOf(v, 'difficulty', w, names.difficulties, 'one of the AI difficulties');
+      if (v.boss !== undefined && v.boss !== true && v.boss !== false) fail(`${w}.boss`, 'true, or absent', v.boss);
+      const boss = v.boss === true;
+      if (boss && v.name === undefined) fail(`${w}.name`, 'a name (a tier names its Boss Variant)', v.name);
+      const vname = v.name === undefined ? `${name} (${difficulty})` : text(v, 'name', w);
+      if (variantNames.has(vname)) fail(`${w}.name`, 'a name no other Variant has', vname);
+      variantNames.add(vname);
+      return {
+        name: vname,
+        hp: positive(v, 'hp', w),
+        difficulty,
+        style: oneOf(v, 'style', w, names.styles, 'one of the AI Styles', base.style),
+        relics: v.relics === undefined ? [] : relicList(v.relics, `${w}.relics`, names.relics, 0),
+        mods: v.mods === undefined ? base.mods : soldierMods(v.mods, `${w}.mods`),
+        damage: v.damage === undefined ? base.damage : pair(v.damage, `${w}.damage`),
+        hitChance: v.hitChance === undefined ? base.hitChance : share(v, 'hitChance', w),
+        engageReach: v.engageReach === undefined ? base.engageReach : positive(v, 'engageReach', w),
+        ...(boss ? { boss: true as const } : {}),
+      };
+    });
+    return { name, body, weapon, variants };
+  });
+}
+
+/** Whether Prefab `p` fills template rows: it has a Variant that is not a Boss's. */
+export const regularPrefab = (p: DelverPrefab): boolean => p.variants.some((v) => !v.boss);
+
+/** The distinct Relic sets of every tier's elite templates, in the order first met (tier by tier, template by template), each as its key (`relics.join('\n')`). */
+export function eliteRelicSets(delver: Pick<DelverTuning, 'warbands'>): string[] {
+  return [...new Set(delver.warbands.flatMap((t) => (t.elite ?? []).map((e) => e.relics.join('\n'))))];
+}
+
+/** The number of Troops a Floor's Crowd indexes (`floorTroops`): every Variant, and every non-Boss Variant once more for each distinct elite Relic set. */
+export function floorTroopCount(delver: Pick<DelverTuning, 'troops' | 'warbands'>): number {
+  const all = delver.troops.reduce((n, p) => n + p.variants.length, 0);
+  const plain = delver.troops.reduce((n, p) => n + p.variants.filter((v) => !v.boss).length, 0);
+  return all + eliteRelicSets(delver).length * plain;
 }
 
 /**
  * Parse and validate `delver`; `fieldSize` is the Battle's field side (`battle.field.size`), which the lattice must fit, and `battle` the parsed
  * Battle Tuning, for the Troop names, `squad.size` and the Pool the Attack Slots must fit.
  */
-export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<BattleTuning, 'troops' | 'squad' | 'bubble'>, names: DelverNames): DelverTuning {
+export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<BattleTuning, 'squad' | 'bubble' | 'crowd' | 'soldier'>, names: DelverNames): DelverTuning {
   const root = record(raw, 'delver');
   const flowCell = finiteNumber(root, 'flowCell', 'delver');
   if (flowCell <= 0) fail('delver.flowCell', 'a positive number', flowCell);
@@ -421,19 +562,37 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) fail(`delver.tierHp[${i}]`, 'a positive number', h);
     return h;
   });
+  const troops = parsePrefabs(root.troops, battle, names);
+  if (!troops.some(regularPrefab)) fail('delver.troops', "at least one Prefab with a Variant that is not a Boss's", root.troops);
+  const prefabsPerFloor = whole(root, 'prefabsPerFloor', 'delver', 1);
+  const sizeHp = pair(root.sizeHp, 'delver.sizeHp');
+  if (sizeHp[0] <= 0 || sizeHp[1] <= sizeHp[0]) fail('delver.sizeHp', '[min, max] HP with 0 < min < max', root.sizeHp);
+  const tintRaw = record(root.skillTints, 'delver.skillTints');
+  const skillTints: Record<string, number> = {};
+  for (const k of Object.keys(tintRaw)) {
+    if (!names.difficulties.includes(k)) fail(`delver.skillTints.${k}`, `absent (the keys are AI difficulties: ${names.difficulties.join(', ')})`, tintRaw[k]);
+    skillTints[k] = colour(tintRaw[k], `delver.skillTints.${k}`);
+  }
   const tierList = array(root.warbands, 'delver.warbands');
   if (tierList.length !== tiers) fail('delver.warbands', `${tiers} tiers (one per tier)`, root.warbands);
   const warbands = tierList.map((item, i): DelverTier => {
     const where = `delver.warbands[${i}]`;
     const tier = record(item, where);
-    const guard = parsePool(tier.guard, `${where}.guard`, battle, names.relics);
-    const patrol = parsePool(tier.patrol, `${where}.patrol`, battle, names.relics);
-    const elite = tier.elite === undefined ? [] : parsePool(tier.elite, `${where}.elite`, battle, names.relics, { elite: true });
-    return { guard, patrol, elite, ...(tier.boss === undefined ? {} : { boss: parseBoss(tier.boss, `${where}.boss`, battle, names) }) };
+    const guard = parsePool(tier.guard, `${where}.guard`, battle, names);
+    const patrol = parsePool(tier.patrol, `${where}.patrol`, battle, names);
+    const elite = tier.elite === undefined ? [] : parsePool(tier.elite, `${where}.elite`, battle, names, { elite: true });
+    return { guard, patrol, elite, ...(tier.boss === undefined ? {} : { boss: parseBoss(tier.boss, `${where}.boss`, battle, names, troops) }) };
   });
-  const floorTroops =
-    battle.troops.length + warbands.reduce((n, t) => n + (t.boss ? 1 : 0) + (t.elite ?? []).reduce((m, e) => m + e.troops.length, 0), 0);
-  if (floorTroops > MAX_FLOOR_TROOPS) fail('delver.warbands', `at most ${MAX_FLOOR_TROOPS} Floor Troops (battle.troops, a Boss per tier with one, every elite template row), got ${floorTroops}`, floorTroops);
+  // Every template row must be fillable on any Floor: each Prefab that fills rows has a non-Boss Variant of every skill a row names.
+  const skills = [...new Set(warbands.flatMap((t) => [...t.guard, ...t.patrol, ...(t.elite ?? []), ...(t.boss?.guard ?? [])].flatMap((tp) => tp.troops.map((r) => r.skill))))];
+  troops.forEach((p, i) => {
+    if (!regularPrefab(p)) return;
+    for (const skill of skills)
+      if (!p.variants.some((v) => !v.boss && v.difficulty === skill))
+        fail(`delver.troops[${i}].variants`, `a non-Boss Variant of every skill a template row names (${skills.join(', ')}); ${p.name} has none of ${skill}`, p.variants.map((v) => v.difficulty));
+  });
+  const floorTroops = floorTroopCount({ troops, warbands });
+  if (floorTroops > MAX_FLOOR_TROOPS) fail('delver.troops', `at most ${MAX_FLOOR_TROOPS} Floor Troops (every Variant, and each non-Boss Variant again per distinct elite Relic set), got ${floorTroops}`, floorTroops);
   const f = record(root.floor, 'delver.floor');
   const w = 'delver.floor';
 
@@ -546,6 +705,10 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     tierHp,
     ...(tierRooms ? { tierRooms } : {}),
     warbands,
+    troops,
+    prefabsPerFloor,
+    sizeHp,
+    skillTints,
     traitor: parseTraitor(root.traitor),
     floor: { cols, rows, rooms, gaps, halfSize, minPassage, passage, farPercent, loops, rests, treasures, emptyPercent, patrols, follow, maxAttempts, levels: { max: levelMax, min: levelMin, changePercent, galleryPercent }, galleries, features, turnPercent, great: { count: greatCount, half: greatHalf }, shapes, pillars },
   };

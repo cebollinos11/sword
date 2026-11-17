@@ -33,14 +33,14 @@ export function lootSlot(source: 0 | 1, index: number, player: number, k: number
 
 /**
  * What Warband q drops for one Player when it is wiped: the Relic it carried first (an elite template's first, or the Boss Troop's first, when it has
- * one), then `dungeon.loot.drops` of its rank (`Fight`, `Elite`, `Boss`) picked by `pickItemAt`, each avoiding the items so far. `tuning` is the
+ * one: its Boss Variant's), then `dungeon.loot.drops` of its rank (`Fight`, `Elite`, `Boss`) picked by `pickItemAt`, each avoiding the items so far. `tuning` is the
  * Floor's own (`arenaTuning`), so the tier's templates are `tuning.delver.warbands[tierOf - 1]`. Pure.
  */
 export function warbandLoot(tuning: TuningData, crowd: CrowdState, q: number, player: number, seed: number, floor: number): Dropped[] {
   const warbands = crowd.warbands!;
   const rank = warbands.rank[q]!;
   const tier = tuning.delver.warbands[tierOf(tuning.delver, floor) - 1]!;
-  const carried = rank === BOSS ? tier.boss?.troop.relics[0] : rank === ELITE ? tier.elite?.[warbands.encounter[q]!]?.relics[0] : undefined;
+  const carried = rank === BOSS ? (tier.boss && tuning.delver.troops[tier.boss.prefab]?.variants[tier.boss.variant]?.relics[0]) : rank === ELITE ? tier.elite?.[warbands.encounter[q]!]?.relics[0] : undefined;
   const items: Dropped[] = carried === undefined ? [] : [{ kind: 'relic', item: carried }];
   const { drops } = tuning.dungeon.loot;
   const count = rank === BOSS ? drops.Boss : rank === ELITE ? drops.Elite : drops.Fight;

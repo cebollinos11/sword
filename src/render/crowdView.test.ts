@@ -154,3 +154,31 @@ describe("A Soldier's impostor in its Size", () => {
     expect(Math.max(...ys)).toBeCloseTo(CELL_METRES - FEET_METRES, 5);
   });
 });
+
+describe("A Delver Soldier's impostor (docs/plans/delver-troops.md)", () => {
+  it("wears its Troop's tint on the team-coloured part, and is not drawn while its Prefab's look has no atlas", async () => {
+    const { floorAtlases, floorBattle } = await import('../play/floorCrowd');
+    const { floorTroops } = await import('../sim/delver');
+    const battle = floorBattle(tuning);
+    const { plain } = floorTroops(tuning.delver);
+    // Prefab 0 baked, Prefab 1 not: Soldier 0 a Skilled Variant of Prefab 0, Soldier 1 of Prefab 1 (and so the Soldier sharing its billboard, all on Team 1).
+    const view = new CrowdView(floorAtlases(battle, [0], [atlas]), battle, new THREE.Texture());
+    const crowd = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).duel.crowd!;
+    const two = { ...crowd, team: crowd.team.map(() => 1), troop: crowd.troop.map((_, i) => (i % army === 1 ? plain[1]![0]! : plain[0]![1]!)), look: crowd.look.map(() => 0) };
+    const hf = battlefieldOf(tuning.battle, createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).arena)!.heights;
+    view.update(two, 0, 0, hf, new THREE.PerspectiveCamera());
+    const meshes = view.root.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh));
+    // Team 1's draw of the one atlas.
+    const geometry = meshes[1]!.geometry;
+    const tint = geometry.getAttribute('aTint') as THREE.InstancedBufferAttribute;
+    const size = geometry.getAttribute('aSize') as THREE.InstancedBufferAttribute;
+    const red = new THREE.Color().setHex(tuning.delver.skillTints.Skilled!);
+    expect(tint.getX(0)).toBeCloseTo(red.r, 6);
+    expect(tint.getY(0)).toBeCloseTo(red.g, 6);
+    expect(tint.getZ(0)).toBeCloseTo(red.b, 6);
+    expect(size.getX(0)).toBeGreaterThan(0);
+    expect([size.getX(1), size.getY(1)]).toEqual([0, 0]);
+    expect(view.meshOf(two, 1)).toBeNull();
+    expect(view.meshOf(two, 0)).toBe(meshes[1]);
+  });
+});

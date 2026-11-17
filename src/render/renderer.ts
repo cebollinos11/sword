@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { CameraCollider } from './cameraCollider';
 import { arenaOf, type Layout, type SimState, type Vec3 } from '../sim';
-import { sizedTuning, weaponByName, type TuningData } from '../tuning';
+import { sizedTuning, weaponByName, type TroopTuning, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
@@ -24,11 +24,20 @@ export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readon
  * the Duel's colours for the party (Team 0, shaded by place) and a promoted Soldier of the Warbands wears Team 1's soldier colour,
  * as its impostor does; any other state has the Duel's.
  */
-export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[]): number[] {
+export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[], troops?: readonly Pick<TroopTuning, 'tint'>[]): number[] {
   if (!state.crowd) return fighterColours(state.fighters.map((f) => f.team));
   if (!state.delver) return state.fighters.map((f) => soldierColours[f.team] ?? 0xffffff);
   const duel = fighterColours(state.fighters.map((f) => f.team));
-  return state.fighters.map((f, i) => (f.team === 0 ? duel[i]! : (soldierColours[f.team] ?? 0xffffff)));
+  // On a Floor, a Pool slot holding a Soldier (promoted, or a traitor's) wears its Troop's tint, as its impostor does (docs/plans/delver-troops.md).
+  const crowd = state.crowd;
+  const held = new Map<number, number>();
+  if (troops) crowd.slot.forEach((k, s) => void (k >= 0 && held.set(k, s)));
+  return state.fighters.map((f, i) => {
+    if (f.team === 0) return duel[i]!;
+    const s = held.get(i);
+    const tint = s === undefined ? undefined : troops?.[crowd.troop[s] ?? 0]?.tint;
+    return tint ?? soldierColours[f.team] ?? 0xffffff;
+  });
 }
 
 /**
@@ -202,7 +211,7 @@ export class Renderer {
     const world = this.world(curr.arena);
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
-    const colours = drawColours(curr, world.tuning.battle.soldier.colours);
+    const colours = drawColours(curr, world.tuning.battle.soldier.colours, world.tuning.battle.troops);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;

@@ -72,7 +72,7 @@ describe('warbandLoot', () => {
     const boss = three.crowd.warbands!.rank.indexOf(BOSS);
     expect(boss).toBeGreaterThanOrEqual(0);
     const bossLoot = warbandLoot(three.t, three.crowd, boss, 1, SEED, 3);
-    expect(bossLoot[0]).toEqual({ kind: 'relic', item: three.t.delver.warbands[2]!.boss!.troop.relics[0]! });
+    expect(bossLoot[0]).toEqual({ kind: 'relic', item: (() => { const b = three.t.delver.warbands[2]!.boss!; return three.t.delver.troops[b.prefab]!.variants[b.variant]!.relics[0]!; })() });
     expect(bossLoot).toHaveLength(1 + drops.Boss);
     // The Boss of tier 1 carries nothing: only its picks.
     const first = floor(1);

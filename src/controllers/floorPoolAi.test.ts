@@ -44,7 +44,7 @@ function promotedFirstOf(rank: number, seed: number, floor: number) {
 }
 
 describe("the Pool AI on a Floor", { timeout: TIMEOUT }, () => {
-  it("plays a promoted Boss in its Troop's Style, and the Battle's own Style for an elite", () => {
+  it("plays a promoted Boss in its Troop's Style, and an elite in its Variant's", () => {
     const boss = promotedFirstOf(BOSS, 1, 3);
     const elite = promotedFirstOf(ELITE, 1, 1);
     expect(boss.k).toBeGreaterThan(0);
@@ -61,8 +61,9 @@ describe("the Pool AI on a Floor", { timeout: TIMEOUT }, () => {
     const eliteAi = createPoolAi(tuning);
     eliteAi.intent(elite.state, elite.k);
     const eliteMemory = eliteAi.save!() as { style: string };
-    expect(elite.t.battle.troops[elite.state.crowd!.troop[elite.first]!]!.style).toBeUndefined();
-    expect(eliteMemory.style).toBe('');
+    const eliteTroop = elite.t.battle.troops[elite.state.crowd!.troop[elite.first]!]!;
+    expect(eliteTroop.style).toBeDefined();
+    expect(eliteMemory.style).toBe(eliteTroop.style);
   });
 
   it('saves and loads its memory with the Style, so a loaded Pool AI plays the same Intents', () => {

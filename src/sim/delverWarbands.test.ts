@@ -5,7 +5,7 @@ import { lineupAis, type Lineup } from '../controllers/lineup';
 import { loadTuningData, type TuningData } from '../tuning';
 import { groundOf } from './battlefield';
 import { walkDistance, walkField, type CrowdState } from './crowd';
-import { arenaTuning, deployWarbands, floorOf, warbandHomes } from './delver';
+import { arenaTuning, deployWarbands, floorOf, floorTroops, warbandHomes } from './delver';
 import { battleMapOf, clearanceAt, inSight } from './destinations';
 import { bossHold, floorDuel } from './delverRun';
 import { runSeed } from './dungeon';
@@ -98,9 +98,9 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
       expect(crowd.warbands!.mode.length).toBeGreaterThan(0);
       return crowd.maxHp!.map((max, i) => {
         expect(crowd.hp[i]).toBe(max);
-        const ratio = max / (plain.battle.troops[crowd.troop[i]!]!.hp * plain.delver.tierHp[tier - 1]!);
+        const ratio = max / (floorTroops(plain.delver).troops[crowd.troop[i]!]!.hp * plain.delver.tierHp[tier - 1]!);
         expect(scales.some((s) => Math.abs(s - ratio) < 1e-9)).toBe(true);
-        return max / plain.battle.troops[crowd.troop[i]!]!.hp;
+        return max / floorTroops(plain.delver).troops[crowd.troop[i]!]!.hp;
       });
     };
     const [one, two, three] = [1, 2, 3].map(hpOf);
