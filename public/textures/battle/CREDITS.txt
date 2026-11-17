@@ -1,9 +1,37 @@
-old_sandstone_blocks: Source: https://polyhaven.com/a/sandstone_blocks_05 Authors: Rob Tuytel 
-mountain_rock_bright: Source: https://ambientcg.com/a/Rock008 Authors: ambientCG 
-dungeon_stone_wall_sharp: Source: https://polyhaven.com/a/rock_wall_12 Authors: Amal Kumar 
-dense_green_grass_sharp: Source: https://ambientcg.com/a/Grass001 Authors: ambientCG 
-dusty_rocky_trail_smooth: Source: https://polyhaven.com/a/rocky_trail_02 Authors: Amal Kumar 
-dark_old_wood: Source: https://ambientcg.com/a/Wood035 Authors: ambientCG 
-interlocking_clay_roof_tiles_smooth: Source: https://polyhaven.com/a/clay_roof_tiles_02 Authors: Amal Kumar 
-cobblestone_pavers_smooth_1: Source: https://ambientcg.com/a/PavingStones009 Authors: ambientCG 
-cracked_clay_plaster_sharp: Source: https://polyhaven.com/a/clay_plaster Authors: Amal Kumar 
+All CC0 (Poly Haven, ambientCG, cgbookcase), 64 px renders.
+dirty_medieval_bricks_bright_3: Source: https://ambientcg.com/a/Bricks076C Authors: ambientCG
+dungeon_stone_wall_sharp: Source: https://polyhaven.com/a/rock_wall_12 Authors: Amal Kumar
+ancient_fortress_wall_smooth: Source: https://polyhaven.com/a/stone_wall_04 Authors: Amal Kumar
+medieval_red_bricks_sharp: Source: https://polyhaven.com/a/medieval_red_brick Authors: Rob Tuytel
+fractured_dark_rock_bright: Source: https://polyhaven.com/a/dark_rock Authors: Amal Kumar
+old_rustic_stone_wall_sharp_2: Source: https://polyhaven.com/a/rustic_stone_wall Authors: Dimitrios Savva
+rough_medieval_plaster_smooth: Source: https://polyhaven.com/a/medieval_wall_01 Authors: Rob Tuytel
+old_sandstone_blocks: Source: https://polyhaven.com/a/sandstone_blocks_05 Authors: Rob Tuytel
+weathered_fortress_wall_dark_1: Source: https://polyhaven.com/a/rock_wall_11 Authors: Dimitrios Savva
+cracked_cabin_planks: Source: https://polyhaven.com/a/weathered_planks Authors: Dario Barresi, Dimitrios Savva
+smooth_marble: Source: https://www.cgbookcase.com/textures/Marble_02 Authors: cbbookcase
+sloppy_beige_stone_bricks: Source: https://ambientcg.com/a/Bricks043 Authors: ambientCG
+mountain_rock_bright: Source: https://ambientcg.com/a/Rock008 Authors: ambientCG
+earthy_rock_wall_smooth_2: Source: https://polyhaven.com/a/rock_wall_10 Authors: Amal Kumar
+uneven_white_sandstone: Source: https://polyhaven.com/a/white_sandstone_bricks_03 Authors: Rob Tuytel
+interlocking_clay_roof_tiles_smooth: Source: https://polyhaven.com/a/clay_roof_tiles_02 Authors: Amal Kumar
+round_slate_roof_tiles_bright: Source: https://ambientcg.com/a/RoofingTiles004 Authors: ambientCG
+dark_old_wood: Source: https://ambientcg.com/a/Wood035 Authors: ambientCG
+japanese_camphor_bark_rough: Source: https://polyhaven.com/a/japanese_camphor_bark Authors: Charlotte Baglioni
+rough_grey_rocks_sharp: Source: https://polyhaven.com/a/gray_rocks Authors: Dimitrios Savva
+cobblestone_pavers_smooth_1: Source: https://ambientcg.com/a/PavingStones009 Authors: ambientCG
+roughhewn_stone_pavement_rough: Source: https://polyhaven.com/a/pavement_01 Authors: Rob Tuytel
+aged_pine_floor: Source: https://polyhaven.com/a/wood_floor_worn Authors: Dimitrios Savva
+rocky_soil_smooth: Source: https://polyhaven.com/a/rocks_ground_02 Authors: Rob Tuytel
+monastery_slate_floor_smooth: Source: https://polyhaven.com/a/monastery_stone_floor Authors: Amal Kumar
+stained_beige_limestone_tiles_sharp_1: Source: https://ambientcg.com/a/Tiles143 Authors: ambientCG
+dirty_checker_marble_smooth: Source: https://polyhaven.com/a/floor_tiles_06 Authors: Rob Tuytel
+weathered_volcanic_herringbone: Source: https://polyhaven.com/a/volcanic_herringbone_01 Authors: Charlotte Baglioni
+weathered_even_planks_sharp: Source: https://polyhaven.com/a/wood_planks_dirt Authors: Rob Tuytel
+weathered_paving_stones: Source: https://ambientcg.com/a/PavingStones022 Authors: ambientCG
+dense_green_grass_sharp: Source: https://ambientcg.com/a/Grass001 Authors: ambientCG
+dusty_rocky_trail_smooth: Source: https://polyhaven.com/a/rocky_trail_02 Authors: Amal Kumar
+dry_trampled_sand_bright: Source: https://polyhaven.com/a/sand_01 Authors: Rob Tuytel
+weathered_granite_tiles: Source: https://polyhaven.com/a/granite_tile_04 Authors: Amal Kumar
+stacked_cabin_beams_dark: Source: https://polyhaven.com/a/beam_wall_01 Authors: Rob Tuytel
+log_cabin_wall_sharp: Source: https://polyhaven.com/a/wood_trunk_wall Authors: Amal Kumar

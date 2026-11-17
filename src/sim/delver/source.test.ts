@@ -101,7 +101,7 @@ describe('a Floor\'s source with shaped and pillared Halls (Stage 7b)', () => {
     let pillars = 0;
     for (const f of floors) {
       const expected: Brush[] = f.plan.halls.flatMap((h): Brush[] => [
-        ...h.solids.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-solid${n}`, rect, top: h.top, material: ({ Entrance: 'plaster', Stairs: 'cobble', Boss: 'bloodstone', Rest: 'brick', Treasure: 'tile', Fight: 'dungeon', Empty: 'basalt' } as const)[h.kind] })),
+        ...h.solids.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-solid${n}`, rect, top: h.top, material: ({ Entrance: 'plaster', Stairs: 'cobble', Boss: 'bloodstone', Rest: 'brick', Treasure: 'marble', Fight: 'dungeon', Empty: 'basalt' } as const)[h.kind] })),
         ...h.pillars.map((rect, n): Brush => ({ kind: 'block', id: `${h.id}-pillar${n}`, rect, top: h.top, material: 'stone' })),
       ]);
       solids += f.plan.halls.reduce((n, h) => n + h.solids.length, 0);
@@ -156,7 +156,7 @@ describe('a Floor\'s source with vertical features and wrapped galleries (Stage 
   const ids = (f: DelverFloor) => f.source.brushes.map((b) => b.id);
   const brush = (f: DelverFloor, id: string): Brush | undefined => f.source.brushes.find((b) => b.id === id);
   const hallsWith = (kind: 'split' | 'pit' | 'dais') => floors.flatMap((f) => f.plan.halls.flatMap((h) => (h.feature?.kind === kind ? [{ f, h, feat: h.feature }] : [])));
-  const MATERIAL = { Entrance: 'plaster', Stairs: 'cobble', Boss: 'bloodstone', Rest: 'brick', Treasure: 'tile', Fight: 'dungeon', Empty: 'basalt' } as const;
+  const MATERIAL = { Entrance: 'plaster', Stairs: 'cobble', Boss: 'bloodstone', Rest: 'brick', Treasure: 'marble', Fight: 'dungeon', Empty: 'basalt' } as const;
 
   it('has every kind of feature and both wraps among its Floors', () => {
     expect(hallsWith('split').some(({ feat }) => feat.kind === 'split' && feat.tiers.length === 2)).toBe(true);

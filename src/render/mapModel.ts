@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { DraftMap } from '../mapEditor/compile';
 import { surfaceHeight, surfacesAt } from '../sim';
-import { brushLook, FLOOR_LOOKS, groundOf, HAZARD_LOOKS, MAP_MODEL_ROOT, MATERIAL_LOOKS, materialOf, type MaterialLook } from '../mapEditor/look';
+import { brushLook, groundOf, HAZARD_LOOKS, MAP_MODEL_ROOT, MATERIAL_LOOKS, materialOf, type MaterialLook } from '../mapEditor/look';
 import { enclosureTop, type Brush, type EnclosureBrush, type MapSource, type RampBrush } from '../mapEditor/source';
 import type { Vec2 } from '../sim';
 import type { WallSegment } from '../tuning';
@@ -105,22 +105,12 @@ export function mapModel(source: MapSource, draft: DraftMap): THREE.Group {
     return b ? brushLook(b, source) : MATERIAL_LOOKS.stone;
   };
   const { map } = draft;
-  // A room's floor (an Enclosure's own, or a Platform's top inside an Enclosure) in its floor look, apart from the walls and ceiling round it.
-  const enclosures = source.brushes.filter((b): b is Extract<Brush, { kind: 'enclosure' }> => b.kind === 'enclosure');
-  const roomFloor = (b: Brush | undefined, y: number): boolean => {
-    if (!b) return false;
-    if (b.kind === 'enclosure') return y < b.y + LEVEL_EPS;
-    if (b.kind !== 'platform') return false;
-    const r = b.rect;
-    return enclosures.some((e) => e.rect.x0 <= r.x0 && e.rect.z0 <= r.z0 && e.rect.x1 >= r.x1 && e.rect.z1 >= r.z1);
-  };
 
   // The floors: each Walk Surface in its Brush's material, a Hazard's (and any deadly floor's) in its own look; a Deck's as a slab.
   map.walk.forEach((w, i) => {
     const owner = brushes.get(draft.surfaceBrush[i]!);
     const look = w.lava ? HAZARD_LOOKS.lava : w.water ? HAZARD_LOOKS.water : w.abyss ? HAZARD_LOOKS.abyss : lookOf(draft.surfaceBrush[i]!);
-    const floor = owner && owner.kind !== 'hazard' && owner.kind !== 'hole' && look === brushLook(owner, source) && roomFloor(owner, w.points[0]!.y);
-    buckets.polygon(floor ? FLOOR_LOOKS[materialOf(owner, source)] : look, w.points);
+    buckets.polygon(look, w.points);
     if (!owner || !isSlab(owner, w.points[0]!.y)) return;
     const under = w.points.map((p) => ({ x: p.x, y: p.y - DECK_SLAB, z: p.z }));
     buckets.polygon(look, [...under].reverse());

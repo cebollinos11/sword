@@ -9,7 +9,7 @@ import { TuningDataError } from '../tuning/validate';
 import { surfaceOf, type Surface } from '../render/triplanar';
 import { checkMap } from './checks';
 import { compileMap, mapFileText } from './compile';
-import { brushLook, FLOOR_LOOKS, HAZARD_LOOKS, MATERIAL_LOOKS, materialOf, PROP_LOOKS } from './look';
+import { brushLook, HAZARD_LOOKS, MATERIAL_LOOKS, materialOf, PROP_LOOKS } from './look';
 import { draftTuning } from './playtest';
 import { dressedSampleSource, sampleSource } from './sample.testdata';
 import { markerAt, MapEditorSession, sourceFileText } from './session';
@@ -44,7 +44,7 @@ describe('the Map Source’s look', () => {
 
   it('refuses what it cannot draw, naming where', () => {
     const cases: [(r: Record<string, any>) => void, RegExp][] = [
-      [(r) => (r.brushes[1].material = 'marble'), /keep\)\.material must be one of stone/],
+      [(r) => (r.brushes[1].material = 'granite'), /keep\)\.material must be one of stone/],
       [(r) => (r.brushes[4].material = 'stone'), /pit\)\.material: a Hole has no material/],
       [(r) => (r.brushes[5].material = 'stone'), /lava\)\.material: a Hazard has no material/],
       [(r) => (r.look.sky = 'noon'), /look\.sky must be one of dusk/],
@@ -90,18 +90,19 @@ describe('the palette', () => {
   /** The triplanar Surface each material is textured with in the game (null: drawn flat in its colour). */
   const MEANT: Record<MapMaterial, Surface | null> = {
     stone: 'stone',
-    brick: 'stone',
-    basalt: 'rock',
+    brick: 'brick',
+    basalt: 'basalt',
     dungeon: 'dungeon',
     cobble: 'cobble',
     plaster: 'plaster',
-    tile: 'tile',
+    tile: 'roofTile',
+    marble: 'marble',
     wood: 'wood',
     grass: 'grass',
     dirt: 'dirt',
-    sand: 'dirt',
+    sand: 'sand',
     metal: null,
-    bloodstone: 'dungeon',
+    bloodstone: 'bloodstone',
     glow: null,
   };
 
@@ -110,24 +111,14 @@ describe('the palette', () => {
     expect(new Set(MAP_MATERIALS.map((m) => MATERIAL_LOOKS[m].name)).size).toBe(MAP_MATERIALS.length);
   });
 
-  it('gives a room’s floor a texture of its own, apart from its walls’ and ceiling’s', () => {
-    for (const m of MAP_MATERIALS) {
-      const floor = surfaceOf(FLOOR_LOOKS[m].name);
-      expect([m, floor]).not.toEqual([m, null]);
-      expect([m, floor]).not.toEqual([m, surfaceOf(MATERIAL_LOOKS[m].name)]);
-    }
-    const names = [...MAP_MATERIALS.map((m) => FLOOR_LOOKS[m].name), ...MAP_MATERIALS.map((m) => MATERIAL_LOOKS[m].name)];
-    expect(new Set(names).size).toBe(names.length);
-  });
-
   it('draws hazards, leaves, cloth, metal and fire flat, and bark, rubble and crates textured', () => {
     for (const look of [...Object.values(HAZARD_LOOKS), PROP_LOOKS.leaf, PROP_LOOKS.banner, PROP_LOOKS.banner0, PROP_LOOKS.banner1, PROP_LOOKS.pole, PROP_LOOKS.fire]) expect([look.name, surfaceOf(look.name)]).toEqual([look.name, null]);
-    expect(surfaceOf(PROP_LOOKS.bark.name)).toBe('wood');
+    expect(surfaceOf(PROP_LOOKS.bark.name)).toBe('bark');
     expect(surfaceOf(PROP_LOOKS.crate.name)).toBe('wood');
-    expect(surfaceOf(PROP_LOOKS.rubble.name)).toBe('rock');
+    expect(surfaceOf(PROP_LOOKS.rubble.name)).toBe('rubble');
     // The shipped maps' own materials keep their Surfaces (the Map Editor's `Dungeon` rule matches none of them).
-    expect(surfaceOf('Cavern_Floor0')).toBe('dungeon');
-    expect(surfaceOf('Fort_Stone')).toBe('stone');
+    expect(surfaceOf('Cavern_Floor0')).toBe('cavern');
+    expect(surfaceOf('Fort_Stone')).toBe('fortress');
   });
 
   it('gives each kind of Brush its own material when the source names none', () => {

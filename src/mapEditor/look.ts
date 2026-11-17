@@ -27,6 +27,8 @@ export const MATERIAL_LOOKS: Readonly<Record<MapMaterial, MaterialLook>> = {
   cobble: { name: 'Map_Cobble', colour: 0x8a8070 },
   plaster: { name: 'Map_Plaster', colour: 0xd0bf9a },
   tile: { name: 'Map_Tile', colour: 0xa8472f },
+  // Veined white marble warmed with gold: a Treasure Hall's.
+  marble: { name: 'Map_Marble', colour: 0xd8ccb0 },
   wood: { name: 'Map_Wood', colour: 0x7a5a3a },
   grass: { name: 'Map_Grass', colour: 0x5e7a3b },
   dirt: { name: 'Map_Dirt', colour: 0x7a6248 },
@@ -35,28 +37,6 @@ export const MATERIAL_LOOKS: Readonly<Record<MapMaterial, MaterialLook>> = {
   // The dungeon's stone stained a deep red: a Boss Hall's.
   bloodstone: { name: 'Map_BloodDungeon', colour: 0x6e2f2a },
   glow: { name: 'Map_LavaGlow', colour: 0xff6a1f, emissive: { colour: 0xff5a14, strength: 1.6 } },
-};
-
-/**
- * How the floor of a room is drawn (an Enclosure's own floor, and a Platform's top inside one: a Delve's Halls and passages), by the
- * material of its walls and ceiling: in a texture of its own, so the floor underfoot reads apart from the walls round it. Each is named
- * `Map_Floor<Surface><n>`, which `surfaceOf` reads as that Surface.
- */
-export const FLOOR_LOOKS: Readonly<Record<MapMaterial, MaterialLook>> = {
-  stone: { name: 'Map_FloorCobble', colour: 0x857a68 },
-  brick: { name: 'Map_FloorWood', colour: 0x7a5a3a },
-  basalt: { name: 'Map_FloorDirt', colour: 0x5a4c3e },
-  dungeon: { name: 'Map_FloorCobble2', colour: 0x5e5650 },
-  cobble: { name: 'Map_FloorStone', colour: 0x8f8574 },
-  plaster: { name: 'Map_FloorTile', colour: 0xa06048 },
-  tile: { name: 'Map_FloorCobble3', colour: 0x9a8a68 },
-  wood: { name: 'Map_FloorStone2', colour: 0x8a8070 },
-  grass: { name: 'Map_FloorDirt2', colour: 0x7a6248 },
-  dirt: { name: 'Map_FloorCobble4', colour: 0x8a8070 },
-  sand: { name: 'Map_FloorTile2', colour: 0xc0a070 },
-  metal: { name: 'Map_FloorStone3', colour: 0x7a7a78 },
-  bloodstone: { name: 'Map_FloorTile3', colour: 0x5a2a26 },
-  glow: { name: 'Map_FloorStone4', colour: 0x5a5452 },
 };
 
 /** How a Hazard's floor is drawn, by what it is: lava glows, water is a flat blue, the Abyss is near black. */
