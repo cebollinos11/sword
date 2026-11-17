@@ -19,8 +19,14 @@ export const CLIP_FRAMES: Readonly<Record<ImpostorClip, number>> = {
   death: 8,
 };
 
-/** The directions each frame is baked from, evenly round the Soldier (direction 0 sees its front). */
+/** The directions a Soldier is drawn from, evenly round it (direction 0 sees its front). Even, so each side mirrors the other. */
 export const IMPOSTOR_DIRECTIONS = 8;
+
+/**
+ * The directions of `directions` that are baked: its front (0), its back (`directions / 2`) and those on its right between them.
+ * One on its left (`d` past the back) is drawn as its mirror on the right (`directions - d`), flipped: the Weapon in the other hand.
+ */
+export const bakedDirections = (directions: number): number => directions / 2 + 1;
 
 /** Where each clip's frames sit in the atlas: square cells of `cell` pixels, `columns` across and `rows` up, filled from the bottom-left. */
 export interface AtlasLayout {
@@ -32,8 +38,10 @@ export interface AtlasLayout {
   readonly width: number;
   readonly height: number;
   readonly directions: number;
+  /** The directions with cells of their own (`bakedDirections`): 0 up to the back; the rest are drawn mirrored. */
+  readonly baked: number;
   readonly frames: Readonly<Record<ImpostorClip, number>>;
-  /** Each clip's first frame among all the frames (its cells start at `first * directions`). */
+  /** Each clip's first frame among all the frames (its cells start at `first * baked`). */
   readonly first: Readonly<Record<ImpostorClip, number>>;
 }
 
@@ -48,7 +56,8 @@ export function atlasLayout(cell: number, maxSize: number, frames: Readonly<Reco
     first[clip] = total;
     total += frames[clip];
   }
-  const cells = total * directions;
+  const baked = bakedDirections(directions);
+  const cells = total * baked;
   const columns = Math.ceil(Math.sqrt(cells));
   const rows = Math.ceil(cells / columns);
   let side = cell;
@@ -60,17 +69,28 @@ export function atlasLayout(cell: number, maxSize: number, frames: Readonly<Reco
     width: columns * side,
     height: rows * side,
     directions,
+    baked,
     frames,
     first,
   };
 }
 
-/** The cell holding `clip`'s `frame` seen from `direction`: its column and row (row 0 at the bottom). */
-export function atlasCell(layout: AtlasLayout, clip: ImpostorClip, frame: number, direction: number): { readonly column: number; readonly row: number } {
-  const index = (layout.first[clip] + frame) * layout.directions + direction;
+/**
+ * The cell holding `clip`'s `frame` seen from `direction`: its column and row (row 0 at the bottom), and whether it is drawn
+ * flipped left to right (a direction on the Soldier's left, shown by its mirror on the right, `bakedDirections`).
+ */
+export function atlasCell(
+  layout: AtlasLayout,
+  clip: ImpostorClip,
+  frame: number,
+  direction: number,
+): { readonly column: number; readonly row: number; readonly mirrored: boolean } {
+  const mirrored = direction >= layout.baked;
+  const index = (layout.first[clip] + frame) * layout.baked + (mirrored ? layout.directions - direction : direction);
   return {
     column: index % layout.columns,
     row: Math.floor(index / layout.columns),
+    mirrored,
   };
 }
 

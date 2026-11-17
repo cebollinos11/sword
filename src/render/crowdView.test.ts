@@ -18,13 +18,18 @@ function drawn(view: CrowdView) {
     feet: (i: number) => (meshes[Math.floor(i / army)]!.geometry.getAttribute('aFeet') as THREE.InstancedBufferAttribute),
     cell: (i: number) => {
       const a = meshes[Math.floor(i / army)]!.geometry.getAttribute('aCell') as THREE.InstancedBufferAttribute;
-      return { column: Math.round((a.getX(i % army) * layout.width) / layout.cell), row: Math.round((a.getY(i % army) * layout.height) / layout.cell) };
+      const m = meshes[Math.floor(i / army)]!.geometry.getAttribute('aMirror') as THREE.InstancedBufferAttribute;
+      return {
+        column: Math.round((a.getX(i % army) * layout.width) / layout.cell),
+        row: Math.round((a.getY(i % army) * layout.height) / layout.cell),
+        mirrored: m.getX(i % army) > 0.5,
+      };
     },
   };
 }
 
 const cellOf = (clip: ImpostorClip, direction: number) =>
-  Array.from({ length: CLIP_FRAMES[clip] }, (_, f) => atlasCell(layout, clip, f, direction)).map((c) => `${c.column},${c.row}`);
+  Array.from({ length: CLIP_FRAMES[clip] }, (_, f) => atlasCell(layout, clip, f, direction)).map((c) => `${c.column},${c.row},${c.mirrored}`);
 
 describe('CrowdView', () => {
   it('draws one billboard draw per Team and one for the shadows', () => {
@@ -46,7 +51,7 @@ describe('CrowdView', () => {
     // Each Soldier walking, seen from the direction its heading and the camera's bearing from its feet give; Team 0 (walking
     // away, at most 45 degrees off) from behind, Team 1 (walking toward the camera) from in front.
     const crowd = match.duel.crowd!;
-    const seen = (i: number) => `${look.cell(i).column},${look.cell(i).row}`;
+    const seen = (i: number) => `${look.cell(i).column},${look.cell(i).row},${look.cell(i).mirrored}`;
     // A Soldier walking is drawn walking, from that direction; one already standing at its place (a Squad sent to its Home
     // Objective, whose circle reaches the deployment) stands. Nearly every Soldier walks (the Squads head for their Objectives, so no
     // one direction holds for an army).
@@ -78,7 +83,7 @@ describe('CrowdView', () => {
     }
     expect(fell).toBeGreaterThanOrEqual(0);
     const fallCells = (d: number) => cellOf('death', d);
-    const shown = () => `${look.cell(fell).column},${look.cell(fell).row}`;
+    const shown = () => `${look.cell(fell).column},${look.cell(fell).row},${look.cell(fell).mirrored}`;
     expect([0, 1, 2, 3, 4, 5, 6, 7].map((d) => fallCells(d)[0])).toContain(shown());
     while (match.duel.tick < fellAt + 120) {
       match = stepMatch(match, [], tuning);
