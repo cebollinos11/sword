@@ -130,17 +130,20 @@ export function floorLooks(delver: DelverTuning, seed: number, floor: number): n
   return looks.sort((a, b) => a - b);
 }
 
-/** The shortest and tallest a Delver Soldier stands (its height runs over this range; its thickness still runs MIN_SIZE to MAX_SIZE). */
-export const DELVE_MIN_HEIGHT = 0.9;
-export const DELVE_MAX_HEIGHT = 1.4;
+/** A Delver Soldier's height runs MIN_SIZE to this (not MAX_SIZE), and its thickness runs DELVE_MIN_THICK to MAX_SIZE. */
+export const DELVE_MAX_HEIGHT = 1.3;
+export const DELVE_MIN_THICK = 0.9;
 
 /**
- * The Size of a Delver Soldier of `hp` (its final HP, every scale and Relic applied): MIN_SIZE at `delver.sizeHp[0]` HP or less, MAX_SIZE
- * at `sizeHp[1]` or more, in a straight line between, height and thickness alike (snapped, `clampSize`), except that height runs DELVE_MIN_HEIGHT to DELVE_MAX_HEIGHT.
+ * The Size of a Delver Soldier of `hp` (its final HP, every scale and Relic applied): the smallest body at `delver.sizeHp[0]` HP or less,
+ * the biggest at `sizeHp[1]` or more, in a straight line between (snapped, `clampSize`). Height runs MIN_SIZE to DELVE_MAX_HEIGHT (0.6 to
+ * 1.3), thickness DELVE_MIN_THICK to MAX_SIZE (0.9 to 1.4).
  */
 export function sizeOfHp(delver: Pick<DelverTuning, 'sizeHp'>, hp: number): Size {
   const [lo, hi] = delver.sizeHp;
   const t = (Math.min(hi, Math.max(lo, hp)) - lo) / (hi - lo);
-  const s = MIN_SIZE + t * (MAX_SIZE - MIN_SIZE);
-  return clampSize({ height: DELVE_MIN_HEIGHT + t * (DELVE_MAX_HEIGHT - DELVE_MIN_HEIGHT), thick: s });
+  return clampSize({
+    height: MIN_SIZE + t * (DELVE_MAX_HEIGHT - MIN_SIZE),
+    thick: DELVE_MIN_THICK + t * (MAX_SIZE - DELVE_MIN_THICK),
+  });
 }
