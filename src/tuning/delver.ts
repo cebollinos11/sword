@@ -161,6 +161,8 @@ export interface DelverPrefab {
   readonly body: string;
   /** The Weapon (a name from the Weapon roster). */
   readonly weapon: string;
+  /** The first tier (1 to `tiers`) whose Floors may field it in template rows (absent: 1, every tier). Its Boss Variants are a tier's Boss whatever this says. */
+  readonly minTier?: number;
   readonly variants: readonly DelverVariant[];
 }
 
@@ -455,7 +457,7 @@ function oneOf(obj: Record<string, unknown>, key: string, where: string, list: r
  * `delver.troops`: the Prefabs and their Variants. A Variant's Style, Mods and Crowd stats default to its Prefab's, and those to the
  * Battles' generic soldier's (`battle.crowd`, `battle.soldier.mods`) and the default Style (DEFAULT_STYLE).
  */
-function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldier'>, names: DelverNames): DelverPrefab[] {
+function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldier'>, names: DelverNames, tiers: number): DelverPrefab[] {
   const list = array(raw, 'delver.troops');
   if (list.length < 1 || list.length > MAX_PREFABS) fail('delver.troops', `1 to ${MAX_PREFABS} Prefabs`, raw);
   const prefabNames = new Set<string>();
@@ -469,6 +471,8 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
     prefabNames.add(name);
     const body = text(p, 'body', where);
     const weapon = oneOf(p, 'weapon', where, names.weapons, 'one of the Weapons');
+    const minTier = p.minTier === undefined ? 1 : whole(p, 'minTier', where, 1);
+    if (minTier > tiers) fail(`${where}.minTier`, `a tier from 1 to ${tiers}`, minTier);
     // A Prefab is its look: two with the same Body and Weapon would be one atlas, so they are one Prefab with more Variants.
     const look = `${body}\n${weapon}`;
     if (looks.has(look)) fail(where, `a Body and Weapon no other Prefab has (${body} with ${weapon})`, { body, weapon });
@@ -505,12 +509,15 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
         ...(boss ? { boss: true as const } : {}),
       };
     });
-    return { name, body, weapon, variants };
+    return { name, body, weapon, minTier, variants };
   });
 }
 
 /** Whether Prefab `p` fills template rows: it has a Variant that is not a Boss's. */
 export const regularPrefab = (p: DelverPrefab): boolean => p.variants.some((v) => !v.boss);
+
+/** Whether Prefab `p` fills template rows on tier `tier`'s Floors: it is a `regularPrefab` and its `minTier` has come. */
+export const fieldedIn = (p: DelverPrefab, tier: number): boolean => regularPrefab(p) && (p.minTier ?? 1) <= tier;
 
 /** The distinct Relic sets of every tier's elite templates, in the order first met (tier by tier, template by template), each as its key (`relics.join('\n')`). */
 export function eliteRelicSets(delver: Pick<DelverTuning, 'warbands'>): string[] {
@@ -563,8 +570,10 @@ export function parseDelver(raw: unknown, fieldSize: number, battle: Pick<Battle
     if (typeof h !== 'number' || !Number.isFinite(h) || h <= 0) fail(`delver.tierHp[${i}]`, 'a positive number', h);
     return h;
   });
-  const troops = parsePrefabs(root.troops, battle, names);
-  if (!troops.some(regularPrefab)) fail('delver.troops', "at least one Prefab with a Variant that is not a Boss's", root.troops);
+  const troops = parsePrefabs(root.troops, battle, names, tiers);
+  // Every tier's template rows need a Prefab to fill them.
+  for (let tier = 1; tier <= tiers; tier++)
+    if (!troops.some((p) => fieldedIn(p, tier))) fail('delver.troops', `at least one Prefab with a Variant that is not a Boss's and a minTier of ${tier} or less (for tier ${tier})`, root.troops);
   const prefabsPerFloor = whole(root, 'prefabsPerFloor', 'delver', 1);
   const sizeHp = pair(root.sizeHp, 'delver.sizeHp');
   if (sizeHp[0] <= 0 || sizeHp[1] <= sizeHp[0]) fail('delver.sizeHp', '[min, max] HP with 0 < min < max', root.sizeHp);

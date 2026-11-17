@@ -15,9 +15,10 @@ A Run baked 10 atlases at its start. Four of them were Team 0 looks (templar and
 ## Decisions (the user's answers, 2026-11-17)
 - **Only what exists now**: the Weapons, Bodies, AI difficulties, Styles, Size and Relics. No new behaviours and no new art.
 - **A Prefab is one Body and one Weapon**, so one atlas. A Prefab has **Variants**, which change everything that is not drawn: HP, AI difficulty, Style, Relics, Mods and the Crowd stats.
-- **Size follows HP.** It is the Soldier's final HP, after its tier, its template and its Relics' `maxHp`. 30 HP or less is the smallest body (0.6), 150 or more the biggest (1.4), height and thickness alike, in a line between (`delver.sizeHp`).
+- **Size follows HP.** It is the Soldier's final HP, after its tier, its template and its Relics' `maxHp`. 20 HP or less is the smallest body (0.6), 150 or more the biggest (1.4), height and thickness alike, in a line between (`delver.sizeHp`).
 - **Tint follows skill** (the AI difficulty): grey for Beginner, red for Skilled, black for Expert (`delver.skillTints`). It is worn on the team-coloured part, by the impostor and by the promoted full model alike.
 - **Mixed pool, a few per Floor.** Each Floor fields `delver.prefabsPerFloor` (4) Prefabs, all different, picked from the Run seed and the Floor. A Prefab may come back on the next Floor. A Boss Floor's Boss's Prefab comes on top.
+- **Low Floors are weaker** (2026-11-17, after review): `delver.tierHp` is `[0.6, 1, 1.5]`, so tier 1's Soldiers have 60% of their Variant's HP. A Prefab may name a `minTier` (default 1): it is fielded in template rows only from that tier on. Bruiser and Uruk, the heaviest, have `minTier` 2. A Prefab's Boss Variant is its tier's Boss whatever its `minTier` (the Warden is an Uruk on tier 1).
 - **Templates name skills.** A Warband template row is `{ skill, count }`, not a Troop. Each Soldier is a Variant of that skill of one of the Floor's Prefabs.
 - **Chromebooks matter, phones do not.**
 - **`delver.troops` is the Delver's own list.** The Bosses and the elites are in it too: a Boss is a Variant flagged `boss` that its tier names, and an elite is an ordinary Variant wearing the elite template's Relics too.

@@ -28,7 +28,7 @@ export { MAX_FLOOR_TROOPS };
 export { MAX_LOOT_SPOTS, parseDungeon, RANDOM_PICK, type DungeonLoot, type DungeonTuning } from './dungeon';
 import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate } from './delver';
-export { eliteRelicSets, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
+export { eliteRelicSets, fieldedIn, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
 import { parseConsumables, type ConsumableTuning } from './consumables';

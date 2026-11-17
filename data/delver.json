@@ -14,11 +14,11 @@
   "patrolFill": 100,
   "perPlayerSoldiers": 1.5,
   "attackSlots": [4, 3, 3, 3],
-  "tierHp": [1, 1.25, 1.5],
+  "tierHp": [0.6, 1, 1.5],
   "tierRooms": [7, 10, 20],
   "traitor": { "minDistance": 20, "respawnSeconds": 8, "respawnStep": 4, "respawnMax": 30 },
   "prefabsPerFloor": 4,
-  "sizeHp": [30, 150],
+  "sizeHp": [20, 150],
   "skillTints": { "Easy": "#8e8e8e", "Beginner": "#8e8e8e", "Normal": "#b3261e", "Skilled": "#b3261e", "Hard": "#1c1c1c", "Expert": "#1c1c1c" },
   "troops": [
     { "name": "Sellsword", "body": "female", "weapon": "Arming Sword", "style": "Balanced", "variants": [
@@ -26,7 +26,7 @@
       { "difficulty": "Skilled", "hp": 50 },
       { "difficulty": "Expert", "hp": 60 }
     ] },
-    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
+    { "name": "Bruiser", "body": "brawler", "weapon": "Sledge Hammer", "minTier": 2, "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
       { "difficulty": "Beginner", "hp": 60 },
       { "difficulty": "Skilled", "hp": 75 },
       { "difficulty": "Expert", "hp": 90 }
@@ -73,7 +73,7 @@
       { "difficulty": "Expert", "hp": 70 },
       { "name": "Wraith Lord", "boss": true, "mods": {}, "difficulty": "Expert", "style": "Aggressive", "hp": 300, "relics": ["Heavy Gauntlet"] }
     ] },
-    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
+    { "name": "Uruk", "body": "uruk", "weapon": "Sledge Hammer", "minTier": 2, "style": "Aggressive", "mods": { "damage": 0.6 }, "variants": [
       { "difficulty": "Beginner", "hp": 80 },
       { "difficulty": "Skilled", "hp": 95 },
       { "difficulty": "Expert", "hp": 110 },

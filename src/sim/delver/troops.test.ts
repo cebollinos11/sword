@@ -117,7 +117,19 @@ describe('floorPrefabs and floorLooks', () => {
   });
 
   it('fields every Prefab when there are no more than prefabsPerFloor', () => {
-    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, 1)).toEqual(delver.troops.map((_, i) => i));
+    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, delver.tiers * delver.floorsPerTier)).toEqual(delver.troops.map((_, i) => i));
+  });
+
+  it('fields a Prefab only from its minTier on', () => {
+    const late = delver.troops.flatMap((p, i) => ((p.minTier ?? 1) > 1 ? [i] : []));
+    expect(late.length).toBeGreaterThan(0);
+    for (let seed = 1; seed < 30; seed++)
+      for (let floor = 1; floor <= 9; floor++) {
+        const tier = tierOf(delver, floor);
+        for (const p of floorPrefabs(delver, seed, floor)) expect(delver.troops[p]!.minTier ?? 1).toBeLessThanOrEqual(tier);
+      }
+    // Every Prefab may be fielded once its tier has come.
+    expect(floorPrefabs({ ...delver, prefabsPerFloor: 99 }, 3, 1)).toEqual(delver.troops.flatMap((p, i) => ((p.minTier ?? 1) <= 1 ? [i] : [])));
   });
 
   it('adds the Boss\'s Prefab on a Boss Floor only', () => {
@@ -134,6 +146,8 @@ describe('floorPrefabs and floorLooks', () => {
 
 describe('sizeOfHp', () => {
   it('is the smallest body at sizeHp[0] or less, the biggest at sizeHp[1] or more, in a line between, snapped', () => {
+    // Its own sizeHp, apart from the file's.
+    const delver = { sizeHp: [30, 150] as const };
     expect(sizeOfHp(delver, 10)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
     expect(sizeOfHp(delver, 30)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
     expect(sizeOfHp(delver, 90)).toEqual({ height: 1, thick: 1 });

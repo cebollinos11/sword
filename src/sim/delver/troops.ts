@@ -4,7 +4,7 @@
  * object, never state. A Floor's Battle Tuning carries this list as its `troops` (`delverBattle`), so a Floor's Crowd indexes its Troops in
  * it; the Battles' own `battle.troops` are never a Floor's. Which Prefabs a Floor fields is `floorPrefabs`.
  */
-import { clampSize, eliteRelicSets, MAX_SIZE, MIN_SIZE, regularPrefab, type DelverTuning, type Size, type TroopTuning } from '../../tuning';
+import { clampSize, eliteRelicSets, fieldedIn, MAX_SIZE, MIN_SIZE, type DelverTuning, type Size, type TroopTuning } from '../../tuning';
 import type { DelverFloorTuning, DelverPrefab, DelverVariant } from '../../tuning/delver';
 import { runPick } from '../dungeon';
 
@@ -106,13 +106,14 @@ export function floorTroops(delver: DelverTuning): FloorTroops {
 
 /**
  * The Prefabs (indices into `delver.troops`) Floor `floor` of the Run of `seed` fields (docs/plans/delver-troops.md): `delver.prefabsPerFloor`
- * of those that fill template rows (`regularPrefab`), all different, in a seeded order and then ascending; every one of them when there are
+ * of those that fill template rows on its tier (`fieldedIn`: a `regularPrefab` whose `minTier` has come), all different, in a seeded order and then ascending; every one of them when there are
  * no more. The next Floor draws afresh, so a Prefab may come back on it. Pure.
  */
 export function floorPrefabs(delver: DelverTuning, seed: number, floor: number): number[] {
   const order: { i: number; key: number }[] = [];
+  const tier = tierOf(delver, floor);
   delver.troops.forEach((p, i) => {
-    if (regularPrefab(p)) order.push({ i, key: runPick(seed, floor, i, PREFAB_SALT, 0x1_0000_0000) });
+    if (fieldedIn(p, tier)) order.push({ i, key: runPick(seed, floor, i, PREFAB_SALT, 0x1_0000_0000) });
   });
   order.sort((a, b) => a.key - b.key || a.i - b.i);
   return order

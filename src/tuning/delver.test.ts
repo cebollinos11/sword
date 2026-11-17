@@ -74,7 +74,9 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       },
     ]);
     expect(prefabsPerFloor).toBe(4);
-    expect(sizeHp).toEqual([30, 150]);
+    expect(sizeHp).toEqual([20, 150]);
+    // The heavy Prefabs (Bruiser, Uruk) join from tier 2 on.
+    expect(troops.filter((p) => p.minTier !== 1).map((p) => [p.name, p.minTier])).toEqual([['Bruiser', 2], ['Uruk', 2]]);
     expect(skillTints).toEqual({ Easy: 0x8e8e8e, Beginner: 0x8e8e8e, Normal: 0xb3261e, Skilled: 0xb3261e, Hard: 0x1c1c1c, Expert: 0x1c1c1c });
     expect(troops.map((p) => [p.name, p.body, p.weapon])).toEqual([
       ['Sellsword', 'female', 'Arming Sword'],
@@ -110,7 +112,7 @@ describe('Delver Tuning Data (data/delver.json)', () => {
       patrolFill: 100,
       perPlayerSoldiers: 1.5,
       attackSlots: [4, 3, 3, 3],
-      tierHp: [1, 1.25, 1.5],
+      tierHp: [0.6, 1, 1.5],
       tierRooms: [7, 10, 20],
       traitor: { minDistance: 20, respawnSeconds: 8, respawnStep: 4, respawnMax: 30 },
       floor: { cols: 6, rows: 6, rooms: 20, gaps: [30, 32], halfSize: [7, 14], minPassage: 4, passage: 3, farPercent: 25, loops: [3, 5], rests: [1, 2], treasures: 1, emptyPercent: 30, patrols: 2, follow: 1.5, maxAttempts: 10, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 40, uPercent: 30, stairPercent: 60 }, features: { percent: 80, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 60 }, turnPercent: 30, great: { count: [1, 2], half: [18, 22] }, shapes: { percent: 50, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 40, weights: { colonnade: 1, grid: 1 } } },
@@ -401,6 +403,22 @@ describe('Delver Tuning Data (data/delver.json)', () => {
 
   it('accepts a fractional follow', () => {
     expect(parse(withFloor({ follow: 1.25 })).floor.follow).toBe(1.25);
+  });
+
+  it('reads a Prefab\'s minTier (absent: 1), and refuses one outside 1 to tiers', () => {
+    const parsed = parse(withPrefab(0, { minTier: 3 }));
+    expect(parsed.troops[0]!.minTier).toBe(3);
+    expect(parse(withPrefab(0, { minTier: undefined })).troops[0]!.minTier).toBe(1);
+    expect(parse(parsed as unknown as Raw).troops[0]!.minTier).toBe(3);
+    expect(() => parse(withPrefab(0, { minTier: 0 }))).toThrow(/delver\.troops\[0\]\.minTier/);
+    expect(() => parse(withPrefab(0, { minTier: 4 }))).toThrow(/delver\.troops\[0\]\.minTier must be a tier from 1 to 3/);
+    expect(() => parse(withPrefab(0, { minTier: 1.5 }))).toThrow(/minTier/);
+  });
+
+  it('refuses a tier no Prefab may field', () => {
+    const d = raw();
+    d.troops = (d.troops as Record<string, unknown>[]).map((p) => ({ ...p, minTier: 2 }));
+    expect(() => parse(d)).toThrow(/a minTier of 1 or less \(for tier 1\)/);
   });
 
   it('accepts a Prefab whose Variants are only a Boss\'s (it fills no row), and a tint left out', () => {
