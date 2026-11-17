@@ -5,6 +5,7 @@ import { createMatch, MAX_TEAM_SIZE } from '../sim';
 import { floorOf } from '../sim/delver';
 import { emptyReveal, withReveal } from '../sim/delver/reveal';
 import { flatRooms, plainHalls } from '../sim/delver/flat.testdata';
+import { delverDoorStubs, DOOR_STUB_LENGTH } from '../render/delverMapMarks';
 import { DELVER_MAP_MIN_SPAN, delverMapLayout, delverMapStatus, MAP_KEY, mapKeyAction } from './floorMap';
 
 const tuning = loadTuningData();
@@ -140,16 +141,52 @@ describe('delverMapLayout on shaped Halls (Stage 7b)', () => {
     const l = delverMapLayout(plan, withReveal(emptyReveal(plan), i), m.duel.fighters, 0, delverMapStatus(m, plan));
     expect(l.rects).toHaveLength(hall.rects.length);
     for (const r of l.rects) expect(r).toMatchObject({ hall: true, kind: hall.kind });
-    // The board is the map seen from above: x1 of the rect is its left edge. Bounds come from all the rects, here the Hall's rect.
-    const span = Math.max(hall.rect.x1 - hall.rect.x0, hall.rect.z1 - hall.rect.z0, DELVER_MAP_MIN_SPAN);
+    // The board is the map seen from above: x1 of the rect is its left edge. Bounds come from all the rects, here the Hall's rect and its doorways' stubs.
+    const all = [hall.rect, ...delverDoorStubs(plan, withReveal(emptyReveal(plan), i)).map((d) => d.rect)];
+    const [bx0, bx1] = [Math.min(...all.map((r) => r.x0)), Math.max(...all.map((r) => r.x1))];
+    const [bz0, bz1] = [Math.min(...all.map((r) => r.z0)), Math.max(...all.map((r) => r.z1))];
+    const span = Math.max(bx1 - bx0, bz1 - bz0, DELVER_MAP_MIN_SPAN);
     const scale = (1 - 2 * 0.06) / span;
-    const cx = -(hall.rect.x0 + hall.rect.x1) / 2;
-    const cz = -(hall.rect.z0 + hall.rect.z1) / 2;
+    const cx = -(bx0 + bx1) / 2;
+    const cz = -(bz0 + bz1) / 2;
     hall.rects.forEach((r, k) => {
       expect(l.rects[k]!.x0).toBeCloseTo(0.5 + (-r.x1 - cx) * scale);
       expect(l.rects[k]!.x1).toBeCloseTo(0.5 + (-r.x0 - cx) * scale);
       expect(l.rects[k]!.y0).toBeCloseTo(0.5 + (-r.z1 - cz) * scale);
       expect(l.rects[k]!.y1).toBeCloseTo(0.5 + (-r.z0 - cz) * scale);
     });
+  });
+});
+
+describe('the unexplored doorways of the revealed Halls', () => {
+  const t7 = plainHalls(tuning);
+  const m = createMatch(t7, { format: 'Gauntlet', arena: 'gen:greybox:4242', bestOf: 1, seed: 7, teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
+  const plan = floorOf(t7, floorArenaName(1, 1))!.plan;
+  const entrance = withReveal(emptyReveal(plan), plan.entrance);
+  const touches = (r: { x0: number; x1: number; z0: number; z1: number }, h: { x0: number; x1: number; z0: number; z1: number }) =>
+    r.x0 <= h.x1 + 1e-6 && r.x1 >= h.x0 - 1e-6 && r.z0 <= h.z1 + 1e-6 && r.z1 >= h.z0 - 1e-6;
+
+  it('stubs each Passage out of the Entrance alone, against the Entrance, no longer than DOOR_STUB_LENGTH', () => {
+    const out = plan.passages.filter((p) => p.a === plan.entrance || p.b === plan.entrance);
+    const stubs = delverDoorStubs(plan, entrance);
+    expect(out.length).toBeGreaterThan(0);
+    expect(stubs).toHaveLength(out.length);
+    for (const d of stubs) {
+      expect(Math.min(d.rect.x1 - d.rect.x0, d.rect.z1 - d.rect.z0)).toBeLessThanOrEqual(DOOR_STUB_LENGTH + 1e-6);
+      expect(plan.halls[plan.entrance]!.rects.some((r) => touches(d.rect, r))).toBe(true);
+    }
+    expect(delverMapLayout(plan, entrance, m.duel.fighters, 0, delverMapStatus(m, plan)).doors).toHaveLength(out.length);
+  });
+
+  it('drops a doorway once its Passage is revealed, and stubs both ends of an unexplored Passage between two revealed Halls', () => {
+    const p = plan.passages.findIndex((q) => q.a === plan.entrance || q.b === plan.entrance);
+    const q = plan.passages[p]!;
+    const walked = withReveal(entrance, plan.halls.length + p);
+    expect(delverDoorStubs(plan, walked)).toHaveLength(delverDoorStubs(plan, entrance).length - 1);
+    const both = withReveal(entrance, q.a === plan.entrance ? q.b : q.a);
+    const ends = delverDoorStubs(plan, both).filter((d) => touches(d.rect, q.rect));
+    expect(ends.length).toBeGreaterThanOrEqual(2);
+    const all = Array.from({ length: plan.halls.length + plan.passages.length }).reduce<readonly number[]>((r, _, b) => withReveal(r, b), emptyReveal(plan));
+    expect(delverDoorStubs(plan, all)).toEqual([]);
   });
 });

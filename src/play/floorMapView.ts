@@ -26,6 +26,7 @@ export const FLOOR_MAP_CSS = `
 .floor-map-board.delver .map-hall.stairs { fill: #2a3a4a; }
 .floor-map-board.delver .map-hall.entrance { fill: #2c4a3a; }
 .floor-map-board.delver .map-passage { fill: #2a2540; stroke: #4a4166; stroke-width: 0.3; }
+.floor-map-board.delver .map-door { stroke: none; }
 .floor-map-board.delver .map-empty { fill: #7d7596; font-size: 3.2px; text-anchor: middle; }
 .floor-map-hint { font-size: 1.2rem; opacity: 0.7; }
 .hud-map { pointer-events: auto; position: absolute; left: calc(50% + 2rem); bottom: max(0.8rem, env(safe-area-inset-bottom)); width: 2.4rem; height: 2.4rem; font-size: 1.4rem; color: #fff; background: var(--panel-2); border: calc(var(--px) * 2) solid #000; box-shadow: inset var(--px) var(--px) 0 var(--line-2); cursor: pointer; opacity: 0.85; }
@@ -122,7 +123,7 @@ function markGlyph(m: DelverMapLayout['marks'][number]): SVGElement {
   return g;
 }
 
-/** A Delver Floor's layout as one SVG on a 100 × 100 board: the Passages, then the Halls, the markers, then the party's arrows (the local one white, last). */
+/** A Delver Floor's layout as one SVG on a 100 × 100 board: the unexplored doorways' stubs, the Passages, then the Halls, the markers, then the party's arrows (the local one white, last). */
 function drawDelverMap(layout: DelverMapLayout, tier: number): SVGElement {
   const svg = document.createElementNS(SVG, 'svg');
   svg.setAttribute('viewBox', '0 0 100 100');
@@ -137,6 +138,33 @@ function drawDelverMap(layout: DelverMapLayout, tier: number): SVGElement {
     if (inner) el.classList.add('inner');
     return el;
   };
+  // An unexplored doorway: a stub of Passage fading from its Hall's edge into the dark, one gradient per board edge.
+  const defs = document.createElementNS(SVG, 'defs');
+  const ends = { top: [0, 0, 0, 1], bottom: [0, 1, 0, 0], left: [0, 0, 1, 0], right: [1, 0, 0, 0] } as const;
+  for (const [edge, [ax, ay, bx, by]] of Object.entries(ends)) {
+    const g = document.createElementNS(SVG, 'linearGradient');
+    g.id = `map-door-${edge}`;
+    for (const [k, v] of Object.entries({ x1: ax, y1: ay, x2: bx, y2: by })) g.setAttribute(k, String(v));
+    for (const [offset, opacity] of [['0', '1'], ['1', '0']] as const) {
+      const stop = document.createElementNS(SVG, 'stop');
+      stop.setAttribute('offset', offset);
+      stop.setAttribute('stop-color', '#6d5f8c');
+      stop.setAttribute('stop-opacity', opacity);
+      g.append(stop);
+    }
+    defs.append(g);
+  }
+  const door = (d: DelverMapLayout['doors'][number]) => {
+    const el = document.createElementNS(SVG, 'rect');
+    el.setAttribute('x', String(d.x0 * 100));
+    el.setAttribute('y', String(d.y0 * 100));
+    el.setAttribute('width', String((d.x1 - d.x0) * 100));
+    el.setAttribute('height', String((d.y1 - d.y0) * 100));
+    el.setAttribute('class', 'map-door');
+    el.setAttribute('fill', `url(#map-door-${d.edge})`);
+    return el;
+  };
+  svg.append(defs, ...layout.doors.map(door));
   // A shaped Hall has a rect per band: each is stroked, then each is drawn again over them filled with no stroke, so no line shows across its inside.
   const halls = layout.rects.filter((r) => r.hall);
   svg.append(...layout.rects.filter((r) => !r.hall).map((r) => rect(r)), ...halls.map((r) => rect(r)), ...halls.map((r) => rect(r, true)), ...layout.marks.map(markGlyph));

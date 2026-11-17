@@ -4,6 +4,7 @@
  */
 import { isRevealed } from '../sim/delver/reveal';
 import type { FloorPlan } from '../sim/delver/plan';
+import type { Rect, Side } from '../mapEditor/source';
 import { pickupVisibleTo, type Pickup, type RestUse } from '../sim';
 
 /** The Boss mark is drawn this far (m, towards +z) from the Boss Hall's centre, so it does not cover the Stairs mark there (the Stairs stand at the Boss Hall's centre). */
@@ -47,4 +48,37 @@ export function delverMapMarks(plan: FloorPlan, revealed: readonly number[], sta
     marks.push({ type: 'treasure', x: hall.cx, z: hall.cz, lying: here });
   });
   return marks;
+}
+
+/** How far (m) a doorway's stub runs out from its Hall into the Passage beyond. */
+export const DOOR_STUB_LENGTH = 3;
+
+/** An unexplored doorway on a Delver map: the first `DOOR_STUB_LENGTH` m of an unrevealed Passage out of a revealed Hall. `toward` is the stub's side against the Hall (it fades away from it). */
+export interface DelverDoorStub {
+  readonly rect: Rect;
+  readonly toward: Side;
+}
+
+/** The part of `r` within `length` of its side `side` ('n' is +z, 'e' is +x). */
+function edgeStrip(r: Rect, side: Side, length: number): Rect {
+  if (side === 'n') return { ...r, z0: Math.max(r.z0, r.z1 - length) };
+  if (side === 's') return { ...r, z1: Math.min(r.z1, r.z0 + length) };
+  if (side === 'e') return { ...r, x0: Math.max(r.x0, r.x1 - length) };
+  return { ...r, x1: Math.min(r.x1, r.x0 + length) };
+}
+
+/**
+ * The unexplored doorways of the revealed Halls, as stubs: for each Passage `revealed` does not hold, a stub at each end whose Hall it does
+ * (its first piece by its `from` side at `a`, its last by its `to` side at `b`). An explored Passage is drawn whole, so it has none. Pure.
+ */
+export function delverDoorStubs(plan: FloorPlan, revealed: readonly number[]): DelverDoorStub[] {
+  const stubs: DelverDoorStub[] = [];
+  plan.passages.forEach((p, i) => {
+    if (isRevealed(revealed, plan.halls.length + i)) return;
+    const first = p.pieces[0];
+    const last = p.pieces[p.pieces.length - 1];
+    if (first && isRevealed(revealed, p.a)) stubs.push({ rect: edgeStrip(first.rect, first.from, DOOR_STUB_LENGTH), toward: first.from });
+    if (last && isRevealed(revealed, p.b)) stubs.push({ rect: edgeStrip(last.rect, last.to, DOOR_STUB_LENGTH), toward: last.to });
+  });
+  return stubs;
 }
