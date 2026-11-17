@@ -1305,9 +1305,9 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
     console.log(lines.join("\n"));
   });
 
-  it("a chase given up: a lone Player in sight of a guard at 14 m (by walking) walks away by the navmesh, never fighting; the Warband chases, gives up and returns home with none of its Soldiers promoted", () => {
+  it("a chase given up: a lone Player in sight of a guard at 14 m (by walking), the only Warband standing, walks away by the navmesh, never fighting; the Warband chases, gives up and returns home with none of its Soldiers promoted", () => {
     const lines = [
-      `\nA chase given up: Floor 1 of ${RUNS.length} Runs, one Player (no allies) put 12 to 15 m by walking from a guard's post, in sight of it and on the Entrance side of it, walking to the Entrance for ${AWAY_SECONDS} s.`,
+      `\nA chase given up: Floor 1 of ${RUNS.length} Runs, one Player (no allies) put 12 to 15 m by walking from a guard's post, in sight of it and on the Entrance side of it, walking to the Entrance for ${AWAY_SECONDS} s; every other Warband starts fallen.`,
     ];
     const problems: string[] = [];
     for (const name of RUNS) {
@@ -1441,10 +1441,20 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
         const { q } = chosen;
         const post = homes.posts[w.post[q]!]!;
         const on = groundOf(t.battle, map.field, chosen.x, chosen.z, 0);
+        // Only the guard under test stands: every other Warband starts fallen, so none of them can catch the Player on its walk and hold it up
+        // (which would make this guard's chase last as long as that fight, not as long as its own Leash or forgetting).
+        const c0 = m.duel.crowd!;
+        const crowd = {
+          ...c0,
+          alive: c0.alive.map((a, i) => (c0.squad[i] === q ? a : 0)),
+          hp: c0.hp.map((h, i) => (c0.squad[i] === q ? h : 0)),
+          squads: { ...c0.squads, living: c0.squads.living.map((n, k) => (k === q ? n : 0)) },
+        };
         m = {
           ...m,
           duel: {
             ...m.duel,
+            crowd,
             fighters: m.duel.fighters.map((x, i) =>
               i === 0
                 ? {
@@ -1460,7 +1470,8 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
         const walker = createAiController(tuning, "Hard");
         let entrance: { x: number; z: number } = plan.markers.spawns[0]!;
         if (toward < 0) {
-          // No spot has the Entrance on its side of the post: it walks instead to the point (within 60 m of it) farthest from the post by walking.
+          // No spot has the Entrance on its side of the post: it walks instead to the point of the Floor that is the most farther from the post
+          // than from where it starts, by walking, so its way there leads away from the guard rather than back past its post.
           const toPost = oneField(
             fields,
             fieldToward(
@@ -1470,14 +1481,16 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
               groundOf(t.battle, map.field, post.x, post.z, 0),
             ),
           );
-          let far = -1;
-          for (let dx = -60; dx <= 60; dx += 2)
-            for (let dz = -60; dz <= 60; dz += 2) {
-              const x = Math.round(chosen.x) + dx;
-              const z = Math.round(chosen.z) + dz;
+          const toStart = oneField(fields, fieldToward(fields, chosen.x, chosen.z, on));
+          let far = -Infinity;
+          const half = t.battle.field.size / 2;
+          for (let x = -half; x <= half; x += 2)
+            for (let z = -half; z <= half; z += 2) {
               const at = groundOf(t.battle, map.field, x, z, 0);
               if (at < 0 || clearanceAt(fields, x, z, at) < 1) continue;
-              const d = fieldDistance(toPost, 0, x, z, at);
+              const fromStart = fieldDistance(toStart, 0, x, z, at);
+              if (!Number.isFinite(fromStart)) continue;
+              const d = fieldDistance(toPost, 0, x, z, at) - fromStart;
               if (d > far) [far, entrance] = [d, { x, z }];
             }
         }
