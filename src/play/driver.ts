@@ -8,7 +8,7 @@
 import { createMatch, inDuel, type Intent, type MatchOptions, type MatchState } from '../sim';
 import type { Size, TuningData } from '../tuning';
 import type { Ping } from '../net';
-import { checkLineup, createDelverPilot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
+import { checkLineup, createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, playerFighter, poolControllers, prepareAi, stepMatchWith, type Controller, type Lineup } from '../controllers';
 
 export interface MatchDriver {
   /** The Fighter the local player drives (-1 until known, e.g. while a guest connects). */
@@ -57,15 +57,16 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   const { lineup, weapon, autopilot, immortal, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
-  // A traitor needs its Controller on a Pool slot, which only a Rollback session gives it (`lineupAis` drops the Lineup's Team 1 slots).
-  if (format === 'Gauntlet' && lineup.some((s) => s.team === 1 && s.pilot.kind === 'Player')) throw new RangeError("A Run's traitors play online, not against the AIs alone");
   const me = playerFighter(lineup, 0);
+  // A Run's traitor (the player on Team 1, docs/plans/delver.md, Stage 8a) drives its own Pool slot past the party's: Lineup index = Fighter
+  // index, as in a Rollback session. `lineupAis` gives that slot a Pool AI, so the player's Controller replaces it there.
+  const traitor = format === 'Gauntlet' && lineup[me]!.team === 1;
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   prepareAi(tuning, match.duel);
   let pending: Intent | null = null;
   /** The Local Controller's Intent, sampled by the game loop and handed to `tick`. */
-  const local: Controller = autopilot && format === 'Gauntlet' ? createDelverPilot(tuning, 'Hard') : { intent: () => pending! };
-  const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai) => ai ?? local);
+  const local: Controller = autopilot && format === 'Gauntlet' ? (traitor ? createTraitorPilot(tuning, 'Hard') : createDelverPilot(tuning, 'Hard')) : { intent: () => pending! };
+  const controllers = lineupAis(tuning, lineup, format, matchOptions).map((ai, i) => (i === me ? local : ai ?? local));
   return {
     localFighter: me,
     lineup,

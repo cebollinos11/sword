@@ -246,7 +246,7 @@ function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   card.style.setProperty('--team', hex(teamColour(1, 0)));
   const { count, note } = dungeonCard(ctx.tuning);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
-  if (ctx.lobby.online) card.append(...traitorRows(ctx, state));
+  card.append(...traitorRows(ctx, state));
   return card;
 }
 
@@ -254,7 +254,7 @@ function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
 export const TRAITOR_NOTE = 'Traitors play the Warbands: each takes over a Soldier out of the party’s sight, and another after each death.';
 
 /**
- * An online Delver Lobby's traitors, on the Floors card: each Player on a Team 1 Seat, and while one is free and you sit on Team 0, a button that
+ * A Delver Lobby's traitors (offline too: the player alone betrays an all-AI party), on the Floors card: each Player on a Team 1 Seat, and while one is free and you sit on Team 0, a button that
  * moves you to it (`traitorSeat`). Moving back is any Team 0 Seat's own move button.
  */
 function traitorRows(ctx: LobbyViewContext, state: LobbyState): HTMLElement[] {

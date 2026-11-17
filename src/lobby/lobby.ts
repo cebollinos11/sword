@@ -357,9 +357,6 @@ export function startProblem(state: LobbyState, requireReady: boolean): string |
       if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
     }
   }
-  // A Run played alone runs against the AIs, where a traitor has no Soldier to take over (`playerVsAi` refuses it).
-  if (isGauntlet(state) && state.teams[1]!.some((s) => s.kind === 'Player') && lobbyLineup(state).members.length <= 1)
-    return 'A traitor needs a party of players to betray: move back to Team 0 to play alone.';
   if (requireReady) {
     const waiting = state.members.find((m) => m.id !== 0 && !m.ready);
     if (waiting) return `Waiting for ${waiting.name} to be ready.`;

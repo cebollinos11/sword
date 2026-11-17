@@ -7,6 +7,7 @@ import { join, lobbyLineup, moveMember, newLobby, runTuning, seatOf, setFormat, 
 import { playerVsAi } from '../play/driver';
 import { checkLineup, lineupMatch } from '../controllers';
 import { parseLobbyMessage } from './messages';
+import { IDLE_INTENT, secondsToTicks, traitorSlot } from '../sim';
 
 const tuning = loadTuningData();
 const weapon = Object.keys(tuning.weapons)[0]!;
@@ -49,15 +50,24 @@ describe('a Gauntlet Lobby (a Run on generated Floors)', () => {
       expect('traitors' in lineupMatch(tuning, lobbyLineup(room).lineup, weapons, { bestOf: 1, format: 'Gauntlet' })).toBe(false);
     });
 
-    it('cannot be played alone: the host as the only seated traitor may not start, and a Run against the AIs refuses it', () => {
+    it('can be played alone against an all-AI party: the host as the only traitor starts a Run against the AIs and drives its own Pool slot', () => {
       // (An AI ally keeps the party: the host alone in the Room, Team 0 not empty.)
       const alone = moveMember(setSeat(gauntlet, { team: 0, index: 1 }, { kind: 'AI', difficulty: 'Normal', weapon }), 0, { team: 1, index: 0 });
       expect(seatOf(alone, 0)).toEqual({ team: 1, index: 0 });
-      expect(startProblem(alone, false)).toMatch(/traitor/);
+      expect(startProblem(alone, false)).toBeNull();
       const { lineup } = lobbyLineup(alone);
-      expect(() => playerVsAi(tuning, { lineup, weapon, format: 'Gauntlet', bestOf: 1, arena: 'gen:greybox:5' })).toThrow(/traitors/);
-      // With a party to betray, the Lobby lets it start.
-      expect(startProblem(moveMember(room, 2, { team: 1, index: 0 }), false)).toBeNull();
+      const driver = playerVsAi(tuning, { lineup, weapon, format: 'Gauntlet', bestOf: 1, arena: 'gen:greybox:5', seed: 7 });
+      const config = driver.state!.config;
+      expect(config).toMatchObject({ humans: 0, traitors: [{}] });
+      expect(driver.localFighter).toBe(traitorSlot(config, 0));
+      // The player's Intent drives the traitor's slot: once it has taken over a Soldier, that Soldier walks where the player says.
+      const record = () => driver.state!.delver!.traitors![0]!;
+      for (let t = 0; t < secondsToTicks(tuning.delver.traitor.respawnSeconds + 5) && record().soldier < 0; t++) driver.tick(IDLE_INTENT);
+      expect(record().soldier).toBeGreaterThanOrEqual(0);
+      const before = driver.state!.duel.fighters[driver.localFighter]!.position;
+      for (let t = 0; t < 30; t++) driver.tick({ ...IDLE_INTENT, move: { x: 1, z: 0 } });
+      const after = driver.state!.duel.fighters[driver.localFighter]!.position;
+      expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeGreaterThan(0.5);
     });
   });
 });
