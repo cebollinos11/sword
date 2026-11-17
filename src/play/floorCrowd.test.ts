@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, type SimState } from '../sim';
+import { createMatch, IDLE_INTENT, stepMatch, type MatchState, type SimState } from '../sim';
+import { traitorSlot } from '../sim/delverTraitors';
 import type { ImpostorAtlases } from '../render/impostorAtlas';
 import { soldierLooks } from '../render/impostorAtlas';
 import { floorTroops } from '../sim/delver';
-import { FloorCrowd, floorBattle, type CrowdDraw, type CrowdStage } from './floorCrowd';
+import { FloorCrowd, floorBattle, traitorSlots, type CrowdDraw, type CrowdStage } from './floorCrowd';
 
 const tuning = loadTuningData();
 const ARENA = 'gen:greybox:4242';
@@ -58,6 +59,21 @@ describe('a Delver Run’s Crowd view', () => {
     expect(fade(0)).toBe(1);
     expect(state.fighters[1]!.benched).toBe(true);
     expect(fade(1)).toBe(0);
+  });
+
+  it('draws a traitor’s slot whole while it holds a Soldier it took over (it has no Bubble binding)', () => {
+    // A lone Player betraying an all-AI party of two, offline.
+    let m: MatchState = createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0], humans: 0, players: [], traitors: [{}] });
+    const k = traitorSlot(m.config, 0);
+    const holds = (s: MatchState) => s.delver!.traitors![0]!.soldier >= 0;
+    for (let t = 0; t < 4000 && !holds(m); t++) m = stepMatch(m, m.duel.fighters.map(() => IDLE_INTENT), tuning);
+    expect(holds(m)).toBe(true);
+    expect(m.duel.fighters[k]!.soldier).toBeUndefined();
+    expect(traitorSlots(m.duel, 2)).toEqual(new Set([k]));
+    const r = rig();
+    const crowd = new FloorCrowd(r.stage, tuning, 2, r.parts);
+    crowd.update(m.duel, 0, 0.016, new THREE.PerspectiveCamera());
+    expect(r.fades.at(-1)!(k)).toBe(1);
   });
 
   it('resizes its fades for a new Floor’s Crowd of another length', async () => {
