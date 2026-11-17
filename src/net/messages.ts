@@ -4,7 +4,7 @@ import { floorArenaName } from '../sim/delver/world';
 import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 32;
+export const PROTOCOL_VERSION = 33;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -783,7 +783,7 @@ function isTraitorRecords(v: unknown, seats: unknown): boolean {
   if (seats === undefined) return v === undefined;
   const n = (seats as unknown[]).length;
   return (
-    isArrayOf(v, (r) => isObject(r) && isInt(r.soldier) && r.soldier >= -1 && isInt(r.warband) && r.warband >= -1 && r.warband < MAX_WARBANDS && isTick(r.deaths) && isTick(r.taken) && isTick(r.next) && isTick(r.kills) && (r.away === undefined || r.away === true)) &&
+    isArrayOf(v, (r) => isObject(r) && isInt(r.soldier) && r.soldier >= -1 && isInt(r.warband) && r.warband >= -1 && r.warband < MAX_WARBANDS && isTick(r.deaths) && isTick(r.floorDeaths) && isTick(r.taken) && isTick(r.next) && isTick(r.kills) && (r.away === undefined || r.away === true)) &&
     (v as unknown[]).length === n
   );
 }

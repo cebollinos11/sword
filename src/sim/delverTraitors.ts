@@ -3,12 +3,13 @@
  * of its own, only a Pool slot of its own right after the party's (`traitorSlot`), which the Bubbles never hand out while it plays. Watching, it
  * waits its delay (`respawnTicks`), then takes over a living Warband Soldier no party Fighter sees and at least `delver.traitor.minDistance` from
  * every one of them by walking (`traitorPick`, seeded): the Soldier leaves its Warband and is the traitor's Fighter, in its Troop's Body, Weapon,
- * Mods and HP and the traitor's own Size, until it falls. Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
- * watches again for longer. A traitor has no Bubble, takes no pickup, fire or Stairs (those are the party Players'), and never takes the Boss.
+ * Mods and HP and the traitor's own Size, until it falls. With no such Soldier, it takes any living non-Boss Warband Soldier instead
+ * (`traitorFallback`), one already fighting the party included (its Pool slot freed). Then it dies at once, back in its Warband (whose wipe counts it), and the traitor
+ * watches again for longer (the wait resets on each new Floor). A traitor has no Bubble, takes no pickup, fire or Stairs (those are the party Players'), and never takes the Boss.
  * Its records are plain Run state (`RunState.traitors`), hashed and rolled back. Pure.
  */
 import type { TuningData } from '../tuning';
-import { promotedFighter } from './bubble';
+import { promotedFighter, unboundSlot } from './bubble';
 import { killerOf } from './battle';
 import { groundOf, soldierHeight } from './battlefield';
 import { secondsToTicks } from './constants';
@@ -27,11 +28,13 @@ export interface TraitorState {
   readonly soldier: number;
   /** That Soldier's Warband (Squad) before it left it; -1 with none. */
   readonly warband: number;
-  /** Its deaths over the whole Run. */
+  /** Its deaths over the whole Run (the results). */
   readonly deaths: number;
+  /** Its deaths on this Floor: its wait grows with these, and each new Floor starts it at 0 again. */
+  readonly floorDeaths: number;
   /** Its takeovers over the whole Run (the pick's salt). */
   readonly taken: number;
-  /** The Duel Tick (`SimState.tick`) from which it takes over its next Soldier, while it watches. */
+  /** The Duel Tick (`SimState.tick`) from which it takes over its next Soldier, while it watches (kept while it finds none, so the HUD can say so). */
   readonly next: number;
   /** Party Fighters felled by its Fighter's blow. */
   readonly kills: number;
@@ -52,7 +55,7 @@ export function traitorOf(config: Pick<MatchConfig, 'teams' | 'traitors'>, k: nu
 const PICK_SALT = 0x7a17;
 /** `runPick`'s slot of traitor j: past any Fighter's. */
 const PICK_SLOT = 16;
-/** Seconds a traitor that found no Soldier to take waits before it looks again. */
+/** Seconds a traitor that found no Soldier to take waits before it looks again (its `next` stays put: it looks each whole such step past it). */
 const RETRY_SECONDS = 1;
 
 /** The wait (Ticks) before a takeover, `n` the deaths before the wait began (not the fall that began it): `respawnSeconds + respawnStep × n`, at most `respawnMax`. */
@@ -65,12 +68,12 @@ export function respawnTicks(tuning: TuningData, n: number): number {
 export function freshTraitors(tuning: TuningData, config: Pick<MatchConfig, 'traitors'>): readonly TraitorState[] | undefined {
   const n = config.traitors?.length ?? 0;
   if (n === 0) return undefined;
-  return Array.from({ length: n }, () => ({ soldier: -1, warband: -1, deaths: 0, taken: 0, next: respawnTicks(tuning, 0), kills: 0 }));
+  return Array.from({ length: n }, () => ({ soldier: -1, warband: -1, deaths: 0, floorDeaths: 0, taken: 0, next: respawnTicks(tuning, 0), kills: 0 }));
 }
 
-/** The records on entering a new Floor: the Soldiers went with the old Floor; each watches its current delay from Tick 0. */
+/** The records on entering a new Floor: the Soldiers went with the old Floor; each watches its first delay again from Tick 0 (its wait resets). */
 export function traitorsOnFloor(tuning: TuningData, records: readonly TraitorState[]): readonly TraitorState[] {
-  return records.map((r) => ({ ...r, soldier: -1, warband: -1, next: respawnTicks(tuning, r.deaths) }));
+  return records.map((r) => ({ ...r, soldier: -1, warband: -1, floorDeaths: 0, next: respawnTicks(tuning, 0) }));
 }
 
 /** The slots of the traitors still playing (not away), which the Bubbles never hand out. */
@@ -121,9 +124,33 @@ export function traitorCandidates(tuning: TuningData, duel: SimState, party: num
   return out;
 }
 
-/** The Soldier traitor `j` takes over now (`traitorCandidates`, picked by (Run seed, Floor, traitor, takeover count)), or -1 with none. */
+/**
+ * The Soldiers a traitor may take over when `traitorCandidates` has none (in Crowd order): alive, in a Warband, not the Boss, seen or near
+ * or not: in the Crowd, or promoted into a Pool slot whose Fighter is bound to it and still standing.
+ */
+export function traitorFallback(duel: SimState): number[] {
+  const crowd = duel.crowd!;
+  const boss = bossSoldier(crowd);
+  const out: number[] = [];
+  for (let s = 0; s < crowd.x.length; s++) {
+    if (crowd.alive[s] !== 1 || crowd.squad[s]! < 0 || s === boss) continue;
+    const k = crowd.slot[s]!;
+    if (k >= 0) {
+      const f = duel.fighters[k];
+      if (!f || f.soldier?.index !== s || f.death !== undefined || f.hp <= 0) continue;
+    }
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * The Soldier traitor `j` takes over now, picked by (Run seed, Floor, traitor, takeover count): one of `traitorCandidates`, else (none out of
+ * the party's sight and reach) one of `traitorFallback`; -1 with neither.
+ */
 export function traitorPick(tuning: TuningData, duel: SimState, party: number, seed: number, floor: number, j: number, taken: number): number {
-  const candidates = traitorCandidates(tuning, duel, party);
+  let candidates = traitorCandidates(tuning, duel, party);
+  if (candidates.length === 0) candidates = traitorFallback(duel);
   return candidates.length === 0 ? -1 : candidates[runPick(seed, floor, PICK_SLOT + j, PICK_SALT + taken, candidates.length)]!;
 }
 
@@ -134,8 +161,8 @@ function editable(crowd: CrowdState) {
 
 /**
  * The traitors' step for the Tick about to be stepped (`duel.tick + 1`), before the Bubbles: a traitor's Fighter that fell kills its Soldier
- * (where it fell, back in its Warband) and starts its wait; a watching traitor whose wait is over takes over the Soldier `traitorPick` gives (or
- * looks again a second later). `duel` and `records` themselves when nothing changes.
+ * (where it fell, back in its Warband) and starts its wait; a watching traitor whose wait is over takes over the Soldier `traitorPick` gives (or,
+ * finding none, looks again each second after `next`, which stays put: the HUD then reads that it is looking, not a countdown stuck at 1 s). `duel` and `records` themselves when nothing changes.
  */
 export function stepTraitors(duel: SimState, records: readonly TraitorState[], config: Pick<MatchConfig, 'teams' | 'traitors' | 'arena'>, tuning: TuningData, seed: number, floor: number): { duel: SimState; records: readonly TraitorState[] } {
   const tick = duel.tick + 1;
@@ -171,14 +198,25 @@ export function stepTraitors(duel: SimState, records: readonly TraitorState[], c
       e.crowd.target[s] = -1;
       e.crowd.engage[s] = 0;
       if (r.warband >= 0) e.crowd.squad[s] = r.warband;
-      next = { ...r, deaths: r.deaths + 1, next: f.death.tick + respawnTicks(tuning, r.deaths) };
-    } else if ((!inDuel(f) || f.death !== undefined) && tick >= r.next) {
+      next = { ...r, deaths: r.deaths + 1, floorDeaths: r.floorDeaths + 1, next: f.death.tick + respawnTicks(tuning, r.floorDeaths) };
+    } else if ((!inDuel(f) || f.death !== undefined) && tick >= r.next && (tick - r.next) % secondsToTicks(RETRY_SECONDS) === 0) {
       // Watching, its wait over: a takeover, out of the party's sight and reach.
       const view = fighters || crowd ? { ...duel, fighters: fighters ?? duel.fighters, crowd: crowd ?? duel.crowd! } : duel;
       const s = traitorPick(tuning, view, party, seed, floor, j, r.taken);
-      if (s < 0) next = { ...r, next: tick + secondsToTicks(RETRY_SECONDS) };
-      else {
+      if (s >= 0) {
         const e = edit();
+        // A Soldier already promoted (the fallback): it stands where its Fighter is, with its HP, and that Pool slot is freed.
+        const p = e.crowd.slot[s]!;
+        if (p >= 0) {
+          const g = e.fighters[p]!;
+          e.crowd.x[s] = g.position.x;
+          e.crowd.z[s] = g.position.z;
+          const on = groundOf(tuning.battle, field, g.position.x, g.position.z, g.y);
+          if (on >= 0) e.crowd.surface[s] = on;
+          e.crowd.heading[s] = g.facing;
+          e.crowd.hp[s] = g.hp;
+          e.fighters[p] = unboundSlot(tuning, duel.arena);
+        }
         const size = config.traitors?.[j]?.size ?? null;
         e.fighters[k] = promotedFighter(tuning, duel.arena, e.crowd, s, size);
         if (r.soldier >= 0 && e.crowd.slot[r.soldier] === k) e.crowd.slot[r.soldier] = -1;

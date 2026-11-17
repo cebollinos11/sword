@@ -3,7 +3,7 @@
  * the two party Players on the Delver pilot and the traitor on the traitor pilot, at the game's Input Delay, play a Run of one Tier of two Floors
  * (Floor 2 the Boss Floor) to its Victory. The party is kept at max HP each Tick (`withImmortalParty`, in every peer's Tick function), the traitor
  * is not. The offline replay of the same Intents is walked Tick by Tick to show what the traitor did: every takeover out of the party's sight and
- * reach, a wait that grew with its deaths, no pickup, fire or Stairs of a traitor's, and the Boss never taken over.
+ * reach (or, with none such, any non-Boss Warband Soldier), a wait that grew with its deaths, no pickup, fire or Stairs of a traitor's, and the Boss never taken over.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { TuningData } from '../tuning';
@@ -11,7 +11,7 @@ import { stairsCounters, stepMatch, type MatchState } from '../sim';
 import { withImmortalParty } from '../play/driver';
 import { flatHalls } from '../sim/delver/flat.testdata';
 import { arenaTuning } from '../sim/delver';
-import { traitorCandidates, traitorSlot } from '../sim/delverTraitors';
+import { traitorCandidates, traitorFallback, traitorSlot } from '../sim/delverTraitors';
 import { BOSS } from '../sim/warband';
 import { BATTLE_INPUT_DELAY, CHECKSUM_INTERVAL } from './session';
 import { expectChecksums, offline, startRun, type Step } from './coopHarness';
@@ -58,8 +58,9 @@ describe('a Delver Run online with a traitor, slow', () => {
       const now = m.delver.traitors![0]!;
       if (now.taken > was.taken && m.delver.floor === before.delver.floor) {
         takeovers.push({ tick: m.tick, soldier: now.soldier, floor: m.delver.floor });
-        // Its Soldier was one it could take on the Tick before: unseen and far by walking, in a Warband, never the Boss.
-        if (!traitorCandidates(arenaTuning(r.host.tuning, before.arena), before.duel, before.config.teams.length).includes(now.soldier)) breaches.push(`takeover of ${now.soldier} at ${m.tick}`);
+        // Its Soldier was one it could take on the Tick before: unseen and far by walking, or (none such) any non-Boss Warband Soldier.
+        const out = traitorCandidates(arenaTuning(r.host.tuning, before.arena), before.duel, before.config.teams.length);
+        if (!(out.length > 0 ? out : traitorFallback(before.duel)).includes(now.soldier)) breaches.push(`takeover of ${now.soldier} at ${m.tick}`);
         const c = m.duel.crowd!;
         const q = c.warbands!.rank.indexOf(BOSS);
         if (q >= 0 && c.squad.indexOf(q) === now.soldier) breaches.push(`the Boss taken at ${m.tick}`);

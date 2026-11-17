@@ -624,7 +624,7 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
   });
 
   it('accepts an Intent that equips, drops or chooses a Troop, refuses malformed ones, and the protocol is 32', () => {
-    expect(PROTOCOL_VERSION).toBe(32);
+    expect(PROTOCOL_VERSION).toBe(33);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
