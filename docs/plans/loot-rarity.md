@@ -1,6 +1,6 @@
 # Loot Rarity: Rarities, Weapon Effects and the Full Roster as Loot
 
-> Status: scope agreed (2026-11-17), the open questions answered by the user. Nothing built yet. Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: scope agreed (2026-11-17), the open questions answered by the user. Nothing built yet. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 Delver loot is flat today. Every copy of an item is the same item:
