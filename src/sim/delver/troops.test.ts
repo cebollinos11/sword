@@ -145,16 +145,16 @@ describe('floorPrefabs and floorLooks', () => {
 });
 
 describe('sizeOfHp', () => {
-  it('is the smallest body at sizeHp[0] or less, the biggest at sizeHp[1] or more, in a line between, snapped', () => {
+  it('is the smallest body at sizeHp[0] or less, the biggest at sizeHp[1] or more, in a line between, snapped; height runs 0.6 to 1.3, thickness 0.9 to 1.4', () => {
     // Its own sizeHp, apart from the file's.
     const delver = { sizeHp: [30, 150] as const };
-    expect(sizeOfHp(delver, 10)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
-    expect(sizeOfHp(delver, 30)).toEqual({ height: MIN_SIZE, thick: MIN_SIZE });
-    expect(sizeOfHp(delver, 90)).toEqual({ height: 1, thick: 1 });
-    expect(sizeOfHp(delver, 150)).toEqual({ height: MAX_SIZE, thick: MAX_SIZE });
-    expect(sizeOfHp(delver, 400)).toEqual({ height: MAX_SIZE, thick: MAX_SIZE });
-    expect(sizeOfHp(delver, 60).height).toBe(0.8);
-    expect(sizeOfHp(delver, 61).height).toBe(0.8);
+    expect(sizeOfHp(delver, 10)).toEqual({ height: MIN_SIZE, thick: 0.9 });
+    expect(sizeOfHp(delver, 30)).toEqual({ height: MIN_SIZE, thick: 0.9 });
+    expect(sizeOfHp(delver, 90)).toEqual({ height: 0.95, thick: 1.15 });
+    expect(sizeOfHp(delver, 150)).toEqual({ height: 1.3, thick: MAX_SIZE });
+    expect(sizeOfHp(delver, 400)).toEqual({ height: 1.3, thick: MAX_SIZE });
+    expect(sizeOfHp(delver, 42).height).toBe(0.65);
+    expect(sizeOfHp(delver, 43).height).toBe(0.7);
   });
 });
 
