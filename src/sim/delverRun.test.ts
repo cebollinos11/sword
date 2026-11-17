@@ -963,11 +963,11 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
 
   it('is picked as loot by its weight', () => {
     const only: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 0, Weapon: 0, Consumable: 1 } } } };
-    const picks = [...Array(40).keys()].map((k) => pickItemAt(only, 7, 1, k, []));
+    const picks = [...Array(40).keys()].map((k) => pickItemAt(only, 7, 1, k, [], { tier: 1, rank: 'Fight' }));
     expect(new Set(picks.map((p) => p.kind))).toEqual(new Set(['consumable']));
     expect(new Set(picks.map((p) => p.item.name))).toEqual(new Set([POTION, MAP, STONE]));
     const none: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 1, Weapon: 1, Consumable: 0 } } } };
-    expect([...Array(40).keys()].some((k) => pickItemAt(none, 7, 1, k, []).kind === 'consumable')).toBe(false);
+    expect([...Array(40).keys()].some((k) => pickItemAt(none, 7, 1, k, [], { tier: 1, rank: 'Fight' }).kind === 'consumable')).toBe(false);
   });
 
   it('is deterministic, and re-simulates the same from a snapshot', () => {

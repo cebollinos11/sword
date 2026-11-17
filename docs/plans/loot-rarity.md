@@ -1,6 +1,6 @@
 # Loot Rarity: Rarities, Weapon Effects and the Full Roster as Loot
 
-> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stages 1 and 2 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stages 1 to 3 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 Delver loot is flat today. Every copy of an item is the same item:
@@ -126,7 +126,7 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 ## Stages
 - [x] Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
 - [x] Stage 2: Weapon effects and the Rarity damage bonus
-- [ ] Stage 3: Rarity rolls by depth and source
+- [x] Stage 3: Rarity rolls by depth and source
 - [ ] Stage 4: Rarity shown: inventory, HUD, results, pickups, the wielded Weapon
 
 ### Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
@@ -354,6 +354,48 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 - `src/tuning/tuning.test.ts`: an `odds` or `carried` length other than `delver.tiers` is refused.
 
 **One task.**
+
+### Result
+- **Built**:
+  - the whole `dungeon.loot.rarity` block, parsed with its refusals, and the tier-count checks in `parseTuningData`;
+  - `raiseRarity`, `atLeast` and `carriedRarity`;
+  - `LootSource` and `rollRarity`, with salt 73;
+  - `pickItemAt` drawing a Weapon's or Relic's Rarity by its tier and rank. A Consumable stays Common and makes no draw.
+  - `warbandLoot` and `treasurePickups` now pass their source;
+  - an elite's or Boss's carried Relic drops at `carriedRarity`;
+  - `DELVER_VERSION` 11.
+- **Unchanged**: the worn Relics (still Common) and every kind, name, Warband and Floor pick.
+- **Decisions the plan did not settle**:
+  - The tier-count checks live in `parseTuningData`, not `parseDungeon` (see the Design).
+  - The pinned table of rolls in `rarityRolls.test.ts` covers 24 slots × 4 ranks × 3 tiers, for seed 7 on Floor 2.
+- **Measured splits** (6000 draws each, %, Common / Rare / Legendary; every one within 3 points of its row):
+
+  | Source | Measured | Odds |
+  |---|---|---|
+  | Tier 1 | 81.5 / 16.6 / 1.9 | 80 / 18 / 2 |
+  | Tier 2 | 61.3 / 30.9 / 7.8 | 60 / 32 / 8 |
+  | Tier 3 | 40.9 / 44.9 / 14.1 | 40 / 45 / 15 |
+
+  An Elite on tier t matches tier t + 1's split, and tier 3's at most.
+- **Tests**:
+  - `npm test`: 3079 passed, 3 skipped.
+  - Delver slow suites: 22/22 green.
+  - `npm run typecheck` and `npm run build` are clean.
+- **New tests** (`src/sim/rarityRolls.test.ts`, 10 tests):
+  - the helpers;
+  - deterministic rolls per Player at every rank and tier, against the pinned table;
+  - the two statistical tests;
+  - Boss and Pedestal never Common;
+  - Consumables always Common, and all three Rarities among Weapons and Relics;
+  - kind and name unmoved;
+  - carried Relics by tier on real Floors;
+  - `warbandDrops` and `treasurePickups` stable.
+  - Plus the new parse refusals in `dungeon.test.ts` and the tier-count checks in `tuning.test.ts`.
+- **Tests changed**:
+  - `weaponLoot.test.ts`: drops are now rolled, so "each Common" became "each a Rarity", and it passes a source.
+  - `delverLoot.test.ts`: the carried Relics gained their tier's Rarity (the tier 1 elite Common, the tier 3 Boss Legendary).
+  - `delverRun.test.ts`: two `pickItemAt` calls gained a source.
+  - The `rarity` fixtures in `dungeon.test.ts` and `tuning.test.ts` gained the new keys.
 
 ### Stage 4: Rarity shown
 - The colour tokens, the inventory screen and HUD slots, the results Build, the pickup glow and the wielded Weapon's tint.

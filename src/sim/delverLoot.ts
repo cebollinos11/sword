@@ -4,16 +4,16 @@
  * peer agrees with nothing sent; where it lies is a pure function of the Floor's plan and the fall point (`dropSpots`). Each Player has its own
  * copies on the same ground (`pickupVisibleTo`), and the AI allies get none. Everything here is pure; the Run's step lays the results in its pickups.
  */
-import type { ArenaGeometry, LevelsTuning, TuningData } from '../tuning';
+import { carriedRarity, type ArenaGeometry, type LevelsTuning, type TuningData } from '../tuning';
 import type { CrowdState } from './crowd';
 import type { FloorPlan } from './delver/plan';
 import { surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { tierOf } from './delver/troops';
 import { presentPlayers } from './party';
-import { commonItem, type Dropped } from './inventory';
+import type { Dropped } from './inventory';
 import type { MatchConfig } from './match';
-import { pickItemAt, type Pickup, type PickupAt } from './pickups';
+import { pickItemAt, type LootSource, type Pickup, type PickupAt } from './pickups';
 import { BOSS, ELITE } from './warband';
 
 /** The most items of one Player's set from one source (`lootSlot`'s k is below it). */
@@ -33,18 +33,20 @@ export function lootSlot(source: 0 | 1, index: number, player: number, k: number
 
 /**
  * What Warband q drops for one Player when it is wiped: the Relic it carried first (an elite template's first, or the Boss Troop's first, when it has
- * one: its Boss Variant's), then `dungeon.loot.drops` of its rank (`Fight`, `Elite`, `Boss`) picked by `pickItemAt`, each avoiding the items so far. `tuning` is the
+ * one: its Boss Variant's), then `dungeon.loot.drops` of its rank (`Fight`, `Elite`, `Boss`) picked by `pickItemAt` (each at its rank's Rarity odds), each avoiding the items so far. The carried Relic drops at its tier's Rarity (`carriedRarity`; a Boss's one step higher). `tuning` is the
  * Floor's own (`arenaTuning`), so the tier's templates are `tuning.delver.warbands[tierOf - 1]`. Pure.
  */
 export function warbandLoot(tuning: TuningData, crowd: CrowdState, q: number, player: number, seed: number, floor: number): Dropped[] {
   const warbands = crowd.warbands!;
   const rank = warbands.rank[q]!;
-  const tier = tuning.delver.warbands[tierOf(tuning.delver, floor) - 1]!;
+  const tierNo = tierOf(tuning.delver, floor);
+  const tier = tuning.delver.warbands[tierNo - 1]!;
   const carried = rank === BOSS ? (tier.boss && tuning.delver.troops[tier.boss.prefab]?.variants[tier.boss.variant]?.relics[0]) : rank === ELITE ? tier.elite?.[warbands.encounter[q]!]?.relics[0] : undefined;
-  const items: Dropped[] = carried === undefined ? [] : [{ kind: 'relic', item: commonItem(carried) }];
-  const { drops } = tuning.dungeon.loot;
+  const { drops, rarity } = tuning.dungeon.loot;
+  const items: Dropped[] = carried === undefined ? [] : [{ kind: 'relic', item: { name: carried, rarity: carriedRarity(rarity, tierNo, rank === BOSS) } }];
+  const source: LootSource = { tier: tierNo, rank: rank === BOSS ? 'Boss' : rank === ELITE ? 'Elite' : 'Fight' };
   const count = rank === BOSS ? drops.Boss : rank === ELITE ? drops.Elite : drops.Fight;
-  for (let k = 0; k < count; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(0, q, player, k), items));
+  for (let k = 0; k < count; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(0, q, player, k), items, source));
   return items;
 }
 
@@ -185,12 +187,13 @@ const PEDESTALS = 3;
 export function treasurePickups(tuning: TuningData, config: Pick<MatchConfig, 'teams' | 'humans' | 'players'>, plan: FloorPlan, seed: number, floor: number, away?: readonly number[]): Pickup[] {
   const pickups: Pickup[] = [];
   const { pedestals } = plan.markers;
+  const source: LootSource = { tier: tierOf(tuning.delver, floor), rank: 'Pedestal' };
   for (let t = 0; t * PEDESTALS < pedestals.length; t++) {
     const markers = pedestals.slice(t * PEDESTALS, (t + 1) * PEDESTALS);
     for (const player of presentPlayers(config, away)) {
       const group = pickups.length;
       const items: Dropped[] = [];
-      for (let k = 0; k < tuning.dungeon.loot.pedestals; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(1, t, player, k), items));
+      for (let k = 0; k < tuning.dungeon.loot.pedestals; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(1, t, player, k), items, source));
       for (const [k, item] of items.entries()) {
         const m = markers[k % markers.length]!;
         pickups.push({ id: group + k, owner: player, ...item, at: { x: m.x, y: m.y, z: m.z }, taken: false, group });

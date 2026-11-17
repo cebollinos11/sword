@@ -316,7 +316,7 @@ One thing a Player holds or finds in a Run: the Tuning Data name of a Weapon, a 
 _Avoid_: Loot (the drops as a whole), drop (a Pickup lying on the Floor)
 
 **Rarity** (`docs/plans/loot-rarity.md`):
-How good a found Weapon or Relic is: Common (×1), Rare (×1.5) or Legendary (×2), a multiplier on how far each of its effects moves its holder for the better (never a downside), and for a Weapon also on its own Hit's damage (Rare +15%, Legendary +30%). It is rolled with the item from the Run seed: better deeper, better from elites, and at least Rare from a Boss or a Treasure pedestal. A Consumable has none (always Common). Every Weapon in the roster is loot.
+How good a found Weapon or Relic is: Common (×1), Rare (×1.5) or Legendary (×2), a multiplier on how far each of its effects moves its holder for the better (never a downside), and for a Weapon also on its own Hit's damage (Rare +15%, Legendary +30%). It is rolled with the item from the Run seed (`rollRarity`, by the tier's odds row in `dungeon.loot.rarity.odds`): better deeper, an elite's drops on the next tier's odds, and at least Rare from a Boss or a Treasure pedestal; an elite's or Boss's carried Relic drops at its tier's Rarity (`carriedRarity`, a Boss's one higher), while the Relics it wears stay Common. A Consumable has none (always Common). Every Weapon in the roster is loot.
 _Avoid_: Tier (a Dungeon tier), quality, level, grade
 
 **Inventory**:

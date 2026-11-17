@@ -5,7 +5,7 @@
  * its inventory. What each holds is a pure pick of (Run seed, Floor, slot), so every peer agrees with nothing sent. They are plain data, hashed
  * and snapshotted with the Run, and gone when the Floor changes. The AI allies never take loot: only `runPlayers`' Fighters do.
  */
-import type { TuningData } from '../tuning';
+import { atLeast, type Rarity, type RarityTuning, type TuningData } from '../tuning';
 import { runPick } from './dungeon';
 import { inDuel } from './duel';
 import { presentPlayers, standsWithin } from './party';
@@ -39,7 +39,25 @@ export interface Pickup extends Dropped {
 export const PICKUP_RADIUS = 0.5;
 
 /** `runPick` salts of a pickup's item. */
-const SALT = { kind: 50, relic: 51, weapon: 52, consumable: 53 } as const;
+const SALT = { kind: 50, relic: 51, weapon: 52, consumable: 53, rarity: 73 } as const;
+
+/** Where a drop comes from: the tier (1-based) of its Floor and the rank of its source, which set its Rarity odds (`rollRarity`). */
+export interface LootSource {
+  readonly tier: number;
+  readonly rank: 'Fight' | 'Elite' | 'Boss' | 'Pedestal';
+}
+
+/**
+ * The Rarity of the drop in pick slot `slot` of Floor `floor`: the odds row of the source's tier (an Elite's one tier deeper by `eliteTierStep`, the last row at most)
+ * walked by one `runPick` draw (salt 73, unused by every other pick), then raised to `bossMin` for a Boss or `pedestalMin` for a Pedestal. Pure.
+ */
+export function rollRarity(rarity: RarityTuning, seed: number, floor: number, slot: number, source: LootSource): Rarity {
+  const { odds } = rarity;
+  const [w0, w1, w2] = odds[Math.min(odds.length - 1, source.tier - 1 + (source.rank === 'Elite' ? rarity.eliteTierStep : 0))]!;
+  const u = runPick(seed, floor, slot, SALT.rarity, w0 + w1 + w2);
+  const rolled: Rarity = u < w0 ? 'Common' : u < w0 + w1 ? 'Rare' : 'Legendary';
+  return source.rank === 'Boss' ? atLeast(rolled, rarity.bossMin) : source.rank === 'Pedestal' ? atLeast(rolled, rarity.pedestalMin) : rolled;
+}
 
 /** Whether the Player Fighter `player` sees (and may take) the pickup: its own and every shared one, not yet taken. The one rule presentation draws pickups by. */
 export const pickupVisibleTo = (p: Pick<Pickup, 'owner' | 'taken'>, player: number): boolean => !p.taken && (p.owner === null || p.owner === player);
@@ -50,10 +68,10 @@ const standsOn = (at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolea
 /**
  * The item for pick slot `slot` of Floor `floor` (the caller's one number for a source, a Player and a k: `delverLoot.ts`'s `lootSlot`): a Relic,
  * a Consumable or a Weapon by `dungeon.loot.weights` (that order along the pick, so a Tuning Data without a Consumable weight picks as before
- * Consumables were), then a name, both by `runPick` on (Run seed, Floor, slot); every Weapon of the roster (file order) is in the pool, and the Item is Common (the Rarity draw comes later). Names in `avoid` (the items already picked for this Player's set)
+ * Consumables were), then a name, both by `runPick` on (Run seed, Floor, slot); every Weapon of the roster (file order) is in the pool. A Weapon's or Relic's Rarity is then `rollRarity` for `source`; a Consumable is always Common and makes no draw. Names in `avoid` (the items already picked for this Player's set)
  * are skipped while others remain. A kind with no names (no Relics, say) is never picked while another has some.
  */
-export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[]): Dropped {
+export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[], source: LootSource): Dropped {
   const { Relic, Weapon, Consumable } = tuning.dungeon.loot.weights;
   const pools: readonly (readonly [Dropped['kind'], number, readonly string[]])[] = [
     ['relic', Relic, tuning.relics.map((r) => r.name)],
@@ -77,7 +95,8 @@ export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot
   const [kind, , names] = pick;
   const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item.name === n));
   const from = fresh.length > 0 ? fresh : names;
-  return { kind, item: commonItem(from[runPick(seed, floor, slot, SALT[kind], from.length)]!) };
+  const name = from[runPick(seed, floor, slot, SALT[kind], from.length)]!;
+  return { kind, item: kind === 'consumable' ? commonItem(name) : { name, rarity: rollRarity(tuning.dungeon.loot.rarity, seed, floor, slot, source) } };
 }
 
 /** A shared pickup for an item a Fighter dropped, at its feet, with id `id` (the next free one): the drop seam's work (`placeDrop`). */

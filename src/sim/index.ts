@@ -177,7 +177,7 @@ export {
 } from './match';
 export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type RunState, type RestUse } from './delverRun';
 export { freshTraitors, traitorCandidates, traitorOf, traitorPick, traitorSlot, type TraitorState } from './delverTraitors';
-export { PICKUP_RADIUS, pickupVisibleTo, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
+export { PICKUP_RADIUS, pickupVisibleTo, rollRarity, takePickups, type LootSource, type Pickup, type PickupAt, type Taken } from './pickups';
 export { runPick, runSeed } from './dungeon';
 export { presentPlayers, runPlayers, stairsCounters, ZONE_HEIGHT } from './party';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';

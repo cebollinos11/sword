@@ -45,7 +45,7 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelicEffects, parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
-export { parseRarity, RARITIES, type Rarity, type RarityTuning } from './rarity';
+export { atLeast, carriedRarity, parseRarity, raiseRarity, RARITIES, type Rarity, type RarityTuning } from './rarity';
 export type { ConsumableEffect, ConsumableTuning } from './consumables';
 export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';
 export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
@@ -821,6 +821,11 @@ export function parseTuningData(raw: unknown): TuningData {
   checkIdleLinks({ weapons, motions, motionOverrides });
   const ai = parseAi(root.ai);
   const battle = parseBattle(root.battle, Object.keys(weapons), Object.keys(ai.difficulties), AI_STYLE_KEYS);
+  const delver = parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) });
+  // The Dungeon is parsed before the Delver, so the Rarity's per-tier tables are checked against the tier count here.
+  const { odds, carried } = dungeon.loot.rarity;
+  if (odds.length !== delver.tiers) throw new TuningDataError(`dungeon.loot.rarity.odds must have ${delver.tiers} rows (one per delver tier), got ${odds.length}`);
+  if (carried.length !== delver.tiers) throw new TuningDataError(`dungeon.loot.rarity.carried must have ${delver.tiers} Rarities (one per delver tier), got ${carried.length}`);
 
   return {
     fighter: {
@@ -881,7 +886,7 @@ export function parseTuningData(raw: unknown): TuningData {
     dungeon,
     relics,
     consumables,
-    delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),
+    delver,
     battle,
     skeleton,
     ai,

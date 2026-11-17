@@ -28,7 +28,7 @@ function goodRaw() {
       perPlayerHp: 0.5,
       depthHp: 0.1,
       inventory: { weapons: 3, relics: 6, equippedRelics: 3 },
-      loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 } } },
+      loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 }, odds: [[80, 18, 2]], eliteTierStep: 1, bossMin: 'Rare', pedestalMin: 'Rare', carried: ['Common'], bossCarriedStep: 1 } },
       floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
     },
     delver: { tiers: 1, floorsPerTier: 1, flowCell: 2, fireRadius: 3, sight: 16, leash: 45, forgetSeconds: 8, chaseSpeed: 1, closeIn: 4, arrive: 3, postFill: 75, patrolFill: 100, perPlayerSoldiers: 1.5, attackSlots: [4, 3, 3, 3], tierHp: [1], prefabsPerFloor: 1, sizeHp: [30, 150], skillTints: {}, troops: [{ name: 'Soldier', body: 'female', weapon: 'Sword', variants: [{ difficulty: 'Normal', hp: 50 }] }], warbands: [{ guard: [{ troops: [{ skill: 'Normal', count: 3 }], hpScale: 1 }], patrol: [{ troops: [{ skill: 'Normal', count: 3 }], hpScale: 1 }] }], floor: { cols: 2, rows: 2, rooms: 2, gaps: [20], halfSize: [4, 6], minPassage: 4, passage: 3, farPercent: 25, loops: [0, 1], rests: [1, 1], treasures: 0, emptyPercent: 30, patrols: 0, follow: 1.5, maxAttempts: 3, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 }, turnPercent: 0, great: { count: [0, 0], half: [8, 12] }, shapes: { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 0, weights: { colonnade: 1, grid: 1 } } } },
@@ -96,6 +96,16 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData(withRelic({ blockImpactTaken: 0.5 }))).toThrow(/blockImpactTaken/);
     expect(parseTuningData(withRelic({ damageTaken: 0.51 })).relics[0]!.effects).toEqual({ damageTaken: 0.51 });
     expect(loadTuningData().relics.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a Rarity odds or carried table whose length is not delver.tiers', () => {
+    const good = goodRaw();
+    const withRarity = (patch: object) => ({ ...good, dungeon: { ...good.dungeon, loot: { ...good.dungeon.loot, rarity: { ...good.dungeon.loot.rarity, ...patch } } } });
+    expect(parseTuningData(good).dungeon.loot.rarity.odds).toHaveLength(1);
+    expect(() => parseTuningData(withRarity({ odds: [[80, 18, 2], [60, 32, 8]] }))).toThrow(/dungeon\.loot\.rarity\.odds must have 1 rows .*got 2/);
+    expect(() => parseTuningData(withRarity({ odds: [] }))).toThrow(/rarity\.odds must have 1 rows/);
+    expect(() => parseTuningData(withRarity({ carried: ['Common', 'Rare'] }))).toThrow(/dungeon\.loot\.rarity\.carried must have 1 Rarities .*got 2/);
+    expect(() => parseTuningData(withRarity({ carried: [] }))).toThrow(/rarity\.carried must have 1 Rarities/);
   });
 
   it('loads the repo data/ files', () => {
