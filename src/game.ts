@@ -1039,7 +1039,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
         continue;
       }
       present(curr, d.localFighter);
-      setPlayed(curr.arena);
+      // A Run's Floors are `battle:delver<F>s<S>` names, not Maps a Lobby can move on from: the Run's own Map (its first Arena) is
+      // what a restart follows on from (the next seed), else Retry would start a Match on a Floor's name, which Tuning Data does not hold.
+      setPlayed(curr.delver ? curr.config.arena : curr.arena);
       warmNextArena(curr);
     }
     if (frozen) accumulator = 0;
