@@ -15,7 +15,7 @@
 import { ATTACK, inDuel, presentPlayers, RESPAWN, traitorOf, type MapObjective, type MatchConfig, type SimState } from '../sim';
 import type { BattleTuning } from '../tuning';
 import { objectiveLetter } from './objectiveMarks';
-import { delverMapMarks, type DelverMapStatus } from './delverMapMarks';
+import { delverDoorStubs, delverMapMarks, type DelverMapStatus } from './delverMapMarks';
 import { isRevealed } from '../sim/delver/reveal';
 import type { FloorPlan } from '../sim/delver/plan';
 import type { FighterState } from '../sim';
@@ -127,7 +127,7 @@ export class Minimap {
   }
 
   /**
-   * A Delver Run's minimap (docs/plans/delver.md, Stage 5): the revealed Halls (each as its `rects`, so no solid or pillar is drawn) and Passages of `plan` as floor shapes in a window of
+   * A Delver Run's minimap (docs/plans/delver.md, Stage 5): the revealed Halls (each as its `rects`, so no solid or pillar is drawn) and Passages of `plan` as floor shapes (an unexplored doorway of a revealed Hall as a fading stub, `delverDoorStubs`) in a window of
    * DELVER_MINIMAP_RADIUS metres round Fighter `me` (turned as the Battle's: up is +z, +x to the left), then the markers of the revealed Halls,
    * the promoted enemies in the window, the party's arrows and `me` white. Unrevealed space draws nothing.
    */
@@ -150,6 +150,18 @@ export class Minimap {
       ctx.fillStyle = colour;
       ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
     };
+    // An unexplored doorway (`delverDoorStubs`): a stub of its Passage fading from the Hall's wall into the dark.
+    for (const d of delverDoorStubs(plan, revealed)) {
+      const a = at(d.rect.x1, d.rect.z1);
+      const b = at(d.rect.x0, d.rect.z0);
+      // On the minimap +z is up and +x left, so a stub against its Hall on side n fades downward from a.y, on e rightward from a.x.
+      const from = d.toward === 'n' ? [a.x, a.y, a.x, b.y] : d.toward === 's' ? [a.x, b.y, a.x, a.y] : d.toward === 'e' ? [a.x, a.y, b.x, a.y] : [b.x, a.y, a.x, a.y];
+      const g = ctx.createLinearGradient(from[0]!, from[1]!, from[2]!, from[3]!);
+      g.addColorStop(0, 'rgba(109, 95, 140, 1)');
+      g.addColorStop(1, 'rgba(109, 95, 140, 0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(a.x, a.y, b.x - a.x, b.y - a.y);
+    }
     plan.passages.forEach((p, i) => isRevealed(revealed, plan.halls.length + i) && p.pieces.forEach((piece) => fill(piece.rect, '#3a3454')));
     plan.halls.forEach((h, i) => isRevealed(revealed, i) && h.rects.forEach((rect) => fill(rect, '#4a4468')));
     for (const m of delverMapMarks(plan, revealed, status, me)) {
