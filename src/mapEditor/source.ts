@@ -58,11 +58,11 @@ export interface GroundPoint {
 export type HazardKind = 'lava' | 'water' | 'abyss';
 
 /** The palette a Brush's `material` comes from (Stage 5, render-only): how its floors, faces and rails are drawn in the map's model (`look.ts`). */
-export const MAP_MATERIALS = ['stone', 'brick', 'basalt', 'dungeon', 'cobble', 'plaster', 'tile', 'wood', 'grass', 'dirt', 'sand', 'metal', 'bloodstone', 'glow'] as const;
+export const MAP_MATERIALS = ['stone', 'brick', 'basalt', 'dungeon', 'cobble', 'plaster', 'tile', 'marble', 'wood', 'grass', 'dirt', 'sand', 'metal', 'bloodstone', 'glow'] as const;
 export type MapMaterial = (typeof MAP_MATERIALS)[number];
 
 /** The sky and light a map is drawn under (Stage 5, render-only): one of the Stage's existing looks, for a Battlefield (`stage.ts`). */
-export const BATTLE_SKIES = ['dusk', 'mystic', 'sunset', 'fog', 'snow', 'ember'] as const;
+export const BATTLE_SKIES = ['dusk', 'mystic', 'sunset', 'fog', 'snow', 'ember', 'crypt'] as const;
 export type BattleSky = (typeof BATTLE_SKIES)[number];
 
 /** What a prop is (Stage 5, render-only): drawn from a small set of models (`render/mapProps.ts`); a torch carries a light. */

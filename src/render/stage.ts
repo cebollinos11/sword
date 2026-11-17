@@ -188,6 +188,18 @@ const BATTLE_LOOKS: Readonly<Record<Exclude<BattleSky, 'dusk'>, BattlefieldLook>
   snow: { lights: ARENA_LOOKS.summit!.lights, haze: ARENA_LOOKS.summit!.background, near: 15, far: 190, snow: ARENA_LOOKS.summit!.snow },
   // The chamber's lava glow from below, cold light above, smoky orange air.
   ember: { lights: ARENA_LOOKS.chamber!.lights, haze: ARENA_LOOKS.chamber!.fog.color, near: 30, far: 240 },
+  // Underground (a Delver Floor's): warm stone light from above, a brown bounce off the floors onto the ceilings, and a dark smoky haze, no sky.
+  crypt: {
+    lights: () => [
+      new THREE.HemisphereLight(0xc8b498, 0x5a4434, 1.1),
+      new THREE.AmbientLight(0x4a3c30, 0.55),
+      directional(0xffd2a0, 0.75, 6, 14, -4),
+      directional(0x9aa4c0, 0.25, -6, 8, 7),
+    ],
+    haze: 0x110c09,
+    near: 22,
+    far: 110,
+  },
 };
 
 /** The light and air of a Battle map's sky (the Map Editor's 3D view shows a draft under it). */

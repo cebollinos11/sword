@@ -30,7 +30,7 @@ const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Stairs: 'cobble',
   Boss: 'bloodstone',
   Rest: 'brick',
-  Treasure: 'tile',
+  Treasure: 'marble',
   Fight: 'dungeon',
   Empty: 'basalt',
 };
@@ -142,7 +142,7 @@ export function floorSource(plan: FloorPlan, fieldSize: number): MapSource {
     ],
     front,
     armySize: { standard: 50, max: 50 },
-    look: { props },
+    look: { sky: 'crypt', props },
     ...(plan.halls.some((h) => h.gallery || h.feature) ? { shortcuts: true as const } : {}),
   };
 }

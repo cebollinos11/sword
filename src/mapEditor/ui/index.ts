@@ -88,7 +88,7 @@ const TOOL_LABELS: Record<Tool, string> = {
 const TOOL_KEYS: Record<string, Tool> = { v: 'select', f: 'floor', d: 'deck', p: 'platform', r: 'ramp', h: 'hole', z: 'hazard', l: 'rail', w: 'wall', b: 'block', e: 'enclosure', o: 'objective', t: 'prop' };
 
 /** The sky choices as the Look folder shows them: each the look of an existing Arena or of the Battlefield. */
-const SKY_LABELS: Record<BattleSky, string> = { dusk: 'dusk (the Battlefield)', mystic: 'mystic space (the Kit)', sunset: 'wasteland sunset (the train)', fog: 'sea fog (the ship)', snow: 'snowstorm (the summit)', ember: 'lava glow (the chamber)' };
+const SKY_LABELS: Record<BattleSky, string> = { dusk: 'dusk (the Battlefield)', mystic: 'mystic space (the Kit)', sunset: 'wasteland sunset (the train)', fog: 'sea fog (the ship)', snow: 'snowstorm (the summit)', ember: 'lava glow (the chamber)', crypt: 'torchlit crypt (the Delver)' };
 
 /** The selected Brush's numbers as the panel edits them: one flat record for every kind, read back by `brushFromProps`. */
 interface BrushProps {

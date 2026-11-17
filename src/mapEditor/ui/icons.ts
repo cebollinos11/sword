@@ -6,7 +6,7 @@
  *
  * The swatches need the textures: until `loadSwatches` has read them, a material's swatch is its flat colour.
  */
-import { surfaceOf } from '../../render/triplanar';
+import { finishOf, surfaceOf, textureUrl } from '../../render/triplanar';
 import { HAZARD_LOOKS, MATERIAL_LOOKS, type MaterialLook } from '../look';
 import { MAP_MATERIALS, type HazardKind, type MapMaterial, type PropKind } from '../source';
 import type { Tool } from './topView';
@@ -131,7 +131,7 @@ export function loadSwatches(): Promise<void> {
       const surface = surfaceOf(look.name);
       if (!surface) return;
       const image = new Image();
-      image.src = `${import.meta.env.BASE_URL}textures/battle/${surface}.png`;
+      image.src = textureUrl(finishOf(surface).wall.tex);
       try {
         await image.decode();
         swatches.set(`m:${m}`, texturedSwatch(image, look.colour));
