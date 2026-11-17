@@ -32,7 +32,7 @@ import type { Renderer } from '../render/renderer';
 import { cameraForHeight, placeOrbitCamera, placeThirdPersonCamera } from '../render/thirdPersonCamera';
 import { soldierAt } from '../render/impostor';
 import { deathTint, flightCamera, flybyCamera, FLIGHT_SECONDS, TakeoverMark } from '../render/takeoverView';
-import { LoadingBar, nextPaint } from './loadingBar';
+import { LoadingBar, nextPaint, WARM_UP_DETAIL } from './loadingBar';
 import { battleFocus } from './battleSpectator';
 import { BattleHud, battleResult, battleResultLine, playerRecord, playerStatus, takeoverCountdown, troopCards, troopKey, ARMY_NAMES, type BattleResult } from './battleHud';
 
@@ -72,8 +72,10 @@ export function battleBodies(
 }
 
 export class BattleScreen {
-  /** The impostors are baked and in the scene: the Battle may start. */
+  /** The impostors are baked and in the scene and its shaders warmed up: the Battle may start. */
   ready = false;
+  /** Its shaders are being warmed up (`warmUp`), the loading bar still up. */
+  private warming = false;
   private crowdView: CrowdView | null = null;
   /** The soldiers' baked impostors (GPU textures), freed with the screen. */
   private atlas: ImpostorAtlases | null = null;
@@ -140,7 +142,7 @@ export class BattleScreen {
     this.loading = loading;
     const progress = async (done: number, total: number) => {
       if (this.disposed) return;
-      loading.set(total === 0 ? 1 : done / total, done < total ? `Drawing soldier ${done + 1} of ${total}…` : 'Ready');
+      loading.set(total === 0 ? 1 : done / total, done < total ? `Drawing soldier ${done + 1} of ${total}…` : WARM_UP_DETAIL);
       await nextPaint();
     };
     void bakeImpostorAtlases(renderer.gl, tuning, tuning.battle, progress).then((atlas) => {
@@ -148,12 +150,11 @@ export class BattleScreen {
         atlas.dispose();
         return;
       }
-      loading.finish();
+      loading.set(1, WARM_UP_DETAIL);
       this.atlas = atlas;
       this.crowdView = new CrowdView(atlas, tuning.battle, blobTexture());
       renderer.scene.add(this.crowdView.root);
-      this.ready = true;
-      this.hud.announce(`Battle · ${tuning.battle.armySize} v ${tuning.battle.armySize}`, 2.5);
+      // `ready` once the first `draw` (which knows the Battlefield, the host's on a guest) has warmed its shaders up (`warmUp`).
     });
   }
 
@@ -207,6 +208,21 @@ export class BattleScreen {
     return battleResultLine(r);
   }
 
+  /**
+   * Compile, while the loading bar is still up, every shader the Battle on `arena` may come to draw (`Renderer.warmUp`): else
+   * the impostors as the bar lifts, a Soldier promoted and the first Hit's blood each hitch. Then lift the bar: the Battle is `ready`.
+   */
+  private warmUp(arena: string): void {
+    if (this.warming) return;
+    this.warming = true;
+    void this.renderer.warmUp(arena).then(() => {
+      if (this.disposed) return;
+      this.loading?.finish();
+      this.ready = true;
+      this.hud.announce(`Battle · ${this.tuning.battle.armySize} v ${this.tuning.battle.armySize}`, 2.5);
+    });
+  }
+
   /** Draw the frame between Ticks `prev` and `curr` (`alpha` of the way), `seconds` of wall time after the last. */
   draw(prev: MatchState, curr: MatchState, me: number, alpha: number, seconds: number, ping: Ping | null = null): void {
     const duel = curr.duel;
@@ -219,6 +235,7 @@ export class BattleScreen {
       this.renderer.scene.add(this.marks.root);
     }
     this.marks.update(crowd.objectives);
+    if (!this.ready) return this.warmUp(curr.arena);
     const hf = this.hf!;
     // A takeover (anyone's) moves Fighters between slots: draw that Tick as it stands, not from where the slots were.
     const tookOver = crowd.players.some((r, k) => r.taken !== (prev.duel.crowd?.players[k]?.taken ?? r.taken));

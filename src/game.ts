@@ -3,7 +3,7 @@ import { parseBattleKnobs, storedSize, type BattleKnobs, type Size, type TuningD
 import { Vector3, type Camera } from 'three';
 import { Renderer } from './render/renderer';
 import { BODY_MODELS, preloadBody } from './render/bodyModel';
-import { LoadingBar } from './play/loadingBar';
+import { LoadingBar, WARM_UP_DETAIL } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
@@ -68,6 +68,8 @@ const BATTLE_RESULT_SECONDS = 8;
 const RUN_RESULT_SECONDS = 6;
 /** Online: how long after a Match ends a fresh one starts (part of the Match options, so both peers agree). */
 const REMATCH_SECONDS = 5;
+/** How long a Duel's shader warm-up may take before its loading bar goes up (ms): shorter is done before anyone would notice. */
+const DUEL_BAR_DELAY_MS = 150;
 /** How often the Lobby gets its heartbeats and timeouts (ms). */
 const LOBBY_PUMP_MS = 100;
 /** The menu's camera circles the scene this fast (radians per second). */
@@ -232,6 +234,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let floorBar: LoadingBar | null = null;
   /** The Run's impostors are baked (or failed to): an offline Run waits for this before its first Tick. */
   let floorCrowdSettled = false;
+  /** A Duel's shaders warming up (`warmDuel`), with the loading bar over it once it takes a while; null once done. */
+  let duelWarm: { bar: LoadingBar | null; readonly shown: ReturnType<typeof setTimeout> } | null = null;
 
   const menu = new Menu(container, tuning, {
     onSkirmish() {
@@ -378,6 +382,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     battle = null;
     battleOn = false;
     dropFloorCrowd();
+    dropDuelWarm();
     if (s.settings.format === 'Battle') return launchBattle(l, s, lineup, picks, playerNames, playerBodies, members);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
@@ -386,6 +391,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     matchTuning = runTuning(arenaWorld(arena).tuning, s.settings);
     warmed = new Set();
     setPlayed(arena);
+    // A Run warms its shaders behind its own bar, once its Floor's impostors are baked (`drawFloorCrowd`).
+    if (match.format !== 'Gauntlet') warmDuel(arena);
     if (members.length <= 1) {
       // A Skirmish, or a host playing the AIs alone while the Room waits for a player.
       // In dev mode a Run may start deeper in (`?dev=1&delverStart=F`), for tuning: only a Run stepped here, never an online one.
@@ -421,6 +428,47 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     };
     const pilot = autopilot ? delverPilot() : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
+  }
+
+  /**
+   * Compile the shaders a Duel on `arena` may come to draw (`Renderer.warmUp`) before it starts, else its first Hit's blood
+   * hitches as they compile. A Duel played here waits for them (`heldForLoading`). The loading bar goes up only if it takes a
+   * while: after the first Match they are all compiled already, and the bar would only flash.
+   */
+  function warmDuel(arena: string): void {
+    dropDuelWarm();
+    const warm = {
+      bar: null as LoadingBar | null,
+      shown: setTimeout(() => {
+        warm.bar = new LoadingBar(container, 'Entering the arena');
+        warm.bar.set(0.5, WARM_UP_DETAIL);
+      }, DUEL_BAR_DELAY_MS),
+    };
+    duelWarm = warm;
+    void renderer.warmUp(arena).then(() => {
+      if (duelWarm !== warm) return;
+      clearTimeout(warm.shown);
+      warm.bar?.finish();
+      duelWarm = null;
+    });
+  }
+
+  /** Stop waiting for a Duel's warm-up (a new Match, or none): its bar comes down at once. */
+  function dropDuelWarm(): void {
+    if (!duelWarm) return;
+    clearTimeout(duelWarm.shown);
+    duelWarm.bar?.dispose();
+    duelWarm = null;
+  }
+
+  /**
+   * Whether the Match waits behind its loading bar before its next Tick: a Battle until its impostors are baked and its shaders
+   * warmed; a Run or a Duel played here until theirs are (online the Match is already ticking on every peer, so it runs on).
+   */
+  function heldForLoading(): boolean {
+    if (battleOn) return !battle?.ready;
+    if (lobby?.online || !driver) return false;
+    return (curr.delver !== undefined && !floorCrowdSettled) || duelWarm !== null;
   }
 
   /**
@@ -589,6 +637,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     battle = null;
     battleOn = false;
     dropFloorCrowd();
+    dropDuelWarm();
     driver?.close?.();
     driver = null;
     playing = 0;
@@ -695,10 +744,12 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       floorBar = bar;
       void import('./play/floorCrowd').then(({ FloorCrowd }) => {
         if (generation !== playing || !floorCrowdLoading) return;
-        const progress = (done: number, total: number) => bar.set(0.15 + 0.85 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : 'Ready');
+        const progress = (done: number, total: number) => bar.set(0.15 + 0.75 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : WARM_UP_DETAIL);
         const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, undefined, progress);
         floorCrowd = crowd;
-        void crowd.settled.then(() => {
+        // With the impostors in the scene, compile every shader the Run may come to draw while the bar is still up: else the
+        // impostors as it lifts, the first Soldier promoted and the first Hit's blood each hitch as their shaders compile.
+        void crowd.settled.then(() => (floorCrowd === crowd ? renderer.warmUp() : undefined)).then(() => {
           if (floorCrowd !== crowd) return;
           floorCrowdSettled = true;
           if (floorBar === bar) floorBar = null;
@@ -956,9 +1007,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     const frozen = menu.paused && !lobby?.online;
     // A Match's first state (Tick 0, with its first DuelStart) is never stepped into: hear it once it exists.
     if (driver?.state && !inShot) audio.onMatchTick(driver.state);
-    // A Battle waits for its soldiers' impostors to be baked; so does a Delver Run played here (online the Run is already ticking on every peer).
-    if (battleOn && !battle?.ready) accumulator = 0;
-    if (curr.delver && driver && !floorCrowdSettled && !lobby?.online) accumulator = 0;
+    if (heldForLoading()) accumulator = 0;
     while (driver && !frozen && accumulator >= TICK_SECONDS) {
       accumulator -= TICK_SECONDS;
       const d = driver;

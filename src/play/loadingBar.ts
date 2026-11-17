@@ -65,4 +65,7 @@ export class LoadingBar {
 }
 
 /** Resolves on the next animation frame (so the browser can paint the bar between steps of heavy work). */
+/** What a loading bar says while the shaders compile ahead (`Renderer.warmUp`), its last step before play. */
+export const WARM_UP_DETAIL = 'Readying the effects…';
+
 export const nextPaint = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
