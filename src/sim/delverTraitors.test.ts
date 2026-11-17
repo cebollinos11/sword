@@ -9,6 +9,7 @@ import { IDLE_INTENT } from './intent';
 import { createMatch, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import type { SimEvent } from './events';
 import { BOSS } from './warband';
+import { traitorWatchLine } from '../play/hud';
 
 const base = flatFloors(loadTuningData());
 /** One tier of two short flat Floors; a traitor waits 1 s, then 1.5 s, at most 2 s. */
@@ -89,6 +90,21 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     // The Boss is never a candidate.
     const q = c.warbands!.rank.indexOf(BOSS);
     if (q >= 0) expect(traitorCandidates(arenaTuning(tuning, m.arena), m.duel, 2)).not.toContain(c.squad.indexOf(q));
+  });
+
+  it('with no Soldier to take, keep their takeover Tick and look again each second after it, not a countdown stuck at 1 s', () => {
+    // Every Soldier too near the party: no candidate.
+    const near: TuningData = { ...tuning, delver: { ...tuning.delver, traitor: { ...tuning.delver.traitor, minDistance: 1e6 } } };
+    let m = delver();
+    const next = rec(m).next;
+    const step = (x: MatchState, t: TuningData) => stepMatch(x, x.duel.fighters.map(() => IDLE_INTENT), t);
+    while (m.duel.tick < next + secondsToTicks(2) + 5) m = step(m, near);
+    expect(rec(m)).toMatchObject({ soldier: -1, taken: 0, next });
+    expect(traitorWatchLine(m, traitorSlot(m.config, 0))).toBe('Looking for a Soldier out of sight…');
+    // A Soldier out of reach again: taken on the next whole second past `next`.
+    while (rec(m).soldier < 0 && m.duel.tick < next + secondsToTicks(10)) m = step(m, tuning);
+    expect(rec(m).taken).toBe(1);
+    expect((m.duel.tick - next) % secondsToTicks(1)).toBe(0);
   });
 
   it('never has its slot handed to a Promotion, dies at once when it falls and waits longer each time', () => {

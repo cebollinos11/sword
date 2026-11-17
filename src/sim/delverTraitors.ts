@@ -31,7 +31,7 @@ export interface TraitorState {
   readonly deaths: number;
   /** Its takeovers over the whole Run (the pick's salt). */
   readonly taken: number;
-  /** The Duel Tick (`SimState.tick`) from which it takes over its next Soldier, while it watches. */
+  /** The Duel Tick (`SimState.tick`) from which it takes over its next Soldier, while it watches (kept while it finds none, so the HUD can say so). */
   readonly next: number;
   /** Party Fighters felled by its Fighter's blow. */
   readonly kills: number;
@@ -52,7 +52,7 @@ export function traitorOf(config: Pick<MatchConfig, 'teams' | 'traitors'>, k: nu
 const PICK_SALT = 0x7a17;
 /** `runPick`'s slot of traitor j: past any Fighter's. */
 const PICK_SLOT = 16;
-/** Seconds a traitor that found no Soldier to take waits before it looks again. */
+/** Seconds a traitor that found no Soldier to take waits before it looks again (its `next` stays put: it looks each whole such step past it). */
 const RETRY_SECONDS = 1;
 
 /** The wait (Ticks) before a takeover, `n` the deaths before the wait began (not the fall that began it): `respawnSeconds + respawnStep × n`, at most `respawnMax`. */
@@ -134,8 +134,8 @@ function editable(crowd: CrowdState) {
 
 /**
  * The traitors' step for the Tick about to be stepped (`duel.tick + 1`), before the Bubbles: a traitor's Fighter that fell kills its Soldier
- * (where it fell, back in its Warband) and starts its wait; a watching traitor whose wait is over takes over the Soldier `traitorPick` gives (or
- * looks again a second later). `duel` and `records` themselves when nothing changes.
+ * (where it fell, back in its Warband) and starts its wait; a watching traitor whose wait is over takes over the Soldier `traitorPick` gives (or,
+ * finding none, looks again each second after `next`, which stays put: the HUD then reads that it is looking, not a countdown stuck at 1 s). `duel` and `records` themselves when nothing changes.
  */
 export function stepTraitors(duel: SimState, records: readonly TraitorState[], config: Pick<MatchConfig, 'teams' | 'traitors' | 'arena'>, tuning: TuningData, seed: number, floor: number): { duel: SimState; records: readonly TraitorState[] } {
   const tick = duel.tick + 1;
@@ -172,12 +172,11 @@ export function stepTraitors(duel: SimState, records: readonly TraitorState[], c
       e.crowd.engage[s] = 0;
       if (r.warband >= 0) e.crowd.squad[s] = r.warband;
       next = { ...r, deaths: r.deaths + 1, next: f.death.tick + respawnTicks(tuning, r.deaths) };
-    } else if ((!inDuel(f) || f.death !== undefined) && tick >= r.next) {
+    } else if ((!inDuel(f) || f.death !== undefined) && tick >= r.next && (tick - r.next) % secondsToTicks(RETRY_SECONDS) === 0) {
       // Watching, its wait over: a takeover, out of the party's sight and reach.
       const view = fighters || crowd ? { ...duel, fighters: fighters ?? duel.fighters, crowd: crowd ?? duel.crowd! } : duel;
       const s = traitorPick(tuning, view, party, seed, floor, j, r.taken);
-      if (s < 0) next = { ...r, next: tick + secondsToTicks(RETRY_SECONDS) };
-      else {
+      if (s >= 0) {
         const e = edit();
         const size = config.traitors?.[j]?.size ?? null;
         e.fighters[k] = promotedFighter(tuning, duel.arena, e.crowd, s, size);
