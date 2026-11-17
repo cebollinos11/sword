@@ -280,11 +280,14 @@ export function updateSettings(state: LobbyState, patch: Partial<Omit<LobbySetti
   return { ...state, settings: { ...state.settings, ...rest, ...(keep ? {} : { arena }) }, ...(keep ? {} : { matchArena: null }) };
 }
 
-/** Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE; a Battle takes any Players. */
+/**
+ * Why the Lobby cannot switch to `format` now, or null: switching to a Gauntlet seats every Player on Team 0 (`setFormat`), which holds
+ * MAX_TEAM_SIZE (Players may move to Team 1 as traitors afterwards); a Battle takes any Players.
+ */
 export function formatProblem(state: LobbyState, format: MatchFormat): string | null {
   if (format !== 'Gauntlet') return null;
   const players = state.teams.flat().filter((s) => s.kind === 'Player').length;
-  return players > MAX_TEAM_SIZE ? `A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has ${players}.` : null;
+  return players > MAX_TEAM_SIZE ? `Switching to a Gauntlet seats every player on Team 0, which holds ${MAX_TEAM_SIZE}; this Lobby has ${players}.` : null;
 }
 
 /**
@@ -354,6 +357,9 @@ export function startProblem(state: LobbyState, requireReady: boolean): string |
       if (teamSize(state, team) === 0) return `Team ${team + 1} needs at least one Fighter.`;
     }
   }
+  // A Run played alone runs against the AIs, where a traitor has no Soldier to take over (`playerVsAi` refuses it).
+  if (isGauntlet(state) && state.teams[1]!.some((s) => s.kind === 'Player') && lobbyLineup(state).members.length <= 1)
+    return 'A traitor needs a party of players to betray: move back to Team 0 to play alone.';
   if (requireReady) {
     const waiting = state.members.find((m) => m.id !== 0 && !m.ready);
     if (waiting) return `Waiting for ${waiting.name} to be ready.`;

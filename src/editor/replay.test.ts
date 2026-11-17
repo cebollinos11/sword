@@ -150,5 +150,9 @@ describe('Replaying a Delver Run', { timeout: 60_000 }, () => {
     expect(replay.setup.kind === 'Match' && replay.setup.config.format).toBe('Gauntlet');
     const run = runReplay(parseReplay(serializeReplay(replay)), delverTuning);
     expect(hashValue(run.final)).toBe(hashValue(m));
+    // A version 1 Gauntlet replay was a Hall-graph Run: refused, not replayed into a different game. A version 1 Duels replay still plays.
+    const v1 = (text: string) => JSON.stringify({ ...JSON.parse(text), version: 1 });
+    expect(() => parseReplay(v1(serializeReplay(replay)))).toThrow(/Hall-graph Run/);
+    expect(() => parseReplay(v1(serializeReplay(scriptedDuel().replay)))).not.toThrow();
   });
 });

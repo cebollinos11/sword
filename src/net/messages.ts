@@ -435,6 +435,8 @@ function isSimState(v: unknown): boolean {
     isArrayOf(v.daggers, isDagger) &&
     isDuelState(v.duel) &&
     isArrayOf(v.events, isEvent) &&
+    // No Hall (the Hall graph is retired): a stray key would be hashed, and this peer never agree with the others again.
+    v.hall === undefined &&
     (v.delver === undefined || isSimDelver(v.delver)) &&
     (v.crowd === undefined || isCrowd(v.crowd, (v.fighters as unknown[]).length))
   );
@@ -663,6 +665,7 @@ const isFloorOfRun = (v: Obj, config: Obj): boolean => {
 
 /** A Run's Duel names the Run's Floor and phase (and the Players away). */
 const isDelverFloor = (duel: Obj, run: Obj): boolean =>
+  duel.hall === undefined &&
   isObject(duel.delver) &&
   duel.delver.floor === run.floor &&
   duel.delver.phase === run.phase &&
@@ -723,6 +726,8 @@ function isMatchState(v: unknown): v is MatchState {
     (v.duel as Obj & { fighters: Obj[] }).fighters.every((f, i) => f.inventory === undefined || (config.format === 'Gauntlet' && runPlayers(config as unknown as MatchConfig).includes(i))) &&
     // A Run, and only a Run, carries its progress (`delver`), and its Duel names its Floor.
     config.delverStart === undefined &&
+    // (Nor the retired `delver` flag: a Gauntlet is a Run.)
+    config.delver === undefined &&
     (config.traitors === undefined || config.format === 'Gauntlet') &&
     v.run === undefined &&
     (config.format === 'Gauntlet'

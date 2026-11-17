@@ -57,6 +57,8 @@ export function playerVsAi(tuning: TuningData, options: PlayerVsAiOptions): Matc
   const { lineup, weapon, autopilot, immortal, ...matchOptions } = options;
   const format = matchOptions.format ?? 'Duels';
   checkLineup(tuning, lineup, 1, format);
+  // A traitor needs its Controller on a Pool slot, which only a Rollback session gives it (`lineupAis` drops the Lineup's Team 1 slots).
+  if (format === 'Gauntlet' && lineup.some((s) => s.team === 1 && s.pilot.kind === 'Player')) throw new RangeError("A Run's traitors play online, not against the AIs alone");
   const me = playerFighter(lineup, 0);
   let match = createMatch(tuning, lineupMatch(tuning, lineup, [weapon], matchOptions));
   prepareAi(tuning, match.duel);

@@ -7,7 +7,7 @@ import { LoadingBar } from './play/loadingBar';
 import { CameraShake } from './render/cameraShake';
 import { cameraForHeight, placeOrbitCamera, placeShotCamera, placeThirdPersonCamera, type CameraTarget } from './render/thirdPersonCamera';
 import { arenaSurface, CHEST, createBrowserAudio, type Ears } from './audio';
-import { createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, inventoryKey, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
+import { createBattlePilot, createDelverPilot, createTraitorPilot, INVENTORY_LIST_KEY, lineupMatch, LocalController, playerFighter, type Lineup, type PlayerNumber } from './controllers';
 import { arenaToWarm, createArenaWorlds, warmArena } from './play/arenaWorlds';
 import { playerInBattle, playerVsAi, type MatchDriver } from './play/driver';
 import type { BattleScreen } from './play/battleScreen';
@@ -415,7 +415,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const traitor = createTraitorPilot(matchTuning, 'Hard', { walk: inputDelay > 0 });
       return { intent: (state: SimState, fighter: number) => (state.fighters[fighter]?.team === 1 ? traitor : party).intent(state, fighter) };
     };
-    const pilot = autopilot ? Object.assign(delverPilot(), { watch() {} }) : undefined;
+    const pilot = autopilot ? delverPilot() : undefined;
     game.play({ driver: playerVsPlayer(session, playerNames, pilot), names: playerNames, bodies: playerBodies });
   }
 
@@ -463,7 +463,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       }
       // Dev mode only: this peer's Fighter on a Battle autopilot (`?dev=1&battlePilot=Hard`), for the browser check.
       const battlePilot = pilot ? createBattlePilot(battleTuning, pilot) : null;
-      d = playerVsPlayer(session, playerNames, battlePilot ? { intent: (state, fighter) => battlePilot.intent(state, fighter), watch() {} } : undefined);
+      d = playerVsPlayer(session, playerNames, battlePilot ?? undefined);
     }
     game.play({ driver: d, names: playerNames, bodies: playerBodies });
     battleOn = true;
@@ -651,22 +651,18 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   }
 
   /**
-   * Open or close the inventory screen. Open, it frees the mouse and, once the Hall is not being fought (`inventoryHoldsInput`), takes the
-   * Controller's input (as the menu does); in a fight the Fighter keeps its keys. The Simulation runs on; closed, the input and the pointer lock
-   * come back. The number keys and X still work while it is open (they go to the Controller here, or through the input if it is still on).
+   * Open or close the inventory screen. Open, it frees the mouse but never takes the Controller's input: the Fighter keeps its keys (a
+   * Warband may be near), the number keys and X among them. The Simulation runs on; closed, the pointer lock comes back.
    */
   function toggleInventory(): void {
     if (!driver || menu.visible) return;
     const opening = !inventoryScreen.open;
     if (opening) hud.setMapOpen(false);
     inventoryScreen.open = opening;
+    input.enabled = true;
     if (opening) {
-      syncInventoryInput();
       if (document.pointerLockElement) document.exitPointerLock();
-    } else {
-      input.enabled = true;
-      lockPointer();
-    }
+    } else lockPointer();
   }
 
   /** Free a Delver Run's Crowd view (the Run is over, or restarted, or the player left). */
@@ -714,16 +710,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     return run && driver ? { phase: run.phase } : undefined;
   }
 
-
-  /** While the screen is open the Fighter keeps its keys (a Warband may be near): the screen never holds the input, so it is handed back if it was. */
-  function syncInventoryInput(): void {
-    if (!inventoryScreen.open || menu.visible || mouseInput.enabled) return;
-    input.enabled = true;
-  }
-
   addEventListener('keydown', (e) => {
     if (e.code === INVENTORY_LIST_KEY && !e.repeat) toggleInventory();
-    else if (inventoryScreen.open && !mouseInput.enabled && !e.repeat && inventoryKey(e.code, null)) local.keyDown(e.code, e.shiftKey);
     const mapAction = mapKeyAction(e.code, hud.map.open);
     if (mapAction && !e.repeat) {
       if (mapAction === 'toggle') toggleMap();
@@ -805,8 +793,8 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
           victory,
           floors: delver.floors,
           reached: delver.floor,
-          warbands: runEnd?.type === 'RunEnd' && runEnd.warbands !== undefined ? runEnd.warbands : delver.beaten + delver.wiped.length,
-          ...(bossTotal > 0 && match.duel.crowd ? { bosses: runEnd?.type === 'RunEnd' && runEnd.bosses !== undefined ? runEnd.bosses : bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
+          warbands: runEnd?.type === 'RunEnd' ? runEnd.warbands : delver.beaten + delver.wiped.length,
+          ...(bossTotal > 0 && match.duel.crowd ? { bosses: runEnd?.type === 'RunEnd' ? runEnd.bosses : bossesBeaten(matchTuning.delver, delver, match.duel.crowd), bossTotal } : {}),
           seconds: (match.status.tick - delver.startTick) * TICK_SECONDS,
           seed: runSeed(match.config.arena),
           builds: runBuilds(match, (f) => playerName(driver?.lineup ?? null, names, f)),
@@ -1069,7 +1057,6 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const watching = traitor && !shot ? traitorWatchLine(curr, me) : null;
       if (watching) hud.announce(watching, 0.3);
       hud.update(curr, { localFighter: me, lineup: driver.lineup, ping: driver.ping ?? null, names, tuning: matchTuning, project: (p) => renderer.toScreen(p), pickups });
-      syncInventoryInput();
       inventoryScreen.update(curr.duel.fighters[me], matchTuning, delverContext(curr));
     } else {
       partyTags.root.hidden = true;

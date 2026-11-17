@@ -327,7 +327,7 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     let m = start();
     const LINEUP: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, ...Array.from({ length: 4 }, () => ({ team: 1, pilot: { kind: 'AI' as const, difficulty: 'Floor' } }))];
     const idlePlayer: Controller = { intent: () => IDLE_INTENT };
-    const cs = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? idlePlayer);
+    const cs = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? idlePlayer);
     const q = warbandsIn(m.duel.crowd!, GUARD)[0]!;
     const home = postOf(m, q);
     m = put(m, 0, home.x, home.z);
@@ -358,7 +358,7 @@ describe('a Floor with Warbands', { timeout: TIMEOUT }, () => {
     const intents: Intent[][] = [];
     {
       let m = initial();
-      const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? createDelverPilot(tuning));
+      const cs: Controller[] = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? createDelverPilot(tuning));
       states.push(m);
       for (let k = 0; k < TICKS; k++) {
         const these = controllerIntents(m.duel, cs);

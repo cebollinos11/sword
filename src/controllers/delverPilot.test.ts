@@ -22,7 +22,7 @@ const LINEUP: Lineup = [{ team: 0, pilot: { kind: 'Player', player: 0 } }, ...[0
 
 /** A solo Delver Run: the Player (Fighter 0), then the four Team 1 slots. */
 const start = (): MatchState => createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 1, 1, 1, 1], humans: 1, players: [0] });
-const controllers = (pilot: Controller): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? pilot);
+const controllers = (pilot: Controller): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? pilot);
 
 describe('the Delver pilot', { timeout: 60_000 }, () => {
   it('visits the nearest fire first, then each other fire, then the Stairs, and the Run descends', () => {
@@ -33,7 +33,7 @@ describe('the Delver pilot', { timeout: 60_000 }, () => {
     const dist = (p: { x: number; z: number }, q: { x: number; z: number }): number => Math.hypot(p.x - q.x, p.z - q.z);
     const nearest = fires.map((f, k) => ({ k, d: dist(f, spawn) })).sort((a, b) => a.d - b.d || a.k - b.k)[0]!.k;
 
-    const run = runMatch(noTreasure, m0, lineupAis(noTreasure, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? createDelverPilot(noTreasure)), secondsToTicks(180));
+    const run = runMatch(noTreasure, m0, lineupAis(noTreasure, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? createDelverPilot(noTreasure)), secondsToTicks(180));
     const order: number[] = [];
     let stairsAt = -1;
     for (const m of run.matches) {

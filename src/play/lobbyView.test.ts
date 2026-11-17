@@ -41,7 +41,7 @@ describe('the Lobby view in Gauntlet', () => {
       members: [0, 1, 2, 3, 4].map((id) => ({ id, name: `P${id}`, weapon, body: 'monk', ready: false })),
       teams: [[seat(0), seat(1), seat(2), seat(3)], [seat(4), { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }]],
     };
-    expect(formatRefusal(five)).toBe(`A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has 5.`);
+    expect(formatRefusal(five)).toBe(`Switching to a Gauntlet seats every player on Team 0, which holds ${MAX_TEAM_SIZE}; this Lobby has 5.`);
     expect(setFormat(five, 'Gauntlet', 'gen:greybox:5')).toBe(five);
   });
 

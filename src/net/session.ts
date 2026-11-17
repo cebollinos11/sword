@@ -314,8 +314,6 @@ class Session implements RollbackSession, PeerIntentSource {
   private playerOf: number[] = [];
   /** The Match's Format (from the Lineup's setting up): a Run's takeover is an Ally AI, a Battle's Pool slots have Pool AIs. */
   private format: MatchFormat = 'Duels';
-  /** Whether the Match is a Delver Run (from the Match options): its Fighter Pool follows the party, and its Lineup's Team 1 slots are dropped. */
-  private delver = false;
   /** A Delver Run's party size: the Lineup's Team 0 (the Pool slots past it are Pool AIs'). */
   private partySize = 0;
   /** An AI Controller per AI Fighter, the Lineup's (in a Battle, a Pool AI per Pool slot) and those driving a Player who left (null for the Players' Fighters). */
@@ -528,7 +526,6 @@ class Session implements RollbackSession, PeerIntentSource {
   private setLineup(lineup: Lineup, format: MatchFormat, match: MatchOptions): void {
     this.lineup = lineup;
     this.format = format;
-    this.delver = format === 'Gauntlet';
     this.partySize = lineup.filter((s) => s.team === 0).length;
     this.players = lineupPlayers(lineup);
     // One entry per Fighter: in a Battle the whole Pool, past the Lineup's Players.
@@ -684,7 +681,7 @@ class Session implements RollbackSession, PeerIntentSource {
 
   /** Whether Fighter i is a slot of a Fighter Pool past the Players' (a Pool AI drives it): a Battle's, or a Delver Run's past its party (the Lineup's Team 0). */
   private poolSlot(i: number): boolean {
-    if (this.delver) return i >= this.partySize;
+    if (this.format === 'Gauntlet') return i >= this.partySize;
     return this.format === 'Battle' && this.playerOf[i]! < 0;
   }
 
@@ -926,7 +923,7 @@ class Session implements RollbackSession, PeerIntentSource {
     if (!state.duel.fighters.every((f) => this.tuning.weapons[f.weapon] && weaponMotion(this.tuning, f.weapon, f.motion.name))) return;
     if (!state.config.weapons.every((w) => this.tuning.weapons[w])) return;
     // (A Run's `teams` are the party only: the Lineup's Team 0 prefix, its Team 1 slots being dropped.)
-    const teams = this.lineup!.map((s) => s.team).filter((t) => !this.delver || t === 0);
+    const teams = this.lineup!.map((s) => s.team).filter((t) => this.format !== 'Gauntlet' || t === 0);
     if (state.config.teams.length !== teams.length || !state.config.teams.every((t, i) => t === teams[i])) return;
     // The Format and a Run's humans are fixed at the start.
     const config = this.state!.config;
@@ -937,7 +934,7 @@ class Session implements RollbackSession, PeerIntentSource {
     const crowd = state.duel.crowd;
     if (config.format === 'Battle' && (!crowd || crowd.x.length !== 2 * this.tuning.battle.armySize || crowd.squads.team.length !== 2 * squadsPerTeam(this.tuning.battle) || crowd.players.length !== teams.length || !battleStateFits(crowd, this.tuning.battle, battlefieldOf(this.tuning.battle, this.state!.arena)))) return;
     // A Run's Warbands read their Floor's plan and the Troops: every index must name one (a Warband's post, loop, leg and quarry, a Soldier's Squad and Troop).
-    if (this.delver) {
+    if (this.format === 'Gauntlet') {
       const floor = floorOf(this.tuning, state.duel.arena);
       if (!floor || (crowd && !warbandsFit(crowd, floor.plan, state.config.teams.length, arenaTuning(this.tuning, state.duel.arena).battle.troops.length, warbandPools(this.tuning.delver, state.delver?.floor ?? 1)))) return;
     }

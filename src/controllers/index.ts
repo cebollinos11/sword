@@ -8,7 +8,6 @@ export {
   runMatch,
   scriptedController,
   stepMatchWith,
-  type Autopilot,
   type Controller,
   type MatchRun,
 } from './controller';

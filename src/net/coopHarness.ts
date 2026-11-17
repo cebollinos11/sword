@@ -4,7 +4,7 @@
  */
 import { expect, vi } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Autopilot, type Lineup, type PlayerNumber } from '../controllers';
+import { createDelverPilot, createTraitorPilot, lineupAis, lineupMatch, FLOOR_DIFFICULTY, type Controller, type Lineup, type PlayerNumber } from '../controllers';
 import { createMatch, stairsCounters, hashValue, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, takeOverFighter, TICK_RATE, type Intent, type Inventory, type MatchEvent, type MatchOptions, type MatchState, type Mods, type Pickup } from '../sim';
 import { arenaToWarm, createArenaWorlds, warmArena, type ArenaWorld } from '../play/arenaWorlds';
 import { createMemoryTransportPair, type MemoryTransportOptions, type MemoryTransportPair } from './memoryTransport';
@@ -63,7 +63,7 @@ export interface Peer {
   readonly tuning: TuningData;
   readonly worlds: (name: string) => ArenaWorld;
   readonly warmed: Set<string>;
-  readonly autopilot: Autopilot;
+  readonly autopilot: Controller;
   /** The Intents this peer's Player sent, by Tick. */
   readonly sent: Map<number, Intent>;
   readonly events: SessionEvent[];
@@ -110,7 +110,6 @@ export function autopilotIntent(peer: Peer): Intent {
   const { session } = peer;
   const state = session.state;
   if (!state || session.localFighter < 0 || state.status.status === 'Over') return IDLE_INTENT;
-  peer.autopilot.watch(state);
   return peer.autopilot.intent(state.duel, session.localFighter);
 }
 
@@ -142,7 +141,7 @@ export function startRun(o: RunOptions) {
       tuning: tunings[k]!,
       worlds: createArenaWorlds(tunings[k]!),
       warmed: new Set(),
-      autopilot: Object.assign(k >= o.players ? createTraitorPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }) : createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }), { watch() {} }),
+      autopilot: k >= o.players ? createTraitorPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }) : createDelverPilot(tunings[k]!, 'Hard', { walk: inputDelay > 0 }),
       sent: new Map(),
       events: [],
       sums: new Map(),

@@ -35,11 +35,6 @@ export interface Controller {
   load?(saved: unknown): void;
 }
 
-/** The dev autopilot (the Delver pilot, or a traitor's on a Team 1 Seat): a Controller that is also told the Match before each Tick (`watch`). */
-export interface Autopilot extends Controller {
-  watch(match: MatchState): void;
-}
-
 /** A Controller that plays back a scripted Track (Tick t of the Duel gets the Track's Intent t). */
 export function scriptedController(track: Track): Controller {
   return { intent: (state) => intentAt(track, state.tick) };

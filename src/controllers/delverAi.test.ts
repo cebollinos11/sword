@@ -24,7 +24,7 @@ const LINEUP: Lineup = [
 const start = (): MatchState =>
   createMatch(tuning, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
 /** The Controllers of the lineup: the Player's slot stands (null becomes a scripted idle). */
-const controllers = (): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? { intent: () => IDLE_INTENT });
+const controllers = (): Controller[] => lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? { intent: () => IDLE_INTENT });
 const edit = (m: MatchState, i: number, f: (x: FighterState) => FighterState): MatchState => ({ ...m, duel: { ...m.duel, fighters: m.duel.fighters.map((x, k) => (k === i ? f(x) : x)) } });
 const dist = (a: FighterState, b: FighterState): number => Math.hypot(a.position.x - b.position.x, a.position.z - b.position.z);
 
@@ -65,7 +65,7 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
   });
 
   it('a Delver Gauntlet lineup gives Ally AIs to the party and Pool AIs to the other Pool slots , and they step a Delver Run', () => {
-    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA });
+    const ais = lineupAis(tuning, LINEUP, 'Gauntlet', { seed: 7 });
     expect(ais).toHaveLength(tuning.battle.bubble.poolSize);
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((c) => c !== null)).toBe(true);
@@ -80,7 +80,7 @@ describe('the AI on a Delver Run Floor', { timeout: 60_000 }, () => {
 
   describe('with Warbands about', () => {
     const wstart = (): MatchState => createMatch(warbanded, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: LINEUP.map((s) => s.team), humans: 1, players: [0] });
-    const wcontrollers = (): Controller[] => lineupAis(warbanded, LINEUP, 'Gauntlet', { seed: 7, arena: ARENA }).map((c) => c ?? { intent: () => IDLE_INTENT });
+    const wcontrollers = (): Controller[] => lineupAis(warbanded, LINEUP, 'Gauntlet', { seed: 7 }).map((c) => c ?? { intent: () => IDLE_INTENT });
     /** `m` with a Pool slot bound to a Soldier, a promoted enemy standing `dx` m from Fighter `of` (in play at full HP). */
     const promoted = (m: MatchState, of: number, dx: number): MatchState => {
       const at = m.duel.fighters[of]!;

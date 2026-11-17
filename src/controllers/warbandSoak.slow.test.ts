@@ -564,7 +564,6 @@ function playRun(name: string, options: RunOptions = {}): RunReport {
   });
   const controllers: Controller[] = lineupAis(tuning, lineup, "Gauntlet", {
     seed: matchSeed,
-    arena: name,
   }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
   const k = m.config.teams.length;
   const floors: FloorReport[] = [];
@@ -1483,7 +1482,6 @@ describe("the Warband soak", { timeout: 120 * 60_000 }, () => {
           "Gauntlet",
           {
             seed: 7,
-            arena: name,
           },
         ).map(
           (c) =>
@@ -2319,7 +2317,6 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
     }),
     controllers: lineupAis(tuning, lineup, "Gauntlet", {
       seed: 7,
-      arena,
     }).map((c) => c ?? player),
   });
   /** The Match with Fighter `i` put at (x, z) at height y. */
@@ -3788,7 +3785,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
     }),
     controllers: lineupAis(tuning, lineup, "Gauntlet", {
       seed: 7,
-      arena: run,
     }).map((c) => c ?? player),
   });
 
@@ -4149,7 +4145,6 @@ describe("vertical Halls", { timeout: 60 * 60_000 }, () => {
       });
       const controllers: Controller[] = lineupAis(tuning, LINEUP, "Gauntlet", {
         seed: 7,
-        arena: run,
       }).map((c) => c ?? createDelverPilot(tuning, "Hard"));
       const c0 = m.duel.crowd!;
       const bq = c0.warbands!.rank.indexOf(BOSS);

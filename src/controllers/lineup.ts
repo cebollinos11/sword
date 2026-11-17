@@ -145,7 +145,7 @@ export function lineupStyle(tuning: TuningData, style: string | undefined, seed:
  * the Lineup's Team 1 slots are dropped (the Floors' enemies are the Crowd's; a traitor plays a Pool slot, which a Pool AI drives once it
  * leaves). `match` is the Match's options: its seed picks each RANDOM_PICK Style (`lineupStyle`).
  */
-export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed' | 'arena'> = {}): (Controller | null)[] {
+export function lineupAis(tuning: TuningData, lineup: Lineup, format: MatchFormat = 'Duels', match: Pick<MatchOptions, 'seed'> = {}): (Controller | null)[] {
   if (format === 'Battle') return Array.from({ length: tuning.battle.bubble.poolSize }, (_, k) => (k < lineup.length ? null : createPoolAi(tuning)));
   if (format === 'Gauntlet') {
     const party = lineup.filter((s) => s.team === 0);

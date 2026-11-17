@@ -147,8 +147,6 @@ export interface MatchEndEvent {
 export interface RunEndEvent {
   readonly type: 'RunEnd';
   readonly winner: number;
-  /** Floors Team 0 cleared (their Boss beaten). */
-  readonly cleared: number;
   readonly floors: number;
   /** The Bosses beaten (`bossesBeaten`). */
   readonly bosses: number;

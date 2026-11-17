@@ -248,7 +248,7 @@ export class Hud {
   }
 
   /**
-   * The results screen at a Run's end: Victory or Defeat, Floors and Halls cleared, the Run time and the Run seed (to replay or
+   * The results screen at a Run's end: Victory or Defeat, Floors reached, Warbands and Bosses beaten, the Run time and the Run seed (to replay or
    * share). `note`: what comes next, online (the host's Restart or the Lobby), under it.
    */
   showResults(r: RunResult, note?: string): void {

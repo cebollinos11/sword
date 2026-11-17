@@ -289,13 +289,13 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
     status = { status: 'Over', winner: 0, tick };
     duel = { ...duel, duel: { status: 'Over', winner: 0, tick: duel.tick }, events: [...duel.events, { type: 'DuelEnd', winner: 0 }] };
     score = score.map((s, i) => (i === 0 ? s + 1 : s));
-    events.push({ type: 'RunEnd', winner: 0, cleared: score[0]!, floors: next.floors, bosses: bossesBeaten(tuning.delver, next, duel.crowd!), warbands: next.beaten + next.wiped.length });
+    events.push({ type: 'RunEnd', winner: 0, floors: next.floors, bosses: bossesBeaten(tuning.delver, next, duel.crowd!), warbands: next.beaten + next.wiped.length });
     nextDuelTick = null;
   };
 
   if (duel.duel.status === 'Over') {
     // Team 0 is wiped out (a Floor's Duel ends on nothing else): a Defeat, in any phase.
-    events.push({ type: 'RunEnd', winner: 1, cleared: score[0]!, floors: run.floors, bosses: bossesBeaten(tuning.delver, run, duel.crowd!), warbands: run.beaten + run.wiped.length });
+    events.push({ type: 'RunEnd', winner: 1, floors: run.floors, bosses: bossesBeaten(tuning.delver, run, duel.crowd!), warbands: run.beaten + run.wiped.length });
     // (The traitors' last kills are kept, mirrored as ever.)
     if (next !== run) duel = { ...duel, delver: mirrored(next) };
     return { ...match, tick, duel, nextDuelTick: null, status: { status: 'Over', winner: 1, tick }, events, ...(next !== run ? { delver: next } : {}) };

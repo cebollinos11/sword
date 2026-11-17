@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { join, lobbyLineup, moveMember, newLobby, runTuning, seatOf, setFormat, type LobbySettings, type LobbyState } from './lobby';
+import { join, lobbyLineup, moveMember, newLobby, runTuning, seatOf, setFormat, setSeat, startProblem, type LobbySettings, type LobbyState } from './lobby';
+import { playerVsAi } from '../play/driver';
 import { checkLineup, lineupMatch } from '../controllers';
 import { parseLobbyMessage } from './messages';
 
@@ -46,6 +47,17 @@ describe('a Gauntlet Lobby (a Run on generated Floors)', () => {
       expect(() => checkLineup(tuning, [lineup[0]!, lineup[1]!, lineup[3]!, lineup[2]!, lineup[4]!, lineup[5]!], 3, 'Gauntlet')).toThrow();
       // Without traitors the options are as they were.
       expect('traitors' in lineupMatch(tuning, lobbyLineup(room).lineup, weapons, { bestOf: 1, format: 'Gauntlet' })).toBe(false);
+    });
+
+    it('cannot be played alone: the host as the only seated traitor may not start, and a Run against the AIs refuses it', () => {
+      // (An AI ally keeps the party: the host alone in the Room, Team 0 not empty.)
+      const alone = moveMember(setSeat(gauntlet, { team: 0, index: 1 }, { kind: 'AI', difficulty: 'Normal', weapon }), 0, { team: 1, index: 0 });
+      expect(seatOf(alone, 0)).toEqual({ team: 1, index: 0 });
+      expect(startProblem(alone, false)).toMatch(/traitor/);
+      const { lineup } = lobbyLineup(alone);
+      expect(() => playerVsAi(tuning, { lineup, weapon, format: 'Gauntlet', bestOf: 1, arena: 'gen:greybox:5' })).toThrow(/traitors/);
+      // With a party to betray, the Lobby lets it start.
+      expect(startProblem(moveMember(room, 2, { team: 1, index: 0 }), false)).toBeNull();
     });
   });
 });

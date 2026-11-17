@@ -27,7 +27,7 @@ describe('Four a side', () => {
     const arena = 'gen:greybox:21';
     const { tuning: built } = withGeneratedArena(tuning, arena);
     const lineup: Lineup = FOUR_V_FOUR.map((team) => ({ team, pilot: { kind: 'AI', difficulty: 'Skilled' } }));
-    const play = () => runMatch(built, createMatch(built, lineupMatch(built, lineup, [], { bestOf: 1, seed: 5, arena })), lineupAis(built, lineup, 'Duels', { seed: 5, arena }) as Controller[], 30_000);
+    const play = () => runMatch(built, createMatch(built, lineupMatch(built, lineup, [], { bestOf: 1, seed: 5, arena })), lineupAis(built, lineup, 'Duels', { seed: 5 }) as Controller[], 30_000);
     const one = play();
     expect(one.final.status.status).toBe('Over');
     expect(hashValue(play().final)).toBe(hashValue(one.final));

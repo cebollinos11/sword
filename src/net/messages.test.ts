@@ -603,6 +603,10 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
     const duels = matchState();
     expect(parseNetMessage(resync({ ...duels, delver: state.delver }))).toBeNull();
     expect(parseNetMessage(resync({ ...duels, duel: { ...duels.duel, delver: state.duel.delver } }))).toBeNull();
+    // No retired Hall, nor the retired `delver` flag: a stray key would be hashed, a lasting desync.
+    const hall = { floor: 1, row: 0, index: 0, kind: 'Fight', phase: 'Fighting' };
+    expect(parseNetMessage(resync({ ...state, duel: { ...state.duel, hall } } as never, ai))).toBeNull();
+    expect(parseNetMessage(resync({ ...state, config: { ...state.config, delver: true } } as never, ai))).toBeNull();
   });
 
   it('accepts a Fighter with Mods, and one without', () => {
