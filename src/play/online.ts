@@ -14,7 +14,7 @@
  *   over): it becomes a notice for the HUD.
  */
 import type { Intent } from '../sim';
-import type { Autopilot, Controller } from '../controllers';
+import type { Controller } from '../controllers';
 import type { Ping, RefuseReason, RollbackSession, SessionEvent, SessionStats } from '../net';
 import type { MatchDriver } from './driver';
 
@@ -60,10 +60,9 @@ function carryPresses(dropped: Intent | null, next: Intent): Intent {
  *
  * `autopilot` (dev mode only, `devAutopilot` in src/devMode.ts): the local Fighter's Intents come from it, fed the session's
  * (possibly predicted) state, instead of the Local Controller's, and go through the session like any local Intent. Each peer
- * has its own: Players who pick different Doors do not gather anywhere (a Door needs every Player Fighter at it, ADR 0010),
- * so the party waits in the Cleared Hall until they agree. Its memory is not part of the Simulation and not rolled back.
+ * has its own (the Delver pilot, or a traitor's). Its memory is not part of the Simulation and not rolled back.
  */
-export function playerVsPlayer(session: RollbackSession, names: readonly string[] = [], autopilot?: Autopilot): PlayerVsPlayerDriver {
+export function playerVsPlayer(session: RollbackSession, names: readonly string[] = [], autopilot?: Controller): PlayerVsPlayerDriver {
   let failure: string | null = null;
   let dropped: Intent | null = null;
   // The autopilot is asked once per Tick of the state: while the session waits or stalls on the same one, its Intent is reused (its memory follows the Simulation).
@@ -108,7 +107,6 @@ export function playerVsPlayer(session: RollbackSession, names: readonly string[
       const state = session.state;
       if (autopilot && state && session.localFighter >= 0 && state.status.status !== 'Over') {
         if (lastPilot?.tick !== state.tick) {
-          autopilot.watch(state);
           lastPilot = { tick: state.tick, intent: autopilot.intent(state.duel, session.localFighter) };
         }
         localIntent = lastPilot.intent;

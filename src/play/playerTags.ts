@@ -3,9 +3,10 @@
  * Fighter in their army's colour, since a Player who took over a Soldier looks like every other soldier. Render only: it
  * reads the Match state each frame (`playerMarkers`, the same marks as the minimap's) and never moves anything. The local
  * Player has no tag, and neither has one who left (its Fighter is an AI's now) or one who has fallen and waits to take over.
+ * An online Delver Run (docs/plans/delver.md, Stage 8) tags its party's other Players the same way, from `partyMarkers`.
  */
 import type { SimState } from '../sim';
-import { playerMarkers } from '../render/minimap';
+import { playerMarkers, type PlayerMarker } from '../render/minimap';
 
 /** Metres above a Fighter's feet that its tag floats. */
 const TAG_HEIGHT = 2.35;
@@ -26,15 +27,22 @@ export class PlayerTags {
     /** Each army's colour, by team. */
     private readonly colours: readonly number[],
     /** Each Player's name by their Fighter slot (a Player's slot is its number's place in the Lineup). */
-    private readonly names: readonly (string | undefined)[],
+    private names: readonly (string | undefined)[],
   ) {
     this.root.className = 'player-tags';
     container.append(this.root);
   }
 
-  /** `previous`: the Tick before `state`, `alpha` of the way between them (the tags move as the Fighters are drawn). */
-  update(state: SimState, previous: SimState, me: number, alpha: number, project: (p: { x: number; y: number; z: number }) => { x: number; y: number } | null): void {
-    const marks = playerMarkers(state, me);
+  /** The names, by Fighter slot, for the next Match. */
+  setNames(names: readonly (string | undefined)[]): void {
+    this.names = names;
+  }
+
+  /**
+   * `previous`: the Tick before `state`, `alpha` of the way between them (the tags move as the Fighters are drawn). `marks`: the Players
+   * tagged (default a Battle's, `playerMarkers`).
+   */
+  update(state: SimState, previous: SimState, me: number, alpha: number, project: (p: { x: number; y: number; z: number }) => { x: number; y: number } | null, marks: readonly PlayerMarker[] = playerMarkers(state, me)): void {
     while (this.tags.length < marks.length) {
       const tag = document.createElement('div');
       tag.className = 'player-tag';

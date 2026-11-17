@@ -238,10 +238,9 @@ describe('the Battlefield', () => {
     expect(hashValue(battlefieldOf({ ...tuning.battle }, 'battle:42')!.arena)).toBe(hashValue(a));
   });
 
-  it('is gentle open ground: no Walls, Doors or deadly ground, within the hill height, with each Team spawning on its own side', () => {
+  it('is gentle open ground: no Walls or deadly ground, within the hill height, with each Team spawning on its own side', () => {
     const { arena, heights } = battlefieldOf(tuning.battle, 'battle:5')!;
     expect(arena.walls).toEqual([]);
-    expect(arena.doors).toEqual([]);
     expect(arena.walk.every((s) => !s.lava && !s.water && !s.abyss)).toBe(true);
     expect(heights.heights.every((h) => Math.abs(h) <= field.hillHeight + 1e-9)).toBe(true);
     expect(Math.max(...heights.heights) - Math.min(...heights.heights)).toBeGreaterThan(field.hillHeight / 2);

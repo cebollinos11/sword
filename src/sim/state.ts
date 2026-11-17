@@ -1,15 +1,16 @@
-import type { HallKind } from '../tuning';
 import type { SimEvent } from './events';
 import type { GaitState } from './gait';
 import type { PoseTargets, UpperBody } from './motion';
 import type { Direction } from './intent';
 import type { Inventory } from './inventory';
+import type { Pickup } from './pickups';
 import type { Mods } from './mods';
 import type { RngState } from './rng';
 import type { BladeTransform, KickLeg } from './skeleton';
 import type { CrowdState } from './crowd';
 import type { Size } from '../tuning';
 import type { Vec3 } from './vec';
+import type { TraitorState } from './delverTraitors';
 
 /** Ground-plane vector (metres): x/z, with y up. Heights are kept apart (`FighterState.y`). */
 export interface Vec2 {
@@ -211,8 +212,8 @@ export interface FighterState {
   readonly mods?: Mods;
   /**
    * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
-   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Hall starts and
-   * changed by the Intent's `equip` and `drop` in a Cleared Hall (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
+   * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Floor starts and
+   * changed by the Intent's `equip` and `drop` while Exploring (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
    * `weapon`, and `mods` is the fold of its equipped Relics.
    */
   readonly inventory?: Inventory;
@@ -388,25 +389,20 @@ export type DuelState =
   | { readonly status: 'Fighting' }
   | { readonly status: 'Over'; readonly winner: number | null; readonly tick: number };
 
-/**
- * A Hall's phase: `Fighting` while any Team 1 Fighter is in the Duel, `Cleared` once none is (at once for a Hall with no
- * Encounter), the party free to walk to a Door; `Leaving` once it has taken one, during the fade to the next Hall.
- */
-export type HallPhase = 'Fighting' | 'Cleared' | 'Leaving';
+/** A Delver Run's phase: Exploring the Floor, or Descending (the fade after the Stairs, until `nextDuelTick`). */
+export type DelverPhase = 'Exploring' | 'Descending';
 
-/** Which Hall of a Dungeon Run a Duel is fought in (`SimState.hall`): Floor (1-based), row and index in it (0-based). */
-export interface SimHall {
+/** `SimState.delver`: a Delver Run's Floor and phase, mirrored from `MatchState.delver` for the Controllers, which see only SimState. */
+export interface SimDelver {
+  /** The Floor (1-based). */
   readonly floor: number;
-  /** 0 the entrance, 4 the Boss. */
-  readonly row: number;
-  readonly index: number;
-  readonly kind: HallKind;
-  readonly phase: HallPhase;
-  /**
-   * The Player Fighters an AI Takeover has taken (ascending), as the Run's `away`, mirrored here so a Controller reads it off the
-   * state (and so it rolls back). Absent while nobody has left, so a Run without a Takeover hashes as it always did.
-   */
+  readonly phase: DelverPhase;
+  /** The items lying on the Floor: the Run's `pickups`, the very same array (the pilot reads them here). */
+  readonly pickups: readonly Pickup[];
+  /** The Players an AI Takeover has taken (ascending), as the Run's `away`; absent while nobody has left. */
   readonly away?: readonly number[];
+  /** The traitors' records (docs/plans/delver.md, Stage 8a): the Run's `traitors`, the very same array; absent with none. */
+  readonly traitors?: readonly TraitorState[];
 }
 
 /**
@@ -423,11 +419,10 @@ export interface SimState {
   readonly daggers: readonly DaggerState[];
   readonly duel: DuelState;
   /**
-   * In a Gauntlet Run, the Hall this Duel is fought in and its phase (mirroring `MatchState.run`), so a Controller, which
-   * sees only SimState, can tell Halls apart and see one is cleared; absent otherwise. While present, the Duel ends only
-   * when Team 0 is wiped out: a Hall's Duel goes on after its Encounter falls.
+   * In a Delver Run, the Floor this Duel is fought on and its phase (mirroring `MatchState.delver`); absent otherwise, so every other
+   * state hashes as it always did. While present, the Duel ends only when Team 0 is wiped out.
    */
-  readonly hall?: SimHall;
+  readonly delver?: SimDelver;
   /**
    * In a Battle (docs/plans/big-battle.md), its Soldiers: the Crowd, stepped by `stepMatch` after the Fighters (`stepCrowd`);
    * absent otherwise, so a Duel's state hashes as it always did. `step` carries it through unchanged.

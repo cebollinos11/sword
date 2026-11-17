@@ -1,9 +1,13 @@
-import { FLOOR_ROWS, hallRoster, runHall, secondsToTicks, type MatchState } from '../sim';
-import type { TuningData } from '../tuning';
+import { inDuel, secondsToTicks, TICK_SECONDS, traitorOf, type MatchState } from '../sim';
+import { floorOf } from '../sim/delver';
+import { isBossFloor, tierOf } from '../sim/delver/troops';
+import type { DelverTuning, TuningData } from '../tuning';
 import type { Lineup } from '../controllers';
 import type { Ping } from '../net';
 import { fighterColours } from '../render/fighterView';
+import { Minimap } from '../render/minimap';
 import { pickupLabels, type PickupView } from '../render/pickupView';
+import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
 import { relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
@@ -30,38 +34,50 @@ export interface HudView {
 /** What the results screen shows at a Run's end. */
 export interface RunResult {
   readonly victory: boolean;
-  /** Floors cleared (their Boss beaten). */
-  readonly cleared: number;
   readonly floors: number;
-  /** Halls cleared, Bosses included. */
-  readonly halls: number;
+  /** The Bosses beaten (`RunEnd.bosses`) of `bossTotal` (the tiers with a Boss); absent in a Run whose Tuning has no Boss: no Bosses part is shown. */
+  readonly bosses?: number;
+  readonly bossTotal?: number;
+  /** The Floor the party reached (1-based; the last Floor's, in a Victory): "Floors reached". */
+  readonly reached: number;
+  /** The Warbands beaten (`RunEnd.warbands`). */
+  readonly warbands: number;
   /** Run time, seconds (from `run.startTick` to the Tick it ended). */
   readonly seconds: number;
   readonly seed: number;
   /** Each Player's build at the Run's end (`runBuilds`), under the numbers; absent or empty: none shown. */
   readonly builds?: readonly RunBuild[];
+  /** A Delver Run's traitors (docs/plans/delver.md, Stage 8a): each one's name, kills and deaths, under the builds; absent or empty: none shown. */
+  readonly traitors?: readonly TraitorResult[];
+}
+
+/** One traitor's line on a Delver Run's results screen. */
+export interface TraitorResult {
+  readonly name: string;
+  readonly kills: number;
+  readonly deaths: number;
+}
+
+/** A traitor's results line: its kills and deaths. */
+export const traitorLine = (t: TraitorResult): string => `${t.kills} ${t.kills === 1 ? 'kill' : 'kills'} · ${t.deaths} ${t.deaths === 1 ? 'death' : 'deaths'}`;
+
+/**
+ * What a watching traitor reads (docs/plans/delver.md, Stage 8a): the seconds until it takes over a Soldier, or that it is looking for one;
+ * null for anyone else, and for a traitor whose Fighter is in the Duel (or who left). Render only.
+ */
+export function traitorWatchLine(match: MatchState, me: number): string | null {
+  const j = traitorOf(match.config, me);
+  const record = j >= 0 ? match.delver?.traitors?.[j] : undefined;
+  const f = match.duel.fighters[me];
+  if (!record || record.away || !f || (inDuel(f) && !f.death) || match.status.status === 'Over') return null;
+  const seconds = Math.ceil((record.next - match.duel.tick) * TICK_SECONDS);
+  return seconds > 0 ? `Taking over a Soldier in ${seconds} s` : 'Looking for a Soldier out of sight…';
 }
 
 /** m:ss. */
 export function runTime(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-}
-
-/** Where a Run's party stands, for the HUD: its Floor (1-based) and the Hall's row (0-based, FLOOR_ROWS − 1 the Boss). */
-export interface HallAt {
-  readonly floor: number;
-  readonly row: number;
-}
-
-/** A Hall's banner as the party enters it: `Floor 2 · Hall 3 / 5 · seed N` (Hall counted by row), the Boss's `Boss · Floor 2 / 3`. */
-export function hallBanner(at: HallAt, floors: number, seed: number): string {
-  return at.row === FLOOR_ROWS - 1 ? `Boss · Floor ${at.floor} / ${floors}` : `${hallScore(at, floors)} · seed ${seed}`;
-}
-
-/** Where the party stands, under the top of the screen: `Floor 2 · Hall 3 / 5`, the Boss's `Boss · Floor 2 / 3`. */
-export function hallScore(at: HallAt, floors: number): string {
-  return at.row === FLOOR_ROWS - 1 ? `Boss · Floor ${at.floor} / ${floors}` : `Floor ${at.floor} · Hall ${at.row + 1} / ${FLOOR_ROWS}`;
 }
 
 /**
@@ -78,33 +94,41 @@ export function hpText(hp: number): string {
   return String(Math.ceil(Math.round(Math.max(0, hp) * 1e6) / 1e6));
 }
 
-/** A Run's end in one line (the Lobby's note after it): verdict, Floors and Halls cleared, time and seed. */
+/**
+ * A Delver Run's line under the top of the screen: `Floor 2 of tier 1 (2 / 9)`, and `Boss Floor` after it on a Boss Floor (the last of a tier
+ * that has a Boss). `floor` is 1-based, the Floors of a tier `delver.floorsPerTier`.
+ */
+export function delverScore(delver: DelverTuning, floor: number, floors: number): string {
+  const inTier = ((floor - 1) % delver.floorsPerTier) + 1;
+  const line = `Floor ${inTier} of tier ${tierOf(delver, floor)} (${floor} / ${floors})`;
+  return isBossFloor(delver, floor) ? `${line} · Boss Floor` : line;
+}
+
+/** A Run's Bosses part of its results, "Bosses b / B", or none (a Tuning without a Boss). */
+const bossesPart = (r: RunResult): string[] => (r.bosses === undefined || r.bossTotal === undefined ? [] : [`Bosses ${r.bosses} / ${r.bossTotal}`]);
+
+/** A Run's end in one line (the Lobby's note after it): verdict, Floor reached, Warbands and Bosses beaten, time and seed. */
 export function runResultLine(r: RunResult): string {
-  const halls = `${r.halls} ${r.halls === 1 ? 'Hall' : 'Halls'} cleared`;
-  return `${r.victory ? 'Victory' : 'Defeat'} · ${r.cleared} / ${r.floors} Floors · ${halls} · ${runTime(r.seconds)} · Run seed ${r.seed}`;
+  return [r.victory ? 'Victory' : 'Defeat', `Floor ${r.reached} / ${r.floors}`, `Warbands ${r.warbands}`, ...bossesPart(r), runTime(r.seconds), `Run seed ${r.seed}`].join(' · ');
 }
 
 /**
- * How dark the screen is for the fade between Halls, 0 to 1: rising over `dungeon.hallFadeSeconds` once a Door is taken
- * (fully dark on the fade's last Tick), then falling over as long as the next Hall starts. 0 in Duels and in the Hall a Run starts in.
+ * How dark the screen is for the fade between Floors, 0 to 1: rising over `dungeon.fadeSeconds` once the Stairs are taken (`nextDuelTick`,
+ * fully dark on the fade's last Tick), then falling over as long as the next Floor starts. 0 in Duels and on the Floor a Run starts on.
  */
-export function hallFade(match: MatchState, tuning: TuningData): number {
-  if (!match.run) return 0;
-  const ticks = Math.max(1, secondsToTicks(tuning.dungeon.hallFadeSeconds));
+export function floorFade(match: MatchState, tuning: TuningData): number {
+  const first = match.delver?.startTick;
+  if (first === undefined) return 0;
+  const ticks = Math.max(1, secondsToTicks(tuning.dungeon.fadeSeconds));
   if (match.nextDuelTick !== null) return Math.min(1, Math.max(0, (ticks - (match.nextDuelTick - match.tick) + 1) / ticks));
-  // The Run's first Hall (Hall 1, or a dev start's deeper one) began on the Run's start Tick: no fade before it.
-  if (match.tick - match.duel.tick <= match.run.startTick) return 0;
+  // The Run's first Floor (Floor 1, or a dev start's deeper one) began on the Run's start Tick: no fade before it.
+  if (match.tick - match.duel.tick <= first) return 0;
   return Math.max(0, 1 - match.duel.tick / ticks);
 }
 
-/** A Fighter's short HUD label: "You", the other human Player by name, an AI by difficulty, or a Run's enemy by its Hall's Encounter's difficulty ("Boss" for a Boss). */
-function label(match: MatchState, tuning: TuningData, lineup: Lineup | null, fighter: number, me: number, names: readonly string[] | null | undefined): string {
+/** A Fighter's short HUD label: "You", the other human Player by name, or an AI by difficulty. */
+function label(lineup: Lineup | null, fighter: number, me: number, names: readonly string[] | null | undefined): string {
   if (fighter === me) return 'You';
-  if (match.run && match.config.teams[fighter] === 1) {
-    const slot = match.config.teams.slice(0, fighter).filter((t) => t === 1).length;
-    const enemy = hallRoster(tuning, match.config, runHall(match.run))[slot];
-    return match.duel.hall?.kind === 'Boss' && slot === 0 ? 'Boss' : enemy ? `${enemy.difficulty} AI` : '';
-  }
   const pilot = lineup?.[fighter]?.pilot;
   if (!pilot) return '';
   return pilot.kind === 'Player' ? (names?.[pilot.player] ?? `Player ${pilot.player + 1}`) : `${pilot.difficulty} AI`;
@@ -118,9 +142,9 @@ const css = (colour: number): string => `#${colour.toString(16).padStart(6, '0')
  * (Directions are read from poses). Your team stands on the left (you first),
  * the enemy team on the right, each bar in its Fighter's colour with a short
  * label, filled to its own max HP; the score reads your team's Duels first (in a
- * Run, the Floor and Hall). A Benched Fighter has no bar. A short transient banner
- * announces Duels (or Halls) and the Match result; a Run ends on a results screen.
- * In a Run, a label floats over each exit Door, and the screen fades to black between Halls.
+ * Run, the Floor and its tier). A Benched Fighter has no bar. A short transient banner
+ * announces Duels (or Floors) and the Match result; a Run ends on a results screen.
+ * In a Run the screen fades to black between Floors.
  */
 export class Hud {
   readonly root = document.createElement('div');
@@ -142,6 +166,10 @@ export class Hud {
   readonly map = new FloorMapView();
   private readonly mapButton = document.createElement('button');
   private readonly fade = document.createElement('div');
+  /** A Delver Run's minimap (revealed Halls only), drawn in a corner; hidden outside a Delver Run. */
+  private readonly delverMap = document.createElement('div');
+  private minimap: Minimap | null = null;
+  private wasDescending = false;
   private bars: { fighter: number; box: HTMLElement; fill: HTMLElement; value: HTMLElement }[] = [];
   /** The local Player's dagger icons (one per dagger the Fighter starts a Duel with, its `mods.daggers` counted; rebuilt when that changes) and Slow tag; empty/null until built. */
   private daggerIcons: HTMLElement[] = [];
@@ -192,9 +220,11 @@ export class Hud {
     this.results.hidden = true;
     this.pickupLayer.className = 'hud-doors';
     this.fade.className = 'hud-fade';
-    // The fade between Halls goes over the letterbox, the HP bars and the crosshair (the next Hall's
+    this.delverMap.className = 'hud-delver-map';
+    this.delverMap.hidden = true;
+    // The fade between Floors goes over the letterbox, the HP bars and the crosshair (the next Floor's
     // banner, the menu button and the results screen stay over it).
-    this.root.append(this.pickupLayer, ...bars, this.top, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
+    this.root.append(this.pickupLayer, ...bars, this.top, this.delverMap, this.stats, this.crosshair, this.map.el, this.fade, this.banner, this.menu, this.mapButton, this.results);
     this.root.hidden = true;
     container.append(this.root);
   }
@@ -218,7 +248,7 @@ export class Hud {
   }
 
   /**
-   * The results screen at a Run's end: Victory or Defeat, Floors and Halls cleared, the Run time and the Run seed (to replay or
+   * The results screen at a Run's end: Victory or Defeat, Floors reached, Warbands and Bosses beaten, the Run time and the Run seed (to replay or
    * share). `note`: what comes next, online (the host's Restart or the Lobby), under it.
    */
   showResults(r: RunResult, note?: string): void {
@@ -235,8 +265,9 @@ export class Hud {
     const title = document.createElement('div');
     title.className = `hud-results-title ${r.victory ? 'victory' : 'defeat'}`;
     title.textContent = r.victory ? 'Victory' : 'Defeat';
-    this.results.replaceChildren(title, line('Floors cleared', `${r.cleared} / ${r.floors}`), line('Halls cleared', String(r.halls)), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
+    this.results.replaceChildren(title, line('Floors reached', `${r.reached} / ${r.floors}`), line('Warbands beaten', String(r.warbands)), ...(r.bosses === undefined || r.bossTotal === undefined ? [] : [line('Bosses', `${r.bosses} / ${r.bossTotal}`)]), line('Run time', runTime(r.seconds)), line('Run seed', String(r.seed)));
     if (r.builds?.length) this.results.append(...this.buildRows(r.builds));
+    for (const t of r.traitors ?? []) this.results.append(line(`Traitor ${t.name}`, traitorLine(t)));
     if (note) {
       const next = document.createElement('p');
       next.className = 'hud-results-note';
@@ -297,9 +328,9 @@ export class Hud {
     const teams = match.config.teams;
     const me = view.localFighter;
     const myTeam = teams[me] ?? 0;
-    // A Run's Hall changes who stands in Team 1's slots (and which are Benched): new bars and labels.
+    // Who is Benched changes the bars and labels.
     const benched = match.duel.fighters.map((f) => Boolean(f.benched));
-    const key = JSON.stringify([teams, me, view.lineup, view.names, match.run ? runHall(match.run) : 0, benched, daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])]);
+    const key = JSON.stringify([teams, me, view.lineup, view.names, benched, daggerCapacity(this.matchTuning ?? this.tuning, match.duel.fighters[me])]);
     if (key !== this.built) this.build(match, me, myTeam, view.lineup, view.names, key);
 
     for (const bar of this.bars) {
@@ -313,11 +344,14 @@ export class Hud {
     const mine = match.duel.fighters[me];
     this.daggerIcons.forEach((icon, i) => icon.classList.toggle('spent', i >= (mine?.daggers ?? 0)));
     this.slowTag?.classList.toggle('visible', Boolean(mine?.slow));
-    this.score.textContent = match.run ? hallScore(match.run, match.run.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
-    this.mapButton.hidden = !match.run;
-    this.map.update(match, this.matchTuning ?? this.tuning);
+    const tuning = this.matchTuning ?? this.tuning;
+    this.score.textContent = match.delver ? delverScore(tuning.delver, match.delver.floor, match.delver.floors) : `${match.score[myTeam] ?? 0} – ${match.score[1 - myTeam] ?? 0}`;
+    this.mapButton.hidden = !match.delver;
+    this.map.setMe(me);
+    this.map.update(match, tuning);
+    this.updateDelverMap(match, me, tuning);
     this.updatePickups(match, view);
-    this.fade.style.opacity = String(hallFade(match, this.matchTuning ?? this.tuning));
+    this.fade.style.opacity = String(floorFade(match, this.matchTuning ?? this.tuning));
     this.frames++;
     const now = performance.now();
     if (now - this.statsAt >= 500) {
@@ -330,6 +364,23 @@ export class Hud {
       this.banner.classList.remove('visible');
       this.bannerUntil = 0;
     }
+  }
+
+  /** A Delver Run's minimap in its corner (drawn from the Reveal), and the "Descending…" banner as the fade to the next Floor begins. */
+  private updateDelverMap(match: MatchState, me: number, tuning: TuningData): void {
+    const run = match.delver;
+    this.delverMap.hidden = !run || match.status.status === 'Over';
+    const descending = run?.phase === 'Descending';
+    if (descending && !this.wasDescending) this.announce('Descending…', Math.max(1, tuning.dungeon.fadeSeconds));
+    this.wasDescending = descending;
+    if (!run || this.delverMap.hidden) return;
+    const plan = floorOf(tuning, match.duel.arena)?.plan;
+    if (!plan) return;
+    if (!this.minimap) {
+      this.minimap = new Minimap(tuning.battle, 150);
+      this.delverMap.append(this.minimap.canvas);
+    }
+    this.minimap.drawDelver(plan, viewReveal(match, plan, me), match.duel.fighters, me, delverMapStatus(match, plan));
   }
 
   /** A Run's labels over the pickups the local Player sees. */
@@ -387,7 +438,7 @@ export class Hud {
       if (fighter === me) box.classList.add('hud-you');
       const name = document.createElement('div');
       name.className = 'hud-label';
-      name.textContent = label(match, this.matchTuning ?? this.tuning, lineup, fighter, me, names);
+      name.textContent = label(lineup, fighter, me, names);
       const bar = document.createElement('div');
       bar.className = 'hud-bar';
       const fill = document.createElement('div');

@@ -9,7 +9,7 @@
  * Weapon and Seat).
  */
 import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName } from '../sim';
-import { armySizeCap, battleMapPicked, DEFAULT_STYLE, dungeonDifficultyLadder, MAX_ENCOUNTER_ENEMIES, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type RunKnobs, type Size, type TuningData } from '../tuning';
+import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
 import {
   BEST_OF,
@@ -161,7 +161,7 @@ export interface LobbyViewContext {
 export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
   const state = ctx.lobby.state!;
   const left = h('div', 'lb-main', null, teamsBlock(ctx, state));
-  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isGauntlet(state) ? knobsBlock(ctx, state) : null, isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
+  const right = h('div', 'lb-side', null, settingsBlock(ctx, state), isBattle(state) ? battleKnobsBlock(ctx, state) : null, weaponBlock(ctx, state));
   return h('div', 'lb-body', null, left, right);
 }
 
@@ -174,7 +174,7 @@ function section(title: string, ...children: (Node | null | false)[]): HTMLEleme
 function teamsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   if (isBattle(state) && !ctx.lobby.online) return section('Armies', armiesCard(runTuning(ctx.tuning, state.settings), state.settings.battle));
   const shown = shownTeams(state, ctx.lobby.online);
-  const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx)));
+  const teams = state.teams.map((_, team) => (shown.includes(team) ? teamCard(ctx, state, team) : floorsCard(ctx, state)));
   const vs = h('div', 'lb-vs', null, h('span', '', `${teamSize(state, 0)}`), h('b', '', 'vs'), h('span', '', `${teamSize(state, 1)}`));
   const grid = h('div', 'lb-teams', null, teams[0]!, vs, teams[1]!);
   const humans = state.members.length;
@@ -200,15 +200,15 @@ function teamCard(ctx: LobbyViewContext, state: LobbyState, team: number): HTMLE
   return card;
 }
 
-/** What the Gauntlet's Floors card says: how big the Dungeon is, and how a Run walks it. */
-export function dungeonCard(tuning: Pick<TuningData, 'dungeon'>): { readonly count: string; readonly note: string } {
-  const floors = tuning.dungeon.floors.length;
+/** What the Gauntlet's Floors card says: how deep the Dungeon goes, and how a Run goes down it. */
+export function dungeonCard(tuning: Pick<TuningData, 'delver'>): { readonly count: string; readonly note: string } {
+  const { tiers, floorsPerTier } = tuning.delver;
+  const floors = tiers * floorsPerTier;
   return {
-    count: `${floors} ${floors === 1 ? 'Floor' : 'Floors'} of Halls`,
+    count: `${floors} ${floors === 1 ? 'Floor' : 'Floors'}`,
     note:
-      `A Dungeon of ${floors} ${floors === 1 ? 'Floor' : 'Floors'}, each a map of Halls from an entrance to a Boss. ` +
-      `Clear a Hall, then stand at a Door together to go on: each Door names the Hall behind it (a Fight, an Elite, a Treasure or a Rest). ` +
-      `Beat a Floor's Boss to go down. HP carries over; a Rest Hall's fire heals, and fallen allies return in the next Hall.`,
+      `A Dungeon of ${floors} generated ${floors === 1 ? 'Floor' : 'Floors'}, past Warbands that guard and patrol. ` +
+      `Find the fires and the Stairs, and stand on the Stairs together to go down. HP carries over; a fire heals once and brings back the fallen.`,
   };
 }
 
@@ -241,12 +241,38 @@ function armiesCard(tuning: TuningData, knobs: BattleKnobs | undefined): HTMLEle
 }
 
 /** In a Gauntlet, Team 1's place: the Dungeon the Run walks. */
-function floorsCard(ctx: LobbyViewContext): HTMLElement {
+function floorsCard(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
   const card = h('div', 'lb-team lb-team-1');
   card.style.setProperty('--team', hex(teamColour(1, 0)));
   const { count, note } = dungeonCard(ctx.tuning);
   card.append(h('div', 'lb-team-head', null, h('span', 'lb-team-name', 'The Floors'), h('span', 'lb-team-count', count)), h('p', 'lb-note', note));
+  card.append(...traitorRows(ctx, state));
   return card;
+}
+
+/** What the Floors card says of the traitors (docs/plans/delver.md, Stage 8a). */
+export const TRAITOR_NOTE = 'Traitors play the Warbands: each takes over a Soldier out of the party’s sight, and another after each death.';
+
+/**
+ * A Delver Lobby's traitors (offline too: the player alone betrays an all-AI party), on the Floors card: each Player on a Team 1 Seat, and while one is free and you sit on Team 0, a button that
+ * moves you to it (`traitorSeat`). Moving back is any Team 0 Seat's own move button.
+ */
+function traitorRows(ctx: LobbyViewContext, state: LobbyState): HTMLElement[] {
+  const out: HTMLElement[] = [h('p', 'lb-note', TRAITOR_NOTE)];
+  state.teams[1]!.forEach((seat, index) => {
+    if (seat.kind === 'Player') out.push(seatRow(ctx, state, { team: 1, index }, seat, teamColour(1, index)));
+  });
+  const me = ctx.lobby.me;
+  const at = me === null ? null : seatOf(state, me);
+  const free = traitorSeat(state);
+  if (at && at.team === 0 && free !== null) out.push(button('lb-traitor', 'Play as a traitor', () => ctx.lobby.moveMe({ team: 1, index: free })));
+  return out;
+}
+
+/** The first Team 1 Seat a Player could move to as a traitor (no Player on it), or null. */
+export function traitorSeat(state: LobbyState): number | null {
+  const index = state.teams[1]!.findIndex((s) => s.kind !== 'Player');
+  return index < 0 ? null : index;
 }
 
 function avatar(text: string, colour: number | null): HTMLElement {
@@ -471,69 +497,6 @@ function seedInput(ctx: LobbyViewContext, seed: number): HTMLInputElement {
     else input.value = String(seed);
   });
   return input;
-}
-
-// --- Run difficulty ---
-
-type KnobKey = keyof RunKnobs;
-
-/** One Run knob as the Lobby offers it: its choices (value, label) and the value that leaves Tuning Data as it is. */
-interface KnobRow {
-  readonly key: KnobKey;
-  readonly label: string;
-  readonly standard: number;
-  readonly choices: readonly (readonly [number, string])[];
-}
-
-const percent = (v: number) => `${Math.round(v * 100)}%`;
-
-/** The choices for a share, with Tuning Data's own value among them. */
-function shares(values: readonly number[], standard: number, text: (v: number) => string): [number, string][] {
-  return [...new Set([...values, standard])].sort((a, b) => a - b).map((v) => [v, text(v)]);
-}
-
-/** The Run knobs the Lobby offers, each with Tuning Data's value as its standard choice. */
-export function knobRows(tuning: TuningData): KnobRow[] {
-  const { restHeal: heal, perPlayerHp } = tuning.dungeon;
-  return [
-    { key: 'difficulty', label: 'Enemy skill', standard: 0, choices: [[-2, 'Easiest'], [-1, 'Easier'], [0, 'Standard'], [1, 'Harder']] },
-    { key: 'enemyHp', label: 'Enemy HP', standard: 1, choices: [[0.5, '½×'], [0.75, '¾×'], [1, '1×'], [1.5, '1½×'], [2, '2×']] },
-    { key: 'maxEnemies', label: 'Enemies a Hall', standard: MAX_ENCOUNTER_ENEMIES, choices: Array.from({ length: MAX_ENCOUNTER_ENEMIES }, (_, i) => [i + 1, i === 0 ? '1' : `Up to ${i + 1}`] as const) },
-    { key: 'rest', label: 'Rest Hall heal', standard: heal, choices: shares([0, 0.3, 0.6, 1], heal, (v) => (v === 0 ? 'None' : v === 1 ? 'Full' : percent(v))) },
-    { key: 'perPlayerHp', label: 'Enemy HP per extra player', standard: perPlayerHp, choices: shares([0, 0.25, 0.5, 1], perPlayerHp, (v) => `+${percent(v)}`) },
-  ];
-}
-
-/** `knobs` with `key` set to `value`, or dropped when that is its standard (absent knobs leave Tuning Data as it is). */
-export function withKnob(knobs: RunKnobs | undefined, row: KnobRow, value: number): RunKnobs {
-  const { [row.key]: _old, ...rest } = knobs ?? {};
-  return value === row.standard ? rest : { ...rest, [row.key]: value };
-}
-
-/** A Run's difficulty knobs (Gauntlet only): the host sets them, everyone sees them. */
-function knobsBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement {
-  const editable = ctx.lobby.isHost;
-  const knobs = state.settings.run;
-  const rows = knobRows(ctx.tuning).map((row) => {
-    const current = knobs?.[row.key] ?? row.standard;
-    const group = h('div', 'segmented');
-    group.setAttribute('role', 'radiogroup');
-    group.setAttribute('aria-label', row.label);
-    for (const [value, text] of row.choices) {
-      const b = button('', text, () => ctx.lobby.edit((s) => updateSettings(s, { run: withKnob(s.settings.run, row, value) })));
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(value === current));
-      if (value === row.standard) b.title = 'Standard';
-      b.disabled = !editable;
-      group.append(b);
-    }
-    return h('div', 'lb-row lb-knob', null, h('span', 'lb-label', row.label), group);
-  });
-  const ladder = dungeonDifficultyLadder(ctx.tuning.dungeon).join(' → ');
-  const changed = knobs !== undefined && Object.keys(knobs).length > 0;
-  const reset = editable && changed ? button('lb-reset', 'Back to standard', () => ctx.lobby.edit((s) => updateSettings(s, { run: {} }))) : null;
-  const note = h('p', 'lb-note', `Enemy skill steps every enemy along ${ladder}. ${editable ? '' : 'The host sets these.'}`);
-  return section('Run difficulty', ...rows, note, reset);
 }
 
 // --- Battle options ---

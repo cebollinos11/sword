@@ -212,11 +212,8 @@ describe('Player vs Player Match driver with the dev autopilot', () => {
   /** A Controller that records what it is asked, and always presses attack. */
   const attacker = () => {
     const calls: { tick: number; fighter: number }[] = [];
-    const watched: number[] = [];
     return {
       calls,
-      watched,
-      watch: (m: MatchState) => void watched.push(m.tick),
       intent: (s: { tick: number }, fighter: number): Intent => {
         calls.push({ tick: s.tick, fighter });
         return { ...IDLE_INTENT, attack: true };
@@ -235,14 +232,12 @@ describe('Player vs Player Match driver with the dev autopilot', () => {
       guest.tick(IDLE_INTENT);
     }
     pilot.calls.length = 0;
-    pilot.watched.length = 0;
     pair.advance(TICK_MS);
     const real = host.localFighter;
     const before = host.state!.duel.tick;
     host.tick(forward);
     // Not asked before the Match exists; once it does, asked for the local Fighter with the state about to be stepped.
     expect(pilot.calls).toEqual([{ tick: before, fighter: real }]);
-    expect(pilot.watched).toEqual([host.state!.tick - 1]);
   });
 
   it('is asked once per new Tick: while the session stalls on the same state, its Intent is reused and its memory does not move', () => {
@@ -259,11 +254,10 @@ describe('Player vs Player Match driver with the dev autopilot', () => {
       if (!advanced) stalledFrames++;
     }
     expect(stalledFrames).toBeGreaterThan(5);
-    // Each Tick of the state it was asked about, and watched, once, in order, however many frames the session spent on it.
+    // Each Tick of the state it was asked about once, in order, however many frames the session spent on it.
     const ticks = pilot.calls.map((c) => c.tick);
     expect(ticks.length).toBeGreaterThan(20);
     expect(ticks).toEqual([...new Set(ticks)]);
-    expect(pilot.watched).toEqual([...new Set(pilot.watched)]);
   });
 
   it('is not asked, and the local Intent goes through, without one', () => {

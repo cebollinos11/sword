@@ -8,8 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { compileDraft } from '../mapEditor/compile';
 import { MAP_MODEL_ROOT, MAX_TORCH_LIGHTS, TORCH_LIGHT } from '../mapEditor/look';
-import { dressedSampleSource, sampleSource } from '../mapEditor/sample.testdata';
-import type { MapSource } from '../mapEditor/source';
+import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEditor/sample.testdata';
+import type { EnclosureBrush, MapSource } from '../mapEditor/source';
 import { mapModel } from './mapModel';
 
 const battle = loadTuningData().battle;
@@ -102,4 +102,24 @@ describe('the model of a Map Editor map', () => {
     const flat = (root: THREE.Object3D) => meshes(root).map((m) => [m.name, Array.from(m.geometry.getAttribute('position').array)]);
     expect(flat(modelOf(dressedSampleSource()))).toEqual(flat(modelOf(dressedSampleSource())));
   });
+
+  it('draws an Enclosure’s Walls outside its rect, their inner faces on the lines bodies and the camera stop at; a shared Wall between two rooms', () => {
+    const room = (id: string, x0: number, x1: number, doors: EnclosureBrush['doors'] = {}): EnclosureBrush => ({ kind: 'enclosure', id, rect: { x0, z0: -5, x1, z1: 5 }, y: 0, doors });
+    const stone = (s: MapSource) => {
+      const m = mesh(modelOf(s), 'Map_Stone')!;
+      const p = m.geometry.getAttribute('position');
+      return Array.from({ length: p.count }, (_, i) => ({ x: p.getX(i), y: p.getY(i), z: p.getZ(i) })).filter((v) => v.y > 0.5);
+    };
+    // One room alone: nothing of its Walls stands inside its rect (each slab is 0.6 m, wholly outside), and the corners are closed outside.
+    const alone = stone(withBrushes([GROUND, room('hall', -5, 5)], [0, 4]));
+    expect(alone.every((v) => Math.abs(v.x) >= 5 - 1e-5 || Math.abs(v.z) >= 5 - 1e-5)).toBe(true);
+    const bounds = new THREE.Box3().setFromPoints(alone.map((v) => new THREE.Vector3(v.x, v.y, v.z)));
+    expect([bounds.min.x, bounds.max.x, bounds.min.z, bounds.max.z].map((n) => Math.round(n * 1e4) / 1e4)).toEqual([-5.6, 5.6, -5.6, 5.6]);
+    // Two rooms edge to edge through a doorway: their shared Wall on x = 0 stands centred on its line, between them.
+    const pair = stone(withBrushes([GROUND, room('west', -10, 0, { e: 2 }), room('east', 0, 10, { w: 2 })], [0, 4]));
+    const middle = pair.filter((v) => Math.abs(v.x) < 1 && Math.abs(v.z) < 4.9);
+    expect(Math.min(...middle.map((v) => v.x))).toBeCloseTo(-0.3, 5);
+    expect(Math.max(...middle.map((v) => v.x))).toBeCloseTo(0.3, 5);
+  });
 });
+

@@ -24,7 +24,7 @@
  */
 import { MATCH_FORMATS, MAX_TEAM_SIZE, nextArenaName, parseGeneratedName, type MatchFormat } from '../sim';
 import { FLOOR_DIFFICULTY, MAX_PLAYERS, type Lineup, type LineupSlot, type PlayerNumber } from '../controllers';
-import { applyBattleKnobs, applyDungeonKnobs, storedSize, type BattleKnobs, type RunKnobs, type Size, type TuningData } from '../tuning';
+import { applyBattleKnobs, storedSize, type BattleKnobs, type Size, type TuningData } from '../tuning';
 
 /** The most humans a Room holds (and a Match fields). */
 export { MAX_PLAYERS };
@@ -60,8 +60,6 @@ export interface LobbySettings {
   readonly bestOf: number;
   /** Duels (absent: the default), Gauntlet (a Run, on the Random Map, Team 1 the Floors' enemies) or Battle. */
   readonly format?: MatchFormat;
-  /** A Run's difficulty knobs (Gauntlet only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
-  readonly run?: RunKnobs;
   /** A Battle's options: army size and hit rate (Battle only; absent: Tuning Data as it is). Every peer folds them in at the start (`runTuning`). */
   readonly battle?: BattleKnobs;
 }
@@ -146,8 +144,7 @@ export function member(state: LobbyState, id: number): Member | undefined {
 }
 
 /**
- * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Run with knobs, its Gauntlet
- * with them folded in (`applyDungeonKnobs`), or for a Battle with options, its armies with them folded in
+ * The Tuning Data a Match from these settings is played with: `tuning` itself, or for a Battle with options, its armies with them folded in
  * (`applyBattleKnobs`). Every peer builds it from the Lobby, so their Tuning Data hashes still agree.
  */
 export function runTuning(tuning: TuningData, settings: LobbySettings): TuningData {
@@ -155,9 +152,7 @@ export function runTuning(tuning: TuningData, settings: LobbySettings): TuningDa
     const battle = applyBattleKnobs(tuning.battle, settings.battle);
     return battle === tuning.battle ? tuning : { ...tuning, battle };
   }
-  if (settings.format !== 'Gauntlet') return tuning;
-  const dungeon = applyDungeonKnobs(tuning.dungeon, settings.run);
-  return dungeon === tuning.dungeon ? tuning : { ...tuning, dungeon };
+  return tuning;
 }
 
 /** The Formats a Lobby offers, in a Skirmish and online alike: the Lobby's wire list (`MATCH_FORMATS`) and Battle. */
@@ -173,6 +168,21 @@ export function isBattle(state: LobbyState): boolean {
 /** The Lobby plays a Gauntlet Run (not Duels). */
 export function isGauntlet(state: LobbyState): boolean {
   return state.settings.format === 'Gauntlet';
+}
+
+/** Every Player on Team 1 moved to Team 0 (swapping with an Open or Closed Seat, an AI last). Unchanged where Team 0 has no room. */
+function playersToTeam0(state: LobbyState): LobbyState {
+  let next = state;
+  for (const id of next.members.map((m) => m.id)) {
+    const at = seatOf(next, id);
+    if (!at || at.team === 0) continue;
+    const row = next.teams[0]!;
+    const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0);
+    if (index === undefined) continue;
+    const target = row[index]!;
+    next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
+  }
+  return next;
 }
 
 /** A Random Map's name (`gen:<kit>:<seed>`), not a hand-made Arena. */
@@ -220,7 +230,8 @@ export function setSeat(state: LobbyState, at: SeatRef, seat: Exclude<Seat, { ki
 export function moveMember(state: LobbyState, id: number, to: SeatRef): LobbyState {
   const from = seatOf(state, id);
   const target = seatAt(state, to);
-  if (!from || !target || target.kind === 'Player' || (to.team !== 0 && isGauntlet(state))) return state;
+  // A Gauntlet's Players may sit on Team 1 too: its traitors (docs/plans/delver.md, Stage 8a).
+  if (!from || !target || target.kind === 'Player') return state;
   return withSeat(withSeat(state, to, { kind: 'Player', member: id }), from, target);
 }
 
@@ -269,11 +280,14 @@ export function updateSettings(state: LobbyState, patch: Partial<Omit<LobbySetti
   return { ...state, settings: { ...state.settings, ...rest, ...(keep ? {} : { arena }) }, ...(keep ? {} : { matchArena: null }) };
 }
 
-/** Why the Lobby cannot switch to `format` now, or null: a Gauntlet seats every Player on Team 0, which holds MAX_TEAM_SIZE; a Battle takes any Players. */
+/**
+ * Why the Lobby cannot switch to `format` now, or null: switching to a Gauntlet seats every Player on Team 0 (`setFormat`), which holds
+ * MAX_TEAM_SIZE (Players may move to Team 1 as traitors afterwards); a Battle takes any Players.
+ */
 export function formatProblem(state: LobbyState, format: MatchFormat): string | null {
   if (format !== 'Gauntlet') return null;
   const players = state.teams.flat().filter((s) => s.kind === 'Player').length;
-  return players > MAX_TEAM_SIZE ? `A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has ${players}.` : null;
+  return players > MAX_TEAM_SIZE ? `Switching to a Gauntlet seats every player on Team 0, which holds ${MAX_TEAM_SIZE}; this Lobby has ${players}.` : null;
 }
 
 /**
@@ -287,14 +301,7 @@ export function setFormat(state: LobbyState, format: MatchFormat, randomArena: s
   let next: LobbyState = { ...state, settings: { ...state.settings, format } };
   if (format !== 'Gauntlet') return next;
   if (!isRandomMap(next.settings.arena)) next = { ...next, settings: { ...next.settings, arena: randomArena }, matchArena: null };
-  for (const id of next.members.map((m) => m.id)) {
-    const at = seatOf(next, id);
-    if (!at || at.team === 0) continue;
-    const row = next.teams[0]!;
-    const index = [row.findIndex((s) => s.kind === 'Open' || s.kind === 'Closed'), row.findIndex((s) => s.kind === 'AI')].find((i) => i >= 0)!;
-    const target = row[index]!;
-    next = withSeat(withSeat(next, { team: 0, index }, { kind: 'Player', member: id }), at, target);
-  }
+  next = playersToTeam0(next);
   for (let index = 0; index < MAX_TEAM_SIZE; index++) {
     if (next.teams[1]![index]!.kind !== 'Open') continue;
     const empty = next.teams[0]!.findIndex((s) => s.kind === 'Closed');
@@ -328,7 +335,10 @@ export function lobbyLineup(state: LobbyState): LobbyLineup {
   const lineup: LineupSlot[] = [];
   state.teams.forEach((row, team) => {
     if (gauntlet && team === 1) {
-      for (let k = 0; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
+      // A Run's Team 1 Players are its traitors, first (docs/plans/delver.md, Stage 8a); the Floors fill the rest.
+      let k = 0;
+      for (const s of row) if (s.kind === 'Player') lineup.push({ team, pilot: { kind: 'Player', player: playerOf(s.member) }, ...memberSize(state, s.member) }), k++;
+      for (; k < MAX_TEAM_SIZE; k++) lineup.push({ team, pilot: { kind: 'AI', difficulty: FLOOR_DIFFICULTY } });
       return;
     }
     for (const s of row) {

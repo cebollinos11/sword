@@ -4,10 +4,9 @@
  * edges exactly); a Wall stands under every cell side whose ground is higher than its neighbour's, so nobody walks
  * under a raised floor; whole flat cells at one height are merged into larger rectangles (fewer Walk Surfaces, a
  * faster navmesh); one Abyss lies under the whole footprint; each Team gets four spawns in one cell, the two
- * Teams' cells as far apart as the Layout allows. A Hall Arena's Doors (docs/plans/dungeon.md) each get their zone
- * and four spawns before the doorway; Team 0 starts at Door 0's, Team 1 in the cell furthest from it by walking.
+ * Teams' cells as far apart as the Layout allows.
  */
-import type { ArenaDoor, ArenaGeometry, ArenaPoint, SpawnPoint, WalkSurface, WallSegment } from '../../tuning';
+import type { ArenaGeometry, ArenaPoint, SpawnPoint, WalkSurface, WallSegment } from '../../tuning';
 import { cellGraph, distances, owners, SIDE_STEP, turnPoint, type Layout } from './grid';
 import type { Kit } from './kit';
 
@@ -20,8 +19,6 @@ const TEAMMATE_SIDE = 1;
 const TEAMMATE_BACK = 0.5;
 /** Fighters per Team that get a spawn. */
 export const SPAWNS_PER_TEAM = 4;
-/** How far (m) a Door's slot 0 stands out from its Wall, along the middle of its cell (its other slots behind it, nearer the Wall). */
-const DOOR_SPAWN_OUT = 1.75;
 
 export function assembleArena(kit: Kit, layout: Layout, name: string): ArenaGeometry {
   const { cols, rows } = layout;
@@ -126,32 +123,7 @@ export function assembleArena(kit: Kit, layout: Layout, name: string): ArenaGeom
     ],
   });
 
-  const doors = layout.placements
-    .filter((p) => p.door !== undefined)
-    .sort((a, b) => a.door! - b.door!)
-    .map((p): ArenaDoor => {
-      const zone = kit.pieces[p.piece].zone;
-      if (!zone) throw new Error(`Kit "${kit.name}": Piece "${p.piece}" is placed as a Door but has no zone`);
-      const y = p.level * kit.levelHeight;
-      const place = (x: number, z: number): [number, number] => {
-        const [tx, tz] = turnPoint(x, z, kit.cell, kit.cell, p.turn);
-        return [x0 + p.col * size + tx, z0 + p.row * size + tz];
-      };
-      // Out of the doorway is +z (side 2) unturned; a quarter turn moves side s to s + 1.
-      const [fx, fz] = SIDE_STEP[(2 + p.turn) % 4]!;
-      const facing = yaw(fx, fz);
-      // Unturned, the Fighter's right is -x.
-      const spawns = FORMATION.map(([side, ahead], slot): SpawnPoint => {
-        const [x, z] = place(kit.cell / 2 - side, DOOR_SPAWN_OUT + ahead);
-        return { team: 0, slot, position: { x, y, z }, facing };
-      });
-      const corners = zone.map(([zx, zz]): ArenaPoint => {
-        const [x, z] = place(zx, zz);
-        return { x, y, z };
-      });
-      return { zone: corners, facing, spawns };
-    });
-  return { name, walk, walls, spawns: doors.length ? [...doors[0]!.spawns, ...hallSpawns(kit, layout, tile, x0, z0)] : spawns(kit, layout, tile, x0, z0), doors };
+  return { name, walk, walls, spawns: spawns(kit, layout, tile, x0, z0) };
 }
 
 /** A Team's spawns relative to slot 0: [to its right, ahead] (m). Slots 1 and 2 to the side and behind, slot 3 straight behind. */
@@ -212,25 +184,6 @@ function spawns(kit: Kit, layout: Layout, tile: readonly (number | null)[], x0: 
   if (!best) return [];
   const centre = (k: number) => ({ x: x0 + ((k % cols) + 0.5) * kit.cell, z: z0 + (Math.floor(k / cols) + 0.5) * kit.cell });
   return best.flatMap((cell, team) => formation(team, centre(cell), tile[cell]!, toward(centre(cell), centre(best![1 - team]!))));
-}
-
-/**
- * A Hall Arena's Team 1 spawns: in the whole flat cell furthest from Door 0's by walking (ties: the lowest cell), safe
- * cells (as above) if there are any, never a Door's; laid out as above, facing Door 0 along the nearer axis.
- */
-function hallSpawns(kit: Kit, layout: Layout, tile: readonly (number | null)[], x0: number, z0: number): SpawnPoint[] {
-  const { cols } = layout;
-  const owner = owners(kit, layout);
-  const entrance = layout.placements.findIndex((p) => p.door === 0);
-  const door = layout.placements[entrance]!;
-  const dist = distances(cellGraph(kit, layout), door.row * cols + door.col);
-  const safe = safeCells(kit, layout, owner);
-  const tiles = tile.flatMap((y, k) => (y === null || layout.placements[owner[k]!]!.door !== undefined || dist[k]! < 0 ? [] : [k]));
-  const pool = tiles.some((k) => safe(k)) ? tiles.filter(safe) : tiles;
-  if (!pool.length) return [];
-  const cell = pool.reduce((best, k) => (dist[k]! > dist[best]! ? k : best));
-  const centre = (k: number) => ({ x: x0 + ((k % cols) + 0.5) * kit.cell, z: z0 + (Math.floor(k / cols) + 0.5) * kit.cell });
-  return formation(1, centre(cell), tile[cell]!, toward(centre(cell), centre(door.row * cols + door.col)));
 }
 
 /** Whether a cell's eight neighbours are all solid ground (no gap, no edge of the footprint). */

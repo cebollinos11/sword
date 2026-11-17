@@ -1,16 +1,14 @@
 /**
- * A Run's pickups (docs/plans/dungeon.md, "Loot and the inventory"): the items lying in the current Hall, `RunState.pickups`. A Hall's drops
- * come when it is cleared (one item a Player in a Fight Hall, two in a Boss Hall), a Treasure Hall's pedestals stand from its start (a few
- * a Player; taking one closes the rest for that Player), and an inventory `drop` lays a shared one. A Player's Fighter takes one by standing
- * on it with room in its inventory. What each holds is a pure pick of (Run seed, Floor, Hall, Player, k), so every peer agrees with nothing
- * sent, and where each lies is Team 1's spawn cell, ground the generator's judge guarantees every Door can walk to. They are plain data,
- * hashed and snapshotted with the Run, and gone when the Hall changes. The AI allies never take loot: only `runPlayers`' Fighters do.
+ * A Run's pickups (docs/plans/delver.md, Stage 4): the items lying on the current Floor, `RunState.pickups`. A wiped Warband's drops lie where
+ * its last Soldier fell, a Treasure Hall's pedestals stand from the Floor's start (a few a Player; taking one closes the rest for that Player),
+ * and an inventory `drop` lays a shared one (`delverLoot.ts` picks and places them). A Player's Fighter takes one by standing on it with room in
+ * its inventory. What each holds is a pure pick of (Run seed, Floor, slot), so every peer agrees with nothing sent. They are plain data, hashed
+ * and snapshotted with the Run, and gone when the Floor changes. The AI allies never take loot: only `runPlayers`' Fighters do.
  */
 import { runWeapons, type TuningData } from '../tuning';
-import { arenaOf } from './arena';
-import { hallSlot, runPick, runSeed, type Hall } from './dungeon';
+import { runPick } from './dungeon';
 import { inDuel } from './duel';
-import { hallRoster, presentPlayers, restFire, standsWithin, type HallRef } from './hall';
+import { presentPlayers, standsWithin } from './party';
 import { addItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
@@ -23,7 +21,7 @@ export interface PickupAt {
 }
 
 /**
- * One item lying in a Hall: `kind` and `item` (the Weapon or Relic name) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
+ * One item lying on a Floor: `kind` and `item` (the Weapon or Relic name) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
  * is, or null for a shared one (a drop, which any Player may take). `taken` pickups stay in the list, so an `id` (its index in it) is never reused.
  */
 export interface Pickup extends Dropped {
@@ -37,10 +35,10 @@ export interface Pickup extends Dropped {
   readonly by?: number;
 }
 
-/** How near (m, across the ground) a Fighter must stand to a pickup to take it: under half the 1.12 m between Team 1's spawns, where Hall pickups lie, so each is its own. */
+/** How near (m, across the ground) a Fighter must stand to a pickup to take it: under half the 1.12 m between two spots a Floor lays its pickups on, so each is its own. */
 export const PICKUP_RADIUS = 0.5;
 
-/** `runPick` salts of a pickup's item (apart from the Floor graph's and the Hall roster's). */
+/** `runPick` salts of a pickup's item. */
 const SALT = { kind: 50, relic: 51, weapon: 52 } as const;
 
 /** Whether the Player Fighter `player` sees (and may take) the pickup: its own and every shared one, not yet taken. The one rule presentation draws pickups by. */
@@ -49,78 +47,21 @@ export const pickupVisibleTo = (p: Pick<Pickup, 'owner' | 'taken'>, player: numb
 /** Whether a Fighter stands on `at`: within PICKUP_RADIUS across the ground, within ZONE_HEIGHT over it. */
 const standsOn = (at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolean => standsWithin(at, PICKUP_RADIUS, f);
 
-/** The ground a Hall's own pickups lie on: Team 1's spawns in slot order (a Hall Arena has four), else the Rest fire's spot. */
-function pickupSpots(tuning: TuningData, hall: Hall): PickupAt[] {
-  const arena = arenaOf(tuning, hall.arena);
-  const spawns = arena.spawns.filter((s) => s.team === 1).sort((a, b) => a.slot - b.slot);
-  return spawns.length > 0 ? spawns.map((s) => ({ x: s.position.x, y: s.position.y, z: s.position.z })) : [restFire(arena)];
-}
-
 /**
- * The item for slot `k` of `player`'s loot in Hall `at`: a Relic or a Weapon by `dungeon.loot.weights`, then a name from that list, both
- * by `runPick` on (Run seed, Floor, Hall, Player, k). Names in `avoid` (the items already picked for this Player's set) are skipped while
- * others remain. A Tuning Data with no Relics gives only Weapons.
+ * The item for pick slot `slot` of Floor `floor` (the caller's one number for a source, a Player and a k: `delverLoot.ts`'s `lootSlot`): a Relic
+ * or a Weapon by `dungeon.loot.weights`, then a name, both by `runPick` on (Run seed, Floor, slot). Names in `avoid` (the items already picked
+ * for this Player's set) are skipped while others remain. A Tuning Data with no Relics gives only Weapons.
  */
-function pickItem(tuning: TuningData, seed: number, at: HallRef, player: number, k: number, avoid: readonly Dropped[]): Dropped {
-  const slot = (hallSlot(at.row, at.index) * 8 + player) * 8 + k;
+export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[]): Dropped {
   const { Relic, Weapon } = tuning.dungeon.loot.weights;
   const relics = tuning.relics.map((r) => r.name);
   const weapons = runWeapons(tuning);
-  const u = (runPick(seed, at.floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
+  const u = (runPick(seed, floor, slot, SALT.kind, 0x1_0000_0000) / 0x1_0000_0000) * (Relic + Weapon);
   const kind: Dropped['kind'] = relics.length > 0 && (u < Relic || weapons.length === 0) ? 'relic' : 'weapon';
   const names = kind === 'relic' ? relics : weapons;
   const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item === n));
   const from = fresh.length > 0 ? fresh : names;
-  return { kind, item: from[runPick(seed, at.floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
-}
-
-/**
- * The Relic an Elite Hall's Encounter carried, dropped on top of `loot.drops.Elite`: the first Relic of the lowest-slot enemy that fights
- * (`hallRoster`) and carries any, so with several carriers the pick is the same on every peer. None when no enemy carries one.
- */
-function carriedRelics(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans'>, at: HallRef): readonly string[] {
-  const carrier = hallRoster(tuning, config, at).find((e) => e?.relics !== undefined);
-  return carrier ? [carrier.relics![0]!] : [];
-}
-
-/**
- * What a Hall drops for each Player when it is cleared (`HallCleared`), to append to the Hall's pickups from `firstId`: for each Player of
- * `presentPlayers(config, away)`, ascending, `loot.drops` of the Hall's kind items (none for a Treasure or Rest Hall), each its own (`owner` the Player)
- * on Team 1's spawn k (wrapping), a Player's items different where they can be. An Elite Hall also drops, for each Player, the Relic an Elite
- * carried (`carriedRelics`) ahead of the picked ones: its count is `loot.drops.Elite` plus that one.
- */
-export function hallDrops(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, firstId: number, away?: readonly number[]): Pickup[] {
-  const count = hall.kind === 'Fight' || hall.kind === 'Elite' || hall.kind === 'Boss' ? tuning.dungeon.loot.drops[hall.kind] : 0;
-  const carried = hall.kind === 'Elite' ? carriedRelics(tuning, config, at) : [];
-  if (count + carried.length === 0) return [];
-  const seed = runSeed(config.arena);
-  const spots = pickupSpots(tuning, hall);
-  const pickups: Pickup[] = [];
-  for (const player of presentPlayers(config, away)) {
-    const items: Dropped[] = carried.map((item) => ({ kind: 'relic', item }));
-    for (let k = 0; k < count; k++) items.push(pickItem(tuning, seed, at, player, k, items));
-    for (const [k, item] of items.entries()) pickups.push({ id: firstId + pickups.length, owner: player, ...item, at: spots[k % spots.length]!, taken: false });
-  }
-  return pickups;
-}
-
-/**
- * A Hall's pickups at its start: a Treasure Hall's `loot.pedestals` pedestals for each Player, ascending, on Team 1's spawns (which it
- * leaves empty) in slot order, each Player's own copies on the same ground (a Player sees only theirs: `pickupVisibleTo`), different items
- * where they can be, all of a Player's in one `group`: taking one closes the others, for that Player only. No other Hall has any.
- */
-export function startPickups(tuning: TuningData, config: Pick<MatchConfig, 'arena' | 'teams' | 'humans' | 'players'>, at: HallRef, hall: Hall, away?: readonly number[]): Pickup[] {
-  if (hall.kind !== 'Treasure') return [];
-  const seed = runSeed(config.arena);
-  const spots = pickupSpots(tuning, hall);
-  const pickups: Pickup[] = [];
-  for (const player of presentPlayers(config, away)) {
-    const first = pickups.length;
-    const items: Dropped[] = [];
-    for (let k = 0; k < tuning.dungeon.loot.pedestals; k++) items.push(pickItem(tuning, seed, at, player, k, items));
-    for (const [k, item] of items.entries()) pickups.push({ id: first + k, owner: player, ...item, at: spots[k % spots.length]!, taken: false, group: first });
-  }
-  return pickups;
+  return { kind, item: from[runPick(seed, floor, slot, kind === 'relic' ? SALT.relic : SALT.weapon, from.length)]! };
 }
 
 /** A shared pickup for an item a Fighter dropped, at its feet, with id `id` (the next free one): the drop seam's work (`placeDrop`). */
@@ -175,4 +116,19 @@ export function takePickups(
     }
   }
   return { pickups: next, fighters: held, taken };
+}
+
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+export interface DroppedItem extends Dropped {
+  readonly fighter: number;
+  readonly at: PickupAt;
+}
+
+/**
+ * THE drop seam: the one place an item a Fighter dropped (Intent `drop`, accepted by `stepDelver`)
+ * becomes something in the world: a shared pickup (`owner: null`, any Player may take it) at `drop.at` in `RunState.pickups`, which the dropper
+ * cannot take back until it has stepped off it. The drop has left the inventory already (and is reported as an `ItemDropped` event). Pure.
+ */
+export function placeDrop<R extends { readonly pickups: readonly Pickup[] }>(run: R, drop: DroppedItem): R {
+  return { ...run, pickups: [...run.pickups, droppedPickup(run.pickups.length, drop)] };
 }

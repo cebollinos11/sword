@@ -18,7 +18,7 @@ export interface RunBuild {
 
 /** Each Player's build in a Run, in Fighter order; empty outside a Run. AI allies and Fighters without an inventory are left out. */
 export function runBuilds(match: MatchState, nameOf: (fighter: number) => string = (f) => `Player ${f + 1}`): RunBuild[] {
-  if (!match.run) return [];
+  if (!match.delver) return [];
   return [...runPlayers(match.config)]
     .sort((a, b) => a - b)
     .flatMap((fighter) => {

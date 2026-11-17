@@ -6,15 +6,17 @@ const LOG_BURNT = 0x2a2522;
 const EMBER_COLOR = 0xc8431c;
 /** Drawn this far (m) over the ground, so the fire never flickers into it. */
 const LIFT = 0.03;
+/** The share of its size a fire's flames keep once its revive is spent. */
+export const SPENT_SIZE = 0.55;
 
-/** A Rest Hall's fire as one Player sees it: burning until they have rested, then embers. */
+/** A fire as one Player sees it: burning until they have taken its heal, then embers. */
 export type FireState = 'lit' | 'embers';
 
 /** The fire `viewer` (a Player Fighter, -1 for none) sees, from the Players that took it (`Run.rested`). Render only. */
 export const fireState = (rested: readonly number[], viewer: number): FireState => (rested.includes(viewer) ? 'embers' : 'lit');
 
 /**
- * A Rest Hall's fire (docs/plans/dungeon.md, Stage 3): crossed logs under three nested flames that flicker with the frames drawn,
+ * A Rest Hall's fire (docs/plans/dungeon.md, Stage 3; a Floor's since docs/plans/delver.md, Stage 5): crossed logs under three nested flames that flicker with the frames drawn,
  * or, once the local Player has rested, charred logs and a few glowing embers. `kit` is the seam for a Kit's model (#62): given, it is
  * drawn in place of the fallback meshes, and its children named `flames` and `embers`, if it has them, follow the state. The fire owns
  * only what it makes, and `dispose` frees that; a Kit node stays its owner's.
@@ -27,6 +29,8 @@ export class RestFire {
   private readonly owned: { dispose(): void }[] = [];
   private state: FireState = 'lit';
   private clock = 0;
+  /** The flames' size: 1, or `SPENT_SIZE` once the fire's revive is spent (a Delver Run's stand-in for it). */
+  private size = 1;
 
   constructor(at: { readonly x: number; readonly y: number; readonly z: number }, kit?: THREE.Object3D) {
     this.root.position.set(at.x, at.y + LIFT, at.z);
@@ -79,11 +83,17 @@ export class RestFire {
     this.logs?.color.setHex(state === 'lit' ? LOG_LIT : LOG_BURNT);
   }
 
+  /** A fire whose revive is spent burns smaller (`SPENT_SIZE`); a lit one keeps flickering at that size. */
+  setSpent(spent: boolean): void {
+    this.size = spent ? SPENT_SIZE : 1;
+    this.flames.scale.setScalar(this.size);
+  }
+
   /** Flicker the flames, `seconds` of wall time after the last call. */
   animate(seconds: number): void {
     this.clock += seconds;
     if (this.state !== 'lit') return;
-    this.flames.scale.set(1 + 0.08 * Math.sin(this.clock * 9), 1 + 0.15 * Math.sin(this.clock * 13 + 1), 1 + 0.08 * Math.sin(this.clock * 11 + 2));
+    this.flames.scale.set(this.size * (1 + 0.08 * Math.sin(this.clock * 9)), this.size * (1 + 0.15 * Math.sin(this.clock * 13 + 1)), this.size * (1 + 0.08 * Math.sin(this.clock * 11 + 2)));
   }
 
   /** Free every geometry and material the fire made. */

@@ -28,6 +28,9 @@ function at(p: SourceProp, x: number, y: number, z: number, s: THREE.Vector3Like
     .multiply(new THREE.Matrix4().makeScale(s.x, s.y, s.z));
 }
 
+/** Whether the crate prop `id` has a smaller crate stacked on top (every other one, by its id): the rule `placeProps` draws by, and the pedestal items stand by. */
+export const crateStacked = (id: string): boolean => vary(id, 1) < 0.5;
+
 /** Lay `props` into `buckets`, and return the torches' lights (the first MAX_TORCH_LIGHTS torches carry one, `LIGHT_torch_<n>`). */
 export function placeProps(props: readonly SourceProp[], buckets: MeshBuckets): THREE.PointLight[] {
   const lights: THREE.PointLight[] = [];
@@ -66,7 +69,7 @@ export function placeProps(props: readonly SourceProp[], buckets: MeshBuckets): 
       case 'crate':
         buckets.geometry(PROP_LOOKS.crate, shapes.box, at(p, 0, 0.6, 0, { x: 1.2, y: 1.2, z: 1.2 }));
         // Every other crate has a smaller one on top, askew.
-        if (v(1) < 0.5) buckets.geometry(PROP_LOOKS.crate, shapes.box, at(p, 0.1, 1.6, -0.05, { x: 0.8, y: 0.8, z: 0.8 }, 0.25 + 0.4 * v(2)));
+        if (crateStacked(p.id)) buckets.geometry(PROP_LOOKS.crate, shapes.box, at(p, 0.1, 1.6, -0.05, { x: 0.8, y: 0.8, z: 0.8 }, 0.25 + 0.4 * v(2)));
         break;
       case 'banner': {
         const cloth = p.team === 0 ? PROP_LOOKS.banner0 : p.team === 1 ? PROP_LOOKS.banner1 : PROP_LOOKS.banner;

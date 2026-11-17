@@ -3,7 +3,7 @@ import { JOINT_NAMES, type SkeletonPose, type Vec3 } from '../sim';
 import { weaponByName, type TuningData } from '../tuning';
 import { iconTexture, relicIcon } from '../play/icons';
 import { FighterView } from './fighterView';
-import { PEDESTAL_HEIGHT, type PickupView } from './pickupView';
+import { CRATE_HEIGHT, PEDESTAL_HEIGHT, type PickupView } from './pickupView';
 
 const PEDESTAL_COLOR = 0x8d8a84;
 const BASE_COLOR = 0x6a645c;
@@ -70,8 +70,9 @@ export class PickupMarks {
       slot.root.visible = v !== undefined;
       if (!v) return;
       slot.root.position.set(v.at.x, v.at.y, v.at.z);
-      const floor = v.pedestal ? PEDESTAL_HEIGHT : 0;
-      slot.pedestal.visible = v.pedestal;
+      // A Delver Floor's pedestal is a crate prop of the map: the item stands on its top and no cylinder is drawn.
+      const floor = v.crate ? (v.crateTop ?? CRATE_HEIGHT) : v.pedestal ? PEDESTAL_HEIGHT : 0;
+      slot.pedestal.visible = v.pedestal && !v.crate;
       slot.base.visible = !v.pedestal && v.form.kind === 'relic';
       slot.sprite.visible = v.form.kind === 'relic';
       if (slot.weapon) slot.weapon.view.root.visible = v.form.kind === 'weapon';

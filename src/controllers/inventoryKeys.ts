@@ -3,7 +3,7 @@
  * Weapons in slots 0 to 2, 4 to 9 the Relics in slots 0 to 5: `dungeon.inventory` sizes 3 and 6), Shift and a number key only selects the item
  * (a Weapon equipped is the wielded one, which cannot be dropped, so a carried Weapon is dropped by selecting it this way), X drops the item last
  * selected, I opens the inventory screen (render only, `src/game.ts`), whose clicks and taps ask the same (`inventoryClick`). None clashes with the movement, combat or Ctrl keys, and the Escape of the menu.
- * The Simulation refuses `equip` and `drop` while an enemy lives, so a press then does nothing (and the selection stays).
+ * The Simulation refuses `equip` and `drop` mid-Action, in the air or fallen, so a press then does nothing (and the selection stays).
  */
 import type { InventoryRef } from '../sim';
 

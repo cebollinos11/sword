@@ -1,6 +1,6 @@
 /**
  * A Player's inventory in a Run (docs/plans/dungeon.md): the Weapons and Relics its Fighter holds, equipped or carried. It
- * changes only through the Intent's `equip` and `drop`, and only while no enemy in the Hall is alive (`stepMatch` asks
+ * changes only through the Intent's `equip` and `drop`, in a fight too, but only while its Fighter is Idle on the ground (`stepMatch` asks
  * `canChangeInventory`), so a Weapon swap is never mid-Action. Everything here is pure.
  */
 import type { TuningData } from '../tuning';
@@ -25,18 +25,28 @@ export interface Inventory {
 /** The inventory of a Player's Fighter at the Run's start: the Weapon the Lineup chose, wielded, and nothing else. */
 export const startingInventory = (weapon: string): Inventory => ({ weapons: [weapon], relics: [], weapon: 0, equipped: [] });
 
+/** `inv` holding `relics`, the first `equippedRelics` of them equipped. Throws on a name Tuning Data lacks or more than `dungeon.inventory.relics`. */
+export function withStartingRelics(inv: Inventory, relics: readonly string[], tuning: TuningData): Inventory {
+  const sizes = tuning.dungeon.inventory;
+  if (relics.length > sizes.relics) throw new RangeError(`A Fighter carries at most ${sizes.relics} Relics, got ${relics.length}`);
+  for (const name of relics)
+    if (!tuning.relics.some((r) => r.name === name)) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return { ...inv, relics: [...relics], equipped: relics.slice(0, sizes.equippedRelics).map((_, k) => k) };
+}
+
 /** The name of the Weapon the inventory has wielded. */
 export const wieldedWeapon = (inv: Inventory): string => inv.weapons[inv.weapon]!;
 
+/** The Relic of Tuning Data named `name`. Throws on a Relic Tuning Data lacks. */
+export function relicOf(tuning: Pick<TuningData, 'relics'>, name: string): TuningData['relics'][number] {
+  const relic = tuning.relics.find((r) => r.name === name);
+  if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
+  return relic;
+}
+
 /** The Mods of the Relics named, folded (`foldMods`) in order. Throws on a Relic Tuning Data lacks. */
 export function relicMods(tuning: Pick<TuningData, 'relics'>, names: readonly string[]): Mods {
-  return foldMods(
-    names.map((name) => {
-      const relic = tuning.relics.find((r) => r.name === name);
-      if (!relic) throw new RangeError(`Unknown Relic "${name}" (have: ${tuning.relics.map((r) => r.name).join(', ')})`);
-      return relic;
-    }),
-  );
+  return foldMods(names.map((name) => relicOf(tuning, name)));
 }
 
 /** The Mods of an inventory: its equipped Relics folded (`foldMods`) in `equipped` order. Throws on a Relic Tuning Data lacks. */
@@ -85,7 +95,7 @@ export function holdInventory(f: FighterState, inventory: Inventory, tuning: Tun
 }
 
 /**
- * Whether the Fighter may change its inventory this Tick (the Hall being Cleared is the caller's to say): it has an inventory, still fights,
+ * Whether the Fighter may change its inventory this Tick (the Run's phase is the caller's to say): it has an inventory, still fights,
  * and is Idle on the ground, never mid-Action.
  */
 export const canChangeInventory = (f: FighterState): boolean => f.inventory !== undefined && inDuel(f) && f.hp > 0 && f.action.kind === 'Idle' && !f.air;

@@ -3,12 +3,12 @@
  * choices for it, synced over the memory transport with latency and jitter.
  */
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash } from '../tuning';
+import { loadTuningData } from '../tuning';
 import { MATCH_FORMATS, MAX_TEAM_SIZE, TICK_RATE } from '../sim';
 import { FLOOR_DIFFICULTY } from '../controllers';
 import { createMemoryTransportPair } from '../net';
 import { formatRefusal, randomBlurb, shownTeams, waitingTag } from '../play/lobbyView';
-import { join, lobbyLineup, newLobby, runTuning, seatOf, setFormat, startMatch, type LobbySettings, type LobbyState, type NewLobbyOptions } from './lobby';
+import { join, lobbyLineup, newLobby, seatOf, setFormat, startMatch, type LobbySettings, type LobbyState, type NewLobbyOptions } from './lobby';
 import { parseLobbyMessage } from './messages';
 import { GuestLobby, HostLobby } from './sync';
 
@@ -120,10 +120,10 @@ describe('a Gauntlet Room', () => {
       for (const id of [0, 1, 2]) expect(seatOf(g.state!, id)?.team).toBe(0);
       expect(randomBlurb(g.state!, null, false)).toBe('Run seed 640492');
     }
-    // A guest asking for a Team 1 Seat stays on Team 0.
+    // A guest asking for a Team 1 Seat takes it: a traitor (docs/plans/delver.md, Stage 8a).
     bo.moveMe({ team: 1, index: 0 });
     r.run(2000);
-    expect(seatOf(r.host.state, bo.me!)?.team).toBe(0);
+    expect(seatOf(r.host.state, bo.me!)?.team).toBe(1);
   });
 
   it('a new Gauntlet Room fills its three Seats beside the host over the link, and turns a fifth player away', () => {
@@ -136,19 +136,6 @@ describe('a Gauntlet Room', () => {
     expect(seated.every((g) => g.status === 'Open' && seatOf(g.state!, g.me!)?.team === 0)).toBe(true);
     expect(late!.status).toBe('Closed');
     expect(late!.failure).toMatch(/full/);
-  });
-});
-
-describe('a Run online with the Lobby\'s knobs', () => {
-  it('the host and every guest fold the same knobs in, so their Tuning Data hashes are equal (and differ from the plain ones)', () => {
-    const r = room({ arena: RUN, bestOf: 3, format: 'Gauntlet', run: { difficulty: 1, rest: 0.3, maxEnemies: 3 } });
-    r.connect('Bo');
-    r.connect('Cy');
-    r.run(2000);
-    const hashes = [r.host.state, ...r.guests.map((g) => g.state!)].map((s) => tuningDataHash(runTuning(tuning, s.settings)));
-    expect(hashes).toHaveLength(3);
-    expect(new Set(hashes).size).toBe(1);
-    expect(hashes[0]).not.toBe(tuningDataHash(tuning));
   });
 });
 

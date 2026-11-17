@@ -5,28 +5,38 @@ import { sizedTuning, weaponByName, type TuningData } from '../tuning';
 import { BlobShadows } from './blobShadow';
 import { forcedBody, isBody, randomBody, type Body } from './bodyModel';
 import { DaggerViews } from './daggerView';
-import { DoorMarks } from './doorMarks';
-import { HallMarks } from './hallMarks';
-import type { DoorMarkView } from '../play/doorMarks';
+import { DelverMarks, type DelverMarksView } from './delverMarks';
 import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
-import type { FireState } from './restFire';
 import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighterView';
 import { FlailSwing } from './flailSwing';
 import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
+import { arenaTuning } from '../sim/delver';
 
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
 export type ArenaWorld = (name: string) => { readonly tuning: TuningData; readonly layout?: Layout };
+
+/**
+ * Every Fighter's colour in `state`. A Battle's Fighters wear their Team's soldier colour (`soldierColours`); a Delver Run's keep
+ * the Duel's colours for the party (Team 0, shaded by place) and a promoted Soldier of the Warbands wears Team 1's soldier colour,
+ * as its impostor does; any other state has the Duel's.
+ */
+export function drawColours(state: Pick<SimState, 'crowd' | 'delver' | 'fighters'>, soldierColours: readonly number[]): number[] {
+  if (!state.crowd) return fighterColours(state.fighters.map((f) => f.team));
+  if (!state.delver) return state.fighters.map((f) => soldierColours[f.team] ?? 0xffffff);
+  const duel = fighterColours(state.fighters.map((f) => f.team));
+  return state.fighters.map((f, i) => (f.team === 0 ? duel[i]! : (soldierColours[f.team] ?? 0xffffff)));
+}
 
 /**
  * Three.js view of the Simulation. Reads Simulation state, interpolates the
  * solved Skeletons between the previous and current Tick (or draws a fallen
  * Fighter's Death Ragdoll), and never writes back. A Benched Fighter (a Run's
  * Team 1 slot its Hall leaves empty) is not drawn at all: no model, no shadow,
- * no dagger in hand, no trail. A Run's Hall also draws its Doors and Rest fire (`HallMarks`).
+ * no dagger in hand, no trail. A Run's Floor also draws its Stairs and fires (`DelverMarks`).
  *
  * In a Battle (docs/plans/big-battle.md) every Fighter wears its Team's soldier colour (`battle.soldier.colours`), and a
  * Fighter Pool slot can be faded (`setFades`): a slot just freed keeps drawing the pose it last showed while it fades out.
@@ -49,12 +59,10 @@ export class Renderer {
   private readonly daggers: DaggerViews;
   private readonly shadows = new BlobShadows();
   private readonly trails: SwingTrails;
-  private readonly hallMarks = new HallMarks();
-  private readonly doorMarks = new DoorMarks();
-  private doors: readonly DoorMarkView[] = [];
+  private readonly delverMarks = new DelverMarks();
+  private delver: DelverMarksView | null = null;
   private readonly pickupMarks: PickupMarks;
   private pickups: readonly PickupView[] = [];
-  private fire: FireState = 'lit';
   /** Each Fighter's share of its model to show (`setFades`); null: all of every one. */
   private fades: ((fighter: number) => number) | null = null;
   /** The pose each Fighter was last drawn in, held for a slot fading out once it is no longer drawn. */
@@ -79,8 +87,7 @@ export class Renderer {
     this.daggers = new DaggerViews(this.stage.scene);
     this.trails = new SwingTrails(this.stage.scene);
     this.stage.scene.add(this.shadows.root);
-    this.stage.scene.add(this.hallMarks.root);
-    this.stage.scene.add(this.doorMarks.root);
+    this.stage.scene.add(this.delverMarks.root);
     this.stage.scene.add(this.pickupMarks.root);
   }
 
@@ -145,19 +152,14 @@ export class Renderer {
     this.stage.setColliders(on);
   }
 
-  /** How the pickups lying in the Hall are drawn (`pickupViews`) from the next frame on; the hidden ones are skipped (none: none drawn). */
+  /** How the pickups lying on the Floor are drawn (`pickupViews`) from the next frame on; the hidden ones are skipped (none: none drawn). */
   setPickups(views: readonly PickupView[]): void {
     this.pickups = views;
   }
 
-  /** How the Rest fire burns for the local Player (`fireState`), from the next frame on. */
-  setFire(state: FireState): void {
-    this.fire = state;
-  }
-
-  /** The exit Doors' marks (icon, gate, count) to draw from the next frame on (none: none drawn). */
-  setDoors(views: readonly DoorMarkView[]): void {
-    this.doors = views;
+  /** A Delver Run's Floor marks (Stairs, fires and their rings) from the next frame on; null outside a Delver Run. */
+  setDelver(view: DelverMarksView | null): void {
+    this.delver = view;
   }
 
   /** Keeps the camera inside the Arena last drawn. */
@@ -200,7 +202,7 @@ export class Renderer {
     const world = this.world(curr.arena);
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
-    const colours = curr.crowd ? curr.fighters.map((f) => world.tuning.battle.soldier.colours[f.team] ?? 0xffffff) : fighterColours(curr.fighters.map((f) => f.team));
+    const colours = drawColours(curr, world.tuning.battle.soldier.colours);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;
@@ -245,12 +247,11 @@ export class Renderer {
     });
     // A smaller Match than the last one: hide the Fighters it does not have.
     for (let i = curr.fighters.length; i < this.views.length; i++) if (this.views[i]) this.views[i]!.view.root.visible = false;
-    const arena = arenaOf(world.tuning, curr.arena);
-    this.hallMarks.update(arena, curr.hall, this.fire);
-    this.doorMarks.update(arena, curr.hall, this.doors);
+    const arena = arenaOf(arenaTuning(world.tuning, curr.arena), curr.arena);
+    this.delverMarks.update(curr.delver ? this.delver : null);
     // A body in pieces casts its shadow from the piece with the pelvis.
     this.shadows.update(poses.map((p) => p?.pieces?.poses[0] ?? p), arena);
-    this.hallMarks.animate(seconds);
+    this.delverMarks.animate(seconds);
     this.pickupMarks.update(this.pickups, seconds);
     this.daggers.update(prev, curr, alpha, seconds, poses, arena);
     this.impacts.drip(poses, seconds);

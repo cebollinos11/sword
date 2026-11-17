@@ -40,6 +40,9 @@ import { maxArmySize, type TuningData } from '../../tuning';
 import { saveGlbFile, saveJsonFile } from '../../editor/save';
 import { exportMapModel, mapModel } from '../../render/mapModel';
 import { navMesh } from '../../sim';
+import { delverFloor, describeFloor } from '../../sim/delver';
+import { isFloorName } from '../../sim/delver/source';
+import { devDelverFloor } from '../../devMode';
 import { checkMap, EDGE_KINDS, fieldClearance, issueBounds, type ClearanceNode, type MapChecks, type MapIssue } from '../checks';
 import { compileDraft, MapCompileError, type DraftMap } from '../compile';
 import { draftTuning, type Draft } from '../playtest';
@@ -126,7 +129,9 @@ function propsOf(b: Brush, into: BrushProps): BrushProps {
   if (isSegment(b)) Object.assign(into, { ax: b.a.x, az: b.a.z, bx: b.b.x, bz: b.b.z });
   else Object.assign(into, b.rect);
   if ('y' in b) into.y = b.y;
-  if ('top' in b) into.top = b.top;
+  if ('top' in b && b.top !== undefined) into.top = b.top;
+  // An Enclosure with no `top` of its own has no ceiling to carry (NaN, not the last Brush's number).
+  else if (b.kind === 'enclosure') into.top = NaN;
   if (b.kind === 'ramp') {
     const [sa, sb] = rampLongSides(b.up);
     Object.assign(into, { lo: b.lo, hi: b.hi, up: b.up, railA: b.rails.includes(sa!), railB: b.rails.includes(sb!) });
@@ -176,7 +181,7 @@ function shapeFromProps(kind: BrushKind, p: BrushProps): Brush {
     case 'wall':
       return { kind, id: p.id, a, b, bottom: p.bottom, top: p.top };
     case 'enclosure':
-      return { kind, id: p.id, rect, y: p.y, doors: Object.fromEntries(SIDES.filter((s) => p[DOOR_KEYS[s].door]).map((s) => [s, p[DOOR_KEYS[s].width]])) };
+      return { kind, id: p.id, rect, y: p.y, doors: Object.fromEntries(SIDES.filter((s) => p[DOOR_KEYS[s].door]).map((s) => [s, p[DOOR_KEYS[s].width]])), ...(Number.isFinite(p.top) ? { top: p.top } : {}) };
   }
 }
 
@@ -192,6 +197,10 @@ const SIDE_LABELS: Record<Side, string> = { n: 'north (+z)', e: 'east (+x)', s: 
 
 export function startMapEditor(container: HTMLElement, tuning: TuningData): void {
   const session = new MapEditorSession();
+  // A Floor builds its destination fields at delver.flowCell (docs/plans/delver.md), so the checks of an open Floor use that cell;
+  // everything else keeps `tuning`. One object per kind, so caches keyed by object identity keep hitting.
+  const floorTuning: TuningData = { ...tuning, battle: { ...tuning.battle, crowd: { ...tuning.battle.crowd, flowCell: tuning.delver.flowCell } } };
+  const checkTuning = (): TuningData => (isFloorName(session.source.name) ? floorTuning : tuning);
   // Dev server only: the session in the console (`mapEditor.source`), to look at or script a map by hand.
   if (import.meta.env.DEV) (window as unknown as { mapEditor: MapEditorSession }).mapEditor = session;
   container.style.position = 'relative';
@@ -220,6 +229,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     seed: 1,
     army: 0,
     quickBattles: 4,
+    delverSeed: 1,
+    delverFloor: 1,
     look3d: true,
     mirror: false,
   };
@@ -349,7 +360,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   const buildClearance = () => {
     if (!overlays.clearance || !checks || clearance) return;
     const t0 = performance.now();
-    clearance = fieldClearance(checks, tuning.battle)?.nodes ?? null;
+    clearance = fieldClearance(checks, checkTuning().battle)?.nodes ?? null;
     fieldMs = clearance ? performance.now() - t0 : null;
   };
   /** The model the 3D view shows for the checks' source: built once per source (an overlay toggled draws the same one again). */
@@ -370,7 +381,7 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
     window.clearTimeout(checkTimer);
     checkTimer = 0;
     const t0 = performance.now();
-    checks = checkMap(session.source, tuning, { edges: overlays.edges });
+    checks = checkMap(session.source, checkTuning(), { edges: overlays.edges });
     checkMs = performance.now() - t0;
     clearance = null;
     fieldMs = null;
@@ -510,6 +521,22 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   file.addBinding(ui, 'example', { label: 'example', options: Object.fromEntries(Object.keys(examples).map((k) => [k, k])) });
   file.addButton({ title: 'Open example' }).on('click', () => discardOk() && openRaw(examples[ui.example]!(), ui.example));
   file.addButton({ title: 'Open .source.json…' }).on('click', () => discardOk() && picker.click());
+  // A generated Delver Floor (docs/plans/delver.md): Floor `floor` of `seed`, opened as a Map Source like any other, to be saved out or edited.
+  file.addBinding(ui, 'delverSeed', { label: 'Delver seed', step: 1, min: 0, max: 4294967295 });
+  file.addBinding(ui, 'delverFloor', { label: 'Delver floor', step: 1, min: 1, max: tuning.delver.tiers * tuning.delver.floorsPerTier });
+  /** Builds and opens Floor `floor` of `seed`. The build takes a few hundred ms, so the status shows first and it runs on the next task. */
+  const openDelverFloor = (seed: number, floor: number) => {
+    say(`Building Floor ${floor} of seed ${seed}…`);
+    setTimeout(() => {
+      try {
+        const f = delverFloor(tuning, seed >>> 0, floor);
+        openRaw(JSON.parse(JSON.stringify(f.source)), describeFloor(f));
+      } catch (e) {
+        say(`Not opened: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }, 0);
+  };
+  file.addButton({ title: 'Open Delver Floor' }).on('click', () => discardOk() && openDelverFloor(ui.delverSeed, ui.delverFloor));
   file.addButton({ title: 'Save (source, compiled map, model)' }).on('click', () => void save());
 
   // --- Play-test and the Quick check ---------------------------------------
@@ -915,7 +942,8 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
       f.addBinding(settings, 'name', { label: 'name' }).on('change', (e) => settingsEdit(() => session.setSettings({ name: e.value })));
       f.addBinding(settings, 'size', { label: 'size (m)', readonly: true, format: (v: number) => `${v} (the Battle's field)` });
       // The coarse grid: drawn, a click's Brush and a duplicate's offset. The destination fields' cell keeps Walls off its dots (Stage 6).
-      const cells = { [`${tuning.battle.crowd.flowCell} m (the destination fields' cell)`]: tuning.battle.crowd.flowCell, ...(tuning.battle.crowd.flowCell === 5 ? {} : { '5 m': 5 }) };
+      const flowCell = checkTuning().battle.crowd.flowCell;
+      const cells = { [`${flowCell} m (the destination fields' cell)`]: flowCell, ...(flowCell === 5 ? {} : { '5 m': 5 }) };
       f.addBinding(settings, 'cell', { label: 'coarse grid', options: cells }).on('change', (e) => settingsEdit(() => session.setSettings({ grid: { ...session.source.grid, cell: e.value } })));
       f.addBinding(settings, 'front', { label: 'front (m)', step: session.source.grid.step, min: session.source.grid.step }).on('change', (e) => {
         if (e.last) settingsEdit(() => session.setSettings({ front: e.value }));
@@ -1473,6 +1501,14 @@ export function startMapEditor(container: HTMLElement, tuning: TuningData): void
   if (!panelShown) layoutViews(ui.view);
   // The material swatches show the textures once they are read (until then, flat colours).
   void loadSwatches().then(() => materialGrid?.refresh());
+  // `?dev=1&delverSeed=S&delverFloor=F`: that Floor opens at once.
+  const asked = devDelverFloor();
+  if (asked) {
+    ui.delverSeed = asked.seed;
+    ui.delverFloor = asked.floor;
+    refreshPane();
+    openDelverFloor(asked.seed, asked.floor);
+  }
 
   window.addEventListener('beforeunload', (e) => {
     if (session.dirty) e.preventDefault();

@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, dropItem, equipItem, holdInventory, inventoryMods, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -35,8 +35,8 @@ export type {
   KnockdownPhase,
   MotionPlayback,
   SimState,
-  SimHall,
-  HallPhase,
+  SimDelver,
+  DelverPhase,
   SoldierBinding,
   SoldierRole,
   SheatheAction,
@@ -50,7 +50,7 @@ export type {
 export { ATTACK_PHASES } from './state';
 export type { AttackPhaseEvent, BlockEvent, ChainKnockdownEvent, ChamberEvent, DeathEvent, DuelEndEvent, FeintEvent, HitEvent, DaggerBlockedEvent, DaggerHitEvent, DaggerStuckEvent, DaggerThrownEvent, DrawnEvent, JumpEvent, KickLandedEvent, KickPhaseEvent, KnockdownPhaseEvent, LandEvent, SheathedEvent, SimEvent, StaggerEvent, StepEvent, WallStrikeEvent } from './events';
 export type { Foot, FootState, GaitState } from './gait';
-export { arenaOf, blockedAt, deadlyGround, groundBelow, insideZone, onSurface, surfaceHeight, surfacesAt, wallCrossing, wallHit, type Ground } from './arena';
+export { arenaOf, blockedAt, deadlyGround, groundBelow, onSurface, surfaceHeight, surfacesAt, wallCrossing, wallHit, type Ground } from './arena';
 export { JITTER_HEADING, JITTER_HOLD, JITTER_POS, jumpArc, jumpArcFrom, jumpHolds, jumpIsSafe, ledgeReach, levelJump, MAX_AIR_TICKS, type LevelJump, type ArcPoint, type FlightPlan, type JumpPlan, type JumpResult } from './jumpArc';
 export {
   assembleArena,
@@ -150,20 +150,13 @@ export {
   checkRunTeams,
   checkTeams,
   createMatch,
-  doorTicksNeeded,
+  stairsTicksNeeded,
   duelsToWin,
-  hallBehind,
-  hallDuel,
   MATCH_FORMATS,
   MAX_TEAM_SIZE,
-  runCleared,
-  runHall,
-  takenExit,
   teamMembers,
   stepMatch,
-  type DoorTakenEvent,
   type DuelStartEvent,
-  type HallClearedEvent,
   type DroppedItem,
   type ItemDroppedEvent,
   type ItemTakenEvent,
@@ -177,37 +170,22 @@ export {
   type MatchState,
   type MatchStatus,
   type RestedEvent,
+  type RevivedEvent,
+  type StairsTakenEvent,
   type RunEndEvent,
-  type RunState,
 } from './match';
-export { hallDrops, PICKUP_RADIUS, pickupVisibleTo, startPickups, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
-export { FLOOR_ROWS, floorGraph, MAX_HALL_EXITS, runPick, runSeed, type FloorGraph, type Hall } from './dungeon';
-export {
-  atRestFire,
-  doorCounters,
-  enemyMaxHp,
-  exitDoor,
-  hallKey,
-  hallOf,
-  hallRoster,
-  inExitZone,
-  REST_FIRE_RADIUS,
-  restFire,
-  runKit,
-  runPathTo,
-  presentPlayers,
-  runPlayers,
-  ZONE_HEIGHT,
-  type HallEnemy,
-  type HallRef,
-  type RunStart,
-} from './hall';
+export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type RunState, type RestUse } from './delverRun';
+export { freshTraitors, traitorCandidates, traitorOf, traitorPick, traitorSlot, type TraitorState } from './delverTraitors';
+export { PICKUP_RADIUS, pickupVisibleTo, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
+export { runPick, runSeed } from './dungeon';
+export { presentPlayers, runPlayers, stairsCounters, ZONE_HEIGHT } from './party';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';
 export { battleArenaName, battlefieldHeight, battlefieldOf, blockWalls, groundHeight, groundOf, soldierHeight, battleMapName, battleNameFor, heightfield, inBlock, isBattleName, OPEN_FIELD, parseBattleName, pushOutOfBlocks, type Battlefield, type Heightfield, type MapObjective, type MapPoint } from './battlefield';
-export { ATTACK, brainTicks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, type Spawned, type SquadState, type SquadStep } from './squad';
-export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, fieldDistance, inSight, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
+export { CHASE, GUARD, PATROL, RETURN, stepWarbands, warbandBrain, type WarbandState } from './warband';
+export { ATTACK, brainTicks, closeRanks, COLUMN, DEFEND, deploySquads, FALL, formationNarrow, formationSpot, LINE, LOOSE, orderSpot, placeOffset, RESPAWN, squadDue, squadNarrows, squadsPerTeam, stepSquads, walkAnchors, type Spawned, type SquadState, type SquadStep } from './squad';
+export { battleMapOf, clearanceAt, clearanceBelow, descend, destinationFields, distanceTo, fieldDistance, fieldToward, FIELDS_KEPT, inSight, oneField, lineClear, steerToward, toward, type BattleMap, type DestinationFields, type FieldLevels } from './destinations';
 export { groundNear, probeEdges, sameLevel, trace, walkCheck, walkTo } from './levels';
 export { captureTicks, createObjectives, drainDue, drainTickets, limitLoser, limitTicks, owned, planTicks, respawnTicks, stepObjectives, type ObjectiveState } from './objectives';
 export { planOrders } from './commander';
-export { createCrowd, crowdAlive, crowdDue, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout } from './crowd';
+export { createCrowd, crowdAlive, crowdDue, floorRingSpots, FRESH_PLAYER, ringSpots, routs, soldierBody, soldierSize, soldierSizes, soldierTroops, stepCrowd, troopOf, walkDistance, walkField, type BattlePlayer, type CrowdFighter, type CrowdState, type Rout, type SquadBrain } from './crowd';
 export { bubblePlayer, canChooseTroop, isBound, stepBubbles, takeoverSpawns, takeoverTarget, takeoverTroops, unboundSlot } from './bubble';

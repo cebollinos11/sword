@@ -1,4 +1,5 @@
 import { hashValue } from '../hash';
+import { DELVER_VERSION } from '../sim/delver/version';
 import { GENERATOR_VERSION } from '../sim/arenaGen/version';
 import type { TuningData } from './index';
 
@@ -9,9 +10,10 @@ import type { TuningData } from './index';
  * the values, not on file layout or key order. The camera and audio are presentation only
  * and left out, so peers may place their cameras differently. GENERATOR_VERSION is
  * in it, so peers whose generators could build different Generated Arenas from
- * the same name refuse each other (`generatorVersion` is for tests).
+ * the same name refuse each other (`generatorVersion` is for tests). DELVER_VERSION is in it likewise, so peers
+ * whose Delver Floor generators differ refuse each other (`delverVersion` is for tests).
  */
-export function tuningDataHash(tuning: TuningData, generatorVersion = GENERATOR_VERSION): string {
+export function tuningDataHash(tuning: TuningData, generatorVersion = GENERATOR_VERSION, delverVersion = DELVER_VERSION): string {
   const { camera: _camera, audio: _audio, size: _size, ...simulated } = tuning;
-  return hashValue({ ...simulated, generatorVersion });
+  return hashValue({ ...simulated, generatorVersion, delverVersion });
 }

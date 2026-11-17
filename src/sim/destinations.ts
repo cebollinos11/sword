@@ -172,6 +172,16 @@ function fillBlocked(field: Float64Array, side: number, cell: number, blocked: U
 }
 
 /**
+ * The field to cell `start` on a map of one level: `fill`, then `fillBlocked` when the map has blocks. `destinationFields` (per place) and
+ * `distanceTo` both build their one-level fields here, so the two cannot drift.
+ */
+function levelField(side: number, cell: number, blocked: Uint8Array, hasBlocks: boolean, start: number): Float64Array {
+  const out = fill(side, cell, blocked, start);
+  if (hasBlocks) fillBlocked(out, side, cell, blocked);
+  return out;
+}
+
+/**
  * The destination fields of `field`, built once and kept with it (so a Rollback, which re-simulates against the same map, never rebuilds them).
  * A cell is blocked when its centre lies inside one of the map's solid blocks (none on the open field).
  */
@@ -189,8 +199,7 @@ export function destinationFields(battle: BattleTuning, field: Battlefield): Des
   const mid = (side - 1) / 2;
   if (field.blocks.length > 0) for (let c = 0; c < side * side; c++) blocked[c] = inBlock(field, ((c % side) - mid) * cell, (Math.floor(c / side) - mid) * cell) ? 1 : 0;
   const places = [...field.objectives, ...field.bases];
-  const dist = places.map((p) => fill(side, cell, blocked, cellOf(p.z, cell, side) * side + cellOf(p.x, cell, side)));
-  if (field.blocks.length > 0) for (const d of dist) fillBlocked(d, side, cell, blocked);
+  const dist = places.map((p) => levelField(side, cell, blocked, field.blocks.length > 0, cellOf(p.z, cell, side) * side + cellOf(p.x, cell, side)));
   const clearance = field.blocks.length > 0 ? clearanceOf(field.blocks, side, cell) : null;
   const fields: DestinationFields = { cell, side, blocked, dist, objectives: field.objectives.length, clearance, blocks: field.blocks, margin: battle.squad.spacing, levels: null };
   built.set(field, fields);
@@ -210,7 +219,7 @@ const centreOf = (c: number, cell: number, side: number): number => (c - (side -
  * within a step of it (a point of another level, a ramp's railed side beside it, gets none: `nearNode` leads it); -1 for none. With `s` -1,
  * the cell's highest.
  */
-function nodeIn(f: DestinationFields, c: number, s: number): number {
+export function nodeIn(f: DestinationFields, c: number, s: number): number {
   const L = f.levels!;
   if (s < 0) return L.start[c + 1]! > L.start[c]! ? L.start[c + 1]! - 1 : -1;
   // The node on the surface itself, the usual case, needs no height.
@@ -226,7 +235,7 @@ function nodeIn(f: DestinationFields, c: number, s: number): number {
 }
 
 /** The cell (x, z) lies in. */
-const cellAt = (f: DestinationFields, x: number, z: number): number => cellOf(z, f.cell, f.side) * f.side + cellOf(x, f.cell, f.side);
+export const cellAt = (f: DestinationFields, x: number, z: number): number => cellOf(z, f.cell, f.side) * f.side + cellOf(x, f.cell, f.side);
 
 /** The node a point (x, z) on Walk Surface `s` stands at: its cell's on its level (`nodeIn`); on a one-level map, its cell. -1 for none. */
 function nodeAt(f: DestinationFields, x: number, z: number, s: number): number {
@@ -292,33 +301,128 @@ function layeredFields(battle: BattleTuning, field: Battlefield): DestinationFie
         if (b >= 0 && sameLevel(arena, lv, to, levels.surface[b]!, tx, tz)) levels.next[a * 8 + k] = b;
       }
     }
-  // Backward: the joins into each node (node × 8 + step), in node then step order.
-  const into: number[][] = Array.from({ length: nodes }, () => []);
-  for (let j = 0; j < nodes * 8; j++) if (levels.next[j]! >= 0) into[levels.next[j]!]!.push(j);
-  const diagonal = cell * Math.SQRT2;
   const places = [...field.objectives.map((o, k) => ({ x: o.x, z: o.z, s: field.objectiveSurfaces[k]! })), ...field.bases.map((b, k) => ({ x: b.x, z: b.z, s: field.baseSurfaces[k]! }))];
-  const dist = places.map((p) => {
-    const out = new Float64Array(nodes).fill(-1);
-    const from = nodeAt(shell, p.x, p.z, p.s);
-    if (from < 0) return out;
-    const heap = new Heap();
-    out[from] = 0;
-    heap.push(0, from);
-    while (heap.size > 0) {
-      const b = heap.pop();
-      const here = out[b]!;
-      for (const j of into[b]!) {
-        const a = j >> 3;
-        const d = here + (j % 8 >= 4 ? diagonal : cell);
-        if (out[a]! < 0 || d < out[a]!) {
-          out[a] = d;
-          heap.push(d, a);
-        }
+  const dist = places.map((p) => backward(levels, cell, nodeAt(shell, p.x, p.z, p.s)));
+  return { ...shell, dist, clearance: levelClearance(field, lv, levels, side, cell) };
+}
+
+/** The joins into each node of a map of several levels, in compact form: node n's are `joins[offsets[n]]` to `joins[offsets[n + 1] - 1]` (node × 8 + step, in node then step order). */
+interface Backward {
+  readonly offsets: Int32Array;
+  readonly joins: Int32Array;
+}
+
+/** Derived from a `FieldLevels`' static joins, so built once per object and kept here, never in the state. */
+const backwards = new WeakMap<FieldLevels, Backward>();
+
+/** The joins into each node of `levels` (node × 8 + step), in node then step order, built once. */
+function backwardOf(levels: FieldLevels): Backward {
+  const kept = backwards.get(levels);
+  if (kept) return kept;
+  const next = levels.next;
+  const nodes = levels.y.length;
+  const offsets = new Int32Array(nodes + 1);
+  for (let j = 0; j < next.length; j++) if (next[j]! >= 0) offsets[next[j]! + 1]!++;
+  for (let n = 0; n < nodes; n++) offsets[n + 1]! += offsets[n]!;
+  const joins = new Int32Array(offsets[nodes]!);
+  const fillAt = offsets.slice(0, nodes);
+  for (let j = 0; j < next.length; j++) if (next[j]! >= 0) joins[fillAt[next[j]!]!++] = j;
+  const made = { offsets, joins };
+  backwards.set(levels, made);
+  return made;
+}
+
+/**
+ * The path length (m) from every node of a map of several levels to node `from`, or -1: a Dijkstra backward over the joins (a join costing a
+ * cell, a diagonal one √2 of it). All -1 where `from` is -1 (no node there). The one place `layeredFields` and `distanceTo` build a field.
+ */
+function backward(levels: FieldLevels, cell: number, from: number): Float64Array {
+  const nodes = levels.y.length;
+  const out = new Float64Array(nodes).fill(-1);
+  if (from < 0) return out;
+  const { offsets, joins } = backwardOf(levels);
+  const diagonal = cell * Math.SQRT2;
+  const heap = new Heap();
+  out[from] = 0;
+  heap.push(0, from);
+  while (heap.size > 0) {
+    const b = heap.pop();
+    const here = out[b]!;
+    for (let i = offsets[b]!; i < offsets[b + 1]!; i++) {
+      const j = joins[i]!;
+      const a = j >> 3;
+      const d = here + (j % 8 >= 4 ? diagonal : cell);
+      if (out[a]! < 0 || d < out[a]!) {
+        out[a] = d;
+        heap.push(d, a);
       }
     }
-    return out;
-  });
-  return { ...shell, dist, clearance: levelClearance(field, lv, levels, side, cell) };
+  }
+  return out;
+}
+
+/**
+ * A destination field to any one point (x, z) on Walk Surface `s` (-1: its cell's highest node), not only to an Objective or a Base, over the
+ * same cells (on a map of several levels, nodes) as `f`: per cell (node) the path length (m) to the point, or -1. It is the field
+ * `destinationFields` builds for an Objective standing there, entry for entry: a Squad or a Warband post, or a Player chased, is as
+ * far from a cell as that. On a map of one level, `s` does not matter and the point's cell is the destination; on a map of several levels the
+ * destination is the point's node on its level (`s`), and every entry is -1 where its cell has none there (a point inside a block). Built fresh
+ * on every call and never kept (the point moves), so the result is the caller's; only the joins it runs over are, for they are static.
+ * On a map of Enclosures (rooms with roofs) the caller passes the floor's Walk Surface (`groundOf` at the floor's height), since -1
+ * means the cell's highest node, which there is the roof.
+ */
+export function distanceTo(f: DestinationFields, x: number, z: number, s = -1): Float64Array {
+  if (f.levels) return backward(f.levels, f.cell, nodeAt(f, x, z, s));
+  return levelField(f.side, f.cell, f.blocked, f.blocks.length > 0, cellAt(f, x, z));
+}
+
+/** How many fields `fieldToward` keeps per `DestinationFields` (about 7 MB at most on a Floor: 13,500 nodes of 8 bytes each). */
+export const FIELDS_KEPT = 64;
+
+/** The fields `fieldToward` kept per `DestinationFields`, by node, most recently used last. Derived from static data, never state. */
+const kept = new WeakMap<DestinationFields, Map<number, Float64Array>>();
+
+/**
+ * `distanceTo`, kept: the field to the node of (x, z) on Walk Surface `s`, built once per (`f`, node) and kept (`FIELDS_KEPT`, most recently
+ * used last). `distanceTo` depends on the point only through that node (-1 for none: an all -1 field, kept too), so a kept field equals a
+ * fresh one entry for entry. The caller must not change it.
+ */
+export function fieldToward(f: DestinationFields, x: number, z: number, s = -1): Float64Array {
+  let fields = kept.get(f);
+  if (!fields) kept.set(f, (fields = new Map()));
+  const node = nodeAt(f, x, z, s);
+  let field = fields.get(node);
+  if (field) {
+    fields.delete(node);
+  } else {
+    const t0 = clock?.();
+    field = distanceTo(f, x, z, s);
+    fieldTally.count++;
+    if (clock) fieldTally.ms += clock() - t0!;
+    if (fields.size >= FIELDS_KEPT) fields.delete(fields.keys().next().value!);
+  }
+  fields.set(node, field);
+  return field;
+}
+
+/** The `distanceTo` builds `fieldToward` has made, and their time by `clock`. Only counted, never read by the Simulation, kept out of the state and the hash. */
+const fieldTally = { count: 0, ms: 0 };
+/** The clock (ms) a test installs with `timeFieldBuilds` to time the builds; none in the game (the Simulation reads no wall-clock). */
+let clock: (() => number) | null = null;
+
+/** Time the `fieldToward` builds from now on by `now` (a wall-clock in ms, for the soaks' measurements), or stop timing with null. Counts and times only; no state. */
+export function timeFieldBuilds(now: (() => number) | null): void {
+  clock = now;
+}
+
+/** How many `distanceTo` builds `fieldToward` has made so far (kept fields found again are not counted), and their total time (ms) by the clock `timeFieldBuilds` installed (0 with none). For the soaks' measurements. */
+export function fieldBuilds(): { readonly count: number; readonly ms: number } {
+  return { count: fieldTally.count, ms: fieldTally.ms };
+}
+
+/** `f` with `field` as its only destination (d = 0), for `steerToward`, `descend` and `fieldDistance`. */
+export function oneField(f: DestinationFields, field: Float64Array): DestinationFields {
+  return { ...f, dist: [field], objectives: 0 };
 }
 
 /**

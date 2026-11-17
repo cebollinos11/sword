@@ -76,7 +76,7 @@ export interface Intent {
   readonly sheathe?: boolean;
   /**
    * Equip the inventory item in this slot (absent = nothing). A Weapon becomes the one wielded; a Relic is equipped, or unequipped when it already is.
-   * Acted on only in a Cleared Hall, by a Player's Fighter that is Idle on the ground: refused otherwise (`stepMatch`, `src/sim/inventory.ts`).
+   * Acted on only in a Run while Exploring, by a Player's Fighter that is Idle on the ground: refused otherwise (`stepDelver`, `src/sim/inventory.ts`).
    */
   readonly equip?: InventoryRef;
   /** Drop the inventory item in this slot (absent = nothing): it leaves the inventory for a shared pickup at the Fighter's feet. Same conditions as `equip`; the equipped Weapon cannot be dropped. */

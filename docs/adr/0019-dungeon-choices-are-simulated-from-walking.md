@@ -4,6 +4,8 @@
 
 Accepted (`docs/plans/dungeon.md`). Stage 1 built the Doors, the Hall Arenas and the Rest fire as decided here (Stage 1, Result); Stage 2 built loot, equip and drop the same way (Stage 2, Result); Stage 4 took it online (Stage 4, Result).
 
+**Partly superseded** (2026-11-16, `docs/plans/delver.md` Stage 9, by ADR 0028): the Hall graph, its Halls as separate Generated Arenas, the alcove Doors and the `:d<n>` names are retired from the code, with every Consequence below that speaks of them (Doors, Hall Arenas, the judge's Door rule, `RunState`'s Hall fields, `SimState.hall`, the Hall AIs). What stands: **every choice is simulated from walking**. A Run's Floor is taken down by standing on its Stairs, a fire by standing at it, an item by walking onto it (each Player's own copy, a pure pick; a dropped item shared; AI allies take nothing), and equip and drop are Intent fields acted on only while the Fighter is alive, Idle and on the ground (anywhere on a Floor, not while Descending). A Player who leaves is still marked away (`RunState.away`) as a Simulation step.
+
 ## Context
 
 The Gauntlet's next version is a dungeon crawler, solo or online co-op: a Run walks a seeded Dungeon of Floors, each a graph of Halls, picking its route, its loot and its build as it goes. Every peer must still reach the same state from the same Intents (ADR 0001), through Rollback and resync, with Players relayed through the host (ADR 0010). The v1 Run put nothing new on the wire during play because it had no choices; its plan called choices between Floors "real protocol work".

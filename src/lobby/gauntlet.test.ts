@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { loadTuningData, tuningDataHash } from '../tuning';
+import { loadTuningData } from '../tuning';
 import { checkLineup, FLOOR_DIFFICULTY, lineupAis, lineupMatch } from '../controllers';
-import { createMatch, hallOf, hallRoster, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
+import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE } from '../sim';
 import { playerVsAi } from '../play/driver';
 import {
   formatProblem,
@@ -11,7 +11,6 @@ import {
   moveMember,
   newLobby,
   nextMatchArena,
-  runTuning,
   seatOf,
   setFormat,
   setSeat,
@@ -22,7 +21,6 @@ import {
   type LobbyState,
   type NewLobbyOptions,
 } from './lobby';
-import { parseLobbyMessage } from './messages';
 
 const tuning = loadTuningData();
 const weapon = Object.keys(tuning.weapons)[0]!;
@@ -66,7 +64,7 @@ describe('Gauntlet Lobby: the Map is a Random Map', () => {
   });
 });
 
-describe('Gauntlet Lobby: Players only on Team 0', () => {
+describe('Gauntlet Lobby: Players on Team 0, traitors on Team 1', () => {
   it('moves a Player sitting on Team 1 to Team 0', () => {
     let s = newLobby(options(false));
     s = moveMember(s, 0, { team: 1, index: 2 });
@@ -75,9 +73,9 @@ describe('Gauntlet Lobby: Players only on Team 0', () => {
     expect(seatOf(s, 0)?.team).toBe(0);
   });
 
-  it('refuses a move to Team 1, and seats a joining guest on Team 0', () => {
+  it('lets a Player move to Team 1 (a traitor, docs/plans/delver.md, Stage 8a), and seats a joining guest on Team 0', () => {
     let s = gauntlet(newLobby(options(true)));
-    expect(moveMember(s, 0, { team: 1, index: 0 })).toBe(s);
+    expect(seatOf(moveMember(s, 0, { team: 1, index: 0 }), 0)).toEqual({ team: 1, index: 0 });
     s = join(s, guest(1))!;
     expect(seatOf(s, 1)).toEqual({ team: 0, index: 1 });
     // The switch moved Team 1's Open Seats beside the host (Stage 4), so the second and third guests join there too.
@@ -118,19 +116,17 @@ describe('the Gauntlet Lineup', () => {
     expect(startProblem(s, false)).toBeNull();
   });
 
-  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run with a Hall AI on every Team 1 slot', () => {
+  it('is accepted by checkLineup for a Gauntlet (and only there), and builds a Run: the party, then Pool AIs past it', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).not.toThrow();
     expect(() => checkLineup(tuning, lineup, 1)).toThrow();
     const m = createMatch(tuning, lineupMatch(tuning, lineup, weapons, { format: 'Gauntlet', bestOf: 1, arena: FRESH }));
-    expect(m.run).toMatchObject({ floor: 1, floors: tuning.dungeon.floors.length, row: 0, hall: 0 });
+    expect(m.delver).toMatchObject({ floor: 1, floors: tuning.delver.tiers * tuning.delver.floorsPerTier });
     expect(m.config.humans).toBe(1);
     expect(m.config.players).toEqual([0]);
-    const first = { floor: 1, row: 0, index: 0 };
-    const benched = m.duel.fighters.map((f) => Boolean(f.benched));
-    expect(benched).toEqual([false, ...hallRoster(tuning, m.config, first).map((e) => e === null)]);
-    expect(benched.filter((b) => !b)).toHaveLength(1 + hallOf(tuning, FRESH, first).encounter!.enemies.filter((e) => (e.minTeam ?? 0) <= 1).length);
+    expect(m.config.teams).toEqual([0]);
     const ais = lineupAis(tuning, lineup, 'Gauntlet');
+    expect(ais).toHaveLength(tuning.battle.bubble.poolSize);
     expect(ais[0]).toBeNull();
     expect(ais.slice(1).every((ai) => ai !== null)).toBe(true);
   });
@@ -140,24 +136,17 @@ describe('the Gauntlet Lineup', () => {
     expect(() => checkLineup(tuning, lineup, 1, 'Gauntlet')).toThrow();
   });
 
-  it('the Skirmish driver plays it as a Run: Hall AIs move the enemies, Benched slots stay put', () => {
+  it('the Skirmish driver plays it as a Run on its first Floor', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
     const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3 });
-    const start = d.state!;
-    for (let t = 0; t < 120; t++) d.tick(IDLE_INTENT);
-    const now = d.state!;
-    expect(now.config.format).toBe('Gauntlet');
-    const enemy = 1;
-    const moved = Math.hypot(now.duel.fighters[enemy]!.position.x - start.duel.fighters[enemy]!.position.x, now.duel.fighters[enemy]!.position.z - start.duel.fighters[enemy]!.position.z);
-    expect(moved).toBeGreaterThan(0.5);
-    for (let i = 2; i <= MAX_TEAM_SIZE; i++) {
-      if (start.duel.fighters[i]!.benched) expect(now.duel.fighters[i]!.position).toEqual(start.duel.fighters[i]!.position);
-    }
+    for (let t = 0; t < 60; t++) d.tick(IDLE_INTENT);
+    expect(d.state!.config.format).toBe('Gauntlet');
+    expect(d.state!.delver).toMatchObject({ floor: 1, phase: 'Exploring' });
   });
 
   it('with the dev autopilot the Player’s Fighter moves on its own (the local Intents idle)', () => {
     const { lineup, weapons } = lobbyLineup(gauntlet(newLobby(options(false))));
-    const run = (autopilot?: number[]) => {
+    const run = (autopilot?: boolean) => {
       const d = playerVsAi(tuning, { lineup, weapon: weapons[0]!, format: 'Gauntlet', bestOf: 1, arena: FRESH, seed: 3, ...(autopilot ? { autopilot } : {}) });
       const start = d.state!.duel.fighters[d.localFighter]!.position;
       for (let t = 0; t < 120; t++) d.tick(IDLE_INTENT);
@@ -165,42 +154,6 @@ describe('the Gauntlet Lineup', () => {
       return Math.hypot(now.x - start.x, now.z - start.z);
     };
     expect(run()).toBeLessThan(0.01);
-    expect(run([0])).toBeGreaterThan(0.5);
-  });
-});
-
-describe('Gauntlet Lobby: Run knobs', () => {
-  it('a Run with knobs plays the knobbed Dungeon (a new Tuning Data hash); Duels and a Run without them keep Tuning Data', () => {
-    let s = gauntlet(newLobby(options(false)));
-    expect(runTuning(tuning, s.settings)).toBe(tuning);
-    s = updateSettings(s, { run: { maxEnemies: 1, enemyHp: 0.5 } });
-    const t = runTuning(tuning, s.settings);
-    expect(t.dungeon.floors.every((f) => [...f.encounters.Fight, ...f.encounters.Elite, f.boss].every((e) => e.enemies.length === 1))).toBe(true);
-    expect(tuningDataHash(t)).not.toBe(tuningDataHash(tuning));
-    expect(runTuning(tuning, { ...s.settings, format: 'Duels' })).toBe(tuning);
-    // Encounters list more than one enemy; with one a Hall, only the first stands.
-    const { lineup, weapons } = lobbyLineup(s);
-    const match = createMatch(t, lineupMatch(t, lineup, weapons, { bestOf: 1, arena: s.settings.arena, format: 'Gauntlet' }));
-    expect(match.duel.fighters.filter((f) => f.team === 1 && !f.benched).map((f) => f.maxHp)).toEqual([tuning.fighter.maxHp * 0.5]);
-  });
-
-  it('peers on the same knobs hash the same Tuning Data (the session hashes `runTuning`), peers on other knobs do not', () => {
-    const settings = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: 1, rest: 0.6 } }).settings;
-    // The guest gets the host's settings over the wire, and loads its own Tuning Data.
-    const received = parseLobbyMessage(JSON.parse(JSON.stringify({ type: 'lobby', state: updateSettings(gauntlet(newLobby(options(true))), { run: settings.run }), you: 0, ack: 0 })));
-    expect(received).not.toBeNull();
-    const host = runTuning(loadTuningData(), settings);
-    const guest = runTuning(loadTuningData(), (received as { state: LobbyState }).state.settings);
-    expect(tuningDataHash(guest)).toBe(tuningDataHash(host));
-    expect(tuningDataHash(host)).not.toBe(tuningDataHash(loadTuningData()));
-    expect(tuningDataHash(runTuning(loadTuningData(), { ...settings, run: { difficulty: 1, rest: 0.5 } }))).not.toBe(tuningDataHash(host));
-  });
-
-  it('a lobby message carries the knobs, and refuses ones that are not numbers or not knobs', () => {
-    const state = updateSettings(gauntlet(newLobby(options(true))), { run: { difficulty: -1, rest: 0.6 } });
-    const m = { type: 'lobby', state, you: 0, ack: 0 } as const;
-    expect(parseLobbyMessage(m)).toEqual(m);
-    for (const run of [{ difficulty: 'easy' }, { lives: 3 }, [1], { rest: Infinity }, { heal: 0.6 }])
-      expect(parseLobbyMessage({ ...m, state: { ...state, settings: { ...state.settings, run } } })).toBeNull();
+    expect(run(true)).toBeGreaterThan(0.5);
   });
 });

@@ -21,8 +21,8 @@ function goodRaw() {
     block: { facingHalfAngle: 60, bladeRadius: 0.05, impactDistance: 0.12, impactTilt: 15, impactLean: 5, impactFrequency: 4, impactDuration: 0.2, correctionWindow: 0.15 },
     match: { duelDistance: 2, interDuelSeconds: 2, lineSpacing: 1.5 },
     dungeon: {
-      doorSeconds: 1.5,
-      hallFadeSeconds: 1,
+      stairsSeconds: 1.5,
+      fadeSeconds: 1,
       revive: 0.25,
       restHeal: 0.5,
       perPlayerHp: 0.5,
@@ -31,6 +31,7 @@ function goodRaw() {
       loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3 },
       floors: [{ rows: [2, 2, 2], weights: { Fight: 1 }, encounters: { Fight: [{ enemies: [{ difficulty: 'Normal', weapon: 'random' }] }] }, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random' }] } }],
     },
+    delver: { tiers: 1, floorsPerTier: 1, flowCell: 2, fireRadius: 3, sight: 16, leash: 45, forgetSeconds: 8, chaseSpeed: 1, closeIn: 4, arrive: 3, postFill: 75, patrolFill: 100, perPlayerSoldiers: 1.5, attackSlots: [4, 3, 3, 3], tierHp: [1], warbands: [{ guard: [{ troops: [{ troop: 'Soldier', count: 3 }], hpScale: 1 }], patrol: [{ troops: [{ troop: 'Soldier', count: 3 }], hpScale: 1 }] }], floor: { cols: 2, rows: 2, rooms: 2, gaps: [20], halfSize: [4, 6], minPassage: 4, passage: 3, farPercent: 25, loops: [0, 1], rests: [1, 1], treasures: 0, emptyPercent: 30, patrols: 0, follow: 1.5, maxAttempts: 3, levels: { max: 4, min: 2, changePercent: 35, galleryPercent: 40 }, galleries: { wrapPercent: 0, uPercent: 30, stairPercent: 0 }, features: { percent: 0, weights: { split: 1, pit: 1 }, threePercent: 40, deepPercent: [25, 40, 55], daisPercent: 0 }, turnPercent: 0, great: { count: [0, 0], half: [8, 12] }, shapes: { percent: 0, weights: { L: 3, T: 2, cross: 2, ring: 2 } }, pillars: { percent: 0, weights: { colonnade: 1, grid: 1 } } } },
     relics: [],
     battle: {
       armySize: 20,
@@ -121,10 +122,6 @@ describe('Tuning Data', () => {
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: 0 } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: { ...good.fighter, sheathedWalkFactor: undefined } })).toThrow(/fighter\.sheathedWalkFactor/);
     expect(() => parseTuningData({ ...good, fighter: undefined })).toThrow(/fighter/);
-    const floor = good.dungeon.floors[0]!;
-    const named = { ...good.dungeon, floors: [{ ...floor, boss: { enemies: [{ difficulty: 'Normal', weapon: 'random', relics: ['Whetstone'] }] } }] };
-    expect(() => parseTuningData({ ...good, dungeon: named })).toThrow(/unknown Relic "Whetstone"/);
-    expect(parseTuningData({ ...good, dungeon: named, relics: [{ name: 'Whetstone', icon: 'whetstone', effects: { damage: 1.1 } }] }).dungeon.floors[0]!.boss.enemies[0]!.relics).toEqual(['Whetstone']);
     const sword = good.weapons[0]!;
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, length: 0 }] })).toThrow(/^weapons\/Sword\.length/);
     expect(() => parseTuningData({ ...good, weapons: [{ ...sword, speed: undefined }] })).toThrow(/^weapons\/Sword\.speed/);

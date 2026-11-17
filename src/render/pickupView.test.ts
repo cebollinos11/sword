@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Pickup } from '../sim';
-import { AIM_RANGE, LABEL_HEIGHT, LABEL_RANGE, pickupLabels, pickupView, pickupViews, type PickupEye } from './pickupView';
+import { crateStacked } from './mapProps';
+import { AIM_RANGE, CRATE_HEIGHT, crateTop, STACK_HEIGHT, LABEL_HEIGHT, LABEL_RANGE, pickupLabels, pickupView, pickupViews, type PickupEye } from './pickupView';
 
 const pickup = (id: number, x: number, over: Partial<Pickup> = {}): Pickup => ({ id, owner: 0, kind: 'relic', item: 'Whetstone', at: { x, y: 0, z: 0 }, taken: false, ...over });
 
@@ -99,5 +100,33 @@ describe('each peer draws its own Player’s pickups', () => {
     expect(one.every((id) => id >= 3 && id !== 4)).toBe(true);
     // Fighter 0's copy of the same pedestal is still there for Fighter 0.
     expect(ids(pickupViews(taken, 0, eye(0)), 'shown')).toEqual([0, 1, 2]);
+  });
+});
+
+describe('a Delver Floor’s pedestal on its crate', () => {
+  it('is a crate view only for a pedestal pickup of a Delver Run, never a drop or a Hall-graph pedestal', () => {
+    expect(pickupView(pickup(0, 0, { group: 0 }), 0, eye(0), true).crate).toBe(true);
+    expect(pickupView(pickup(0, 0, { group: 0 }), 0, eye(0)).crate).toBeUndefined();
+    expect(pickupView(pickup(0, 0), 0, eye(0), true).crate).toBeUndefined();
+    expect(pickupViews([pickup(0, 0, { group: 0 }), pickup(1, 1.12)], 0, eye(0), true).map((v) => v.crate)).toEqual([true, undefined]);
+  });
+
+  it('floats its label over the crate’s top', () => {
+    const views = pickupViews([pickup(0, 0, { group: 0 })], 0, eye(0), true);
+    expect(pickupLabels(views)[0]!.at.y).toBe(CRATE_HEIGHT + LABEL_HEIGHT);
+  });
+});
+
+describe('a pedestal on a stacked crate', () => {
+  it('stands on the top of its own crate stack: 1.2 m, or 1.2 + 0.8 m when the prop is stacked (`crateStacked`)', () => {
+    const ids = Array.from({ length: 40 }, (_, n) => `pedestal${n}`);
+    const stacked = ids.filter(crateStacked);
+    expect(stacked.length).toBeGreaterThan(0);
+    expect(stacked.length).toBeLessThan(ids.length);
+    expect(crateTop(false)).toBe(CRATE_HEIGHT);
+    expect(crateTop(true)).toBe(CRATE_HEIGHT + STACK_HEIGHT);
+    const [view] = pickupViews([pickup(0, 0, { group: 0 })], 0, eye(0), () => crateTop(true));
+    expect(view!.crateTop).toBe(2);
+    expect(pickupLabels([view!])[0]!.at.y).toBe(2 + LABEL_HEIGHT);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { HALL_KINDS, hallIcon, iconTexture, relicIcon, weaponIcon } from './icons';
+import { iconTexture, relicIcon, weaponIcon } from './icons';
 
 const tuning = loadTuningData();
 const relicIds = tuning.relics.map((r) => r.icon);
@@ -21,13 +21,6 @@ const wellFormed = (svg: string) => {
 };
 
 describe('icons', () => {
-  it('draws every Hall kind distinctly', () => {
-    const icons = HALL_KINDS.map(hallIcon);
-    expect(HALL_KINDS).toEqual(['Fight', 'Elite', 'Treasure', 'Rest', 'Boss']);
-    expect(new Set(icons).size).toBe(HALL_KINDS.length);
-    icons.forEach(wellFormed);
-  });
-
   it('draws every Relic icon id of data/relics.json, each its own, none the fallback', () => {
     expect(relicIds.length).toBeGreaterThan(0);
     const icons = relicIds.map(relicIcon);
@@ -51,9 +44,9 @@ describe('icons', () => {
   });
 
   it('caches a texture by icon and size, and does not need a DOM', () => {
-    const a = iconTexture(hallIcon('Boss'), 64);
-    expect(iconTexture(hallIcon('Boss'), 64)).toBe(a);
-    expect(iconTexture(hallIcon('Boss'), 32)).not.toBe(a);
-    expect(iconTexture(hallIcon('Rest'), 64)).not.toBe(a);
+    const a = iconTexture(weaponIcon('Sledge Hammer'), 64);
+    expect(iconTexture(weaponIcon('Sledge Hammer'), 64)).toBe(a);
+    expect(iconTexture(weaponIcon('Sledge Hammer'), 32)).not.toBe(a);
+    expect(iconTexture(relicIcon('whetstone'), 64)).not.toBe(a);
   });
 });

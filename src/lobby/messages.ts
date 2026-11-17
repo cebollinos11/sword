@@ -4,7 +4,7 @@
  * Data to say, and the Lobby functions keep the Seats consistent.
  */
 import { MAX_TEAM_SIZE } from '../sim';
-import { BATTLE_KNOB_KEYS, isSize, MAX_MAP_NAME, RUN_KNOB_KEYS, type Size } from '../tuning';
+import { BATTLE_KNOB_KEYS, isSize, MAX_MAP_NAME, type Size } from '../tuning';
 import { isLobbyFormatOnMap } from '../net';
 import { MAX_PLAYERS, TEAM_COUNT, type LobbyState, type SeatRef } from './lobby';
 
@@ -42,13 +42,6 @@ function isSeatRef(v: unknown): v is SeatRef {
 }
 
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const RUN_KNOBS: ReadonlySet<string> = new Set(RUN_KNOB_KEYS);
-
-/** A Run's knobs: numbers, each optional; `applyDungeonKnobs` holds each to its range. */
-function isRunKnobs(v: unknown): boolean {
-  return isObject(v) && Object.entries(v).every(([k, x]) => RUN_KNOBS.has(k) && isNum(x));
-}
-
 const BATTLE_KNOBS: ReadonlySet<string> = new Set(BATTLE_KNOB_KEYS);
 
 /** A Battle's knobs: numbers, each optional, and a short map name; `applyBattleKnobs` holds each to its range (an unknown map is the open field). */
@@ -84,7 +77,6 @@ function isLobbyState(v: unknown): v is LobbyState {
     settings.bestOf > 0 &&
     // A Format this build knows (absent: Duels), and a Gauntlet only on a Random Map.
     isLobbyFormatOnMap(settings.format, settings.arena) &&
-    (settings.run === undefined || isRunKnobs(settings.run)) &&
     (settings.battle === undefined || isBattleKnobs(settings.battle)) &&
     Array.isArray(members) &&
     members.length >= 1 &&

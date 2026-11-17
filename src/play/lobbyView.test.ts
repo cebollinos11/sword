@@ -41,17 +41,17 @@ describe('the Lobby view in Gauntlet', () => {
       members: [0, 1, 2, 3, 4].map((id) => ({ id, name: `P${id}`, weapon, body: 'monk', ready: false })),
       teams: [[seat(0), seat(1), seat(2), seat(3)], [seat(4), { kind: 'Open' }, { kind: 'Closed' }, { kind: 'Closed' }]],
     };
-    expect(formatRefusal(five)).toBe(`A Gauntlet fields at most ${MAX_TEAM_SIZE} players, all on Team 0; this Lobby has 5.`);
+    expect(formatRefusal(five)).toBe(`Switching to a Gauntlet seats every player on Team 0, which holds ${MAX_TEAM_SIZE}; this Lobby has 5.`);
     expect(setFormat(five, 'Gauntlet', 'gen:greybox:5')).toBe(five);
   });
 
-  it('describes the Dungeon on the Floors card: its Floors of Halls, the Doors and the Boss', () => {
-    expect(tuning.dungeon.floors).toHaveLength(3);
+  it('describes the Dungeon on the Floors card: its generated Floors, the Warbands, the fires and the Stairs', () => {
+    const floors = tuning.delver.tiers * tuning.delver.floorsPerTier;
     const card = dungeonCard(tuning);
-    expect(card.count).toBe('3 Floors of Halls');
-    expect(card.note).toMatch(/^A Dungeon of 3 Floors, each a map of Halls from an entrance to a Boss\. /);
-    expect(card.note).toContain('stand at a Door together');
-    expect(dungeonCard({ dungeon: { ...tuning.dungeon, floors: tuning.dungeon.floors.slice(0, 1) } }).count).toBe('1 Floor of Halls');
+    expect(card.count).toBe(`${floors} Floors`);
+    expect(card.note).toMatch(new RegExp(`^A Dungeon of ${floors} generated Floors, past Warbands`));
+    expect(card.note).toContain('stand on the Stairs together');
+    expect(dungeonCard({ delver: { ...tuning.delver, tiers: 1, floorsPerTier: 1 } }).count).toBe('1 Floor');
   });
 
   it('in Duels shows both teams, every Map, Best of N and the next seed', () => {

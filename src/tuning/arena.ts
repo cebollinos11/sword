@@ -10,7 +10,6 @@
  * - Walls: vertical segments with a bottom and a top height, that Fighter
  *   capsules cannot pass where their heights overlap.
  * - Spawns: where each team's k-th Fighter starts a Duel.
- * - Doors: a Hall Arena's (docs/plans/dungeon.md), each a door zone on the ground with its own spawns; none elsewhere.
  * - An optional `radius`: a circular boundary every capsule stays inside (the flat circle).
  */
 import { array, finiteNumber, nonEmptyString, positiveNumber, record, TuningDataError } from './validate';
@@ -56,19 +55,6 @@ export interface SpawnPoint {
   readonly facing: number;
 }
 
-/**
- * A Door of a Hall Arena (a Generated Arena named `gen:<kit>:<seed>:d<n>`): a doorway in a Wall on the footprint's edge
- * that nobody walks through, with a door zone on the ground before it. Door 0 is the entrance.
- */
-export interface ArenaDoor {
-  /** The door zone: a convex polygon on the ground (each corner at the ground's height), in order around it. */
-  readonly zone: readonly ArenaPoint[];
-  /** Yaw in radians (0 faces +z) from the doorway into the Arena. */
-  readonly facing: number;
-  /** Where Team 0's Fighters start when they come in by this Door: slots 0 to 3, before it, facing `facing`. */
-  readonly spawns: readonly SpawnPoint[];
-}
-
 export interface ArenaGeometry {
   readonly name: string;
   /** A circular boundary (m, around the origin) every Fighter capsule stays inside, if any. */
@@ -76,10 +62,12 @@ export interface ArenaGeometry {
   readonly walk: readonly WalkSurface[];
   readonly walls: readonly WallSegment[];
   readonly spawns: readonly SpawnPoint[];
-  /** A Hall Arena's Doors, Door 0 (the entrance) first; empty for every other Arena. */
-  readonly doors: readonly ArenaDoor[];
-  /** False on a Battle map (docs/plans/battle-objectives.md, Stage 3a): its navmesh has no jump Links, so a big map builds cheaply and the AI never leaps off its walls. Absent everywhere else. */
-  readonly jumpLinks?: false;
+  /**
+   * On a Battle map (docs/plans/battle-objectives.md, Stage 3a) `false`: its navmesh has no jump Links, so a big map builds cheaply and the AI
+   * never leaps off its walls. `'shortcuts'` (Stage 6, a map that asks for `shortcuts`): only the Links onto a Walk Surface walking already
+   * reaches (ADR 0013), never onto a roof. Absent everywhere else: every jump Link.
+   */
+  readonly jumpLinks?: false | 'shortcuts';
 }
 
 /** Which Arena each kind of play uses. */
@@ -212,14 +200,7 @@ export function parseArena(raw: unknown, where: string): ArenaGeometry {
       return { team, slot, position: triple(o.position, `${at}.position`), facing: finiteNumber(o, 'facing', at) };
     });
   const spawns = spawnsOf(r.spawns, `${where}.spawns`);
-  const doors = array(r.doors ?? [], `${where}.doors`).map((d, i): ArenaDoor => {
-    const at = `${where}.doors[${i}]`;
-    const o = record(d, at);
-    const zone = array(o.zone, `${at}.zone`).map((p, k) => triple(p, `${at}.zone[${k}]`));
-    checkSurface({ id: `${at}.zone`, points: zone }, `${at}.zone`);
-    return { zone, facing: finiteNumber(o, 'facing', at), spawns: spawnsOf(o.spawns, `${at}.spawns`) };
-  });
-  const arena: ArenaGeometry = { name, walk, walls, spawns, doors };
+  const arena: ArenaGeometry = { name, walk, walls, spawns };
   return r.radius === undefined ? arena : { ...arena, radius: positiveNumber(r, 'radius', where) };
 }
 

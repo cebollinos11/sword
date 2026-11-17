@@ -11,7 +11,7 @@ describe('Tuning Data content hash', () => {
   });
 
   it('ignores key order (content only)', () => {
-    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera, audio: tuning.audio };
+    const reordered: TuningData = { motions: tuning.motions, skeleton: tuning.skeleton, hitZones: tuning.hitZones, weapons: tuning.weapons, motionOverrides: tuning.motionOverrides, arena: tuning.arena, arenas: tuning.arenas, kits: tuning.kits, fall: tuning.fall, fighter: tuning.fighter, chamber: tuning.chamber, kick: tuning.kick, dagger: tuning.dagger, ai: tuning.ai, match: tuning.match, dungeon: tuning.dungeon, delver: tuning.delver, relics: tuning.relics, battle: tuning.battle, block: tuning.block, gait: tuning.gait, camera: tuning.camera, audio: tuning.audio };
     expect(tuningDataHash(reordered)).toBe(tuningDataHash(tuning));
   });
 
@@ -68,18 +68,12 @@ describe('Tuning Data content hash', () => {
     expect(tuningDataHash(faster)).not.toBe(base);
   });
 
-  it('covers the Dungeon (dungeon.json): its Doors, an Encounter, a Boss, the loot and the inventory sizes', () => {
+  it('covers the Dungeon (dungeon.json): its Stairs, the fade, the loot, the inventory sizes and the revive', () => {
     const base = tuningDataHash(tuning);
     const d = tuning.dungeon;
-    const [first, ...rest] = d.floors;
-    const fight = first!.encounters.Fight;
-    const enemy = fight[0]!.enemies[0]!;
-    const encounter = { ...first!, encounters: { ...first!.encounters, Fight: [{ enemies: [{ ...enemy, hpScale: enemy.hpScale + 0.1 }, ...fight[0]!.enemies.slice(1)] }, ...fight.slice(1)] } };
     for (const [name, dungeon] of Object.entries({
-      doorSeconds: { ...d, doorSeconds: d.doorSeconds + 0.1 },
-      hallFadeSeconds: { ...d, hallFadeSeconds: d.hallFadeSeconds + 0.1 },
-      encounter: { ...d, floors: [encounter, ...rest] },
-      boss: { ...d, floors: [{ ...first!, boss: { enemies: [{ ...first!.boss.enemies[0]!, hpScale: first!.boss.enemies[0]!.hpScale + 0.1 }] } }, ...rest] },
+      stairsSeconds: { ...d, stairsSeconds: d.stairsSeconds + 0.1 },
+      fadeSeconds: { ...d, fadeSeconds: d.fadeSeconds + 0.1 },
       loot: { ...d, loot: { ...d.loot, pedestals: d.loot.pedestals === 1 ? 2 : 1 } },
       inventory: { ...d, inventory: { ...d.inventory, relics: d.inventory.relics + 1 } },
       revive: { ...d, revive: d.revive + 0.05 },

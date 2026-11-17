@@ -30,7 +30,11 @@ import { HIT_ZONES, tuningDataHash, type HitZone, type TuningData } from '../tun
 import type { Sandbox } from './sandboxSession';
 
 export const REPLAY_FORMAT = 'sword-replay';
-export const REPLAY_VERSION = 1;
+/**
+ * Version 2: a Gauntlet Match is a Delver Run (docs/plans/delver.md). A version 1 replay of a Gauntlet was a Hall-graph Run, which
+ * no longer plays, so it is refused; a version 1 Duels replay plays as before.
+ */
+export const REPLAY_VERSION = 2;
 
 /**
  * How the run started: a bare Duel from given placements, or a Match. Both are seeded, and name
@@ -464,8 +468,9 @@ export function parseReplay(text: string): Replay {
   }
   const o = obj(raw, 'replay');
   if (o.format !== REPLAY_FORMAT) fail('format', `must be "${REPLAY_FORMAT}" (not a replay file)`);
-  if (o.version !== REPLAY_VERSION) fail('version', `must be ${REPLAY_VERSION}`);
+  if (o.version !== REPLAY_VERSION && o.version !== 1) fail('version', `must be ${REPLAY_VERSION}`);
   const setup = parseSetup(o.setup);
+  if (o.version === 1 && setup.kind === 'Match' && setup.config.format === 'Gauntlet') fail('version', `a version 1 Gauntlet replay is a Hall-graph Run, which no longer plays: must be ${REPLAY_VERSION}`);
   const ticks = int(o.ticks, 'ticks', 0);
   const tuningHash = typeof o.tuningHash === 'string' ? o.tuningHash : fail('tuningHash', 'must be a string');
   const intents: Intent[][] = [];

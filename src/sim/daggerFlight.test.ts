@@ -10,7 +10,6 @@ const flat: ArenaGeometry = {
   walk: [{ id: 'floor', points: [corner(-40, -40), corner(-40, 40), corner(40, 40), corner(40, -40)] }],
   walls: [{ id: 'wall', a: { x: -5, z: WALL_Z }, b: { x: 5, z: WALL_Z }, bottom: 0, top: 3 }],
   spawns: [],
-  doors: [],
 };
 const tuning = { ...base, arenas: { ...base.arenas, flight: flat } };
 const { speed, gravity, loft, maxTicks } = tuning.dagger;
