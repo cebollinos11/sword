@@ -14,6 +14,7 @@ import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
+import { ShaderWarmUp } from './warmUp';
 import { arenaTuning } from '../sim/delver';
 
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
@@ -89,6 +90,8 @@ export class Renderer {
   private readonly lastPoses: (DrawnPose | undefined)[] = [];
   /** Each Fighter's flail ball swinging on its chain with the Fighter's inertia (drawing only). */
   private readonly swings: FlailSwing[] = [];
+  /** Compiles ahead what the scene may come to draw (`warmUp`); null until first asked. */
+  private warm: ShaderWarmUp | null = null;
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -146,6 +149,7 @@ export class Renderer {
 
   /** Take the canvas out of the page and let go of the WebGL context (see `Stage.dispose`). */
   dispose(): void {
+    this.warm?.dispose();
     this.stage.dispose();
   }
 
@@ -165,6 +169,24 @@ export class Renderer {
    */
   setFades(fades: ((fighter: number) => number) | null): void {
     this.fades = fades;
+  }
+
+  /**
+   * Compile now, behind a loading screen, the shaders Arena `arena` (by default the one last drawn) may come to need (`ShaderWarmUp`): its model once
+   * loaded, every Body whole and dithered in, blood, flesh and the impact effects, so none is compiled mid-play. Resolves once
+   * they are ready, and never rejects: a warm-up that fails is logged, and the shaders then compile as they are first drawn.
+   * From then on each new Arena drawn (a Run's next Floor) is warmed the same way as it is first drawn.
+   */
+  async warmUp(arena: string = this.arena): Promise<void> {
+    const warm = (this.warm ??= new ShaderWarmUp(this.tuning));
+    // Shown now if it is not yet (a Battle draws nothing until its impostors are baked): its model and lights are what is compiled for.
+    this.showArena(arena, false);
+    try {
+      await this.stage.ready();
+      await warm.compile(this.stage.renderer, this.stage.scene, this.stage.camera);
+    } catch (e) {
+      console.error('Shader warm-up failed', e);
+    }
   }
 
   /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
@@ -215,13 +237,25 @@ export class Renderer {
   }
 
   /**
+   * Put Arena `name` on the Stage (nothing changes if it is already there) and return its world. A new Arena after a warm-up
+   * (a Run's next Floor, a Random Map's next Duel) is warmed too, in the background, unless `rewarm` is off (`warmUp` itself):
+   * a shader is compiled for the lights it is lit by.
+   */
+  private showArena(name: string, rewarm = true): ReturnType<ArenaWorld> {
+    const world = this.world(name);
+    const fresh = name !== this.arena;
+    this.arena = name;
+    this.stage.setArena(name, world.tuning, world.layout);
+    if (fresh && rewarm && this.warm) void this.warmUp();
+    return world;
+  }
+
+  /**
    * Draw a frame between Tick `prev` and Tick `curr`; `alpha` in [0, 1]. Each Fighter wears its team's colour.
    * `timeScale` slows the effects that run on wall time (sparks, spinning daggers) to match a slowed-down replay.
    */
   render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
-    const world = this.world(curr.arena);
-    this.arena = curr.arena;
-    this.stage.setArena(curr.arena, world.tuning, world.layout);
+    const world = this.showArena(curr.arena);
     const colours = drawColours(curr, world.tuning.battle.soldier.colours, world.tuning.battle.troops);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;

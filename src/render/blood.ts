@@ -326,6 +326,8 @@ export class BloodEffects {
     });
     this.stains = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, MAX_STAINS);
     this.stains.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    // Made now rather than by the first stain's `setColorAt`: it changes the shader, which would then compile mid-play.
+    this.stains.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_STAINS * 3), 3).setUsage(THREE.DynamicDrawUsage);
     this.stains.count = 0;
     this.stains.frustumCulled = false;
     this.stains.renderOrder = 1;
