@@ -42,20 +42,32 @@ describe('the atlas layout', () => {
   const layout = atlasLayout(128, 4096);
   const frames = IMPOSTOR_CLIPS.reduce((n, c) => n + CLIP_FRAMES[c], 0);
 
-  it('has a cell for every clip, frame and direction, each its own and inside the atlas', () => {
+  it('bakes the front, the back and the right side between them, each frame its own cell inside the atlas', () => {
+    expect(layout.baked).toBe(IMPOSTOR_DIRECTIONS / 2 + 1);
     const seen = new Set<string>();
     for (const clip of IMPOSTOR_CLIPS)
       for (let f = 0; f < CLIP_FRAMES[clip]; f++)
-        for (let d = 0; d < IMPOSTOR_DIRECTIONS; d++) {
-          const { column, row } = atlasCell(layout, clip, f, d);
+        for (let d = 0; d < layout.baked; d++) {
+          const { column, row, mirrored } = atlasCell(layout, clip, f, d);
+          expect(mirrored).toBe(false);
           expect(column).toBeGreaterThanOrEqual(0);
           expect(column).toBeLessThan(layout.columns);
           expect(row).toBeGreaterThanOrEqual(0);
           expect(row).toBeLessThan(layout.rows);
           seen.add(`${column},${row}`);
         }
-    expect(seen.size).toBe(frames * IMPOSTOR_DIRECTIONS);
-    expect(layout.columns * layout.rows).toBeGreaterThanOrEqual(frames * IMPOSTOR_DIRECTIONS);
+    expect(seen.size).toBe(frames * layout.baked);
+    expect(layout.columns * layout.rows).toBeGreaterThanOrEqual(frames * layout.baked);
+  });
+
+  it('draws a direction on the left as its mirror on the right, flipped', () => {
+    for (const clip of IMPOSTOR_CLIPS)
+      for (let f = 0; f < CLIP_FRAMES[clip]; f++)
+        for (let d = layout.baked; d < IMPOSTOR_DIRECTIONS; d++) {
+          const left = atlasCell(layout, clip, f, d);
+          const right = atlasCell(layout, clip, f, IMPOSTOR_DIRECTIONS - d);
+          expect(left).toEqual({ ...right, mirrored: true });
+        }
   });
 
   it('is about square, its size the cells it holds', () => {
@@ -68,8 +80,11 @@ describe('the atlas layout', () => {
   });
 
   it('halves its cells until it fits the largest texture allowed', () => {
+    // 14 cells across: 128 px is too big for 1024, 64 px fits.
     const small = atlasLayout(128, 1024);
-    expect(small.cell).toBe(32);
+    expect(small.columns).toBe(14);
+    expect(small.cell).toBe(64);
+    expect(atlasLayout(128, 512).cell).toBe(32);
     expect(Math.max(small.width, small.height)).toBeLessThanOrEqual(1024);
     expect(small.columns).toBe(layout.columns);
   });

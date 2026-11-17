@@ -26,6 +26,7 @@ const SHADOW_LIFT = 0.03;
 const vertexShader = /* glsl */ `
   attribute vec3 aFeet;
   attribute vec2 aCell;
+  attribute float aMirror;
   attribute float aFade;
   attribute vec2 aSize;
   attribute vec2 aShade;
@@ -41,7 +42,8 @@ const vertexShader = /* glsl */ `
     vec2 f = d > 1e-4 ? toCamera / d : vec2(0.0, 1.0);
     // Stretched to its Size about its feet (the quad's origin), so its feet stay on the ground: aSize is (across, up).
     vec3 world = aFeet + vec3(f.y, 0.0, -f.x) * (position.x * aSize.x) + vec3(0.0, position.y * aSize.y, 0.0);
-    vUv = aCell + uv * uCellSize;
+    // A direction on the Soldier's left shows its mirror on the right, flipped (\`atlasCell\`).
+    vUv = aCell + vec2(aMirror > 0.5 ? 1.0 - uv.x : uv.x, uv.y) * uCellSize;
     vFade = aFade;
     vShade = aShade;
     vec4 mvPosition = viewMatrix * vec4(world, 1.0);
@@ -95,6 +97,7 @@ class TeamImpostors {
   readonly mesh: THREE.Mesh;
   readonly feet: THREE.InstancedBufferAttribute;
   readonly cell: THREE.InstancedBufferAttribute;
+  readonly mirror: THREE.InstancedBufferAttribute;
   readonly fade: THREE.InstancedBufferAttribute;
   readonly size: THREE.InstancedBufferAttribute;
   readonly shade: THREE.InstancedBufferAttribute;
@@ -114,6 +117,8 @@ class TeamImpostors {
     this.cell = new THREE.InstancedBufferAttribute(new Float32Array(count * 2), 2).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aFeet', this.feet);
     geometry.setAttribute('aCell', this.cell);
+    this.mirror = new THREE.InstancedBufferAttribute(new Float32Array(count), 1).setUsage(THREE.DynamicDrawUsage);
+    geometry.setAttribute('aMirror', this.mirror);
     this.fade = new THREE.InstancedBufferAttribute(new Float32Array(count).fill(1), 1).setUsage(THREE.DynamicDrawUsage);
     geometry.setAttribute('aFade', this.fade);
     this.size = new THREE.InstancedBufferAttribute(new Float32Array(count * 2).fill(1), 2).setUsage(THREE.DynamicDrawUsage);
@@ -246,12 +251,13 @@ export class CrowdView {
         this.layout.frames,
       );
       const viewYaw = yawTo(x, z, cx, cz);
-      const { column, row } = atlasCell(this.layout, clip, frame, directionCell(crowd.heading[i]!, viewYaw, this.layout.directions));
+      const { column, row, mirrored } = atlasCell(this.layout, clip, frame, directionCell(crowd.heading[i]!, viewYaw, this.layout.directions));
       const height = crowd.sizeHeight[i] ?? 1;
       const thick = crowd.sizeThick[i] ?? 1;
       const [across, up] = impostorStretch(height, thick, crowd.heading[i]!, viewYaw);
       team.size.setXY(k, across, up);
       team.cell.setXY(k, (column * this.layout.cell) / this.layout.width, (row * this.layout.cell) / this.layout.height);
+      team.mirror.setX(k, mirrored ? 1 : 0);
 
       // The shadow, lying on the ground's slope under it.
       const e = 0.5;
@@ -265,6 +271,7 @@ export class CrowdView {
     for (const t of this.teams.flat()) {
       t.feet.needsUpdate = true;
       t.cell.needsUpdate = true;
+      t.mirror.needsUpdate = true;
       t.fade.needsUpdate = true;
       t.size.needsUpdate = true;
     }

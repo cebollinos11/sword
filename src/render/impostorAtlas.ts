@@ -2,15 +2,16 @@
  * The impostor atlases (docs/plans/big-battle.md, Stage 2), baked in-engine when a Battle is drawn, one per look a Soldier can
  * have (a Troop's Body for each Team and its Weapon, `soldierLooks`): that Body and Weapon, posed frame by frame from its clips (`soldierClips`, recorded from the Simulation), rendered from
  * `IMPOSTOR_DIRECTIONS` directions round it into one texture (`atlasLayout`). Its team-coloured part is baked white and,
- * into a second texture of the same size and layout, as a mask, so the impostor's shader tints it with each Team's
+ * into a second texture of the same size and layout (drawn in the same pass), as a mask, so the impostor's shader tints it with each Team's
  * colour: one atlas serves both Teams. Render-only.
  */
 import * as THREE from 'three';
 import { troopBodies, weaponByName, type BattleTuning, type TuningData } from '../tuning';
 import { BODY_MODELS, type BodyModelName } from './bodyModel';
 import { FighterView } from './fighterView';
+import { patchShader } from './shaderPatch';
 import { atlasCell, atlasLayout, IMPOSTOR_CLIPS, type AtlasLayout, type ClipSeconds } from './impostor';
-import { soldierClips } from './soldierClips';
+import { soldierClips, type SoldierClips } from './soldierClips';
 
 /** A cell's side in the world (m): the soldier's swing reaches about 2.5 m up and its fall about 1 m round its feet. */
 export const CELL_METRES = 2.9;
@@ -34,16 +35,27 @@ export interface ImpostorAtlas {
 
 const isModel = (body: string): body is BodyModelName => (BODY_MODELS as readonly string[]).includes(body);
 
-function target(width: number, height: number, colorSpace: THREE.ColorSpace): THREE.WebGLRenderTarget {
+/** The atlas's target: its colour (texture 0) and its mask (texture 1), drawn together. */
+function target(width: number, height: number): THREE.WebGLRenderTarget {
   const rt = new THREE.WebGLRenderTarget(width, height, {
     minFilter: THREE.LinearMipmapLinearFilter,
     magFilter: THREE.LinearFilter,
     generateMipmaps: true,
-    colorSpace,
     depthBuffer: true,
+    count: 2,
   });
   rt.scissorTest = true;
   return rt;
+}
+
+/** Make `material` also write `value` (red) to the target's second texture, the mask, wherever it draws. */
+function maskShader(material: THREE.Material, value: 0 | 1): void {
+  patchShader(material, `impostorMask${value}`, (shader) => {
+    shader.fragmentShader = `layout(location = 1) out highp vec4 impostorMask;\n${shader.fragmentShader}`.replace(
+      /}\s*$/,
+      `  impostorMask = vec4(${value}.0, 0.0, 0.0, 1.0);\n}`,
+    );
+  });
 }
 
 /** One look a Soldier can have: the Body it is drawn as and the Weapon it holds. Each is baked into an atlas of its own. */
@@ -88,9 +100,13 @@ export async function bakeImpostorAtlases(
 ): Promise<ImpostorAtlases> {
   const { looks, index } = soldierLooks(battle);
   const atlases: ImpostorAtlas[] = [];
+  // A Weapon's clips are the same whatever Body holds it: recorded once for every look that wields it.
+  const clips = new Map<string, SoldierClips>();
   for (const look of looks) {
     await onProgress?.(atlases.length, looks.length);
-    atlases.push(await bakeImpostorAtlas(renderer, tuning, look));
+    const weapon = weaponByName(tuning, look.weapon).name;
+    if (!clips.has(weapon)) clips.set(weapon, soldierClips(tuning, weapon));
+    atlases.push(await bakeImpostorAtlas(renderer, tuning, look, clips.get(weapon)));
   }
   await onProgress?.(looks.length, looks.length);
   return {
@@ -102,11 +118,18 @@ export async function bakeImpostorAtlases(
   };
 }
 
-/** Bake one look's atlas with `renderer` (the one that will draw it). Resolves once its Body model has loaded. */
-export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: TuningData, soldier: SoldierLook): Promise<ImpostorAtlas> {
+/**
+ * Bake one look's atlas with `renderer` (the one that will draw it), from its Weapon's `clips` (recorded here if not given).
+ * Resolves once its Body model has loaded.
+ */
+export async function bakeImpostorAtlas(
+  renderer: THREE.WebGLRenderer,
+  tuning: TuningData,
+  soldier: SoldierLook,
+  clips: SoldierClips = soldierClips(tuning, weaponByName(tuning, soldier.weapon).name),
+): Promise<ImpostorAtlas> {
   if (!isModel(soldier.body)) throw new Error(`A Troop's Body "${soldier.body}" is not a Body model (${BODY_MODELS.join(', ')})`);
   const weapon = weaponByName(tuning, soldier.weapon);
-  const clips = soldierClips(tuning, weapon.name);
   const view = new FighterView(0xffffff, tuning, soldier.body);
   await view.ready;
 
@@ -118,25 +141,36 @@ export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: T
   const camera = new THREE.OrthographicCamera(-CELL_METRES / 2, CELL_METRES / 2, CELL_METRES - FEET_METRES, -FEET_METRES, 0.1, 20);
 
   const layout = atlasLayout(CELL_PIXELS, Math.min(MAX_PIXELS, renderer.capabilities.maxTextureSize));
-  const colour = target(layout.width, layout.height, THREE.SRGBColorSpace);
-  const mask = target(layout.width, layout.height, THREE.NoColorSpace);
+  // One target, two textures: each cell is drawn once, into the colour and the mask together.
+  const rt = target(layout.width, layout.height);
+  const [colour, mask] = rt.textures as [THREE.Texture, THREE.Texture];
+  colour.colorSpace = THREE.SRGBColorSpace;
+  mask.colorSpace = THREE.NoColorSpace;
   // Allocated with all their mip levels, then filled cell by cell without regenerating them; generated once at the end.
-  for (const rt of [colour, mask]) {
-    renderer.initRenderTarget(rt);
-    rt.texture.generateMipmaps = false;
-  }
+  renderer.initRenderTarget(rt);
+  for (const t of rt.textures) t.generateMipmaps = false;
 
-  // The mask pass's materials: white on the team-coloured part, black elsewhere. Double-sided, as a Body's skirt is a thin sheet that
-  // the colour pass shows from behind too: a culled back face would leave the mask empty there and the skirt white.
-  const white = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide });
-  const black = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+  // While it is baked, each mesh draws with a copy of its material that also writes the mask: 1 on the team-coloured part, 0
+  // elsewhere, on exactly the pixels its colour covers (so a skirt seen from behind is masked as it is coloured).
   const own = new Map<THREE.Mesh, THREE.Material | THREE.Material[]>();
-  view.root.traverse((o) => {
-    if (o instanceof THREE.Mesh) own.set(o, o.material);
-  });
-  const masking = (on: boolean) => {
-    for (const [mesh, material] of own) mesh.material = on ? ((material as THREE.Material).name?.endsWith('_Skirt') ? white : black) : material;
+  const copies = new Map<THREE.Material, THREE.Material>();
+  const masked = (material: THREE.Material): THREE.Material => {
+    let copy = copies.get(material);
+    if (!copy) {
+      copy = material.clone();
+      // The copy's own patches only: the original's (its blood, its fade) do not survive the clone, and are not baked.
+      copy.userData = {};
+      maskShader(copy, material.name?.endsWith('_Skirt') ? 1 : 0);
+      copies.set(material, copy);
+    }
+    return copy;
   };
+  view.root.traverse((o) => {
+    if (o instanceof THREE.Mesh) {
+      own.set(o, o.material);
+      o.material = Array.isArray(o.material) ? o.material.map(masked) : masked(o.material as THREE.Material);
+    }
+  });
 
   const saved = {
     target: renderer.getRenderTarget(),
@@ -146,53 +180,44 @@ export async function bakeImpostorAtlas(renderer: THREE.WebGLRenderer, tuning: T
   };
   renderer.setClearColor(0x000000, 0);
   renderer.autoClear = true;
-  for (const [rt, maskPass] of [
-    [colour, false],
-    [mask, true],
-  ] as const) {
-    masking(maskPass);
-    const side = layout.cell;
-    for (const clip of IMPOSTOR_CLIPS)
-      clips.poses[clip].forEach((pose, frame) => {
-        view.update(pose, weapon);
-        for (let d = 0; d < layout.directions; d++) {
-          const yaw = (d * 2 * Math.PI) / layout.directions;
-          camera.position.set(Math.sin(yaw) * Math.cos(BAKE_ELEVATION), Math.sin(BAKE_ELEVATION), Math.cos(yaw) * Math.cos(BAKE_ELEVATION)).multiplyScalar(10);
-          camera.lookAt(0, 0, 0);
-          const { column, row } = atlasCell(layout, clip, frame, d);
-          rt.viewport.set(column * side, row * side, side, side);
-          rt.scissor.copy(rt.viewport);
-          renderer.setRenderTarget(rt);
-          renderer.render(scene, camera);
-        }
-      });
-  }
-  masking(false);
-  // An empty draw into each target, which (with mipmaps on again) generates them once.
-  const empty = new THREE.Scene();
+  renderer.setRenderTarget(rt);
+  const side = layout.cell;
+  for (const clip of IMPOSTOR_CLIPS)
+    clips.poses[clip].forEach((pose, frame) => {
+      view.update(pose, weapon);
+      // Only the front, the back and the right between them: the left is drawn as the right, mirrored (`atlasCell`).
+      for (let d = 0; d < layout.baked; d++) {
+        const yaw = (d * 2 * Math.PI) / layout.directions;
+        camera.position.set(Math.sin(yaw) * Math.cos(BAKE_ELEVATION), Math.sin(BAKE_ELEVATION), Math.cos(yaw) * Math.cos(BAKE_ELEVATION)).multiplyScalar(10);
+        camera.lookAt(0, 0, 0);
+        const { column, row } = atlasCell(layout, clip, frame, d);
+        rt.viewport.set(column * side, row * side, side, side);
+        rt.scissor.copy(rt.viewport);
+        renderer.setRenderTarget(rt);
+        renderer.render(scene, camera);
+      }
+    });
+  for (const [mesh, material] of own) mesh.material = material;
+  for (const copy of copies.values()) copy.dispose();
+  // An empty draw into the target, which (with mipmaps on again) generates them once.
   renderer.autoClear = false;
-  for (const rt of [colour, mask]) {
-    rt.texture.generateMipmaps = true;
-    rt.viewport.set(0, 0, 1, 1);
-    rt.scissor.set(0, 0, 1, 1);
-    renderer.setRenderTarget(rt);
-    renderer.render(empty, camera);
-  }
+  for (const t of rt.textures) t.generateMipmaps = true;
+  rt.viewport.set(0, 0, 1, 1);
+  rt.scissor.set(0, 0, 1, 1);
+  renderer.setRenderTarget(rt);
+  renderer.render(new THREE.Scene(), camera);
   renderer.setRenderTarget(saved.target);
   renderer.setClearColor(saved.clear, saved.alpha);
   renderer.autoClear = saved.autoClear;
   view.dispose();
-  white.dispose();
-  black.dispose();
 
   return {
-    colour: colour.texture,
-    mask: mask.texture,
+    colour,
+    mask,
     layout,
     seconds: clips.seconds,
     dispose() {
-      colour.dispose();
-      mask.dispose();
+      rt.dispose();
     },
   };
 }
