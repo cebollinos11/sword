@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { createMatch, MAX_TEAM_SIZE, modsOf, type MatchState } from '../sim';
+import { commonItem, createMatch, MAX_TEAM_SIZE, modsOf, type MatchState } from '../sim';
 import type { Lineup } from '../controllers';
 import { daggerCapacity, playerName, runBuilds } from './runBuilds';
 
@@ -17,9 +17,9 @@ describe('runBuilds', () => {
     const [a, b] = [tuning.relics[0]!.name, tuning.relics[1]!.name];
     let m = start();
     const w = m.duel.fighters[0]!.inventory!.weapons[0]!;
-    m = holding(m, 0, { weapons: [w, 'Spear'], relics: [a, b], weapon: 1, equipped: [0] });
+    m = holding(m, 0, { weapons: [w, commonItem('Spear')], relics: [commonItem(a), commonItem(b)], weapon: 1, equipped: [0] });
     expect(runBuilds(m, (f) => `#${f}`)).toEqual([
-      { fighter: 0, name: '#0', weapon: 'Spear', equipped: [a], carried: [b] },
+      { fighter: 0, name: '#0', weapon: commonItem('Spear'), equipped: [commonItem(a)], carried: [commonItem(b)] },
       { fighter: 1, name: '#1', weapon: m.duel.fighters[1]!.inventory!.weapons[0], equipped: [], carried: [] },
     ]);
   });
@@ -58,9 +58,9 @@ describe('every Player’s build, named, on every peer', () => {
     const [a, b] = [tuning.relics[0]!.name, tuning.relics[1]!.name];
     let m = start();
     const w = m.duel.fighters[1]!.inventory!.weapons[0]!;
-    m = holding(m, 1, { weapons: [w], relics: [a, b], weapon: 0, equipped: [1] });
+    m = holding(m, 1, { weapons: [w], relics: [commonItem(a), commonItem(b)], weapon: 0, equipped: [1] });
     const builds = runBuilds(m, (f) => playerName(lineup, ['Ana', 'Ben'], f));
     expect(builds.map((x) => [x.fighter, x.name])).toEqual([[0, 'Ben'], [1, 'Ana']]);
-    expect(builds[1]).toMatchObject({ weapon: w, equipped: [b], carried: [a] });
+    expect(builds[1]).toMatchObject({ weapon: w, equipped: [commonItem(b)], carried: [commonItem(a)] });
   });
 });

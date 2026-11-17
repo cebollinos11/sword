@@ -1,9 +1,9 @@
 /**
  * The Dungeon as Tuning Data (data/dungeon.json, hashed): what a Run (docs/plans/delver.md) keeps across its Floors: how long the party
- * stands on the Stairs and fades to the next Floor, how fires heal and revive, the Inventory's sizes, the loot's weights and counts, and the
- * Weapons a Run leaves out. The Floors themselves are generated (`data/delver.json`, `src/sim/delver/`).
+ * stands on the Stairs and fades to the next Floor, how fires heal and revive, the Inventory's sizes, and the loot's weights, counts and Rarity. The Floors themselves are generated (`data/delver.json`, `src/sim/delver/`).
  */
-import { array, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
+import { parseRarity, type RarityTuning } from './rarity';
+import { nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 /** A Weapon or AI Style written `"random"` is picked by a pure hash of a seed and a slot. */
 export const RANDOM_PICK = 'random';
@@ -19,6 +19,8 @@ export interface DungeonLoot {
   readonly drops: { readonly Fight: number; readonly Elite: number; readonly Boss: number };
   /** Pedestals each Player has in a Treasure Hall (1 to MAX_LOOT_SPOTS): they take one of them. */
   readonly pedestals: number;
+  /** How good an item is (Common, Rare, Legendary): what its effects scale by. */
+  readonly rarity: RarityTuning;
 }
 
 export interface DungeonTuning {
@@ -34,10 +36,6 @@ export interface DungeonTuning {
   readonly inventory: { readonly weapons: number; readonly relics: number; readonly equippedRelics: number };
   /** What wiped Warbands drop and Treasure Halls offer. */
   readonly loot: DungeonLoot;
-  /**
-   * Weapons a Run never drops as loot (the Flail, for now): the pool is the roster without them, in file order (`runWeapons`).
-   */
-  readonly leftOutWeapons: readonly string[];
 }
 
 function share(obj: Record<string, unknown>, key: string, where: string, min: 'zero' | 'positive'): number {
@@ -52,9 +50,10 @@ function wholeNumber(obj: Record<string, unknown>, key: string, where: string, l
   return v;
 }
 
-/** Validate the raw Dungeon against the Weapon roster. Accepts its own output. */
-export function parseDungeon(raw: unknown, weapons: readonly string[]): DungeonTuning {
+/** Validate the raw Dungeon. Accepts its own output. */
+export function parseDungeon(raw: unknown): DungeonTuning {
   const d = record(raw, 'dungeon');
+  if (d.leftOutWeapons !== undefined) throw new TuningDataError('dungeon.leftOutWeapons is retired: every Weapon is loot (docs/plans/loot-rarity.md)');
   const inv = record(d.inventory, 'dungeon.inventory');
   const relics = wholeNumber(inv, 'relics', 'dungeon.inventory', 0, 99);
   const loot = record(d.loot, 'dungeon.loot');
@@ -66,11 +65,6 @@ export function parseDungeon(raw: unknown, weapons: readonly string[]): DungeonT
     Consumable: lootWeights.Consumable === undefined ? 0 : nonNegativeNumber(lootWeights, 'Consumable', 'dungeon.loot.weights'),
   };
   if (weights.Relic + weights.Weapon + weights.Consumable <= 0) throw new TuningDataError('dungeon.loot.weights must give Relic, Weapon or Consumable a weight above 0');
-  const leftOutWeapons = d.leftOutWeapons === undefined ? [] : array(d.leftOutWeapons, 'dungeon.leftOutWeapons').map((w, i) => {
-    if (typeof w !== 'string' || !weapons.includes(w)) throw new TuningDataError(`dungeon.leftOutWeapons[${i}]: unknown Weapon ${JSON.stringify(w)} (have: ${weapons.join(', ')})`);
-    return w;
-  });
-  if (weapons.length > 0 && weapons.every((w) => leftOutWeapons.includes(w))) throw new TuningDataError('dungeon.leftOutWeapons must leave at least one Weapon for a Run');
 
   return {
     stairsSeconds: positiveNumber(d, 'stairsSeconds', 'dungeon'),
@@ -90,7 +84,7 @@ export function parseDungeon(raw: unknown, weapons: readonly string[]): DungeonT
         Boss: wholeNumber(lootDrops, 'Boss', 'dungeon.loot.drops', 0, MAX_LOOT_SPOTS),
       },
       pedestals: wholeNumber(loot, 'pedestals', 'dungeon.loot', 1, MAX_LOOT_SPOTS),
+      rarity: parseRarity(loot.rarity, 'dungeon.loot.rarity'),
     },
-    leftOutWeapons,
   };
 }

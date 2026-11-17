@@ -2,7 +2,7 @@
  * A Fighter's Mods: its equipped Relics folded into one record (docs/plans/dungeon.md). Every place that reads one of
  * these numbers (a Hit, a Throwing Dagger, a Kick, a Block Impact, max HP, heals) reads the Fighter's own `mods`.
  */
-import { RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS, type RelicEffect, type RelicEffects } from '../tuning/relics';
+import { RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS, type RelicEffect, type RelicEffects } from '../tuning/relics';
 import type { FighterState } from './state';
 
 /*
@@ -41,6 +41,27 @@ export function foldMods(relics: readonly { readonly effects: RelicEffects }[]):
     for (const key of RELIC_ADDITIONS) mods[key] += relic.effects[key] ?? 0;
   }
   return mods;
+}
+
+/**
+ * `effects` scaled by a Rarity's multiplier `m` (`dungeon.loot.rarity.multipliers`), a new object with the same keys. A multiplier good above 1 (`f > 1`)
+ * becomes `1 + (f - 1) × m`; one good below 1 (`RELIC_GOOD_LOW`, `f < 1`) `1 - (1 - f) × m`; a share (`a > 0`) `a × m`; a count (`RELIC_COUNTS`, `a > 0`)
+ * `Math.round(a × m)`, so it stays whole (a half rounds up). A downside (a multiplier on the wrong side of 1) and a factor of 1 stay. At `m = 1` the
+ * values come back bit-for-bit (`1 + (f - 1) × 1` can differ from `f` in the last bit), so a Common item folds exactly as an unscaled Relic. Pure.
+ */
+export function scaleEffects(effects: RelicEffects, m: number): RelicEffects {
+  if (m === 1) return { ...effects };
+  const scaled: Partial<Record<RelicEffect, number>> = {};
+  for (const key of RELIC_EFFECTS) {
+    const v = effects[key];
+    if (v === undefined) continue;
+    if ((RELIC_MULTIPLIERS as readonly string[]).includes(key)) {
+      const low = (RELIC_GOOD_LOW as readonly string[]).includes(key);
+      scaled[key] = low ? (v < 1 ? 1 - (1 - v) * m : v) : v > 1 ? 1 + (v - 1) * m : v;
+    } else if ((RELIC_COUNTS as readonly string[]).includes(key)) scaled[key] = v > 0 ? Math.round(v * m) : v;
+    else scaled[key] = v > 0 ? v * m : v;
+  }
+  return scaled;
 }
 
 /** Every Mods key (the Relic vocabulary), for a hash or a message validator. */

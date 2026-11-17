@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMatch } from './sim';
+import { commonItem, createMatch } from './sim';
 import { loadTuningData } from './tuning';
 import { devAutopilot, devDelverFloor, devDelverStart, devMode, devRunRelics } from './devMode';
 
@@ -39,7 +39,7 @@ describe('devRunRelics: a Run starts holding chosen Relics only in dev mode', ()
   it('gives each Player the inventory and the matching mods', () => {
     const f = createMatch(tuning, { ...options, ...devDelverStart('?dev=1&delverStart=2', ''), relics: names }).duel.fighters[0]!;
     const { equippedRelics } = tuning.dungeon.inventory;
-    expect(f.inventory!.relics).toEqual(names);
+    expect(f.inventory!.relics).toEqual(names.map(commonItem));
     expect(f.inventory!.equipped).toEqual(names.slice(0, equippedRelics).map((_, k) => k));
     const plain = createMatch(tuning, options).duel.fighters[0]!;
     expect(f.mods).not.toEqual(plain.mods);

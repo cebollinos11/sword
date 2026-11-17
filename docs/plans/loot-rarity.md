@@ -1,6 +1,6 @@
 # Loot Rarity: Rarities, Weapon Effects and the Full Roster as Loot
 
-> Status: scope agreed (2026-11-17), the open questions answered by the user. Nothing built yet. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stage 1 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 Delver loot is flat today. Every copy of an item is the same item:
@@ -124,7 +124,7 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
   - A sheathed Weapon keeps its tint.
 
 ## Stages
-- [ ] Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
+- [x] Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
 - [ ] Stage 2: Weapon effects and the Rarity damage bonus
 - [ ] Stage 3: Rarity rolls by depth and source
 - [ ] Stage 4: Rarity shown: inventory, HUD, results, pickups, the wielded Weapon
@@ -185,6 +185,40 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 - `src/net/messages.test.ts` (or `delverMessages.test.ts`): a snapshot with Items round-trips; an Inventory item of an unknown Rarity, a bare-name item and a Rare Consumable pickup are refused.
 
 **One task** (the Item type ripples through every file at once, so a split could not typecheck on its own).
+
+### Result
+- **Built**:
+  - `Rarity` and `RARITIES` (`src/tuning/rarity.ts`), and `dungeon.loot.rarity.multipliers` (1 / 1.5 / 2), parsed and refused as the Design says.
+  - `Item { name, rarity }` and `commonItem` (`src/sim/inventory.ts`), carried by the Inventory, `Dropped`, pickups, `Taken`, `DroppedItem`, the three item events and the results `RunBuild`.
+  - `scaleEffects` (`src/sim/mods.ts`), with `RELIC_GOOD_LOW` and `RELIC_COUNTS` (`src/tuning/relics.ts`).
+  - `inventoryMods` scales each equipped Relic by its Rarity. `relicMods` (enemies) stays unscaled.
+  - `addItem` and the net validator refuse a Consumable that is not Common.
+  - `runWeapons` and `dungeon.leftOutWeapons` are gone; the parser refuses the old key with a pointer here.
+  - `PROTOCOL_VERSION` 36, `DELVER_VERSION` 10.
+- **Decisions the plan did not settle**:
+  - `healOnKill` must now be a whole number in the Relic parser, as `daggers` is, so both counts stay whole before and after scaling.
+  - `scaleEffects` returns a copy of its input at ×1, so a Common item's bits are exactly today's (no golden moved).
+  - A Legendary scale may never take a good-below-1 factor to 0 or below. `parseTuningData` refuses it, and so `loadTuningData` does too.
+  - The dev `relics` option stays a list of names, held as Common Items.
+  - `parseDungeon` lost its Weapon-roster argument, which only `leftOutWeapons` used.
+- **Tests**:
+  - `npm test`: 3053 passed, 3 skipped (3030 before).
+  - Slow suites green: `delverRun`, `delverCoop`, `delverFour` and `warbandSoak`.
+  - `npm run typecheck` and `npm run build` are clean.
+- **New tests**:
+  - `scaleEffects` in `mods.test.ts`, covering every effect at ×1.5 and ×2, Glass Cannon's downside, ×1 bit-for-bit, and rounding;
+  - `src/sim/inventory.test.ts`, with Common + Rare Whetstones stacking to 1.1 × 1.15, a Rare Vital Charm's max HP, a Rare Consumable refused and `dropItem` keeping the Rarity;
+  - `src/sim/weaponLoot.test.ts`: all 7 Weapons drop;
+  - Rarity parsing and the retired key in `dungeon.test.ts`;
+  - the cross-check in `tuning.test.ts`;
+  - Item validation in `messages.test.ts` and `delverMessages.test.ts`.
+- **Tests changed**:
+  - `src/sim/runWeapons.test.ts` was replaced by `weaponLoot.test.ts`, because the plan reverses the left-out list.
+  - `dungeon.test.ts`'s `leftOutWeapons` case now checks the refusal.
+  - `relics.test.ts` refuses a fractional `healOnKill`.
+  - The protocol number moved to 36 in `messages.test.ts` and `delverMessages.test.ts`.
+  - Every other change is shape only (bare names → Items), in `delverPilot`, `announcer`, `inventoryView`, `runBuilds`, `pickupView`, `delverRun`, `delverLoot`, `devMode` and `warbandSoak`.
+  - No golden value (loot pick or Run hash) moved.
 
 ### Stage 2: Weapon effects and the Rarity damage bonus
 - `loot.effects` in the Weapon files (the table above) and parsed.

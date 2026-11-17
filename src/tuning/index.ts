@@ -30,7 +30,7 @@ import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate } from './delver';
 export { eliteRelicSets, fieldedIn, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate };
-import { parseRelics, type RelicTuning } from './relics';
+import { parseRelics, RELIC_GOOD_LOW, type RelicTuning } from './relics';
 import { parseConsumables, type ConsumableTuning } from './consumables';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
@@ -44,7 +44,8 @@ export { clampSize, isSize, isStandardSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, sized
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
-export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
+export { parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
+export { parseRarity, RARITIES, type Rarity, type RarityTuning } from './rarity';
 export type { ConsumableEffect, ConsumableTuning } from './consumables';
 export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';
 export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
@@ -538,11 +539,6 @@ export function defaultWeaponName(tuning: Pick<TuningData, 'weapons'>): string {
   return Object.keys(tuning.weapons)[0]!;
 }
 
-/** The Weapons a Run picks its Weapon loot from: the roster, in file order, without `dungeon.leftOutWeapons`. */
-export function runWeapons(tuning: Pick<TuningData, 'weapons' | 'dungeon'>): string[] {
-  return Object.keys(tuning.weapons).filter((w) => !tuning.dungeon.leftOutWeapons.includes(w));
-}
-
 /** A Weapon of the roster by name. Throws on an unknown name. */
 export function weaponByName(tuning: Pick<TuningData, 'weapons'>, name: string): WeaponTuning {
   const w = tuning.weapons[name];
@@ -750,6 +746,14 @@ export function parseTuningData(raw: unknown): TuningData {
   const f = record(root.fighter, 'fighter');
   const relics = parseRelics(root.relics);
   const consumables = root.consumables === undefined ? [] : parseConsumables(root.consumables, relics.map((r) => r.name));
+  const dungeon = parseDungeon(root.dungeon);
+  // A Legendary Relic scales a good-below-1 factor (less damage taken) further down: it may never reach 0 (no item makes its holder take no damage).
+  const top = dungeon.loot.rarity.multipliers.Legendary;
+  for (const relic of relics)
+    for (const key of RELIC_GOOD_LOW) {
+      const f = relic.effects[key];
+      if (f !== undefined && f < 1 && 1 - (1 - f) * top <= 0) throw new TuningDataError(`relics: "${relic.name}".${key} ${f} at Legendary (x${top}) would be ${1 - (1 - f) * top}: scaled, it must stay above 0`);
+    }
   const arenas: Record<string, ArenaGeometry> = {};
   (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
     const arena = parseArena(raw, `arenas[${i}]`);
@@ -871,7 +875,7 @@ export function parseTuningData(raw: unknown): TuningData {
       interDuelSeconds: positiveNumber(ma, 'interDuelSeconds', 'match'),
       lineSpacing: positiveNumber(ma, 'lineSpacing', 'match'),
     },
-    dungeon: parseDungeon(root.dungeon, Object.keys(weapons)),
+    dungeon,
     relics,
     consumables,
     delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),

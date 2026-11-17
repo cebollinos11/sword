@@ -13,7 +13,7 @@ import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
 import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT, type Intent } from './intent';
-import { addItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { addItem, commonItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
 import { flatFloors } from './delver/flat.testdata';
 
@@ -149,7 +149,7 @@ describe('a Delver Run', { timeout: 60_000 }, () => {
 
   it('fades to the next Floor with HP, Inventory and the fallen carried', () => {
     const hurt = withFighters(m, (f, i) => (i === 0 ? { ...f, hp: MAX * 0.5 } : i === 1 ? fell(f) : f));
-    const set: MatchState = { ...hurt, nextDuelTick: hurt.tick + 2, delver: { ...hurt.delver!, pickups: [{ id: 0, kind: 'weapon', item: 'x', owner: null, at: { x: 0, y: 0, z: 0 }, taken: false }], stairsTicks: 5 } };
+    const set: MatchState = { ...hurt, nextDuelTick: hurt.tick + 2, delver: { ...hurt.delver!, pickups: [{ id: 0, kind: 'weapon', item: commonItem('x'), owner: null, at: { x: 0, y: 0, z: 0 }, taken: false }], stairsTicks: 5 } };
     const mid = stepMatch(set, idle(set), tuning);
     expect(mid.duelNumber).toBe(1);
     const next = stepMatch(mid, idle(mid), tuning);
@@ -502,10 +502,10 @@ describe('the Inventory of a Delver Run', { timeout: 60_000 }, () => {
     // Stage 4: the Floor's pedestals lie first, so the drop is the pickup after them (its id is their count).
     const lying = m.delver!.pickups.length;
     let r = tick(put(m, 0, fire.x, fire.z), { 0: drop });
-    expect(r.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'relic', item: relics[1]!, at: { x: fire.x, y: 0, z: fire.z } });
+    expect(r.events).toContainEqual({ type: 'ItemDropped', fighter: 0, kind: 'relic', item: commonItem(relics[1]!), at: { x: fire.x, y: 0, z: fire.z } });
     expect(r.delver!.pickups).toHaveLength(lying + 1);
-    expect(r.delver!.pickups[lying]).toMatchObject({ id: lying, kind: 'relic', item: relics[1], owner: null, taken: false });
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([relics[0]]);
+    expect(r.delver!.pickups[lying]).toMatchObject({ id: lying, kind: 'relic', item: commonItem(relics[1]!), owner: null, taken: false });
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([relics[0]]);
     // Standing on it does not take it back; stepping off, then on again away from the fire does.
     r = tick(r);
     expect(r.delver!.pickups[lying]!.taken).toBe(false);
@@ -513,12 +513,12 @@ describe('the Inventory of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.delver!.pickups[lying]!.taken).toBe(false);
     r = tick(put(r, 0, fire.x, fire.z));
     expect(r.delver!.pickups[lying]!.taken).toBe(true);
-    expect(r.events).toContainEqual({ type: 'ItemTaken', fighter: 0, id: lying, kind: 'relic', item: relics[1]! });
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([relics[0], relics[1]]);
+    expect(r.events).toContainEqual({ type: 'ItemTaken', fighter: 0, id: lying, kind: 'relic', item: commonItem(relics[1]!) });
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([relics[0], relics[1]]);
   });
 
   it('takes a pickup anywhere, with no fire near', () => {
-    const lying = { id: 0, kind: 'relic' as const, item: relics[1]!, owner: null, at: { x: off.x, y: 0, z: off.z }, taken: false };
+    const lying = { id: 0, kind: 'relic' as const, item: commonItem(relics[1]!), owner: null, at: { x: off.x, y: 0, z: off.z }, taken: false };
     const r = tick(put({ ...m, delver: { ...m.delver!, pickups: [lying] } }, 0, off.x, off.z));
     expect(r.delver!.pickups[0]!.taken).toBe(true);
   });
@@ -815,14 +815,14 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
     const r = tick(r0, { 0: use(0) });
     const f = r.duel.fighters[0]!;
     expect(f.hp).toBe(f.maxHp);
-    expect(f.inventory!.relics).toEqual(['Whetstone']);
+    expect(f.inventory!.relics.map((r) => r.name)).toEqual(['Whetstone']);
     expect(f.inventory!.equipped).toEqual([0]);
-    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: POTION, effect: 'healFull' }]);
+    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: commonItem(POTION), effect: 'healFull' }]);
   });
 
   it('refuses a Health Potion at full HP, and keeps it', () => {
     const r = tick(holding(m, [POTION]), { 0: use(0) });
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([POTION]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([POTION]);
     expect(used(r)).toEqual([]);
   });
 
@@ -832,22 +832,22 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
     expect(r.duel.fighters[0]!.action.kind).toBe('Attack');
     r = tick(r, { 0: { attack: true, ...use(0) } });
     expect(r.duel.fighters[0]!.hp).toBe(r.duel.fighters[0]!.maxHp);
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([]);
   });
 
   it('is never equipped: a number key on its slot does nothing', () => {
     const r = tick(holding(m, [POTION]), { 0: { equip: { kind: 'relic', slot: 0 } } });
     expect(r.duel.fighters[0]!.inventory!.equipped).toEqual([]);
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([POTION]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([POTION]);
   });
 
   it('refuses a use on a Relic\'s slot, an empty slot or a fallen user', () => {
     const relic = tick(holding(m, ['Whetstone']), { 0: use(0) });
-    expect(relic.duel.fighters[0]!.inventory!.relics).toEqual(['Whetstone']);
+    expect(relic.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual(['Whetstone']);
     const empty = tick(holding(m, [MAP]), { 0: use(3) });
-    expect(empty.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect(empty.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([MAP]);
     const dead = tick(withFighters(holding(m, [MAP]), (f, i) => (i === 0 ? fell(f) : f)), { 0: use(0) });
-    expect(dead.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect(dead.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([MAP]);
     expect([relic, empty, dead].flatMap(used)).toEqual([]);
   });
 
@@ -855,9 +855,9 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
     let r = tick(holding(m, [MAP, MAP]), { 0: use(0) });
     expect(r.delver!.revealed).toEqual(fullReveal(plan));
     for (let b = 0; b < revealBits(plan); b++) expect(isRevealed(r.delver!.revealed, b), `bit ${b}`).toBe(true);
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([MAP]);
     r = tick(r, { 0: use(0) });
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([MAP]);
     expect(used(r)).toEqual([]);
   });
 
@@ -875,34 +875,34 @@ describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () =
       expect(hall.rects.some((rect) => back.position.x > rect.x0 && back.position.x < rect.x1 && back.position.z > rect.z0 && back.position.z < rect.z1)).toBe(true);
       expect(r.events).toContainEqual({ type: 'Revived', fighter: i, fire: STONE_REVIVE });
     }
-    expect(user.inventory!.relics).toEqual([]);
-    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: STONE, effect: 'reviveFallen' }]);
+    expect(user.inventory!.relics.map((r) => r.name)).toEqual([]);
+    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: commonItem(STONE), effect: 'reviveFallen' }]);
   });
 
   it('refuses a Resurrection Stone with nobody fallen', () => {
     const r = tick(holding(m, [STONE]), { 0: use(0) });
-    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([STONE]);
+    expect(r.duel.fighters[0]!.inventory!.relics.map((r) => r.name)).toEqual([STONE]);
     expect(used(r)).toEqual([]);
   });
 
   it('drops as a shared Consumable pickup, which takes a Relic slot when taken', () => {
     const r = tick(holding(m, [MAP]), { 0: { drop: { kind: 'relic', slot: 0 } } });
     const dropped = r.delver!.pickups.at(-1)!;
-    expect(dropped).toMatchObject({ kind: 'consumable', item: MAP, owner: null });
-    expect(r.events).toContainEqual(expect.objectContaining({ type: 'ItemDropped', kind: 'consumable', item: MAP }));
+    expect(dropped).toMatchObject({ kind: 'consumable', item: commonItem(MAP), owner: null });
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'ItemDropped', kind: 'consumable', item: commonItem(MAP) }));
     const sizes = tuning.dungeon.inventory;
     const inv = withStartingRelics(startingInventory('Halberd'), ['Whetstone'], tuning);
-    expect(addItem(inv, { kind: 'consumable', item: POTION }, sizes)!.relics).toEqual(['Whetstone', POTION]);
+    expect(addItem(inv, { kind: 'consumable', item: commonItem(POTION) }, sizes)!.relics).toEqual([commonItem('Whetstone'), commonItem(POTION)]);
     const full = withStartingRelics(startingInventory('Halberd'), Array<string>(sizes.relics).fill(POTION), tuning);
     expect(full.equipped).toEqual([]);
-    expect(addItem(full, { kind: 'relic', item: 'Whetstone' }, sizes)).toBeNull();
+    expect(addItem(full, { kind: 'relic', item: commonItem('Whetstone') }, sizes)).toBeNull();
   });
 
   it('is picked as loot by its weight', () => {
     const only: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 0, Weapon: 0, Consumable: 1 } } } };
     const picks = [...Array(40).keys()].map((k) => pickItemAt(only, 7, 1, k, []));
     expect(new Set(picks.map((p) => p.kind))).toEqual(new Set(['consumable']));
-    expect(new Set(picks.map((p) => p.item))).toEqual(new Set([POTION, MAP, STONE]));
+    expect(new Set(picks.map((p) => p.item.name))).toEqual(new Set([POTION, MAP, STONE]));
     const none: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 1, Weapon: 1, Consumable: 0 } } } };
     expect([...Array(40).keys()].some((k) => pickItemAt(none, 7, 1, k, []).kind === 'consumable')).toBe(false);
   });

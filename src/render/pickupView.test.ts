@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import type { Pickup } from '../sim';
+import { commonItem, type Pickup } from '../sim';
 import { crateStacked } from './mapProps';
 import { AIM_RANGE, CRATE_HEIGHT, crateTop, STACK_HEIGHT, LABEL_HEIGHT, LABEL_RANGE, pickupLabels, pickupView, pickupViews, type PickupEye } from './pickupView';
 
-const pickup = (id: number, x: number, over: Partial<Pickup> = {}): Pickup => ({ id, owner: 0, kind: 'relic', item: 'Whetstone', at: { x, y: 0, z: 0 }, taken: false, ...over });
+const pickup = (id: number, x: number, over: Partial<Pickup> = {}): Pickup => ({ id, owner: 0, kind: 'relic', item: commonItem('Whetstone'), at: { x, y: 0, z: 0 }, taken: false, ...over });
 
 /** An eye 3 m behind the Fighter at `x`, looking along +z at the Treasure's row (a pickup per metre along x). */
 const eye = (x: number, over: Partial<PickupEye> = {}): PickupEye => ({ at: { x, y: 1.7, z: -3 }, dir: { x: 0, y: -0.2, z: 1 }, near: { x, y: 0, z: 0 }, ...over });
 
 describe('how a pickup is drawn', () => {
   it('a Weapon is drawn as that Weapon, a Relic as its icon', () => {
-    expect(pickupView(pickup(0, 0, { kind: 'weapon', item: 'Arming Sword' }), 0, eye(0)).form).toEqual({ kind: 'weapon', weapon: 'Arming Sword' });
-    expect(pickupView(pickup(1, 0, { kind: 'relic', item: 'Iron Plate' }), 0, eye(0)).form).toEqual({ kind: 'relic', relic: 'Iron Plate' });
+    expect(pickupView(pickup(0, 0, { kind: 'weapon', item: commonItem('Arming Sword') }), 0, eye(0)).form).toEqual({ kind: 'weapon', weapon: 'Arming Sword' });
+    expect(pickupView(pickup(1, 0, { kind: 'relic', item: commonItem('Iron Plate') }), 0, eye(0)).form).toEqual({ kind: 'relic', relic: 'Iron Plate' });
   });
 
   it('is shown to its owner and for a shared one, never once taken', () => {
@@ -67,7 +67,7 @@ describe('the Treasure labels', () => {
 
 describe('the labels the HUD draws', () => {
   it('are the labelled views’ item names, a little over their ground, so the HUD and the 3D marks never disagree', () => {
-    const items = [pickup(0, 0, { item: 'Iron Plate' }), pickup(1, 1.12, { kind: 'weapon', item: 'Arming Sword' }), pickup(2, 2.24, { owner: 1 })];
+    const items = [pickup(0, 0, { item: commonItem('Iron Plate') }), pickup(1, 1.12, { kind: 'weapon', item: commonItem('Arming Sword') }), pickup(2, 2.24, { owner: 1 })];
     const views = pickupViews(items, 0, eye(1.12, { dir: { x: 0, y: -0.2, z: 1 } }));
     const labels = pickupLabels(views);
     expect(labels.map((l) => l.id)).toEqual(views.filter((v) => v.label).map((v) => v.id));
@@ -85,7 +85,7 @@ describe('the labels the HUD draws', () => {
 describe('each peer draws its own Player’s pickups', () => {
   // A Treasure Hall's three pedestals per Player (owner = its Fighter), plus a shared drop.
   const hall = [0, 1].flatMap((owner) => [0, 1, 2].map((i) => pickup(owner * 3 + i, (i - 1) * 1.12, { group: 0, owner })));
-  const shared = pickup(9, 0, { owner: null, kind: 'weapon', item: 'Spear' });
+  const shared = pickup(9, 0, { owner: null, kind: 'weapon', item: commonItem('Spear') });
   const ids = (views: ReturnType<typeof pickupViews>, key: 'shown' | 'label') => views.filter((v) => v[key]).map((v) => v.id);
 
   it('shows Fighter 1 its own three and the shared one, never Fighter 0’s', () => {

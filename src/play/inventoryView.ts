@@ -123,15 +123,17 @@ export function inventoryView(
 
   const weapons: SlotView[] = Array.from({ length: sizes.weapons }, (_, slot) => {
     const ref: InventoryRef = { kind: 'weapon', slot };
-    const name = inv.weapons[slot];
-    if (name === undefined) return { ref, item: null };
+    const held = inv.weapons[slot];
+    if (held === undefined) return { ref, item: null };
+    const name = held.name;
     const wielded = slot === inv.weapon;
     return { ref, item: { name, icon: weaponIcon(name), words: '', marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock), use: null } };
   });
   const relics: SlotView[] = Array.from({ length: sizes.relics }, (_, slot) => {
     const ref: InventoryRef = { kind: 'relic', slot };
-    const name = inv.relics[slot];
-    if (name === undefined) return { ref, item: null };
+    const held = inv.relics[slot];
+    if (held === undefined) return { ref, item: null };
+    const name = held.name;
     const consumable = tuning.consumables.find((c) => c.name === name);
     if (consumable) {
       const item: ItemView = { name, icon: relicIcon(consumable.icon), words: consumableWords(consumable.effect), marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };

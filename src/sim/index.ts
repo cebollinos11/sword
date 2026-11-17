@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { addItem, canChangeInventory, canUseConsumable, consumableOf, dropItem, equipItem, holdInventory, inventoryMods, isConsumable, slotKind, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, canUseConsumable, consumableOf, commonItem, dropItem, equipItem, holdInventory, inventoryMods, isConsumable, slotKind, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory, type Item } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,

@@ -66,7 +66,7 @@ export function pickupView(p: Pickup, viewer: number, eye: PickupEye, onCrate: b
   return {
     id: p.id,
     at: p.at,
-    form: p.kind === 'weapon' ? { kind: 'weapon', weapon: p.item } : { kind: 'relic', relic: p.item },
+    form: p.kind === 'weapon' ? { kind: 'weapon', weapon: p.item.name } : { kind: 'relic', relic: p.item.name },
     pedestal: p.group !== undefined,
     ...(crate ? { crate, crateTop: top } : {}),
     shown,

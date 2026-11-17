@@ -2,18 +2,18 @@
  * The pure parts of the results screen's builds and the HUD's dagger pips (docs/plans/dungeon.md, Stage 3). Render only: they read the
  * Match, never change it.
  */
-import { modsOf, runPlayers, wieldedWeapon, type FighterState, type MatchState } from '../sim';
+import { modsOf, runPlayers, type FighterState, type Item, type MatchState } from '../sim';
 import type { Lineup } from '../controllers';
 import type { TuningData } from '../tuning';
 
-/** One Player's build at a Run's end: its Fighter, the Weapon wielded, the Relics equipped and the Relics and Consumables carried (names, in slot order). */
+/** One Player's build at a Run's end: its Fighter, the Weapon wielded, the Relics equipped and the Relics and Consumables carried (Items, in slot order). */
 export interface RunBuild {
   readonly fighter: number;
   /** Its Player's name (`playerName`). */
   readonly name: string;
-  readonly weapon: string;
-  readonly equipped: readonly string[];
-  readonly carried: readonly string[];
+  readonly weapon: Item;
+  readonly equipped: readonly Item[];
+  readonly carried: readonly Item[];
 }
 
 /** Each Player's build in a Run, in Fighter order; empty outside a Run. AI allies and Fighters without an inventory are left out. */
@@ -24,7 +24,7 @@ export function runBuilds(match: MatchState, nameOf: (fighter: number) => string
     .flatMap((fighter) => {
       const inv = match.duel.fighters[fighter]?.inventory;
       if (!inv) return [];
-      return [{ fighter, name: nameOf(fighter), weapon: wieldedWeapon(inv), equipped: inv.equipped.map((s) => inv.relics[s]!), carried: inv.relics.filter((_, s) => !inv.equipped.includes(s)) }];
+      return [{ fighter, name: nameOf(fighter), weapon: inv.weapons[inv.weapon]!, equipped: inv.equipped.map((s) => inv.relics[s]!), carried: inv.relics.filter((_, s) => !inv.equipped.includes(s)) }];
     });
 }
 

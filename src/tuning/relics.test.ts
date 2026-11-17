@@ -40,7 +40,7 @@ describe('Relic Tuning Data (data/relics.json)', () => {
       for (const v of [0, -1, '1.1', null, Infinity]) expect(() => parseRelics(relic({ [effect]: v }))).toThrow(new RegExp(`effects\\.${effect}`));
     for (const v of [0, -0.1, 'x']) expect(() => parseRelics(relic({ maxHp: v }))).toThrow(/maxHp/);
     for (const v of [0, 1.5, -1]) expect(() => parseRelics(relic({ daggers: v }))).toThrow(/daggers/);
-    for (const v of [0, -5]) expect(() => parseRelics(relic({ healOnKill: v }))).toThrow(/healOnKill/);
+    for (const v of [0, -5, 2.5]) expect(() => parseRelics(relic({ healOnKill: v }))).toThrow(/healOnKill/);
     for (const v of [0, 1.1, -0.1]) expect(() => parseRelics(relic({ healOnClear: v }))).toThrow(/healOnClear/);
     expect(parseRelics(relic({ healOnClear: 1, daggers: 2, maxHp: 1.5 }))[0]!.effects).toEqual({ healOnClear: 1, daggers: 2, maxHp: 1.5 });
   });

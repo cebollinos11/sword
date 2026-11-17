@@ -11,7 +11,7 @@ import { surfaceHeight } from './arena';
 import { floorNear } from './levels';
 import { tierOf } from './delver/troops';
 import { presentPlayers } from './party';
-import type { Dropped } from './inventory';
+import { commonItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import { pickItemAt, type Pickup, type PickupAt } from './pickups';
 import { BOSS, ELITE } from './warband';
@@ -41,7 +41,7 @@ export function warbandLoot(tuning: TuningData, crowd: CrowdState, q: number, pl
   const rank = warbands.rank[q]!;
   const tier = tuning.delver.warbands[tierOf(tuning.delver, floor) - 1]!;
   const carried = rank === BOSS ? (tier.boss && tuning.delver.troops[tier.boss.prefab]?.variants[tier.boss.variant]?.relics[0]) : rank === ELITE ? tier.elite?.[warbands.encounter[q]!]?.relics[0] : undefined;
-  const items: Dropped[] = carried === undefined ? [] : [{ kind: 'relic', item: carried }];
+  const items: Dropped[] = carried === undefined ? [] : [{ kind: 'relic', item: commonItem(carried) }];
   const { drops } = tuning.dungeon.loot;
   const count = rank === BOSS ? drops.Boss : rank === ELITE ? drops.Elite : drops.Fight;
   for (let k = 0; k < count; k++) items.push(pickItemAt(tuning, seed, floor, lootSlot(0, q, player, k), items));

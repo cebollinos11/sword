@@ -5,11 +5,11 @@
  * its inventory. What each holds is a pure pick of (Run seed, Floor, slot), so every peer agrees with nothing sent. They are plain data, hashed
  * and snapshotted with the Run, and gone when the Floor changes. The AI allies never take loot: only `runPlayers`' Fighters do.
  */
-import { runWeapons, type TuningData } from '../tuning';
+import type { TuningData } from '../tuning';
 import { runPick } from './dungeon';
 import { inDuel } from './duel';
 import { presentPlayers, standsWithin } from './party';
-import { addItem, type Dropped } from './inventory';
+import { addItem, commonItem, type Dropped } from './inventory';
 import type { MatchConfig } from './match';
 import type { FighterState } from './state';
 
@@ -21,7 +21,7 @@ export interface PickupAt {
 }
 
 /**
- * One item lying on a Floor: `kind` and `item` (the Weapon, Relic or Consumable name) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
+ * One item lying on a Floor: `kind` and `item` (the Weapon, Relic or Consumable, as an Item) as `Dropped`. `owner` is the Player Fighter (a Team 0 index) whose it
  * is, or null for a shared one (a drop, which any Player may take). `taken` pickups stay in the list, so an `id` (its index in it) is never reused.
  */
 export interface Pickup extends Dropped {
@@ -50,7 +50,7 @@ const standsOn = (at: PickupAt, f: Pick<FighterState, 'position' | 'y'>): boolea
 /**
  * The item for pick slot `slot` of Floor `floor` (the caller's one number for a source, a Player and a k: `delverLoot.ts`'s `lootSlot`): a Relic,
  * a Consumable or a Weapon by `dungeon.loot.weights` (that order along the pick, so a Tuning Data without a Consumable weight picks as before
- * Consumables were), then a name, both by `runPick` on (Run seed, Floor, slot). Names in `avoid` (the items already picked for this Player's set)
+ * Consumables were), then a name, both by `runPick` on (Run seed, Floor, slot); every Weapon of the roster (file order) is in the pool, and the Item is Common (the Rarity draw comes later). Names in `avoid` (the items already picked for this Player's set)
  * are skipped while others remain. A kind with no names (no Relics, say) is never picked while another has some.
  */
 export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot: number, avoid: readonly Dropped[]): Dropped {
@@ -58,7 +58,7 @@ export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot
   const pools: readonly (readonly [Dropped['kind'], number, readonly string[]])[] = [
     ['relic', Relic, tuning.relics.map((r) => r.name)],
     ['consumable', Consumable, (tuning.consumables ?? []).map((c) => c.name)],
-    ['weapon', Weapon, runWeapons(tuning)],
+    ['weapon', Weapon, Object.keys(tuning.weapons)],
   ];
   const live = pools.filter(([, weight, names]) => weight > 0 && names.length > 0);
   // Every weighted kind empty: whichever kind has names, Weapons last (the roster is never empty).
@@ -75,9 +75,9 @@ export function pickItemAt(tuning: TuningData, seed: number, floor: number, slot
     }
   }
   const [kind, , names] = pick;
-  const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item === n));
+  const fresh = names.filter((n) => !avoid.some((a) => a.kind === kind && a.item.name === n));
   const from = fresh.length > 0 ? fresh : names;
-  return { kind, item: from[runPick(seed, floor, slot, SALT[kind], from.length)]! };
+  return { kind, item: commonItem(from[runPick(seed, floor, slot, SALT[kind], from.length)]!) };
 }
 
 /** A shared pickup for an item a Fighter dropped, at its feet, with id `id` (the next free one): the drop seam's work (`placeDrop`). */
@@ -134,7 +134,7 @@ export function takePickups(
   return { pickups: next, fighters: held, taken };
 }
 
-/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic by name) and where (its feet). */
+/** An item a Fighter dropped from its inventory: who, what (a Weapon or Relic Item) and where (its feet). */
 export interface DroppedItem extends Dropped {
   readonly fighter: number;
   readonly at: PickupAt;

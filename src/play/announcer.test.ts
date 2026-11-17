@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMatch, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, type Intent, type MatchState } from '../sim';
+import { commonItem, createMatch, IDLE_INTENT, MAX_TEAM_SIZE, stepMatch, type Intent, type MatchState } from '../sim';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
 import { BOSS } from '../sim/warband';
 import { MatchAnnouncer, type Milestone } from './announcer';
@@ -130,7 +130,7 @@ describe('a Boss Floor’s announcements', () => {
   const boss: TuningData = { ...base, delver: { ...base.delver, tiers: 2, floorsPerTier: 1, postFill: 0, patrolFill: 0 } };
   const m = createMatch(boss, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: 'gen:greybox:4242', teams: [0, 0, ...Array<number>(MAX_TEAM_SIZE).fill(1)] });
   const q = m.duel.crowd!.warbands!.rank.indexOf(BOSS);
-  const drop = (id: number, owner: number | null, over: object = {}) => ({ id, owner, kind: 'relic' as const, item: 'Whetstone', at: { x: 0, y: 0, z: 0 }, taken: false, ...over });
+  const drop = (id: number, owner: number | null, over: object = {}) => ({ id, owner, kind: 'relic' as const, item: commonItem('Whetstone'), at: { x: 0, y: 0, z: 0 }, taken: false, ...over });
 
   it('announces the Boss beaten once, when the Boss Warband is wiped, and not before', () => {
     expect(q).toBeGreaterThanOrEqual(0);

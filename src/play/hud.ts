@@ -299,12 +299,12 @@ export class Hud {
       who.textContent = builds.length > 1 ? b.name : 'Build';
       const row = document.createElement('div');
       row.className = 'hud-build-row';
-      row.append(item(weaponIcon(b.weapon), b.weapon), ...b.equipped.map((n) => relic(n)));
+      row.append(item(weaponIcon(b.weapon.name), b.weapon.name), ...b.equipped.map((n) => relic(n.name)));
       box.append(who, row);
       if (b.carried.length) {
         const carried = document.createElement('div');
         carried.className = 'hud-build-row';
-        carried.append(...b.carried.map((n) => relic(n, true)));
+        carried.append(...b.carried.map((n) => relic(n.name, true)));
         box.append(carried);
       }
       return box;
