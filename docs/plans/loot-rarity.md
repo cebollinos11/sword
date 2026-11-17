@@ -141,6 +141,51 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
   - a loot test that all 7 Weapons can drop;
   - the existing Delver suites green.
 
+#### Design
+**Types and signatures.**
+- `src/tuning/rarity.ts` (new): `export const RARITIES = ['Common', 'Rare', 'Legendary'] as const; export type Rarity = (typeof RARITIES)[number];` and `export interface RarityTuning { readonly multipliers: Readonly<Record<Rarity, number>> }` with `parseRarity(raw: unknown, where: string): RarityTuning`. It refuses a missing Rarity, a non-finite number, a multiplier below 1, or one below the Rarity before it ("multipliers must not fall as the Rarity rises"). Stage 3 adds the other keys. Re-exported from `src/tuning/index.ts`.
+- `DungeonLoot.rarity: RarityTuning`, parsed from `dungeon.loot.rarity` (required). `data/dungeon.json` gains `"rarity": { "multipliers": { "Common": 1, "Rare": 1.5, "Legendary": 2 } }` inside `loot`.
+- `DungeonTuning.leftOutWeapons` goes. `parseDungeon(raw)` loses its `weapons` argument (it was only for `leftOutWeapons`; Stage 3 gives it the tier count). A `leftOutWeapons` key is refused: ``dungeon.leftOutWeapons is retired: every Weapon is loot (docs/plans/loot-rarity.md)``. `runWeapons` goes from `src/tuning/index.ts`; `pickItemAt`'s Weapon pool is `Object.keys(tuning.weapons)` (file order).
+- `src/tuning/relics.ts`: `RELIC_GOOD_LOW = ['damageTaken', 'blockImpactTaken'] as const` (every other multiplier is good above 1) and `RELIC_COUNTS = ['daggers', 'healOnKill'] as const` (the other additions are shares). The Relic parser now requires `healOnKill` to be a whole number, at least 1, like `daggers` (the data's is 10), so a count is whole before and after scaling.
+- `src/sim/mods.ts`: `scaleEffects(effects: RelicEffects, m: number): RelicEffects`, pure, a new object with the same keys. For each key: good-above-1 factor `f > 1` → `1 + (f − 1) × m`; good-below-1 factor `f < 1` → `1 − (1 − f) × m`; share `a > 0` → `a × m`; count `a > 0` → `Math.round(a × m)`; anything else (a downside, or 1) stays. At `m = 1` every value comes back bit-for-bit (`1 + (f − 1) × 1` can differ from `f` in the last bit, so `m === 1` returns a copy of the input), so a Common item folds exactly as today and no Delver golden moves for it.
+- Cross-check in `loadTuningData` (`src/tuning/index.ts`, where Relics and the Dungeon are both known): a good-below-1 factor whose top-Rarity scale `1 − (1 − f) × multipliers.Legendary` is at most 0 is refused (no item may make its holder take no damage). The data's lowest is Buckler Rim's 0.7 → 0.4.
+- `src/sim/inventory.ts`:
+  - `export interface Item { readonly name: string; readonly rarity: Rarity }` and `export const commonItem = (name: string): Item => ({ name, rarity: 'Common' })`.
+  - `Inventory.weapons: readonly Item[]`, `Inventory.relics: readonly Item[]`.
+  - `startingInventory(weapon: string)` holds `commonItem(weapon)`; `withStartingRelics(inv, relics: readonly string[], tuning)` keeps taking names (the dev `relics` option, `MatchOptions.relics`, stays `readonly string[]`) and holds them as Common Items.
+  - `wieldedWeapon(inv): string` still returns the name (it feeds `FighterState.weapon`).
+  - `inventoryMods(tuning: Pick<TuningData, 'relics' | 'dungeon'>, inv)` folds each equipped Relic as `{ effects: scaleEffects(relicOf(tuning, item.name).effects, tuning.dungeon.loot.rarity.multipliers[item.rarity]) }`, in `equipped` order.
+  - `relicMods(tuning, names: readonly string[])` stays on names, unscaled: it is the enemies' (`delver/warbands.ts`), who wear their Relics at Common. `troopMods` is not touched.
+  - `Dropped { kind; item: Item }`. `dropItem` and `spendConsumable` return `item: Item`. `equipItem`'s `consumable` callback still takes a name (called with `item.name`). `isConsumable`, `consumableOf`, `slotKind` stay on names.
+  - `addItem` also returns null for a Consumable whose Item is not Common.
+- `src/sim/pickups.ts`: `Pickup`, `Taken`, `DroppedItem` extend `Dropped`, so they carry `item: Item`. `pickItemAt` returns `{ kind, item: commonItem(name) }`; `avoid` compares `a.item.name` only. The Rarity draw is Stage 3's: no `runPick` is added here, so every kind and name pick stays where it was except the Weapon names, whose pool grew.
+- `src/sim/delverLoot.ts`: a carried Relic is `{ kind: 'relic', item: commonItem(name) }`.
+- `src/sim/match.ts` events: `ItemDroppedEvent` and `ItemTakenEvent` carry `item: Item` through `Dropped`; `ItemUsedEvent.item: Item`.
+- `src/play/runBuilds.ts`: `RunBuild.weapon: Item`, `equipped` and `carried: readonly Item[]` (Stage 4 colours them); `hud.ts` reads `.name`.
+- `src/play/inventoryView.ts`, `src/render/pickupView.ts`, `src/render/pickupMarks.ts`, `src/controllers/delverPilot.ts`: read `.name` where they read a name. No display change in this Stage.
+- **The state hash** (`hashState`) is `hashValue` of the whole state, so Items (and their Rarities) are hashed with no change to `hash.ts`.
+- **Net** (`src/net/messages.ts`): `isItem(v) = isObject(v) && isString(v.name) && RARITIES.includes(v.rarity)`. `isInventory` checks `weapons` and `relics` as arrays of `isItem`. `isPickup` checks `isItem(v.item)`, and a `consumable` pickup must be Common. `PROTOCOL_VERSION` 35 → 36. Events are not sent, so no event validator changes.
+- `DELVER_VERSION` 9 → 10 (`src/sim/delver/version.ts`), its comment noting a change to the loot picks bumps it too.
+
+**Files the task may touch**: `src/tuning/rarity.ts` (new), `src/tuning/relics.ts`, `src/tuning/dungeon.ts`, `src/tuning/index.ts`, `data/dungeon.json`, `src/sim/mods.ts`, `src/sim/inventory.ts`, `src/sim/pickups.ts`, `src/sim/delverLoot.ts`, `src/sim/delverRun.ts`, `src/sim/match.ts`, `src/sim/index.ts`, `src/sim/delver/version.ts`, `src/net/messages.ts`, `src/play/runBuilds.ts`, `src/play/hud.ts`, `src/play/inventoryView.ts`, `src/render/pickupView.ts`, `src/render/pickupMarks.ts`, `src/controllers/delverPilot.ts`, `src/editor/*` only if it lists `leftOutWeapons`, and every `*.test.ts` that builds an Inventory, a Pickup or a `Dropped` by name.
+
+**Tests expected to change**:
+- `src/sim/runWeapons.test.ts` → replaced by `src/sim/weaponLoot.test.ts`: all 7 Weapons drop (the plan reverses the left-out list).
+- `src/tuning/dungeon.test.ts`: the `leftOutWeapons` case becomes "refused, with a pointer to the plan"; new `rarity.multipliers` cases.
+- Every test that writes an Inventory, a Pickup, a `Dropped` or an `ItemTaken`/`ItemDropped`/`ItemUsed` with a bare name writes an Item instead (`delverRun`, `delverLoot`, `inventoryView`, `runBuilds`, `pickupView`, `pickupMarks`, `announcer`, `delverPilot`, `messages`/`delverMessages`, `consumables`, `hash`, `session`, `warbandSoak`). Only the shape changes, not what is asserted.
+- A golden of loot picks or of a Run's hash moves only where a Weapon drop now names one of the three Weapons added to the pool, or where the state now holds Items; the Result names each.
+- `src/tuning/relics.test.ts`: `healOnKill` must be whole.
+
+**New tests**:
+- `src/sim/mods.test.ts` `scaleEffects`: each of the 10 effects at ×1.5 and ×2 (Whetstone 1.1 → 1.15 / 1.2; Iron Plate 0.9 → 0.85 / 0.8; Vital Charm 0.2 → 0.3 / 0.4; Bandolier 1 → 2 / 2; Bloodthirst 10 → 15 / 20), Glass Cannon's `damageTaken` 1.25 kept while its `damage` scales, a factor of exactly 1 kept, `m = 1` the identity bit-for-bit, rounding of a half up (1 × 1.5 → 2, 3 × 1.5 → 5), and the input untouched.
+- `src/sim/inventory.test.ts` (new): two Whetstones, one Common and one Rare, both equipped, fold to `damage` 1.1 × 1.15; `inventoryMods` of Commons equals the old `relicMods`; `addItem` refuses a Rare Consumable; `dropItem` hands back the Item with its Rarity.
+- `src/sim/weaponLoot.test.ts`: over a few seeds, Floors and slots with Weapon-only weights, the drops are exactly the 7 roster Weapons, all Common.
+- `src/tuning/dungeon.test.ts`: `rarity.multipliers` parsed; refused when missing a Rarity, below 1 or falling; `leftOutWeapons` refused.
+- `src/tuning/tuning.test.ts` (or `relics.test.ts`): the good-low cross-check refuses a 0.5 `damageTaken` at ×2.
+- `src/net/messages.test.ts` (or `delverMessages.test.ts`): a snapshot with Items round-trips; an Inventory item of an unknown Rarity, a bare-name item and a Rare Consumable pickup are refused.
+
+**One task** (the Item type ripples through every file at once, so a split could not typecheck on its own).
+
 ### Stage 2: Weapon effects and the Rarity damage bonus
 - `loot.effects` in the Weapon files (the table above) and parsed.
 - `inventoryMods` folds the wielded Weapon's scaled effects and `weaponDamage`.
@@ -149,6 +194,37 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
   - tests that a Rare Longsword's Hit is 1.1 scaled × 1.15;
   - tests that an enemy with the same Weapon has `mods` unchanged;
   - a rollback test of an equip mid-Floor still in step.
+
+#### Design
+**Types and signatures.**
+- `src/tuning/relics.ts`: the effect loop of `parseRelics` moves into `export function parseRelicEffects(raw: unknown, where: string): RelicEffects` (the same keys, the same rules, whole counts and all; an empty record is allowed). `parseRelics` calls it and keeps its own "at least one effect" rule.
+- `src/tuning/weapon.ts`: `export interface WeaponLoot { readonly effects: RelicEffects }` and `WeaponTuning.loot?: WeaponLoot`, absent when the file has no `loot` or its `effects` is `{}` (so `parseWeapon` accepts its own output, and `serializeWeapon` writes `loot` last and only when it has an effect, so a file without one keeps its bytes). `loot.effects` is parsed with `parseRelicEffects(…, 'weapons/<name>.loot.effects')`; an unknown key in `loot` is refused.
+- `data/weapons/*.json`: the plan's table, each as `"loot": { "effects": { … } }` at the end of the file (where `serializeWeapon` puts it): Arming Sword `blockImpactTaken` 0.85; Dagger `daggerDamage` 1.25, `daggers` 1; Longsword `damage` 1.1; Halberd `heavyDamage` 1.15; Flail `heavyDamage` 1.2; Quarterstaff `kickDamage` 1.3; Sledge Hammer `heavyDamage` 1.25.
+- `src/tuning/rarity.ts`: `RarityTuning.weaponDamage: Readonly<Record<Rarity, number>>`, parsed by the same rule as `multipliers` (every Rarity, at least 1, never falling). `data/dungeon.json`: `"weaponDamage": { "Common": 1, "Rare": 1.15, "Legendary": 1.3 }`.
+- The good-below-1 cross-check of Stage 1 (`loadTuningData`) also covers each Weapon's `loot.effects` (the Arming Sword's 0.85 → 0.7 at ×2).
+- `src/sim/inventory.ts`: `inventoryMods(tuning: Pick<TuningData, 'relics' | 'dungeon' | 'weapons'>, inv)` folds, with one `foldMods` call, in this fixed order:
+  1. the equipped Relics, in `equipped` order, each `scaleEffects(relic.effects, multipliers[rarity])`;
+  2. the wielded Weapon's `scaleEffects(weapon.loot?.effects ?? {}, multipliers[rarity])`;
+  3. `{ damage: weaponDamage[rarity] }` (×1 for a Common Weapon, so its bits are today's).
+  The order is fixed so every peer multiplies in one order (floating-point products are not bit-for-bit commutative). The wielded Weapon is `inv.weapons[inv.weapon]`, looked up with `weaponByName`.
+- `holdInventory` is the one seam: an equip of another Weapon (`useInventory`), a drop, a use and a Floor's start all go through it, so Mods, max HP (capped) and Throwing Daggers (moved by the change in `mods.daggers`) follow the Weapon in hand. No other code changes for it.
+- **Enemies never see Weapon effects.** Only a Fighter with an `inventory` (a Player's) gets `inventoryMods`. An enemy's Mods come from `troopMods` / `relicMods` of its Troop's Relic names (`delver/warbands.ts`, `bubble.ts`), which read no Weapon. Neither is touched.
+- The Weapon's Hit reads `modsOf(attacker).damage` (`combat.ts`), so the Rarity damage reaches its own Hit only; a Throwing Dagger reads `daggerDamage` and a Kick `kickDamage`, which `weaponDamage` never touches.
+- No version bump: the Weapon files and `dungeon.json` are Tuning Data, which the peers' Tuning Data hash already compares.
+
+**Files the task may touch**: `src/tuning/relics.ts`, `src/tuning/weapon.ts`, `src/tuning/rarity.ts`, `src/tuning/index.ts`, `data/weapons/*.json`, `data/dungeon.json`, `src/sim/inventory.ts`, and tests: `src/tuning/weapons.test.ts`, `src/tuning/relics.test.ts`, `src/tuning/dungeon.test.ts`, `src/tuning/tuning.test.ts`, `src/sim/inventory.test.ts`, `src/sim/modsEffects.test.ts`, `src/sim/delverRun.test.ts`, and any test whose expected numbers move because a Player's Common Weapon now has effects.
+
+**Tests expected to change**: a test that pins a Player's Mods, max HP, dagger count or Block Impact in a Run with a Common Weapon in hand (an Arming Sword Player now takes 0.85 Block Impact; a Dagger Player holds one more Throwing Dagger), and a Run hash or golden that moves for the same reason. Each is named in the Result. Tests outside Runs (no inventory) never move.
+
+**New tests**:
+- `src/tuning/weapons.test.ts`: every roster Weapon has the table's effects; `loot` round-trips through `serializeWeapon`; a bad effect (`daggers` 1.5, an unknown key) is refused; `loot: {}` parses to no `loot`.
+- `src/tuning/dungeon.test.ts`: `weaponDamage` parsed and refused like `multipliers`.
+- `src/sim/inventory.test.ts`: a Player wielding a Dagger has `mods.daggers` 1, `daggerDamage` 1.25 and one more Throwing Dagger; equipping the Arming Sword (through `useInventory`) takes both away and gives `blockImpactTaken` 0.85; a Rare Longsword gives `mods.damage` ≈ (1 + 0.1 × 1.5) × 1.15 = 1.3225, a Legendary one ≈ 1.2 × 1.3; a Rare Dagger's `daggerDamage` is 1.375 with no ×1.15 in it.
+- `src/sim/modsEffects.test.ts` (it has Hit helpers): a Hit by a Player holding a Rare Longsword deals the unmodded Hit × 1.3225.
+- An enemy test (`src/sim/delverRun.test.ts` or a Delver Warband test): on a Floor whose Prefabs are changed to wield the Dagger, every enemy Fighter's `mods` equals what it had with its Prefab's own Weapon (no `daggers` +1).
+- A Rollback test (`src/sim/delverRun.test.ts`, beside "deterministic, and Rollback across a Floor change"): a Run where a Player equips another Weapon mid-Floor, replayed from a snapshot taken before the equip, ends with the same `hashState` as the straight run.
+
+**One task.**
 
 ### Stage 3: Rarity rolls by depth and source
 - The full `dungeon.loot.rarity`, and `pickItemAt` drawing a Rarity by tier and rank.
