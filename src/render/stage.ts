@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { arenaOf, battlefieldOf, battleMapName, isBattleName, type Battlefield, type Layout } from '../sim';
 import { arenaTuning, floorOf, parseFloorArena } from '../sim/delver';
 import { compileDraft } from '../mapEditor/compile';
+import { sconceMeshes, sconcesOf, TorchLights, type Flame } from './delverTorches';
 import { mapModel } from './mapModel';
 import type { ArenaGeometry, Kit, TuningData } from '../tuning';
 import { CameraCollider } from './cameraCollider';
@@ -189,16 +190,18 @@ const BATTLE_LOOKS: Readonly<Record<Exclude<BattleSky, 'dusk'>, BattlefieldLook>
   // The chamber's lava glow from below, cold light above, smoky orange air.
   ember: { lights: ARENA_LOOKS.chamber!.lights, haze: ARENA_LOOKS.chamber!.fog.color, near: 30, far: 240 },
   // Underground (a Delver Floor's): warm stone light from above, a brown bounce off the floors onto the ceilings, and a dark smoky haze, no sky.
+  // The room light is kept low: most of the light comes from the torches (a Delver Floor's sconces, `delverTorches`), and a near, dark, smoky
+  // haze shows the room you stand in but swallows a long Passage within a few sconces.
   crypt: {
     lights: () => [
-      new THREE.HemisphereLight(0xc8b498, 0x5a4434, 1.1),
-      new THREE.AmbientLight(0x4a3c30, 0.55),
-      directional(0xffd2a0, 0.75, 6, 14, -4),
-      directional(0x9aa4c0, 0.25, -6, 8, 7),
+      new THREE.HemisphereLight(0x8a7c6c, 0x2a2018, 0.7),
+      new THREE.AmbientLight(0x3a2e26, 0.4),
+      directional(0xffd2a0, 0.22, 6, 14, -4),
+      directional(0x7a88b0, 0.12, -6, 8, 7),
     ],
-    haze: 0x110c09,
-    near: 22,
-    far: 110,
+    haze: 0x070504,
+    near: 8,
+    far: 34,
   },
 };
 
@@ -223,7 +226,7 @@ export class Stage {
   private setting: THREE.Object3D;
   private loaded: Promise<void> = Promise.resolve();
   /** Moves the current Arena's moving parts to the time given (s), if it has any. */
-  private animate: ((seconds: number) => void) | undefined;
+  private animate: ((seconds: number, camera: THREE.Camera) => void) | undefined;
   /** The collision geometry drawn over a see-through model (see setColliders). */
   private colliders = false;
   private overlay: THREE.Object3D | undefined;
@@ -320,7 +323,7 @@ export class Stage {
   }
 
   draw(): void {
-    this.animate?.(performance.now() / 1000);
+    this.animate?.(performance.now() / 1000, this.camera);
     bakeSkies(this.renderer);
     this.renderer.render(this.scene, this.camera);
   }
@@ -363,8 +366,8 @@ interface Setting {
   readonly fog: THREE.Fog;
   /** Resolves when the model is in (modelled Arenas only). */
   readonly loaded?: Promise<void>;
-  /** Moves its moving parts to the time given (s). */
-  readonly animate?: (seconds: number) => void;
+  /** Moves its moving parts to the time given (s), and anything that follows the camera. */
+  readonly animate?: (seconds: number, camera: THREE.Camera) => void;
   /** Draws the model see-through, or solid; applied to the model when it loads too (modelled Arenas only). */
   readonly seeThrough?: (on: boolean) => void;
 }
@@ -528,6 +531,7 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
     setting.root.add(battleGreybox(field.arena));
     return setting;
   }
+  let torches: TorchLights | undefined;
   const loaded = (draft ?? arenaModel(`battle_${map}`, BATTLE_LAMPS))
     .then((model) => {
       texturedModel(model);
@@ -544,13 +548,24 @@ function battle(name: string, field: Battlefield, current: () => boolean, floor:
         setting.background.copy(look.background);
       }
       setting.root.add(model);
+      // A Delver Floor's flames: its fires' static lights give way to the few that follow the camera from flame to flame.
+      const flames = model.userData.flames as readonly Flame[] | undefined;
+      if (flames) {
+        const lit: THREE.Object3D[] = [];
+        model.traverse((o) => {
+          if (o instanceof THREE.PointLight) lit.push(o);
+        });
+        for (const o of lit) o.removeFromParent();
+        torches = new TorchLights(flames);
+        setting.root.add(torches.group);
+      }
     })
     .catch((e: unknown) => {
       console.error(`Battle map model "${map}" failed to load`, e);
       // A map shipped without its model (its .glb not moved into public/ beside its files) is still drawn: from its Walk Surfaces and Walls.
       if (current()) setting.root.add(battleGreybox(field.arena));
     });
-  return { ...setting, loaded };
+  return { ...setting, loaded, animate: (seconds, camera) => torches?.update(camera, seconds) };
 }
 
 /** The last few Delver Floors' drawn models, by Arena name (most recently used last): a restart may rebuild a Floor, the model is the same. */
@@ -579,7 +594,17 @@ function floorModelOf(tuning: TuningData, name: string): THREE.Object3D | null {
   } else {
     const floor = floorOf(tuning, name);
     if (!floor) return null;
-    model = drawnMapModel(mapModel(floor.source, compileDraft(floor.source, floor.battle)));
+    const draft = compileDraft(floor.source, floor.battle);
+    const drawn = mapModel(floor.source, draft);
+    // Its wall sconces, and every flame (theirs and the fires') for the lights that follow the camera.
+    const sconces = sconcesOf(floor.plan, draft.arena);
+    drawn.add(...sconceMeshes(sconces));
+    const fires: Flame[] = [];
+    drawn.traverse((o) => {
+      if (o instanceof THREE.PointLight) fires.push({ x: o.position.x, y: o.position.y, z: o.position.z, colour: o.color.getHex() });
+    });
+    drawn.userData.flames = [...sconces, ...fires];
+    model = drawnMapModel(drawn);
     if (floorModels.size >= KEPT_FLOOR_MODELS) {
       // The oldest goes: never the one just asked for, nor the one still drawn (the latest before it, as the Stage swaps settings in order).
       const oldest = floorModels.keys().next().value!;
