@@ -82,3 +82,14 @@ export function delverDoorStubs(plan: FloorPlan, revealed: readonly number[]): D
   });
   return stubs;
 }
+
+/**
+ * What a marker is written as on the Delver maps, in place of an icon (issue #162): the special Hall's name, and `faded` when it is
+ * spent (a fire whose revive is used, a Treasure Hall with nothing left lying for the viewer) or shut (a Boss Floor's Exit before its gate opens).
+ */
+export function markLabel(m: DelverMapMark): { readonly text: string; readonly faded: boolean } {
+  if (m.type === 'stairs') return { text: m.open ? 'Exit' : 'Exit (sealed)', faded: !m.open };
+  if (m.type === 'fire') return { text: 'Campfire', faded: m.spent };
+  if (m.type === 'treasure') return { text: 'Treasure Room', faded: !m.lying };
+  return { text: 'Boss Room', faded: false };
+}
