@@ -10,6 +10,7 @@ import { PickupMarks } from './pickupMarks';
 import type { PickupView } from './pickupView';
 import { drawnPose, fighterColours, FighterView, type DrawnPose } from './fighterView';
 import { FlailSwing } from './flailSwing';
+import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
@@ -183,7 +184,8 @@ export class Renderer {
   recast(): void {
     for (const slot of this.views) if (slot) this.drop(slot.view);
     this.views.length = 0;
-    for (const swing of this.swings) swing.reset();
+    // Sparse (only Fighters that drew a flail have one); the next Match makes them afresh.
+    this.swings.length = 0;
   }
 
   /** Take a Fighter's view out of the scene and free what it made (its materials, and the pieces of a cut Body). */
@@ -204,9 +206,11 @@ export class Renderer {
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;
     const tick = prev.tick + (curr.tick - prev.tick) * alpha;
+    // Blood & gore off: a fallen body drops whole.
+    const dismember = goreEnabled();
     const poses = curr.fighters.map((f, i) => {
       if (f.benched) return undefined;
-      const pose = drawnPose(prev, curr, i, alpha, world.tuning, true);
+      const pose = drawnPose(prev, curr, i, alpha, world.tuning, dismember);
       if (!pose.flail) {
         this.swings[i]?.reset();
         return pose;

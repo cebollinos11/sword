@@ -566,7 +566,7 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const start = d.state;
       // An online Match has no state until the peers connect; its first state then sounds.
       audio.seek(start ? start.tick - 1 : -1);
-      renderer.impacts.seek(start?.tick ?? 0);
+      renderer.impacts.seek(start?.tick ?? 0, true);
       shake.seek(start?.tick ?? 0);
       if (start) {
         prev = curr = start;

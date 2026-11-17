@@ -166,7 +166,7 @@ export function stainShape(onWall: boolean, age: number, run: number): StainShap
 
 /** A stain still splatting or running: where it is and how, so each frame can redraw it. */
 interface Fresh {
-  readonly slot: number;
+  slot: number;
   readonly born: number;
   readonly onWall: boolean;
   readonly run: number;
@@ -207,6 +207,21 @@ const DRIP_STAIN = 0.12;
 
 const BLOOD_COLOUR = new THREE.Color(0x8a0b0b);
 
+/**
+ * The stain slots to keep when the loop rewinds to Tick `tick`, oldest first: those laid by blood from Tick `tick` or
+ * before (a replay lays the later ones again). `ticks`: each slot's Tick, of a ring buffer holding `stained` stains of at
+ * most `max`, `next` the slot the next stain goes in.
+ */
+export function keptStains(ticks: ArrayLike<number>, stained: number, next: number, max: number, tick: number): number[] {
+  const start = stained < max ? 0 : next;
+  const kept: number[] = [];
+  for (let j = 0; j < stained; j++) {
+    const slot = (start + j) % max;
+    if (ticks[slot]! <= tick) kept.push(slot);
+  }
+  return kept;
+}
+
 const FORWARD = new THREE.Vector3(0, 0, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -243,6 +258,12 @@ export class BloodEffects {
   private readonly scale = new Float32Array(MAX_DROPLETS);
   /** Each droplet's spurt (a serial), or -1 for a drip: the first droplet of a spurt to land splatters aloud. */
   private readonly spurtOf = new Float64Array(MAX_DROPLETS);
+  /** Each droplet's Tick: when it was sprayed or dripped. */
+  private readonly tickOf = new Float64Array(MAX_DROPLETS);
+  /** Each stain's Tick: when its blood was sprayed or dripped, so a rewind washes only the stains after it. */
+  private readonly stainTick = new Float64Array(MAX_STAINS);
+  /** The Tick the blood sprayed or dripped now belongs to. */
+  private tick = -Infinity;
   /** Spurts not yet heard landing, by serial: their strength, and when they were sprayed (effect time). */
   private readonly unheard = new Map<number, { readonly strength: number; readonly at: number }>();
   private nextSpurt = 0;
@@ -312,6 +333,11 @@ export class BloodEffects {
     scene.add(this.root);
   }
 
+  /** The blood sprayed or dripped from now on is Tick `tick`'s. */
+  setTick(tick: number): void {
+    this.tick = tick;
+  }
+
   /** Spray `spurt`: droplets fan out away from the attacker, up and down, with a spread. `heard`: its first droplet to land splatters aloud (a stump's spurt is silent: the wound's own is heard). */
   spurt(spurt: BloodSpurt, heard = true): void {
     const n = Math.round(DROPLETS * (0.4 + 0.6 * spurt.strength));
@@ -337,6 +363,7 @@ export class BloodEffects {
       this.floor[i] = spurt.floorY;
       this.scale[i] = 1;
       this.spurtOf[i] = serial;
+      this.tickOf[i] = this.tick;
       const shade = 0.55 + 0.45 * Math.random();
       this.col[i * 3] = BLOOD_COLOUR.r * shade;
       this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
@@ -356,6 +383,7 @@ export class BloodEffects {
     this.floor[i] = floorY;
     this.scale[i] = DRIP_STAIN;
     this.spurtOf[i] = -1;
+    this.tickOf[i] = this.tick;
     const shade = 0.5 + 0.3 * Math.random();
     this.col[i * 3] = BLOOD_COLOUR.r * shade;
     this.col[i * 3 + 1] = BLOOD_COLOUR.g * shade;
@@ -377,16 +405,49 @@ export class BloodEffects {
     }
   }
 
-  /** The loop jumped: what is flying is gone. Rewinding (to an earlier Tick) also washes the stains, which the replay lays down again. */
-  seek(rewound: boolean): void {
+  /**
+   * The loop jumped to Tick `tick`: what is flying is gone. Rewinding (to an earlier Tick) also washes the stains laid by
+   * blood from after it, which the replay lays down again; those from before it stay (a Final Blow Shot keeps the Duel's earlier blood).
+   */
+  seek(tick: number): void {
     this.live = 0;
     this.unheard.clear();
     this.points.geometry.setDrawRange(0, 0);
-    if (rewound) this.clearStains();
+    if (tick < this.tick) this.washAfter(tick);
+    this.tick = tick;
   }
 
+  /** Everything gone: what is flying, and every stain. */
   clear(): void {
-    this.seek(true);
+    this.seek(-Infinity);
+    this.clearStains();
+  }
+
+  /** Wash the stains laid by blood from after Tick `tick`, packing the rest (oldest first) into the first slots. */
+  private washAfter(tick: number): void {
+    const kept = keptStains(this.stainTick, this.stained, this.nextStain, MAX_STAINS, tick);
+    if (kept.length === this.stained) return;
+    if (kept.length === 0) return this.clearStains();
+    const matrices = this.stains.instanceMatrix.array;
+    const colours = this.stains.instanceColor?.array;
+    const oldMatrices = matrices.slice();
+    const oldColours = colours?.slice();
+    const oldTicks = this.stainTick.slice();
+    const moved = new Map<number, number>();
+    kept.forEach((from, to) => {
+      moved.set(from, to);
+      for (let k = 0; k < 16; k++) matrices[to * 16 + k] = oldMatrices[from * 16 + k]!;
+      if (colours && oldColours) for (let k = 0; k < 3; k++) colours[to * 3 + k] = oldColours[from * 3 + k]!;
+      this.stainTick[to] = oldTicks[from]!;
+    });
+    this.stained = this.stains.count = kept.length;
+    this.nextStain = kept.length % MAX_STAINS;
+    this.fresh = this.fresh.filter((f) => {
+      const to = moved.get(f.slot);
+      if (to !== undefined) f.slot = to;
+      return to !== undefined;
+    });
+    this.stainsDirty = true;
   }
 
   private clearStains(): void {
@@ -446,7 +507,7 @@ export class BloodEffects {
       this.normal.set(-(w.b.z - w.a.z), 0, w.b.x - w.a.x).normalize();
       // The face the droplet came from.
       if (this.normal.x * (from.x - wall.point.x) + this.normal.z * (from.z - wall.point.z) < 0) this.normal.negate();
-      this.stain(wall.point.x, wall.point.y, wall.point.z, this.normal.x, 0, this.normal.z, this.scale[i]!);
+      this.stain(wall.point.x, wall.point.y, wall.point.z, this.normal.x, 0, this.normal.z, this.scale[i]!, this.tickOf[i]!);
       this.splatter(i, wall.point);
       return true;
     }
@@ -461,7 +522,7 @@ export class BloodEffects {
     if (to.y <= floor) {
       const deadly = world && !world.field ? deadlyGround(world.arena, to.x, to.z, floor) : null;
       if (!deadly) {
-        this.stain(to.x, floor, to.z, 0, 1, 0, this.scale[i]!);
+        this.stain(to.x, floor, to.z, 0, 1, 0, this.scale[i]!, this.tickOf[i]!);
         to.y = floor;
         this.splatter(i, to);
       }
@@ -494,6 +555,7 @@ export class BloodEffects {
     this.floor[i] = this.floor[last]!;
     this.scale[i] = this.scale[last]!;
     this.spurtOf[i] = this.spurtOf[last]!;
+    this.tickOf[i] = this.tickOf[last]!;
   }
 
   /** Droplet `i` struck the floor or a Wall at `point`: the first of its spurt to do so is heard there (unless too many were just now). */
@@ -519,13 +581,14 @@ export class BloodEffects {
     this.stainsDirty = true;
   }
 
-  /** Lay a stain `scale` times a spurt's size at (x, y, z) on a surface whose normal is (nx, ny, nz); most droplets leave one, every drip. */
-  private stain(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number): void {
+  /** Lay a stain `scale` times a spurt's size at (x, y, z) on a surface whose normal is (nx, ny, nz), of blood from Tick `tick`; most droplets leave one, every drip. */
+  private stain(x: number, y: number, z: number, nx: number, ny: number, nz: number, scale: number, tick: number): void {
     if (scale >= 1 && Math.random() > STAIN_CHANCE) return;
     const slot = this.nextStain;
     this.nextStain = (slot + 1) % MAX_STAINS;
     this.stained = Math.min(MAX_STAINS, this.stained + 1);
     this.stains.count = this.stained;
+    this.stainTick[slot] = tick;
     const onWall = ny < 0.5;
     if (onWall) {
       // Upright on the Wall (its sprite's up is the world's), so it can run straight down.
