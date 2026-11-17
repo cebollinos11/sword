@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { canChangeInventory, commonItem, createMatch, holdInventory, IDLE_INTENT, inDuel, MAX_TEAM_SIZE, stepMatch, type DelverPhase, type FighterState, type Inventory, type Item, type MatchState } from '../sim';
 import { loadTuningData } from '../tuning';
 import { relicWords } from './loot';
-import { inventoryLock, inventoryView, inventoryViewKey, type ItemView } from './inventoryView';
+import { inventoryLock, inventoryView, inventoryViewKey, itemInfo, pickupInfoLines, type ItemView } from './inventoryView';
 
 const tuning = loadTuningData();
 const [W0, W1, W2] = Object.keys(tuning.weapons) as [string, string, string];
@@ -305,5 +305,30 @@ describe('Rarity in the inventory view', () => {
   it('puts the Rarity in the key', () => {
     const key = (item: Item) => inventoryViewKey(inventoryView(fighter({ relics: [item], equipped: [] }), tuning, EXPLORING));
     expect(key(commonItem('Whetstone'))).not.toBe(key(rare('Whetstone')));
+  });
+});
+
+describe('a pickup\'s info (issue #159: see an item before picking it up)', () => {
+  it('names a Relic\'s kind and its effects scaled by its Rarity, as the inventory screen reads them', () => {
+    expect(pickupInfoLines(tuning, 'relic', 'Whetstone', 'Common')).toEqual(['Relic', '+10% damage']);
+    expect(pickupInfoLines(tuning, 'relic', 'Whetstone', 'Legendary')).toEqual(['Legendary Relic', '+20% damage']);
+  });
+
+  it('names a Consumable as one, with what it does once used', () => {
+    expect(pickupInfoLines(tuning, 'relic', 'Health Potion', 'Common')).toEqual(['Consumable', 'Use once: heal to full HP']);
+  });
+
+  it('gives a Weapon\'s base damage, and its Rarity\'s extra damage', () => {
+    const weapon = tuning.weapons['Arming Sword']!;
+    const [what, words] = pickupInfoLines(tuning, 'weapon', 'Arming Sword', 'Rare');
+    expect(what).toBe(`Rare Weapon · ${weapon.damage} damage`);
+    expect(words).toContain('+15% damage (Rare)');
+  });
+
+  it('says the same as the inventory screen\'s slot for the item', () => {
+    const v = inventoryView(fighter(), tuning, EXPLORING)!;
+    for (const s of [...v.weapons, ...v.relics]) {
+      if (s.item) expect(itemInfo(tuning, s.ref.kind, s.item.name, s.item.rarity).words).toBe(s.item.words);
+    }
   });
 });

@@ -105,10 +105,54 @@ export function inventoryLock(f: FighterState, delver?: DelverContext): string |
   return canChangeInventory(f) ? null : 'Not now';
 }
 
+const labelOf = (name: string, rarity: Rarity): string => (rarity === 'Common' ? name : `${name} · ${rarity}`);
+
+/** What an item is and does, for the inventory screen and a pickup's label (`itemInfo`). */
+export interface ItemInfo {
+  /** Its kind in words: "Weapon", "Relic" or "Consumable". */
+  readonly kind: 'Weapon' | 'Relic' | 'Consumable';
+  /** The name for a Common item, else `"<name> · <Rarity>"`. */
+  readonly label: string;
+  /** A Weapon's base damage (`damage`, before its Rarity); null for a Relic or Consumable. */
+  readonly damage: number | null;
+  /**
+   * A Relic's (or Consumable's) effects in words, scaled by its Rarity; a Weapon's `loot.effects` scaled, then its Rarity damage (counted only
+   * while wielded). Empty when it has none.
+   */
+  readonly words: string;
+}
+
+/**
+ * What the item `name` of `rarity` is and does: `kind` says whether a pickup or a slot holds it as a Weapon or in a Relic slot (a Relic or a
+ * Consumable, told apart by Tuning Data). Pure and render only.
+ */
+export function itemInfo(tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'weapons'>, kind: 'weapon' | 'relic', name: string, rarity: Rarity): ItemInfo {
+  const { multipliers, weaponDamage } = tuning.dungeon.loot.rarity;
+  const label = labelOf(name, rarity);
+  if (kind === 'weapon') {
+    const weapon = weaponByName(tuning, name);
+    const effects = relicWords(scaleEffects(weapon.loot?.effects ?? {}, multipliers[rarity]));
+    const damage = rarity === 'Common' ? '' : `+${Math.round((weaponDamage[rarity] - 1) * 100)}% damage (${rarity})`;
+    return { kind: 'Weapon', label, damage: weapon.damage, words: [effects, damage].filter(Boolean).join(', ') };
+  }
+  const consumable = tuning.consumables.find((c) => c.name === name);
+  if (consumable) return { kind: 'Consumable', label, damage: null, words: consumableWords(consumable.effect) };
+  const relic = tuning.relics.find((r) => r.name === name);
+  return { kind: 'Relic', label, damage: null, words: relic ? relicWords(scaleEffects(relic.effects, multipliers[rarity])) : '' };
+}
+
+/**
+ * The lines a pickup's floating label shows under its name, so a Player can weigh an item before stepping on it: what it is (its Rarity when not
+ * Common, its kind, a Weapon's base damage), then what it does, when it does anything.
+ */
+export function pickupInfoLines(tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'weapons'>, kind: 'weapon' | 'relic', name: string, rarity: Rarity): string[] {
+  const info = itemInfo(tuning, kind, name, rarity);
+  const what = [rarity === 'Common' ? info.kind : `${rarity} ${info.kind}`, info.damage === null ? '' : `${info.damage} damage`].filter(Boolean).join(' · ');
+  return info.words ? [what, info.words] : [what];
+}
+
 /** A factor as `×1.1` (trailing zeros dropped). */
 const factor = (n: number): string => `×${Number(n.toFixed(2))}`;
-
-const labelOf = (name: string, rarity: Rarity): string => (rarity === 'Common' ? name : `${name} · ${rarity}`);
 
 const action = (label: string, reason: string | null): ActionView => ({ label, available: reason === null, reason });
 
@@ -125,7 +169,6 @@ export function inventoryView(
   if (!fighter || !inv) return null;
   const sizes = tuning.dungeon.inventory;
   const lock = inventoryLock(fighter, delver);
-  const { multipliers, weaponDamage } = tuning.dungeon.loot.rarity;
   const full = inv.equipped.length >= sizes.equippedRelics;
 
   const weapons: SlotView[] = Array.from({ length: sizes.weapons }, (_, slot) => {
@@ -134,9 +177,7 @@ export function inventoryView(
     if (held === undefined) return { ref, item: null };
     const { name, rarity } = held;
     const wielded = slot === inv.weapon;
-    const effects = relicWords(scaleEffects(weaponByName(tuning, name).loot?.effects ?? {}, multipliers[rarity]));
-    const damage = rarity === 'Common' ? '' : `+${Math.round((weaponDamage[rarity] - 1) * 100)}% damage (${rarity})`;
-    const words = [effects, damage].filter(Boolean).join(', ');
+    const { words } = itemInfo(tuning, 'weapon', name, rarity);
     return { ref, item: { name, rarity, label: labelOf(name, rarity), icon: weaponIcon(name), words, marked: wielded, equip: wielded ? null : action('Wield', lock), drop: wielded ? null : action('Drop', lock), use: null } };
   });
   const relics: SlotView[] = Array.from({ length: sizes.relics }, (_, slot) => {
@@ -147,13 +188,13 @@ export function inventoryView(
     const label = labelOf(name, rarity);
     const consumable = tuning.consumables.find((c) => c.name === name);
     if (consumable) {
-      const item: ItemView = { name, rarity, label, icon: relicIcon(consumable.icon), words: consumableWords(consumable.effect), marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };
+      const item: ItemView = { name, rarity, label, icon: relicIcon(consumable.icon), words: itemInfo(tuning, 'relic', name, rarity).words, marked: false, equip: null, drop: action('Drop', lock), use: action('Use', consumableLock(fighter, consumable.effect, delver)) };
       return { ref, item };
     }
     const relic = tuning.relics.find((r) => r.name === name);
     const on = inv.equipped.includes(slot);
     const equip = on ? action('Unequip', lock) : action('Equip', lock ?? (full ? `Relic slots full (${sizes.equippedRelics} / ${sizes.equippedRelics})` : null));
-    return { ref, item: { name, rarity, label, icon: relicIcon(relic?.icon ?? ''), words: relic ? relicWords(scaleEffects(relic.effects, multipliers[rarity])) : '', marked: on, equip, drop: action('Drop', lock), use: null } };
+    return { ref, item: { name, rarity, label, icon: relicIcon(relic?.icon ?? ''), words: itemInfo(tuning, 'relic', name, rarity).words, marked: on, equip, drop: action('Drop', lock), use: null } };
   });
 
   const mods = modsOf(fighter);
