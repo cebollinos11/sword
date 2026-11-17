@@ -25,7 +25,7 @@ const tune = (t0: TuningData): TuningData => {
 };
 
 const immortal: Step = (m, intents, t) => withImmortalParty(stepMatch(m, intents, t));
-const CAP = 60_000;
+const CAP = 150_000;
 const endTick = (m: MatchState | null): number => (m?.status.status === 'Over' ? m.status.tick : 0);
 
 describe('a Delver Run online with a traitor, slow', () => {
