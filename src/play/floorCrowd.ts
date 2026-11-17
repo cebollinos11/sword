@@ -99,8 +99,10 @@ export class FloorCrowd {
       const y = field ? (surface === undefined ? battlefieldHeight(field.heights, s.at.x, s.at.z) : soldierHeight(field, surface, s.at.x, s.at.z)) : 0;
       this.stage.impacts.dust({ kind: 'Swap', point: { x: s.at.x, y, z: s.at.z }, strength: 1 });
     }
-    // The party is always whole; a Pool slot shows its model only while a Soldier is bound to it (or fading).
-    this.stage.setFades((k) => (k < this.party ? 1 : this.swap.modelFade(k)));
+    // The party is always whole; a Pool slot shows its model only while a Soldier is bound to it (or fading). A traitor's slot
+    // (docs/plans/delver.md, Stage 8a) holds its Soldier through the Crowd (`crowd.slot`), with no binding: it is whole while it does.
+    const held = traitorSlots(state, this.party);
+    this.stage.setFades((k) => (k < this.party || held.has(k) ? 1 : this.swap.modelFade(k)));
     // A new Floor's Crowd is another length.
     if (this.fades.length !== crowd.x.length) this.fades = new Float32Array(crowd.x.length);
     const army = this.tuning.battle.armySize;
@@ -125,4 +127,14 @@ export class FloorCrowd {
     this.atlases = null;
     this.stage.setFades(null);
   }
+}
+
+/** The Pool slots of a Delver Run's traitors (traitor `j` plays slot `party + j`) that hold a Soldier taken over right now. Pure. */
+export function traitorSlots(state: SimState, party: number): Set<number> {
+  const held = new Set<number>();
+  const crowd = state.crowd;
+  state.delver?.traitors?.forEach((r, j) => {
+    if (r.soldier >= 0 && crowd?.slot[r.soldier] === party + j) held.add(party + j);
+  });
+  return held;
 }
