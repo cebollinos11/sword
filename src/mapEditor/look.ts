@@ -32,6 +32,8 @@ export const MATERIAL_LOOKS: Readonly<Record<MapMaterial, MaterialLook>> = {
   dirt: { name: 'Map_Dirt', colour: 0x7a6248 },
   sand: { name: 'Map_SandDirt', colour: 0xd4bc88 },
   metal: { name: 'Map_Metal', colour: 0x6a737e },
+  // The dungeon's stone stained a deep red: a Boss Hall's.
+  bloodstone: { name: 'Map_BloodDungeon', colour: 0x6e2f2a },
   glow: { name: 'Map_LavaGlow', colour: 0xff6a1f, emissive: { colour: 0xff5a14, strength: 1.6 } },
 };
 

@@ -101,6 +101,7 @@ describe('the palette', () => {
     dirt: 'dirt',
     sand: 'dirt',
     metal: null,
+    bloodstone: 'dungeon',
     glow: null,
   };
 

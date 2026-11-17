@@ -27,8 +27,8 @@ export const isFloorName = (name: string): boolean => /^delver[1-9]\d*s\d+$/.tes
 /** How each kind of Hall is drawn (render-only). */
 const HALL_MATERIAL: Readonly<Record<DelverHallKind, MapMaterial>> = {
   Entrance: 'plaster',
-  Stairs: 'glow',
-  Boss: 'glow',
+  Stairs: 'cobble',
+  Boss: 'bloodstone',
   Rest: 'brick',
   Treasure: 'tile',
   Fight: 'dungeon',
