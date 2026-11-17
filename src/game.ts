@@ -190,7 +190,9 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
   let driver: MatchDriver | null = null;
   let names: readonly string[] | null = null;
   let bodies: readonly string[] | null = null;
-  let prev: MatchState = createMatch(tuning, { bestOf: 1 });
+  /** What is drawn while no Match has a state: before the first one, and while an online one connects. */
+  const noMatch: MatchState = createMatch(tuning, { bestOf: 1 });
+  let prev: MatchState = noMatch;
   let curr: MatchState = prev;
   let accumulator = 0;
   let last = performance.now();
@@ -623,6 +625,10 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       if (start) {
         prev = curr = start;
         present(start, d.localFighter);
+      } else {
+        // Never draw the last Match while this one connects: a Delver Run's Floor Crowd view would be built from it, keeping its
+        // party size for the whole new Run, and a Fighter past that size would be drawn as an empty Bubble slot (unseen, issue #161).
+        prev = curr = noMatch;
       }
       accumulator = 0;
       // A restart the host made while this player had the in-game menu open keeps it open.
