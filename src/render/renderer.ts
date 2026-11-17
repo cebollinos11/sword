@@ -14,6 +14,7 @@ import { goreEnabled } from './gore';
 import { ImpactEffects } from './impacts';
 import { Stage } from './stage';
 import { SwingTrails } from './swingTrail';
+import { ShaderWarmUp } from './warmUp';
 import { arenaTuning } from '../sim/delver';
 
 /** The Tuning Data a Match on Arena `name` is played with (it holds the Arena), and the Arena's Layout if it is generated. */
@@ -69,6 +70,8 @@ export class Renderer {
   private readonly lastPoses: (DrawnPose | undefined)[] = [];
   /** Each Fighter's flail ball swinging on its chain with the Fighter's inertia (drawing only). */
   private readonly swings: FlailSwing[] = [];
+  /** Compiles ahead what the scene may come to draw (`warmUp`); null until first asked. */
+  private warm: ShaderWarmUp | null = null;
   /** Scratch for `toScreen`. */
   private readonly projected = new THREE.Vector3();
 
@@ -126,6 +129,7 @@ export class Renderer {
 
   /** Take the canvas out of the page and let go of the WebGL context (see `Stage.dispose`). */
   dispose(): void {
+    this.warm?.dispose();
     this.stage.dispose();
   }
 
@@ -145,6 +149,17 @@ export class Renderer {
    */
   setFades(fades: ((fighter: number) => number) | null): void {
     this.fades = fades;
+  }
+
+  /**
+   * Compile now, behind a loading screen, the shaders the Arena last drawn may come to need (`ShaderWarmUp`): its model once
+   * loaded, every Body whole and dithered in, blood, flesh and the impact effects, so none is compiled mid-play. Resolves once
+   * they are ready. From then on each new Arena drawn (a Run's next Floor) is warmed the same way as it is first drawn.
+   */
+  async warmUp(): Promise<void> {
+    this.warm ??= new ShaderWarmUp(this.tuning);
+    await this.stage.ready();
+    await this.warm.compile(this.stage.renderer, this.stage.scene, this.stage.camera);
   }
 
   /** Draw the Arena's collision geometry over a see-through model (a developer view), or not. */
@@ -200,8 +215,11 @@ export class Renderer {
    */
   render(prev: SimState, curr: SimState, alpha: number, timeScale = 1): void {
     const world = this.world(curr.arena);
+    const newArena = curr.arena !== this.arena;
     this.arena = curr.arena;
     this.stage.setArena(curr.arena, world.tuning, world.layout);
+    // A new Arena after a warm-up (a Run's next Floor): its lights are new, and a shader is compiled for the lights it is lit by.
+    if (newArena && this.warm) this.warmUp().catch((e: unknown) => console.error('Shader warm-up failed', e));
     const colours = drawColours(curr, world.tuning.battle.soldier.colours);
     const now = performance.now();
     const seconds = ((now - this.lastDraw) / 1000) * timeScale;

@@ -501,7 +501,7 @@ function smearTexture(): THREE.Texture {
 }
 
 /** A view's blood material (its own, so its Fighter's dither fade reaches it; the texture is shared). */
-function bladeBloodMaterial(): THREE.MeshLambertMaterial {
+export function bladeBloodMaterial(): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({
     color: 0xc8141a,
     emissive: 0x4a0000,

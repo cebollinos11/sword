@@ -695,10 +695,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       floorBar = bar;
       void import('./play/floorCrowd').then(({ FloorCrowd }) => {
         if (generation !== playing || !floorCrowdLoading) return;
-        const progress = (done: number, total: number) => bar.set(0.15 + 0.85 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : 'Ready');
+        const progress = (done: number, total: number) => bar.set(0.15 + 0.75 * (total === 0 ? 1 : done / total), done < total ? `Drawing the enemies ${done + 1} of ${total}…` : 'Readying the effects…');
         const crowd = new FloorCrowd(renderer, matchTuning, match.config.teams.length, undefined, progress);
         floorCrowd = crowd;
-        void crowd.settled.then(() => {
+        // With the impostors in the scene, compile every shader the Run may come to draw while the bar is still up: else the
+        // impostors as it lifts, the first Soldier promoted and the first Hit's blood each hitch as their shaders compile.
+        const warmed = crowd.settled.then(() => (floorCrowd === crowd ? renderer.warmUp() : undefined)).catch((e: unknown) => console.error('Shader warm-up failed', e));
+        void warmed.then(() => {
           if (floorCrowd !== crowd) return;
           floorCrowdSettled = true;
           if (floorBar === bar) floorBar = null;
