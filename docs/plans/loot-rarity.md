@@ -268,6 +268,60 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
   - a statistical test over a few thousand seeds that each tier's split lands within a few points of its odds;
   - tests that pedestals and Boss drops are never Common, that Consumables are always Common, and that carried Relics follow the tier.
 
+#### Design
+**Types and signatures.**
+- `src/tuning/rarity.ts`: `RarityTuning` gains the plan's other keys:
+  ```ts
+  readonly odds: readonly (readonly [number, number, number])[]; // per tier, weights of Common, Rare, Legendary
+  readonly eliteTierStep: number;        // whole, ≥ 0
+  readonly bossMin: Rarity;
+  readonly pedestalMin: Rarity;
+  readonly carried: readonly Rarity[];   // per tier
+  readonly bossCarriedStep: number;      // whole, ≥ 0
+  ```
+  `parseRarity` refuses an odds row that is not three whole numbers ≥ 0, or that sums to 0 (whole, because `runPick` draws from a whole count), an unknown Rarity name, and a step that is not a whole number ≥ 0.
+- **The tier-count checks** (an `odds` row count or a `carried` length other than `delver.tiers`) go in `parseTuningData`, beside the Stage 1 cross-check, because the Delver is parsed after the Dungeon there. `parseDungeon` keeps no argument (Stage 1's Design said Stage 3 would hand it the tier count; the cross-check is simpler and keeps the Dungeon parser standalone).
+- Pure helpers in `src/tuning/rarity.ts`: `raiseRarity(r: Rarity, steps: number): Rarity` (capped at Legendary), `atLeast(r: Rarity, min: Rarity): Rarity`, and `carriedRarity(rarity: RarityTuning, tier: number, boss: boolean): Rarity` = `raiseRarity(carried[tier − 1], boss ? bossCarriedStep : 0)`.
+- `data/dungeon.json` `loot.rarity`: the plan's block (`odds` [[80,18,2],[60,32,8],[40,45,15]], `eliteTierStep` 1, `bossMin` and `pedestalMin` "Rare", `carried` ["Common","Rare","Legendary"], `bossCarriedStep` 1).
+- `src/sim/pickups.ts`:
+  - `export interface LootSource { readonly tier: number; readonly rank: 'Fight' | 'Elite' | 'Boss' | 'Pedestal' }`.
+  - `export function rollRarity(rarity: RarityTuning, seed: number, floor: number, slot: number, source: LootSource): Rarity`:
+    1. take row `odds[min(odds.length − 1, tier − 1 + (rank === 'Elite' ? eliteTierStep : 0))]`;
+    2. draw `u = runPick(seed, floor, slot, SALT.rarity, total)` and walk the row: Common while `u < w0`, Rare while `u < w0 + w1`, else Legendary;
+    3. raise to `bossMin` for a Boss or `pedestalMin` for a Pedestal (`atLeast`).
+  - `SALT.rarity = 73`, after every small salt the Simulation uses: the Floor plan's run to 72, the Warbands' to 29, the Prefabs' 40 and the loot's 50 to 53. The traitors' `0x7a17 + n` lie far above. Every existing pick keeps its (slot, salt), so no kind, name, Warband or Floor pick moves. Only the new Rarity is drawn.
+  - `pickItemAt(tuning, seed, floor, slot, avoid, source: LootSource)`: the kind and name as today; then the Item's Rarity is `rollRarity(…)` for a Weapon or a Relic and `'Common'` for a Consumable.
+    - A Consumable makes no draw at all. `runPick` is a pure hash of its arguments, not a stream, so a skipped draw cannot shift any other pick. That is what the plan's "the draw's slot is still consumed" asks for, with no dead call.
+- `src/sim/delverLoot.ts`:
+  - `warbandLoot` passes `{ tier: tierOf(tuning.delver, floor), rank }`, with PLAIN → `'Fight'`, ELITE → `'Elite'`, BOSS → `'Boss'`.
+  - Its carried Relic is `{ name, rarity: carriedRarity(tuning.dungeon.loot.rarity, tier, rank === BOSS) }`.
+  - `treasurePickups` passes `{ tier, rank: 'Pedestal' }`.
+- Elites' and Bosses' *worn* Relics stay unscaled (`relicMods` of names, Stage 1), so Warband strength is unchanged.
+- `DELVER_VERSION` 10 → 11: the loot picks change again (its comment says a loot change bumps it). No `PROTOCOL_VERSION` change: no message shape changes.
+
+**Files the task may touch**: `src/tuning/rarity.ts`, `src/tuning/index.ts`, `data/dungeon.json`, `src/sim/pickups.ts`, `src/sim/delverLoot.ts`, `src/sim/delver/version.ts`, `src/sim/index.ts` (exports), and tests: `src/tuning/dungeon.test.ts`, `src/tuning/tuning.test.ts`, `src/sim/delverLoot.test.ts`, `src/sim/weaponLoot.test.ts`, a new `src/sim/rarityRolls.test.ts`, and any test that pinned a drop as Common.
+
+**Tests expected to change**:
+- `weaponLoot.test.ts`: its "each Common" check becomes "each a Rarity" (drops are now rolled), and it passes a source.
+- `delverLoot.test.ts`'s carried-Relic expectations gain the tier's Rarity: tier 1 elite Common, the tier 3 Boss Legendary.
+- Any golden or soak that compares whole Items.
+
+**New tests** (`src/sim/rarityRolls.test.ts`):
+- Deterministic, per Player:
+  - for Players 0 to 3, every rank (Fight, Elite, Boss, Pedestal) and every tier, `pickItemAt` gives the same Item twice;
+  - a pinned table of the Rarities for one seed, floor and slot set, so a change to the draw shows up;
+  - `warbandDrops` and `treasurePickups` are equal across two calls.
+- Statistical: over 6000 (seed, slot) pairs per tier at rank Fight, the share of each Rarity is within 3 points of its odds row. An Elite's split on tier t matches tier t + 1's odds, and tier 3's at most.
+- Over a few thousand slots:
+  - Pedestal and Boss rolls are never Common;
+  - every Consumable drop is Common;
+  - Weapon and Relic drops include all three Rarities.
+- `carriedRarity`: tiers 1, 2, 3 give Common, Rare, Legendary; with `boss` they give Rare, Legendary, Legendary. On real Floors, `warbandLoot`'s first Item for an elite and for a Boss has the tier's Rarity.
+- `src/tuning/dungeon.test.ts`: the new keys parsed, and each refusal (a negative weight, a zero row, a fractional weight, an unknown Rarity, a fractional step).
+- `src/tuning/tuning.test.ts`: an `odds` or `carried` length other than `delver.tiers` is refused.
+
+**One task.**
+
 ### Stage 4: Rarity shown
 - The colour tokens, the inventory screen and HUD slots, the results Build, the pickup glow and the wielded Weapon's tint.
 - **Done**:
