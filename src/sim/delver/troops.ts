@@ -85,7 +85,7 @@ function build(delver: DelverTuning): FloorTroops {
     delver.troops.map((p, i) =>
       p.variants.map((v) => {
         if (v.boss) return -1;
-        // The Variant's own Relics, then the template's it does not already wear.
+        // The Variant's own Relics, then the template's it does not already wear: up to 2 * MAX_ENEMY_RELICS, on purpose (an elite stacks both).
         const relics = [...v.relics, ...key.split('\n').filter((r) => !v.relics.includes(r))];
         troops.push(troopOf(p, i, v, relics, true));
         return troops.length - 1;

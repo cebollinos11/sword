@@ -3,7 +3,7 @@
  * (a Squad of Team 1 Soldiers from a tier's template) deployed on each filled one. Pure, from (Run seed, Floor, humans): every peer deals
  * the same Crowd with nothing sent. The homes the brain walks back to are derived from the plan and cached, never stored in the Simulation.
  */
-import type { DelverTuning, TuningData } from '../../tuning';
+import { MAX_SQUAD_PLACES, type DelverTuning, type TuningData } from '../../tuning';
 import type { WarbandTemplate } from '../../tuning/delver';
 import { groundOf, type Battlefield } from '../battlefield';
 import type { CrowdState } from '../crowd';
@@ -19,8 +19,12 @@ import { floorPrefabs, floorTroops, sizeOfHp, tierOf } from './troops';
 /** `runPick` salts for the Warbands' picks, apart from the Floor generator's (`SALT`). */
 export const WARBAND_SALT = { postOrder: 20, patrolOrder: 21, guardPick: 22, patrolPick: 23, extra: 24, prefab: 25, variant: 26, elitePick: 28, bossGuard: 29 } as const;
 
-/** The places a Warband's picks are keyed over (more than a Squad can hold): place p of Warband q picks as slot `q * PICK_PLACES + p`. */
+/**
+ * The places a Warband's picks are keyed over: place p of Warband q picks as slot `q * PICK_PLACES + p`. It must be at least a Squad's
+ * most places (MAX_SQUAD_PLACES), or one Warband's picks would share slots with the next's; kept above it so raising that cap moves no pick.
+ */
 const PICK_PLACES = 256;
+if (PICK_PLACES < MAX_SQUAD_PLACES) throw new Error(`PICK_PLACES (${PICK_PLACES}) must be at least MAX_SQUAD_PLACES (${MAX_SQUAD_PLACES})`);
 
 /** The homes the brain reads (derived from the plan, never state): each post with its guard facing, each patrol loop's points. */
 export interface WarbandHomes {

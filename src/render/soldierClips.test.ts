@@ -73,3 +73,11 @@ describe('the generic soldier in data/battle.json', () => {
     expect((BODY_MODELS as readonly string[]).includes(tuning.battle.soldier.body)).toBe(true);
   });
 });
+
+describe('the Delver Prefabs in data/delver.json', () => {
+  // Tuning Data is render-free, so `parseDelver` checks a Prefab's Body only as a name; a Body that is not a model fails only at its
+  // impostor bake, leaving the Prefab's Soldiers undrawn for the Run, so the shipped data is held to the roster here.
+  it('each draw as a Body model', () => {
+    for (const p of tuning.delver.troops) expect(BODY_MODELS as readonly string[], `${p.name}'s body`).toContain(p.body);
+  });
+});

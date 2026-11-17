@@ -192,6 +192,8 @@ export class CrowdView {
   private lastTick = -1;
   /** Each Troop's tint (linear RGB), or null for its Team's colour. */
   private readonly troopTints: readonly (readonly [number, number, number] | null)[];
+  /** Each Team's colour (linear RGB): the tint of a Soldier whose Troop has none. */
+  private readonly teamTints: readonly (readonly [number, number, number])[];
 
   /** `atlases`: one atlas (every Soldier the same look), or a Battle's atlases, one per look (`bakeImpostorAtlases`). */
   constructor(
@@ -203,6 +205,7 @@ export class CrowdView {
     this.lookIndex = 'atlases' in atlases ? atlases.index : [0, 1].map((team) => battle.troops.map((t) => troopBodies(t, team).map(() => 0)));
     this.layout = all[0]!.layout;
     this.troopTints = battle.troops.map((t) => (t.tint === undefined ? null : (tintColour.setHex(t.tint), [tintColour.r, tintColour.g, tintColour.b] as const)));
+    this.teamTints = [0, 1].map((team) => (tintColour.setHex(battle.soldier.colours[team]!), [tintColour.r, tintColour.g, tintColour.b] as const));
     this.teams = [0, 1].map((team) => all.map((atlas) => new TeamImpostors(atlas, battle.armySize, battle.soldier.colours[team]!, team)));
     for (const t of this.teams.flat()) this.root.add(t.mesh);
     const disc = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
@@ -246,8 +249,9 @@ export class CrowdView {
         this.shadows.setMatrixAt(i, matrix.makeScale(0, 0, 0));
         continue;
       }
-      const tint = this.troopTints[crowd.troop[i] ?? 0];
-      if (tint) team.tint.setXYZ(k, tint[0], tint[1], tint[2]);
+      // Always written: instance k may have shown another Soldier (of another Troop) before.
+      const tint = this.troopTints[crowd.troop[i] ?? 0] ?? this.teamTints[crowd.team[i] === 1 ? 1 : 0]!;
+      team.tint.setXYZ(k, tint[0], tint[1], tint[2]);
       const fade = fades ? fades[i]! : crowd.slot[i]! >= 0 ? 0 : 1;
       team.fade.setX(k, fade);
       soldierAt(crowd, i, tick, tick + alpha, stagger, army, at);

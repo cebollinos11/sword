@@ -454,8 +454,8 @@ export type AiStyleKey = (typeof AI_STYLE_KEYS)[number];
 /** A Style: a multiplier (0 or more) on each of a difficulty preset's chances it names; the result is clamped to 0..1. */
 export type AiStyle = Readonly<Partial<Record<AiStyleKey, number>>>;
 
-/** The default Style, which changes nothing (Tuning Data `ai.styles` must hold it, empty). */
-export const DEFAULT_STYLE = 'Balanced';
+import { DEFAULT_STYLE } from './style';
+export { DEFAULT_STYLE };
 
 /** The rule-based AI Controller's behaviour and its difficulty presets. */
 export interface AiTuning {

@@ -181,4 +181,24 @@ describe("A Delver Soldier's impostor (docs/plans/delver-troops.md)", () => {
     expect(view.meshOf(two, 1)).toBeNull();
     expect(view.meshOf(two, 0)).toBe(meshes[1]);
   });
+  it("goes back to its Team's colour when the Soldier in its billboard is of a Troop with no tint", async () => {
+    const { floorAtlases, floorBattle } = await import('../play/floorCrowd');
+    const { floorTroops } = await import('../sim/delver');
+    const tinted = floorBattle(tuning);
+    const { plain } = floorTroops(tuning.delver);
+    const troop = plain[0]![1]!;
+    // The same Troops, but this one's tint dropped (a skill `delver.skillTints` does not name).
+    const battle = { ...tinted, troops: tinted.troops.map((t, k) => (k === troop ? { ...t, tint: undefined } : t)) };
+    const view = new CrowdView(floorAtlases(battle, [0], [atlas]), battle, new THREE.Texture());
+    const crowd = createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).duel.crowd!;
+    const hf = battlefieldOf(tuning.battle, createMatch(tuning, { format: 'Battle', bestOf: 1, seed: 2 }).arena)!.heights;
+    const of = (t: number) => ({ ...crowd, team: crowd.team.map(() => 1), troop: crowd.troop.map(() => t), look: crowd.look.map(() => 0) });
+    // First a tinted Soldier in billboard 0, then (the next Floor, drawn by the same view) an untinted one.
+    view.update(of(plain[0]![2]!), 0, 0, hf, new THREE.PerspectiveCamera());
+    view.update(of(troop), 1, 0, hf, new THREE.PerspectiveCamera());
+    const meshes = view.root.children.filter((o): o is THREE.Mesh => o instanceof THREE.Mesh && !(o instanceof THREE.InstancedMesh));
+    const tint = meshes[1]!.geometry.getAttribute('aTint') as THREE.InstancedBufferAttribute;
+    const team = new THREE.Color().setHex(tuning.battle.soldier.colours[1]!);
+    expect([tint.getX(0), tint.getY(0), tint.getZ(0)].map((v) => v.toFixed(6))).toEqual([team.r, team.g, team.b].map((v) => v.toFixed(6)));
+  });
 });

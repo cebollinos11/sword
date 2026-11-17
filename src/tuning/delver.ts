@@ -5,8 +5,9 @@
  */
 import type { BattleTuning } from './battle';
 import { RELIC_MULTIPLIERS, type RelicEffects } from './relics';
+import { DEFAULT_STYLE } from './style';
 import { array, finiteNumber, record, TuningDataError } from './validate';
-/** The most Relics an elite Warband's Soldier carries. */
+/** The most Relics one list names: a Variant's own, or an elite template's set. An elite Soldier wears both (its Variant's, then the set's it lacks), so up to twice this. */
 export const MAX_ENEMY_RELICS = 2;
 
 export interface DelverFloorTuning {
@@ -141,7 +142,7 @@ export interface DelverVariant {
   readonly difficulty: string;
   /** The AI Style it plays (a name from `ai.styles`). */
   readonly style: string;
-  /** The Relics (0 to MAX_ENEMY_RELICS names) its promoted Fighter wears. */
+  /** The Relics (0 to MAX_ENEMY_RELICS names) its promoted Fighter wears; an elite Soldier of it wears its template's set on top. */
   readonly relics: readonly string[];
   /** A promoted Soldier's Mods, as a Relic's multipliers (default `battle.soldier.mods`). */
   readonly mods: RelicEffects;
@@ -452,7 +453,7 @@ function oneOf(obj: Record<string, unknown>, key: string, where: string, list: r
 
 /**
  * `delver.troops`: the Prefabs and their Variants. A Variant's Style, Mods and Crowd stats default to its Prefab's, and those to the
- * Battles' generic soldier's (`battle.crowd`, `battle.soldier.mods`) and the Balanced Style.
+ * Battles' generic soldier's (`battle.crowd`, `battle.soldier.mods`) and the default Style (DEFAULT_STYLE).
  */
 function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldier'>, names: DelverNames): DelverPrefab[] {
   const list = array(raw, 'delver.troops');
@@ -477,7 +478,7 @@ function parsePrefabs(raw: unknown, battle: Pick<BattleTuning, 'crowd' | 'soldie
       hitChance: p.hitChance === undefined ? battle.crowd.hitChance : share(p, 'hitChance', where),
       engageReach: p.engageReach === undefined ? battle.crowd.engageReach : positive(p, 'engageReach', where),
       mods: p.mods === undefined ? battle.soldier.mods : soldierMods(p.mods, `${where}.mods`),
-      style: oneOf(p, 'style', where, names.styles, 'one of the AI Styles', 'Balanced'),
+      style: oneOf(p, 'style', where, names.styles, 'one of the AI Styles', DEFAULT_STYLE),
     };
     const variantList = array(p.variants, `${where}.variants`);
     if (variantList.length === 0) fail(`${where}.variants`, 'a non-empty array', p.variants);

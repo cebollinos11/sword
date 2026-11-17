@@ -72,8 +72,8 @@ export class FloorCrowd {
   /** The Floor (its Arena name) the view draws, and the one being made ready for it. */
   private shown: string | null = null;
   private wanted: string | null = null;
-  /** While true, no bake waits for a frame: a Floor is waiting on it. */
-  private hurry = false;
+  /** How many `ready_` calls are waiting on bakes: while any is, no bake waits for a frame (a counter, so overlapping calls never clear it early). */
+  private hurry = 0;
   private fades = new Float32Array(0);
   private disposed = false;
   private warned = -1;
@@ -145,7 +145,7 @@ export class FloorCrowd {
     let since = performance.now();
     const pace = paced
       ? () => {
-          if (this.hurry || this.disposed || performance.now() - since < PACE_MS) return undefined;
+          if (this.hurry > 0 || this.disposed || performance.now() - since < PACE_MS) return undefined;
           return this.parts.frame().then(() => void (since = performance.now()));
         }
       : undefined;
@@ -173,7 +173,7 @@ export class FloorCrowd {
   /** Bake every look of Floor `arena` in turn, at full speed (reporting each to `progress`, if given). */
   private async ready_(arena: string, progress?: (done: number, total: number) => Promise<void>): Promise<void> {
     const looks = this.looksOf(arena);
-    this.hurry = true;
+    this.hurry++;
     try {
       for (const [k, prefab] of looks.entries()) {
         if (this.disposed) return;
@@ -182,7 +182,7 @@ export class FloorCrowd {
       }
       await progress?.(looks.length, looks.length);
     } finally {
-      this.hurry = false;
+      this.hurry--;
     }
   }
 
