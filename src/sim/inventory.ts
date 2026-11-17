@@ -4,7 +4,7 @@
  * `equip`, `drop` and `use`, and `equip` and `drop` in a fight too, but only while its Fighter is Idle on the ground (`stepMatch` asks
  * `canChangeInventory`), so a Weapon swap is never mid-Action. Everything here is pure.
  */
-import type { Rarity, TuningData } from '../tuning';
+import { weaponByName, type Rarity, type TuningData } from '../tuning';
 import { inDuel } from './duel';
 import type { InventoryRef } from './intent';
 import { foldMods, scaleEffects, setMods, type Mods } from './mods';
@@ -73,14 +73,23 @@ export function relicMods(tuning: Pick<TuningData, 'relics'>, names: readonly st
   return foldMods(names.map((name) => relicOf(tuning, name)));
 }
 
-/** The Mods of an inventory: its equipped Relics, each scaled by its Rarity (`scaleEffects`), folded (`foldMods`) in `equipped` order. Throws on a Relic Tuning Data lacks. */
-export const inventoryMods = (tuning: Pick<TuningData, 'relics' | 'dungeon'>, inv: Inventory): Mods =>
-  foldMods(
-    inv.equipped.map((slot) => {
+/**
+ * The Mods of an inventory, folded (`foldMods`) in one fixed order so every peer multiplies the same way: the equipped Relics in `equipped` order, each scaled by
+ * its Rarity (`scaleEffects`); then the wielded Weapon's `loot.effects`, scaled by its Rarity; then the Weapon's Rarity damage (`weaponDamage`, on `damage` only, so
+ * a Common Weapon adds exactly 1). Throws on a Relic or Weapon Tuning Data lacks.
+ */
+export function inventoryMods(tuning: Pick<TuningData, 'relics' | 'dungeon' | 'weapons'>, inv: Inventory): Mods {
+  const { multipliers, weaponDamage } = tuning.dungeon.loot.rarity;
+  const weapon = inv.weapons[inv.weapon]!;
+  return foldMods([
+    ...inv.equipped.map((slot) => {
       const item = inv.relics[slot]!;
-      return { effects: scaleEffects(relicOf(tuning, item.name).effects, tuning.dungeon.loot.rarity.multipliers[item.rarity]) };
+      return { effects: scaleEffects(relicOf(tuning, item.name).effects, multipliers[item.rarity]) };
     }),
-  );
+    { effects: scaleEffects(weaponByName(tuning, weapon.name).loot?.effects ?? {}, multipliers[weapon.rarity]) },
+    { effects: { damage: weaponDamage[weapon.rarity] } },
+  ]);
+}
 
 /** A slot of `list`: a whole number inside it. */
 const inside = (slot: number, list: readonly unknown[]): boolean => Number.isInteger(slot) && slot >= 0 && slot < list.length;
@@ -115,8 +124,8 @@ export function dropItem(inv: Inventory, ref: InventoryRef): { readonly inventor
 }
 
 /**
- * The Fighter holding `inventory`: its wielded Weapon (the pose follows it), and its Mods and max HP from the equipped Relics (`setMods`,
- * the seam: HP kept but never above the new max HP, Throwing Daggers moved by the change in `mods.daggers`). A Fighter whose Weapon
+ * The Fighter holding `inventory`: its wielded Weapon (the pose follows it), and its Mods and max HP from the equipped Relics and the Weapon in hand (`inventoryMods`, `setMods`,
+ * the seam: HP kept but never above the new max HP, Throwing Daggers moved by the change in `mods.daggers`). Every change of Weapon, a drop, a use and a Floor's start come here, so the Mods follow the Weapon in hand. A Fighter whose Weapon
  * and Relics are the ones it had comes back as it was, inventory aside.
  */
 export function holdInventory(f: FighterState, inventory: Inventory, tuning: TuningData): FighterState {

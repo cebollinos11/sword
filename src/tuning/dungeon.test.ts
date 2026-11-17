@@ -12,10 +12,10 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
   });
 
   it('parses rarity.multipliers, and refuses a missing Rarity, a multiplier below 1 or multipliers that fall', () => {
-    expect(tuning.dungeon.loot.rarity).toEqual({ multipliers: { Common: 1, Rare: 1.5, Legendary: 2 } });
+    expect(tuning.dungeon.loot.rarity).toEqual({ multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 } });
     const rarity = (multipliers: unknown) => {
       const d = raw() as unknown as { loot: Record<string, unknown> };
-      return parse({ ...d, loot: { ...d.loot, rarity: multipliers === undefined ? undefined : { multipliers } } });
+      return parse({ ...d, loot: { ...d.loot, rarity: multipliers === undefined ? undefined : { multipliers, weaponDamage: tuning.dungeon.loot.rarity.weaponDamage } } });
     };
     expect(rarity({ Common: 1, Rare: 1, Legendary: 3 }).loot.rarity.multipliers).toEqual({ Common: 1, Rare: 1, Legendary: 3 });
     expect(() => rarity(undefined)).toThrow(/dungeon\.loot\.rarity/);
@@ -26,11 +26,23 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
     expect(() => rarity({ Common: 1, Rare: Infinity, Legendary: 2 })).toThrow(/multipliers\.Rare/);
   });
 
+  it('parses rarity.weaponDamage, and refuses a missing Rarity, a bonus below 1 or one that falls', () => {
+    const bonus = (weaponDamage: unknown) => {
+      const d = raw() as unknown as { loot: Record<string, unknown> };
+      return parse({ ...d, loot: { ...d.loot, rarity: { multipliers: tuning.dungeon.loot.rarity.multipliers, weaponDamage } } });
+    };
+    expect(bonus({ Common: 1, Rare: 1.2, Legendary: 1.2 }).loot.rarity.weaponDamage).toEqual({ Common: 1, Rare: 1.2, Legendary: 1.2 });
+    expect(() => bonus(undefined)).toThrow(/weaponDamage/);
+    expect(() => bonus({ Common: 1, Rare: 1.15 })).toThrow(/weaponDamage\.Legendary/);
+    expect(() => bonus({ Common: 0.9, Rare: 1.15, Legendary: 1.3 })).toThrow(/weaponDamage\.Common must be at least 1/);
+    expect(() => bonus({ Common: 1, Rare: 1.3, Legendary: 1.15 })).toThrow(/weaponDamage must not fall as the Rarity rises/);
+  });
+
   it('loads the repo file: the Run numbers, the inventory sizes and the loot', () => {
     const d = tuning.dungeon;
     expect([d.stairsSeconds, d.fadeSeconds, d.revive, d.restHeal]).toEqual([1.5, 1, 0.25, 0.5]);
     expect(d.inventory).toEqual({ weapons: 3, relics: 6, equippedRelics: 3 });
-    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 } } });
+    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 } } });
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
     expect(parse(d)).toEqual(d);
     // The retired Hall graph's keys are gone.
@@ -49,7 +61,7 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
   });
 
   it('refuses a missing or bad loot: weights, drops per rank and pedestals', () => {
-    const loot = (patch: object) => ({ ...raw(), loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 } }, ...patch } });
+    const loot = (patch: object) => ({ ...raw(), loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, rarity: tuning.dungeon.loot.rarity, ...patch } });
     expect(() => parse({ ...raw(), loot: undefined })).toThrow(/dungeon\.loot/);
     expect(() => parse(loot({ weights: { Relic: 0, Weapon: 0 } }))).toThrow(/weights/);
     expect(() => parse(loot({ weights: { Relic: -1, Weapon: 1 } }))).toThrow(/weights\.Relic/);

@@ -41,5 +41,10 @@
       "z": 0
     }
   },
-  "look": "polearm"
+  "look": "polearm",
+  "loot": {
+    "effects": {
+      "heavyDamage": 1.15
+    }
+  }
 }

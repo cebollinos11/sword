@@ -1,5 +1,5 @@
 /**
- * A Fighter's Mods: its equipped Relics folded into one record (docs/plans/dungeon.md). Every place that reads one of
+ * A Fighter's Mods: its equipped Relics, and a Player's wielded Weapon's effects (docs/plans/loot-rarity.md), folded into one record (docs/plans/dungeon.md). Every place that reads one of
  * these numbers (a Hit, a Throwing Dagger, a Kick, a Block Impact, max HP, heals) reads the Fighter's own `mods`.
  */
 import { RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS, type RelicEffect, type RelicEffects } from '../tuning/relics';

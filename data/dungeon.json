@@ -4,5 +4,5 @@
   "revive": 0.25,
   "restHeal": 0.5,
   "inventory": { "weapons": 3, "relics": 6, "equippedRelics": 3 },
-  "loot": { "weights": { "Relic": 4, "Weapon": 1, "Consumable": 2 }, "drops": { "Fight": 1, "Elite": 1, "Boss": 2 }, "pedestals": 3, "rarity": { "multipliers": { "Common": 1, "Rare": 1.5, "Legendary": 2 } } }
+  "loot": { "weights": { "Relic": 4, "Weapon": 1, "Consumable": 2 }, "drops": { "Fight": 1, "Elite": 1, "Boss": 2 }, "pedestals": 3, "rarity": { "multipliers": { "Common": 1, "Rare": 1.5, "Legendary": 2 }, "weaponDamage": { "Common": 1, "Rare": 1.15, "Legendary": 1.3 } } }
 }

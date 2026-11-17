@@ -32,5 +32,11 @@
       "z": 0
     }
   },
-  "look": "dagger"
+  "look": "dagger",
+  "loot": {
+    "effects": {
+      "daggerDamage": 1.25,
+      "daggers": 1
+    }
+  }
 }

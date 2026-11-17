@@ -188,3 +188,45 @@ describe('Tuning Data hash and the roster', () => {
     expect(tuningDataHash(retimed)).not.toBe(tuningDataHash(overridden));
   });
 });
+
+describe('Weapon loot (docs/plans/loot-rarity.md)', () => {
+  it('gives every roster Weapon its effects from the plan', () => {
+    const effects = Object.fromEntries(Object.values(tuning.weapons).map((w) => [w.name, w.loot?.effects]));
+    expect(effects).toEqual({
+      'Arming Sword': { blockImpactTaken: 0.85 },
+      Dagger: { daggerDamage: 1.25, daggers: 1 },
+      Flail: { heavyDamage: 1.2 },
+      Halberd: { heavyDamage: 1.15 },
+      Longsword: { damage: 1.1 },
+      Quarterstaff: { kickDamage: 1.3 },
+      'Sledge Hammer': { heavyDamage: 1.25 },
+    });
+  });
+
+  it('writes loot last and reads it back', () => {
+    const dagger = tuning.weapons.Dagger!;
+    const out = JSON.parse(serializeWeapon(dagger));
+    expect(Object.keys(out).at(-1)).toBe('loot');
+    expect(out.loot).toEqual({ effects: { daggerDamage: 1.25, daggers: 1 } });
+    for (const w of Object.values(tuning.weapons)) expect(parseWeapon(JSON.parse(serializeWeapon(w))), w.name).toEqual(w);
+  });
+
+  it('refuses a bad effect and an unknown key', () => {
+    expect(() => parseWeapon(halberd({ loot: { effects: { daggers: 1.5 } } }))).toThrow(/^weapons\/Halberd\.loot\.effects\.daggers must be a whole number/);
+    expect(() => parseWeapon(halberd({ loot: { effects: { speed: 2 } } }))).toThrow(/^weapons\/Halberd\.loot\.effects: unknown effect "speed"/);
+    expect(() => parseWeapon(halberd({ loot: { effects: { damage: 1.1 }, rarity: 'Rare' } }))).toThrow(/^weapons\/Halberd\.loot: unknown key "rarity"/);
+  });
+
+  it('parses an empty loot to no loot, and writes none', () => {
+    for (const loot of [{}, { effects: {} }]) {
+      const w = parseWeapon({ ...JSON.parse(serializeWeapon(tuning.weapons.Halberd!)), loot });
+      expect(w.loot).toBeUndefined();
+      expect('loot' in JSON.parse(serializeWeapon(w))).toBe(false);
+    }
+  });
+
+  it('refuses a good-below-1 effect that would reach 0 at Legendary', () => {
+    const armingSword = { ...tuning.weapons['Arming Sword']!, loot: { effects: { blockImpactTaken: 0.4 } } };
+    expect(() => parseTuningData(raw(tuning, { weapons: [armingSword, ...Object.values(tuning.weapons).slice(1)] }))).toThrow(/Arming Sword.*blockImpactTaken 0\.4 at Legendary/);
+  });
+});

@@ -29,5 +29,10 @@
       "z": 0
     }
   },
-  "look": "sword"
+  "look": "sword",
+  "loot": {
+    "effects": {
+      "blockImpactTaken": 0.85
+    }
+  }
 }

@@ -30,7 +30,7 @@ import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate } from './delver';
 export { eliteRelicSets, fieldedIn, floorTroopCount, MAX_PREFABS, regularPrefab } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverPrefab, type DelverTier, type DelverTuning, type DelverVariant, type TraitorTuning, type WarbandTemplate };
-import { parseRelics, RELIC_GOOD_LOW, type RelicTuning } from './relics';
+import { parseRelics, RELIC_GOOD_LOW, type RelicEffects, type RelicTuning } from './relics';
 import { parseConsumables, type ConsumableTuning } from './consumables';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
@@ -44,7 +44,7 @@ export { clampSize, isSize, isStandardSize, MAX_SIZE, MIN_SIZE, SIZE_STEP, sized
 export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
-export { parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
+export { parseRelicEffects, parseRelics, RELIC_ADDITIONS, RELIC_COUNTS, RELIC_EFFECTS, RELIC_GOOD_LOW, RELIC_MULTIPLIERS } from './relics';
 export { parseRarity, RARITIES, type Rarity, type RarityTuning } from './rarity';
 export type { ConsumableEffect, ConsumableTuning } from './consumables';
 export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';
@@ -55,7 +55,7 @@ export type { Connector, Kit, Piece, PieceId, PieceSurface, PieceWall, Side, Ski
 export { parseKit, PIECE_IDS } from './kit';
 export type { BodyTarget, Ease, FootPlant, HandTarget, Motion, Path, PoseKey, PoseKeyChannel, TorsoTarget } from './motion';
 export { EASES, PATHS, POSE_KEY_CHANNELS, linksIdle, motionFileName, parseMotion, serializeMotion } from './motion';
-export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLook, WeaponSheathe, WeaponSpinUp, WeaponTempo, WeaponTuning } from './weapon';
+export type { OffHandGrip, SheatheSlot, WeaponBlockImpact, WeaponGrip, WeaponHeavyBlow, WeaponLoot, WeaponLook, WeaponSheathe, WeaponSpinUp, WeaponTempo, WeaponTuning } from './weapon';
 export { attackDirection, isHeavyBlow, NO_HEAVY_BLOW, parseWeapon, serializeWeapon, SHEATHE_SLOTS, spinUpChargeTicks, spinUpSpeed, UNIT_TEMPO, WHIRL_TURNS_PER_SECOND, whirlTurns, WEAPON_GRIPS, WEAPON_LOOKS, weaponFileName } from './weapon';
 
 export interface FighterTuning {
@@ -749,11 +749,13 @@ export function parseTuningData(raw: unknown): TuningData {
   const dungeon = parseDungeon(root.dungeon);
   // A Legendary Relic scales a good-below-1 factor (less damage taken) further down: it may never reach 0 (no item makes its holder take no damage).
   const top = dungeon.loot.rarity.multipliers.Legendary;
-  for (const relic of relics)
+  const checkScaledAbove0 = (owner: string, effects: RelicEffects) => {
     for (const key of RELIC_GOOD_LOW) {
-      const f = relic.effects[key];
-      if (f !== undefined && f < 1 && 1 - (1 - f) * top <= 0) throw new TuningDataError(`relics: "${relic.name}".${key} ${f} at Legendary (x${top}) would be ${1 - (1 - f) * top}: scaled, it must stay above 0`);
+      const f = effects[key];
+      if (f !== undefined && f < 1 && 1 - (1 - f) * top <= 0) throw new TuningDataError(`${owner}.${key} ${f} at Legendary (x${top}) would be ${1 - (1 - f) * top}: scaled, it must stay above 0`);
     }
+  };
+  for (const relic of relics) checkScaledAbove0(`relics: "${relic.name}"`, relic.effects);
   const arenas: Record<string, ArenaGeometry> = {};
   (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
     const arena = parseArena(raw, `arenas[${i}]`);
@@ -801,6 +803,7 @@ export function parseTuningData(raw: unknown): TuningData {
     weapons[weapon.name] = weapon;
   });
   if (Object.keys(weapons).length === 0) throw new TuningDataError('weapons: the roster must hold at least one Weapon');
+  for (const weapon of Object.values(weapons)) if (weapon.loot) checkScaledAbove0(`weapons: "${weapon.name}".loot.effects`, weapon.loot.effects);
 
   const motionOverrides: Record<string, Record<string, Motion>> = {};
   const rawOverrides = root.motionOverrides === undefined ? {} : record(root.motionOverrides, 'motionOverrides');

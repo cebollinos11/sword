@@ -13,7 +13,7 @@ import { secondsToTicks } from './constants';
 import { inDuel } from './duel';
 import { createMatch, stairsTicksNeeded, MAX_TEAM_SIZE, stepMatch, takeOverFighter, type MatchOptions, type MatchState } from './match';
 import { IDLE_INTENT, type Intent } from './intent';
-import { addItem, commonItem, holdInventory, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { addItem, commonItem, holdInventory, inventoryMods, startingInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { FighterState } from './state';
 import { flatFloors } from './delver/flat.testdata';
 
@@ -582,6 +582,69 @@ describe('a Delver Run: deterministic, and Rollback across a Floor change', { ti
         expect(hashValue(r)).toBe(hashValue(states[k + 1]!));
       }
     }
+  });
+});
+
+describe('a Player equipping another Weapon mid-Floor', { timeout: 60_000 }, () => {
+  const twoWeapons = (): MatchState => {
+    const start = delver();
+    const c = centre(planOf(start));
+    const inventory = { ...startingInventory('Dagger'), weapons: [commonItem('Dagger'), commonItem('Arming Sword')] };
+    return put(withFighters(start, (f, i) => (i === 0 ? holdInventory(f, inventory, tuning) : f)), 0, c.x, c.z);
+  };
+  const EQUIP_AT = 10;
+  /** Idle Intents but Player 0's `equip` of Weapon slot 1 on Tick `EQUIP_AT`, for 40 Ticks. */
+  const play = (): { states: MatchState[]; intents: Intent[][] } => {
+    let m = twoWeapons();
+    const states = [m];
+    const intents: Intent[][] = [];
+    for (let k = 0; k < 40; k++) {
+      const these = m.duel.fighters.map((_, i) => (i === 0 && k === EQUIP_AT ? { ...IDLE_INTENT, equip: { kind: 'weapon' as const, slot: 1 } } : IDLE_INTENT));
+      intents.push(these);
+      m = stepMatch(m, these, tuning);
+      states.push(m);
+    }
+    return { states, intents };
+  };
+
+  it('changes the Mods at the equip, and a replay from a snapshot taken before it ends with the same hashState', () => {
+    const { states, intents } = play();
+    expect(states[EQUIP_AT]!.duel.fighters[0]!.mods).toMatchObject({ daggers: 1, daggerDamage: 1.25 });
+    const after = states.at(-1)!.duel.fighters[0]!;
+    expect(after.weapon).toBe('Arming Sword');
+    expect(after.mods).toMatchObject({ daggers: 0, daggerDamage: 1, blockImpactTaken: 0.85 });
+    expect(after.mods).toEqual(inventoryMods(tuning, after.inventory!));
+    for (const back of [0, EQUIP_AT - 1, EQUIP_AT]) {
+      let r = restore(snapshot(states[back]!));
+      for (let k = back; k < states.length - 1; k++) r = stepMatch(r, intents[k]!, tuning);
+      expect(hashValue(r)).toBe(hashValue(states.at(-1)!));
+    }
+  });
+});
+
+describe('an enemy never sees a Weapon\'s effects', { timeout: 60_000 }, () => {
+  /** The Soldiers bound to Fighters once Player 0 stands among them, by Soldier index: their Weapon and Mods. */
+  const soldiersOf = (t: TuningData): Map<number, { weapon: string; mods: FighterState['mods'] }> => {
+    let m = createMatch(t, { format: 'Gauntlet', bestOf: 1, seed: 7, arena: ARENA, teams: [0, 0, 0, 1, 1, 1, 1] });
+    const crowd = m.duel.crowd!;
+    m = put(m, 0, crowd.x[0]!, crowd.z[0]!);
+    for (let k = 0; k < 5; k++) m = stepMatch(m, idle(m), t);
+    return new Map(m.duel.fighters.flatMap((f) => (f.soldier ? [[f.soldier.index, { weapon: f.weapon, mods: f.mods }] as const] : [])));
+  };
+  const daggered: TuningData = { ...warbanded, delver: { ...warbanded.delver, troops: warbanded.delver.troops.map((p) => ({ ...p, weapon: 'Dagger' })) } };
+
+  it('has the same Mods wielding the Dagger as with its Prefab\'s own Weapon, and no Throwing Dagger from it', () => {
+    const own = soldiersOf(warbanded);
+    const dagger = soldiersOf(daggered);
+    expect(own.size).toBeGreaterThan(0);
+    expect([...dagger.keys()]).toEqual([...own.keys()]);
+    for (const [index, e] of dagger) {
+      expect(e.weapon, `Soldier ${index}`).toBe('Dagger');
+      expect(e.mods, `Soldier ${index}`).toEqual(own.get(index)!.mods);
+      expect(e.mods?.daggers ?? 0).toBe(0);
+    }
+    // The Prefabs of the Floor really wield other Weapons, so the comparison is not of like with like.
+    expect([...own.values()].some((e) => e.weapon !== 'Dagger')).toBe(true);
   });
 });
 

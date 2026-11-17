@@ -48,6 +48,17 @@ function effectValue(effect: RelicEffect, v: unknown, where: string): number {
   return v;
 }
 
+/** Validate raw effects at `where` (a Relic's, or a Weapon's `loot.effects`): known keys only, each by its rule. An empty record is allowed (a Relic's own rule asks for one). */
+export function parseRelicEffects(raw: unknown, where: string): RelicEffects {
+  const e = record(raw, where);
+  const effects: Partial<Record<RelicEffect, number>> = {};
+  for (const key of Object.keys(e)) {
+    if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')}; none changes a Motion, Tempo or walk speed)`);
+    effects[key as RelicEffect] = effectValue(key as RelicEffect, e[key], where);
+  }
+  return effects;
+}
+
 /** Validate the raw Relics. Accepts its own output. */
 export function parseRelics(raw: unknown): readonly RelicTuning[] {
   const names = new Set<string>();
@@ -58,12 +69,7 @@ export function parseRelics(raw: unknown): readonly RelicTuning[] {
     if (names.has(name)) throw new TuningDataError(`${where}.name: duplicate Relic "${name}"`);
     names.add(name);
     const icon = nonEmptyString(r, 'icon', where);
-    const e = record(r.effects, `${where}.effects`);
-    const effects: Partial<Record<RelicEffect, number>> = {};
-    for (const key of Object.keys(e)) {
-      if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}.effects: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')}; none changes a Motion, Tempo or walk speed)`);
-      effects[key as RelicEffect] = effectValue(key as RelicEffect, e[key], `${where}.effects`);
-    }
+    const effects = parseRelicEffects(r.effects, `${where}.effects`);
     if (Object.keys(effects).length === 0) throw new TuningDataError(`${where}.effects must list at least one effect`);
     return { name, icon, effects };
   });

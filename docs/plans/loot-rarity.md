@@ -1,6 +1,6 @@
 # Loot Rarity: Rarities, Weapon Effects and the Full Roster as Loot
 
-> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stage 1 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
+> Status: in progress. Scope agreed (2026-11-17), the open questions answered by the user. Stages 1 and 2 done. Tracked in #152 (Stages: #153, #154, #155, #156). Builds on the Delver's loot (`docs/plans/delver.md`, Stage 4: Warband drops, Treasure pedestals, elites' carried Relics), the Inventory and Relics (`docs/plans/dungeon.md`), the Consumables (`docs/plans/delver.md`, Stage 10) and the Delver Troops (`docs/plans/delver-troops.md`). Each Stage ends with a `### Result`, as in the other plans.
 
 ## Context
 Delver loot is flat today. Every copy of an item is the same item:
@@ -125,7 +125,7 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 
 ## Stages
 - [x] Stage 1: Rarity in the Item, scaled Relic effects, the full roster as loot
-- [ ] Stage 2: Weapon effects and the Rarity damage bonus
+- [x] Stage 2: Weapon effects and the Rarity damage bonus
 - [ ] Stage 3: Rarity rolls by depth and source
 - [ ] Stage 4: Rarity shown: inventory, HUD, results, pickups, the wielded Weapon
 
@@ -259,6 +259,39 @@ We want loot worth looking at: rarer finds that are visibly and mechanically bet
 - A Rollback test (`src/sim/delverRun.test.ts`, beside "deterministic, and Rollback across a Floor change"): a Run where a Player equips another Weapon mid-Floor, replayed from a snapshot taken before the equip, ends with the same `hashState` as the straight run.
 
 **One task.**
+
+### Result
+- **Built**:
+  - `parseRelicEffects`, which the Relic parser and the Weapon parser now share.
+  - `WeaponTuning.loot` and its serializer support, with the plan's table in the seven Weapon files.
+  - `dungeon.loot.rarity.weaponDamage` (1 / 1.15 / 1.3).
+  - `inventoryMods` folds in the fixed order: Relics, then the wielded Weapon's scaled effects, then its `weaponDamage`.
+  - The good-below-1 cross-check now covers the Weapons' effects.
+  - Nothing outside `inventoryMods` changed: `holdInventory` already recomputes Mods on every swap.
+- **Decisions the plan did not settle**:
+  - A `loot` without `effects` is accepted as empty.
+  - `multipliers` and `weaponDamage` share one parser rule (`risingTable`).
+- **Tests**:
+  - `npm test`: 3067 passed, 3 skipped.
+  - Delver slow suites: 22/22 green.
+  - `npm run typecheck` and `npm run build` are clean.
+- **New tests**:
+  - the roster's effects, the `loot` round trip and its refusals (`weapons.test.ts`);
+  - `parseRelicEffects`;
+  - `weaponDamage` parsing;
+  - `inventory.test.ts`:
+    - the Dagger gives +1 Throwing Dagger and ×1.25, and both go when the Player equips the Arming Sword, which brings `blockImpactTaken` 0.85;
+    - a Rare Longsword gives 1.3225 and a Legendary one 1.2 × 1.3;
+    - a Rare Dagger gives `daggerDamage` 1.375 and `damage` 1.15 only;
+    - the fold order;
+  - a Hit by a Rare Longsword holder in `modsEffects.test.ts`, at the unmodded Hit × 1.3225;
+  - in `delverRun.test.ts`:
+    - enemies on a Floor whose Prefabs all wield the Dagger have the same Mods as with their own Weapons, and no Throwing Dagger from it;
+    - a Weapon equipped mid-Floor, replayed from snapshots at Ticks 0, 9 and 10, ends with the same hash.
+- **Tests changed**:
+  - `inventory.test.ts`'s "all-Common equals `relicMods`" now expects the Arming Sword's `blockImpactTaken` 0.85 on top. A Common Weapon now has effects, as the plan intends.
+  - The expected `rarity` objects in `dungeon.test.ts` and `tuning.test.ts` gain `weaponDamage`.
+  - No Run hash or golden needed a change.
 
 ### Stage 3: Rarity rolls by depth and source
 - The full `dungeon.loot.rarity`, and `pickItemAt` drawing a Rarity by tier and rank.
