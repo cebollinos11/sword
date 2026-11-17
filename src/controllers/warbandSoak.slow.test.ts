@@ -49,7 +49,12 @@ import {
 } from "../sim/delver";
 import { isBossFloor, tierOf } from "../sim/delver/troops";
 import { gateOpen } from "../sim/delverRun";
-import { flatFloors, flatHalls, flatRooms } from "../sim/delver/flat.testdata";
+import {
+  flatFloors,
+  flatHalls,
+  flatRooms,
+  fullFloors,
+} from "../sim/delver/flat.testdata";
 import { BOSS, ELITE } from "../sim/warband";
 import { createAiController } from "./ai";
 import { controllerIntents, type Controller } from "./controller";
@@ -3623,10 +3628,10 @@ describe("levelled Floors", { timeout: 60 * 60_000 }, () => {
         // A turning S or Z Passage is 40 m or more of centre line, and the entrance of its last leg lay 44 to 67 m by walking from a post at a Hall's
         // centre (131 candidates in the first 80 seeds), at or past the shipped Leash of 45 m: no chase on the shipped Tuning can lead a Warband into it.
         // So this case gives the Warband a longer Leash (`SZ_LEASH`, a Tuning Data value of the scenario, as `postFill` is); the L's is the shipped one.
-        const tuning =
-          kind === "SZ"
-            ? withLeash(scenarioTuning(100, 0), SZ_LEASH)
-            : scenarioTuning(100, 0);
+        // Full-length Floors (`fullFloors`, issue #135's tierRooms off): the measures above are of 20-Hall Floors, and on a first tier's 7 the
+        // search's S or Z case is one where the Player never draws the guard into the Passage.
+        const full = fullFloors(scenarioTuning(100, 0));
+        const tuning = kind === "SZ" ? withLeash(full, SZ_LEASH) : full;
         const found = chaseCase(tuning, kind);
         if (!found)
           throw new Error(
