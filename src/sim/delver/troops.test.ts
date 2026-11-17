@@ -153,7 +153,7 @@ describe('sizeOfHp', () => {
     expect(sizeOfHp(delver, 90)).toEqual({ height: 1.15, thick: 1 });
     expect(sizeOfHp(delver, 150)).toEqual({ height: 1.4, thick: MAX_SIZE });
     expect(sizeOfHp(delver, 400)).toEqual({ height: 1.4, thick: MAX_SIZE });
-    expect(sizeOfHp(delver, 60).height).toBe(1.05);
+    expect(sizeOfHp(delver, 60).height).toBe(1);
     expect(sizeOfHp(delver, 61).height).toBe(1.05);
   });
 });
