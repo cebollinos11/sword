@@ -489,7 +489,7 @@ describe('the Boss Warband', { timeout: TIMEOUT }, () => {
       expect(crowd.hp[ids[0]!]).toBeCloseTo(250);
       expect(crowd.maxHp![ids[0]!]).toBe(crowd.hp[ids[0]!]);
       // 250 HP is past sizeHp's top: the biggest body.
-      expect(crowd.sizeHeight[ids[0]!]).toBe(1.3);
+      expect(crowd.sizeHeight[ids[0]!]).toBe(1.4);
       expect(crowd.sizeThick[ids[0]!]).toBe(1.4);
       expect(crowd.look[ids[0]!]).toBe(0);
       expect(crowd.place[ids[0]!]).toBe(0);
