@@ -9,7 +9,7 @@ import { Minimap } from '../render/minimap';
 import { pickupLabels, type PickupView } from '../render/pickupView';
 import { delverMapStatus, viewReveal } from './floorMap';
 import { FloorMapView } from './floorMapView';
-import { relicIcon, weaponIcon } from './icons';
+import { itemIconId, relicIcon, weaponIcon } from './icons';
 import { daggerCapacity, type RunBuild } from './runBuilds';
 import { ensurePlayStyles } from './styles';
 
@@ -290,7 +290,7 @@ export class Hud {
       el.append(icon, name);
       return el;
     };
-    const relic = (name: string, small = false) => item(relicIcon(tuning.relics.find((x) => x.name === name)?.icon ?? ''), name, small);
+    const relic = (name: string, small = false) => item(relicIcon(itemIconId(tuning, name)), name, small);
     return builds.map((b) => {
       const box = document.createElement('div');
       box.className = 'hud-build';

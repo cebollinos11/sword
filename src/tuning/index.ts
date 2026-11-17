@@ -21,6 +21,7 @@ import fallJson from '../../data/fall.json';
 import dungeonJson from '../../data/dungeon.json';
 import delverJson from '../../data/delver.json';
 import relicsJson from '../../data/relics.json';
+import consumablesJson from '../../data/consumables.json';
 import battleJson from '../../data/battle.json';
 import { parseArena, parseArenaSelection, type ArenaGeometry, type ArenaSelection } from './arena';
 export { MAX_FLOOR_TROOPS };
@@ -29,6 +30,7 @@ import { parseDungeon, RANDOM_PICK, type DungeonTuning } from './dungeon';
 import { MAX_FLOOR_TROOPS, parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate } from './delver';
 export { parseDelver, type DelverBoss, type DelverFloorTuning, type DelverNames, type DelverTier, type DelverTuning, type TraitorTuning, type WarbandTemplate };
 import { parseRelics, type RelicTuning } from './relics';
+import { parseConsumables, type ConsumableTuning } from './consumables';
 import { parseBattle, type BattleTuning } from './battle';
 import { parseGait, type GaitTuning } from './gait';
 import { parseKit, type Kit } from './kit';
@@ -42,6 +44,8 @@ export { GAIT_FIELDS, type GaitTuning } from './gait';
 export { tuningDataHash } from './hash';
 export type { RelicEffect, RelicEffects, RelicTuning } from './relics';
 export { parseRelics, RELIC_ADDITIONS, RELIC_EFFECTS, RELIC_MULTIPLIERS } from './relics';
+export type { ConsumableEffect, ConsumableTuning } from './consumables';
+export { CONSUMABLE_EFFECTS, parseConsumables } from './consumables';
 export { applyBattleKnobs, armySizeCap, BATTLE_KNOB_KEYS, battleMapPicked, LOBBY_KEYS, parseMapLobby, bubbleSlots, MAX_MAP_NAME, standardArmySize, deployLayout, MAX_OBJECTIVES, MAX_SQUAD_PLACES, maxArmySize, maxEngageReach, MAX_TROOPS, parseBattle, parseBattleMap, parseBattleKnobs, squadSizes, startingTickets, troopBodies, type BattleKnobs, type BattleMapLobby, type BattleMapTuning, type BattleTuning, type BattlefieldTuning, type BubbleSlots, type BubbleTuning, type CommanderTuning, type CrowdTuning, type DeployLayout, type DeployTuning, type LevelsTuning, type ObjectiveSite, type ObjectivesTuning, type RingTuning, type RoutTuning, type SlotsTuning, type SoldierTuning, type SquadTuning, type TicketsTuning, type TroopTuning, type WallBlock } from './battle';
 export type { ArenaGeometry, ArenaPoint, ArenaSelection, SpawnPoint, WalkSurface, WallSegment } from './arena';
 export { parseArena, surfacePlane } from './arena';
@@ -502,6 +506,8 @@ export interface TuningData {
   readonly delver: DelverTuning;
   /** Every Relic, in file order (data/relics.json); an Encounter's enemies name theirs. */
   readonly relics: readonly RelicTuning[];
+  /** Every Consumable, in file order (data/consumables.json, docs/plans/delver.md Stage 10): used once from a Relic slot. */
+  readonly consumables: readonly ConsumableTuning[];
   /** A Battle's armies, Battlefield, Crowd and Rout (data/battle.json): docs/plans/big-battle.md. */
   readonly battle: BattleTuning;
   readonly skeleton: SkeletonTuning;
@@ -742,6 +748,7 @@ export function parseTuningData(raw: unknown): TuningData {
   const root = record(raw, 'tuning');
   const f = record(root.fighter, 'fighter');
   const relics = parseRelics(root.relics);
+  const consumables = root.consumables === undefined ? [] : parseConsumables(root.consumables, relics.map((r) => r.name));
   const arenas: Record<string, ArenaGeometry> = {};
   (Array.isArray(root.arenas) ? root.arenas : Object.values(record(root.arenas, 'arenas'))).forEach((raw, i) => {
     const arena = parseArena(raw, `arenas[${i}]`);
@@ -865,6 +872,7 @@ export function parseTuningData(raw: unknown): TuningData {
     },
     dungeon: parseDungeon(root.dungeon, Object.keys(weapons)),
     relics,
+    consumables,
     delver: parseDelver(root.delver, battle.field.size, battle, { weapons: Object.keys(weapons), difficulties: Object.keys(ai.difficulties), styles: Object.keys(ai.styles), relics: relics.map((r) => r.name) }),
     battle,
     skeleton,
@@ -970,6 +978,7 @@ export function loadTuningData({ battleMapFiles: added = {} }: { readonly battle
     dungeon: dungeonJson,
     delver: delverJson,
     relics: relicsJson,
+    consumables: consumablesJson,
     battle: {
       ...battleJson,
       maps: Object.fromEntries(

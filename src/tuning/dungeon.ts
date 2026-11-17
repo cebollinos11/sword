@@ -13,8 +13,8 @@ export const MAX_LOOT_SPOTS = 4;
 
 /** What a Run's loot is (docs/plans/delver.md, Stage 4). */
 export interface DungeonLoot {
-  /** Relative weights of what an item is: a Relic (the usual) or a Weapon. Not both 0. */
-  readonly weights: { readonly Relic: number; readonly Weapon: number };
+  /** Relative weights of what an item is: a Relic (the usual), a Weapon or a Consumable (0 when the file leaves it out). Not all 0. */
+  readonly weights: { readonly Relic: number; readonly Weapon: number; readonly Consumable: number };
   /** Items a wiped Warband of that rank drops for each Player (0 to MAX_LOOT_SPOTS). An elite Warband's carried Relics come on top of its count. */
   readonly drops: { readonly Fight: number; readonly Elite: number; readonly Boss: number };
   /** Pedestals each Player has in a Treasure Hall (1 to MAX_LOOT_SPOTS): they take one of them. */
@@ -60,8 +60,12 @@ export function parseDungeon(raw: unknown, weapons: readonly string[]): DungeonT
   const loot = record(d.loot, 'dungeon.loot');
   const lootWeights = record(loot.weights, 'dungeon.loot.weights');
   const lootDrops = record(loot.drops, 'dungeon.loot.drops');
-  const weights = { Relic: nonNegativeNumber(lootWeights, 'Relic', 'dungeon.loot.weights'), Weapon: nonNegativeNumber(lootWeights, 'Weapon', 'dungeon.loot.weights') };
-  if (weights.Relic + weights.Weapon <= 0) throw new TuningDataError('dungeon.loot.weights must give Relic or Weapon a weight above 0');
+  const weights = {
+    Relic: nonNegativeNumber(lootWeights, 'Relic', 'dungeon.loot.weights'),
+    Weapon: nonNegativeNumber(lootWeights, 'Weapon', 'dungeon.loot.weights'),
+    Consumable: lootWeights.Consumable === undefined ? 0 : nonNegativeNumber(lootWeights, 'Consumable', 'dungeon.loot.weights'),
+  };
+  if (weights.Relic + weights.Weapon + weights.Consumable <= 0) throw new TuningDataError('dungeon.loot.weights must give Relic, Weapon or Consumable a weight above 0');
   const leftOutWeapons = d.leftOutWeapons === undefined ? [] : array(d.leftOutWeapons, 'dungeon.leftOutWeapons').map((w, i) => {
     if (typeof w !== 'string' || !weapons.includes(w)) throw new TuningDataError(`dungeon.leftOutWeapons[${i}]: unknown Weapon ${JSON.stringify(w)} (have: ${weapons.join(', ')})`);
     return w;

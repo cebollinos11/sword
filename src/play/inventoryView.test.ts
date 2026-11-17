@@ -232,3 +232,42 @@ describe('the inventory screen in a Delver Run', () => {
     expect(items(at.relics)[0]!.drop!.available).toBe(true);
   });
 });
+
+describe('the inventory view of a Consumable (Stage 10)', () => {
+  const held = () => fighter({ relics: ['Whetstone', 'Health Potion', 'Map', 'Resurrection Stone'], equipped: [0] });
+  const consumables = (v: ReturnType<typeof inventoryView>) => items(v!.relics).filter((item) => item.use);
+
+  it('sits in a Relic slot, unmarked, with a Use control and no Equip, its effect in words and its own icon', () => {
+    const v = inventoryView({ ...held(), hp: 10 }, tuning, { ...EXPLORING, fallen: true })!;
+    const [potion, map, stone] = consumables(v);
+    expect([potion, map, stone].map((item) => item!.name)).toEqual(['Health Potion', 'Map', 'Resurrection Stone']);
+    for (const item of [potion!, map!, stone!]) {
+      expect(item.equip).toBeNull();
+      expect(item.marked).toBe(false);
+      expect(item.use).toEqual({ label: 'Use', available: true, reason: null });
+      expect(item.drop!.available).toBe(true);
+      expect(item.words).toMatch(/^Use once: /);
+      expect(item.icon).toContain('<svg');
+    }
+    expect(potion!.words).toBe('Use once: heal to full HP');
+    expect(items(v.relics)[0]!.use).toBeNull();
+  });
+
+  it('is usable mid-Action and in the air, where nothing can be equipped', () => {
+    const busy = { ...held(), hp: 10, action: { kind: 'Kick' }, air: { vy: 1 } } as unknown as FighterState;
+    const v = inventoryView(busy, tuning, { ...EXPLORING, fallen: true })!;
+    expect(v.lock).not.toBeNull();
+    for (const item of consumables(v)) expect(item.use!.available).toBe(true);
+  });
+
+  it('says why a use would be refused: full HP, the Floor mapped, nobody fallen, Descending, fallen', () => {
+    const reasons = (f: FighterState, ctx: Parameters<typeof inventoryView>[2]) => consumables(inventoryView(f, tuning, ctx)).map((item) => item.use!.reason);
+    expect(reasons(held(), { ...EXPLORING, mapped: true })).toEqual(['Already at full HP', 'Floor already mapped', 'Nobody has fallen']);
+    expect(reasons(held(), DESCENDING)).toEqual(['Descending', 'Descending', 'Descending']);
+    expect(reasons({ ...held(), hp: 0 }, { ...EXPLORING, fallen: true })).toEqual(['You have fallen', 'You have fallen', 'You have fallen']);
+  });
+
+  it('changes the view key when a use becomes available', () => {
+    expect(inventoryViewKey(inventoryView(held(), tuning, EXPLORING))).not.toBe(inventoryViewKey(inventoryView({ ...held(), hp: 10 }, tuning, EXPLORING)));
+  });
+});

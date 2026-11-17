@@ -1,6 +1,6 @@
 /**
- * The icons of the Run's screens (inventory, HUD, pickups): one per Relic icon id (data/relics.json) and per Weapon of the
- * roster. Inline SVG strings on a 32x32 box, bold flat shapes that read at 24 px and at 64 px: no
+ * The icons of the Run's screens (inventory, HUD, pickups): one per Relic and Consumable icon id (data/relics.json, data/consumables.json) and
+ * per Weapon of the roster. Inline SVG strings on a 32x32 box, bold flat shapes that read at 24 px and at 64 px: no
  * image files, no fetch. The DOM sets one as `innerHTML`; a three.js sprite takes `iconTexture`. Render-only
  * (ADR 0001). A new Relic icon id or Weapon in the Tuning Data needs an entry here: the test names the missing one.
  */
@@ -66,6 +66,16 @@ const RELICS: Readonly<Record<string, string>> = {
     path('M4 4 Q5 10 10 11 Z', BONE) + path('M28 4 Q27 10 22 11 Z', BONE) +
       path('M8 9 H24 V19 Q24 27 16 29 Q8 27 8 19 Z', RED) + path('M10 15 L14 17 M22 15 L18 17', INK, 'stroke-width="2.4"') + path('M12 24 H20', INK, 'stroke-width="2"'),
   ),
+  // Consumables (data/consumables.json) share the Relics' icon ids.
+  // A round red flask with a cork.
+  potion: svg(rect(13, 3, 6, 4, BROWN) + path('M13 7 H19 V12 Q27 15 26 22 Q25 29 16 29 Q7 29 6 22 Q5 15 13 12 Z', BONE) + path('M7.5 19 H24.5 Q25 27 16 27.5 Q7 27 7.5 19 Z', RED, 'stroke-width="0"') + circle(12, 16, 1.4, '#fff')),
+  // A rolled-out parchment map with a dotted route to an X.
+  map: svg(
+    path('M4 7 L11 4 L20 7 L28 4 V25 L20 28 L11 25 L4 28 Z', BONE) + path('M11 4 V25 M20 7 V28', 'none', 'stroke-width="1"') +
+      path('M7 22 Q12 14 16 18 T24 10', 'none', `stroke="${RED}" stroke-width="1.6" stroke-dasharray="1.6 1.6"`) + path('M22 8 L26 12 M26 8 L22 12', 'none', `stroke="${RED}" stroke-width="2"`),
+  ),
+  // A smooth grey stone with a glowing green rune.
+  stone: svg(path('M6 22 Q4 12 12 7 Q20 3 26 10 Q30 18 25 25 Q18 30 10 27 Q7 26 6 22 Z', '#7d8590') + path('M16 10 V22 M12 13 L16 16 L20 13 M12 20 H20', 'none', `stroke="${GREEN}" stroke-width="2.2"`)),
 };
 
 /** The generic Relic icon: a gem, for an icon id with no drawing of its own. */
@@ -104,7 +114,7 @@ const WEAPONS: Readonly<Record<string, string>> = {
 /** The generic Weapon icon: a plain blade, for a Weapon with no drawing of its own. */
 const GENERIC_WEAPON = svg(path('M13 22 L13 8 L18 3 L19 22 Z', '#7d8590') + rect(8, 22, 16, 2.5, GOLD) + rect(14.5, 24.5, 3, 5, BROWN));
 
-/** The SVG of a Relic icon id (data/relics.json); an unknown id gets the generic Relic icon. */
+/** The SVG of a Relic's or Consumable's icon id (data/relics.json, data/consumables.json); an unknown id gets the generic Relic icon. */
 export function relicIcon(id: string): string {
   return Object.hasOwn(RELICS, id) ? RELICS[id]! : GENERIC_RELIC;
 }
@@ -121,6 +131,10 @@ const textures = new Map<string, THREE.CanvasTexture>();
  * shares one. The texture is blank until the browser has decoded the SVG, then flags itself for upload; with no DOM
  * (node tests) it stays blank.
  */
+/** The icon id of the Relic or Consumable named `name` ('' when Tuning Data has neither), for `relicIcon`. */
+export const itemIconId = (tuning: { readonly relics: readonly { readonly name: string; readonly icon: string }[]; readonly consumables?: readonly { readonly name: string; readonly icon: string }[] }, name: string): string =>
+  (tuning.relics.find((r) => r.name === name) ?? tuning.consumables?.find((c) => c.name === name))?.icon ?? '';
+
 export function iconTexture(svgText: string, px: number): THREE.CanvasTexture {
   const key = `${px}|${svgText}`;
   const hit = textures.get(key);

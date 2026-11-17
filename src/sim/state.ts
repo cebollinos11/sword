@@ -213,7 +213,7 @@ export interface FighterState {
   /**
    * What it holds (Weapons and Relics, equipped or carried): present only on a Player's Fighter in a Run (a Team 0 one the Lineup gave to a
    * human), absent on every other Fighter, which holds nothing, so a Duel's state hashes as it always did. Set when a Floor starts and
-   * changed by the Intent's `equip` and `drop` while Exploring (`useInventory`); a Fighter that falls keeps it. Its wielded Weapon is
+   * changed by the Intent's `equip`, `drop` and `use` while Exploring (`useInventory`, `useConsumables`); a Fighter that falls keeps it. Its wielded Weapon is
    * `weapon`, and `mods` is the fold of its equipped Relics.
    */
   readonly inventory?: Inventory;

@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
 import { arenaOf } from './arena';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
-import { emptyReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
+import { emptyReveal, fullReveal, isRevealed, revealBits, withReveal } from './delver/reveal';
 import { dropSpots, treasurePickups, warbandDrops } from './delverLoot';
-import { fireAt, inStairs } from './delverRun';
+import { pickItemAt } from './pickups';
+import { fireAt, inStairs, STONE_REVIVE } from './delverRun';
 import { hashValue } from './hash';
 import { restore, snapshot } from './snapshot';
 import { runSeed } from './dungeon';
@@ -784,5 +785,136 @@ describe('the Reveal of a Delver Run', { timeout: 60_000 }, () => {
     const back = restore(snapshot(one[9]!));
     expect(back.delver!.revealed).toEqual(one[9]!.delver!.revealed);
     expect(hashValue(back)).toBe(hashValue(one[9]!));
+  });
+});
+
+describe('the Consumables of a Delver Run (Stage 10)', { timeout: 60_000 }, () => {
+  const m = delver();
+  const plan = planOf(m);
+  const POTION = 'Health Potion';
+  const MAP = 'Map';
+  const STONE = 'Resurrection Stone';
+  /** `r` with Player 0 holding `relics` in its Relic slots (Relics and Consumables), the Relics among them equipped as `withStartingRelics` does. */
+  const holding = (r: MatchState, relics: readonly string[]): MatchState =>
+    withFighters(r, (f, i) => (i === 0 ? holdInventory(f, withStartingRelics(startingInventory(f.weapon), relics, tuning), tuning) : f));
+  const use = (slot: number): Partial<Intent> => ({ use: { kind: 'relic', slot } });
+  const used = (r: MatchState) => r.events.filter((e) => e.type === 'ItemUsed');
+
+  it('is Tuning Data: three Consumables, none sharing a Relic\'s name, and a loot weight of 2', () => {
+    expect(tuning.consumables.map((c) => [c.name, c.effect])).toEqual([
+      [POTION, 'healFull'],
+      [MAP, 'revealFloor'],
+      [STONE, 'reviveFallen'],
+    ]);
+    expect(tuning.dungeon.loot.weights.Consumable).toBe(2);
+  });
+
+  it('heals the user to full HP with a Health Potion, which leaves its slot (later slots close up, the equipped Relic with them)', () => {
+    const r0 = hurt(holding(m, [POTION, 'Whetstone']), 0, MAX * 0.3);
+    expect(r0.duel.fighters[0]!.inventory!.equipped).toEqual([1]);
+    const r = tick(r0, { 0: use(0) });
+    const f = r.duel.fighters[0]!;
+    expect(f.hp).toBe(f.maxHp);
+    expect(f.inventory!.relics).toEqual(['Whetstone']);
+    expect(f.inventory!.equipped).toEqual([0]);
+    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: POTION, effect: 'healFull' }]);
+  });
+
+  it('refuses a Health Potion at full HP, and keeps it', () => {
+    const r = tick(holding(m, [POTION]), { 0: use(0) });
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([POTION]);
+    expect(used(r)).toEqual([]);
+  });
+
+  it('is used mid-Action too: no Action stops it', () => {
+    let r = hurt(holding(m, [POTION]), 0, MAX * 0.5);
+    r = times(r, 3, { 0: { attack: true } });
+    expect(r.duel.fighters[0]!.action.kind).toBe('Attack');
+    r = tick(r, { 0: { attack: true, ...use(0) } });
+    expect(r.duel.fighters[0]!.hp).toBe(r.duel.fighters[0]!.maxHp);
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([]);
+  });
+
+  it('is never equipped: a number key on its slot does nothing', () => {
+    const r = tick(holding(m, [POTION]), { 0: { equip: { kind: 'relic', slot: 0 } } });
+    expect(r.duel.fighters[0]!.inventory!.equipped).toEqual([]);
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([POTION]);
+  });
+
+  it('refuses a use on a Relic\'s slot, an empty slot or a fallen user', () => {
+    const relic = tick(holding(m, ['Whetstone']), { 0: use(0) });
+    expect(relic.duel.fighters[0]!.inventory!.relics).toEqual(['Whetstone']);
+    const empty = tick(holding(m, [MAP]), { 0: use(3) });
+    expect(empty.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    const dead = tick(withFighters(holding(m, [MAP]), (f, i) => (i === 0 ? fell(f) : f)), { 0: use(0) });
+    expect(dead.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect([relic, empty, dead].flatMap(used)).toEqual([]);
+  });
+
+  it('reveals the whole Floor with a Map, and refuses a second one there', () => {
+    let r = tick(holding(m, [MAP, MAP]), { 0: use(0) });
+    expect(r.delver!.revealed).toEqual(fullReveal(plan));
+    for (let b = 0; b < revealBits(plan); b++) expect(isRevealed(r.delver!.revealed, b), `bit ${b}`).toBe(true);
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    r = tick(r, { 0: use(0) });
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([MAP]);
+    expect(used(r)).toEqual([]);
+  });
+
+  it('brings back every fallen ally round the user with a Resurrection Stone, inside the user\'s Hall, at revive of max HP', () => {
+    const r0 = withFighters(holding(m, [STONE]), (f, i) => (i === 1 || i === 2 ? fell(f) : f));
+    const r = tick(r0, { 0: use(0) });
+    const user = r.duel.fighters[0]!;
+    const hall = plan.halls[plan.entrance]!;
+    for (const i of [1, 2]) {
+      const back = r.duel.fighters[i]!;
+      expect(back.death).toBeUndefined();
+      expect(inDuel(back)).toBe(true);
+      expect(back.hp).toBe(revive * MAX);
+      expect(Math.hypot(back.position.x - user.position.x, back.position.z - user.position.z)).toBeLessThan(2.5);
+      expect(hall.rects.some((rect) => back.position.x > rect.x0 && back.position.x < rect.x1 && back.position.z > rect.z0 && back.position.z < rect.z1)).toBe(true);
+      expect(r.events).toContainEqual({ type: 'Revived', fighter: i, fire: STONE_REVIVE });
+    }
+    expect(user.inventory!.relics).toEqual([]);
+    expect(used(r)).toEqual([{ type: 'ItemUsed', fighter: 0, item: STONE, effect: 'reviveFallen' }]);
+  });
+
+  it('refuses a Resurrection Stone with nobody fallen', () => {
+    const r = tick(holding(m, [STONE]), { 0: use(0) });
+    expect(r.duel.fighters[0]!.inventory!.relics).toEqual([STONE]);
+    expect(used(r)).toEqual([]);
+  });
+
+  it('drops as a shared Consumable pickup, which takes a Relic slot when taken', () => {
+    const r = tick(holding(m, [MAP]), { 0: { drop: { kind: 'relic', slot: 0 } } });
+    const dropped = r.delver!.pickups.at(-1)!;
+    expect(dropped).toMatchObject({ kind: 'consumable', item: MAP, owner: null });
+    expect(r.events).toContainEqual(expect.objectContaining({ type: 'ItemDropped', kind: 'consumable', item: MAP }));
+    const sizes = tuning.dungeon.inventory;
+    const inv = withStartingRelics(startingInventory('Halberd'), ['Whetstone'], tuning);
+    expect(addItem(inv, { kind: 'consumable', item: POTION }, sizes)!.relics).toEqual(['Whetstone', POTION]);
+    const full = withStartingRelics(startingInventory('Halberd'), Array<string>(sizes.relics).fill(POTION), tuning);
+    expect(full.equipped).toEqual([]);
+    expect(addItem(full, { kind: 'relic', item: 'Whetstone' }, sizes)).toBeNull();
+  });
+
+  it('is picked as loot by its weight', () => {
+    const only: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 0, Weapon: 0, Consumable: 1 } } } };
+    const picks = [...Array(40).keys()].map((k) => pickItemAt(only, 7, 1, k, []));
+    expect(new Set(picks.map((p) => p.kind))).toEqual(new Set(['consumable']));
+    expect(new Set(picks.map((p) => p.item))).toEqual(new Set([POTION, MAP, STONE]));
+    const none: TuningData = { ...tuning, dungeon: { ...tuning.dungeon, loot: { ...tuning.dungeon.loot, weights: { Relic: 1, Weapon: 1, Consumable: 0 } } } };
+    expect([...Array(40).keys()].some((k) => pickItemAt(none, 7, 1, k, []).kind === 'consumable')).toBe(false);
+  });
+
+  it('is deterministic, and re-simulates the same from a snapshot', () => {
+    const start = withFighters(holding(m, [STONE, MAP]), (f, i) => (i === 1 ? fell(f) : f));
+    const run = () => {
+      let r = tick(start, { 0: use(0) });
+      r = tick(r, { 0: use(0) });
+      return r;
+    };
+    expect(hashValue(run())).toBe(hashValue(run()));
+    expect(hashValue(restore(snapshot(run())))).toBe(hashValue(run()));
   });
 });

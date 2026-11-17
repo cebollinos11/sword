@@ -18,13 +18,13 @@ import { battleMapOf } from './destinations';
 import { arenaTuning, floorArenaName, floorOf } from './delver/world';
 import { deployWarbands, warbandHomes } from './delver/warbands';
 import { isBossFloor } from './delver/troops';
-import { emptyReveal, revealPlace, withReveal } from './delver/reveal';
+import { emptyReveal, fullReveal, revealPlace, withReveal } from './delver/reveal';
 import { BOSS, warbandBrain } from './warband';
 import type { FloorPlan } from './delver/plan';
 import { runSeed } from './dungeon';
 import { inDuel } from './duel';
 import { stairsCounters, stairsTicksNeeded, presentPlayers, runPlayers, standsWithin, ZONE_HEIGHT } from './party';
-import { holdInventory, startingInventory, useInventory, withStartingRelics, wieldedWeapon } from './inventory';
+import { canUseConsumable, consumableOf, holdInventory, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon } from './inventory';
 import type { Intent } from './intent';
 import type { MatchConfig, MatchEvent, MatchState } from './match';
 import { NO_MODS, setMods } from './mods';
@@ -157,22 +157,39 @@ export function fireAt(plan: FloorPlan, f: Pick<FighterState, 'position' | 'y'>,
   return plan.markers.fires.findIndex((fire) => standsWithin({ x: fire.x, y: fire.y, z: fire.z }, radius, f));
 }
 
+/** `Revived.fire` when a beaten Boss brought the fallen back, and when a Resurrection Stone did. */
+export const BOSS_REVIVE = -1;
+export const STONE_REVIVE = -2;
+
+/** How far (m) inside the Hall rect or Passage piece its user stands in a Resurrection Stone keeps the Fighters it brings back. */
+export const REVIVE_MARGIN = 0.6;
+
 /** Where the j-th Fighter a fire revives stands round it (m): the corners of a 3 m square, so none lands on another. */
 const REVIVE_DX = [-1.5, 1.5, -1.5, 1.5];
 const REVIVE_DZ = [-1.5, -1.5, 1.5, 1.5];
 
 /**
  * `duel` with every fallen Team 0 Fighter (`death` set) back on its feet round `point` (the corners of REVIVE_DX and REVIVE_DZ by its rank j among
- * those revived, standing, facing as it did) at `hpShare` of its max HP, keeping its weapon and Inventory, with `Revived { fighter, fire }`. A fire
- * revives at `dungeon.revive`, a beaten Boss (fire -1) in full. Pure.
+ * those revived, standing, facing as it did; `fit` moves each spot, a Resurrection Stone's into its user's place) at `hpShare` of its max HP, keeping
+ * its weapon and Inventory, with `Revived { fighter, fire }`. A fire revives at `dungeon.revive`, a beaten Boss (BOSS_REVIVE) in full, a Resurrection Stone
+ * (STONE_REVIVE) at `dungeon.revive`. Pure.
  */
-function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof arenaOf>, point: { readonly x: number; readonly y: number; readonly z: number }, hpShare: number, fire: number, events: MatchEvent[]): SimState {
+function reviveFallen(
+  duel: SimState,
+  t: TuningData,
+  arena: ReturnType<typeof arenaOf>,
+  point: { readonly x: number; readonly y: number; readonly z: number },
+  hpShare: number,
+  fire: number,
+  events: MatchEvent[],
+  fit: (at: { readonly x: number; readonly z: number }) => { readonly x: number; readonly z: number } = (at) => at,
+): SimState {
   let j = 0;
   return {
     ...duel,
     fighters: duel.fighters.map((f, i): FighterState => {
       if (f.team !== 0 || f.death === undefined) return f;
-      const at = { x: point.x + REVIVE_DX[j % 4]!, z: point.z + REVIVE_DZ[j % 4]! };
+      const at = fit({ x: point.x + REVIVE_DX[j % 4]!, z: point.z + REVIVE_DZ[j % 4]! });
       j++;
       const weapon = f.inventory ? wieldedWeapon(f.inventory) : f.weapon;
       const fresh = standingFighter(t, arena, { position: at, y: point.y, facing: f.facing }, weapon, 0, f.size);
@@ -181,6 +198,58 @@ function reviveFallen(duel: SimState, t: TuningData, arena: ReturnType<typeof ar
       return { ...armed, hp: hpShare * armed.maxHp };
     }),
   };
+}
+
+/** The Hall rect or Passage piece of `plan` that holds (x, z), or undefined (a doorway's seam, a solid). Halls first, as the Reveal finds a place. */
+function placeRect(plan: FloorPlan, x: number, z: number): { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number } | undefined {
+  const holds = (r: { readonly x0: number; readonly z0: number; readonly x1: number; readonly z1: number }) => x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+  for (const hall of plan.halls) for (const r of hall.rects) if (holds(r)) return r;
+  for (const pass of plan.passages) for (const piece of pass.pieces) if (holds(piece.rect)) return piece.rect;
+  return undefined;
+}
+
+/**
+ * The Consumables used this Tick (docs/plans/delver.md, Stage 10): each Fighter with an inventory whose Intent has `use`, in index order, that still fights
+ * and lives (`canUseConsumable`: in any Action, in the air too), uses the Consumable in that Relic slot: its effect at once, the item gone from the slot,
+ * and `ItemUsed`. A use that would do nothing is refused and keeps the item: a Health Potion at full HP, a Map on a Floor all revealed, a Resurrection Stone
+ * with no Team 0 Fighter fallen. `healFull` heals its user to its max HP; `revealFloor` reveals the whole Floor for the party (`fullReveal`);
+ * `reviveFallen` brings every fallen Team 0 Fighter back round its user at `dungeon.revive` of max HP, each kept inside its user's Hall rect or Passage
+ * piece (REVIVE_MARGIN from the edges). Pure; the same Duel and Run when nothing is used.
+ */
+export function useConsumables(
+  duel: SimState,
+  run: RunState,
+  intents: readonly Intent[],
+  t: TuningData,
+  plan: FloorPlan,
+  arena: ReturnType<typeof arenaOf>,
+  events: MatchEvent[],
+): { readonly duel: SimState; readonly run: RunState } {
+  let next = run;
+  for (let i = 0; i < duel.fighters.length; i++) {
+    const ref = intents[i]?.use;
+    const f = duel.fighters[i]!;
+    if (!ref || !f.inventory || !canUseConsumable(f)) continue;
+    const spent = spendConsumable(f.inventory, ref, t);
+    if (!spent) continue;
+    const { effect } = consumableOf(t, spent.item)!;
+    const full = effect === 'revealFloor' ? fullReveal(plan) : null;
+    if (effect === 'healFull' && f.hp >= f.maxHp) continue;
+    if (full && full.every((w, k) => w === (next.revealed[k] ?? 0))) continue;
+    if (effect === 'reviveFallen' && !duel.fighters.some((g) => g.team === 0 && g.death !== undefined)) continue;
+    const held = holdInventory(f, spent.inventory, t);
+    duel = { ...duel, fighters: duel.fighters.map((g, k) => (k === i ? (effect === 'healFull' ? { ...held, hp: held.maxHp } : held) : g)) };
+    events.push({ type: 'ItemUsed', fighter: i, item: spent.item, effect });
+    if (full) next = { ...next, revealed: full };
+    if (effect === 'reviveFallen') {
+      const r = placeRect(plan, f.position.x, f.position.z);
+      const clamp = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
+      const fit = (at: { readonly x: number; readonly z: number }) =>
+        r ? { x: clamp(at.x, r.x0 + REVIVE_MARGIN, r.x1 - REVIVE_MARGIN), z: clamp(at.z, r.z0 + REVIVE_MARGIN, r.z1 - REVIVE_MARGIN) } : at;
+      duel = reviveFallen(duel, t, arena, { x: f.position.x, y: f.y, z: f.position.z }, t.dungeon.revive, STONE_REVIVE, events, fit);
+    }
+  }
+  return { duel, run: next };
 }
 
 /** The Run mirrored for the Controllers (`SimState.delver`): the pickups are the very array the Run holds. */
@@ -354,7 +423,7 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
           return { ...f, hp: f.maxHp };
         }),
       };
-      duel = reviveFallen(duel, t, arena, stairsAt, 1, -1, events);
+      duel = reviveFallen(duel, t, arena, stairsAt, 1, BOSS_REVIVE, events);
     }
 
     // The Inventory: a Player's Fighter changes what it holds anywhere on the Floor, in a fight too (refused mid-Action); what it drops is the pickups'.
@@ -371,6 +440,8 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
         return used.fighter;
       }),
     };
+    // The Consumables: each `use` acts at once, in Fighter order, after the equips and drops.
+    ({ duel, run: next } = useConsumables(duel, next, intents, t, plan, arena, events));
     const took = takePickups(next.pickups, duel.fighters, config, t, next.away);
     if (took.taken.length > 0 || took.pickups.some((p, k) => p !== next.pickups[k])) {
       next = { ...next, pickups: took.pickups };

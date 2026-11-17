@@ -3,7 +3,7 @@ import { loadTuningData } from '../tuning';
 import { iconTexture, relicIcon, weaponIcon } from './icons';
 
 const tuning = loadTuningData();
-const relicIds = tuning.relics.map((r) => r.icon);
+const relicIds = [...tuning.relics, ...tuning.consumables].map((r) => r.icon);
 const weapons = Object.keys(tuning.weapons);
 
 const wellFormed = (svg: string) => {
@@ -21,7 +21,7 @@ const wellFormed = (svg: string) => {
 };
 
 describe('icons', () => {
-  it('draws every Relic icon id of data/relics.json, each its own, none the fallback', () => {
+  it('draws every Relic and Consumable icon id (data/relics.json, data/consumables.json), each its own, none the fallback', () => {
     expect(relicIds.length).toBeGreaterThan(0);
     const icons = relicIds.map(relicIcon);
     expect(new Set(icons).size).toBe(relicIds.length);

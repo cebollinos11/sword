@@ -1,8 +1,8 @@
 /**
  * Placeholder presentation of loot (docs/plans/dungeon.md, Stage 2; Stage 3 brings the art): the text the inventory screen shows for a
- * Relic. Everything here is pure and render only.
+ * Relic or a Consumable. Everything here is pure and render only.
  */
-import type { RelicEffect, RelicEffects } from '../tuning';
+import type { ConsumableEffect, RelicEffect, RelicEffects } from '../tuning';
 
 const percent = (factor: number): string => `${Math.round(Math.abs(factor - 1) * 100)}%`;
 const signed = (factor: number): string => `${factor >= 1 ? '+' : '-'}${percent(factor)}`;
@@ -28,3 +28,13 @@ export function relicWords(effects: RelicEffects): string {
     .map((k) => WORDS[k](effects[k]!))
     .join(', ');
 }
+
+/** What each Consumable effect does, in words. */
+const CONSUMABLE_WORDS: Readonly<Record<ConsumableEffect, string>> = {
+  healFull: 'heal to full HP',
+  revealFloor: 'reveal the whole Floor on the map',
+  reviveFallen: 'bring back every fallen ally',
+};
+
+/** A Consumable's effect in words, with "once" so it reads apart from a Relic's. */
+export const consumableWords = (effect: ConsumableEffect): string => `Use once: ${CONSUMABLE_WORDS[effect]}`;

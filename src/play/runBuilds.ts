@@ -6,7 +6,7 @@ import { modsOf, runPlayers, wieldedWeapon, type FighterState, type MatchState }
 import type { Lineup } from '../controllers';
 import type { TuningData } from '../tuning';
 
-/** One Player's build at a Run's end: its Fighter, the Weapon wielded, the Relics equipped and the Relics carried (names, in slot order). */
+/** One Player's build at a Run's end: its Fighter, the Weapon wielded, the Relics equipped and the Relics and Consumables carried (names, in slot order). */
 export interface RunBuild {
   readonly fighter: number;
   /** Its Player's name (`playerName`). */

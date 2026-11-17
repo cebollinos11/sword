@@ -22,7 +22,7 @@
  * so a whole Match hashes (`hashValue`) and snapshots (`snapshot`) exactly
  * for Rollback.
  */
-import { defaultWeaponName, isStandardSize, storedSize, weaponByName, type Size, type TuningData } from '../tuning';
+import { defaultWeaponName, isStandardSize, storedSize, weaponByName, type ConsumableEffect, type Size, type TuningData } from '../tuning';
 import { secondsToTicks } from './constants';
 import type { Intent } from './intent';
 import type { SimState } from './state';
@@ -120,8 +120,8 @@ export interface MatchOptions extends Partial<Omit<MatchConfig, 'sizes'>> {
   /** Seeds the Simulation's generator; it carries over from Duel to Duel. */
   readonly seed?: number;
   /**
-   * Dev mode only (`devRunRelics`): the Relics (Tuning Data names) every Player's Fighter starts the Run holding, equipped in order
-   * up to `dungeon.inventory.equippedRelics`, the rest carried. An unknown name, or more than `dungeon.inventory.relics`, throws.
+   * Dev mode only (`devRunRelics`): the Relics and Consumables (Tuning Data names) every Player's Fighter starts the Run holding, the Relics
+   * equipped in order up to `dungeon.inventory.equippedRelics`, the rest carried. An unknown name, or more than `dungeon.inventory.relics`, throws.
    */
   readonly relics?: readonly string[];
 }
@@ -179,11 +179,22 @@ export interface StairsTakenEvent {
   readonly floor: number;
 }
 
-/** Fire `fire` (0-based, `plan.markers.fires` order) of a Delver Floor brought Fighter `fighter` back from the fallen. */
+/**
+ * Fire `fire` (0-based, `plan.markers.fires` order) of a Delver Floor brought Fighter `fighter` back from the fallen; `fire` is BOSS_REVIVE (-1) when a
+ * beaten Boss did, STONE_REVIVE (-2) when a Resurrection Stone did (`delverRun.ts`).
+ */
 export interface RevivedEvent {
   readonly type: 'Revived';
   readonly fighter: number;
   readonly fire: number;
+}
+
+/** Player Fighter `fighter` used the Consumable `item`, whose effect was `effect`: it is gone from its inventory (docs/plans/delver.md, Stage 10). */
+export interface ItemUsedEvent {
+  readonly type: 'ItemUsed';
+  readonly fighter: number;
+  readonly item: string;
+  readonly effect: ConsumableEffect;
 }
 
 /** Warband `warband` (a Squad of the Floor's Crowd) of rank `rank` (PLAIN, ELITE or BOSS) was wiped, its last Soldier falling at `at`, where its items were laid. */
@@ -201,7 +212,7 @@ export interface BossBeatenEvent {
 }
 
 /** Match-level events of one Match Tick. Duel events stay on `duel.events`. */
-export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | BossBeatenEvent | RoutEvent | BattleEndEvent;
+export type MatchEvent = DuelStartEvent | MatchEndEvent | RunEndEvent | RestedEvent | ItemDroppedEvent | ItemTakenEvent | ItemUsedEvent | StairsTakenEvent | RevivedEvent | WarbandWipedEvent | BossBeatenEvent | RoutEvent | BattleEndEvent;
 
 /**
  * THE Takeover seam: an AI has taken over Player Fighter `fighter` of a Run or a Battle (the Rollback session applies it on every peer at the Takeover

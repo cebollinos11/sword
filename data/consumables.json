@@ -1,0 +1,5 @@
+[
+  { "name": "Health Potion", "icon": "potion", "effect": "healFull" },
+  { "name": "Map", "icon": "map", "effect": "revealFloor" },
+  { "name": "Resurrection Stone", "icon": "stone", "effect": "reviveFallen" }
+]
