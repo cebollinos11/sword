@@ -47,7 +47,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
   it('are configured only on a Delver Run, and let the party be all AI', () => {
     const m = delver();
     expect(m.config.traitors).toEqual([{}]);
-    expect(m.delver!.traitors).toEqual([{ soldier: -1, warband: -1, deaths: 0, taken: 0, next: respawnTicks(tuning, 0), kills: 0 }]);
+    expect(m.delver!.traitors).toEqual([{ soldier: -1, warband: -1, deaths: 0, floorDeaths: 0, taken: 0, next: respawnTicks(tuning, 0), kills: 0 }]);
     expect(m.duel.delver!.traitors).toBe(m.delver!.traitors);
     expect(delver({ traitors: [{ size: { height: 1.2, thick: 1 } }] }).config.traitors).toEqual([{ size: { height: 1.2, thick: 1 } }]);
     expect(delver({ humans: 0, players: [], traitors: [{}, {}] }).config.humans).toBe(0);
@@ -153,7 +153,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     expect(c.alive[first.soldier]).toBe(0);
     expect(c.hp[first.soldier]).toBe(0);
     expect(c.squad[first.soldier]).toBe(first.warband);
-    expect(rec(m)).toMatchObject({ deaths: 1, next: deathTick + respawnTicks(tuning, 0) });
+    expect(rec(m)).toMatchObject({ deaths: 1, floorDeaths: 1, next: deathTick + respawnTicks(tuning, 0) });
     m = until(m, holding, 400, check);
     expect(rec(m).soldier).not.toBe(first.soldier);
     expect(m.duel.crowd!.slot[first.soldier]).toBe(-1);
@@ -161,7 +161,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     m = fell(m);
     const second = m.duel.tick;
     m = tick(m);
-    expect(rec(m)).toMatchObject({ deaths: 2, next: second + respawnTicks(tuning, 1) });
+    expect(rec(m)).toMatchObject({ deaths: 2, floorDeaths: 2, next: second + respawnTicks(tuning, 1) });
     expect(respawnTicks(tuning, 1)).toBeGreaterThan(respawnTicks(tuning, 0));
   });
 
@@ -182,7 +182,7 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
   });
 
   it('count a party Fighter felled by its blow as a kill', () => {
-    const records: TraitorState[] = [{ soldier: 5, warband: 0, deaths: 0, taken: 1, next: 0, kills: 0 }, { soldier: -1, warband: -1, deaths: 0, taken: 0, next: 0, kills: 0 }];
+    const records: TraitorState[] = [{ soldier: 5, warband: 0, deaths: 0, floorDeaths: 0, taken: 1, next: 0, kills: 0 }, { soldier: -1, warband: -1, deaths: 0, floorDeaths: 0, taken: 0, next: 0, kills: 0 }];
     const hit = { type: 'Hit', attacker: 2, defender: 0 } as unknown as SimEvent;
     const death = { type: 'Death', fighter: 0 } as unknown as SimEvent;
     const out = countTraitorKills(records, [hit, death], { teams: [0, 0] });
@@ -207,13 +207,13 @@ describe("a Delver Run's traitors", { timeout: 120_000 }, () => {
     expect(rec(m).taken).toBe(1);
   });
 
-  it('take nothing with them down the Stairs: on the next Floor each watches its delay again', () => {
+  it('take nothing with them down the Stairs: on the next Floor each watches its first delay again, its wait reset', () => {
     let m = until(delver(), holding, 400);
     // Down the Stairs: the fade's end starts Floor 2.
-    m = { ...m, nextDuelTick: m.tick + 1, delver: { ...m.delver!, phase: 'Descending', traitors: m.delver!.traitors!.map((r) => ({ ...r, deaths: 3 })) } };
+    m = { ...m, nextDuelTick: m.tick + 1, delver: { ...m.delver!, phase: 'Descending', traitors: m.delver!.traitors!.map((r) => ({ ...r, deaths: 3, floorDeaths: 3 })) } };
     m = tick(m);
     expect(m.delver!.floor).toBe(2);
-    expect(rec(m)).toMatchObject({ soldier: -1, warband: -1, deaths: 3, taken: 1, next: respawnTicks(tuning, 3) });
+    expect(rec(m)).toMatchObject({ soldier: -1, warband: -1, deaths: 3, floorDeaths: 0, taken: 1, next: respawnTicks(tuning, 0) });
     expect(m.duel.fighters[traitorSlot(m.config, 0)]!.benched).toBe(true);
   });
 });

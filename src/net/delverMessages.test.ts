@@ -35,7 +35,7 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 
 describe('Peer message validation: a Delver Run', () => {
   it('is protocol 32', () => {
-    expect(PROTOCOL_VERSION).toBe(32);
+    expect(PROTOCOL_VERSION).toBe(33);
   });
 
   it("accepts a Run's start message, and refuses one on a dev start Floor, with no human outside a Run, or a Run on a hand-made Arena", () => {
@@ -407,6 +407,7 @@ describe('a Floor Crowd\'s Troops and ranks', () => {
         ['a record held elsewhere', withRecords([{ ...records[0]!, soldier: records[0]!.soldier + 1 }])],
         ['a mirror that differs', withRecords(records, [{ ...records[0]!, kills: 3 }])],
         ['a broken count', withRecords([{ ...records[0]!, deaths: -1 }])],
+        ['a broken Floor count', withRecords([{ ...records[0]!, floorDeaths: -1 }])],
         ['traitors outside a Gauntlet', { ...state, config: { ...state.config, format: 'Duels' } }],
         ['five traitors', { ...state, config: { ...state.config, traitors: [{}, {}, {}, {}, {}] } }],
       ] as const) {
