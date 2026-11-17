@@ -11,6 +11,7 @@
 import { secondsToTicks, TICK_SECONDS } from '../sim/constants';
 import { DIRECTIONS, type Direction } from '../sim/intent';
 import type { Vec3 } from '../sim/vec';
+import { parseRelicEffects, type RelicEffects } from './relics';
 import { finiteNumber, nonEmptyString, nonNegativeNumber, positiveNumber, record, TuningDataError } from './validate';
 
 export const WEAPON_GRIPS = ['oneHanded', 'twoHanded'] as const;
@@ -102,6 +103,11 @@ export const UNIT_TEMPO: WeaponTempo = { windUp: 1, release: 1, recovery: 1 };
 /** No Heavy Blow (the default for a Weapon file without one). */
 export const NO_HEAVY_BLOW: WeaponHeavyBlow = { speed: 0, knockdownSlide: 0, knockdownSlideTicks: 1, blockSlide: 0, blockSlideTicks: 1 };
 
+/** What a Weapon gives its wielder in a Run (docs/plans/loot-rarity.md): Relic effects that count only while a Player wields it, scaled by its Rarity. */
+export interface WeaponLoot {
+  readonly effects: RelicEffects;
+}
+
 /** A held Weapon: one entry in the Weapon roster. */
 export interface WeaponTuning {
   readonly name: string;
@@ -140,6 +146,8 @@ export interface WeaponTuning {
   readonly look: WeaponLook;
   /** Metres of chain between the shaft's end and the ball (the Head), drawn by the flail look only. Render-only: the Simulation's Weapon is rigid. */
   readonly chain?: number;
+  /** Its effects while a Player wields it: absent when the file lists none. An enemy's Weapon gives it none. */
+  readonly loot?: WeaponLoot;
 }
 
 /** The Direction an Attack asked for in `direction` has with `weapon`: `direction` if the Weapon Attacks in it, else Overhead. */
@@ -320,6 +328,15 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     if (chain + head >= length) throw new TuningDataError(`${at}.chain plus head must be shorter than length (${length}), got ${chain} + ${head}`);
   }
 
+  let loot: WeaponLoot | undefined;
+  if (o.loot !== undefined) {
+    const where = `${at}.loot`;
+    const l = record(o.loot, where);
+    for (const key of Object.keys(l)) if (key !== 'effects') throw new TuningDataError(`${where}: unknown key "${key}" (have: effects)`);
+    const effects = l.effects === undefined ? {} : parseRelicEffects(l.effects, `${where}.effects`);
+    if (Object.keys(effects).length > 0) loot = { effects };
+  }
+
   return {
     name,
     grip,
@@ -339,6 +356,7 @@ export function parseWeapon(raw: unknown, where = 'weapon'): WeaponTuning {
     ...(attacks ? { attacks } : {}),
     look,
     ...(chain === undefined ? {} : { chain }),
+    ...(loot ? { loot } : {}),
   };
 }
 
@@ -368,5 +386,7 @@ export function serializeWeapon(w: WeaponTuning): string {
   if (w.attacks && w.attacks.length < DIRECTIONS.length) out.attacks = [...w.attacks];
   out.look = w.look;
   if (w.chain !== undefined) out.chain = w.chain;
+  // Written last, and only for a Weapon with an effect, so a Weapon file without one keeps its bytes.
+  if (w.loot && Object.keys(w.loot.effects).length > 0) out.loot = { effects: { ...w.loot.effects } };
   return `${JSON.stringify(out, null, 2)}\n`;
 }

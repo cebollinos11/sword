@@ -11,12 +11,14 @@ import {
   hashState,
   hold,
   IDLE_INTENT,
+  inventoryMods,
   isNoMods,
   mirrorDirection,
   modsOf,
   NO_MODS,
   runScript,
   setMods,
+  startingInventory,
   step,
   type BlockEvent,
   type Direction,
@@ -126,6 +128,16 @@ describe('a blade Hit', () => {
     expect(hit(strong).damage).toBeCloseTo(hit(plain).damage * 1.5, 9);
     expect(hit(strong)).toMatchObject({ bladeSpeed: hit(plain).bladeSpeed, zone: hit(plain).zone, heavy: hit(plain).heavy });
     expect(strong.final.fighters[1]!.hp).toBeCloseTo(fighter.maxHp - hit(strong).damage, 9);
+  });
+
+  it('a Rare Longsword\'s inventory Mods make its Hit 1.3225 times the unmodded Hit', () => {
+    const inventory = { ...startingInventory('Longsword'), weapons: [{ name: 'Longsword', rarity: 'Rare' as const }] };
+    const m = inventoryMods(tuning, inventory);
+    const plain = run({}, {}, 'Longsword', 'Overhead', 1.2);
+    const rare = run(m, {}, 'Longsword', 'Overhead', 1.2);
+    expect(hit(plain).damage).toBeGreaterThan(0);
+    expect(hit(rare).damage).toBeCloseTo(hit(plain).damage * 1.3225, 9);
+    expect(hit(rare)).toMatchObject({ bladeSpeed: hit(plain).bladeSpeed, zone: hit(plain).zone, heavy: hit(plain).heavy });
   });
 
   it('heavyDamage multiplies a Heavy Blow only', () => {

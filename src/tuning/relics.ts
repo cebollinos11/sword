@@ -10,6 +10,10 @@ import { array, nonEmptyString, record, TuningDataError } from './validate';
 export const RELIC_MULTIPLIERS = ['damage', 'heavyDamage', 'damageTaken', 'blockImpactTaken', 'daggerDamage', 'kickDamage'] as const;
 /** Effects that add to a number. */
 export const RELIC_ADDITIONS = ['maxHp', 'daggers', 'healOnKill', 'healOnClear'] as const;
+/** The multipliers that are good below 1 (a share of the damage taken): scaling them pulls the factor further below 1. Every other multiplier is good above 1. */
+export const RELIC_GOOD_LOW = ['damageTaken', 'blockImpactTaken'] as const;
+/** The additions that are whole counts (rounded after scaling); the other additions are shares. */
+export const RELIC_COUNTS = ['daggers', 'healOnKill'] as const;
 /** The whole vocabulary. */
 export const RELIC_EFFECTS = [...RELIC_MULTIPLIERS, ...RELIC_ADDITIONS] as const;
 export type RelicEffect = (typeof RELIC_EFFECTS)[number];
@@ -29,7 +33,7 @@ export interface RelicTuning {
 const ADDITION_RULES: Readonly<Record<(typeof RELIC_ADDITIONS)[number], string>> = {
   maxHp: 'a share of max HP above 0 (0.2 is +20%)',
   daggers: 'a whole number of Throwing Daggers, at least 1',
-  healOnKill: 'HP above 0',
+  healOnKill: 'a whole number of HP, at least 1',
   healOnClear: 'a share of max HP above 0 and at most 1',
 };
 
@@ -38,10 +42,21 @@ function effectValue(effect: RelicEffect, v: unknown, where: string): number {
   if (typeof v !== 'number' || !Number.isFinite(v)) throw bad((RELIC_MULTIPLIERS as readonly string[]).includes(effect) ? 'a factor above 0' : ADDITION_RULES[effect as keyof typeof ADDITION_RULES]);
   if ((RELIC_MULTIPLIERS as readonly string[]).includes(effect)) {
     if (v <= 0) throw bad('a factor above 0');
-  } else if (v <= 0 || (effect === 'daggers' && !Number.isInteger(v)) || (effect === 'healOnClear' && v > 1)) {
+  } else if (v <= 0 || ((RELIC_COUNTS as readonly string[]).includes(effect) && !Number.isInteger(v)) || (effect === 'healOnClear' && v > 1)) {
     throw bad(ADDITION_RULES[effect as keyof typeof ADDITION_RULES]);
   }
   return v;
+}
+
+/** Validate raw effects at `where` (a Relic's, or a Weapon's `loot.effects`): known keys only, each by its rule. An empty record is allowed (a Relic's own rule asks for one). */
+export function parseRelicEffects(raw: unknown, where: string): RelicEffects {
+  const e = record(raw, where);
+  const effects: Partial<Record<RelicEffect, number>> = {};
+  for (const key of Object.keys(e)) {
+    if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')}; none changes a Motion, Tempo or walk speed)`);
+    effects[key as RelicEffect] = effectValue(key as RelicEffect, e[key], where);
+  }
+  return effects;
 }
 
 /** Validate the raw Relics. Accepts its own output. */
@@ -54,12 +69,7 @@ export function parseRelics(raw: unknown): readonly RelicTuning[] {
     if (names.has(name)) throw new TuningDataError(`${where}.name: duplicate Relic "${name}"`);
     names.add(name);
     const icon = nonEmptyString(r, 'icon', where);
-    const e = record(r.effects, `${where}.effects`);
-    const effects: Partial<Record<RelicEffect, number>> = {};
-    for (const key of Object.keys(e)) {
-      if (!(RELIC_EFFECTS as readonly string[]).includes(key)) throw new TuningDataError(`${where}.effects: unknown effect "${key}" (have: ${RELIC_EFFECTS.join(', ')}; none changes a Motion, Tempo or walk speed)`);
-      effects[key as RelicEffect] = effectValue(key as RelicEffect, e[key], `${where}.effects`);
-    }
+    const effects = parseRelicEffects(r.effects, `${where}.effects`);
     if (Object.keys(effects).length === 0) throw new TuningDataError(`${where}.effects must list at least one effect`);
     return { name, icon, effects };
   });

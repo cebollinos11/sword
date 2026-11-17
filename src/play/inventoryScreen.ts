@@ -9,6 +9,7 @@
  */
 import type { FighterState, InventoryRef } from '../sim';
 import type { TuningData } from '../tuning';
+import { rarityClass } from '../render/rarityColours';
 import { inventoryView, inventoryViewKey, type ActionView, type DelverContext, type InventoryView, type ItemView, type SlotView } from './inventoryView';
 
 export type InventoryScreenAction = 'equip' | 'drop' | 'use';
@@ -114,7 +115,7 @@ export class InventoryScreen {
   }
 
   /** Draw the local Player's inventory (every frame; the DOM is rebuilt only when the view changes, so a press is never lost to a rebuild). */
-  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger'>, delver?: DelverContext): void {
+  update(fighter: FighterState | undefined, tuning: Pick<TuningData, 'relics' | 'consumables' | 'dungeon' | 'dagger' | 'weapons'>, delver?: DelverContext): void {
     if (!this.isOpen) return;
     const view = inventoryView(fighter, tuning, delver);
     const key = inventoryViewKey(view);
@@ -157,6 +158,7 @@ export class InventoryScreen {
       return slot;
     }
     slot.classList.add('inv-item');
+    if (item.rarity !== 'Common') slot.classList.add(rarityClass(item.rarity));
     slot.dataset.kind = ref.kind;
     slot.dataset.slot = String(ref.slot);
     if (item.use) slot.dataset.consumable = '';
@@ -170,7 +172,7 @@ export class InventoryScreen {
     const icon = el('span', 'inv-icon');
     icon.innerHTML = item.icon;
     const text = el('span', 'inv-text');
-    const name = el('span', 'inv-name', item.name);
+    const name = el('span', `inv-name ${rarityClass(item.rarity)}`.trim(), item.label);
     text.append(name);
     if (item.marked) text.append(el('span', 'inv-mark', ref.kind === 'weapon' ? 'Wielded' : 'Equipped'));
     if (item.words) text.append(el('span', 'inv-words', item.words));

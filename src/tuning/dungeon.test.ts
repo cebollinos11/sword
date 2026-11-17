@@ -2,24 +2,70 @@ import { describe, expect, it } from 'vitest';
 import { loadTuningData, parseDungeon, tuningDataHash, type TuningData } from './index';
 
 const tuning = loadTuningData();
-const WEAPONS = Object.keys(tuning.weapons);
 const raw = () => JSON.parse(JSON.stringify(tuning.dungeon)) as Record<string, unknown> & { inventory: Record<string, unknown> };
-const parse = (d: unknown) => parseDungeon(d, WEAPONS);
+const parse = (d: unknown) => parseDungeon(d);
 
 describe('Dungeon Tuning Data (data/dungeon.json)', () => {
-  it('leftOutWeapons: Weapons of the roster a Run never drops (absent: none); refuses an unknown name, or leaving out every Weapon', () => {
-    expect(tuning.dungeon.leftOutWeapons).toEqual(['Flail', 'Quarterstaff', 'Dagger']);
-    const { leftOutWeapons: _left, ...without } = raw();
-    expect(parse(without).leftOutWeapons).toEqual([]);
-    expect(() => parse({ ...raw(), leftOutWeapons: ['Spoon'] })).toThrow(/^dungeon\.leftOutWeapons\[0\]: unknown Weapon "Spoon"/);
-    expect(() => parse({ ...raw(), leftOutWeapons: WEAPONS })).toThrow(/^dungeon\.leftOutWeapons must leave at least one Weapon/);
+  it('refuses a leftOutWeapons key: every Weapon is loot, with a pointer to the plan', () => {
+    expect(() => parse({ ...raw(), leftOutWeapons: ['Flail'] })).toThrow(/^dungeon\.leftOutWeapons is retired: every Weapon is loot \(docs\/plans\/loot-rarity\.md\)/);
+    expect('leftOutWeapons' in tuning.dungeon).toBe(false);
+  });
+
+  it('parses rarity.multipliers, and refuses a missing Rarity, a multiplier below 1 or multipliers that fall', () => {
+    expect(tuning.dungeon.loot.rarity.multipliers).toEqual({ Common: 1, Rare: 1.5, Legendary: 2 });
+    expect(tuning.dungeon.loot.rarity.weaponDamage).toEqual({ Common: 1, Rare: 1.15, Legendary: 1.3 });
+    const rarity = (multipliers: unknown) => {
+      const d = raw() as unknown as { loot: Record<string, unknown> };
+      return parse({ ...d, loot: { ...d.loot, rarity: multipliers === undefined ? undefined : { ...tuning.dungeon.loot.rarity, multipliers } } });
+    };
+    expect(rarity({ Common: 1, Rare: 1, Legendary: 3 }).loot.rarity.multipliers).toEqual({ Common: 1, Rare: 1, Legendary: 3 });
+    expect(() => rarity(undefined)).toThrow(/dungeon\.loot\.rarity/);
+    expect(() => rarity({ Common: 1, Rare: 1.5 })).toThrow(/multipliers\.Legendary/);
+    expect(() => rarity({ Rare: 1.5, Legendary: 2 })).toThrow(/multipliers\.Common/);
+    expect(() => rarity({ Common: 0.9, Rare: 1.5, Legendary: 2 })).toThrow(/multipliers\.Common must be at least 1/);
+    expect(() => rarity({ Common: 1, Rare: 1.5, Legendary: 1.2 })).toThrow(/multipliers must not fall as the Rarity rises/);
+    expect(() => rarity({ Common: 1, Rare: Infinity, Legendary: 2 })).toThrow(/multipliers\.Rare/);
+  });
+
+  it('parses rarity.weaponDamage, and refuses a missing Rarity, a bonus below 1 or one that falls', () => {
+    const bonus = (weaponDamage: unknown) => {
+      const d = raw() as unknown as { loot: Record<string, unknown> };
+      return parse({ ...d, loot: { ...d.loot, rarity: { ...tuning.dungeon.loot.rarity, weaponDamage } } });
+    };
+    expect(bonus({ Common: 1, Rare: 1.2, Legendary: 1.2 }).loot.rarity.weaponDamage).toEqual({ Common: 1, Rare: 1.2, Legendary: 1.2 });
+    expect(() => bonus(undefined)).toThrow(/weaponDamage/);
+    expect(() => bonus({ Common: 1, Rare: 1.15 })).toThrow(/weaponDamage\.Legendary/);
+    expect(() => bonus({ Common: 0.9, Rare: 1.15, Legendary: 1.3 })).toThrow(/weaponDamage\.Common must be at least 1/);
+    expect(() => bonus({ Common: 1, Rare: 1.3, Legendary: 1.15 })).toThrow(/weaponDamage must not fall as the Rarity rises/);
+  });
+
+  it('parses rarity.odds, the steps, the minimums and carried, and refuses each bad one', () => {
+    const r = tuning.dungeon.loot.rarity;
+    expect([r.odds, r.eliteTierStep, r.bossMin, r.pedestalMin, r.carried, r.bossCarriedStep]).toEqual([[[80, 18, 2], [60, 32, 8], [40, 45, 15]], 1, 'Rare', 'Rare', ['Common', 'Rare', 'Legendary'], 1]);
+    const with_ = (patch: object) => {
+      const d = raw() as unknown as { loot: Record<string, unknown> };
+      return parse({ ...d, loot: { ...d.loot, rarity: { ...r, ...patch } } }).loot.rarity;
+    };
+    expect(with_({ odds: [[0, 0, 1]], eliteTierStep: 0, bossMin: 'Legendary', carried: ['Legendary'], bossCarriedStep: 0 })).toMatchObject({ odds: [[0, 0, 1]], eliteTierStep: 0, bossMin: 'Legendary' });
+    expect(() => with_({ odds: [[80, -1, 2]] })).toThrow(/odds\[0\]\[1\] must be a whole number, 0 or more/);
+    expect(() => with_({ odds: [[0, 0, 0]] })).toThrow(/odds\[0\] must have a weight above 0/);
+    expect(() => with_({ odds: [[80, 1.5, 2]] })).toThrow(/odds\[0\]\[1\] must be a whole number/);
+    expect(() => with_({ odds: [[80, 20]] })).toThrow(/odds\[0\] must be 3 weights/);
+    expect(() => with_({ odds: undefined })).toThrow(/rarity\.odds must be an array/);
+    expect(() => with_({ bossMin: 'Epic' })).toThrow(/bossMin must be one of Common, Rare, Legendary/);
+    expect(() => with_({ pedestalMin: undefined })).toThrow(/pedestalMin/);
+    expect(() => with_({ carried: ['Common', 'Mythic'] })).toThrow(/carried\[1\]/);
+    expect(() => with_({ eliteTierStep: 1.5 })).toThrow(/eliteTierStep must be a whole number/);
+    expect(() => with_({ eliteTierStep: -1 })).toThrow(/eliteTierStep must be a whole number/);
+    expect(() => with_({ bossCarriedStep: 0.5 })).toThrow(/bossCarriedStep must be a whole number/);
+    expect(() => with_({ bossCarriedStep: -1 })).toThrow(/bossCarriedStep/);
   });
 
   it('loads the repo file: the Run numbers, the inventory sizes and the loot', () => {
     const d = tuning.dungeon;
     expect([d.stairsSeconds, d.fadeSeconds, d.revive, d.restHeal]).toEqual([1.5, 1, 0.25, 0.5]);
     expect(d.inventory).toEqual({ weapons: 3, relics: 6, equippedRelics: 3 });
-    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3 });
+    expect(d.loot).toEqual({ weights: { Relic: 4, Weapon: 1, Consumable: 2 }, drops: { Fight: 1, Elite: 1, Boss: 2 }, pedestals: 3, rarity: { multipliers: { Common: 1, Rare: 1.5, Legendary: 2 }, weaponDamage: { Common: 1, Rare: 1.15, Legendary: 1.3 }, odds: [[80, 18, 2], [60, 32, 8], [40, 45, 15]], eliteTierStep: 1, bossMin: 'Rare', pedestalMin: 'Rare', carried: ['Common', 'Rare', 'Legendary'], bossCarriedStep: 1 } });
     // Parsing its own output gives it back (the Editor reparses loaded Tuning Data).
     expect(parse(d)).toEqual(d);
     // The retired Hall graph's keys are gone.
@@ -38,7 +84,7 @@ describe('Dungeon Tuning Data (data/dungeon.json)', () => {
   });
 
   it('refuses a missing or bad loot: weights, drops per rank and pedestals', () => {
-    const loot = (patch: object) => ({ ...raw(), loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, ...patch } });
+    const loot = (patch: object) => ({ ...raw(), loot: { weights: { Relic: 4, Weapon: 1 }, drops: { Fight: 1, Elite: 0, Boss: 2 }, pedestals: 3, rarity: tuning.dungeon.loot.rarity, ...patch } });
     expect(() => parse({ ...raw(), loot: undefined })).toThrow(/dungeon\.loot/);
     expect(() => parse(loot({ weights: { Relic: 0, Weapon: 0 } }))).toThrow(/weights/);
     expect(() => parse(loot({ weights: { Relic: -1, Weapon: 1 } }))).toThrow(/weights\.Relic/);

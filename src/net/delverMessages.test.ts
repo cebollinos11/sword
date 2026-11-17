@@ -34,8 +34,8 @@ function delverResync(ticks: number): { state: MatchState; ai: unknown[] } {
 }
 
 describe('Peer message validation: a Delver Run', () => {
-  it('is protocol 34', () => {
-    expect(PROTOCOL_VERSION).toBe(35);
+  it('is protocol 36', () => {
+    expect(PROTOCOL_VERSION).toBe(36);
   });
 
   it("accepts a Run's start message, and refuses one on a dev start Floor, with no human outside a Run, or a Run on a hand-made Arena", () => {
@@ -74,8 +74,8 @@ describe('Peer message validation: a Delver Run', () => {
     const run = state.delver!;
     const at = { x: 1, y: 0, z: 2 };
     const pickups = [
-      { id: 0, owner: null, kind: 'weapon', item: 'Halberd', at, taken: false, by: 0 },
-      { id: 1, owner: null, kind: 'relic', item: 'Whetstone', at, taken: true },
+      { id: 0, owner: null, kind: 'weapon', item: { name: 'Halberd', rarity: 'Common' }, at, taken: false, by: 0 },
+      { id: 1, owner: null, kind: 'relic', item: { name: 'Whetstone', rarity: 'Common' }, at, taken: true },
     ];
     const second = floorArenaName(runSeed(RUN), 2);
     const withRun = (patch: object, duel: object = {}): MatchState => ({ ...state, delver: { ...run, ...patch }, duel: { ...state.duel, delver: { ...state.duel.delver!, ...duel } } }) as MatchState;
@@ -96,7 +96,7 @@ describe('Peer message validation: a Delver Run', () => {
   it('refuses a Delver state with a Run, a Hall, a Duel that does not mirror the Run, or a malformed progress', () => {
     const { state, ai } = delverResync(10);
     const run = state.delver!;
-    const pickup = { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at: { x: 1, y: 0, z: 2 }, taken: false };
+    const pickup = { id: 0, owner: 0, kind: 'relic', item: { name: 'Whetstone', rarity: 'Common' }, at: { x: 1, y: 0, z: 2 }, taken: false };
     const progress = (patch: object) => ({ ...state, delver: { ...run, ...patch } });
     const duel = (patch: object) => ({ ...state, duel: { ...state.duel, ...patch } });
     const broken: unknown[] = [
@@ -141,6 +141,9 @@ describe('Peer message validation: a Delver Run', () => {
       progress({ pickups: [{ ...pickup, owner: 9 }] }),
       progress({ pickups: [{ ...pickup, owner: 3 }] }),
       progress({ pickups: [{ ...pickup, kind: 'gold' }] }),
+      progress({ pickups: [{ ...pickup, item: 'Whetstone' }] }),
+      progress({ pickups: [{ ...pickup, item: { name: 'Whetstone', rarity: 'Mythic' } }] }),
+      progress({ pickups: [{ ...pickup, kind: 'consumable', item: { name: 'Health Potion', rarity: 'Rare' } }] }),
       progress({ pickups: Array.from({ length: 300 }, (_, id) => ({ ...pickup, id })) }),
       progress({ startTick: 'then' }),
       progress({ startTick: -1 }),
@@ -163,8 +166,8 @@ describe('Peer message validation: a Delver Run', () => {
     expect(run.wiped).toEqual([]);
     const at = { x: 1, y: 0, z: 2 };
     const pickups = [
-      { id: 0, owner: 0, kind: 'relic', item: 'Whetstone', at, taken: false },
-      { id: 1, owner: 1, kind: 'relic', item: 'Whetstone', at, taken: true },
+      { id: 0, owner: 0, kind: 'relic', item: { name: 'Whetstone', rarity: 'Common' }, at, taken: false },
+      { id: 1, owner: 1, kind: 'relic', item: { name: 'Whetstone', rarity: 'Common' }, at, taken: true },
     ];
     const lay = (wiped: unknown, mirror: unknown = pickups, own: unknown = pickups): MatchState =>
       ({ ...state, delver: { ...run, wiped, pickups: own }, duel: { ...state.duel, delver: { ...state.duel.delver!, pickups: mirror } } }) as unknown as MatchState;

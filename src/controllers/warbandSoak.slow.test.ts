@@ -1054,7 +1054,7 @@ function playBossRun(
               tuning.delver.warbands[tierOf(tuning.delver, b.floor) - 1]!
                 .elite?.[w.encounter[e.warband]!]?.relics[0];
             for (const p of laid)
-              if (p.kind === "relic" && p.item === carried) {
+              if (p.kind === "relic" && p.item.name === carried) {
                 b.eliteRelicLaid++;
                 relicIds.add(p.id);
               }

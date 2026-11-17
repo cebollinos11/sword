@@ -34,5 +34,10 @@
       "z": 0
     }
   },
-  "look": "sword"
+  "look": "sword",
+  "loot": {
+    "effects": {
+      "damage": 1.1
+    }
+  }
 }

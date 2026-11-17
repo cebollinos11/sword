@@ -1,11 +1,21 @@
 import * as THREE from 'three';
 import { describe, expect, it, vi } from 'vitest';
 import { loadTuningData } from '../tuning';
-import { PickupMarks } from './pickupMarks';
+import { GLOW_LIGHTS, PickupMarks } from './pickupMarks';
+import { RARITY_COLOUR, rarityTint } from './rarityColours';
+import { STEEL_EMISSIVE } from './steel';
 import { CRATE_HEIGHT, PEDESTAL_HEIGHT, type PickupView } from './pickupView';
 
 const tuning = loadTuningData();
-const view = (id: number, form: PickupView['form'], over: Partial<PickupView> = {}): PickupView => ({ id, at: { x: id, y: 0, z: 0 }, form, pedestal: false, shown: true, label: false, distance: 1, ...over });
+const view = (id: number, form: PickupView['form'], over: Partial<PickupView> = {}): PickupView => ({ id, at: { x: id, y: 0, z: 0 }, form, rarity: 'Common', glow: null, pedestal: false, shown: true, label: false, distance: 1, ...over });
+
+/** The marks' slot groups (the glow lights are its other children). */
+const slotsOf = (marks: PickupMarks): THREE.Object3D[] => marks.root.children.filter((c) => !(c instanceof THREE.Light));
+const lightsOf = (marks: PickupMarks): THREE.PointLight[] => {
+  const found: THREE.PointLight[] = [];
+  marks.root.traverse((o) => o instanceof THREE.PointLight && found.push(o));
+  return found;
+};
 
 describe('the pickup marks', () => {
   it('draw a Weapon as its model and a Relic as a sprite, and drop a pickup that is gone', () => {
@@ -13,7 +23,7 @@ describe('the pickup marks', () => {
     const [weapon] = Object.keys(tuning.weapons);
     const relic = { kind: 'relic', relic: tuning.relics[0]!.name } as const;
     marks.update([view(0, { kind: 'weapon', weapon: weapon! }, { pedestal: true }), view(1, relic)], 0.1);
-    const [a, b] = marks.root.children;
+    const [a, b] = slotsOf(marks);
     expect(a!.visible && b!.visible).toBe(true);
     marks.update([view(1, relic), view(0, { kind: 'weapon', weapon: weapon! }, { shown: false })], 0.1);
     expect(a!.visible).toBe(true);
@@ -51,7 +61,7 @@ describe('the pickup marks', () => {
 describe('a pedestal on a crate', () => {
   const relic = { kind: 'relic', relic: tuning.relics[0]!.name } as const;
   const parts = (marks: PickupMarks) => {
-    const root = marks.root.children[0] as THREE.Group;
+    const root = slotsOf(marks)[0] as THREE.Group;
     const [pedestal, , sprite] = root.children as [THREE.Mesh, THREE.Mesh, THREE.Sprite];
     return { pedestal, sprite };
   };
@@ -71,3 +81,63 @@ describe('a pedestal on a crate', () => {
   });
 });
 
+
+describe('a glowing pickup', () => {
+  const [weapon] = Object.keys(tuning.weapons);
+  const sword = { kind: 'weapon', weapon: weapon! } as const;
+  const glowing = (id: number, rarity: 'Rare' | 'Legendary', distance = id): PickupView => view(id, sword, { rarity, glow: rarity, distance });
+  const ringOf = (marks: PickupMarks, slot: number) => (slotsOf(marks)[slot] as THREE.Group).children[3] as THREE.Mesh;
+
+  it('has a ring only when Rare or Legendary, in its colour', () => {
+    const marks = new PickupMarks(tuning);
+    marks.update([view(0, sword), glowing(1, 'Rare'), glowing(2, 'Legendary')], 0.1);
+    expect(ringOf(marks, 0).visible).toBe(false);
+    expect(ringOf(marks, 1).visible).toBe(true);
+    expect(ringOf(marks, 2).visible).toBe(true);
+    expect((ringOf(marks, 1).material as THREE.MeshBasicMaterial).color.getHex()).toBe(RARITY_COLOUR.Rare);
+    expect((ringOf(marks, 2).material as THREE.MeshBasicMaterial).color.getHex()).toBe(RARITY_COLOUR.Legendary);
+    marks.dispose();
+  });
+
+  it('keeps the scene at GLOW_LIGHTS lights however many pickups show, the nearest 4 lit in their colours', () => {
+    const marks = new PickupMarks(tuning);
+    expect(lightsOf(marks)).toHaveLength(GLOW_LIGHTS);
+    // Listed far to near, so the order given is not the order lit.
+    const six = [0, 1, 2, 3, 4, 5].map((i) => glowing(i, i % 2 ? 'Rare' : 'Legendary', 10 - i));
+    marks.update(six, 0.1);
+    const lights = lightsOf(marks);
+    expect(lights).toHaveLength(GLOW_LIGHTS);
+    expect(lights.every((l) => l.intensity > 0)).toBe(true);
+    const nearest = six.slice(2).map((v) => RARITY_COLOUR[v.glow!]).sort();
+    expect(lights.map((l) => l.color.getHex()).sort()).toEqual(nearest);
+    expect(lights.map((l) => l.position.x).sort()).toEqual([2, 3, 4, 5]);
+    marks.dispose();
+  });
+
+  it('leaves every light dark with no glowing pickup', () => {
+    const marks = new PickupMarks(tuning);
+    expect(lightsOf(marks).every((l) => l.intensity === 0)).toBe(true);
+    marks.update([view(0, sword), glowing(1, 'Rare')], 0.1);
+    expect(lightsOf(marks).filter((l) => l.intensity > 0)).toHaveLength(1);
+    marks.update([view(0, sword)], 0.1);
+    expect(lightsOf(marks)).toHaveLength(GLOW_LIGHTS);
+    expect(lightsOf(marks).every((l) => l.intensity === 0)).toBe(true);
+    marks.dispose();
+  });
+
+  it('tints a lying Weapon’s steel, and only that one’s', () => {
+    const marks = new PickupMarks(tuning);
+    marks.update([glowing(0, 'Legendary'), view(1, sword)], 0.1);
+    const emissives = slotsOf(marks).map((slot) => {
+      const found = new Set<number>();
+      slot.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.MeshLambertMaterial | undefined;
+        if (m?.color?.getHex() === 0xeef2f6) found.add(m.emissive.getHex());
+      });
+      return [...found];
+    });
+    expect(emissives[0]).toEqual([rarityTint(STEEL_EMISSIVE, 'Legendary')]);
+    expect(emissives[1]).toEqual([STEEL_EMISSIVE]);
+    marks.dispose();
+  });
+});

@@ -11,7 +11,7 @@
 export { foldMods, isNoMods, MODS_KEYS, modsOf, NO_MODS, setMods, type Mods } from './mods';
 export { secondsToTicks, TICK_RATE, TICK_SECONDS } from './constants';
 export type { Direction, Intent, InventoryRef } from './intent';
-export { addItem, canChangeInventory, canUseConsumable, consumableOf, dropItem, equipItem, holdInventory, inventoryMods, isConsumable, slotKind, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory } from './inventory';
+export { addItem, canChangeInventory, canUseConsumable, consumableOf, commonItem, dropItem, equipItem, holdInventory, inventoryMods, isConsumable, slotKind, spendConsumable, startingInventory, useInventory, withStartingRelics, wieldedWeapon, type Dropped, type Inventory, type Item } from './inventory';
 export { DIRECTIONS, IDLE_INTENT, mirrorDirection } from './intent';
 export type {
   Action,
@@ -177,7 +177,7 @@ export {
 } from './match';
 export { enterFloor, fireAt, floorDuel, inStairs, stepDelver, type RunState, type RestUse } from './delverRun';
 export { freshTraitors, traitorCandidates, traitorOf, traitorPick, traitorSlot, type TraitorState } from './delverTraitors';
-export { PICKUP_RADIUS, pickupVisibleTo, takePickups, type Pickup, type PickupAt, type Taken } from './pickups';
+export { PICKUP_RADIUS, pickupVisibleTo, rollRarity, takePickups, type LootSource, type Pickup, type PickupAt, type Taken } from './pickups';
 export { runPick, runSeed } from './dungeon';
 export { presentPlayers, runPlayers, stairsCounters, ZONE_HEIGHT } from './party';
 export { routTicks, stepBattle, type BattleEndEvent, type RoutEvent } from './battle';

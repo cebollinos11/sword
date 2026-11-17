@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData, type TuningData } from '../tuning';
-import { createMatch, IDLE_INTENT, inStairs, secondsToTicks, type Inventory, type MatchState, type Pickup } from '../sim';
+import { commonItem, createMatch, IDLE_INTENT, inStairs, secondsToTicks, type Inventory, type MatchState, type Pickup } from '../sim';
 import { floorOf } from '../sim/delver';
 import type { Controller } from './controller';
 import { runMatch } from './controller';
@@ -118,7 +118,7 @@ describe('the Delver pilot', { timeout: 60_000 }, () => {
       id,
       owner,
       kind,
-      item: kind === 'relic' ? base.relics[0]!.name : 'Halberd',
+      item: commonItem(kind === 'relic' ? base.relics[0]!.name : 'Halberd'),
       at: { x: self.position.x + dx, y: 0, z: self.position.z + 6 },
       taken: false,
     });
@@ -143,7 +143,7 @@ describe('the Delver pilot', { timeout: 60_000 }, () => {
 
     it('ignores another Player\'s pickup and one it has no room for', () => {
       expect(createDelverPilot(tuning).intent(withPickups([lying(0, 1, 0)]), 0)).toEqual(route);
-      const full: Inventory = { ...self.inventory!, weapons: Array.from({ length: tuning.dungeon.inventory.weapons }, () => 'Halberd') };
+      const full: Inventory = { ...self.inventory!, weapons: Array.from({ length: tuning.dungeon.inventory.weapons }, () => commonItem('Halberd')) };
       expect(createDelverPilot(tuning).intent(withPickups([lying(0, 0, 0, 'weapon')], full), 0)).toEqual(route);
       // The same pickup with room is walked to, and a Relic it has room for despite the full Weapons.
       expect(createDelverPilot(tuning).intent(withPickups([lying(0, 0, 0, 'weapon')]), 0)).not.toEqual(route);

@@ -29,7 +29,7 @@ import type { SimState } from './state';
 import { arenaOf } from './arena';
 import { isArenaName, nextArenaName } from './arenaGen/named';
 import { runPlayers, stairsTicksNeeded } from './party';
-import type { Dropped } from './inventory';
+import type { Dropped, Item } from './inventory';
 import { placeDrop, type DroppedItem, type PickupAt } from './pickups';
 import { createRng } from './rng';
 import type { Placement } from './skeleton';
@@ -161,12 +161,12 @@ export interface RestedEvent {
   readonly healed: number;
 }
 
-/** Player Fighter `fighter` dropped `item` (a Weapon or Relic name) from its inventory, at `at`: its feet. */
+/** Player Fighter `fighter` dropped `item` (a Weapon or Relic Item) from its inventory, at `at`: its feet. */
 export interface ItemDroppedEvent extends DroppedItem {
   readonly type: 'ItemDropped';
 }
 
-/** Player Fighter `fighter` took up pickup `id` (of `delver.pickups`): the Weapon or Relic `item` is in its inventory now. */
+/** Player Fighter `fighter` took up pickup `id` (of `delver.pickups`): the Weapon or Relic Item `item` is in its inventory now. */
 export interface ItemTakenEvent extends Dropped {
   readonly type: 'ItemTaken';
   readonly fighter: number;
@@ -193,7 +193,7 @@ export interface RevivedEvent {
 export interface ItemUsedEvent {
   readonly type: 'ItemUsed';
   readonly fighter: number;
-  readonly item: string;
+  readonly item: Item;
   readonly effect: ConsumableEffect;
 }
 

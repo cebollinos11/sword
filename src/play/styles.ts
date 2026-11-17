@@ -4,6 +4,7 @@ import { FLOOR_MAP_CSS } from './floorMapView';
 import { INVENTORY_CSS } from './inventoryScreen';
 import { MENU_CSS } from './menuStyles';
 import { PIXEL_CSS } from './pixelTheme';
+import { rarityCss } from '../render/rarityColours';
 
 const CSS = `
 .hud, .menu { position: fixed; inset: 0; color: #fff; }
@@ -110,6 +111,17 @@ const CSS = `
 }
 `;
 
+/** The Rarity colours as tokens and classes, built from `rarityColours.ts` so the 3D marks and the screens share one source (after the rules they override). */
+const RARITY_CSS = `
+:root { --rarity-rare: ${rarityCss('Rare')}; --rarity-legendary: ${rarityCss('Legendary')}; }
+.rarity-rare { color: var(--rarity-rare); }
+.rarity-legendary { color: var(--rarity-legendary); }
+.inv-slot.rarity-rare { border-color: var(--rarity-rare); }
+.inv-slot.rarity-legendary { border-color: var(--rarity-legendary); }
+.hud-pickup.rarity-rare { border-color: var(--rarity-rare); }
+.hud-pickup.rarity-legendary { border-color: var(--rarity-legendary); }
+`;
+
 let injected = false;
 
 /** Add the HUD and menu styles to the page once. */
@@ -117,6 +129,6 @@ export function ensurePlayStyles(): void {
   if (injected) return;
   injected = true;
   const style = document.createElement('style');
-  style.textContent = PIXEL_CSS + CSS + MENU_CSS + FLOOR_MAP_CSS + INVENTORY_CSS + BATTLE_HUD_CSS + PLAYER_TAGS_CSS;
+  style.textContent = PIXEL_CSS + CSS + MENU_CSS + FLOOR_MAP_CSS + INVENTORY_CSS + BATTLE_HUD_CSS + PLAYER_TAGS_CSS + RARITY_CSS;
   document.head.append(style);
 }

@@ -1,4 +1,5 @@
 import { pickupVisibleTo, type Pickup, type PickupAt } from '../sim';
+import type { Rarity } from '../tuning';
 
 /** How near (m, across the ground, from the local Fighter) a pickup is for its label to show. */
 export const LABEL_RANGE = 3;
@@ -30,6 +31,10 @@ export interface PickupView {
   readonly id: number;
   readonly at: PickupAt;
   readonly form: PickupForm;
+  /** The item's Rarity. */
+  readonly rarity: Rarity;
+  /** The Rarity the pickup glows as: its Rarity when not Common, else null. */
+  readonly glow: Rarity | null;
   /** Whether it stands on a pedestal (a Treasure Hall's). */
   readonly pedestal: boolean;
   /** Whether the pedestal is a crate prop of the Floor's map (a Delver Run's Treasure Hall): the item stands on its top, and no cylinder is drawn. Absent: false. */
@@ -66,7 +71,9 @@ export function pickupView(p: Pickup, viewer: number, eye: PickupEye, onCrate: b
   return {
     id: p.id,
     at: p.at,
-    form: p.kind === 'weapon' ? { kind: 'weapon', weapon: p.item } : { kind: 'relic', relic: p.item },
+    form: p.kind === 'weapon' ? { kind: 'weapon', weapon: p.item.name } : { kind: 'relic', relic: p.item.name },
+    rarity: p.item.rarity,
+    glow: p.item.rarity === 'Common' ? null : p.item.rarity,
     pedestal: p.group !== undefined,
     ...(crate ? { crate, crateTop: top } : {}),
     shown,
@@ -105,11 +112,12 @@ export interface PickupLabel {
   readonly at: PickupAt;
   readonly text: string;
   readonly kind: 'weapon' | 'relic';
+  readonly rarity: Rarity;
 }
 
 /** The labels to draw: the item name over each view that is shown and labelled (`pickupViews` allows one), so the 3D mark and the label agree. */
 export function pickupLabels(views: readonly PickupView[]): PickupLabel[] {
   return views
     .filter((v) => v.shown && v.label)
-    .map((v) => ({ id: v.id, at: { x: v.at.x, y: v.at.y + (v.crate ? (v.crateTop ?? CRATE_HEIGHT) : 0) + LABEL_HEIGHT, z: v.at.z }, text: v.form.kind === 'weapon' ? v.form.weapon : v.form.relic, kind: v.form.kind }));
+    .map((v) => ({ id: v.id, at: { x: v.at.x, y: v.at.y + (v.crate ? (v.crateTop ?? CRATE_HEIGHT) : 0) + LABEL_HEIGHT, z: v.at.z }, text: v.form.kind === 'weapon' ? v.form.weapon : v.form.relic, kind: v.form.kind, rarity: v.rarity }));
 }

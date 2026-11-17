@@ -1,10 +1,10 @@
 import { ATTACK_PHASES, DIRECTIONS, isBattleName, MATCH_FORMATS, MAX_TEAM_SIZE, MODS_KEYS, parseGeneratedName, runPlayers, runSeed, type Intent, type MatchConfig, type MatchFormat, type MatchOptions, type KnockdownPhase, type MatchState, type SoldierRole, type StaggerCause, type Vec3 } from '../sim';
 import { AI_MODES, DEFENCE_KINDS, JUMP_STAGES, MAX_PLAYERS, type Lineup } from '../controllers';
 import { floorArenaName } from '../sim/delver/world';
-import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS } from '../tuning';
+import { isSize, MAX_FLOOR_TROOPS, MAX_OBJECTIVES, MAX_SQUAD_PLACES, MAX_TROOPS, RARITIES } from '../tuning';
 
 /** Bumped whenever the wire format changes; peers with different protocols refuse each other. */
-export const PROTOCOL_VERSION = 35;
+export const PROTOCOL_VERSION = 36;
 
 /** The most Fighters a Duel or a Run fields: two full teams. */
 const MAX_FIGHTERS = 2 * MAX_TEAM_SIZE;
@@ -395,10 +395,13 @@ const isSoldierBinding = (v: unknown): boolean => isObject(v) && isInt(v.index) 
 /** A Fighter's Mods: every key of the Relic vocabulary, a finite number (a factor or a count above zero where it must be, so max HP and damage stay real numbers). */
 const isMods = (v: unknown): boolean => isObject(v) && Object.keys(v).length === MODS_KEYS.length && MODS_KEYS.every((key) => isNum(v[key]) && (key === 'maxHp' ? v[key] > -1 : v[key] >= 0));
 
-/** An inventory: a Weapon or more and its wielded index, the Relics and the equipped ones' slots (ascending, distinct, each holding one). Whether the names exist is for Tuning Data to say. */
+/** An Item: a name and one of the Rarities. Whether the name exists is for Tuning Data to say. */
+const isItem = (v: unknown): boolean => isObject(v) && isString(v.name) && (RARITIES as readonly unknown[]).includes(v.rarity);
+
+/** An inventory: a Weapon Item or more and its wielded index, the Relic Items and the equipped ones' slots (ascending, distinct, each holding one). Whether the names exist is for Tuning Data to say. */
 function isInventory(v: unknown): boolean {
-  if (!isObject(v) || !isArrayOf(v.weapons, isString) || !isArrayOf(v.relics, isString) || !isInt(v.weapon) || !isArrayOf(v.equipped, isInt)) return false;
-  const [weapons, relics, equipped] = [v.weapons as string[], v.relics as string[], v.equipped as number[]];
+  if (!isObject(v) || !isArrayOf(v.weapons, isItem) || !isArrayOf(v.relics, isItem) || !isInt(v.weapon) || !isArrayOf(v.equipped, isInt)) return false;
+  const [weapons, relics, equipped] = [v.weapons as unknown[], v.relics as unknown[], v.equipped as number[]];
   return (
     weapons.length >= 1 &&
     weapons.length <= MAX_INVENTORY_SLOTS &&
@@ -582,7 +585,7 @@ function isWarbands(v: unknown, squads: { team: unknown[] }): boolean {
 /** The most pickups a Floor's list may hold (taken ones stay in it): a resync from a peer asking for more is refused. */
 const MAX_PICKUPS = 256;
 
-/** An item lying on a Floor: its place in the list (checked by the Run), a Weapon, Relic or Consumable name, an owner Fighter or none (shared), where, and whether taken. */
+/** An item lying on a Floor: its place in the list (checked by the Run), a Weapon, Relic or Consumable Item (a Consumable is Common), an owner Fighter or none (shared), where, and whether taken. */
 function isPickup(v: unknown): boolean {
   return (
     isObject(v) &&
@@ -590,7 +593,8 @@ function isPickup(v: unknown): boolean {
     v.id >= 0 &&
     (v.owner === null || (isInt(v.owner) && v.owner >= 0 && v.owner < MAX_TEAM_SIZE)) &&
     (v.kind === 'weapon' || v.kind === 'relic' || v.kind === 'consumable') &&
-    isString(v.item) &&
+    isItem(v.item) &&
+    (v.kind !== 'consumable' || (v.item as Obj).rarity === 'Common') &&
     isVec3(v.at) &&
     typeof v.taken === 'boolean' &&
     (v.group === undefined || (isInt(v.group) && v.group >= 0)) &&

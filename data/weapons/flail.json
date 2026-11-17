@@ -52,5 +52,10 @@
     "Right"
   ],
   "look": "flail",
-  "chain": 0.87
+  "chain": 0.87,
+  "loot": {
+    "effects": {
+      "heavyDamage": 1.2
+    }
+  }
 }

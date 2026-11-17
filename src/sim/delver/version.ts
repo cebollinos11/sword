@@ -2,7 +2,7 @@
  * The Delver Floor generator's version, part of the Tuning Data hash (`tuningDataHash`): peers whose generators differ
  * refuse each other rather than build different Floors from the same (seed, Floor) and drift apart.
  *
- * Bump it on any change to the Floor plan (`planFloor`), its Map Source (`floorSource`), the judge or the reroll.
+ * Bump it on any change to the Floor plan (`planFloor`), its Map Source (`floorSource`), the judge or the reroll, or to the loot picks (`pickItemAt`).
  * Depends on nothing, so Tuning Data may import it.
  */
-export const DELVER_VERSION = 9;
+export const DELVER_VERSION = 11;

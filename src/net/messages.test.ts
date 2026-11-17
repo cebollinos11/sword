@@ -618,13 +618,22 @@ describe('Peer message validation: a Gauntlet Run (docs/plans/delver.md)', () =>
 
   it('accepts a Fighter with an inventory, and refuses a malformed one', () => {
     const { state, ai } = runResync();
-    const inventory = { weapons: ['Halberd', 'Longsword'], relics: ['Whetstone', 'Iron Plate', 'Vital Charm'], weapon: 1, equipped: [0, 2] };
-    const stocked = { ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, inventory } : f)) } };
+    const item = (name: string, rarity = 'Common') => ({ name, rarity });
+    const inventory = { weapons: [item('Halberd'), item('Longsword', 'Rare')], relics: [item('Whetstone'), item('Iron Plate', 'Legendary'), item('Vital Charm')], weapon: 1, equipped: [0, 2] };
+    const stock = (inv: unknown) => ({ ...state, duel: { ...state.duel, fighters: state.duel.fighters.map((f, i) => (i === 0 ? { ...f, inventory: inv } : f)) } }) as MatchState;
+    const stocked = stock(inventory);
     expect(parseNetMessage(resync(stocked, ai))).toEqual(resync(stocked, ai));
+    for (const bad of [
+      { ...inventory, weapons: [item('Halberd'), item('Longsword', 'Mythic')] },
+      { ...inventory, weapons: ['Halberd', 'Longsword'] },
+      { ...inventory, relics: [item('Whetstone'), 'Iron Plate'] },
+      { ...inventory, relics: [item('Whetstone'), { name: 'Iron Plate' }] },
+    ])
+      expect(parseNetMessage(resync(stock(bad), ai)), JSON.stringify(bad)).toBeNull();
   });
 
-  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 34', () => {
-    expect(PROTOCOL_VERSION).toBe(35);
+  it('accepts an Intent that equips, drops, uses a Consumable or chooses a Troop, refuses malformed ones, and the protocol is 36', () => {
+    expect(PROTOCOL_VERSION).toBe(36);
     for (const extra of [{ equip: { kind: 'weapon', slot: 2 } }, { drop: { kind: 'relic', slot: 0 } }, { equip: { kind: 'relic', slot: 5 }, drop: { kind: 'weapon', slot: 1 } }, { troop: 2 }, { troop: -1 }, { use: { kind: 'relic', slot: 3 } }]) {
       const m = intents([{ ...IDLE_INTENT, ...extra }]);
       expect(parseNetMessage(m), JSON.stringify(extra)).toEqual(m);
@@ -683,7 +692,7 @@ describe("Peer message validation: a Run's Players, Inventories, pickups and Mod
   /** `s` with these pickups lying, on the Run and its Duel's mirror alike. */
   const withPickups = (s: MatchState, pickups: unknown[]) => ({ ...s, delver: { ...s.delver, pickups }, duel: { ...s.duel, delver: { ...s.duel.delver, pickups } } });
   const at = { x: 0, y: 0, z: 0 };
-  const pickup = (id: number, more: object) => ({ id, kind: 'relic', item: 'Whetstone', at, taken: false, owner: null, ...more });
+  const pickup = (id: number, more: object) => ({ id, kind: 'relic', item: { name: 'Whetstone', rarity: 'Common' }, at, taken: false, owner: null, ...more });
 
   it('accepts the Run as it is', () => {
     expect(state.config.players).toEqual([0, 2]);

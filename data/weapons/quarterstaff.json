@@ -42,5 +42,10 @@
       "z": 0
     }
   },
-  "look": "staff"
+  "look": "staff",
+  "loot": {
+    "effects": {
+      "kickDamage": 1.3
+    }
+  }
 }

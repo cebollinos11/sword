@@ -232,7 +232,7 @@ export function useConsumables(
     if (!ref || !f.inventory || !canUseConsumable(f)) continue;
     const spent = spendConsumable(f.inventory, ref, t);
     if (!spent) continue;
-    const { effect } = consumableOf(t, spent.item)!;
+    const { effect } = consumableOf(t, spent.item.name)!;
     const full = effect === 'revealFloor' ? fullReveal(plan) : null;
     if (effect === 'healFull' && f.hp >= f.maxHp) continue;
     if (full && full.every((w, k) => w === (next.revealed[k] ?? 0))) continue;

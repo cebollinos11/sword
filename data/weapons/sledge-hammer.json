@@ -42,5 +42,10 @@
       "z": 0
     }
   },
-  "look": "hammer"
+  "look": "hammer",
+  "loot": {
+    "effects": {
+      "heavyDamage": 1.25
+    }
+  }
 }

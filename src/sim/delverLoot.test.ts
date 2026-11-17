@@ -65,14 +65,15 @@ describe('warbandLoot', () => {
     expect(elite).toBeGreaterThanOrEqual(0);
     const carried = one.t.delver.warbands[0]!.elite![one.crowd.warbands!.encounter[elite]!]!.relics[0]!;
     const eliteLoot = warbandLoot(one.t, one.crowd, elite, 0, SEED, 1);
-    expect(eliteLoot[0]).toEqual({ kind: 'relic', item: carried });
+    // A tier 1 elite's carried Relic drops at the tier's Rarity: Common.
+    expect(eliteLoot[0]).toEqual({ kind: 'relic', item: { name: carried, rarity: 'Common' } });
     expect(eliteLoot).toHaveLength(1 + drops.Elite);
 
     const three = floor(3);
     const boss = three.crowd.warbands!.rank.indexOf(BOSS);
     expect(boss).toBeGreaterThanOrEqual(0);
     const bossLoot = warbandLoot(three.t, three.crowd, boss, 1, SEED, 3);
-    expect(bossLoot[0]).toEqual({ kind: 'relic', item: (() => { const b = three.t.delver.warbands[2]!.boss!; return three.t.delver.troops[b.prefab]!.variants[b.variant]!.relics[0]!; })() });
+    expect(bossLoot[0]).toEqual({ kind: 'relic', item: { name: (() => { const b = three.t.delver.warbands[2]!.boss!; return three.t.delver.troops[b.prefab]!.variants[b.variant]!.relics[0]!; })(), rarity: 'Legendary' } });
     expect(bossLoot).toHaveLength(1 + drops.Boss);
     // The Boss of tier 1 carries nothing: only its picks.
     const first = floor(1);
