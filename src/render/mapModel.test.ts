@@ -11,6 +11,7 @@ import { MAP_MODEL_ROOT, MAX_TORCH_LIGHTS, TORCH_LIGHT } from '../mapEditor/look
 import { dressedSampleSource, GROUND, sampleSource, withBrushes } from '../mapEditor/sample.testdata';
 import type { Brush, EnclosureBrush, MapSource } from '../mapEditor/source';
 import { mapModel } from './mapModel';
+import { SEAM_SHADE } from './seamShade';
 
 const battle = loadTuningData().battle;
 const modelOf = (s: MapSource) => mapModel(s, compileDraft(s, battle));
@@ -86,10 +87,10 @@ describe('the model of a Map Editor map', () => {
     expect(root.name).toBe(MAP_MODEL_ROOT);
     for (const m of meshes(root)) expect((m.material as THREE.Material).name).toBe(m.name);
     expect(meshes(root).map((m) => m.name).sort()).toEqual(
-      ['Map_Grass', 'Map_BrickWall', 'Map_Cobble', 'Map_Wood', 'Map_Metal', 'Map_Lava', 'Map_Dirt', 'Map_Bark', 'Map_Leaf', 'Map_Rubble', 'Map_Banner0', 'Map_Banner1', 'Map_Banner', 'Map_Fire', 'Map_CrateWood'].sort(),
+      ['Map_Grass', 'Map_BrickWall', 'Map_Cobble', 'Map_Wood', 'Map_Metal', 'Map_Lava', 'Map_Dirt', 'Map_Bark', 'Map_Leaf', 'Map_Rubble', 'Map_Banner0', 'Map_Banner1', 'Map_Banner', 'Map_Fire', 'Map_CrateWood', 'Map_SeamShade'].sort(),
     );
     // Undressed, each Brush takes its kind's: the ground grass, the keep and the ramps stone, the bridge and its rails wood.
-    expect(meshes(modelOf(sampleSource())).map((m) => m.name).sort()).toEqual(['Map_Dirt', 'Map_Grass', 'Map_Lava', 'Map_Stone', 'Map_Wood']);
+    expect(meshes(modelOf(sampleSource())).map((m) => m.name).sort()).toEqual(['Map_Dirt', 'Map_Grass', 'Map_Lava', 'Map_SeamShade', 'Map_Stone', 'Map_Wood']);
   });
 
   it('stands where the compiled map does: the keep 4 m up in brick, the lava 8 m down in the pit, the bridge a slab over it', () => {
@@ -203,5 +204,69 @@ describe('the model of a Map Editor map', () => {
     const ramp: Brush = { kind: 'ramp', id: 'ramp', rect: { x0: 6, z0: -4, x1: 10, z1: 0 }, lo: 0, hi: 2, up: 'w', rails: ['n', 's'], material: 'marble' };
     const stairwell = modelOf(withBrushes([abyss, hall(0, {}), passage(2), deck, ramp], levels));
     expect(fights(stairwell, [...eyes(2), v(-6, 1, -5), v(8, 1.6, -6), v(8, 2.5, -2), v(0.5, 2.2, -0.2)])).toEqual([]);
+  });
+
+  it('shades where Walls meet floor and ceiling and each other: wall bases, a roof, a pillar, a Deck’s underside, a Hall’s corners; never a doorway (issue #171)', () => {
+    const abyss: Brush = { kind: 'hazard', id: 'abyss', rect: { x0: -100, z0: -100, x1: 100, z1: 100 }, y: -8, hazard: 'abyss' };
+    const hall: EnclosureBrush = { kind: 'enclosure', id: 'hall', rect: { x0: -10, z0: -10, x1: 10, z1: 0 }, y: 0, doors: { n: 3 }, top: 6, material: 'brick' };
+    const passage: EnclosureBrush = { kind: 'enclosure', id: 'pass', rect: { x0: -1.5, z0: 0, x1: 1.5, z1: 12 }, y: 0, doors: { s: 3, n: 3 }, top: 4, material: 'stone' };
+    const pillar: Brush = { kind: 'block', id: 'pillar', rect: { x0: -5, z0: -6, x1: -4, z1: -5 }, top: 6, material: 'stone' };
+    const deck: Brush = { kind: 'deck', id: 'deck', rect: { x0: -10, z0: -10, x1: -7, z1: -7 }, y: 2, material: 'wood' };
+    const root = modelOf(withBrushes([abyss, hall, passage, pillar, deck], [-8, 0, 2, 4, 6]));
+    // One mesh, one draw call: unlit, fogged, see-through, writing no depth, pulled towards the eye.
+    const shades = meshes(root).filter((m) => m.name === SEAM_SHADE);
+    expect(shades).toHaveLength(1);
+    const material = shades[0]!.material as THREE.MeshBasicMaterial;
+    expect(material).toBeInstanceOf(THREE.MeshBasicMaterial);
+    expect([material.transparent, material.depthWrite, material.polygonOffset, material.fog, material.vertexColors]).toEqual([true, false, true, true, true]);
+    const pos = shades[0]!.geometry.getAttribute('position');
+    const colour = shades[0]!.geometry.getAttribute('color');
+    expect(colour.itemSize).toBe(4);
+    /** Whether the shade at (x, y, z) is dark (the seam's edge of a strip): its alpha there, on any triangle within 1 cm of the point. */
+    const dark = (x: number, y: number, z: number) => {
+      const at = new THREE.Vector3(x, y, z);
+      const tri = new THREE.Triangle();
+      const [near, bary] = [new THREE.Vector3(), new THREE.Vector3()];
+      for (let i = 0; i + 2 < pos.count; i += 3) {
+        tri.setFromAttributeAndIndices(pos as THREE.BufferAttribute, i, i + 1, i + 2);
+        if (tri.getArea() < 1e-9 || tri.closestPointToPoint(at, near).distanceTo(at) > 0.01) continue;
+        tri.getBarycoord(near, bary);
+        if (bary.x * colour.getW(i) + bary.y * colour.getW(i + 1) + bary.z * colour.getW(i + 2) > 0.5) return true;
+      }
+      return false;
+    };
+    // The Hall's wall bases and its roof's edge, the Passage's, the pillar's foot and top, and the Deck's underside against the Hall's Wall.
+    expect(dark(5, 0, -5)).toBe(false);
+    expect(dark(5, 0, -10)).toBe(true);
+    expect(dark(10, 0, -5)).toBe(true);
+    expect(dark(5, 6, -10)).toBe(true);
+    expect(dark(1.5, 0, 6)).toBe(true);
+    expect(dark(-1.5, 4, 6)).toBe(true);
+    expect(dark(-5, 0, -5.5)).toBe(true);
+    expect(dark(-4.5, 6, -6)).toBe(true);
+    expect(dark(-10, 2 - 0.45, -8.5)).toBe(true);
+    // Its fade reaches half a metre out over the floor, clear there.
+    let far = 0;
+    for (let i = 0; i < pos.count; i++) if (Math.abs(pos.getZ(i) + 9.5) < 1e-3 && Math.abs(pos.getY(i)) < 0.01 && pos.getX(i) > 0) far = Math.max(far, colour.getW(i));
+    expect(far).toBe(0);
+    // Nothing across the doorway, on either side of it.
+    for (let i = 0; i < pos.count; i++) {
+      const [x, y, z] = [pos.getX(i), pos.getY(i), pos.getZ(i)];
+      if (Math.abs(x) < 0.9 && Math.abs(z) < 0.6 && y < 3.5) expect(colour.getW(i)).toBe(0);
+    }
+    // Up a Hall's corner, on both its faces: a vertex of the strip's middle row 0.15 m out of the corner, on the face, at the floor (y 0).
+    const upCorner = (x: number, z: number) => {
+      for (let i = 0; i < pos.count; i++)
+        if (Math.hypot(pos.getX(i) - x, pos.getZ(i) - z) < 0.01 && Math.abs(pos.getY(i)) < 0.002 && colour.getW(i) > 0.2 && colour.getW(i) < 0.6) return true;
+      return false;
+    };
+    expect(upCorner(-10 + 0.15, -10 + 0.004)).toBe(true);
+    expect(upCorner(-10 + 0.004, -10 + 0.15)).toBe(true);
+    expect(upCorner(10 - 0.15, -0.004)).toBe(true);
+    // A doorway's jamb juts out of the room: none up it.
+    expect(upCorner(1.5 + 0.15, -0.004)).toBe(false);
+    expect(upCorner(1.5 - 0.004, 0.15)).toBe(false);
+    // Over deadly ground there is nothing to shade.
+    for (let i = 0; i < pos.count; i++) expect(pos.getY(i)).toBeGreaterThan(-1);
   });
 });
