@@ -135,8 +135,10 @@ export const MENU_CSS = `
 .lb-load { display: flex; flex-direction: column; gap: 0.8rem; padding: 0.8rem; background: #0d0a14; border: var(--px) solid var(--ink); }
 .lb-portrait { position: relative; display: flex; align-items: flex-end; height: 15rem; padding: 0; border: var(--px) solid var(--line); background: #1a1424 center 20% / 150% no-repeat; text-align: left; overflow: hidden; }
 .lb-portrait:hover:not(:disabled) { border-color: var(--gold); }
-.lb-portrait-name { width: 100%; padding: 0.4rem 0.6rem; background: linear-gradient(transparent, #0d0a14ee); font-family: var(--font-display); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lb-portrait-edit { position: absolute; top: 0.4rem; right: 0.4rem; padding: 0 0.4rem; background: #0d0a14cc; border: var(--px) solid var(--line-2); font-size: 1rem; color: var(--muted); }
+.lb-portrait .portrait-3d { position: absolute; inset: 0; width: 100%; height: 100%; }
+.lb-portrait.is-live { background-image: none !important; }
+.lb-portrait-name { position: relative; width: 100%; padding: 0.4rem 0.6rem; background: linear-gradient(transparent, #0d0a14ee); font-family: var(--font-display); font-size: 0.65rem; font-weight: 700; text-transform: uppercase; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-portrait-edit { z-index: 1; position: absolute; top: 0.4rem; right: 0.4rem; padding: 0 0.4rem; background: #0d0a14cc; border: var(--px) solid var(--line-2); font-size: 1rem; color: var(--muted); }
 .lb-portrait:hover .lb-portrait-edit, .lb-portrait[aria-expanded="true"] .lb-portrait-edit { color: var(--gold-2); border-color: var(--gold); }
 .lb-look { display: flex; flex-direction: column; gap: 0.4rem; }
 .lb-look .body-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.25rem; }

@@ -11,6 +11,7 @@
 import { ARENA_SEED_RANGE, attackTimings, DIRECTIONS, MATCH_FORMATS, MAX_TEAM_SIZE, OPEN_FIELD, parseGeneratedName, type MatchFormat } from '../sim';
 import { armySizeCap, battleMapPicked, DEFAULT_STYLE, RANDOM_PICK, standardArmySize, startingTickets, storedSize, type BattleKnobs, type BattleMapLobby, type Size, type TuningData } from '../tuning';
 import { teamColour } from '../render/fighterView';
+import { PortraitView } from '../render/portrait';
 import {
   BEST_OF,
   canSetSeat,
@@ -171,6 +172,19 @@ export function lobbyBody(ctx: LobbyViewContext): HTMLElement {
 let moreOpen = false;
 let mapsOpen = false;
 let lookOpen = false;
+
+/** The one live portrait (see PortraitView), made on first need; null where WebGL is not to be had. */
+let portrait: PortraitView | null | undefined;
+function portraitOf(tuning: TuningData): PortraitView | null {
+  if (portrait === undefined) {
+    try {
+      portrait = new PortraitView(tuning);
+    } catch {
+      portrait = null;
+    }
+  }
+  return portrait;
+}
 
 function section(title: string, ...children: (Node | null | false)[]): HTMLElement {
   return h('section', 'lb-section', null, h('h3', 'lb-heading', title), ...children);
@@ -844,6 +858,15 @@ function loadoutBlock(ctx: LobbyViewContext, state: LobbyState): HTMLElement | n
   if (!mine) return null;
   const portrait = h('button', 'lb-portrait', null, h('span', 'lb-portrait-name', mine.name), ctx.look ? h('span', 'lb-portrait-edit', lookOpen ? 'Done' : 'Edit') : null);
   portrait.style.backgroundImage = `url("${thumb('bodies', mine.body)}")`;
+  // Drawn live over the picture (which shows until then, or for good where there is no WebGL).
+  const at = me === null ? null : seatOf(state, me);
+  // Your colour as the Match gives it: your Team's, by how many fight before you on it.
+  const before = at ? state.teams[at.team]!.slice(0, at.index).filter((s) => s.kind === 'Player' || s.kind === 'AI').length : 0;
+  const live = portraitOf(ctx.tuning);
+  if (live) {
+    live.attach(portrait, { body: mine.body, weapon: mine.weapon, size: mine.size, colour: teamColour(at?.team ?? 0, before) });
+    portrait.classList.add('is-live');
+  }
   let panel: HTMLElement | null = null;
   if (ctx.look) {
     const { grid, sliders } = ctx.look();
