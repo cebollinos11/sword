@@ -81,8 +81,12 @@ import type { Transport } from './transport';
 export const ROLLBACK_WINDOW = 15;
 /** The host sends a state checksum for every confirmed Tick that is a multiple of this. */
 export const CHECKSUM_INTERVAL = 30;
-/** Ticks without any message from a peer before it counts as gone. */
-export const DEFAULT_TIMEOUT_TICKS = 300;
+/**
+ * Ticks without any message from a peer before it counts as gone (60 s): long enough to ride out a background tab,
+ * whose page stops ticking. The others stall meanwhile, at the edge of the Rollback window. A peer whose link
+ * closes is dropped at once, and the Lobby's own timeout closes a silent link sooner.
+ */
+export const DEFAULT_TIMEOUT_TICKS = 60 * 60;
 /**
  * The same, for a peer whose first Intents have not arrived yet: it may still be building the Match (a Battle's
  * battlefield and its soldiers' impostors take seconds, during which its page neither ticks nor sends). A peer that
