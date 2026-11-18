@@ -34,7 +34,7 @@ import { floorBodies, floorBodyOf } from './play/floorBodies';
 import { FinalBlowShot } from './play/finalBlow';
 import { pickableArenas, randomMap } from './play/lobbyView';
 import { playerVsPlayer } from './play/online';
-import { GuestLobby, HostLobby, lobbyLineup, nextMatchArena, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
+import { GuestLobby, HostLobby, lobbyLineup, runTuning, type Lobby, type LobbyState, type NewLobbyOptions } from './lobby';
 import {
   BATTLE_INPUT_DELAY,
   BrokerUrlError,
@@ -74,6 +74,8 @@ const DUEL_BAR_DELAY_MS = 150;
 const LOBBY_PUMP_MS = 100;
 /** The menu's camera circles the scene this fast (radians per second). */
 const ORBIT_SPEED = 0.06;
+/** The Arena behind the menus, whatever the Lobby's Map: hand-made, so it costs nothing to build (a Random Map or a Run's Floor is generated only at the start). */
+const MENU_ARENA = 'library';
 /** The Character screen's close-up of your Fighter. */
 const CLOSE_UP = { orbitDistance: 3.2, orbitHeight: 1.3, lookHeight: 2.1 };
 /** ...turned this far (radians) to put your Fighter right of the Character card. */
@@ -388,6 +390,26 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
     if (s.settings.format === 'Battle') return launchBattle(l, s, lineup, picks, playerNames, playerBodies, members);
     // The Lobby's Map for its first Match, then (a Random Map) the next seed each Match: the host's Lobby says which.
     const arena = s.matchArena ?? s.settings.arena;
+    // The menu never builds the Map (its backdrop is MENU_ARENA): a Random Map, or a Run's first Floor, is generated here.
+    // That takes a moment, so put a loading bar up and let it paint first, so the menu doesn't just hang there.
+    if (s.settings.format === 'Gauntlet' || arena.startsWith('gen:')) {
+      const run = s.settings.format === 'Gauntlet';
+      const bar = new LoadingBar(container, run ? 'Entering the dungeon' : 'Entering the arena');
+      bar.set(0, run ? 'Building the Floor…' : 'Building the map…');
+      requestAnimationFrame(() =>
+        setTimeout(() => {
+          bar.dispose();
+          // Left, or restarted, meanwhile.
+          if (lobby === l && playing === s.generation) beginMatch(l, s, arena);
+        }, 0),
+      );
+      return;
+    }
+    beginMatch(l, s, arena);
+  }
+
+  function beginMatch(l: Lobby, s: LobbyState, arena: string): void {
+    const { lineup, weapons: picks, names: playerNames, bodies: playerBodies, members } = lobbyLineup(s);
     const match = { bestOf: s.settings.bestOf, arena, seed: randomSeed(), ...(s.settings.format === 'Gauntlet' ? { format: 'Gauntlet' as const } : {}) };
     // Every peer builds a Random Map from its name; the Tuning Data hash then covers the Arena too.
     matchTuning = runTuning(arenaWorld(arena).tuning, s.settings);
@@ -956,11 +978,13 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
 
   let previewKey = '';
   let preview: MatchState = curr;
-  /** Behind the menus: the Lobby's Map and Fighters standing ready (or a plain Duel on the last Map). */
+  /**
+   * Behind the menus: the Lobby's Fighters standing ready in the Library (MENU_ARENA), or a plain Duel there. Never the Lobby's own Map: a Random
+   * Map or a Run's first Floor takes a good part of a second to generate, which would hitch the menu each time the Map or the Format changed.
+   */
   function previewMatch(): { match: MatchState; me: number; bodies: (string | undefined)[] } {
     const s = lobby?.state;
-    // The next Match's Arena (built now, so the Fight that starts it does not wait for it).
-    const arena = (s && nextMatchArena(s, played ?? undefined)) ?? arenas.find((a) => a === stored(ARENA_STORAGE_KEY)) ?? tuning.arena.match;
+    const arena = MENU_ARENA;
     let options: MatchOptions = { bestOf: 1, arena, weapons: [stored(WEAPON_STORAGE_KEY) ?? weapons[0]!, weapons[0]!], sizes: [menu.size] };
     let me = 0;
     let seated: { lineup: Lineup; bodies: readonly string[] } | null = null;
@@ -968,20 +992,19 @@ export function startGame(container: HTMLElement, tuning: TuningData): Game {
       const { lineup, weapons: picks, bodies: playerBodies, members } = lobbyLineup(s);
       seated = { lineup, bodies: playerBodies };
       const player = members.indexOf(lobby!.me ?? -1);
-      const format = s.settings.format === 'Gauntlet' ? ({ format: 'Gauntlet' } as const) : {};
-      if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena, ...format });
+      // Always as Duels (a Run's Lineup too): a Gauntlet would generate its first Floor.
+      if (lineup.some((x) => x.team === 0) && lineup.some((x) => x.team === 1)) options = lineupMatch(tuning, lineup, picks, { bestOf: 1, arena });
       me = player >= 0 ? playerFighter(lineup, player as PlayerNumber) : -1;
     }
     const key = JSON.stringify(options);
     if (key !== previewKey) {
       try {
-        preview = createMatch(s ? runTuning(arenaWorld(arena).tuning, s.settings) : arenaWorld(arena).tuning, options);
+        preview = createMatch(s ? runTuning(tuning, s.settings) : tuning, options);
         previewKey = key;
       } catch {
         // Not a fieldable Lineup (yet): keep the last scene.
       }
     }
-    // A Run's first Hall's enemies wear their own Bodies.
     return { match: preview, me, bodies: seated ? fighterBodies(tuning, seated.lineup, seated.bodies, preview) : [] };
   }
 
