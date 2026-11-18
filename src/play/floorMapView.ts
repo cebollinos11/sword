@@ -103,12 +103,13 @@ function drawDelverMap(layout: DelverMapLayout, tier: number): HTMLCanvasElement
   g.imageSmoothingEnabled = false;
   g.drawImage(paperSheet(n), 0, 0);
   const px = (r: { x0: number; y0: number; x1: number; y1: number }) => ({ x0: r.x0 * n, y0: r.y0 * n, x1: r.x1 * n, y1: r.y1 * n });
-  for (const d of layout.doors) paintStub(g, px(d), d.edge);
   paintPlan(
     g,
     layout.rects.filter((r) => !r.hall).map(px),
     layout.rects.filter((r) => r.hall).map((r) => ({ ...px(r), ...(r.kind === undefined ? {} : { kind: r.kind }) })),
   );
+  // Over the plan, so each opens its Hall's outline.
+  for (const d of layout.doors) paintStub(g, px(d), d.edge);
   for (const m of layout.marks) {
     const { text, faded } = markLabel(m);
     paintText(g, text, m.bx * n, m.by * n, 2, faded ? INK_FADED : INK, true);
