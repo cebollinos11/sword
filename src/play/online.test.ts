@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { hashValue, IDLE_INTENT, stepMatch, TICK_RATE, type Intent, type MatchState } from '../sim';
 import { loadTuningData, withWeapon, type TuningData } from '../tuning';
-import { createMemoryTransportPair, createRollbackSession, type MemoryTransportOptions } from '../net';
+import { createMemoryTransportPair, createRollbackSession, DEFAULT_TIMEOUT_TICKS, type MemoryTransportOptions } from '../net';
 import { playerVsPlayer } from './online';
 import type { MatchDriver } from './driver';
 
@@ -146,15 +146,15 @@ describe('Player vs Player Match driver (Rollback session over a Transport)', ()
   it('tells a guest when the host stops answering, and the host that the guest did', () => {
     const r = room();
     runUntilConnected(r);
-    // The guest's browser freezes: only the host keeps ticking.
-    for (let i = 0; i < 400; i++) {
+    // The guest's browser freezes: only the host keeps ticking, past the silence it allows a peer.
+    for (let i = 0; i < DEFAULT_TIMEOUT_TICKS + 100; i++) {
       r.pair.advance(TICK_MS);
       r.host.tick(IDLE_INTENT);
     }
     expect(r.host.failure).toBeNull();
     expect(r.host.takeNotice()).toMatch(/left/);
     // The guest wakes: the host has let it go, so nothing more arrives.
-    for (let i = 0; i < 400; i++) {
+    for (let i = 0; i < DEFAULT_TIMEOUT_TICKS + 100; i++) {
       r.pair.advance(TICK_MS);
       r.guest.tick(IDLE_INTENT);
     }
