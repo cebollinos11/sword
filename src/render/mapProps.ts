@@ -11,7 +11,7 @@ import type { SourceProp } from '../mapEditor/source';
 import type { MeshBuckets } from './meshBuckets';
 
 /** A fixed number in [0, 1) for a prop (from its id), so each tree and heap differs from the next and the same map gives the same model. */
-function vary(id: string, salt: number): number {
+export function vary(id: string, salt: number): number {
   let h = 2166136261 ^ salt;
   for (let i = 0; i < id.length; i++) h = Math.imul(h ^ id.charCodeAt(i), 16777619);
   return ((h >>> 0) % 10007) / 10007;
