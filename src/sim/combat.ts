@@ -264,13 +264,17 @@ export function findDaggerContacts(sweeps: readonly DaggerSweep[], fighters: rea
 }
 
 /**
- * `out[killer]` heals by its `mods.healOnKill` (never above its max HP) when a Hit took `victim` from above zero HP to zero: only the Hit
- * that causes the Death heals, and a killer already at zero HP (or one who is not in the Duel) does not come back.
+ * The reward for a kill, given when a Hit took `victim` from above zero HP to zero: only the Hit that causes the Death rewards,
+ * and a killer already at zero HP (or one who is not in the Duel) gets nothing. `out[killer]` heals by its `mods.healOnKill`
+ * (never above its max HP) and gets one Throwing Dagger back (never above its full count, `dagger.count + mods.daggers`).
  */
-function healOnKill(out: FighterState[], killer: number, hpBefore: number, hpAfter: number): void {
+function rewardKill(out: FighterState[], killer: number, hpBefore: number, hpAfter: number, tuning: TuningData): void {
   const k = out[killer]!;
-  const heal = modsOf(k).healOnKill;
-  if (heal > 0 && hpBefore > 0 && hpAfter <= 0 && k.hp > 0) out[killer] = { ...k, hp: Math.min(k.maxHp, k.hp + heal) };
+  if (hpBefore <= 0 || hpAfter > 0 || k.hp <= 0) return;
+  const m = modsOf(k);
+  const hp = Math.min(k.maxHp, k.hp + m.healOnKill);
+  const daggers = Math.max(k.daggers, Math.min(tuning.dagger.count + m.daggers, k.daggers + 1));
+  if (hp !== k.hp || daggers !== k.daggers) out[killer] = { ...k, hp, daggers };
 }
 
 /**
@@ -307,7 +311,7 @@ export function resolveDaggers(
     emit({ type: 'DaggerHit', thrower: d.owner, defender: c.defender, zone: c.zone, point: c.point, damage });
     const hurt = out[c.defender]!;
     const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage), slow: { ticks: tuning.dagger.slowTicks } };
-    healOnKill(out, d.owner, hurt.hp, wounded.hp);
+    rewardKill(out, d.owner, hurt.hp, wounded.hp, tuning);
     out[c.defender] = hitInAir(wounded, damage, d.velocity.x, d.velocity.z, d.owner, tuning) ?? (hurt.action.kind === 'Knockdown' ? wounded : staggerFighter(wounded, c.defender, 'Hit', tuning, emit));
   }
   return { fighters: out, spent };
@@ -415,7 +419,7 @@ function awayFrom(attacker: FighterState, defender: FighterState): { dx: number;
  * or, in the air, is knocked down and pushed away from the attacker (`hitInAir`). A Heavy Blow knocks it down
  * wherever it is and pushes it away (`heavyBlow.knockdownSlide`).
  * A hit on a teammate Staggers it all the same but deals no damage (and is never a Heavy Blow). The damage is scaled by the Fighters'
- * `mods` (`src/sim/mods.ts`, which writes down the order and that nothing is rounded), and a Hit that fells its victim heals its attacker (`healOnKill`).
+ * `mods` (`src/sim/mods.ts`, which writes down the order and that nothing is rounded), and a Hit that fells its victim heals its attacker (`healOnKill`) and gives it a Throwing Dagger back (`rewardKill`).
  */
 function resolveContact(before: readonly FighterState[], out: FighterState[], c: BladeContact, tuning: TuningData, emit: Emit): void {
   const attacker = before[c.attacker]!;
@@ -459,7 +463,7 @@ function resolveContact(before: readonly FighterState[], out: FighterState[], c:
   const { attacker: a, defender: d, direction, zone, point, bladeSpeed, onHead: head, blade, travel } = c;
   emit({ type: 'Hit', attacker: a, defender: d, direction, zone, point, bladeSpeed, head, heavy, damage, blade, travel });
   const wounded = { ...hurt, hp: Math.max(0, hurt.hp - damage) };
-  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
+  rewardKill(out, c.attacker, hurt.hp, wounded.hp, tuning);
   if (heavy) {
     out[c.defender] = pushDown(wounded, dx, dz, weapon.heavyBlow.knockdownSlide, weapon.heavyBlow.knockdownSlideTicks, c.attacker, tuning);
     return;
@@ -506,7 +510,7 @@ function resolveKick(before: readonly FighterState[], out: FighterState[], c: Ki
   const hurt = out[c.defender]!;
   const pushed = push(hurt, dx, dz, distance, ticks);
   const wounded = { ...pushed, hp: Math.max(0, hurt.hp - damage) };
-  healOnKill(out, c.attacker, hurt.hp, wounded.hp);
+  rewardKill(out, c.attacker, hurt.hp, wounded.hp, tuning);
   emit({ type: 'KickLanded', attacker: c.attacker, defender: c.defender, outcome: knocked ? 'Knockdown' : 'Shove', zone: c.zone, point: c.point, damage });
   // A Shove never touches the defender's Action. A Knockdown interrupts it: the defender falls (its Block Impact is dropped, and its pose re-solved lying).
   // A Shove's short push knocks nobody else down: a Fighter lying down and Shoved stops carrying any chain it was in.
@@ -556,7 +560,7 @@ export function resolveChainKnockdowns(before: readonly FighterState[], fighters
       const point = { x: carrier.position.x + dx / 2, y: target.y + other.height / 2, z: carrier.position.z + dz / 2 };
       emit({ type: 'ChainKnockdown', fighter: j, by: i, source, point, damage });
       const wounded = { ...target, hp: Math.max(0, target.hp - damage) };
-      healOnKill(out, source, target.hp, wounded.hp);
+      rewardKill(out, source, target.hp, wounded.hp, standard);
       out[j] = pushDown(wounded, ax, az, standard.kick.knockdownSlide, standard.kick.knockdownSlideTicks, source, standard);
     }
   });
