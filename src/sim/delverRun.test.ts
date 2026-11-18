@@ -26,7 +26,7 @@ const warbanded: TuningData = { ...base, delver: { ...base.delver, tiers: 1, flo
 const tuning: TuningData = { ...base, delver: { ...base.delver, tiers: 1, floorsPerTier: 3, postFill: 0, patrolFill: 0 } };
 const ARENA = 'gen:greybox:4242';
 const MAX = tuning.fighter.maxHp;
-const { revive } = tuning.dungeon;
+const { revive, restRevive } = tuning.dungeon;
 
 /** A Delver Run: Team 0's `own` Fighters (the first `humans` Players), then the MAX_TEAM_SIZE Team 1 slots. */
 const delver = (options: Partial<MatchOptions> = {}, own = 3): MatchState =>
@@ -355,7 +355,7 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
   it('heals a Player once per fire, by restHeal of max HP, and marks it healed', () => {
     let r = at(hurt(m, 0, MAX * 0.4), 0);
     r = tick(r);
-    expect(r.duel.fighters[0]!.hp).toBeCloseTo(MAX * (0.4 + RESTED));
+    expect(r.duel.fighters[0]!.hp).toBeCloseTo(Math.min(MAX, MAX * (0.4 + RESTED)));
     expect(r.events).toContainEqual({ type: 'Rested', fighter: 0, healed: r.duel.fighters[0]!.hp - MAX * 0.4 });
     expect(r.delver!.restUsed[0]).toEqual({ revived: false, healed: [0] });
     // Staying heals nothing more; neither does leaving and coming back.
@@ -390,20 +390,20 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     let r = tick(put(hurt(r0, 0, MAX * 0.2), 0, p.markers.fires[0]!.x, p.markers.fires[0]!.z));
     expect(r.delver!.restUsed.map((u) => u.healed)).toEqual([[0], ...p.markers.fires.slice(1).map(() => [])]);
     const hp1 = r.duel.fighters[0]!.hp;
-    expect(hp1).toBeCloseTo(MAX * (0.2 + RESTED));
+    expect(hp1).toBeCloseTo(Math.min(MAX, MAX * (0.2 + RESTED)));
     r = tick(put(r, 0, p.markers.fires[1]!.x, p.markers.fires[1]!.z));
     expect(r.delver!.restUsed[1]!.healed).toEqual([0]);
     expect(r.duel.fighters[0]!.hp).toBeCloseTo(Math.min(MAX, hp1 + RESTED * MAX));
   });
 
-  it('revives a fallen AI ally at the fire when the Player arrives, at revive of max HP, weapon kept', () => {
+  it('revives a fallen AI ally at the fire when the Player arrives, at restRevive of max HP, weapon kept', () => {
     const ally = m.duel.fighters[1]!;
     const r0 = withFighters(m, (f, i) => (i === 1 ? { ...fell(f), weapon: 'Dagger' } : f));
     const r = tick(at(r0, 0));
     const back = r.duel.fighters[1]!;
     expect(back.death).toBeUndefined();
     expect(inDuel(back)).toBe(true);
-    expect(back.hp).toBe(revive * MAX);
+    expect(back.hp).toBe(restRevive * MAX);
     expect(back.weapon).toBe('Dagger');
     expect(Math.hypot(back.position.x - fire!.x, back.position.z - fire!.z)).toBeLessThanOrEqual(RADIUS);
     expect(back.position).toEqual({ x: fire!.x - 1.5, z: fire!.z - 1.5 });
@@ -412,7 +412,7 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     expect(r.delver!.restUsed[0]!.revived).toBe(true);
   });
 
-  it('revives a fallen Player, who then heals at once in the same Tick', () => {
+  it('revives a fallen Player at restRevive of max HP, who takes no heal at that fire, while the Player there heals', () => {
     const r0 = withFighters(at(m, 1), (f, i) => (i === 0 ? fell(f) : f));
     expect(inDuel(r0.duel.fighters[0]!)).toBe(false);
     // An AI ally arriving alone revives nobody.
@@ -425,10 +425,13 @@ describe('the fires of a Delver Run', { timeout: 60_000 }, () => {
     const fallen = withFighters(two, (f, i) => (i === 0 ? fell(f) : f));
     const r = tick(put(fallen, 1, p.markers.fires[0]!.x, p.markers.fires[0]!.z));
     expect(r.duel.fighters[0]!.death).toBeUndefined();
-    expect(r.duel.fighters[0]!.hp).toBeCloseTo(Math.min(MAX, (revive + RESTED) * MAX));
+    expect(r.duel.fighters[0]!.hp).toBeCloseTo(restRevive * MAX);
     expect(r.events).toContainEqual({ type: 'Revived', fighter: 0, fire: 0 });
-    expect(r.events).toContainEqual({ type: 'Rested', fighter: 0, healed: r.duel.fighters[0]!.hp - revive * MAX });
+    expect(r.events.some((e) => e.type === 'Rested' && e.fighter === 0)).toBe(false);
+    expect(r.events).toContainEqual({ type: 'Rested', fighter: 1, healed: 0 });
     expect(r.delver!.restUsed[0]!.healed).toEqual([0, 1]);
+    // Staying at the fire heals the revived Player no further.
+    expect(tick(r).duel.fighters[0]!.hp).toBeCloseTo(restRevive * MAX);
   });
 
   it('spends the revive: a second fall at that fire is not revived, but another fire still revives', () => {

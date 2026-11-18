@@ -171,7 +171,7 @@ const REVIVE_DZ = [-1.5, -1.5, 1.5, 1.5];
 /**
  * `duel` with every fallen Team 0 Fighter (`death` set) back on its feet round `point` (the corners of REVIVE_DX and REVIVE_DZ by its rank j among
  * those revived, standing, facing as it did; `fit` moves each spot, a Resurrection Stone's into its user's place) at `hpShare` of its max HP, keeping
- * its weapon and Inventory, with `Revived { fighter, fire }`. A fire revives at `dungeon.revive`, a beaten Boss (BOSS_REVIVE) in full, a Resurrection Stone
+ * its weapon and Inventory, with `Revived { fighter, fire }`. A fire revives at `dungeon.restRevive`, a beaten Boss (BOSS_REVIVE) in full, a Resurrection Stone
  * (STONE_REVIVE) at `dungeon.revive`. Pure.
  */
 function reviveFallen(
@@ -449,7 +449,7 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
       for (const x of took.taken) events.push({ type: 'ItemTaken', ...x });
     }
 
-    // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once.
+    // The fires, in plan order: the first Player to arrive while a Team 0 Fighter has fallen revives every fallen one at `restRevive` (once per fire; a Player passing with nobody fallen spends nothing), then each Player at it heals once. A Player it revived has had this fire's heal.
     plan.markers.fires.forEach((fire, k) => {
       const point = { x: fire.x, y: fire.y, z: fire.z };
       const present = (i: number) => {
@@ -458,11 +458,14 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
       };
       const use = next.restUsed[k]!;
       let revived = use.revived;
+      let backNow: number[] = [];
       if (!revived && duel.fighters.some((f) => f.team === 0 && f.death !== undefined) && presentPlayers(config, next.away).some(present)) {
         revived = true;
-        duel = reviveFallen(duel, t, arena, point, tuning.dungeon.revive, k, events);
+        const fallen = duel.fighters.map((f, i) => (f.team === 0 && f.death !== undefined ? i : -1)).filter((i) => i >= 0);
+        duel = reviveFallen(duel, t, arena, point, tuning.dungeon.restRevive, k, events);
+        backNow = presentPlayers(config, next.away).filter((i) => fallen.includes(i) && !use.healed.includes(i));
       }
-      const healing = presentPlayers(config, next.away).filter((i) => !use.healed.includes(i) && present(i));
+      const healing = presentPlayers(config, next.away).filter((i) => !use.healed.includes(i) && !backNow.includes(i) && present(i));
       if (healing.length > 0) {
         duel = {
           ...duel,
@@ -477,7 +480,7 @@ export function stepDelver(match: MatchState, run: RunState, intents: readonly I
       if (revived !== use.revived || healing.length > 0) {
         next = {
           ...next,
-          restUsed: next.restUsed.map((u, n) => (n === k ? { revived, healed: [...u.healed, ...healing].sort((a, b) => a - b) } : u)),
+          restUsed: next.restUsed.map((u, n) => (n === k ? { revived, healed: [...u.healed, ...healing, ...backNow].sort((a, b) => a - b) } : u)),
         };
       }
     });
