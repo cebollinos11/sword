@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadTuningData } from '../tuning';
 import { attackTimings, DIRECTIONS, isArenaName, MATCH_FORMATS, MAX_TEAM_SIZE, withGeneratedArena } from '../sim';
-import { newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
-import { addToSide, arenaLabel, removeFromSide, sideCount, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
+import { moveMember, newLobby, runTuning, setFormat, startMatch, type LobbyState } from '../lobby';
+import { addToSide, arenaLabel, joinSeat, removeFromSide, sideCount, traitorSeat, swingSpeedBars, battleCard, battleKnobRows, battleMapChoice, battleMaps, dungeonCard, formatRefusal, mapSeed, pickableArenas, randomBlurb, randomMap, seedLabel, shownArenas, shownTeams, showsBestOf, withBattleKnob, withBattleMap } from './lobbyView';
 
 const tuning = loadTuningData();
 
@@ -155,5 +155,24 @@ describe("the Lobby's sides: how many fight, set with − and +", () => {
     expect(sideCount(withAi, 1)).toBe(sideCount(battle, 1));
     const offline = setFormat(skirmish, 'Battle', randomMap(tuning, 1));
     expect(addToSide(tuning, offline, 0, false)).toBe(offline);
+  });
+});
+
+describe("Join: changing sides from the Lobby's sides", () => {
+  const weapon = Object.keys(tuning.weapons)[0]!;
+  const skirmish = newLobby({ host: { name: 'Host', weapon, body: 'monk' }, settings: { arena: 'library', bestOf: 3 }, online: false, ai: { difficulty: 'Expert', weapon } });
+
+  it('in Duels takes the AI\'s Seat, so the two swap sides', () => {
+    expect(joinSeat(skirmish, 1)).toBe(0);
+  });
+
+  it("in a Gauntlet, a traitor rejoins the party on an Empty Seat, leaving the party's AI where it is", () => {
+    const run = addToSide(tuning, setFormat(skirmish, 'Gauntlet', randomMap(tuning, 1)), 0, false);
+    const traitor = moveMember(run, 0, { team: 1, index: traitorSeat(run)! });
+    expect(traitor.teams[0]![0]!.kind).not.toBe('Player');
+    const back = moveMember(traitor, 0, { team: 0, index: joinSeat(traitor, 0) });
+    const ais = (s: LobbyState, team: number) => s.teams[team]!.filter((seat) => seat.kind === 'AI').length;
+    expect(back.teams[0]!.some((s) => s.kind === 'Player')).toBe(true);
+    expect([ais(back, 0), ais(back, 1)]).toEqual([ais(traitor, 0), ais(traitor, 1)]);
   });
 });

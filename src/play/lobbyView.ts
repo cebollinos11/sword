@@ -263,17 +263,14 @@ export const TRAITOR_NOTE = 'Traitors play the Warbands: each takes over a Soldi
 
 /**
  * A Delver Lobby's traitors (offline too: the player alone betrays an all-AI party), on the Floors card: each Player on a Team 1 Seat, and while one is free and you sit on Team 0, a button that
- * moves you to it (`traitorSeat`). Moving back is any Team 0 Seat's own move button.
+ * moves you to it (`traitorSeat`). Moving back is the party side's Join, or any Team 0 Seat's own move button.
  */
 function traitorRows(ctx: LobbyViewContext, state: LobbyState): HTMLElement[] {
   const out: HTMLElement[] = [h('p', 'lb-note', TRAITOR_NOTE)];
   state.teams[1]!.forEach((seat, index) => {
     if (seat.kind === 'Player') out.push(seatRow(ctx, state, { team: 1, index }, seat, teamColour(1, index)));
   });
-  const me = ctx.lobby.me;
-  const at = me === null ? null : seatOf(state, me);
-  const free = traitorSeat(state);
-  if (at && at.team === 0 && free !== null) out.push(button('lb-traitor', 'Play as a traitor', () => ctx.lobby.moveMe({ team: 1, index: free })));
+  // The button that makes you one is on the Floors side (`floorsSide`).
   return out;
 }
 
@@ -579,8 +576,9 @@ function sideCard(ctx: LobbyViewContext, state: LobbyState, team: number, title:
   } else control = h('span', 'lb-side-count', String(count));
   const head = h('div', 'lb-side-head', null, h('span', 'lb-side-name', title));
   // Change sides: take this side's first place that is not another Player's.
-  const free = state.teams[team]!.findIndex((s) => s.kind !== 'Player');
-  if (mine && mine.team !== team && free >= 0 && !isGauntlet(state)) head.append(button('lb-join', 'Join', () => lobby.moveMe({ team, index: free })));
+  const free = joinSeat(state, team);
+  // In a Gauntlet only the party is a side like this, so a traitor finds the way back here.
+  if (mine && mine.team !== team && free >= 0) head.append(button('lb-join', 'Join', () => lobby.moveMe({ team, index: free })));
   head.append(control);
   const list = h('div', 'lb-who');
   let k = 0;
@@ -593,6 +591,17 @@ function sideCard(ctx: LobbyViewContext, state: LobbyState, team: number, title:
   if (count === 0) list.append(h('div', 'lb-who-row lb-who-none', 'Nobody'));
   card.append(head, list);
   return card;
+}
+
+/**
+ * The Seat you take when you Join `team`: its first that is not another Player's, so in Duels you swap places with an AI
+ * there. A Gauntlet's traitor rejoining the party takes an Empty or Open Seat first, so no party AI is swapped onto the
+ * Floors, where it would field nobody. -1 when the side is all Players.
+ */
+export function joinSeat(state: LobbyState, team: number): number {
+  const row = state.teams[team]!;
+  const empty = isGauntlet(state) ? row.findIndex((s) => s.kind === 'Closed' || s.kind === 'Open') : -1;
+  return empty >= 0 ? empty : row.findIndex((s) => s.kind !== 'Player');
 }
 
 /** One line of a side: a Player (with You, Host and Ready), an AI, or an Open Seat. */
