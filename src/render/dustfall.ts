@@ -26,6 +26,33 @@ export interface DustLook {
   readonly emberSize: number;
 }
 
+/** Where the player's Dust & Embers setting is remembered (absent: on). */
+export const DUST_STORAGE_KEY = 'sword.dust';
+
+let dustOn = ((): boolean => {
+  try {
+    return localStorage.getItem(DUST_STORAGE_KEY) !== 'off';
+  } catch {
+    return true;
+  }
+})();
+
+/** Whether the dust and embers are drawn: the player's choice, on by default, set on the in-game menu and remembered. Render-only. */
+export function dustEnabled(): boolean {
+  return dustOn;
+}
+
+/** Sets (and remembers) whether the dust and embers are drawn, from the next frame on. */
+export function setDustEnabled(on: boolean): void {
+  dustOn = on;
+  try {
+    if (on) localStorage.removeItem(DUST_STORAGE_KEY);
+    else localStorage.setItem(DUST_STORAGE_KEY, 'off');
+  } catch {
+    // Storage unavailable: the choice just isn't remembered.
+  }
+}
+
 /** The most flames the motes are lit by, and embers rise off, at once (a Delver Floor's `TorchLights` pool, a Map Editor map's torches). */
 export const DUST_LIGHTS = 8;
 
@@ -171,6 +198,8 @@ export class Dustfall extends THREE.Points<THREE.BufferGeometry, THREE.ShaderMat
 
     const buffer = new THREE.Vector2();
     this.onBeforeRender = (renderer, _scene, camera) => {
+      // Turned off on the menu: nothing is drawn (no points, so no work on the GPU either).
+      geometry.setDrawRange(0, dustOn ? Infinity : 0);
       // Wrapped to keep float precision in the shader: the motes jump once an hour.
       uniforms.uTime.value = (performance.now() / 1000) % 3600;
       uniforms.uCamera.value.setFromMatrixPosition(camera.matrixWorld);

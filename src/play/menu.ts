@@ -39,6 +39,7 @@ type Screen = 'title' | 'online' | 'settings' | 'controls' | 'connecting' | 'lob
 import { getLookSensitivity, setLookSensitivity, SENSITIVITY_MAX, SENSITIVITY_MIN } from '../controllers/lookSensitivity';
 import { getMasterVolume, setMasterVolume } from '../audio/volume';
 import { goreEnabled, setGoreEnabled } from '../render/gore';
+import { dustEnabled, setDustEnabled } from '../render/dustfall';
 
 const BROKER_STORAGE_KEY = 'sword.broker';
 const BODY_STORAGE_KEY = 'sword.body';
@@ -408,6 +409,17 @@ export class Menu {
     return b;
   }
 
+  /** Dust & Embers toggle (on by default): the motes and embers in a torchlit Delver Floor's air, drawn or not from the next frame on; remembered. */
+  private dustItem(): HTMLButtonElement {
+    const on = dustEnabled();
+    const b = this.navItem(`Dust & Embers: ${on ? 'On' : 'Off'}`, on ? 'Motes glow in the torchlight' : 'Clear air (a little faster)', () => {
+      setDustEnabled(!dustEnabled());
+      this.render();
+    });
+    b.setAttribute('aria-pressed', String(on));
+    return b;
+  }
+
   private colliderItem(): HTMLButtonElement | null {
     if (!devMode()) return null;
     const b = this.navItem(`Show Colliders: ${this.colliders ? 'On' : 'Off'}`, 'Walk Surfaces and Walls over a see-through Arena', () => {
@@ -698,6 +710,7 @@ export class Menu {
     nav.append(this.volumeItem());
     nav.append(this.sensitivityItem());
     nav.append(this.goreItem());
+    nav.append(this.dustItem());
     const colliders = this.colliderItem();
     if (colliders) nav.append(colliders);
     if (online && host) nav.append(this.navItem('Back to Lobby', 'End the Match for everyone, keep the Room', () => this.handlers.onBackToLobby()));
